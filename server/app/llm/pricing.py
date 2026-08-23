@@ -3,11 +3,13 @@
 Prix de liste USD/MTok lus sur la page de prix Anthropic (référence API du 23/08/2026) ; l'offre
 d'introduction Sonnet 5 (2/10 jusqu'au 31/08/2026) est ignorée : le coût calculé est un majorant.
 Écriture de cache : 1,25× le prix d'entrée (TTL 5 min), 2× (TTL 1 h) ; lecture : 0,1×.
-`estimate_cost()` est l'heuristique avant appel du spine (AD-9) : caractères / `estimate_chars_per_token`
-× `estimate_tokenizer_factor` (facteur +30 % des modèles 5), sortie comptée à `max_tokens`, prix hors
-cache. La sortie à `max_tokens` en fait un majorant en pratique, mais l'entrée est sous-estimée en
-français (≈ 2,3 car./token mesurés vs 4,0 configurés) et le surcoût d'écriture de cache n'y est pas :
-recalibrage différé vers 1.4 avec les évals (`deferred-work.md`).
+`estimate_cost()` est le majorant avant appel du spine (AD-9, NFR4) : caractères /
+`estimate_chars_per_token` × `estimate_tokenizer_factor`, préfixe cacheable (outils, système) et
+schéma de sortie au tarif d'écriture de cache du TTL du modèle, messages au tarif d'entrée plein,
+sortie comptée à `max_tokens`. `estimate_chars_per_token` (2,0) et le facteur (1,3) sont calibrés
+pour que 2,0/1,3 ≈ 1,54 car./token reste sous le pire mesuré (1,65 sur le sommaire du contrat,
+`tokens.py` du 23/08/2026) : l'estimation majore chaque poste, elle ne sous-estime jamais
+(revue Codex 1.3 tour 2, B5).
 """
 
 from __future__ import annotations
@@ -109,19 +111,27 @@ def _text_len(content: Any) -> int:
 
 
 def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, settings: Settings,
-                  *, tools: Any = None) -> float:
-    """Estimation en euros d'un appel avant de le faire (AD-9) — jamais un coût facturé.
+                  *, tools: Any = None, output_schema: Any = None) -> float:
+    """Majorant en euros d'un appel avant de le faire (AD-9, NFR4) — jamais un coût facturé.
 
-    Majorant en pratique par la sortie comptée à `max_tokens` ; l'entrée est une heuristique
-    (recalibrage différé vers 1.4, voir la docstring du module). Le plafond dur reste le cumul
-    des coûts **réels** dans `RequestBudget` (NFR4)."""
+    Le plafond par requête (`BudgetExceeded`) se vérifie sur `budget.cost_eur` réel + cette
+    estimation (revue Codex 1.3 tour 2, B5) : elle doit majorer, jamais sous-estimer. Chaque poste
+    est donc compté à son tarif le plus défavorable — préfixe cacheable (outils, système) et schéma
+    de sortie au tarif d'écriture de cache du TTL du modèle (comme si le préfixe était réécrit à
+    chaque appel), messages au tarif d'entrée plein (jamais cachés, spine AD-9), sortie à `max_tokens`."""
     if model not in PRICES:
         raise ValueError(f"modèle absent de PRICES : {model!r}")
     p = PRICES[model]
-    chars = _text_len(system) + sum(_text_len(m.get("content") if isinstance(m, dict) else getattr(m, "content", ""))
-                                    for m in messages or [])
+    tokens_per_char = settings.estimate_tokenizer_factor / settings.estimate_chars_per_token
+    prefix_chars = _text_len(system)
     if tools:
-        chars += _json_len(tools)
-    input_tokens = chars / settings.estimate_chars_per_token * settings.estimate_tokenizer_factor
-    usd = (input_tokens * p["input"] + max_tokens * p["output"]) / _MTOK
+        prefix_chars += _json_len(tools)
+    if output_schema:
+        prefix_chars += _json_len(output_schema)
+    suffix_chars = sum(_text_len(m.get("content") if isinstance(m, dict) else getattr(m, "content", ""))
+                       for m in messages or [])
+    write_rate = p["cache_write_1h"] if MODEL_CAPS[model]["cache_ttl"] == "1h" else p["cache_write"]
+    usd = (prefix_chars * tokens_per_char * write_rate
+           + suffix_chars * tokens_per_char * p["input"]
+           + max_tokens * p["output"]) / _MTOK
     return _round4(usd * settings.usd_eur)

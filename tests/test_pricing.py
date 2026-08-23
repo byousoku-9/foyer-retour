@@ -87,11 +87,38 @@ def test_estimate_cost_uses_configured_heuristic_and_max_tokens() -> None:
     system = [{"type": "text", "text": "a" * 4000}]
     messages = [{"role": "user", "content": "b" * 4000}, {"role": "assistant", "content": [{"type": "text", "text": "c" * 2000}]}]
     est = pricing.estimate_cost(SONNET, system, messages, max_tokens=1000, settings=s)
-    input_tokens = 10_000 / 4.0 * 1.3
-    expected = round((input_tokens * 3.0 + 1000 * 15.0) / 1e6 * 0.92, 4)
+    prefix_tokens = 4000 / 4.0 * 1.3  # préfixe cacheable au tarif d'écriture 1 h (reason)
+    suffix_tokens = 6000 / 4.0 * 1.3  # messages au tarif d'entrée plein
+    expected = round((prefix_tokens * 6.0 + suffix_tokens * 3.0 + 1000 * 15.0) / 1e6 * 0.92, 4)
     assert est == expected
 
 
 def test_estimate_cost_string_system_and_empty_messages() -> None:
     s = _settings()
     assert pricing.estimate_cost(HAIKU, "abcd" * 100, [], max_tokens=10, settings=s) > 0
+
+
+def test_estimate_cost_majorizes_measured_live_costs() -> None:
+    # revue Codex 1.3 tour 2, B5 : l'estimation doit majorer le coût réel, écriture de cache comprise.
+    # Mesures tokens.py du 23/08/2026 : guide 10 359 car. → 4 570 tokens (reason), contrat 6 594 → 3 997
+    # (reason) / 3 707 (micro) — pire cas 1,65 car./token, sous lequel 2,0/1,3 ≈ 1,54 reste calibré.
+    s = _settings()  # défauts de config.py, ceux du client réel
+    for chars, tokens in ((10_359, 4_570), (6_594, 3_997)):
+        real = pricing.cost_from_usage(SONNET, _api_usage(cache_1h=tokens, output=300), usd_eur=s.usd_eur)
+        est = pricing.estimate_cost(SONNET, "x" * chars, [], max_tokens=300, settings=s)
+        assert est >= real.cost_eur, f"{chars} car. : estimé {est} < réel {real.cost_eur}"
+    real = pricing.cost_from_usage(HAIKU, _api_usage(cache_5m=3_707, output=300), usd_eur=s.usd_eur)
+    est = pricing.estimate_cost(HAIKU, "x" * 6_594, [], max_tokens=300, settings=s)
+    assert est >= real.cost_eur
+
+
+def test_estimate_cost_counts_the_output_schema() -> None:
+    # revue Codex 1.3 tour 2, B5 : le schéma structuré (`output_config.format`) est un poste facturable.
+    s = _settings()
+    schema = {"type": "json_schema", "schema": {"properties": {"mot": {"type": "string",
+                                                                       "description": "d" * 4000}},
+                                                "required": ["mot"]}}
+    base = pricing.estimate_cost(HAIKU, "sys", [{"role": "user", "content": "q"}], 100, s)
+    with_schema = pricing.estimate_cost(HAIKU, "sys", [{"role": "user", "content": "q"}], 100, s,
+                                        output_schema=schema)
+    assert with_schema > base

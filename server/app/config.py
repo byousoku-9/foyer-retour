@@ -46,11 +46,12 @@ class Settings(BaseSettings):
     cost_alert_eur: float = Field(0.05, ge=0)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
-    # invalide, heuristique d'estimation avant appel (caractères par token, majoration tokenizer des modèles 5),
+    # invalide, heuristique d'estimation avant appel (caractères par token et marge tokenizer, calibrés pour que
+    # 2,0/1,3 ≈ 1,54 car./token majore le pire mesuré — 1,65 sur le sommaire du contrat, revue Codex 1.3 B5),
     # délai de `count_tokens`.
     llm_max_output_tokens: int = Field(4096, ge=1)
     llm_retry_margin_s: float = Field(5.0, ge=0)
-    estimate_chars_per_token: float = Field(4.0, gt=0)
+    estimate_chars_per_token: float = Field(2.0, gt=0)
     estimate_tokenizer_factor: float = Field(1.3, gt=0)
     count_tokens_timeout_s: float = Field(10.0, gt=0)
 

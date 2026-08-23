@@ -194,6 +194,20 @@ async def test_cost_cap_raises_budget_exceeded_without_calling() -> None:
     assert fake.requests == [] and budget.attempts == 0
 
 
+async def test_cost_cap_blocks_a_realistic_reason_call_near_the_cap() -> None:
+    # revue Codex 1.3 tour 2, B5 (reproduction) : 0,08 € déjà engagés, appel reason au préfixe du sommaire
+    # guide (10 359 car., coût réel mesuré ≈ 0,03 € avec écriture 1 h) — l'estimation doit majorer ce réel
+    # et bloquer l'appel avant qu'il parte (l'ancienne heuristique l'estimait 0,0134 € et le laissait passer).
+    client, fake = _client([])
+    budget = _budget(max_cost=0.10)
+    budget.cost_eur = 0.08
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await client.parse(tier="reason", system_prefix="x" * 10_359,
+                           messages=[{"role": "user", "content": "q"}], output_model=Mot,
+                           budget=budget, step=StepTrace(name="retrouver"), max_tokens=300)
+    assert fake.requests == [] and budget.attempts == 0
+
+
 async def test_expensive_call_succeeds_but_flags_cout_eleve() -> None:
     client, _ = _client([fake_message(model=OPUS, input_tokens=10_000, output_tokens=4_000)])
     step = StepTrace(name="ingest")

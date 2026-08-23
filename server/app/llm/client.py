@@ -175,7 +175,8 @@ class LlmClient:
 
             if budget.attempts >= budget.max_attempts:
                 raise BudgetExceeded(f"plafond d'appels atteint ({budget.attempts}/{budget.max_attempts})")
-            estimate = estimate_cost(model, system, msgs, max_tokens, settings, tools=tools)
+            estimate = estimate_cost(model, system, msgs, max_tokens, settings, tools=tools,
+                                     output_schema=output_config["format"])
             if budget.cost_eur + estimate > budget.max_cost_eur:
                 raise BudgetExceeded(
                     f"plafond de coût par requête : {budget.cost_eur:.4f} € déjà engagés "
