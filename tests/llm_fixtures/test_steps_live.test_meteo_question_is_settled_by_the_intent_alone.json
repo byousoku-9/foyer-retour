@@ -1,0 +1,33 @@
+{
+  "claude-haiku-4-5-20251001:4d29642d67a9fe60": {
+    "request": "claude-haiku-4-5-20251001:4d29642d67a9fe60",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"meteo\", \"question_resolue\": \"quel temps fera-t-il demain à Luxembourg-Ville ?\", \"language\": \"fr\", \"terms\": [], \"themes\": [], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeLJpjhnVyK3kD5n1kSHn",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1916,
+        "output_tokens": 75,
+        "service_tier": "standard"
+      }
+    }
+  }
+}

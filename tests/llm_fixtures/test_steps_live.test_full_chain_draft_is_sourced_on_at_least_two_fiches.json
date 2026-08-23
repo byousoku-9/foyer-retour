@@ -1,0 +1,67 @@
+{
+  "claude-haiku-4-5-20251001:5604fa6f6da774fb": {
+    "request": "claude-haiku-4-5-20251001:5604fa6f6da774fb",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\", \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\"], \"themes\": [\"scolarité\", \"aides sociales\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeLJpvqGQar24ygu81hAR",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1929,
+        "output_tokens": 103,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:259c713378bcc98d": {
+    "request": "claude-sonnet-5:259c713378bcc98d",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Sur la scolarisation, trois voies coexistent, très différentes, et c'est la démarche à engager en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'école publique luxembourgeoise est gratuite et multilingue, mais la barrière linguistique doit être évaluée sans complaisance pour une arrivée plus tardive.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Les blocs fournis mentionnent aussi les écoles européennes et internationales comme alternative, sans détailler leurs modalités d'inscription concrètes ici.\",\"kind\":\"limite\"},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, seule la résidence de l'enfant comptant.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré selon l'âge, avec une allocation de rentrée scolaire versée automatiquement en août.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces montants sont revalorisés à chaque tranche indiciaire, ce qui explique qu'une valeur lue plus tôt ne corresponde plus.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de l'installation, à engager en premier, et trois voies coexistent.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'enseignement public alphabétise en luxembourgeois puis introduit l'allemand et le français, et intègre bien les enfants arrivés jeunes, mais pose une barrière linguistique réelle pour une arrivée tardive.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français. Il intègre remarquablement bien les enfants arrivés jeunes.\"}]},{\"claim_id\":\"c3\",\"text\":\"Les allocations familiales sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"}]},{\"claim_id\":\"c4\",\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré selon l'âge, avec une allocation de rentrée automatique en août.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"},{\"block_id\":\"lux-guide:fallocations:9\",\"quote\":\"L'allocation de rentrée est automatique.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeLJq3uRAQQy3Ae3gvcp1",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6695,
+        "inference_geo": "global",
+        "input_tokens": 2867,
+        "output_tokens": 1154,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}
