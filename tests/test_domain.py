@@ -181,6 +181,28 @@ def test_claim_requires_one_quote_per_block() -> None:
                                                       {"block_id": "d:p1:1", "quote": "b"}])
 
 
+def test_answer_draft_coherence() -> None:
+    """Story 1.4 (AD-3) : invariants du draft validés au parse — retry motivé du client."""
+    def claim(cid: str) -> dict:
+        return {"claim_id": cid, "text": "t", "quotes": [{"block_id": "d:p1:1", "quote": "q"}]}
+
+    ok = answer.AnswerDraft(segments=[{"text": "f", "kind": "factuel", "claim_ids": ["c1"]},
+                                      {"text": "t", "kind": "transition", "claim_ids": []},
+                                      {"text": "l", "kind": "limite", "claim_ids": []}],
+                            claims=[claim("c1"), claim("c2")])
+    assert [c.claim_id for c in ok.claims] == ["c1", "c2"]
+    with pytest.raises(ValidationError, match="dupliqué"):
+        answer.AnswerDraft(segments=[], claims=[claim("c1"), claim("c1")])
+    with pytest.raises(ValidationError, match="inconnues"):
+        answer.AnswerDraft(segments=[{"text": "f", "kind": "factuel", "claim_ids": ["c9"]}], claims=[claim("c1")])
+    with pytest.raises(ValidationError, match="factuel sans claim_id"):
+        answer.AnswerDraft(segments=[{"text": "f", "kind": "factuel", "claim_ids": []}], claims=[claim("c1")])
+    # une transition peut citer une claim existante, jamais une inconnue
+    answer.AnswerDraft(segments=[{"text": "t", "kind": "transition", "claim_ids": ["c1"]}], claims=[claim("c1")])
+    with pytest.raises(ValidationError, match="inconnues"):
+        answer.AnswerDraft(segments=[{"text": "t", "kind": "limite", "claim_ids": ["c9"]}], claims=[claim("c1")])
+
+
 def test_answer_found_coherence() -> None:
     with pytest.raises(ValidationError, match="reason"):
         answer.Answer(found=False, complete=False)

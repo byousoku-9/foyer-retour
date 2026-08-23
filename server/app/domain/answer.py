@@ -55,6 +55,22 @@ class AnswerDraft(DomainModel):
     segments: list[AnswerSegment]
     claims: list[Claim]
 
+    @model_validator(mode="after")
+    def _draft_coherence(self) -> AnswerDraft:
+        """AD-3 (story 1.4) : validé au parse ⇒ un draft incohérent déclenche le retry motivé du client."""
+        ids = [c.claim_id for c in self.claims]
+        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        if dupes:
+            raise ValueError(f"claim_id dupliqués : {dupes}")
+        known = set(ids)
+        for i, s in enumerate(self.segments):
+            unknown = sorted(set(s.claim_ids) - known)
+            if unknown:
+                raise ValueError(f"segments[{i}] référence des claims inconnues : {unknown}")
+            if s.kind == "factuel" and not s.claim_ids:
+                raise ValueError(f"segments[{i}] est factuel sans claim_id (chaque segment factuel cite ≥ 1 claim)")
+        return self
+
 
 class VerifiedClaim(Claim):
     """Claim après *vérifier* : statut calculé par le code, offsets pour le surlignage."""
