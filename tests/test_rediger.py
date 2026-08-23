@@ -16,7 +16,7 @@ from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.domain.answer import AnswerDraft
-from server.app.domain.errors import LlmParse
+from server.app.domain.errors import ErrorCode, LlmParse
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import StepTrace
@@ -155,6 +155,8 @@ async def test_incoherent_draft_triggers_one_motivated_retry_then_parses(mini_in
     assert isinstance(draft, AnswerDraft) and len(fake.requests) == 2
     retry_msg = fake.requests[1]["messages"][-1]["content"]
     assert "invalide" in retry_msg
+    # le motif nomme l'incohérence : sans ça le modèle rejoue la même ébauche (observé en live)
+    assert "segments[0] référence des claims inconnues : ['c9']" in retry_msg
     assert fake.requests[1]["system"] == fake.requests[0]["system"]  # préfixe byte-identique au retry
 
 
@@ -165,6 +167,7 @@ async def test_incoherent_draft_triggers_one_motivated_retry_then_parses(mini_in
 async def test_persistently_incoherent_draft_raises_llm_parse(mini_index: Index, bad_draft) -> None:
     client, fake = _client([fake_message(text=bad_draft(), model=SONNET),
                             fake_message(text=bad_draft(), model=SONNET)])
-    with pytest.raises(LlmParse):
+    with pytest.raises(LlmParse) as err:
         await _rediger(client, mini_index)
+    assert err.value.code is ErrorCode.llm_parse
     assert len(fake.requests) == 2  # 1 retry motivé, puis LlmParse (code llm_parse)

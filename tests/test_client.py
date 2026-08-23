@@ -150,6 +150,20 @@ async def test_invalid_parse_then_ok_retries_once_with_motive() -> None:
     assert second["messages"][2]["role"] == "user" and "invalide" in second["messages"][2]["content"]
 
 
+async def test_the_retry_motive_names_the_offending_field_and_hides_the_value() -> None:
+    """Story 1.4 : un motif qui compte les erreurs sans les dire fait rejouer la même réponse au modèle."""
+    client, fake = _client([fake_message(text='{"mot": 3}', model=HAIKU),
+                            fake_message(text='{"mot": "ok"}', model=HAIKU)])
+    step = StepTrace(name="comprendre")
+    result = await _call(client, step=step)
+    assert result.parsed == Mot(mot="ok")
+    motive = fake.requests[1]["messages"][2]["content"]
+    assert "mot :" in motive  # le champ fautif est nommé
+    assert "Input should be a valid string" in motive  # et ce qu'on en attend
+    assert '"mot": 3' not in motive  # jamais la valeur reçue : elle vient du modèle (AD-5)
+    assert step.checks[0].detail in motive  # la trace porte le même motif que la relance
+
+
 async def test_max_tokens_stop_reason_triggers_the_same_retry() -> None:
     client, fake = _client([fake_message(text='{"mot": "tronq', model=HAIKU, stop_reason="max_tokens"),
                             fake_message(model=HAIKU)])
