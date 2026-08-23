@@ -6,9 +6,10 @@
 #   (PDF_LOCAL n'est lu que si l'objet gs://foyer-retour-sources/axa-lu-optihome-2017.pdf est absent)
 set -euo pipefail
 
-PROJECT="${PROJECT:-foyer-retour}"
-REGION="${REGION:-europe-west1}"
-REPO="${REPO:-byousoku-9/foyer-retour}"
+# Constantes volontairement non surchargeables : le projet gcloud par défaut du poste est un autre projet.
+PROJECT="foyer-retour"
+REGION="europe-west1"
+REPO="byousoku-9/foyer-retour"
 POOL="github"
 PROVIDER="foyer-retour"
 DEPLOYER_NAME="deployer"
@@ -26,6 +27,10 @@ sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else
 # Les liaisons IAM qui suivent la création d'un SA peuvent échouer quelques secondes (propagation) : on réessaie.
 retry() { local n=1; until "$@"; do [ $n -ge 5 ] && return 1; sleep $((n * 5)); n=$((n + 1)); done; }
 present() { printf '   déjà présent : %s\n' "$*"; }
+
+ACCOUNT="$(gcloud config get-value account 2>/dev/null || true)"
+[ -n "${ACCOUNT}" ] || { echo "gcloud non authentifié : lancer 'gcloud auth login'" >&2; exit 1; }
+echo "compte gcloud : ${ACCOUNT} ; projet : ${PROJECT}"
 
 PROJECT_NUMBER="$($G projects describe "${PROJECT}" --format='value(projectNumber)')"
 DEPLOY_SA="${DEPLOYER_NAME}@${PROJECT}.iam.gserviceaccount.com"
@@ -162,15 +167,16 @@ bind_bucket_role "${SOURCES_BUCKET}" "serviceAccount:${PROJECT_NUMBER}-compute@d
 PDF_OBJECT="${SOURCES_BUCKET}/axa-lu-optihome-2017.pdf"
 if $G storage objects describe "${PDF_OBJECT}" >/dev/null 2>&1; then
   present "${PDF_OBJECT}"
-elif [ -z "${PDF_LOCAL}" ]; then
-  echo "   PDF_LOCAL non défini : relancer avec PDF_LOCAL=/chemin/vers/axa-lu-optihome-2017.pdf pour déposer le PDF" >&2
-elif [ -f "${PDF_LOCAL}" ]; then
+elif [ -z "${PDF_LOCAL}" ] || [ ! -f "${PDF_LOCAL}" ]; then
+  echo "   objet absent et PDF_LOCAL absent ou introuvable (${PDF_LOCAL:-non défini}) :" >&2
+  echo "   relancer avec PDF_LOCAL=/chemin/vers/axa-lu-optihome-2017.pdf" >&2
+  exit 1
+else
   ACTUAL="$(sha256_of "${PDF_LOCAL}")"
   [ "${ACTUAL}" = "${PDF_SHA256_EXPECTED}" ] || { echo "   sha256 inattendu pour le PDF : ${ACTUAL}" >&2; exit 1; }
   $G storage cp "${PDF_LOCAL}" "${PDF_OBJECT}" >/dev/null
-  echo "   déposé : ${PDF_OBJECT}"
-else
-  echo "   PDF_LOCAL introuvable (${PDF_LOCAL}) : dépôt à faire à la main" >&2
+  $G storage ls "${PDF_OBJECT}" >/dev/null 2>&1 || { echo "   dépôt non vérifié : ${PDF_OBJECT} absent" >&2; exit 1; }
+  echo "   déposé et vérifié : ${PDF_OBJECT}"
 fi
 
 log "Budget (alerte 50 %) — best-effort"
