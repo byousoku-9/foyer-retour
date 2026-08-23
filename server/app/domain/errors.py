@@ -54,3 +54,33 @@ class PipelineError(Exception):
         super().__init__(message or code.value)
         self.code = code
         self.message = message or code.value
+
+
+class LlmUnavailable(PipelineError):
+    """Fournisseur injoignable ou en erreur (`llm_unavailable`), ou requête fausse de notre part (`internal`)."""
+
+    def __init__(self, message: str = "", code: ErrorCode = ErrorCode.llm_unavailable) -> None:
+        if code not in (ErrorCode.llm_unavailable, ErrorCode.internal):
+            raise ValueError(f"LlmUnavailable n'admet que llm_unavailable ou internal, pas {code.value}")
+        super().__init__(code, message)
+
+
+class LlmParse(PipelineError):
+    """Réponse non conforme au schéma après le retry autorisé, ou refus du modèle."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(ErrorCode.llm_parse, message)
+
+
+class Timeout(PipelineError):
+    """Deadline globale épuisée ou appel en timeout."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(ErrorCode.timeout, message)
+
+
+class BudgetExceeded(PipelineError):
+    """Plafond d'appels ou de coût par requête atteint — avant l'appel, jamais après."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(ErrorCode.budget_exceeded, message)

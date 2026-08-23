@@ -143,6 +143,22 @@ def test_nominal_tree_ids_bbox_scopes_and_continues(data: Path) -> None:
     assert manifest["document_hash"] == hashlib.sha256((data / "document.json").read_bytes()).hexdigest()
 
 
+def test_summary_respects_summary_max_level(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # revue P5 : le PDF synthétique a des nœuds de niveaux 1 à 5 (a4, a1.1, a3.1.1, a3.1.8.3, a3.1.1.1.6).
+    _run(data)
+    summary = (data / "summary.md").read_text("utf-8")
+    assert f"`{DOC}:a4`" in summary and f"`{DOC}:a1.1`" in summary  # niveaux 1 et 2 présents
+    assert f"`{DOC}:a3.1.1`" not in summary and f"`{DOC}:a3.1.1.1.6`" not in summary  # niveau > 2 exclus
+    doc = Document.model_validate_json((data / "document.json").read_bytes())
+    monkeypatch.setenv("SUMMARY_MAX_LEVEL", "3")
+    p.get_settings.cache_clear()
+    try:
+        deeper = p.build_summary(doc)
+    finally:
+        p.get_settings.cache_clear()
+    assert f"`{DOC}:a3.1.1`" in deeper and f"`{DOC}:a3.1.1.1.6`" not in deeper
+
+
 def test_two_runs_are_byte_identical(data: Path) -> None:
     _run(data)
     first = {n: (data / n).read_bytes() for n in ("document.json", "report.json", "summary.md")}

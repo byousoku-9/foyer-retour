@@ -45,6 +45,21 @@ class Settings(BaseSettings):
     max_cost_eur_per_request: float = Field(0.10, ge=0)
     cost_alert_eur: float = Field(0.05, ge=0)
 
+    # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
+    # invalide, heuristique d'estimation avant appel (caractères par token, majoration tokenizer des modèles 5),
+    # délai de `count_tokens`.
+    llm_max_output_tokens: int = Field(4096, ge=1)
+    llm_retry_margin_s: float = Field(5.0, ge=0)
+    estimate_chars_per_token: float = Field(4.0, gt=0)
+    estimate_tokenizer_factor: float = Field(1.3, gt=0)
+    count_tokens_timeout_s: float = Field(10.0, gt=0)
+
+    # Sommaires (story 1.3, FR13) : compactage décidé sur la mesure au tokenizer réel (docs/tests-live.md).
+    # Guide : résumés tronqués et tags limités ; contrat : nœuds de niveau <= summary_max_level.
+    summary_max_tags: int = Field(5, ge=1)
+    summary_resume_max_chars: int = Field(90, ge=10)
+    summary_max_level: int = Field(2, ge=1)
+
     # Limiteur best-effort par instance (AD-13)
     rate_limit_per_minute: int = Field(10, ge=1)
     rate_limit_per_day: int = Field(100, ge=1)
@@ -75,6 +90,8 @@ class Settings(BaseSettings):
     def _coherence(self) -> Settings:
         if self.llm_timeout_s >= self.deadline_s:
             raise ValueError(f"llm_timeout_s ({self.llm_timeout_s}) doit être < deadline_s ({self.deadline_s})")
+        if self.llm_retry_margin_s >= self.deadline_s:
+            raise ValueError(f"llm_retry_margin_s ({self.llm_retry_margin_s}) doit être < deadline_s ({self.deadline_s})")
         if self.header_caps_max_size_pt >= self.title_min_size_pt:
             raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
                              f"< title_min_size_pt ({self.title_min_size_pt})")
@@ -96,6 +113,14 @@ class Settings(BaseSettings):
             "max_llm_turns": self.max_llm_turns,
             "max_cost_eur_per_request": self.max_cost_eur_per_request,
             "cost_alert_eur": self.cost_alert_eur,
+            "llm_max_output_tokens": self.llm_max_output_tokens,
+            "llm_retry_margin_s": self.llm_retry_margin_s,
+            "estimate_chars_per_token": self.estimate_chars_per_token,
+            "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
+            "count_tokens_timeout_s": self.count_tokens_timeout_s,
+            "summary_max_tags": self.summary_max_tags,
+            "summary_resume_max_chars": self.summary_resume_max_chars,
+            "summary_max_level": self.summary_max_level,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "rate_limit_per_day": self.rate_limit_per_day,
             "coverage_threshold": self.coverage_threshold,

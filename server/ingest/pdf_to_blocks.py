@@ -76,7 +76,9 @@ def ingest_fingerprint() -> str:
                                          "header_caps_max_size_pt": s.header_caps_max_size_pt,
                                          "baseline_tolerance_pt": s.baseline_tolerance_pt,
                                          "number_gap_tolerance_pt": s.number_gap_tolerance_pt,
-                                         "list_indent_pt": s.list_indent_pt}},
+                                         "list_indent_pt": s.list_indent_pt,
+                                         # story 1.3 (revue P1) : le niveau de coupe du sommaire change summary.md
+                                         "summary_max_level": s.summary_max_level}},
                          sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -382,7 +384,12 @@ def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
 
 
 def build_summary(doc: Document) -> str:
-    """Sommaire compact : nœuds de niveau ≤ 3 avec leur titre et leur première page."""
+    """Sommaire compact : nœuds de niveau ≤ `summary_max_level` avec leur titre et leur première page.
+
+    Abaissé de 3 à 2 en story 1.3 : mesuré à 10 153 tokens (reason) au niveau ≤ 3, au-delà du seuil
+    de décision de la spec (5 000) ; les sous-articles restent atteignables par `chercher` (blocs).
+    """
+    max_level = get_settings().summary_max_level
     lines = [f"<!-- {doc.doc_id} · edition {doc.edition} · source_hash {doc.source_hash} · "
              f"ingest_fingerprint {doc.ingest_fingerprint} -->", f"# {doc.title}", ""]
     by_id = {n.node_id: n for n in doc.nodes}
@@ -402,7 +409,7 @@ def build_summary(doc: Document) -> str:
     def walk(node: Node) -> None:
         for child_id in node.children:
             child = by_id[child_id]
-            if 1 <= child.level <= 3:
+            if 1 <= child.level <= max_level:
                 pg = page_of(child)
                 lines.append(f"{'  ' * (child.level - 1)}- `{child.node_id}` · {child.title} · p. {pg}")
             walk(child)

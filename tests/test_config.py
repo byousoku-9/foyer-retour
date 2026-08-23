@@ -49,6 +49,8 @@ def test_allow_ungated_follows_env_unless_explicit() -> None:
 def test_bounds_and_coherence() -> None:
     with pytest.raises(ValidationError, match="llm_timeout_s"):
         Settings(_env_file=None, llm_timeout_s=60, deadline_s=55)
+    with pytest.raises(ValidationError, match="llm_retry_margin_s"):
+        Settings(_env_file=None, llm_retry_margin_s=60, deadline_s=55)
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
                 {"rate_limit_per_day": 0}):
         with pytest.raises(ValidationError):

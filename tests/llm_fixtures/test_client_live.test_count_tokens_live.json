@@ -1,0 +1,8 @@
+{
+  "count:claude-haiku-4-5-20251001:280e597437488a72": {
+    "request": "count:claude-haiku-4-5-20251001:280e597437488a72",
+    "response": {
+      "input_tokens": 308
+    }
+  }
+}

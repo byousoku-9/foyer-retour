@@ -6,7 +6,7 @@ Le fil rouge : **on ne gagne pas sur « comment on retrouve », on gagne sur « 
 
 ## État
 
-Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). Story 1.2 : le contrat AXA OptiHome 2017 est téléchargé (hash vérifié), découpé en blocs par page avec lignes et boîtes (`data/axa-lu-optihome-2017/`), et ses quatre clauses du cas « bougie » sont typées par overlay manuel. La section déploiement arrive avec la story 1.11.
+Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). Story 1.2 : le contrat AXA OptiHome 2017 est téléchargé (hash vérifié), découpé en blocs par page avec lignes et boîtes (`data/axa-lu-optihome-2017/`), et ses quatre clauses du cas « bougie » sont typées par overlay manuel. Story 1.3 : le client Claude unique (`server/app/llm/`) — tiers, prix, budget par requête, prompts versionnés, erreurs typées. La section déploiement arrive avec la story 1.11.
 
 ## Lancer
 
@@ -57,6 +57,18 @@ uv run python -m server.ingest.pdf_to_blocks axa-lu-optihome-2017  # source.pdf 
 - Les seuils d'ingestion (`header_band_pt`, `footer_band_pt`, `header_min_pages_ratio`, `para_gap_ratio`, `article_number_max_x`, `title_min_size_pt`, `header_caps_max_size_pt`, `baseline_tolerance_pt`, `number_gap_tolerance_pt`, `list_indent_pt`, `fetch_timeout_s`, `metadata_timeout_s`) vivent dans `server/app/config.py` ; ceux qui changent la segmentation entrent dans `ingest_fingerprint`.
 - `tests/test_parsing_axa.py` compare les pages 9, 11, 34 et 46 à des extraits relus (`tests/data/axa/`) contre le `document.json` committé ; si `source.pdf` est présent, l'ingestion doit le regénérer à l'identique.
 - Les artefacts de tous les documents sont écrits sans valeurs par défaut ni `text_norm` (`SCHEMA_VERSION=2`, `server/ingest/artifacts.py`).
+
+## Client LLM
+
+Le client Claude unique des étapes vit dans `server/app/llm/` (story 1.3) ; aucune étape n'appelle le SDK directement.
+
+- `models.py` : `TIERS` (`ingest` = Opus 5 Batch, `reason` = Sonnet 5 cache 1 h, `micro` = Haiku 4.5 daté), `STEP_TIERS`, `MODEL_CAPS` (effort/temperature/TTL par modèle), `EFFORT`, `model_for(tier)` ; `--check` vérifie les IDs contre l'API.
+- `pricing.py` : la seule table de prix (USD/MTok, lecture de cache 0,1×, écriture 1,25× en 5 min / 2× en 1 h, `BATCH_DISCOUNT=0.5`) ; `cost_from_usage` chiffre en euros **uniquement** depuis l'`usage` renvoyé par l'API ; `estimate_cost` est la borne haute avant appel.
+- `budget.py` : `RequestBudget(deadline_s, max_attempts, max_cost_eur)` — deadline monotone, compteur d'appels et cumul de coût partagés par toutes les étapes d'une requête.
+- `prompting.py` + `prompts/` : `untrusted(kind, text)` délimite le contenu non fiable (balise fermante neutralisée), `load_prompt` lit les prompts versionnés (`commun.md` : règles de non-confiance) couverts par `prompts_digest`.
+- `client.py` : `LlmClient.parse(tier, system_prefix, messages, output_model, budget, step, …)` — sorties structurées (schéma Pydantic), bloc système unique avec `cache_control` (préfixe byte-identique), timeout = min(`llm_timeout_s`, deadline restante), 1 retry sur parse invalide si la marge le permet, plafonds d'appels et de coût **avant** l'appel, mapping exhaustif des erreurs SDK vers `LlmUnavailable` (ou `Timeout` pour `APITimeoutError`) — `LlmParse` (parse invalide après retry, refus) et `BudgetExceeded` (plafonds) sont produits par le client lui-même, jamais mappés depuis une erreur SDK —, chaque appel tracé en `LLMCall` ; `ResponseCache` (protocole) + `MemoryResponseCache` pour le cache d'évals ; `count_tokens` au tokenizer réel.
+- `python -m server.app.llm.tokens <fichier…>` : tokens réels d'un fichier par tier (a servi à compacter les sommaires, voir `docs/tests-live.md`).
+- `tests/test_client_live.py` fait un appel réel par tier quand la clé est là (fixtures brutes committées dans `tests/llm_fixtures/`, rejouées sans clé).
 
 ## Infrastructure
 

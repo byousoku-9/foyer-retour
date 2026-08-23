@@ -44,8 +44,16 @@ _FICHE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 def ingest_fingerprint() -> str:
     # `normalize_version` entre dans l'empreinte : `slug()` (node_id des catégories) dérive de `normalize()`.
+    # Les seuils de compactage du sommaire (story 1.3, revue P1) y entrent aussi : un `SUMMARY_*` personnalisé
+    # produit un summary.md différent et doit changer l'empreinte.
+    from server.app.config import get_settings
+
+    settings = get_settings()
     payload = json.dumps({"parser": PARSER_VERSION, "schema": SCHEMA_VERSION, "segmentation": SEGMENTATION_RULES,
-                          "flags": FLAGS, "normalize_version": normalize_version}, sort_keys=True, ensure_ascii=False)
+                          "flags": FLAGS, "normalize_version": normalize_version,
+                          "summary": {"summary_max_tags": settings.summary_max_tags,
+                                      "summary_resume_max_chars": settings.summary_resume_max_chars}},
+                         sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -156,8 +164,27 @@ def build_document(kb: dict[str, Any], *, edition: str, source_hash: str) -> Doc
                     ingest_fingerprint=ingest_fingerprint())
 
 
+def _truncate(text: str, limit: int) -> str:
+    """Coupe au dernier mot entier ; résultat toujours <= `limit` caractères, ellipse comprise.
+
+    Repli (revue P8) : si le premier mot dépasse déjà `limit`, coupe dure à `limit - 1` + « … »."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:.") + "…"
+
+
 def build_summary(doc: Document, kb: dict[str, Any]) -> str:
-    """Sommaire compact (préfixe cacheable du modèle en 1.4) : catégories → fiches, puis questions de la FAQ."""
+    """Sommaire compact (préfixe cacheable du modèle en 1.4) : catégories → fiches, puis questions de la FAQ.
+
+    Compacté en story 1.3 (mesure au tokenizer réel, seuils dans config) : résumés tronqués à
+    `summary_resume_max_chars`, tags limités aux `summary_max_tags` premiers.
+    """
+    from server.app.config import get_settings
+
+    settings = get_settings()
     lines = [f"<!-- {doc.doc_id} · edition {doc.edition} · source_hash {doc.source_hash} · "
              f"ingest_fingerprint {ingest_fingerprint()} -->", f"# {doc.title}", ""]
     by_id = {n.node_id: n for n in doc.nodes}
@@ -175,8 +202,9 @@ def build_summary(doc: Document, kb: dict[str, Any]) -> str:
         lines.append("")
         for fiche_id in cat.children:
             f = fiches[fiche_id]
-            tags = ", ".join(f.get("tags", []))
-            lines.append(f"- `{fiche_id}` · {f['titre']} · {f.get('resume', '')} · tags : {tags}")
+            tags = ", ".join(f.get("tags", [])[: settings.summary_max_tags])
+            resume = _truncate(f.get("resume", ""), settings.summary_resume_max_chars)
+            lines.append(f"- `{fiche_id}` · {f['titre']} · {resume} · tags : {tags}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 

@@ -74,6 +74,18 @@ def test_faq_to_unknown_fiche_is_unresolved_alert(mini_kb: dict) -> None:
     assert [c.name for c in report.alerts] == ["unresolved_refs"]
 
 
+def test_truncate_cuts_at_word_boundary_and_never_exceeds_limit() -> None:
+    # revue P8 : résultat toujours <= limit, ellipse comprise, même quand le premier mot dépasse la limite.
+    assert k._truncate("court", 10) == "court"
+    assert k._truncate("un mot puis encore", 12) == "un mot…"  # coupe conservatrice au mot précédent
+    long_word = "anticonstitutionnellement toujours"
+    out = k._truncate(long_word, 10)
+    assert out == "anticonst…" and len(out) <= 10  # repli : coupe dure
+    for text in ("un mot puis encore", long_word, "exactement dix.", "a b c d e f g h i j k l"):
+        for limit in range(10, 20):
+            assert len(k._truncate(text, limit)) <= limit
+
+
 def test_summary_and_fingerprint(mini_kb: dict) -> None:
     doc = k.build_document(mini_kb, edition="git:test", source_hash="abc")
     s = k.build_summary(doc, mini_kb)
