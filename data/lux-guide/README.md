@@ -9,6 +9,7 @@
 | `report.json` | checks statiques d'ingestion (AD-8) et statistiques |
 
 Régénérer (déterministe, sans Node) : `uv run python -m server.ingest.kb_to_blocks`.
-Les hashes (`source_hash`, `ingest_fingerprint`, `document_hash`) sont dans `../manifest.json` ; le serveur
-les recalcule au démarrage et met ce document en quarantaine à la moindre différence (AD-7).
+`source_hash` et `ingest_fingerprint` sont écrits dans `document.json` et repris dans `../manifest.json` avec
+`document_hash` ; le serveur recalcule les hashes au démarrage, compare les empreintes et met ce document en
+quarantaine à la moindre différence (AD-7).
 La `timeline` de `kb.js` n'est pas ingérée (comptée dans `report.json`).
