@@ -36,7 +36,9 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_cost_eur_per_request",
-            "rate_limit_per_minute", "rate_limit_per_day", "deadline_s"} <= set(t.thresholds)
+            "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
+            # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
+            "comprendre_max_tokens", "rediger_max_tokens", "retrieval_max_blocks"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
 
 

@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     search_limit: int = Field(20, ge=1)
     max_llm_attempts: int = Field(4, ge=1)  # global à la requête
     max_llm_turns: int = Field(2, ge=1)
+    # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
+    # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
+    # sortie à `rediger_max_tokens` en consomment déjà ≈ 0,080 € des 0,10 € par requête ; 6 fiches entières
+    # (65 blocs) portaient l'estimation à 0,108 € et faisaient échouer l'appel à tort (`BudgetExceeded`).
+    # À recalibrer avec les questions-témoins (impact sur le recall) — voir `deferred-work.md`.
+    retrieval_max_blocks: int = Field(30, ge=1)
 
     # Coût (AD-9, AD-10)
     max_cost_eur_per_request: float = Field(0.10, ge=0)
@@ -51,6 +57,10 @@ class Settings(BaseSettings):
     # délai de `count_tokens`.
     llm_max_output_tokens: int = Field(4096, ge=1)
     llm_retry_margin_s: float = Field(5.0, ge=0)
+    # Étapes (story 1.4, NFR4) : sortie maximale par étape — le majorant `estimate_cost` compte la sortie
+    # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,10 €).
+    comprendre_max_tokens: int = Field(1024, ge=1)
+    rediger_max_tokens: int = Field(2048, ge=1)
     estimate_chars_per_token: float = Field(2.0, gt=0)
     estimate_tokenizer_factor: float = Field(1.3, gt=0)
     count_tokens_timeout_s: float = Field(10.0, gt=0)
@@ -112,10 +122,13 @@ class Settings(BaseSettings):
             "search_limit": self.search_limit,
             "max_llm_attempts": self.max_llm_attempts,
             "max_llm_turns": self.max_llm_turns,
+            "retrieval_max_blocks": self.retrieval_max_blocks,
             "max_cost_eur_per_request": self.max_cost_eur_per_request,
             "cost_alert_eur": self.cost_alert_eur,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
+            "comprendre_max_tokens": self.comprendre_max_tokens,
+            "rediger_max_tokens": self.rediger_max_tokens,
             "estimate_chars_per_token": self.estimate_chars_per_token,
             "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
             "count_tokens_timeout_s": self.count_tokens_timeout_s,
