@@ -1,0 +1,600 @@
+﻿<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S'installer au Luxembourg</title>
+<link rel="stylesheet" href="app/styles.css?v=17">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <button class="brand" id="brand" title="Revenir à l'accueil" aria-label="S'installer au Luxembourg, revenir à l'accueil">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" focusable="false">
+          <path d="M12 2.4 1.9 10.3l1.3 1.7L4.4 11v10.6h15.2V11l1.2 1 1.3-1.7zM9.7 19.4v-5.1a2.3 2.3 0 0 1 4.6 0v5.1z"/>
+        </svg>
+      </span>
+      <span class="brand-txt">S'installer au Luxembourg</span>
+    </button>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections du guide">
+      <button role="tab" id="tab-accueil" data-panel="accueil" aria-selected="true" aria-controls="panel-accueil" tabindex="0">Accueil</button>
+      <button role="tab" id="tab-fiches" data-panel="fiches" aria-selected="false" aria-controls="panel-fiches" tabindex="-1">Fiches</button>
+      <button role="tab" id="tab-parcours" data-panel="parcours" aria-selected="false" aria-controls="panel-parcours" tabindex="-1">Parcours</button>
+      <button role="tab" id="tab-faq" data-panel="faq" aria-selected="false" aria-controls="panel-faq" tabindex="-1">FAQ</button>
+      <button role="tab" id="tab-simulateur" data-panel="simulateur" aria-selected="false" aria-controls="panel-simulateur" tabindex="-1">Simulateur</button>
+      <button role="tab" id="tab-comparateur" data-panel="comparateur" aria-selected="false" aria-controls="panel-comparateur" tabindex="-1">Comparateur</button>
+      <button role="tab" id="tab-carte" data-panel="carte" aria-selected="false" aria-controls="panel-carte" tabindex="-1">Carte</button>
+      <button role="tab" id="tab-assistant" data-panel="assistant" aria-selected="false" aria-controls="panel-assistant" tabindex="-1">Assistant</button>
+    </nav>
+    <div class="top-outils">
+      <button id="theme-btn" class="outil" title="Changer de thème" aria-label="Changer de thème"></button>
+      <button id="admin-btn" class="outil" data-panel="admin" title="Administration du contenu" aria-label="Administration du contenu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.1"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.11a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.08A1.7 1.7 0 0 0 10.13 3V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.05 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.08a1.7 1.7 0 0 0 1.56 1.05H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.49 1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Accueil -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-accueil" id="panel-accueil">
+
+    <div class="ask">
+      <h2 class="ask-titre">Une question sur votre installation&nbsp;?</h2>
+      <p class="ask-sous">Cherchez une fiche ou posez votre question : l'assistant répond depuis le guide, sources à l'appui.</p>
+      <div class="ask-bar">
+        <input type="search" id="q-accueil" placeholder="Cherchez un mot, ou posez votre question puis Entrée" autocomplete="off">
+        <button class="btn" id="q-accueil-btn">Demander</button>
+      </div>
+      <div class="chips" id="ask-chips"></div>
+      <div class="grid" id="accueil-resultats"></div>
+    </div>
+
+    <div class="hero">
+      <div class="hero-img">
+        <img src="assets/hero.jpg" alt="Vue de la vieille ville de Luxembourg, du Grund et du plateau de Kirchberg" loading="eager">
+      </div>
+      <div class="hero-in">
+        <span class="kicker"><span class="pt"></span>Vérifié en août 2026</span>
+        <h1>Arriver au Luxembourg, <em>sans rien oublier</em></h1>
+        <p>
+          Des huit jours pour se déclarer à la commune au calcul de votre salaire net,
+          chaque démarche expliquée, dans le bon ordre, avec sa source officielle.
+        </p>
+        <div class="hero-cta">
+          <button class="btn clair" data-go="assistant">Démarrer avec l'assistant</button>
+          <button class="btn contour" data-go="parcours">Voir le parcours complet</button>
+        </div>
+        <div class="hero-stats">
+          <div class="s"><div class="n" id="stat-fiches">—</div><div class="l">fiches pratiques</div></div>
+          <div class="s"><div class="n">8</div><div class="l">jours pour se déclarer</div></div>
+          <div class="s"><div class="n">11,55 %</div><div class="l">de cotisations salariales</div></div>
+          <div class="s"><div class="n">0 €</div><div class="l">les transports publics</div></div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Par thème</h2>
+    <div class="grid" id="accueil-cats"></div>
+
+    <h2>Les questions les plus posées</h2>
+    <div class="grid serre" id="accueil-faq"></div>
+
+    <div class="notice small">
+      <strong>Fiabilité.</strong> Informations vérifiées en août 2026 auprès des administrations
+      luxembourgeoises. La réglementation évolue, en particulier les barèmes et les plafonds :
+      chaque fiche renvoie à sa source, qui fait foi avant toute démarche engageante.
+    </div>
+
+    <div class="credits" id="credits-photos"></div>
+  </section>
+
+  <!-- Fiches -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-fiches" id="panel-fiches" hidden>
+    <div id="fiches-liste">
+      <h1>Fiches pratiques</h1>
+      <p class="lead">Chaque fiche est autonome, avec ses points clés et ses sources officielles.</p>
+      <div class="search-bar">
+        <input type="search" id="q-fiches" placeholder="Rechercher : caution, matricule, impatriés, crèche, permis. Entrée pour demander à l'assistant.">
+      </div>
+      <div id="fiches-perso"></div>
+      <div class="grid" id="fiches-grid"></div>
+    </div>
+    <div id="fiche-detail" class="detail" hidden></div>
+  </section>
+
+  <!-- Parcours -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-parcours" id="panel-parcours" hidden>
+    <h1>Parcours d'installation</h1>
+    <p class="lead">L'ordre compte : certaines démarches en conditionnent d'autres.</p>
+    <div class="notice">
+      <strong>La chaîne à ne pas casser.</strong>
+      Déclaration à la commune, puis certificat de résidence et matricule, puis sécurité sociale,
+      banque, chèque-service et impôts. Tout part de la commune, dans les 8 jours.
+    </div>
+    <div class="tl" id="timeline"></div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-faq" id="panel-faq" hidden>
+    <h1>Questions et réponses</h1>
+    <p class="lead">
+      Toutes les questions recensées par le guide, avec des réponses vérifiées : chaque réponse
+      s'appuie sur une fiche et renvoie à ses sources officielles.
+      <span class="badge" id="faq-compte"></span>
+    </p>
+    <div class="search-bar">
+      <input type="search" id="q-faq" placeholder="Filtrer : classe d'impôt, caution, crèche, permis. Entrée pour demander à l'assistant." autocomplete="off">
+    </div>
+    <div id="faq-liste"></div>
+    <div class="notice small" style="margin-top:26px">
+      Votre question n'y est pas ? L'assistant cherche aussi dans le corps des fiches,
+      et dit quand il ne sait pas.
+      <button class="chip" id="faq-assistant">Poser la question à l'assistant</button>
+    </div>
+  </section>
+
+  <!-- Simulateur -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-simulateur" id="panel-simulateur" hidden>
+    <h1>Simulateur de salaire net</h1>
+    <p class="lead">
+      Barème officiel de l'Administration des contributions directes et paramètres sociaux en vigueur.
+      Résultat indicatif : il ne remplace ni une fiche de paie, ni un calcul de l'administration.
+    </p>
+
+    <div class="sous-onglets" id="sim-tabs">
+      <button data-sim="salaire" class="actif">Salaire net</button>
+      <button data-sim="emprunt">Capacité d'emprunt</button>
+    </div>
+
+    <div id="sim-salaire">
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="s-brut">Brut annuel (EUR)</label>
+          <input type="number" id="s-brut" value="80000" min="0" step="1000">
+        </div>
+        <div>
+          <label for="s-classe">Classe d'impôt</label>
+          <select id="s-classe">
+            <option value="classe1">Classe 1</option>
+            <option value="classe1a">Classe 1a</option>
+            <option value="classe2" selected>Classe 2</option>
+          </select>
+        </div>
+        <div>
+          <label for="s-mois">Réparti sur</label>
+          <select id="s-mois">
+            <option value="12" selected>12 mois</option>
+            <option value="13">13 mois</option>
+          </select>
+        </div>
+        <div>
+          <label for="s-brut2">Salaire du conjoint (EUR, facultatif)</label>
+          <input type="number" id="s-brut2" value="0" min="0" step="1000" placeholder="0">
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="check">
+          <input type="checkbox" id="s-impatrie">
+          <label for="s-impatrie">Régime des impatriés (50 % exonéré)</label>
+          <a href="#fiche/impatries" class="lien-fiche-inline">réservé à des profils précis, voir la fiche</a>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="s-forfaits" checked>
+          <label for="s-forfaits">Forfaits frais et dépenses spéciales</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpis" id="s-kpis"></div>
+
+    <div class="notice small">
+      <strong>Un ordre de grandeur, pas un chiffre à l'euro près.</strong>
+      Le résultat est la retenue à la source calculée sur ce seul salaire, avec le barème officiel.
+      Le net réellement perçu peut s'en écarter selon la situation personnelle : revenus étrangers
+      en classe 2 (le taux moyen mondial s'applique à la déclaration), déductions réelles supérieures
+      aux forfaits, avantages en nature, crédits d'impôt. Plus la situation s'écarte du cas simple
+      (un seul salaire, pas d'autre revenu), plus l'écart peut être grand.
+    </div>
+
+    <div id="s-menage"></div>
+
+    <div id="s-detail"></div>
+
+    <h2>Comparaison des situations</h2>
+    <div class="table-wrap"><table id="s-comp"></table></div>
+    </div>
+
+    <div id="sim-emprunt" hidden>
+    <h2 style="margin-top:0">Capacité d'emprunt indicative</h2>
+    <p class="lead small">
+      Les banques raisonnent en taux d'effort : la somme des mensualités rapportée aux revenus nets.
+      Les crédits en cours viennent en déduction.
+    </p>
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="e-net">Revenus nets du ménage (EUR/mois)</label>
+          <input type="number" id="e-net" value="5000" min="0" step="100">
+        </div>
+        <div>
+          <label for="e-charges">Crédits en cours (EUR/mois)</label>
+          <input type="number" id="e-charges" value="0" min="0" step="50">
+        </div>
+        <div>
+          <label for="e-taux">Taux annuel (%)</label>
+          <input type="number" id="e-taux" value="4.3" min="0" step="0.1">
+        </div>
+        <div>
+          <label for="e-duree">Durée (années)</label>
+          <input type="number" id="e-duree" value="25" min="5" max="35" step="1">
+        </div>
+      </div>
+    </div>
+    <div class="kpis" id="e-kpis"></div>
+    <p class="hint">
+      Les seuils de 33 % et 40 % sont des pratiques bancaires, pas un plafond légal : la limite
+      réglementaire fixée au Luxembourg porte sur la quotité, la part du prix financée, et non sur
+      le taux d'effort. Chaque banque décide selon les revenus et le reste à vivre.
+    </p>
+    <p class="hint">
+      Quotités maximales au Luxembourg : 100 % du prix pour un primo-accédant en résidence principale,
+      90 % pour une autre résidence principale, 80 % pour un investissement locatif. Les frais d'acte
+      restent à financer sur fonds propres.
+    </p>
+    </div>
+  </section>
+
+  <!-- Comparateur -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-comparateur" id="panel-comparateur" hidden>
+    <h1>Comparateur</h1>
+    <p class="lead">
+      En arrivant au Luxembourg, quatre contrats se signent presque en même temps : l'assurance
+      habitation, l'assurance auto, le forfait mobile et le contrat d'électricité. Choisissez le
+      poste que vous voulez regarder. Chacun s'ouvre sur une grille des critères qui distinguent
+      vraiment les offres, et non sur une liste de prix.
+    </p>
+
+    <div class="notice small" id="ctr-registres">
+      <strong>Deux registres, indiqués sur chaque carte.</strong>
+      L'assurance habitation repose sur des <em>documents réels</em> : quatre contrats du marché
+      luxembourgeois lus intégralement, assureurs anonymisés. Les trois autres sont des
+      <em>démonstrations</em> : les critères sont réels, les offres et les chiffres sont inventés
+      et affichés comme tels. Rien n'y est un conseil d'achat.
+    </div>
+
+    <div class="grid serre" id="ctr-verticales"></div>
+
+    <div id="ctr-vue" hidden></div>
+
+    <div id="ctr-mrh" hidden>
+    <div class="vert-head">
+      <h2>Assurance habitation : la comparaison complète</h2>
+      <button class="chip" id="ctr-mrh-retour">← Toutes les comparaisons</button>
+    </div>
+    <p class="lead">
+      <span class="badge on">données réelles</span>
+      Quatre contrats du marché luxembourgeois lus intégralement, treize sinistres concrets posés
+      à chacun, et pour chaque réponse la clause exacte avec sa page.
+    </p>
+
+    <div class="sous-onglets" id="mrh-tabs">
+      <button data-mrh="reco" class="actif">Ma situation</button>
+      <button data-mrh="surmesure">Tableau sur mesure</button>
+      <button data-mrh="sinistres">Sinistres</button>
+      <button data-mrh="matrice">Couverture</button>
+      <button data-mrh="constats">Ce qui ressort</button>
+      <button data-mrh="methode">Méthode</button>
+    </div>
+
+    <!-- Ma situation : classement calculé en direct -->
+    <div id="mrh-reco">
+      <p class="lead small">
+        Cochez ce qui vous concerne. Le classement se recalcule à chaque clic, à partir des
+        verdicts réels : chaque contrat est noté sur les garanties qui comptent
+        <em>pour vous</em>, et les lacunes s'affichent avec la clause qui les cause.
+      </p>
+      <div class="card">
+        <div id="mrh-biens" class="biens-grille"></div>
+      </div>
+      <div id="mrh-classement"></div>
+      <div id="mrh-couverture-profil"></div>
+    </div>
+
+    <!-- Sinistres : tableau complet + chat -->
+    <div id="mrh-sinistres" hidden>
+      <p class="lead small">
+        Les treize sinistres posés aux quatre contrats. Cliquez sur une ligne pour voir le détail :
+        plafond, franchise, condition qui décide, et la clause citée avec sa page.
+      </p>
+      <div id="mrh-sinistres-table"></div>
+    </div>
+
+    <!-- Tableau sur mesure : le chat construit et modifie la comparaison -->
+    <div id="mrh-surmesure" hidden>
+      <p class="lead small">
+        Ce n'est pas un second assistant : c'est la commande du tableau. Écrivez ce que vous voulez
+        comparer, en français courant, et la grille se réécrit. Chaque demande et ce qu'elle a
+        changé restent notés dans le journal, pour que rien ne bouge sans explication.
+      </p>
+      <div class="card ctr-cmd">
+        <label class="ctr-cmd-label" for="ctr-input">Commander le tableau</label>
+        <div class="chat-bar">
+          <input type="text" id="ctr-input" placeholder="Ex : compare le vol et le dégât des eaux, seulement chez l'assureur A et l'assureur C" autocomplete="off">
+          <button class="btn" id="ctr-send">Appliquer</button>
+        </div>
+        <div class="chips" id="ctr-suggestions"></div>
+        <div class="ctr-journal" id="ctr-journal"></div>
+      </div>
+      <div id="ctr-tableau"></div>
+    </div>
+
+    <!-- Matrice de couverture -->
+    <div id="mrh-matrice" hidden>
+      <p class="lead small">
+        Dix-sept garanties recherchées dans les quatre documents. Une case pleine veut dire que le
+        sujet est traité, et à quelle page il apparaît en premier. Attention : c'est un signal de
+        présence, pas une promesse de couverture. Un contrat peut nommer une garantie page 5 et
+        l'exclure page 40, c'est l'objet de l'onglet Sinistres.
+      </p>
+      <div id="mrh-matrice-table"></div>
+      <div id="mrh-sources"></div>
+    </div>
+
+    <!-- Constats -->
+    <div id="mrh-constats" hidden>
+      <p class="lead small">
+        Ce que la lecture des quatre contrats fait ressortir, et les questions à poser avant de signer.
+      </p>
+      <div id="mrh-constats-liste"></div>
+    </div>
+
+    <!-- Méthode -->
+    <div id="mrh-methode" hidden>
+      <p class="lead small">Comment cette comparaison a été faite, et ce qu'elle ne dit pas.</p>
+      <div class="card">
+        <h3 style="margin-top:0">La démarche</h3>
+        <p>Quatre conditions générales publiques du marché luxembourgeois, éditions 2017 à 2023,
+          entre 60 et 139 pages chacune. Le texte est extrait page par page, ce qui rend chaque
+          phrase adressable : c'est ce qui permet de citer une clause avec son numéro de page.</p>
+        <p>Deux passages ensuite. Le premier cherche dix-sept garanties dans les quatre documents,
+          en français, en allemand et en anglais, et produit la matrice de couverture. Le second
+          part de sinistres concrets, choisis pour faire diverger les contrats, et va chercher la
+          clause qui décide dans chaque document.</p>
+        <h3>Pourquoi des sinistres et pas des garanties</h3>
+        <p>Demander à un contrat s'il couvre le vol donne toujours oui. La réponse utile est
+          ailleurs : dans l'exclusion, le plafond, la condition. Deux contrats qui affichent la
+          même garantie répondent différemment sur le même vélo, selon qu'il était dans
+          l'appartement, dans la cave commune ou attaché dans la rue. C'est pour cela que les
+          treize sinistres sont posés dans des lieux et des situations précises.</p>
+        <h3>Ce que cette comparaison ne dit pas</h3>
+        <p>Elle ne donne aucun prix : les conditions générales n'en contiennent pas, la prime
+          dépend de votre logement et de vos capitaux déclarés. Elle porte sur des éditions
+          2017 à 2023, votre contrat peut être plus récent. Elle ne remplace ni un devis ni un
+          conseil. Enfin, les assureurs sont anonymisés : l'objectif est de montrer où les
+          contrats divergent et quelles questions poser, pas de recommander une marque.</p>
+        <h3>Vérifier soi-même</h3>
+        <p>Chaque verdict porte sa citation et sa page. Sur votre propre contrat, la démarche
+          se refait à la main : ouvrez les conditions générales, cherchez le mot du sinistre,
+          et lisez ce qui suit la garantie, c'est-à-dire les exclusions.</p>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- Carte : ecoles et transports autour d'une adresse -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-carte" id="panel-carte" hidden>
+    <h1>Comparer des logements</h1>
+    <p class="lead">
+      Quand on hésite entre deux ou trois logements, la question n'est pas « qu'y a-t-il autour »
+      mais « lequel est le mieux placé ». Ajoutez vos adresses : elles se comparent ligne par ligne,
+      écoles, crèches, transports et distance aux bassins d'emploi.
+    </p>
+    <div class="card">
+      <div class="row">
+        <div style="flex:2">
+          <label for="c-travail">Votre lieu de travail, ou tout autre point de repère</label>
+          <input type="text" id="c-travail" placeholder="Ex : Kirchberg, Gare de Luxembourg, Cloche d'Or..." autocomplete="off">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn ghost" id="c-fixer">Fixer le repère</button>
+        </div>
+      </div>
+      <p class="hint" style="margin:10px 0 0">
+        Vos adresses restent dans ce navigateur : elles ne sont envoyées à aucun serveur du guide,
+        et rien n'est enregistré ailleurs. Seule la recherche de coordonnées interroge le service
+        de cartographie OpenStreetMap.
+      </p>
+      <hr class="c-sep">
+      <div class="row">
+        <div style="flex:2">
+          <label for="c-adresse">Ajouter un logement à comparer</label>
+          <input type="text" id="c-adresse" placeholder="Ex : Belair Luxembourg, Esch-sur-Alzette, Mersch..." autocomplete="off">
+        </div>
+        <div>
+          <label for="c-rayon">Rayon autour</label>
+          <select id="c-rayon">
+            <option value="500">500 m, à pied</option>
+            <option value="1000" selected>1 km</option>
+            <option value="2000">2 km</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn" id="c-chercher">Ajouter</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="check"><input type="checkbox" id="c-ecoles" checked><label for="c-ecoles">Écoles</label></div>
+        <div class="check"><input type="checkbox" id="c-creches" checked><label for="c-creches">Crèches</label></div>
+        <div class="check"><input type="checkbox" id="c-arrets" checked><label for="c-arrets">Bus, tram, train</label></div>
+        <div class="check"><input type="checkbox" id="c-commerces" checked><label for="c-commerces">Commerces</label></div>
+        <div class="check"><input type="checkbox" id="c-sante" checked><label for="c-sante">Santé</label></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap">
+          <button class="chip" id="c-exemple">Voir un exemple</button>
+          <button class="chip" id="c-vider">Tout effacer</button>
+        </div>
+      </div>
+      <div class="chips" id="c-liste"></div>
+    </div>
+    <div id="carte-map"></div>
+    <div id="c-stats"></div>
+    <p class="hint" id="c-note">
+      Données OpenStreetMap (© les contributeurs OpenStreetMap), chargées à la demande :
+      l'exhaustivité n'est pas garantie. Les distances sont à vol d'oiseau, pas des temps de
+      trajet : pour ceux-là, mobiliteit.lu fait foi. Pour l'inscription scolaire, c'est la
+      commune qui décide, voir la fiche Scolariser ses enfants. Cet onglet est le seul du
+      guide à exiger le réseau : ouvert par double-clic sur le fichier, sans serveur, le
+      navigateur bloque ces appels et les colonnes restent vides.
+    </p>
+
+    <h2>Les outils officiels, pour aller plus loin</h2>
+    <p class="lead small">
+      Cette carte sert à repérer un quartier avant de le visiter. Pour les horaires réels,
+      les itinéraires et les démarches, ce sont les applications officielles qui font foi.
+    </p>
+    <div class="grid serre" id="carte-outils"></div>
+  </section>
+
+  <!-- Assistant -->
+  <section class="panel" role="tabpanel" aria-labelledby="tab-assistant" id="panel-assistant" hidden>
+    <div class="titre-action">
+      <h1>Assistant</h1>
+      <button class="btn ghost" id="assistant-ancrer">Ouvrir en panneau latéral</button>
+    </div>
+    <p class="lead">
+      Il construit votre profil au fil des réponses, puis cible ce qui vous concerne.
+      <span class="badge" id="mode-badge">mode local</span>
+    </p>
+    <div class="card chat-wrap">
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-bar">
+        <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
+        <button class="btn" id="chat-send">Envoyer</button>
+        <button class="btn ghost" id="chat-reset" title="Réinitialiser le profil">Réinitialiser</button>
+      </div>
+    </div>
+    <p class="hint">
+      Les réponses proviennent de la base de connaissances de ce guide, avec leurs sources.
+      Quand une information n'y figure pas, l'assistant le dit plutôt que d'inventer.
+    </p>
+  </section>
+
+  <!-- Administration -->
+  <section class="panel" id="panel-admin" hidden>
+    <h1>Administration</h1>
+    <p class="lead">Modifier le contenu des fiches, les questions fréquentes et les paramètres du simulateur.</p>
+
+    <div class="notice small">
+      Les modifications sont enregistrées dans ce navigateur. Utilisez <strong>Exporter</strong> pour
+      produire un fichier à replacer dans <code>app/kb.js</code>, afin de les rendre permanentes pour tous.
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Fiches</h3>
+      <div class="row">
+        <div>
+          <label for="a-fiche">Fiche à modifier</label>
+          <select id="a-fiche"></select>
+        </div>
+        <div>
+          <label for="a-cat">Catégorie</label>
+          <input type="text" id="a-cat">
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label for="a-titre">Titre</label>
+        <input type="text" id="a-titre">
+      </div>
+      <div style="margin-top:12px">
+        <label for="a-resume">Résumé</label>
+        <input type="text" id="a-resume">
+      </div>
+      <div style="margin-top:12px">
+        <label for="a-corps">Corps du texte (un paragraphe par ligne)</label>
+        <textarea id="a-corps" style="min-height:190px"></textarea>
+      </div>
+      <div style="margin-top:12px">
+        <label for="a-retenir">À retenir (une puce par ligne)</label>
+        <textarea id="a-retenir"></textarea>
+      </div>
+      <div style="margin-top:12px">
+        <label for="a-tags">Mots-clés, séparés par des virgules (utilisés par l'assistant)</label>
+        <input type="text" id="a-tags">
+      </div>
+      <div style="margin-top:12px">
+        <label for="a-sources">Sources, une par ligne, au format : intitulé | url</label>
+        <textarea id="a-sources"></textarea>
+      </div>
+      <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn" id="a-save">Enregistrer la fiche</button>
+        <button class="btn ghost" id="a-new">Nouvelle fiche</button>
+        <button class="btn danger" id="a-del">Supprimer</button>
+      </div>
+      <p class="hint" id="a-status"></p>
+    </div>
+
+    <h2>Paramètres du simulateur</h2>
+    <div class="card">
+      <div class="row" id="a-params"></div>
+      <div style="margin-top:14px">
+        <button class="btn" id="p-save">Enregistrer les paramètres</button>
+        <span class="hint" id="p-status"></span>
+      </div>
+    </div>
+
+    <h2>Sauvegarde</h2>
+    <div class="card">
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn" id="x-export">Exporter kb.js</button>
+        <button class="btn ghost" id="x-import">Importer un fichier</button>
+        <button class="btn danger" id="x-reset">Revenir au contenu d'origine</button>
+        <input type="file" id="x-file" accept=".js,.json" hidden>
+      </div>
+      <p class="hint">
+        L'export produit un <code>kb.js</code> complet. Remplacez le fichier du même nom dans
+        <code>app/</code> et rechargez : les modifications deviennent la version de référence.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<!-- Assistant flottant, present sur tous les onglets -->
+<div id="widget" hidden>
+  <div id="widget-poignee" title="Glisser pour régler la largeur" role="separator" aria-orientation="vertical" aria-label="Régler la largeur du panneau" tabindex="0"></div>
+  <div class="w-head">
+    <span>Assistant du guide</span>
+    <span class="w-actions">
+      <button id="widget-plein" title="Ouvrir en pleine page" aria-label="Ouvrir en pleine page">⤢</button>
+      <button id="widget-close" title="Fermer" aria-label="Fermer l'assistant">×</button>
+    </span>
+  </div>
+  <div class="chat-log" id="widget-log"></div>
+  <div class="chat-bar">
+    <input type="text" id="widget-input" placeholder="Posez votre question..." autocomplete="off">
+    <button class="btn" id="widget-send">Envoyer</button>
+  </div>
+</div>
+<button id="widget-btn" title="Ouvrir l'assistant" aria-label="Ouvrir l'assistant">💬</button>
+
+<script src="app/bareme.js?v=17"></script>
+<script src="app/kb.js?v=17"></script>
+<script src="app/simulateur.js?v=17"></script>
+<script src="comparateur/contrats_kb.js?v=17"></script>
+<script src="comparateur/mrh_kb.js?v=17"></script>
+<script src="comparateur/offres_kb.js?v=17"></script>
+<script src="app/chat.js?v=17"></script>
+<script src="app/ui.js?v=17"></script>
+<script src="app/communaute.js?v=17"></script>
+<script src="app/communaute.js"></script>
+</body>
+</html>
