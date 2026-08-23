@@ -2,6 +2,7 @@
 
 - `FakeAnthropic(script)` rejoue des réponses scriptées (dicts → `anthropic.types.Message`) ou lève
   des exceptions SDK préparées par `provider_exception` ; chaque requête envoyée est enregistrée.
+  La surface simulée est `messages.parse` (le transport du client) et `messages.count_tokens`.
 - `RecordedAnthropic(recorder)` relie `LlmClient` au record/replay de `tests/fixtures.py` : avec la
   clé, l'appel réel est exécuté et sa réponse brute (`Message.to_dict()`) enregistrée ; sans clé,
   elle est rejouée et revalidée exactement comme le ferait le SDK.
@@ -77,7 +78,7 @@ class _FakeMessages:
         self.requests: list[dict[str, Any]] = []
         self.count_requests: list[dict[str, Any]] = []
 
-    async def create(self, **kwargs: Any) -> Message:
+    async def parse(self, **kwargs: Any) -> Message:
         self.requests.append(kwargs)
         if not self._script:
             raise AssertionError("script épuisé : appel API non prévu par le test")
@@ -94,7 +95,7 @@ class _FakeMessages:
 
 
 class FakeAnthropic:
-    """Assez du SDK pour `LlmClient` : `messages.create` et `messages.count_tokens`."""
+    """Assez du SDK pour `LlmClient` : `messages.parse` et `messages.count_tokens`."""
 
     def __init__(self, script: list[Any] | None = None, token_counts: list[int] | None = None) -> None:
         self.messages = _FakeMessages(script or [], token_counts or [])
@@ -123,11 +124,13 @@ class _RecordedMessages:
             self._real = anthropic.AsyncAnthropic(api_key=get_settings().anthropic_api_key, max_retries=0)
         return self._real
 
-    async def create(self, **kwargs: Any) -> Message:
+    async def parse(self, **kwargs: Any) -> Message:
         key = request_key(kwargs["model"], kwargs["messages"], **_key_params(kwargs))
 
         async def fn() -> dict[str, Any]:
-            message = await self._real_client().messages.create(**kwargs)
+            # `output_format` volontairement absent : le corps est déjà complet (`output_config.format`)
+            # et le SDK ne doit pas valider avant de rendre la réponse (voir client.py).
+            message = await self._real_client().messages.parse(**kwargs)
             return message.to_dict()
 
         return Message.model_validate(await self._recorder.call(key, fn))

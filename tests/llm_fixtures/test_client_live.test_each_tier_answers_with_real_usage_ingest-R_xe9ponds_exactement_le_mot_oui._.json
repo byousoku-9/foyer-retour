@@ -4,11 +4,12 @@
     "response": {
       "content": [
         {
+          "parsed_output": null,
           "text": "{\"mot\":\"oui\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeL7hYsgiCPyHgRYbnnZk",
+      "id": "msg_011CeL9RhFkvt95Jv48vF6MA",
       "model": "claude-opus-5",
       "role": "assistant",
       "stop_details": null,
@@ -18,10 +19,10 @@
       "usage": {
         "cache_creation": {
           "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
+          "ephemeral_5m_input_tokens": 2058
         },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 2058,
+        "cache_creation_input_tokens": 2058,
+        "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 17,
         "output_tokens": 12,

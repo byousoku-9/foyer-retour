@@ -1,12 +1,13 @@
 """AD-9/10/16 — Le client Claude unique : async, structured outputs, cache de préfixe, deadline,
 plafonds, coût réel, mapping exhaustif des erreurs fournisseur, trace de chaque appel.
 
-Choix d'implémentation (Design Notes de la spec 1.3) : on envoie la requête via
-`messages.create(..., output_config={"format": …})` — le corps exact que `messages.parse` construit
-(schéma produit par `anthropic.transform_schema`) — et on valide le texte avec
-`TypeAdapter(output_model).validate_json`, le code même de `parse`. Passer par `messages.parse`
-perdrait `usage`, `stop_reason` et le texte reçu quand la validation échoue (le SDK 1.0.0 lève
-avant de rendre la réponse), ce qui casserait AD-10 (chaque appel tracé et facturé) et le retry.
+Choix d'implémentation (Design Notes de la spec 1.3, convention LLM du spine amendée en revue 1.3) :
+l'appel passe par `client.messages.parse(..., output_config={"format": …})` — schéma produit par
+`anthropic.transform_schema` — **sans** `output_format=output_model` : avec `output_format`, le SDK
+1.0.0 valide le texte avant de rendre la réponse et lève `ValidationError` — `usage`, `stop_reason`
+et le texte reçu seraient perdus pour la trace (AD-10), le coût réel et le retry. La validation est
+faite localement par `TypeAdapter(output_model).validate_json`, le code même de `parse_text` du SDK ;
+le corps envoyé est identique sur le fil.
 
 Le client Anthropic est construit avec `max_retries=0` : les retries du SDK (429/5xx)
 casseraient la deadline et le compteur d'appels (AD-9).
@@ -54,6 +55,9 @@ PROVIDER_ERRORS: dict[type[Exception], ErrorCode] = {
     anthropic.RequestTooLargeError: ErrorCode.internal,  # 413
     anthropic.ConflictError: ErrorCode.internal,  # 409
     anthropic.APIStatusError: ErrorCode.internal,  # tout statut restant
+    anthropic.APIResponseValidationError: ErrorCode.internal,  # réponse hors schéma SDK
+    anthropic.RetryableError: ErrorCode.llm_unavailable,  # le SDK la déclare transitoire
+    anthropic.AnthropicError: ErrorCode.internal,  # toute erreur SDK résiduelle — le mapping est total
 }
 
 
@@ -186,11 +190,16 @@ class LlmClient:
             if extra_body is not None:
                 kwargs["extra_body"] = extra_body
 
+            tool_names = [t.get("name", "") for t in tools] if tools else []
             budget.attempts += 1
             t0 = time.monotonic()
             try:
-                message = await self._anthropic.messages.create(**kwargs)
-            except Exception as exc:  # noqa: BLE001 — mapping exhaustif, le reste est relancé tel quel
+                message = await self._anthropic.messages.parse(**kwargs)
+            except Exception as exc:  # noqa: BLE001 — mapping total des erreurs SDK, le reste est relancé tel quel
+                # AD-10 : l'appel en échec est tracé aussi — modèle demandé, durée, usage nul
+                # (l'API n'a rien renvoyé : timeout, 429, 529, réseau…).
+                ms = int((time.monotonic() - t0) * 1000)
+                self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names))
                 raise map_provider_error(exc) from exc
             ms = int((time.monotonic() - t0) * 1000)
 
@@ -198,12 +207,16 @@ class LlmClient:
             budget.note_call(usage)
             call = LLMCall(model=message.model, ms=ms, usage=usage,
                            cache_read=usage.cached, cache_write=self._cache_write_tokens(message.usage),
-                           tools=[t.get("name", "") for t in tools] if tools else [])
+                           tools=tool_names)
             self._note_call(step, call)
-            if usage.cost_eur > settings.cost_alert_eur:
+            # AD-10 (revue Codex 1.3, I1) : le seuil porte sur le coût cumulé de la requête — un appel
+            # cher isolé le franchit aussi ; le check n'est ajouté qu'une fois, au franchissement.
+            if budget.cost_eur > settings.cost_alert_eur and not budget.cost_alerted:
+                budget.cost_alerted = True
                 step.checks.append(CheckResult(
                     name="cout_eleve", ok=False,
-                    detail=f"appel à {usage.cost_eur:.4f} € > cost_alert_eur {settings.cost_alert_eur:.4f} €"))
+                    detail=f"coût cumulé de la requête {budget.cost_eur:.4f} € > "
+                           f"cost_alert_eur {settings.cost_alert_eur:.4f} € (dernier appel : {usage.cost_eur:.4f} €)"))
 
             text = _text_of(message)
             if message.stop_reason == "refusal":

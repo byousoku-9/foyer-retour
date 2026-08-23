@@ -16,6 +16,7 @@ class RequestBudget:
         self.max_cost_eur = max_cost_eur
         self.attempts = 0
         self.cost_eur = 0.0
+        self.cost_alerted = False  # AD-10 : `cout_eleve` levé une seule fois par requête, au franchissement
         self._t0 = time.monotonic()
 
     def remaining(self) -> float:

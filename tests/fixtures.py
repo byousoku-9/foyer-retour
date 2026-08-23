@@ -1,9 +1,12 @@
 """Record / replay générique des appels LLM pour des tests sans réseau.
 
-- `ANTHROPIC_API_KEY` présente (environnement ou `.env`, via `get_settings()`) ⇒ l'appel réel est exécuté et sa réponse sérialisée dans
+- `ANTHROPIC_API_KEY` non vide dans l'environnement (ou, si la variable est **absente**, dans `.env`
+  via `get_settings()`) ⇒ l'appel réel est exécuté et sa réponse sérialisée dans
   `tests/llm_fixtures/{module}.{test}.json` (sans la clé, messages hashés).
-- clé absente ⇒ la réponse est rejouée depuis la fixture ; fixture absente, corrompue ou d'un autre
-  modèle que celui demandé ⇒ `FixtureMissing`.
+- variable d'environnement **vide** ⇒ replay forcé, même si `.env` porte une clé : le gate hors
+  ligne `ANTHROPIC_API_KEY= uv run pytest -q` est hermétique (AC 1.3, revue Codex B2).
+- clé absente partout ⇒ replay ; fixture absente, corrompue ou d'un autre modèle que celui
+  demandé ⇒ `FixtureMissing`.
 
 L'utilitaire ne connaît pas le client LLM (story 1.3) : il enveloppe une coroutine `call()`
 et un `key` qui identifie la requête (modèle + hash des messages).
@@ -13,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -65,9 +69,14 @@ class LLMRecorder:
     def __init__(self, test_name: str, fixtures_dir: Path = FIXTURES_DIR, api_key: str | None = None) -> None:
         self.path = fixtures_dir / f"{fixture_name(test_name)}.json"
         if api_key is None:
-            from server.app.config import get_settings
+            if "ANTHROPIC_API_KEY" in os.environ:
+                # La variable explicite fait foi — vide ⇒ replay forcé, sans repli vers `.env`
+                # (Settings ignore les variables vides via `env_ignore_empty`).
+                api_key = os.environ["ANTHROPIC_API_KEY"]
+            else:
+                from server.app.config import get_settings
 
-            api_key = get_settings().anthropic_api_key
+                api_key = get_settings().anthropic_api_key
         self.api_key = api_key
         self._entries: dict[str, Any] = {}
         if self.path.exists():

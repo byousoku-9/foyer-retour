@@ -4,11 +4,12 @@
     "response": {
       "content": [
         {
+          "parsed_output": null,
           "text": "{\"mot\": \"bonjour\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeL7hLDC12ZmbEhriQrjV",
+      "id": "msg_011CeL9RT7huhBSJuf4k38jM",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,

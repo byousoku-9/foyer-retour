@@ -3,8 +3,11 @@
 Prix de liste USD/MTok lus sur la page de prix Anthropic (référence API du 23/08/2026) ; l'offre
 d'introduction Sonnet 5 (2/10 jusqu'au 31/08/2026) est ignorée : le coût calculé est un majorant.
 Écriture de cache : 1,25× le prix d'entrée (TTL 5 min), 2× (TTL 1 h) ; lecture : 0,1×.
-`estimate_cost()` est une borne haute avant appel : caractères / `estimate_chars_per_token`
-× `estimate_tokenizer_factor` (facteur +30 % des modèles 5), sortie comptée à `max_tokens`, sans cache.
+`estimate_cost()` est l'heuristique avant appel du spine (AD-9) : caractères / `estimate_chars_per_token`
+× `estimate_tokenizer_factor` (facteur +30 % des modèles 5), sortie comptée à `max_tokens`, prix hors
+cache. La sortie à `max_tokens` en fait un majorant en pratique, mais l'entrée est sous-estimée en
+français (≈ 2,3 car./token mesurés vs 4,0 configurés) et le surcoût d'écriture de cache n'y est pas :
+recalibrage différé vers 1.4 avec les évals (`deferred-work.md`).
 """
 
 from __future__ import annotations
@@ -107,7 +110,11 @@ def _text_len(content: Any) -> int:
 
 def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, settings: Settings,
                   *, tools: Any = None) -> float:
-    """Borne haute en euros d'un appel avant de le faire (AD-9) — jamais un coût facturé."""
+    """Estimation en euros d'un appel avant de le faire (AD-9) — jamais un coût facturé.
+
+    Majorant en pratique par la sortie comptée à `max_tokens` ; l'entrée est une heuristique
+    (recalibrage différé vers 1.4, voir la docstring du module). Le plafond dur reste le cumul
+    des coûts **réels** dans `RequestBudget` (NFR4)."""
     if model not in PRICES:
         raise ValueError(f"modèle absent de PRICES : {model!r}")
     p = PRICES[model]

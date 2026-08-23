@@ -4,11 +4,12 @@
     "response": {
       "content": [
         {
+          "parsed_output": null,
           "text": "{\"mot\":\"un\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeL7hjTvcSvE3DAzoQtmY",
+      "id": "msg_011CeL9RqJSb1GXJye2vcH6X",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -37,11 +38,12 @@
     "response": {
       "content": [
         {
+          "parsed_output": null,
           "text": "{\"mot\":\"deux\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeL7hy1kYpVP4D419N9Mv",
+      "id": "msg_011CeL9RxvqMMT1WsaixJxS4",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,

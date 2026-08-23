@@ -130,6 +130,26 @@ def test_recorder_reads_key_from_env_file(monkeypatch: pytest.MonkeyPatch, tmp_p
         config.get_settings.cache_clear()
 
 
+def test_empty_env_var_forces_replay_even_with_a_dotenv_key(monkeypatch: pytest.MonkeyPatch,
+                                                            tmp_path: Path) -> None:
+    # revue Codex 1.3 B2 : `ANTHROPIC_API_KEY= uv run pytest -q` doit être hermétique même quand `.env`
+    # porte une clé — la variable d'environnement explicite (même vide) prime, sans repli vers
+    # `get_settings()` (qui ignore les variables vides via `env_ignore_empty`).
+    from server.app import config
+
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=sk-from-dotenv\n")
+    monkeypatch.setattr(config.Settings, "model_config", {**config.Settings.model_config, "env_file": env})
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    config.get_settings.cache_clear()
+    try:
+        rec = LLMRecorder("t", fixtures_dir=tmp_path)
+        assert rec.recording is False and rec.api_key == ""
+        assert config.get_settings().anthropic_api_key == "sk-from-dotenv"  # la fuite que B2 dénonçait
+    finally:
+        config.get_settings.cache_clear()
+
+
 def test_fixture_name_is_module_dot_test_and_safe() -> None:
     assert fixture_name("tests/test_fixtures.py::test_x") == "test_fixtures.test_x"
     name = fixture_name("tests/sub/test_a.py::TestK::test_y[a/b]")

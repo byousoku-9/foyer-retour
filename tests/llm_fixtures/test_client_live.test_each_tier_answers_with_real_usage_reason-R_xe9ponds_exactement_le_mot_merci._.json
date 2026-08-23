@@ -4,11 +4,12 @@
     "response": {
       "content": [
         {
+          "parsed_output": null,
           "text": "{\"mot\":\"merci\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeL7hR2f8tLr3nGij5WPw",
+      "id": "msg_011CeL9RYb7HFanjr31FoGTY",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,

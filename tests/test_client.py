@@ -126,10 +126,13 @@ async def test_exhausted_deadline_raises_timeout_without_calling() -> None:
 
 async def test_sdk_timeout_maps_to_timeout_and_counts_the_attempt() -> None:
     client, _ = _client([provider_exception(anthropic.APITimeoutError)])
-    budget = _budget()
+    budget, step = _budget(), StepTrace(name="comprendre")
     with pytest.raises(Timeout):
-        await _call(client, budget=budget)
+        await _call(client, budget=budget, step=step)
     assert budget.attempts == 1
+    # revue Codex B3 (AD-10) : l'appel en échec est tracé — modèle demandé, durée, usage nul.
+    assert len(step.calls) == 1
+    assert step.calls[0].model == HAIKU and step.calls[0].usage.cost_eur == 0.0
 
 
 async def test_invalid_parse_then_ok_retries_once_with_motive() -> None:
@@ -201,16 +204,31 @@ async def test_expensive_call_succeeds_but_flags_cout_eleve() -> None:
     assert step.checks[0].ok is False
 
 
+async def test_cout_eleve_fires_once_on_the_cumulated_request_cost() -> None:
+    # revue Codex I1 (AD-10) : deux appels chacun sous 0,05 € dont seul le cumul franchit le seuil —
+    # le check est levé une seule fois, au franchissement.
+    client, _ = _client([fake_message(model=OPUS, input_tokens=4_000, output_tokens=800),
+                         fake_message(model=OPUS, input_tokens=4_000, output_tokens=800)])
+    budget, step = _budget(max_cost=1.0), StepTrace(name="ingest")
+    first = await _call(client, tier="ingest", budget=budget, step=step)
+    assert first.usage.cost_eur < 0.05 and step.checks == []
+    second = await _call(client, tier="ingest", budget=budget, step=step)
+    assert second.usage.cost_eur < 0.05 and budget.cost_eur > 0.05
+    assert [c.name for c in step.checks] == ["cout_eleve"]
+
+
 @pytest.mark.parametrize("cls", [anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.OverloadedError,
                                  anthropic.InternalServerError, anthropic.ServiceUnavailableError,
                                  anthropic.DeadlineExceededError, anthropic.AuthenticationError,
                                  anthropic.PermissionDeniedError])
 async def test_provider_errors_map_to_llm_unavailable(cls: type[Exception]) -> None:
     client, _ = _client([provider_exception(cls)])
+    step = StepTrace(name="comprendre")
     with pytest.raises(LlmUnavailable) as exc_info:
-        await _call(client)
+        await _call(client, step=step)
     assert exc_info.value.code is ErrorCode.llm_unavailable
     assert cls.__name__ in exc_info.value.message
+    assert len(step.calls) == 1 and step.calls[0].usage.cost_eur == 0.0  # revue Codex B3 : échec tracé
 
 
 @pytest.mark.parametrize("cls", [anthropic.BadRequestError, anthropic.NotFoundError,
@@ -218,10 +236,12 @@ async def test_provider_errors_map_to_llm_unavailable(cls: type[Exception]) -> N
                                  anthropic.ConflictError])
 async def test_our_bad_requests_map_to_internal(cls: type[Exception]) -> None:
     client, _ = _client([provider_exception(cls)])
+    step = StepTrace(name="comprendre")
     with pytest.raises(LlmUnavailable) as exc_info:
-        await _call(client)
+        await _call(client, step=step)
     assert exc_info.value.code is ErrorCode.internal
     assert cls.__name__ in exc_info.value.message and "req_test" in exc_info.value.message
+    assert len(step.calls) == 1 and step.calls[0].model == HAIKU  # revue Codex B3 : échec tracé
 
 
 async def test_unknown_status_error_maps_to_internal_and_others_are_reraised() -> None:
@@ -232,6 +252,29 @@ async def test_unknown_status_error_maps_to_internal_and_others_are_reraised() -
     assert isinstance(mapped, LlmUnavailable) and mapped.code is ErrorCode.internal
     with pytest.raises(ValueError):
         map_provider_error(ValueError("pas une erreur SDK"))
+
+
+async def test_mapping_is_total_over_sdk_errors_and_never_leaks_the_body() -> None:
+    # revue Codex B6 : APIResponseValidationError, RetryableError et toute erreur SDK résiduelle
+    # restent dans l'enveloppe AD-16 — message = classe + request_id, jamais le corps fournisseur.
+    import httpx2
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    validation = anthropic.APIResponseValidationError(
+        response=httpx2.Response(200, request=request), body={"error": "clé sk-fake-123 dans le corps"})
+    mapped = map_provider_error(validation)
+    assert isinstance(mapped, LlmUnavailable) and mapped.code is ErrorCode.internal
+    assert "APIResponseValidationError" in mapped.message and "sk-fake-123" not in mapped.message
+
+    retryable = map_provider_error(anthropic.RetryableError("à réessayer"))
+    assert isinstance(retryable, LlmUnavailable) and retryable.code is ErrorCode.llm_unavailable
+
+    class ResidualSdkError(anthropic.AnthropicError):
+        pass
+
+    residual = map_provider_error(ResidualSdkError("message fournisseur sensible"))
+    assert isinstance(residual, LlmUnavailable) and residual.code is ErrorCode.internal
+    assert residual.message == "ResidualSdkError (request_id=absent)"
 
 
 async def test_error_message_is_only_class_and_request_id_never_secret_nor_body() -> None:
