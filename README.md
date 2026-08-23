@@ -28,11 +28,12 @@ uv run pytest -q                          # avec la clé, les tests qui appellen
 - `tests/test_layers.py` vérifie statiquement les couches du spine (`domain` n'importe rien ; une étape n'importe jamais une autre étape).
 - `tests/test_domain.py` vérifie que chaque modèle porte exactement les champs et enums de son AD.
 - Les seuils numériques vivent dans `server/app/config.py` et se surchargent par variable d'environnement.
+- Ré-enregistrer une fixture LLM : supprimer `tests/llm_fixtures/{module}.{test}.json` puis relancer ce test avec `ANTHROPIC_API_KEY` renseignée (réseau, coût) ; committer le JSON avec le pourquoi.
 - Les vérifications qui touchent le réseau (GCP, API) sont consignées dans `docs/tests-live.md`.
 
 ## Infrastructure
 
-`scripts/gcp_bootstrap.sh` (idempotent, `--project=foyer-retour`, `europe-west1`) crée les comptes de service, la fédération d'identité GitHub, le secret, les buckets et le budget ; il affiche les trois variables GitHub à poser (`GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOY_SA`). `scripts/hello_world/` est le conteneur minimal qui a validé les rôles sur Cloud Run avant le déploiement automatique.
+`scripts/gcp_bootstrap.sh` (idempotent, `--project=foyer-retour`, `europe-west1`) crée les comptes de service, la fédération d'identité GitHub, le secret, les buckets et le budget ; il affiche les trois variables GitHub à poser (`GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOY_SA`). `scripts/hello_world/` est le conteneur minimal qui a validé les rôles sur Cloud Run avant le déploiement automatique ; il est déployé volontairement sous le nom final du service, `foyer-retour`, pour que `deploy.yml` (story 1.11) le remplace en place sans changer d'URL. Le PDF du contrat n'est pas dans le repo : le script le dépose dans `gs://foyer-retour-sources/` depuis `PDF_LOCAL` (chemin fourni à la main).
 
 ## Ce que contiendra ce dépôt
 

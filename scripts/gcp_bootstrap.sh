@@ -2,7 +2,8 @@
 # Bootstrap GCP idempotent pour foyer-retour (story 1.0).
 # Re-exécutable sans erreur : chaque étape vérifie l'existant avant de créer.
 # Pré-requis : gcloud authentifié, droit propriétaire sur le projet, `.env` avec ANTHROPIC_API_KEY.
-# Usage : bash scripts/gcp_bootstrap.sh
+# Usage : PDF_LOCAL=/chemin/vers/axa-lu-optihome-2017.pdf bash scripts/gcp_bootstrap.sh
+#   (PDF_LOCAL n'est lu que si l'objet gs://foyer-retour-sources/axa-lu-optihome-2017.pdf est absent)
 set -euo pipefail
 
 PROJECT="${PROJECT:-foyer-retour}"
@@ -15,11 +16,15 @@ RUNTIME_NAME="foyer-retour-run"
 SOURCES_BUCKET="gs://${PROJECT}-sources"
 STAGING_BUCKET="gs://${PROJECT}_cloudbuild"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PDF_LOCAL="${PDF_LOCAL:-${ROOT}/../_reference/cg-pdf/axa-lu-optihome-2017.pdf}"
+# Chemin local du PDF AXA OptiHome 2017 (non redistribué) : obligatoire, fourni par l'opérateur.
+PDF_LOCAL="${PDF_LOCAL:-}"
 PDF_SHA256_EXPECTED="6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c"
 
 G="gcloud --project=${PROJECT} --quiet"
 log() { printf '\n== %s\n' "$*"; }
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
+# Les liaisons IAM qui suivent la création d'un SA peuvent échouer quelques secondes (propagation) : on réessaie.
+retry() { local n=1; until "$@"; do [ $n -ge 5 ] && return 1; sleep $((n * 5)); n=$((n + 1)); done; }
 present() { printf '   déjà présent : %s\n' "$*"; }
 
 PROJECT_NUMBER="$($G projects describe "${PROJECT}" --format='value(projectNumber)')"
@@ -47,7 +52,7 @@ bind_project_role() { # member role
       --filter="bindings.role=$2 AND bindings.members=$1" --format='value(bindings.role)' | grep -q .; then
     present "$1 → $2"
   else
-    $G projects add-iam-policy-binding "${PROJECT}" --member="$1" --role="$2" >/dev/null
+    retry $G projects add-iam-policy-binding "${PROJECT}" --member="$1" --role="$2" >/dev/null
     echo "   lié : $1 → $2"
   fi
 }
@@ -67,28 +72,35 @@ if $G iam service-accounts get-iam-policy "${RUNTIME_SA}" --flatten='bindings[].
     --format='value(bindings.role)' | grep -q .; then
   present "actAs runtime"
 else
-  $G iam service-accounts add-iam-policy-binding "${RUNTIME_SA}" \
+  retry $G iam service-accounts add-iam-policy-binding "${RUNTIME_SA}" \
     --member="serviceAccount:${DEPLOY_SA}" --role=roles/iam.serviceAccountUser >/dev/null
   echo "   lié : déployeur → actAs runtime"
 fi
 
 log "Secret ANTHROPIC_API_KEY"
-if $G secrets describe ANTHROPIC_API_KEY >/dev/null 2>&1; then
-  present "secret"
+if $G secrets versions list ANTHROPIC_API_KEY --filter='state=ENABLED' --format='value(name)' 2>/dev/null | grep -q .; then
+  present "secret (version ENABLED)"
 else
   ENV_FILE="${ROOT}/.env"
   [ -f "${ENV_FILE}" ] || { echo "   .env absent : impossible de créer le secret" >&2; exit 1; }
   # La valeur ne transite jamais par la ligne de commande ni par stdout.
-  sed -n 's/^ANTHROPIC_API_KEY=//p' "${ENV_FILE}" | tr -d '\n' \
-    | $G secrets create ANTHROPIC_API_KEY --replication-policy=automatic --data-file=- >/dev/null
-  echo "   créé (v1)"
+  KEY_VALUE="$(sed -n 's/^ANTHROPIC_API_KEY=//p' "${ENV_FILE}" | head -n1 | tr -d "\r\"'")"
+  [ -n "${KEY_VALUE}" ] || { echo "   ANTHROPIC_API_KEY vide dans .env : refus de créer un secret vide" >&2; exit 1; }
+  if $G secrets describe ANTHROPIC_API_KEY >/dev/null 2>&1; then
+    printf '%s' "${KEY_VALUE}" | $G secrets versions add ANTHROPIC_API_KEY --data-file=- >/dev/null
+    echo "   version ajoutée"
+  else
+    printf '%s' "${KEY_VALUE}" | $G secrets create ANTHROPIC_API_KEY --replication-policy=automatic --data-file=- >/dev/null
+    echo "   créé (v1)"
+  fi
+  unset KEY_VALUE
 fi
 if $G secrets get-iam-policy ANTHROPIC_API_KEY --flatten='bindings[].members' \
     --filter="bindings.role=roles/secretmanager.secretAccessor AND bindings.members=serviceAccount:${RUNTIME_SA}" \
     --format='value(bindings.role)' | grep -q .; then
   present "secretAccessor runtime"
 else
-  $G secrets add-iam-policy-binding ANTHROPIC_API_KEY \
+  retry $G secrets add-iam-policy-binding ANTHROPIC_API_KEY \
     --member="serviceAccount:${RUNTIME_SA}" --role=roles/secretmanager.secretAccessor >/dev/null
   echo "   lié : runtime → secretAccessor"
 fi
@@ -118,7 +130,7 @@ if $G iam service-accounts get-iam-policy "${DEPLOY_SA}" --flatten='bindings[].m
     --format='value(bindings.role)' | grep -q .; then
   present "workloadIdentityUser"
 else
-  $G iam service-accounts add-iam-policy-binding "${DEPLOY_SA}" \
+  retry $G iam service-accounts add-iam-policy-binding "${DEPLOY_SA}" \
     --member="${WIF_MEMBER}" --role=roles/iam.workloadIdentityUser >/dev/null
   echo "   lié : GitHub ${REPO} → déployeur"
 fi
@@ -150,13 +162,15 @@ bind_bucket_role "${SOURCES_BUCKET}" "serviceAccount:${PROJECT_NUMBER}-compute@d
 PDF_OBJECT="${SOURCES_BUCKET}/axa-lu-optihome-2017.pdf"
 if $G storage objects describe "${PDF_OBJECT}" >/dev/null 2>&1; then
   present "${PDF_OBJECT}"
+elif [ -z "${PDF_LOCAL}" ]; then
+  echo "   PDF_LOCAL non défini : relancer avec PDF_LOCAL=/chemin/vers/axa-lu-optihome-2017.pdf pour déposer le PDF" >&2
 elif [ -f "${PDF_LOCAL}" ]; then
-  ACTUAL="$(shasum -a 256 "${PDF_LOCAL}" | cut -d' ' -f1)"
+  ACTUAL="$(sha256_of "${PDF_LOCAL}")"
   [ "${ACTUAL}" = "${PDF_SHA256_EXPECTED}" ] || { echo "   sha256 inattendu pour le PDF : ${ACTUAL}" >&2; exit 1; }
   $G storage cp "${PDF_LOCAL}" "${PDF_OBJECT}" >/dev/null
   echo "   déposé : ${PDF_OBJECT}"
 else
-  echo "   PDF local absent (${PDF_LOCAL}) : dépôt à faire à la main"
+  echo "   PDF_LOCAL introuvable (${PDF_LOCAL}) : dépôt à faire à la main" >&2
 fi
 
 log "Budget (alerte 50 %) — best-effort"
