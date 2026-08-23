@@ -114,6 +114,51 @@ def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
     assert mini_index.chercher({"delai legal": ["huit jours"]}, limit=5)[0] == ("lux-guide:farrivee:3", "lux-guide:farrivee")
 
 
+def _def_doc() -> Document:
+    blocks = [
+        Block(block_id="d:p1:1", text="Le contenu désigne les meubles.", loc="p1", seq=1,
+              kind="definition", defines="contenu"),
+        Block(block_id="d:p1:2", text="Mobilier de jardin : tables et chaises.", loc="p1", seq=2,
+              kind="definition", defines="mobilier de jardin"),
+        Block(block_id="d:p1:3", text="contenu sans defines", loc="p1", seq=3, kind="definition"),
+        Block(block_id="d:p1:4", text="para qui définit le contenu", loc="p1", seq=4),  # kind ≠ definition
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    return Document(doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)
+
+
+def test_definitions_matches_normalized_defines_whole_word() -> None:
+    ix = Index(Corpus(documents={"d": _def_doc()}))
+    # terme exact, insensible à la casse et aux accents (normalize)
+    assert ix.definitions(["Contenu"]) == [("d:p1:1", "n")]
+    # mot entier dans les deux sens : « jardin » trouve « mobilier de jardin », et le terme
+    # multi-mots « le contenu assuré » retrouve « contenu »
+    assert ix.definitions(["jardin"]) == [("d:p1:2", "n")]
+    assert ix.definitions(["le contenu assuré"]) == [("d:p1:1", "n")]
+    assert ix.definitions(["mobilier de jardin"]) == [("d:p1:2", "n")]
+    # jamais de correspondance partielle de mot, ni via le texte du bloc
+    assert ix.definitions(["conten"]) == []
+    assert ix.definitions(["meubles"]) == []
+    # variantes d'un dict ; ordre de lecture quand plusieurs matchent
+    assert ix.definitions({"biens": ["contenu", "jardin"]}) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+    # termes vides, doc_id filtrant ou inconnu, chaîne nue
+    assert ix.definitions([]) == [] and ix.definitions({"": []}) == []
+    assert ix.definitions(["contenu"], doc_id="d") == [("d:p1:1", "n")]
+    with pytest.raises(KeyError):
+        ix.definitions(["contenu"], doc_id="autre")
+    with pytest.raises(TypeError):
+        ix.definitions("contenu")
+
+
+def test_definitions_on_real_corpus_finds_the_axa_overlay() -> None:
+    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    assert ix.definitions(["contenu"], doc_id="axa-lu-optihome-2017") == \
+        [("axa-lu-optihome-2017:p9:2", "axa-lu-optihome-2017:a1.12")]
+    assert ("axa-lu-optihome-2017:p11:12" in [b for b, _ in ix.definitions(["mobilier de jardin"])])
+    assert ix.definitions(["matricule"]) == []  # le guide n'a aucun bloc definition
+
+
 def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     s = Settings(_env_file=None)
     ix = Index(load_corpus(ROOT / "data", allow_ungated=True))

@@ -1,6 +1,5 @@
-"""AD-1 — Index déterministe du corpus et trois des quatre outils de *retrouver* : `sommaire`, `ouvrir_noeud`, `chercher`.
-
-`definitions` arrive en 1.4. Les seuils (`node_window`, `limit`) sont passés par l'appelant depuis `config.py`.
+"""AD-1 — Index déterministe du corpus et les quatre outils de *retrouver* : `sommaire`, `ouvrir_noeud`,
+`chercher`, `definitions`. Les seuils (`node_window`, `limit`) sont passés par l'appelant depuis `config.py`.
 """
 
 from __future__ import annotations
@@ -146,3 +145,35 @@ class Index:
     @staticmethod
     def _hit(e: _Entry, form: str) -> bool:
         return form in e.tokens if " " not in form else f" {form} " in e.padded
+
+    def definitions(self, termes: dict[str, list[str]] | Iterable[str], *, doc_id: str | None = None) -> list[tuple[str, str]]:
+        """Blocs `kind="definition"` dont `defines` normalisé matche un terme (ou une variante si dict),
+        en mots entiers, dans les deux sens (« jardin » trouve « mobilier de jardin » et réciproquement) ;
+        ordre de lecture. Le suivi des `refs` des blocs ouverts est fait par *retrouver* (il connaît les
+        blocs ouverts) ; le filtre de portée fine (`scope_nodes`) n'a de sens qu'au verdict (story 3.3)."""
+        if isinstance(termes, str):
+            raise TypeError("termes : dict[str, list[str]] ou liste de termes attendus, pas une chaîne")
+        if doc_id is not None and doc_id not in self.corpus.documents:
+            raise KeyError(doc_id)
+        mapping = termes if isinstance(termes, dict) else {t: [] for t in termes}
+        forms: set[str] = set()
+        for canon, variants in mapping.items():
+            for v in (canon, *variants):
+                form = " ".join(words(normalize(v)))
+                if form:
+                    forms.add(form)
+        out: list[tuple[str, str]] = []
+        if not forms:
+            return out
+        for e in self._entries:
+            if doc_id is not None and e.doc_id != doc_id:
+                continue
+            b = e.block
+            if b.kind != "definition" or not b.defines:
+                continue
+            defined = " ".join(words(normalize(b.defines)))
+            if not defined:
+                continue
+            if any(f" {f} " in f" {defined} " or f" {defined} " in f" {f} " for f in forms):
+                out.append((b.block_id, e.node_id))
+        return out
