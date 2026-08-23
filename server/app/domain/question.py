@@ -20,11 +20,11 @@ class Faits(BaseModel):
 
     date: str | None = None
     lieu: str | None = None
-    montant_eur: float | None = None
+    montant_eur: float | None = Field(None, ge=0)
     description: str = Field(max_length=2000)
 
 
-class Scope(BaseModel):
+class QuestionScope(BaseModel):
     """Portée dérivée du profil ou des faits du sinistre."""
 
     themes: list[str] = Field(default_factory=list)  # école, allocations, auto…
@@ -40,4 +40,4 @@ class ParsedQuestion(BaseModel):
     intent: Intent
     language: str = "fr"
     terms: list[str] = Field(default_factory=list)  # toujours en français
-    scope: Scope = Field(default_factory=Scope)
+    scope: QuestionScope = Field(default_factory=QuestionScope)

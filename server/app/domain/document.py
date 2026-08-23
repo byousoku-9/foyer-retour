@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 DocumentKind = Literal["guide", "contrat"]
 ScopeKind = Literal["commun", "special", "extension"]
@@ -19,7 +19,7 @@ DOC_ID_RE = re.compile(r"^[a-z0-9-]+$")
 BLOCK_ID_RE = re.compile(r"^[a-z0-9-]+:(p\d+|f[^:]+|q\d+):\d+$")
 
 # bbox = [x0, y0, x1, y1] en points PDF, origine haut-gauche.
-Bbox = list[float]
+Bbox = Annotated[list[float], Field(min_length=4, max_length=4)]
 
 
 class Line(BaseModel):
@@ -82,6 +82,13 @@ class Block(BaseModel):
         if not BLOCK_ID_RE.match(v):
             raise ValueError(f"block_id invalide (attendu '{{doc_id}}:{{loc}}:{{seq}}') : {v!r}")
         return v
+
+    @model_validator(mode="after")
+    def _block_id_matches_loc_seq(self) -> Block:
+        suffix = f":{self.loc}:{self.seq}"
+        if not self.block_id.endswith(suffix):
+            raise ValueError(f"block_id {self.block_id!r} doit se terminer par {suffix!r}")
+        return self
 
 
 class Node(BaseModel):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .verdict import Verdict
 
@@ -23,6 +23,15 @@ class Claim(BaseModel):
     claim_id: str
     text: str
     quotes: list[Quote] = Field(min_length=1)  # une quote par bloc
+
+    @field_validator("quotes")
+    @classmethod
+    def _one_quote_per_block(cls, quotes: list[Quote]) -> list[Quote]:
+        ids = [q.block_id for q in quotes]
+        dupes = sorted({b for b in ids if ids.count(b) > 1})
+        if dupes:
+            raise ValueError(f"une seule quote par bloc : {dupes}")
+        return quotes
 
 
 class ClaimStatus(BaseModel):
@@ -80,3 +89,11 @@ class Answer(BaseModel):
     verdict: Verdict | None = None
     unknown: list[str] = Field(default_factory=list)
     clarification: str | None = None
+
+    @model_validator(mode="after")
+    def _found_coherence(self) -> Answer:
+        if not self.found and self.reason is None:
+            raise ValueError("found=False exige une preuve d'absence (reason)")
+        if self.found and not self.claims:
+            raise ValueError("found=True exige au moins une claim retrouvée et pertinente")
+        return self

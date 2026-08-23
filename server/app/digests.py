@@ -25,11 +25,18 @@ def _iter_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
     )
 
 
+def _key(p: Path, root: Path) -> str:
+    """Chemin relatif posix sous `root`, sinon chemin absolu posix."""
+    return p.relative_to(root).as_posix() if p.is_relative_to(root) else p.as_posix()
+
+
 def digest_paths(paths: Iterable[Path], root: Path) -> str:
+    """SHA-256 sur (clé de chemin, contenu) des fichiers, triés par clé ; les non-fichiers sont ignorés."""
+    root = Path(root).resolve()
+    files = sorted({Path(p).resolve() for p in paths if Path(p).is_file()}, key=lambda p: _key(p, root))
     h = hashlib.sha256()
-    for p in sorted(Path(p) for p in paths):
-        rel = p.resolve().relative_to(root.resolve()).as_posix() if p.resolve().is_relative_to(root.resolve()) else p.name
-        h.update(rel.encode("utf-8") + b"\0")
+    for p in files:
+        h.update(_key(p, root).encode("utf-8") + b"\0")
         h.update(p.read_bytes() + b"\0")
     return h.hexdigest()
 
@@ -47,13 +54,13 @@ def prompts_digest(prompts_dir: Path = PROMPTS_DIR) -> str:
 def cases_hash(paths: Iterable[Path], root: Path | None = None) -> str:
     """Empreinte d'un golden set (chemins relatifs triés + contenu).
 
-    `root` sert à relativiser les chemins ; par défaut, leur ancêtre commun.
+    `root` sert à relativiser les chemins ; par défaut, l'ancêtre commun des fichiers.
     """
-    paths = [Path(p).resolve() for p in paths]
-    if not paths:
+    files = [Path(p).resolve() for p in paths if Path(p).is_file()]
+    if not files:
         return hashlib.sha256().hexdigest()
     if root is None:
-        root = Path(os.path.commonpath(paths))
+        root = Path(os.path.commonpath(files))
         if root.is_file():
             root = root.parent
-    return digest_paths(paths, root)
+    return digest_paths(files, root)

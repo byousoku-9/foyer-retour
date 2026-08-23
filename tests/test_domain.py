@@ -53,6 +53,11 @@ def test_block_id_identity() -> None:
         document.Block(block_id="AXA:p9:3", text="x", loc="p9", seq=3)
     with pytest.raises(ValidationError):
         document.Document(doc_id="Axa_2017", kind="contrat", title="t", edition="e")
+    with pytest.raises(ValidationError, match="se terminer par"):
+        document.Block(block_id="d:p9:3", text="x", loc="p9", seq=4)
+    with pytest.raises(ValidationError):
+        document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, bbox=[1, 2, 3])
+    document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, bbox=[1, 2, 3, 4])
 
 
 def test_node_items_is_single_source_of_order() -> None:
@@ -80,9 +85,23 @@ def test_answer_models() -> None:
     }
 
 
-def test_claim_requires_one_quote() -> None:
+def test_claim_requires_one_quote_per_block() -> None:
     with pytest.raises(ValidationError):
         answer.Claim(claim_id="c1", text="t", quotes=[])
+    with pytest.raises(ValidationError, match="une seule quote par bloc"):
+        answer.Claim(claim_id="c1", text="t", quotes=[{"block_id": "d:p1:1", "quote": "a"},
+                                                      {"block_id": "d:p1:1", "quote": "b"}])
+
+
+def test_answer_found_coherence() -> None:
+    with pytest.raises(ValidationError, match="reason"):
+        answer.Answer(found=False, complete=False)
+    answer.Answer(found=False, complete=False, reason={"kind": "zero_hit"})
+    with pytest.raises(ValidationError, match="claim"):
+        answer.Answer(found=True, complete=True)
+    claim = {"claim_id": "c", "text": "t", "quotes": [{"block_id": "d:p1:1", "quote": "q"}],
+             "status": {"retrouvee": True, "pertinente": True, "edition": "e"}}
+    assert answer.Answer(found=True, complete=True, claims=[claim]).claims[0].status.retrouvee
 
 
 # AD-6
@@ -115,8 +134,11 @@ def test_error_codes() -> None:
     assert errors.HTTP_STATUS[errors.ErrorCode.internal] == 500
     for code in ("llm_unavailable", "llm_parse", "timeout", "budget_exceeded", "corpus_unavailable"):
         assert errors.HTTP_STATUS[errors.ErrorCode(code)] == 503
-    env = errors.ErrorEnvelope(error={"code": "timeout", "message": "m", "request_id": "r"})
+    assert set(errors.HTTP_STATUS) == set(errors.ErrorCode)
+    env = errors.ErrorEnvelope(error={"code": "timeout", "message": "m", "request_id": "r"},
+                               trace={"request_id": "r", "pipeline": "guide"})
     assert env.model_dump()["error"]["code"] == "timeout"
+    assert isinstance(env.trace, trace.Trace)
 
 
 # AD-5 / AD-11 / AD-1
@@ -130,6 +152,9 @@ def test_question_and_retrieval() -> None:
     assert {"max_opens", "node_window", "search_limit", "max_llm_turns"} <= fields(retrieval.RetrievalBudget)
     with pytest.raises(ValidationError):
         question.Turn(role="user", texte="x" * 2001)
+    with pytest.raises(ValidationError):
+        question.Faits(description="d", montant_eur=-1)
+    assert question.QuestionScope is not document.Scope
 
 
 def test_profil_extra_allow_and_filter() -> None:

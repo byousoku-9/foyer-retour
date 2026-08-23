@@ -18,6 +18,11 @@ CASES = [
     ("cellule | cellule | x", "cellule cellule x", "tableaux |"),
     ("  A B C  ", "a b c", "espaces insécables et trim"),
     ("Garantie\r\nvol", "garantie vol", "retours à la ligne"),
+    ("assu\u00adrance", "assurance", "tiret conditionnel U+00AD supprimé"),
+    ("– un\n– deux\n- trois", "un deux trois", "tirets en début de ligne = puces"),
+    ("sous-sol et porte – fenêtre", "sous-sol et porte - fenetre", "tiret intérieur conservé"),
+    ("cœur et ﬁn", "cœur et fin", "limite documentée : œ/æ non décomposés, seules les ligatures de compatibilité le sont"),
+    ("porte-\nfenêtre", "portefenetre", "limite documentée : un vrai trait d'union en fin de ligne est traité comme une césure"),
     ("", "", "vide"),
 ]
 

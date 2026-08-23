@@ -6,6 +6,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from .trace import Trace
+
 
 class ErrorCode(str, Enum):
     invalid_request = "invalid_request"
@@ -40,7 +42,7 @@ class ErrorBody(BaseModel):
 
 class ErrorEnvelope(BaseModel):
     error: ErrorBody
-    trace: dict | None = None
+    trace: Trace | None = None
 
 
 class PipelineError(Exception):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from server.app import digests
-from server.app.digests import cases_hash, pipeline_digest, prompts_digest
+from server.app.digests import cases_hash, digest_paths, pipeline_digest, prompts_digest
 
 
 def test_digests_are_sha256_and_stable() -> None:
@@ -49,3 +49,27 @@ def test_cases_hash_order_independent(tmp_path: Path) -> None:
     assert cases_hash([p1]) != cases_hash([p1, p2])
     assert cases_hash([p1], root=tmp_path) != cases_hash([p1], root=tmp_path / "guide")
     assert digests.APP_DIR.name == "app"
+
+
+def test_non_files_ignored_and_paths_resolved(tmp_path: Path) -> None:
+    f = tmp_path / "a.yaml"
+    f.write_text("a\n")
+    (tmp_path / "dir").mkdir()
+    assert cases_hash([f, tmp_path / "dir", tmp_path / "absent.yaml"]) == cases_hash([f])
+    assert cases_hash([tmp_path / "dir"]) == cases_hash([])
+    assert cases_hash([tmp_path / "dir" / ".." / "a.yaml"]) == cases_hash([f])
+    assert cases_hash([f, f]) == cases_hash([f])
+
+
+def test_path_outside_root_uses_absolute_key(tmp_path: Path) -> None:
+    outside = tmp_path / "out" / "c.yaml"
+    outside.parent.mkdir()
+    outside.write_text("c\n")
+    root = tmp_path / "root"
+    root.mkdir()
+    h = digest_paths([outside], root)
+    other = tmp_path / "out2" / "c.yaml"
+    other.parent.mkdir()
+    other.write_text("c\n")
+    assert h != digest_paths([other], root)  # même nom, chemin absolu différent
+    assert h == digest_paths([outside], root)
