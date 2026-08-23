@@ -1,0 +1,32 @@
+[project]
+name = "foyer-retour"
+version = "0.1.0"
+description = "Retour à trois problématiques de Foyer : assistant sourcé, outil sinistre / conditions générales, réponse au sujet Excel"
+readme = "README.md"
+requires-python = "==3.13.*"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn==0.52.4",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    "anthropic==1.0.0",
+    "pymupdf==1.28.2",
+    "httpx>=0.28,<3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+    "pytest-md-report==0.8.0",
+    "pytest-asyncio>=1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "evals: questions-témoins — réseau et coût, seulement avec ANTHROPIC_API_KEY et un plafond --max-cost",
+]
+
+[tool.uv]
+package = false
