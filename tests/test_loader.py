@@ -93,7 +93,7 @@ def test_manifest_status_quarantaine_is_not_loaded(data: Path) -> None:
 def _gate(e: dict, **over) -> dict:
     return {"profile": "vertical", "source_hash": e["source_hash"], "ingest_fingerprint": e["ingest_fingerprint"],
             "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {"micro": "m"},
-            "evals_ok": True, "date": "2026-08-23"} | over
+            "evals_ok": True, "date": "2026-08-23", "overlay_hash": e.get("overlay_hash")} | over
 
 
 def test_valid_gate_serves_without_alert(data: Path) -> None:
@@ -113,7 +113,7 @@ def test_failed_gate_is_never_served(data: Path) -> None:
         assert load_corpus(data, allow_ungated=allow).quarantine == {"lux-guide": "gate_echoue"}
 
 
-@pytest.mark.parametrize("field", ["source_hash", "ingest_fingerprint"])
+@pytest.mark.parametrize("field", ["source_hash", "ingest_fingerprint", "overlay_hash"])
 def test_gate_with_other_hashes_is_invalid_hence_sans_gate(data: Path, field: str) -> None:
     m = _manifest(data)
     m["lux-guide"]["gate"] = _gate(m["lux-guide"], **{field: "ancien"})
@@ -225,20 +225,52 @@ def test_folder_name_must_match_doc_id(data: Path) -> None:
 
 # --- overlay `typing.manual.json` (story 1.2, FR20) -------------------------------------------------------------
 
-def _overlay(data: Path, blocks: dict, **extra) -> None:
-    (data / "lux-guide" / "typing.manual.json").write_text(json.dumps({"blocks": blocks, **extra}), "utf-8")
+def _overlay(data: Path, blocks: dict, *, declare: bool = True, **extra) -> None:
+    """Écrit l'overlay et, comme le ferait une relance de l'ingestion, son empreinte dans le manifest."""
+    path = data / "lux-guide" / "typing.manual.json"
+    path.write_text(json.dumps({"schema_version": "1", "doc_id": "lux-guide", **extra, "blocks": blocks}), "utf-8")
+    if declare:
+        m = _manifest(data)
+        m["lux-guide"]["overlay_hash"] = _sha(path)
+        _write_manifest(data, m)
 
 
 def test_overlay_is_merged_before_validation_without_touching_document_json(data: Path) -> None:
     before = _sha(data / "lux-guide" / "document.json")
     _overlay(data, {"lux-guide:farrivee:2": {"kind": "definition", "defines": "arrivée", "kind_source": "manual",
-                                             "scope_node_id": "lux-guide:farrivee"}}, doc_id="lux-guide")
+                                             "scope_node_id": "lux-guide:farrivee",
+                                             "scope_node_ids": ["lux-guide:farrivee"]}}, note="test")
     c = load_corpus(data, allow_ungated=True)
     assert c.quarantine == {}
     b = c.documents["lux-guide"].block("lux-guide:farrivee:2")
     assert b.kind == "definition" and b.defines == "arrivée" and b.kind_confirmed and b.scope_node_id == "lux-guide:farrivee"
+    assert b.scope_node_ids == ["lux-guide:farrivee"]
     assert b.text_norm == normalize(b.text)
     assert _sha(data / "lux-guide" / "document.json") == before
+
+
+def test_overlay_is_covered_by_manifest_and_gate(data: Path) -> None:
+    """Revue Codex 1.2 (B7) : kind et portée ne changent pas après les évals sans quarantaine ni perte du gate."""
+    entry = {"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual"}}
+    _overlay(data, entry, declare=False)
+    assert "non déclaré dans le manifest" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    _overlay(data, entry)
+    m = _manifest(data)
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"])
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}
+    # l'overlay est modifié sans relancer l'ingestion ⇒ quarantaine
+    (data / "lux-guide" / "typing.manual.json").write_text(json.dumps(
+        {"schema_version": "1", "doc_id": "lux-guide", "blocks": {"lux-guide:farrivee:2": {"kind": "exclusion", "kind_source": "manual"}}}), "utf-8")
+    assert load_corpus(data, allow_ungated=False).quarantine == {"lux-guide": "overlay_hash différent du manifest (relancer l'ingestion)"}
+    # relance de l'ingestion (manifest mis à jour) ⇒ le gate ne couvre plus cet overlay : sans_gate
+    m = _manifest(data)
+    m["lux-guide"]["overlay_hash"] = _sha(data / "lux-guide" / "typing.manual.json")
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).quarantine == {"lux-guide": "sans_gate"}
+    # overlay déclaré mais absent
+    (data / "lux-guide" / "typing.manual.json").unlink()
+    assert load_corpus(data, allow_ungated=True).quarantine == {"lux-guide": "overlay : déclaré dans le manifest mais absent"}
 
 
 @pytest.mark.parametrize("blocks, fragment", [
@@ -248,6 +280,10 @@ def test_overlay_is_merged_before_validation_without_touching_document_json(data
     ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "scope_node_id": "lux-guide:x"}}, "nœud inconnu"),
     ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "text": "remplacé"}}, "champs inattendus"),
     ({"lux-guide:farrivee:2": {"kind": "heading!", "kind_source": "manual"}}, "document.json invalide"),
+    ({"lux-guide:farrivee:2": {"kind_source": "manual"}}, "kind obligatoire"),
+    ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "scope_node_ids": ["lux-guide:x"]}},
+     "scope_node_ids"),
+    ({}, "aucun bloc typé"),
 ])
 def test_invalid_overlay_quarantines_only_this_document(data: Path, blocks: dict, fragment: str) -> None:
     _overlay(data, blocks)
@@ -255,10 +291,29 @@ def test_invalid_overlay_quarantines_only_this_document(data: Path, blocks: dict
     assert list(c.quarantine) == ["lux-guide"] and fragment in c.quarantine["lux-guide"]
 
 
+@pytest.mark.parametrize("extra, fragment", [
+    ({"schema_version": "2"}, "schema_version"),
+    ({"doc_id": "autre"}, "doc_id"),
+    ({"texte": "x"}, "champs inattendus"),
+])
+def test_overlay_header_is_strict(data: Path, extra: dict, fragment: str) -> None:
+    path = data / "lux-guide" / "typing.manual.json"
+    path.write_text(json.dumps({"schema_version": "1", "doc_id": "lux-guide", **extra,
+                                "blocks": {"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual"}}}), "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["overlay_hash"] = _sha(path)
+    _write_manifest(data, m)
+    assert fragment in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+
+
 def test_overlay_unreadable_or_malformed(data: Path) -> None:
-    (data / "lux-guide" / "typing.manual.json").write_text("{", "utf-8")
+    path = data / "lux-guide" / "typing.manual.json"
+    path.write_text("{", "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["overlay_hash"] = _sha(path)
+    _write_manifest(data, m)
     assert "overlay illisible" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
-    (data / "lux-guide" / "typing.manual.json").write_text("[]", "utf-8")
+    path.write_text("[]", "utf-8")
+    m["lux-guide"]["overlay_hash"] = _sha(path)
+    _write_manifest(data, m)
     assert "overlay : objet" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
-    _overlay(data, {}, doc_id="autre")
-    assert "doc_id" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]

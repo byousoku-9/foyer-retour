@@ -76,9 +76,17 @@ def test_document_shape(doc: Document) -> None:
     assert all(b.loc == f"p{b.page}" and b.lines and b.bbox for b in doc.blocks)
     assert all("\x07" not in b.text and "Wingdings" not in b.text for b in doc.blocks)
     assert {b.kind for b in doc.blocks} <= {"para", "heading", "list", "autre"}  # le typage vient de l'overlay
-    assert sum(1 for b in doc.blocks if b.continues) >= 1
+    # scissions de page (AD-2) : p53:8 → p54:1 commence par une majuscule (revue Codex 1.2, B6)
+    linked = {b.block_id: b.continues for b in doc.blocks if b.continues}
+    assert linked[f"{DOC}:p54:1"] == f"{DOC}:p53:8" and linked[f"{DOC}:p31:1"] == f"{DOC}:p30:20"
+    assert linked[f"{DOC}:p82:1"] == f"{DOC}:p81:16" and doc.block(f"{DOC}:p82:1").kind == "list"
+    assert doc.block(f"{DOC}:p46:1").continues is None  # l'alinéa suit « … particulières. »
+    # continuations de liste alignées (revue Codex 1.2, I5) : p54 « … et » puis « immeubles … » = même item
+    p54 = doc.block(f"{DOC}:p54:5")
+    assert p54.kind == "list" and p54.lines[2].text.startswith("immeubles qu") and p54.lines[4].text.startswith("de vol")
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert not report.blocking and report.stats["pages"] == 109 and report.stats["tdm_pdf_entrees"] == 0
+    assert [c.name for c in report.alerts] == ["pages_mixtes"] and "1" in report.alerts[0].detail  # couverture
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     assert manifest["status"] == "servi" and manifest["gate"] is None
     assert manifest["ingest_fingerprint"] == doc.ingest_fingerprint == p.ingest_fingerprint()
@@ -93,8 +101,18 @@ def test_overlay_confirms_four_blocks() -> None:
     confirmed = {b.block_id: b for b in d.blocks if b.kind_confirmed}
     assert set(confirmed) == {f"{DOC}:p9:2", f"{DOC}:p11:12", f"{DOC}:p34:12", f"{DOC}:p46:1"}
     assert (confirmed[f"{DOC}:p9:2"].kind, confirmed[f"{DOC}:p9:2"].defines) == ("definition", "contenu")
-    assert confirmed[f"{DOC}:p34:12"].kind == "garantie"
-    assert (confirmed[f"{DOC}:p46:1"].kind, confirmed[f"{DOC}:p46:1"].scope_node_id) == ("exclusion", f"{DOC}:a3.1.8")
+    assert (confirmed[f"{DOC}:p11:12"].kind, confirmed[f"{DOC}:p11:12"].defines) == ("definition", "mobilier de jardin")
+    assert (confirmed[f"{DOC}:p34:12"].kind, confirmed[f"{DOC}:p34:12"].scope_node_id) == ("garantie", f"{DOC}:a3.1.1")
+    assert all(b.kind_source == "manual" for b in confirmed.values())
+    # portée exacte de l'exclusion p. 46 : les extensions 3.1.8.3 à 3.1.8.6, et elles seules (revue Codex 1.2, B2)
+    ex = confirmed[f"{DOC}:p46:1"]
+    assert (ex.kind, ex.scope_node_id) == ("exclusion", f"{DOC}:a3.1.8")
+    assert ex.scope_node_ids == [f"{DOC}:a3.1.8.{i}" for i in (3, 4, 5, 6)]
+    covered = d.scope_nodes(ex.block_id)
+    assert covered == {f"{DOC}:a3.1.8.{i}" for i in (3, 4, 5, 6)}
+    assert not covered & {f"{DOC}:a3.1.8", *(f"{DOC}:a3.1.8.{i}" for i in (1, 2, 7, 8))}
+    manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
+    assert manifest["overlay_hash"] == hashlib.sha256((REAL / "typing.manual.json").read_bytes()).hexdigest()
     raw = json.loads((REAL / "document.json").read_text("utf-8"))
     assert all("kind" not in b or b["kind"] in ("heading", "list", "autre") for b in raw["blocks"])  # document.json intact
 
@@ -109,5 +127,6 @@ def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
     assert p.document_json(built) == (REAL / "document.json").read_text("utf-8")
     assert p.build_summary(built) == (REAL / "summary.md").read_text("utf-8")
     report = build_pdf_report(built, doc, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
-                              continues=meta["continues"], toc=toc, summary=p.build_summary(built))
+                              continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
+                              summary=p.build_summary(built))
     assert report == Report.model_validate_json((REAL / "report.json").read_bytes())

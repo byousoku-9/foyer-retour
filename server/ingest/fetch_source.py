@@ -6,9 +6,10 @@
 Codes de sortie : 0 = téléchargé et vérifié ; 2 = hash différent du hash de référence (rien n'est écrit, aucun
 repli : le contenu existe mais n'est pas celui attendu) ; 3 = URL publique injoignable **et** repli
 `gs://foyer-retour-sources/{doc_id}.pdf` en échec ; 4 = usage (dossier, `source.url`/`source.sha256` absents).
-Le repli lit le bucket par HTTPS (`storage.googleapis.com`) avec le jeton `GOOGLE_OAUTH_ACCESS_TOKEN`
+`source.url` est une URL `https://` publique ou une URL `gs://bucket/objet` du bucket privé (AC 1.2) ; un objet
+`gs://` est lu par HTTPS (`storage.googleapis.com`) avec le jeton `GOOGLE_OAUTH_ACCESS_TOKEN`
 (local : `gcloud auth print-access-token`) ou celui du serveur de métadonnées (Cloud Build, Cloud Run),
-sinon anonymement.
+sinon anonymement — le repli sur `gs://foyer-retour-sources/` passe par le même chemin.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instanc
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/124.0 Safari/537.36")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_GS_RE = re.compile(r"^gs://([a-z0-9][a-z0-9._-]{1,221}[a-z0-9])/(.+)$")
 
 EXIT_OK, EXIT_HASH, EXIT_UNREACHABLE, EXIT_USAGE = 0, 2, 3, 4
 
@@ -39,6 +41,14 @@ class FetchError(Exception):
         self.code = code
 
 
+def gs_to_https(url: str) -> str:
+    """`gs://bucket/objet` → `https://storage.googleapis.com/bucket/objet` (API XML, lecture avec jeton ou anonyme)."""
+    m = _GS_RE.match(url)
+    if not m:
+        raise FetchError(EXIT_USAGE, f"URL gs://bucket/objet attendue : {url}")
+    return f"https://storage.googleapis.com/{m.group(1)}/{m.group(2)}"
+
+
 def read_reference(doc_dir: Path) -> tuple[str, str]:
     """(`source.url`, sha256 attendu) ; un fichier absent ou un hash mal formé est une erreur d'usage."""
     url_path, sha_path = doc_dir / "source.url", doc_dir / "source.sha256"
@@ -46,8 +56,9 @@ def read_reference(doc_dir: Path) -> tuple[str, str]:
         raise FetchError(EXIT_USAGE, f"{doc_dir} : source.url et source.sha256 requis")
     url = url_path.read_text("utf-8").strip()
     expected = sha_path.read_text("utf-8").split()[0].lower() if sha_path.read_text("utf-8").split() else ""
-    if not url.startswith("https://") or not _SHA256_RE.match(expected):
-        raise FetchError(EXIT_USAGE, f"{doc_dir} : URL https et sha256 hexadécimal (64 caractères) attendus")
+    if not (url.startswith("https://") or _GS_RE.match(url)) or not _SHA256_RE.match(expected):
+        raise FetchError(EXIT_USAGE, f"{doc_dir} : URL https:// ou gs://bucket/objet, et sha256 hexadécimal "
+                                     "(64 caractères) attendus")
     return url, expected
 
 
@@ -56,7 +67,8 @@ def _metadata_token(client: httpx.Client) -> str | None:
     if token:
         return token
     try:
-        r = client.get(METADATA_TOKEN_URL, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
+        r = client.get(METADATA_TOKEN_URL, headers={"Metadata-Flavor": "Google"},
+                       timeout=get_settings().metadata_timeout_s)
         if r.status_code == 200:
             return str(r.json().get("access_token") or "") or None
     except (httpx.HTTPError, ValueError):
@@ -79,12 +91,18 @@ def fetch(doc_id: str, data_dir: Path | str = "data", *, client: httpx.Client | 
     client = client or httpx.Client(timeout=get_settings().fetch_timeout_s)
     try:
         try:
-            content = _download(client, url, {"User-Agent": USER_AGENT})
+            headers = {"User-Agent": USER_AGENT}
+            if url.startswith("gs://"):
+                url = gs_to_https(url)
+                token = _metadata_token(client)
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+            content = _download(client, url, headers)
             origin = url
         except httpx.HTTPError as exc:
-            print(f"{doc_id} : URL publique injoignable ({type(exc).__name__}: {exc}) ; repli gs://{SOURCES_BUCKET}",
+            print(f"{doc_id} : source injoignable ({type(exc).__name__}: {exc}) ; repli gs://{SOURCES_BUCKET}",
                   file=sys.stderr)
-            fallback = f"https://storage.googleapis.com/{SOURCES_BUCKET}/{doc_id}.pdf"
+            fallback = gs_to_https(f"gs://{SOURCES_BUCKET}/{doc_id}.pdf")
             headers = {"User-Agent": USER_AGENT}
             token = _metadata_token(client)
             if token:

@@ -60,12 +60,24 @@ class Settings(BaseSettings):
     header_min_pages_ratio: float = Field(0.3, ge=0, le=1)
     para_gap_ratio: float = Field(1.5, gt=0)
     article_number_max_x: float = Field(70.0, ge=0)
+    # Segmentation (revue Codex 1.2) : taille minimale d'un titre d'article, taille maximale d'un en-tête courant en
+    # capitales, tolérance de ligne de base (numéro + texte sur la même ligne), tolérance horizontale entre le numéro
+    # et son texte, retrait minimal d'une continuation d'item de liste.
+    title_min_size_pt: float = Field(12.0, gt=0)
+    header_caps_max_size_pt: float = Field(10.0, gt=0)
+    baseline_tolerance_pt: float = Field(3.0, ge=0)
+    number_gap_tolerance_pt: float = Field(1.0, ge=0)
+    list_indent_pt: float = Field(4.0, ge=0)
     fetch_timeout_s: float = Field(30.0, gt=0)
+    metadata_timeout_s: float = Field(2.0, gt=0)  # serveur de métadonnées GCP (jeton du repli gs://)
 
     @model_validator(mode="after")
     def _coherence(self) -> Settings:
         if self.llm_timeout_s >= self.deadline_s:
             raise ValueError(f"llm_timeout_s ({self.llm_timeout_s}) doit être < deadline_s ({self.deadline_s})")
+        if self.header_caps_max_size_pt >= self.title_min_size_pt:
+            raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
+                             f"< title_min_size_pt ({self.title_min_size_pt})")
         if self.allow_ungated is None:
             self.allow_ungated = self.env == "dev"
         return self
@@ -93,7 +105,13 @@ class Settings(BaseSettings):
             "header_min_pages_ratio": self.header_min_pages_ratio,
             "para_gap_ratio": self.para_gap_ratio,
             "article_number_max_x": self.article_number_max_x,
+            "title_min_size_pt": self.title_min_size_pt,
+            "header_caps_max_size_pt": self.header_caps_max_size_pt,
+            "baseline_tolerance_pt": self.baseline_tolerance_pt,
+            "number_gap_tolerance_pt": self.number_gap_tolerance_pt,
+            "list_indent_pt": self.list_indent_pt,
             "fetch_timeout_s": self.fetch_timeout_s,
+            "metadata_timeout_s": self.metadata_timeout_s,
         }
 
 

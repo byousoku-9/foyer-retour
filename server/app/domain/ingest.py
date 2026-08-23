@@ -49,6 +49,7 @@ class Gate(DomainModel):
     model_ids: dict[str, str] = Field(default_factory=dict)
     evals_ok: bool
     date: str
+    overlay_hash: str | None = None  # empreinte de `typing.manual.json` au moment du gate (revue Codex 1.2)
 
 
 class GateContext(DomainModel):
@@ -65,6 +66,9 @@ class ManifestEntry(DomainModel):
     ingest_fingerprint: str
     document_hash: str  # sha256 de `document.json`, recalculé par le loader (AD-7)
     edition: str
+    # sha256 de `typing.manual.json` (None si absent à l'ingestion) : l'overlay est couvert par le manifest et par
+    # le gate comme `document.json` l'est par `document_hash` (amendement AD-7, revue Codex 1.2).
+    overlay_hash: str | None = None
     gate: Gate | None = None
 
 

@@ -68,20 +68,23 @@ def _key(numero: str) -> tuple[int, ...]:
 
 
 def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[Any], numbers: list[str],
-                     duplicates: list[str], continues: int, toc: list[Any], summary: str = "") -> Report:
-    """Checks statiques d'un contrat PDF (AD-8) : `page_sans_texte` bloquant, numérotation non monotone en alerte."""
+                     duplicates: list[str], continues: int, toc: list[Any], toc_gaps: list[str] | None = None,
+                     summary: str = "") -> Report:
+    """Checks statiques d'un contrat PDF (AD-8) : `page_sans_texte` bloquant (page sans texte mais portant une image
+    ou un tracé vectoriel), numérotation non monotone, pages mixtes et écart avec les signets du PDF en alerte."""
     checks: list[Check] = [Check(name="invariants_arbre", level="info", detail="ok")]
     kinds = Counter(b.kind for b in doc.blocks)
     pages_with_blocks = {b.page for b in doc.blocks}
     no_text = [p.page for p in pages if not p.lines]
-    blank = [p for p in no_text if not pages[p - 1].images]
-    non_blank = [p for p in no_text if pages[p - 1].images]
+    blank = [p for p in no_text if not pages[p - 1].visual]
+    non_blank = [p for p in no_text if pages[p - 1].visual]
     stats: dict[str, Any] = {
         "pages": len(pages),
         "pages_avec_blocs": len(pages_with_blocks),
         "pages_sans_texte": ", ".join(str(p) for p in no_text),
         "pages_blanches": len(blank),
         "pages_avec_images": sum(1 for p in pages if p.images),
+        "pages_sans_texte_dessinees": sum(1 for p in pages if not p.lines and p.drawings),
         "pages_tdm": sum(1 for p in pages if p.is_toc),
         "noeuds": len(doc.nodes),
         "blocs": len(doc.blocks),
@@ -93,8 +96,8 @@ def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[An
     }
     if non_blank:
         checks.append(Check(name="page_sans_texte", level="bloquant",
-                            detail="pages non blanches sans texte extrait (OCR ou revue humaine requis) : "
-                                   + ", ".join(str(p) for p in non_blank)))
+                            detail="pages non blanches (image ou tracé vectoriel) sans texte extrait "
+                                   "(OCR ou revue humaine requis) : " + ", ".join(str(p) for p in non_blank)))
     if blank:
         checks.append(Check(name="pages_blanches", level="info", detail=", ".join(str(p) for p in blank)))
     bad = [f"{prev} → {cur}" for prev, cur in zip(numbers, numbers[1:]) if _key(cur) <= _key(prev)]
@@ -104,9 +107,12 @@ def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[An
         checks.append(Check(name="numerotation_dupliquee", level="alerte", detail=", ".join(duplicates)[:2000]))
     checks.append(Check(name="tdm_pdf", level="info",
                         detail=f"get_toc() : {len(toc)} entrée(s) ; la TdM imprimée n'est pas comparée (story 3.1)"))
+    if toc_gaps:
+        checks.append(Check(name="tdm_pdf_ecart", level="alerte",
+                            detail="signets numérotés sans nœud correspondant : " + ", ".join(toc_gaps)[:2000]))
     mixed = [p.page for p in pages if p.images and p.lines]
-    if mixed:
-        checks.append(Check(name="pages_mixtes", level="info",
+    if mixed:  # AD-8 : alerte (revue humaine : l'image peut porter du texte non extrait)
+        checks.append(Check(name="pages_mixtes", level="alerte",
                             detail=f"{len(mixed)} page(s) texte + image : " + ", ".join(str(p) for p in mixed)[:1500]))
     if summary:
         stats["sommaire_chars"] = len(summary)

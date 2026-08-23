@@ -6,6 +6,7 @@ mêmes règles. `SCHEMA_VERSION` entre dans chaque `ingest_fingerprint` : tout c
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -23,6 +24,15 @@ def document_json(doc: Document) -> str:
     """`text_norm` n'est jamais écrit (recalculé au chargement) ; les valeurs par défaut non plus."""
     data = doc.model_dump(exclude_defaults=True, exclude={"blocks": {"__all__": {"text_norm"}}})
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+OVERLAY_FILE = "typing.manual.json"
+
+
+def overlay_hash(doc_dir: Path) -> str | None:
+    """sha256 de `typing.manual.json` s'il existe (écrit dans le manifest, vérifié par le loader), sinon None."""
+    path = doc_dir / OVERLAY_FILE
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
 def load_previous(path: Path) -> Document | None:

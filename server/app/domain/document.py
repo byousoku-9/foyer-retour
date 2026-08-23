@@ -85,6 +85,10 @@ class Block(DomainModel):
     unresolved_refs: list[str] = Field(default_factory=list)
     defines: str | None = None
     scope_node_id: str | None = None
+    # Portée explicite (amendement AD-2, revue Codex 1.2) : quand la clause ne couvre qu'une partie des descendants
+    # de `scope_node_id` (« pour les extensions 3.1.8.3 à 3.1.8.6 »), la liste exhaustive des nœuds couverts ;
+    # vide = tout le sous-arbre de `scope_node_id`.
+    scope_node_ids: list[str] = Field(default_factory=list)
     overrides: str | None = None
     relation: Relation = Field(default_factory=Relation)
     lines: list[Line] = Field(default_factory=list)
@@ -143,6 +147,22 @@ class Document(DomainModel):
     def block(self, block_id: str) -> Block:
         return self._by_id[block_id]
 
+    def scope_nodes(self, block_id: str) -> set[str]:
+        """Nœuds couverts par la portée d'un bloc : `scope_node_ids` (et leurs descendants) s'ils sont donnés,
+        sinon le sous-arbre de `scope_node_id` ; vide si le bloc n'a pas de portée."""
+        b = self.block(block_id)
+        roots = b.scope_node_ids or ([b.scope_node_id] if b.scope_node_id else [])
+        by_id = {n.node_id: n for n in self.nodes}
+        covered: set[str] = set()
+        stack = list(roots)
+        while stack:
+            nid = stack.pop()
+            if nid in covered:
+                continue
+            covered.add(nid)
+            stack.extend(by_id[nid].children)
+        return covered
+
     @model_validator(mode="after")
     def _tree_invariants(self) -> Document:
         """AD-8 : block_id uniques, références résolues, chaque bloc rattaché à exactement un nœud, une seule racine."""
@@ -182,6 +202,11 @@ class Document(DomainModel):
                         raise ValueError(f"{b.block_id}.{field_name} vise un bloc inconnu : {t}")
             if b.scope_node_id is not None and b.scope_node_id not in node_ids:
                 raise ValueError(f"{b.block_id}.scope_node_id vise un nœud inconnu : {b.scope_node_id}")
+            if len(set(b.scope_node_ids)) != len(b.scope_node_ids):
+                raise ValueError(f"{b.block_id}.scope_node_ids contient un doublon")
+            for t in b.scope_node_ids:
+                if t not in node_ids:
+                    raise ValueError(f"{b.block_id}.scope_node_ids vise un nœud inconnu : {t}")
         node_parent: dict[str, str] = {}
         children: dict[str, list[str]] = {n.node_id: n.children for n in self.nodes}
         for n in self.nodes:
@@ -189,6 +214,14 @@ class Document(DomainModel):
                 if c in node_parent:
                     raise ValueError(f"nœud {c} rattaché à deux parents : {node_parent[c]}, {n.node_id}")
                 node_parent[c] = n.node_id
+        for b in self.blocks:  # une portée explicite reste dans le sous-arbre de `scope_node_id`
+            if b.scope_node_id is not None:
+                for t in b.scope_node_ids:
+                    cur = t
+                    while cur != b.scope_node_id and cur in node_parent:
+                        cur = node_parent[cur]
+                    if cur != b.scope_node_id:
+                        raise ValueError(f"{b.block_id}.scope_node_ids : {t} n'est pas sous {b.scope_node_id}")
         # aucun cycle : en remontant les parents depuis chaque nœud, on doit atteindre une racine
         for start in children:
             seen = {start}

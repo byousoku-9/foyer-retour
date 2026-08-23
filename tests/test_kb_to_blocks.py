@@ -107,8 +107,9 @@ def test_run_writes_artefacts_and_is_deterministic(data_dir: Path) -> None:
 
 def test_manifest_merge_keeps_other_docs_and_existing_gate(data_dir: Path) -> None:
     gate = {"profile": "vertical", "source_hash": "s", "ingest_fingerprint": "f", "cases_hash": "c", "pipeline_digest": "p",
-            "prompts_digest": "q", "model_ids": {}, "evals_ok": True, "date": "2026-08-23"}
-    other = {"status": "servi", "source_hash": "x", "ingest_fingerprint": "y", "document_hash": "z", "edition": "e", "gate": None}
+            "prompts_digest": "q", "model_ids": {}, "evals_ok": True, "date": "2026-08-23", "overlay_hash": None}
+    other = {"status": "servi", "source_hash": "x", "ingest_fingerprint": "y", "document_hash": "z", "edition": "e",
+             "overlay_hash": None, "gate": None}
     (data_dir.parent / "manifest.json").write_text(json.dumps({
         "lux-guide": {**other, "gate": gate}, "autre-doc": other}), "utf-8")
     k.run(data_dir, edition="git:test")

@@ -9,8 +9,11 @@ le plus long existant, sinon la racine) ; une ligne à puce ouvre un item de `li
 `para_gap_ratio` hauteurs de ligne ouvre un `para` ; un paragraphe qui continue sur la page suivante est scindé,
 le second bloc porte `continues`. Les pages dont l'en-tête annonce la table des matières donnent un bloc `autre`
 par page sous le nœud `{doc_id}:tdm` (la TdM imprimée n'est pas interprétée — story 3.1).
-`text` est brut : seules altérations, déclarées dans `FLAGS`, les puces Wingdings deviennent `•`, le glyphe de
-tabulation `\\x07` est retiré, les espaces/tabulations de fin de ligne sont retirés.
+`text` est brut : seules altérations, déclarées dans `FLAGS` (donc dans l'empreinte), les puces Wingdings deviennent
+`•`, le glyphe de tabulation `\\x07` est retiré, les espaces/tabulations de fin de ligne sont retirés, les espaces
+de tête d'une ligne sans puce sont retirés, et un numéro d'article seul sur sa ligne est joint par une espace au texte
+qui le suit sur la même ligne de base (`merge_number_sep`). `get_toc()` (signets du PDF), s'il est non vide, donne
+leur titre aux nœuds qui n'en ont pas et est confronté à la numérotation (`tdm_pdf_ecart`, alerte).
 """
 
 from __future__ import annotations
@@ -30,8 +33,8 @@ from pydantic import ValidationError
 from server.app.config import get_settings
 from server.app.corpus.text import normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report
-from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, read_manifest,
-                                     write_atomic)
+from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
+                                     read_manifest, write_atomic)
 from server.ingest.report import build_pdf_report, report_from_validation_error
 
 DOC_ID = "axa-lu-optihome-2017"
@@ -39,21 +42,26 @@ TITLE = "Conditions d'assurances OptiHome (multirisques habitation)"
 DEFAULT_EDITION = "juin 2017"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
-PARSER_VERSION = "1"
+PARSER_VERSION = "2"  # revue Codex 1.2 : continues structurel, continuations de liste, seuils dans Settings
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
-                      "titre:meme_ligne_de_base(size>=12|sans_ponct_finale&suite_majuscule)=>heading;"
-                      "puce:•=>list(item;continuation=indent>4pt);gap>para_gap_ratio*h=>para;"
-                      "entete:bande&(recurrent|numero_page|MAJUSCULES<=10pt);tdm:entete~TABLE DES MATIERES=>autre/page;"
-                      "numero_para+ligne_minuscule=>meme_para;continues:page_suivante&minuscule&prec!~[.;:]$")
+                      "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
+                      "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
+                      "gap>para_gap_ratio*h=>para;"
+                      "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
+                      "tdm:entete~TABLE DES MATIERES=>autre/page;numero_para+ligne_minuscule=>meme_para;"
+                      "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
+                      "toc:get_toc()=>titres manquants+tdm_pdf_ecart")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
+         "lstrip_lines_sans_puce": True, "merge_number_sep": " ",
          "ligatures": "decomposees (TEXT_PRESERVE_LIGATURES absent)", "dehyphenate": False}
 
 _NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\s*$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _TDM_RE = re.compile(r"TABLE\s+DES\s+MATI[EÈ]RES", re.IGNORECASE)
 _PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
-_HEADER_MAX_SIZE = 10.0  # en-tête courant : petites capitales dans la bande haute (« … - OPTIHOME »)
-_TITLE_SIZE = 12.0  # FranklinGothic-Demi 12–13 pt = titres d'articles ; en deçà, heuristique de ponctuation
+_TOC_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
 _BULLET_FONTS = ("Wingdings",)
+_TERMINAL = (".", ";", ":")
 
 
 def ingest_fingerprint() -> str:
@@ -63,7 +71,12 @@ def ingest_fingerprint() -> str:
                           "thresholds": {"header_band_pt": s.header_band_pt, "footer_band_pt": s.footer_band_pt,
                                          "header_min_pages_ratio": s.header_min_pages_ratio,
                                          "para_gap_ratio": s.para_gap_ratio,
-                                         "article_number_max_x": s.article_number_max_x}},
+                                         "article_number_max_x": s.article_number_max_x,
+                                         "title_min_size_pt": s.title_min_size_pt,
+                                         "header_caps_max_size_pt": s.header_caps_max_size_pt,
+                                         "baseline_tolerance_pt": s.baseline_tolerance_pt,
+                                         "number_gap_tolerance_pt": s.number_gap_tolerance_pt,
+                                         "list_indent_pt": s.list_indent_pt}},
                          sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -85,7 +98,12 @@ class PageText:
     lines: list[PageLine] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)  # en-têtes/pieds retirés
     images: int = 0
+    drawings: int = 0  # tracés vectoriels : une page sans texte mais dessinée n'est pas blanche (AD-8)
     is_toc: bool = False
+
+    @property
+    def visual(self) -> bool:
+        return bool(self.images or self.drawings)
 
 
 def _round(b: Any) -> list[float]:
@@ -115,8 +133,9 @@ def _raw_lines(page: pymupdf.Page) -> tuple[list[PageLine], int]:
                 parts.append(t)
                 sizes[round(s["size"], 1)] = sizes.get(round(s["size"], 1), 0) + len(t)
             text = "".join(parts)
+            bullet = bullet or text.lstrip(" \t").startswith(FLAGS["wingdings_bullet"])  # puce typographique
             text = text.rstrip() if FLAGS["rstrip_lines"] else text
-            text = text.lstrip(" \t") if not bullet else text
+            text = text.lstrip(" \t") if FLAGS["lstrip_lines_sans_puce"] and not bullet else text
             if not text.strip():
                 continue
             size = max(sizes, key=lambda k: sizes[k]) if sizes else 0.0
@@ -124,19 +143,21 @@ def _raw_lines(page: pymupdf.Page) -> tuple[list[PageLine], int]:
     return out, images
 
 
-def _merge_number_lines(lines: list[PageLine], max_x: float) -> list[PageLine]:
+def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
     """« 1.12 » seul sur sa ligne + « Contenu » sur la même ligne de base ⇒ une seule `Line` « 1.12 Contenu »."""
+    s = get_settings()
     out: list[PageLine] = []
     i = 0
     while i < len(lines):
         cur = lines[i]
         m = _NUMBER_RE.match(cur.text)
-        if m and cur.bbox[0] < max_x:
+        if m and cur.bbox[0] < s.article_number_max_x:
             cur.number = m.group(1)
             cur.text = m.group(1)
             nxt = lines[i + 1] if i + 1 < len(lines) else None
-            if nxt and not nxt.bullet and abs(nxt.bbox[1] - cur.bbox[1]) <= 3.0 and nxt.bbox[0] >= cur.bbox[2] - 1:
-                cur.text = f"{cur.text} {nxt.text}"
+            if nxt and not nxt.bullet and abs(nxt.bbox[1] - cur.bbox[1]) <= s.baseline_tolerance_pt \
+                    and nxt.bbox[0] >= cur.bbox[2] - s.number_gap_tolerance_pt:
+                cur.text = f"{cur.text}{FLAGS['merge_number_sep']}{nxt.text}"
                 cur.bbox = [min(cur.bbox[0], nxt.bbox[0]), min(cur.bbox[1], nxt.bbox[1]),
                             max(cur.bbox[2], nxt.bbox[2]), max(cur.bbox[3], nxt.bbox[3])]
                 cur.size = nxt.size
@@ -150,31 +171,35 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
     """Pages (lignes + bbox + police, en-têtes/pieds retirés) et `get_toc()` du PDF."""
     s = get_settings()
     doc = pymupdf.open(str(pdf))
-    toc = doc.get_toc()
     pages: list[PageText] = []
     band_texts: dict[str, int] = {}
-    for pno, page in enumerate(doc, start=1):
-        lines, images = _raw_lines(page)
-        pt = PageText(page=pno, width=page.rect.width, height=page.rect.height, lines=lines, images=images)
-        for line in lines:
-            if line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt:
-                band_texts[line.text] = band_texts.get(line.text, 0) + 1
-        pages.append(pt)
+    try:
+        toc = doc.get_toc()
+        for pno, page in enumerate(doc, start=1):
+            lines, images = _raw_lines(page)
+            drawings = len(page.get_drawings()) if not lines else 0  # seulement utile pour une page sans texte
+            pt = PageText(page=pno, width=page.rect.width, height=page.rect.height, lines=lines, images=images,
+                          drawings=drawings)
+            for line in lines:
+                if line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt:
+                    band_texts[line.text] = band_texts.get(line.text, 0) + 1
+            pages.append(pt)
+    finally:
+        doc.close()
     min_pages = max(2, int(len(pages) * s.header_min_pages_ratio))
     for pt in pages:
         kept: list[PageLine] = []
         for line in pt.lines:
             in_band = line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt
             running = band_texts.get(line.text, 0) >= min_pages or _PAGE_NUMBER_RE.match(line.text) is not None \
-                or (line.size <= _HEADER_MAX_SIZE and line.text == line.text.upper())
+                or (line.size <= s.header_caps_max_size_pt and line.text == line.text.upper())
             if in_band and running:
                 pt.removed.append(line.text)
                 if _TDM_RE.search(line.text):
                     pt.is_toc = True
                 continue
             kept.append(line)
-        pt.lines = _merge_number_lines(kept, s.article_number_max_x)
-    doc.close()
+        pt.lines = _merge_number_lines(kept)
     return pages, toc
 
 
@@ -241,7 +266,7 @@ class _Builder:
 
 def _is_heading(line: PageLine, nxt: PageLine | None) -> bool:
     """Texte sur la ligne de base d'un numéro : titre si gros, ou court sans ponctuation finale et suivi d'une majuscule."""
-    if line.size >= _TITLE_SIZE:
+    if line.size >= get_settings().title_min_size_pt:
         return True
     if line.text.rstrip().endswith((".", ";", ":", ",")):
         return False
@@ -273,16 +298,18 @@ def _segment_page(pt: PageText) -> list[tuple[str, list[PageLine]]]:
             gap = line.bbox[1] - prev.bbox[1]
             height = max(prev.bbox[3] - prev.bbox[1], 1.0)
             close = gap <= s.para_gap_ratio * height
-            if kind == "list" and close and line.bbox[0] > prev_lines[0].bbox[0] + 4:
-                prev_lines.append(line)  # continuation indentée d'un item
+            if kind == "list" and close and (line.bbox[0] > prev_lines[0].bbox[0] + s.list_indent_pt
+                                             or (line.text[:1].islower() and not prev.text.endswith(_TERMINAL))):
+                prev_lines.append(line)  # continuation d'un item : indentée, ou alignée et phrase non terminée
                 continue
-            if kind == "para" and close and line.size < _TITLE_SIZE and prev.size < _TITLE_SIZE:
+            if kind == "para" and close and line.size < s.title_min_size_pt and prev.size < s.title_min_size_pt:
                 prev_lines.append(line)
                 continue
             if kind == "para" and prev.number is not None and len(prev_lines) == 1 and line.text[:1].islower():
                 prev_lines.append(line)  # « 3.1.1.1.1 L'incendie, » puis « c'est-à-dire … » : même alinéa
                 continue
-        kind = "heading" if line.size >= _TITLE_SIZE and line.number is None and not line.text.endswith(".") else "para"
+        kind = "heading" if line.size >= s.title_min_size_pt and line.number is None and not line.text.endswith(".") \
+            else "para"
         groups.append((kind, [line]))
     return groups
 
@@ -310,8 +337,10 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         page_last: Block | None = None
         for kind, lines in _segment_page(pt):
             continues = None
+            # Scission de page (AD-2) : le premier bloc de la page, de même kind que le dernier bloc texte de la page
+            # précédente, sans numéro d'article, alors que ce dernier ne finit pas une phrase (structure, pas casse).
             if first and kind in ("para", "list") and lines[0].number is None and last_text_block is not None \
-                    and lines[0].text[:1].islower() and not last_text_block.text.rstrip().endswith((".", ";", ":")):
+                    and last_text_block.kind == kind and not last_text_block.text.rstrip().endswith(_TERMINAL):
                 continues = last_text_block.block_id
             first = False
             if lines[0].number is not None:
@@ -324,11 +353,31 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             if lines[0].number is not None and kind == "para":
                 b.current.title = lines[0].text[:80]
         last_text_block = page_last
+    toc_gaps = _apply_toc(b, toc)
     nodes = [b.nodes[nid] for nid in b.order]
     doc = Document(doc_id=doc_id, kind="contrat", title=title, edition=edition, lang="fr", nodes=nodes,
                    blocks=b.blocks, source_url=None, source_hash=source_hash, ingest_fingerprint=ingest_fingerprint())
-    meta = {"numbers": b.numbers, "duplicates": b.duplicates, "continues": b.continues, "toc": toc}
+    meta = {"numbers": b.numbers, "duplicates": b.duplicates, "continues": b.continues, "toc": toc,
+            "toc_gaps": toc_gaps}
     return doc, meta
+
+
+def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
+    """Signets du PDF (`get_toc()` : [niveau, titre, page]) : un signet « 1.12 Contenu » donne son titre au nœud
+    `a1.12` s'il n'en a pas ; un signet numéroté sans nœud correspondant est un écart (alerte `tdm_pdf_ecart`)."""
+    gaps: list[str] = []
+    for item in toc:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        m = _TOC_NUMBER_RE.match(str(item[1]).strip())
+        if not m:
+            continue
+        node = b.nodes.get(f"{b.doc_id}:a{m.group(1)}")
+        if node is None:
+            gaps.append(f"{m.group(1)} (p. {item[2]})")
+        elif not node.title:
+            node.title = f"{m.group(1)} {m.group(2)}".strip()
+    return gaps
 
 
 def build_summary(doc: Document) -> str:
@@ -378,15 +427,22 @@ def run(data_dir: Path, *, edition: str, doc_id: str = DOC_ID) -> tuple[Report, 
     previous = load_previous(data_dir / "document.json")
     try:
         pdf_path = data_dir / "source.pdf"
-        source_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
         expected_path = data_dir / "source.sha256"
-        if expected_path.is_file() and expected_path.read_text("utf-8").split()[:1] != [source_hash]:
+        # AD-7 : l'empreinte de référence est obligatoire et vérifiée avant toute extraction (jamais d'ingestion
+        # d'un PDF non vérifié, même si `fetch_source` n'a pas été utilisé).
+        if not expected_path.is_file():
+            raise ValueError("source.sha256 absent : l'empreinte de référence du PDF est obligatoire (AD-7)")
+        expected = expected_path.read_text("utf-8").split()[:1]
+        if not expected or not _SHA256_RE.match(expected[0].lower()):
+            raise ValueError("source.sha256 mal formé : 64 caractères hexadécimaux attendus")
+        source_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
+        if expected[0].lower() != source_hash:
             raise ValueError(f"source.pdf : sha256 {source_hash} ≠ source.sha256 — relancer fetch_source")
         pages, toc = extract_pages(pdf_path)
         doc, meta = build_document(pages, edition=edition, source_hash=source_hash, toc=toc, doc_id=doc_id)
         summary = build_summary(doc)
         report = build_pdf_report(doc, previous, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
-                                  continues=meta["continues"], toc=toc, summary=summary)
+                                  continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"], summary=summary)
     except ValidationError as exc:
         report = report_from_validation_error(doc_id, exc)
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
@@ -406,7 +462,8 @@ def run(data_dir: Path, *, edition: str, doc_id: str = DOC_ID) -> tuple[Report, 
     write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
     entry = merge_manifest(manifest_path, raw_manifest, doc_id,
                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
-                                         document_hash=document_hash, edition=edition, gate=None))
+                                         document_hash=document_hash, edition=edition,
+                                         overlay_hash=overlay_hash(data_dir), gate=None))
     return report, entry
 
 

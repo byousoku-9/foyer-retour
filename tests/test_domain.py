@@ -34,8 +34,8 @@ def test_document_fields() -> None:
 def test_block_fields_and_kinds() -> None:
     assert fields(document.Block) == {
         "block_id", "text", "text_norm", "lang", "loc", "seq", "page", "bbox", "kind", "kind_confidence",
-        "kind_source", "source_field", "continues", "refs", "unresolved_refs", "defines", "scope_node_id", "overrides",
-        "relation", "lines",
+        "kind_source", "source_field", "continues", "refs", "unresolved_refs", "defines", "scope_node_id",
+        "scope_node_ids", "overrides", "relation", "lines",
     }
     assert literal_values(document.Block, "kind") == {
         "para", "heading", "table", "list", "definition", "garantie", "exclusion", "condition",
@@ -118,14 +118,34 @@ def test_document_tree_invariants() -> None:
     ("relation", {"specialise": "d:p1:9"}, "relation.specialise vise un bloc inconnu"),
     ("relation", {"contredit": "d:p1:9"}, "relation.contredit vise un bloc inconnu"),
     ("scope_node_id", "ghost", "scope_node_id vise un nœud inconnu"),
+    ("scope_node_ids", ["ghost"], "scope_node_ids vise un nœud inconnu"),
+    ("scope_node_ids", ["root", "root"], "scope_node_ids contient un doublon"),
 ])
 def test_document_referential_invariants(field: str, value: object, fragment: str) -> None:
     nodes = [{"node_id": "root", "items": [{"block_id": "d:p1:1"}, {"block_id": "d:p1:2"}]}]
     ok = _doc(nodes, [_blk(1), _blk(2) | {field: {"refs": ["d:p1:1"], "continues": "d:p1:1", "overrides": "d:p1:1",
-                                                   "relation": {"contredit": "d:p1:1"}, "scope_node_id": "root"}[field]}])
+                                                   "relation": {"contredit": "d:p1:1"}, "scope_node_id": "root",
+                                                   "scope_node_ids": ["root"]}[field]}])
     assert ok.block("d:p1:2")
     with pytest.raises(ValidationError, match=fragment):
         _doc(nodes, [_blk(1), _blk(2) | {field: value}])
+
+
+def test_scope_nodes_explicit_list_restricts_the_subtree() -> None:
+    """Amendement AD-2 (revue Codex 1.2) : « pour les extensions 3.1.8.3 à 3.1.8.6 » ne couvre ni 3.1.8.1 ni 3.1.8.8."""
+    nodes = [{"node_id": "d", "items": [{"node_id": "d:a3.1.8"}]},
+             {"node_id": "d:a3.1.8", "items": [{"block_id": "d:p1:1"}] + [{"node_id": f"d:a3.1.8.{i}"} for i in range(1, 9)]},
+             *[{"node_id": f"d:a3.1.8.{i}", "items": [{"node_id": "d:a3.1.8.3.1"}] if i == 3 else []} for i in range(1, 9)],
+             {"node_id": "d:a3.1.8.3.1"}]
+    narrow = _blk(1) | {"scope_node_id": "d:a3.1.8", "scope_node_ids": [f"d:a3.1.8.{i}" for i in (3, 4, 5, 6)]}
+    doc = _doc(nodes, [narrow])
+    assert doc.scope_nodes("d:p1:1") == {"d:a3.1.8.3", "d:a3.1.8.4", "d:a3.1.8.5", "d:a3.1.8.6", "d:a3.1.8.3.1"}
+    assert not {"d:a3.1.8", "d:a3.1.8.1", "d:a3.1.8.2", "d:a3.1.8.7", "d:a3.1.8.8"} & doc.scope_nodes("d:p1:1")
+    wide = _doc(nodes, [_blk(1) | {"scope_node_id": "d:a3.1.8"}])
+    assert wide.scope_nodes("d:p1:1") == {"d:a3.1.8", *(f"d:a3.1.8.{i}" for i in range(1, 9)), "d:a3.1.8.3.1"}
+    assert _doc(nodes, [_blk(1)]).scope_nodes("d:p1:1") == set()
+    with pytest.raises(ValidationError, match="n'est pas sous"):
+        _doc(nodes, [_blk(1) | {"scope_node_id": "d:a3.1.8.3", "scope_node_ids": ["d:a3.1.8.4"]}])
 
 
 def test_node_items_is_single_source_of_order() -> None:
@@ -254,9 +274,10 @@ def test_ingest_models() -> None:
     assert literal_values(ingest.Check, "level") == {"bloquant", "alerte", "info"}
     assert fields(ingest.Report) == {"doc_id", "checks", "stats"}
     assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
-                                   "prompts_digest", "model_ids", "evals_ok", "date"}
+                                   "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash"}
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
-    assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition", "gate"}
+    assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
+                                            "overlay_hash", "gate"}
     assert literal_values(ingest.ManifestEntry, "status") == {"servi", "quarantaine"}
     assert fields(retrieval.NodeWindow) == {"node_id", "blocks", "truncated", "next_cursor"}
     r = ingest.Report(doc_id="d", checks=[{"name": "a", "level": "bloquant"}, {"name": "b", "level": "alerte"}])

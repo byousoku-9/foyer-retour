@@ -116,3 +116,38 @@ def test_real_reference_matches_spec() -> None:
     url, sha = f.read_reference(real)
     assert sha == "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c"
     assert url.startswith("https://luxembourg-axa.cdn.axa-contento-118412.eu/")
+
+
+def test_gs_url_as_main_source_is_downloaded_with_token(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC 1.2 : `source.url` « peut aussi être une URL gs:// du bucket privé » (revue Codex 1.2, B5)."""
+    monkeypatch.setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "tok")
+    (data / "doc-a" / "source.url").write_text("gs://mon-bucket/dossier/cg.pdf\n", "utf-8")
+    assert f.read_reference(data / "doc-a")[0] == "gs://mon-bucket/dossier/cg.pdf"
+    seen: list[httpx.Request] = []
+    https = "https://storage.googleapis.com/mon-bucket/dossier/cg.pdf"
+    client = _client({https: httpx.Response(200, content=PDF)}, seen)
+    assert f.fetch("doc-a", data, client=client).read_bytes() == PDF
+    assert [str(r.url) for r in seen] == [https] and seen[0].headers["authorization"] == "Bearer tok"
+    # objet gs:// injoignable ⇒ repli sur le bucket des sources, puis exit 3 si lui aussi échoue
+    client = _client({https: httpx.Response(404), GS: httpx.Response(200, content=PDF)}, seen := [])
+    assert f.fetch("doc-a", data, client=client).read_bytes() == PDF and [str(r.url) for r in seen] == [https, GS]
+    client = _client({https: httpx.Response(200, content=b"wrong")}, [])
+    with pytest.raises(f.FetchError) as exc:
+        f.fetch("doc-a", data, client=client)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("url", ["gs://", "gs://bucket", "ftp://x/y.pdf", "http://x/y.pdf", "gs://B/x.pdf"])
+def test_reference_url_scheme_is_validated(data: Path, url: str) -> None:
+    (data / "doc-a" / "source.url").write_text(url + "\n", "utf-8")
+    with pytest.raises(f.FetchError) as exc:
+        f.read_reference(data / "doc-a")
+    assert exc.value.code == 4
+
+
+def test_metadata_timeout_comes_from_settings(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GOOGLE_OAUTH_ACCESS_TOKEN", raising=False)
+    seen: list[httpx.Request] = []
+    client = _client({f.METADATA_TOKEN_URL: httpx.Response(200, json={"access_token": "meta"})}, seen)
+    assert f._metadata_token(client) == "meta"
+    assert seen[0].extensions["timeout"]["read"] == f.get_settings().metadata_timeout_s

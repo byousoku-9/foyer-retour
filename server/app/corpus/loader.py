@@ -16,7 +16,9 @@ from .text import normalize
 
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
 OVERLAY_FILE = "typing.manual.json"  # typage manuel (FR20) fusionné avant validation ; `document.json` intact
-OVERLAY_FIELDS = ("kind", "defines", "scope_node_id", "kind_source")
+OVERLAY_SCHEMA_VERSION = "1"
+OVERLAY_FIELDS = ("kind", "defines", "scope_node_id", "scope_node_ids", "kind_source")
+OVERLAY_TOP_LEVEL = ("schema_version", "doc_id", "note", "blocks")
 
 
 @dataclass
@@ -49,14 +51,16 @@ def _first_error(exc: ValueError) -> str:
 def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ungated: bool) -> tuple[str, list[str]]:
     """Règle du gate (AD-7) : (raison de quarantaine, alertes).
 
-    - pas de gate, ou gate dont `source_hash`/`ingest_fingerprint` ≠ l'entrée ⇒ gate invalide : `sans_gate`
+    - pas de gate, ou gate dont `source_hash`/`ingest_fingerprint`/`overlay_hash` ≠ l'entrée ⇒ gate invalide :
+      `sans_gate`
       (quarantaine, sauf `allow_ungated` ⇒ alerte) ;
     - `evals_ok=False` ⇒ `gate_echoue`, jamais servi ;
     - `pipeline_digest`/`prompts_digest`/`model_ids` ≠ `current` (si fourni) ⇒ servi avec l'alerte `gate_perime`.
     """
     gate = entry.gate
-    if gate is not None and (gate.source_hash, gate.ingest_fingerprint) != (entry.source_hash, entry.ingest_fingerprint):
-        gate = None
+    if gate is not None and (gate.source_hash, gate.ingest_fingerprint, gate.overlay_hash) != (
+            entry.source_hash, entry.ingest_fingerprint, entry.overlay_hash):
+        gate = None  # le typage manuel (overlay) fait partie de ce que les témoins ont validé
     if gate is None:
         return ("", ["sans_gate"]) if allow_ungated else ("sans_gate", [])
     if not gate.evals_ok:
@@ -68,11 +72,22 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
 
 
 def _apply_overlay(raw_doc: dict, overlay: object) -> str:
-    """Fusionne `typing.manual.json` sur le dict brut de `document.json` ; renvoie une raison de quarantaine ou ""."""
+    """Fusionne `typing.manual.json` sur le dict brut de `document.json` ; renvoie une raison de quarantaine ou "".
+
+    Strict (revue Codex 1.2) : `schema_version` et `doc_id` obligatoires, au moins un bloc, `kind` obligatoire avec
+    `kind_source="manual"`, aucun champ hors `OVERLAY_FIELDS`, nœuds de portée connus.
+    """
     if not isinstance(overlay, dict) or not isinstance(overlay.get("blocks"), dict):
-        return "overlay : objet {blocks: {block_id: {kind, …}}} attendu"
-    if overlay.get("doc_id") not in (None, raw_doc.get("doc_id")):
+        return "overlay : objet {schema_version, doc_id, blocks: {block_id: {kind, …}}} attendu"
+    if overlay.get("schema_version") != OVERLAY_SCHEMA_VERSION:
+        return f"overlay : schema_version {overlay.get('schema_version')!r} ≠ {OVERLAY_SCHEMA_VERSION!r}"
+    if overlay.get("doc_id") != raw_doc.get("doc_id"):
         return f"overlay : doc_id {overlay.get('doc_id')!r} différent du document"
+    unknown_top = sorted(set(overlay) - set(OVERLAY_TOP_LEVEL))
+    if unknown_top:
+        return f"overlay : champs inattendus : {unknown_top}"
+    if not overlay["blocks"]:
+        return "overlay : aucun bloc typé"
     blocks = {b.get("block_id"): b for b in raw_doc.get("blocks", []) if isinstance(b, dict)}
     node_ids = {n.get("node_id") for n in raw_doc.get("nodes", []) if isinstance(n, dict)}
     for block_id, entry in overlay["blocks"].items():
@@ -80,12 +95,17 @@ def _apply_overlay(raw_doc: dict, overlay: object) -> str:
             return f"overlay : bloc inconnu {block_id}"
         if not isinstance(entry, dict) or entry.get("kind_source") != "manual":
             return f"overlay : kind_source ≠ manual pour {block_id}"
+        if not isinstance(entry.get("kind"), str):
+            return f"overlay : kind obligatoire pour {block_id}"
         unknown = sorted(set(entry) - set(OVERLAY_FIELDS))
         if unknown:
             return f"overlay : champs inattendus pour {block_id} : {unknown}"
         scope = entry.get("scope_node_id")
         if scope is not None and scope not in node_ids:
             return f"overlay : nœud inconnu {scope} pour {block_id}"
+        scopes = entry.get("scope_node_ids", [])
+        if not isinstance(scopes, list) or any(n not in node_ids for n in scopes):
+            return f"overlay : scope_node_ids doit lister des nœuds connus pour {block_id}"
         blocks[block_id].update({k: v for k, v in entry.items()})
     return ""
 
@@ -113,7 +133,13 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
                 break
         raw_doc = json.loads(doc_path.read_bytes())
         overlay_path = doc_dir / OVERLAY_FILE
+        # L'overlay est couvert par le manifest (`overlay_hash`) comme `document.json` l'est par `document_hash`.
+        if overlay_path.is_file() != (entry.overlay_hash is not None):
+            return None, ("overlay : typing.manual.json présent mais non déclaré dans le manifest (relancer l'ingestion)"
+                          if overlay_path.is_file() else "overlay : déclaré dans le manifest mais absent"), []
         if overlay_path.is_file():
+            if _sha256(overlay_path) != entry.overlay_hash:
+                return None, "overlay_hash différent du manifest (relancer l'ingestion)", []
             try:
                 overlay = json.loads(overlay_path.read_bytes())
             except (OSError, UnicodeDecodeError, ValueError) as exc:
