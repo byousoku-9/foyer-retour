@@ -1,0 +1,40 @@
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+*.key
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Données générées (ingestion, caches de modèles, index)
+data/cache/
+data/ingested/
+*.sqlite
+*.duckdb
+
+# Node (si outillage front)
+node_modules/
+
+# OS / éditeurs
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Méthode et références de travail : restent hors du dépôt public
+_bmad/
+_bmad-output/
+_reference/
+.claude/
+.agents/
