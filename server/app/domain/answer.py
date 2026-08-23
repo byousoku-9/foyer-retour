@@ -29,10 +29,14 @@ class Claim(DomainModel):
     @field_validator("quotes")
     @classmethod
     def _one_quote_per_block(cls, quotes: list[Quote]) -> list[Quote]:
+        # AD-10/AD-15 (revue Codex 1.4, B7) : le message d'un validateur du domaine est recopié tel
+        # quel dans `StepTrace.checks` et dans la relance ; il ne cite donc **jamais** une valeur reçue
+        # (`block_id`, `claim_id`) — elles viennent du modèle et sont du contenu non fiable. Le chemin
+        # pydantic (`claims.2.quotes`) suffit à situer la faute, et il est produit par le code.
         ids = [q.block_id for q in quotes]
-        dupes = sorted({b for b in ids if ids.count(b) > 1})
-        if dupes:
-            raise ValueError(f"une seule quote par bloc : {dupes}")
+        if len(set(ids)) != len(ids):
+            raise ValueError("deux quotes portent le même block_id (une seule quote par bloc dans une claim) : "
+                             "regrouper le passage, ou faire deux claims distinctes")
         return quotes
 
 
@@ -59,14 +63,14 @@ class AnswerDraft(DomainModel):
     def _draft_coherence(self) -> AnswerDraft:
         """AD-3 (story 1.4) : validé au parse ⇒ un draft incohérent déclenche le retry motivé du client."""
         ids = [c.claim_id for c in self.claims]
-        dupes = sorted({i for i in ids if ids.count(i) > 1})
-        if dupes:
-            raise ValueError(f"claim_id dupliqués : {dupes}")
+        if len(set(ids)) != len(ids):
+            # Aucune valeur reçue dans le message : elle viendrait du modèle (revue Codex 1.4, B7).
+            raise ValueError("deux claims portent le même claim_id (chaque claim_id est unique)")
         known = set(ids)
         for i, s in enumerate(self.segments):
-            unknown = sorted(set(s.claim_ids) - known)
-            if unknown:
-                raise ValueError(f"segments[{i}] référence des claims inconnues : {unknown}")
+            if set(s.claim_ids) - known:
+                raise ValueError(f"segments[{i}] référence un claim_id absent de claims[] "
+                                 "(n'utiliser que les claim_id déclarés dans claims[])")
             if s.kind == "factuel" and not s.claim_ids:
                 raise ValueError(f"segments[{i}] est factuel sans claim_id (chaque segment factuel cite ≥ 1 claim)")
         return self
@@ -116,9 +120,8 @@ class Answer(DomainModel):
             raise ValueError("found=True exige au moins une claim retrouvée et pertinente")
         if not self.found and self.claims:
             raise ValueError("found=False exige claims=[]")
-        bad = [c.claim_id for c in self.claims if not (c.status.retrouvee is True and c.status.pertinente is True)]
-        if bad:
-            raise ValueError(f"claims[] ne contient que des claims retrouvee ∧ pertinente ; fautives : {bad}")
+        if any(not (c.status.retrouvee is True and c.status.pertinente is True) for c in self.claims):
+            raise ValueError("claims[] ne contient que des claims retrouvee ∧ pertinente")
         if self.complete and (not self.found or self.unknown):
             raise ValueError("complete=True exige found=True et unknown=[]")
         return self

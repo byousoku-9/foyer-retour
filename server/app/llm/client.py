@@ -33,6 +33,7 @@ from server.app.domain.trace import CheckResult, LLMCall, StepTrace, Usage
 from .budget import RequestBudget
 from .models import EFFORT, MODEL_CAPS, Tier, model_for
 from .pricing import cost_from_usage, estimate_cost
+from .prompting import untrusted
 
 T = TypeVar("T", bound=pydantic.BaseModel)
 
@@ -264,10 +265,16 @@ class LlmClient:
             retried = True
             step.checks.append(CheckResult(name="parse_retry", ok=False, detail=problem))
             # Le préfixe reste byte-identique : le motif est porté par un tour supplémentaire.
+            # AD-15 (revue Codex 1.4, B7) : le motif est composé à partir de la réponse du modèle
+            # (chemins pydantic, messages de validateurs) — il est donc délimité comme tout contenu non
+            # fiable, jamais concaténé en clair dans une consigne. Seule la consigne est du texte de
+            # confiance ; `untrusted()` neutralise en outre toute balise portée par le motif.
             msgs = [*msgs,
                     {"role": "assistant", "content": text or "(réponse vide)"},
-                    {"role": "user", "content": f"Ta réponse précédente était invalide — {problem}. "
-                                                "Réponds à nouveau, uniquement avec le JSON conforme au schéma."}]
+                    {"role": "user", "content": "Ta réponse précédente était invalide. Le contrôle a relevé :\n"
+                                                + untrusted("motif", problem)
+                                                + "\nCorrige exactement ce qu'il décrit et réponds à nouveau, "
+                                                  "uniquement avec le JSON conforme au schéma."}]
 
     async def count_tokens(self, model: str, system: str | None, messages: list[dict[str, Any]]) -> int:
         """Tokens réels d'une requête au tokenizer du modèle (`/v1/messages/count_tokens`)."""
@@ -288,9 +295,13 @@ class LlmClient:
         `error_count()` seul ne motive rien : le modèle rejoue la même réponse (observé en live sur
         `AnswerDraft`, deux quotes du même bloc dans une claim). On rend donc le chemin du champ et le
         message du validateur, sans la valeur reçue (`include_input=False`) : la recopier gonflerait la
-        requête pour rien. Un message de validateur du domaine peut citer des identifiants produits par
-        le modèle (`claim_id`, `block_id`) ; le motif est donc borné à `max_len` et, de toute façon, la
-        réponse invalide est elle-même rejouée dans le tour `assistant` qui précède (AD-5).
+        requête pour rien.
+
+        Ce motif part dans `StepTrace.checks` (AD-10) et dans la relance : il ne doit donc contenir que
+        du texte produit par **notre** code. Les chemins pydantic le sont ; les messages des validateurs
+        du domaine aussi, tant qu'ils n'interpolent aucune valeur reçue — c'est une règle du domaine,
+        vérifiée par `tests/test_domain.py` (revue Codex 1.4, B7). La borne `max_len` reste une ceinture
+        pour les messages des validateurs intégrés de pydantic, et la relance délimite le motif.
         """
         errors = exc.errors(include_url=False, include_input=False, include_context=False)
         lines = []
