@@ -154,7 +154,8 @@ class LlmClient:
         extra_body = {"temperature": 0} if caps["temperature"] else None
         # Story 1.4 (reprise B5) : empreinte du préfixe facturable — modèle + système + tools + schéma de
         # sortie. Déjà vue dans la requête ⇒ l'estimation compte le préfixe au tarif `cache_read` ; notée
-        # seulement après une réponse du fournisseur (un échec d'appel n'écrit rien de sûr dans le cache).
+        # seulement après une réponse du fournisseur *qui a effectivement caché le préfixe* (un échec
+        # d'appel, comme un préfixe trop court pour être cachable, n'écrit rien dans le cache).
         prefix_digest = _cache_key({"model": model, "system": system, "tools": tools,
                                     "output_schema": output_config["format"]})
 
@@ -212,9 +213,17 @@ class LlmClient:
 
             usage = cost_from_usage(model, message.usage, settings.usd_eur)
             budget.note_call(usage)
-            budget.note_prefix(prefix_digest)  # le préfixe est écrit (ou lu) chez le fournisseur
+            cache_write = self._cache_write_tokens(message.usage)
+            if cache_write or usage.cached:
+                # AD-9 / NFR4 (revue 1.4) : l'empreinte n'est notée que si le fournisseur a réellement
+                # écrit (ou lu) le préfixe. Un préfixe sous la taille minimale cacheable du modèle
+                # (2 048 tokens sur Haiku 4.5, 1 024 sur Sonnet/Opus) n'est jamais mis en cache : le
+                # compter ensuite au tarif `cache_read` ferait sous-estimer l'appel suivant et
+                # `estimate_cost` cesserait de majorer. Constaté sur les fixtures live de *comprendre*
+                # (préfixe ≈ 900 tokens : `cache_creation` et `cache_read_input_tokens` à 0).
+                budget.note_prefix(prefix_digest)
             call = LLMCall(model=message.model, ms=ms, usage=usage,
-                           cache_read=usage.cached, cache_write=self._cache_write_tokens(message.usage),
+                           cache_read=usage.cached, cache_write=cache_write,
                            tools=tool_names)
             self._note_call(step, call)
             # AD-10 (revue Codex 1.3, I1) : le seuil porte sur le coût cumulé de la requête — un appel
@@ -278,8 +287,10 @@ class LlmClient:
 
         `error_count()` seul ne motive rien : le modèle rejoue la même réponse (observé en live sur
         `AnswerDraft`, deux quotes du même bloc dans une claim). On rend donc le chemin du champ et le
-        message du validateur — jamais la valeur reçue (`include_input=False`) : elle vient du modèle,
-        la recopier gonflerait la requête et rejouerait du texte non fiable hors délimitation (AD-5).
+        message du validateur, sans la valeur reçue (`include_input=False`) : la recopier gonflerait la
+        requête pour rien. Un message de validateur du domaine peut citer des identifiants produits par
+        le modèle (`claim_id`, `block_id`) ; le motif est donc borné à `max_len` et, de toute façon, la
+        réponse invalide est elle-même rejouée dans le tour `assistant` qui précède (AD-5).
         """
         errors = exc.errors(include_url=False, include_input=False, include_context=False)
         lines = []

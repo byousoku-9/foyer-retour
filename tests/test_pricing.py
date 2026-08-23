@@ -112,6 +112,19 @@ def test_estimate_cost_majorizes_measured_live_costs() -> None:
     assert est >= real.cost_eur
 
 
+def test_estimate_cost_prefix_cached_still_majorizes_a_cache_read_call() -> None:
+    # Revue 1.4 : `prefix_cached=True` ne majore que le cas qu'il décrit — un appel dont le préfixe est
+    # *relu* dans le cache. Le client ne le passe donc qu'après confirmation du fournisseur ; sur un
+    # appel non caché (même tokens, mais en entrée pleine) l'estimation escomptée serait dépassée, ce
+    # qui est exactement la raison pour laquelle `note_prefix` est conditionné à l'`usage`.
+    s = _settings()
+    read = pricing.cost_from_usage(SONNET, _api_usage(cache_read=4_570, output=300), usd_eur=s.usd_eur)
+    est = pricing.estimate_cost(SONNET, "x" * 10_359, [], max_tokens=300, settings=s, prefix_cached=True)
+    assert est >= read.cost_eur
+    plein = pricing.cost_from_usage(SONNET, _api_usage(input_tokens=4_570, output=300), usd_eur=s.usd_eur)
+    assert est < plein.cost_eur  # le même appel non caché dépasse l'estimation escomptée
+
+
 def test_estimate_cost_prefix_cached_prices_prefix_and_schema_at_cache_read() -> None:
     # Story 1.4 (reprise B5) : préfixe déjà écrit dans la requête ⇒ préfixe + schéma au tarif cache_read
     # (0,1×) au lieu de l'écriture (2× en 1 h) ; les messages restent au tarif d'entrée plein.

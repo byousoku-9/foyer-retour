@@ -241,7 +241,10 @@ async def test_second_call_with_same_prefix_passes_where_the_write_rate_would_bl
     prefix = "x" * 40_000
     s = _settings()
     est_write = _write_estimate(prefix, 10, s)
-    client, fake = _client([fake_message(model=HAIKU), fake_message(model=HAIKU)])
+    # Le 1er appel rend un `usage` où le fournisseur déclare avoir écrit le préfixe : c'est cette
+    # confirmation, et elle seule, qui autorise l'estimation du 2e au tarif `cache_read`.
+    client, fake = _client([fake_message(model=HAIKU, cache_5m=9_000),
+                            fake_message(model=HAIKU, cache_read=9_000)])
     budget, step = _budget(max_cost=round(est_write + 0.001, 4)), StepTrace(name="comprendre")
 
     async def call():
@@ -256,6 +259,29 @@ async def test_second_call_with_same_prefix_passes_where_the_write_rate_would_bl
     second = await call()  # passe : le préfixe déjà écrit est estimé au tarif cache_read
     assert len(fake.requests) == 2
     assert budget.cost_eur == round(first.usage.cost_eur + second.usage.cost_eur, 4)
+
+
+async def test_a_prefix_the_provider_did_not_cache_stays_at_the_write_rate() -> None:
+    # Revue 1.4 : un préfixe sous la taille minimale cacheable du modèle (2 048 tokens sur Haiku 4.5)
+    # n'est jamais mis en cache — l'`usage` le dit : `cache_creation` et `cache_read` nuls. L'escompter
+    # au tarif `cache_read` ferait sous-estimer l'appel suivant et `estimate_cost` cesserait de majorer
+    # (AD-9/NFR4). C'est le cas réel de *comprendre* : voir ses fixtures live.
+    prefix = "x" * 40_000
+    s = _settings()
+    est_write = _write_estimate(prefix, 10, s)
+    client, fake = _client([fake_message(model=HAIKU), fake_message(model=HAIKU)])
+    budget, step = _budget(max_cost=round(est_write + 0.001, 4)), StepTrace(name="comprendre")
+
+    async def call():
+        return await client.parse(tier="micro", system_prefix=prefix,
+                                  messages=[{"role": "user", "content": "q"}], output_model=Mot,
+                                  budget=budget, step=step, max_tokens=10)
+
+    first = await call()
+    assert first.call.cache_write == 0 and first.call.cache_read == 0  # rien n'a été caché
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await call()
+    assert len(fake.requests) == 1  # le 2e appel n'est jamais parti : l'estimation majore toujours
 
 
 async def test_a_failed_call_does_not_note_the_prefix() -> None:

@@ -17,9 +17,10 @@ class RequestBudget:
         self.attempts = 0
         self.cost_eur = 0.0
         self.cost_alerted = False  # AD-10 : `cout_eleve` levé une seule fois par requête, au franchissement
-        # Story 1.4 (reprise B5) : empreintes des préfixes déjà écrits dans le cache pendant cette requête —
-        # `estimate_cost` peut alors compter le préfixe au tarif `cache_read` (0,1×) au lieu de l'écriture (2×).
-        # Le cache est nécessairement chaud : deadline 55 s, TTL minimal 5 min.
+        # Story 1.4 (reprise B5) : empreintes des préfixes dont le fournisseur a confirmé l'écriture (ou la
+        # lecture) pendant cette requête — `estimate_cost` peut alors compter le préfixe au tarif
+        # `cache_read` (0,1×) au lieu de l'écriture (2×). Le cache reste chaud : deadline 55 s, TTL ≥ 5 min.
+        # Un préfixe que le fournisseur n'a pas caché (trop court pour son seuil minimal) n'entre jamais ici.
         self._prefixes: set[str] = set()
         self._t0 = time.monotonic()
 
@@ -36,8 +37,10 @@ class RequestBudget:
         self.cost_eur = round(self.cost_eur + usage.cost_eur, 4)
 
     def note_prefix(self, digest: str) -> None:
-        """Consigne l'empreinte d'un préfixe (modèle + système + tools + schéma) écrit dans le cache —
-        seulement après une réponse réussie du fournisseur (un échec d'appel ne note rien)."""
+        """Consigne l'empreinte d'un préfixe (modèle + système + tools + schéma) que le fournisseur a
+        effectivement écrit ou lu dans son cache. L'appelant ne l'appelle qu'au vu de l'`usage` renvoyé
+        (`cache_creation` ou `cache_read_input_tokens` non nul) : ni un échec d'appel, ni un préfixe sous
+        la taille minimale cacheable du modèle ne doivent escompter le tarif `cache_read`."""
         self._prefixes.add(digest)
 
     def prefix_seen(self, digest: str) -> bool:

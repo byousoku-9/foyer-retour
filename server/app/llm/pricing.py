@@ -121,9 +121,11 @@ def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, setti
     chaque appel), messages au tarif d'entrée plein (jamais cachés, spine AD-9), sortie à `max_tokens`.
 
     `prefix_cached=True` (story 1.4) : le préfixe et le schéma sont comptés au tarif `cache_read`
-    (0,1×) — l'appelant garantit que ce même préfixe a déjà été écrit dans la requête
-    (`RequestBudget.prefix_seen`) ; le cache est nécessairement chaud (deadline 55 s, TTL ≥ 5 min),
-    l'estimation reste un majorant."""
+    (0,1×). L'appelant ne le passe que si le fournisseur a lui-même confirmé, sur un appel précédent
+    de la même requête, avoir écrit ou lu ce préfixe (`RequestBudget.prefix_seen`, alimenté depuis
+    l'`usage` renvoyé) ; le cache reste alors chaud (deadline 55 s, TTL ≥ 5 min) et l'estimation reste
+    un majorant. Le passer sur un préfixe que le fournisseur n'a pas caché — sous sa taille minimale
+    cacheable — ferait sous-estimer l'appel : c'est ce que le client refuse de faire."""
     if model not in PRICES:
         raise ValueError(f"modèle absent de PRICES : {model!r}")
     p = PRICES[model]
