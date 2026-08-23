@@ -17,6 +17,10 @@ class RequestBudget:
         self.attempts = 0
         self.cost_eur = 0.0
         self.cost_alerted = False  # AD-10 : `cout_eleve` levé une seule fois par requête, au franchissement
+        # Story 1.4 (reprise B5) : empreintes des préfixes déjà écrits dans le cache pendant cette requête —
+        # `estimate_cost` peut alors compter le préfixe au tarif `cache_read` (0,1×) au lieu de l'écriture (2×).
+        # Le cache est nécessairement chaud : deadline 55 s, TTL minimal 5 min.
+        self._prefixes: set[str] = set()
         self._t0 = time.monotonic()
 
     def remaining(self) -> float:
@@ -30,3 +34,12 @@ class RequestBudget:
     def note_call(self, usage) -> None:
         """Consigne un appel réellement facturé : cumule son coût (les attempts sont comptés à l'envoi)."""
         self.cost_eur = round(self.cost_eur + usage.cost_eur, 4)
+
+    def note_prefix(self, digest: str) -> None:
+        """Consigne l'empreinte d'un préfixe (modèle + système + tools + schéma) écrit dans le cache —
+        seulement après une réponse réussie du fournisseur (un échec d'appel ne note rien)."""
+        self._prefixes.add(digest)
+
+    def prefix_seen(self, digest: str) -> bool:
+        """Le préfixe a-t-il déjà été écrit dans cette requête ?"""
+        return digest in self._prefixes

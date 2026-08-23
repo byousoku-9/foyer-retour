@@ -208,6 +208,74 @@ async def test_cost_cap_blocks_a_realistic_reason_call_near_the_cap() -> None:
     assert fake.requests == [] and budget.attempts == 0
 
 
+def _write_estimate(prefix: str, max_tokens: int, settings: Settings) -> float:
+    """Estimation au tarif d'écriture du même appel que `_call` (préfixe + schéma de Mot)."""
+    from anthropic import transform_schema
+    from pydantic import TypeAdapter
+
+    from server.app.llm.pricing import estimate_cost
+
+    schema = {"type": "json_schema", "schema": transform_schema(TypeAdapter(Mot).json_schema())}
+    return estimate_cost(HAIKU, prefix, [{"role": "user", "content": "q"}], max_tokens, settings,
+                         output_schema=schema)
+
+
+async def test_second_call_with_same_prefix_passes_where_the_write_rate_would_block() -> None:
+    # Story 1.4 (reprise B5) : 2 appels au même préfixe, budget serré. 1er : estimation au tarif
+    # d'écriture ; 2e : préfixe au tarif cache_read — l'appel passe sans BudgetExceeded, et le coût
+    # réel reste compté depuis usage.
+    prefix = "x" * 40_000
+    s = _settings()
+    est_write = _write_estimate(prefix, 10, s)
+    client, fake = _client([fake_message(model=HAIKU), fake_message(model=HAIKU)])
+    budget, step = _budget(max_cost=round(est_write + 0.001, 4)), StepTrace(name="comprendre")
+
+    async def call():
+        return await client.parse(tier="micro", system_prefix=prefix,
+                                  messages=[{"role": "user", "content": "q"}], output_model=Mot,
+                                  budget=budget, step=step, max_tokens=10)
+
+    first = await call()
+    assert budget.cost_eur == first.usage.cost_eur > 0
+    # au tarif d'écriture, le 2e appel serait bloqué :
+    assert budget.cost_eur + est_write > budget.max_cost_eur
+    second = await call()  # passe : le préfixe déjà écrit est estimé au tarif cache_read
+    assert len(fake.requests) == 2
+    assert budget.cost_eur == round(first.usage.cost_eur + second.usage.cost_eur, 4)
+
+
+async def test_a_failed_call_does_not_note_the_prefix() -> None:
+    # Un échec d'appel (timeout, 429…) n'écrit rien de sûr dans le cache : l'estimation suivante
+    # reste au tarif d'écriture (pas de sur-optimisme).
+    prefix = "x" * 40_000
+    s = _settings()
+    est_write = _write_estimate(prefix, 10, s)
+    client, fake = _client([provider_exception(anthropic.APITimeoutError)])
+    budget, step = _budget(max_cost=round(est_write + 0.001, 4)), StepTrace(name="comprendre")
+    with pytest.raises(Timeout):
+        await client.parse(tier="micro", system_prefix=prefix, messages=[{"role": "user", "content": "q"}],
+                           output_model=Mot, budget=budget, step=step, max_tokens=10)
+    budget.max_cost_eur = round(est_write / 2, 4)  # bloquerait au tarif d'écriture, pas en lecture
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await client.parse(tier="micro", system_prefix=prefix, messages=[{"role": "user", "content": "q"}],
+                           output_model=Mot, budget=budget, step=step, max_tokens=10)
+    assert len(fake.requests) == 1  # le second appel n'est jamais parti
+
+
+async def test_a_different_prefix_is_estimated_at_the_write_rate() -> None:
+    prefix = "x" * 40_000
+    s = _settings()
+    est_write = _write_estimate(prefix, 10, s)
+    client, fake = _client([fake_message(model=HAIKU)])
+    budget, step = _budget(max_cost=round(est_write + 0.001, 4)), StepTrace(name="comprendre")
+    await client.parse(tier="micro", system_prefix=prefix, messages=[{"role": "user", "content": "q"}],
+                       output_model=Mot, budget=budget, step=step, max_tokens=10)
+    with pytest.raises(BudgetExceeded, match="coût"):  # autre préfixe ⇒ empreinte différente ⇒ écriture
+        await client.parse(tier="micro", system_prefix="y" + prefix, messages=[{"role": "user", "content": "q"}],
+                           output_model=Mot, budget=budget, step=step, max_tokens=10)
+    assert len(fake.requests) == 1
+
+
 async def test_expensive_call_succeeds_but_flags_cout_eleve() -> None:
     client, _ = _client([fake_message(model=OPUS, input_tokens=10_000, output_tokens=4_000)])
     step = StepTrace(name="ingest")

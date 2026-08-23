@@ -32,3 +32,14 @@ def test_note_call_accumulates_cost_rounded() -> None:
     b.note_call(Usage(cost_eur=0.0202))
     assert b.cost_eur == 0.0303
     assert b.attempts == 0  # les attempts sont comptés à l'envoi par le client, pas ici
+
+
+def test_prefix_tracking_starts_empty_and_remembers_digests() -> None:
+    # Story 1.4 (reprise B5) : le budget mémorise les empreintes de préfixes déjà écrits dans la requête.
+    b = RequestBudget(deadline_s=10, max_attempts=4, max_cost_eur=1.0)
+    assert not b.prefix_seen("abc")
+    b.note_prefix("abc")
+    assert b.prefix_seen("abc")
+    assert not b.prefix_seen("def")
+    b2 = RequestBudget(deadline_s=10, max_attempts=4, max_cost_eur=1.0)
+    assert not b2.prefix_seen("abc")  # jamais partagé entre requêtes

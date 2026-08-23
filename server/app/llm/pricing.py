@@ -111,14 +111,19 @@ def _text_len(content: Any) -> int:
 
 
 def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, settings: Settings,
-                  *, tools: Any = None, output_schema: Any = None) -> float:
+                  *, tools: Any = None, output_schema: Any = None, prefix_cached: bool = False) -> float:
     """Majorant en euros d'un appel avant de le faire (AD-9, NFR4) — jamais un coût facturé.
 
     Le plafond par requête (`BudgetExceeded`) se vérifie sur `budget.cost_eur` réel + cette
     estimation (revue Codex 1.3 tour 2, B5) : elle doit majorer, jamais sous-estimer. Chaque poste
     est donc compté à son tarif le plus défavorable — préfixe cacheable (outils, système) et schéma
     de sortie au tarif d'écriture de cache du TTL du modèle (comme si le préfixe était réécrit à
-    chaque appel), messages au tarif d'entrée plein (jamais cachés, spine AD-9), sortie à `max_tokens`."""
+    chaque appel), messages au tarif d'entrée plein (jamais cachés, spine AD-9), sortie à `max_tokens`.
+
+    `prefix_cached=True` (story 1.4) : le préfixe et le schéma sont comptés au tarif `cache_read`
+    (0,1×) — l'appelant garantit que ce même préfixe a déjà été écrit dans la requête
+    (`RequestBudget.prefix_seen`) ; le cache est nécessairement chaud (deadline 55 s, TTL ≥ 5 min),
+    l'estimation reste un majorant."""
     if model not in PRICES:
         raise ValueError(f"modèle absent de PRICES : {model!r}")
     p = PRICES[model]
@@ -130,7 +135,10 @@ def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, setti
         prefix_chars += _json_len(output_schema)
     suffix_chars = sum(_text_len(m.get("content") if isinstance(m, dict) else getattr(m, "content", ""))
                        for m in messages or [])
-    write_rate = p["cache_write_1h"] if MODEL_CAPS[model]["cache_ttl"] == "1h" else p["cache_write"]
+    if prefix_cached:
+        write_rate = p["cache_read"]
+    else:
+        write_rate = p["cache_write_1h"] if MODEL_CAPS[model]["cache_ttl"] == "1h" else p["cache_write"]
     usd = (prefix_chars * tokens_per_char * write_rate
            + suffix_chars * tokens_per_char * p["input"]
            + max_tokens * p["output"]) / _MTOK

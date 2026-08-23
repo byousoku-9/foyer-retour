@@ -152,6 +152,11 @@ class LlmClient:
         if caps["effort"]:
             output_config["effort"] = EFFORT[tier]
         extra_body = {"temperature": 0} if caps["temperature"] else None
+        # Story 1.4 (reprise B5) : empreinte du préfixe facturable — modèle + système + tools + schéma de
+        # sortie. Déjà vue dans la requête ⇒ l'estimation compte le préfixe au tarif `cache_read` ; notée
+        # seulement après une réponse du fournisseur (un échec d'appel n'écrit rien de sûr dans le cache).
+        prefix_digest = _cache_key({"model": model, "system": system, "tools": tools,
+                                    "output_schema": output_config["format"]})
 
         msgs = list(messages)
         retried = False
@@ -176,7 +181,8 @@ class LlmClient:
             if budget.attempts >= budget.max_attempts:
                 raise BudgetExceeded(f"plafond d'appels atteint ({budget.attempts}/{budget.max_attempts})")
             estimate = estimate_cost(model, system, msgs, max_tokens, settings, tools=tools,
-                                     output_schema=output_config["format"])
+                                     output_schema=output_config["format"],
+                                     prefix_cached=budget.prefix_seen(prefix_digest))
             if budget.cost_eur + estimate > budget.max_cost_eur:
                 raise BudgetExceeded(
                     f"plafond de coût par requête : {budget.cost_eur:.4f} € déjà engagés "
@@ -206,6 +212,7 @@ class LlmClient:
 
             usage = cost_from_usage(model, message.usage, settings.usd_eur)
             budget.note_call(usage)
+            budget.note_prefix(prefix_digest)  # le préfixe est écrit (ou lu) chez le fournisseur
             call = LLMCall(model=message.model, ms=ms, usage=usage,
                            cache_read=usage.cached, cache_write=self._cache_write_tokens(message.usage),
                            tools=tool_names)

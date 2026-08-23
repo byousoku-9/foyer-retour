@@ -112,6 +112,26 @@ def test_estimate_cost_majorizes_measured_live_costs() -> None:
     assert est >= real.cost_eur
 
 
+def test_estimate_cost_prefix_cached_prices_prefix_and_schema_at_cache_read() -> None:
+    # Story 1.4 (reprise B5) : préfixe déjà écrit dans la requête ⇒ préfixe + schéma au tarif cache_read
+    # (0,1×) au lieu de l'écriture (2× en 1 h) ; les messages restent au tarif d'entrée plein.
+    s = _settings(estimate_chars_per_token=4.0, estimate_tokenizer_factor=1.3, usd_eur=0.92)
+    system = "a" * 4000
+    messages = [{"role": "user", "content": "b" * 4000}]
+    schema = {"type": "json_schema", "schema": {"properties": {"mot": {"type": "string"}}}}
+    est_write = pricing.estimate_cost(SONNET, system, messages, 1000, s, output_schema=schema)
+    est_cached = pricing.estimate_cost(SONNET, system, messages, 1000, s, output_schema=schema,
+                                       prefix_cached=True)
+    assert est_cached < est_write
+    tpc = 1.3 / 4.0
+    prefix_chars = 4000 + pricing._json_len(schema)
+    expected = round((prefix_chars * tpc * 0.3 + 4000 * tpc * 3.0 + 1000 * 15.0) / 1e6 * 0.92, 4)
+    assert est_cached == expected
+    # micro (5 min) : lecture 0,1× aussi
+    assert pricing.estimate_cost(HAIKU, system, messages, 100, s, prefix_cached=True) < \
+        pricing.estimate_cost(HAIKU, system, messages, 100, s)
+
+
 def test_estimate_cost_counts_the_output_schema() -> None:
     # revue Codex 1.3 tour 2, B5 : le schéma structuré (`output_config.format`) est un poste facturable.
     s = _settings()
