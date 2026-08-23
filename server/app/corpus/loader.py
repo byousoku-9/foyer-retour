@@ -15,6 +15,8 @@ from server.app.domain import Document, GateContext, Manifest, ManifestEntry
 from .text import normalize
 
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
+OVERLAY_FILE = "typing.manual.json"  # typage manuel (FR20) fusionné avant validation ; `document.json` intact
+OVERLAY_FIELDS = ("kind", "defines", "scope_node_id", "kind_source")
 
 
 @dataclass
@@ -65,6 +67,29 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
     return "", []
 
 
+def _apply_overlay(raw_doc: dict, overlay: object) -> str:
+    """Fusionne `typing.manual.json` sur le dict brut de `document.json` ; renvoie une raison de quarantaine ou ""."""
+    if not isinstance(overlay, dict) or not isinstance(overlay.get("blocks"), dict):
+        return "overlay : objet {blocks: {block_id: {kind, …}}} attendu"
+    if overlay.get("doc_id") not in (None, raw_doc.get("doc_id")):
+        return f"overlay : doc_id {overlay.get('doc_id')!r} différent du document"
+    blocks = {b.get("block_id"): b for b in raw_doc.get("blocks", []) if isinstance(b, dict)}
+    node_ids = {n.get("node_id") for n in raw_doc.get("nodes", []) if isinstance(n, dict)}
+    for block_id, entry in overlay["blocks"].items():
+        if block_id not in blocks:
+            return f"overlay : bloc inconnu {block_id}"
+        if not isinstance(entry, dict) or entry.get("kind_source") != "manual":
+            return f"overlay : kind_source ≠ manual pour {block_id}"
+        unknown = sorted(set(entry) - set(OVERLAY_FIELDS))
+        if unknown:
+            return f"overlay : champs inattendus pour {block_id} : {unknown}"
+        scope = entry.get("scope_node_id")
+        if scope is not None and scope not in node_ids:
+            return f"overlay : nœud inconnu {scope} pour {block_id}"
+        blocks[block_id].update({k: v for k, v in entry.items()})
+    return ""
+
+
 def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated: bool,
               current: GateContext | None) -> tuple[Document | None, str, list[str]]:
     """Renvoie (document | None, raison de quarantaine, alertes). Aucune exception ne sort : tout devient une raison."""
@@ -86,7 +111,17 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
                 if _sha256(src) != entry.source_hash:
                     return None, f"source_hash différent du manifest ({name})", []
                 break
-        doc = Document.model_validate(json.loads(doc_path.read_bytes()))
+        raw_doc = json.loads(doc_path.read_bytes())
+        overlay_path = doc_dir / OVERLAY_FILE
+        if overlay_path.is_file():
+            try:
+                overlay = json.loads(overlay_path.read_bytes())
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                return None, f"overlay illisible : {_first_error(exc)}"[:500], []
+            reason = _apply_overlay(raw_doc, overlay) if isinstance(raw_doc, dict) else ""
+            if reason:
+                return None, reason, []
+        doc = Document.model_validate(raw_doc)
     except ValueError as exc:  # ValidationError et JSONDecodeError en héritent
         return None, f"document.json invalide : {_first_error(exc)}", []
     except (OSError, UnicodeDecodeError) as exc:

@@ -21,8 +21,9 @@ CASES = [
     ("assu\u00adrance", "assurance", "tiret conditionnel U+00AD supprimé"),
     ("– un\n– deux\n- trois", "un deux trois", "tirets en début de ligne = puces"),
     ("sous-sol et porte – fenêtre", "sous-sol et porte - fenetre", "tiret intérieur conservé"),
-    ("cœur et ﬁn", "cœur et fin", "limite documentée : œ/æ non décomposés, seules les ligatures de compatibilité le sont"),
-    ("porte-\nfenêtre", "portefenetre", "limite documentée : un vrai trait d'union en fin de ligne est traité comme une césure"),
+    ("cœur et ﬁn", "coeur et fin", "œ décomposé (reprise 1.0 tranchée en 1.2)"),
+    ("Œuvre ex æquo Æ", "oeuvre ex aequo ae", "Œ/æ/Æ décomposés"),
+    ("porte-\nfenêtre", "portefenetre", "limite conservée en 1.2 : un vrai trait d'union en fin de ligne est traité comme une césure"),
     ("", "", "vide"),
 ]
 
@@ -38,4 +39,4 @@ def test_normalize_idempotent() -> None:
 
 
 def test_normalize_version_is_a_string() -> None:
-    assert normalize_version == "1"
+    assert normalize_version == "2"

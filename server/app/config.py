@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     coverage_threshold: float = Field(0.8, ge=0, le=1)
     kind_confidence_min: float = Field(0.7, ge=0, le=1)
 
+    # Ingestion PDF (story 1.2) : bandes d'en-tête/pied en points, récurrence minimale d'un en-tête,
+    # écart vertical (en hauteurs de ligne) qui sépare deux paragraphes, abscisse maximale d'un numéro d'article.
+    header_band_pt: float = Field(40.0, ge=0)
+    footer_band_pt: float = Field(40.0, ge=0)
+    header_min_pages_ratio: float = Field(0.3, ge=0, le=1)
+    para_gap_ratio: float = Field(1.5, gt=0)
+    article_number_max_x: float = Field(70.0, ge=0)
+    fetch_timeout_s: float = Field(30.0, gt=0)
+
     @model_validator(mode="after")
     def _coherence(self) -> Settings:
         if self.llm_timeout_s >= self.deadline_s:
@@ -79,6 +88,12 @@ class Settings(BaseSettings):
             "rate_limit_per_day": self.rate_limit_per_day,
             "coverage_threshold": self.coverage_threshold,
             "kind_confidence_min": self.kind_confidence_min,
+            "header_band_pt": self.header_band_pt,
+            "footer_band_pt": self.footer_band_pt,
+            "header_min_pages_ratio": self.header_min_pages_ratio,
+            "para_gap_ratio": self.para_gap_ratio,
+            "article_number_max_x": self.article_number_max_x,
+            "fetch_timeout_s": self.fetch_timeout_s,
         }
 
 

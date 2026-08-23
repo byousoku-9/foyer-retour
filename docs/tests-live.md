@@ -32,3 +32,16 @@ Aucun réseau ni modèle : l'ingestion est locale et déterministe. Exécution r
 | Recherche | `chercher({"matricule": [], "commune": []}, limit=20)` | 20 résultats ; en tête `lux-guide:farrivee:2` (le résumé, les deux termes), puis `farrivee:6` et `farrivee:11`, avant tout bloc à un seul terme |
 | Tests sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | 165 passed (après revue du diff et revue Codex 1.1) |
 | Revue Codex 1.1 | 6 bloquants traités : règle du gate (`gate_echoue`, gate invalide = `sans_gate`, `gate_perime` contre `GateContext`), `Document.ingest_fingerprint` vérifié par le loader, manifest validé entrée par entrée, `corpus` sans pydantic (`test_layers`), `ids_disparus` sur texte changé + `ids_nouveaux`, invariants référentiels du domaine ; + manifest lu avant toute écriture, `timeline` validée, préfixe `window.KB` seul admis | `data/` regénéré (`document.json` porte `ingest_fingerprint`), 165 tests verts |
+
+## Story 1.2 — Le contrat AXA devient un classeur à blocs (2026-08-23)
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Téléchargement réel | `uv run python -m server.ingest.fetch_source axa-lu-optihome-2017` puis `shasum -a 256 data/axa-lu-optihome-2017/source.pdf` | exit 0 ; 544 969 octets depuis le CDN AXA Luxembourg (`source.url`) ; sha256 `6824f9d2…af2c` identique à la référence ; `source.pdf` ignoré par git |
+| Repli `gs://` réel | `source.url` volontairement morte (copie temporaire) + `GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)` | HTTP 403 sur l'URL ⇒ repli `storage.googleapis.com/foyer-retour-sources/axa-lu-optihome-2017.pdf`, hash vérifié, exit 0 |
+| Ingestion réelle | `uv run python -m server.ingest.pdf_to_blocks axa-lu-optihome-2017` | exit 0 ; 109 pages (108 avec blocs, p. 108 blanche = info), 1 466 blocs (890 `para`, 419 `heading`, 154 `list`, 3 `autre` = TdM p. 2–4), 751 nœuds, 749 numéros d'article monotones, 2 `continues`, 214 en-têtes/pieds retirés, `get_toc()` vide ; aucun bloquant, aucune alerte ; `status: servi`, `gate: null` |
+| Stabilité | relance puis `git status --short data/` | aucune modification (`document.json`, `report.json`, `summary.md`, `manifest.json` octet-identiques) |
+| Chargement + overlay | `load_corpus('data', allow_ungated=True)` | `quarantine={}`, alertes `sans_gate` ×2 ; 4 blocs confirmés : `p9:2` definition « contenu », `p11:12` definition « mobilier de jardin », `p34:12` garantie (scope `a3.1.1`), `p46:1` exclusion (scope `a3.1.8`) ; `document.json` intact |
+| Relecture des pages 9, 11, 34, 46 | rendu PNG des pages (110 dpi) relu visuellement, extraits saisis dans `tests/data/axa/` | `normalize(extrait) == normalize(blocs)` pour §1.12, §1.28, §3.1.1.1.6, alinéa p. 46 — confirmation par Lancelot différée à la 1.8 |
+| Tests sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | 209 passed avec `source.pdf` ; 208 passed, 1 skipped sans |
+| Image Docker | `docker build -t foyer-retour .` | non exécuté : démon Docker absent sur le poste ; le build réel sera validé par `deploy.yml` en 1.11 (l'étape `fetch_source --all` est testée ici via les codes de sortie) |

@@ -24,6 +24,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = ["ignore:builtin type (SwigPyPacked|SwigPyObject|swigvarlink) has no __module__ attribute:DeprecationWarning"]
 markers = [
     "evals: questions-témoins — réseau et coût, seulement avec ANTHROPIC_API_KEY et un plafond --max-cost",
 ]

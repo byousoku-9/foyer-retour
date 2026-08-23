@@ -119,8 +119,8 @@ def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
     hits = ix.chercher({"matricule": [], "commune": []}, limit=s.search_limit)
     assert 0 < len(hits) <= 20
-    doc = ix.corpus.documents["lux-guide"]
-    both = [b for b, _ in hits if {"matricule", "commune"} <= set(words(doc.block(b).text_norm))]
+    docs = ix.corpus.documents  # le corpus contient aussi le contrat AXA depuis la story 1.2
+    both = [b for b, _ in hits if {"matricule", "commune"} <= set(words(docs[b.split(":")[0]].block(b).text_norm))]
     assert [b for b, _ in hits[:3]] == ["lux-guide:farrivee:2", "lux-guide:farrivee:6", "lux-guide:farrivee:11"]
     assert both[:3] == [b for b, _ in hits[:3]] and hits[0][1] == "lux-guide:farrivee"
     assert all(b in both for b, _ in hits[: len(both)])

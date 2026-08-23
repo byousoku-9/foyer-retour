@@ -159,7 +159,8 @@ def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
 
 def test_repo_data_loads() -> None:
     c = load_corpus(ROOT / "data", allow_ungated=True)
-    assert c.quarantine == {} and c.alerts == {"lux-guide": ["sans_gate"]}
+    axa = ["sans_gate"] + ([] if (ROOT / "data" / "axa-lu-optihome-2017" / "source.pdf").is_file() else ["source_absente"])
+    assert c.quarantine == {} and c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": ["sans_gate"]}
     doc = c.documents["lux-guide"]
     assert doc.doc_id == "lux-guide" and doc.edition == "git:a8e8593" and len(doc.blocks) > 400
     assert all(b.text_norm == normalize(b.text) for b in doc.blocks)
@@ -220,3 +221,44 @@ def test_folder_name_must_match_doc_id(data: Path) -> None:
     m["autre-doc"] = m.pop("lux-guide")
     _write_manifest(data, m)
     assert load_corpus(data, allow_ungated=True).quarantine == {"autre-doc": "document.json absent"}
+
+
+# --- overlay `typing.manual.json` (story 1.2, FR20) -------------------------------------------------------------
+
+def _overlay(data: Path, blocks: dict, **extra) -> None:
+    (data / "lux-guide" / "typing.manual.json").write_text(json.dumps({"blocks": blocks, **extra}), "utf-8")
+
+
+def test_overlay_is_merged_before_validation_without_touching_document_json(data: Path) -> None:
+    before = _sha(data / "lux-guide" / "document.json")
+    _overlay(data, {"lux-guide:farrivee:2": {"kind": "definition", "defines": "arrivée", "kind_source": "manual",
+                                             "scope_node_id": "lux-guide:farrivee"}}, doc_id="lux-guide")
+    c = load_corpus(data, allow_ungated=True)
+    assert c.quarantine == {}
+    b = c.documents["lux-guide"].block("lux-guide:farrivee:2")
+    assert b.kind == "definition" and b.defines == "arrivée" and b.kind_confirmed and b.scope_node_id == "lux-guide:farrivee"
+    assert b.text_norm == normalize(b.text)
+    assert _sha(data / "lux-guide" / "document.json") == before
+
+
+@pytest.mark.parametrize("blocks, fragment", [
+    ({"lux-guide:fnope:1": {"kind": "definition", "kind_source": "manual"}}, "bloc inconnu"),
+    ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "model"}}, "kind_source ≠ manual"),
+    ({"lux-guide:farrivee:2": {"kind": "definition"}}, "kind_source ≠ manual"),
+    ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "scope_node_id": "lux-guide:x"}}, "nœud inconnu"),
+    ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "text": "remplacé"}}, "champs inattendus"),
+    ({"lux-guide:farrivee:2": {"kind": "heading!", "kind_source": "manual"}}, "document.json invalide"),
+])
+def test_invalid_overlay_quarantines_only_this_document(data: Path, blocks: dict, fragment: str) -> None:
+    _overlay(data, blocks)
+    c = load_corpus(data, allow_ungated=True)
+    assert list(c.quarantine) == ["lux-guide"] and fragment in c.quarantine["lux-guide"]
+
+
+def test_overlay_unreadable_or_malformed(data: Path) -> None:
+    (data / "lux-guide" / "typing.manual.json").write_text("{", "utf-8")
+    assert "overlay illisible" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    (data / "lux-guide" / "typing.manual.json").write_text("[]", "utf-8")
+    assert "overlay : objet" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    _overlay(data, {}, doc_id="autre")
+    assert "doc_id" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]

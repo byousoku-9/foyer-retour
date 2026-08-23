@@ -17,10 +17,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, Report, Source
+from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, read_manifest,
+                                     write_atomic)
 from server.ingest.jsobject import parse_js_object
 from server.ingest.report import build_report, report_from_validation_error
 
@@ -31,7 +33,6 @@ DEFAULT_EDITION = "git:a8e8593"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
 PARSER_VERSION = "1"
-SCHEMA_VERSION = "1"
 SEGMENTATION_RULES = "fiche:titre,resume,corps[str=para|h=heading],tableaux[titre=heading,table],aRetenir;faq:q,a"
 FLAGS = {"timeline": False, "table_sep": " | "}
 
@@ -180,64 +181,11 @@ def build_summary(doc: Document, kb: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def document_json(doc: Document) -> str:
-    """`text_norm` n'est jamais écrit : il est recalculé au chargement (convention Texte)."""
-    data = doc.model_dump(exclude={"blocks": {"__all__": {"text_norm"}}})
-    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-
-
-def _load_previous(path: Path) -> Document | None:
-    if not path.is_file():
-        return None
-    try:
-        return Document.model_validate_json(path.read_bytes())
-    except (ValidationError, ValueError, OSError):
-        return None
-
-
-def _write_atomic(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, "utf-8")
-    tmp.replace(path)
-
-
-def _read_manifest(manifest_path: Path) -> dict[str, Any]:
-    """Lu et validé avant toute écriture : un manifest illisible bloque sans rien modifier sur disque."""
-    raw: dict[str, Any] = json.loads(manifest_path.read_text("utf-8")) if manifest_path.is_file() else {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"{manifest_path} : un objet JSON {{doc_id: entrée}} est attendu")
-    return raw
-
-
-def _merge_manifest(manifest_path: Path, raw: dict[str, Any], entry: ManifestEntry) -> ManifestEntry:
-    """Fusionne l'entrée `lux-guide` ; les autres documents sont conservés tels quels, même invalides (avertissement)."""
-    adapter = TypeAdapter(ManifestEntry)
-    previous = raw.get(DOC_ID)
-    gate = None
-    if previous:
-        try:
-            gate = adapter.validate_python(previous).gate  # jamais écrit par l'ingestion (AD-7) : conservé
-        except ValidationError as exc:
-            print(f"avertissement : entrée {DOC_ID} précédente invalide, gate ignoré ({exc.errors()[0].get('msg', '')})",
-                  file=sys.stderr)
-    for other, value in raw.items():
-        if other == DOC_ID:
-            continue
-        try:
-            adapter.validate_python(value)
-        except ValidationError:
-            print(f"avertissement : entrée {other!r} du manifest invalide, conservée telle quelle", file=sys.stderr)
-    entry = entry.model_copy(update={"gate": gate})
-    raw[DOC_ID] = entry.model_dump()
-    _write_atomic(manifest_path, json.dumps(dict(sorted(raw.items())), indent=2, ensure_ascii=False) + "\n")
-    return entry
-
-
 def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     """Ingère `data_dir/source.js` ; toute erreur de source devient un check bloquant, jamais une trace Python."""
     manifest_path = data_dir.parent / "manifest.json"
     try:
-        raw_manifest = _read_manifest(manifest_path)
+        raw_manifest = read_manifest(manifest_path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         detail = f"{manifest_path} illisible, rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
         report = Report(doc_id=DOC_ID, checks=[Check(name="manifest_illisible", level="bloquant", detail=detail)])
@@ -246,7 +194,7 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     source_hash = ""
     doc: Document | None = None
     summary = ""
-    previous = _load_previous(data_dir / "document.json")
+    previous = load_previous(data_dir / "document.json")
     try:
         source_bytes = (data_dir / "source.js").read_bytes()
         source_hash = hashlib.sha256(source_bytes).hexdigest()
@@ -264,14 +212,14 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     document_hash = ""
     if doc is not None and not report.blocking:
         doc_text = document_json(doc)
-        _write_atomic(data_dir / "document.json", doc_text)
-        _write_atomic(data_dir / "summary.md", summary)
+        write_atomic(data_dir / "document.json", doc_text)
+        write_atomic(data_dir / "summary.md", summary)
         document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
     else:
         for stale in ("document.json", "summary.md"):  # jamais un artefact périmé à côté d'un manifest en quarantaine
             (data_dir / stale).unlink(missing_ok=True)
-    _write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
-    entry = _merge_manifest(manifest_path, raw_manifest,
+    write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
+    entry = merge_manifest(manifest_path, raw_manifest, DOC_ID,
                             ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=ingest_fingerprint(),
                                           document_hash=document_hash, edition=edition, gate=None))
     return report, entry

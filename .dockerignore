@@ -1,0 +1,17 @@
+.git
+.venv
+.env
+.env.*
+__pycache__
+*.pyc
+.pytest_cache
+tests
+docs
+scripts
+_bmad
+_bmad-output
+_reference
+.claude
+.agents
+data/*/source.pdf
+data/*/*.tmp

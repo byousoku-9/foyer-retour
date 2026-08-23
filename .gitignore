@@ -38,3 +38,7 @@ _bmad-output/
 _reference/
 .claude/
 .agents/
+
+# Sources non redistribuées : téléchargées au build (server/ingest/fetch_source.py)
+data/*/source.pdf
+data/*/*.tmp

@@ -6,7 +6,7 @@ Le fil rouge : **on ne gagne pas sur « comment on retrouve », on gagne sur « 
 
 ## État
 
-Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). La section déploiement arrive avec la story 1.11.
+Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). Story 1.2 : le contrat AXA OptiHome 2017 est téléchargé (hash vérifié), découpé en blocs par page avec lignes et boîtes (`data/axa-lu-optihome-2017/`), et ses quatre clauses du cas « bougie » sont typées par overlay manuel. La section déploiement arrive avec la story 1.11.
 
 ## Lancer
 
@@ -42,6 +42,21 @@ uv run python -m server.ingest.kb_to_blocks        # data/lux-guide/source.js �
 - Exit 1 et `status: quarantaine` dans `manifest.json` si un check bloquant (invariant d'arbre) est levé ; `ids_disparus` est une alerte calculée contre le `document.json` précédent.
 - `manifest.gate` reste `null` jusqu'au premier gate des questions-témoins (story 1.10) ; en dev, `ALLOW_UNGATED` sert le document avec l'alerte `sans_gate`.
 - Le serveur lit `data/` par `server/app/corpus/loader.py` (hashes recalculés, quarantaine par document) et l'indexe par `server/app/corpus/index.py` ; les seuils (`search_limit`, `node_window`) viennent de `server/app/config.py`.
+
+## Ingestion du contrat AXA
+
+```bash
+uv run python -m server.ingest.fetch_source axa-lu-optihome-2017   # source.url + source.sha256 → source.pdf (non committé)
+uv run python -m server.ingest.pdf_to_blocks axa-lu-optihome-2017  # source.pdf → document.json, summary.md, report.json ; manifest fusionné
+```
+
+- Le PDF n'est **pas redistribué** : `fetch_source` le télécharge depuis l'URL publique d'AXA, vérifie le sha256 de référence (`source.sha256`) et se replie sur `gs://foyer-retour-sources/` si l'URL est morte ; hash différent ⇒ exit 2 sans rien écrire, repli en échec ⇒ exit 3. Le `Dockerfile` exécute `fetch_source --all` au build. En local, le repli lit le jeton `GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)`.
+- `pdf_to_blocks` (PyMuPDF, `get_text("dict", sort=True)`) : un bloc par paragraphe/liste/titre avec `page`, `lines` (`line_id`, `text`, `bbox`) et `bbox` = union ; en-têtes et numéros de page retirés ; nœuds construits par la numérotation des articles (`a1.12`, `a3.1.1.1.6`, parent = préfixe le plus long) ; `scope.kind` : `1`, `2`, `3.1` ⇒ `commun`, `3.1.8` ⇒ `extension`, le reste ⇒ `special` ; un paragraphe à cheval sur deux pages est scindé, le second bloc porte `continues`. Texte brut, seules altérations déclarées dans `FLAGS` (puces `•`, glyphe de tabulation retiré).
+- `report.json` (AD-8) : `page_sans_texte` (bloquant ⇒ quarantaine), `numerotation_non_monotone` (alerte), `ids_disparus` (alerte), statistiques (pages, blocs par kind, `continues`, en-têtes retirés, TdM du PDF).
+- `data/axa-lu-optihome-2017/typing.manual.json` : typage manuel des clauses (`kind`, `defines`, `scope_node_id`, `kind_source=manual`), fusionné par le loader **avant** validation sans modifier `document.json` ; un `block_id` inconnu ou un `kind_source` ≠ `manual` met ce seul document en quarantaine. Remplacé par le typage automatique (Epic 3).
+- Les seuils d'ingestion (`header_band_pt`, `footer_band_pt`, `header_min_pages_ratio`, `para_gap_ratio`, `article_number_max_x`, `fetch_timeout_s`) vivent dans `server/app/config.py` et entrent dans `ingest_fingerprint`.
+- `tests/test_parsing_axa.py` compare les pages 9, 11, 34 et 46 à des extraits relus (`tests/data/axa/`) contre le `document.json` committé ; si `source.pdf` est présent, l'ingestion doit le regénérer à l'identique.
+- Les artefacts de tous les documents sont écrits sans valeurs par défaut ni `text_norm` (`SCHEMA_VERSION=2`, `server/ingest/artifacts.py`).
 
 ## Infrastructure
 
