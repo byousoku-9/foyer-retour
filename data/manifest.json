@@ -2,9 +2,10 @@
   "axa-lu-optihome-2017": {
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-    "ingest_fingerprint": "701d12aded74f2d57050f5227d1e90fad9c3093d53b9e2ebc69f60a5f97e140c",
-    "document_hash": "06f5a7d0c18356443d3f26f96b5f33506264d57547a6dd9bf18d36cbc863b890",
+    "ingest_fingerprint": "dd474c567fe3a2cf2594c371fde5c1f29fdd85b6911d20f3936a58a78e22c5d1",
+    "document_hash": "8bc5fc7dcd78ff66ff7ca2fddd9f7505ab0377ed3abb7c86d0e6c94787e057d1",
     "edition": "juin 2017",
+    "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
     "gate": null
   },
   "lux-guide": {
@@ -13,6 +14,7 @@
     "ingest_fingerprint": "41d29e99065f32475314f99b895c783b8ee8571bf6ce95a8bd873815ec58110d",
     "document_hash": "bd4f63a48f8658b33e738341a7e43226fec57c88e2487932bd3bacb095967130",
     "edition": "git:a8e8593",
+    "overlay_hash": null,
     "gate": null
   }
 }

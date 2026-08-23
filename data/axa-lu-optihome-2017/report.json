@@ -18,7 +18,7 @@
     },
     {
       "name": "pages_mixtes",
-      "level": "info",
+      "level": "alerte",
       "detail": "1 page(s) texte + image : 1"
     }
   ],
@@ -28,16 +28,17 @@
     "pages_sans_texte": "108",
     "pages_blanches": 1,
     "pages_avec_images": 1,
+    "pages_sans_texte_dessinees": 0,
     "pages_tdm": 3,
     "noeuds": 751,
-    "blocs": 1466,
+    "blocs": 1457,
     "blocs_par_kind": {
       "autre": 3,
       "heading": 419,
-      "list": 154,
-      "para": 890
+      "list": 151,
+      "para": 884
     },
-    "continues": 2,
+    "continues": 5,
     "en_tetes_retires": 214,
     "tdm_pdf_entrees": 0,
     "numeros_articles": 749,

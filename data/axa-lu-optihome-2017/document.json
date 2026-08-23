@@ -5805,15 +5805,6 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p54:7"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:8"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:9"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:10"
         }
       ]
     },
@@ -5823,22 +5814,19 @@
       "title": "3.1.12.2 Etendue de la garantie",
       "items": [
         {
+          "block_id": "axa-lu-optihome-2017:p54:8"
+        },
+        {
+          "block_id": "axa-lu-optihome-2017:p54:9"
+        },
+        {
+          "block_id": "axa-lu-optihome-2017:p54:10"
+        },
+        {
           "block_id": "axa-lu-optihome-2017:p54:11"
         },
         {
           "block_id": "axa-lu-optihome-2017:p54:12"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:13"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:14"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:15"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p54:16"
         },
         {
           "block_id": "axa-lu-optihome-2017:p55:1"
@@ -10039,9 +10027,6 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p80:8"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p80:9"
         }
       ],
       "scope": {
@@ -10054,10 +10039,10 @@
       "title": "4.1.4.1.16 Vie privée",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p80:10"
+          "block_id": "axa-lu-optihome-2017:p80:9"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p80:11"
+          "block_id": "axa-lu-optihome-2017:p80:10"
         }
       ],
       "scope": {
@@ -10070,10 +10055,10 @@
       "title": "4.1.4.2 Appui juridique – E-protection : Objet de l’appui juridique : prévention et information juridique",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p80:12"
+          "block_id": "axa-lu-optihome-2017:p80:11"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p80:13"
+          "block_id": "axa-lu-optihome-2017:p80:12"
         }
       ],
       "scope": {
@@ -10811,13 +10796,33 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p89:3"
-        },
+        }
+      ],
+      "scope": {
+        "kind": "special"
+      }
+    },
+    {
+      "node_id": "axa-lu-optihome-2017:a4.1.4.4.4",
+      "level": 5,
+      "title": "4.1.4.4.4 Libre choix de l’avocat ou de l’expert",
+      "items": [
         {
           "block_id": "axa-lu-optihome-2017:p89:4"
         },
         {
           "block_id": "axa-lu-optihome-2017:p89:5"
-        },
+        }
+      ],
+      "scope": {
+        "kind": "special"
+      }
+    },
+    {
+      "node_id": "axa-lu-optihome-2017:a4.1.4.4.5",
+      "level": 5,
+      "title": "4.1.4.4.5 Conflit d’intérêts",
+      "items": [
         {
           "block_id": "axa-lu-optihome-2017:p89:6"
         },
@@ -10830,9 +10835,9 @@
       }
     },
     {
-      "node_id": "axa-lu-optihome-2017:a4.1.4.4.4",
+      "node_id": "axa-lu-optihome-2017:a4.1.4.4.6",
       "level": 5,
-      "title": "4.1.4.4.4 Libre choix de l’avocat ou de l’expert",
+      "title": "4.1.4.4.6 Arbitrage",
       "items": [
         {
           "block_id": "axa-lu-optihome-2017:p89:8"
@@ -10846,47 +10851,15 @@
       }
     },
     {
-      "node_id": "axa-lu-optihome-2017:a4.1.4.4.5",
+      "node_id": "axa-lu-optihome-2017:a4.1.4.4.7",
       "level": 5,
-      "title": "4.1.4.4.5 Conflit d’intérêts",
+      "title": "4.1.4.4.7 Les limitations de garantie",
       "items": [
         {
           "block_id": "axa-lu-optihome-2017:p89:10"
         },
         {
           "block_id": "axa-lu-optihome-2017:p89:11"
-        }
-      ],
-      "scope": {
-        "kind": "special"
-      }
-    },
-    {
-      "node_id": "axa-lu-optihome-2017:a4.1.4.4.6",
-      "level": 5,
-      "title": "4.1.4.4.6 Arbitrage",
-      "items": [
-        {
-          "block_id": "axa-lu-optihome-2017:p89:12"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p89:13"
-        }
-      ],
-      "scope": {
-        "kind": "special"
-      }
-    },
-    {
-      "node_id": "axa-lu-optihome-2017:a4.1.4.4.7",
-      "level": 5,
-      "title": "4.1.4.4.7 Les limitations de garantie",
-      "items": [
-        {
-          "block_id": "axa-lu-optihome-2017:p89:14"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p89:15"
         },
         {
           "block_id": "axa-lu-optihome-2017:p90:1"
@@ -45965,6 +45938,7 @@
         541.45,
         119.87
       ],
+      "continues": "axa-lu-optihome-2017:p53:8",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p54:1:l1",
@@ -46126,7 +46100,7 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p54:5",
-      "text": "• rend l’habitation du bénéficiaire dangereuse ou peu sûre,\n• entraîne un risque de dommage supplémentaire à l’habitation du bénéficiaire et/ou aux biens",
+      "text": "• rend l’habitation du bénéficiaire dangereuse ou peu sûre,\n• entraîne un risque de dommage supplémentaire à l’habitation du bénéficiaire et/ou aux biens\nimmeubles qu’elle contient, et/ou\n• rend l’habitation de l’Assuré inhabitable. À ce titre, l’ouverture de la porte en cas de perte,\nde vol ou d’oubli de la clé à l’intérieur de l’habitation de l’Assuré est assimilé à une urgence.",
       "loc": "p54",
       "seq": 5,
       "page": 54,
@@ -46134,7 +46108,7 @@
         121.72,
         261.22,
         541.45,
-        285.28
+        324.28
       ],
       "kind": "list",
       "lines": [
@@ -46157,24 +46131,9 @@
             541.45,
             285.28
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p54:6",
-      "text": "immeubles qu’elle contient, et/ou",
-      "loc": "p54",
-      "seq": 6,
-      "page": 54,
-      "bbox": [
-        121.72,
-        287.22,
-        270.92,
-        298.28
-      ],
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p54:6:l1",
+          "line_id": "axa-lu-optihome-2017:p54:5:l3",
           "text": "immeubles qu’elle contient, et/ou",
           "bbox": [
             121.72,
@@ -46182,25 +46141,9 @@
             270.92,
             298.28
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p54:7",
-      "text": "• rend l’habitation de l’Assuré inhabitable. À ce titre, l’ouverture de la porte en cas de perte,",
-      "loc": "p54",
-      "seq": 7,
-      "page": 54,
-      "bbox": [
-        121.72,
-        300.02,
-        541.4,
-        311.28
-      ],
-      "kind": "list",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p54:7:l1",
+          "line_id": "axa-lu-optihome-2017:p54:5:l4",
           "text": "• rend l’habitation de l’Assuré inhabitable. À ce titre, l’ouverture de la porte en cas de perte,",
           "bbox": [
             121.72,
@@ -46208,24 +46151,9 @@
             541.4,
             311.28
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p54:8",
-      "text": "de vol ou d’oubli de la clé à l’intérieur de l’habitation de l’Assuré est assimilé à une urgence.",
-      "loc": "p54",
-      "seq": 8,
-      "page": 54,
-      "bbox": [
-        121.72,
-        313.02,
-        530.46,
-        324.28
-      ],
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p54:8:l1",
+          "line_id": "axa-lu-optihome-2017:p54:5:l5",
           "text": "de vol ou d’oubli de la clé à l’intérieur de l’habitation de l’Assuré est assimilé à une urgence.",
           "bbox": [
             121.72,
@@ -46237,10 +46165,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:9",
+      "block_id": "axa-lu-optihome-2017:p54:6",
       "text": "Réparateur :\nLa société de services, désigné par AXA Assistance, qui apportera l’assistance nécessaire.",
       "loc": "p54",
-      "seq": 9,
+      "seq": 6,
       "page": 54,
       "bbox": [
         121.72,
@@ -46250,7 +46178,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:9:l1",
+          "line_id": "axa-lu-optihome-2017:p54:6:l1",
           "text": "Réparateur :",
           "bbox": [
             121.72,
@@ -46260,7 +46188,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:9:l2",
+          "line_id": "axa-lu-optihome-2017:p54:6:l2",
           "text": "La société de services, désigné par AXA Assistance, qui apportera l’assistance nécessaire.",
           "bbox": [
             121.72,
@@ -46272,10 +46200,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:10",
+      "block_id": "axa-lu-optihome-2017:p54:7",
       "text": "Installation fixe :\nUne installation immeuble par sa destination, c’est-à-dire une installation qui est fixée de\nmanière durable à l’immeuble dans lequel elle est installée, accessoire à cet immeuble et\nnécessaire ou utile pour l’habitation.\nSont par exemple considérées comme installation fixe : chauffage central, chaudière, radiateurs\nfixes, climatisation, appareils de ventilation, adoucisseurs d’eau, radiateurs mobiles, installations\nd’alarme et domotique.\nNe sont par exemple pas considérées comme installation fixe : les appareils ménagers de type\nréfrigérateur, congélateur, four, hotte, cuisinière, plaque de cuisson.",
       "loc": "p54",
-      "seq": 10,
+      "seq": 7,
       "page": 54,
       "bbox": [
         121.72,
@@ -46285,7 +46213,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l1",
+          "line_id": "axa-lu-optihome-2017:p54:7:l1",
           "text": "Installation fixe :",
           "bbox": [
             121.72,
@@ -46295,7 +46223,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l2",
+          "line_id": "axa-lu-optihome-2017:p54:7:l2",
           "text": "Une installation immeuble par sa destination, c’est-à-dire une installation qui est fixée de",
           "bbox": [
             121.72,
@@ -46305,7 +46233,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l3",
+          "line_id": "axa-lu-optihome-2017:p54:7:l3",
           "text": "manière durable à l’immeuble dans lequel elle est installée, accessoire à cet immeuble et",
           "bbox": [
             121.72,
@@ -46315,7 +46243,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l4",
+          "line_id": "axa-lu-optihome-2017:p54:7:l4",
           "text": "nécessaire ou utile pour l’habitation.",
           "bbox": [
             121.72,
@@ -46325,7 +46253,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l5",
+          "line_id": "axa-lu-optihome-2017:p54:7:l5",
           "text": "Sont par exemple considérées comme installation fixe : chauffage central, chaudière, radiateurs",
           "bbox": [
             121.72,
@@ -46335,7 +46263,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l6",
+          "line_id": "axa-lu-optihome-2017:p54:7:l6",
           "text": "fixes, climatisation, appareils de ventilation, adoucisseurs d’eau, radiateurs mobiles, installations",
           "bbox": [
             121.72,
@@ -46345,7 +46273,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l7",
+          "line_id": "axa-lu-optihome-2017:p54:7:l7",
           "text": "d’alarme et domotique.",
           "bbox": [
             121.72,
@@ -46355,7 +46283,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l8",
+          "line_id": "axa-lu-optihome-2017:p54:7:l8",
           "text": "Ne sont par exemple pas considérées comme installation fixe : les appareils ménagers de type",
           "bbox": [
             121.72,
@@ -46365,7 +46293,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:10:l9",
+          "line_id": "axa-lu-optihome-2017:p54:7:l9",
           "text": "réfrigérateur, congélateur, four, hotte, cuisinière, plaque de cuisson.",
           "bbox": [
             121.72,
@@ -46377,10 +46305,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:11",
+      "block_id": "axa-lu-optihome-2017:p54:8",
       "text": "3.1.12.2 Etendue de la garantie",
       "loc": "p54",
-      "seq": 11,
+      "seq": 8,
       "page": 54,
       "bbox": [
         56.52,
@@ -46391,7 +46319,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:11:l1",
+          "line_id": "axa-lu-optihome-2017:p54:8:l1",
           "text": "3.1.12.2 Etendue de la garantie",
           "bbox": [
             56.52,
@@ -46403,10 +46331,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:12",
+      "block_id": "axa-lu-optihome-2017:p54:9",
       "text": "La présente garantie vise à couvrir les risques en cas de situation urgente comme décrite\nci-après.\nAXA Assistance intervient dans les frais en cas de situation d’urgence afin de prévenir ou de\nlimiter les dommages, ou pour effectuer une réparation urgente et provisoire à l’habitation de\nl’Assuré ou à une installation fixe, à condition que :",
       "loc": "p54",
-      "seq": 12,
+      "seq": 9,
       "page": 54,
       "bbox": [
         121.72,
@@ -46416,7 +46344,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:12:l1",
+          "line_id": "axa-lu-optihome-2017:p54:9:l1",
           "text": "La présente garantie vise à couvrir les risques en cas de situation urgente comme décrite",
           "bbox": [
             121.72,
@@ -46426,7 +46354,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:12:l2",
+          "line_id": "axa-lu-optihome-2017:p54:9:l2",
           "text": "ci-après.",
           "bbox": [
             121.72,
@@ -46436,7 +46364,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:12:l3",
+          "line_id": "axa-lu-optihome-2017:p54:9:l3",
           "text": "AXA Assistance intervient dans les frais en cas de situation d’urgence afin de prévenir ou de",
           "bbox": [
             121.72,
@@ -46446,7 +46374,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:12:l4",
+          "line_id": "axa-lu-optihome-2017:p54:9:l4",
           "text": "limiter les dommages, ou pour effectuer une réparation urgente et provisoire à l’habitation de",
           "bbox": [
             121.72,
@@ -46456,7 +46384,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:12:l5",
+          "line_id": "axa-lu-optihome-2017:p54:9:l5",
           "text": "l’Assuré ou à une installation fixe, à condition que :",
           "bbox": [
             121.72,
@@ -46468,10 +46396,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:13",
+      "block_id": "axa-lu-optihome-2017:p54:10",
       "text": "• cela soit possible techniquement,\n• que les conditions climatiques le permettent,\n• et que l’Assuré permette d’accéder au bâtiment désigné.",
       "loc": "p54",
-      "seq": 13,
+      "seq": 10,
       "page": 54,
       "bbox": [
         121.72,
@@ -46482,7 +46410,7 @@
       "kind": "list",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:13:l1",
+          "line_id": "axa-lu-optihome-2017:p54:10:l1",
           "text": "• cela soit possible techniquement,",
           "bbox": [
             121.72,
@@ -46492,7 +46420,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:13:l2",
+          "line_id": "axa-lu-optihome-2017:p54:10:l2",
           "text": "• que les conditions climatiques le permettent,",
           "bbox": [
             121.72,
@@ -46502,7 +46430,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:13:l3",
+          "line_id": "axa-lu-optihome-2017:p54:10:l3",
           "text": "• et que l’Assuré permette d’accéder au bâtiment désigné.",
           "bbox": [
             121.72,
@@ -46514,10 +46442,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:14",
+      "block_id": "axa-lu-optihome-2017:p54:11",
       "text": "Dans ce cas, AXA Assistance enverra un réparateur à l’habitation de l’Assuré.\nCelui-ci se déplacera dans les plus brefs délais, et au plus tard dans les 24 heures après\nl’appel, tel que prévu à l’article 3.1.12.4. , ou selon l’accord avec l’Assuré sur place.\nL’intervention du réparateur vise à remédier à la situation d’urgence et n’a pas pour but une\nréparation définitive des biens ou du dommage.\nL’intervention d’AXA Assistance se limite à deux interventions/an et à concurrence de 400 €\nmaximum par intervention à l’habitation de l’Assuré. Cette intervention de 400 € comprend :",
       "loc": "p54",
-      "seq": 14,
+      "seq": 11,
       "page": 54,
       "bbox": [
         121.72,
@@ -46527,7 +46455,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l1",
+          "line_id": "axa-lu-optihome-2017:p54:11:l1",
           "text": "Dans ce cas, AXA Assistance enverra un réparateur à l’habitation de l’Assuré.",
           "bbox": [
             121.72,
@@ -46537,7 +46465,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l2",
+          "line_id": "axa-lu-optihome-2017:p54:11:l2",
           "text": "Celui-ci se déplacera dans les plus brefs délais, et au plus tard dans les 24 heures après",
           "bbox": [
             121.72,
@@ -46547,7 +46475,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l3",
+          "line_id": "axa-lu-optihome-2017:p54:11:l3",
           "text": "l’appel, tel que prévu à l’article 3.1.12.4. , ou selon l’accord avec l’Assuré sur place.",
           "bbox": [
             121.72,
@@ -46557,7 +46485,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l4",
+          "line_id": "axa-lu-optihome-2017:p54:11:l4",
           "text": "L’intervention du réparateur vise à remédier à la situation d’urgence et n’a pas pour but une",
           "bbox": [
             121.72,
@@ -46567,7 +46495,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l5",
+          "line_id": "axa-lu-optihome-2017:p54:11:l5",
           "text": "réparation définitive des biens ou du dommage.",
           "bbox": [
             121.72,
@@ -46577,7 +46505,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l6",
+          "line_id": "axa-lu-optihome-2017:p54:11:l6",
           "text": "L’intervention d’AXA Assistance se limite à deux interventions/an et à concurrence de 400 €",
           "bbox": [
             121.72,
@@ -46587,7 +46515,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:14:l7",
+          "line_id": "axa-lu-optihome-2017:p54:11:l7",
           "text": "maximum par intervention à l’habitation de l’Assuré. Cette intervention de 400 € comprend :",
           "bbox": [
             121.72,
@@ -46599,21 +46527,21 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p54:15",
-      "text": "• le transport,\n• le salaire horaire,\n• les pièces de rechange pour un total de 50 €,",
+      "block_id": "axa-lu-optihome-2017:p54:12",
+      "text": "• le transport,\n• le salaire horaire,\n• les pièces de rechange pour un total de 50 €,\nainsi que la TVA facturée par le réparateur.",
       "loc": "p54",
-      "seq": 15,
+      "seq": 12,
       "page": 54,
       "bbox": [
         121.72,
         738.64,
         332.71,
-        775.7
+        788.7
       ],
       "kind": "list",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p54:15:l1",
+          "line_id": "axa-lu-optihome-2017:p54:12:l1",
           "text": "• le transport,",
           "bbox": [
             121.72,
@@ -46623,7 +46551,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:15:l2",
+          "line_id": "axa-lu-optihome-2017:p54:12:l2",
           "text": "• le salaire horaire,",
           "bbox": [
             121.72,
@@ -46633,7 +46561,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p54:15:l3",
+          "line_id": "axa-lu-optihome-2017:p54:12:l3",
           "text": "• les pièces de rechange pour un total de 50 €,",
           "bbox": [
             121.72,
@@ -46641,24 +46569,9 @@
             332.71,
             775.7
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p54:16",
-      "text": "ainsi que la TVA facturée par le réparateur.",
-      "loc": "p54",
-      "seq": 16,
-      "page": 54,
-      "bbox": [
-        121.73,
-        777.64,
-        308.38,
-        788.7
-      ],
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p54:16:l1",
+          "line_id": "axa-lu-optihome-2017:p54:12:l4",
           "text": "ainsi que la TVA facturée par le réparateur.",
           "bbox": [
             121.73,
@@ -62474,7 +62387,7 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p80:8",
-      "text": "• des chèques (à l’exception des chèques de voyages et des tickets restaurant),\n• des cartes bancaires (achats et retraits d’espèces aux distributeurs de billets),\n• de la monnaie électronique (toute valeur monétaire représentant une créance sur un émetteur",
+      "text": "• des chèques (à l’exception des chèques de voyages et des tickets restaurant),\n• des cartes bancaires (achats et retraits d’espèces aux distributeurs de billets),\n• de la monnaie électronique (toute valeur monétaire représentant une créance sur un émetteur\nqui est stockée sur un support électronique) de l’Assuré.",
       "loc": "p80",
       "seq": 8,
       "page": 80,
@@ -62482,7 +62395,7 @@
         121.89,
         441.82,
         541.56,
-        478.88
+        491.88
       ],
       "kind": "list",
       "lines": [
@@ -62515,24 +62428,9 @@
             541.56,
             478.88
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p80:9",
-      "text": "qui est stockée sur un support électronique) de l’Assuré.",
-      "loc": "p80",
-      "seq": 9,
-      "page": 80,
-      "bbox": [
-        121.89,
-        480.82,
-        372.12,
-        491.88
-      ],
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p80:9:l1",
+          "line_id": "axa-lu-optihome-2017:p80:8:l4",
           "text": "qui est stockée sur un support électronique) de l’Assuré.",
           "bbox": [
             121.89,
@@ -62544,10 +62442,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p80:10",
+      "block_id": "axa-lu-optihome-2017:p80:9",
       "text": "4.1.4.1.16 Vie privée",
       "loc": "p80",
-      "seq": 10,
+      "seq": 9,
       "page": 80,
       "bbox": [
         56.69,
@@ -62558,7 +62456,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p80:10:l1",
+          "line_id": "axa-lu-optihome-2017:p80:9:l1",
           "text": "4.1.4.1.16 Vie privée",
           "bbox": [
             56.69,
@@ -62570,10 +62468,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p80:11",
+      "block_id": "axa-lu-optihome-2017:p80:10",
       "text": "Tous les actes et situations qui ne résultent pas de l’exercice d’une activité professionnelle,\nc’est-à-dire d’une activité exercée de manière habituelle dans un but lucratif.",
       "loc": "p80",
-      "seq": 11,
+      "seq": 10,
       "page": 80,
       "bbox": [
         121.89,
@@ -62583,7 +62481,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p80:11:l1",
+          "line_id": "axa-lu-optihome-2017:p80:10:l1",
           "text": "Tous les actes et situations qui ne résultent pas de l’exercice d’une activité professionnelle,",
           "bbox": [
             121.89,
@@ -62593,7 +62491,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:11:l2",
+          "line_id": "axa-lu-optihome-2017:p80:10:l2",
           "text": "c’est-à-dire d’une activité exercée de manière habituelle dans un but lucratif.",
           "bbox": [
             121.89,
@@ -62605,10 +62503,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p80:12",
+      "block_id": "axa-lu-optihome-2017:p80:11",
       "text": "4.1.4.2 Appui juridique – E-protection : Objet de l’appui juridique : prévention et information juridique",
       "loc": "p80",
-      "seq": 12,
+      "seq": 11,
       "page": 80,
       "bbox": [
         56.69,
@@ -62619,7 +62517,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p80:12:l1",
+          "line_id": "axa-lu-optihome-2017:p80:11:l1",
           "text": "4.1.4.2 Appui juridique – E-protection : Objet de l’appui juridique : prévention et information juridique",
           "bbox": [
             56.69,
@@ -62631,10 +62529,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p80:13",
+      "block_id": "axa-lu-optihome-2017:p80:12",
       "text": "Il s’agit d’un service de renseignements juridiques de première ligne par téléphone.\nLes questions juridiques font l’objet d’une explication juridique sommaire et synthétique dans\nun langage accessible par tous et relative au droit Luxembourgeois.\nLa nature juridique des questions qui peuvent être soumises à l’appui juridique téléphonique\nest déterminée par l’étendue des garanties souscrites dans le cadre de la présente garantie en\nvigueur.\nLe numéro de téléphone de l’appui juridique téléphonique général est le 45 30 55.\nOrganisation de l’appui juridique : les divers services de l’appui juridique sont accessibles\nde 9h00 à 12h00 et de 14h00 à 16h00 du lundi au vendredi à l’exception des jours fériés,\nau numéro de téléphone susmentionné.",
       "loc": "p80",
-      "seq": 13,
+      "seq": 12,
       "page": 80,
       "bbox": [
         121.9,
@@ -62644,7 +62542,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l1",
+          "line_id": "axa-lu-optihome-2017:p80:12:l1",
           "text": "Il s’agit d’un service de renseignements juridiques de première ligne par téléphone.",
           "bbox": [
             121.9,
@@ -62654,7 +62552,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l2",
+          "line_id": "axa-lu-optihome-2017:p80:12:l2",
           "text": "Les questions juridiques font l’objet d’une explication juridique sommaire et synthétique dans",
           "bbox": [
             121.9,
@@ -62664,7 +62562,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l3",
+          "line_id": "axa-lu-optihome-2017:p80:12:l3",
           "text": "un langage accessible par tous et relative au droit Luxembourgeois.",
           "bbox": [
             121.9,
@@ -62674,7 +62572,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l4",
+          "line_id": "axa-lu-optihome-2017:p80:12:l4",
           "text": "La nature juridique des questions qui peuvent être soumises à l’appui juridique téléphonique",
           "bbox": [
             121.9,
@@ -62684,7 +62582,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l5",
+          "line_id": "axa-lu-optihome-2017:p80:12:l5",
           "text": "est déterminée par l’étendue des garanties souscrites dans le cadre de la présente garantie en",
           "bbox": [
             121.9,
@@ -62694,7 +62592,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l6",
+          "line_id": "axa-lu-optihome-2017:p80:12:l6",
           "text": "vigueur.",
           "bbox": [
             121.9,
@@ -62704,7 +62602,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l7",
+          "line_id": "axa-lu-optihome-2017:p80:12:l7",
           "text": "Le numéro de téléphone de l’appui juridique téléphonique général est le 45 30 55.",
           "bbox": [
             121.9,
@@ -62714,7 +62612,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l8",
+          "line_id": "axa-lu-optihome-2017:p80:12:l8",
           "text": "Organisation de l’appui juridique : les divers services de l’appui juridique sont accessibles",
           "bbox": [
             121.9,
@@ -62724,7 +62622,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l9",
+          "line_id": "axa-lu-optihome-2017:p80:12:l9",
           "text": "de 9h00 à 12h00 et de 14h00 à 16h00 du lundi au vendredi à l’exception des jours fériés,",
           "bbox": [
             121.9,
@@ -62734,7 +62632,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p80:13:l10",
+          "line_id": "axa-lu-optihome-2017:p80:12:l10",
           "text": "au numéro de téléphone susmentionné.",
           "bbox": [
             121.9,
@@ -63436,6 +63334,7 @@
         145.87
       ],
       "kind": "list",
+      "continues": "axa-lu-optihome-2017:p81:16",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p82:1:l1",
@@ -64093,6 +63992,7 @@
         106.87
       ],
       "kind": "list",
+      "continues": "axa-lu-optihome-2017:p82:14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p83:1:l1",
@@ -67977,7 +67877,7 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p89:3",
-      "text": "• renseigner le Prestataire de manière précise sur les circonstances, l’étendue du dommage,",
+      "text": "• renseigner le Prestataire de manière précise sur les circonstances, l’étendue du dommage,\nl’identité des témoins et des victimes dans les 8 jours de la survenance du sinistre au plus tard ;\n• transmettre sans délai au Prestataire et l’autoriser à se procurer tous les documents utiles\net tous les renseignements nécessaires à la bonne gestion du dossier ; à cet effet, le Preneur\nd’Assurance veillera à rassembler dès la survenance du sinistre toutes les pièces justificatives\ndu dommage ;\n• accueillir le délégué ou l’expert du Prestataire et faciliter leurs constatations ;\n• transmettre au Prestataire toutes citations, assignations, tous actes judiciaires ou\nextrajudiciaires dans les 48 heures de leur remise ou signification ;\n• se présenter personnellement aux audiences pour lesquelles la présence du Preneur\nd’Assurance ou celle de l’Assuré est obligatoire\n• prendre toutes les mesures utiles en vue de réduire les conséquences du sinistre.",
       "loc": "p89",
       "seq": 3,
       "page": 89,
@@ -67985,7 +67885,7 @@
         121.89,
         146.15,
         541.62,
-        157.21
+        300.21
       ],
       "kind": "list",
       "lines": [
@@ -67998,24 +67898,9 @@
             541.62,
             157.21
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p89:4",
-      "text": "l’identité des témoins et des victimes dans les 8 jours de la survenance du sinistre au plus tard ;",
-      "loc": "p89",
-      "seq": 4,
-      "page": 89,
-      "bbox": [
-        121.89,
-        159.15,
-        538.58,
-        170.21
-      ],
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p89:4:l1",
+          "line_id": "axa-lu-optihome-2017:p89:3:l2",
           "text": "l’identité des témoins et des victimes dans les 8 jours de la survenance du sinistre au plus tard ;",
           "bbox": [
             121.89,
@@ -68023,25 +67908,9 @@
             538.58,
             170.21
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p89:5",
-      "text": "• transmettre sans délai au Prestataire et l’autoriser à se procurer tous les documents utiles",
-      "loc": "p89",
-      "seq": 5,
-      "page": 89,
-      "bbox": [
-        121.89,
-        172.15,
-        541.55,
-        183.21
-      ],
-      "kind": "list",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p89:5:l1",
+          "line_id": "axa-lu-optihome-2017:p89:3:l3",
           "text": "• transmettre sans délai au Prestataire et l’autoriser à se procurer tous les documents utiles",
           "bbox": [
             121.89,
@@ -68049,24 +67918,9 @@
             541.55,
             183.21
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p89:6",
-      "text": "et tous les renseignements nécessaires à la bonne gestion du dossier ; à cet effet, le Preneur\nd’Assurance veillera à rassembler dès la survenance du sinistre toutes les pièces justificatives\ndu dommage ;",
-      "loc": "p89",
-      "seq": 6,
-      "page": 89,
-      "bbox": [
-        121.89,
-        184.95,
-        541.59,
-        222.21
-      ],
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p89:6:l1",
+          "line_id": "axa-lu-optihome-2017:p89:3:l4",
           "text": "et tous les renseignements nécessaires à la bonne gestion du dossier ; à cet effet, le Preneur",
           "bbox": [
             121.89,
@@ -68076,7 +67930,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:6:l2",
+          "line_id": "axa-lu-optihome-2017:p89:3:l5",
           "text": "d’Assurance veillera à rassembler dès la survenance du sinistre toutes les pièces justificatives",
           "bbox": [
             121.89,
@@ -68086,7 +67940,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:6:l3",
+          "line_id": "axa-lu-optihome-2017:p89:3:l6",
           "text": "du dommage ;",
           "bbox": [
             121.89,
@@ -68094,25 +67948,9 @@
             182.94,
             222.21
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p89:7",
-      "text": "• accueillir le délégué ou l’expert du Prestataire et faciliter leurs constatations ;\n• transmettre au Prestataire toutes citations, assignations, tous actes judiciaires ou\nextrajudiciaires dans les 48 heures de leur remise ou signification ;\n• se présenter personnellement aux audiences pour lesquelles la présence du Preneur\nd’Assurance ou celle de l’Assuré est obligatoire\n• prendre toutes les mesures utiles en vue de réduire les conséquences du sinistre.",
-      "loc": "p89",
-      "seq": 7,
-      "page": 89,
-      "bbox": [
-        121.89,
-        224.15,
-        541.62,
-        300.21
-      ],
-      "kind": "list",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p89:7:l1",
+          "line_id": "axa-lu-optihome-2017:p89:3:l7",
           "text": "• accueillir le délégué ou l’expert du Prestataire et faciliter leurs constatations ;",
           "bbox": [
             121.89,
@@ -68122,7 +67960,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:7:l2",
+          "line_id": "axa-lu-optihome-2017:p89:3:l8",
           "text": "• transmettre au Prestataire toutes citations, assignations, tous actes judiciaires ou",
           "bbox": [
             121.89,
@@ -68132,7 +67970,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:7:l3",
+          "line_id": "axa-lu-optihome-2017:p89:3:l9",
           "text": "extrajudiciaires dans les 48 heures de leur remise ou signification ;",
           "bbox": [
             130.56,
@@ -68142,7 +67980,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:7:l4",
+          "line_id": "axa-lu-optihome-2017:p89:3:l10",
           "text": "• se présenter personnellement aux audiences pour lesquelles la présence du Preneur",
           "bbox": [
             121.89,
@@ -68152,7 +67990,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:7:l5",
+          "line_id": "axa-lu-optihome-2017:p89:3:l11",
           "text": "d’Assurance ou celle de l’Assuré est obligatoire",
           "bbox": [
             130.56,
@@ -68162,7 +68000,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:7:l6",
+          "line_id": "axa-lu-optihome-2017:p89:3:l12",
           "text": "• prendre toutes les mesures utiles en vue de réduire les conséquences du sinistre.",
           "bbox": [
             121.89,
@@ -68174,10 +68012,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:8",
+      "block_id": "axa-lu-optihome-2017:p89:4",
       "text": "4.1.4.4.4 Libre choix de l’avocat ou de l’expert",
       "loc": "p89",
-      "seq": 8,
+      "seq": 4,
       "page": 89,
       "bbox": [
         56.69,
@@ -68188,7 +68026,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:8:l1",
+          "line_id": "axa-lu-optihome-2017:p89:4:l1",
           "text": "4.1.4.4.4 Libre choix de l’avocat ou de l’expert",
           "bbox": [
             56.69,
@@ -68200,10 +68038,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:9",
+      "block_id": "axa-lu-optihome-2017:p89:5",
       "text": "Le Prestataire se réserve la faculté d’effectuer toute démarche en vue de mettre fin au sinistre\nà l’amiable.\nLe Prestataire informe l’Assuré de l’opportunité d’entamer ou de prendre part à l’exercice d’une\nprocédure judiciaire ou administrative.\nEn cas de procédure judiciaire ou administrative, l’Assuré a le libre choix de l’avocat, de l’expert\nou de toute autre personne ayant les qualifications requises pour défendre, représenter ou\nservir ses intérêts.\nLe Prestataire est à la disposition de l’Assuré pour le conseiller dans ce choix.",
       "loc": "p89",
-      "seq": 9,
+      "seq": 5,
       "page": 89,
       "bbox": [
         121.89,
@@ -68213,7 +68051,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l1",
+          "line_id": "axa-lu-optihome-2017:p89:5:l1",
           "text": "Le Prestataire se réserve la faculté d’effectuer toute démarche en vue de mettre fin au sinistre",
           "bbox": [
             121.89,
@@ -68223,7 +68061,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l2",
+          "line_id": "axa-lu-optihome-2017:p89:5:l2",
           "text": "à l’amiable.",
           "bbox": [
             121.89,
@@ -68233,7 +68071,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l3",
+          "line_id": "axa-lu-optihome-2017:p89:5:l3",
           "text": "Le Prestataire informe l’Assuré de l’opportunité d’entamer ou de prendre part à l’exercice d’une",
           "bbox": [
             121.89,
@@ -68243,7 +68081,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l4",
+          "line_id": "axa-lu-optihome-2017:p89:5:l4",
           "text": "procédure judiciaire ou administrative.",
           "bbox": [
             121.89,
@@ -68253,7 +68091,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l5",
+          "line_id": "axa-lu-optihome-2017:p89:5:l5",
           "text": "En cas de procédure judiciaire ou administrative, l’Assuré a le libre choix de l’avocat, de l’expert",
           "bbox": [
             121.89,
@@ -68263,7 +68101,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l6",
+          "line_id": "axa-lu-optihome-2017:p89:5:l6",
           "text": "ou de toute autre personne ayant les qualifications requises pour défendre, représenter ou",
           "bbox": [
             121.89,
@@ -68273,7 +68111,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l7",
+          "line_id": "axa-lu-optihome-2017:p89:5:l7",
           "text": "servir ses intérêts.",
           "bbox": [
             121.89,
@@ -68283,7 +68121,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:9:l8",
+          "line_id": "axa-lu-optihome-2017:p89:5:l8",
           "text": "Le Prestataire est à la disposition de l’Assuré pour le conseiller dans ce choix.",
           "bbox": [
             121.89,
@@ -68295,10 +68133,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:10",
+      "block_id": "axa-lu-optihome-2017:p89:6",
       "text": "4.1.4.4.5 Conflit d’intérêts",
       "loc": "p89",
-      "seq": 10,
+      "seq": 6,
       "page": 89,
       "bbox": [
         56.69,
@@ -68309,7 +68147,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:10:l1",
+          "line_id": "axa-lu-optihome-2017:p89:6:l1",
           "text": "4.1.4.4.5 Conflit d’intérêts",
           "bbox": [
             56.69,
@@ -68321,10 +68159,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:11",
+      "block_id": "axa-lu-optihome-2017:p89:7",
       "text": "Chaque fois que surgit un conflit d’intérêts entre l’Assuré et le Prestataire, celui-ci a la liberté\nde choisir, pour la défense de ses intérêts, un avocat ou toute autre personne ayant les\nqualifications requises. L’Assuré a également la possibilité de recourir à la procédure arbitrale\ntelle que décrite par les articles 1003 et suivants du Code de procédure civile.",
       "loc": "p89",
-      "seq": 11,
+      "seq": 7,
       "page": 89,
       "bbox": [
         121.89,
@@ -68334,7 +68172,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:11:l1",
+          "line_id": "axa-lu-optihome-2017:p89:7:l1",
           "text": "Chaque fois que surgit un conflit d’intérêts entre l’Assuré et le Prestataire, celui-ci a la liberté",
           "bbox": [
             121.89,
@@ -68344,7 +68182,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:11:l2",
+          "line_id": "axa-lu-optihome-2017:p89:7:l2",
           "text": "de choisir, pour la défense de ses intérêts, un avocat ou toute autre personne ayant les",
           "bbox": [
             121.89,
@@ -68354,7 +68192,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:11:l3",
+          "line_id": "axa-lu-optihome-2017:p89:7:l3",
           "text": "qualifications requises. L’Assuré a également la possibilité de recourir à la procédure arbitrale",
           "bbox": [
             121.89,
@@ -68364,7 +68202,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:11:l4",
+          "line_id": "axa-lu-optihome-2017:p89:7:l4",
           "text": "telle que décrite par les articles 1003 et suivants du Code de procédure civile.",
           "bbox": [
             121.89,
@@ -68376,10 +68214,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:12",
+      "block_id": "axa-lu-optihome-2017:p89:8",
       "text": "4.1.4.4.6 Arbitrage",
       "loc": "p89",
-      "seq": 12,
+      "seq": 8,
       "page": 89,
       "bbox": [
         56.69,
@@ -68390,7 +68228,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:12:l1",
+          "line_id": "axa-lu-optihome-2017:p89:8:l1",
           "text": "4.1.4.4.6 Arbitrage",
           "bbox": [
             56.69,
@@ -68402,10 +68240,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:13",
+      "block_id": "axa-lu-optihome-2017:p89:9",
       "text": "En cas de conflit d’intérês entre le prestataire et l’Assuré ou de désaccord quant au réglement\ndu litige, le différend est soumis sans prejudice du point 4.1.4.4.5, à deux arbitres designes,\nl’un par le Prestataire, l’autre par l’Assuré. A défaut d’entente entre eux, ils sont départagés\npar un troisième arbitre désigné par eux. Faute pour l’une des parties de nommer son propre\narbitre, ou faute pour les deux arbitres de s’entendre sur le choix du troisième, la nomination en\nsera faite par ordonnance du Président du tribunal d’arrondissement du domicile de l’Assuré,\nstatuant au référé.\nLeur décision est définitive et sans appel.\nChaque partie supporte les honoraires de son arbitre et la moitié de ceux du tiers arbitre.\nSi, avant tout arbitrage ou contrairement à l’avis des arbitres, l’Assuré exerce une action\njudiciaire et obtient une solution plus favorable par rapport à l’avis du Prestataire ou des arbitres,\nle Prestataire l’indemnise des frais d’honoraires exposés pour l’exercice de cette action.",
       "loc": "p89",
-      "seq": 13,
+      "seq": 9,
       "page": 89,
       "bbox": [
         121.89,
@@ -68415,7 +68253,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l1",
+          "line_id": "axa-lu-optihome-2017:p89:9:l1",
           "text": "En cas de conflit d’intérês entre le prestataire et l’Assuré ou de désaccord quant au réglement",
           "bbox": [
             121.89,
@@ -68425,7 +68263,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l2",
+          "line_id": "axa-lu-optihome-2017:p89:9:l2",
           "text": "du litige, le différend est soumis sans prejudice du point 4.1.4.4.5, à deux arbitres designes,",
           "bbox": [
             121.89,
@@ -68435,7 +68273,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l3",
+          "line_id": "axa-lu-optihome-2017:p89:9:l3",
           "text": "l’un par le Prestataire, l’autre par l’Assuré. A défaut d’entente entre eux, ils sont départagés",
           "bbox": [
             121.89,
@@ -68445,7 +68283,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l4",
+          "line_id": "axa-lu-optihome-2017:p89:9:l4",
           "text": "par un troisième arbitre désigné par eux. Faute pour l’une des parties de nommer son propre",
           "bbox": [
             121.89,
@@ -68455,7 +68293,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l5",
+          "line_id": "axa-lu-optihome-2017:p89:9:l5",
           "text": "arbitre, ou faute pour les deux arbitres de s’entendre sur le choix du troisième, la nomination en",
           "bbox": [
             121.89,
@@ -68465,7 +68303,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l6",
+          "line_id": "axa-lu-optihome-2017:p89:9:l6",
           "text": "sera faite par ordonnance du Président du tribunal d’arrondissement du domicile de l’Assuré,",
           "bbox": [
             121.89,
@@ -68475,7 +68313,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l7",
+          "line_id": "axa-lu-optihome-2017:p89:9:l7",
           "text": "statuant au référé.",
           "bbox": [
             121.89,
@@ -68485,7 +68323,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l8",
+          "line_id": "axa-lu-optihome-2017:p89:9:l8",
           "text": "Leur décision est définitive et sans appel.",
           "bbox": [
             121.89,
@@ -68495,7 +68333,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l9",
+          "line_id": "axa-lu-optihome-2017:p89:9:l9",
           "text": "Chaque partie supporte les honoraires de son arbitre et la moitié de ceux du tiers arbitre.",
           "bbox": [
             121.89,
@@ -68505,7 +68343,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l10",
+          "line_id": "axa-lu-optihome-2017:p89:9:l10",
           "text": "Si, avant tout arbitrage ou contrairement à l’avis des arbitres, l’Assuré exerce une action",
           "bbox": [
             121.89,
@@ -68515,7 +68353,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l11",
+          "line_id": "axa-lu-optihome-2017:p89:9:l11",
           "text": "judiciaire et obtient une solution plus favorable par rapport à l’avis du Prestataire ou des arbitres,",
           "bbox": [
             121.89,
@@ -68525,7 +68363,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:13:l12",
+          "line_id": "axa-lu-optihome-2017:p89:9:l12",
           "text": "le Prestataire l’indemnise des frais d’honoraires exposés pour l’exercice de cette action.",
           "bbox": [
             121.89,
@@ -68537,10 +68375,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:14",
+      "block_id": "axa-lu-optihome-2017:p89:10",
       "text": "4.1.4.4.7 Les limitations de garantie",
       "loc": "p89",
-      "seq": 14,
+      "seq": 10,
       "page": 89,
       "bbox": [
         56.69,
@@ -68551,7 +68389,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:14:l1",
+          "line_id": "axa-lu-optihome-2017:p89:10:l1",
           "text": "4.1.4.4.7 Les limitations de garantie",
           "bbox": [
             56.69,
@@ -68563,10 +68401,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p89:15",
+      "block_id": "axa-lu-optihome-2017:p89:11",
       "text": "Quel que soit le domaine de garantie, les prestations d’aide à la résolution des sinistres sont\ndélivrées dans la limite d’un sinistre par année d’assurance et dans les limites indiquées au\nparagraphe 4.1.4.4.9.",
       "loc": "p89",
-      "seq": 15,
+      "seq": 11,
       "page": 89,
       "bbox": [
         121.89,
@@ -68576,7 +68414,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p89:15:l1",
+          "line_id": "axa-lu-optihome-2017:p89:11:l1",
           "text": "Quel que soit le domaine de garantie, les prestations d’aide à la résolution des sinistres sont",
           "bbox": [
             121.89,
@@ -68586,7 +68424,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:15:l2",
+          "line_id": "axa-lu-optihome-2017:p89:11:l2",
           "text": "délivrées dans la limite d’un sinistre par année d’assurance et dans les limites indiquées au",
           "bbox": [
             121.89,
@@ -68596,7 +68434,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p89:15:l3",
+          "line_id": "axa-lu-optihome-2017:p89:11:l3",
           "text": "paragraphe 4.1.4.4.9.",
           "bbox": [
             121.89,
@@ -80038,5 +79876,5 @@
     }
   ],
   "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-  "ingest_fingerprint": "701d12aded74f2d57050f5227d1e90fad9c3093d53b9e2ebc69f60a5f97e140c"
+  "ingest_fingerprint": "dd474c567fe3a2cf2594c371fde5c1f29fdd85b6911d20f3936a58a78e22c5d1"
 }
