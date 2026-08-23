@@ -6,7 +6,33 @@ Le fil rouge : **on ne gagne pas sur « comment on retrouve », on gagne sur « 
 
 ## État
 
-Dépôt en construction (août 2026). Ce README décrit l'intention ; il sera complété au fil des livraisons avec : comment lancer en local, comment tester, comment déployer, comment ajouter une fiche ou un contrat.
+Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Les sections déploiement et ingestion arrivent avec les stories suivantes.
+
+## Lancer
+
+```bash
+uv sync                                   # Python 3.13 et dépendances épinglées (pyproject.toml, uv.lock)
+cp .env.example .env                      # puis renseigner ANTHROPIC_API_KEY (jamais commité)
+uv run python -m server.app.llm.models --check   # vérifie que les IDs de modèles existent (exit 2 sans clé)
+```
+
+Le serveur HTTP arrive en story 1.6 ; le site copié (`web/`) s'ouvre déjà tel quel (`web/index.html`).
+
+## Tester
+
+```bash
+ANTHROPIC_API_KEY= uv run pytest -q       # unitaires, sans réseau : les appels modèle sont rejoués depuis tests/llm_fixtures/
+uv run pytest -q                          # avec la clé, les tests qui appellent un modèle ré-enregistrent leur fixture
+```
+
+- `tests/test_layers.py` vérifie statiquement les couches du spine (`domain` n'importe rien ; une étape n'importe jamais une autre étape).
+- `tests/test_domain.py` vérifie que chaque modèle porte exactement les champs et enums de son AD.
+- Les seuils numériques vivent dans `server/app/config.py` et se surchargent par variable d'environnement.
+- Les vérifications qui touchent le réseau (GCP, API) sont consignées dans `docs/tests-live.md`.
+
+## Infrastructure
+
+`scripts/gcp_bootstrap.sh` (idempotent, `--project=foyer-retour`, `europe-west1`) crée les comptes de service, la fédération d'identité GitHub, le secret, les buckets et le budget ; il affiche les trois variables GitHub à poser (`GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOY_SA`). `scripts/hello_world/` est le conteneur minimal qui a validé les rôles sur Cloud Run avant le déploiement automatique.
 
 ## Ce que contiendra ce dépôt
 
@@ -15,7 +41,8 @@ Dépôt en construction (août 2026). Ce README décrit l'intention ; il sera co
 | `server/` | Le serveur Python (Cloud Run) : assistant du guide, outil sinistre / conditions générales, ingestion |
 | `web/` | Le site « S'installer au Luxembourg » forké depuis [lux-guide/lux-guide.github.io](https://github.com/lux-guide/lux-guide.github.io), branché sur le serveur ; modifications minimales et justifiées, une par commit |
 | `tools/` | L'outil sinistre / conditions générales, la page d'accueil, la réponse au sujet 3 |
-| `tests/` | Tests unitaires et **questions-témoins** rejouées en CI, résultats publiés |
+| `tests/` | Tests unitaires sans réseau (fixtures LLM enregistrées) ; les **questions-témoins** vivent dans `server/evals/` |
+| `scripts/` | Bootstrap GCP idempotent, hello-world Cloud Run |
 | `docs/` | `architecture.md`, `choix-et-limites.md`, résultats des questions-témoins |
 
 ## Principes
