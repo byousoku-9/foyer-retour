@@ -6,10 +6,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .document import DomainModel
+
 VerdictValue = Literal["couvert", "non_couvert", "sous_conditions", "ne_tranche_pas"]
 
 
-class MissingPackage(BaseModel):
+class MissingPackage(DomainModel):
     conditions_particulieres: bool = True
     options_souscrites: bool = True
     avenants: bool = True
@@ -17,7 +19,7 @@ class MissingPackage(BaseModel):
     faits: list[str] = Field(default_factory=list)
 
 
-class Verdict(BaseModel):
+class Verdict(DomainModel):
     value: VerdictValue
     reason: str
     missing: MissingPackage = Field(default_factory=MissingPackage)

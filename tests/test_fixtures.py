@@ -97,13 +97,37 @@ def test_request_key_hides_message_text() -> None:
     assert "confidentiel" not in k and k.startswith("claude-x:")
 
 
-def test_recording_mode_follows_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-    assert LLMRecorder("t", fixtures_dir=tmp_path).recording is True
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
-    assert LLMRecorder("t", fixtures_dir=tmp_path).recording is False
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    assert LLMRecorder("t", fixtures_dir=tmp_path).recording is False
+def test_recording_mode_follows_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from server.app import config
+
+    monkeypatch.setattr(config.Settings, "model_config", {**config.Settings.model_config, "env_file": None})
+    try:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        config.get_settings.cache_clear()
+        assert LLMRecorder("t", fixtures_dir=tmp_path).recording is True
+        monkeypatch.delenv("ANTHROPIC_API_KEY")
+        config.get_settings.cache_clear()
+        assert LLMRecorder("t", fixtures_dir=tmp_path).recording is False
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+        config.get_settings.cache_clear()
+        assert LLMRecorder("t", fixtures_dir=tmp_path).recording is False
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_recorder_reads_key_from_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from server.app import config
+
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=sk-from-dotenv\n")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(config.Settings, "model_config", {**config.Settings.model_config, "env_file": env})
+    config.get_settings.cache_clear()
+    try:
+        rec = LLMRecorder("t", fixtures_dir=tmp_path)
+        assert rec.recording is True and rec.api_key == "sk-from-dotenv"
+    finally:
+        config.get_settings.cache_clear()
 
 
 def test_fixture_name_is_module_dot_test_and_safe() -> None:

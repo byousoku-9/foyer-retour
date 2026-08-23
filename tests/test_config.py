@@ -62,3 +62,14 @@ def test_env_file_is_read_from_repo_root(tmp_path: Path) -> None:
     env.write_text('ANTHROPIC_API_KEY="sk-test-123"\nUSD_EUR=0.5\n')
     s = Settings(_env_file=env)
     assert s.anthropic_api_key == "sk-test-123" and s.usd_eur == 0.5
+
+
+def test_env_example_loads_as_is() -> None:
+    s = Settings(_env_file=REPO_ROOT / ".env.example")
+    assert s.anthropic_api_key == "" and s.env == "dev" and s.allow_ungated is True and s.usd_eur == 0.92
+
+
+def test_empty_env_values_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALLOW_UNGATED", "")
+    monkeypatch.setenv("MAX_OPENS", "")
+    assert Settings(_env_file=None).max_opens == 6

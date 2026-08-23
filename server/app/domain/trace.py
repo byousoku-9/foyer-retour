@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .document import DomainModel
 
-class Usage(BaseModel):
+
+class Usage(DomainModel):
     """AD-9 : usage réel renvoyé par l'API, coût en euros calculé depuis cet usage."""
 
     input: int = 0
@@ -16,13 +18,13 @@ class Usage(BaseModel):
     cost_eur_original: float = 0.0
 
 
-class CheckResult(BaseModel):
+class CheckResult(DomainModel):
     name: str
     ok: bool = True
     detail: str = ""
 
 
-class LLMCall(BaseModel):
+class LLMCall(DomainModel):
     model: str
     ms: int = 0
     usage: Usage = Field(default_factory=Usage)
@@ -31,7 +33,7 @@ class LLMCall(BaseModel):
     tools: list[str] = Field(default_factory=list)
 
 
-class StepTrace(BaseModel):
+class StepTrace(DomainModel):
     name: str
     tier: str | None = None
     ms: int = 0
@@ -42,7 +44,7 @@ class StepTrace(BaseModel):
     calls: list[LLMCall] = Field(default_factory=list)
 
 
-class Trace(BaseModel):
+class Trace(DomainModel):
     request_id: str
     pipeline: str
     variant: str = "deterministe"

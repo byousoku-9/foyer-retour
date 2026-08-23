@@ -1,6 +1,6 @@
 """Record / replay générique des appels LLM pour des tests sans réseau.
 
-- `ANTHROPIC_API_KEY` présente ⇒ l'appel réel est exécuté et sa réponse sérialisée dans
+- `ANTHROPIC_API_KEY` présente (environnement ou `.env`, via `get_settings()`) ⇒ l'appel réel est exécuté et sa réponse sérialisée dans
   `tests/llm_fixtures/{module}.{test}.json` (sans la clé, messages hashés).
 - clé absente ⇒ la réponse est rejouée depuis la fixture ; fixture absente, corrompue ou d'un autre
   modèle que celui demandé ⇒ `FixtureMissing`.
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -65,7 +64,11 @@ def _serialize(value: Any) -> Any:
 class LLMRecorder:
     def __init__(self, test_name: str, fixtures_dir: Path = FIXTURES_DIR, api_key: str | None = None) -> None:
         self.path = fixtures_dir / f"{fixture_name(test_name)}.json"
-        self.api_key = os.environ.get("ANTHROPIC_API_KEY", "") if api_key is None else api_key
+        if api_key is None:
+            from server.app.config import get_settings
+
+            api_key = get_settings().anthropic_api_key
+        self.api_key = api_key
         self._entries: dict[str, Any] = {}
         if self.path.exists():
             try:

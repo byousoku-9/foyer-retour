@@ -2,6 +2,7 @@
 
 Un digest est un SHA-256 hex sur la liste triée des chemins relatifs et de leur contenu.
 Un dossier absent donne le hash de la liste vide (jamais d'exception).
+`pipeline_digest` couvre exactement `steps`, `pipelines`, `corpus`, `llm` ; `prompts_digest` couvre `llm/prompts`.
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
-PROMPTS_DIR = APP_DIR / "prompts"
+PROMPTS_DIR = APP_DIR / "llm" / "prompts"
+PIPELINE_LAYERS = ("steps", "pipelines", "corpus", "llm")  # définition partagée « pipeline_digest »
 _EXCLUDED_PARTS = {"__pycache__", "prompts", ".pytest_cache"}
 
 
@@ -42,12 +44,13 @@ def digest_paths(paths: Iterable[Path], root: Path) -> str:
 
 
 def pipeline_digest(app_dir: Path = APP_DIR) -> str:
-    """Empreinte du code Python de `server/app/` (hors prompts)."""
-    return digest_paths(_iter_files(app_dir, (".py",)), app_dir)
+    """Empreinte du code Python des couches `steps`, `pipelines`, `corpus`, `llm` (hors `llm/prompts`)."""
+    files = [f for layer in PIPELINE_LAYERS for f in _iter_files(app_dir / layer, (".py",))]
+    return digest_paths(files, app_dir)
 
 
 def prompts_digest(prompts_dir: Path = PROMPTS_DIR) -> str:
-    """Empreinte des prompts (`server/app/prompts/*.md|txt|j2`)."""
+    """Empreinte des prompts (`server/app/llm/prompts/*.md|txt|j2`)."""
     return digest_paths(_iter_files(prompts_dir, (".md", ".txt", ".j2", ".jinja")), prompts_dir)
 
 

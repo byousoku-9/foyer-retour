@@ -6,16 +6,18 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .document import DomainModel
+
 Intent = Literal["question", "suivi", "meteo", "bavardage", "hors_perimetre"]
 Role = Literal["user", "assistant"]
 
 
-class Turn(BaseModel):
+class Turn(DomainModel):
     role: Role
     texte: str = Field(max_length=2000)
 
 
-class Faits(BaseModel):
+class Faits(DomainModel):
     """Faits déclarés d'un sinistre (POST /api/v1/sinistre)."""
 
     date: str | None = None
@@ -24,7 +26,7 @@ class Faits(BaseModel):
     description: str = Field(max_length=2000)
 
 
-class QuestionScope(BaseModel):
+class QuestionScope(DomainModel):
     """Portée dérivée du profil ou des faits du sinistre."""
 
     themes: list[str] = Field(default_factory=list)  # école, allocations, auto…
@@ -35,7 +37,7 @@ class QuestionScope(BaseModel):
     moment: str | None = None
 
 
-class ParsedQuestion(BaseModel):
+class ParsedQuestion(DomainModel):
     question_resolue: str
     intent: Intent
     language: str = "fr"

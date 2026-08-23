@@ -6,6 +6,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from .document import DomainModel
+
 from .trace import Trace
 
 
@@ -34,13 +36,13 @@ HTTP_STATUS: dict[ErrorCode, int] = {
 }
 
 
-class ErrorBody(BaseModel):
+class ErrorBody(DomainModel):
     code: ErrorCode
     message: str
     request_id: str
 
 
-class ErrorEnvelope(BaseModel):
+class ErrorEnvelope(DomainModel):
     error: ErrorBody
     trace: Trace | None = None
 

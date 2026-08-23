@@ -24,7 +24,7 @@ def literal_values(model: type[BaseModel], field: str) -> set[str]:
 
 # AD-2
 def test_document_fields() -> None:
-    assert fields(document.Document) == {"doc_id", "kind", "title", "edition", "lang", "nodes", "source_url", "source_hash"}
+    assert fields(document.Document) == {"doc_id", "kind", "title", "edition", "lang", "nodes", "blocks", "source_url", "source_hash"}
     assert literal_values(document.Document, "kind") == {"guide", "contrat"}
     assert fields(document.Node) == {"node_id", "level", "title", "items", "scope", "sources"}
     assert literal_values(document.Scope, "kind") == {"commun", "special", "extension"}
@@ -34,7 +34,7 @@ def test_document_fields() -> None:
 def test_block_fields_and_kinds() -> None:
     assert fields(document.Block) == {
         "block_id", "text", "text_norm", "lang", "loc", "seq", "page", "bbox", "kind", "kind_confidence",
-        "source_field", "continues", "refs", "unresolved_refs", "defines", "scope_node_id", "overrides",
+        "kind_source", "source_field", "continues", "refs", "unresolved_refs", "defines", "scope_node_id", "overrides",
         "relation", "lines",
     }
     assert literal_values(document.Block, "kind") == {
@@ -58,6 +58,48 @@ def test_block_id_identity() -> None:
     with pytest.raises(ValidationError):
         document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, bbox=[1, 2, 3])
     document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, bbox=[1, 2, 3, 4])
+
+
+def test_kind_source_and_confirmation() -> None:
+    assert literal_values(document.Block, "kind_source") == {"manual", "model", "model_verified"}
+    b = document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, kind="exclusion", kind_source="manual")
+    assert b.kind_source == "manual" and b.kind_confirmed
+    assert document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, kind_source="model_verified").kind_confirmed
+    assert not document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1, kind_source="model").kind_confirmed
+    assert not document.Block(block_id="d:p1:1", text="x", loc="p1", seq=1).kind_confirmed
+
+
+@pytest.mark.parametrize("model", [document.Block, document.Node, document.Document, answer.Answer, answer.Claim,
+                                   verdict.Verdict, trace.Trace, question.ParsedQuestion, retrieval.RetrievalResult,
+                                   errors.ErrorEnvelope])
+def test_domain_models_forbid_unknown_fields(model: type[BaseModel]) -> None:
+    assert model.model_config.get("extra") == "forbid"
+    with pytest.raises(ValidationError, match="inconnu"):
+        model.model_validate({"inconnu": 1})
+
+
+def _doc(nodes: list[dict], blocks: list[dict]) -> document.Document:
+    return document.Document(doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)
+
+
+def _blk(i: int) -> dict:
+    return {"block_id": f"d:p1:{i}", "text": "x", "loc": "p1", "seq": i}
+
+
+def test_document_tree_invariants() -> None:
+    doc = _doc([{"node_id": "root", "items": [{"block_id": "d:p1:1"}, {"node_id": "child"}]},
+                {"node_id": "child", "items": [{"block_id": "d:p1:2"}]}], [_blk(1), _blk(2)])
+    assert doc.block("d:p1:2").seq == 2
+    with pytest.raises(ValidationError, match="dupliqué"):
+        _doc([{"node_id": "root", "items": [{"block_id": "d:p1:1"}]}], [_blk(1), _blk(1)])
+    with pytest.raises(ValidationError, match="bloc inconnu"):
+        _doc([{"node_id": "root", "items": [{"block_id": "d:p1:9"}]}], [])
+    with pytest.raises(ValidationError, match="nœud inconnu"):
+        _doc([{"node_id": "root", "items": [{"node_id": "ghost"}]}], [])
+    with pytest.raises(ValidationError, match="deux nœuds"):
+        _doc([{"node_id": "a", "items": [{"block_id": "d:p1:1"}]}, {"node_id": "b", "items": [{"block_id": "d:p1:1"}]}], [_blk(1)])
+    with pytest.raises(ValidationError, match="orphelins"):
+        _doc([{"node_id": "root"}], [_blk(1)])
 
 
 def test_node_items_is_single_source_of_order() -> None:
@@ -99,9 +141,21 @@ def test_answer_found_coherence() -> None:
     answer.Answer(found=False, complete=False, reason={"kind": "zero_hit"})
     with pytest.raises(ValidationError, match="claim"):
         answer.Answer(found=True, complete=True)
-    claim = {"claim_id": "c", "text": "t", "quotes": [{"block_id": "d:p1:1", "quote": "q"}],
-             "status": {"retrouvee": True, "pertinente": True, "edition": "e"}}
-    assert answer.Answer(found=True, complete=True, claims=[claim]).claims[0].status.retrouvee
+    def claim(retrouvee: bool = True, pertinente: bool | None = True) -> dict:
+        return {"claim_id": "c", "text": "t", "quotes": [{"block_id": "d:p1:1", "quote": "q"}],
+                "status": {"retrouvee": retrouvee, "pertinente": pertinente, "edition": "e"}}
+
+    assert answer.Answer(found=True, complete=True, claims=[claim()]).claims[0].status.retrouvee
+    assert answer.Answer(found=True, complete=False, claims=[claim()], unknown=["x"]).unknown == ["x"]
+    for bad in (claim(retrouvee=False), claim(pertinente=False), claim(pertinente=None)):
+        with pytest.raises(ValidationError, match="retrouvee"):
+            answer.Answer(found=True, complete=True, claims=[bad])
+    with pytest.raises(ValidationError, match="claims=\\[\\]"):
+        answer.Answer(found=False, complete=False, reason={"kind": "zero_hit"}, claims=[claim()])
+    with pytest.raises(ValidationError, match="complete=True"):
+        answer.Answer(found=False, complete=True, reason={"kind": "zero_hit"})
+    with pytest.raises(ValidationError, match="complete=True"):
+        answer.Answer(found=True, complete=True, claims=[claim()], unknown=["reste"])
 
 
 # AD-6

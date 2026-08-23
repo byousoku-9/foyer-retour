@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .document import DomainModel
+
 from .document import Block
 
 
-class RetrievalBudget(BaseModel):
+class RetrievalBudget(DomainModel):
     """Borne toute l'étape : appels modèle, nœuds, blocs, tokens, définitions et renvois inclus."""
 
     max_opens: int
@@ -18,7 +20,7 @@ class RetrievalBudget(BaseModel):
     max_tokens: int | None = None
 
 
-class RetrievalResult(BaseModel):
+class RetrievalResult(DomainModel):
     blocs: list[Block] = Field(default_factory=list)
     opened_block_ids: list[str] = Field(default_factory=list)
     discarded_block_ids: list[str] = Field(default_factory=list)

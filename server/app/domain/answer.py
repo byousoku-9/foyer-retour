@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .document import DomainModel
+
 from .verdict import Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
@@ -14,12 +16,12 @@ RejectionKind = Literal["non_retrouvee", "non_pertinente", "ambigue"]
 AbsenceKind = Literal["hors_perimetre", "zero_hit", "claims_rejetes"]
 
 
-class Quote(BaseModel):
+class Quote(DomainModel):
     block_id: str
     quote: str
 
 
-class Claim(BaseModel):
+class Claim(DomainModel):
     claim_id: str
     text: str
     quotes: list[Quote] = Field(min_length=1)  # une quote par bloc
@@ -34,20 +36,20 @@ class Claim(BaseModel):
         return quotes
 
 
-class ClaimStatus(BaseModel):
+class ClaimStatus(DomainModel):
     retrouvee: bool
     pertinente: bool | None = None
     applicable: Applicable | None = None
     edition: str
 
 
-class AnswerSegment(BaseModel):
+class AnswerSegment(DomainModel):
     text: str
     kind: SegmentKind
     claim_ids: list[str] = Field(default_factory=list)
 
 
-class AnswerDraft(BaseModel):
+class AnswerDraft(DomainModel):
     """Sortie structurée de *rédiger*."""
 
     segments: list[AnswerSegment]
@@ -66,7 +68,7 @@ class RejectedClaim(VerifiedClaim):
     motif: str = ""
 
 
-class AbsenceProof(BaseModel):
+class AbsenceProof(DomainModel):
     kind: AbsenceKind
     terms_searched: list[str] = Field(default_factory=list)  # termes canoniques seulement
     variants_count: int = 0
@@ -74,7 +76,7 @@ class AbsenceProof(BaseModel):
     documents: list[str] = Field(default_factory=list)
 
 
-class Answer(BaseModel):
+class Answer(DomainModel):
     """Seul objet de réponse des deux pipelines."""
 
     found: bool
@@ -96,4 +98,11 @@ class Answer(BaseModel):
             raise ValueError("found=False exige une preuve d'absence (reason)")
         if self.found and not self.claims:
             raise ValueError("found=True exige au moins une claim retrouvée et pertinente")
+        if not self.found and self.claims:
+            raise ValueError("found=False exige claims=[]")
+        bad = [c.claim_id for c in self.claims if not (c.status.retrouvee is True and c.status.pertinente is True)]
+        if bad:
+            raise ValueError(f"claims[] ne contient que des claims retrouvee ∧ pertinente ; fautives : {bad}")
+        if self.complete and (not self.found or self.unknown):
+            raise ValueError("complete=True exige found=True et unknown=[]")
         return self

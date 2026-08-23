@@ -44,17 +44,18 @@ def _imports(path: Path, app: Path) -> list[tuple[str, int]]:
     found: list[tuple[str, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found += [(a.name, node.lineno) for a in node.names]
+            found += [(a.name, node.lineno) for a in node.names]  # `import a.b as c` → a.b
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 base = pkg_parts[: len(pkg_parts) - (node.level - 1)]
                 mod = ".".join((*base, node.module) if node.module else base)
-                found.append((mod, node.lineno))
-            elif node.module == "server.app":
-                # `from server.app import steps` importe la couche `steps`
-                found += [(f"server.app.{a.name}", node.lineno) for a in node.names]
             else:
-                found.append((node.module or "", node.lineno))
+                mod = node.module or ""
+            if mod in ("server.app", "server.app.steps"):
+                # `from server.app import steps` / `from server.app.steps import x` : le nom importé compte
+                found += [(f"{mod}.{a.name}", node.lineno) for a in node.names]
+            else:
+                found.append((mod, node.lineno))
     return found
 
 
@@ -130,16 +131,25 @@ def _fake_app(tmp_path: Path, files: dict[str, str]) -> Path:
 
 def test_step_importing_step_is_detected(tmp_path: Path) -> None:
     app = _fake_app(tmp_path, {"steps/a.py": "from server.app.steps.b import x\n", "steps/b.py": "x = 1\n",
-                               "steps/c.py": "from .b import x\n"})
-    assert check_steps(app) == ["steps/a.py:1 importe server.app.steps.b", "steps/c.py:1 importe server.app.steps.b"]
+                               "steps/c.py": "from .b import x\n",
+                               "steps/d.py": "import server.app.steps.b as bb\n",
+                               "steps/e.py": "from server.app.steps import b\n",
+                               "steps/f.py": "from . import b\n"})
+    assert check_steps(app) == ["steps/a.py:1 importe server.app.steps.b", "steps/c.py:1 importe server.app.steps.b",
+                                "steps/d.py:1 importe server.app.steps.b", "steps/e.py:1 importe server.app.steps.b",
+                                "steps/f.py:1 importe server.app.steps.b"]
 
 
 def test_layer_violation_is_detected(tmp_path: Path) -> None:
     app = _fake_app(tmp_path, {"corpus/x.py": "import server.app.llm.client\n",
                                "corpus/y.py": "from server.app import steps\n",
-                               "corpus/z.py": "from ..domain import document\n"})
+                               "corpus/z.py": "from ..domain import document\n",
+                               "corpus/w.py": "import server.app.steps.rediger as r\n",
+                               "corpus/v.py": "from server.app.steps import rediger\n"})
     out = check_layer("corpus", app)
-    assert out == ["corpus/x.py:1 importe server.app.llm.client (couche corpus → llm interdite)",
+    assert out == ["corpus/v.py:1 importe server.app.steps.rediger (couche corpus → steps interdite)",
+                   "corpus/w.py:1 importe server.app.steps.rediger (couche corpus → steps interdite)",
+                   "corpus/x.py:1 importe server.app.llm.client (couche corpus → llm interdite)",
                    "corpus/y.py:1 importe server.app.steps (couche corpus → steps interdite)"]
 
 

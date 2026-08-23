@@ -17,26 +17,47 @@ def test_missing_dir_gives_empty_hash(tmp_path: Path) -> None:
     assert pipeline_digest(tmp_path / "absent") == cases_hash([])
 
 
+def _write(app: Path, rel: str, content: str) -> None:
+    (app / rel).parent.mkdir(parents=True, exist_ok=True)
+    (app / rel).write_text(content)
+
+
 def test_digest_depends_on_content_and_path(tmp_path: Path) -> None:
-    (tmp_path / "a.py").write_text("x = 1\n")
+    _write(tmp_path, "steps/a.py", "x = 1\n")
     d1 = pipeline_digest(tmp_path)
-    (tmp_path / "a.py").write_text("x = 2\n")
+    _write(tmp_path, "steps/a.py", "x = 2\n")
     d2 = pipeline_digest(tmp_path)
-    (tmp_path / "a.py").rename(tmp_path / "b.py")
-    (tmp_path / "b.py").write_text("x = 1\n")
+    (tmp_path / "steps" / "a.py").rename(tmp_path / "steps" / "b.py")
+    _write(tmp_path, "steps/b.py", "x = 1\n")
     d3 = pipeline_digest(tmp_path)
     assert len({d1, d2, d3}) == 3
 
 
-def test_pipeline_digest_ignores_prompts_and_pycache(tmp_path: Path) -> None:
-    (tmp_path / "a.py").write_text("x = 1\n")
-    d1 = pipeline_digest(tmp_path)
-    (tmp_path / "prompts").mkdir()
-    (tmp_path / "prompts" / "p.md").write_text("prompt\n")
-    (tmp_path / "__pycache__").mkdir()
-    (tmp_path / "__pycache__" / "a.cpython-313.py").write_text("junk\n")
-    assert pipeline_digest(tmp_path) == d1
-    assert prompts_digest(tmp_path / "prompts") != cases_hash([])
+def test_pipeline_digest_covers_exactly_the_four_layers(tmp_path: Path) -> None:
+    for layer in ("steps", "pipelines", "corpus", "llm"):
+        _write(tmp_path, f"{layer}/m.py", "x = 1\n")
+    _write(tmp_path, "config.py", "a = 1\n")
+    _write(tmp_path, "digests.py", "a = 1\n")
+    _write(tmp_path, "domain/d.py", "a = 1\n")
+    _write(tmp_path, "api/r.py", "a = 1\n")
+    _write(tmp_path, "llm/prompts/p.md", "prompt\n")
+    _write(tmp_path, "llm/__pycache__/m.cpython-313.py", "junk\n")
+    base_p, base_q = pipeline_digest(tmp_path), prompts_digest(tmp_path / "llm" / "prompts")
+    _write(tmp_path, "config.py", "a = 2\n")
+    _write(tmp_path, "domain/d.py", "a = 2\n")
+    _write(tmp_path, "api/r.py", "a = 2\n")
+    assert (pipeline_digest(tmp_path), prompts_digest(tmp_path / "llm" / "prompts")) == (base_p, base_q)
+    _write(tmp_path, "llm/prompts/p.md", "prompt 2\n")
+    assert pipeline_digest(tmp_path) == base_p
+    assert prompts_digest(tmp_path / "llm" / "prompts") != base_q
+    for layer in ("steps", "pipelines", "corpus", "llm"):
+        before = pipeline_digest(tmp_path)
+        _write(tmp_path, f"{layer}/m.py", f"x = '{layer}'\n")
+        assert pipeline_digest(tmp_path) != before, layer
+
+
+def test_prompts_dir_is_under_llm() -> None:
+    assert digests.PROMPTS_DIR == digests.APP_DIR / "llm" / "prompts"
 
 
 def test_cases_hash_order_independent(tmp_path: Path) -> None:
