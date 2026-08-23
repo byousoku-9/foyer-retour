@@ -13,7 +13,6 @@ Question, historique et profil sont chacun délimités par `untrusted()` (AD-15)
 from __future__ import annotations
 
 import json
-import re
 import time
 
 from pydantic import BaseModel
@@ -26,8 +25,6 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, untrusted
-
-_LANG = re.compile(r"^[a-z]{2,3}$")
 
 
 class SortieComprendre(BaseModel):
@@ -43,12 +40,6 @@ class SortieComprendre(BaseModel):
     lieu: str | None
     cause: str | None
     moment: str | None
-
-
-def _lang_or_fr(value: str) -> str:
-    """Code de langue ISO 639 en minuscules ; tout le reste retombe sur `fr` (convention Langue)."""
-    v = (value or "").strip().lower()
-    return v if _LANG.match(v) else "fr"
 
 
 async def comprendre(question: str, historique: list[Turn], profil: Profil, *, client: LlmClient,
@@ -71,7 +62,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     parsed = ParsedQuestion(
         question_resolue=out.question_resolue,
         intent=out.intent,
-        language=_lang_or_fr(lang) if lang is not None else _lang_or_fr(out.language),
+        language=lang if lang is not None else out.language,  # normalisé par ParsedQuestion
         terms=[t for t in (s.strip() for s in out.terms) if t],
         scope=QuestionScope(themes=[t for t in (s.strip() for s in out.themes) if t],
                             bien=out.bien or None, evenement=out.evenement or None, lieu=out.lieu or None,

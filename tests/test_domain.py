@@ -203,6 +203,13 @@ def test_answer_draft_coherence() -> None:
         answer.AnswerDraft(segments=[{"text": "t", "kind": "limite", "claim_ids": ["c9"]}], claims=[claim("c1")])
 
 
+def test_parsed_question_normalizes_its_language() -> None:
+    """Revue 1.4 : la convention Langue vit sur le modèle, pas dupliquée dans chaque étape."""
+    for value, expected in (("EN", "en"), (" fr ", "fr"), ("fr-LU", "fr"), ("anglais", "fr"), ("", "fr")):
+        q = question.ParsedQuestion(question_resolue="q", intent="question", language=value)
+        assert q.language == expected
+
+
 def test_answer_found_coherence() -> None:
     with pytest.raises(ValidationError, match="reason"):
         answer.Answer(found=False, complete=False)

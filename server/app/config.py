@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
     # sortie à `rediger_max_tokens` en consomment déjà ≈ 0,080 € des 0,10 € par requête ; 6 fiches entières
     # (65 blocs) portaient l'estimation à 0,108 € et faisaient échouer l'appel à tort (`BudgetExceeded`).
-    # À recalibrer avec les questions-témoins (impact sur le recall) — voir `deferred-work.md`.
+    # À recalibrer avec les questions-témoins, quand elles existeront (impact sur le rappel).
     retrieval_max_blocks: int = Field(30, ge=1)
 
     # Coût (AD-9, AD-10)
@@ -106,6 +106,13 @@ class Settings(BaseSettings):
         if self.header_caps_max_size_pt >= self.title_min_size_pt:
             raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
                              f"< title_min_size_pt ({self.title_min_size_pt})")
+        for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
+                            ("rediger_max_tokens", self.rediger_max_tokens)):
+            # Le plafond par étape ne peut pas dépasser le plafond de sortie du client : il part tel
+            # quel au fournisseur et entre au tarif `output` dans le majorant `estimate_cost` (NFR4).
+            if valeur > self.llm_max_output_tokens:
+                raise ValueError(f"{nom} ({valeur}) doit être <= llm_max_output_tokens "
+                                 f"({self.llm_max_output_tokens})")
         if self.allow_ungated is None:
             self.allow_ungated = self.env == "dev"
         return self

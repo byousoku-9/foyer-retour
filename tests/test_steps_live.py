@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from server.app.config import Settings, get_settings
+from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
@@ -38,8 +38,8 @@ FAMILLE = "Je viens d'arriver avec mes enfants : comment les inscrire à l'écol
 # Question de la chaîne complète : deux sujets du guide traités par deux fiches différentes
 # (« Scolariser ses enfants », « Allocations familiales »), pour que l'ébauche ait à citer deux
 # endroits distincts. Le rappel de la variante déterministe reste sensible au vocabulaire employé —
-# `chercher` n'a ni dictionnaire ni pondération des termes fréquents (stories 2.1 et 4.2,
-# `deferred-work.md`) ; 1.4 ne mesure pas le rappel, elle prouve la chaîne et ses citations.
+# `chercher` n'a ni dictionnaire ni pondération des termes fréquents (stories 2.1 et 4.2) ; 1.4 ne
+# mesure pas le rappel, elle prouve la chaîne et ses citations.
 DEUX_SUJETS = "Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?"
 
 
@@ -49,7 +49,10 @@ def index() -> Index:
 
 
 def _settings() -> Settings:
-    # La clé ne sert qu'au vrai client, côté recorder (comme dans `test_client_live`).
+    # Seuils par défaut de `config.py`, jamais ceux du `.env` du poste : les seuils de retrouver
+    # décident des blocs envoyés à *rédiger*, donc de la clé de requête — un `.env` local qui les
+    # surcharge rendrait le rejeu hors ligne impossible (revue 1.4). La clé, elle, ne sert qu'au vrai
+    # client, côté recorder (comme dans `test_client_live`).
     return Settings(_env_file=None, anthropic_api_key="")
 
 
@@ -58,13 +61,13 @@ def _client(llm_recorder: LLMRecorder) -> LlmClient:
 
 
 def _budget() -> RequestBudget:
-    s = get_settings()
+    s = _settings()
     return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
                          max_cost_eur=s.max_cost_eur_per_request)
 
 
 def _retrieval_budget() -> RetrievalBudget:
-    s = get_settings()
+    s = _settings()
     return RetrievalBudget(max_opens=s.max_opens, node_window=s.node_window, search_limit=s.search_limit,
                            max_llm_turns=s.max_llm_turns, max_blocks=s.retrieval_max_blocks)
 
@@ -72,7 +75,7 @@ def _retrieval_budget() -> RetrievalBudget:
 def _covers(themes: list[str], *needles: str) -> bool:
     """Un thème (normalisé) contient l'un des mots attendus — le modèle choisit ses mots."""
     normalised = [normalize(t) for t in themes]
-    return any(n.startswith(needle) or needle in n for n in normalised for needle in needles)
+    return any(needle in n for n in normalised for needle in needles)
 
 
 async def test_famille_profile_widens_the_scope_to_school_and_allocations(llm_recorder: LLMRecorder) -> None:
@@ -126,9 +129,11 @@ async def test_full_chain_draft_is_sourced_on_at_least_two_fiches(index: Index, 
     assert step_d.name == "rediger" and step_d.tier == "reason"
     # 1 appel, 2 si le premier a buté sur `rediger_max_tokens` (les tokens de réflexion comptent dans
     # la sortie) : le client relance alors avec le motif « réponse tronquée ». Cette relance ne passe
-    # sous le plafond que parce que le préfixe est déjà écrit (reprise B5) — voir `deferred-work.md`.
+    # sous le plafond que parce que le fournisseur a confirmé avoir caché le préfixe (reprise B5).
     assert 1 <= len(step_d.calls) <= 2
     assert all(c.model.startswith("claude-sonnet") for c in step_d.calls)
-    # le plafond par requête (0,10 €) tient pour la chaîne entière, majorant compris
-    assert budget.cost_eur == round(step_c.usage.cost_eur + step_d.usage.cost_eur, 4)
-    assert budget.cost_eur < get_settings().max_cost_eur_per_request
+    # le plafond par requête (0,10 €) tient pour la chaîne entière, majorant compris. `cost_eur` cumule
+    # des arrondis appel par appel : la comparaison tolère un centième de centime par appel.
+    assert budget.cost_eur == pytest.approx(step_c.usage.cost_eur + step_d.usage.cost_eur,
+                                            abs=1e-4 * len(step_c.calls + step_d.calls))
+    assert budget.cost_eur < _settings().max_cost_eur_per_request

@@ -58,7 +58,7 @@ def _sections(content: str) -> dict[str, str]:
 
 
 async def test_nominal_builds_parsed_question_and_its_own_step_trace() -> None:
-    client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    client, _ = _client([fake_message(text=_sortie(), model=HAIKU)])
     parsed, step = await _comprendre(client, profil=Profil(enfants=True))
     assert parsed.intent == "question" and parsed.language == "fr"
     assert parsed.question_resolue == "À quelle école inscrire mes enfants ?"
@@ -70,7 +70,7 @@ async def test_nominal_builds_parsed_question_and_its_own_step_trace() -> None:
 
 
 async def test_meteo_intent_alone_is_enough_to_decide_the_short_circuit() -> None:
-    client, fake = _client([fake_message(text=_sortie(intent="meteo", terms=[], themes=[]), model=HAIKU)])
+    client, _ = _client([fake_message(text=_sortie(intent="meteo", terms=[], themes=[]), model=HAIKU)])
     parsed, step = await _comprendre(client, question="quel temps fera-t-il demain ?")
     assert parsed.intent == "meteo"
     assert len(step.calls) == 1  # un seul appel micro : aucune autre étape requise pour le refus
@@ -80,6 +80,15 @@ async def test_forced_lang_wins_over_detection() -> None:
     client, _ = _client([fake_message(text=_sortie(language="fr"), model=HAIKU)])
     parsed, _step = await _comprendre(client, lang="en")
     assert parsed.language == "en"
+
+
+@pytest.mark.parametrize("forced, expected", [("EN", "en"), ("fr-LU", "fr"), ("anglais", "fr")])
+async def test_a_forced_lang_is_normalized_like_a_detected_one(forced: str, expected: str) -> None:
+    # La normalisation vit sur `ParsedQuestion` : `lang` forcé et langue détectée passent par la même
+    # règle, et un `lang` mal formé retombe sur `fr` au lieu de partir tel quel (revue 1.4).
+    client, _ = _client([fake_message(text=_sortie(language="de"), model=HAIKU)])
+    parsed, _step = await _comprendre(client, lang=forced)
+    assert parsed.language == expected
 
 
 @pytest.mark.parametrize("detected, expected", [("EN", "en"), ("", "fr"), ("anglais", "fr"), ("fr-LU", "fr")])

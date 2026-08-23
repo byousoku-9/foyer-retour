@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .document import DomainModel
 
@@ -37,9 +38,25 @@ class QuestionScope(DomainModel):
     moment: str | None = None
 
 
+_LANG = re.compile(r"^[a-z]{2,3}$")
+
+
 class ParsedQuestion(DomainModel):
     question_resolue: str
     intent: Intent
     language: str = "fr"
     terms: list[str] = Field(default_factory=list)  # toujours en français
     scope: QuestionScope = Field(default_factory=QuestionScope)
+
+    @field_validator("language")
+    @classmethod
+    def _lang_or_fr(cls, value: str) -> str:
+        """Code ISO 639 en minuscules ; tout le reste retombe sur `fr` (convention Langue du spine).
+
+        La normalisation vit ici, pas dans les étapes : *comprendre* et *rédiger* ne peuvent pas
+        s'importer l'une l'autre (AD-9) et la dupliquaient avec deux sémantiques légèrement
+        différentes — un `ParsedQuestion(language="EN")` construit ailleurs (pipeline 1.5, reprise)
+        retombait alors silencieusement sur `fr` à la rédaction seulement (revue 1.4).
+        """
+        v = (value or "").strip().lower()
+        return v if _LANG.match(v) else "fr"

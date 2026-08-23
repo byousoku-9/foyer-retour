@@ -53,6 +53,12 @@ def test_bounds_and_coherence() -> None:
         Settings(_env_file=None, llm_timeout_s=60, deadline_s=55)
     with pytest.raises(ValidationError, match="llm_retry_margin_s"):
         Settings(_env_file=None, llm_retry_margin_s=60, deadline_s=55)
+    # revue 1.4 : un plafond par étape ne peut pas dépasser le plafond de sortie du client — il part
+    # tel quel au fournisseur et entre au tarif `output` dans le majorant `estimate_cost`.
+    with pytest.raises(ValidationError, match="rediger_max_tokens"):
+        Settings(_env_file=None, rediger_max_tokens=8192, llm_max_output_tokens=4096)
+    with pytest.raises(ValidationError, match="comprendre_max_tokens"):
+        Settings(_env_file=None, comprendre_max_tokens=8192, llm_max_output_tokens=4096)
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
                 {"rate_limit_per_day": 0}):
         with pytest.raises(ValidationError):
