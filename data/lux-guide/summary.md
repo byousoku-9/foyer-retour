@@ -1,68 +1,68 @@
-<!-- lux-guide · edition git:a8e8593 · source_hash abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5 · ingest_fingerprint 41d29e99065f32475314f99b895c783b8ee8571bf6ce95a8bd873815ec58110d -->
+<!-- lux-guide · edition git:a8e8593 · source_hash abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5 · ingest_fingerprint b791a248028c2d6c73a9e26eeea4f7dafa6d3cbd996114c39c5d8535405709c4 -->
 # S'installer au Luxembourg
 
 ## Administratif
 
-- `lux-guide:farrivee` · Les huit premiers jours · Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école. · tags : arrivée, commune, déclaration, déménagement, premiers jours, enregistrement, biergercenter, certificat de résidence
-- `lux-guide:fadministration` · Comment fonctionne l'administration · Petit pays, circuits courts et interlocuteurs accessibles. Mais le courrier et la présence physique restent la règle pour certaines démarches. · tags : administration, démarches, guichet, délai, rendez-vous, courrier, langue, commune, efficacité
-- `lux-guide:fluxtrust` · LuxTrust et MyGuichet · L'identité numérique qui ouvre les démarches en ligne. Bien moins chère si vous passez par votre banque. · tags : luxtrust, myguichet, certificat, signature, en ligne, token, identité numérique, eid
-- `lux-guide:fnationalite` · Nationalité luxembourgeoise · La double nationalité est admise, mais la naturalisation suppose une résidence durable et une épreuve de langue. · tags : nationalité, naturalisation, citoyenneté, double nationalité, luxembourgeois, résidence
+- `lux-guide:farrivee` · Les huit premiers jours · Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni… · tags : arrivée, commune, déclaration, déménagement, premiers jours
+- `lux-guide:fadministration` · Comment fonctionne l'administration · Petit pays, circuits courts et interlocuteurs accessibles. Mais le courrier et la… · tags : administration, démarches, guichet, délai, rendez-vous
+- `lux-guide:fluxtrust` · LuxTrust et MyGuichet · L'identité numérique qui ouvre les démarches en ligne. Bien moins chère si vous passez… · tags : luxtrust, myguichet, certificat, signature, en ligne
+- `lux-guide:fnationalite` · Nationalité luxembourgeoise · La double nationalité est admise, mais la naturalisation suppose une résidence durable… · tags : nationalité, naturalisation, citoyenneté, double nationalité, luxembourgeois
 
 ## Sante
 
-- `lux-guide:fmatricule` · Sécurité sociale et remboursements · L'affiliation est automatique pour un salarié. Le système fonctionne par avance de frais. · tags : matricule, cns, sécurité sociale, ccss, carte, affiliation, remboursement, médecin, mutuelle
-- `lux-guide:fassurance_sante` · La complémentaire santé · Facultative, mais elle couvre précisément ce que la caisse laisse de côté : chambre seule, dentaire et optique. · tags : complémentaire, mutuelle, santé, hospitalisation, dentaire, optique, carence, cns, assurance
-- `lux-guide:fsante_pratique` · Se soigner au quotidien · Libre choix du médecin, aucun parcours de soins imposé, et un numéro unique pour les urgences. · tags : médecin, urgence, 112, pharmacie, hôpital, garde, santé, soins, spécialiste
+- `lux-guide:fmatricule` · Sécurité sociale et remboursements · L'affiliation est automatique pour un salarié. Le système fonctionne par avance de frais. · tags : matricule, cns, sécurité sociale, ccss, carte
+- `lux-guide:fassurance_sante` · La complémentaire santé · Facultative, mais elle couvre précisément ce que la caisse laisse de côté : chambre… · tags : complémentaire, mutuelle, santé, hospitalisation, dentaire
+- `lux-guide:fsante_pratique` · Se soigner au quotidien · Libre choix du médecin, aucun parcours de soins imposé, et un numéro unique pour les… · tags : médecin, urgence, 112, pharmacie, hôpital
 
 ## Logement
 
-- `lux-guide:frecherche_logement` · Trouver un logement · Un marché tendu, où un dossier complet et une garantie déjà disponible font la différence. · tags : chercher, logement, recherche, annonce, agence, visite, dossier, commune, loyer
-- `lux-guide:fchoisir_commune` · Choisir sa commune · Le bon critère n'est pas la distance, mais votre mode de déplacement et les trajets que vous ferez tous les jours. · tags : commune, quartier, choisir, distance, bus, train, école, trajet, voiture, transports
-- `lux-guide:femmenagement` · Emménager et meubler · Mesurer l'ascenseur avant de commander, prévoir la montée, et acheter des luminaires : le logement se loue souvent sans. · tags : emménagement, meuble, livraison, ascenseur, montage, luminaire, lumière, déménagement, achat
-- `lux-guide:fbail` · Signer un bail · La réforme du 1er août 2024 a plafonné la caution à deux mois et partagé les frais d'agence. · tags : bail, location, caution, garantie, loyer, agence, préavis, logement, état des lieux
-- `lux-guide:fassurance_habitation` · Assurer son logement · Exigée avant la remise des clés, et à comparer sur les garanties plutôt que sur la prime. · tags : assurance, habitation, responsabilité civile, dégât des eaux, incendie, franchise, conditions générales, locataire
-- `lux-guide:fachat` · Acheter un logement · Quotités de financement encadrées, et une TVA à 3 % qui n'est ni automatique ni illimitée. · tags : achat, acheter, prêt, hypothèque, quotité, tva, notaire, immobilier, primo-accédant
-- `lux-guide:flogement_abordable` · Logement abordable et à coût modéré · Un prix sous le marché, en échange de plafonds de revenus et d'une revente encadrée. · tags : abordable, coût modéré, éligibilité, plafond, certificat, social, aide, logabo
+- `lux-guide:frecherche_logement` · Trouver un logement · Un marché tendu, où un dossier complet et une garantie déjà disponible font la différence. · tags : chercher, logement, recherche, annonce, agence
+- `lux-guide:fchoisir_commune` · Choisir sa commune · Le bon critère n'est pas la distance, mais votre mode de déplacement et les trajets que… · tags : commune, quartier, choisir, distance, bus
+- `lux-guide:femmenagement` · Emménager et meubler · Mesurer l'ascenseur avant de commander, prévoir la montée, et acheter des luminaires… · tags : emménagement, meuble, livraison, ascenseur, montage
+- `lux-guide:fbail` · Signer un bail · La réforme du 1er août 2024 a plafonné la caution à deux mois et partagé les frais… · tags : bail, location, caution, garantie, loyer
+- `lux-guide:fassurance_habitation` · Assurer son logement · Exigée avant la remise des clés, et à comparer sur les garanties plutôt que sur la prime. · tags : assurance, habitation, responsabilité civile, dégât des eaux, incendie
+- `lux-guide:fachat` · Acheter un logement · Quotités de financement encadrées, et une TVA à 3 % qui n'est ni automatique ni illimitée. · tags : achat, acheter, prêt, hypothèque, quotité
+- `lux-guide:flogement_abordable` · Logement abordable et à coût modéré · Un prix sous le marché, en échange de plafonds de revenus et d'une revente encadrée. · tags : abordable, coût modéré, éligibilité, plafond, certificat
 
 ## Quotidien
 
-- `lux-guide:frdv_technique` · Réussir un rendez-vous technique · Installations et raccordements échouent souvent pour une adresse mal transmise ou un appel manqué. Quelques précautions évitent des semaines de retard. · tags : rendez-vous, technicien, installation, raccordement, fibre, interphone, adresse, absence, frais
-- `lux-guide:freclamation` · Contester une facture ou un service · Une réclamation écrite est le préalable obligatoire à toute médiation. Un appel téléphonique, même suivi d'un refus, ne compte pas. · tags : réclamation, litige, médiation, facture, contester, remboursement, ilr, consommateur, preuve
-- `lux-guide:ftelecom` · Internet et téléphonie · Des délais très variables selon la saison, une solution provisoire à réclamer, et une médiation gratuite. · tags : internet, fibre, télécom, mobile, box, opérateur, ilr, médiation, litige, délai
-- `lux-guide:flangues` · Langues et intégration · Trois langues administratives, l'anglais très présent au travail, et des cours subventionnés. · tags : langue, luxembourgeois, allemand, français, anglais, cours, intégration, inl
-- `lux-guide:fdechets` · Déchets et vie communale · La commune fournit les bacs, publie le calendrier et donne accès au centre de recyclage. · tags : déchets, poubelle, tri, recyclage, commune, collecte, environnement, encombrants
+- `lux-guide:frdv_technique` · Réussir un rendez-vous technique · Installations et raccordements échouent souvent pour une adresse mal transmise ou un… · tags : rendez-vous, technicien, installation, raccordement, fibre
+- `lux-guide:freclamation` · Contester une facture ou un service · Une réclamation écrite est le préalable obligatoire à toute médiation. Un appel… · tags : réclamation, litige, médiation, facture, contester
+- `lux-guide:ftelecom` · Internet et téléphonie · Des délais très variables selon la saison, une solution provisoire à réclamer, et une… · tags : internet, fibre, télécom, mobile, box
+- `lux-guide:flangues` · Langues et intégration · Trois langues administratives, l'anglais très présent au travail, et des cours… · tags : langue, luxembourgeois, allemand, français, anglais
+- `lux-guide:fdechets` · Déchets et vie communale · La commune fournit les bacs, publie le calendrier et donne accès au centre de recyclage. · tags : déchets, poubelle, tri, recyclage, commune
 
 ## Impots
 
-- `lux-guide:fimpots_classes` · Classes d'impôt · La classe détermine le barème. À revenu égal, l'écart entre classe 1 et classe 2 dépasse souvent mille euros par mois. · tags : impôt, classe, 1a, barème, splitting, marié, célibataire, fiche de retenue, imposition
-- `lux-guide:fdeductions` · Ce qui réduit votre impôt · Au-delà de la classe, plusieurs postes viennent en déduction : trajets, prévoyance, épargne-logement, garde d'enfants. · tags : déduction, dépenses spéciales, frais de déplacement, épargne-logement, prévoyance, assurance, impôt, déclaration
-- `lux-guide:fconseil_fiscal` · Conseil fiscal : les leviers de la première année · Vérifier la classe d'impôt et la faire corriger, puis activer les déductions qui rapportent : 111bis, épargne-logement. · tags : conseil fiscal, 111bis, prévoyance-vieillesse, épargne-logement, classe, fiche de retenue, rectification, correction, 164 R, bureau RTS, optimisation, déduction
-- `lux-guide:fimpatries` · Régime des impatriés · Réservé à des profils précis : la moitié de la rémunération brute exonérée, pendant neuf années au maximum. · tags : impatrié, expatrié, exonération, régime, prime, avantage fiscal
-- `lux-guide:finterets` · Déduire les intérêts d'emprunt · Le plafond se multiplie par le nombre de personnes du ménage, ce qui change tout pour une famille. · tags : intérêts, déduction, emprunt, crédit, habitation, plafond, résidence principale, impôt
+- `lux-guide:fimpots_classes` · Classes d'impôt · La classe détermine le barème. À revenu égal, l'écart entre classe 1 et classe 2 dépasse… · tags : impôt, classe, 1a, barème, splitting
+- `lux-guide:fdeductions` · Ce qui réduit votre impôt · Au-delà de la classe, plusieurs postes viennent en déduction : trajets, prévoyance… · tags : déduction, dépenses spéciales, frais de déplacement, épargne-logement, prévoyance
+- `lux-guide:fconseil_fiscal` · Conseil fiscal : les leviers de la première année · Vérifier la classe d'impôt et la faire corriger, puis activer les déductions qui… · tags : conseil fiscal, 111bis, prévoyance-vieillesse, épargne-logement, classe
+- `lux-guide:fimpatries` · Régime des impatriés · Réservé à des profils précis : la moitié de la rémunération brute exonérée, pendant neuf… · tags : impatrié, expatrié, exonération, régime, prime
+- `lux-guide:finterets` · Déduire les intérêts d'emprunt · Le plafond se multiplie par le nombre de personnes du ménage, ce qui change tout pour… · tags : intérêts, déduction, emprunt, crédit, habitation
 
 ## Travail
 
-- `lux-guide:findependant` · Exercer en indépendant · Déclaration au CCSS sous huit jours, dispense possible, et une autorisation d'établissement à vérifier avant de facturer. · tags : indépendant, freelance, ccss, affiliation, dispense, accessoire, autorisation, entreprise
-- `lux-guide:fconges` · Congés et jours fériés · Vingt-six jours ouvrables de congé légal et onze jours fériés, souvent améliorés par convention collective. · tags : congé, vacances, jours fériés, travail, période d'essai, préavis, contrat, salarié
-- `lux-guide:femploi` · Chercher un emploi · Un marché très international, où les postes vacants doivent être déclarés au service public de l'emploi. · tags : emploi, travail, adem, chômage, recrutement, cv, candidature, frontalier
+- `lux-guide:findependant` · Exercer en indépendant · Déclaration au CCSS sous huit jours, dispense possible, et une autorisation… · tags : indépendant, freelance, ccss, affiliation, dispense
+- `lux-guide:fconges` · Congés et jours fériés · Vingt-six jours ouvrables de congé légal et onze jours fériés, souvent améliorés par… · tags : congé, vacances, jours fériés, travail, période d'essai
+- `lux-guide:femploi` · Chercher un emploi · Un marché très international, où les postes vacants doivent être déclarés au service… · tags : emploi, travail, adem, chômage, recrutement
 
 ## Famille
 
-- `lux-guide:fallocations` · Allocations familiales · Versées sans condition de nationalité, avec un supplément selon l'âge et une allocation de rentrée automatique. · tags : allocation, familiale, cae, enfant, rentrée scolaire, aide, prestation, naissance
-- `lux-guide:fecole` · Scolariser ses enfants · Trois voies possibles, et un choix qui se prépare bien avant le déménagement. · tags : école, enfant, scolarité, européenne, internationale, publique, inscription, rentrée, langue
-- `lux-guide:fgarde` · Garde d'enfants et chèque-service · Une aide de l'État qui réduit fortement le coût de la garde, à condition que la structure soit conventionnée. · tags : crèche, garde, chèque-service, csa, maison relais, foyer de jour, enfant
+- `lux-guide:fallocations` · Allocations familiales · Versées sans condition de nationalité, avec un supplément selon l'âge et une allocation… · tags : allocation, familiale, cae, enfant, rentrée scolaire
+- `lux-guide:fecole` · Scolariser ses enfants · Trois voies possibles, et un choix qui se prépare bien avant le déménagement. · tags : école, enfant, scolarité, européenne, internationale
+- `lux-guide:fgarde` · Garde d'enfants et chèque-service · Une aide de l'État qui réduit fortement le coût de la garde, à condition que la… · tags : crèche, garde, chèque-service, csa, maison relais
 
 ## Finances
 
-- `lux-guide:fbanque` · Banque et moyens de paiement · Un compte local n'est pas obligatoire, mais il débloque la garantie locative et l'identité numérique. · tags : banque, compte, iban, garantie, virement, sepa, frais, ouverture
-- `lux-guide:fcout_vie` · Salaire, coût de la vie et indexation · Des salaires élevés, un logement cher, et une indexation automatique qui n'existe pas ailleurs. · tags : salaire, coût de la vie, index, indexation, ssm, minimum, tranche indiciaire, treizième mois
+- `lux-guide:fbanque` · Banque et moyens de paiement · Un compte local n'est pas obligatoire, mais il débloque la garantie locative et… · tags : banque, compte, iban, garantie, virement
+- `lux-guide:fcout_vie` · Salaire, coût de la vie et indexation · Des salaires élevés, un logement cher, et une indexation automatique qui n'existe pas… · tags : salaire, coût de la vie, index, indexation, ssm
 
 ## Mobilite
 
-- `lux-guide:fpermis` · Permis de conduire · Un permis européen reste valable sans limite. L'enregistrement est facultatif, gratuit, et ne se fait pas en ligne. · tags : permis, conduire, snca, échange, enregistrement, voiture, duplicata
-- `lux-guide:fvehicule` · Immatriculer son véhicule · Trois situations très différentes selon que vous importez, achetez chez un professionnel ou entre particuliers. · tags : voiture, véhicule, immatriculation, snca, snct, contrôle technique, plaque, import, occasion
-- `lux-guide:fassurance_auto` · Assurer son véhicule · Obligatoire avant de rouler, et le relevé d'informations de votre ancien assureur vaut de l'argent. · tags : assurance, auto, voiture, responsabilité civile, bonus, malus, relevé d'informations, franchise
-- `lux-guide:ftransport` · Transports publics gratuits · Gratuité totale depuis février 2020, mais une desserte très inégale selon les communes. · tags : transport, bus, train, tram, gratuit, mobilité, frontalier, parking
+- `lux-guide:fpermis` · Permis de conduire · Un permis européen reste valable sans limite. L'enregistrement est facultatif, gratuit… · tags : permis, conduire, snca, échange, enregistrement
+- `lux-guide:fvehicule` · Immatriculer son véhicule · Trois situations très différentes selon que vous importez, achetez chez un professionnel… · tags : voiture, véhicule, immatriculation, snca, snct
+- `lux-guide:fassurance_auto` · Assurer son véhicule · Obligatoire avant de rouler, et le relevé d'informations de votre ancien assureur vaut… · tags : assurance, auto, voiture, responsabilité civile, bonus
+- `lux-guide:ftransport` · Transports publics gratuits · Gratuité totale depuis février 2020, mais une desserte très inégale selon les communes. · tags : transport, bus, train, tram, gratuit
 
 ## Questions fréquentes
 

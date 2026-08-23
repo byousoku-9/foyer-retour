@@ -14,7 +14,7 @@
     {
       "name": "taille_sommaire",
       "level": "info",
-      "detail": "12419 caractères ≈ 3104 tokens"
+      "detail": "10359 caractères ≈ 2589 tokens"
     }
   ],
   "stats": {
@@ -29,8 +29,8 @@
     },
     "tableaux": 3,
     "timeline_phases": 5,
-    "sommaire_chars": 12419,
-    "sommaire_tokens_estimes": 3104,
+    "sommaire_chars": 10359,
+    "sommaire_tokens_estimes": 2589,
     "ids_disparus": 0,
     "ids_nouveaux": 0
   }

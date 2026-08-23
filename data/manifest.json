@@ -2,8 +2,8 @@
   "axa-lu-optihome-2017": {
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-    "ingest_fingerprint": "dd474c567fe3a2cf2594c371fde5c1f29fdd85b6911d20f3936a58a78e22c5d1",
-    "document_hash": "8bc5fc7dcd78ff66ff7ca2fddd9f7505ab0377ed3abb7c86d0e6c94787e057d1",
+    "ingest_fingerprint": "2b11ed22ca146ee9b3e3d00f40d9284ef87e77d8321cd76469a0eb396e5292a5",
+    "document_hash": "87116ecbef9f337f2715e9772e5cbf038673f720f8e8276ca723fd39d2ba5fdf",
     "edition": "juin 2017",
     "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
     "gate": null
@@ -11,8 +11,8 @@
   "lux-guide": {
     "status": "servi",
     "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
-    "ingest_fingerprint": "41d29e99065f32475314f99b895c783b8ee8571bf6ce95a8bd873815ec58110d",
-    "document_hash": "bd4f63a48f8658b33e738341a7e43226fec57c88e2487932bd3bacb095967130",
+    "ingest_fingerprint": "b791a248028c2d6c73a9e26eeea4f7dafa6d3cbd996114c39c5d8535405709c4",
+    "document_hash": "cebb86e29c367611e80c58b6fe4b72b1be31e8e6807857f992d1277eb59fd0cf",
     "edition": "git:a8e8593",
     "overlay_hash": null,
     "gate": null
