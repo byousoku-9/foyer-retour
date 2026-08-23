@@ -49,6 +49,13 @@ class ParsedQuestion(DomainModel):
     language: str = "fr"
     terms: list[str] = Field(default_factory=list)  # toujours en français
     scope: QuestionScope = Field(default_factory=QuestionScope)
+    # AD-5, mot pour mot : « une anaphore non résoluble avec l'historique produit `Answer.clarification`
+    # (question à l'utilisateur) — *comprendre* ne fabrique jamais une `question_resolue` ». Le signal
+    # naît donc ici, à l'étape qui constate l'échec de résolution, et non dans la restitution : sans
+    # champ typé, une `question_resolue` non autonome partait à *retrouver* sans que rien ne le dise
+    # (revue Codex 1.4, B4, tour 2). Sa *restitution* à l'utilisateur reste l'AC de la story 2.2 ;
+    # `Answer.clarification` existe déjà pour la porter.
+    clarification: str | None = None
 
     @field_validator("language")
     @classmethod

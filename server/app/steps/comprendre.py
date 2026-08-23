@@ -5,8 +5,11 @@ tout remplir), puis converti en `ParsedQuestion` du domaine. `language` = `lang`
 détection du modèle, repli `fr` ; `terms` toujours en français ; `scope.themes` dérivé du profil
 (enfants → école/allocations, véhicule → auto, statut → affiliation). Le court-circuit
 (intent ∈ {meteo, bavardage, hors_perimetre} ⇒ pas d'appel `reason`) est une propriété du pipeline
-(story 1.5) : ici, l'intent seul suffit à le décider. Le préfixe système est statique (instructions
-décrivant le périmètre du guide — pas le sommaire : `micro` cache 5 min, seuil de cache Haiku élevé).
+(story 1.5) : ici, l'intent seul suffit à le décider. Une anaphore que l'historique ne permet pas de
+résoudre ne produit **pas** une `question_resolue` inventée : la question est reprise telle quelle et
+`clarification` porte la question à poser à l'utilisateur (AD-5, revue Codex 1.4, B4). Le préfixe
+système est statique (instructions décrivant le périmètre du guide — pas le sommaire : `micro` cache
+5 min, seuil de cache Haiku élevé).
 Question, historique et profil sont chacun délimités par `untrusted()` (AD-15).
 """
 
@@ -32,6 +35,7 @@ class SortieComprendre(BaseModel):
 
     intent: Intent
     question_resolue: str
+    clarification: str | None
     language: str
     terms: list[str]
     themes: list[str]
@@ -63,6 +67,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     out = result.parsed
     parsed = ParsedQuestion(
         question_resolue=out.question_resolue,
+        clarification=(out.clarification or "").strip() or None,
         intent=out.intent,
         language=lang if lang is not None else out.language,  # normalisé par ParsedQuestion
         terms=[t for t in (s.strip() for s in out.terms) if t],

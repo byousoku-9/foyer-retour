@@ -305,7 +305,8 @@ def test_error_codes() -> None:
 def test_question_and_retrieval() -> None:
     assert fields(question.Turn) == {"role", "texte"}
     assert literal_values(question.Turn, "role") == {"user", "assistant"}
-    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms", "scope"}
+    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms", "scope",
+                                               "clarification"}
     assert {"meteo", "bavardage", "hors_perimetre"} <= literal_values(question.ParsedQuestion, "intent")
     assert fields(question.Faits) == {"date", "lieu", "montant_eur", "description"}
     assert fields(retrieval.RetrievalResult) == {"blocs", "opened_block_ids", "discarded_block_ids", "truncated"}

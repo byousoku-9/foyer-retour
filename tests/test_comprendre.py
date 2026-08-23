@@ -35,6 +35,7 @@ def _budget(deadline_s: float = 30.0) -> RequestBudget:
 
 def _sortie(**over) -> str:
     base = {"intent": "question", "question_resolue": "À quelle école inscrire mes enfants ?",
+            "clarification": None,
             "language": "fr", "terms": ["école", "inscription scolaire"],
             "themes": ["école", "allocations"], "bien": None, "evenement": None, "lieu": None,
             "cause": None, "moment": None}
@@ -74,6 +75,30 @@ async def test_meteo_intent_alone_is_enough_to_decide_the_short_circuit() -> Non
     parsed, step = await _comprendre(client, question="quel temps fera-t-il demain ?")
     assert parsed.intent == "meteo"
     assert len(step.calls) == 1  # un seul appel micro : aucune autre étape requise pour le refus
+
+
+async def test_an_irresolvable_anaphora_is_signalled_instead_of_being_invented() -> None:
+    """AD-5, mot pour mot : « une anaphore non résoluble avec l'historique produit
+    `Answer.clarification` (question à l'utilisateur) — *comprendre* ne fabrique jamais une
+    `question_resolue` » (revue Codex 1.4, B4, tour 2). Sans champ typé, une `question_resolue` non
+    autonome partait à *retrouver* sans que rien ne le signale."""
+    client, _ = _client([fake_message(
+        text=_sortie(question_resolue="et pour eux ?", clarification="De quelles personnes parlez-vous ?",
+                     terms=[], themes=[]), model=HAIKU)])
+    parsed, _ = await _comprendre(client, question="et pour eux ?")  # aucun historique
+    assert parsed.clarification == "De quelles personnes parlez-vous ?"
+    assert parsed.question_resolue == "et pour eux ?"  # reprise telle quelle, rien d'inventé
+    # cas courant : la question se comprend seule, aucun signal
+    client, _ = _client([fake_message(text=_sortie(clarification="   "), model=HAIKU)])
+    parsed, _ = await _comprendre(client)
+    assert parsed.clarification is None  # une chaîne vide n'est pas une demande de clarification
+
+
+async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_question() -> None:
+    """La propriété sémantique vit dans le prompt, pas dans le code (AD-5)."""
+    prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6)
+    assert "renseigne `clarification`" in prefixe
+    assert "N'invente jamais ce que l'historique ne dit pas" in prefixe
 
 
 async def test_forced_lang_wins_over_detection() -> None:
@@ -126,7 +151,8 @@ async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -
     assert req["max_tokens"] == s.comprendre_max_tokens == 1024
     # le schéma dédié est plat et tout est requis (aucun défaut)
     assert set(req["output_config"]["format"]["schema"]["required"]) == {
-        "intent", "question_resolue", "language", "terms", "themes", "bien", "evenement", "lieu", "cause", "moment"}
+        "intent", "question_resolue", "clarification", "language", "terms", "themes", "bien", "evenement",
+        "lieu", "cause", "moment"}
     # question, historique et profil chacun sous untrusted() ; rien hors balises
     (msg,) = req["messages"]
     sections = _sections(msg["content"])
