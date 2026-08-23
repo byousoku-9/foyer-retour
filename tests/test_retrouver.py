@@ -118,13 +118,28 @@ def test_scope_themes_enrich_the_search() -> None:
     assert by_themes.opened_block_ids == by_terms.opened_block_ids
 
 
-def test_max_blocks_caps_the_final_list() -> None:
+def test_max_blocks_cuts_the_window_tail_and_keeps_the_out_of_quota_targets() -> None:
+    # Revue 1.4 : la borne de coût coupe la queue des fenêtres, pas les renvois. Sans quoi la cible
+    # d:p1:5 — ajoutée en dernier parce qu'elle est suivie hors quota — serait la première perdue,
+    # et le suivi des renvois d'AD-1 ne survivrait à aucune question réelle.
+    corpus = _corpus()
+    index = Index(corpus)
+    result, step = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
+                                          budget=_budget(max_blocks=2))
+    assert len(result.blocs) == 2 and result.truncated is True
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:5"]  # 1er bloc de fenêtre + cible du renvoi
+    # la coupe se trace : le hit jamais transmis, puis le bloc de fenêtre coupé
+    assert result.discarded_block_ids == ["d:p2:1", "d:p1:2"]
+    assert step.discarded_block_ids == result.discarded_block_ids
+
+
+def test_max_blocks_smaller_than_the_out_of_quota_targets_cuts_them_too() -> None:
     corpus = _corpus()
     index = Index(corpus)
     result, _ = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
-                                       budget=_budget(max_blocks=2))
-    assert len(result.blocs) == 2 and result.truncated is True
-    assert result.opened_block_ids == ["d:p1:1", "d:p1:2"]
+                                       budget=_budget(max_blocks=1))
+    assert result.opened_block_ids == ["d:p1:5"] and result.truncated is True
+    assert sorted(result.discarded_block_ids) == ["d:p1:1", "d:p1:2", "d:p2:1"]
 
 
 def test_on_the_real_corpus_with_config_thresholds() -> None:
@@ -145,11 +160,18 @@ def test_on_the_real_corpus_with_config_thresholds() -> None:
     axa, _ = retrouver_deterministe(_parsed(["contenu"]), corpus=corpus, index=index, budget=budget,
                                     doc_id="axa-lu-optihome-2017")
     assert "axa-lu-optihome-2017:p9:2" in axa.opened_block_ids
+    # …et le saut « définitions » reste dans le document demandé : interrogé sur le guide, le même
+    # terme ne ramène jamais la définition du contrat (revue 1.4 — sans `doc_id`, elle passait).
+    guide, _ = retrouver_deterministe(_parsed(["contenu"]), corpus=corpus, index=index, budget=budget,
+                                      doc_id="lux-guide")
+    assert all(b.block_id.startswith("lux-guide:") for b in guide.blocs)
 
 
 def test_unknown_doc_id_raises_like_the_index() -> None:
     corpus = _corpus()
     index = Index(corpus)
-    with pytest.raises(KeyError):
-        retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
-                               doc_id="inconnu")
+    # y compris sans aucun terme : `chercher` n'est alors pas appelé, mais un doc_id fautif reste une
+    # faute de l'appelant — la taire rendrait une faute de frappe invisible (revue 1.4).
+    for parsed in (_parsed(["matricule"]), _parsed([])):
+        with pytest.raises(KeyError):
+            retrouver_deterministe(parsed, corpus=corpus, index=index, budget=_budget(), doc_id="inconnu")
