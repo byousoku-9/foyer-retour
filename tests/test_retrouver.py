@@ -176,6 +176,43 @@ def test_a_ref_target_never_travels_without_the_block_that_cites_it() -> None:
             assert "d:p1:2" in rendus
 
 
+def test_a_window_block_is_kept_on_its_own_merit_even_when_another_one_cites_it() -> None:
+    """Revue Codex 1.4, B6, tour 2 — rejet argumenté. L'invariant d'AD-1 porte sur les blocs tirés
+    **par** un renvoi (« *retrouver* suit automatiquement les renvois … un niveau ») : une cible n'est
+    utile qu'avec le passage qui la cite. Un bloc de fenêtre, lui, est retenu par la recherche
+    elle-même — c'est un hit de `chercher`, ou son voisinage de lecture dans le nœud ouvert. Qu'un
+    autre bloc le cite ne le transforme pas en dépendance : le compter dans l'unité de son référent
+    ferait *retirer* un bloc légitimement retrouvé parce qu'un lien pointe vers lui, et rendrait ici
+    un résultat vide là où un hit tenait dans le budget."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Le matricule est délivré par la commune ; voir aussi.", loc="p1",
+              seq=1, refs=["d:p2:1", "d:p9:1"]),
+        Block(block_id="d:p2:1", text="Le matricule sert partout.", loc="p2", seq=1),
+        Block(block_id="d:p9:1", text="Cible du renvoi, sans aucun terme cherché.", loc="p9", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2"), NodeRef(node_id="n3")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")]),
+             Node(node_id="n3", items=[BlockRef(block_id="d:p9:1")])]
+    corpus = Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                             nodes=nodes, blocks=blocks)})
+    index = Index(corpus)
+    # les deux premiers blocs sont des hits ; `d:p1:1` cite l'un d'eux et une cible hors recherche
+    assert [b for b, _ in index.chercher(["matricule"], limit=20)] == ["d:p1:1", "d:p2:1"]
+
+    result, _ = _run(_parsed(["matricule"]), corpus, index, _budget(max_blocks=1))
+    # l'unité de `d:p1:1` (lui + `d:p9:1`, sa cible hors fenêtre) ne tient pas dans 1 bloc ; `d:p2:1`
+    # tient, et c'est un hit — le rendre est plus utile que ne rien rendre.
+    assert result.opened_block_ids == ["d:p2:1"] and result.truncated is True
+    # l'invariant reste tenu à toute borne : aucune cible tirée par un renvoi ne voyage seule.
+    for max_blocks in (1, 2, 3):
+        r, _ = _run(_parsed(["matricule"]), corpus, index, _budget(max_blocks=max_blocks))
+        rendus = set(r.opened_block_ids)
+        assert len(rendus) <= max_blocks
+        if "d:p9:1" in rendus:  # `d:p9:1` n'est ni un hit ni un bloc de fenêtre : c'est une cible
+            assert "d:p1:1" in rendus
+
+
 def test_max_tokens_bounds_the_step_where_the_block_count_does_not() -> None:
     # AD-1 : le `RetrievalBudget` borne « blocs, tokens … inclus » (revue Codex 1.4, B1). Deux blocs
     # très longs tiennent dans `max_blocks` et défoncent pourtant le budget de tokens.
