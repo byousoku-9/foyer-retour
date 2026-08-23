@@ -1,0 +1,36 @@
+{
+  "doc_id": "lux-guide",
+  "checks": [
+    {
+      "name": "invariants_arbre",
+      "level": "info",
+      "detail": "ok"
+    },
+    {
+      "name": "timeline_non_ingeree",
+      "level": "info",
+      "detail": "5 phases, 38 étapes : parcours hors périmètre (story 1.4)"
+    },
+    {
+      "name": "taille_sommaire",
+      "level": "info",
+      "detail": "12419 caractères ≈ 3104 tokens"
+    }
+  ],
+  "stats": {
+    "fiches": 36,
+    "faq": 41,
+    "noeuds": 88,
+    "blocs": 506,
+    "blocs_par_kind": {
+      "heading": 112,
+      "para": 391,
+      "table": 3
+    },
+    "tableaux": 3,
+    "timeline_phases": 5,
+    "sommaire_chars": 12419,
+    "sommaire_tokens_estimes": 3104,
+    "ids_disparus": 0
+  }
+}

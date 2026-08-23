@@ -1,0 +1,10 @@
+{
+  "lux-guide": {
+    "status": "servi",
+    "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
+    "ingest_fingerprint": "6e1d5d83a58460053ccbd48d543ed4ad431925f3ced580dbecc048c48fd54fcd",
+    "document_hash": "c477b84ffea1c2da754314d5dcd42f0214fa51402bc0729a7154bba47af9d67e",
+    "edition": "git:a8e8593",
+    "gate": null
+  }
+}
