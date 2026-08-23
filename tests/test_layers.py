@@ -30,6 +30,7 @@ EXTERNAL_ALLOWED: dict[str, set[str]] = {
     "domain": {"pydantic"},
     "corpus": set(),  # stdlib + domain seulement : jamais pydantic en direct
     "llm": {"anthropic", "pydantic"},  # AC 1.3 : rien d'autre hors domain, config, stdlib
+    "steps": {"pydantic"},  # NFR9 (story 1.4) : jamais anthropic — le SDK ne se voit qu'à travers llm
     "config": {"pydantic", "pydantic_settings"},
     "digests": {"pydantic"},
 }
