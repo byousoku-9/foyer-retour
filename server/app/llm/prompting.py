@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from string import Template
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
@@ -34,3 +35,15 @@ def load_prompt(name: str) -> str:
     if not path.is_file():
         raise FileNotFoundError(f"prompt absent : {path}")
     return path.read_text("utf-8")
+
+
+def render_prompt(name: str, **valeurs: object) -> str:
+    """Prompt versionné dont les `$seuil` sont remplacés par les valeurs de `config.py`.
+
+    Convention Seuils du spine (revue Codex 1.4, I1) : une borne chiffrée annoncée au modèle est un
+    seuil comme un autre — écrite en dur dans le prompt, elle se désynchronise silencieusement de ce
+    que le code accepte (`quote_min_chars` est réglable, `tests/test_config.py` le passe déjà à 30).
+    Le rendu est déterministe : à seuils constants le préfixe reste byte-identique, donc cacheable
+    (AD-9). Un `$seuil` sans valeur lève `KeyError` — jamais un trou silencieux dans la consigne.
+    """
+    return Template(load_prompt(name)).substitute(**valeurs)

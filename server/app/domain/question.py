@@ -38,7 +38,9 @@ class QuestionScope(DomainModel):
     moment: str | None = None
 
 
-_LANG = re.compile(r"^[a-z]{2,3}$")
+# Convention « Données & formats » du spine : langues **ISO 639-1**, donc exactement deux lettres
+# (revue Codex 1.4, I2 — `^[a-z]{2,3}$` laissait passer `eng`/`fra` jusque dans la consigne de rédaction).
+_LANG = re.compile(r"^[a-z]{2}$")
 
 
 class ParsedQuestion(DomainModel):
@@ -51,7 +53,7 @@ class ParsedQuestion(DomainModel):
     @field_validator("language")
     @classmethod
     def _lang_or_fr(cls, value: str) -> str:
-        """Code ISO 639 en minuscules ; tout le reste retombe sur `fr` (convention Langue du spine).
+        """Code ISO 639-1 en minuscules (deux lettres) ; tout le reste retombe sur `fr` (convention Langue).
 
         La normalisation vit ici, pas dans les étapes : *comprendre* et *rédiger* ne peuvent pas
         s'importer l'une l'autre (AD-9) et la dupliquaient avec deux sémantiques légèrement

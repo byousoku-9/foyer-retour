@@ -17,7 +17,7 @@ from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
-from server.app.llm.prompting import load_prompt
+from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.comprendre import comprendre
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -117,7 +117,9 @@ async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -
     s = _settings()
     # préfixe statique byte-identique (pas de sommaire : micro, cache 5 min), tier micro
     assert req["model"] == HAIKU
-    assert req["system"] == [{"type": "text", "text": load_prompt("commun") + "\n\n" + load_prompt("comprendre"),
+    attendu = load_prompt("commun") + "\n\n" + render_prompt(
+        "comprendre", question_min_terms=s.question_min_terms, question_max_terms=s.question_max_terms)
+    assert req["system"] == [{"type": "text", "text": attendu,
                               "cache_control": {"type": "ephemeral"}}]
     assert req["extra_body"] == {"temperature": 0}
     assert "effort" not in req["output_config"]
@@ -144,3 +146,15 @@ async def test_budget_errors_from_the_client_bubble_up_unchanged() -> None:
     with pytest.raises(Timeout):
         await _comprendre(client, budget=RequestBudget(deadline_s=0, max_attempts=4, max_cost_eur=0.10))
     assert fake.requests == []
+
+
+async def test_the_prompt_announces_the_configured_term_bounds() -> None:
+    """Convention Seuils (revue Codex 1.4, I1) : une borne chiffrée annoncée au modèle est un seuil de
+    `config.py`, pas un nombre écrit dans le prompt — sinon la surcharge ne change que la moitié du
+    système. Le rendu reste déterministe, donc le préfixe reste byte-identique et cacheable."""
+    client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    await comprendre("q", [], Profil(), client=client, budget=_budget(),
+                     settings=_settings(question_min_terms=3, question_max_terms=9))
+    prefixe = fake.requests[0]["system"][0]["text"]
+    assert "3 à 9 termes de recherche" in prefixe
+    assert "2 à 6 termes de recherche" not in prefixe

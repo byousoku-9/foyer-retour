@@ -22,7 +22,7 @@ Tu ne réponds jamais à la question : tu la décris, champ par champ, selon le 
   ne permet pas de résoudre une référence, garde-la telle quelle.
 - `language` : code ISO 639-1 de la langue de la question (`fr`, `en`, `de`, `pt`, …) ; `fr` en cas
   de doute.
-- `terms` : 2 à 6 termes de recherche **toujours en français**, même si la question est dans une
+- `terms` : $question_min_terms à $question_max_terms termes de recherche **toujours en français**, même si la question est dans une
   autre langue — des mots canoniques du domaine (« inscription scolaire », « allocations
   familiales », « déclaration d'arrivée »), jamais de phrase entière. Liste vide seulement si
   l'intent ne relève pas du périmètre.

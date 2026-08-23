@@ -24,7 +24,7 @@ from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
-from server.app.llm.prompting import load_prompt, untrusted
+from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
 class SortieComprendre(BaseModel):
@@ -47,7 +47,9 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
                      lang: str | None = None) -> tuple[ParsedQuestion, StepTrace]:
     t0 = time.monotonic()
     step = StepTrace(name="comprendre", tier=STEP_TIERS["comprendre"])
-    prefix = load_prompt("commun") + "\n\n" + load_prompt("comprendre")
+    prefix = load_prompt("commun") + "\n\n" + render_prompt(
+        "comprendre", question_min_terms=settings.question_min_terms,
+        question_max_terms=settings.question_max_terms)
     content = "\n\n".join((
         untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],
                                            ensure_ascii=False)),

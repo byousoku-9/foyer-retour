@@ -69,7 +69,8 @@ def _budget() -> RequestBudget:
 def _retrieval_budget() -> RetrievalBudget:
     s = _settings()
     return RetrievalBudget(max_opens=s.max_opens, node_window=s.node_window, search_limit=s.search_limit,
-                           max_llm_turns=s.max_llm_turns, max_blocks=s.retrieval_max_blocks)
+                           max_llm_turns=s.max_llm_turns, max_blocks=s.retrieval_max_blocks,
+                           max_tokens=s.retrieval_max_tokens)
 
 
 def _covers(themes: list[str], *needles: str) -> bool:
@@ -106,9 +107,12 @@ async def test_full_chain_draft_is_sourced_on_at_least_two_fiches(index: Index, 
                                       settings=_settings())
 
     retrieval, step_r = retrouver_deterministe(parsed, corpus=index.corpus, index=index,
-                                               budget=_retrieval_budget(), doc_id=DOC_ID)
+                                               budget=_retrieval_budget(), settings=_settings(),
+                                               doc_id=DOC_ID)
     assert retrieval.blocs, "aucun bloc retrouvé pour une question du périmètre du guide"
-    assert step_r.tier is None and step_r.calls == []  # variante déterministe : zéro appel modèle
+    # AD-9 affecte `retrouver → reason` sans exception ; `calls=[]` dit que la variante déterministe
+    # n'a appelé aucun modèle (revue Codex 1.4, B3).
+    assert step_r.tier == "reason" and step_r.calls == []
 
     draft, step_d = await rediger(parsed, retrieval, [], client=client, budget=budget, index=index,
                                   doc_id=DOC_ID, settings=_settings())

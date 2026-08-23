@@ -23,7 +23,7 @@ from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
-from server.app.llm.prompting import load_prompt, untrusted
+from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
 async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique: list[Turn], *,
@@ -32,7 +32,16 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     t0 = time.monotonic()
     step = StepTrace(name="rediger", tier=STEP_TIERS["rediger"],
                      opened_block_ids=[b.block_id for b in retrieval.blocs])
-    prefix = load_prompt("commun") + "\n\n" + load_prompt("rediger") + "\n\n" + index.sommaire(doc_id)
+    etrangers = [b.block_id for b in retrieval.blocs if index.doc_of(b.block_id) != doc_id]
+    if etrangers:
+        # AD-1/AD-9 (revue Codex 1.4, I3) : le sommaire du préfixe situe les blocs dans *leur* document.
+        # Un `doc_id` qui ne recouvre pas les blocs reçus enverrait au modèle le mauvais plan de lecture
+        # sans aucune erreur — AD-16 : jamais de dégradé silencieux.
+        raise ValueError(f"blocs hors du document {doc_id!r} : {etrangers}")
+    prefix = load_prompt("commun") + "\n\n" + render_prompt(
+        "rediger", quote_min_chars=settings.quote_min_chars, quote_max_chars=settings.quote_max_chars,
+        draft_max_segments=settings.draft_max_segments, draft_max_claims=settings.draft_max_claims,
+    ) + "\n\n" + index.sommaire(doc_id)
     parts = [untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],
                                                 ensure_ascii=False))]
     parts += [untrusted("document", f"{b.block_id}\n{b.text}") for b in retrieval.blocs]

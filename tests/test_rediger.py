@@ -22,7 +22,7 @@ from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
-from server.app.llm.prompting import load_prompt
+from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.rediger import rediger
 from server.ingest import kb_to_blocks as k
 from tests.llm_fake import FakeAnthropic, fake_message
@@ -102,8 +102,10 @@ async def test_request_shape_cacheable_prefix_with_summary_then_delimited_conten
     s = _settings()
     # préfixe système byte-identique : commun + rediger + sommaire versionné (en-tête de hash inclus),
     # breakpoint cache 1 h (reason)
-    expected_prefix = load_prompt("commun") + "\n\n" + load_prompt("rediger") + "\n\n" + \
-        mini_index.sommaire("lux-guide")
+    expected_prefix = load_prompt("commun") + "\n\n" + render_prompt(
+        "rediger", quote_min_chars=s.quote_min_chars, quote_max_chars=s.quote_max_chars,
+        draft_max_segments=s.draft_max_segments, draft_max_claims=s.draft_max_claims,
+    ) + "\n\n" + mini_index.sommaire("lux-guide")
     assert req["system"] == [{"type": "text", "text": expected_prefix,
                              "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
     assert mini_index.sommaire("lux-guide").startswith("<!-- lux-guide · edition git:test")
@@ -167,7 +169,11 @@ async def test_incoherent_draft_triggers_one_motivated_retry_then_parses(mini_in
     retry_msg = fake.requests[1]["messages"][-1]["content"]
     assert "invalide" in retry_msg
     # le motif nomme l'incohérence : sans ça le modèle rejoue la même ébauche (observé en live)
-    assert "segments[0] référence des claims inconnues : ['c9']" in retry_msg
+    (motif,) = [t for kind, t in UNTRUSTED.findall(retry_msg) if kind == "motif"]
+    assert "segments[0] référence un claim_id absent de claims[]" in motif
+    # AD-15 (revue Codex 1.4, B7) : le motif est composé depuis la réponse du modèle — il est délimité
+    # comme tout contenu non fiable, et rien de son texte ne subsiste hors balises.
+    assert "segments[0]" not in UNTRUSTED.sub("", retry_msg)
     assert fake.requests[1]["system"] == fake.requests[0]["system"]  # préfixe byte-identique au retry
 
 
@@ -182,3 +188,32 @@ async def test_persistently_incoherent_draft_raises_llm_parse(mini_index: Index,
         await _rediger(client, mini_index)
     assert err.value.code is ErrorCode.llm_parse
     assert len(fake.requests) == 2  # 1 retry motivé, puis LlmParse (code llm_parse)
+
+
+async def test_the_prompt_announces_the_configured_quote_bounds(mini_index: Index) -> None:
+    """Convention Seuils (revue Codex 1.4, I1) : `quote_min_chars` est le seuil que *vérifier*
+    appliquera (AD-3) — le prompt le rend, il ne le duplique pas. Le régler ne doit pas désynchroniser
+    ce que le modèle est autorisé à produire et ce que le code acceptera."""
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+    reglee = _settings(quote_min_chars=40, quote_max_chars=300, draft_max_segments=3, draft_max_claims=2)
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+    await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=mini_index,
+                  doc_id="lux-guide", settings=reglee)
+    prefixe = fake.requests[0]["system"][0]["text"]
+    assert "Vise au\n  moins 40 caractères." in prefixe
+    assert "au plus 3 segments et 2 claims, des\n  quotes de 40 à 300 caractères" in prefixe
+    assert "25 caractères" not in prefixe
+
+
+async def test_blocks_from_another_document_than_the_summary_are_refused(mini_index: Index) -> None:
+    """AD-1/AD-9 (revue Codex 1.4, I3) : le sommaire du préfixe situe les blocs. Un `doc_id` qui ne
+    recouvre pas les blocs reçus enverrait le mauvais plan de lecture — sans aucune erreur."""
+    corpus = load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True)
+    reel = Index(corpus)
+    etranger = corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p9:2")
+    retrieval = RetrievalResult(blocs=[etranger], opened_block_ids=[etranger.block_id])
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+    with pytest.raises(ValueError, match="hors du document"):
+        await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=reel,
+                      doc_id="lux-guide", settings=_settings())
+    assert fake.requests == []  # refusé avant tout appel : aucun euro dépensé
