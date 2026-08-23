@@ -113,6 +113,37 @@ def _text_of(message: Any) -> str:
     return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
 
 
+def _champs_du_schema(schema: Any) -> frozenset[str]:
+    """Noms de champs déclarés par le schéma de sortie (récursif, `$defs` et sous-modèles inclus).
+
+    AD-15 (revue Codex 1.4, B7, tour 2) : le `loc` d'une erreur pydantic n'est du texte de **notre**
+    code que tant qu'il nomme un champ du schéma. Avec `extra="forbid"` (tous les modèles du domaine),
+    un champ surnuméraire inventé par le modèle devient lui-même le `loc` de l'erreur
+    `extra_forbidden` — le nom arbitraire du modèle traverserait alors le motif de relance et
+    `StepTrace.checks`. Cette liste est la référence qui permet de le remplacer.
+    """
+    noms: set[str] = set()
+    pile: list[Any] = [schema]
+    while pile:
+        node = pile.pop()
+        if isinstance(node, dict):
+            props = node.get("properties")
+            if isinstance(props, dict):
+                noms.update(k for k in props if isinstance(k, str))
+            pile.extend(node.values())
+        elif isinstance(node, list):
+            pile.extend(node)
+    return frozenset(noms)
+
+
+# Types d'erreur pydantic dont le `msg` recopie une valeur reçue (le tag d'une union discriminée) :
+# leur message est remplacé par le seul code. Les autres messages intégrés sont composés à partir du
+# schéma (« Field required », « Input should be 'question', 'suivi', … », « Extra inputs are not
+# permitted ») ; ceux des validateurs du domaine n'interpolent aucune valeur reçue (règle vérifiée par
+# `tests/test_domain.py`).
+_MSG_CITE_LA_VALEUR = frozenset({"union_tag_invalid", "union_tag_not_found"})
+
+
 class LlmClient:
     """Client unique des étapes ; ne connaît ni les étapes ni les pipelines."""
 
@@ -147,8 +178,10 @@ class LlmClient:
         if caps["cache_ttl"] == "1h":
             cache_control["ttl"] = "1h"
         system = [{"type": "text", "text": system_prefix, "cache_control": cache_control}]
+        schema = adapter.json_schema()
+        champs = _champs_du_schema(schema)
         output_config: dict[str, Any] = {
-            "format": {"type": "json_schema", "schema": anthropic.transform_schema(adapter.json_schema())},
+            "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)},
         }
         if caps["effort"]:
             output_config["effort"] = EFFORT[tier]
@@ -252,7 +285,7 @@ class LlmClient:
                 try:
                     parsed = adapter.validate_json(text)
                 except pydantic.ValidationError as exc:
-                    problem = f"réponse non conforme au schéma : {self._validation_motive(exc)}"
+                    problem = f"réponse non conforme au schéma : {self._validation_motive(exc, champs)}"
             if problem is None:
                 if self._cache is not None:
                     self._cache.set(key, {"response": message.to_dict(), "cost_eur": usage.cost_eur})
@@ -289,26 +322,34 @@ class LlmClient:
         return counted.input_tokens
 
     @staticmethod
-    def _validation_motive(exc: pydantic.ValidationError, *, max_errors: int = 4, max_len: int = 500) -> str:
+    def _validation_motive(exc: pydantic.ValidationError, champs: frozenset[str] = frozenset(), *,
+                           max_errors: int = 4, max_len: int = 500) -> str:
         """Motif de relance qui dit *quoi* corriger (story 1.4).
 
         `error_count()` seul ne motive rien : le modèle rejoue la même réponse (observé en live sur
-        `AnswerDraft`, deux quotes du même bloc dans une claim). On rend donc le chemin du champ et le
-        message du validateur, sans la valeur reçue (`include_input=False`) : la recopier gonflerait la
-        requête pour rien.
+        `AnswerDraft`, deux quotes du même bloc dans une claim). On rend donc le chemin du champ, le
+        code d'erreur et le message du validateur, sans la valeur reçue (`include_input=False`) : la
+        recopier gonflerait la requête pour rien.
 
         Ce motif part dans `StepTrace.checks` (AD-10) et dans la relance : il ne doit donc contenir que
-        du texte produit par **notre** code. Les chemins pydantic le sont ; les messages des validateurs
-        du domaine aussi, tant qu'ils n'interpolent aucune valeur reçue — c'est une règle du domaine,
-        vérifiée par `tests/test_domain.py` (revue Codex 1.4, B7). La borne `max_len` reste une ceinture
-        pour les messages des validateurs intégrés de pydantic, et la relance délimite le motif.
+        du texte produit par **notre** code. Le chemin est pour cela ramené aux noms de champs déclarés
+        par le schéma (`champs`) et aux indices de liste ; tout autre segment — le nom d'un champ
+        surnuméraire inventé par le modèle, que pydantic met dans le `loc` de l'erreur
+        `extra_forbidden` — devient `<champ inconnu>` (revue Codex 1.4, B7, tour 2). Les codes d'erreur
+        de pydantic sont des constantes ; les messages sont composés à partir du schéma, sauf ceux de
+        `_MSG_CITE_LA_VALEUR`, effacés. Les messages des validateurs du domaine n'interpolent aucune
+        valeur reçue (règle vérifiée par `tests/test_domain.py`). La borne `max_len` reste une ceinture,
+        et la relance délimite le motif avec `untrusted()`.
         """
         errors = exc.errors(include_url=False, include_input=False, include_context=False)
         lines = []
         for err in errors[:max_errors]:
-            loc = ".".join(str(part) for part in err.get("loc", ())) or "(racine)"
-            msg = str(err.get("msg", "")).replace("Value error, ", "")
-            lines.append(f"{loc} : {msg}")
+            parts = [str(p) if isinstance(p, int) or p in champs else "<champ inconnu>"
+                     for p in err.get("loc", ())]
+            loc = ".".join(parts) or "(racine)"
+            code = str(err.get("type", "?"))
+            msg = "" if code in _MSG_CITE_LA_VALEUR else str(err.get("msg", "")).replace("Value error, ", "")
+            lines.append(f"{loc} [{code}] : {msg}" if msg else f"{loc} [{code}]")
         motive = f"{exc.error_count()} erreur(s) de validation — " + " ; ".join(lines)
         if len(errors) > max_errors:
             motive += f" ; … ({len(errors) - max_errors} autre(s))"

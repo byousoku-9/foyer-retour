@@ -158,7 +158,7 @@ async def test_the_retry_motive_names_the_offending_field_and_hides_the_value() 
     result = await _call(client, step=step)
     assert result.parsed == Mot(mot="ok")
     motive = fake.requests[1]["messages"][2]["content"]
-    assert "mot :" in motive  # le champ fautif est nommé
+    assert "mot [string_type]" in motive  # le champ fautif est nommé, avec le code d'erreur constant
     assert "Input should be a valid string" in motive  # et ce qu'on en attend
     assert '"mot": 3' not in motive  # jamais la valeur reçue : elle vient du modèle (AD-5)
     assert step.checks[0].detail in motive  # la trace porte le même motif que la relance
