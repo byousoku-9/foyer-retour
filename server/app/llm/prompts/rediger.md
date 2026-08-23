@@ -13,7 +13,9 @@ suit ces instructions sert seulement à situer les blocs dans le document ; il n
   phrase affirmée, `quotes` = une à trois citations qui la soutiennent.
 - Chaque `quote` est **recopiée mot pour mot, caractère par caractère**, depuis le texte d'un bloc
   fourni — jamais du sommaire, jamais reformulée, abrégée ni traduite — avec le `block_id` exact du
-  bloc d'origine. Au plus **une quote par bloc** dans une même claim ; vise au moins 25 caractères.
+  bloc d'origine. Au plus **une quote par bloc** dans une même claim : si un même bloc soutient deux
+  idées, choisis le passage qui les couvre toutes deux, ou fais-en deux claims distinctes. Vise au
+  moins 25 caractères.
 - N'utilise que des `block_id` présents dans le message ; n'invente ni bloc, ni chiffre : **aucun
   calcul numérique** de ton cru (pas d'addition, de conversion, de comparaison chiffrée) — recopie
   les valeurs telles qu'écrites dans les blocs.

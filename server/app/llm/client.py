@@ -242,7 +242,7 @@ class LlmClient:
                 try:
                     parsed = adapter.validate_json(text)
                 except pydantic.ValidationError as exc:
-                    problem = f"réponse non conforme au schéma : {exc.error_count()} erreur(s) de validation"
+                    problem = f"réponse non conforme au schéma : {self._validation_motive(exc)}"
             if problem is None:
                 if self._cache is not None:
                     self._cache.set(key, {"response": message.to_dict(), "cost_eur": usage.cost_eur})
@@ -271,6 +271,26 @@ class LlmClient:
         except Exception as exc:  # noqa: BLE001
             raise map_provider_error(exc) from exc
         return counted.input_tokens
+
+    @staticmethod
+    def _validation_motive(exc: pydantic.ValidationError, *, max_errors: int = 4, max_len: int = 500) -> str:
+        """Motif de relance qui dit *quoi* corriger (story 1.4).
+
+        `error_count()` seul ne motive rien : le modèle rejoue la même réponse (observé en live sur
+        `AnswerDraft`, deux quotes du même bloc dans une claim). On rend donc le chemin du champ et le
+        message du validateur — jamais la valeur reçue (`include_input=False`) : elle vient du modèle,
+        la recopier gonflerait la requête et rejouerait du texte non fiable hors délimitation (AD-5).
+        """
+        errors = exc.errors(include_url=False, include_input=False, include_context=False)
+        lines = []
+        for err in errors[:max_errors]:
+            loc = ".".join(str(part) for part in err.get("loc", ())) or "(racine)"
+            msg = str(err.get("msg", "")).replace("Value error, ", "")
+            lines.append(f"{loc} : {msg}")
+        motive = f"{exc.error_count()} erreur(s) de validation — " + " ; ".join(lines)
+        if len(errors) > max_errors:
+            motive += f" ; … ({len(errors) - max_errors} autre(s))"
+        return motive[:max_len]
 
     @staticmethod
     def _cache_write_tokens(api_usage: Any) -> int:
