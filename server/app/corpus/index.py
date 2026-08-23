@@ -160,13 +160,19 @@ class Index:
         gardait sinon sa définition hors du contexte.
 
         Résolution (AD-2, « la plus proche dans la portée du bloc décisionnel, puis remontée vers les
-        définitions communes ») : une seule définition par terme défini et par document — d'abord celle
-        dont la portée (`Document.scope_nodes`) couvre le nœud d'un bloc ouvert — la plus profonde
-        d'abord —, puis la définition **commune** (sans portée, valide partout : c'est la remontée),
-        puis, en dernier recours, une définition dont la portée ne couvre pas le contexte (sans elle,
-        les deux définitions du contrat AXA, portées par `a1`, ne sortiraient plus jamais). À rang
-        égal, l'ordre de lecture. Une définition « par dérogation » (`overrides`) retenue évince celle
-        qu'elle déroge.
+        définitions communes ») — **par bloc à éclairer**, pas une seule fois pour tout le résultat
+        (revue Codex 1.4, B2, tour 2). Le contexte d'un terme défini est l'ensemble des nœuds qu'il
+        doit éclairer : tous les nœuds ouverts du document si le terme vient de la question, le seul
+        nœud du bloc où il apparaît s'il a été rencontré à la lecture. Pour **chacun** de ces nœuds :
+        la définition dont la portée (`Document.scope_nodes`) couvre le nœud — la plus profonde
+        d'abord, une « par dérogation » (`overrides`) primant celle qu'elle déroge —, sinon la
+        définition **commune** (sans portée, valide partout : c'est la remontée). Deux blocs ouverts de
+        portées différentes reçoivent donc chacun la leur, et la définition commune n'est évincée que
+        là où la dérogation s'applique. Aucune définition valide dans la portée ⇒ **aucune** n'est
+        rendue : AD-1 dit « valides dans la portée », et une définition hors portée égarerait la
+        rédaction plus sûrement qu'une définition absente. Quand le document n'a **aucun** bloc ouvert,
+        aucun contexte ne peut invalider une portée : la commune d'abord, sinon l'ordre de lecture
+        (c'est ce qui sort les deux définitions du contrat AXA, portées par `a1`, hors pipeline).
 
         Le suivi des `refs` des blocs ouverts est fait par *retrouver* (il seul sait ce qu'il a ouvert).
         """
@@ -182,11 +188,17 @@ class Index:
                 if form:
                     forms.add(form)
         ouverts = [self._by_block[b] for b in (blocs_ouverts or []) if b in self._by_block]
-        noeuds_ouverts = {e.node_id for e in ouverts}
         if not forms and not ouverts:
             return []
+        noeuds_par_doc: dict[str, set[str]] = {}
+        for o in ouverts:
+            noeuds_par_doc.setdefault(o.doc_id, set()).add(o.node_id)
 
-        candidats: list[tuple[str, _Entry]] = []
+        # Candidats, et pour chacun le **contexte** à éclairer : les nœuds ouverts du document quand le
+        # terme vient de la question (elle porte sur tout le résultat), le nœud du bloc où il apparaît
+        # quand il a été rencontré à la lecture (AD-2 : « la plus proche dans la portée du bloc »).
+        par_terme: dict[tuple[str, str], list[_Entry]] = {}
+        contexte: dict[tuple[str, str], set[str]] = {}
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
                 continue
@@ -196,28 +208,40 @@ class Index:
             defined = " ".join(words(normalize(b.defines)))
             if not defined:
                 continue
-            cherche = any(f" {f} " in f" {defined} " or f" {defined} " in f" {f} " for f in forms)
-            if not cherche:  # AD-1 : terme rencontré dans un bloc ouvert
-                cherche = any(f" {defined} " in o.padded for o in ouverts if o.block.block_id != b.block_id)
-            if cherche:
-                candidats.append((defined, e))
-
-        meilleurs: dict[tuple[str, str], tuple[tuple[int, int, int], _Entry]] = {}
-        for defined, e in candidats:
+            de_la_question = any(f" {f} " in f" {defined} " or f" {defined} " in f" {f} " for f in forms)
+            # AD-1 : terme rencontré dans un bloc ouvert (jamais dans la définition elle-même)
+            rencontre = {o.node_id for o in ouverts
+                         if o.doc_id == e.doc_id and o.block.block_id != b.block_id
+                         and f" {defined} " in o.padded}
+            if not de_la_question and not rencontre:
+                continue
             cle = (e.doc_id, defined)
-            if self._portee_couvre(e, noeuds_ouverts):
-                rang = (0, -self._portee_profondeur(e), e.rank)  # la plus proche dans la portée
-            elif not self._portee_racines(e):
-                rang = (1, 0, e.rank)  # définition commune : valide partout, c'est la remontée
-            else:
-                rang = (2, 0, e.rank)  # portée qui ne couvre pas le contexte : dernier recours
-            if cle not in meilleurs or rang < meilleurs[cle][0]:
-                meilleurs[cle] = (rang, e)
-        retenus = {e.block.block_id: e for _, e in meilleurs.values()}
-        for e in list(retenus.values()):  # AD-2 : la dérogation prime dans sa portée
-            deroge = e.block.overrides
-            if deroge is not None and deroge != e.block.block_id:
-                retenus.pop(deroge, None)
+            par_terme.setdefault(cle, []).append(e)
+            noeuds = contexte.setdefault(cle, set())
+            noeuds |= rencontre
+            if de_la_question:
+                noeuds |= noeuds_par_doc.get(e.doc_id, set())
+
+        retenus: dict[str, _Entry] = {}
+        for cle, entries in par_terme.items():
+            noeuds = contexte[cle]
+            if not noeuds:  # aucun bloc ouvert dans ce document : aucune portée n'est invalidée
+                choisi = min(entries, key=lambda e: (bool(self._portee_racines(e)), e.rank))
+                retenus.setdefault(choisi.block.block_id, choisi)
+                continue
+            for noeud in sorted(noeuds):
+                couvrantes = [e for e in entries if self._portee_couvre(e, {noeud})]
+                # AD-2 : dans sa portée, la dérogation prime celle qu'elle déroge
+                deroges = {e.block.overrides for e in couvrantes}
+                couvrantes = [e for e in couvrantes if e.block.block_id not in deroges]
+                if couvrantes:  # la plus proche : la portée la plus profonde, puis l'ordre de lecture
+                    choisi = max(couvrantes, key=lambda e: (self._portee_profondeur(e), -e.rank))
+                else:  # remontée vers la définition commune ; à défaut, rien n'est valide ici
+                    communes = [e for e in entries if not self._portee_racines(e)]
+                    if not communes:
+                        continue
+                    choisi = min(communes, key=lambda e: e.rank)
+                retenus.setdefault(choisi.block.block_id, choisi)
         return [(e.block.block_id, e.node_id) for e in sorted(retenus.values(), key=lambda e: e.rank)]
 
     def _portee_racines(self, e: _Entry) -> list[str]:

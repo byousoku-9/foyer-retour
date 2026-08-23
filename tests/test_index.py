@@ -191,6 +191,44 @@ def test_definitions_resolve_scope_overrides_and_the_nearest_one() -> None:
     assert ix.definitions(["contenu"], blocs_ouverts=["d:p1:1"]) == [("d:p1:1", "d:defs")]
 
 
+def test_definitions_are_resolved_per_opened_block_not_once_for_the_whole_result() -> None:
+    """AD-2 « la plus proche dans la portée **du bloc décisionnel** » (revue Codex 1.4, B2, tour 2).
+
+    Deux blocs ouverts de portées différentes reçoivent chacun la définition qui vaut chez lui : la
+    dérogation n'évince la commune que là où elle s'applique. Une seule résolution pour tout le
+    résultat ne rendait que la plus profonde, et le bloc commun perdait sa définition."""
+    ix = Index(Corpus(documents={"d": _scoped_def_doc()}))
+    # « contenu » vient de la question : son contexte est l'ensemble des nœuds ouverts
+    assert ix.definitions(["contenu"], blocs_ouverts=["d:p1:1", "d:p9:1"]) == \
+        [("d:p1:1", "d:defs"), ("d:p9:2", "d:ext")]
+    # même résultat quand « contenu » n'est pas cherché mais seulement rencontré dans les deux blocs
+    assert ix.definitions([], blocs_ouverts=["d:p1:1", "d:p9:1"]) == \
+        [("d:p1:1", "d:defs"), ("d:p9:2", "d:ext")]
+    # rencontré dans le seul bloc sous dérogation : sa portée à lui, et rien d'autre
+    assert ix.definitions([], blocs_ouverts=["d:p9:1"]) == [("d:p9:2", "d:ext")]
+
+
+def test_a_definition_out_of_scope_is_never_returned_when_there_is_a_context() -> None:
+    """AD-1 : les définitions rendues sont « valides dans la portée ». Sans définition commune vers
+    laquelle remonter, une portée qui ne couvre pas le contexte ne rend rien (revue Codex 1.4, B2)."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Le vol du contenu est garanti.", loc="p1", seq=1),
+        Block(block_id="d:p9:1", text="Le contenu désigne ici les espèces.", loc="p9", seq=1,
+              kind="definition", defines="contenu", scope_node_id="d:ext"),
+    ]
+    nodes = [Node(node_id="root", level=0, items=[NodeRef(node_id="d:base"), NodeRef(node_id="d:ext")]),
+             Node(node_id="d:base", level=1, items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="d:ext", level=1, items=[BlockRef(block_id="d:p9:1")])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                               nodes=nodes, blocks=blocks)}))
+    # le bloc ouvert est hors de la portée `d:ext` : la définition spéciale ne s'y applique pas
+    assert ix.definitions(["contenu"], blocs_ouverts=["d:p1:1"]) == []
+    # elle s'applique dans sa propre portée…
+    assert ix.definitions(["contenu"], blocs_ouverts=["d:p9:1"]) == [("d:p9:1", "d:ext")]
+    # … et hors pipeline (aucun bloc ouvert), aucun contexte ne peut l'invalider
+    assert ix.definitions(["contenu"]) == [("d:p9:1", "d:ext")]
+
+
 def test_definitions_on_real_corpus_finds_the_axa_overlay() -> None:
     ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
     assert ix.definitions(["contenu"], doc_id="axa-lu-optihome-2017") == \
