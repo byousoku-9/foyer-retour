@@ -1,0 +1,49 @@
+{
+  "doc_id": "axa-lu-optihome-2017",
+  "checks": [
+    {
+      "name": "invariants_arbre",
+      "level": "info",
+      "detail": "ok"
+    },
+    {
+      "name": "pages_blanches",
+      "level": "info",
+      "detail": "108"
+    },
+    {
+      "name": "tdm_pdf",
+      "level": "info",
+      "detail": "get_toc() : 0 entrée(s) ; la TdM imprimée n'est pas comparée (story 3.1)"
+    },
+    {
+      "name": "pages_mixtes",
+      "level": "info",
+      "detail": "1 page(s) texte + image : 1"
+    }
+  ],
+  "stats": {
+    "pages": 109,
+    "pages_avec_blocs": 108,
+    "pages_sans_texte": "108",
+    "pages_blanches": 1,
+    "pages_avec_images": 1,
+    "pages_tdm": 3,
+    "noeuds": 751,
+    "blocs": 1466,
+    "blocs_par_kind": {
+      "autre": 3,
+      "heading": 419,
+      "list": 154,
+      "para": 890
+    },
+    "continues": 2,
+    "en_tetes_retires": 214,
+    "tdm_pdf_entrees": 0,
+    "numeros_articles": 749,
+    "sommaire_chars": 17443,
+    "sommaire_tokens_estimes": 4360,
+    "ids_disparus": 0,
+    "ids_nouveaux": 0
+  }
+}

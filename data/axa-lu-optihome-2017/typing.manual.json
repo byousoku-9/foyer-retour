@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "doc_id": "axa-lu-optihome-2017",
+  "note": "Typage manuel J+1 des quatre clauses du cas bougie (story 1.2) ; fusionné par le loader sans modifier document.json ; remplacé par le typage automatique en 3.2.",
+  "blocks": {
+    "axa-lu-optihome-2017:p9:2": {"kind": "definition", "defines": "contenu", "scope_node_id": "axa-lu-optihome-2017:a1", "kind_source": "manual"},
+    "axa-lu-optihome-2017:p11:12": {"kind": "definition", "defines": "mobilier de jardin", "scope_node_id": "axa-lu-optihome-2017:a1", "kind_source": "manual"},
+    "axa-lu-optihome-2017:p34:12": {"kind": "garantie", "scope_node_id": "axa-lu-optihome-2017:a3.1.1", "kind_source": "manual"},
+    "axa-lu-optihome-2017:p46:1": {"kind": "exclusion", "scope_node_id": "axa-lu-optihome-2017:a3.1.8", "kind_source": "manual"}
+  }
+}
