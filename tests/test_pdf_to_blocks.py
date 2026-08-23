@@ -188,6 +188,23 @@ def test_page_with_only_vector_drawings_and_no_text_is_blocking(tmp_path: Path) 
     assert report.stats["pages_blanches"] == 0 and report.stats["pages_sans_texte_dessinees"] == 1
 
 
+def test_drawn_page_whose_only_lines_are_a_removed_header_is_blocking(tmp_path: Path) -> None:
+    """AD-8 : page dont les seules lignes sont l'en-tête/pied retirés + un tracé vectoriel ⇒ bloquante, pas blanche
+    (revue Codex 1.2, B3 tour 2)."""
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    doc = pymupdf.open()
+    _page(doc, [(56, 80, "1", 17.0, FONT_TITLE), (122, 80, "Lexique", 17.0, FONT_TITLE)], 1)
+    _page(doc, [], 2)  # en-tête courant + numéro de page seulement, puis un rectangle
+    doc[1].draw_rect(pymupdf.Rect(100, 100, 300, 300), color=(0, 0, 0), fill=(0.5, 0.5, 0.5))
+    _save(doc, d / "source.pdf")
+    report, entry = _run(d)
+    assert report.stats["en_tetes_retires"] == 4 and report.stats["pages_sans_texte"] == "2"
+    check = next(c for c in report.checks if c.name == "page_sans_texte")
+    assert check.level == "bloquant" and "2" in check.detail and entry.status == "quarantaine"
+    assert report.stats["pages_blanches"] == 0 and report.stats["pages_sans_texte_dessinees"] == 1
+
+
 def test_mixed_text_and_image_page_is_an_alert(tmp_path: Path) -> None:
     """AD-8 : pages mixtes texte/image en alerte, document servi (revue Codex 1.2, B4)."""
     d = tmp_path / "data" / DOC

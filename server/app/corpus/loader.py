@@ -10,7 +10,9 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from server.app.domain import Document, GateContext, Manifest, ManifestEntry
+from typing import get_args
+
+from server.app.domain import BlockKind, Document, GateContext, Manifest, ManifestEntry
 
 from .text import normalize
 
@@ -19,6 +21,13 @@ OVERLAY_FILE = "typing.manual.json"  # typage manuel (FR20) fusionné avant vali
 OVERLAY_SCHEMA_VERSION = "1"
 OVERLAY_FIELDS = ("kind", "defines", "scope_node_id", "scope_node_ids", "kind_source")
 OVERLAY_TOP_LEVEL = ("schema_version", "doc_id", "note", "blocks")
+OVERLAY_KINDS = frozenset(get_args(BlockKind))
+# Champs obligatoires par kind typé à la main (revue Codex 1.2, I3) : une définition sans terme défini ne sert à rien
+# à `definitions()` (1.4) ; une clause décisionnelle sans portée ne peut pas être jugée applicable (AD-2, 1.8).
+OVERLAY_REQUIRED: dict[str, tuple[str, ...]] = {
+    "definition": ("defines",), "garantie": ("scope_node_id",), "exclusion": ("scope_node_id",),
+    "condition": ("scope_node_id",), "franchise": ("scope_node_id",),
+}
 
 
 @dataclass
@@ -74,8 +83,10 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
 def _apply_overlay(raw_doc: dict, overlay: object) -> str:
     """Fusionne `typing.manual.json` sur le dict brut de `document.json` ; renvoie une raison de quarantaine ou "".
 
-    Strict (revue Codex 1.2) : `schema_version` et `doc_id` obligatoires, au moins un bloc, `kind` obligatoire avec
-    `kind_source="manual"`, aucun champ hors `OVERLAY_FIELDS`, nœuds de portée connus.
+    Strict (revue Codex 1.2) : `schema_version` et `doc_id` obligatoires, au moins un bloc, `kind` connu et obligatoire
+    avec `kind_source="manual"`, aucun champ hors `OVERLAY_FIELDS`, nœuds de portée connus, champs obligatoires par
+    kind (`OVERLAY_REQUIRED`). Le loader reste générique : quels blocs un contrat donné doit typer relève de ses tests
+    d'artefact (`tests/test_parsing_axa.py`) et du gate (AD-8), pas du chargement (AD-7).
     """
     if not isinstance(overlay, dict) or not isinstance(overlay.get("blocks"), dict):
         return "overlay : objet {schema_version, doc_id, blocks: {block_id: {kind, …}}} attendu"
@@ -97,6 +108,8 @@ def _apply_overlay(raw_doc: dict, overlay: object) -> str:
             return f"overlay : kind_source ≠ manual pour {block_id}"
         if not isinstance(entry.get("kind"), str):
             return f"overlay : kind obligatoire pour {block_id}"
+        if entry["kind"] not in OVERLAY_KINDS:
+            return f"overlay : kind inconnu {entry['kind']!r} pour {block_id}"
         unknown = sorted(set(entry) - set(OVERLAY_FIELDS))
         if unknown:
             return f"overlay : champs inattendus pour {block_id} : {unknown}"
@@ -106,6 +119,9 @@ def _apply_overlay(raw_doc: dict, overlay: object) -> str:
         scopes = entry.get("scope_node_ids", [])
         if not isinstance(scopes, list) or any(n not in node_ids for n in scopes):
             return f"overlay : scope_node_ids doit lister des nœuds connus pour {block_id}"
+        missing = [f for f in OVERLAY_REQUIRED.get(entry["kind"], ()) if not (isinstance(entry.get(f), str) and entry[f])]
+        if missing:
+            return f"overlay : {', '.join(missing)} obligatoire pour un bloc {entry['kind']} ({block_id})"
         blocks[block_id].update({k: v for k, v in entry.items()})
     return ""
 

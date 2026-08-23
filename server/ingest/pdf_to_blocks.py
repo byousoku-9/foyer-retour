@@ -177,9 +177,10 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
         toc = doc.get_toc()
         for pno, page in enumerate(doc, start=1):
             lines, images = _raw_lines(page)
-            drawings = len(page.get_drawings()) if not lines else 0  # seulement utile pour une page sans texte
+            # Relevé sans condition : une page dont les seules lignes sont un en-tête/pied retiré plus bas
+            # doit rester « dessinée » et non blanche (AD-8, revue Codex 1.2 B3).
             pt = PageText(page=pno, width=page.rect.width, height=page.rect.height, lines=lines, images=images,
-                          drawings=drawings)
+                          drawings=len(page.get_drawings()))
             for line in lines:
                 if line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt:
                     band_texts[line.text] = band_texts.get(line.text, 0) + 1

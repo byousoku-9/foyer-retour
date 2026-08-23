@@ -251,7 +251,7 @@ def test_overlay_is_merged_before_validation_without_touching_document_json(data
 
 def test_overlay_is_covered_by_manifest_and_gate(data: Path) -> None:
     """Revue Codex 1.2 (B7) : kind et portée ne changent pas après les évals sans quarantaine ni perte du gate."""
-    entry = {"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual"}}
+    entry = {"lux-guide:farrivee:2": {"kind": "definition", "defines": "arrivée", "kind_source": "manual"}}
     _overlay(data, entry, declare=False)
     assert "non déclaré dans le manifest" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
     _overlay(data, entry)
@@ -261,7 +261,7 @@ def test_overlay_is_covered_by_manifest_and_gate(data: Path) -> None:
     assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}
     # l'overlay est modifié sans relancer l'ingestion ⇒ quarantaine
     (data / "lux-guide" / "typing.manual.json").write_text(json.dumps(
-        {"schema_version": "1", "doc_id": "lux-guide", "blocks": {"lux-guide:farrivee:2": {"kind": "exclusion", "kind_source": "manual"}}}), "utf-8")
+        {"schema_version": "1", "doc_id": "lux-guide", "blocks": {"lux-guide:farrivee:2": {"kind": "exclusion", "scope_node_id": "lux-guide:farrivee", "kind_source": "manual"}}}), "utf-8")
     assert load_corpus(data, allow_ungated=False).quarantine == {"lux-guide": "overlay_hash différent du manifest (relancer l'ingestion)"}
     # relance de l'ingestion (manifest mis à jour) ⇒ le gate ne couvre plus cet overlay : sans_gate
     m = _manifest(data)
@@ -279,7 +279,12 @@ def test_overlay_is_covered_by_manifest_and_gate(data: Path) -> None:
     ({"lux-guide:farrivee:2": {"kind": "definition"}}, "kind_source ≠ manual"),
     ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "scope_node_id": "lux-guide:x"}}, "nœud inconnu"),
     ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "text": "remplacé"}}, "champs inattendus"),
-    ({"lux-guide:farrivee:2": {"kind": "heading!", "kind_source": "manual"}}, "document.json invalide"),
+    ({"lux-guide:farrivee:2": {"kind": "heading!", "kind_source": "manual"}}, "kind inconnu"),
+    # champs obligatoires par kind (revue Codex 1.2, I3 tour 2)
+    ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual"}}, "defines obligatoire pour un bloc definition"),
+    ({"lux-guide:farrivee:2": {"kind": "definition", "defines": "", "kind_source": "manual"}}, "defines obligatoire"),
+    ({"lux-guide:farrivee:2": {"kind": "exclusion", "kind_source": "manual"}}, "scope_node_id obligatoire pour un bloc exclusion"),
+    ({"lux-guide:farrivee:2": {"kind": "garantie", "kind_source": "manual"}}, "scope_node_id obligatoire"),
     ({"lux-guide:farrivee:2": {"kind_source": "manual"}}, "kind obligatoire"),
     ({"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual", "scope_node_ids": ["lux-guide:x"]}},
      "scope_node_ids"),
@@ -299,7 +304,7 @@ def test_invalid_overlay_quarantines_only_this_document(data: Path, blocks: dict
 def test_overlay_header_is_strict(data: Path, extra: dict, fragment: str) -> None:
     path = data / "lux-guide" / "typing.manual.json"
     path.write_text(json.dumps({"schema_version": "1", "doc_id": "lux-guide", **extra,
-                                "blocks": {"lux-guide:farrivee:2": {"kind": "definition", "kind_source": "manual"}}}), "utf-8")
+                                "blocks": {"lux-guide:farrivee:2": {"kind": "definition", "defines": "arrivée", "kind_source": "manual"}}}), "utf-8")
     m = _manifest(data)
     m["lux-guide"]["overlay_hash"] = _sha(path)
     _write_manifest(data, m)
