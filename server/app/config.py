@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # (65 blocs) portaient l'estimation à 0,108 € et faisaient échouer l'appel à tort (`BudgetExceeded`).
     # À recalibrer avec les questions-témoins, quand elles existeront (impact sur le rappel).
     retrieval_max_blocks: int = Field(30, ge=1)
+    # Story 1.4 (revue Codex 1.4, B1) : AD-1 borne l'étape « appels modèle, nœuds, blocs, tokens,
+    # définitions et renvois inclus ». Un compte de blocs ne borne pas les tokens — un tableau de fiche
+    # pèse dix paragraphes. Faute de tokenizer en code pur, *retrouver* majore avec l'heuristique
+    # d'`estimate_cost` (`estimate_chars_per_token`, `estimate_tokenizer_factor`). Valeur : la marge du
+    # majorant de *rédiger* (0,10 € − 0,080 € de préfixe et de sortie) au tarif d'entrée `reason`
+    # (3 USD/MTok, USD_EUR 0,92) vaut ≈ 7 200 tokens ; 6 000 laisse la marge d'arrondi.
+    retrieval_max_tokens: int = Field(6000, ge=1)
 
     # Coût (AD-9, AD-10)
     max_cost_eur_per_request: float = Field(0.10, ge=0)
@@ -61,6 +68,16 @@ class Settings(BaseSettings):
     # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,10 €).
     comprendre_max_tokens: int = Field(1024, ge=1)
     rediger_max_tokens: int = Field(2048, ge=1)
+    # Bornes comportementales annoncées aux prompts des étapes (story 1.4, revue Codex 1.4 I1) : la
+    # convention Seuils du spine interdit toute valeur numérique en dur dans une étape — un prompt en
+    # est une. `quote_min_chars` est le seuil que *vérifier* appliquera (AD-3) : le prompt le rend
+    # littéralement, il ne le duplique pas. Les prompts sont rendus par `prompting.render_prompt`,
+    # donc restent déterministes et byte-identiques d'un appel à l'autre (préfixe cacheable, AD-9).
+    quote_max_chars: int = Field(250, ge=1)
+    draft_max_segments: int = Field(6, ge=1)
+    draft_max_claims: int = Field(4, ge=1)
+    question_min_terms: int = Field(2, ge=0)
+    question_max_terms: int = Field(6, ge=1)
     estimate_chars_per_token: float = Field(2.0, gt=0)
     estimate_tokenizer_factor: float = Field(1.3, gt=0)
     count_tokens_timeout_s: float = Field(10.0, gt=0)
@@ -113,6 +130,12 @@ class Settings(BaseSettings):
             if valeur > self.llm_max_output_tokens:
                 raise ValueError(f"{nom} ({valeur}) doit être <= llm_max_output_tokens "
                                  f"({self.llm_max_output_tokens})")
+        if self.quote_min_chars > self.quote_max_chars:
+            raise ValueError(f"quote_min_chars ({self.quote_min_chars}) doit être "
+                             f"<= quote_max_chars ({self.quote_max_chars})")
+        if self.question_min_terms > self.question_max_terms:
+            raise ValueError(f"question_min_terms ({self.question_min_terms}) doit être "
+                             f"<= question_max_terms ({self.question_max_terms})")
         if self.allow_ungated is None:
             self.allow_ungated = self.env == "dev"
         return self
@@ -130,12 +153,18 @@ class Settings(BaseSettings):
             "max_llm_attempts": self.max_llm_attempts,
             "max_llm_turns": self.max_llm_turns,
             "retrieval_max_blocks": self.retrieval_max_blocks,
+            "retrieval_max_tokens": self.retrieval_max_tokens,
             "max_cost_eur_per_request": self.max_cost_eur_per_request,
             "cost_alert_eur": self.cost_alert_eur,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,
             "rediger_max_tokens": self.rediger_max_tokens,
+            "quote_max_chars": self.quote_max_chars,
+            "draft_max_segments": self.draft_max_segments,
+            "draft_max_claims": self.draft_max_claims,
+            "question_min_terms": self.question_min_terms,
+            "question_max_terms": self.question_max_terms,
             "estimate_chars_per_token": self.estimate_chars_per_token,
             "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
             "count_tokens_timeout_s": self.count_tokens_timeout_s,

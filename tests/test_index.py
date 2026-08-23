@@ -151,6 +151,46 @@ def test_definitions_matches_normalized_defines_whole_word() -> None:
         ix.definitions("contenu")
 
 
+def _scoped_def_doc() -> Document:
+    """Deux définitions du même terme : la commune (art. 1) et une dérogation propre à une extension."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Le contenu désigne les meubles.", loc="p1", seq=1,
+              kind="definition", defines="contenu"),
+        Block(block_id="d:p9:1", text="Le vol du contenu est garanti.", loc="p9", seq=1),
+        Block(block_id="d:p9:2", text="Par dérogation, le contenu comprend ici les espèces.", loc="p9", seq=2,
+              kind="definition", defines="contenu", scope_node_id="d:ext", overrides="d:p1:1"),
+    ]
+    nodes = [Node(node_id="root", level=0, items=[NodeRef(node_id="d:defs"), NodeRef(node_id="d:ext")]),
+             Node(node_id="d:defs", level=1, items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="d:ext", level=1, items=[BlockRef(block_id="d:p9:1"), BlockRef(block_id="d:p9:2")])]
+    return Document(doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)
+
+
+def test_definitions_follow_terms_met_in_the_opened_blocks() -> None:
+    """AD-1 (revue Codex 1.4, B2) : « les définitions des termes rencontrés dans les blocs ouverts ».
+    Une clause qui introduit elle-même un terme défini gardait sinon sa définition hors contexte."""
+    ix = Index(Corpus(documents={"d": _def_doc()}))
+    assert ix.definitions([], blocs_ouverts=["d:p1:4"]) == [("d:p1:1", "n")]  # « contenu » dans le bloc
+    assert ix.definitions([], blocs_ouverts=[]) == []
+    assert ix.definitions([], blocs_ouverts=["d:p1:2"]) == []  # « tables et chaises » ne définit rien
+    assert ix.definitions([], blocs_ouverts=["inexistant"]) == []
+    # une définition ne se déclenche jamais sur son propre texte
+    assert ix.definitions([], blocs_ouverts=["d:p1:1"]) == []
+
+
+def test_definitions_resolve_scope_overrides_and_the_nearest_one() -> None:
+    """AD-1 « valides dans la portée » + AD-2 « la plus proche dans la portée …, puis remontée vers les
+    définitions communes ; la dérogation prime dans sa portée » (revue Codex 1.4, B2)."""
+    ix = Index(Corpus(documents={"d": _scoped_def_doc()}))
+    # sans contexte, la définition commune (sans portée) fait foi — une seule par terme défini
+    assert ix.definitions(["contenu"]) == [("d:p1:1", "d:defs")]
+    # avec un bloc ouvert dans la portée de la dérogation, c'est elle qui s'applique, et elle évince
+    # la définition commune qu'elle déroge (`overrides`)
+    assert ix.definitions(["contenu"], blocs_ouverts=["d:p9:1"]) == [("d:p9:2", "d:ext")]
+    # un bloc ouvert hors de cette portée retombe sur la commune
+    assert ix.definitions(["contenu"], blocs_ouverts=["d:p1:1"]) == [("d:p1:1", "d:defs")]
+
+
 def test_definitions_on_real_corpus_finds_the_axa_overlay() -> None:
     ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
     assert ix.definitions(["contenu"], doc_id="axa-lu-optihome-2017") == \

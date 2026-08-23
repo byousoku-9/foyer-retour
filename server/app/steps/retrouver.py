@@ -3,51 +3,56 @@
 `chercher(terms + scope.themes, limit=search_limit)`, puis ouverture groupée des nœuds candidats par
 score (≤ `max_opens` nœuds, fenêtre `node_window` contenant le meilleur hit du nœud), puis suivi
 **automatique** d'un niveau des renvois (`Block.refs`) des blocs ouverts et des `definitions()` des
-termes — hors quota `max_opens`. `truncated=True` si une fenêtre reste coupée (pas de pagination en
-déterministe) ou si des nœuds candidats dépassent `max_opens` ; les hits non ouverts vont en
-`discarded_block_ids`. Les blocs sont relus depuis le corpus (objets `Document.block`), jamais
-modifiés ; l'étape n'affirme aucune absence du corpus (AD-1) et ne voit que `ParsedQuestion` —
-jamais l'historique.
+termes — de la question **et** de ceux rencontrés dans les blocs ouverts —, hors quota `max_opens`.
+`truncated=True` si une fenêtre reste coupée (pas de pagination en déterministe), si des nœuds
+candidats dépassent `max_opens`, ou si le budget de blocs/tokens a écarté quelque chose. Les blocs
+sont relus depuis le corpus (objets `Document.block`), jamais modifiés ; l'étape n'affirme aucune
+absence du corpus (AD-1) et ne voit que `ParsedQuestion` — jamais l'historique.
 
-`StepTrace(tier=None, calls=[])` dit la vérité de la variante exécutée : l'affectation
-`retrouver → reason` d'AD-9 vaut pour les variantes qui appellent le modèle (2.6, baselines).
-`RetrievalBudget.max_blocks`, s'il est donné, borne la liste finale (`truncated=True`) en coupant la
-queue des fenêtres — jamais les renvois ni les définitions, que le suivi hors quota rend justement
-indispensables ; les blocs coupés rejoignent `discarded_block_ids`. `max_tokens` n'est pas appliqué
-ici (pas de tokenizer en code pur) ; `max_llm_turns` est sans objet.
+`StepTrace(tier=STEP_TIERS["retrouver"], calls=[])` : AD-9 fixe l'affectation étape → tier **sans
+exception** (`retrouver → reason`) ; c'est `calls=[]` — et lui seul — qui dit que la variante
+déterministe n'a appelé aucun modèle (revue Codex 1.4, B3). `discarded_block_ids` reste exactement
+ce qu'AD-10 en dit : les candidats de `chercher` non transmis au modèle.
+
+**Le `RetrievalBudget` borne toute l'étape** (AD-1 : « nœuds, blocs, tokens, définitions et renvois
+inclus »). `max_blocks` et `max_tokens` sont appliqués ensemble par unités de dépendance : un bloc de
+fenêtre voyage avec les cibles de ses renvois, jamais l'inverse — une cible sans le passage qui la
+cite est inutilisable et peut même égarer la rédaction (revue Codex 1.4, B6). Une unité qui n'entre
+pas est sautée (les suivantes sont essayées : le budget n'est pas gaspillé), et `truncated` le dit.
+Faute de tokenizer en code pur, les tokens sont majorés par l'heuristique d'`estimate_cost`.
+`max_llm_turns` est sans objet pour cette variante.
 """
 
 from __future__ import annotations
 
 import time
 
+from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
-from server.app.domain import RetrievalBudget, RetrievalResult
+from server.app.domain import Block, RetrievalBudget, RetrievalResult
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import StepTrace
+from server.app.llm.models import STEP_TIERS
+from server.app.llm.pricing import estimate_tokens
 
 
 def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
-                           budget: RetrievalBudget, doc_id: str | None = None) -> tuple[RetrievalResult, StepTrace]:
+                           budget: RetrievalBudget, settings: Settings,
+                           doc_id: str | None = None) -> tuple[RetrievalResult, StepTrace]:
     t0 = time.monotonic()
     terms: list[str] = []
     for t in (*parsed.terms, *parsed.scope.themes):
         if t and t not in terms:
             terms.append(t)
 
-    blocs = []
-    seen: set[str] = set()
-
-    def add(block_id: str) -> None:
-        if block_id not in seen:
-            seen.add(block_id)
-            blocs.append(corpus.documents[index.doc_of(block_id)].block(block_id))
-
     if doc_id is not None and doc_id not in corpus.documents:
         # `chercher` lève déjà sur un doc_id inconnu, mais il n'est pas appelé quand aucun terme n'a
         # été extrait : sans ce contrôle, une faute de frappe rendrait un résultat vide silencieux.
         raise KeyError(doc_id)
+
+    def bloc(block_id: str) -> Block:
+        return corpus.documents[index.doc_of(block_id)].block(block_id)
 
     truncated = False
     hits = index.chercher(terms, limit=budget.search_limit, doc_id=doc_id) if terms else []
@@ -62,48 +67,66 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             nodes.append(node_id)
     if len(nodes) > budget.max_opens:
         truncated = True  # des nœuds candidats avaient des hits au-delà du quota
+    fenetres: list[str] = []
     for node_id in nodes[: budget.max_opens]:
         window = index.ouvrir_noeud(node_id, focus_block_id=best_hit[node_id], node_window=budget.node_window)
         if window.truncated:
             truncated = True  # pas de pagination en déterministe : la fenêtre reste coupée
         for b in window.blocks:
-            add(b.block_id)
+            if b.block_id not in fenetres:
+                fenetres.append(b.block_id)
 
-    fenetres = len(blocs)  # tout ce qui suit est hors quota `max_opens`
-    # Un niveau de renvois des blocs ouverts, hors quota `max_opens` (un seul niveau : les cibles
-    # ne sont pas suivies à leur tour — Deferred du spine « renvois en chaîne »).
-    for b in list(blocs):
-        for target in b.refs:
-            add(target)
-    # Définitions des termes, hors quota.
-    if terms:
-        for block_id, _node_id in index.definitions(terms, doc_id=doc_id):
-            add(block_id)
+    # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre et, avec lui, les cibles d'un
+    # seul niveau de ses renvois (les cibles ne sont pas suivies à leur tour — Deferred du spine
+    # « renvois en chaîne »). Une cible déjà présente dans une fenêtre reste à sa place.
+    unites: list[list[str]] = []
+    for block_id in fenetres:
+        unite = [block_id]
+        for cible in bloc(block_id).refs:
+            if cible not in fenetres and cible not in unite:
+                unite.append(cible)
+        unites.append(unite)
 
-    ecartes: list[str] = []
-    if budget.max_blocks is not None and len(blocs) > budget.max_blocks:
-        # Borne de coût (`retrieval_max_blocks`) : elle coupe la **queue des fenêtres**, jamais
-        # d'abord les renvois et les définitions. Ces derniers sont suivis hors quota `max_opens`
-        # précisément parce qu'AD-1 les veut toujours (une clause qui renvoie à une autre est
-        # inutilisable sans sa cible) ; les couper en premier — ils sont ajoutés en dernier —
-        # annulait le suivi des renvois dès que les fenêtres remplissaient la borne, c'est-à-dire
-        # sur presque toute question réelle (49 blocs de fenêtres pour une borne de 30, revue 1.4).
-        truncated = True
-        hors_quota = blocs[fenetres:]
-        garde = max(budget.max_blocks - len(hors_quota), 0)
-        retenus = blocs[:garde] + hors_quota[: budget.max_blocks]
-        gardes = {b.block_id for b in retenus}
-        ecartes = [b.block_id for b in blocs if b.block_id not in gardes]
-        blocs[:] = retenus
-        seen = gardes
+    # Définitions (hors quota `max_opens`) : des termes de la question et de ceux rencontrés dans les
+    # blocs ouverts, résolues dans leur portée par l'index (AD-1, AD-2). Elles se suffisent à
+    # elles-mêmes — aucun référent à conserver — et passent donc en premier dans le budget.
+    definitions = [b for b, _ in index.definitions(terms, doc_id=doc_id, blocs_ouverts=fenetres)
+                   if b not in fenetres]
+    unites = [[d] for d in definitions] + unites
+
+    retenus: list[str] = []
+    seen: set[str] = set()
+    blocs_utilises, tokens_utilises = 0, 0
+    for unite in unites:
+        nouveaux = [b for b in unite if b not in seen]
+        cout_tokens = sum(estimate_tokens(f"{b}\n{bloc(b).text}", settings) for b in nouveaux)
+        if budget.max_blocks is not None and blocs_utilises + len(nouveaux) > budget.max_blocks:
+            truncated = True
+            continue  # unité sautée : les suivantes, plus petites, peuvent encore tenir
+        if budget.max_tokens is not None and tokens_utilises + cout_tokens > budget.max_tokens:
+            truncated = True
+            continue
+        blocs_utilises += len(nouveaux)
+        tokens_utilises += cout_tokens
+        for b in nouveaux:
+            seen.add(b)
+            retenus.append(b)
+
+    # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis les cibles de renvoi, puis
+    # les définitions — l'ordre d'admission dans le budget n'est pas l'ordre de lecture.
+    ordre: list[str] = []
+    for b in (*fenetres, *(c for u in unites for c in u[1:]), *definitions):
+        if b in seen and b not in ordre:
+            ordre.append(b)
+    blocs = [bloc(b) for b in ordre]
 
     opened = [b.block_id for b in blocs]
-    hit_ids = [b for b, _ in hits]
-    # Ce qui a été trouvé mais n'est pas transmis à *rédiger* : les hits jamais ouverts, puis les
-    # blocs ouverts que la borne de coût a coupés (sans quoi la coupe ne laisserait aucune trace).
-    discarded = [b for b in hit_ids if b not in seen] + [b for b in ecartes if b not in hit_ids]
+    # AD-10, littéralement : « candidats de `chercher` non ouverts » — donc les hits qui ne sont pas
+    # transmis au modèle, et rien d'autre. Un bloc voisin écarté par le budget n'est pas un candidat
+    # de recherche : c'est `truncated` qui porte cette information (revue Codex 1.4, B5).
+    discarded = [b for b, _ in hits if b not in seen]
     result = RetrievalResult(blocs=blocs, opened_block_ids=opened, discarded_block_ids=discarded,
                              truncated=truncated)
-    step = StepTrace(name="retrouver", tier=None, ms=int((time.monotonic() - t0) * 1000),
+    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"], ms=int((time.monotonic() - t0) * 1000),
                      opened_block_ids=list(opened), discarded_block_ids=list(discarded))
     return result, step

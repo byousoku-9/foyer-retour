@@ -1,6 +1,7 @@
 """Matrice I/O de *retrouver* déterministe (spec 1.4) : code pur, zéro appel modèle — ouverture groupée
-bornée par `RetrievalBudget`, suivi d'un niveau des renvois et des définitions hors quota, `truncated`,
-hits non ouverts en `discarded_block_ids`, blocs relus du corpus, aucune absence affirmée."""
+bornée par `RetrievalBudget` (nœuds, blocs **et** tokens), suivi d'un niveau des renvois et des
+définitions hors quota, `truncated`, hits non transmis en `discarded_block_ids`, blocs relus du
+corpus, aucune absence affirmée."""
 
 from __future__ import annotations
 
@@ -13,9 +14,14 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
 from server.app.domain.question import ParsedQuestion, QuestionScope
+from server.app.llm.models import STEP_TIERS
 from server.app.steps.retrouver import retrouver_deterministe
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _s(**kw) -> Settings:
+    return Settings(_env_file=None, **kw)
 
 
 def _budget(**kw) -> RetrievalBudget:
@@ -26,6 +32,12 @@ def _budget(**kw) -> RetrievalBudget:
 def _parsed(terms: list[str], themes: list[str] | None = None) -> ParsedQuestion:
     return ParsedQuestion(question_resolue="q", intent="question", terms=terms,
                           scope=QuestionScope(themes=themes or []))
+
+
+def _run(parsed: ParsedQuestion, corpus: Corpus, index: Index, budget: RetrievalBudget | None = None,
+         *, settings: Settings | None = None, doc_id: str | None = None):
+    return retrouver_deterministe(parsed, corpus=corpus, index=index, budget=budget or _budget(),
+                                  settings=settings or _s(), doc_id=doc_id)
 
 
 def _corpus() -> Corpus:
@@ -49,24 +61,30 @@ def _corpus() -> Corpus:
 def test_nominal_opens_candidate_nodes_follows_refs_and_reads_blocks_from_the_corpus() -> None:
     corpus = _corpus()
     index = Index(corpus)
-    result, step = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget())
+    result, step = _run(_parsed(["matricule"]), corpus, index)
     # n1 et n2 ouverts (fenêtres complètes), puis la cible du renvoi de d:p1:2 — hors quota
     assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p2:1", "d:p1:5"]
     assert result.truncated is False and result.discarded_block_ids == []
     # blocs relus depuis le corpus (mêmes objets), jamais modifiés
     doc = corpus.documents["d"]
     assert all(b is doc.block(b.block_id) for b in result.blocs)
-    # l'étape crée sa propre trace : variante déterministe ⇒ tier=None, aucun appel modèle
-    assert step.name == "retrouver" and step.tier is None and step.calls == [] and step.ms >= 0
+    assert step.name == "retrouver" and step.ms >= 0
     assert step.opened_block_ids == result.opened_block_ids
     assert step.discarded_block_ids == result.discarded_block_ids
 
 
+def test_the_trace_carries_the_ad9_tier_and_says_no_model_was_called() -> None:
+    # AD-9 fixe l'affectation étape → tier **sans exception** (`retrouver → reason`) ; c'est `calls=[]`
+    # qui dit que la variante déterministe n'appelle aucun modèle (revue Codex 1.4, B3).
+    corpus = _corpus()
+    _, step = _run(_parsed(["matricule"]), corpus, Index(corpus))
+    assert step.tier == STEP_TIERS["retrouver"] == "reason"
+    assert step.calls == [] and step.usage.cost_eur == 0.0
+
+
 def test_bounded_by_max_opens_discards_unopened_hits_and_truncates() -> None:
     corpus = _corpus()
-    index = Index(corpus)
-    result, _ = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
-                                       budget=_budget(max_opens=1))
+    result, _ = _run(_parsed(["matricule"]), corpus, Index(corpus), _budget(max_opens=1))
     assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p1:5"]  # n1 seul + renvoi hors quota
     assert result.truncated is True
     assert result.discarded_block_ids == ["d:p2:1"]  # hit non ouvert
@@ -74,14 +92,31 @@ def test_bounded_by_max_opens_discards_unopened_hits_and_truncates() -> None:
 
 def test_definitions_of_terms_come_in_beyond_the_quota() -> None:
     corpus = _corpus()
-    index = Index(corpus)
-    result, _ = retrouver_deterministe(_parsed(["matricule", "contenu"]), corpus=corpus, index=index,
-                                       budget=_budget(max_opens=1))
+    result, _ = _run(_parsed(["matricule", "contenu"]), corpus, Index(corpus), _budget(max_opens=1))
     # n1 ouvert (meilleur score) ; la définition « contenu » entre hors quota même si son nœud
     # candidat (n3) est au-delà de max_opens
     assert "d:p3:1" in result.opened_block_ids
     assert result.truncated is True
     assert set(result.discarded_block_ids) == {"d:p2:1"}
+
+
+def test_definitions_of_terms_met_in_the_opened_blocks_are_followed_too() -> None:
+    # AD-1 : « les définitions des termes rencontrés dans les blocs ouverts » — pas seulement des
+    # termes de la question (revue Codex 1.4, B2). Ici « contenu » n'est *pas* cherché : il apparaît
+    # dans le bloc ouvert, et sa définition doit suivre.
+    blocks = [
+        Block(block_id="d:p1:1", text="La garantie couvre le contenu de votre habitation.", loc="p1", seq=1),
+        Block(block_id="d:p9:1", text="Le contenu désigne les meubles du logement.", loc="p9", seq=1,
+              kind="definition", defines="contenu"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="ndef")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="ndef", items=[BlockRef(block_id="d:p9:1")])]
+    corpus = Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                             nodes=nodes, blocks=blocks)})
+    result, _ = _run(_parsed(["garantie"]), corpus, Index(corpus))
+    assert result.opened_block_ids == ["d:p1:1", "d:p9:1"]
+    assert result.discarded_block_ids == []  # la définition n'est pas un candidat de `chercher`
 
 
 def test_truncated_window_marks_the_result() -> None:
@@ -91,9 +126,7 @@ def test_truncated_window_marks_the_result() -> None:
              Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
     corpus = Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
                                              nodes=nodes, blocks=blocks)})
-    index = Index(corpus)
-    result, _ = retrouver_deterministe(_parsed(["cherché"]), corpus=corpus, index=index,
-                                       budget=_budget(node_window=3))
+    result, _ = _run(_parsed(["cherché"]), corpus, Index(corpus), _budget(node_window=3))
     assert result.truncated is True  # nœud > node_window : fenêtre coupée, pas de pagination
     assert "d:p1:5" in result.opened_block_ids  # la fenêtre contient le meilleur hit du nœud
     assert len(result.opened_block_ids) == 3
@@ -103,7 +136,7 @@ def test_zero_hit_returns_an_empty_result_without_asserting_absence() -> None:
     corpus = _corpus()
     index = Index(corpus)
     for parsed in (_parsed(["zzz-introuvable"]), _parsed([])):
-        result, step = retrouver_deterministe(parsed, corpus=corpus, index=index, budget=_budget())
+        result, step = _run(parsed, corpus, index)
         assert result.blocs == [] and result.opened_block_ids == [] and result.discarded_block_ids == []
         assert result.truncated is False  # aucune absence affirmée : c'est l'affaire de *vérifier* (1.5)
         assert step.calls == []
@@ -112,58 +145,78 @@ def test_zero_hit_returns_an_empty_result_without_asserting_absence() -> None:
 def test_scope_themes_enrich_the_search() -> None:
     corpus = _corpus()
     index = Index(corpus)
-    by_terms, _ = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget())
-    by_themes, _ = retrouver_deterministe(_parsed([], themes=["matricule"]), corpus=corpus, index=index,
-                                          budget=_budget())
+    by_terms, _ = _run(_parsed(["matricule"]), corpus, index)
+    by_themes, _ = _run(_parsed([], themes=["matricule"]), corpus, index)
     assert by_themes.opened_block_ids == by_terms.opened_block_ids
 
 
-def test_max_blocks_cuts_the_window_tail_and_keeps_the_out_of_quota_targets() -> None:
-    # Revue 1.4 : la borne de coût coupe la queue des fenêtres, pas les renvois. Sans quoi la cible
-    # d:p1:5 — ajoutée en dernier parce qu'elle est suivie hors quota — serait la première perdue,
-    # et le suivi des renvois d'AD-1 ne survivrait à aucune question réelle.
+def test_max_blocks_skips_whole_units_and_keeps_the_budget_busy() -> None:
+    # Revue 1.4 : la borne de coût ne coupe pas d'abord les renvois (ajoutés en dernier), et depuis la
+    # revue Codex 1.4 (B6) elle ne sépare plus une cible de son référent : elle saute l'unité entière
+    # qui ne tient pas, puis essaie les suivantes.
     corpus = _corpus()
-    index = Index(corpus)
-    result, step = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
-                                          budget=_budget(max_blocks=2))
-    assert len(result.blocs) == 2 and result.truncated is True
-    assert result.opened_block_ids == ["d:p1:1", "d:p1:5"]  # 1er bloc de fenêtre + cible du renvoi
-    # la coupe se trace : le hit jamais transmis, puis le bloc de fenêtre coupé
-    assert result.discarded_block_ids == ["d:p2:1", "d:p1:2"]
+    result, step = _run(_parsed(["matricule"]), corpus, Index(corpus), _budget(max_blocks=2))
+    assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]  # l'unité (d:p1:2 + sa cible) ne tient pas
+    assert result.truncated is True
+    # AD-10 : `discarded_block_ids` = candidats de `chercher` non transmis. Les deux hits sont passés.
+    assert result.discarded_block_ids == []
     assert step.discarded_block_ids == result.discarded_block_ids
 
 
-def test_max_blocks_smaller_than_the_out_of_quota_targets_cuts_them_too() -> None:
+def test_a_ref_target_never_travels_without_the_block_that_cites_it() -> None:
+    # AD-1 (revue Codex 1.4, B6) : une cible de renvoi seule est inutilisable — le passage qui la rend
+    # pertinente manque, et la rédaction peut citer hors contexte.
     corpus = _corpus()
     index = Index(corpus)
-    result, _ = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
-                                       budget=_budget(max_blocks=1))
-    assert result.opened_block_ids == ["d:p1:5"] and result.truncated is True
-    assert sorted(result.discarded_block_ids) == ["d:p1:1", "d:p1:2", "d:p2:1"]
+    for max_blocks in (1, 2, 3, 4):
+        result, _ = _run(_parsed(["matricule"]), corpus, index, _budget(max_blocks=max_blocks))
+        rendus = set(result.opened_block_ids)
+        assert len(rendus) <= max_blocks
+        if "d:p1:5" in rendus:  # la cible n'entre que si son référent est là
+            assert "d:p1:2" in rendus
+
+
+def test_max_tokens_bounds_the_step_where_the_block_count_does_not() -> None:
+    # AD-1 : le `RetrievalBudget` borne « blocs, tokens … inclus » (revue Codex 1.4, B1). Deux blocs
+    # très longs tiennent dans `max_blocks` et défoncent pourtant le budget de tokens.
+    long_text = "matricule " + "texte de remplissage. " * 200  # ≈ 4 500 caractères
+    blocks = [Block(block_id=f"d:p{i}:1", text=long_text, loc=f"p{i}", seq=1) for i in (1, 2, 3)]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in (1, 2, 3)])] + \
+        [Node(node_id=f"n{i}", items=[BlockRef(block_id=f"d:p{i}:1")]) for i in (1, 2, 3)]
+    corpus = Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                             nodes=nodes, blocks=blocks)})
+    index = Index(corpus)
+    libre, _ = _run(_parsed(["matricule"]), corpus, index, _budget(max_blocks=10))
+    assert len(libre.blocs) == 3 and libre.truncated is False  # le compte de blocs ne borne rien
+
+    borne, _ = _run(_parsed(["matricule"]), corpus, index, _budget(max_blocks=10, max_tokens=7000))
+    assert len(borne.blocs) == 2 and borne.truncated is True
+    s = _s()
+    from server.app.llm.pricing import estimate_tokens
+    total = sum(estimate_tokens(f"{b.block_id}\n{b.text}", s) for b in borne.blocs)
+    assert total <= 7000
 
 
 def test_on_the_real_corpus_with_config_thresholds() -> None:
-    s = Settings(_env_file=None)
+    s = _s()
     corpus = load_corpus(ROOT / "data", allow_ungated=True)
     index = Index(corpus)
     budget = RetrievalBudget(max_opens=s.max_opens, node_window=s.node_window,
                              search_limit=s.search_limit, max_llm_turns=s.max_llm_turns,
-                             max_blocks=s.retrieval_max_blocks)
-    result, step = retrouver_deterministe(_parsed(["matricule", "commune"]), corpus=corpus, index=index,
-                                          budget=budget, doc_id="lux-guide")
+                             max_blocks=s.retrieval_max_blocks, max_tokens=s.retrieval_max_tokens)
+    result, step = _run(_parsed(["matricule", "commune"]), corpus, index, budget, settings=s,
+                        doc_id="lux-guide")
     assert result.blocs and all(b.block_id.startswith("lux-guide:") for b in result.blocs)
     assert any(b.block_id.startswith("lux-guide:farrivee:") for b in result.blocs)  # la fiche attendue
     assert result.opened_block_ids == [b.block_id for b in result.blocs]
     assert set(result.discarded_block_ids).isdisjoint(result.opened_block_ids)
-    assert step.calls == [] and step.tier is None
+    assert step.calls == [] and step.tier == "reason"
     # définitions réelles : le terme « contenu » ramène la définition AXA hors quota
-    axa, _ = retrouver_deterministe(_parsed(["contenu"]), corpus=corpus, index=index, budget=budget,
-                                    doc_id="axa-lu-optihome-2017")
+    axa, _ = _run(_parsed(["contenu"]), corpus, index, budget, settings=s, doc_id="axa-lu-optihome-2017")
     assert "axa-lu-optihome-2017:p9:2" in axa.opened_block_ids
     # …et le saut « définitions » reste dans le document demandé : interrogé sur le guide, le même
     # terme ne ramène jamais la définition du contrat (revue 1.4 — sans `doc_id`, elle passait).
-    guide, _ = retrouver_deterministe(_parsed(["contenu"]), corpus=corpus, index=index, budget=budget,
-                                      doc_id="lux-guide")
+    guide, _ = _run(_parsed(["contenu"]), corpus, index, budget, settings=s, doc_id="lux-guide")
     assert all(b.block_id.startswith("lux-guide:") for b in guide.blocs)
 
 
@@ -174,4 +227,4 @@ def test_unknown_doc_id_raises_like_the_index() -> None:
     # faute de l'appelant — la taire rendrait une faute de frappe invisible (revue 1.4).
     for parsed in (_parsed(["matricule"]), _parsed([])):
         with pytest.raises(KeyError):
-            retrouver_deterministe(parsed, corpus=corpus, index=index, budget=_budget(), doc_id="inconnu")
+            _run(parsed, corpus, index, doc_id="inconnu")

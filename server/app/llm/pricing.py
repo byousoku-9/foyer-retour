@@ -15,6 +15,7 @@ pour que 2,0/1,3 ≈ 1,54 car./token reste sous le pire mesuré (1,65 sur le som
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from server.app.config import Settings
@@ -108,6 +109,17 @@ def _text_len(content: Any) -> int:
         text = get("text")
         total += len(text) if isinstance(text, str) else _json_len(block)
     return total
+
+
+def estimate_tokens(text: str, settings: Settings) -> int:
+    """Majorant du nombre de tokens d'un texte, sans appeler le tokenizer (AD-1, revue Codex 1.4 B1).
+
+    Même heuristique que le poste « messages » d'`estimate_cost` — `estimate_chars_per_token` corrigé
+    par `estimate_tokenizer_factor`, calibré pour majorer le pire mesuré. *retrouver* déterministe est
+    du code pur : il ne peut pas appeler `/v1/messages/count_tokens` (réseau, latence, deadline) pour
+    honorer `RetrievalBudget.max_tokens`, il majore.
+    """
+    return math.ceil(len(text) * settings.estimate_tokenizer_factor / settings.estimate_chars_per_token)
 
 
 def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, settings: Settings,

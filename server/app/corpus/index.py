@@ -57,11 +57,13 @@ class Index:
         self._entries: list[_Entry] = []
         self._by_block: dict[str, _Entry] = {}
         self._nodes: dict[str, tuple[str, list[str]]] = {}  # node_id → (doc_id, block_ids directs)
+        self._levels: dict[str, int] = {}  # node_id → profondeur déclarée (AD-2), pour « la plus proche »
         for doc_id, doc in sorted(corpus.documents.items()):
             for n in doc.nodes:
                 if n.node_id in self._nodes:
                     raise ValueError(f"node_id {n.node_id!r} présent dans {self._nodes[n.node_id][0]!r} et {doc_id!r}")
                 self._nodes[n.node_id] = (doc_id, n.blocks)
+                self._levels[n.node_id] = n.level
             for block_id, node_id in reading_order(doc):
                 if block_id in self._by_block:
                     raise ValueError(f"block_id {block_id!r} présent dans {self._by_block[block_id].doc_id!r} et {doc_id!r}")
@@ -146,11 +148,28 @@ class Index:
     def _hit(e: _Entry, form: str) -> bool:
         return form in e.tokens if " " not in form else f" {form} " in e.padded
 
-    def definitions(self, termes: dict[str, list[str]] | Iterable[str], *, doc_id: str | None = None) -> list[tuple[str, str]]:
-        """Blocs `kind="definition"` dont `defines` normalisé matche un terme (ou une variante si dict),
-        en mots entiers, dans les deux sens (« jardin » trouve « mobilier de jardin » et réciproquement) ;
-        ordre de lecture. Le suivi des `refs` des blocs ouverts est fait par *retrouver* (il connaît les
-        blocs ouverts) ; le filtre de portée fine (`scope_nodes`) n'a de sens qu'au verdict (story 3.3)."""
+    def definitions(self, termes: dict[str, list[str]] | Iterable[str], *, doc_id: str | None = None,
+                    blocs_ouverts: Iterable[str] | None = None) -> list[tuple[str, str]]:
+        """Blocs `kind="definition"` qui définissent un terme cherché, résolus dans la portée (AD-1, AD-2).
+
+        Candidats : `defines` normalisé qui matche un terme (ou une variante si dict), en mots entiers,
+        dans les deux sens (« jardin » trouve « mobilier de jardin » et réciproquement) — **et**, si
+        `blocs_ouverts` est donné, `defines` qui apparaît en mots entiers dans le texte de l'un d'eux :
+        AD-1 exige les définitions « des termes rencontrés dans les blocs ouverts », pas seulement de
+        ceux de la question (revue Codex 1.4, B2). Une clause qui introduit elle-même un terme défini
+        gardait sinon sa définition hors du contexte.
+
+        Résolution (AD-2, « la plus proche dans la portée du bloc décisionnel, puis remontée vers les
+        définitions communes ») : une seule définition par terme défini et par document — d'abord celle
+        dont la portée (`Document.scope_nodes`) couvre le nœud d'un bloc ouvert — la plus profonde
+        d'abord —, puis la définition **commune** (sans portée, valide partout : c'est la remontée),
+        puis, en dernier recours, une définition dont la portée ne couvre pas le contexte (sans elle,
+        les deux définitions du contrat AXA, portées par `a1`, ne sortiraient plus jamais). À rang
+        égal, l'ordre de lecture. Une définition « par dérogation » (`overrides`) retenue évince celle
+        qu'elle déroge.
+
+        Le suivi des `refs` des blocs ouverts est fait par *retrouver* (il seul sait ce qu'il a ouvert).
+        """
         if isinstance(termes, str):
             raise TypeError("termes : dict[str, list[str]] ou liste de termes attendus, pas une chaîne")
         if doc_id is not None and doc_id not in self.corpus.documents:
@@ -162,9 +181,12 @@ class Index:
                 form = " ".join(words(normalize(v)))
                 if form:
                     forms.add(form)
-        out: list[tuple[str, str]] = []
-        if not forms:
-            return out
+        ouverts = [self._by_block[b] for b in (blocs_ouverts or []) if b in self._by_block]
+        noeuds_ouverts = {e.node_id for e in ouverts}
+        if not forms and not ouverts:
+            return []
+
+        candidats: list[tuple[str, _Entry]] = []
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
                 continue
@@ -174,6 +196,41 @@ class Index:
             defined = " ".join(words(normalize(b.defines)))
             if not defined:
                 continue
-            if any(f" {f} " in f" {defined} " or f" {defined} " in f" {f} " for f in forms):
-                out.append((b.block_id, e.node_id))
-        return out
+            cherche = any(f" {f} " in f" {defined} " or f" {defined} " in f" {f} " for f in forms)
+            if not cherche:  # AD-1 : terme rencontré dans un bloc ouvert
+                cherche = any(f" {defined} " in o.padded for o in ouverts if o.block.block_id != b.block_id)
+            if cherche:
+                candidats.append((defined, e))
+
+        meilleurs: dict[tuple[str, str], tuple[tuple[int, int, int], _Entry]] = {}
+        for defined, e in candidats:
+            cle = (e.doc_id, defined)
+            if self._portee_couvre(e, noeuds_ouverts):
+                rang = (0, -self._portee_profondeur(e), e.rank)  # la plus proche dans la portée
+            elif not self._portee_racines(e):
+                rang = (1, 0, e.rank)  # définition commune : valide partout, c'est la remontée
+            else:
+                rang = (2, 0, e.rank)  # portée qui ne couvre pas le contexte : dernier recours
+            if cle not in meilleurs or rang < meilleurs[cle][0]:
+                meilleurs[cle] = (rang, e)
+        retenus = {e.block.block_id: e for _, e in meilleurs.values()}
+        for e in list(retenus.values()):  # AD-2 : la dérogation prime dans sa portée
+            deroge = e.block.overrides
+            if deroge is not None and deroge != e.block.block_id:
+                retenus.pop(deroge, None)
+        return [(e.block.block_id, e.node_id) for e in sorted(retenus.values(), key=lambda e: e.rank)]
+
+    def _portee_racines(self, e: _Entry) -> list[str]:
+        b = e.block
+        return b.scope_node_ids or ([b.scope_node_id] if b.scope_node_id else [])
+
+    def _portee_profondeur(self, e: _Entry) -> int:
+        """Profondeur de la portée d'une définition ; -1 = aucune portée (définition commune)."""
+        racines = self._portee_racines(e)
+        return max((self._levels.get(r, 0) for r in racines), default=-1)
+
+    def _portee_couvre(self, e: _Entry, noeuds: set[str]) -> bool:
+        """La portée de la définition couvre-t-elle le nœud de l'un des blocs ouverts ?"""
+        if not noeuds or not self._portee_racines(e):
+            return False
+        return bool(self.corpus.documents[e.doc_id].scope_nodes(e.block.block_id) & noeuds)
