@@ -45,10 +45,14 @@ def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *
     if unresolved:
         checks.append(Check(name="unresolved_refs", level="alerte",
                             detail=", ".join(f"{bid} → {ref}" for bid, ref in unresolved)))
-    # Sans `document.json` précédent, rien n'a pu disparaître : le rapport reste identique d'une exécution à l'autre.
-    current_ids = {b.block_id for b in doc.blocks}
-    disparus = sorted(b.block_id for b in (previous.blocks if previous else []) if b.block_id not in current_ids)
+    # Un ID est « disparu » s'il n'existe plus ou si son texte a changé (ID réaffecté à un autre paragraphe) ;
+    # sans `document.json` précédent, rien n'a pu disparaître : le rapport reste identique d'une exécution à l'autre.
+    current = {b.block_id: b.text for b in doc.blocks}
+    before = {b.block_id: b.text for b in previous.blocks} if previous else {}
+    disparus = [bid for bid, text in before.items() if current.get(bid) != text]  # ordre de lecture de l'ancien
+    nouveaux = [bid for bid in current if bid not in before] if previous else []
     stats["ids_disparus"] = len(disparus)
+    stats["ids_nouveaux"] = len(nouveaux)
     if disparus:
         checks.append(Check(name="ids_disparus", level="alerte", detail=", ".join(disparus)))
     return Report(doc_id=doc.doc_id, checks=checks, stats=stats)

@@ -51,6 +51,14 @@ class Gate(DomainModel):
     date: str
 
 
+class GateContext(DomainModel):
+    """Ce que l'image en cours sait d'elle-même ; comparé au gate du manifest ⇒ alerte `gate_perime` (AD-7)."""
+
+    pipeline_digest: str = ""
+    prompts_digest: str = ""
+    model_ids: dict[str, str] = Field(default_factory=dict)
+
+
 class ManifestEntry(DomainModel):
     status: ManifestStatus
     source_hash: str

@@ -95,6 +95,19 @@ def _fiche_blocks(fiche: dict[str, Any]) -> list[Block]:
     return out
 
 
+def check_structure(kb: Any) -> dict[str, Any]:
+    """Structure attendue de `kb.js` : objet, `fiches` liste de dicts, `faq` liste de dicts, `timeline` liste de phases."""
+    if not isinstance(kb, dict) or not isinstance(kb.get("fiches"), list):
+        raise ValueError("source.js : objet avec une liste `fiches` attendu")
+    for name in ("fiches", "faq"):
+        if not isinstance(kb.get(name, []), list) or not all(isinstance(x, dict) for x in kb.get(name, [])):
+            raise ValueError(f"source.js : `{name}` doit être une liste d'objets")
+    timeline = kb.get("timeline", [])
+    if not isinstance(timeline, list) or not all(isinstance(p, dict) and isinstance(p.get("items"), list) for p in timeline):
+        raise ValueError("source.js : `timeline` doit être une liste de phases {phase, items: []}")
+    return kb
+
+
 def build_document(kb: dict[str, Any], *, edition: str, source_hash: str) -> Document:
     nodes: list[Node] = []
     blocks: list[Block] = []
@@ -138,7 +151,8 @@ def build_document(kb: dict[str, Any], *, edition: str, source_hash: str) -> Doc
     if faq_nodes:
         all_nodes += [faq_root, *faq_nodes]
     return Document(doc_id=DOC_ID, kind="guide", title=TITLE, edition=edition, lang="fr", nodes=all_nodes,
-                    blocks=blocks, source_url=SOURCE_URL, source_hash=source_hash)
+                    blocks=blocks, source_url=SOURCE_URL, source_hash=source_hash,
+                    ingest_fingerprint=ingest_fingerprint())
 
 
 def build_summary(doc: Document, kb: dict[str, Any]) -> str:
@@ -187,12 +201,17 @@ def _write_atomic(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
-def _merge_manifest(manifest_path: Path, entry: ManifestEntry) -> ManifestEntry:
-    """Fusionne l'entrée `lux-guide` ; les autres documents sont conservés tels quels, même invalides (avertissement)."""
-    adapter = TypeAdapter(ManifestEntry)
+def _read_manifest(manifest_path: Path) -> dict[str, Any]:
+    """Lu et validé avant toute écriture : un manifest illisible bloque sans rien modifier sur disque."""
     raw: dict[str, Any] = json.loads(manifest_path.read_text("utf-8")) if manifest_path.is_file() else {}
     if not isinstance(raw, dict):
         raise ValueError(f"{manifest_path} : un objet JSON {{doc_id: entrée}} est attendu")
+    return raw
+
+
+def _merge_manifest(manifest_path: Path, raw: dict[str, Any], entry: ManifestEntry) -> ManifestEntry:
+    """Fusionne l'entrée `lux-guide` ; les autres documents sont conservés tels quels, même invalides (avertissement)."""
+    adapter = TypeAdapter(ManifestEntry)
     previous = raw.get(DOC_ID)
     gate = None
     if previous:
@@ -216,6 +235,14 @@ def _merge_manifest(manifest_path: Path, entry: ManifestEntry) -> ManifestEntry:
 
 def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     """Ingère `data_dir/source.js` ; toute erreur de source devient un check bloquant, jamais une trace Python."""
+    manifest_path = data_dir.parent / "manifest.json"
+    try:
+        raw_manifest = _read_manifest(manifest_path)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        detail = f"{manifest_path} illisible, rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
+        report = Report(doc_id=DOC_ID, checks=[Check(name="manifest_illisible", level="bloquant", detail=detail)])
+        return report, ManifestEntry(status="quarantaine", source_hash="", ingest_fingerprint=ingest_fingerprint(),
+                                     document_hash="", edition=edition, gate=None)
     source_hash = ""
     doc: Document | None = None
     summary = ""
@@ -223,19 +250,16 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     try:
         source_bytes = (data_dir / "source.js").read_bytes()
         source_hash = hashlib.sha256(source_bytes).hexdigest()
-        kb = parse_js_object(source_bytes.decode("utf-8"))
-        if not isinstance(kb, dict) or not isinstance(kb.get("fiches"), list):
-            raise ValueError("source.js : objet avec une liste `fiches` attendu")
+        kb = check_structure(parse_js_object(source_bytes.decode("utf-8")))
         doc = build_document(kb, edition=edition, source_hash=source_hash)
+        summary = build_summary(doc, kb)
+        report = build_report(doc, previous, kb, summary=summary)
     except ValidationError as exc:
         report = report_from_validation_error(DOC_ID, exc)
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError) as exc:
         # JSObjectError est une ValueError ; KeyError/TypeError = champ manquant ou structure inattendue.
         detail = f"{type(exc).__name__}: {exc}"[:2000]
         report = Report(doc_id=DOC_ID, checks=[Check(name="source_illisible", level="bloquant", detail=detail)])
-    else:
-        summary = build_summary(doc, kb)
-        report = build_report(doc, previous, kb, summary=summary)
     status = "quarantaine" if report.blocking else "servi"
     document_hash = ""
     if doc is not None and not report.blocking:
@@ -247,7 +271,7 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
         for stale in ("document.json", "summary.md"):  # jamais un artefact périmé à côté d'un manifest en quarantaine
             (data_dir / stale).unlink(missing_ok=True)
     _write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
-    entry = _merge_manifest(data_dir.parent / "manifest.json",
+    entry = _merge_manifest(manifest_path, raw_manifest,
                             ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=ingest_fingerprint(),
                                           document_hash=document_hash, edition=edition, gate=None))
     return report, entry

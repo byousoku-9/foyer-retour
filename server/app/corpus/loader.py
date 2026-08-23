@@ -10,9 +10,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic import TypeAdapter, ValidationError
-
-from server.app.domain import Document, Manifest, ManifestEntry
+from server.app.domain import Document, GateContext, Manifest, ManifestEntry
 
 from .text import normalize
 
@@ -36,13 +34,39 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _first_error(exc: ValidationError) -> str:
-    errors = exc.errors()
-    return str(errors[0].get("msg", "")) if errors else str(exc)
+def _first_error(exc: ValueError) -> str:
+    """Premier message d'une `ValidationError` (qui hérite de ValueError) sans importer pydantic dans `corpus`."""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        items = errors()
+        if items:
+            return str(items[0].get("msg", ""))
+    return str(exc).splitlines()[0] if str(exc) else type(exc).__name__
 
 
-def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *,
-              allow_ungated: bool) -> tuple[Document | None, str, list[str]]:
+def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ungated: bool) -> tuple[str, list[str]]:
+    """Règle du gate (AD-7) : (raison de quarantaine, alertes).
+
+    - pas de gate, ou gate dont `source_hash`/`ingest_fingerprint` ≠ l'entrée ⇒ gate invalide : `sans_gate`
+      (quarantaine, sauf `allow_ungated` ⇒ alerte) ;
+    - `evals_ok=False` ⇒ `gate_echoue`, jamais servi ;
+    - `pipeline_digest`/`prompts_digest`/`model_ids` ≠ `current` (si fourni) ⇒ servi avec l'alerte `gate_perime`.
+    """
+    gate = entry.gate
+    if gate is not None and (gate.source_hash, gate.ingest_fingerprint) != (entry.source_hash, entry.ingest_fingerprint):
+        gate = None
+    if gate is None:
+        return ("", ["sans_gate"]) if allow_ungated else ("sans_gate", [])
+    if not gate.evals_ok:
+        return "gate_echoue", []
+    if current is not None and (gate.pipeline_digest, gate.prompts_digest, gate.model_ids) != (
+            current.pipeline_digest, current.prompts_digest, current.model_ids):
+        return "", ["gate_perime"]
+    return "", []
+
+
+def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated: bool,
+              current: GateContext | None) -> tuple[Document | None, str, list[str]]:
     """Renvoie (document | None, raison de quarantaine, alertes). Aucune exception ne sort : tout devient une raison."""
     if entry.status == "quarantaine":
         return None, "quarantaine (manifest)", []
@@ -62,27 +86,24 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *,
                 if _sha256(src) != entry.source_hash:
                     return None, f"source_hash différent du manifest ({name})", []
                 break
-        doc = Document.model_validate_json(doc_path.read_bytes())
-    except ValidationError as exc:
+        doc = Document.model_validate(json.loads(doc_path.read_bytes()))
+    except ValueError as exc:  # ValidationError et JSONDecodeError en héritent
         return None, f"document.json invalide : {_first_error(exc)}", []
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         return None, f"document.json illisible : {type(exc).__name__}: {exc}"[:500], []
     if doc.doc_id != doc_id:
         return None, f"doc_id {doc.doc_id!r} différent de la clé du manifest", []
     if doc.source_hash != entry.source_hash:
         return None, "source_hash du document différent du manifest", []
+    if doc.ingest_fingerprint != entry.ingest_fingerprint:
+        return None, "ingest_fingerprint du document différent du manifest", []
     if doc.edition != entry.edition:
         return None, f"edition {doc.edition!r} différente du manifest ({entry.edition!r})", []
-    summary_path = doc_dir / "summary.md"
-    if not summary_path.is_file():
+    if not (doc_dir / "summary.md").is_file():
         return None, "sommaire_absent", []
-    alerts: list[str] = []
-    if entry.gate is None:
-        if not allow_ungated:
-            return None, "sans_gate", []
-        alerts.append("sans_gate")
-    elif (entry.gate.source_hash, entry.gate.ingest_fingerprint) != (entry.source_hash, entry.ingest_fingerprint):
-        alerts.append("gate_perime")
+    reason, alerts = _gate_alerts(entry, current, allow_ungated=allow_ungated)
+    if reason:
+        return None, reason, []
     if not source_found:
         alerts.append("source_absente")
     for b in doc.blocks:
@@ -90,21 +111,30 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *,
     return doc, "", alerts
 
 
-def load_corpus(data_dir: Path | str, *, allow_ungated: bool) -> Corpus:
-    """Charge chaque document du manifest ; une incohérence met ce seul document en quarantaine (AD-7)."""
+def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateContext | None = None) -> Corpus:
+    """Charge chaque document du manifest ; une incohérence met ce seul document en quarantaine (AD-7).
+
+    `current` décrit l'image en cours (digests, modèles) ; sans lui, la péremption du gate n'est pas évaluée.
+    """
     data_dir = Path(data_dir)
     manifest_path = data_dir / "manifest.json"
     if not manifest_path.is_file():
         return Corpus()
     try:
-        manifest = TypeAdapter(Manifest).validate_json(manifest_path.read_bytes())
-    except ValidationError as exc:
-        return Corpus(quarantine={"*": f"manifest invalide : {_first_error(exc)}"})
+        raw = json.loads(manifest_path.read_bytes())
+        if not isinstance(raw, dict):
+            raise ValueError("un objet JSON {doc_id: entrée} est attendu")
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        return Corpus(quarantine={"*": f"manifest invalide : {type(exc).__name__}: {exc}"[:500]})
-    corpus = Corpus(manifest=manifest)
-    for doc_id, entry in sorted(manifest.items()):
-        doc, reason, alerts = _load_one(data_dir / doc_id, doc_id, entry, allow_ungated=allow_ungated)
+        return Corpus(quarantine={"*": f"manifest invalide : {_first_error(exc)}"[:500]})
+    corpus = Corpus()
+    for doc_id in sorted(raw):
+        try:
+            entry = ManifestEntry.model_validate(raw[doc_id])
+        except ValueError as exc:
+            corpus.quarantine[doc_id] = f"entrée de manifest invalide : {_first_error(exc)}"
+            continue
+        corpus.manifest[doc_id] = entry
+        doc, reason, alerts = _load_one(data_dir / doc_id, doc_id, entry, allow_ungated=allow_ungated, current=current)
         if doc is None:
             corpus.quarantine[doc_id] = reason
             continue

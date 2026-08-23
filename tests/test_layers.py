@@ -28,6 +28,7 @@ ALLOWED: dict[str, set[str]] = {
 }
 EXTERNAL_ALLOWED: dict[str, set[str]] = {
     "domain": {"pydantic"},
+    "corpus": set(),  # stdlib + domain seulement : jamais pydantic en direct
     "config": {"pydantic", "pydantic_settings"},
     "digests": {"pydantic"},
 }
@@ -78,6 +79,9 @@ def check_external(layer: str, app: Path = APP) -> list[str]:
     for f in _layer_files(layer, app):
         for mod, line in _imports(f, app):
             top = mod.split(".")[0]
+            target = _layer_of(mod)
+            if target is not None and (target == layer or target in ALLOWED.get(layer, set())):
+                continue  # dépendance interne : vérifiée par check_layer
             if mod.startswith(f"server.app.{layer}") or _stdlib(top) or top in EXTERNAL_ALLOWED.get(layer, set()):
                 continue
             violations.append(f"{f.relative_to(app)}:{line} importe {mod}")

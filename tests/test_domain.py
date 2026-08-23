@@ -24,7 +24,7 @@ def literal_values(model: type[BaseModel], field: str) -> set[str]:
 
 # AD-2
 def test_document_fields() -> None:
-    assert fields(document.Document) == {"doc_id", "kind", "title", "edition", "lang", "nodes", "blocks", "source_url", "source_hash"}
+    assert fields(document.Document) == {"doc_id", "kind", "title", "edition", "lang", "nodes", "blocks", "source_url", "source_hash", "ingest_fingerprint"}
     assert literal_values(document.Document, "kind") == {"guide", "contrat"}
     assert fields(document.Node) == {"node_id", "level", "title", "items", "scope", "sources"}
     assert literal_values(document.Scope, "kind") == {"commun", "special", "extension"}
@@ -104,6 +104,28 @@ def test_document_tree_invariants() -> None:
         _doc([{"node_id": "a", "items": [{"node_id": "c"}]}, {"node_id": "b", "items": [{"node_id": "c"}]}, {"node_id": "c"}], [])
     with pytest.raises(ValidationError, match="cycle"):
         _doc([{"node_id": "a", "items": [{"node_id": "b"}]}, {"node_id": "b", "items": [{"node_id": "a"}]}], [])
+    with pytest.raises(ValidationError, match="une seule racine|exactement un nœud racine"):
+        _doc([{"node_id": "a"}, {"node_id": "b"}], [])
+    with pytest.raises(ValidationError, match="ne commence pas par 'd:'"):
+        _doc([{"node_id": "r", "items": [{"block_id": "x:p1:1"}]}], [{"block_id": "x:p1:1", "text": "t", "loc": "p1", "seq": 1}])
+
+
+@pytest.mark.parametrize("field, value, fragment", [
+    ("refs", ["d:p1:9"], "refs vise un bloc inconnu"),
+    ("continues", "d:p1:9", "continues vise un bloc inconnu"),
+    ("overrides", "d:p1:9", "overrides vise un bloc inconnu"),
+    ("relation", {"exception_de": "d:p1:9"}, "relation.exception_de vise un bloc inconnu"),
+    ("relation", {"specialise": "d:p1:9"}, "relation.specialise vise un bloc inconnu"),
+    ("relation", {"contredit": "d:p1:9"}, "relation.contredit vise un bloc inconnu"),
+    ("scope_node_id", "ghost", "scope_node_id vise un nœud inconnu"),
+])
+def test_document_referential_invariants(field: str, value: object, fragment: str) -> None:
+    nodes = [{"node_id": "root", "items": [{"block_id": "d:p1:1"}, {"block_id": "d:p1:2"}]}]
+    ok = _doc(nodes, [_blk(1), _blk(2) | {field: {"refs": ["d:p1:1"], "continues": "d:p1:1", "overrides": "d:p1:1",
+                                                   "relation": {"contredit": "d:p1:1"}, "scope_node_id": "root"}[field]}])
+    assert ok.block("d:p1:2")
+    with pytest.raises(ValidationError, match=fragment):
+        _doc(nodes, [_blk(1), _blk(2) | {field: value}])
 
 
 def test_node_items_is_single_source_of_order() -> None:

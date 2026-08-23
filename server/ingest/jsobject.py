@@ -14,7 +14,8 @@ from typing import Any
 _WS_OR_COMMENT = re.compile(r"(?:\s+|//[^\n]*|/\*.*?\*/)+", re.DOTALL)
 _IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _NUMBER = re.compile(r"-?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?")
-_PREFIX = re.compile(r"(?:[A-Za-z_$][A-Za-z0-9_$.]*)\s*=\s*")
+_ASSIGN = re.compile(r"([A-Za-z_$][A-Za-z0-9_$.]*)\s*=\s*")
+ALLOWED_TARGET = "window.KB"
 _HEX4 = re.compile(r"[0-9a-fA-F]{4}")
 _ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
 
@@ -60,8 +61,10 @@ class _Parser:
     # --- grammaire -----------------------------------------------------
     def document(self) -> Any:
         self.skip()
-        m = _PREFIX.match(self.text, self.pos)
-        if m:  # `window.KB = `
+        m = _ASSIGN.match(self.text, self.pos)
+        if m:  # seule affectation admise : `window.KB = …`
+            if m.group(1) != ALLOWED_TARGET:
+                raise self.error(f"cible d'affectation {m.group(1)!r} refusée (attendu {ALLOWED_TARGET})")
             self.pos = m.end()
         value = self.value()
         self.skip()

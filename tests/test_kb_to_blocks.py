@@ -125,14 +125,16 @@ def test_modified_source_only_shifts_ids_after_insertion(data_dir: Path) -> None
     report, _ = k.run(data_dir, edition="e")
     after = Document.model_validate_json((data_dir / "document.json").read_bytes())
     assert not report.blocking
-    assert not [c for c in report.checks if c.name == "ids_disparus"]  # un bloc de plus, aucun ID disparu
-    # le texte des blocs 4+ de `farrivee` a glissé ; les autres loc sont identiques
+    # les IDs de `farrivee` à partir de l'insertion sont réaffectés à un autre texte : « disparus » ; les autres loc intactes
+    disparus = next(c for c in report.checks if c.name == "ids_disparus")
+    assert disparus.level == "alerte"
+    assert disparus.detail == ", ".join(f"lux-guide:farrivee:{i}" for i in range(4, 11))
     assert after.block("lux-guide:farrivee:4").text == "Paragraphe inséré."
     assert after.block("lux-guide:farrivee:5").text == before.block("lux-guide:farrivee:4").text
     for b in before.blocks:
         if b.loc != "farrivee":
             assert after.block(b.block_id).text == b.text
-    assert report.stats["ids_disparus"] == 0
+    assert report.stats["ids_disparus"] == 7 and report.stats["ids_nouveaux"] == 1
     # suppression : les IDs de fin de `farrivee` disparaissent et sont listés
     src = (data_dir / "source.js").read_text("utf-8")
     (data_dir / "source.js").write_text(src.replace('aRetenir: ["Huit jours pour la commune.", "Le matricule suit."]',
@@ -140,7 +142,7 @@ def test_modified_source_only_shifts_ids_after_insertion(data_dir: Path) -> None
     report, _ = k.run(data_dir, edition="e")
     disparus = next(c for c in report.checks if c.name == "ids_disparus")
     assert disparus.level == "alerte" and disparus.detail == "lux-guide:farrivee:10, lux-guide:farrivee:11"
-    assert report.stats["ids_disparus"] == 2
+    assert report.stats["ids_disparus"] == 2 and report.stats["ids_nouveaux"] == 0
 
 
 def test_tree_invariant_violation_quarantines(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,7 +204,8 @@ def test_main_success_propagates_edition(data_dir: Path, capsys: pytest.CaptureF
     (lambda s: s.replace('fiche: "bail_test" }', "}"), "'fiche' manquant"),
     (lambda s: s.replace('corps: ["La caution est plafonnée à deux mois de loyer."]', "corps: [42]"), "inattendu"),
     (lambda s: "window.KB = [1, 2];", "liste `fiches`"),
-    (lambda s: "window.KB = {fiches: [\"x\"]};", "TypeError"),
+    (lambda s: "window.KB = {fiches: [\"x\"]};", "liste d'objets"),
+    (lambda s: s.replace("timeline: [", "timeline: [1, "), "`timeline`"),
 ])
 def test_malformed_source_is_blocking_not_a_traceback(data_dir: Path, mutation, fragment: str) -> None:
     k.run(data_dir, edition="e")  # artefacts sains d'abord
@@ -233,3 +236,22 @@ def test_invalid_other_manifest_entry_is_kept_with_warning(data_dir: Path, capsy
     m = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
     assert m["autre-doc"] == {"status": "bizarre"} and m["lux-guide"]["status"] == "servi"
     assert "'autre-doc' du manifest invalide" in capsys.readouterr().err
+
+
+def test_unreadable_manifest_blocks_without_touching_artefacts(data_dir: Path) -> None:
+    k.run(data_dir, edition="e")
+    snapshot = {p.name: p.read_bytes() for p in data_dir.iterdir()}
+    (data_dir.parent / "manifest.json").write_text("{pas du json", "utf-8")
+    report, entry = k.run(data_dir, edition="e")
+    assert report.checks[0].name == "manifest_illisible" and report.blocking and entry.status == "quarantaine"
+    assert {p.name: p.read_bytes() for p in data_dir.iterdir()} == snapshot
+    assert (data_dir.parent / "manifest.json").read_text("utf-8") == "{pas du json"
+    assert k.main(["--data", str(data_dir)]) == 1
+
+
+def test_faq_to_unknown_fiche_never_uses_refs(mini_kb: dict) -> None:
+    mini_kb["faq"][1]["fiche"] = "nulle_part"
+    doc = k.build_document(mini_kb, edition="e", source_hash="h")
+    a = doc.block("lux-guide:q2:2")
+    assert a.refs == [] and a.unresolved_refs == ["lux-guide:fnulle_part"]
+    assert doc.ingest_fingerprint == k.ingest_fingerprint()

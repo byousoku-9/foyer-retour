@@ -1,4 +1,8 @@
-"""AD-2 — Tout document est un arbre de blocs identifiés : Document → Node → Block → Line."""
+"""AD-2 — Tout document est un arbre de blocs identifiés : Document → Node → Block → Line.
+
+Amendements (story 1.1) : `Document.blocks` est le registre des blocs, validé par les invariants d'arbre ;
+`Document.ingest_fingerprint` (symétrique de `source_hash`) est écrit par l'ingestion et vérifié par le loader.
+"""
 
 from __future__ import annotations
 
@@ -133,6 +137,7 @@ class Document(DomainModel):
     blocks: list[Block] = Field(default_factory=list)  # registre ; Node.items reste la seule source de l'ordre
     source_url: str | None = None
     source_hash: str = ""
+    ingest_fingerprint: str = ""  # empreinte du parseur/schéma/règles (AD-2 stabilité), couverte par document_hash
     _by_id: dict[str, Block] = PrivateAttr(default_factory=dict)
 
     def block(self, block_id: str) -> Block:
@@ -140,11 +145,14 @@ class Document(DomainModel):
 
     @model_validator(mode="after")
     def _tree_invariants(self) -> Document:
-        """AD-8 : block_id uniques, références résolues, chaque bloc rattaché à exactement un nœud."""
+        """AD-8 : block_id uniques, références résolues, chaque bloc rattaché à exactement un nœud, une seule racine."""
         by_id: dict[str, Block] = {}
+        prefix = f"{self.doc_id}:"
         for b in self.blocks:
             if b.block_id in by_id:
                 raise ValueError(f"block_id dupliqué : {b.block_id}")
+            if not b.block_id.startswith(prefix):
+                raise ValueError(f"block_id {b.block_id!r} ne commence pas par {prefix!r}")
             by_id[b.block_id] = b
         node_ids = {n.node_id for n in self.nodes}
         if len(node_ids) != len(self.nodes):
@@ -164,6 +172,16 @@ class Document(DomainModel):
         orphans = sorted(set(by_id) - set(parents))
         if orphans:
             raise ValueError(f"blocs orphelins (sans nœud) : {orphans}")
+        for b in self.blocks:
+            targets = {"refs": b.refs, "continues": [b.continues], "overrides": [b.overrides],
+                       "relation.exception_de": [b.relation.exception_de], "relation.specialise": [b.relation.specialise],
+                       "relation.contredit": [b.relation.contredit]}
+            for field_name, ids in targets.items():
+                for t in ids:
+                    if t is not None and t not in by_id:
+                        raise ValueError(f"{b.block_id}.{field_name} vise un bloc inconnu : {t}")
+            if b.scope_node_id is not None and b.scope_node_id not in node_ids:
+                raise ValueError(f"{b.block_id}.scope_node_id vise un nœud inconnu : {b.scope_node_id}")
         node_parent: dict[str, str] = {}
         children: dict[str, list[str]] = {n.node_id: n.children for n in self.nodes}
         for n in self.nodes:
@@ -180,6 +198,9 @@ class Document(DomainModel):
                 if cur in seen:
                     raise ValueError(f"cycle de nœuds via {cur}")
                 seen.add(cur)
+        roots = [n for n in children if n not in node_parent]
+        if self.nodes and len(roots) != 1:
+            raise ValueError(f"exactement un nœud racine attendu, trouvé : {roots}")
         self._by_id = by_id
         return self
 

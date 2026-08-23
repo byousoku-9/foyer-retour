@@ -80,12 +80,9 @@ def test_index_computes_missing_text_norm_and_refuses_id_collisions() -> None:
     assert ix.chercher(["bloc"], limit=5) == [("d:p1:1", "n"), ("d:p1:2", "n")]
     with pytest.raises(ValueError, match="node_id 'root'"):
         Index(Corpus(documents={"d": _doc(2), "e": _doc(2, doc_id="e")}))
-    doc2 = _doc(2, doc_id="e", prefix="e-")
-    doc2.blocks[0].block_id = "d:p1:1"  # même block_id qu'un bloc de `d`
-    doc2.nodes[1].items[0].block_id = "d:p1:1"
-    doc2 = Document.model_validate(doc2.model_dump())
+    # même doc_id sous deux clés du corpus ⇒ mêmes block_id
     with pytest.raises(ValueError, match="block_id 'd:p1:1'"):
-        Index(Corpus(documents={"d": _doc(2), "e": doc2}))
+        Index(Corpus(documents={"d": _doc(2), "d2": _doc(2, prefix="x-")}))
 
 
 def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
@@ -124,7 +121,8 @@ def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     assert 0 < len(hits) <= 20
     doc = ix.corpus.documents["lux-guide"]
     both = [b for b, _ in hits if {"matricule", "commune"} <= set(words(doc.block(b).text_norm))]
-    assert both and hits[0][0] in both and hits[0][1] == "lux-guide:farrivee"
+    assert [b for b, _ in hits[:3]] == ["lux-guide:farrivee:2", "lux-guide:farrivee:6", "lux-guide:farrivee:11"]
+    assert both[:3] == [b for b, _ in hits[:3]] and hits[0][1] == "lux-guide:farrivee"
     assert all(b in both for b, _ in hits[: len(both)])
     w = ix.ouvrir_noeud("lux-guide:farrivee", node_window=s.node_window)
     assert w.blocks[0].block_id == "lux-guide:farrivee:1"

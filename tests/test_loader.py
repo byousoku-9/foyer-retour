@@ -11,6 +11,7 @@ import pytest
 
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
+from server.app.domain import GateContext
 from server.ingest import kb_to_blocks as k
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,9 +35,13 @@ def _sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def _rename_doc(doc_dir: Path, doc_id: str) -> None:
+def _rename_doc(doc_dir: Path, doc_id: str, *, block_ids: bool = False) -> None:
+    """Change `doc_id` (et, si demandé, le préfixe des block_id pour rester un Document valide)."""
     p = doc_dir / "document.json"
-    p.write_text(p.read_text("utf-8").replace('"doc_id": "lux-guide"', f'"doc_id": "{doc_id}"'), "utf-8")
+    text = p.read_text("utf-8").replace('"doc_id": "lux-guide"', f'"doc_id": "{doc_id}"')
+    if block_ids:
+        text = text.replace('"lux-guide:', f'"{doc_id}:')
+    p.write_text(text, "utf-8")
 
 
 def _set_hash(data: Path, doc_id: str = "lux-guide") -> None:
@@ -63,7 +68,7 @@ def test_modified_document_json_is_quarantined_alone(data: Path) -> None:
     m = _manifest(data)
     other = data / "autre-doc"
     shutil.copytree(data / "lux-guide", other)
-    _rename_doc(other, "autre-doc")
+    _rename_doc(other, "autre-doc", block_ids=True)
     m["autre-doc"] = dict(m["lux-guide"]) | {"document_hash": _sha(other / "document.json")}
     _write_manifest(data, m)
     p = data / "lux-guide" / "document.json"
@@ -85,17 +90,66 @@ def test_manifest_status_quarantaine_is_not_loaded(data: Path) -> None:
     assert load_corpus(data, allow_ungated=True).quarantine == {"lux-guide": "quarantaine (manifest)"}
 
 
-def test_gate_present_serves_without_alert_and_stale_gate_alerts(data: Path) -> None:
+def _gate(e: dict, **over) -> dict:
+    return {"profile": "vertical", "source_hash": e["source_hash"], "ingest_fingerprint": e["ingest_fingerprint"],
+            "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {"micro": "m"},
+            "evals_ok": True, "date": "2026-08-23"} | over
+
+
+def test_valid_gate_serves_without_alert(data: Path) -> None:
     m = _manifest(data)
-    e = m["lux-guide"]
-    e["gate"] = {"profile": "vertical", "source_hash": e["source_hash"], "ingest_fingerprint": e["ingest_fingerprint"],
-                 "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {}, "evals_ok": True,
-                 "date": "2026-08-23"}
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"])
     _write_manifest(data, m)
     assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}
-    e["gate"]["source_hash"] = "ancien"
+    same = GateContext(pipeline_digest="p", prompts_digest="q", model_ids={"micro": "m"})
+    assert load_corpus(data, allow_ungated=False, current=same).alerts == {"lux-guide": []}
+
+
+def test_failed_gate_is_never_served(data: Path) -> None:
+    m = _manifest(data)
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"], evals_ok=False)
     _write_manifest(data, m)
-    assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": ["gate_perime"]}
+    for allow in (False, True):
+        assert load_corpus(data, allow_ungated=allow).quarantine == {"lux-guide": "gate_echoue"}
+
+
+@pytest.mark.parametrize("field", ["source_hash", "ingest_fingerprint"])
+def test_gate_with_other_hashes_is_invalid_hence_sans_gate(data: Path, field: str) -> None:
+    m = _manifest(data)
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"], **{field: "ancien"})
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).quarantine == {"lux-guide": "sans_gate"}
+    c = load_corpus(data, allow_ungated=True)
+    assert c.alerts == {"lux-guide": ["sans_gate"]} and c.served == ["lux-guide"]
+
+
+@pytest.mark.parametrize("current", [
+    GateContext(pipeline_digest="autre", prompts_digest="q", model_ids={"micro": "m"}),
+    GateContext(pipeline_digest="p", prompts_digest="autre", model_ids={"micro": "m"}),
+    GateContext(pipeline_digest="p", prompts_digest="q", model_ids={"micro": "autre"}),
+])
+def test_gate_perime_only_against_current_image(data: Path, current: GateContext) -> None:
+    m = _manifest(data)
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"])
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False, current=current).alerts == {"lux-guide": ["gate_perime"]}
+    assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}  # sans `current`, pas de comparaison
+
+
+def test_manifest_fingerprint_mismatch_quarantines(data: Path) -> None:
+    m = _manifest(data)
+    m["lux-guide"]["ingest_fingerprint"] = "faux"
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {"lux-guide": "ingest_fingerprint du document différent du manifest"}
+
+
+def test_invalid_manifest_entry_quarantines_only_that_doc(data: Path) -> None:
+    m = _manifest(data)
+    m["autre-doc"] = {"status": "bizarre"}
+    _write_manifest(data, m)
+    c = load_corpus(data, allow_ungated=True)
+    assert c.served == ["lux-guide"] and c.quarantine["autre-doc"].startswith("entrée de manifest invalide : ")
+    assert "autre-doc" not in c.manifest
 
 
 def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
@@ -128,7 +182,7 @@ def test_each_inconsistency_has_its_reason(data: Path) -> None:
     assert load_corpus(data, allow_ungated=True).quarantine["lux-guide"].startswith("document.json invalide :")
 
     p.write_bytes(original)
-    _rename_doc(doc_dir, "autre-id")
+    _rename_doc(doc_dir, "autre-id", block_ids=True)
     _set_hash(data)
     assert load_corpus(data, allow_ungated=True).quarantine == {"lux-guide": "doc_id 'autre-id' différent de la clé du manifest"}
 
@@ -157,7 +211,7 @@ def test_invalid_manifest_gives_empty_corpus_with_reason(data: Path) -> None:
     (data / "manifest.json").write_text("{", "utf-8")
     c = load_corpus(data, allow_ungated=True)
     assert c.documents == {} and c.quarantine["*"].startswith("manifest invalide : ")
-    (data / "manifest.json").write_text(json.dumps({"lux-guide": {"status": "bizarre"}}), "utf-8")
+    (data / "manifest.json").write_text("[1, 2]", "utf-8")
     assert load_corpus(data, allow_ungated=True).quarantine["*"].startswith("manifest invalide : ")
 
 

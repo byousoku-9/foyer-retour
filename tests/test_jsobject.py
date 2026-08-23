@@ -23,7 +23,7 @@ def test_parses_mini_kb() -> None:
 
 @pytest.mark.parametrize("text, expected", [
     ('{a: 1, "b": [1, 2,], c: {},}', {"a": 1, "b": [1, 2], "c": {}}),
-    ('/* x */ x.y.z = { a: "\\u00e9\\n" } ; // fin', {"a": "é\n"}),
+    ('/* x */ window.KB = { a: "\\u00e9\\n" } ; // fin', {"a": "é\n"}),
     ("[-1, 2.5, 1e3, true, false, null]", [-1, 2.5, 1000.0, True, False, None]),
     ('"seule"', "seule"),
     ('"\\uD83D\\uDE00 \\u00e9"', "😀 é"),
@@ -44,6 +44,8 @@ def test_constructions(text: str, expected: object) -> None:
     ('{a: "\\uD83Dx"}', 1, 6),
     ('{a: "\\uDE00"}', 1, 6),
     ('{a: 1,\n a: 2}', 2, 2),
+    ("x.y.z = {}", 1, 1),
+    ("window.AUTRE = {}", 1, 1),
 ])
 def test_unknown_construction_reports_position(text: str, line: int, col: int) -> None:
     with pytest.raises(JSObjectError) as info:
