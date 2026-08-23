@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from .document import DomainModel
-
-from .document import Block
+from .document import Block, DomainModel
 
 
 class RetrievalBudget(DomainModel):
@@ -25,3 +23,12 @@ class RetrievalResult(DomainModel):
     opened_block_ids: list[str] = Field(default_factory=list)
     discarded_block_ids: list[str] = Field(default_factory=list)
     truncated: bool = False
+
+
+class NodeWindow(DomainModel):
+    """Résultat d'`ouvrir_noeud` (AD-1) : fenêtre de blocs du nœud, `truncated` si le nœud dépasse `node_window`."""
+
+    node_id: str
+    blocks: list[Block] = Field(default_factory=list)
+    truncated: bool = False
+    next_cursor: int | None = None

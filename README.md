@@ -6,7 +6,7 @@ Le fil rouge : **on ne gagne pas sur « comment on retrouve », on gagne sur « 
 
 ## État
 
-Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Les sections déploiement et ingestion arrivent avec les stories suivantes.
+Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). La section déploiement arrive avec la story 1.11.
 
 ## Lancer
 
@@ -30,6 +30,18 @@ uv run pytest -q                          # avec la clé, les tests qui appellen
 - Les seuils numériques vivent dans `server/app/config.py` et se surchargent par variable d'environnement.
 - Ré-enregistrer une fixture LLM : supprimer `tests/llm_fixtures/{module}.{test}.json` puis relancer ce test avec `ANTHROPIC_API_KEY` renseignée (réseau, coût) ; committer le JSON avec le pourquoi.
 - Les vérifications qui touchent le réseau (GCP, API) sont consignées dans `docs/tests-live.md`.
+
+## Ingestion du guide
+
+```bash
+uv run python -m server.ingest.kb_to_blocks        # data/lux-guide/source.js → document.json, summary.md, report.json ; fusion de data/manifest.json
+```
+
+- `data/lux-guide/source.js` est la copie octet-identique de `web/app/kb.js` (filiation dans `data/lux-guide/README.md`) ; le parseur est en Python pur, sans Node.
+- Sortie déterministe : relancer ne modifie rien ; `document.json` ne contient jamais `text_norm`, recalculé au chargement.
+- Exit 1 et `status: quarantaine` dans `manifest.json` si un check bloquant (invariant d'arbre) est levé ; `ids_disparus` est une alerte calculée contre le `document.json` précédent.
+- `manifest.gate` reste `null` jusqu'au premier gate des questions-témoins (story 1.10) ; en dev, `ALLOW_UNGATED` sert le document avec l'alerte `sans_gate`.
+- Le serveur lit `data/` par `server/app/corpus/loader.py` (hashes recalculés, quarantaine par document) et l'indexe par `server/app/corpus/index.py` ; les seuils (`search_limit`, `node_window`) viennent de `server/app/config.py`.
 
 ## Infrastructure
 

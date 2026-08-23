@@ -164,6 +164,22 @@ class Document(DomainModel):
         orphans = sorted(set(by_id) - set(parents))
         if orphans:
             raise ValueError(f"blocs orphelins (sans nœud) : {orphans}")
+        node_parent: dict[str, str] = {}
+        children: dict[str, list[str]] = {n.node_id: n.children for n in self.nodes}
+        for n in self.nodes:
+            for c in n.children:
+                if c in node_parent:
+                    raise ValueError(f"nœud {c} rattaché à deux parents : {node_parent[c]}, {n.node_id}")
+                node_parent[c] = n.node_id
+        # aucun cycle : en remontant les parents depuis chaque nœud, on doit atteindre une racine
+        for start in children:
+            seen = {start}
+            cur = start
+            while cur in node_parent:
+                cur = node_parent[cur]
+                if cur in seen:
+                    raise ValueError(f"cycle de nœuds via {cur}")
+                seen.add(cur)
         self._by_id = by_id
         return self
 

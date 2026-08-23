@@ -100,6 +100,10 @@ def test_document_tree_invariants() -> None:
         _doc([{"node_id": "a", "items": [{"block_id": "d:p1:1"}]}, {"node_id": "b", "items": [{"block_id": "d:p1:1"}]}], [_blk(1)])
     with pytest.raises(ValidationError, match="orphelins"):
         _doc([{"node_id": "root"}], [_blk(1)])
+    with pytest.raises(ValidationError, match="deux parents"):
+        _doc([{"node_id": "a", "items": [{"node_id": "c"}]}, {"node_id": "b", "items": [{"node_id": "c"}]}, {"node_id": "c"}], [])
+    with pytest.raises(ValidationError, match="cycle"):
+        _doc([{"node_id": "a", "items": [{"node_id": "b"}]}, {"node_id": "b", "items": [{"node_id": "a"}]}], [])
 
 
 def test_node_items_is_single_source_of_order() -> None:
@@ -218,3 +222,20 @@ def test_profil_extra_allow_and_filter() -> None:
     assert p.model_dump()["inconnu"] == "x"
     assert p.filtered() == {"enfants": 2}
     assert "enfants" in PROFIL_KEYS
+
+
+# AD-7 / AD-8 (story 1.1)
+def test_ingest_models() -> None:
+    from server.app.domain import ingest
+
+    assert fields(ingest.Check) == {"name", "level", "detail"}
+    assert literal_values(ingest.Check, "level") == {"bloquant", "alerte", "info"}
+    assert fields(ingest.Report) == {"doc_id", "checks", "stats"}
+    assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
+                                   "prompts_digest", "model_ids", "evals_ok", "date"}
+    assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
+    assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition", "gate"}
+    assert literal_values(ingest.ManifestEntry, "status") == {"servi", "quarantaine"}
+    assert fields(retrieval.NodeWindow) == {"node_id", "blocks", "truncated", "next_cursor"}
+    r = ingest.Report(doc_id="d", checks=[{"name": "a", "level": "bloquant"}, {"name": "b", "level": "alerte"}])
+    assert [c.name for c in r.blocking] == ["a"] and [c.name for c in r.alerts] == ["b"]

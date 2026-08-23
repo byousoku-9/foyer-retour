@@ -17,3 +17,16 @@ Les tests unitaires (`uv run pytest`) n'ont jamais besoin du réseau ; ce qui en
 | Grep assureurs (NFR11) | grep d'une liste privée de noms d'assureurs (hors repo) | zéro occurrence hors faux positifs (« foyer » = ménage, « luxembourgeoise » = adjectif) ; rien dans `web/comparateur/` |
 | Plafond de dépense Anthropic | — | compte en crédit prépayé rechargé à la main par Lancelot (confirmé le 23/08/2026) — pas de plafond self-service à régler, le solde de crédit est la borne dure ; les plafonds côté code (0,10 €/requête, `--max-cost` par run d'évals) restent les garde-fous applicatifs |
 | Variables GitHub | `gh variable list -R byousoku-9/foyer-retour` | `DEPLOY_SA`, `GCP_PROJECT_ID`, `WIF_PROVIDER` créées ; `gh api repos/byousoku-9/foyer-retour/actions/permissions` → `enabled: true` |
+
+## Story 1.1 — Le guide devient un classeur à blocs (2026-08-23)
+
+Aucun réseau ni modèle : l'ingestion est locale et déterministe. Exécution réelle consignée pour référence.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Ingestion de la source réelle | `uv run python -m server.ingest.kb_to_blocks` | exit 0 ; 36 fiches, 41 FAQ, 88 nœuds, 506 blocs (391 `para`, 112 `heading`, 3 `table`) ; timeline (5 phases, 38 étapes) non ingérée (`info`) ; aucun bloquant, aucune alerte ; `status: servi`, `gate: null` |
+| Stabilité | relance puis `git status --short data/` | aucune modification (`document.json`, `report.json`, `summary.md`, `manifest.json` octet-identiques) |
+| Chargement | `load_corpus('data', allow_ungated=True)` | `quarantine={}`, `alerts={'lux-guide': ['sans_gate']}`, 506 blocs avec `text_norm` ; `allow_ungated=False` ⇒ `lux-guide` en quarantaine `sans_gate` |
+| Taille du sommaire | `wc -c data/lux-guide/summary.md` ; `report.json` (`sommaire_chars`) | 12 892 octets UTF-8 = 12 419 caractères, soit ≈ 3 100 tokens à 4 car./token (estimation grossière ; l'AC vise ≈ 2–3 k tokens, la mesure réelle au tokenizer Anthropic est reportée à la story 1.3) — dans la fourchette 8–14 ko visée |
+| Recherche | `chercher({"matricule": [], "commune": []}, limit=20)` | 20 résultats ; en tête `lux-guide:farrivee:6` (les deux termes), puis `farrivee:11`, avant tout bloc à un seul terme |
+| Tests sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | 144 passed (après revue du diff 1.1) |
