@@ -167,8 +167,11 @@ function clause(block_id, quote, extra) {
 }
 
 function claim(claim_id, text, quotes, status) {
+  // `status` est **copié** : `STATUT_HUMAIN` et `STATUT_OUI` sont des constantes du module, et un
+  // cas qui altère le statut d'une claim pour éprouver le lecteur strict (revue Codex 1.9, tour 2)
+  // les altérait pour tous les cas suivants — un relevé faux, sans que rien ne le dise.
   return { claim_id, text, quotes: quotes.map((b) => ({ block_id: b, quote: "peu importe" })),
-           status };
+           status: Object.assign({}, status) };
 }
 
 const STATUT_HUMAIN = { retrouvee: true, pertinente: true, applicable: "humain",
@@ -822,6 +825,77 @@ async function main() {
       sans_rejetees: (() => {
         const r = reponseVerdict(); delete r.answer.rejected_claims; return r;
       })(),
+      // Revue Codex 1.9 (tour 2, I2) : la présence des conteneurs ne suffit pas. Un conteneur bien
+      // formé dont les **feuilles** ne le sont pas fabrique ou omet une réserve tout aussi bien.
+      // `missing: {}` est le contre-exemple : il passait le contrôle d'objet, et `paquetVue()`
+      // annonçait alors les quatre pièces du contrat comme non lues.
+      paquet_vide: (() => { const r = reponseVerdict(); r.answer.verdict.missing = {}; return r; })(),
+      piece_absente: (() => {
+        const r = reponseVerdict(); delete r.answer.verdict.missing.avenants; return r;
+      })(),
+      piece_en_chaine: (() => {
+        const r = reponseVerdict(); r.answer.verdict.missing.date_effet = "oui"; return r;
+      })(),
+      fait_manquant_objet: (() => {
+        const r = reponseVerdict(); r.answer.verdict.missing.faits = [{ libelle: "subit" }]; return r;
+      })(),
+      question_objet: (() => {
+        const r = reponseVerdict(); r.answer.verdict.ask_client[1] = { texte: "?" }; return r;
+      })(),
+      escalade_nombre: (() => {
+        const r = reponseVerdict(); r.answer.verdict.escalate[0] = 3; return r;
+      })(),
+      claim_null: (() => { const r = reponseVerdict(); r.answer.claims[1] = null; return r; })(),
+      claim_sans_texte: (() => {
+        const r = reponseVerdict(); delete r.answer.claims[0].text; return r;
+      })(),
+      claim_sans_statut: (() => {
+        const r = reponseVerdict(); delete r.answer.claims[1].status; return r;
+      })(),
+      claim_statut_sans_edition: (() => {
+        const r = reponseVerdict(); delete r.answer.claims[0].status.edition; return r;
+      })(),
+      claim_statut_applicable_objet: (() => {
+        const r = reponseVerdict(); r.answer.claims[0].status.applicable = { v: "oui" }; return r;
+      })(),
+      claim_sans_quotes: (() => {
+        const r = reponseVerdict(); r.answer.claims[1].quotes = []; return r;
+      })(),
+      claim_quote_sans_bloc: (() => {
+        const r = reponseVerdict(); delete r.answer.claims[0].quotes[0].block_id; return r;
+      })(),
+      rejetee_sans_kind: (() => {
+        const r = reponseVerdict(); delete r.answer.rejected_claims[0].rejection_kind; return r;
+      })(),
+      clause_null: (() => { const r = reponseVerdict(); r.sources[1] = null; return r; })(),
+      clause_page_en_chaine: (() => {
+        const r = reponseVerdict(); r.sources[0].page = "9"; return r;
+      })(),
+      clause_sans_statut: (() => {
+        const r = reponseVerdict(); delete r.sources[1].status; return r;
+      })(),
+      clause_typage_non_booleen: (() => {
+        const r = reponseVerdict(); r.sources[0].kind_confirmed = "oui"; return r;
+      })(),
+      inconnu_objet: (() => {
+        const r = reponseVerdict(); r.answer.unknown = [{ texte: "?" }]; return r;
+      })(),
+      sans_inconnus: (() => { const r = reponseVerdict(); delete r.answer.unknown; return r; })(),
+      faits_compris_en_chaine: (() => {
+        const r = reponseVerdict(); r.answer.faits_compris = "mobilier de salon"; return r;
+      })(),
+      fait_compris_objet: (() => {
+        const r = reponseVerdict(); r.answer.faits_compris.evenement = { v: "brûlure" }; return r;
+      })(),
+      themes_non_liste: (() => {
+        const r = reponseVerdict(); r.answer.faits_compris.themes = "habitation"; return r;
+      })(),
+      theme_objet: (() => {
+        const r = reponseVerdict(); r.answer.faits_compris.themes[1] = { t: "incendie" }; return r;
+      })(),
+      clarification_objet: (() => {
+        const r = reponseVerdict(); r.answer.clarification = { q: "quel bien ?" }; return r;
+      })(),
     };
     cas.illisibles = {};
     for (const [nom, corps] of Object.entries(incomplets)) {
@@ -831,6 +905,52 @@ async function main() {
       cas.illisibles[nom] = erreur
         ? { kind: erreur.kind, code: erreur.code, champ: erreur.champ || null }
         : null;
+    }
+  }
+
+  // --- ce qu'un lecteur strict ne doit **pas** refuser -------------------
+  //
+  // Le symétrique du relevé précédent, et la seule chose qui empêche « plus strict » de devenir
+  // « inutilisable » : les champs `X | None` du contrat valent `null` de plein droit, et les listes
+  // vides sont des réponses ordinaires (un refus n'a ni clause, ni question, ni thème).
+  {
+    const conformes = {
+      refus: reponseRefus(),
+      clarification: reponseClarification(),
+      faits_compris_null: (() => {
+        const r = reponseVerdict(); r.answer.faits_compris = null; return r;
+      })(),
+      faits_compris_partiel: (() => {
+        const r = reponseVerdict();
+        r.answer.faits_compris = { themes: [], bien: null, evenement: null, lieu: null,
+                                   cause: null, moment: null };
+        return r;
+      })(),
+      clause_sans_page: (() => { const r = reponseVerdict(); r.sources[0].page = null; return r; })(),
+      statut_sans_applicable: (() => {
+        const r = reponseVerdict();
+        r.answer.claims[0].status = { retrouvee: true, pertinente: null, applicable: null,
+                                      edition: "juin 2017" };
+        return r;
+      })(),
+      listes_vides: (() => {
+        const r = reponseVerdict();
+        r.answer.verdict.ask_client = [];
+        r.answer.verdict.escalate = [];
+        r.answer.verdict.missing.faits = [];
+        r.answer.unknown = [];
+        return r;
+      })(),
+    };
+    cas.lisibles = {};
+    for (const [nom, corps] of Object.entries(conformes)) {
+      const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps }));
+      let erreur = null;
+      let vue = null;
+      try { vue = await SINISTRE.soumettre(SAISIE); } catch (e) { erreur = e; }
+      cas.lisibles[nom] = erreur
+        ? { refuse: true, champ: erreur.champ || null }
+        : { refuse: false, verdict: vue.answer.verdict.value };
     }
   }
 

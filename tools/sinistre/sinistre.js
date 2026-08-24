@@ -711,26 +711,100 @@
   function enLigne() { return !!API_BASE; }
 
   function estObjet(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+  function estChaine(v) { return typeof v === "string"; }
+  function estBooleen(v) { return typeof v === "boolean"; }
+  // `isFinite` et non `typeof === "number"` : `NaN` est un nombre pour JavaScript, et « page NaN »
+  // est un numéro de page inventé — la même raison qu'à `coutTexte()`.
+  function estNombre(v) { return typeof v === "number" && isFinite(v); }
 
-  // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme. Un 200 incomplet n'est pas
-  // une réponse dégradée, c'est un serveur cassé : la page n'en peint aucun morceau (`reponse_illisible`).
-  // « Ce que l'écran consomme » est pris au mot depuis la revue Codex 1.9 (tour 1, I2) : **tout**
-  // ce qu'UX-DR6 fait afficher est exigé présent et bien typé. Un défaut de schéma côté serveur
+  /**
+   * Un champ `X | None` du contrat. `null` en est une **valeur** (pydantic la sérialise), et JSON
+   * ne distingue pas `null` de l'absence : les deux passent, tout le reste est un serveur cassé.
+   */
+  function ouNul(predicat) {
+    return function (v) { return v === null || v === undefined || predicat(v); };
+  }
+
+  function exiger(ok, champ) { if (!ok) throw illisible(champ); }
+
+  function exigerListe(v, predicat, champ) {
+    exiger(Array.isArray(v), champ);
+    for (var i = 0; i < v.length; i++) exiger(predicat(v[i]), champ + "[" + i + "]");
+  }
+
+  // Le `ClaimStatus` d'AD-4, tel que `statutTexte()` le lit. `pertinente` et `applicable` sont
+  // `… | None` dans le domaine ; `retrouvee` et `edition` ne le sont pas.
+  function lireStatut(s, champ) {
+    exiger(estObjet(s), champ);
+    exiger(estBooleen(s.retrouvee), champ + ".retrouvee");
+    exiger(ouNul(estBooleen)(s.pertinente), champ + ".pertinente");
+    exiger(ouNul(estChaine)(s.applicable), champ + ".applicable");
+    exiger(estChaine(s.edition), champ + ".edition");
+  }
+
+  // Une claim affichée. `quotes` porte l'appariement de D6 — c'est elle qui, énumérée dans l'ordre,
+  // doit retomber sur `sources[]` : une quote sans `block_id` lisible fait perdre le rattachement de
+  // **toutes** les clauses, et `Claim.quotes` a un `min_length=1` que le fil doit refléter.
+  function lireClaim(c, champ) {
+    exiger(estObjet(c), champ);
+    exiger(estChaine(c.claim_id), champ + ".claim_id");
+    exiger(estChaine(c.text), champ + ".text");
+    exiger(Array.isArray(c.quotes) && c.quotes.length > 0, champ + ".quotes");
+    for (var i = 0; i < c.quotes.length; i++) {
+      exiger(estObjet(c.quotes[i]), champ + ".quotes[" + i + "]");
+      exiger(estChaine(c.quotes[i].block_id), champ + ".quotes[" + i + "].block_id");
+    }
+    lireStatut(c.status, champ + ".status");
+  }
+
+  // Une affirmation écartée : la page en affiche le texte et le motif, et **jamais** sa citation
+  // (D7). Ce sont donc les deux seuls champs qu'elle consomme, et les deux qu'elle exige.
+  function lireRejetee(c, champ) {
+    exiger(estObjet(c), champ);
+    exiger(estChaine(c.text), champ + ".text");
+    exiger(estChaine(c.rejection_kind), champ + ".rejection_kind");
+  }
+
+  // Les cinq champs d'AD-11 que la page lit, plus les deux de D5. `page` est `int | None` (le guide
+  // n'en a pas) ; `bbox` et `line_ids` ne sont pas listés : rien ne les affiche ici.
+  function lireClause(s, champ) {
+    exiger(estObjet(s), champ);
+    exiger(estChaine(s.block_id), champ + ".block_id");
+    exiger(estChaine(s.quote), champ + ".quote");
+    exiger(estChaine(s.kind), champ + ".kind");
+    exiger(estBooleen(s.kind_confirmed), champ + ".kind_confirmed");
+    exiger(ouNul(estNombre)(s.page), champ + ".page");
+    exiger(estChaine(s.status), champ + ".status");
+  }
+
+  // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme — et **récursive** depuis la
+  // revue Codex 1.9 (tour 2, I2). Un 200 incomplet n'est pas une réponse dégradée, c'est un serveur
+  // cassé : la page n'en peint aucun morceau (`reponse_illisible`).
+  //
+  // Vérifier la présence des conteneurs ne suffisait pas, et le contre-exemple est `missing`. Un
+  // `missing: {}` passait le contrôle d'objet, puis `paquetVue()` — qui liste la pièce dont le
+  // booléen n'est pas `false` — annonçait **les quatre pièces manquantes**. Une réserve fabriquée,
+  // exactement le symétrique de la réserve omise que le tour 1 avait corrigée : dans les deux cas la
+  // page dit quelque chose que le serveur n'a pas dit. Même chose pour un `ask_client` d'objets
+  // (« [object Object] » en question à poser au client), pour une claim sans `status` (une clause
+  // affichée sans son applicabilité ni sa réserve d'édition) ou pour une `page` en chaîne.
+  //
+  // La règle est donc : **tout ce qu'UX-DR6 fait afficher est descendu jusqu'à la feuille**, et
+  // chaque feuille est typée comme le domaine la type. Un défaut de schéma côté serveur
   // (`Field(default_factory=…)`) n'est pas un champ facultatif sur le fil — pydantic le sérialise
-  // toujours —, et le tolérer absent revenait à peindre le verdict sans ses réserves.
-  // Les seuls champs vraiment facultatifs du contrat (`faits_compris`, `clarification`, `reason`)
-  // ne sont pas listés ici : ils valent `null` de plein droit, et les vues les traitent comme tels.
+  // toujours. Les seuls champs vraiment facultatifs du contrat (`faits_compris`, `clarification`,
+  // `reason`) valent `null` de plein droit : `ouNul()` le dit, et rien de plus.
   function lireReponse(j) {
     var o = j || {};
-    if (!estObjet(o.answer)) throw illisible("answer");
-    if (typeof o.answer.found !== "boolean") throw illisible("answer.found");
-    if (typeof o.answer.complete !== "boolean") throw illisible("answer.complete");
-    if (typeof o.answer.texte !== "string") throw illisible("answer.texte");
+    exiger(estObjet(o.answer), "answer");
+    exiger(estBooleen(o.answer.found), "answer.found");
+    exiger(estBooleen(o.answer.complete), "answer.complete");
+    exiger(estChaine(o.answer.texte), "answer.texte");
     // AD-16 : un refus sinistre **porte** un verdict, jamais rien. Un corps sans verdict n'a pas pu
     // être écrit par la route ; le peindre afficherait « verdict non reconnu » à la place d'une
     // erreur, c'est-à-dire un verdict de remplacement.
-    if (!estObjet(o.answer.verdict)) throw illisible("answer.verdict");
-    if (typeof o.answer.verdict.value !== "string") throw illisible("answer.verdict.value");
+    exiger(estObjet(o.answer.verdict), "answer.verdict");
+    exiger(estChaine(o.answer.verdict.value), "answer.verdict.value");
     // Les cinq champs du `Verdict` d'AD-6 : `value`, `reason`, `missing`, `ask_client`, `escalate`.
     // Aucun n'est facultatif côté serveur (`reason: str`, les trois autres ont un `default_factory`,
     // donc pydantic les sérialise toujours) : leur absence est un serveur cassé, pas un verdict
@@ -738,26 +812,51 @@
     // manquant, sans les questions à poser, sans la raison —, c'est-à-dire un verdict plus assuré
     // que celui que le serveur a rendu (revue Codex 1.9, tour 1, I2). UX-DR6 les exige à l'écran ;
     // AD-16 dit que ce qui manque ne se comble pas en silence.
-    if (typeof o.answer.verdict.reason !== "string") throw illisible("answer.verdict.reason");
-    if (!estObjet(o.answer.verdict.missing)) throw illisible("answer.verdict.missing");
-    if (!Array.isArray(o.answer.verdict.ask_client)) throw illisible("answer.verdict.ask_client");
-    if (!Array.isArray(o.answer.verdict.escalate)) throw illisible("answer.verdict.escalate");
-    if (!Array.isArray(o.answer.claims)) throw illisible("answer.claims");
+    exiger(estChaine(o.answer.verdict.reason), "answer.verdict.reason");
+    // `MissingPackage` d'AD-6, jusqu'à ses quatre booléens : c'est `paquetVue()` qui les lit un par
+    // un, et l'absence de l'un d'eux se peignait en « pièce non lue » (revue Codex 1.9, tour 2).
+    exiger(estObjet(o.answer.verdict.missing), "answer.verdict.missing");
+    exiger(estBooleen(o.answer.verdict.missing.conditions_particulieres),
+           "answer.verdict.missing.conditions_particulieres");
+    exiger(estBooleen(o.answer.verdict.missing.options_souscrites),
+           "answer.verdict.missing.options_souscrites");
+    exiger(estBooleen(o.answer.verdict.missing.avenants), "answer.verdict.missing.avenants");
+    exiger(estBooleen(o.answer.verdict.missing.date_effet), "answer.verdict.missing.date_effet");
+    exigerListe(o.answer.verdict.missing.faits, estChaine, "answer.verdict.missing.faits");
+    exigerListe(o.answer.verdict.ask_client, estChaine, "answer.verdict.ask_client");
+    exigerListe(o.answer.verdict.escalate, estChaine, "answer.verdict.escalate");
+    exiger(Array.isArray(o.answer.claims), "answer.claims");
+    for (var c = 0; c < o.answer.claims.length; c++) {
+      lireClaim(o.answer.claims[c], "answer.claims[" + c + "]");
+    }
     // `rejected_claims` porte les affirmations écartées par la vérification : l'écran le plus
     // démuni — un `ne_tranche_pas` sans clause — n'a souvent que cette section à montrer.
-    if (!Array.isArray(o.answer.rejected_claims)) throw illisible("answer.rejected_claims");
+    exiger(Array.isArray(o.answer.rejected_claims), "answer.rejected_claims");
+    for (var r = 0; r < o.answer.rejected_claims.length; r++) {
+      lireRejetee(o.answer.rejected_claims[r], "answer.rejected_claims[" + r + "]");
+    }
+    exigerListe(o.answer.unknown, estChaine, "answer.unknown");
+    exiger(ouNul(estChaine)(o.answer.clarification), "answer.clarification");
+    // `faits_compris` est le seul objet vraiment facultatif de la réponse (`QuestionScope | None` :
+    // le guide n'en a pas, et AD-5 n'en publie pas sur une clarification). Présent, il est descendu
+    // comme le reste — c'est l'endroit où l'utilisateur vérifie qu'il a été compris, et un
+    // `evenement: {}` y aurait affiché « [object Object] » en événement du sinistre.
+    exiger(ouNul(estObjet)(o.answer.faits_compris), "answer.faits_compris");
+    if (o.answer.faits_compris) {
+      exigerListe(o.answer.faits_compris.themes, estChaine, "answer.faits_compris.themes");
+      exiger(ouNul(estChaine)(o.answer.faits_compris.bien), "answer.faits_compris.bien");
+      exiger(ouNul(estChaine)(o.answer.faits_compris.evenement), "answer.faits_compris.evenement");
+      exiger(ouNul(estChaine)(o.answer.faits_compris.lieu), "answer.faits_compris.lieu");
+      exiger(ouNul(estChaine)(o.answer.faits_compris.cause), "answer.faits_compris.cause");
+      exiger(ouNul(estChaine)(o.answer.faits_compris.moment), "answer.faits_compris.moment");
+    }
     // `sources` **doit** être là : c'est la liste des clauses relues du corpus (AD-11), et un
     // verdict peint sans elle serait un verdict sans ses clauses — la promesse même de l'outil.
     // Vide, elle est légitime (un refus n'en a aucune) ; absente, elle n'a pas été écrite.
-    if (!Array.isArray(o.sources)) throw illisible("sources");
-    o.sources.forEach(function (s, i) {
-      if (!estObjet(s)) throw illisible("sources[" + i + "]");
-      if (typeof s.block_id !== "string") throw illisible("sources[" + i + "].block_id");
-      if (typeof s.quote !== "string") throw illisible("sources[" + i + "].quote");
-      if (typeof s.kind !== "string") throw illisible("sources[" + i + "].kind");
-    });
-    if (!estObjet(o.trace)) throw illisible("trace");
-    if (typeof o.trace.request_id !== "string") throw illisible("trace.request_id");
+    exiger(Array.isArray(o.sources), "sources");
+    for (var s = 0; s < o.sources.length; s++) lireClause(o.sources[s], "sources[" + s + "]");
+    exiger(estObjet(o.trace), "trace");
+    exiger(estChaine(o.trace.request_id), "trace.request_id");
     return {
       answer: o.answer,
       sources: o.sources,

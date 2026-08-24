@@ -562,6 +562,36 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("sans_escalate", "answer.verdict.escalate"),
     ("sans_claims", "answer.claims"),
     ("sans_rejetees", "answer.rejected_claims"),
+    # Revue Codex 1.9 (tour 2, I2) : la lecture descend jusqu'aux **feuilles**. Un conteneur bien
+    # formé aux feuilles fausses fabrique ou omet une réserve tout aussi sûrement qu'un conteneur
+    # absent — `missing: {}` faisait annoncer les quatre pièces du contrat comme non lues, un
+    # `ask_client` d'objets posait « [object Object] » en question à poser au client, une claim sans
+    # `status` affichait sa clause sans applicabilité ni réserve d'édition.
+    ("paquet_vide", "answer.verdict.missing.conditions_particulieres"),
+    ("piece_absente", "answer.verdict.missing.avenants"),
+    ("piece_en_chaine", "answer.verdict.missing.date_effet"),
+    ("fait_manquant_objet", "answer.verdict.missing.faits[0]"),
+    ("question_objet", "answer.verdict.ask_client[1]"),
+    ("escalade_nombre", "answer.verdict.escalate[0]"),
+    ("claim_null", "answer.claims[1]"),
+    ("claim_sans_texte", "answer.claims[0].text"),
+    ("claim_sans_statut", "answer.claims[1].status"),
+    ("claim_statut_sans_edition", "answer.claims[0].status.edition"),
+    ("claim_statut_applicable_objet", "answer.claims[0].status.applicable"),
+    ("claim_sans_quotes", "answer.claims[1].quotes"),
+    ("claim_quote_sans_bloc", "answer.claims[0].quotes[0].block_id"),
+    ("rejetee_sans_kind", "answer.rejected_claims[0].rejection_kind"),
+    ("clause_null", "sources[1]"),
+    ("clause_page_en_chaine", "sources[0].page"),
+    ("clause_sans_statut", "sources[1].status"),
+    ("clause_typage_non_booleen", "sources[0].kind_confirmed"),
+    ("inconnu_objet", "answer.unknown[0]"),
+    ("sans_inconnus", "answer.unknown"),
+    ("faits_compris_en_chaine", "answer.faits_compris"),
+    ("fait_compris_objet", "answer.faits_compris.evenement"),
+    ("themes_non_liste", "answer.faits_compris.themes"),
+    ("theme_objet", "answer.faits_compris.themes[1]"),
+    ("clarification_objet", "answer.clarification"),
 ])
 def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
     """AD-16 : « réponse vide présentée comme réponse ». Un corps qu'aucune route ne peut écrire.
@@ -574,6 +604,25 @@ def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, cha
     assert obtenu is not None, "le corps aurait dû être refusé"
     assert obtenu["code"] == "reponse_illisible"
     assert obtenu["champ"] == champ
+
+
+@pytest.mark.parametrize("nom", [
+    "refus", "clarification", "faits_compris_null", "faits_compris_partiel",
+    "clause_sans_page", "statut_sans_applicable", "listes_vides",
+])
+def test_un_200_conforme_nest_jamais_refuse(cas: dict[str, Any], nom: str) -> None:
+    """Le garde-fou du durcissement (revue Codex 1.9, tour 2, I2) : strict, pas inutilisable.
+
+    Un lecteur qui descend jusqu'aux feuilles peut, d'un caractère, refuser des réponses
+    parfaitement conformes — et l'outil n'afficherait alors plus jamais de verdict. Les champs
+    `X | None` du contrat (`faits_compris`, `clarification`, `page`, `pertinente`, `applicable`)
+    valent `null` de plein droit ; une liste vide est une réponse ordinaire (un refus n'a ni clause,
+    ni question, ni thème). Ces sept corps-là doivent passer, et c'est ce qui rend le relevé
+    précédent lisible : les refus qu'il contient sont des refus **choisis**.
+    """
+    releve = cas["lisibles"][nom]
+    assert releve["refuse"] is False, f"corps conforme refusé sur {releve['champ']}"
+    assert releve["verdict"] in {"couvert", "non_couvert", "sous_conditions", "ne_tranche_pas"}
 
 
 # --- AD-15 : la matérialisation ------------------------------------------
