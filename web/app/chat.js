@@ -1115,9 +1115,15 @@ window.CHAT = (function () {
                    Math.round(seuil("client_abort_margin_s", MARGE_ABANDON_S_REPLI) * 1000))
       : null;
     function finir() { if (minuteur !== null) clearTimeout(minuteur); }
+    // `finir()` n'est appele qu'au **reglement** de la promesse, jamais a la reception des en-tetes :
+    // `r.json()` attend le corps, et couper la minuterie plus tot laissait un serveur qui envoie un
+    // 200 puis bloque sur le corps pendre sans borne — la premiere question attend `testerApi()`
+    // (voir `reponseApi`), donc la saisie restait verrouillee indefiniment, contre la borne annoncee
+    // (AD-11/AD-16). Meme forme que `tools/accueil/accueil.js::sonder()` (revue Codex 1.10, I1).
     return fetch(API_BASE + "/sante", options)
-      .then(function (r) { finir(); return r.ok ? r.json() : null; })
+      .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
+        finir();
         apiDisponible = !!(j && j.ok);
         // Les seuils actifs du serveur, servis a chaque chargement de page : le front s'en sert
         // plutot que de recopier `config.py`.
@@ -1165,26 +1171,35 @@ window.CHAT = (function () {
     var minuteur = ctrl ? setTimeout(function () { ctrl.abort(); }, delaiAbandonMs()) : null;
     function finir() { if (minuteur !== null) clearTimeout(minuteur); }
 
+    function abandon() {
+      // Un abandon est bien une indisponibilite : le serveur n'a pas repondu a temps.
+      return erreurChat({
+        kind: "indisponible",
+        code: (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau",
+        statut: 0
+      });
+    }
+
+    // `finir()` n'est appele qu'au **reglement**, jamais a la reception des en-tetes : `r.json()`
+    // attend le corps, et couper la minuterie plus tot laissait un serveur qui repond puis bloque
+    // sur le corps pendre sans borne, attente affichee et saisie verrouillee (meme defaut que la
+    // sonde, revue Codex 1.10, I1). Consequence assumee : le corps aussi peut etre abandonne, et un
+    // `json()` rejete apres un `abort` est un abandon, pas un corps illisible.
     return fetch(API_BASE + "/chat", options).then(function (r) {
-      finir();
       if (!r.ok) {
         return r.json().then(function (j) { return j; }, function () { return null; })
           .then(function (j) { throw erreurHttp(r.status, r.headers, j); });
       }
       return r.json().then(lireReponse, function () {
+        if (ctrl && ctrl.signal.aborted) throw abandon();
         // 200 dont le corps n'est pas lisible : le serveur est casse, mais ce n'est pas une
         // indisponibilite au sens d'AD-11 — pas de bouton de repli.
         throw erreurChat({ kind: "requete", code: "reponse_illisible", statut: r.status });
       });
     }, function () {
-      finir();
-      // Un abandon est bien une indisponibilite : le serveur n'a pas repondu a temps.
-      throw erreurChat({
-        kind: "indisponible",
-        code: (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau",
-        statut: 0
-      });
-    });
+      throw abandon();
+    }).then(function (v) { finir(); return v; },
+            function (e) { finir(); throw e; });
   }
 
   // ---------- Point d'entree unique ----------

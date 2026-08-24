@@ -1317,6 +1317,22 @@ def test_une_requete_en_vol_ne_survit_pas_a_la_reinitialisation() -> None:
     assert "generation++;" in ui
 
 
+def test_un_200_dont_le_corps_ne_vient_jamais_est_abandonne(cas: dict[str, Any]) -> None:
+    """Revue Codex 1.10, I1 : la borne doit couvrir le **corps**, pas seulement les en-têtes.
+
+    `finir()` coupait la minuterie dès la réception des en-têtes. Un serveur qui envoie un 200 puis
+    bloque sur le corps laissait donc la sonde pendre sans abandon armé — et la première question
+    attend la sonde (`reponseApi`) : la saisie restait verrouillée sans fin, contre la borne que la
+    page annonce (AD-11/AD-16). La question `POST /chat` portait le même défaut.
+    """
+    assert cas["sonde_corps_qui_pend_minuteur_arme"] == 1, \
+        "l'abandon de la sonde n'est plus armé pendant la lecture du corps"
+    assert cas["sonde_corps_qui_pend"] is False  # sonde en échec, jamais un mode api inventé
+    assert cas["question_corps_qui_pend_minuteur_arme"] == 1
+    # Un corps abandonné n'est pas un corps illisible : c'est le serveur qui n'a pas répondu à temps.
+    assert cas["question_corps_qui_pend"] == {"kind": "indisponible", "code": "timeout_client"}
+
+
 def test_toutes_les_fonctions_pures_de_la_story_sont_exportees(cas: dict[str, Any]) -> None:
     attendues = {"historiquePourApi", "citationsParSegment", "statutTexte", "preuveAbsence",
                  "coutTexte", "etatReponse", "messageErreur", "rechercheSimple"}

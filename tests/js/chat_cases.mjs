@@ -963,6 +963,65 @@ async function main() {
     };
   }
 
+  // --- 200 sur `/sante` puis un corps qui ne vient jamais ----------------
+  // Revue Codex 1.10, I1 : la minuterie de la sonde était coupée à la réception des **en-têtes**,
+  // avant `r.json()`. Un serveur qui envoie un 200 puis bloque sur le corps laissait la sonde
+  // pendre sans abandon armé — et la première question attend la sonde (`reponseApi`), donc la
+  // saisie restait verrouillée sans fin, contre la borne annoncée. Même montage pour la question.
+  {
+    const poses = [];
+    const minuteurs = {
+      setTimeout: (fn, ms) => { poses.push({ fn, ms, annule: false }); return poses.length; },
+      clearTimeout: (n) => { if (poses[n - 1]) poses[n - 1].annule = true; },
+    };
+    const corpsQuiPend = (options) => ({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      json: () => new Promise((_, rej) => {
+        options.signal.addEventListener("abort", () => rej(new Error("abandon")));
+      }),
+    });
+    const { CHAT } = chargerChat(PAGE, (url, options) => Promise.resolve(corpsQuiPend(options)),
+                                 { minuteurs });
+    const promesse = CHAT.testerApi();
+    await tick();
+    const enVol = poses.filter((p) => !p.annule);
+    cas.sonde_corps_qui_pend_minuteur_arme = enVol.length;
+    enVol.forEach((p) => p.fn());
+    cas.sonde_corps_qui_pend = await promesse;
+  }
+
+  // --- 200 sur `/chat` puis un corps qui ne vient jamais -----------------
+  {
+    const poses = [];
+    const minuteurs = {
+      setTimeout: (fn, ms) => { poses.push({ fn, ms, annule: false }); return poses.length; },
+      clearTimeout: (n) => { if (poses[n - 1]) poses[n - 1].annule = true; },
+    };
+    const { CHAT } = chargerChat(PAGE, (url, options) => {
+      if (String(url).endsWith("/sante")) {
+        return reponseHttp({ corps: { ok: true, version: "abc", documents_servis: ["lux-guide"] } });
+      }
+      return Promise.resolve({
+        ok: true, status: 200,
+        headers: { get: () => null },
+        json: () => new Promise((_, rej) => {
+          options.signal.addEventListener("abort", () => rej(new Error("abandon")));
+        }),
+      });
+    }, { minuteurs });
+    await CHAT.testerApi();
+    const avant = poses.length;
+    const promesse = CHAT.repondre(QUESTION, PROFIL, []);
+    await tick();
+    const enVol = poses.slice(avant).filter((p) => !p.annule);
+    cas.question_corps_qui_pend_minuteur_arme = enVol.length;
+    enVol.forEach((p) => p.fn());
+    let erreur = null;
+    try { await promesse; } catch (e) { erreur = e; }
+    cas.question_corps_qui_pend = { kind: erreur && erreur.kind, code: erreur && erreur.code };
+  }
+
   // --- page ouverte en file:// : rien à sonder, rien à poster ------------
   {
     const { CHAT, appels } = chargerChat("file:///Users/quelquun/web/index.html",
