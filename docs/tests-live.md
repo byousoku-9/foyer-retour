@@ -572,3 +572,40 @@ coût        0,0485 € (plafond 0,10 €)
 « soudain » sans rien établir passerait. Il ferme le mode d'échec **mesuré** (un fragment sans aucun
 mot commun), pas la classe entière. Et deux runs consécutifs ont rendu la même auto-déclaration : la
 stabilité du modèle sur ces listes reste à mesurer — c'est l'affaire des questions-témoins de l'epic 4.
+
+### Revue Codex 1.8, tour 3 — la clause elle-même devient témoin
+
+Codex a maintenu B3 une troisième fois, avec deux reproductions : `"qualites_exigees": []`
+**explicitement écrite** sur la garantie de l'article 3.1.1.1.6 rendait encore `oui`, donc `couvert` ;
+et « action subite de la chaleur » était tenue pour établie par « La chaleur a agi lentement », le
+seul mot *chaleur* suffisant au recoupement. Les deux sont corrigées : le code relit le **texte de la
+clause** (lexique fermé de qualificatifs) et ajoute lui-même celles que le modèle n'a pas nommées ; le
+fragment doit employer **tous** les mots de la qualité, qualificatif compris.
+
+| Run | Ce que le code lisait | Résultat |
+|---|---|---|
+| 14 | + qualificatifs relus dans le texte de la clause, + recoupement sur tous les mots de la qualité | `ne_tranche_pas`, 0,0541 €, `p34:12` cité `humain`, `p46:1` absente, un seul appel `micro` |
+
+**Ce que le run 14 montre.** Sur le corpus réel, le lexique rend exactement les quatre qualificatifs
+que la clause écrit — `soudain`, `subite`, `direct`, `immédiat` — c'est-à-dire les trois qualités que
+le modèle a énumérées de lui-même. Le contrôle n'a donc **rien eu à ajouter** : il ne se déclenche que
+lorsque le modèle tait ce que la clause écrit. Le fragment cité restait le même qu'aux runs 12 et 13
+(« Une bougie allumée posée sur une table basse est tombée sur le canapé ») et il a de nouveau été
+refusé trois fois.
+
+```
+verdict     ne_tranche_pas — « aucune règle de la table ne tranche sur les clauses retrouvées »
+            (au regard des conditions générales seules)
+claims      c1 p34:12 applicable=humain ; p46:1 non retrouvé
+missing     conditions particulières, options, avenants, date d'effet
+            faits[] = « caractère soudain de l'événement », « action subite de la chaleur »,
+                      « contact direct et immédiat avec un foyer ou une substance incandescente »
+ask_client  options / conditions particulières / date d'effet et avenants, puis les trois qualités
+checks      fait_cite_hors_sujet ×3, qualite_exigee_non_etablie, aucun qualite_de_la_clause_non_enumeree
+étapes      comprendre, retrouver, rediger, verifier, restituer — un seul appel `micro` dans vérifier
+coût        0,0541 € (plafond 0,10 €)
+```
+
+**Ce que ça ne prouve pas.** Le lexique `QUALIFICATIFS` est fermé : une clause qui subordonnerait son
+effet à une qualité qu'il ne connaît pas ne déclencherait rien, et le contrôle retomberait sur
+l'énumération du modèle. C'est un filet déterministe, pas une lecture juridique.

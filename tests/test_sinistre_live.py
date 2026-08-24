@@ -44,6 +44,7 @@ from server.app.domain.verdict import (
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.pipelines import sinistre
+from server.app.steps.verifier import _mots_qualifiants
 from tests.fixtures import LLMRecorder
 from tests.llm_fake import RecordedAnthropic
 
@@ -194,6 +195,22 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     # sort `couvert`. C'est bien le corroborant qui manque au cas bougie, pas le chemin.
     sans_qualite = decider(_au_mieux_disant(answer, index), ask_client_max=settings.ask_client_max)
     assert sans_qualite.value == "couvert", sans_qualite.value
+
+    # (5bis) Revue Codex 1.8 (B3, tour 3) : l'énumération des qualités ne repose plus sur la parole du
+    # modèle. Le code relit le **texte** de la clause citée, et sur la garantie réelle de l'article
+    # 3.1.1.1.6 il y trouve les quatre qualificatifs que le contrat écrit — c'est la source
+    # indépendante qui manquait au tour 2, mesurée ici sur le corpus réel et non sur une fixture.
+    garantie = index.corpus.documents[DOC_ID].block(f"{DOC_ID}:p34:12")
+    assert set(_mots_qualifiants(garantie.text)) == {"soudain", "subit", "direct", "immediat"}
+    # Et la conséquence, quelle qu'ait été l'humeur du modèle : tant que la clause n'est pas tenue
+    # pour applicable, chacune des qualités qu'elle écrit est **demandée** au client — nommée par le
+    # modèle, ou ajoutée par le code faute de l'avoir été.
+    citante = next((c for c in answer.claims
+                    if any(q.block_id == garantie.block_id for q in c.quotes)), None)
+    if citante is not None and citante.status.applicable != "oui":
+        demandes = normalize(" ".join(verdict.missing.faits)).split()
+        assert all(any(mot.startswith(racine) for mot in demandes)
+                   for racine in _mots_qualifiants(garantie.text)), verdict.missing.faits
 
     # AD-6 : un verdict autre que `ne_tranche_pas` repose sur une clause fondatrice **affichée**
     if verdict.value != "ne_tranche_pas":
