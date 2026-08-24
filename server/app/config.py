@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # Temps (AD-1, AD-9)
     deadline_s: float = Field(55.0, gt=0)
     llm_timeout_s: float = Field(25.0, gt=0)
+    # Marge que le **navigateur** ajoute à `deadline_s` avant d'abandonner sa requête (AD-11 :
+    # `chat.js` borne son attente, sans quoi la saisie reste verrouillée indéfiniment). Elle vit ici
+    # et non dans `chat.js` — un seuil numérique n'a qu'un domicile (convention du projet) — et
+    # `GET /sante` la publie pour que le front la lise au lieu de la recopier. Sous la deadline du
+    # serveur, le navigateur couperait une requête à laquelle il aurait répondu : la marge est donc
+    # strictement positive (`gt=0`), et s'ajoute à `deadline_s` au lieu de la remplacer.
+    client_abort_margin_s: float = Field(10.0, gt=0)
 
     # Vérification des citations (AD-3)
     quote_min_chars: int = Field(25, ge=1)
@@ -209,6 +216,7 @@ class Settings(BaseSettings):
         return {
             "deadline_s": self.deadline_s,
             "llm_timeout_s": self.llm_timeout_s,
+            "client_abort_margin_s": self.client_abort_margin_s,
             "quote_min_chars": self.quote_min_chars,
             "quote_min_ratio": self.quote_min_ratio,
             "max_opens": self.max_opens,
