@@ -32,13 +32,19 @@ GARANTIE = ("Les dégâts occasionnés au mobilier assuré et au bâtiment dési
             "soudain, résultant de l'action subite de la chaleur, sont couverts.")
 EXCLUSION = ("Pour les extensions mentionnées aux points 2.1 et 2.2, les dégâts occasionnés au "
              "bâtiment par l'action subite de la chaleur sont exclus.")
-EXCLUSION_SOCLE = "Sont exclus les dommages que l'Assuré a causés intentionnellement."
+# Revue Codex 1.8 (B3, tour 3) : l'exclusion du socle exigeait « intentionnellement », une qualité
+# qu'aucun fait de la bougie n'établit — depuis que le **texte de la clause** est relu, elle ne
+# pouvait donc plus s'appliquer, et la fixture `non_couvert` de l'AC devenait injouable. Elle exige
+# maintenant la même qualité que la garantie (« action subite de la chaleur »), que les faits
+# déclarés établissent : l'exclusion mord parce que les faits la portent, pas par défaut.
+EXCLUSION_SOCLE = ("Sont exclus, en toute circonstance, les dommages de brûlure résultant de "
+                   "l'action subite de la chaleur.")
 CONDITION = "La garantie n'est acquise que si le bien est occupé de manière permanente."
 DEFINITION = "Le contenu comprend le mobilier de jardin et les objets confiés à un Assuré."
 
 Q_GARANTIE = "dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain"
 Q_EXCLUSION = "dégâts occasionnés au bâtiment par l'action subite de la chaleur sont exclus"
-Q_EXCLUSION_SOCLE = "exclus les dommages que l'Assuré a causés intentionnellement"
+Q_EXCLUSION_SOCLE = "dommages de brûlure résultant de l'action subite de la chaleur"
 Q_CONDITION = "n'est acquise que si le bien est occupé de manière permanente"
 Q_DEFINITION = "contenu comprend le mobilier de jardin et les objets confiés"
 
@@ -117,6 +123,14 @@ def _rediger(*claims: tuple[str, str, list[tuple[str, str]]]) -> dict:
 # deux conditions pour qu'elle soit tenue pour établie (revue Codex 1.8, B3, tour 2).
 FRAGMENT = "la chaleur a agi de façon subite"
 FRAGMENT_SOUDAIN = "La chute a été soudaine"
+SOUDAIN, SUBITE = "caractère soudain de l'événement", "action subite de la chaleur"
+# L'énumération **fidèle** des clauses de ce contrat de test : les deux qualités que leur texte écrit
+# (« soudain », « subite »), chacune établie par un fragment des faits déclarés. C'est le défaut du
+# script depuis la revue Codex 1.8 (B3, tour 3) : le code relit le texte de la clause et ajoute
+# lui-même toute qualité que le modèle n'a pas nommée, si bien que deux listes vides ne valent plus
+# « aucune qualité exigée ». Les tests qui ne portent pas sur ce contrôle n'ont donc pas à la
+# réécrire ; ceux qui portent dessus donnent leurs listes explicitement.
+QUALITES_FIDELES = ([SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN), (SUBITE, FRAGMENT)])
 
 
 def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True) -> dict:
@@ -132,11 +146,15 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True) -> di
         bloc = {"claim_id": cid, "fait_requis_present": present, "option_requise": option,
                 "cp_requise": cp, "fait_manquant": manquant}
         if enumere:
-            bloc["qualites_exigees"] = list(entree[6]) if len(entree) > 6 else []
+            # Défaut : l'énumération fidèle de la clause quand le modèle dit le fait requis présent,
+            # les deux listes vides sinon — ce que le prompt exige (« si le périmètre n'est pas bon,
+            # les deux listes sont vides »), et ce que le contrôle du tour 3 lit.
+            fidele = QUALITES_FIDELES if present else ([], [])
+            bloc["qualites_exigees"] = list(entree[6]) if len(entree) > 6 else list(fidele[0])
             bloc["qualites_etablies"] = [
                 {"qualite": q, "fait_cite": FRAGMENT} if isinstance(q, str)
                 else {"qualite": q[0], "fait_cite": q[1]}
-                for q in (entree[7] if len(entree) > 7 else [])]
+                for q in (entree[7] if len(entree) > 7 else fidele[1])]
         applicabilite.append(bloc)
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "verdicts": [{"claim_id": c, "pertinente": p} for c, p, *_ in entrees],
@@ -172,7 +190,7 @@ GAR = ("c1", "Les dégâts au mobilier par action subite de la chaleur sont couv
        [(f"{DOC_ID}:p1:2", Q_GARANTIE)])
 DEF = ("c2", "Le contenu comprend le mobilier.", [(f"{DOC_ID}:p1:4", Q_DEFINITION)])
 EXC_EXT = ("c3", "Les extensions excluent les dégâts au bâtiment.", [(f"{DOC_ID}:p2:1", Q_EXCLUSION)])
-EXC_SOCLE = ("c4", "Le dommage intentionnel est exclu.", [(f"{DOC_ID}:p1:5", Q_EXCLUSION_SOCLE)])
+EXC_SOCLE = ("c4", "Le dommage de brûlure est exclu.", [(f"{DOC_ID}:p1:5", Q_EXCLUSION_SOCLE)])
 COND = ("c5", "Le bien doit être occupé de manière permanente.", [(f"{DOC_ID}:p1:3", Q_CONDITION)])
 MAUVAISE = ("c9", "Le sinistre est couvert à 100 %.", [(f"{DOC_ID}:p1:2", "couvert à cent pour cent")])
 
@@ -313,6 +331,47 @@ async def test_a_guarantee_whose_qualities_are_not_enumerated_is_never_covered(i
     assert [c.status.applicable for c in answer.claims] == ["humain"]
 
 
+async def test_a_guarantee_whose_qualities_are_declared_empty_is_never_covered(index: Index) -> None:
+    """Revue Codex 1.8 (B3), tour 3 : la liste vide **écrite** n'est pas une preuve non plus.
+
+    Même chaîne et même `fait_requis_present=true` que la fixture `couvert` de l'AC, mais le modèle
+    rend `"qualites_exigees": []` sur une garantie dont le texte écrit « par un événement soudain,
+    résultant de l'action subite de la chaleur ». Le tour 2 l'acceptait — « une clause qui n'exige
+    réellement aucune qualité se dit `[]` » —, c'est-à-dire encore sur la parole du modèle. Le texte
+    de la clause tranche désormais : les deux qualités qu'il écrit deviennent des qualités non
+    établies, la garantie vaut `humain` et le verdict ne peut plus être `couvert`.
+    """
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None, [], []))])
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "ne_tranche_pas"
+    assert [c.status.applicable for c in answer.claims] == ["humain"]
+    assert verdict.missing.faits == ["caractère « soudain » exigé par la clause citée",
+                                     "caractère « subite » exigé par la clause citée"]
+
+
+async def test_facts_that_deny_the_quality_never_yield_a_covered_verdict(index: Index) -> None:
+    """Revue Codex 1.8 (B3), tour 3 : un fait qui **contredit** la qualité ne l'établit pas.
+
+    Contre-exemple de la revue : « action subite de la chaleur » tenue pour établie par « La chaleur a
+    agi lentement », parce que le seul mot *chaleur* recoupait la qualité. Joué de bout en bout, avec
+    des faits déclarés qui disent le contraire de ce que la clause exige.
+    """
+    faits = Faits(date="2026-08-01", lieu="salon du domicile", montant_eur=1200.0,
+                  description="Une bougie posée sur une table a brûlé le mobilier de salon. "
+                              "La chaleur a agi lentement, sur plusieurs heures.")
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None, [SOUDAIN, SUBITE],
+                   [(SOUDAIN, "La chaleur a agi lentement"),
+                    (SUBITE, "La chaleur a agi lentement")]))], faits=faits)
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "ne_tranche_pas"
+    assert [c.status.applicable for c in answer.claims] == ["humain"]
+    assert verdict.missing.faits == [SOUDAIN, SUBITE]
+
+
 async def test_a_quality_corroborated_by_nothing_in_the_file_is_never_covered(index: Index) -> None:
     """Revue Codex 1.8 (B3, tour 2) : une auto-déclaration ne vaut pas corroboration par les faits.
 
@@ -329,7 +388,9 @@ async def test_a_quality_corroborated_by_nothing_in_the_file_is_never_covered(in
     verdict = answer.verdict
     assert verdict is not None and verdict.value == "ne_tranche_pas"
     assert [c.status.applicable for c in answer.claims] == ["humain"]
-    assert verdict.missing.faits == [soudain]
+    # Tour 3 : le modèle n'avait énuméré **qu'**une des deux qualités que la clause écrit — le code
+    # relit son texte et ajoute la seconde, qui part elle aussi en question au client.
+    assert verdict.missing.faits == [soudain, "caractère « subite » exigé par la clause citée"]
 
 
 async def test_a_refusal_keeps_the_file_the_caller_already_has(index: Index) -> None:
@@ -361,7 +422,8 @@ async def test_the_same_guarantee_with_an_unestablished_quality_is_not_covered(i
     verdict = answer.verdict
     assert [c.status.applicable for c in answer.claims] == ["humain"]
     assert verdict is not None and verdict.value == "ne_tranche_pas"
-    assert verdict.missing.faits == [subite]
+    # Tour 3 : « soudain », que la clause écrit et que le modèle n'a pas nommé, s'ajoute par le code.
+    assert verdict.missing.faits == [subite, "caractère « soudain » exigé par la clause citée"]
     assert any(subite in q for q in verdict.ask_client)
 
 

@@ -625,8 +625,12 @@ Q_GARANTIE = "dégâts occasionnés au mobilier assuré par un événement souda
 Q_EXCLUSION = "dégâts occasionnés au bâtiment par l'action subite de la chaleur"
 Q_CONDITION = "n'est acquise que si le bien est occupé de manière permanente"
 Q_DEFINITION = "contenu comprend le mobilier de jardin et les objets confiés"
-EXCLUSION_SOCLE = "Sont exclus les dommages causés intentionnellement par un Assuré, en toute circonstance."
-Q_EXCLUSION_SOCLE = "exclus les dommages causés intentionnellement par un Assuré"
+# Revue Codex 1.8 (B3, tour 3) : l'exclusion du socle exigeait « intentionnellement », qu'aucun fait
+# du dossier n'établit — depuis que le **texte de la clause** est relu, elle ne pouvait donc plus
+# s'appliquer et la règle (1) devenait injouable. Elle exige maintenant la qualité que les faits
+# déclarés portent : elle mord parce qu'ils l'établissent, jamais par défaut.
+EXCLUSION_SOCLE = "Sont exclus, en toute circonstance, les dommages de brûlure du mobilier de salon."
+Q_EXCLUSION_SOCLE = "dommages de brûlure du mobilier de salon"
 # Deux clauses que l'ingestion a marquées comme se contredisant (`Block.relation.contredit`).
 CONTREDIT_A = "Le vol de vélos rangés dans le garage est couvert sans limitation de montant."
 CONTREDIT_B = "Sont exclus les vols de vélos, quel que soit le lieu de rangement du bien."
@@ -638,7 +642,7 @@ Q_RENVOI_OUVERT = "garantie tempête s'applique dans les limites fixées à l'ar
 
 FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
               description="Une bougie a mis le feu au mobilier de salon, sans embrasement ; "
-                          "la chaleur a agi de façon subite.")
+                          "la chute a été soudaine et la chaleur a agi de façon subite.")
 
 
 @pytest.fixture(scope="module")
@@ -692,6 +696,14 @@ def contrat() -> Index:
 # Un fragment **mot pour mot** des faits déclarés ci-dessus, et qui emploie les mots de la qualité :
 # les deux conditions pour qu'elle soit tenue pour établie (revue Codex 1.8, B3, tour 2).
 FRAGMENT = "la chaleur a agi de façon subite"
+FRAGMENT_SOUDAIN = "la chute a été soudaine"
+SOUDAIN, SUBITE = "caractère soudain de l'événement", "action subite de la chaleur"
+# L'énumération **fidèle** des clauses de ce mini-contrat : les deux qualités que leur texte écrit,
+# chacune établie par un fragment des faits. Défaut du script depuis la revue Codex 1.8 (B3, tour 3) :
+# le code relit le texte de la clause et ajoute lui-même toute qualité que le modèle n'a pas nommée,
+# si bien que deux listes vides ne valent plus « aucune qualité exigée ». Les tests qui ne portent pas
+# sur ce contrôle n'ont donc pas à la réécrire ; ceux qui portent dessus donnent leurs listes.
+QUALITES_FIDELES = ([SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN), (SUBITE, FRAGMENT)])
 
 
 def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
@@ -707,7 +719,12 @@ def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
     champs = []
     for entree in entrees:
         cid, present, option, cp, manquant = entree[:5]
-        exigees, etablies = entree[5] if len(entree) > 5 else [], entree[6] if len(entree) > 6 else []
+        # Défaut : l'énumération fidèle de la clause quand le fait requis est dit présent, les deux
+        # listes vides sinon — ce que le prompt exige (« si le périmètre n'est pas bon, les deux
+        # listes sont vides ») et ce que le contrôle du tour 3 relit dans le texte de la clause.
+        fidele = QUALITES_FIDELES if present else ([], [])
+        exigees = entree[5] if len(entree) > 5 else fidele[0]
+        etablies = entree[6] if len(entree) > 6 else fidele[1]
         bloc = {"claim_id": cid, "fait_requis_present": present, "option_requise": option,
                 "cp_requise": cp, "fait_manquant": manquant}
         if enumere:
@@ -726,7 +743,8 @@ def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
 
 
 async def _verifier_sinistre(index: Index, draft: AnswerDraft, script: list, *,
-                             blocs: list[str] | None = None, settings: Settings | None = None):
+                             blocs: list[str] | None = None, settings: Settings | None = None,
+                             faits: Faits = FAITS):
     settings = settings or _settings()
     doc = index.corpus.documents["cg"]
     ids = blocs if blocs is not None else [b.block_id for b in doc.blocks]
@@ -736,7 +754,7 @@ async def _verifier_sinistre(index: Index, draft: AnswerDraft, script: list, *,
                             terms=["mobilier de jardin", "chaleur"], facettes=["couverture du sinistre"])
     verification, step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=index.corpus,
                                         index=index, client=client, budget=_budget(), settings=settings,
-                                        faits=FAITS)
+                                        faits=faits)
     return verification, step, fake
 
 
@@ -885,7 +903,9 @@ async def test_a_required_quality_the_facts_do_not_establish_is_never_a_yes(cont
     assert v.claims[0].status.applicable == "humain"
     assert [c for c in step.checks if c.name == "qualite_exigee_non_etablie" and not c.ok]
     assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
-    assert v.verdict.missing.faits == [subite]
+    # Tour 3 : le modèle n'a nommé qu'une des deux qualités que la clause écrit ; le code relit son
+    # texte et ajoute « soudain », qui part elle aussi en question au client.
+    assert v.verdict.missing.faits == [subite, "caractère « soudain » exigé par la clause citée"]
     assert any(subite in q for q in v.verdict.ask_client)
 
 
@@ -894,8 +914,9 @@ async def test_a_required_quality_the_facts_establish_leaves_the_clause_applicab
     draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
     v, step, _fake = await _verifier_sinistre(
         contrat, draft, [_applicabilite(("c1", True, False, False, None,
-                                         ["Caractère subit de la chaleur"],
-                                         ["caractere subit de la chaleur"]),
+                                         ["Caractère subit de la chaleur", SOUDAIN],
+                                         ["caractere subit de la chaleur",
+                                          (SOUDAIN, FRAGMENT_SOUDAIN)]),
                                         verdicts=[("c1", True)])])
     assert v.claims[0].status.applicable == "oui"
     assert not [c for c in step.checks if c.name == "qualite_exigee_non_etablie"]
@@ -941,7 +962,7 @@ async def test_a_quality_said_established_without_a_fact_of_the_file_is_not_esta
     assert v.claims[0].status.applicable == "humain"
     assert [c for c in step.checks if c.name == "fait_cite_introuvable" and not c.ok]
     assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
-    assert v.verdict.missing.faits == [subite]
+    assert v.verdict.missing.faits == [subite, "caractère « soudain » exigé par la clause citée"]  # « soudain », ajoutée par le code (tour 3)
 
 
 async def test_a_true_fragment_that_says_nothing_of_the_quality_establishes_nothing(
@@ -963,7 +984,7 @@ async def test_a_true_fragment_that_says_nothing_of_the_quality_establishes_noth
     assert v.claims[0].status.applicable == "humain"
     assert [c for c in step.checks if c.name == "fait_cite_hors_sujet" and not c.ok]
     assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
-    assert v.verdict.missing.faits == [subite]
+    assert v.verdict.missing.faits == [subite, "caractère « soudain » exigé par la clause citée"]  # « soudain », ajoutée par le code (tour 3)
 
 
 async def test_an_inflected_word_still_corroborates_the_quality(contrat: Index) -> None:
@@ -972,12 +993,76 @@ async def test_an_inflected_word_still_corroborates_the_quality(contrat: Index) 
     draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
     v, step, _fake = await _verifier_sinistre(
         contrat, draft, [_applicabilite(("c1", True, False, False, None,
-                                         ["caractère subit de la chaleur"],
+                                         ["caractère subit de la chaleur", SOUDAIN],
                                          [("caractère subit de la chaleur",
-                                           "la chaleur a agi de façon subite")]),
+                                           "la chaleur a agi de façon subite"),
+                                          (SOUDAIN, FRAGMENT_SOUDAIN)]),
                                         verdicts=[("c1", True)])])
     assert v.claims[0].status.applicable == "oui"
     assert not [c for c in step.checks if c.name == "fait_cite_hors_sujet"]
+
+
+async def test_a_quality_the_clause_writes_and_the_model_omits_is_never_a_yes(contrat: Index) -> None:
+    """Revue Codex 1.8 (B3), tour 3 : **deux listes vides ne valent pas « aucune qualité exigée »**.
+
+    Le tour 2 refusait les listes *absentes* (`None`) mais acceptait les listes explicitement vides —
+    « une clause qui n'exige réellement aucune qualité se dit `[]` ». C'était encore la parole du
+    modèle : rendre `[]` sur la garantie du socle, qui écrit « par un événement **soudain**, résultant
+    de l'action **subite** de la chaleur », suffisait à la faire passer `oui`, donc `couvert`, sans
+    qu'aucun fait n'ait rien établi. Le texte de la clause est la source indépendante qui manquait :
+    ses qualificatifs sont relus dans le corpus, et ceux que le modèle n'a nommés nulle part
+    deviennent des qualités non établies — `humain`, et une question par qualité.
+    """
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert len([c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]) == 2
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert v.verdict.missing.faits == ["caractère « soudain » exigé par la clause citée",
+                                       "caractère « subite » exigé par la clause citée"]
+    assert all(any(libelle in q for q in v.verdict.ask_client)
+               for libelle in v.verdict.missing.faits)
+
+
+async def test_a_clause_that_writes_no_quality_still_reaches_a_yes(contrat: Index) -> None:
+    """La contrepartie du test précédent : le contrôle ne ferme aucune porte de la table (B1).
+
+    `cg:p1:7` — « Le vol de vélos rangés dans le garage est couvert sans limitation de montant » —
+    n'écrit aucun qualificatif : le code n'a rien à ajouter, `[]` y veut bien dire « aucune qualité
+    exigée », et la clause reste `oui`. Le contrôle du tour 3 ne se déclenche que sur ce que le texte
+    de la clause écrit vraiment.
+    """
+    draft = _draft(("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"
+    assert not [c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]
+
+
+async def test_a_fact_that_shares_a_word_but_denies_the_quality_establishes_nothing(
+        contrat: Index) -> None:
+    """Revue Codex 1.8 (B3), tour 3 : le recoupement doit porter sur le **qualificatif déterminant**.
+
+    Contre-exemple de la revue, mot pour mot : « action subite de la chaleur » était tenue pour
+    établie par « La chaleur a agi lentement » — un fait authentique qui dit exactement le contraire —
+    parce que le seul mot *chaleur* suffisait à recouper. Le fragment doit maintenant employer
+    **chacun** des mots porteurs de la qualité, *subite* comme *chaleur*.
+    """
+    faits = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
+                  description="Une bougie a mis le feu au mobilier de salon. "
+                              "La chaleur a agi lentement.")
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [SUBITE],
+                                         [(SUBITE, "La chaleur a agi lentement")]),
+                                        verdicts=[("c1", True)])], faits=faits)
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "fait_cite_hors_sujet" and not c.ok]
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert SUBITE in v.verdict.missing.faits
 
 
 async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index) -> None:
@@ -997,9 +1082,9 @@ async def test_an_applicable_exclusion_covering_the_case_excludes_it(contrat: In
     """Règle (1) de la table, sur de vrais blocs : la portée de l'exclusion couvre le nœud du cas."""
     draft = _draft_libre(
         ("La garantie couvre le mobilier.", "factuel", ["c1"]),
-        ("Le dommage intentionnel est exclu.", "factuel", ["c2"]),
+        ("Le dommage de brûlure est exclu.", "factuel", ["c2"]),
         claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
-                ("c2", "Le dommage intentionnel est exclu.", [("cg:p1:6", Q_EXCLUSION_SOCLE)])])
+                ("c2", "Le dommage de brûlure est exclu.", [("cg:p1:6", Q_EXCLUSION_SOCLE)])])
     v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
         ("c1", True, False, False, None), ("c2", True, False, False, None),
         verdicts=[("c1", True), ("c2", True)])])

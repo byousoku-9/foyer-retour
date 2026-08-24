@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     # avec un foyer » — un fragment authentique qui n'établit aucune des trois. Le recoupement porte
     # sur les mots d'au moins 5 caractères : en dessous, « été », « une », « feu » recouperaient
     # n'importe quoi.
+    # Tour 3 de la même revue : le fragment doit employer **tous** les mots porteurs de la qualité, et
+    # non un seul. « La chaleur a agi lentement » partage « chaleur » avec « action subite de la
+    # chaleur » et dit exactement le contraire ; c'est le qualificatif (*subite*) qui décide.
     qualite_mot_min_chars: int = Field(5, ge=1)
     # L'appel `micro` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant

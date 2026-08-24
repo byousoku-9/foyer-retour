@@ -138,17 +138,78 @@ def _mots_significatifs(libelle: str, *, min_chars: int) -> set[str]:
             if len(m) >= min_chars and m not in MOTS_DE_STRUCTURE}
 
 
-def _se_recoupent(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
-    """Le fragment cité emploie-t-il un mot de la qualité ? Recoupement par **préfixe**.
+def _dit_la_qualite(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
+    """Le fragment cité dit-il la qualité ? **Tous** ses mots porteurs, recoupés par préfixe.
 
     « subit » et « subite », « soudain » et « soudaine » sont le même mot pour ce qui nous occupe, et
     le projet n'embarque pas de lemmatiseur pour si peu : deux mots d'au moins `min_chars` caractères
-    dont l'un préfixe l'autre se recoupent. Grossier, déterministe, et suffisant pour la question
-    posée — le fragment parle-t-il de *cette* qualité, ou d'autre chose ?
+    dont l'un préfixe l'autre se recoupent.
+
+    Revue Codex 1.8 (B3, tour 3) : **un** mot partagé ne suffisait pas. « La chaleur a agi lentement »
+    est un fait authentique qui dit le contraire de « action subite de la chaleur », et le seul mot
+    « chaleur » le faisait tenir pour établie — le qualificatif déterminant (*subite*) n'était jamais
+    exigé du fragment. Le fragment doit donc employer **chacun** des mots porteurs de la qualité, le
+    nom générique comme le qualificatif. Une qualité dont aucun mot n'est porteur (« nature de
+    l'événement ») n'est établie par rien : elle ne dit pas ce qu'elle exige.
     """
     mots = _mots_significatifs(qualite, min_chars=min_chars)
+    if not mots:
+        return False
     cites = _mots_significatifs(fait_cite, min_chars=min_chars)
-    return any(a.startswith(b) or b.startswith(a) for a in mots for b in cites)
+    return all(any(a.startswith(b) or b.startswith(a) for b in cites) for a in mots)
+
+
+# Revue Codex 1.8 (B3, tour 3). Les qualificatifs par lesquels une clause d'assurance **subordonne**
+# son effet à une qualité de l'événement, du bien ou de l'assuré. Lexique volontairement court et
+# fermé : il ne sert pas à comprendre la clause, seulement à savoir que le modèle avait quelque chose
+# à énumérer. Un mot du texte qui commence par l'un d'eux le porte (« soudaine », « subitement »,
+# « intentionnellement »). Ce qui n'y figure pas ne déclenche rien — le contrôle n'ajoute jamais une
+# qualité que le texte de la clause n'écrit pas.
+QUALIFICATIFS: frozenset[str] = frozenset({
+    "soudain", "subit", "brusque", "instantane", "accidentel", "fortuit", "imprevisible", "imprevu",
+    "involontaire", "intentionnel", "immediat", "direct", "permanent", "exceptionnel", "violent",
+    "anormal", "malveillant", "effraction"})
+
+
+def _mots_qualifiants(texte: str) -> dict[str, str]:
+    """Les qualificatifs du lexique employés par un texte : `racine du lexique → mot du texte`.
+
+    Le mot est rendu dans son **orthographe d'origine** (première occurrence) : il finit dans une
+    question posée au client, où « immédiat » se lit mieux que sa forme normalisée.
+    """
+    trouves: dict[str, str] = {}
+    for mot in re.findall(r"[^\W\d_]+", texte, flags=re.UNICODE):
+        norme = normalize(mot)
+        for racine in QUALIFICATIFS:
+            if norme.startswith(racine):
+                trouves.setdefault(racine, mot)
+    return trouves
+
+
+def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: int) -> list[str]:
+    """Les qualités que **le texte de la clause** exige et que le modèle n'a pas nommées (B3, tour 3).
+
+    Le contrôle des deux listes ne valait que ce que valait la première : rien n'obligeait le modèle à
+    énumérer. Rendre `"qualites_exigees": []` sur une clause qui écrit « par un événement soudain,
+    résultant de l'action subite de la chaleur » se lisait « aucune qualité exigée » — et la clause
+    passait `oui`, donc `couvert`, sans qu'aucun fait n'ait établi quoi que ce soit. Le texte de la
+    clause est la source indépendante qui manquait : ses qualificatifs sont relus dans le corpus
+    (`ClauseCitee.qualificatifs`), et ceux que le modèle n'a nommés nulle part — ni dans les qualités
+    exigées, ni dans les établies, ni dans le fait manquant — deviennent des qualités **non établies**
+    composées par le code. La clause vaut alors `humain` et chaque qualité part en question au client,
+    ce que « forcer `humain` et produire une question bornée » demande.
+
+    Ne s'applique qu'aux clauses dont le modèle dit le fait requis **présent** : c'est le seul chemin
+    vers `oui`, et une clause qui ne vise pas le cas n'exige rien de lui (le prompt le dit déjà : « si
+    le périmètre n'est pas bon, les deux listes sont vides »).
+    """
+    attendus: dict[str, str] = {}
+    for clause in clauses:
+        for racine, mot in _mots_qualifiants(" ".join(clause.qualificatifs)).items():
+            attendus.setdefault(racine, mot)
+    deja = set(_mots_qualifiants(nommees))
+    return [f"caractère « {mot} » exigé par la clause citée"
+            for racine, mot in attendus.items() if racine not in deja][:max(place, 0)]
 
 
 class QualiteEtablie(BaseModel):
@@ -372,7 +433,12 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
         clauses.append(ClauseCitee(
             block_id=block_id, kind=block.kind, kind_confirmed=block.kind_confirmed,
             portee=document.scope_nodes(block_id), node_id=node_id,
-            socle=document.node_scope_kind(node_id) == "commun"))
+            socle=document.node_scope_kind(node_id) == "commun",
+            # Revue Codex 1.8 (B3, tour 3) : lu **dans le corpus**, comme le `kind` et la portée. Le
+            # modèle énumère les qualités que la clause exige ; le texte de la clause dit, lui, s'il
+            # avait quelque chose à énumérer. Une liste vide n'est plus « aucune qualité exigée »
+            # quand la clause écrit « soudain » (`_qualites_de_la_clause`).
+            qualificatifs=list(_mots_qualifiants(block.text).values())))
     return clauses
 
 
@@ -899,7 +965,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 # « dans ces termes » : le code demande donc que le fragment emploie au moins un des
                 # mots qui portent la qualité. C'est grossier, et c'est du code — un modèle ne peut
                 # plus se corroborer lui-même en recopiant une liste dans l'autre.
-                if _se_recoupent(q.qualite, q.fait_cite, min_chars=settings.qualite_mot_min_chars):
+                if _dit_la_qualite(q.qualite, q.fait_cite, min_chars=settings.qualite_mot_min_chars):
                     etablies.add(normalize(q.qualite))
                 else:
                     step.checks.append(CheckResult(
@@ -911,6 +977,23 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             for q in exigees:
                 if normalize(q) not in etablies and q not in non_etablies:
                     non_etablies.append(q)
+            if a.fait_requis_present:
+                # B3, tour 3 : le modèle a coché « le fait exigé est présent » — c'est la seule porte
+                # vers `oui`. Le texte de la clause est relu ici, et ce qu'il exige sans que le modèle
+                # l'ait nommé est ajouté aux qualités **non établies** : deux listes vides ne peuvent
+                # plus valoir « cette clause n'exige rien ».
+                nommees = " ".join([*exigees, *(q.qualite for q in a.qualites_etablies),
+                                    a.fait_manquant or ""])
+                for libelle in _qualites_de_la_clause(clauses.get(a.claim_id, []), nommees=nommees,
+                                                      place=settings.qualites_exigees_max):
+                    if libelle not in exigees:
+                        exigees.append(libelle)
+                    if libelle not in non_etablies:
+                        non_etablies.append(libelle)
+                        step.checks.append(CheckResult(
+                            name="qualite_de_la_clause_non_enumeree", ok=False,
+                            detail=f"{libelle} : la clause l'écrit, le modèle ne l'a pas énumérée "
+                                   "(l'affirmation est traitée comme `humain`)"))
             applicabilites[a.claim_id] = ChampsApplicabilite(
                 fait_requis_present=a.fait_requis_present, option_requise=a.option_requise,
                 cp_requise=a.cp_requise, fait_manquant=(a.fait_manquant or "").strip() or None,

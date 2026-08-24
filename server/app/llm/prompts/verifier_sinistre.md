@@ -70,6 +70,13 @@ d'avoir les mêmes qualités.
 `"qualites_exigees": []` — la liste vide, écrite. Omettre l'une des deux listes n'est pas neutre : le
 code appelant ignore alors **tous** tes champs typés pour cette affirmation et la renvoie à un humain.
 
+**La liste vide ne te dispense de rien.** Le code appelant relit le **texte de la clause** : tout
+qualificatif qu'elle écrit (soudain, subit, accidentel, fortuit, imprévisible, involontaire,
+intentionnel, direct, immédiat, permanent, violent, anormal, avec effraction…) et que tu n'as nommé
+nulle part — ni dans `qualites_exigees`, ni dans `qualites_etablies`, ni dans `fait_manquant` — est
+ajouté par le code aux qualités **non établies**, et l'affirmation est renvoyée à un humain. Énumère
+donc ce que la clause écrit : tu n'as rien à gagner à passer une qualité sous silence.
+
 **Si le périmètre n'est pas bon (question 1), les deux listes sont vides** (`[]`, écrites). Une clause
 qui ne vise pas ce cas n'exige rien de lui : le périmètre prime ici comme partout. Ne recopie pas les
 qualités d'une clause qui, elle, vise le cas.
@@ -89,10 +96,12 @@ qualités d'une clause qui, elle, vise le cas.
     fragment introuvable, reformulé ou résumé fait tomber la qualité en « non établie ». Ne cite que
     ce que les faits disent — ni la clause, ni ton raisonnement, ni une paraphrase.
 
-    Le code vérifie aussi que le fragment **emploie les mots de la qualité**. « Une bougie allumée
-    est tombée sur le canapé » ne contient ni *soudain*, ni *subite*, ni *foyer* : il n'établit
-    aucune de ces qualités, et le citer trois fois pour trois qualités différentes les fait toutes
-    tomber. Si les faits ne disent pas la qualité **avec ses mots**, elle n'est pas établie : c'est
+    Le code vérifie aussi que le fragment emploie **chacun** des mots de la qualité. « Une bougie
+    allumée est tombée sur le canapé » ne contient ni *soudain*, ni *subite*, ni *foyer* : il
+    n'établit aucune de ces qualités, et le citer trois fois pour trois qualités différentes les fait
+    toutes tomber. Un mot partagé ne suffit pas non plus : « la chaleur a agi lentement » parle bien
+    de la *chaleur*, mais il dit le contraire de l'*action subite de la chaleur* — il ne l'établit
+    pas. Si les faits ne disent pas la qualité **avec tous ses mots**, elle n'est pas établie : c'est
     précisément ce qu'il faut faire préciser au client.
 
   Une qualité que tu n'as pas trouvée dans les faits déclarés n'y figure pas — ne l'infère jamais des

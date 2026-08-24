@@ -115,6 +115,12 @@ class ClauseCitee(DomainModel):
     portee: set[str] = Field(default_factory=set)
     node_id: str = ""  # `Document.node_of(block_id)`
     socle: bool = False  # `Document.node_scope_kind(node_id) == "commun"` (AD-6, règle 3)
+    # Revue Codex 1.8 (B3, tour 3) : les qualificatifs que **le texte de la clause** emploie
+    # (« soudain », « subite », « intentionnellement »…), relus dans le corpus comme le `kind`. C'est
+    # la seule source d'« la clause exige une qualité » qui ne vienne pas du modèle : sans elle,
+    # `qualites_exigees: []` sur une clause qui exige un événement soudain passait pour « aucune
+    # qualité exigée ». Orthographe d'origine — ces mots sont affichés dans les questions au client.
+    qualificatifs: list[str] = Field(default_factory=list)
 
 
 class ClaimJugee(DomainModel):
