@@ -856,3 +856,117 @@ Coût de cette re-vérification : **0,073 €** (une soumission nominale et le t
 chemins de 400 sont gratuits, par construction).
 
 Revue Codex : 2 bloquants / 3 importants, convergé en 3 tour(s) (boucle autonome).
+
+## Story 1.10 — L'accueil annonce honnêtement l'état du système (gate vertical) (2026-08-24)
+
+Trois choses ne se prouvent pas hors ligne : qu'un run réel des questions-témoins passe sur le corpus
+servi, que le gate écrit se relise sans alerte au démarrage suivant, et que la page d'accueil affiche
+ce que le serveur dit — et rien de plus. Les trois sont ci-dessous.
+
+### Les deux runs réels et les gates écrits
+
+`ANTHROPIC_API_KEY=$(grep ANTHROPIC .env | cut -d= -f2) uv run python -m server.evals.run --gate {doc_id} --profile vertical`
+
+| Run | Cas | Label | `ok` | Coût | Durée | Code |
+|---|---|---|---|---|---|---|
+| `--gate lux-guide` | `g-luxtrust-prix` | `bonne_reponse` | oui | **0,0488 €** | 20,9 s | 0 |
+| `--gate axa-lu-optihome-2017` | `s-bougie-canape` | `bonne_reponse` | oui | **0,0504 €** | 25,7 s | 0 |
+
+Plafond de run : 1,00 € (`evals_max_cost_eur`), jamais approché. Deux runs à blanc (sans `--gate`)
+avaient précédé, au même prix : total de la mesure ≈ **0,20 €**.
+
+Contenu exact des deux gates écrits dans `data/manifest.json` :
+
+```json
+"lux-guide": {"profile": "vertical", "evals_ok": true, "cases": 1,
+  "cases_hash": "58552c3b344c1a7df92a235f08df3dbc6cbf7218adfd3db83e76ef7be9cbb97a",
+  "pipeline_digest": "a3936aeb6ee009ff72408bfded73d505d85aa2cfa4e99678cce0d3b7ac721cc2",
+  "prompts_digest": "c440741d5e2cb604e33aae2deb0b77d54bed3d4beae696393694c6fdbb252800",
+  "model_ids": {"ingest": "claude-opus-5", "reason": "claude-sonnet-5",
+                "micro": "claude-haiku-4-5-20251001"},
+  "source_hash": "abe65f06…", "ingest_fingerprint": "b791a248…", "overlay_hash": null,
+  "date": "2026-08-24T18:43:50Z"}
+
+"axa-lu-optihome-2017": {…, "cases": 1,
+  "cases_hash": "baba15ca978604ad50ab5023fe0b1fb8bd69232c1605b011d5185e874c635dbf",
+  "overlay_hash": "eed4bc53…", "date": "2026-08-24T18:44:21Z"}
+```
+
+Les deux `pipeline_digest`/`prompts_digest` sont identiques (même image), les `cases_hash` diffèrent
+(deux suites), et les trois empreintes de corpus sont **celles de l'entrée du manifest** — c'est ce
+qui permet au loader de constater qu'un artefact a bougé sans réingestion.
+
+### Un faux refus mesuré, et pourquoi le cas est formulé comme il l'est
+
+La première formulation du cas guide, « Comment obtenir LuxTrust au meilleur prix ? », est classée
+`hors_perimetre` par *comprendre* et refusée après le **seul** appel `micro` (AD-5) : 0,0031 €,
+2,8 s, `reason.kind = "hors_perimetre"`, `terms_searched = []`. Quatre formulations testées :
+
+| Question | `intent` | `terms` |
+|---|---|---|
+| « Comment obtenir LuxTrust au meilleur prix ? » | `hors_perimetre` | — |
+| « Comment obtenir mon LuxTrust au meilleur prix pour mes démarches sur MyGuichet ? » | `hors_perimetre` | — |
+| « Quelle est la façon la moins chère d'obtenir LuxTrust en arrivant au Luxembourg ? » | `question` | LuxTrust, signature électronique, coût, installation |
+| « J'arrive au Luxembourg : comment obtenir LuxTrust pour utiliser MyGuichet, et au meilleur prix ? » | `question` | LuxTrust, MyGuichet, signature électronique, certificat numérique |
+
+C'est un **faux refus réel** du système, pas une propriété du cas : la liste de périmètre du prompt
+de *comprendre* ne nomme pas l'identité numérique, et le classement bascule avec le contexte
+d'installation. Le corriger demanderait de toucher `prompts/comprendre.md`, ce que le périmètre de
+cette story interdit — un `prompts_digest` qui bouge après l'écriture du gate le rendrait
+`gate_perime` le jour même. Le cas prend donc la troisième formulation, la limite est écrite dans
+son en-tête, et une entrée différée la porte (`target_story: 2.1`).
+
+### `/sante` après gate, et ce qui se passe quand on retire un gate
+
+`ENV=prod` **sans** `ALLOW_UNGATED` — la configuration de l'image depuis cette story :
+
+| État de `data/` | `documents_servis` | `gate_profile` | `gate_cases` | `alerts` |
+|---|---|---|---|---|
+| les deux gates | `["axa-lu-optihome-2017", "lux-guide"]` | `"vertical"` | **2** | `[]` |
+| gate de `lux-guide` retiré, `ENV=prod` | `["axa-lu-optihome-2017"]` | `"vertical"` | 1 | `lux-guide` : quarantaine `sans_gate` |
+| gate de `lux-guide` retiré, `ENV=dev` | les deux | **`null`** | **`null`** | `lux-guide` : `sans_gate` |
+| check `level: bloquant` ajouté au `report.json` d'AXA | `["lux-guide"]` | `"vertical"` | 1 | AXA : quarantaine `bloquant_statique : page_sans_texte` |
+| `ENV=prod` **et** `ALLOW_UNGATED=true` | les deux | `"vertical"` | 2 | `*` : **`ungated_en_production`** + un `WARNING` au journal de démarrage |
+
+Les deux lignes du milieu sont la même règle vue des deux côtés : sans dérogation, un document sans
+gate valide n'est pas servi (et `gate_profile` reste vrai de ce qui l'est) ; avec dérogation, il est
+servi et `gate_profile` retombe à `null` — AD-11 : « jamais un profil qu'un document servi ne porte
+pas ». Avant cette story, `documents_servis` aurait été **vide** en `prod` sans dérogation.
+
+### Le tour navigateur (Chrome headless, CDP, `/tmp/cdp-accueil.mjs`)
+
+Serveur réel : `ENV=prod GIT_SHA=1.10test uv run uvicorn server.app.api.main:app --port 8799`.
+
+| Vérification | Résultat |
+|---|---|
+| Les trois entrées | `/guide/`, `/sinistre/`, `#sujet-3` — titrées « 1 · … », « 2 · … », « 3 · … » |
+| La réponse au sujet 3 | titre « je ne fais pas un RAG » + les **sept** points (base SQL, profil par colonne, requête écrite par le modèle, requête affichée, aucun calcul par le modèle, texte libre après le filtre, restitution qui montre son travail) |
+| Niveau de validation | « niveau de validation : **vertical — 2 cas relus à la main** », classe `carte etat-gate` |
+| Version et documents | « documents servis : axa-lu-optihome-2017, lux-guide », « version servie : 1.10test » |
+| Requêtes réseau | `/`, `/accueil.js`, **`/api/v1/sante`**, `/favicon.ico` — **aucune requête tierce** |
+| AD-15 | `localStorage` **vide**, `document.cookie` vide, **zéro** pose d'`innerHTML` non vide (espion posé sur le setter **avant** la navigation) |
+| Sonde en panne (repeinte dans le même onglet) | « niveau de validation : inconnu (le serveur n'a pas répondu) » + « un profil de validation qui n'a pas été lu ne s'invente pas » ; **aucune** occurrence de `vertical` ni `full` dans le bloc |
+| Sonde sans profil | « aucun gate », l'alerte `sans_gate` nommée, **aucune** occurrence de `vertical` ni `full` |
+| Liens du pied | le dépôt, le golden set, le journal des tests réels |
+| Console | aucune erreur JavaScript ; seul le `/favicon.ico` (404, antérieur) |
+
+### Le badge du guide (`/tmp/cdp-badge.mjs`, même serveur)
+
+| Vérification | Résultat |
+|---|---|
+| Badge de l'onglet Assistant | « **mode api · vertical (2 cas)** », classe `badge on` |
+| Badge du widget flottant | identique — le suffixe atteint les **deux** surfaces |
+| `window.CHAT.validation()` | `{"gate_profile":"vertical","gate_cases":2,"alerts":[]}` |
+| Lien « ← retour » (UX-DR9) | présent dans l'en-tête, `href="/"` — acquis en 1.6, vérifié ici |
+| Console | aucune erreur JavaScript |
+
+### Suite hors ligne
+
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1227 passed, 1 skipped**, aucun accès
+réseau. Le seul `skip` est
+`tests/test_api.py::test_allow_ungated_de_limage_se_retire_des_quun_gate_existe`, dont l'objet a
+disparu : c'était le garde-fou posé en 1.6 pour rappeler de retirer `ENV ALLOW_UNGATED=true` du
+`Dockerfile` le jour où un gate existerait. La ligne est retirée, il se met en `skip` de lui-même —
+c'est le comportement que l'AC de la story attend.
+
+`uvx ruff@0.16.4 check --select F,E9 server tests` → « All checks passed! ».
