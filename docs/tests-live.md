@@ -609,3 +609,5 @@ coût        0,0541 € (plafond 0,10 €)
 **Ce que ça ne prouve pas.** Le lexique `QUALIFICATIFS` est fermé : une clause qui subordonnerait son
 effet à une qualité qu'il ne connaît pas ne déclencherait rien, et le contrôle retomberait sur
 l'énumération du modèle. C'est un filet déterministe, pas une lecture juridique.
+
+Revue Codex : 3 bloquants / 0 importants, convergé en 3 tour(s) (boucle autonome)
