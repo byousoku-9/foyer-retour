@@ -756,10 +756,24 @@ window.CHAT = (function () {
   // des documents que rien n'a mesures. `validation` est ce que la sonde a rendu, ou `null` tant
   // qu'elle n'a pas repondu (ou que sa reponse n'etait pas lisible) : **aucun** suffixe alors, jamais
   // un niveau par defaut (AD-11 : la bascule silencieuse est ce qu'on empeche).
+  // Le suffixe dit aussi la **peremption** quand le serveur la signale (revue 1.10). Sans elle, le
+  // badge ecrivait « mode api · vertical (2 cas) » pendant que `/sante` portait `gate_perime`,
+  // c'est-a-dire pendant que les empreintes du gate ne sont plus celles de l'image qui repond. La
+  // page d'accueil pose deja sa reserve dans ce cas ; le badge est le seul ecran ou l'on pose
+  // reellement une question, et c'est celui qui l'affirmait a jour.
+  function estPerime(validation) {
+    var alerts = (validation && Array.isArray(validation.alerts)) ? validation.alerts : [];
+    for (var i = 0; i < alerts.length; i++) {
+      if (alerts[i] && alerts[i].alerte === "gate_perime") return true;
+    }
+    return false;
+  }
+
   function suffixeValidation(validation) {
     if (!validation) return "";
     if (validation.gate_profile === null) return " · non validé";
-    return " · " + validation.gate_profile + " (" + validation.gate_cases + " cas)";
+    return " · " + validation.gate_profile + " (" + validation.gate_cases + " cas" +
+      (estPerime(validation) ? ", périmé" : "") + ")";
   }
 
   function libelleMode(via, validation) {
@@ -1054,11 +1068,17 @@ window.CHAT = (function () {
     if (!j || typeof j !== "object" || Array.isArray(j)) return null;
     var p = j.gate_profile;
     var n = j.gate_cases;
-    // Un profil est une chaine **non vide** : « niveau :  » ne dit rien, et le serveur n'en ecrit
-    // jamais. Un compte est un entier positif : « vertical (1.5 cas) » serait un nombre de cas
-    // invente, et l'accueil refuse deja le meme corps (`tools/accueil/accueil.js`, `estEntier`).
+    // **La** regle du couple (profil, compte), identique a celle de `tools/accueil/accueil.js` —
+    // `tests/js/sante_corpus.mjs` rejoue les memes corps dans les deux lecteurs et exige le meme
+    // verdict, corps par corps (un grep sur deux sources ne verifie pas une semantique) :
+    //   - `gate_profile` : chaine **non vide**, ou `null` — « mode api ·  (2 cas) » ne dit rien ;
+    //   - `gate_cases` : entier **>= 1**, ou `null` — `evals/run.py` refuse de tourner sur zero cas,
+    //     donc aucun gate ne porte `cases: 0`, et « vertical (0 cas) » ne peut pas etre produit ;
+    //   - les deux nuls ou les deux non nuls (`EtatApp.gate_cases` rend `null` des que
+    //     `gate_profile` l'est).
+    // Ce que la regle refuse ne suffixe **rien** : jamais un niveau a moitie lu.
     if (!(p === null || (typeof p === "string" && p.length > 0))) return null;
-    if (!(n === null || (typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 0))) {
+    if (!(n === null || (typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 1))) {
       return null;
     }
     if ((p === null) !== (n === null)) return null;
@@ -1215,6 +1235,7 @@ window.CHAT = (function () {
     modeApresErreur: modeApresErreur,
     libelleMode: libelleMode,
     suffixeValidation: suffixeValidation,
+    estPerime: estPerime,
     // Ce que la sonde a dit du niveau de validation, ou `null` : `ui.js` le passe a `libelleMode`
     // au moment de poser le badge, il ne le retient pas.
     validation: function () { return validationServeur; },
