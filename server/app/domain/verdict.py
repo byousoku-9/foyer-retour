@@ -263,7 +263,8 @@ def _noeuds_du_cas(claims: list[ClaimJugee], *, hors: set[str]) -> set[str]:
             if clause.node_id and clause.block_id not in hors}
 
 
-def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
+def decider(claims: list[ClaimJugee], *, ask_client_max: int,
+            missing: MissingPackage | None = None) -> Verdict:
     """Découpage (b) d'AD-6 : la table exclusive, dans l'ordre, sur les claims **affichées** (D4).
 
     (0)   contradiction non résolue entre deux claims retenues, ou renvoi non résolu sur une claim
@@ -271,26 +272,48 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
     (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
           tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
     (1)   exclusion `oui` dont la portée couvre les nœuds du cas ⇒ `non_couvert` ;
-    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, ou garantie hors socle)
-          ⇒ `sous_conditions` — politique conservatrice, décision Lancelot ;
+    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, ou garantie hors socle,
+          **ou paquet manquant non établi**) ⇒ `sous_conditions` — politique conservatrice ;
     (2bis) garantie `humain` **par** option ou conditions particulières ⇒ `sous_conditions` : c'est
-          le « dépend d'une option / CP inconnue » d'AD-6, qu'une garantie `oui` ne peut pas exprimer
-          (une garantie qui dépend d'une option est `humain` par construction, règle (6) de
-          `applicable_de_claim`) ;
-    (3)   garantie du socle `oui`, aucune claim retenue `humain` ⇒ `couvert` ;
+          le « dépend d'une option / CP inconnue » d'AD-6 vu depuis la **clause**, qu'une garantie
+          `oui` ne peut pas exprimer (une garantie qui dépend d'une option est `humain` par
+          construction, règle (6) de `applicable_de_claim`) ;
+    (3)   garantie du socle `oui`, aucune claim retenue `humain`, **paquet établi** ⇒ `couvert` ;
     (4)   sinon ⇒ `ne_tranche_pas`.
+
+    **`missing` est une entrée, pas une constante fabriquée ici (revue 1.8, tour 2).** AD-6 écrit la
+    seconde branche de la règle (2) « ou la garantie dépend d'une option / extension / **condition
+    particulière inconnue** », et il définit lui-même `MissingPackage` comme ce qui dit si elles le
+    sont. À J+1 rien ne les établit — le pipeline ne voit que les conditions générales, aucun chemin
+    ne met ces booléens à `False` —, donc la branche est satisfaite pour **toute** garantie, et
+    `couvert` est hors d'atteinte. C'est exactement ce que veut dire « au regard des conditions
+    générales seules », et c'est pourquoi la note de décision de l'epic n'admet que
+    `{sous_conditions, ne_tranche_pas}` sur le cas témoin.
+
+    Mesuré, et c'est ce qui a fait lire la règle jusqu'au bout : sur le cas bougie joué en live, deux
+    runs successifs du **même code** ont rendu `ne_tranche_pas` puis `couvert`, la seule chose ayant
+    bougé étant le `fait_requis_present` du modèle. Le verdict le plus engageant que l'outil sache
+    rendre reposait sur un unique booléen, sans rien qui le corrobore. La règle (2) le corrobore : il
+    faut le dossier, pas seulement une lecture de clause.
+
+    La règle (3) n'est pas morte pour autant — elle attend le paquet. Un appelant qui **a** les
+    conditions particulières, les options, les avenants et la date d'effet passe un `MissingPackage`
+    renseigné à `False`, et `couvert` redevient atteignable. Seuls les `faits[]` sont ignorés de ce
+    qu'on reçoit : ils sont dérivés des libellés rendus par le modèle.
 
     `applicable` est relu sur chaque claim par `applicable_de_claim()` : la table ne dépend d'aucun
     champ que l'appelant aurait pu remplir autrement.
     """
+    connu = (missing or MissingPackage()).model_copy(deep=True)
     retenues = [c for c in claims if c.retenue]
     etat = {c.claim_id: applicable_de_claim(c) for c in retenues}
     # Les questions du paquet manquant d'abord : elles ne dépendent d'aucune sortie du modèle et
-    # elles sont dues quel que soit le verdict. Ce qu'elles laissent de place borne alors les
-    # libellés du modèle, si bien que `missing.faits` et `ask_client` disent la même chose.
-    paquet = _questions_du_paquet(retenues, MissingPackage())
+    # elles sont dues quel que soit le verdict — mais seulement pour les pièces réellement absentes.
+    # Ce qu'elles laissent de place borne alors les libellés du modèle, si bien que `missing.faits` et
+    # `ask_client` disent la même chose.
+    paquet = _questions_du_paquet(retenues, connu)
     manquants = _libelles_manquants(retenues, place=ask_client_max - len(paquet))
-    missing = MissingPackage(faits=manquants)
+    missing_final = connu.model_copy(update={"faits": manquants})
     ask = (paquet + [f"Fait à établir auprès du client : {libelle}"
                      for libelle in manquants])[:ask_client_max]
     contradiction = any(c.contredit for c in retenues)
@@ -299,7 +322,7 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
 
     def verdict(value: VerdictValue, reason: str) -> Verdict:
         return Verdict(value=value, reason=f"{reason} ({PORTEE})",
-                       missing=missing.model_copy(deep=True), ask_client=ask, escalate=escalate)
+                       missing=missing_final.model_copy(deep=True), ask_client=ask, escalate=escalate)
 
     # (0) — ni une contradiction ni un renvoi ouvert ne se tranchent par du code.
     if contradiction:
@@ -327,15 +350,28 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
 
     ouvertes = [c for c in retenues
                 if c.kind in ("condition", "franchise", "exclusion") and etat[c.claim_id] == "humain"]
+    # « La garantie dépend d'une option / extension / condition particulière **inconnue** » (AD-6,
+    # règle 2), lu littéralement sur l'objet qu'AD-6 définit pour le dire : tant que les conditions
+    # particulières ou les options souscrites ne sont pas au dossier, aucune garantie ne peut être
+    # tenue pour acquise, quoi qu'en dise la clause.
+    pieces_inconnues = [libelle for libelle, absente in
+                        (("les conditions particulières", connu.conditions_particulieres),
+                         ("les options souscrites", connu.options_souscrites)) if absente]
     for garantie in garanties:
         if etat[garantie.claim_id] != "oui":
             continue
         hors_socle = any(not clause.socle for clause in garantie.clauses)
-        # (2) — politique conservatrice : une condition ouverte ou une garantie hors socle suffit.
-        if ouvertes or hors_socle:
-            motif = ("une garantie hors du socle commun" if hors_socle and not ouvertes else
-                     "une condition, une franchise ou une exclusion reste ouverte")
-            return verdict("sous_conditions", f"Une garantie s'applique, mais {motif}")
+        # (2) — politique conservatrice : un seul de ces trois motifs suffit à ouvrir le verdict.
+        if ouvertes or hors_socle or pieces_inconnues:
+            motifs = []
+            if ouvertes:
+                motifs.append("une condition, une franchise ou une exclusion citée reste ouverte")
+            if hors_socle:
+                motifs.append("la garantie ne relève pas du socle commun")
+            if pieces_inconnues:
+                motifs.append(f"{' et '.join(pieces_inconnues)} ne sont pas au dossier — la garantie "
+                              "ne peut pas être tenue pour acquise")
+            return verdict("sous_conditions", "Une garantie s'applique, mais " + " ; ".join(motifs))
 
     # (2bis) — la garantie **elle-même** dépend d'une option ou de conditions particulières inconnues.
     for garantie in garanties:
@@ -345,7 +381,10 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
             return verdict("sous_conditions", "La garantie citée ne joue que si une option ou les "
                                               "conditions particulières la prévoient")
 
-    # (3) — le seul chemin vers `couvert` : garantie du socle, et plus rien d'ouvert **nulle part**.
+    # (3) — le seul chemin vers `couvert` : garantie du socle, plus rien d'ouvert **nulle part**, et
+    # le paquet **établi** (sans quoi la règle (2) a déjà tranché plus haut). Tant que l'outil ne lit
+    # que les conditions générales, cette branche est inatteignable — et c'est la vérité de ce qu'il
+    # sait, pas une prudence ajoutée.
     for garantie in garanties:
         if etat[garantie.claim_id] == "oui" and all(clause.socle for clause in garantie.clauses):
             if not any(etat[c.claim_id] == "humain" for c in retenues):
