@@ -17,6 +17,7 @@ from server.app.domain import BlockKind, Document, GateContext, Manifest, Manife
 from .text import normalize
 
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
+REPORT_FILE = "report.json"  # AD-8 : checks statiques d'ingestion ; seul le niveau `bloquant` décide ici
 OVERLAY_FILE = "typing.manual.json"  # typage manuel (FR20) fusionné avant validation ; `document.json` intact
 OVERLAY_SCHEMA_VERSION = "1"
 OVERLAY_FIELDS = ("kind", "defines", "scope_node_id", "scope_node_ids", "kind_source")
@@ -78,6 +79,39 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
             current.pipeline_digest, current.prompts_digest, current.model_ids):
         return "", ["gate_perime"]
     return "", []
+
+
+def _bloquant_statique(doc_dir: Path) -> str:
+    """Les noms des checks `level: bloquant` de `report.json`, ou "" (D6 de la story 1.10).
+
+    AD-8 énonce la règle du **service** : « un document est `servi` ssi aucun bloquant statique **et**
+    `gate.evals_ok` ». La seconde moitié est ici depuis la story 1.1 (`_gate_alerts`) ; la première ne
+    tenait que **transitivement**, par le `status` que l'ingestion écrit dans le manifest quand elle
+    trouve un bloquant (`ingest/kb_to_blocks.py`, `ingest/pdf_to_blocks.py`). Une main sur
+    `manifest.json` — ou une réingestion partielle — remettait donc `status: "servi"` sur un document
+    dont le rapport porte « page décisionnelle corrompue », sans que rien ne le voie. Le loader relit
+    donc le rapport lui-même : c'est une propriété de ce qui est **chargé**, pas de ce qui a été écrit.
+
+    Ce qu'il ne fait **pas** : traiter un rapport absent, illisible ou étranger comme un bloquant.
+    AD-8 fait du rapport un artefact d'ingestion, et un document peut être servi avant qu'on l'ait
+    écrit (le guide l'a été en 1.1) ; l'illisibilité, elle, est déjà dite par les alertes
+    `rapport_illisible` / `rapport_etranger` d'`api/etat` (D9 de la story 1.9), qui sont des alertes
+    de la couche `api` et n'ont rien à faire dans `corpus` (table des couches du spine). Le rapport
+    est donc lu deux fois au démarrage, pour deux usages disjoints — dix lignes contre une refonte de
+    `Corpus` qui ferait remonter des alertes typées `api` dans `corpus`.
+    """
+    chemin = doc_dir / REPORT_FILE
+    if not chemin.is_file():
+        return ""
+    try:
+        rapport = json.loads(chemin.read_bytes())
+    except (OSError, UnicodeDecodeError, ValueError):
+        return ""
+    if not isinstance(rapport, dict) or not isinstance(rapport.get("checks"), list):
+        return ""
+    noms = [str(c.get("name", "?")) for c in rapport["checks"]
+            if isinstance(c, dict) and c.get("level") == "bloquant"]
+    return ", ".join(noms) if noms else ""
 
 
 def _apply_overlay(raw_doc: dict, overlay: object) -> str:
@@ -178,6 +212,12 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
         return None, f"edition {doc.edition!r} différente du manifest ({entry.edition!r})", []
     if not (doc_dir / "summary.md").is_file():
         return None, "sommaire_absent", []
+    # AD-8, avant le gate et **avant** toute dérogation : `ALLOW_UNGATED` déroge à l'absence de
+    # questions-témoins (AD-7 la nomme « dev / J+1 avant le premier gate »), jamais à un contrat
+    # illisible. Un bloquant statique met ce seul document en quarantaine, quel que soit l'environnement.
+    bloquants = _bloquant_statique(doc_dir)
+    if bloquants:
+        return None, f"bloquant_statique : {bloquants}", []
     reason, alerts = _gate_alerts(entry, current, allow_ungated=allow_ungated)
     if reason:
         return None, reason, []

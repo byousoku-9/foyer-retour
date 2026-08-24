@@ -158,9 +158,15 @@ def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
 
 
 def test_repo_data_loads() -> None:
-    c = load_corpus(ROOT / "data", allow_ungated=True)
-    axa = ["sans_gate"] + ([] if (ROOT / "data" / "axa-lu-optihome-2017" / "source.pdf").is_file() else ["source_absente"])
-    assert c.quarantine == {} and c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": ["sans_gate"]}
+    """Le corpus du dépôt, chargé **sans** dérogation : depuis la story 1.10, leur gate suffit.
+
+    `allow_ungated=False` est la configuration de l'image (le `Dockerfile` n'arme plus la variable) :
+    ce test est donc ce qui dit qu'un déploiement sert bien les deux documents, et non un
+    `documents_servis: []` que seule la dérogation masquait.
+    """
+    c = load_corpus(ROOT / "data", allow_ungated=False)
+    axa = [] if (ROOT / "data" / "axa-lu-optihome-2017" / "source.pdf").is_file() else ["source_absente"]
+    assert c.quarantine == {} and c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": []}
     doc = c.documents["lux-guide"]
     assert doc.doc_id == "lux-guide" and doc.edition == "git:a8e8593" and len(doc.blocks) > 400
     assert all(b.text_norm == normalize(b.text) for b in doc.blocks)
@@ -322,3 +328,74 @@ def test_overlay_unreadable_or_malformed(data: Path) -> None:
     m["lux-guide"]["overlay_hash"] = _sha(path)
     _write_manifest(data, m)
     assert "overlay : objet" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+
+
+# --- AD-8 : le bloquant statique est une propriété du **loader** (story 1.10, D6) ---------------
+
+def _report(data: Path, checks: list[dict] | str, doc_id: str = "lux-guide") -> None:
+    chemin = data / doc_id / "report.json"
+    if isinstance(checks, str):
+        chemin.write_text(checks, "utf-8")
+        return
+    chemin.write_text(json.dumps({"doc_id": doc_id, "checks": checks, "stats": {}}), "utf-8")
+
+
+def test_le_rapport_dingestion_du_depot_ne_porte_aucun_bloquant(data: Path) -> None:
+    """Point de départ : sans bloquant, le rapport ne change rien (le guide est servi)."""
+    rapport = json.loads((data / "lux-guide" / "report.json").read_text("utf-8"))
+    assert [c for c in rapport["checks"] if c["level"] == "bloquant"] == []
+    assert load_corpus(data, allow_ungated=True).served == ["lux-guide"]
+
+
+def test_un_check_bloquant_met_ce_seul_document_en_quarantaine(data: Path) -> None:
+    """AD-8 : « un document est servi ssi **aucun bloquant statique** et `gate.evals_ok` ».
+
+    La règle ne tenait jusqu'ici que transitivement, par le `status` que l'ingestion écrit : une main
+    sur `manifest.json` (ou une réingestion partielle) remettait « servi » sur un document dont le
+    rapport dit « page décisionnelle corrompue ». Le loader relit donc le rapport lui-même.
+    """
+    _report(data, [{"name": "page_sans_texte", "level": "bloquant", "detail": "p. 12"},
+                   {"name": "couverture", "level": "info", "detail": ""}])
+    c = load_corpus(data, allow_ungated=True)
+    assert c.served == []
+    assert c.quarantine["lux-guide"].startswith("bloquant_statique")
+    assert "page_sans_texte" in c.quarantine["lux-guide"]
+
+
+def test_un_bloquant_statique_ne_se_deroge_pas_par_allow_ungated(data: Path) -> None:
+    """`ALLOW_UNGATED` déroge à l'absence de questions-témoins, jamais à un document illisible."""
+    m = _manifest(data)
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"])
+    _write_manifest(data, m)
+    _report(data, [{"name": "invariant_arbre", "level": "bloquant", "detail": "bloc orphelin"}])
+    for allow in (False, True):
+        c = load_corpus(data, allow_ungated=allow)
+        assert c.served == [] and c.quarantine["lux-guide"].startswith("bloquant_statique")
+
+
+@pytest.mark.parametrize("contenu", [
+    None,                                   # rapport absent : le guide a été servi sans en 1.1
+    "{ceci n'est pas du JSON",              # illisible : `api/etat` porte déjà l'alerte (D9 de 1.9)
+    '{"doc_id": "lux-guide"}',              # sans `checks`
+    '[{"name": "x", "level": "bloquant"}]',  # forme inattendue : ce n'est pas un rapport
+])
+def test_un_rapport_absent_ou_illisible_nest_pas_un_bloquant(data: Path, contenu: str | None) -> None:
+    """D6 : « ce qu'il ne fait **pas** : traiter un rapport absent ou illisible comme un bloquant ».
+
+    AD-8 fait du rapport un artefact d'ingestion, et un document peut être servi avant qu'on l'ait
+    écrit. Le rendre bloquant retirerait du service un document sur l'absence d'un fichier.
+    """
+    chemin = data / "lux-guide" / "report.json"
+    if contenu is None:
+        chemin.unlink()
+    else:
+        _report(data, contenu)
+    c = load_corpus(data, allow_ungated=True)
+    assert c.served == ["lux-guide"] and c.quarantine == {}
+
+
+def test_une_alerte_du_rapport_ne_retire_pas_le_document(data: Path) -> None:
+    """AD-8 : seules les alertes de niveau `bloquant` retirent du service — pas `alerte`, pas `info`."""
+    _report(data, [{"name": "unresolved_refs", "level": "alerte", "detail": "3 renvois"},
+                   {"name": "tdm_pdf", "level": "info", "detail": ""}])
+    assert load_corpus(data, allow_ungated=True).served == ["lux-guide"]
