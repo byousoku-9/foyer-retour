@@ -23,6 +23,7 @@ import time
 from pydantic import BaseModel, model_validator
 
 from server.app.config import Settings
+from server.app.domain.errors import PipelineError
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, Intent, ParsedQuestion, QuestionScope, Turn
 from server.app.domain.trace import StepTrace
@@ -77,10 +78,18 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         untrusted("profil", json.dumps(profil.filtered(), ensure_ascii=False, sort_keys=True)),
         untrusted("question", question),
     ))
-    result = await client.parse(tier=STEP_TIERS["comprendre"], system_prefix=prefix,
-                                messages=[{"role": "user", "content": content}],
-                                output_model=SortieComprendre, budget=budget, step=step,
-                                max_tokens=settings.comprendre_max_tokens)
+    try:
+        result = await client.parse(tier=STEP_TIERS["comprendre"], system_prefix=prefix,
+                                    messages=[{"role": "user", "content": content}],
+                                    output_model=SortieComprendre, budget=budget, step=step,
+                                    max_tokens=settings.comprendre_max_tokens)
+    except PipelineError as exc:
+        # AD-10/AD-16 : un appel facturé qui échoue reste tracé — l'étape voyage avec l'erreur, comme
+        # dans *rédiger* et *vérifier* (revue Codex 1.5, tour 2, B5). La règle vaut pour les trois
+        # étapes qui appellent un modèle : aucune ne décide à la place de l'appelant.
+        step.ms = int((time.monotonic() - t0) * 1000)
+        exc.step = step
+        raise
     out = result.parsed
     language = lang if lang is not None else out.language  # normalisé par le modèle du domaine
     clarification = (out.clarification or "").strip()
