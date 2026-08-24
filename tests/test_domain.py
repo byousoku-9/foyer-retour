@@ -387,6 +387,19 @@ def test_profil_extra_allow_and_filter() -> None:
     assert "enfants" in PROFIL_KEYS
 
 
+def test_les_six_champs_du_questionnaire_du_site_passent_le_filtre() -> None:
+    """Story 1.7 : depuis que `chat.js` envoie le profil **brut** (AD-11), `filtered()` est ce qui
+    décide de ce que le serveur voit. Les six champs de `web/app/chat.js` (`CHAMPS`) doivent tous
+    passer — `horizon` manquait, et l'oubli était muet : un sixième de ce qui a été demandé à
+    l'utilisateur disparaissait entre la requête et *comprendre*."""
+    from server.app.domain.profil import PROFIL_KEYS, Profil
+
+    du_site = {"situation": "En famille", "enfants": "2", "statut": "Salarie",
+               "logement": "Louer", "vehicule": "Oui", "horizon": "Je viens d'arriver"}
+    assert set(du_site) <= PROFIL_KEYS
+    assert Profil(**du_site).filtered() == du_site
+
+
 # AD-7 / AD-8 (story 1.1)
 def test_ingest_models() -> None:
     from server.app.domain import ingest
