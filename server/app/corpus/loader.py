@@ -109,6 +109,12 @@ def _bloquant_statique(doc_dir: Path) -> str:
         return ""
     if not isinstance(rapport, dict) or not isinstance(rapport.get("checks"), list):
         return ""
+    if rapport.get("doc_id") != doc_dir.name:
+        # Un rapport **étranger** (copie de dossier, `doc_id` renommé sans réingestion) parle d'un
+        # autre document : ses bloquants ne disent rien de celui-ci, et les lui appliquer retirerait
+        # du service un document sain sur la foi d'un fichier qui ne le décrit pas. `api/etat` porte
+        # déjà l'alerte `rapport_etranger` (revue 1.9) : l'incohérence est dite, elle n'est pas muette.
+        return ""
     noms = [str(c.get("name", "?")) for c in rapport["checks"]
             if isinstance(c, dict) and c.get("level") == "bloquant"]
     return ", ".join(noms) if noms else ""

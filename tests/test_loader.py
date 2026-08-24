@@ -399,3 +399,20 @@ def test_une_alerte_du_rapport_ne_retire_pas_le_document(data: Path) -> None:
     _report(data, [{"name": "unresolved_refs", "level": "alerte", "detail": "3 renvois"},
                    {"name": "tdm_pdf", "level": "info", "detail": ""}])
     assert load_corpus(data, allow_ungated=True).served == ["lux-guide"]
+
+
+def test_un_rapport_etranger_nest_pas_un_bloquant(data: Path) -> None:
+    """Un `report.json` qui décrit un **autre** document ne retire pas celui-ci du service.
+
+    Copie de dossier, `doc_id` renommé sans réingestion : ses bloquants ne disent rien de ce
+    document-ci, et les lui appliquer mettrait en quarantaine un document sain sur la foi d'un
+    fichier qui ne le décrit pas. L'incohérence n'est pas tue pour autant : `api/etat` porte l'alerte
+    `rapport_etranger` (revue 1.9).
+    """
+    _report(data, {"doc_id": "un-autre-document",
+                   "checks": [{"name": "page_sans_texte", "level": "bloquant", "detail": ""}],
+                   "stats": {}} and json.dumps(
+        {"doc_id": "un-autre-document",
+         "checks": [{"name": "page_sans_texte", "level": "bloquant", "detail": ""}], "stats": {}}))
+    c = load_corpus(data, allow_ungated=True)
+    assert c.served == ["lux-guide"] and c.quarantine == {}
