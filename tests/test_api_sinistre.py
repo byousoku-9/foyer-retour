@@ -731,10 +731,15 @@ def test_le_serveur_emet_tout_ce_que_la_page_exige_dun_200(prod: TestClient) -> 
     debut = source.index("function lireReponse(")
     corps_js = source[debut:source.index("\n  }", debut)]
     exiges = sorted(set(re.findall(r'exiger(?:Liste)?\([^;]*?"([^"]+)"\)', corps_js)))
-    assert len(exiges) >= 25, f"le lecteur du front n'exige plus que {exiges} : le motif a changé"
+    assert len(exiges) >= 29, f"le lecteur du front n'exige plus que {exiges} : le motif a changé"
     # Le durcissement du tour 2 se lit ici, pas seulement dans un compte : ces quatre booléens sont
     # ceux dont l'absence faisait annoncer une pièce du contrat « non lue » qui ne l'était pas.
     assert "answer.verdict.missing.conditions_particulieres" in exiges
+    # Tour 3 : la trace est affichée, donc elle est du contrat affiché. `total_cost_eur` en
+    # particulier — NFR4 veut le coût réel à l'écran, et un coût absent ne se peignait pas en
+    # « coût inconnu » mais en rien du tout. C'est ici, et seulement ici, qu'on vérifie que la route
+    # écrit vraiment ce que la page exige désormais d'elle.
+    assert {"trace.pipeline", "trace.variant", "trace.steps", "trace.total_cost_eur"} <= set(exiges)
 
     corpus, _ = _mini_corpus()
     _brancher(prod, Double((_reponse(corpus), _trace())))
@@ -743,6 +748,9 @@ def test_le_serveur_emet_tout_ce_que_la_page_exige_dun_200(prod: TestClient) -> 
     # Sans quoi la règle « ancêtre `null` ⇒ chemin non exigible » viderait le test de six chemins
     # sans que rien ne le dise : le cas témoin doit porter des faits compris.
     assert corps["answer"]["faits_compris"], "le cas témoin doit publier des faits compris"
+    # Idem pour la trace : une trace sans étape est légitime, mais elle ferait passer les chemins
+    # d'étapes sans les éprouver. Le cas témoin en porte, et la page les lit jusqu'à la feuille.
+    assert corps["trace"]["steps"], "le cas témoin doit publier des étapes de trace"
 
     manquants = []
     for chemin in exiges:
