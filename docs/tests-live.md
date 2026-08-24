@@ -952,7 +952,7 @@ Serveur réel : `ENV=prod GIT_SHA=1.10test uv run uvicorn server.app.api.main:ap
 |---|---|
 | Les trois entrées | `/guide/`, `/sinistre/`, `#sujet-3` — titrées « 1 · … », « 2 · … », « 3 · … » |
 | La réponse au sujet 3 | titre « je ne fais pas un RAG » + les **sept** points (base SQL, profil par colonne, requête écrite par le modèle, requête affichée, aucun calcul par le modèle, texte libre après le filtre, restitution qui montre son travail) |
-| Niveau de validation | « niveau de validation : **vertical — 2 cas relus à la main** », classe `carte etat-gate` |
+| Niveau de validation | « niveau de validation : **vertical — 2 cas relus à la main** », classe `carte etat-gate` — **relevé périmé le même jour** : la revue Codex 1.10 tour 2 a retiré cette qualification tant que `gate_countersigned` est faux, ce qu'il est. Le relevé qui fait foi est celui de la section « Revue Codex 1.10, tour 2 » plus bas |
 | Version et documents | « documents servis : axa-lu-optihome-2017, lux-guide », « version servie : 1.10test » |
 | Requêtes réseau | `/`, `/accueil.js`, **`/api/v1/sante`**, `/favicon.ico` — **aucune requête tierce** |
 | AD-15 | `localStorage` **vide**, `document.cookie` vide, **zéro** pose d'`innerHTML` non vide (espion posé sur le setter **avant** la navigation) |
