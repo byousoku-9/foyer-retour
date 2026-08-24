@@ -286,3 +286,29 @@ Relevés refaits de bout en bout sur l'arbre final, sans reprendre les relevés 
 | 503, bandeau et bouton | serveur de contrôle `:8795` (clé invalide, `RATE_LIMIT_PER_MINUTE=1`) | bandeau « Assistant indisponible », badge « **mode indisponible** », **un** bouton, aucun résultat local dans le journal avant le clic |
 | 429, message sans repli | question suivante | « Trop de questions en peu de temps : réessayez dans **35** secondes. » (valeur réelle du `Retry-After` restant), **0 bouton** |
 | Le clic, et lui seul | clic sur le bouton du bandeau | réponse locale, badge « **mode local** », pied « recherche simple — aucune vérification : ces passages viennent d'une comparaison de mots-clés » |
+
+### Après la revue Codex de la story 1.7 (2026-08-24, tour 1) — quatre bloquants et un important
+
+Chrome headless piloté par CDP (WebSocket brut, aucun paquet ajouté). Serveur nominal sur `:8791`
+avec la vraie clé ; serveur de contrôle sur `:8792` (clé fournisseur invalide → 401 → un **vrai**
+503, `RATE_LIMIT_PER_MINUTE=1` pour obtenir un 429 sans payer dix appels).
+
+| Vérification | Commande / geste | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **713 passed en 13,9 s** (31 cas ajoutés par la revue), zéro réseau |
+| Cas du front | `node tests/js/chat_cases.mjs` | code **0**, `stderr` vide, `ok: true`, **85 relevés** |
+| **Cas du matérialiseur** (B6) | `node tests/js/ui_cases.mjs` | code **0**, `stderr` vide, `ok: true`, 6 relevés. `web/app/ui.js` est **exécuté** contre le DOM minimal de `tests/js/dom_minimal.mjs` : l'arbre décrit devient du DOM dans les deux journaux, une citation portant `<script>` arrive littéralement (le DOM minimal lève sur tout `innerHTML` non vide), un 503 matérialise **un** `<button type="button">` qu'on clique pour de bon, un 4xx **zéro** |
+| Le fichier servi est le nouveau | `curl -fsS localhost:8791/guide/app/chat.js \| head -3` | l'entête « foyer-retour (story 1.7, AD-11) » |
+| **Le seuil client vient de `config.py`** (I1) | `curl -s localhost:8791/sante` | `thresholds.client_abort_margin_s = 10.0` publié à côté de `deadline_s` ; le front lit `delai_abandon_ms = 65 000` sur la sonde au lieu de l'additionner à partir d'un nombre écrit dans `chat.js` |
+| **La sonde précède la première question** (I1) | `Network.requestWillBeSent`, page rechargée puis une question | l'ordre relevé se termine par `… /sante, /favicon.ico, /chat` : la question part **après** la sonde, donc sur les seuils du serveur et non sur les replis du front |
+| Corps réellement posté | même question | `{"question":…,"profil":{"situation":"En famille","enfants":"2","statut":"Salarie","logement":"Louer","vehicule":"Oui","horizon":"Je viens d'arriver"},"historique":[]}` — profil **objet** à six champs, aucun `contexte`, origine courante |
+| **La mention dit la durée réelle** (B1) | `document.querySelectorAll('.hint.confid')` | deux mentions identiques : « … sa politique publique, lue le 24/08/2026, prévoit la suppression des entrées et des sorties de l'API **sous 30 jours**, avec des exceptions — obligation légale, ou contenu que ses systèmes de sécurité signalent, conservé jusqu'à deux ans. » + le **lien** vers `privacy.claude.com/en/articles/7996866-…`, présent sous les deux saisies. La politique a été relue le 24/08/2026 : « we automatically delete inputs and outputs on our backend within 30 days », avec les exceptions citées — l'ancienne phrase « n'est pas conservé par défaut » était donc plus généreuse que l'engagement du fournisseur |
+| **Le badge existe dans les deux surfaces** (B4) | `#mode-badge` et `#widget-badge` relevés à chaque étape | avant la sonde : « mode : vérification… » des deux côtés (et non « mode local », le seul mode qui ne se déclenche jamais tout seul) ; après la sonde et après la réponse : « mode api » / `badge on` des deux côtés ; sur 503 : « mode indisponible » / `badge off` des deux côtés ; après le clic de repli : « mode local » des deux côtés |
+| **Les compteurs nuls s'affichent** (B3) | même serveur, question qui a rendu `claims_rejetes` (200) | « Termes cherchés : déclaration d'arrivée, commune, délai, inscription scolaire, scolarité, allocations familiales — **0 variante essayée**, 506 passages parcourus », état **inconnu**, coût 0,0641 €, **0 bouton**. C'est exactement le chiffre que le relevé précédent taisait |
+| Chemin nominal, question sourcée | `:8791`, « Quel délai ai-je pour déclarer mon arrivée à la commune ? » | 200, **3 segments factuels portant chacun sa citation** (passage relu, fiche cliquable, lien officiel, « retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée »), pied « partiel — cette réponse a coûté **0,0288 €** » ; la même bulle dans le widget |
+| Attente explicite, saisie verrouillée | 400 ms après le clic | « Je cherche dans le guide, puis je vérifie chaque phrase contre les passages cités… », `#chat-input.disabled === true`, `#chat-log[aria-busy="true"]` |
+| 503 : bandeau, un bouton, rien avant le clic | `:8792` | bandeau « Assistant indisponible » + la réserve + `référence : 922c7cfa-…` + **un** bouton ; `#chat-log .srcs` = **0** : aucun résultat local calculé |
+| 429 : message français, zéro bouton | question suivante, quota consommé | « Trop de questions en peu de temps : réessayez dans 60 secondes. », **0 bouton** |
+| Le clic, et lui seul | clic sur le bouton du bandeau | réponse locale, badge « mode local » des deux côtés, section « Sources » locale, pied « recherche simple — aucune vérification » |
+| `localStorage` après conversation | `Object.keys(localStorage)` | `luxguide.chat.v1` réduit au profil et à sa date ; aucun texte de conversation |
+| Aucun `innerHTML` sur du texte serveur | `grep -n "innerHTML" web/app/ui.js` | 30 vidages `innerHTML = ""` et une ligne de commentaire ; le chemin du serveur passe par `materialiser()`, qui n'en pose aucun — et le DOM minimal le prouve désormais par exécution |
