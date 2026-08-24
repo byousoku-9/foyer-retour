@@ -40,9 +40,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
 import sys
+import tempfile
 import time
+import traceback
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -205,6 +209,14 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
         dossier = cases_dir / suite
         if not dossier.is_dir():
             continue
+        etrangers = sorted(f.name for f in dossier.iterdir()
+                           if f.is_file() and f.suffix != ".yaml" and not f.name.startswith("."))
+        if etrangers:
+            # Un cas déposé en `.yml` (ou sous toute autre extension) serait **ignoré en silence**,
+            # et le gate se réclamerait d'une suite amputée sans qu'un mot le dise. Un golden set
+            # muet est pire qu'un golden set rouge (AD-14).
+            raise RefusDeTourner(f"{dossier} : fichiers hors schéma de nommage : "
+                                 f"{', '.join(etrangers)} (les cas sont des `*.yaml`)")
         for fichier in sorted(dossier.glob("*.yaml")):
             cas.append(_lire_cas(fichier, suite))
     vus: set[str] = set()
@@ -433,6 +445,14 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
         try:
             answer, _trace, cout = await executer_cas(c, ctx, doc_id=doc_id, budget_restant_eur=restant)
         except PipelineError as exc:
+            if exc.code is ErrorCode.budget_exceeded:
+                # Le plafond de run **atteint pendant** un cas, et non avant lui : le budget de la
+                # requête est réglé sur ce qui reste du run (AD-9), donc `BudgetExceeded` ici veut
+                # dire « ce cas déborderait le plafond », pas « le fournisseur est en panne ». C'est
+                # la même condition prévue que l'arrêt avant le cas suivant, vue une étape plus tard.
+                raise IncidentTechnique(
+                    f"plafond de run atteint pendant le cas {c.id} ({cumul:.4f} € consommés sur "
+                    f"{max_cost_eur:.4f} €) : {exc.message}") from exc
             if exc.code in CODES_INCIDENT:
                 # D4 : un incident ne dit rien du système mesuré. Le manifest n'est pas touché.
                 raise IncidentTechnique(f"cas {c.id} : {exc.code.value} — {exc.message}") from exc
@@ -546,7 +566,37 @@ def cle_absente(settings: Settings) -> bool:
     return not settings.anthropic_api_key.strip()
 
 
-def construire_contexte(settings: Settings, data_dir: Path) -> Contexte:
+def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
+    """Un `data/` **de lecture** identique, sauf que `manifest[doc_id].gate` y vaut `null`.
+
+    Pourquoi il en faut un : `loader._gate_alerts` met en quarantaine, sans dérogation possible, tout
+    document dont le gate porte `evals_ok: false` (AD-8 : « jamais servi »). C'est juste au service —
+    et c'est un cul-de-sac pour la mesure : après un run rouge, `--gate {doc_id}` refuserait
+    éternellement en code 2 « document non servi », et il n'existerait aucun chemin pour reprendre la
+    mesure et écrire un gate vert. Un verdict d'éval ne doit pas rendre l'éval impossible.
+
+    Ce que cette fonction **ne fait pas** : modifier `data/`. Elle construit un dossier temporaire de
+    liens symboliques vers les dossiers de documents (jamais copiés : le contrat AXA pèse des méga-
+    octets) et n'y réécrit qu'un `manifest.json`, en mémoire, avec le seul `gate` du document visé mis
+    à `null`. Tout le reste de la règle d'AD-7 continue de s'appliquer sur cette lecture : hashes,
+    overlay, bloquant statique, `status: quarantaine`. L'écriture du gate, elle, se fait toujours sur
+    le **vrai** manifest.
+    """
+    ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
+    for entree in data_dir.iterdir():
+        if entree.name == MANIFEST:
+            continue
+        (ombre / entree.name).symlink_to(entree.resolve(), target_is_directory=entree.is_dir())
+    brut = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8"))
+    if isinstance(brut, dict) and isinstance(brut.get(doc_id), dict):
+        brut[doc_id]["gate"] = None
+    (ombre / MANIFEST).write_text(json.dumps(brut, indent=2, ensure_ascii=False) + "\n",
+                                  encoding="utf-8")
+    return ombre
+
+
+def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | None = None,
+                        pile: Any = None) -> Contexte:
     """Corpus, index et client — le même assemblage qu'`api/etat.construire_etat` (AD-7, AD-9).
 
     `allow_ungated=True` **toujours**, et ce n'est pas une dérogation : c'est ce runner qui écrit le
@@ -554,10 +604,24 @@ def construire_contexte(settings: Settings, data_dir: Path) -> Contexte:
     à obtenir (le document ne serait pas servi, donc pas mesurable). Tout le reste de la règle d'AD-7
     s'applique : un document dont les hashes ont bougé, dont le rapport porte un bloquant statique ou
     que le manifest met en quarantaine n'est **pas** chargé, et `--gate` le refusera.
+
+    `regate` va un cran plus loin, et seulement pour le document que `--gate` vise : il fait lire un
+    manifest où **son** gate vaut `null`, ce qui permet de reprendre la mesure d'un document dont le
+    gate précédent était rouge (`gate_echoue`). Voir `_sans_gate_sur_disque` : `data/` n'est pas
+    touché, et un document en quarantaine pour une autre raison le reste.
     """
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
                                 model_ids=dict(TIERS))
-    corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate)
+    lecture = data_dir
+    if regate is not None and pile is not None:
+        entree_brute = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8")) \
+            if (data_dir / MANIFEST).is_file() else {}
+        gate_rouge = (isinstance(entree_brute.get(regate), dict)
+                      and isinstance(entree_brute[regate].get("gate"), dict)
+                      and entree_brute[regate]["gate"].get("evals_ok") is False)
+        if gate_rouge:
+            lecture = _sans_gate_sur_disque(data_dir, regate, pile)
+    corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate)
     return Contexte(settings=settings, index=Index(corpus), client=LlmClient(settings),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest)
@@ -603,9 +667,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = Settings()
         max_cost = settings.evals_max_cost_eur if args.max_cost is None else args.max_cost
-        if max_cost <= 0:
+        if not math.isfinite(max_cost) or max_cost <= 0:
+            # `argparse(type=float)` accepte « inf » et « nan », et `nan <= 0` est **faux** : sans
+            # `isfinite`, `--max-cost inf` ou `--max-cost nan` neutralisait le plafond et le run
+            # partait sans borne, contre AD-9 et contre CLAUDE.md (« la clé **et un plafond** »).
             raise RefusDeTourner(f"plafond de run {max_cost} € : les évals tournent avec un plafond "
-                                 "strictement positif (CLAUDE.md, AD-9)")
+                                 "fini et strictement positif (CLAUDE.md, AD-9)")
         # 1. Le profil, avant tout le reste : `--profile full` se refuse sans avoir rien lu.
         if args.profile in PROFILS_DIFFERES:
             raise RefusDeTourner(f"profil `{args.profile}` : story {PROFILS_DIFFERES[args.profile]}")
@@ -617,6 +684,12 @@ def main(argv: list[str] | None = None) -> int:
                                  "(AD-14 — les unitaires passent sans clé, les évals non)")
         # 3. Les cas, avant tout appel facturé.
         suites = None
+        if args.gate and args.cas:
+            # `--gate` écrit un gate **de suite** : `cases` et `cases_hash` désignent ce qui a été
+            # exécuté. Filtré par `--case`, il affirmerait `evals_ok: true` pour le document entier
+            # sur un cas choisi à la main, et `tests/test_digests.py` le verrait — mais après coup.
+            raise RefusDeTourner("--gate et --case sont exclusifs : un gate se réclame de la suite "
+                                 "qui sert le document, jamais d'un cas choisi")
         if args.suite in SUITES_DIFFEREES:
             raise RefusDeTourner(f"suite `{args.suite}` : story {SUITES_DIFFEREES[args.suite]}")
         if args.gate:
@@ -637,12 +710,13 @@ def main(argv: list[str] | None = None) -> int:
             raise RefusDeTourner(f"aucun cas au profil {args.profile} "
                                  f"dans {args.cases_dir}{' (suites ' + ', '.join(suites) + ')' if suites else ''}")
         # 4. Le corpus, puis le document visé par `--gate`.
-        ctx = construire_contexte(settings, args.data_dir)
-        if args.gate:
-            if args.gate not in ctx.index.corpus.documents:
+        with ExitStack() as pile:
+            ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile)
+            if args.gate and args.gate not in ctx.index.corpus.documents:
                 raison = ctx.index.corpus.quarantine.get(args.gate, "absent du corpus")
                 raise RefusDeTourner(f"--gate {args.gate} : document non servi ({raison})")
-        resultats = asyncio.run(_executer_et_fermer(cas, ctx, max_cost_eur=max_cost, sortie=sortie))
+            resultats = asyncio.run(
+                _executer_et_fermer(cas, ctx, max_cost_eur=max_cost, sortie=sortie))
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
         return 2
@@ -650,6 +724,14 @@ def main(argv: list[str] | None = None) -> int:
         # AD-16 : l'échec est terminal et **dit**. Le manifest n'a pas été touché.
         print(f"incident : {exc} — manifest non modifié (un incident n'est pas un verdict)",
               file=sys.stderr)
+        return 3
+    except Exception as exc:  # noqa: BLE001 — voir ci-dessous
+        # Tout le reste (`TypeError` d'une signature qui a bougé, `KeyError`, `OSError`) sortait en
+        # code 1 — celui que ce runner réserve à « un cas a rendu un mauvais label ». Un appelant,
+        # ou la CI, aurait lu un bug du runner comme un verdict d'éval. C'est un incident : code 3,
+        # manifest intact, et la trace part sur stderr pour être diagnosticable.
+        traceback.print_exc()
+        print(f"incident : {type(exc).__name__}: {exc} — manifest non modifié", file=sys.stderr)
         return 3
     resume(resultats, max_cost_eur=max_cost, sortie=sortie)
     tous_ok = all(r.ok for r in resultats)

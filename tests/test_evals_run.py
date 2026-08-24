@@ -125,7 +125,12 @@ class DoublePipeline:
             # Un vrai pipeline consomme du budget ; le double le simule pour que le plafond de run
             # se mesure sur autre chose qu'un compteur nul.
             budget.cost_eur = round(budget.cost_eur + self.cout, 4)
-        suivant = self.resultats.pop(0) if self.resultats else self.resultats
+        if not self.resultats:
+            # Un appel non prévu rendait `[]`, que l'appelant dépaquetait en `answer, trace` — une
+            # `ValueError` obscure à cent lignes de la cause. Le double dit ce qui s'est passé.
+            raise AssertionError(f"appel n° {len(self.appels)} non prévu par ce double "
+                                 f"(args={args!r}, doc_id={kw.get('doc_id')!r})")
+        suivant = self.resultats.pop(0)
         if isinstance(suivant, BaseException):
             raise suivant
         return suivant
@@ -459,11 +464,26 @@ def test_une_attente_inassouvie_sous_un_bon_label_fait_echouer_le_cas() -> None:
     assert runner.Resultat(id="c", suite="guide", label=label, ecarts=ecarts).ok is False
 
 
-def test_un_label_different_du_mode_attendu_est_un_ecart() -> None:
+def test_un_refus_attendu_et_obtenu_na_aucun_ecart() -> None:
+    """Un cas qui attend un refus **justifié** et l'obtient est `bonne_reponse` sans écart."""
     _corpus_, index = _corpus()
     cas = _cas(expected={"found": False, "refusal": True}, mode_attendu="bonne_reponse")
     label, ecarts = runner.juger(cas, _refus(), doc_id=GUIDE, index=index)
     assert label == "bonne_reponse" and ecarts == []
+
+
+def test_un_label_different_du_mode_attendu_est_un_ecart() -> None:
+    """La branche que la matrice exige : le label obtenu ≠ `mode_attendu` ⇒ le cas n'est pas `ok`.
+
+    Sans elle, un cas qui déclare attendre un `faux_refus` et reçoit une bonne réponse passerait le
+    gate — le golden set cesserait de mesurer ce qu'il dit mesurer.
+    """
+    _corpus_, index = _corpus()
+    cas = _cas(expected={"found": False, "refusal": True}, mode_attendu="faux_refus")
+    label, ecarts = runner.juger(cas, _refus(), doc_id=GUIDE, index=index)
+    assert label == "bonne_reponse"
+    assert ecarts == ["label bonne_reponse (mode_attendu faux_refus)"]
+    assert runner.Resultat(id="c", suite="guide", label=label, ecarts=ecarts).ok is False
 
 
 # --- exécution : la matrice d'E/S ----------------------------------------
@@ -507,14 +527,28 @@ def test_le_cas_sinistre_passe_par_le_pipeline_sinistre() -> None:
     assert not ctx._guide.appels                            # type: ignore[attr-defined]
 
 
-@pytest.mark.parametrize("erreur", [Timeout("deadline"), LlmUnavailable("529"),
-                                    BudgetExceeded("plafond")])
-def test_un_incident_technique_ne_touche_pas_le_manifest(erreur: Exception) -> None:
-    """D4 : « un incident n'est pas un verdict » — code 3, manifest intact."""
+@pytest.mark.parametrize("erreur", [Timeout("deadline"), LlmUnavailable("529")])
+def test_un_incident_technique_est_un_incident_pas_un_verdict(erreur: Exception) -> None:
+    """D4 : `Timeout`, `LlmUnavailable` — `IncidentTechnique`, donc code 3 et manifest intact.
+
+    (Que le manifest reste intact est vérifié de bout en bout par
+    `test_gate_en_echec_technique_ne_modifie_pas_le_manifest`, qui compare le fichier avant/après.)
+    """
     ctx = _armer(_contexte([erreur]))
     with pytest.raises(runner.IncidentTechnique) as exc:
         _executer(ctx, [_cas(id="g-luxtrust")])
     assert erreur.code.value in str(exc.value)
+
+
+def test_le_plafond_atteint_pendant_un_cas_est_dit_pour_ce_quil_est() -> None:
+    """Le budget d'un cas est le reste du run (AD-9) : `BudgetExceeded` y veut dire « ce cas
+    déborderait le plafond », pas « le fournisseur est en panne ». Même arrêt, une étape plus tard."""
+    ctx = _armer(_contexte([BudgetExceeded("majorant 0,12 € > reste 0,03 €")]))
+    with pytest.raises(runner.IncidentTechnique) as exc:
+        _executer(ctx, [_cas(id="g-luxtrust")], max_cost=0.03)
+    message = str(exc.value)
+    assert "plafond de run atteint pendant le cas g-luxtrust" in message
+    assert "0.0300" in message
 
 
 def test_un_cas_hors_bornes_du_pipeline_est_un_refus_pas_un_incident() -> None:
@@ -785,3 +819,132 @@ def test_le_seuil_du_plafond_de_run_vit_dans_config() -> None:
     assert "evals_max_cost_eur" in s.thresholds()
     source = (Path(runner.__file__)).read_text(encoding="utf-8")
     assert "evals_max_cost_eur" in source
+
+
+def test_le_runner_appelle_les_pipelines_avec_leur_vraie_signature() -> None:
+    """Le seul point d'intégration du runner est doublé partout ailleurs dans ce module.
+
+    `DoublePipeline.__call__(*args, **kw)` accepte n'importe quel nom d'argument : renommer
+    `pipeline_digest_hex` dans `pipelines/guide.py` laisserait ces 47 tests verts, et
+    `evals run --gate` — l'unique écrivain de `manifest.gate` (AD-7) — casserait sur un `TypeError`
+    au premier run **payé**. Ce test lie l'appel aux vraies signatures, sans réseau et sans appel.
+    """
+    import inspect
+
+    from server.app.pipelines.guide import repondre_guide as vrai_guide
+    from server.app.pipelines.sinistre import run as vrai_sinistre
+
+    commun = dict(corpus=object(), index=object(), client=object(), settings=_settings(),
+                  request_id="eval-x", lang="fr", budget=object(),
+                  pipeline_digest_hex="pd", prompts_digest_hex="pp")
+    # Exactement ce que `executer_cas` construit, pour les deux suites.
+    inspect.signature(vrai_guide).bind("question", [], None, doc_id=GUIDE, **commun)
+    inspect.signature(vrai_sinistre).bind(CONTRAT, "question", None, **commun)
+
+
+def test_un_run_sans_gate_ne_touche_jamais_le_manifest(tmp_path: Path,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--gate` est le **seul** chemin d'écriture : mesurer ne doit rien changer à ce qui est servi."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_text(encoding="utf-8")
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    assert _main(tmp_path, ["--suite", "guide"], monkeypatch, reponses_guide=[bonne]) == 0
+    assert (data / "manifest.json").read_text(encoding="utf-8") == avant
+
+
+def test_un_gate_rouge_peut_etre_repris(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un verdict d'éval ne doit pas rendre l'éval impossible.
+
+    `loader._gate_alerts` met en quarantaine, **sans dérogation**, tout document dont le gate porte
+    `evals_ok: false` (AD-8 : « jamais servi »). C'est juste au service, et c'était un cul-de-sac
+    pour la mesure : après un run rouge, `--gate {doc_id}` refusait éternellement « document non
+    servi », et le seul chemin de sortie était une édition à la main de `data/manifest.json` — que la
+    spec interdit (« les gates écrits **par le runner**, jamais à la main »).
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    # 1. un run rouge écrit `evals_ok: false` et le document part en quarantaine.
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[(_refus(), _trace())]) == 1
+    assert load_corpus(data, allow_ungated=True).quarantine.get(GUIDE) == "gate_echoue"
+    # 2. le run suivant peut malgré tout mesurer ce document, et écrire un gate vert.
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 0
+    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest[GUIDE]["gate"]["evals_ok"] is True
+    # Ce document redevient servi **sans dérogation** ; l'autre reste `sans_gate` (il n'a pas été
+    # mesuré), ce qui montre que la reprise n'a dérogé qu'au gate rouge du document visé.
+    corpus = load_corpus(data, allow_ungated=False)
+    assert corpus.served == [GUIDE] and corpus.quarantine == {CONTRAT: "sans_gate"}
+    # …et `data/` n'a pas été touché autrement : le second document garde son entrée d'origine.
+    assert manifest[CONTRAT]["gate"] is None
+
+
+def test_un_document_en_quarantaine_pour_autre_chose_reste_refuse(tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """La reprise d'un gate rouge ne déroge qu'au gate rouge : le reste d'AD-7 s'applique."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    brut = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    brut[GUIDE]["gate"] = {"profile": "vertical", "source_hash": "s", "ingest_fingerprint": "f",
+                           "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q",
+                           "model_ids": {}, "evals_ok": False, "date": "2026-08-24",
+                           "overlay_hash": None, "cases": 1}
+    brut[GUIDE]["document_hash"] = "un-hash-qui-ne-correspond-plus"
+    (data / "manifest.json").write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch) == 2
+
+
+def test_gate_et_case_sont_exclusifs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un gate se réclame de la suite qui sert le document, jamais d'un cas choisi à la main (D5)."""
+    assert _main(tmp_path, ["--gate", GUIDE, "--case", "g-luxtrust"], monkeypatch) == 2
+
+
+@pytest.mark.parametrize("valeur", ["inf", "nan", "-1"])
+def test_un_plafond_non_fini_est_refuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                        valeur: str) -> None:
+    """`argparse(type=float)` accepte « inf » et « nan », et `nan <= 0` est **faux**.
+
+    Sans `math.isfinite`, `--max-cost inf` neutralisait le plafond et le run partait sans borne —
+    contre AD-9 et contre CLAUDE.md (« les évals tournent seulement avec la clé **et un plafond** »).
+    """
+    assert _main(tmp_path, ["--suite", "guide", "--max-cost", valeur], monkeypatch) == 2
+
+
+def test_un_cas_depose_sous_une_autre_extension_nest_pas_ignore(tmp_path: Path) -> None:
+    """Un `.yml` glissé dans une suite serait ignoré en silence, et le gate amputé sans un mot."""
+    racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    (racine / "guide" / "g-oublie.yml").write_text("id: g-oublie\n", encoding="utf-8")
+    with pytest.raises(runner.RefusDeTourner) as exc:
+        runner.charger_cas(racine)
+    assert "g-oublie.yml" in str(exc.value)
+
+
+def test_une_exception_inattendue_est_un_incident_pas_un_verdict(tmp_path: Path,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code 3, pas 1 : un bug du runner ne doit pas se lire comme « un cas a rendu un mauvais label ».
+
+    Un `TypeError` — une signature de pipeline qui a bougé — sortait en code 1 par le défaut de
+    Python. Un appelant, ou la CI, aurait lu un bug comme un verdict d'éval.
+    """
+    class Casse:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            raise TypeError("repondre_guide() got an unexpected keyword argument")
+
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_text(encoding="utf-8")
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    _COURANT["guide"] = Casse()
+    _COURANT["sinistre"] = DoublePipeline([])
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+    assert code == 3
+    assert (data / "manifest.json").read_text(encoding="utf-8") == avant

@@ -153,10 +153,12 @@ class Settings(BaseSettings):
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
     # un seuil comme les autres — il vit ici, jamais en dur dans `server/evals/run.py`, et `--max-cost`
-    # ne fait que le surcharger pour un run. Valeur : le profil `vertical` exécute deux cas à ≈ 0,08 €
-    # pièce (mesuré en 1.8/1.9 sur le cas bougie) ; 1,00 € laisse la place au golden set complet de
-    # 4.1 (40–60 cas) sans qu'un run de démonstration puisse dériver. `[HYPOTHÈSE]` : à re-régler
-    # quand le golden set aura sa taille cible.
+    # ne fait que le surcharger pour un run. Valeur : le profil `vertical` exécute **deux** cas, à
+    # 0,0488 € et 0,0504 € (mesuré le 24/08/2026, `docs/tests-live.md` § 1.10) ; 1,00 € laisse donc
+    # un facteur dix sur le run que cette story écrit, ce qui borne une dérive sans jamais gêner un
+    # re-gate. Il ne suffira **pas** au golden set complet de 4.1 : 40–60 cas au tarif mesuré valent
+    # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
+    # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
     evals_max_cost_eur: float = Field(1.0, ge=0)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
