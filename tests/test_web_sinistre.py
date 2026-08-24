@@ -1,0 +1,678 @@
+"""Matrice d'E/S du front de l'outil sinistre (spec 1.9) : AD-11, AD-15, AD-16, AD-6, AD-4, D5–D8.
+
+Le harnais `tests/js/sinistre_cases.mjs` charge `tools/sinistre/sinistre.js` dans un `node:vm` avec
+`window`, `location`, `document` (le DOM minimal) et `fetch` **doublés**, exécute les cas et écrit du
+JSON. Il ne juge rien : tout ce qui est affirmé l'est ici. Aucun navigateur, aucun réseau, aucune
+dépendance ajoutée à `pyproject.toml` — le harnais n'utilise que la bibliothèque standard de Node.
+
+Le front du guide (1.7) n'était vérifié par rien avant sa revue ; celui-ci l'est dès l'écriture, et
+sur les deux moitiés à la fois — la **composition** (l'arbre décidé) et la **matérialisation** (le
+DOM produit). Ce que même un DOM en mémoire ne voit pas — tailles, contrastes, débordements, un vrai
+lecteur d'écran — reste vérifié en Chrome headless (`docs/tests-live.md`) et en 1.11.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from server.app.api.schemas import SinistreRequest
+from server.app.config import REPO_ROOT, Settings
+from server.app.domain.question import Faits
+from server.app.domain.verdict import PORTEE, VerdictValue
+
+HARNAIS = REPO_ROOT / "tests" / "js" / "sinistre_cases.mjs"
+PAGE = REPO_ROOT / "tools" / "sinistre" / "index.html"
+SCRIPT = REPO_ROOT / "tools" / "sinistre" / "sinistre.js"
+
+# Comme pour le front du guide : sans `node`, ces cas passent en `skip`, et un `skip` est
+# indiscernable d'un succès dans un `pytest -q`. `FRONT_TESTS_REQUIS=1` (CI, story 1.11) en fait un
+# échec — une image sans `node` ne peut plus faire passer la suite au vert en taisant le front.
+REQUIS = os.environ.get("FRONT_TESTS_REQUIS", "") not in ("", "0")
+
+
+def _lancer(harnais: Path) -> dict[str, Any]:
+    node = shutil.which("node")
+    if node is None:
+        motif = ("node absent de la machine : les cas du front sinistre ne peuvent pas tourner "
+                 "(l'image de CI de la story 1.11 en a un)")
+        if REQUIS:
+            pytest.fail("FRONT_TESTS_REQUIS=1 mais " + motif)
+        pytest.skip(motif)
+    # `check=False` explicite : le code de retour est **une assertion du test** deux lignes plus bas,
+    # avec le `stderr` du harnais en message. Une `CalledProcessError` nue le perdrait.
+    fini = subprocess.run([node, str(harnais)], capture_output=True, text=True, timeout=120,
+                          cwd=str(REPO_ROOT), check=False)
+    assert fini.returncode == 0, f"le harnais a échoué ({fini.returncode}) :\n{fini.stderr}"
+    charge = json.loads(fini.stdout) if fini.stdout.strip() else {"ok": False, "erreur": fini.stderr}
+    assert charge.get("ok") is True, charge.get("erreur")
+    return charge["cas"]
+
+
+@pytest.fixture(scope="module")
+def cas() -> dict[str, Any]:
+    """Le harnais est exécuté **une fois** pour tout le module ; chaque test lit un relevé."""
+    return _lancer(HARNAIS)
+
+
+@pytest.fixture(scope="module")
+def page() -> str:
+    return PAGE.read_text(encoding="utf-8")
+
+
+# --- AD-12 : une seule origine -------------------------------------------
+
+def test_lapi_est_lorigine_de_la_page(cas: dict[str, Any]) -> None:
+    """Aucune URL en dur : le serveur qui sert la page sert l'API (AD-12, aucun CORS)."""
+    assert cas["api_base"] == "https://foyer-retour.example"
+    assert cas["corps_url"] == "https://foyer-retour.example/api/v1/sinistre"
+    assert cas["documents_url"] == "https://foyer-retour.example/api/v1/documents"
+
+
+def test_les_routes_sont_celles_de_la_v1_sans_alias(cas: dict[str, Any]) -> None:
+    """AD-11 : l'outil sinistre n'a pas d'alias historique — il poste sur `/api/v1/`."""
+    assert "/api/v1/" in cas["corps_url"]
+    assert "/api/v1/" in cas["documents_url"]
+
+
+def test_une_page_hors_ligne_ne_poste_rien(cas: dict[str, Any]) -> None:
+    """`file://` : aucun serveur à joindre, donc aucune requête — et la page le dit."""
+    assert cas["hors_ligne"]["api_base"] == ""
+    assert cas["hors_ligne"]["appels_reseau"] == 0
+    assert cas["hors_ligne"]["code"] == "hors_ligne"
+    assert "fichier local" in cas["hors_ligne"]["message"]
+
+
+# --- AD-11 : le corps posté ----------------------------------------------
+
+def test_le_corps_porte_exactement_les_champs_du_contrat(cas: dict[str, Any]) -> None:
+    """AD-11 : `{doc_id, question, faits{date?, lieu?, montant_eur?, description}}`, et rien d'autre."""
+    corps = cas["corps"]
+    assert set(corps) == {"doc_id", "question", "faits"}
+    assert set(corps["faits"]) == {"description", "date", "lieu", "montant_eur"}
+    assert corps["faits"]["montant_eur"] == 1200
+    assert cas["corps_methode"] == "POST"
+    assert cas["corps_entetes"]["Content-Type"] == "application/json"
+    # Les champs du corps sont **exactement** ceux que le schéma du serveur accepte comme requis ou
+    # facultatifs — `variant` et `lang` restant à leur défaut, ils ne sont pas envoyés.
+    assert set(corps) <= set(SinistreRequest.model_fields)
+
+
+def test_le_dossier_nest_jamais_envoye(cas: dict[str, Any]) -> None:
+    """D1 : la page ne déclare rien du paquet contractuel — c'est une auto-déclaration invérifiable."""
+    for cle in ("corps", "corps_minimal", "corps_montant_illisible", "corps_montant_virgule"):
+        assert "dossier" not in cas[cle]
+        assert "dossier" not in cas[cle]["faits"]
+
+
+def test_les_champs_facultatifs_vides_ne_partent_pas(cas: dict[str, Any]) -> None:
+    """`Faits.date`/`lieu` sont `str | None` : une chaîne vide n'est pas l'absence."""
+    assert cas["corps_minimal"]["faits"] == {"description": "Deux mots."}
+
+
+def test_un_montant_illisible_nest_pas_envoye_a_zero(cas: dict[str, Any]) -> None:
+    """Un sinistre à zéro euro n'est pas la même chose qu'un montant non renseigné."""
+    assert "montant_eur" not in cas["corps_montant_illisible"]["faits"]
+    # La virgule décimale française est lue, elle : c'est ce que le champ affiche.
+    assert cas["corps_montant_virgule"]["faits"]["montant_eur"] == 1200.5
+
+
+def test_les_bornes_du_front_sont_celles_du_serveur(cas: dict[str, Any], page: str) -> None:
+    """UX-DR10 : les `maxlength` de la page sont **lus** sur les schémas, jamais devinés.
+
+    Ce test est ce qui empêche la divergence : si `SinistreRequest.question` ou `Faits.description`
+    changent de borne, la page devient rouge au lieu de laisser l'utilisateur écrire un texte que le
+    serveur refusera après dix secondes d'attente.
+    """
+    question_max = SinistreRequest.model_fields["question"].metadata
+    borne_question = next(m.max_length for m in question_max if getattr(m, "max_length", None))
+    borne_description = next(m.max_length for m in Faits.model_fields["description"].metadata
+                             if getattr(m, "max_length", None))
+    assert cas["bornes"]["question_max"] == borne_question == 1000
+    assert cas["bornes"]["description_max"] == borne_description == 2000
+    assert 'id="question"' in page and f'maxlength="{borne_question}"' in page
+    assert 'id="description"' in page and f'maxlength="{borne_description}"' in page
+
+
+# --- le sélecteur de contrat ---------------------------------------------
+
+def test_le_selecteur_ne_propose_que_les_contrats(cas: dict[str, Any]) -> None:
+    """AC : `lux-guide` est listé par la route (il est servi) mais **pas** proposé par le sélecteur."""
+    options = cas["formulaire"]["options"]
+    assert [o["valeur"] for o in options] == ["cg-mini", "cg-second", "cg-privee"]
+    assert "édition juin 2017" in options[0]["texte"]
+    # AD-4 : l'édition s'affiche avec sa réserve, jamais comme un statut vert — **même** quand elle
+    # est vide (`Document.edition` est un `str` sans `min_length`), et c'est justement là qu'on sait
+    # le moins de quoi on parle (revue 1.9).
+    assert all("actualité non vérifiée" in o["texte"] for o in options)
+    assert "édition non précisée" in options[1]["texte"]
+    assert cas["formulaire"]["actif"] is True
+    assert cas["formulaire"]["message"] is None
+
+
+@pytest.mark.parametrize("cle", ["formulaire_sans_contrat", "formulaire_vide"])
+def test_sans_contrat_le_formulaire_est_desactive_et_le_dit(cas: dict[str, Any], cle: str) -> None:
+    """Ligne « Contrat unique / aucun contrat » de la matrice : le sélecteur le dit, le formulaire dort."""
+    vue = cas[cle]
+    assert vue["actif"] is False
+    assert vue["options"] == []
+    assert "Aucun contrat" in vue["message"]
+
+
+def test_la_source_publique_du_contrat_est_offerte(cas: dict[str, Any]) -> None:
+    """AD-7 : le PDF n'est pas redistribué ; son lien public rend l'édition vérifiable."""
+    sources = {s["doc_id"]: s["url"] for s in cas["formulaire"]["sources"]}
+    assert sources["cg-mini"].startswith("https://")
+    # AD-7 : `source.url` peut porter l'URL `gs://` de la copie **privée** de secours. Le serveur la
+    # filtre ; la page la refuse aussi, parce que deux étages valent mieux qu'un sur un lien qui
+    # part dans un `href` d'une page publique (revue 1.9).
+    assert sources["cg-privee"] is None
+
+
+def test_le_lien_de_source_est_materialise_et_suit_le_contrat_choisi(cas: dict[str, Any]) -> None:
+    """La seule chose qui rende « édition juin 2017 » vérifiable par celui à qui on l'annonce.
+
+    Assertée sur le **DOM**, pas sur la valeur de retour d'une fonction pure : c'est l'ancre posée
+    dans `#contrat-source` qui compte, avec `target`/`rel` (revue 1.9).
+    """
+    source = cas["demarrage"]["source"]
+    assert source["href"] == "https://example.invalid/cg.pdf"
+    assert source["target"] == "_blank"
+    assert source["rel"] == "noopener noreferrer"
+    assert source["texte"] == "voir le contrat à sa source publique"
+    # Après un changement de contrat, le lien suit — et le reste du sélecteur ne bouge pas.
+    assert cas["changement"]["source"]["href"] == "https://example.invalid/second.pdf"
+
+
+def test_changer_de_contrat_ne_reinitialise_pas_le_selecteur(cas: dict[str, Any]) -> None:
+    """AD-14 prévoit « ≥ 2 contrats » : le choix de l'utilisateur doit tenir (revue 1.9).
+
+    Reconstruire les `<option>` à chaque `change` remettait `select.value` sur la première option :
+    le choix était annulé en silence, le lien de source affichait le mauvais contrat, et le sinistre
+    partait contre celui qu'on n'avait pas choisi.
+    """
+    assert cas["changement"]["valeur"] == "cg-second"
+    assert cas["changement"]["options"] == ["cg-mini", "cg-second", "cg-privee"]
+
+
+# --- D6 : l'appariement clause ↔ affirmation ------------------------------
+
+def test_lappariement_suit_lenumeration_du_serveur(cas: dict[str, Any]) -> None:
+    """D6 : `ClauseSource` n'a pas de `claim_id` ; l'appariement est positionnel, comme au guide."""
+    apparie = cas["appariement"]
+    assert [e["claim_id"] for e in apparie] == ["c1", "c2"]
+    assert [e["blocs"] for e in apparie] == [["cg-mini:p9:2"], ["cg-mini:p12:3"]]
+    assert [e["applicable"] for e in apparie] == ["humain", "oui"]
+
+
+@pytest.mark.parametrize("cle", ["appariement_trop_de_sources", "appariement_desordre",
+                                  "appariement_sans_source"])
+def test_un_appariement_qui_ne_retombe_pas_est_abandonne(cas: dict[str, Any], cle: str) -> None:
+    """D6 : jamais un rattachement deviné — une clause sous la mauvaise affirmation est pire."""
+    assert cas[cle] is None
+
+
+def test_lappariement_abandonne_se_dit_et_ne_retire_rien(cas: dict[str, Any]) -> None:
+    """Dégradation **visible** : la page le dit, puis affiche la liste plate — toutes les clauses.
+
+    Et **avec leurs statuts** (D6, mot pour mot) : le mode dégradé serait le dernier endroit où
+    taire l'applicabilité d'une clause et la réserve d'actualité de son édition (revue 1.9).
+    """
+    degrade = cas["verdict_degrade"]
+    assert degrade["degrade"], "la page doit dire qu'elle n'a pas pu rattacher les clauses"
+    assert "rattacher" in degrade["degrade"][0]
+    assert degrade["clauses"] == 3  # les trois clauses restent affichées
+    assert degrade["affirmations"] == []  # aucune affirmation n'en porte, puisque rien n'est apparié
+    statuts = degrade["statuts"]
+    assert len(statuts) == 2  # les deux clauses que des claims affichées citent
+    assert "applicabilité à confirmer par un humain" in statuts[0]
+    assert all("actualité non vérifiée" in s for s in statuts)
+
+
+# --- AD-6 / AC : ce que la page affiche ----------------------------------
+
+def test_le_badge_et_la_portee_sont_en_tete(cas: dict[str, Any]) -> None:
+    """AC : le badge du verdict et la mention de portée, tous deux posés par `textContent`."""
+    badge = cas["verdict"]["badge"]
+    assert len(badge) == 1
+    assert badge[0]["texte"] == "sous conditions"
+    assert badge[0]["cls"] == "badge verdict-sous_conditions"
+    assert cas["verdict"]["portee"] == [
+        "au regard des conditions générales seules — verdict non validé par un expert assurance"]
+
+
+def test_la_portee_du_front_contient_celle_du_domaine(cas: dict[str, Any]) -> None:
+    """AD-6 : `PORTEE` est invariable côté serveur ; la page en dit autant, plus la réserve d'expert."""
+    assert PORTEE in cas["portee"]
+    assert "non validé par un expert" in cas["portee"]
+
+
+def test_les_quatre_valeurs_du_verdict_ont_un_libelle(cas: dict[str, Any]) -> None:
+    """AD-6 : quatre valeurs. Le front ne connaît que celles-là, et le dit quand il en reçoit une autre."""
+    connues = {v["cle"] for v in cas["verdicts"] if v["cle"] != "inconnu"}
+    assert connues == set(VerdictValue.__args__)
+    inconnus = [v for v in cas["verdicts"] if v["cle"] == "inconnu"]
+    assert len(inconnus) == 2  # « inventé » et la chaîne vide
+    assert all(v["texte"] == "verdict non reconnu" for v in inconnus)
+
+
+def test_un_verdict_hors_contrat_nest_pas_traduit_en_valeur_connue(cas: dict[str, Any]) -> None:
+    """AD-16 : le ranger dans la case la plus proche serait le dégradé silencieux."""
+    assert cas["verdict_inconnu"] == [{"cls": "badge verdict-inconnu", "texte": "verdict non reconnu"}]
+
+
+def test_la_raison_et_le_texte_du_serveur_sont_affiches(cas: dict[str, Any]) -> None:
+    """AD-6 : « l'UI affiche `value` + `reason` ». Le texte est rendu par le serveur (AD-3)."""
+    assert cas["verdict"]["raison"] == [
+        "Une clause conditionne la garantie (au regard des conditions générales seules)"]
+    assert cas["verdict"]["analyse"] == [
+        "La garantie vise l'action subite de la chaleur. Une condition reste ouverte."]
+
+
+def test_les_faits_compris_sont_affiches_champ_par_champ(cas: dict[str, Any]) -> None:
+    """AC/D4 : « les faits compris » — bien, événement, lieu, cause, moment —, pas la description en écho."""
+    lignes = dict(cas["verdict"]["faits_compris"])
+    assert lignes == {
+        "Bien concerné": "mobilier de salon",
+        "Événement": "brûlure sans embrasement",
+        "Lieu": "domicile",
+        "Cause": "bougie",
+        "Moment": "2026-08-01",
+    }
+
+
+def test_le_paquet_manquant_est_annonce_et_reclame(cas: dict[str, Any]) -> None:
+    """AD-6 : `MissingPackage` accompagne **toujours** le verdict, et alimente `ask_client`."""
+    paquet = " ".join(cas["verdict"]["paquet"])
+    for piece in ("conditions particulières", "options souscrites", "avenants", "date d'effet"):
+        assert piece in paquet
+    assert "caractère subit de l'action de la chaleur" in paquet
+    assert cas["verdict"]["ask"] == [
+        "Le contrat porte-t-il l'option correspondante ?",
+        "Le caractère subit de l'action de la chaleur est-il établi ?"]
+    assert cas["verdict"]["escalate"] == ["Faire relire la clause par un gestionnaire."]
+
+
+def test_chaque_clause_affiche_son_type_sa_page_et_ses_statuts(cas: dict[str, Any]) -> None:
+    """UX-DR6 (c) / D5 : le type vient de `Block.kind` (AD-6, seule source), la page du bloc."""
+    clauses = cas["verdict"]["clauses"]
+    assert len(clauses) == 2
+    assert clauses[0]["quote"].startswith("« événement soudain")
+    assert clauses[0]["meta"][0] == "garantie"
+    assert clauses[0]["meta"][1] == "page 9"
+    assert "applicabilité à confirmer par un humain" in clauses[0]["meta"][2]
+    assert "actualité non vérifiée" in clauses[0]["meta"][2]
+
+
+def test_un_typage_non_confirme_est_dit(cas: dict[str, Any]) -> None:
+    """D5 : un `kind` non confirmé vaut `applicable="humain"` — l'afficher sans le dire mentirait."""
+    condition = cas["verdict"]["clauses"][1]
+    assert condition["meta"][0] == "condition"
+    assert condition["meta"][1] == "typage non confirmé"
+
+
+def test_chaque_clause_est_placee_sous_laffirmation_quelle_soutient(cas: dict[str, Any]) -> None:
+    assert cas["verdict"]["affirmations"] == [
+        "La garantie vise l'action subite de la chaleur.", "Une condition reste ouverte."]
+    assert cas["verdict"]["degrade"] == []  # l'appariement a retombé : aucune réserve affichée
+
+
+def test_les_clauses_non_retrouvees_sont_affichees_sans_leur_citation(cas: dict[str, Any]) -> None:
+    """D7 : « le texte de l'affirmation, le motif du rejet en français **et le kind du rejet** ».
+
+    La quote, elle, ne sort pas : sur une claim `non_retrouvee` elle est restée la chaîne du modèle.
+    """
+    assert cas["verdict"]["rejetees"] == [["Une exclusion écarte les dommages du canapé.",
+                                           "citation introuvable dans le contrat",
+                                           "non_retrouvee"]]
+    # Ni là, ni ailleurs dans l'arbre : la vérification porte sur le texte **entier** de la vue.
+    assert "CETTE QUOTE NE DOIT JAMAIS S'AFFICHER" not in cas["verdict"]["texte_entier"]
+
+
+def test_le_titre_des_affirmations_ecartees_vaut_pour_les_quatre_kinds(cas: dict[str, Any]) -> None:
+    """AD-16 : jamais une affirmation que rien n'établit (revue 1.9).
+
+    « Clauses citées non retrouvées » était faux pour deux des quatre `rejection_kind` :
+    `non_pertinente` désigne un **passage réel** (la page le dit deux lignes plus bas, et se
+    contredisait donc dans le même écran) et `non_citee` une affirmation *vérifiée* qu'aucune phrase
+    affichée ne reprend. Ce qui leur est commun, et seulement cela, c'est qu'elles ont été écartées
+    et que leur citation n'est pas montrée.
+    """
+    titre = cas["verdict"]["rejetees_titre"]
+    assert titre == ["Affirmations écartées par la vérification"]
+    note = cas["verdict"]["rejetees_note"][0]
+    assert "non retrouvée" not in note and "n'a pas été retrouvée" not in note
+    assert "écartées" in note
+
+
+def test_les_quatre_motifs_de_rejet_ont_une_phrase_en_francais(cas: dict[str, Any]) -> None:
+    """AD-4 : quatre `rejection_kind`. Un cinquième inconnu ne rend pas la page muette."""
+    assert len(cas["rejets"]) == 5
+    assert len(set(cas["rejets"][:4])) == 4  # quatre motifs distincts
+    assert all(m and m == m.strip() for m in cas["rejets"])
+
+
+def test_ce_que_je_ne_sais_pas_est_affiche(cas: dict[str, Any]) -> None:
+    assert cas["verdict"]["inconnu"] == ["La franchise applicable n'est pas dite."]
+
+
+def test_la_trace_est_depliable_et_porte_la_reference_les_etapes_et_le_cout(cas: dict[str, Any]) -> None:
+    """AD-10 : « la trace est consultable ». `<details>` natif : dépliable sans une ligne de JS."""
+    assert cas["verdict"]["trace_tags"] == ["details"]
+    lignes = cas["verdict"]["trace_lignes"]
+    assert lignes[0] == "référence de requête : r-1"
+    assert "pipeline : sinistre" in lignes[1] and "deterministe" in lignes[1]
+    assert any("étape comprendre" in l and "micro" in l for l in lignes)
+    assert any("applicabilite_incomplete" in l for l in lignes)
+    assert lignes[-1] == "cette analyse a coûté 0,0336 €"
+    # AD-10 : la trace ne porte jamais le texte des blocs — le harnais n'en fournit pas, et rien
+    # dans ce qu'on relève ne pourrait en faire apparaître.
+    assert not any("bougie" in l for l in lignes)
+
+
+def test_le_cout_vient_de_lusage_rendu_par_lapi(cas: dict[str, Any]) -> None:
+    """NFR4 : jamais une estimation du front. Un total nul se dit, il ne s'arrondit pas à 0,0000 €."""
+    assert cas["couts"]["nominal"] == "cette analyse a coûté 0,0336 €"
+    assert cas["couts"]["zero"] == "cette analyse n'a rien coûté (aucun appel facturé)"
+    assert cas["couts"]["absent"] == ""
+    assert cas["couts"]["sans_trace"] == ""
+
+
+# --- le refus : un verdict, pas une absence ------------------------------
+
+def test_un_refus_affiche_ne_tranche_pas_sa_portee_et_les_faits_compris(cas: dict[str, Any]) -> None:
+    """AD-16 : un refus sinistre **porte** un verdict — sans lui la page n'aurait qu'une absence."""
+    refus = cas["verdict_refus"]
+    assert refus["badge"] == [{"cls": "badge verdict-ne_tranche_pas", "texte": "ne tranche pas"}]
+    assert refus["clauses"] == 0
+    assert refus["portee"] == [
+        "au regard des conditions générales seules — verdict non validé par un expert assurance"]
+    # La phrase de refus vient du serveur (`restituer.PHRASES_DE_REFUS_SINISTRE`), pas de la page.
+    assert refus["analyse"] == [
+        "Je n'ai trouvé aucune clause du contrat qui traite du sinistre décrit."]
+    # D4 : c'est sur un refus que « ce que j'ai compris » compte le plus.
+    assert dict(refus["faits_compris"]) == {"Bien concerné": "mobilier de salon"}
+
+
+# --- AD-16 : les erreurs -------------------------------------------------
+
+@pytest.mark.parametrize("code", ["invalid_request", "input_too_long", "rate_limited",
+                                   "llm_unavailable", "timeout", "budget_exceeded",
+                                   "corpus_unavailable", "internal", "reponse_illisible",
+                                   "reseau", "timeout_client", "hors_ligne", "sans_code"])
+def test_aucune_erreur_ne_propose_de_repli_ni_de_verdict(cas: dict[str, Any], code: str) -> None:
+    """AC : ni bouton de repli, ni verdict de remplacement, quelle que soit l'erreur (AD-16)."""
+    vue = cas["erreurs"][code]
+    assert vue["boutons"] == 0
+    assert vue["actions"] == 0
+    assert vue["badges"] == 0
+    assert vue["titre"] == "Aucun verdict n'a été rendu"
+    assert vue["message"] and vue["message"] == vue["message"].strip()
+    assert "recherche simple" not in vue["texte_entier"]
+    assert PORTEE not in vue["texte_entier"]
+
+
+def test_chaque_erreur_affiche_sa_reference_de_requete(cas: dict[str, Any]) -> None:
+    """AC : « elle affiche l'erreur **et sa référence de requête** » — c'est le lien avec le log."""
+    for code, vue in cas["erreurs"].items():
+        assert vue["reference"] == "référence de requête : r-err", code
+    # Sans `request_id`, aucune ligne fantôme n'est peinte.
+    assert cas["erreur_sans_reference"] == []
+
+
+def test_les_messages_derreur_sont_distincts_et_en_francais(cas: dict[str, Any]) -> None:
+    """FR11 : le `message` du serveur (pydantic, anglais, chemin du champ) n'est jamais affiché."""
+    messages = {v["message"] for v in cas["erreurs"].values()}
+    assert len(messages) >= 7
+    assert not any(re.search(r"\bbody\.|should have|List should", m) for m in messages)
+
+
+@pytest.mark.parametrize("nom, attendu", [
+    ("invalid_request", {"kind": "requete", "statut": 400}),
+    ("rate_limited", {"kind": "requete", "statut": 429}),
+    ("llm_unavailable", {"kind": "indisponible", "statut": 503}),
+    ("internal", {"kind": "requete", "statut": 500}),
+])
+def test_les_codes_http_remontent_types(cas: dict[str, Any], nom: str, attendu: dict) -> None:
+    """AD-16 : le code de l'enveloppe est lu tel quel, jamais inventé côté page."""
+    obtenu = cas["http"][nom]
+    assert obtenu["code"] == nom
+    assert obtenu["kind"] == attendu["kind"]
+    assert obtenu["statut"] == attendu["statut"]
+    assert obtenu["request_id"] == "r-9"
+    assert "message serveur en anglais" not in obtenu["message"]
+
+
+def test_le_retry_after_du_429_est_lu_et_affiche(cas: dict[str, Any]) -> None:
+    """AD-13 : « 429 → enveloppe `rate_limited` + `Retry-After` », affiché sans repli."""
+    assert cas["http"]["rate_limited"]["retry_after"] == 42
+    assert "42 secondes" in cas["http"]["rate_limited"]["message"]
+
+
+def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
+    assert cas["http"]["reseau"]["kind"] == "indisponible"
+    assert cas["http"]["reseau"]["code"] == "reseau"
+    assert "rien n'a été analysé" in cas["http"]["reseau"]["message"]
+
+
+@pytest.mark.parametrize("nom, champ", [
+    ("sans_answer", "answer"),
+    ("sans_verdict", "answer.verdict"),
+    ("verdict_null", "answer.verdict"),
+    ("sans_valeur", "answer.verdict.value"),
+    ("sans_trace", "trace"),
+    ("sources_null", "sources"),
+    ("clause_sans_kind", "sources[0].kind"),
+])
+def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
+    """AD-16 : « réponse vide présentée comme réponse ». Un corps qu'aucune route ne peut écrire.
+
+    `answer.verdict` en particulier : la route en publie **toujours** un (AD-16, un refus le porte).
+    Peindre un corps sans verdict afficherait « verdict non reconnu » — c'est-à-dire un verdict de
+    remplacement, exactement ce que l'AC interdit.
+    """
+    obtenu = cas["illisibles"][nom]
+    assert obtenu is not None, "le corps aurait dû être refusé"
+    assert obtenu["code"] == "reponse_illisible"
+    assert obtenu["champ"] == champ
+
+
+# --- AD-15 : la matérialisation ------------------------------------------
+
+def test_tout_ce_qui_vient_du_serveur_est_pose_par_textcontent(cas: dict[str, Any]) -> None:
+    """AD-15 : rendu **littéral**. Le DOM minimal lève sur toute pose d'`innerHTML` non vide.
+
+    Arriver jusqu'à ces assertions le démontre : ni la citation, ni les faits compris n'ont pu
+    passer par un chemin qui interpréterait du balisage.
+    """
+    dom = cas["dom"]
+    assert dom["citation"] == "« <script>alert(1)</script> action subite »"
+    assert dom["fait_compris"] == "<img onerror=alert(1)>"
+    assert dom["badge"] == "sous conditions"
+    assert dom["badge_cls"] == "badge verdict-sous_conditions"
+
+
+def test_la_page_ne_peint_aucun_bouton_dans_le_resultat(cas: dict[str, Any]) -> None:
+    """AD-16 : aucun repli. Le seul bouton de la page est « Confronter », qui est dans le formulaire."""
+    assert cas["dom"]["boutons"] == 0
+
+
+def test_la_trace_est_un_details_natif(cas: dict[str, Any]) -> None:
+    assert cas["dom"]["details"] == 1
+    assert cas["dom"]["summary"] == "Comment cette réponse a été obtenue"
+
+
+def test_rien_du_sinistre_natteint_le_navigateur(cas: dict[str, Any]) -> None:
+    """AD-15 : « aucune donnée utilisateur persistée » — ni conversation, ni sinistre en localStorage."""
+    assert cas["dom"]["stockage"] == {}
+    assert cas["soumission"]["stockage"] == {}
+
+
+def test_une_erreur_efface_le_verdict_precedent(cas: dict[str, Any]) -> None:
+    """AC : « sans conserver le verdict précédent à l'écran ». Le conteneur est vidé avant de peindre."""
+    apres = cas["dom_apres_erreur"]
+    assert apres["badges"] == 0
+    assert apres["clauses"] == 0
+    assert apres["portees"] == 0
+    assert apres["boutons"] == 0
+    assert apres["msg_dans_le_document"] == 1  # une seule carte : l'erreur a remplacé le verdict
+    assert "sous conditions" not in apres["texte"]
+    assert "indisponible" in apres["texte"]
+
+
+# --- le formulaire piloté -------------------------------------------------
+
+def test_le_selecteur_est_rempli_au_demarrage(cas: dict[str, Any]) -> None:
+    """`GET /api/v1/sante` puis `GET /api/v1/documents` au chargement ; le formulaire s'ouvre ensuite."""
+    demarrage = cas["demarrage"]
+    assert [o["valeur"] for o in demarrage["options"]] == ["cg-mini", "cg-second", "cg-privee"]
+    assert demarrage["select_desactive"] is False
+    assert demarrage["bouton_desactive"] is False
+    assert demarrage["message"] == ""
+    # La sonde d'abord : elle porte les seuils, donc la borne d'abandon de tout ce qui suit.
+    assert demarrage["ordre_des_appels"] == ["/api/v1/sante", "/api/v1/documents"]
+
+
+def test_les_maxlength_sont_poses_par_le_script(cas: dict[str, Any]) -> None:
+    """Une seule source à l'exécution (revue 1.9) ; l'attribut HTML reste le repli sans JavaScript."""
+    assert cas["demarrage"]["maxlength"] == {"question": 1000, "description": 2000}
+
+
+def test_la_borne_dabandon_vient_des_seuils_du_serveur(cas: dict[str, Any]) -> None:
+    """Convention Seuils : « tout seuil numérique dans `config.py` », pas recopié dans un front.
+
+    `deadline_s` et `client_abort_margin_s` sont publiés par `thresholds()` et lus sur `/sante`,
+    exactement comme `web/app/chat.js` le fait depuis 1.7. Les littéraux du script ne sont qu'un
+    repli pour la première requête si la sonde n'a pas répondu — figer la somme aurait fait couper
+    par le navigateur une requête à laquelle le serveur aurait répondu, le jour où `deadline_s` monte.
+    """
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    seuils = settings.thresholds()
+    lus = cas["bornes"]["seuils_du_serveur"]
+    assert lus["deadline_s"] == seuils["deadline_s"]
+    assert lus["client_abort_margin_s"] == seuils["client_abort_margin_s"]
+    assert cas["bornes"]["abandon_ms"] == round(
+        (seuils["deadline_s"] + seuils["client_abort_margin_s"]) * 1000)
+    # Avant la sonde, et si elle échoue, le repli tient — et la page reste utilisable.
+    assert cas["bornes_avant_sonde"]["seuils_du_serveur"] is None
+    assert cas["sonde_en_echec"]["bornes"]["seuils_du_serveur"] is None
+    assert cas["sonde_en_echec"]["options"] == 3
+    assert cas["sonde_en_echec"]["bouton_desactive"] is False
+    # Une valeur absurde publiée par un serveur cassé ne déplace pas la borne : le repli reprend.
+    assert cas["seuils_absurdes"]["abandon_ms"] == cas["bornes_avant_sonde"]["abandon_ms"]
+
+
+def test_la_soumission_ne_recharge_pas_la_page_et_verrouille_la_saisie(cas: dict[str, Any]) -> None:
+    assert cas["soumission_defaut_empeche"] is True
+    assert cas["attente_peinte"] == 1  # l'attente est peinte **avant** l'appel
+    assert cas["verrouille_pendant"] == [True, True, True]
+    assert cas["soumission"]["verrouille_apres"] == [False, False, False]
+    assert cas["soumission"]["attente_restante"] == 0
+
+
+def test_la_soumission_poste_la_saisie_et_peint_le_verdict(cas: dict[str, Any]) -> None:
+    corps = cas["soumission"]["corps"]
+    assert corps["doc_id"] == "cg-mini"
+    assert corps["faits"]["description"] == "Une bougie allumée est tombée sur le canapé."
+    assert cas["soumission"]["badge"] == "sous conditions"
+    assert cas["soumission"]["cartes"] == 1
+
+
+@pytest.mark.parametrize("cle, attendu", [
+    ("description_vide", "Décrivez les faits"),
+    ("question_vide", "ne peut pas être vide"),
+])
+def test_une_saisie_incomplete_ne_part_jamais_et_le_dit(cas: dict[str, Any], cle: str,
+                                                        attendu: str) -> None:
+    """Un appel modèle coûte : une saisie incomplète n'en déclenche aucun — **et le bouton parle**.
+
+    Le retour silencieux de la première version (revue 1.9) donnait un bouton mort : le formulaire
+    est `novalidate`… il ne l'est plus, mais le garde reste, et il compose un message.
+    """
+    releve = cas["saisie_incomplete"][cle]
+    assert releve["appels"] == 0
+    assert attendu in releve["texte"]
+    assert releve["cartes_erreur"] == 1
+    # AD-16 : même sur un refus local, aucun badge de verdict et aucun bouton.
+    assert releve["badges"] == 0 and releve["boutons"] == 0
+
+
+def test_manquant_nomme_ce_qui_manque_et_rien_dautre(cas: dict[str, Any]) -> None:
+    assert cas["manquant"]["complet"] is None
+    assert all(cas["manquant"][c] for c in ("sans_description", "sans_question", "sans_contrat"))
+    assert len({cas["manquant"][c] for c in ("sans_description", "sans_question", "sans_contrat")}) == 3
+
+
+def test_une_liste_de_documents_en_echec_le_dit_sans_mentir(cas: dict[str, Any]) -> None:
+    """« Aucun contrat servi » et « le serveur n'a pas répondu » sont deux choses (revue 1.9).
+
+    Servir la première pour la seconde ferait affirmer à la page quelque chose qu'elle ne sait pas,
+    et laissait un formulaire inerte sans un mot sur la cause.
+    """
+    echec = cas["documents_en_echec"]
+    assert "n'a pas pu être chargée" in echec["message"]
+    assert "Aucun contrat n'est servi" not in echec["message"]
+    assert echec["bouton_desactive"] is True
+    assert echec["cartes_erreur"] == 1  # l'erreur est peinte, avec sa référence de requête
+    assert "r-503" in echec["texte"]
+    assert echec["badges"] == 0
+
+
+# --- la page elle-même ----------------------------------------------------
+
+def test_lavertissement_demonstrateur_est_pres_du_formulaire(page: str) -> None:
+    """AD-15, mot pour mot : « Démonstrateur public : ne saisissez aucune donnée réelle ou nominative »."""
+    assert "Démonstrateur public : ne saisissez aucune donnée réelle ou nominative de sinistre." in page
+    # « près du formulaire » : l'avertissement précède le formulaire dans le document.
+    assert page.index("Démonstrateur public") < page.index('id="formulaire"')
+
+
+def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) -> None:
+    """AD-15 amendé (revue 1.7) : durée, exceptions, lien et date de lecture — jamais plus généreux."""
+    assert "sous 30 jours" in page
+    assert "obligation légale" in page and "deux ans" in page
+    assert "lue le 24/08/2026" in page
+    assert "https://privacy.claude.com/" in page
+    # Aucune promesse plus généreuse que celle du tiers qui exécute la requête.
+    assert "non retenu par défaut" not in page
+    assert "jamais conservé" not in page
+
+
+def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
+    """D8 : sans framework, sans requête tierce, et **sans** dépendance à `web/app/styles.css`."""
+    scripts = re.findall(r'<script[^>]*src="([^"]+)"', page)
+    assert scripts == ["sinistre.js"]
+    # Aucune feuille de style externe : les styles sont dans la page, et surtout pas ceux du guide
+    # (`web/app/styles.css`, 1 328 lignes taillées pour un autre DOM — une classe renommée là-bas
+    # casserait celui-ci). Le commentaire d'en-tête l'explique ; ce qu'on vérifie, ce sont les
+    # `<link>` réellement posés.
+    assert re.findall(r"<link[^>]*>", page) == []
+    # Le seul lien sortant est la politique de conservation du fournisseur, qu'AD-15 **exige**.
+    liens = re.findall(r'(?:href|src)="(https?://[^"]+)"', page)
+    politique = ("https://privacy.claude.com/en/articles/"
+                 "7996866-how-long-do-you-store-my-organization-s-data")
+    assert liens == [politique]
+
+
+def test_les_identifiants_de_la_page_sont_ceux_que_le_script_cherche(page: str) -> None:
+    """Un renommage dans la page ne doit pas laisser le script piloter un formulaire fantôme."""
+    for identifiant in ("formulaire", "contrat", "contrats-message", "contrat-source", "question",
+                        "date", "lieu", "montant", "description", "analyser", "resultat"):
+        assert f'id="{identifiant}"' in page, identifiant
+
+
+def test_le_script_ne_pose_jamais_de_html(cas: dict[str, Any]) -> None:
+    """AD-15, vérifié dans le source **et** à l'exécution : `innerHTML` ne sert qu'à vider."""
+    source = SCRIPT.read_text(encoding="utf-8")
+    poses = re.findall(r'\.innerHTML\s*=\s*(.+)', source)
+    assert poses == ['"";'], poses
+    assert "insertAdjacentHTML" not in source
+    assert "document.write" not in source
+    assert cas["dom"]["stockage"] == {}

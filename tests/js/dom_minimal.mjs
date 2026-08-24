@@ -21,6 +21,7 @@ class Noeud {
     this.attributs = new Map();
     this.ecouteurs = new Map();
     this._texte = "";
+    this._value = undefined;
     this.className = "";
     this.scrollTop = 0;
     this.scrollHeight = 0;
@@ -31,6 +32,23 @@ class Noeud {
 
   get classes() { return this.className.split(" ").filter(Boolean); }
 
+  // `value` d'un `<select>`, modélisé comme le navigateur le fait — et c'est **le** point qui
+  // compte ici (revue 1.9) : la valeur d'un `<select>` n'existe que tant qu'une `<option>` la
+  // porte. Vider la liste puis la reconstruire remet donc la sélection sur la première option, ce
+  // qui est exactement le bug qu'un modèle en propriété nue laissait passer — le harnais posait
+  // `select.value`, le code reconstruisait les options, et la propriété survivait sans que rien ne
+  // le voie. Pour tout autre élément, `value` est la propriété simple d'un champ de saisie.
+  get value() {
+    if (this.tagName !== "SELECT") return this._value === undefined ? "" : this._value;
+    const valeurs = this.childNodes
+      .filter((n) => !n.estTexte && n.tagName === "OPTION")
+      .map((n) => n.value);
+    if (this._value !== undefined && valeurs.indexOf(this._value) !== -1) return this._value;
+    return valeurs.length ? valeurs[0] : "";
+  }
+
+  set value(v) { this._value = String(v); }
+
   get textContent() {
     if (!this.childNodes.length) return this._texte;
     return this.childNodes.map((n) => n.textContent).join("");
@@ -40,6 +58,10 @@ class Noeud {
     this.childNodes.forEach((n) => { n.parentElement = null; });
     this.childNodes = [];
     this._texte = String(v);
+    // Vider un `<select>` retire ses `<option>`, donc **la sélection avec elles** : c'est ce que
+    // fait le navigateur, et c'est ce qui rend visible le fait de reconstruire la liste à chaque
+    // changement de contrat (revue 1.9). Sans cette ligne, la valeur survivait à sa propre option.
+    if (this.tagName === "SELECT") this._value = undefined;
   }
 
   // Aucun test ne doit pouvoir poser du balisage sans que ça se voie : `innerHTML` existe pour que
@@ -81,9 +103,15 @@ class Noeud {
     this.ecouteurs.get(type).push(fn);
   }
 
-  /** Déclenche un événement, comme le ferait un clic réel. */
-  declencher(type) {
-    (this.ecouteurs.get(type) || []).forEach((fn) => fn.call(this, { type }));
+  /** Déclenche un événement, comme le ferait un clic (ou une soumission de formulaire) réel. */
+  declencher(type, extra) {
+    // `preventDefault` est fourni parce qu'un gestionnaire de `submit` l'appelle toujours : sans
+    // lui, le harnais de la page sinistre lèverait sur un chemin que le navigateur emprunte à
+    // chaque envoi. Le relevé dit s'il a été appelé — c'est ce qui prouve que la page ne recharge pas.
+    const evenement = { type, defautEmpeche: false, preventDefault() { this.defautEmpeche = true; },
+                        ...(extra || {}) };
+    (this.ecouteurs.get(type) || []).forEach((fn) => fn.call(this, evenement));
+    return evenement;
   }
 
   closest(selecteur) {
@@ -150,6 +178,26 @@ class Document {
 
   querySelector(sel) { return this.body.querySelector(sel); }
   querySelectorAll(sel) { return this.body.querySelectorAll(sel); }
+
+  // `tools/sinistre/sinistre.js` cherche ses champs par identifiant, comme toute page sans
+  // framework. Modélisé sur `querySelector("#id")`, qui l'est déjà.
+  getElementById(id) { return this.querySelector("#" + id); }
+
+  // Un gestionnaire posé sur le document (`DOMContentLoaded`) n'est jamais déclenché ici : les
+  // harnais chargent le script avec le drapeau « sans démarrage ». La méthode existe pour que le
+  // chargement ne lève pas, et elle relève ce qu'on lui a demandé d'écouter.
+  addEventListener(type, fn) {
+    if (!this.ecouteurs) this.ecouteurs = new Map();
+    if (!this.ecouteurs.has(type)) this.ecouteurs.set(type, []);
+    this.ecouteurs.get(type).push(fn);
+  }
+
+  /** Symétrique d'`addEventListener` : sans elle, ce qui est écouté ici ne peut jamais être joué. */
+  declencher(type) {
+    const evenement = { type, defautEmpeche: false, preventDefault() { this.defautEmpeche = true; } };
+    ((this.ecouteurs && this.ecouteurs.get(type)) || []).forEach((fn) => fn.call(this, evenement));
+    return evenement;
+  }
 }
 
 function listeDeClasses(noeud) {

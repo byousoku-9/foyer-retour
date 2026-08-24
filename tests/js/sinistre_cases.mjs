@@ -1,0 +1,761 @@
+// Harnais Node du front de l'outil sinistre (story 1.9) — aucun navigateur, aucun réseau, aucune
+// dépendance ajoutée à `pyproject.toml`.
+//
+// Décalque de `tests/js/chat_cases.mjs` et `tests/js/ui_cases.mjs` réunis : `tools/sinistre/sinistre.js`
+// est un IIFE posé sur `window`, chargé dans un `node:vm` avec `window`, `location`, `document`
+// (le DOM minimal de `dom_minimal.mjs`) et `fetch` **doublés**. On exécute les cas de la matrice
+// d'E/S et on écrit sur la sortie standard le JSON de ce qui a été **observé**. Les assertions,
+// elles, sont en Python (`tests/test_web_sinistre.py`) : ce fichier ne juge rien, il relève.
+//
+// Le front du guide (1.7) n'était vérifié par rien avant sa revue ; celui-ci l'est dès l'écriture,
+// et sur les deux moitiés à la fois — la composition **et** la matérialisation.
+
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+
+import { Document, stockage } from "./dom_minimal.mjs";
+
+const ICI = path.dirname(fileURLToPath(import.meta.url));
+const RACINE = path.resolve(ICI, "..", "..");
+
+const ORIGINE = "https://foyer-retour.example";
+const PAGE = ORIGINE + "/sinistre/";
+
+// Les identifiants que `sinistre.js` cherche dans la page. Un test Python les vérifie contre
+// `tools/sinistre/index.html`, pour qu'un renommage dans la page ne laisse pas ce harnais piloter
+// un formulaire qui n'existe plus.
+const ELEMENTS = [
+  { tag: "form", id: "formulaire" },
+  { tag: "select", id: "contrat" },
+  { tag: "p", id: "contrats-message" },
+  { tag: "p", id: "contrat-source" },
+  { tag: "input", id: "question" },
+  { tag: "input", id: "date" },
+  { tag: "input", id: "lieu" },
+  { tag: "input", id: "montant" },
+  { tag: "textarea", id: "description" },
+  { tag: "button", id: "analyser" },
+  { tag: "div", id: "resultat" },
+];
+
+/** Une `Response` doublée : juste ce que `sinistre.js` en lit. */
+const SEUILS = { deadline_s: 55.0, client_abort_margin_s: 10.0 };
+
+/** La sonde `/api/v1/sante` : ce que `sinistre.js` en lit, et rien de plus. */
+function reponseSante(thresholds) {
+  return { ok: true, version: "test", documents_servis: ["cg-mini"],
+           thresholds: thresholds === undefined ? SEUILS : thresholds };
+}
+
+function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = false } = {}) {
+  const bas = {};
+  for (const [k, v] of Object.entries(entetes)) bas[k.toLowerCase()] = String(v);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (nom) => (nom.toLowerCase() in bas ? bas[nom.toLowerCase()] : null) },
+    json: () => (corpsIllisible
+      ? Promise.reject(new Error("corps non JSON"))
+      : Promise.resolve(corps)),
+  };
+}
+
+/** Charge `sinistre.js` dans un contexte neuf, avec un DOM minimal monté. */
+function charger(href, repondre, { demarrage = false } = {}) {
+  const appels = [];
+  const fetchDouble = (url, options) => {
+    appels.push({ url, options: options || {} });
+    try {
+      return Promise.resolve(repondre(url, options || {}, appels.length - 1));
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+
+  const document = new Document();
+  document.readyState = "complete";
+  const elements = {};
+  for (const spec of ELEMENTS) {
+    const e = document.createElement(spec.tag);
+    e.id = spec.id;
+    document.body.appendChild(e);
+    elements[spec.id] = e;
+  }
+
+  const localStorage = stockage();
+  // Le JSON du harnais sort sur **stdout** : un `console.log` laissé dans `sinistre.js` le
+  // corromprait. Le `console` du bac à sable écrit donc sur stderr.
+  const journal = new console.Console(process.stderr, process.stderr);
+  const window = {
+    location: new URL(href), document, localStorage, fetch: fetchDouble,
+    addEventListener: () => {},
+  };
+  if (!demarrage) window.__SINISTRE_SANS_DEMARRAGE = true;
+  const bac = {
+    window, document, localStorage, fetch: fetchDouble, console: journal, URL,
+    setTimeout, clearTimeout, AbortController,
+    JSON, Math, Date, Number, String, Array, Object, isFinite, parseInt, Error, Promise, RegExp,
+  };
+  bac.globalThis = bac;
+  vm.createContext(bac);
+  vm.runInContext(readFileSync(path.join(RACINE, "tools/sinistre/sinistre.js"), "utf8"), bac,
+                  { filename: "tools/sinistre/sinistre.js" });
+  return { SINISTRE: window.SINISTRE, appels, document, elements, localStorage, window };
+}
+
+function tick() { return new Promise((r) => setTimeout(r, 0)); }
+
+// ---------- relevés ----------
+
+/** Arbre relevé d'un nœud du DOM : tag, classes, attributs posés, texte propre, enfants. */
+function releverNoeud(n) {
+  if (n.estTexte) return { tag: "#texte", texte: n.textContent };
+  return {
+    tag: n.tagName.toLowerCase(),
+    cls: n.className || null,
+    attributs: Object.fromEntries(n.attributs),
+    texte: n.childNodes.length ? null : n.textContent,
+    enfants: n.childNodes.map(releverNoeud),
+  };
+}
+
+function aplatir(releve) {
+  return [releve].concat((releve.enfants || []).flatMap(aplatir));
+}
+
+/** Arbre relevé d'une **vue** (avant matérialisation) : ce que la composition a décidé. */
+function aplatirVue(vue) {
+  return [vue].concat((vue.enfants || []).flatMap(aplatirVue));
+}
+
+function textesDe(vue, cls) {
+  return aplatirVue(vue).filter((n) => n.cls === cls).map((n) => n.texte);
+}
+
+function texteEntier(vue) {
+  return aplatirVue(vue).map((n) => (n.texte === undefined ? "" : n.texte)).join(" ");
+}
+
+// ---------- les données ----------
+
+const DOC_ID = "cg-mini";
+const QUESTION = "Ce sinistre est-il couvert par les conditions générales du contrat ?";
+const Q_GARANTIE = "événement soudain, résultant de l'action subite de la chaleur";
+
+const DOC_ID_2 = "cg-second";
+const DOCUMENTS = [
+  { doc_id: DOC_ID, title: "Mini conditions générales", edition: "juin 2017", kind: "contrat",
+    status: "servi", source_url: "https://example.invalid/cg.pdf" },
+  // AD-14 prévoit « ≥ 2 contrats » : le second est là pour que le `change` du sélecteur ait
+  // quelque chose à changer, et pour que la sélection puisse être annulée si elle l'est.
+  { doc_id: DOC_ID_2, title: "Autres conditions générales", edition: "", kind: "contrat",
+    status: "servi", source_url: "https://example.invalid/second.pdf" },
+  { doc_id: "lux-guide", title: "S'installer au Luxembourg", edition: "git:a8e8593", kind: "guide",
+    status: "servi", source_url: "https://lux-guide.github.io/app/kb.js" },
+  // Un contrat dont la source est le bucket **privé** d'AD-7 : `lienHttp()` doit rendre `null`.
+  { doc_id: "cg-privee", title: "Conditions à source privée", edition: "2020", kind: "contrat",
+    status: "servi", source_url: "gs://foyer-retour-sources/cg-privee.pdf" },
+];
+
+function clause(block_id, quote, extra) {
+  return Object.assign({
+    block_id, page: 9, bbox: [70, 120.5, 520, 160], line_ids: ["p9:2:l1"],
+    kind: "garantie", kind_confirmed: true, quote, status: "verifiee",
+  }, extra || {});
+}
+
+function claim(claim_id, text, quotes, status) {
+  return { claim_id, text, quotes: quotes.map((b) => ({ block_id: b, quote: "peu importe" })),
+           status };
+}
+
+const STATUT_HUMAIN = { retrouvee: true, pertinente: true, applicable: "humain",
+                        edition: "juin 2017" };
+const STATUT_OUI = { retrouvee: true, pertinente: true, applicable: "oui", edition: "juin 2017" };
+
+/** Une réponse 200 conforme au contrat d'AD-11 : deux affirmations, trois clauses, un verdict. */
+function reponseVerdict(surcharge) {
+  const answer = {
+    found: true, complete: false, lang: "fr", lang_fallback: false,
+    texte: "La garantie vise l'action subite de la chaleur. Une condition reste ouverte.",
+    segments: [
+      { text: "La garantie vise l'action subite de la chaleur.", kind: "factuel", claim_ids: ["c1"] },
+      { text: "Une condition reste ouverte.", kind: "factuel", claim_ids: ["c2"] },
+    ],
+    claims: [
+      claim("c1", "La garantie vise l'action subite de la chaleur.", ["cg-mini:p9:2"], STATUT_HUMAIN),
+      claim("c2", "Une condition reste ouverte.", ["cg-mini:p12:3"], STATUT_OUI),
+    ],
+    rejected_claims: [
+      { claim_id: "c3", text: "Une exclusion écarte les dommages du canapé.",
+        quotes: [{ block_id: "cg-mini:p46:1", quote: "CETTE QUOTE NE DOIT JAMAIS S'AFFICHER" }],
+        status: { retrouvee: false, edition: "juin 2017" },
+        rejection_kind: "non_retrouvee", motif: "citation introuvable" },
+    ],
+    reason: null,
+    verdict: {
+      value: "sous_conditions",
+      reason: "Une clause conditionne la garantie (au regard des conditions générales seules)",
+      missing: { conditions_particulieres: true, options_souscrites: true, avenants: true,
+                 date_effet: true, faits: ["caractère subit de l'action de la chaleur"] },
+      ask_client: ["Le contrat porte-t-il l'option correspondante ?",
+                   "Le caractère subit de l'action de la chaleur est-il établi ?"],
+      escalate: ["Faire relire la clause par un gestionnaire."],
+    },
+    faits_compris: { themes: [], bien: "mobilier de salon", evenement: "brûlure sans embrasement",
+                     lieu: "domicile", cause: "bougie", moment: "2026-08-01" },
+    unknown: ["La franchise applicable n'est pas dite."],
+    clarification: null,
+  };
+  const r = {
+    answer,
+    sources: [clause("cg-mini:p9:2", Q_GARANTIE),
+              clause("cg-mini:p12:3", "le bien est occupé de manière permanente",
+                     { page: 12, kind: "condition", kind_confirmed: false, line_ids: [] })],
+    via: "api/v1",
+    trace: { request_id: "r-1", pipeline: "sinistre", variant: "deterministe",
+             total_cost_eur: 0.0336,
+             steps: [{ name: "comprendre", tier: "micro", ms: 900, checks: [] },
+                     { name: "verifier", tier: "micro", ms: 1200,
+                       checks: [{ name: "applicabilite_incomplete", ok: false, detail: "" }] },
+                     { name: "restituer", tier: null, ms: 1, checks: [] }] },
+  };
+  return Object.assign(r, surcharge || {});
+}
+
+/** Un refus : 200, `ne_tranche_pas`, aucune clause. */
+function reponseRefus() {
+  const phrase = "Je n'ai trouvé aucune clause du contrat qui traite du sinistre décrit.";
+  return {
+    answer: {
+      found: false, complete: false, lang: "fr", texte: phrase,
+      segments: [{ text: phrase, kind: "limite", claim_ids: [] }],
+      claims: [], rejected_claims: [],
+      reason: { kind: "zero_hit", terms_searched: ["mobilier"], variants_count: 0,
+                blocks_scanned: 3, documents: [DOC_ID] },
+      verdict: { value: "ne_tranche_pas",
+                 reason: "Aucune clause du contrat n'a été retrouvée sur les termes du sinistre "
+                         + "décrit (au regard des conditions générales seules)",
+                 missing: { conditions_particulieres: true, options_souscrites: true,
+                            avenants: true, date_effet: true, faits: [] },
+                 ask_client: ["Le contrat porte-t-il des conditions particulières ?"],
+                 escalate: ["Reprendre le dossier à la main."] },
+      faits_compris: { themes: [], bien: "mobilier de salon", evenement: null, lieu: null,
+                       cause: null, moment: null },
+      unknown: [], clarification: null,
+    },
+    sources: [], via: "api/v1",
+    trace: { request_id: "r-2", pipeline: "sinistre", variant: "deterministe",
+             total_cost_eur: 0.0071, steps: [] },
+  };
+}
+
+const SAISIE = {
+  doc_id: DOC_ID, question: QUESTION, date: "2026-08-01", lieu: "salon du domicile assuré",
+  montant_eur: "1200", description: "Une bougie allumée est tombée sur le canapé.",
+};
+
+// ---------- les cas ----------
+
+async function main() {
+  const cas = {};
+
+  // --- le corps posté (AD-11 : quatre champs, pas un de plus) --------------
+  {
+    const { SINISTRE, appels } = charger(PAGE, (url) => {
+      if (String(url).endsWith("/sante")) return reponseHttp({ corps: reponseSante() });
+      if (String(url).endsWith("/documents")) return reponseHttp({ corps: DOCUMENTS });
+      return reponseHttp({ corps: reponseVerdict() });
+    });
+    cas.api_base = SINISTRE.apiBase();
+    cas.bornes_avant_sonde = SINISTRE.bornes();
+    cas.portee = SINISTRE.PORTEE;
+    // La borne d'abandon vient des seuils du serveur (convention Seuils) ; sans sonde, du repli.
+    await SINISTRE.sonder();
+    cas.bornes = SINISTRE.bornes();
+    cas.sonde_url = appels.filter((a) => String(a.url).endsWith("/sante"))[0].url;
+
+    await SINISTRE.soumettre(SAISIE);
+    const requete = appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre"))[0];
+    cas.corps_url = requete.url;
+    cas.corps_methode = requete.options.method;
+    cas.corps_entetes = requete.options.headers;
+    cas.corps = JSON.parse(requete.options.body);
+
+    // Les champs facultatifs vides ne partent **pas** : `Faits.date`/`lieu` sont `str | None`, et
+    // une chaîne vide n'est pas l'absence.
+    cas.corps_minimal = SINISTRE.corpsSinistre({
+      doc_id: DOC_ID, question: QUESTION, date: "", lieu: "  ", montant_eur: "",
+      description: "Deux mots.",
+    });
+    // Un montant illisible n'est pas envoyé à zéro : le champ reste absent.
+    cas.corps_montant_illisible = SINISTRE.corpsSinistre({
+      doc_id: DOC_ID, question: QUESTION, montant_eur: "beaucoup", description: "Deux mots.",
+    });
+    cas.corps_montant_virgule = SINISTRE.corpsSinistre({
+      doc_id: DOC_ID, question: QUESTION, montant_eur: "1200,50", description: "Deux mots.",
+    });
+
+    const liste = await SINISTRE.documents();
+    cas.documents_url = appels.filter((a) => String(a.url).endsWith("/api/v1/documents"))[0].url;
+    cas.documents_recus = liste.length;
+  }
+
+  // --- le sélecteur : les contrats seulement ------------------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: DOCUMENTS }));
+    cas.formulaire = SINISTRE.vueFormulaire(DOCUMENTS);
+    cas.formulaire_sans_contrat = SINISTRE.vueFormulaire(
+      DOCUMENTS.filter((d) => d.kind !== "contrat"));
+    cas.formulaire_vide = SINISTRE.vueFormulaire([]);
+  }
+
+  // --- l'appariement clause ↔ affirmation (D6) ----------------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const r = reponseVerdict();
+    const apparie = SINISTRE.clausesParClaim(r.answer, r.sources);
+    cas.appariement = apparie.map((e) => ({
+      claim_id: e.claim_id, blocs: e.clauses.map((c) => c.block_id),
+      applicable: e.status && e.status.applicable,
+    }));
+    // Longueurs incompatibles : l'appariement est **abandonné**, jamais deviné.
+    cas.appariement_trop_de_sources =
+      SINISTRE.clausesParClaim(r.answer, r.sources.concat([clause("cg-mini:p99:1", "en trop")]));
+    // Un `block_id` qui ne concorde pas : idem.
+    const desordre = [r.sources[1], r.sources[0]];
+    cas.appariement_desordre = SINISTRE.clausesParClaim(r.answer, desordre);
+    cas.appariement_sans_source = SINISTRE.clausesParClaim(r.answer, []);
+  }
+
+  // --- les textes composés ------------------------------------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    cas.verdicts = ["couvert", "non_couvert", "sous_conditions", "ne_tranche_pas", "inventé", ""]
+      .map((v) => SINISTRE.libelleVerdict(v));
+    cas.statuts = {
+      humain: SINISTRE.statutTexte(STATUT_HUMAIN),
+      oui: SINISTRE.statutTexte(STATUT_OUI),
+      non: SINISTRE.statutTexte({ retrouvee: true, pertinente: true, applicable: "non",
+                                  edition: "juin 2017" }),
+      sans_applicable: SINISTRE.statutTexte({ retrouvee: true, pertinente: true, applicable: null,
+                                              edition: "juin 2017" }),
+      sans_edition: SINISTRE.statutTexte({ retrouvee: true, pertinente: true, edition: "" }),
+      absent: SINISTRE.statutTexte(null),
+    };
+    cas.kinds = ["garantie", "exclusion", "condition", "franchise", "definition", "zzz"]
+      .map((k) => SINISTRE.libelleKind(k));
+    cas.rejets = ["non_retrouvee", "non_pertinente", "ambigue", "non_citee", "inconnu"]
+      .map((k) => SINISTRE.motifRejet(k));
+    cas.couts = {
+      nominal: SINISTRE.coutTexte({ total_cost_eur: 0.0336 }),
+      zero: SINISTRE.coutTexte({ total_cost_eur: 0 }),
+      absent: SINISTRE.coutTexte({}),
+      sans_trace: SINISTRE.coutTexte(null),
+    };
+  }
+
+  // --- la vue du verdict --------------------------------------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const vue = SINISTRE.vueVerdict(reponseVerdict());
+    const plat = aplatirVue(vue);
+    cas.verdict = {
+      badge: plat.filter((n) => n.cls && n.cls.indexOf("badge") === 0)
+        .map((n) => ({ cls: n.cls, texte: n.texte })),
+      portee: textesDe(vue, "portee"),
+      raison: textesDe(vue, "verdict-raison"),
+      analyse: textesDe(vue, "analyse-txt"),
+      faits_compris: plat.filter((n) => n.cls === "fc-ligne")
+        .map((n) => n.enfants.map((e) => e.texte)),
+      paquet: plat.filter((n) => n.cls === "paquet").flatMap((n) => aplatirVue(n).map((x) => x.texte))
+        .filter((t) => t),
+      ask: plat.filter((n) => n.cls === "ask-liste")
+        .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      escalate: plat.filter((n) => n.cls === "escalate-liste")
+        .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      clauses: plat.filter((n) => n.cls === "clause").map((n) => ({
+        quote: aplatirVue(n).filter((x) => x.cls === "cl-q").map((x) => x.texte)[0],
+        meta: aplatirVue(n)
+          .filter((x) => x.cls && x.cls.indexOf("cl-") === 0 && x.cls !== "cl-q" && x.cls !== "cl-meta")
+          .map((x) => x.texte),
+      })),
+      affirmations: textesDe(vue, "aff-txt"),
+      rejetees: plat.filter((n) => n.cls === "rejetee")
+        .map((n) => aplatirVue(n).map((x) => x.texte).filter((t) => t)),
+      rejetees_titre: plat.filter((n) => n.cls === "rejetees")
+        .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "h3").map((e) => e.texte)),
+      rejetees_note: textesDe(vue, "rejetees-note"),
+      inconnu: plat.filter((n) => n.cls === "inconnu-liste")
+        .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      degrade: textesDe(vue, "degrade"),
+      trace_tags: plat.filter((n) => n.cls === "trace").map((n) => n.tag),
+      trace_lignes: plat.filter((n) => n.cls === "trace-lignes")
+        .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      // La quote d'une claim rejetée ne doit **jamais** apparaître, nulle part dans l'arbre.
+      texte_entier: texteEntier(vue),
+    };
+
+    // Appariement impossible : la page le dit, et affiche une liste plate.
+    const casse = reponseVerdict();
+    casse.sources = casse.sources.concat([clause("cg-mini:p99:1", "clause en trop")]);
+    const vueCassee = SINISTRE.vueVerdict(casse);
+    cas.verdict_degrade = {
+      degrade: textesDe(vueCassee, "degrade"),
+      clauses: aplatirVue(vueCassee).filter((n) => n.cls === "clause").length,
+      affirmations: textesDe(vueCassee, "aff-txt"),
+      // D6 : « une liste plate de citations **avec leurs statuts** ». Le mode dégradé serait le
+      // dernier endroit où taire l'applicabilité d'une clause et la réserve de son édition.
+      statuts: textesDe(vueCassee, "cl-statut"),
+    };
+
+    // Le refus : un verdict `ne_tranche_pas`, aucune clause, et les faits compris quand même.
+    const vueRefus = SINISTRE.vueVerdict(reponseRefus());
+    cas.verdict_refus = {
+      badge: aplatirVue(vueRefus).filter((n) => n.cls && n.cls.indexOf("badge") === 0)
+        .map((n) => ({ cls: n.cls, texte: n.texte })),
+      clauses: aplatirVue(vueRefus).filter((n) => n.cls === "clause").length,
+      faits_compris: aplatirVue(vueRefus).filter((n) => n.cls === "fc-ligne")
+        .map((n) => n.enfants.map((e) => e.texte)),
+      analyse: textesDe(vueRefus, "analyse-txt"),
+      portee: textesDe(vueRefus, "portee"),
+    };
+
+    // Un verdict dont la valeur n'est pas au contrat : dit, jamais traduit en valeur connue.
+    const inconnu = reponseVerdict();
+    inconnu.answer.verdict.value = "peut-etre";
+    cas.verdict_inconnu = aplatirVue(SINISTRE.vueVerdict(inconnu))
+      .filter((n) => n.cls && n.cls.indexOf("badge") === 0)
+      .map((n) => ({ cls: n.cls, texte: n.texte }));
+  }
+
+  // --- les erreurs : aucun repli, aucun verdict de remplacement ------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const codes = [
+      { code: "invalid_request", statut: 400, kind: "requete" },
+      { code: "input_too_long", statut: 413, kind: "requete" },
+      { code: "rate_limited", statut: 429, kind: "requete", retry_after: 42 },
+      { code: "llm_unavailable", statut: 503, kind: "indisponible" },
+      { code: "timeout", statut: 503, kind: "indisponible" },
+      { code: "budget_exceeded", statut: 503, kind: "indisponible" },
+      { code: "corpus_unavailable", statut: 503, kind: "indisponible" },
+      { code: "internal", statut: 500, kind: "requete" },
+      { code: "reponse_illisible", statut: 200, kind: "requete" },
+      { code: "reseau", statut: 0, kind: "indisponible" },
+      { code: "timeout_client", statut: 0, kind: "indisponible" },
+      { code: "hors_ligne", statut: 0, kind: "requete" },
+      { code: "", statut: 0, kind: "requete" },
+    ];
+    cas.erreurs = {};
+    for (const e of codes) {
+      const erreur = Object.assign({ request_id: "r-err" }, e);
+      const vue = SINISTRE.vueErreur(erreur);
+      const plat = aplatirVue(vue);
+      cas.erreurs[e.code || "sans_code"] = {
+        message: SINISTRE.messageErreur(erreur),
+        titre: textesDe(vue, "err-titre")[0],
+        reference: textesDe(vue, "err-ref")[0] || null,
+        boutons: plat.filter((n) => n.tag === "button").length,
+        actions: plat.filter((n) => n.action).length,
+        // Aucun badge de verdict, aucune clause, aucune portée : rien qui ressemble à un résultat.
+        badges: plat.filter((n) => n.cls && n.cls.indexOf("badge") === 0).length,
+        texte_entier: texteEntier(vue),
+      };
+    }
+    cas.erreur_sans_reference = textesDe(SINISTRE.vueErreur({ code: "internal" }), "err-ref");
+  }
+
+  // --- la matérialisation : `textContent` seul (AD-15) --------------------
+  {
+    const { SINISTRE, document, elements, localStorage } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    // Une citation qui porte du balisage : `textContent` doit la rendre **littérale**, et le DOM
+    // minimal lève sur toute pose d'`innerHTML` non vide — arriver ici le démontre.
+    const r = reponseVerdict();
+    r.sources[0].quote = "<script>alert(1)</script> action subite";
+    r.answer.faits_compris.bien = "<img onerror=alert(1)>";
+    const peint = SINISTRE.peindre(SINISTRE.vueVerdict(r), elements.resultat);
+    const arbre = releverNoeud(peint);
+    cas.dom = {
+      badge: peint.querySelector(".badge").textContent,
+      badge_cls: peint.querySelector(".badge").className,
+      citation: peint.querySelector(".cl-q").textContent,
+      fait_compris: peint.querySelectorAll(".fc-val").map((n) => n.textContent)[0],
+      // Aucun bouton : la page ne propose aucune action de repli (AD-16).
+      boutons: aplatir(arbre).filter((n) => n.tag === "button").length,
+      // La trace est un `<details>` natif : dépliable sans une ligne de JavaScript.
+      details: peint.querySelectorAll("details").length,
+      summary: (peint.querySelector("summary") || {}).textContent,
+      dans_le_conteneur: elements.resultat.childNodes.length,
+      // AD-15 : rien de la conversation ni du sinistre n'atteint le navigateur.
+      stockage: localStorage.entrees(),
+      // `aria-live` est posé par la page, pas par le matérialiseur : il n'invente aucun attribut.
+      attributs_racine: Object.fromEntries(peint.attributs),
+    };
+
+    // Une erreur **efface** le verdict précédent : aucun badge ne reste à l'écran.
+    SINISTRE.peindre(SINISTRE.vueErreur({ code: "llm_unavailable", request_id: "r-err" }),
+                     elements.resultat);
+    cas.dom_apres_erreur = {
+      badges: elements.resultat.querySelectorAll(".badge").length,
+      clauses: elements.resultat.querySelectorAll(".clause").length,
+      portees: elements.resultat.querySelectorAll(".portee").length,
+      texte: elements.resultat.textContent,
+      boutons: elements.resultat.querySelectorAll("button").length,
+      msg_dans_le_document: document.querySelectorAll(".carte").length,
+    };
+  }
+
+  // --- le formulaire piloté : de la frappe au verdict ----------------------
+  {
+    const { SINISTRE, appels, document, elements, localStorage } = charger(
+      PAGE,
+      (url) => {
+        if (String(url).endsWith("/sante")) return reponseHttp({ corps: reponseSante() });
+        if (String(url).endsWith("/documents")) return reponseHttp({ corps: DOCUMENTS });
+        return reponseHttp({ corps: reponseVerdict() });
+      },
+      { demarrage: true });
+    await tick();
+    await tick();
+    const options = elements.contrat.querySelectorAll("option");
+    cas.demarrage = {
+      options: options.map((o) => ({ valeur: o.value, texte: o.textContent })),
+      select_desactive: !!elements.contrat.disabled,
+      bouton_desactive: !!elements.analyser.disabled,
+      message: elements["contrats-message"].textContent,
+      // Les `maxlength` sont posés par le script depuis ses constantes (une seule source à
+      // l'exécution) ; la page en porte aussi la valeur, comme repli sans JavaScript.
+      maxlength: { question: elements.question.maxLength, description: elements.description.maxLength },
+      // La borne d'abandon a été lue sur `/sante` au démarrage, pas recopiée.
+      bornes: SINISTRE.bornes(),
+      ordre_des_appels: appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      // Le lien vers la source publique du contrat sélectionné, **matérialisé**.
+      source: (() => {
+        const a = elements["contrat-source"].querySelector("a");
+        return a ? { href: a.href, target: a.target, rel: a.rel, texte: a.textContent } : null;
+      })(),
+    };
+
+    // Le sélecteur ne se réinitialise pas quand on change de contrat : le choix tient, et seul le
+    // lien de source suit. Avec deux contrats servis, c'est ce qui décide du `doc_id` posté.
+    elements.contrat.value = DOC_ID_2;
+    elements.contrat.declencher("change");
+    cas.changement = {
+      valeur: elements.contrat.value,
+      options: elements.contrat.querySelectorAll("option").map((o) => o.value),
+      source: (() => {
+        const a = elements["contrat-source"].querySelector("a");
+        return a ? { href: a.href, texte: a.textContent } : null;
+      })(),
+    };
+
+    elements.contrat.value = DOC_ID;
+    elements.question.value = QUESTION;
+    elements.description.value = SAISIE.description;
+    elements.date.value = SAISIE.date;
+    elements.lieu.value = SAISIE.lieu;
+    elements.montant.value = SAISIE.montant_eur;
+    const evenement = elements.formulaire.declencher("submit");
+    cas.soumission_defaut_empeche = evenement.defautEmpeche;
+    // L'attente est peinte **avant** l'appel : le verdict précédent quitte l'écran tout de suite.
+    cas.attente_peinte = elements.resultat.querySelectorAll(".attente").length;
+    cas.verrouille_pendant = ["question", "description", "analyser"]
+      .map((id) => !!elements[id].disabled);
+    await tick();
+    await tick();
+    await tick();
+    const poste = appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre"))[0];
+    cas.soumission = {
+      corps: JSON.parse(poste.options.body),
+      badge: (elements.resultat.querySelector(".badge") || {}).textContent,
+      attente_restante: elements.resultat.querySelectorAll(".attente").length,
+      verrouille_apres: ["question", "description", "analyser"].map((id) => !!elements[id].disabled),
+      stockage: localStorage.entrees(),
+      cartes: document.querySelectorAll(".carte").length,
+    };
+  }
+
+  // --- une description vide ne part jamais --------------------------------
+  {
+    const { SINISTRE, appels, elements } = charger(
+      PAGE,
+      (url) => {
+        if (String(url).endsWith("/sante")) return reponseHttp({ corps: reponseSante() });
+        if (String(url).endsWith("/documents")) return reponseHttp({ corps: DOCUMENTS });
+        return reponseHttp({ corps: reponseVerdict() });
+      },
+      { demarrage: true });
+    await tick();
+    await tick();
+    cas.saisie_incomplete = {};
+    const incompletes = [
+      { nom: "description_vide", doc_id: DOC_ID, question: QUESTION, description: "   " },
+      { nom: "question_vide", doc_id: DOC_ID, question: "  ", description: SAISIE.description },
+      // Pas de cas « contrat vide » ici : un `<select>` peuplé a toujours une valeur, dans le
+      // navigateur comme dans le DOM minimal. La branche est couverte par `cas.manquant`, qui
+      // appelle la fonction pure — c'est la seule façon honnête de l'atteindre.
+    ];
+    for (const c of incompletes) {
+      elements.contrat.value = c.doc_id;
+      elements.question.value = c.question;
+      elements.description.value = c.description;
+      elements.formulaire.declencher("submit");
+      await tick();
+      cas.saisie_incomplete[c.nom] = {
+        appels: appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre")).length,
+        // Un bouton qui ne fait rien et ne dit rien est un bouton cassé : la page **dit** ce qui manque.
+        texte: elements.resultat.textContent,
+        cartes_erreur: elements.resultat.querySelectorAll(".erreur").length,
+        badges: elements.resultat.querySelectorAll(".badge").length,
+        boutons: elements.resultat.querySelectorAll("button").length,
+      };
+    }
+    // Le champ pré-rempli vidé à la main : la page le refuse localement, sans aller-retour payé.
+    cas.manquant = {
+      complet: SINISTRE.manquant(SAISIE),
+      sans_description: SINISTRE.manquant(Object.assign({}, SAISIE, { description: " " })),
+      sans_question: SINISTRE.manquant(Object.assign({}, SAISIE, { question: "" })),
+      sans_contrat: SINISTRE.manquant(Object.assign({}, SAISIE, { doc_id: "" })),
+    };
+  }
+
+  // --- le serveur ne répond pas au chargement : le formulaire le dit --------
+  {
+    const { elements } = charger(
+      PAGE,
+      (url) => {
+        if (String(url).endsWith("/sante")) return reponseHttp({ corps: reponseSante() });
+        return reponseHttp({ status: 503,
+          corps: { error: { code: "llm_unavailable", message: "en anglais", request_id: "r-503" } } });
+      },
+      { demarrage: true });
+    await tick();
+    await tick();
+    await tick();
+    cas.documents_en_echec = {
+      message: elements["contrats-message"].textContent,
+      bouton_desactive: !!elements.analyser.disabled,
+      cartes_erreur: elements.resultat.querySelectorAll(".erreur").length,
+      texte: elements.resultat.textContent,
+      badges: elements.resultat.querySelectorAll(".badge").length,
+    };
+  }
+
+  // --- la sonde ne répond pas : le repli tient, et la page marche quand même -
+  {
+    const { SINISTRE, elements } = charger(
+      PAGE,
+      (url) => {
+        if (String(url).endsWith("/sante")) throw new Error("sonde injoignable");
+        if (String(url).endsWith("/documents")) return reponseHttp({ corps: DOCUMENTS });
+        return reponseHttp({ corps: reponseVerdict() });
+      },
+      { demarrage: true });
+    await tick();
+    await tick();
+    await tick();
+    cas.sonde_en_echec = {
+      bornes: SINISTRE.bornes(),
+      options: elements.contrat.querySelectorAll("option").length,
+      bouton_desactive: !!elements.analyser.disabled,
+    };
+  }
+
+  // --- des seuils absurdes ne déplacent pas la borne d'abandon --------------
+  {
+    const { SINISTRE } = charger(PAGE, (url) => (String(url).endsWith("/sante")
+      ? reponseHttp({ corps: reponseSante({ deadline_s: "beaucoup", client_abort_margin_s: -3 }) })
+      : reponseHttp({ corps: {} })));
+    await SINISTRE.sonder();
+    cas.seuils_absurdes = SINISTRE.bornes();
+  }
+
+  // --- un 200 illisible n'est pas un verdict ------------------------------
+  {
+    const incomplets = {
+      sans_answer: {},
+      sans_verdict: (() => { const r = reponseVerdict(); delete r.answer.verdict; return r; })(),
+      verdict_null: (() => { const r = reponseVerdict(); r.answer.verdict = null; return r; })(),
+      sans_valeur: (() => {
+        const r = reponseVerdict(); delete r.answer.verdict.value; return r;
+      })(),
+      sans_trace: (() => { const r = reponseVerdict(); delete r.trace; return r; })(),
+      sources_null: (() => { const r = reponseVerdict(); r.sources = null; return r; })(),
+      clause_sans_kind: (() => {
+        const r = reponseVerdict(); delete r.sources[0].kind; return r;
+      })(),
+    };
+    cas.illisibles = {};
+    for (const [nom, corps] of Object.entries(incomplets)) {
+      const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps }));
+      let erreur = null;
+      try { await SINISTRE.soumettre(SAISIE); } catch (e) { erreur = e; }
+      cas.illisibles[nom] = erreur
+        ? { kind: erreur.kind, code: erreur.code, champ: erreur.champ || null }
+        : null;
+    }
+  }
+
+  // --- les codes HTTP remontent typés -------------------------------------
+  {
+    const situations = [
+      { nom: "invalid_request", status: 400, code: "invalid_request" },
+      { nom: "rate_limited", status: 429, code: "rate_limited", entetes: { "Retry-After": "42" } },
+      { nom: "llm_unavailable", status: 503, code: "llm_unavailable" },
+      { nom: "internal", status: 500, code: "internal" },
+    ];
+    cas.http = {};
+    for (const s of situations) {
+      const { SINISTRE } = charger(PAGE, () => reponseHttp({
+        status: s.status, entetes: s.entetes || {},
+        corps: { error: { code: s.code, message: "message serveur en anglais", request_id: "r-9" } },
+      }));
+      let erreur = null;
+      try { await SINISTRE.soumettre(SAISIE); } catch (e) { erreur = e; }
+      cas.http[s.nom] = {
+        kind: erreur.kind, code: erreur.code, statut: erreur.statut,
+        retry_after: erreur.retry_after, request_id: erreur.request_id,
+        // Le `message` du serveur n'est **jamais** affiché : la phrase vient du code d'AD-16.
+        message: SINISTRE.messageErreur(erreur),
+      };
+    }
+    // Panne réseau : `fetch` rejette, la page n'invente rien.
+    const { SINISTRE } = charger(PAGE, () => { throw new Error("réseau coupé"); });
+    let erreur = null;
+    try { await SINISTRE.soumettre(SAISIE); } catch (e) { erreur = e; }
+    cas.http.reseau = { kind: erreur.kind, code: erreur.code,
+                        message: SINISTRE.messageErreur(erreur) };
+  }
+
+  // --- page ouverte en file:// : rien à poster ----------------------------
+  {
+    const { SINISTRE, appels } = charger("file:///Users/quelquun/tools/sinistre/index.html",
+                                          () => reponseHttp({ corps: {} }));
+    let erreur = null;
+    try { await SINISTRE.soumettre(SAISIE); } catch (e) { erreur = e; }
+    cas.hors_ligne = {
+      api_base: SINISTRE.apiBase(),
+      code: erreur && erreur.code,
+      appels_reseau: appels.length,
+      message: SINISTRE.messageErreur(erreur),
+    };
+  }
+
+  return cas;
+}
+
+main().then(
+  (resultat) => {
+    process.stdout.write(JSON.stringify({ ok: true, node: process.version, cas: resultat }, null, 1));
+  },
+  (erreur) => {
+    process.stdout.write(JSON.stringify({
+      ok: false, node: process.version,
+      erreur: String((erreur && erreur.stack) || erreur),
+    }, null, 1));
+    process.exitCode = 1;
+  },
+);
