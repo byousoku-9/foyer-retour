@@ -131,14 +131,34 @@ def test_les_bornes_du_front_sont_celles_du_serveur(cas: dict[str, Any], page: s
     changent de borne, la page devient rouge au lieu de laisser l'utilisateur écrire un texte que le
     serveur refusera après dix secondes d'attente.
     """
-    question_max = SinistreRequest.model_fields["question"].metadata
-    borne_question = next(m.max_length for m in question_max if getattr(m, "max_length", None))
-    borne_description = next(m.max_length for m in Faits.model_fields["description"].metadata
-                             if getattr(m, "max_length", None))
-    assert cas["bornes"]["question_max"] == borne_question == 1000
-    assert cas["bornes"]["description_max"] == borne_description == 2000
-    assert 'id="question"' in page and f'maxlength="{borne_question}"' in page
-    assert 'id="description"' in page and f'maxlength="{borne_description}"' in page
+    def borne(champ: Any) -> int:
+        return next(m.max_length for m in champ.metadata if getattr(m, "max_length", None))
+
+    attendues = {
+        "question_max": borne(SinistreRequest.model_fields["question"]),
+        "description_max": borne(Faits.model_fields["description"]),
+        # Ajoutées au tour 2 de la revue : `date` et `lieu` partent au modèle dans le même bloc
+        # `untrusted()` que la description, et seul `request_max_bytes` (le corps entier) les
+        # bornait — un `lieu` de 60 ko entrait dans le prompt de *comprendre*, donc dans des appels
+        # facturés. AD-11 : « bornes d'entrée strictes ».
+        "date_max": borne(Faits.model_fields["date"]),
+        "lieu_max": borne(Faits.model_fields["lieu"]),
+    }
+    assert attendues == {"question_max": 1000, "description_max": 2000, "date_max": 64,
+                         "lieu_max": 200}
+    for nom, valeur in attendues.items():
+        assert cas["bornes"][nom] == valeur, nom
+    for identifiant, valeur in [("question", attendues["question_max"]),
+                                ("description", attendues["description_max"]),
+                                ("lieu", attendues["lieu_max"])]:
+        assert f'id="{identifiant}"' in page
+        assert f'maxlength="{valeur}"' in page, identifiant
+    # `date` n'en porte **pas**, et c'est volontaire : `maxlength` ne s'applique pas à
+    # `<input type="date">`, le navigateur l'ignore, et l'écrire ferait croire à une borne posée là
+    # où il n'y en a aucune. La borne du domaine reste le contrôle réel, y compris pour un appelant
+    # qui n'est pas un navigateur — et elle est assertée ci-dessus comme les trois autres.
+    champ_date = re.search(r'<input id="date"[^>]*>', page)
+    assert champ_date is not None and "maxlength" not in champ_date.group(0)
 
 
 # --- le sélecteur de contrat ---------------------------------------------
@@ -285,6 +305,9 @@ def test_les_faits_compris_sont_affiches_champ_par_champ(cas: dict[str, Any]) ->
         "Lieu": "domicile",
         "Cause": "bougie",
         "Moment": "2026-08-01",
+        # `themes` était fixé à `[]` par les deux fixtures : la ligne n'était rendue par aucun test,
+        # et la supprimer ne faisait rien rougir (revue 1.9, tour 2).
+        "Thèmes": "habitation, incendie",
     }
 
 
@@ -386,6 +409,63 @@ def test_le_cout_vient_de_lusage_rendu_par_lapi(cas: dict[str, Any]) -> None:
 
 
 # --- le refus : un verdict, pas une absence ------------------------------
+
+def test_un_bloc_cite_par_deux_affirmations_ne_recoit_pas_le_statut_de_la_premiere(
+        cas: dict[str, Any]) -> None:
+    """D6, dans le repli qui était censé l'honorer (revue 1.9, tour 2).
+
+    Le mode dégradé rattachait le statut par `block_id` en rendant **le premier trouvé** : deux
+    affirmations citant la même clause avec des statuts différents — applicable pour l'une, à
+    confirmer pour l'autre — et la page affichait celui de la première sous les deux. C'est
+    exactement « une clause attribuée à la mauvaise affirmation sous un verdict », réintroduit par
+    le repli. Elle n'attribue plus rien, et elle le dit.
+    """
+    releve = cas["verdict_statut_ambigu"]
+    assert releve["appariement"] is None  # on est bien dans le mode dégradé
+    assert releve["statut_pour_bloc_partage"] is None
+    assert releve["statut_pour_bloc_unique"] is not None
+    assert releve["ambigu_partage"] is True
+    assert releve["ambigu_unique"] is False
+    # Un bloc qu'aucune affirmation affichée ne cite n'est pas « ambigu » : il n'a pas de statut,
+    # et compter les deux ensemble aurait fait annoncer une ambiguïté qui n'existe pas.
+    assert releve["ambigu_non_cite"] is False
+    assert releve["statuts"] == []  # rien n'est deviné
+    dit = " ".join(releve["degrade"])
+    assert "n'est pas affiché" in dit and "je ne devine pas" in dit
+    assert "l'une de ces clauses" in dit
+
+
+def test_la_clarification_est_affichee_avec_sa_question(cas: dict[str, Any]) -> None:
+    """AD-5 : le seul chemin où le système **pose une question** en retour (revue 1.9, tour 2).
+
+    Les deux fixtures fixaient `clarification: null` : supprimer la branche de `vueVerdict` ne
+    faisait rien rougir, et la perdre à l'écran laisse l'utilisateur devant un « ne tranche pas »
+    sans issue — alors que la seule chose à faire est de reformuler.
+    """
+    releve = cas["verdict_clarification"]
+    assert releve["question"] == ["De quel bien parlez-vous : le mobilier, ou le bâtiment ?"]
+    assert releve["titre"] == ["Une précision, pour chercher au bon endroit"]
+    # AD-16 : même là, un verdict est porté — un refus sinistre n'est jamais vide.
+    assert releve["badge"] == ["ne tranche pas"]
+    assert releve["clauses"] == 0
+    # AD-5 : `ClarificationRequise` n'a pas de portée. Rien n'est inventé pour remplir la section.
+    assert releve["faits_compris"] == 0
+
+
+def test_un_corps_de_documents_illisible_nest_pas_un_service_vide(cas: dict[str, Any]) -> None:
+    """P4 : « aucun contrat servi » est une affirmation sur le **service**, pas sur une lecture ratée.
+
+    Un 200 non-tableau était réduit à `[]`, et la page affirmait alors quelque chose qu'elle ne
+    savait pas — la distinction que le commentaire de `vueFormulaire` dit précisément ne pas devoir
+    brouiller (revue 1.9, tour 2).
+    """
+    releve = cas["documents_illisibles"]
+    assert "n'a pas pu être chargée" in releve["message"]
+    assert "Aucun contrat n'est servi" not in releve["message"]
+    assert "ne sait pas lire" in releve["texte"]
+    assert releve["bouton_desactive"] is True
+    assert releve["badges"] == 0
+
 
 def test_un_refus_affiche_ne_tranche_pas_sa_portee_et_les_faits_compris(cas: dict[str, Any]) -> None:
     """AD-16 : un refus sinistre **porte** un verdict — sans lui la page n'aurait qu'une absence."""
@@ -542,7 +622,36 @@ def test_le_selecteur_est_rempli_au_demarrage(cas: dict[str, Any]) -> None:
 
 def test_les_maxlength_sont_poses_par_le_script(cas: dict[str, Any]) -> None:
     """Une seule source à l'exécution (revue 1.9) ; l'attribut HTML reste le repli sans JavaScript."""
-    assert cas["demarrage"]["maxlength"] == {"question": 1000, "description": 2000}
+    poses = cas["demarrage"]["maxlength"]
+    assert poses["question"] == 1000
+    assert poses["description"] == 2000
+    assert poses["lieu"] == 200
+    # Rien sur `date` : le script ne pose pas un attribut que le navigateur ignore.
+    assert not poses["date"]
+
+
+def test_les_centimes_sont_saisissables_dans_un_navigateur(page: str) -> None:
+    """`Faits.montant_eur` est un `float` et la page lit « 1200,50 » — encore faut-il pouvoir l'écrire.
+
+    Avec `step="1"`, la validation native du navigateur bloque la soumission **entière** dès qu'un
+    montant porte des centimes : le chemin décimal n'était joué que par le harnais Node (revue 1.9,
+    tour 2). `inputmode="decimal"` disait déjà le contraire de `step="1"` dans le même attribut.
+    """
+    montant = re.search(r'<input id="montant"[^>]*>', page)
+    assert montant is not None
+    assert 'step="any"' in montant.group(0)
+    assert 'step="1"' not in montant.group(0)
+
+
+def test_la_page_desarme_la_validation_native(page: str) -> None:
+    """P16 : deux systèmes de messages ne peuvent pas coexister — la page garde le sien.
+
+    `required` sans `novalidate` bloque l'événement `submit` avant que `manquant()` ne tourne : le
+    message « Décrivez les faits… » que la page compose n'était vu que par le harnais, et le test
+    qui l'asserte vérifiait un texte qu'aucun utilisateur ne recevait (revue 1.9, tour 2).
+    """
+    formulaire = re.search(r'<form[^>]*id="formulaire"[^>]*>', page)
+    assert formulaire is not None and "novalidate" in formulaire.group(0)
 
 
 def test_la_borne_dabandon_vient_des_seuils_du_serveur(cas: dict[str, Any]) -> None:

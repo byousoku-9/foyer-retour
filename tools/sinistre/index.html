@@ -119,7 +119,13 @@
      d'un sinistre dans l'URL, dans l'historique du navigateur et dans les logs d'accès de tout
      proxy traversé : exactement ce qu'AD-15 et AD-10 tiennent hors des journaux. `sinistre.js` lit
      les champs par leur `id`, jamais par leur `name`. -->
-<form class="carte" id="formulaire">
+<!-- `novalidate` : la page compose ses propres messages (`manquant()` dans `sinistre.js`), et la
+     validation native du navigateur les rendait inatteignables — elle bloque l'événement `submit`
+     avant que le script ne tourne, si bien que « Décrivez les faits… » n'était jamais vu par un
+     utilisateur alors qu'un test l'asserte (revue 1.9, tour 2). Les deux ne peuvent pas coexister :
+     on garde celui qui parle français, nomme le champ fautif et s'affiche au même endroit que les
+     autres échecs. `required` reste sur le champ, comme information d'accessibilité. -->
+<form class="carte" id="formulaire" novalidate>
   <h2>Le sinistre</h2>
 
   <label for="contrat">Contrat</label>
@@ -140,16 +146,25 @@
   <div class="duo">
     <div>
       <label for="date">Date du sinistre (facultatif)</label>
+      <!-- Pas de `maxlength` ici : l'attribut ne s'applique **pas** à `<input type="date">`, le
+           navigateur l'ignore, et l'écrire ferait croire à une borne posée là où il n'y en a
+           aucune. Le contrôle réel est la borne du domaine (`Faits.date`, 64 caractères), qui vaut
+           aussi pour les appelants non-navigateurs — le champ, lui, ne peut produire qu'un
+           `AAAA-MM-JJ`. -->
       <input id="date" type="date">
     </div>
     <div>
       <label for="montant">Montant estimé en euros (facultatif)</label>
-      <input id="montant" type="number" min="0" step="1" inputmode="decimal">
+      <!-- `step="any"` : `Faits.montant_eur` est un `float`, et `corpsSinistre()` lit explicitement
+           « 1200,50 ». Avec `step="1"`, la validation native refusait tout montant à centimes — le
+           chemin décimal n'était donc joué que par le harnais Node, jamais par un navigateur
+           (revue 1.9, tour 2). `inputmode="decimal"` disait déjà le contraire de `step="1"`. -->
+      <input id="montant" type="number" min="0" step="any" inputmode="decimal">
     </div>
   </div>
 
   <label for="lieu">Lieu (facultatif)</label>
-  <input id="lieu" type="text">
+  <input id="lieu" type="text" maxlength="200">
 
   <label for="description">Description des faits</label>
   <textarea id="description" maxlength="2000" required

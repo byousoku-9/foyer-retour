@@ -204,8 +204,9 @@ function reponseVerdict(surcharge) {
                    "Le caractère subit de l'action de la chaleur est-il établi ?"],
       escalate: ["Faire relire la clause par un gestionnaire."],
     },
-    faits_compris: { themes: [], bien: "mobilier de salon", evenement: "brûlure sans embrasement",
-                     lieu: "domicile", cause: "bougie", moment: "2026-08-01" },
+    faits_compris: { themes: ["habitation", "incendie"], bien: "mobilier de salon",
+                     evenement: "brûlure sans embrasement", lieu: "domicile", cause: "bougie",
+                     moment: "2026-08-01" },
     unknown: ["La franchise applicable n'est pas dite."],
     clarification: null,
   };
@@ -249,6 +250,34 @@ function reponseRefus() {
     sources: [], via: "api/v1",
     trace: { request_id: "r-2", pipeline: "sinistre", variant: "deterministe",
              total_cost_eur: 0.0071, steps: [] },
+  };
+}
+
+/** AD-5 : `ClarificationRequise` — le seul chemin où le système **pose une question** en retour. */
+function reponseClarification() {
+  const phrase = "Je n'ai pas pu déterminer sur quoi porte la demande ; précisez-la et je "
+    + "chercherai dans le contrat.";
+  return {
+    answer: {
+      found: false, complete: false, lang: "fr", texte: phrase,
+      segments: [{ text: phrase, kind: "limite", claim_ids: [] }],
+      claims: [], rejected_claims: [],
+      reason: { kind: "clarification_requise", terms_searched: [], variants_count: 0,
+                blocks_scanned: 0, documents: [] },
+      verdict: { value: "ne_tranche_pas",
+                 reason: "La demande n'a pas pu être rendue autonome : rien n'a été cherché "
+                         + "(au regard des conditions générales seules)",
+                 missing: { conditions_particulieres: true, options_souscrites: true,
+                            avenants: true, date_effet: true, faits: [] },
+                 ask_client: [], escalate: [] },
+      // AD-5 : cette sortie n'a pas de portée — il n'y a rien à publier, pas même partiellement.
+      faits_compris: null,
+      unknown: [],
+      clarification: "De quel bien parlez-vous : le mobilier, ou le bâtiment ?",
+    },
+    sources: [], via: "api/v1",
+    trace: { request_id: "r-3", pipeline: "sinistre", variant: "deterministe",
+             total_cost_eur: 0.0028, steps: [] },
   };
 }
 
@@ -411,6 +440,26 @@ async function main() {
       statuts: textesDe(vueCassee, "cl-statut"),
     };
 
+    // Un bloc cité par **deux** affirmations aux statuts différents : en mode dégradé, la page ne
+    // devine pas lequel s'applique — et elle le dit (D6, revue 1.9, tour 2).
+    const ambigu = reponseVerdict();
+    ambigu.answer.claims[1].quotes = [{ block_id: "cg-mini:p9:2", quote: "peu importe" }];
+    ambigu.sources = [clause("cg-mini:p9:2", Q_GARANTIE), clause("cg-mini:p99:1", "en trop")];
+    const vueAmbigue = SINISTRE.vueVerdict(ambigu);
+    cas.verdict_statut_ambigu = {
+      appariement: SINISTRE.clausesParClaim(ambigu.answer, ambigu.sources),
+      statuts: textesDe(vueAmbigue, "cl-statut"),
+      degrade: textesDe(vueAmbigue, "degrade"),
+      clauses: aplatirVue(vueAmbigue).filter((n) => n.cls === "clause").length,
+      // La fonction pure, appelée directement sur les deux formes.
+      statut_pour_bloc_partage: SINISTRE.statutDeBloc(ambigu.answer, "cg-mini:p9:2"),
+      statut_pour_bloc_unique: SINISTRE.statutDeBloc(reponseVerdict().answer, "cg-mini:p9:2"),
+      ambigu_partage: SINISTRE.statutAmbigu(ambigu.answer, "cg-mini:p9:2"),
+      ambigu_unique: SINISTRE.statutAmbigu(reponseVerdict().answer, "cg-mini:p9:2"),
+      // Un bloc que personne ne cite n'est pas « ambigu » : il n'a simplement pas de statut.
+      ambigu_non_cite: SINISTRE.statutAmbigu(ambigu.answer, "cg-mini:p99:1"),
+    };
+
     // Le refus : un verdict `ne_tranche_pas`, aucune clause, et les faits compris quand même.
     const vueRefus = SINISTRE.vueVerdict(reponseRefus());
     cas.verdict_refus = {
@@ -421,6 +470,19 @@ async function main() {
         .map((n) => n.enfants.map((e) => e.texte)),
       analyse: textesDe(vueRefus, "analyse-txt"),
       portee: textesDe(vueRefus, "portee"),
+    };
+
+    // La clarification : le seul chemin où le système pose une question à l'utilisateur. Sans elle
+    // à l'écran, il reste devant un « ne tranche pas » sans issue (revue 1.9, tour 2).
+    const vueClarif = SINISTRE.vueVerdict(reponseClarification());
+    cas.verdict_clarification = {
+      question: textesDe(vueClarif, "clarif-q"),
+      titre: aplatirVue(vueClarif).filter((n) => n.cls === "clarif")
+        .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "h3").map((e) => e.texte)),
+      badge: aplatirVue(vueClarif).filter((n) => n.cls && n.cls.indexOf("badge") === 0)
+        .map((n) => n.texte),
+      faits_compris: aplatirVue(vueClarif).filter((n) => n.cls === "fc-ligne").length,
+      clauses: aplatirVue(vueClarif).filter((n) => n.cls === "clause").length,
     };
 
     // Un verdict dont la valeur n'est pas au contrat : dit, jamais traduit en valeur connue.
@@ -528,7 +590,8 @@ async function main() {
       message: elements["contrats-message"].textContent,
       // Les `maxlength` sont posés par le script depuis ses constantes (une seule source à
       // l'exécution) ; la page en porte aussi la valeur, comme repli sans JavaScript.
-      maxlength: { question: elements.question.maxLength, description: elements.description.maxLength },
+      maxlength: Object.fromEntries(["question", "description", "lieu", "date"]
+        .map((id) => [id, elements[id].maxLength === undefined ? null : elements[id].maxLength])),
       // La borne d'abandon a été lue sur `/sante` au démarrage, pas recopiée.
       bornes: SINISTRE.bornes(),
       ordre_des_appels: appels.map((a) => String(a.url).replace(ORIGINE, "")),
@@ -639,6 +702,27 @@ async function main() {
       message: elements["contrats-message"].textContent,
       bouton_desactive: !!elements.analyser.disabled,
       cartes_erreur: elements.resultat.querySelectorAll(".erreur").length,
+      texte: elements.resultat.textContent,
+      badges: elements.resultat.querySelectorAll(".badge").length,
+    };
+  }
+
+  // --- `/documents` rend un 200 illisible : ce n'est pas « aucun contrat servi » ---
+  {
+    const { elements } = charger(
+      PAGE,
+      (url) => {
+        if (String(url).endsWith("/sante")) return reponseHttp({ corps: reponseSante() });
+        if (String(url).endsWith("/documents")) return reponseHttp({ corps: { oups: true } });
+        return reponseHttp({ corps: reponseVerdict() });
+      },
+      { demarrage: true });
+    await tick();
+    await tick();
+    await tick();
+    cas.documents_illisibles = {
+      message: elements["contrats-message"].textContent,
+      bouton_desactive: !!elements.analyser.disabled,
       texte: elements.resultat.textContent,
       badges: elements.resultat.querySelectorAll(".badge").length,
     };

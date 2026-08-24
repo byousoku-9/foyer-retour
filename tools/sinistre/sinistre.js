@@ -31,6 +31,11 @@
   // au-delà, ce que l'utilisateur voit. Un test Python les épingle contre les schémas du serveur.
   var QUESTION_MAX = 1000;
   var DESCRIPTION_MAX = 2000;
+  // `Faits.date` et `Faits.lieu` étaient les deux seuls champs de texte sans borne : ils partent au
+  // modèle dans le même bloc `untrusted()` que la description, et seul `request_max_bytes` les
+  // limitait (revue 1.9, tour 2). Bornés dans le domaine, reflétés ici.
+  var DATE_MAX = 64;
+  var LIEU_MAX = 200;
 
   // Borne d'abandon côté client : la deadline du serveur plus la marge qu'il annonce. Les deux sont
   // des **seuils de `config.py`** (`deadline_s`, `client_abort_margin_s`), publiés par
@@ -130,15 +135,43 @@
   // dégradé** : D6 exige « une liste plate de citations **avec leurs statuts** », et sans ce
   // rattachement par bloc, l'abandon de l'appariement faisait aussi disparaître `retrouvée`,
   // `pertinente`, `applicable` et la réserve d'édition — sous un verdict (revue 1.9).
-  function statutDeBloc(answer, blockId) {
+  /** Les statuts des affirmations affichées qui citent ce bloc (au plus un par affirmation). */
+  function statutsDeBloc(answer, blockId) {
     var claims = tableau(answer && answer.claims);
+    var trouves = [];
     for (var i = 0; i < claims.length; i++) {
       var quotes = tableau(claims[i] && claims[i].quotes);
       for (var j = 0; j < quotes.length; j++) {
-        if (quotes[j] && quotes[j].block_id === blockId) return claims[i].status || null;
+        if (quotes[j] && quotes[j].block_id === blockId) {
+          trouves.push(claims[i].status || null);
+          break;  // une seule quote par bloc dans une claim (AD-3)
+        }
       }
     }
-    return null;
+    return trouves;
+  }
+
+  /**
+   * Le statut d'une clause en mode dégradé, ou `null` si rien ne le fixe **sans deviner**.
+   *
+   * Deux affirmations peuvent citer le même bloc avec des statuts différents — une clause jugée
+   * applicable pour l'une, à confirmer pour l'autre. Rendre le premier trouvé, c'était rattacher le
+   * statut d'une affirmation à une autre : exactement le dommage que D6 refuse (« une clause
+   * attribuée à la mauvaise affirmation sous un verdict »), réintroduit par le repli censé l'éviter
+   * (revue 1.9, tour 2).
+   */
+  function statutDeBloc(answer, blockId) {
+    var trouves = statutsDeBloc(answer, blockId);
+    if (!trouves.length) return null;
+    for (var k = 1; k < trouves.length; k++) {
+      if (statutTexte(trouves[k]) !== statutTexte(trouves[0])) return null;
+    }
+    return trouves[0];
+  }
+
+  /** Le bloc est-il cité par plusieurs affirmations qui n'en disent pas la même chose ? */
+  function statutAmbigu(answer, blockId) {
+    return statutsDeBloc(answer, blockId).length > 1 && statutDeBloc(answer, blockId) === null;
   }
 
   // AD-2 : `Block.kind` vient de l'ingestion, jamais du modèle. Un kind hors table se dit tel quel
@@ -301,7 +334,14 @@
     return noeud("div", "carte attente", null, [
       noeud("p", null, "Je cherche les clauses du contrat, puis je vérifie chaque citation mot pour " +
         "mot avant d'afficher quoi que ce soit…"),
-      noeud("p", "attente-note", "Quatre appels au modèle au plus ; cela prend une dizaine de secondes.")
+      // Ni « quatre appels » ni « une dizaine de secondes » n'étaient vrais (revue 1.9, tour 2) :
+      // la relance d'AD-3 ajoute un second *rédiger* **et** une seconde vérification (plafond
+      // nominal : cinq appels, plus le retry de parse du client), et toutes les mesures live
+      // tiennent entre 21 et 27 secondes, une à 47. Ce texte s'affiche à chaque soumission ; il
+      // annonce donc un ordre de grandeur mesuré, et pas un compte que le pipeline peut dépasser.
+      noeud("p", "attente-note",
+        "Plusieurs appels au modèle s'enchaînent, et une vérification peut en relancer un : "
+        + "comptez de vingt secondes à une minute.")
     ]);
   }
 
@@ -510,9 +550,21 @@
           "l'affirmation exacte qu'elle soutient : elles sont données ensemble."));
         // D6 : « avec leurs statuts ». Le mode dégradé serait le dernier endroit où taire
         // l'applicabilité d'une clause et la réserve d'actualité de son édition.
+        var ambigus = 0;
         sources.forEach(function (src) {
+          // Le compte ne porte que sur l'**ambiguïté** : une clause qu'aucune affirmation affichée
+          // ne cite n'a pas de statut à taire, elle n'en a pas.
+          if (statutAmbigu(a, src.block_id)) ambigus++;
           corps.push(clauseVue(src, statutDeBloc(a, src.block_id)));
         });
+        if (ambigus) {
+          corps.push(noeud("p", "degrade",
+            (ambigus > 1
+              ? "Le statut de " + ambigus + " de ces clauses n'est pas affiché : plusieurs "
+              : "Le statut de l'une de ces clauses n'est pas affiché : plusieurs ") +
+            "affirmations la citent en n'en disant pas la même chose, et je ne devine pas " +
+            "laquelle s'applique ici."));
+        }
       }
       enfants.push(section("clauses", "Clauses citées, relues dans le contrat", corps));
     }
@@ -602,6 +654,10 @@
 
   function peindre(vue, cible) {
     var hote = cible || document.getElementById("resultat");
+    // La garde était à moitié posée : `vider()` tolérait un hôte absent, `appendChild` non. Un
+    // `#resultat` renommé aurait donc levé un `TypeError` **après** un appel payé, en laissant la
+    // carte d'attente à l'écran et la saisie verrouillée (revue 1.9, tour 2).
+    if (!hote) return null;
     vider(hote);
     var e = materialiser(vue);
     hote.appendChild(e);
@@ -718,7 +774,12 @@
 
   function documents() {
     return requete("/api/v1/documents").then(function (j) {
-      return Array.isArray(j) ? j : [];
+      // Un 200 qui n'est pas un tableau n'a pas pu être écrit par cette route : le réduire à `[]`
+      // faisait dire à la page « aucun contrat n'est servi », c'est-à-dire une affirmation sur le
+      // **service** alors qu'elle n'a pas su lire la réponse (revue 1.9, tour 2). C'est la
+      // distinction que `vueFormulaire` dit précisément ne pas devoir brouiller.
+      if (!Array.isArray(j)) throw illisible("documents");
+      return j;
     });
   }
 
@@ -822,7 +883,11 @@
     // Les `maxlength` de la page sont posés **ici**, depuis les constantes du script : la page en
     // porte aussi la valeur en dur, mais comme repli sans JavaScript. Une seule source à
     // l'exécution (revue 1.9) ; un test Python épingle les deux contre les schémas du serveur.
-    var bornes = [{ id: "question", max: QUESTION_MAX }, { id: "description", max: DESCRIPTION_MAX }];
+    // `date` n'y est pas : `maxlength` ne s'applique pas à `<input type="date">` et le navigateur
+    // l'ignore. `DATE_MAX` reste publié par `bornes()` — c'est la borne du domaine, appliquée par
+    // le serveur, et le test l'y compare — mais la page ne fait pas mine de la poser.
+    var bornes = [{ id: "question", max: QUESTION_MAX }, { id: "description", max: DESCRIPTION_MAX },
+                  { id: "lieu", max: LIEU_MAX }];
     bornes.forEach(function (b) { var e = $(b.id); if (e) e.maxLength = b.max; });
 
     var vueForm = vueFormulaire([]);
@@ -903,6 +968,7 @@
     bornes: function () {
       return {
         question_max: QUESTION_MAX, description_max: DESCRIPTION_MAX,
+        date_max: DATE_MAX, lieu_max: LIEU_MAX,
         abandon_ms: abandonMs(), seuils_du_serveur: seuilsServeur,
         deadline_s_repli: DEADLINE_S_REPLI, marge_abandon_s_repli: MARGE_ABANDON_S_REPLI
       };
@@ -910,6 +976,7 @@
     sonder: sonder,
     manquant: manquant,
     statutDeBloc: statutDeBloc,
+    statutAmbigu: statutAmbigu,
     vueSource: vueSource,
     PORTEE: PORTEE
   };
