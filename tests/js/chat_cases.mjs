@@ -87,6 +87,16 @@ function chargerChat(href, repondre, { minuteurs = null } = {}) {
   return { CHAT: window.CHAT, appels, compteur, window };
 }
 
+/** Laisse tourner les microtâches en attente : `reponseApi()` attend la sonde avant de poster. */
+function tick() {
+  return new Promise((r) => setTimeout(r, 0));
+}
+
+/** La requête `POST /chat` parmi les appels relevés — la sonde `/sante` la précède désormais. */
+function requeteChat(appels) {
+  return appels.filter((a) => String(a.url).endsWith("/chat"))[0] || null;
+}
+
 // ---------- les données des cas ----------
 
 const ORIGINE = "https://foyer-retour.example";
@@ -269,10 +279,11 @@ async function main() {
       { role: "user", content: QUESTION },
     ];
     await CHAT.repondre(QUESTION, PROFIL, historique);
-    cas.corps_url = appels[0].url;
-    cas.corps_methode = appels[0].options.method;
-    cas.corps_entetes = appels[0].options.headers;
-    cas.corps_envoye = JSON.parse(appels[0].options.body);
+    const post = requeteChat(appels);
+    cas.corps_url = post.url;
+    cas.corps_methode = post.options.method;
+    cas.corps_entetes = post.options.headers;
+    cas.corps_envoye = JSON.parse(post.options.body);
   }
 
   // --- l'historique -------------------------------------------------------
@@ -327,7 +338,11 @@ async function main() {
 
   // --- l'ancien champ `reponse` n'est plus lu, les sources viennent du serveur
   {
-    const ancien = {
+    // Un corps qui porte **les deux** : `texte` (le contrat servi) et `reponse` (l'ancien champ,
+    // que rien n'oblige un intermédiaire à retirer). C'est `texte` qui est lu, et `reponse` ne
+    // ressort nulle part.
+    const avecEcho = {
+      texte: "Texte du contrat servi, celui d'après la 1.7.",
       reponse: "Texte de l'ancien contrat, celui d'avant la 1.7.",
       sources: [{ block_id: "lux-guide:fbanque:1", fiche_id: "banque", titre: "Ouvrir un compte",
                   url: "https://guichet.public.lu/banque", quote: "un compte au Luxembourg",
@@ -337,7 +352,7 @@ async function main() {
       via: "api/v1",
       trace: { request_id: "r-3", pipeline: "guide", intent: "question", total_cost_eur: 0.01, steps: [] },
     };
-    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: ancien }));
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: avecEcho }));
     const r = await CHAT.repondre("Comment ouvrir un compte bancaire ?", PROFIL, []);
     cas.ancien_contrat = {
       texte: r.texte,
@@ -540,6 +555,48 @@ async function main() {
     };
   }
 
+  // --- un 200 dont le corps ne tient pas le contrat ----------------------
+  {
+    // Le corps est du JSON valide, mais il manque des champs **obligatoires** de `ChatResponse`
+    // (`texte`, `answer`, `trace`) ou des booléens obligatoires d'`Answer`. Une valeur par défaut à
+    // leur place peignait un `{}` en réponse « inconnu », l'ajoutait à l'historique et la faisait
+    // repartir au serveur : c'est la « réponse vide présentée comme réponse » d'AD-16.
+    const corps = {
+      vide: {},
+      sans_answer: { texte: "Vous avez huit jours.", trace: { total_cost_eur: 0.01 } },
+      sans_trace: { texte: "x", answer: { found: true, complete: true } },
+      sans_texte: { answer: { found: true, complete: true }, trace: {} },
+      answer_nul: { texte: "x", answer: null, trace: {} },
+      answer_sans_found: { texte: "x", answer: { complete: true }, trace: {} },
+      answer_sans_complete: { texte: "x", answer: { found: true }, trace: {} },
+      sources_non_liste: { texte: "x", answer: { found: true, complete: true }, trace: {},
+                           sources: { 0: {} } },
+      ancien_contrat: { reponse: "Vous avez huit jours.", sources: [] },
+    };
+    cas.contrat_incomplet = {};
+    for (const [nom, c] of Object.entries(corps)) {
+      const { CHAT, compteur } = chargerChat(PAGE, () => reponseHttp({ corps: c }));
+      compteur.lectures = 0;
+      let erreur = null;
+      let reponse = null;
+      try { reponse = await CHAT.repondre(QUESTION, PROFIL, []); } catch (e) { erreur = e; }
+      cas.contrat_incomplet[nom] = {
+        a_repondu: reponse !== null,
+        kind: erreur && erreur.kind, code: erreur && erreur.code, champ: erreur && erreur.champ,
+        message: CHAT.messageErreur(erreur),
+        lectures_du_moteur_lexical: compteur.lectures,
+      };
+    }
+    // Et le contraire : un corps complet passe, y compris avec les champs à valeur par défaut absents.
+    const minimal = { texte: "Vous avez huit jours.",
+                      answer: { found: true, complete: true, claims: [], segments: [] },
+                      trace: { total_cost_eur: 0.01 } };
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: minimal }));
+    const r = await CHAT.repondre(QUESTION, PROFIL, []);
+    cas.contrat_minimal = { texte: r.texte, via: r.via, sources: r.sources, segments: r.segments,
+                            comparateur: r.comparateur };
+  }
+
   // --- la sonde en échec n'ouvre aucune porte ----------------------------
   {
     const { CHAT, compteur } = chargerChat(PAGE, (url) => {
@@ -574,6 +631,21 @@ async function main() {
       zero: CHAT.coutTexte({ total_cost_eur: 0 }),
       absent: CHAT.coutTexte(null),
       sans_champ: CHAT.coutTexte({}),
+    };
+    // AD-4 / AC : « N variantes essayées, M passages parcourus ». Zéro est une réponse à cette
+    // question — un `hors_perimetre` court-circuite avant tout retrieval, et ses deux compteurs
+    // nuls sont précisément ce qui le distingue d'un `zero_hit` qui a lu 312 passages.
+    cas.preuve_zeros = {
+      hors_perimetre: CHAT.preuveAbsence({ kind: "hors_perimetre", terms_searched: ["météo"],
+                                           variants_count: 0, blocks_scanned: 0 }),
+      sans_terme: CHAT.preuveAbsence({ kind: "hors_perimetre", terms_searched: [],
+                                       variants_count: 0, blocks_scanned: 0 }),
+      zero_hit: CHAT.preuveAbsence({ kind: "zero_hit", terms_searched: ["bail"],
+                                     variants_count: 0, blocks_scanned: 506 }),
+      claims_rejetes: CHAT.preuveAbsence({ kind: "claims_rejetes", terms_searched: ["bail", "préavis"],
+                                           variants_count: 0, blocks_scanned: 506 }),
+      clarification: CHAT.preuveAbsence({ kind: "clarification_requise", terms_searched: [],
+                                          variants_count: 0, blocks_scanned: 0 }),
     };
     cas.etats = {
       sur: CHAT.etatReponse({ found: true, complete: true }),
@@ -704,6 +776,41 @@ async function main() {
     cas.historique_borne_par_le_serveur = CHAT.historiquePourApi(dix, "q").length;
   }
 
+  // --- la **première** requête part déjà sur les seuils du serveur -------
+  {
+    // Sans attente de la sonde, la première question utilisait les replis écrits dans `chat.js` et
+    // ignorait une configuration différente : un serveur réglé à 3 tours recevait les 6 du repli,
+    // donc un 400. Ici la sonde n'a **pas** été appelée avant : c'est `reponseApi()` qui l'attend.
+    const { CHAT, appels } = chargerChat(PAGE, (url) => (String(url).endsWith("/sante")
+      ? reponseHttp({ corps: { ok: true, version: "abc", documents_servis: ["lux-guide"],
+                               thresholds: { historique_max_turns: 2, deadline_s: 20,
+                                             client_abort_margin_s: 4 } } })
+      : reponseHttp({ corps: reponseSourcee() })));
+    const dix = [1,2,3,4,5,6,7,8,9,10].map((i) => ({ role: "user", content: "tour " + i }));
+    await CHAT.repondre(QUESTION, PROFIL, dix);
+    cas.premiere_requete = {
+      // La sonde d'abord, la question ensuite : deux appels, dans cet ordre.
+      urls: appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      historique_envoye: JSON.parse(requeteChat(appels).options.body).historique.length,
+      bornes: CHAT.bornes(),
+    };
+  }
+
+  // --- la marge d'abandon vient de `config.py`, pas d'un nombre écrit ici -
+  {
+    const poses = [];
+    const minuteurs = {
+      setTimeout: (fn, ms) => { poses.push({ fn, ms, annule: false }); return poses.length; },
+      clearTimeout: (n) => { if (poses[n - 1]) poses[n - 1].annule = true; },
+    };
+    const { CHAT } = chargerChat(PAGE, (url) => (String(url).endsWith("/sante")
+      ? reponseHttp({ corps: { ok: true, version: "abc",
+                               thresholds: { deadline_s: 20, client_abort_margin_s: 4 } } })
+      : reponseHttp({ corps: reponseSourcee() })), { minuteurs });
+    await CHAT.testerApi();
+    cas.marge_du_serveur = CHAT.bornes().delai_abandon_ms;
+  }
+
   // --- le questionnaire du site et le filtre du serveur ------------------
   {
     const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
@@ -717,13 +824,24 @@ async function main() {
       setTimeout: (fn, ms) => { poses.push({ fn, ms, annule: false }); return poses.length; },
       clearTimeout: (n) => { if (poses[n - 1]) poses[n - 1].annule = true; },
     };
-    const { CHAT } = chargerChat(PAGE, (url, options) => new Promise((_, rej) => {
-      // `fetch` ne résout jamais ; seul l'abandon met fin à l'attente.
-      options.signal.addEventListener("abort", () => rej(new Error("abandon")));
-    }), { minuteurs });
+    const { CHAT } = chargerChat(PAGE, (url, options) => {
+      // La sonde répond (elle porte les seuils) ; c'est la **question** qui pend.
+      if (String(url).endsWith("/sante")) {
+        return reponseHttp({ corps: { ok: true, version: "abc", documents_servis: ["lux-guide"] } });
+      }
+      return new Promise((_, rej) => {
+        // `fetch` ne résout jamais ; seul l'abandon met fin à l'attente.
+        options.signal.addEventListener("abort", () => rej(new Error("abandon")));
+      });
+    }, { minuteurs });
+    await CHAT.testerApi();
+    const posesAvantQuestion = poses.length;
     const promesse = CHAT.repondre(QUESTION, PROFIL, []);
-    cas.abandon_delai_pose_ms = poses.length ? poses[0].ms : null;
-    poses.filter((p) => !p.annule).forEach((p) => p.fn());
+    await tick();  // la requête ne part qu'après la sonde : son minuteur n'existe pas avant
+    // Le minuteur laissé en vol après la sonde est celui de la question.
+    const enVol = poses.slice(posesAvantQuestion).filter((p) => !p.annule);
+    cas.abandon_delai_pose_ms = enVol.length ? enVol[0].ms : null;
+    enVol.forEach((p) => p.fn());
     let erreur = null;
     try { await promesse; } catch (e) { erreur = e; }
     cas.abandon = {

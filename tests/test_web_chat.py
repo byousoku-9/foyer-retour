@@ -27,6 +27,7 @@ from server.app.config import REPO_ROOT, Settings
 from server.app.domain.question import Turn
 
 HARNAIS = REPO_ROOT / "tests" / "js" / "chat_cases.mjs"
+HARNAIS_UI = REPO_ROOT / "tests" / "js" / "ui_cases.mjs"
 
 
 # Sans `node`, ces cas passent en `skip` — et un `skip` est indiscernable d'un succès dans un
@@ -35,9 +36,7 @@ HARNAIS = REPO_ROOT / "tests" / "js" / "chat_cases.mjs"
 REQUIS = os.environ.get("FRONT_TESTS_REQUIS", "") not in ("", "0")
 
 
-@pytest.fixture(scope="module")
-def cas() -> dict[str, Any]:
-    """Le harnais est exécuté **une fois** pour tout le module ; chaque test lit un relevé."""
+def _lancer(harnais: Path) -> dict[str, Any]:
     node = shutil.which("node")
     if node is None:
         motif = ("node absent de la machine : les cas du front ne peuvent pas tourner "
@@ -45,7 +44,7 @@ def cas() -> dict[str, Any]:
         if REQUIS:
             pytest.fail("FRONT_TESTS_REQUIS=1 mais " + motif)
         pytest.skip(motif)
-    fini = subprocess.run([node, str(HARNAIS)], capture_output=True, text=True, timeout=120,
+    fini = subprocess.run([node, str(harnais)], capture_output=True, text=True, timeout=120,
                           cwd=str(REPO_ROOT))
     # Le JSON sort sur stdout, les diagnostics sur stderr : un `console.log` oublié dans `chat.js`
     # ne peut plus corrompre le relevé, et le code de sortie tranche.
@@ -53,6 +52,18 @@ def cas() -> dict[str, Any]:
     charge = json.loads(fini.stdout) if fini.stdout.strip() else {"ok": False, "erreur": fini.stderr}
     assert charge.get("ok") is True, charge.get("erreur")
     return charge["cas"]
+
+
+@pytest.fixture(scope="module")
+def cas() -> dict[str, Any]:
+    """Le harnais est exécuté **une fois** pour tout le module ; chaque test lit un relevé."""
+    return _lancer(HARNAIS)
+
+
+@pytest.fixture(scope="module")
+def dom() -> dict[str, Any]:
+    """Le matérialiseur de `ui.js`, exécuté contre le DOM minimal de `tests/js/dom_minimal.mjs`."""
+    return _lancer(HARNAIS_UI)
 
 
 def _actions(vue: dict[str, Any], nom: str) -> list[dict[str, Any]]:
@@ -143,6 +154,43 @@ def test_le_repli_du_front_vaut_ce_que_la_configuration_dit(cas: dict[str, Any])
     assert cas["bornes_avant_sonde"]["historique_max_tours"] == settings.historique_max_turns
 
 
+def test_la_premiere_requete_part_deja_sur_les_seuils_du_serveur(cas: dict[str, Any]) -> None:
+    """Convention du projet : les seuils vivent dans `config.py`. Ce que le front en garde n'est
+    qu'un repli — encore faut-il qu'il s'en serve le moins possible. Sans attente de la sonde, la
+    **première** question utilisait les replis écrits dans `chat.js` et ignorait une configuration
+    différente : un serveur réglé à 3 tours recevait les 6 du repli, donc un 400."""
+    vu = cas["premiere_requete"]
+    assert vu["urls"] == ["/sante", "/chat"], "la sonde d'abord, la question ensuite"
+    assert vu["bornes"]["historique_max_tours"] == 2
+    assert vu["historique_envoye"] == 2, "l'historique est borné par la valeur du serveur"
+
+
+def test_la_marge_dabandon_du_client_vient_de_config_py(cas: dict[str, Any]) -> None:
+    """La marge au-dessus de `deadline_s` était un nombre écrit dans `chat.js` — un seuil numérique
+    n'a qu'un domicile. Elle est dans `config.py`, publiée par `/sante`, et le front la lit."""
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    assert "client_abort_margin_s" in settings.thresholds()
+    # Le repli du front vaut le défaut du serveur : sinon, un piège au premier chargement.
+    repli = cas["bornes_avant_sonde"]["delai_abandon_ms"]
+    assert repli == round((settings.deadline_s + settings.client_abort_margin_s) * 1000)
+    # Et une configuration servie (deadline 20 s, marge 4 s) est celle qui s'applique.
+    assert cas["marge_du_serveur"] == 24_000
+
+
+def test_aucun_seuil_du_serveur_nest_recopie_en_dur_dans_le_front() -> None:
+    """Les trois seuils que le front connaît sont des **replis** nommés comme tels, et chacun cite la
+    clé de `config.py` dont il vient. Un quatrième nombre magique introduit ici ne serait rattaché à
+    rien : le test le rend bruyant."""
+    chat = (REPO_ROOT / "web" / "app" / "chat.js").read_text("utf-8")
+    replis = re.findall(r"var ([A-Z_]+_REPLI) = ([\d.]+);\s*// (config\.\w+)", chat)
+    assert {nom for nom, _, _ in replis} == {
+        "HISTORIQUE_MAX_TOURS_REPLI", "DEADLINE_SERVEUR_REPLI", "MARGE_ABANDON_S_REPLI"}, replis
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    for _, valeur, cle in replis:
+        attendu = getattr(settings, cle.split(".", 1)[1])
+        assert float(valeur) == float(attendu), f"{cle} = {attendu}, le repli dit {valeur}"
+
+
 def test_la_borne_dun_tour_est_amarree_au_contrat_du_serveur(cas: dict[str, Any]) -> None:
     """`Turn.texte` n'est pas un seuil de `config.py` (donc absent de `thresholds()`) : c'est une
     contrainte de schéma. Le front la porte, ce test l'amarre à sa source."""
@@ -202,10 +250,13 @@ def test_la_reponse_est_lue_sur_le_contrat_servi(cas: dict[str, Any]) -> None:
 
 
 def test_le_champ_reponse_de_lancien_contrat_nest_plus_lu(cas: dict[str, Any]) -> None:
-    """`j.reponse` était le champ du relais d'origine ; le contrat d'AD-11 rend `texte`."""
+    """`j.reponse` était le champ du relais d'origine ; le contrat d'AD-11 rend `texte`. Un corps qui
+    porte les deux se lit sur `texte`, et `reponse` ne ressort nulle part."""
     ancien = cas["ancien_contrat"]
     assert ancien["a_champ_reponse"] is False
-    assert ancien["texte"] == ""  # rien n'est repêché sur `reponse`
+    assert ancien["texte"] == "Texte du contrat servi, celui d'après la 1.7."
+    # Et un corps qui ne porte **que** l'ancien champ n'est pas une réponse (cf. lecture stricte).
+    assert cas["contrat_incomplet"]["ancien_contrat"]["code"] == "reponse_illisible"
 
 
 def test_les_sources_affichees_sont_celles_du_serveur(cas: dict[str, Any]) -> None:
@@ -219,6 +270,49 @@ def test_les_sources_affichees_sont_celles_du_serveur(cas: dict[str, Any]) -> No
     assert lue["lectures_du_moteur_lexical"] == 0
     # Et sur un corps qui n'a que des sources serveur, ce sont bien elles qu'on lit.
     assert cas["ancien_contrat"]["sources"] == ["lux-guide:fbanque:1"]
+
+
+# --- AD-16 : un 200 incomplet n'est pas une réponse ------------------------
+
+@pytest.mark.parametrize(
+    ("nom", "champ"),
+    [("vide", "texte"), ("sans_answer", "answer"), ("sans_trace", "trace"),
+     ("sans_texte", "texte"), ("answer_nul", "answer"),
+     ("answer_sans_found", "answer.found"), ("answer_sans_complete", "answer.complete"),
+     ("sources_non_liste", "sources"), ("ancien_contrat", "texte")],
+)
+def test_un_200_qui_ne_tient_pas_le_contrat_nest_pas_peint(cas: dict[str, Any], nom: str,
+                                                           champ: str) -> None:
+    """AD-16 prévient « réponse vide présentée comme réponse ». Une valeur par défaut à la place d'un
+    champ obligatoire peignait un corps `{}` en réponse « inconnu », l'ajoutait à l'historique et le
+    faisait repartir au serveur au tour suivant. Un 200 incomplet est un serveur cassé, pas une
+    réponse dégradée : `reponse_illisible`, comme un corps non-JSON."""
+    vu = cas["contrat_incomplet"][nom]
+    assert vu["a_repondu"] is False, f"{nom} a été peint comme une réponse"
+    assert (vu["kind"], vu["code"]) == ("requete", "reponse_illisible")
+    assert vu["champ"] == champ
+    # « requete » et non « indisponible » : aucun bouton de repli (AD-11/AD-16).
+    assert vu["lectures_du_moteur_lexical"] == 0
+
+
+def test_le_champ_fautif_ne_va_pas_a_lecran(cas: dict[str, Any]) -> None:
+    """Le nom du champ manquant sert au développeur ; l'utilisateur lit la phrase du `code`."""
+    for vu in cas["contrat_incomplet"].values():
+        assert vu["champ"] not in vu["message"]
+        assert vu["message"] == cas["corps_illisible"]["message"]
+
+
+def test_les_champs_a_valeur_par_defaut_restent_facultatifs(cas: dict[str, Any]) -> None:
+    """La lecture stricte porte sur les champs **obligatoires** de `ChatResponse` (ceux sans défaut).
+    Refuser un corps parce que `sources` est absent inventerait une exigence que le contrat n'a pas."""
+    from server.app.api.schemas import ChatResponse
+
+    obligatoires = {n for n, f in ChatResponse.model_fields.items() if f.is_required()}
+    assert obligatoires == {"texte", "answer", "trace"}, obligatoires
+    minimal = cas["contrat_minimal"]
+    assert minimal["texte"] == "Vous avez huit jours."
+    assert minimal["sources"] == [] and minimal["segments"] == []
+    assert minimal["via"] == "api/v1" and minimal["comparateur"] is False
 
 
 # --- l'appariement citation ↔ segment -------------------------------------
@@ -300,9 +394,27 @@ def test_la_preuve_dabsence_saccorde_en_nombre(cas: dict[str, Any]) -> None:
     assert cas["preuve_singuliers"] == "Termes cherchés : bail — 1 variante essayée, 1 passage parcouru"
 
 
+def test_les_compteurs_a_zero_sont_affiches_car_ils_prouvent(cas: dict[str, Any]) -> None:
+    """L'AC demande « N variantes essayées, M passages parcourus ». Zéro **répond** à cette question :
+    un `hors_perimetre` court-circuite avant tout retrieval (AD-5) et ses deux compteurs sont nuls —
+    c'est précisément ce qui le distingue d'un `zero_hit` qui a lu 506 passages sans rien trouver.
+    Les taire rendait les deux refus indiscernables, et le refus météo relevé en live n'affichait
+    aucun chiffre du tout."""
+    zeros = cas["preuve_zeros"]
+    assert zeros["hors_perimetre"] == (
+        "Termes cherchés : météo — 0 variante essayée, 0 passage parcouru")
+    assert zeros["zero_hit"] == "Termes cherchés : bail — 0 variante essayée, 506 passages parcourus"
+    assert zeros["claims_rejetes"] == (
+        "Termes cherchés : bail, préavis — 0 variante essayée, 506 passages parcourus")
+    # Aucun terme retenu se dit aussi : c'est l'explication des deux zéros qui suivent.
+    assert zeros["sans_terme"] == (
+        "Aucun terme du guide n'a été retenu — 0 variante essayée, 0 passage parcouru")
+
+
 def test_une_clarification_na_rien_cherche_donc_rien_a_prouver(cas: dict[str, Any]) -> None:
     """AD-4 : sur `clarification_requise`, `terms_searched` est vide et `blocks_scanned` nul."""
     assert cas["preuve_clarification"] == ""
+    assert cas["preuve_zeros"]["clarification"] == ""
     assert cas["preuve_absente"] == ""
     clar = cas["clarification"]
     assert clar["clarification"].startswith("Parlez-vous")
@@ -627,6 +739,134 @@ def test_le_questionnaire_du_site_est_couvert_par_le_filtre_du_serveur(cas: dict
     assert not manquants, f"champs du site perdus par PROFIL_KEYS : {manquants}"
 
 
+# --- le matérialiseur : ce que `ui.js` en fait vraiment --------------------
+#
+# Jusqu'ici `ui.js` était vérifié en lisant son source. C'est ainsi qu'un badge de mode posé dans la
+# seule section « Assistant » — donc `hidden` dès qu'on regarde un autre onglet, c'est-à-dire chaque
+# fois que le widget flottant sert — a traversé la revue interne : aucun test ne pouvait le voir.
+# `tests/js/ui_cases.mjs` exécute donc `materialiser()`, `peindre()` et `badgeMode()` contre un DOM
+# minimal. Ce qui reste hors de portée (les tailles, les contrastes, un vrai lecteur d'écran) est
+# la reprise différée vers la story 1.11, qui porte le test navigateur de la CI.
+
+def test_larbre_decrit_devient_du_dom_dans_les_deux_journaux(dom: dict[str, Any]) -> None:
+    """Le même fil des deux côtés : une bulle par journal, avec le même texte."""
+    r = dom["reponse"]
+    assert r["bulles"] == 2 and r["dans_le_document"] == 2
+    textes = {j["texte"] for j in r["journaux"]}
+    assert len(textes) == 1, "les deux journaux ne montrent pas la même chose"
+    texte = textes.pop()
+    for morceau in ("Vous avez huit jours.", "Passage cité", "Les huit premiers jours",
+                    "retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée",
+                    "sûr", "cette réponse a coûté 0,0278 €"):
+        assert morceau in texte, morceau
+
+
+def test_le_texte_du_serveur_arrive_litteralement(dom: dict[str, Any]) -> None:
+    """AD-15 : `textContent`, jamais `innerHTML`. Le DOM minimal **lève** sur toute pose d'`innerHTML`
+    non vide : arriver jusqu'ici avec une citation qui porte du balisage le démontre, au lieu de le
+    déduire d'une lecture du source."""
+    assert dom["reponse"]["citation"] == "« <script>alert(1)</script> huit jours »"
+
+
+def test_le_lien_officiel_dune_citation_est_pose_sans_fuite(dom: dict[str, Any]) -> None:
+    lien = dom["reponse"]["lien"]
+    assert lien["href"] == "https://guichet.public.lu/arrivee"
+    assert lien["target"] == "_blank" and "noopener" in lien["rel"]
+
+
+def test_le_badge_de_mode_existe_dans_les_deux_surfaces(dom: dict[str, Any]) -> None:
+    """FR11. Quand la réponse s'affiche dans le widget flottant depuis un autre onglet, le badge du
+    panneau « Assistant » est dans une section `hidden` : il n'indique rien. Les deux le disent."""
+    b = dom["badges"]
+    for mode, attendu in (("api", ("mode api", "badge on")),
+                          ("indisponible", ("mode indisponible", "badge off")),
+                          ("local", ("mode local", "badge"))):
+        for surface in ("onglet", "widget"):
+            assert (b[mode][surface]["texte"], b[mode][surface]["cls"]) == attendu, (mode, surface)
+
+
+def test_letat_initial_du_badge_nannonce_pas_un_mode_quon_na_pas_essaye(
+        dom: dict[str, Any]) -> None:
+    """La page servait « mode local » avant même la sonde — le seul mode qui ne se déclenche jamais
+    tout seul (AD-11), annoncé avant d'avoir essayé le serveur."""
+    assert dom["badges"]["avant_sonde"] == {"texte": "mode : vérification…", "cls": "badge"}
+    html = (REPO_ROOT / "web" / "index.html").read_text("utf-8")
+    for badge in ("mode-badge", "widget-badge"):
+        assert re.search(rf'id="{badge}"[^>]*>mode : vérification…<', html), badge
+    assert ">mode local<" not in html
+
+
+def test_une_indisponibilite_materialise_un_bouton_et_le_clic_seul_ouvre_le_local(
+        dom: dict[str, Any]) -> None:
+    """AD-11 / AD-16 : la **seule** porte vers le moteur lexical, et elle demande un clic. Le test
+    clique pour de bon sur le bouton matérialisé, et vérifie ce qui arrive ensuite."""
+    avant, apres = dom["indisponible"]["avant"], dom["indisponible"]["apres"]
+    assert avant["boutons"] == 1 and avant["type"] == "button"
+    assert avant["texte"] == "Consulter le guide en recherche simple"
+    assert avant["ecouteurs"] == ["click"]
+    assert avant["historique"] == 0, "rien n'a été dit tant que rien n'a été cliqué"
+    # Le clic, et lui seul : la réponse locale apparaît des deux côtés, le badge le dit des deux
+    # côtés, et le tour est marqué `local` pour ne pas repartir au serveur comme sa propre parole.
+    assert apres["locales"] == 2
+    assert apres["badges"]["onglet"]["texte"] == "mode local"
+    assert apres["badges"]["widget"]["texte"] == "mode local"
+    assert apres["historique"] == [{"role": "assistant", "local": True}]
+    assert apres["boutons_de_repli_restants"] == 0, "la puce cliquée disparaît des deux journaux"
+
+
+@pytest.mark.parametrize("nom", ["invalid_request", "input_too_long", "rate_limited",
+                                 "reponse_illisible"])
+def test_une_requete_refusee_ne_materialise_aucun_bouton(dom: dict[str, Any], nom: str) -> None:
+    """AD-16 prévient « repli local sur une erreur 4xx ». La revue interne avait démontré que la
+    règle vivait dans le DOM ; elle vit dans `chat.js`, et ce test la mesure **dans** le DOM."""
+    vu = dom["refusees"][nom]
+    assert vu["boutons"] == 0, vu["texte"]
+    assert vu["texte"].startswith("Question non traitée")
+    assert dom["refusees"]["boutons_dans_les_journaux"] == 0
+
+
+def test_une_reponse_servie_ne_propose_jamais_la_recherche_simple(dom: dict[str, Any]) -> None:
+    assert dom["reponse"]["boutons_de_repli"] == 0
+
+
+def test_lattente_verrouille_les_deux_saisies_et_annonce_les_deux_journaux(
+        dom: dict[str, Any]) -> None:
+    """UX-DR10 : l'attente se **dit** et la saisie se ferme — des deux côtés, puis se rouvre."""
+    assert dom["attente"]["pendant"]["desactives"] == [True, True, True, True]
+    assert dom["attente"]["pendant"]["busy"] == ["true", "true"]
+    assert dom["attente"]["apres"]["desactives"] == [False, False, False, False]
+    assert dom["attente"]["apres"]["busy"] == [None, None]
+    assert "Je cherche dans le guide" in dom["attente"]["texte"]
+
+
+def test_peindre_nlaisse_rien_de_la_conversation_dans_le_navigateur(dom: dict[str, Any]) -> None:
+    """AD-15 : le `localStorage` ne porte que le profil et les préférences. Peindre n'écrit rien."""
+    assert dom["stockage"] == {}
+
+
+def test_les_identifiants_du_harnais_dom_sont_ceux_de_la_page() -> None:
+    """Le DOM minimal peint dans des éléments qu'il fabrique : si la page les renommait, il
+    peindrait dans le vide et les tests resteraient verts."""
+    html = (REPO_ROOT / "web" / "index.html").read_text("utf-8")
+    harnais = HARNAIS_UI.read_text("utf-8")
+    tableau = harnais[harnais.index("const ELEMENTS = ["):harnais.index("];")]
+    ids = re.findall(r'id: "([\w-]+)"', tableau)
+    assert len(ids) >= 8, ids
+    for identifiant in ids:
+        assert f'id="{identifiant}"' in html, identifiant
+
+
+def test_le_demarrage_du_site_est_le_seul_a_etre_saute_par_le_harnais() -> None:
+    """Le point de couture est **un** drapeau, posé après l'export et avant le démarrage : le
+    matérialiseur testé est celui que le navigateur exécute, pas une copie."""
+    ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
+    assert ui.count("__UI_SANS_DEMARRAGE") == 1
+    export = ui.index("window.UI = {")
+    garde = ui.index("if (window.__UI_SANS_DEMARRAGE) return;")
+    demarrage = ui.index("  chargerKB();")
+    assert export < garde < demarrage, "la garde n'encadre pas le seul démarrage"
+
+
 # --- AD-15 : ce que le navigateur garde, et ce qu'il ne garde plus --------
 
 def _corps(source: str, entete: str) -> str:
@@ -670,11 +910,21 @@ def test_aucun_innerhtml_ne_sert_a_poser_du_texte() -> None:
     assert "innerHTML" not in materialiser and "textContent" in materialiser
 
 
+# AD-15 amendé (revue Codex 1.7, tour 1) : la règle réservait « contenu non retenu par défaut » à
+# confirmation avant livraison, et la confirmation l'a démentie — la politique d'Anthropic supprime
+# les entrées et sorties de l'API **sous 30 jours**, avec des exceptions au-delà. Une promesse plus
+# généreuse que celle du tiers qui exécute la requête est la « promesse du site contredite en
+# silence » que cet AD prévient.
 MENTION = ("Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur "
-           "du modèle (Anthropic), dont la politique publique, lue le 23/08/2026, indique que ce "
-           "contenu n'est pas conservé par défaut. Aucune conversation n'est enregistrée : ni par "
-           "le serveur, ni dans ce navigateur, qui ne garde que votre profil et vos préférences "
-           "d'affichage.")
+           "du modèle (Anthropic) : sa politique publique, lue le 24/08/2026, prévoit la suppression "
+           "des entrées et des sorties de l'API sous 30 jours, avec des exceptions — obligation "
+           "légale, ou contenu que ses systèmes de sécurité signalent, conservé jusqu'à deux ans. "
+           "Aucune conversation n'est enregistrée : ni par le serveur de ce site, ni dans ce "
+           "navigateur, qui ne garde que votre profil et vos préférences d'affichage.")
+
+LIEN_POLITIQUE = ("https://privacy.claude.com/en/articles/"
+                  "7996866-how-long-do-you-store-my-organization-s-data")
+INTITULE_LIEN = "Politique de conservation d'Anthropic"
 
 
 def _plat(texte: str) -> str:
@@ -687,10 +937,28 @@ def test_la_mention_de_confidentialite_est_unique_et_datee() -> None:
     fournisseur se cite avec la date à laquelle elle a été lue."""
     html = _plat((REPO_ROOT / "web" / "index.html").read_text("utf-8"))
     assert html.count(MENTION) == 2, "la même phrase sous les deux saisies, pas deux variantes"
-    assert html.count("Anthropic") == 2, "aucune autre formulation ne traîne dans la page"
-    assert "23/08/2026" in MENTION
+    # Deux mentions, plus l'intitulé du lien qui les accompagne : rien d'autre ne parle du
+    # fournisseur dans la page, donc aucune seconde formulation de la promesse.
+    attendu = 2 * (MENTION.count("Anthropic") + INTITULE_LIEN.count("Anthropic"))
+    assert html.count("Anthropic") == attendu, "aucune autre formulation ne traîne dans la page"
+    assert "24/08/2026" in MENTION
     readme = _plat((REPO_ROOT / "web" / "README.md").read_text("utf-8"))
     assert MENTION in readme, "le README de la copie dit la même chose, mot pour mot"
+
+
+def test_la_mention_dit_la_duree_reelle_et_donne_le_lien() -> None:
+    """AD-15 amendé. « Non conservé par défaut » promettait à l'utilisateur davantage que ce que le
+    fournisseur s'engage à faire ; et une affirmation sur un tiers se vérifie, elle ne se croit pas.
+    La durée, ses exceptions et le lien sont donc dus — dans les deux saisies et dans le README."""
+    html = _plat((REPO_ROOT / "web" / "index.html").read_text("utf-8"))
+    readme = _plat((REPO_ROOT / "web" / "README.md").read_text("utf-8"))
+    assert "n'est pas conservé par défaut" not in html + readme, (
+        "la phrase démentie par la politique du fournisseur")
+    for morceau in ("sous 30 jours", "avec des exceptions"):
+        assert html.count(morceau) == 2, morceau
+        assert morceau in readme
+    assert html.count(LIEN_POLITIQUE) == 2, "le lien sous les deux saisies"
+    assert LIEN_POLITIQUE in readme
 
 
 def test_la_mention_est_rattachee_aux_deux_saisies() -> None:
