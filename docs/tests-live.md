@@ -269,3 +269,20 @@ La composition de l'affichage est sortie de `ui.js` : `chat.js` rend un **arbre 
 | Mentions de confidentialité | `document.querySelectorAll('.hint.confid')` | deux mentions de **354 caractères chacune**, désormais rigoureusement identiques (avant : 327 et 244, deux formulations), datées (« politique publique, lue le 23/08/2026 »), rattachées par `aria-describedby` à `#chat-input` et `#widget-input` ; `maxlength="1000"` sur les deux saisies |
 | 429, après le correctif | quota à 1/min sur le serveur de contrôle | statut **429**, `Retry-After: 60`, « Trop de questions en peu de temps : réessayez dans 60 secondes. », **0 bouton** |
 | Serveur injoignable | `setApiBase("http://127.0.0.1:1")` | « L'assistant est injoignable : la page n'a pas pu joindre le serveur. » + le bouton, badge « mode indisponible » |
+
+### Contre-vérification indépendante (2026-08-24, après le recadrage du `--ko`)
+
+Relevés refaits de bout en bout sur l'arbre final, sans reprendre les relevés ci-dessus.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **682 passed en 8,75 s** |
+| Cas du front | `node tests/js/chat_cases.mjs` | code de sortie **0**, `stderr` **vide** (0 octet), `ok: true`, **80 relevés** |
+| La mutation démontrée par la revue échoue bien | `sed -i '689s/.*/    var indispo = !!erreur;/' web/app/chat.js` puis la suite | **3 failed, 679 passed** — les trois `test_une_requete_refusee_ne_porte_aucune_action[vue_erreur_400 / _429 / _500]`, et rien d'autre ; fichier restauré, arbre propre |
+| Chemin nominal, question sourcée | Chrome headless (CDP) sur `:8794/guide/`, « Que dois-je faire pour obtenir un certificat de résidence ? » | 200, badge « mode api », **2 segments factuels portant 4 citations** (passage relu, fiche cliquable, lien officiel, « retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée »), un segment de transition sans citation, « Ce que je ne sais pas » à une entrée, pied « partiel — cette réponse a coûté **0,0328 €** » |
+| Corps réellement posté | `Network.requestWillBeSent` sur la même question | `POST http://127.0.0.1:8794/chat`, `{"question":…,"profil":{six champs, `horizon` compris},"historique":[]}` — objet, aucun `contexte`, origine courante |
+| `localStorage` | fin d'échange | `luxguide.chat.v1` réduit au profil, aucun texte de conversation |
+| **Chemin de refus, en vrai** | même serveur, « Quel délai ai-je pour déclarer mon arrivée à la commune ? » | le pipeline a rendu `claims_rejetes` (200) : le front a affiché la phrase **du serveur**, puis « Termes cherchés : déclaration d'arrivée, commune, délai, … — 506 passages parcourus », « Ce que je ne sais pas », état **inconnu**, coût 0,0683 € — **0 bouton** (un refus n'est pas une panne). Les compteurs nuls ne sont pas affichés (`variants_count = 0` ici) |
+| 503, bandeau et bouton | serveur de contrôle `:8795` (clé invalide, `RATE_LIMIT_PER_MINUTE=1`) | bandeau « Assistant indisponible », badge « **mode indisponible** », **un** bouton, aucun résultat local dans le journal avant le clic |
+| 429, message sans repli | question suivante | « Trop de questions en peu de temps : réessayez dans **35** secondes. » (valeur réelle du `Retry-After` restant), **0 bouton** |
+| Le clic, et lui seul | clic sur le bouton du bandeau | réponse locale, badge « **mode local** », pied « recherche simple — aucune vérification : ces passages viennent d'une comparaison de mots-clés » |
