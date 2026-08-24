@@ -7,6 +7,7 @@ sans test est une règle non tenue.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -1007,6 +1008,97 @@ def test_un_cas_range_dans_un_sous_dossier_nest_pas_ignore(tmp_path: Path) -> No
     with pytest.raises(runner.RefusDeTourner) as exc:
         runner.charger_cas(racine)
     assert "archive/" in str(exc.value)
+
+
+def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue Codex 1.10, M1 : un `manifest.json.tmp` fixe est partagé par deux écrivains.
+
+    Deux `--gate` concurrents écrivaient le même fichier temporaire ; le second pouvait déplacer un
+    fichier que le premier avait déjà déplacé (`replace` en échec, `FileNotFoundError`). Le nom est
+    désormais unique et créé dans le répertoire du manifest — le `replace` reste atomique.
+    """
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    data = tmp_path / "data"
+    restes = sorted(p.name for p in data.iterdir() if p.name.startswith("manifest.json."))
+    assert restes == [], restes
+
+    # Le nom n'est pas dérivable : deux écritures successives n'ont pas le même temporaire.
+    vus: list[str] = []
+    vrai = runner.tempfile.mkstemp
+
+    def espion(*a: Any, **kw: Any) -> Any:
+        fd, nom = vrai(*a, **kw)
+        vus.append(nom)
+        return fd, nom
+
+    monkeypatch.setattr(runner.tempfile, "mkstemp", espion)
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    ecritures = [n for n in vus if n.endswith(".tmp")]
+    assert len(ecritures) == 2 and len(set(ecritures)) == 2, ecritures
+    assert all(Path(n).parent == data for n in ecritures), ecritures
+
+
+class ClientLieASaBoucle:
+    """Un client dont la fermeture ne vaut que sur la boucle qui l'a servi — comme le vrai.
+
+    Le client réel ouvre une connexion TLS vers `api.anthropic.com` ; anyio la referme en repassant
+    par le transport asyncio, donc par la boucle qui l'a ouverte. Depuis une autre boucle, ou depuis
+    une boucle close, c'est `RuntimeError: Event loop is closed`. `call_soon` sur la boucle capturée
+    lève exactement cette erreur, sans socket ni réseau.
+    """
+
+    def __init__(self) -> None:
+        self.boucle: Any = None
+        self.fermetures = 0
+
+    def utiliser(self) -> None:
+        self.boucle = asyncio.get_running_loop()
+
+    async def aclose(self) -> None:
+        self.fermetures += 1
+        if self.boucle is not None:
+            self.boucle.call_soon(lambda: None)
+
+
+def test_le_client_se_ferme_sur_la_boucle_qui_la_servi(tmp_path: Path,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le run réel sortait en code 3, sans gate, après avoir payé les appels.
+
+    `main()` exécutait les cas dans un premier `asyncio.run` — qui ferme sa boucle en sortant — puis
+    fermait le client depuis l'`ExitStack`, dans un **second**. Le pool TLS appartenant à la première,
+    `httpx`/anyio levait `Event loop is closed` ; le garde-fou « incident » de `main()` l'attrapait,
+    rendait 3 et n'écrivait aucun gate. Les doubles des autres tests n'ont pas de pool : ils ne
+    pouvaient pas le voir.
+    """
+    client = ClientLieASaBoucle()
+
+    class PipelineQuiUtiliseLeClient(DoublePipeline):
+        async def __call__(self, *args: Any, **kw: Any) -> Any:
+            kw["client"].utiliser()
+            return await super().__call__(*args, **kw)
+
+    _corpus_, index = _corpus()
+    reponse = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    monkeypatch.setattr(runner, "LlmClient", lambda *a, **k: client)
+    _COURANT["guide"] = PipelineQuiUtiliseLeClient([reponse])
+    _COURANT["sinistre"] = DoublePipeline([])
+
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+
+    assert code == 0, "le client a été fermé sur une autre boucle que celle qui l'a servi"
+    assert client.fermetures == 1
+    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest[GUIDE]["gate"] is not None and manifest[GUIDE]["gate"]["evals_ok"] is True
 
 
 def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,

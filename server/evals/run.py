@@ -559,10 +559,18 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
                                  f"({exc.errors()[0].get('msg', '')})") from exc
     entree = ManifestEntry.model_validate(brut[doc_id]).model_copy(update={"gate": gate})
     brut[doc_id] = entree.model_dump(mode="json")
-    tmp = manifest_path.with_name(manifest_path.name + ".tmp")
+    # Nom temporaire **unique**, dans le répertoire du manifest (revue Codex 1.10, M1) : un
+    # `manifest.json.tmp` fixe était partagé par deux `--gate` concurrents, qui se marchaient dessus
+    # jusqu'à faire échouer un `replace` sur un fichier déjà déplacé. Le même répertoire garde le
+    # `replace` atomique (même système de fichiers). Ce qui reste ouvert — deux écrivains qui relisent
+    # le même manifest et perdent l'un des deux gates — demande un verrou sur toute la séquence :
+    # entrée différée (`target_story: 4.1`), avec les deux écrivains de `data/` à réunir.
+    fd, nom = tempfile.mkstemp(prefix=manifest_path.name + ".", suffix=".tmp",
+                               dir=str(manifest_path.parent))
+    tmp = Path(nom)
     try:
-        tmp.write_text(json.dumps(dict(sorted(brut.items())), indent=2, ensure_ascii=False) + "\n",
-                       encoding="utf-8")
+        with os.fdopen(fd, "w", encoding="utf-8") as sortie:
+            sortie.write(json.dumps(dict(sorted(brut.items())), indent=2, ensure_ascii=False) + "\n")
         tmp.replace(manifest_path)
     except OSError as exc:
         # Disque plein, `data/` en lecture seule, conteneur sans droit d'écriture : un refus dit,
@@ -657,6 +665,35 @@ async def _fermer(client: Any) -> None:
         await fermer()
 
 
+async def _executer_puis_fermer(cas: list[Cas], ctx: Contexte, *, gate: str | None,
+                                max_cost_eur: float, sortie: Any) -> list[Resultat]:
+    """Le refus, l'exécution **et** la fermeture du client, dans **une seule** boucle asyncio.
+
+    Pourquoi une seule, et pourquoi c'est un défaut de production et pas une élégance : le pool de
+    connexions du client est lié à la boucle qui l'a ouvert, et la connexion TLS d'`api.anthropic.com`
+    l'est jusqu'à sa fermeture (anyio ferme un `TLSStream` en repassant par le transport). Le fermer
+    depuis un **second** `asyncio.run` — ce que faisait `pile.callback(lambda: asyncio.run(...))`, la
+    pile se déroulant après le premier — le fait tourner sur une boucle neuve alors que ses sockets
+    appartiennent à une boucle close : `RuntimeError: Event loop is closed`, attrapé par le garde-fou
+    « incident » de `main()`, code 3 et **aucun gate écrit** — après avoir payé tous les appels.
+    Mesuré : un run `--gate` rendait `bonne_reponse` puis sortait en 3, manifest intact.
+
+    Aucun test ne le voyait : les doubles n'ont pas de pool, et une boucle close ne gêne personne
+    quand `aclose()` ne fait qu'ajouter à une liste. `test_le_client_se_ferme_sur_la_boucle_qui_la_
+    servi` referme cette porte avec un double lié à sa boucle, comme le vrai client l'est.
+
+    Le refus « document non servi » est ici pour la même raison : il doit fermer le client qu'il n'a
+    pas utilisé, sans jamais ouvrir une seconde boucle pour cela.
+    """
+    try:
+        if gate and gate not in ctx.index.corpus.documents:
+            raison = ctx.index.corpus.quarantine.get(gate, "absent du corpus")
+            raise RefusDeTourner(f"--gate {gate} : document non servi ({raison})")
+        return await executer(cas, ctx, max_cost_eur=max_cost_eur, sortie=sortie)
+    finally:
+        await _fermer(ctx.client)
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m server.evals.run",
@@ -726,16 +763,13 @@ def main(argv: list[str] | None = None) -> int:
         # 4. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
             ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile)
-            # Le client (donc un pool httpx) est construit par `construire_contexte`. Sa fermeture
-            # est confiée à la pile, et non à un `finally` autour de l'exécution : les deux refus qui
-            # suivent sortent **avant** toute exécution, et un `--gate` sur un document non servi
-            # laissait alors le pool ouvert au moment de quitter. La pile couvre les trois chemins —
-            # refus, incident, run vert — d'une seule ligne, comme le `lifespan` de l'API le fait.
-            pile.callback(lambda: asyncio.run(_fermer(ctx.client)))
-            if args.gate and args.gate not in ctx.index.corpus.documents:
-                raison = ctx.index.corpus.quarantine.get(args.gate, "absent du corpus")
-                raise RefusDeTourner(f"--gate {args.gate} : document non servi ({raison})")
-            resultats = asyncio.run(executer(cas, ctx, max_cost_eur=max_cost, sortie=sortie))
+            # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
+            # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
+            # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
+            # lève `Event loop is closed` et fait sortir en code 3 un run par ailleurs vert, sans
+            # écrire le gate. Voir `_executer_puis_fermer`.
+            resultats = asyncio.run(_executer_puis_fermer(
+                cas, ctx, gate=args.gate, max_cost_eur=max_cost, sortie=sortie))
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
         return 2
