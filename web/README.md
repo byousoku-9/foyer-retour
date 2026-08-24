@@ -16,9 +16,11 @@ carte — sauf de l'onglet Assistant, qui interroge désormais le serveur qui se
   cliquer. Une requête refusée (question trop longue, quota atteint) affiche un message, sans bouton — une
   recherche de mots-clés n'est pas une réponse vérifiée.
 - **Il ne conserve aucune conversation.** La mention affichée sous la saisie — la même dans l'onglet, dans le
-  panneau flottant et ici, parce que trois formulations d'une même promesse font trois promesses — dit :
+  panneau flottant et ici, parce que trois formulations d'une même promesse font trois promesses — dit ce que
+  la politique du fournisseur dit, avec le lien pour la relire (elle donne 30 jours, pas « rien ») :
 
-  > Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic), dont la politique publique, lue le 23/08/2026, indique que ce contenu n'est pas conservé par défaut. Aucune conversation n'est enregistrée : ni par le serveur, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
+  > Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic) : sa politique publique, lue le 24/08/2026, prévoit la suppression des entrées et des sorties de l'API sous 30 jours, avec des exceptions — obligation légale, ou contenu que ses systèmes de sécurité signalent, conservé jusqu'à deux ans. Aucune conversation n'est enregistrée : ni par le serveur de ce site, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
+  > [Politique de conservation d'Anthropic](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data)
 
 Le README d'origine suit.
 
