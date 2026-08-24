@@ -1,13 +1,24 @@
 // Moteur du chatbot.
 // Deux modes :
-//   - local  : recherche dans la base de connaissances, aucune dependance reseau.
-//   - api    : appel au serveur local (server/server.js), qui relaie vers Azure OpenAI.
-// Le mode api est detecte automatiquement ; a defaut, le mode local prend le relais.
+//   - api    : le serveur qui sert cette page repond, chaque phrase adossee a un passage verifie.
+//   - local  : recherche lexicale dans la base de connaissances, sans reseau.
+// foyer-retour (story 1.7, AD-11) : le mode api est le seul mode automatique. Le mode local n'est
+// JAMAIS un repli silencieux — il ne tourne que sur clic explicite (rechercheSimple), et seulement
+// quand le serveur est indisponible (503) ou injoignable (panne reseau). Un 4xx affiche un message,
+// sans bouton : une recherche de mots-cles n'est pas une reponse verifiee, et la faire passer pour
+// telle est exactement ce que ce projet promet de ne pas faire.
 
 window.CHAT = (function () {
 
-  var API_BASE = "http://localhost:8787";
+  // AD-12 : une seule origine sert la page, l'API et les fichiers du site. Pas de CORS a demander,
+  // pas d'hote a deviner — l'API est la ou la page est.
+  var API_BASE = window.location.origin;
   var apiDisponible = null; // null = pas encore teste
+
+  // Bornes du contrat d'AD-11, cote client : elles evitent un 400 previsible.
+  // `historique_max_turns` = 6 et `Turn.texte` <= 2000 (server/app/config.py, domain/question.py).
+  var HISTORIQUE_MAX_TOURS = 6;
+  var TOUR_MAX_CARACTERES = 2000;
 
   // ---------- Profil progressif ----------
 
@@ -248,32 +259,225 @@ window.CHAT = (function () {
     return r;
   }
 
+  // ---------- Recherche simple, sur clic seulement ----------
+
+  // AD-11 / FR11 : le moteur lexical ci-dessus ne repond plus jamais tout seul. Il ne tourne que
+  // par cette porte, ouverte par un bouton que l'utilisateur clique apres avoir lu « assistant
+  // indisponible ». Le resultat porte `via: "local"` pour que le badge le dise.
+  function rechercheSimple(question, profil) {
+    var r = reponseLocale(question, profil || {});
+    r.via = "local";
+    return r;
+  }
+
+  // ---------- Ce que l'UI peindra : des fonctions pures ----------
+
+  // L'historique du site est `{role, content}` ; le contrat d'AD-11 attend `{role, texte}`.
+  // Trois regles, dans cet ordre :
+  //   1. le dernier tour utilisateur est exclu s'il est identique a `question` — le site pousse la
+  //      question dans l'historique avant l'appel, et l'envoyer deux fois la ferait resoudre contre
+  //      elle-meme ;
+  //   2. on garde les plus recents (`historique_max_turns` = 6) — au-dela, le serveur rend 400,
+  //      jamais une troncature ;
+  //   3. un tour de plus de 2 000 caracteres est **ecarte**, jamais coupe : le couper changerait ce
+  //      qui a ete dit. L'ecart se fait apres l'etape 2, donc il ne peut pas faire remonter un tour
+  //      plus ancien a la place.
+  function historiquePourApi(historique, question) {
+    var tours = (historique || []).map(function (t) {
+      return {
+        role: t && t.role === "assistant" ? "assistant" : "user",
+        texte: String((t && (t.texte !== undefined ? t.texte : t.content)) || "")
+      };
+    }).filter(function (t) { return t.texte.trim() !== ""; });
+
+    var q = String(question || "").trim();
+    if (tours.length && tours[tours.length - 1].role === "user" &&
+        tours[tours.length - 1].texte.trim() === q) {
+      tours = tours.slice(0, -1);
+    }
+    return tours.slice(-HISTORIQUE_MAX_TOURS).filter(function (t) {
+      return t.texte.length <= TOUR_MAX_CARACTERES;
+    });
+  }
+
+  // Appariement citation ↔ phrase (AD-11, Design Notes de la story 1.7).
+  //
+  // `sources[]` est une liste **plate**, sans `claim_id`. Mais le serveur la construit par
+  // l'enumeration `for claim in answer.claims for quote in claim.quotes` (api/presenter.py), et
+  // publie `answer` en entier. Le front refait donc la **meme** enumeration et lit `sources[]` dans
+  // l'ordre, en verifiant a chaque pas que `sources[i].block_id` est celui de la quote attendue.
+  //
+  // Au moindre desaccord — un `block_id` qui ne concorde pas, des longueurs differentes, un segment
+  // qui cite une claim absente — l'appariement est **abandonne** (`null`) et l'UI peint la liste
+  // plate sous la reponse. Une degradation visible vaut mieux qu'une citation attribuee a la
+  // mauvaise phrase ; un test serveur verrouille l'ordre pour que la casse soit bruyante.
+  function citationsParSegment(answer, sources) {
+    var a = answer || {};
+    var claims = a.claims || [];
+    var segments = a.segments || [];
+    var plates = sources || [];
+
+    var parClaim = {};
+    var rang = 0;
+    for (var c = 0; c < claims.length; c++) {
+      var claim = claims[c] || {};
+      var quotes = claim.quotes || [];
+      var liste = [];
+      for (var q = 0; q < quotes.length; q++) {
+        var src = plates[rang];
+        if (!src || src.block_id !== quotes[q].block_id) return null;
+        liste.push({ source: src, status: claim.status || null, claim_id: claim.claim_id, rang: rang });
+        rang++;
+      }
+      parClaim[claim.claim_id] = liste;
+    }
+    if (rang !== plates.length) return null;
+
+    var out = [];
+    for (var s = 0; s < segments.length; s++) {
+      var ids = (segments[s] || {}).claim_ids || [];
+      var vus = {}, citations = [];
+      for (var i = 0; i < ids.length; i++) {
+        var entrees = parClaim[ids[i]];
+        if (!entrees) return null;  // segment citant une claim absente de claims[] : on n'invente pas
+        for (var j = 0; j < entrees.length; j++) {
+          if (vus[entrees[j].rang]) continue;  // jamais deux fois la meme citation sous un segment
+          vus[entrees[j].rang] = 1;
+          citations.push(entrees[j]);
+        }
+      }
+      out.push(citations);
+    }
+    return out;
+  }
+
+  // AD-4 : `edition` s'affiche **avec sa reserve**, jamais comme un statut vert. `applicable` reste
+  // null en guide (il est reserve au sinistre) et n'est donc pas affiche.
+  function statutTexte(status) {
+    if (!status) return "";
+    var p = [];
+    if (status.retrouvee === true) p.push("retrouvée");
+    if (status.pertinente === true) p.push("pertinente");
+    if (status.edition) p.push("édition " + status.edition + " — actualité non vérifiée");
+    return p.join(" · ");
+  }
+
+  function pluriel(n, mot) { return n + " " + mot + (n > 1 ? "s" : ""); }
+
+  // AD-4 : la preuve chiffree d'une absence — termes **canoniques**, nombre de variantes, passages
+  // parcourus. Jamais la liste des variantes ni des declencheurs : le contrat ne les transporte pas.
+  function preuveAbsence(reason) {
+    if (!reason) return "";
+    var termes = (reason.terms_searched || []).filter(function (t) { return String(t || "").trim(); });
+    var variantes = reason.variants_count || 0;
+    var blocs = reason.blocks_scanned || 0;
+    var chiffres = [];
+    if (variantes) chiffres.push(pluriel(variantes, "variante") + (variantes > 1 ? " essayées" : " essayée"));
+    if (blocs) chiffres.push(pluriel(blocs, "passage") + (blocs > 1 ? " parcourus" : " parcouru"));
+    if (!termes.length && !chiffres.length) return "";
+    if (!termes.length) return chiffres.join(", ");
+    var debut = "Termes cherchés : " + termes.join(", ");
+    return chiffres.length ? debut + " — " + chiffres.join(", ") : debut;
+  }
+
+  // NFR4 : le cout reel de la reponse, en pied de reponse. Il vient de l'usage rendu par l'API
+  // (`trace.total_cost_eur`), jamais d'une estimation du front.
+  function coutTexte(trace) {
+    var c = trace && typeof trace.total_cost_eur === "number" ? trace.total_cost_eur : null;
+    if (c === null || isNaN(c)) return "";
+    return "cette réponse a coûté " + c.toFixed(4).replace(".", ",") + " €";
+  }
+
+  // FR5 : les trois etats, lus sur les deux booleens que *verifier* calcule (AD-4).
+  function etatReponse(answer) {
+    var a = answer || {};
+    if (!a.found) return { cle: "inconnu", texte: "inconnu" };
+    if (!a.complete) return { cle: "partiel", texte: "partiel" };
+    return { cle: "sur", texte: "sûr" };
+  }
+
+  // FR11 : un message **lisible**, compose a partir du `code` d'AD-16. Le `message` du serveur est
+  // produit par pydantic, en anglais, avec le chemin du champ (`body.historique: List should have at
+  // most 6 items`) : utile a un developpeur, pas a un arrivant. Il n'est jamais affiche.
+  // Un code inconnu ne doit pas produire une page muette : il a sa phrase, lui aussi.
+  function messageErreur(erreur) {
+    var e = erreur || {};
+    if (e.code === "reseau") {
+      return "L'assistant est injoignable : la page n'a pas pu joindre le serveur.";
+    }
+    if (e.code === "rate_limited") {
+      var s = e.retry_after;
+      return typeof s === "number" && s > 0
+        ? "Trop de questions en peu de temps : réessayez dans " + pluriel(s, "seconde") + "."
+        : "Trop de questions en peu de temps : réessayez dans un instant.";
+    }
+    if (e.code === "invalid_request") {
+      return "Le serveur a refusé la question : elle sort de ce que le contrat accepte " +
+        "(question trop longue, ou conversation trop longue). Reformulez plus court.";
+    }
+    if (e.code === "input_too_long") {
+      return "La question envoyée est trop volumineuse pour le serveur. Raccourcissez-la.";
+    }
+    if (e.kind === "indisponible") {
+      return "L'assistant est indisponible pour le moment.";
+    }
+    return "Le serveur n'a pas pu répondre à cette question. Réessayez plus tard.";
+  }
+
   // ---------- Mode API ----------
 
-  function contexteRag(question, profil) {
-    var hits = rechercher(question, 4);
-    if (!hits.length) hits = fichesPourProfil(profil).slice(0, 3).map(function (f) { return { fiche: f }; });
-    return hits.map(function (h) {
-      var f = h.fiche;
-      return "### " + f.titre + " (" + f.cat + ")\n" + f.resume + "\n" +
-        (f.corps || []).map(function (p) {
-          return typeof p === "string" ? p : (p && p.h) || "";
-        }).join("\n") +
-        (f.aRetenir ? "\nA retenir : " + f.aRetenir.join(" ") : "") +
-        (f.sources ? "\nSources : " + f.sources.map(function (s) { return s.t + " " + s.u; }).join(" | ") : "");
-    }).join("\n\n");
+  // L'erreur typee que `repondre()` propage. `kind` decide de ce que l'UI propose :
+  //   - "indisponible" (503 ou panne reseau) : bandeau + bouton « consulter le guide en recherche
+  //     simple » — la **seule** porte vers le moteur lexical, et elle demande un clic ;
+  //   - "requete" (4xx/429/500, corps illisible) : message seul, aucun bouton (AD-16 : « repli local
+  //     sur une erreur 4xx » est nommement ce qu'il empeche).
+  function erreurChat(d) {
+    var e = new Error(d.code || d.kind);
+    e.nom = "ErreurChat";
+    e.kind = d.kind;
+    e.code = d.code || "";
+    e.statut = d.statut || 0;
+    e.retry_after = (typeof d.retry_after === "number" && !isNaN(d.retry_after)) ? d.retry_after : null;
+    e.request_id = d.request_id || "";
+    return e;
+  }
+
+  function erreurHttp(statut, entetes, corps) {
+    var err = (corps && corps.error) || {};
+    var retry = parseInt(entetes && entetes.get ? entetes.get("Retry-After") : null, 10);
+    return erreurChat({
+      // Seul un 503 ouvre la porte du mode local (AD-11/AD-16). Un 500 n'est pas une
+      // indisponibilite passagere que la recherche simple contournerait.
+      kind: statut === 503 ? "indisponible" : "requete",
+      code: typeof err.code === "string" ? err.code : "",
+      statut: statut,
+      retry_after: isFinite(retry) ? retry : null,
+      request_id: typeof err.request_id === "string" ? err.request_id : ""
+    });
+  }
+
+  // Lecture **stricte** du contrat d'AD-11. Plus jamais `j.reponse` (le serveur rend `texte`), et
+  // les sources affichees sont **celles du serveur** : `rechercher()` n'intervient plus ici.
+  function lireReponse(j) {
+    var o = j || {};
+    return {
+      texte: typeof o.texte === "string" ? o.texte : "",
+      segments: Array.isArray(o.segments) ? o.segments : [],
+      sources: Array.isArray(o.sources) ? o.sources : [],
+      fiches: Array.isArray(o.fiches) ? o.fiches : [],
+      unknown: Array.isArray(o.unknown) ? o.unknown : [],
+      comparateur: o.comparateur === true,
+      answer: o.answer || null,
+      via: typeof o.via === "string" ? o.via : "api/v1",
+      trace: o.trace || null
+    };
   }
 
   function testerApi() {
     if (apiDisponible !== null) return Promise.resolve(apiDisponible);
-    // Le relais tourne en local : hors localhost (site publie en statique),
-    // inutile d'essayer, on reste en mode local sans bruit dans la console.
-    var h = window.location.hostname;
-    if (API_BASE.indexOf("localhost") !== -1 &&
-        h !== "localhost" && h !== "127.0.0.1" && h !== "") {
-      apiDisponible = false;
-      return Promise.resolve(false);
-    }
+    // La sonde vaut sur **toute** origine : le serveur qui sert cette page sert aussi l'API
+    // (AD-12). L'ancienne garde « hors localhost, inutile d'essayer » eteignait le mode api
+    // partout ailleurs — c'est-a-dire en production.
     return fetch(API_BASE + "/sante", { method: "GET" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) { apiDisponible = !!(j && j.ok); return apiDisponible; })
@@ -281,44 +485,47 @@ window.CHAT = (function () {
   }
 
   function reponseApi(question, profil, historique) {
-    var ctx = contexteRag(question, profil);
     return fetch(API_BASE + "/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         question: question,
-        profil: decrireProfil(profil),
-        contexte: ctx,
-        historique: (historique || []).slice(-6)
+        // AD-11 : le profil part **brut**. `decrireProfil()` ne sert plus qu'a l'affichage — la
+        // phrase qu'il compose n'est pas un objet, et le contrat en attend un.
+        profil: profil || {},
+        historique: historiquePourApi(historique, question)
+        // Plus de `contexte` : il recopiait le corps de quatre fiches (couramment > 20 ko contre un
+        // `request_max_bytes` de 65 536) que le serveur, `extra="ignore"`, ne lit jamais. Du poids
+        // et un risque de 413 pour zero effet.
       })
     }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    }).then(function (j) {
-      var hits = rechercher(question, 3);
-      return {
-        texte: j.reponse,
-        sources: hits.length && hits[0].fiche.sources ? hits[0].fiche.sources : [],
-        fiches: hits.map(function (h) { return h.fiche.id; }),
-        via: "api"
-      };
+      if (!r.ok) {
+        return r.json().then(function (j) { return j; }, function () { return null; })
+          .then(function (j) { throw erreurHttp(r.status, r.headers, j); });
+      }
+      return r.json().then(lireReponse, function () {
+        // 200 dont le corps n'est pas lisible : le serveur est casse, mais ce n'est pas une
+        // indisponibilite au sens d'AD-11 — pas de bouton de repli.
+        throw erreurChat({ kind: "requete", code: "reponse_illisible", statut: r.status });
+      });
+    }, function () {
+      throw erreurChat({ kind: "indisponible", code: "reseau", statut: 0 });
     });
   }
 
   // ---------- Point d'entree unique ----------
 
+  // Aucun repli, nulle part. Une erreur remonte **typee** a l'UI, qui decide quoi peindre — et,
+  // pour une indisponibilite seulement, propose un bouton. Meme quand la sonde a deja dit
+  // « indisponible » : c'est plus lent d'un clic, et c'est la seule version qui ne fait pas passer
+  // une recherche de mots-cles pour une reponse verifiee.
   function repondre(question, profil, historique) {
-    return testerApi().then(function (ok) {
-      if (!ok) {
-        var r = reponseLocale(question, profil);
-        r.via = "local";
-        return r;
-      }
-      return reponseApi(question, profil, historique).catch(function () {
-        var r = reponseLocale(question, profil);
-        r.via = "local (api indisponible)";
-        return r;
-      });
+    return reponseApi(question, profil, historique).then(function (r) {
+      apiDisponible = true;
+      return r;
+    }, function (e) {
+      if (e && e.kind === "indisponible") apiDisponible = false;
+      throw e;
     });
   }
 
@@ -336,7 +543,17 @@ window.CHAT = (function () {
     rechercher: rechercher,
     repondre: repondre,
     reponseLocale: reponseLocale,
+    rechercheSimple: rechercheSimple,
     testerApi: testerApi,
-    setApiBase: function (u) { API_BASE = u; apiDisponible = null; }
+    // Composition de ce que l'UI peint : pur, sans DOM, donc testable sans navigateur.
+    historiquePourApi: historiquePourApi,
+    citationsParSegment: citationsParSegment,
+    statutTexte: statutTexte,
+    preuveAbsence: preuveAbsence,
+    coutTexte: coutTexte,
+    etatReponse: etatReponse,
+    messageErreur: messageErreur,
+    setApiBase: function (u) { API_BASE = u; apiDisponible = null; },
+    apiBase: function () { return API_BASE; }
   };
 })();
