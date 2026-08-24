@@ -410,20 +410,52 @@ trois niveaux — `test_verdict.py` (table pure, 3 cas), `test_verifier.py` (l'�
 `test_pipeline_sinistre.py` (bout en bout, 2 cas) — **et** `test_sinistre_live.py`, qui affiche alors
 littéralement `couvert` contre `sous_conditions` attendu.
 
-### Le run de référence (le quatrième, après correction)
+### Le run de référence (celui que la fixture rejoue aujourd'hui)
 
 | Vérification | Commande | Résultat |
 |---|---|---|
-| Rejeu sans réseau, suite complète | `ANTHROPIC_API_KEY= uv run pytest -q` | **869 passed en 12,9 s** (94 cas ajoutés par la story), zéro réseau. **Aucune fixture live du guide n'a été ré-enregistrée** — `comprendre.md`, `rediger.md`, `verifier.md` et `commun.md` sont inchangés à l'octet près |
-| **Cas bougie en live** | `uv run pytest -q tests/test_sinistre_live.py` (clé dans `.env`) | **1 test vert en 26,1 s**, 3 appels réels — *comprendre* `micro` 2 587 in / 221 out (**0,0034 €**), *rédiger* `reason` 3 228 in **+ 6 733 lus dans le cache 1 h** / 1 852 out (**0,0363 €**), *vérifier* `micro` 1 116 in **+ 4 910 écrits dans le cache** / 176 out (**0,0075 €**). **0,0472 €** pour la requête entière ; à cache **entièrement froid**, le même enchaînement vaut **0,0818 €** (préfixe de *rédiger* facturé 2× au lieu de 0,1×). Sous le plafond de 0,10 € dans les deux cas |
-| **Verdict rendu** | même run | `sous_conditions` — « La garantie citée ne joue que si une option ou les conditions particulières la prévoient (**au regard des conditions générales seules**) ». Ici c'est la règle (2bis) qui tranche la première, le modèle ayant lui-même posé `option_requise=true` sur la garantie. Le point de la correction est ailleurs : **quoi que rende le modèle**, la règle (2) ferme `couvert`. Le test le prouve dans le même run, en rejouant la table sur les mêmes clauses affichées avec le jeu de champs **le plus favorable possible** (`fait_requis_present=true`, aucune option, aucune CP — celui du run 4) : `sous_conditions`, « les conditions particulières et les options souscrites ne sont pas au dossier » |
-| **Clauses citées** | même run | `axa-lu-optihome-2017:p34:12` — la garantie de l'article 3.1.1.1.6, « les dégâts occasionnés au mobilier assuré […] par un événement soudain, résultant de l'action subite de la chaleur » —, l'un des trois blocs relus à la main en 1.2, `applicable="humain"` ; plus `p34:4`, le paragraphe qui subordonne les conditions spéciales incendie aux conditions particulières (`applicable=None` : ce n'est pas une clause décisionnelle typée, c'est son contexte) |
+| Rejeu sans réseau, suite complète | `ANTHROPIC_API_KEY= uv run pytest -q` | **869 passed en 16,2 s** (94 cas ajoutés par la story), zéro réseau. **Aucune fixture live du guide n'a été ré-enregistrée** — `comprendre.md`, `rediger.md`, `verifier.md` et `commun.md` sont inchangés à l'octet près |
+| **Cas bougie en live** | `uv run pytest -q tests/test_sinistre_live.py` (clé dans `.env`) | **1 test vert en 18,3 s**, 3 appels réels — *comprendre* `micro` 2 587 in / 221 out (**0,0034 €**), *rédiger* `reason` 3 228 in **+ 6 733 lus dans le cache 1 h** / 1 244 out (**0,0279 €**), *vérifier* `micro` 1 078 in **+ 4 910 lus dans le cache** / 176 out (**0,0023 €**). **0,0336 €** pour la requête entière, les deux préfixes déjà chauds ; à cache **entièrement froid**, le même enchaînement se mesure entre **0,077 €** et **0,082 €** selon la longueur de l'ébauche (préfixes facturés 2× au lieu de 0,1×). Sous le plafond de 0,10 € dans les deux cas — mais la marge à froid est mince, voir l'échec du run 6 plus bas |
+| **Verdict rendu** | même run | `sous_conditions` — « La garantie citée ne joue que si une option ou les conditions particulières la prévoient (**au regard des conditions générales seules**) ». Ici c'est la règle (2bis) qui tranche la première, le modèle ayant posé `cp_requise` sur la garantie (`applicable="humain"`). Le point de la correction est ailleurs : **quoi que rende le modèle**, la règle (2) ferme `couvert`. Le test le prouve dans le même run, en rejouant la table sur les mêmes clauses affichées avec le jeu de champs **le plus favorable possible** (`fait_requis_present=true`, aucune option, aucune CP — celui du run 4) : `sous_conditions`, « les conditions particulières et les options souscrites ne sont pas au dossier » |
+| **Clauses citées** | même run | `axa-lu-optihome-2017:p34:12` — la garantie de l'article 3.1.1.1.6, « les dégâts occasionnés au mobilier assuré […] par un événement soudain, résultant de l'action subite de la chaleur » —, l'un des trois blocs relus à la main en 1.2, `applicable="humain"` ; plus `p34:4`, le paragraphe qui subordonne les conditions spéciales incendie aux conditions particulières (`applicable=None` : ce n'est pas une clause décisionnelle typée, c'est son contexte). Les définitions `p9:2` et `p11:12` ne sont **pas** ramenées, voir la limite de rappel plus bas |
 | **Exclusion de la page 46 écartée** | même run | `p46:1` est **retrouvée** par la recherche (4ᵉ bloc ouvert, juste derrière la garantie : le départage `kinds_prioritaires` fonctionne) mais **aucune claim affichée ne la cite** — la rédaction en a fait une limite, que *vérifier* renvoie vers `unknown[]` et jamais vers le texte affiché (AD-3). Le verdict ne s'appuie sur aucune exclusion. Quand elle **est** affichée, le test exige `applicable="non"` : `p46:1` est typée `manual` et porte une portée explicite (3.1.8.3-6), les deux marches qui mèneraient sinon à `humain` |
 | **Un seul appel `micro` dans *vérifier*** | même run | `len(step.calls) == 1` : pertinence, phrases soutenues, couverture des facettes **et** champs typés d'applicabilité sortent du même appel (AD-9 amendé, reprise différée de 1.5 honorée) |
-| **Paquet manquant et questions à poser** | même run | `missing` : les quatre pièces manquantes, `faits: []` (le modèle n'a nommé aucun fait sur ce run). `ask_client` en compte **trois**, une par pièce — options et extensions (« Une clause citée ne joue qu'à cette condition. », précision ajoutée parce que le modèle a posé `option_requise`), conditions particulières, date d'effet et avenant. Toutes composées par le **code** ; seuls les libellés de faits viendraient du modèle |
+| **Paquet manquant et questions à poser** | même run | `missing` : les quatre pièces manquantes, `faits: []` (le modèle n'a nommé aucun fait sur ce run). `ask_client` en compte **trois**, une par pièce — options et extensions, conditions particulières, date d'effet et avenant. Toutes composées par le **code** ; seuls les libellés de faits viendraient du modèle |
 | **Aucun calcul confié au modèle** | schéma de sortie | `SortieVerifierSinistre` n'expose que `verdicts`, `facettes`, `segments`, `applicabilite` ; `ChampsApplicabiliteRendus` n'a que `claim_id`, `fait_requis_present`, `option_requise`, `cp_requise`, `fait_manquant`. Ni `applicable`, ni `verdict`, ni `couvert` : la place n'existe pas |
-| **Le préfixe de *vérifier* devient cacheable** | usage du run | Non anticipé : en mode sinistre le préfixe est `commun.md` + `verifier.md` + `verifier_sinistre.md` ≈ 4 910 tokens, donc **au-dessus** de la taille minimale cacheable de Haiku 4.5 (2 048) que la story 1.4 avait mesurée hors d'atteinte pour *comprendre*. Le fournisseur l'écrit (TTL 5 min pour `micro`) et une seconde requête sinistre dans la fenêtre le relit à 0,1× — 0,0025 € au lieu de 0,0075 € |
-| Départage de recherche | trace du run | 21 blocs ouverts, la garantie `p34:12` en **tête** ; définitions et paragraphes voisins toujours présents — `kinds_prioritaires` **ordonne**, il ne filtre pas (D7) |
+| **Le préfixe de *vérifier* devient cacheable** | usage du run | Non anticipé : en mode sinistre le préfixe est `commun.md` + `verifier.md` + `verifier_sinistre.md` ≈ 4 910 tokens, donc **au-dessus** de la taille minimale cacheable de Haiku 4.5 (2 048) que la story 1.4 avait mesurée hors d'atteinte pour *comprendre*. Le fournisseur l'écrit (TTL 5 min pour `micro`) et une seconde requête sinistre dans la fenêtre le relit à 0,1× — **mesuré sur ce run : 0,0023 € au lieu de 0,0075 €** |
+| Départage de recherche | trace du run | 21 blocs ouverts, la garantie `p34:12` en **tête** ; définitions et paragraphes voisins toujours présents — `kinds_prioritaires` **ordonne**, il ne filtre pas, mais il change qui survit à `limit` (D7) |
+
+### Quatre runs de plus, après le correctif — et un échec intermittent qu'il faut dire
+
+La table ci-dessus s'arrête au correctif. L'agent de build a ensuite relancé le cas **quatre fois de
+plus** contre l'API, pour vérifier que la propriété tient sur des échantillons qu'il n'avait pas
+choisis.
+
+| # | Résultat | Ce qu'il a montré |
+|---|---|---|
+| 5 | `sous_conditions`, 0,0388 € (cache chaud) | La règle (2) tient : le modèle avait remis `fait_requis_present=true` sans option ni CP — le jeu de champs même qui avait produit `couvert` au run 4 — et le verdict reste `sous_conditions` |
+| 6 | **échec** `BudgetExceeded` (`server/app/llm/client.py:252`) | Voir ci-dessous |
+| 7-9 | `sous_conditions`, 19 à 21 s | Trois passages consécutifs, cache chaud |
+
+**L'échec du run 6, tel quel.** Le majorant `estimate_cost` a refusé un appel avant de l'envoyer :
+plafond de 0,10 € par requête (`max_cost_eur_per_request`, `[HYPOTHÈSE]` du spine) atteint sur une
+requête qui cumulait **cache froid** et **relance d'AD-3**. Le coût *réel* d'une requête sinistre se
+mesure entre 0,039 € et 0,082 € ; c'est le **majorant** qui déborde, pas la dépense. Trois runs
+suivants sont passés.
+
+Ce n'est pas un défaut introduit par la story 1.8 : c'est la pessimisme connu du majorant (déjà
+différé vers 4.2 — « le majorant du premier appel de *rédiger* consomme 0,080 € des 0,10 € »), qui
+atteint le sinistre parce que sa chaîne peut relancer. La conséquence est réelle et doit être lue
+comme telle : **une requête sinistre à cache froid qui déclenche la relance peut ressortir en 503
+`budget_exceeded`** au lieu de son verdict. Le seuil n'a **pas** été relevé sur une seule observation
+— un plafond de coût qu'on desserre parce qu'un test l'a heurté ne protège plus rien. Il sera
+calibré par les questions-témoins (4.2), qui mesureront la distribution au lieu d'un échantillon.
+
+**Un second constat du run 6, corrigé lui.** Ce run a emprunté la relance d'AD-3, et l'assertion de
+forme de chaîne du test live (`[s.name for s in trace.steps][:5]`) supposait qu'elle ne se produise
+jamais : elle rendait rouge un run parfaitement conforme. Le test admet désormais, au plus, une paire
+`rediger`/`verifier` insérée entre la première vérification et *restituer* — la relance est un chemin
+normal, pas un incident.
 
 ### Deux limites connues, non corrigées ici
 
