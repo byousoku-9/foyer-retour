@@ -50,6 +50,12 @@ class Gate(DomainModel):
     evals_ok: bool
     date: str
     overlay_hash: str | None = None  # empreinte de `typing.manual.json` au moment du gate (revue Codex 1.2)
+    # Nombre de cas de la suite réellement exécutés par le run qui a écrit ce gate (story 1.10).
+    # L'accueil annonce « niveau de validation : vertical — N cas relus à la main » : ce N est une
+    # propriété **du gate**, pas un littéral de la page — écrit là où il est constaté, publié par
+    # `/api/v1/sante` (`gate_cases`), et couvert par `cases_hash` qui dit *quels* cas c'étaient.
+    # Défaut 0 : les gates écrits avant ce champ (il n'y en a aucun) resteraient lisibles.
+    cases: int = Field(default=0, ge=0)
 
 
 class GateContext(DomainModel):

@@ -190,3 +190,20 @@ def test_domain_violation_is_detected(tmp_path: Path) -> None:
     app = _fake_app(tmp_path, {"domain/a.py": "import pydantic\nfrom server.app.corpus import text\nimport httpx\n",
                                "domain/b.py": "from .a import x\nimport re\n"})
     assert check_external("domain", app) == ["domain/a.py:2 importe server.app.corpus", "domain/a.py:3 importe httpx"]
+
+
+def test_lapplication_nimporte_jamais_les_evals() -> None:
+    """Convention Couches (spec 1.10) : `server/evals/` n'est **jamais** importé par `server/app/`.
+
+    Le sens de la flèche est tout : `evals → pipelines, corpus, llm, domain` (le même assemblage que
+    fait `api/etat.py`), et rien dans l'autre sens. Un serveur qui importerait le runner ferait
+    dépendre le système mesuré de ce qui le mesure — et le gate, qui est censé juger l'image, serait
+    juge et partie. Le contrôle est statique : aucun import n'est exécuté.
+    """
+    violations = []
+    for layer in sorted(ALLOWED):
+        for f in _layer_files(layer):
+            for mod, line in _imports(f, APP):
+                if mod.startswith("server.evals"):
+                    violations.append(f"{f.relative_to(APP)}:{line} importe {mod}")
+    assert not violations, "\n".join(violations)

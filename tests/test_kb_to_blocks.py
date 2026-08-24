@@ -118,7 +118,8 @@ def test_run_writes_artefacts_and_is_deterministic(data_dir: Path) -> None:
 
 def test_manifest_merge_keeps_other_docs_and_existing_gate(data_dir: Path) -> None:
     gate = {"profile": "vertical", "source_hash": "s", "ingest_fingerprint": "f", "cases_hash": "c", "pipeline_digest": "p",
-            "prompts_digest": "q", "model_ids": {}, "evals_ok": True, "date": "2026-08-23", "overlay_hash": None}
+            "prompts_digest": "q", "model_ids": {}, "evals_ok": True, "date": "2026-08-23", "overlay_hash": None,
+            "cases": 1}
     other = {"status": "servi", "source_hash": "x", "ingest_fingerprint": "y", "document_hash": "z", "edition": "e",
              "overlay_hash": None, "gate": None}
     (data_dir.parent / "manifest.json").write_text(json.dumps({
@@ -181,7 +182,14 @@ def test_real_source_matches_committed_artefacts() -> None:
     assert build_report(doc, previous, kb, summary=summary) == Report.model_validate_json((REAL / "report.json").read_bytes())
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))["lux-guide"]
     assert manifest["source_hash"] == source_hash and manifest["ingest_fingerprint"] == k.ingest_fingerprint()
-    assert manifest["status"] == "servi" and manifest["gate"] is None
+    # Story 1.10 : le gate `vertical` est désormais écrit — par `evals run --gate`, jamais par
+    # l'ingestion (AD-7). C'est ce que ce test contrôle ici : le gate existe, il porte les empreintes
+    # de **cette** entrée, et il n'a pas été fabriqué par le pipeline d'ingestion.
+    gate = manifest["gate"]
+    assert manifest["status"] == "servi" and gate is not None
+    assert gate["profile"] == "vertical" and gate["evals_ok"] is True and gate["cases"] >= 1
+    assert (gate["source_hash"], gate["ingest_fingerprint"], gate["overlay_hash"]) == (
+        manifest["source_hash"], manifest["ingest_fingerprint"], manifest["overlay_hash"])
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert not report.blocking
     fiche_nodes = [n for n in doc.nodes if n.level == 2 and not n.node_id.startswith("lux-guide:q")]

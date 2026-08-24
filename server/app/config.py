@@ -150,6 +150,14 @@ class Settings(BaseSettings):
     # Coût (AD-9, AD-10)
     max_cost_eur_per_request: float = Field(0.10, ge=0)
     cost_alert_eur: float = Field(0.05, ge=0)
+    # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
+    # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
+    # un seuil comme les autres — il vit ici, jamais en dur dans `server/evals/run.py`, et `--max-cost`
+    # ne fait que le surcharger pour un run. Valeur : le profil `vertical` exécute deux cas à ≈ 0,08 €
+    # pièce (mesuré en 1.8/1.9 sur le cas bougie) ; 1,00 € laisse la place au golden set complet de
+    # 4.1 (40–60 cas) sans qu'un run de démonstration puisse dériver. `[HYPOTHÈSE]` : à re-régler
+    # quand le golden set aura sa taille cible.
+    evals_max_cost_eur: float = Field(1.0, ge=0)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
     # invalide, heuristique d'estimation avant appel (caractères par token et marge tokenizer, calibrés pour que
@@ -294,6 +302,7 @@ class Settings(BaseSettings):
             "retrieval_max_tokens": self.retrieval_max_tokens,
             "max_cost_eur_per_request": self.max_cost_eur_per_request,
             "cost_alert_eur": self.cost_alert_eur,
+            "evals_max_cost_eur": self.evals_max_cost_eur,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,

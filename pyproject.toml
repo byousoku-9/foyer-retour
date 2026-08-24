@@ -19,6 +19,13 @@ dev = [
     "pytest>=8,<9",
     "pytest-md-report==0.8.0",
     "pytest-asyncio>=1.0",
+    # AD-14 : le golden set des questions-témoins est du YAML (`server/evals/cases/**/*.yaml`).
+    # Épinglé, et dans le groupe **dev** seul : l'image de production est construite avec
+    # `uv sync --frozen --no-dev` (Dockerfile), le conteneur ne le reçoit donc jamais, et
+    # `server/app/` ne l'importe nulle part (`server/evals/` n'est jamais importé par `server/app/`,
+    # convention Couches du spine). D1 de la spec 1.10 : un golden set mal parsé par un parseur
+    # maison ferait passer un gate sur des attentes que personne n'a écrites.
+    "pyyaml==6.0.3",
 ]
 
 [tool.pytest.ini_options]

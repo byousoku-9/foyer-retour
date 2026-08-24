@@ -1,0 +1,53 @@
+# Cas témoin du sinistre, profil `vertical` (AD-14, story 1.10) — le cas de la bougie de FR20.
+#
+# Question et faits sont recopiés **mot pour mot** de `tests/test_sinistre_live.py` (QUESTION/FAITS) :
+# c'est le cas que la story 1.8 a mesuré en live et que la story 1.9 a servi par HTTP. Les faire
+# diverger ici donnerait deux cas témoins qui se ressemblent sans être comparables.
+id: s-bougie-canape
+suite: sinistre
+profile: vertical
+question: "Ce sinistre est-il couvert par les conditions générales du contrat ?"
+lang: fr
+scenario: "sinistre habitation déclaré au gestionnaire, conditions générales seules"
+faits:
+  date: "2026-08-01"
+  lieu: "salon du domicile assuré"
+  montant_eur: 1200.0
+  description: >-
+    Une bougie allumée posée sur une table basse est tombée sur le canapé. Le mobilier de salon a
+    brûlé sur une partie, sans embrasement ni commencement d'incendie : il n'y a eu ni flammes
+    propagées, ni dégât au bâtiment.
+
+expected:
+  found: true
+  # AD-6 : le verdict est conservateur, et jamais `couvert` sur ce cas — les qualités que la clause
+  # exige (« événement soudain », « action subite de la chaleur ») ne sont pas établies par les faits
+  # déclarés. Les deux valeurs admissibles sont celles de l'AC de la story 1.8.
+  verdict:
+    - sous_conditions
+    - ne_tranche_pas
+  refusal: false
+mode_attendu: bonne_reponse
+
+truth:
+  source: lecture_humaine
+  validated_by_expert: false
+  note: >-
+    Trois des quatre blocs de ce cas ont été relus **par Lancelot Oudin** en story 1.2, sur le rendu
+    PNG des pages du PDF, et consignés dans docs/tests-live.md (« Relecture des pages ») :
+    p9:2 (définition du « contenu »), p11:12 (mobilier de jardin), p34:12 (garantie 3.1.1.1.6,
+    « un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et
+    immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement,
+    ni commencement d'incendie »), plus p46:1 (l'exclusion, qui vise le **bâtiment** des extensions
+    3.1.8.3 à 3.1.8.6 et non le contenu du domicile — elle ne s'applique donc pas ici).
+    La boucle autonome (agent de build, 2026-08-24) a relu ces quatre blocs dans
+    data/axa-lu-optihome-2017/document.json et leur typage dans typing.manual.json, et vérifie que
+    l'attente écrite ci-dessus est celle que le texte porte.
+    `expected.block_ids` est volontairement **vide** : le rappel du contrat repose encore sur les
+    termes, l'overlay ne type que quatre blocs, et la mesure live de 1.8 montre que p9:2 et p11:12 ne
+    sont pas ramenées faute de terme canonique qui les touche (entrée différée `target_story: 3.2`).
+    Exiger ici des blocs que le retrieval de J+1 ne ramène pas ferait échouer le gate sur une limite
+    déjà mesurée et déjà différée, au lieu de mesurer le verdict — qui est ce que ce cas contrôle.
+    Ce qui reste dû : la contresignature de Lancelot Oudin sur le cas **en tant que cas d'éval**
+    (question, verdict admissible, attentes) — entrée différée `target_story: 1.11`.
+    validated_by_expert reste false : aucun expert assurance n'a validé ce verdict.

@@ -88,7 +88,14 @@ def test_document_shape(doc: Document) -> None:
     assert not report.blocking and report.stats["pages"] == 109 and report.stats["tdm_pdf_entrees"] == 0
     assert [c.name for c in report.alerts] == ["pages_mixtes"] and "1" in report.alerts[0].detail  # couverture
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
-    assert manifest["status"] == "servi" and manifest["gate"] is None
+    # Story 1.10 : le gate `vertical` est désormais écrit — par `evals run --gate`, jamais par
+    # l'ingestion (AD-7). C'est ce que ce test contrôle ici : le gate existe, il porte les empreintes
+    # de **cette** entrée, et il n'a pas été fabriqué par le pipeline d'ingestion.
+    gate = manifest["gate"]
+    assert manifest["status"] == "servi" and gate is not None
+    assert gate["profile"] == "vertical" and gate["evals_ok"] is True and gate["cases"] >= 1
+    assert (gate["source_hash"], gate["ingest_fingerprint"], gate["overlay_hash"]) == (
+        manifest["source_hash"], manifest["ingest_fingerprint"], manifest["overlay_hash"])
     assert manifest["ingest_fingerprint"] == doc.ingest_fingerprint == p.ingest_fingerprint()
     assert manifest["document_hash"] == hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest()
     assert manifest["source_hash"] == (REAL / "source.sha256").read_text("utf-8").strip()

@@ -1,0 +1,48 @@
+# Cas témoin du guide, profil `vertical` (AD-14, story 1.10).
+#
+# Vocabulaire distinctif volontaire : « LuxTrust » n'apparaît que dans la fiche `lux-guide:fluxtrust`
+# du guide, dont une section s'intitule « L'obtenir au meilleur prix ». Un cas dont les termes
+# touchent dix fiches ne mesurerait pas le rappel de *retrouver*, il mesurerait le hasard.
+#
+# La formulation porte « en arrivant au Luxembourg », et ce n'est pas un ornement : mesuré le
+# 2026-08-24, « Comment obtenir LuxTrust au meilleur prix ? » est classée `hors_perimetre` par
+# *comprendre* et refusée après le seul appel `micro` (AD-5), alors que la même question replacée
+# dans le contexte de l'installation est classée `question`. C'est un faux refus réel du système,
+# relevé et **différé** (`target_story: 2.1`, dictionnaire enrichi et refus justifié) : le corriger
+# demanderait de toucher `prompts/comprendre.md`, ce que le `Never` de cette story interdit — un
+# `prompts_digest` qui bouge après l'écriture du gate le rendrait `gate_perime` le jour même. Le cas
+# mesure donc ce que le système fait aujourd'hui, et la limite est écrite plutôt que masquée.
+id: g-luxtrust-prix
+suite: guide
+profile: vertical
+question: "Quelle est la façon la moins chère d'obtenir LuxTrust en arrivant au Luxembourg ?"
+lang: fr
+profil: {}
+scenario: "habitation + auto + RC en 30 jours — étape « démarches en ligne »"
+
+expected:
+  found: true
+  # `complete` n'est pas exigé : AD-4 le calcule sur la couverture de **toutes** les facettes, et une
+  # question à une seule facette peut malgré tout laisser un `unknown`. Le cas mesure ce qu'il a relu.
+  fiche_ids:
+    - lux-guide:fluxtrust
+  refusal: false
+mode_attendu: bonne_reponse
+
+truth:
+  source: lecture_humaine
+  validated_by_expert: false
+  note: >-
+    Relu par la boucle autonome (agent de build, 2026-08-24) dans
+    data/lux-guide/document.json, nœud lux-guide:fluxtrust, blocs :1 à :10.
+    Ce que la lecture établit, mot pour mot : le bloc :2 (resume) dit « Bien moins chère si vous
+    passez par votre banque » ; le bloc :4 est le titre « L'obtenir au meilleur prix » ; le bloc :5
+    dit « Le chemin le moins coûteux passe par une banque luxembourgeoise, qui la fournit souvent
+    gratuitement à ses clients. Sans compte local, il faut la commander en direct, et elle devient
+    payante. » ; le bloc :8 (aRetenir) dit « Ouvrir le compte bancaire d'abord, LuxTrust suit et
+    coûte moins cher. » La réponse attendue cite donc la fiche lux-guide:fluxtrust et rien d'autre —
+    aucune autre fiche du guide n'emploie le mot LuxTrust.
+    Ce qui reste dû : la contresignature de Lancelot Oudin, à qui le tableau « Ce qui incombe à
+    Lancelot » d'epics.md attribue la relecture des deux cas vertical (bloquant). Elle est portée
+    par une entrée différée `target_story: 1.11` de deferred-work.md. validated_by_expert reste
+    false : la relecture porte sur le corpus, jamais sur une justesse juridique.

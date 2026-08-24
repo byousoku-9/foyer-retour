@@ -433,8 +433,11 @@ def test_ingest_models() -> None:
     assert fields(ingest.Check) == {"name", "level", "detail"}
     assert literal_values(ingest.Check, "level") == {"bloquant", "alerte", "info"}
     assert fields(ingest.Report) == {"doc_id", "checks", "stats"}
+    # `cases` (story 1.10) : le nombre de cas de la suite exécutée par le run qui a écrit ce gate.
+    # L'accueil affiche « N cas relus à la main » et ne code pas N en dur — c'est une propriété du
+    # gate, pas de la page.
     assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
-                                   "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash"}
+                                   "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash", "cases"}
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
     assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
                                             "overlay_hash", "gate"}

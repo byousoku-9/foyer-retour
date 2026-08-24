@@ -94,3 +94,28 @@ def test_path_outside_root_uses_absolute_key(tmp_path: Path) -> None:
     other.write_text("c\n")
     assert h != digest_paths([other], root)  # même nom, chemin absolu différent
     assert h == digest_paths([outside], root)
+
+
+def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
+    """AD-14 : « deux runs ne sont comparables qu'à hash égal » — vérifié contre `data/manifest.json`.
+
+    Le gate écrit par `evals run --gate` se réclame d'une suite précise. Ce test recalcule le hash de
+    cette suite depuis les fichiers du dépôt et le compare à celui que le manifest porte : une
+    question-témoin modifiée, ajoutée ou renommée sans relancer le gate se voit ici, et non le jour
+    où quelqu'un croira que le gate valide les cas qu'il lit.
+    """
+    import json
+
+    from server.app.config import REPO_ROOT
+    from server.evals.run import CASES_DIR, charger_cas
+
+    manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
+    settings_doc = {"lux-guide": "guide", "axa-lu-optihome-2017": "sinistre"}
+    for doc_id, suite in settings_doc.items():
+        gate = manifest[doc_id]["gate"]
+        assert gate is not None, f"{doc_id} n'a pas de gate : relancer `evals run --gate {doc_id}`"
+        cas = charger_cas(CASES_DIR, suites=(suite,))
+        fichiers = [CASES_DIR / c.suite / f"{c.id}.yaml" for c in cas]
+        assert gate["cases_hash"] == cases_hash(fichiers, CASES_DIR), (
+            f"le golden set de la suite {suite} a changé depuis le gate de {doc_id}")
+        assert gate["cases"] == len(cas)

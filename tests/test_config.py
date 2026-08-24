@@ -24,6 +24,9 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_cost_eur_per_request == 0.10 and s.cost_alert_eur == 0.05
+    # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
+    # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
+    assert s.evals_max_cost_eur == 1.0
     assert s.rate_limit_per_minute == 10 and s.rate_limit_per_day == 100
     assert s.coverage_threshold == 0.8 and s.kind_confidence_min == 0.7
     assert s.env == "dev" and s.allow_ungated is True
@@ -64,7 +67,9 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             # story 1.5 : bornes du pipeline et de *vérifier*
             "historique_max_turns", "verifier_max_claims", "verifier_max_tokens",
             # story 1.8 : les deux bornes posées sur ce que le modèle fait afficher au sinistre
-            "fait_manquant_max_chars", "ask_client_max"} <= set(t.thresholds)
+            "fait_manquant_max_chars", "ask_client_max",
+            # story 1.10 : le plafond de coût d'un run d'évals (AD-9, AD-14)
+            "evals_max_cost_eur"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
     # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
     # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).
@@ -96,7 +101,7 @@ def test_bounds_and_coherence() -> None:
         Settings(_env_file=None, verifier_max_claims=2, draft_max_claims=4)
     Settings(_env_file=None, verifier_max_claims=4, draft_max_claims=4)
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
-                {"rate_limit_per_day": 0}):
+                {"evals_max_cost_eur": -1}, {"rate_limit_per_day": 0}):
         with pytest.raises(ValidationError):
             Settings(_env_file=None, **bad)
 
