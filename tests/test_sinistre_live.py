@@ -7,9 +7,14 @@ vide) : mêmes assertions, réponses rejouées — zéro réseau.
 Ce que le cas doit établir (AC de la story, et « verdict cadré » de l'epic) :
 
 1. le verdict est **conservateur** — jamais `couvert` sur un contrat dont on n'a que les conditions
-   générales. C'est désormais une propriété du **code** et non du modèle : la seconde branche de la
-   règle (2) d'AD-6 (« ou la garantie dépend d'une […] condition particulière **inconnue** ») est
-   satisfaite tant que `MissingPackage` l'est, et rien dans le pipeline ne l'établit ;
+   générales. C'est une propriété du **code** et non du modèle : la seconde branche de la règle (2)
+   d'AD-6 (« ou la garantie dépend d'une […] condition particulière **inconnue** ») est satisfaite
+   tant que `MissingPackage` l'est, et le pipeline ne l'établit que si l'appelant lui passe le
+   `dossier` (ce que ce test ne fait pas) ;
+1bis. les questions posées au client nomment **ce que la clause exige** — l'AC parle de la nature
+   « subite ». Le run du 24/08 avait montré que le prompt seul ne le garantit pas : le modèle avait
+   déclaré la qualité établie et aucune question ne la mentionnait. Le code compose désormais une
+   question par qualité exigée, établie ou non (revue Codex 1.8, B3) ;
 2. il est adossé aux **clauses exactes** : au moins un des trois blocs relus à la main en story 1.2
    (p9 « contenu », p11 « mobilier de jardin », p34 la garantie de l'action subite de la chaleur) ;
 3. l'exclusion de la page 46 est **explicitement écartée** — absente, ou affichée `applicable="non"`
@@ -115,9 +120,14 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     assert verdict is not None, "AD-16 : un sinistre sort toujours avec un verdict, refus compris"
     assert verdict.value == "sous_conditions", verdict.value
     assert "conditions générales seules" in verdict.reason
-    # AD-6 : le paquet manquant accompagne toujours le verdict, et les questions à poser aussi
+    # AD-6 : le paquet manquant accompagne toujours le verdict, et les questions à poser aussi.
+    # « `ask_client` n'est pas vide » ne prouvait rien : le run du 24/08 qui a motivé la revue Codex
+    # 1.8 (B3) était vert alors qu'aucune question ne parlait de la nature subite. L'AC est donc
+    # épinglé mot à mot — options, conditions particulières, **et** la qualité que la clause exige.
     assert verdict.missing.conditions_particulieres and verdict.missing.options_souscrites
-    assert verdict.ask_client
+    questions = " ".join(verdict.ask_client).lower()
+    assert "options" in questions and "conditions particulières" in questions
+    assert "subit" in questions or "soudain" in questions, verdict.ask_client
 
     # (2) les clauses exactes : au moins un des trois blocs relus à la main en 1.2
     cites = {q.block_id for c in answer.claims for q in c.quotes}

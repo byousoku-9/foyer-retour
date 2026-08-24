@@ -473,3 +473,49 @@ entrée différée le porte vers 4.2.
 les touche (*comprendre* rend « mobilier de salon », « canapé », « brûlure », « incendie », « bougie »).
 C'est ce que D7 annonçait : quatre blocs typés à la main ne font pas un index de clauses. Le typage
 automatique de la story 3.2 lèvera la limite ; une entrée différée le consigne.
+
+### Revue Codex 1.8, tour 1 — deux runs de plus, et ce qu'ils ont tranché
+
+La revue Codex du diff a rendu trois bloquants (B1, B2, B3). B1 demandait de lire la seconde branche
+de la règle (2) d'AD-6 (« ou la garantie dépend d'une option / extension / condition particulière
+**inconnue** ») sur la seule **clause** — `option_requise`, `cp_requise`, garantie hors socle — et non
+sur le dossier, pour que la règle (3) et sa fixture `couvert` redeviennent atteignables. C'est un
+argument de texte sérieux, et il a été **implémenté puis joué en vrai** avant d'être tranché.
+
+| Run | Ce que le code lisait | Résultat |
+|---|---|---|
+| 10 | Règle (2) « par clause » (lecture Codex B1) + énumération des qualités exigées (B3) | **`couvert`** — la valeur que l'AC interdit sur ce cas |
+| 11 | Règle (2) conservatrice rétablie, prompt des qualités ré-ancré sur le périmètre | `sous_conditions`, 0,0405 €, `p34:12` cité, `p46:1` absent, un seul appel `micro` |
+
+**Ce que le run 10 a montré.** Le modèle a énuméré les trois qualités que la garantie `p34:12` exige —
+« caractère soudain de l'événement », « action subite de la chaleur », « contact direct et immédiat
+avec un foyer ou une substance incandescente » — et les a **toutes trois** déclarées établies par des
+faits qui disent le contraire (« sans embrasement ni commencement d'incendie »). Il a de plus opposé
+l'exclusion `p46:1` au cas (`applicable="oui"`), alors qu'elle vise le bâtiment des extensions. Aucune
+règle de code ne peut trancher, sur du texte libre, si un événement fut « soudain » : le corroborant
+que B1 supposait n'existe pas. La règle (2) conservatrice a donc été **maintenue**, et le chemin vers
+`couvert` que Codex réclamait a été ouvert autrement — `pipelines.sinistre.run(..., dossier=…)` porte
+le paquet contractuel que l'appelant détient, et la fixture « garantie du socle ⇒ `couvert` » est
+désormais jouée **de bout en bout par le pipeline** (`test_pipeline_sinistre.py`).
+
+**Ce que le run 11 a gagné (B3).** L'AC demande que `ask_client` mentionne « la nature « subite » ».
+Le run 10 était vert sans la mentionner : le modèle disait la qualité établie, `fait_manquant` restait
+nul, et rien ne partait en question. Le code compose désormais **une question par qualité exigée**,
+établie ou non — il ne peut pas juger si « soudain » l'est, il peut le faire confirmer. Relevé du
+run 11 :
+
+```
+verdict     sous_conditions — « les conditions particulières et les options souscrites ne sont pas au
+                               dossier » (au regard des conditions générales seules)
+claims      c1 p34:12 applicable=humain ; c2 p34:12 applicable=oui ; p46:1 non retrouvé
+missing     conditions particulières, options, avenants, date d'effet
+            faits[] = « caractère soudain de l'événement », « action subite de la chaleur »
+ask_client  options / conditions particulières / date d'effet et avenants,
+            puis les deux qualités ci-dessus à établir auprès du client
+étapes      comprendre, retrouver, rediger, verifier, restituer — un seul appel `micro` dans vérifier
+coût        0,0405 € (plafond 0,10 €)
+```
+
+Le test live épingle maintenant l'AC mot à mot (`options`, `conditions particulières`, une formulation
+`subit`/`soudain`) au lieu de se contenter d'un `ask_client` non vide. La fixture enregistrée a été
+purgée de ses douze entrées devenues obsolètes : elle ne porte plus que les trois appels du run 11.
