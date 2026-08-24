@@ -85,6 +85,10 @@ async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Ind
     citees = {cid for s in factuels for cid in s.claim_ids}
     assert survivantes <= citees
     assert answer.texte == " ".join(s.text.strip() for s in answer.segments if s.text.strip())
+    # Tour 3, B1 : rien de ce que la réponse déclare **ne pas** savoir n'est affiché comme réponse —
+    # une absence n'est soutenue par aucun passage, elle se dit dans `unknown[]`.
+    assert all(s.kind != "limite" for s in answer.segments)
+    assert all(u.strip() not in answer.texte for u in answer.unknown)
 
     # AD-1 : la chaîne des cinq étapes, dans l'ordre, avec l'affectation de tiers d'AD-9
     assert [s.name for s in trace.steps][:5] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
