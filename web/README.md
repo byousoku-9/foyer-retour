@@ -2,8 +2,25 @@
 
 Forké de [lux-guide/lux-guide.github.io](https://github.com/lux-guide/lux-guide.github.io), édition `git:a8e8593`
 (snapshot des fichiers de ce commit, sans `.git`, fichiers non renommés). Dans `foyer-retour`, ce site est servi
-par le serveur FastAPI sous `/guide/` et son assistant est branché sur `/api/v1/chat` ; chaque modification de
-`web/` est un commit séparé qui dit pourquoi. Le README d'origine suit.
+par le serveur FastAPI sous `/guide/` ; chaque modification de `web/` est un commit séparé qui dit pourquoi.
+
+**L'assistant de cette copie n'est plus celui du README d'origine.** Le README qui suit dit « tout fonctionne
+dans le navigateur, sans serveur » : c'est vrai de tout le site — fiches, parcours, simulateur, comparateur,
+carte — sauf de l'onglet Assistant, qui interroge désormais le serveur qui sert cette page.
+
+- **Il ne répond que sourcé.** Chaque phrase factuelle affichée est adossée à un passage relu dans le guide,
+  montré sous elle avec sa fiche, son lien officiel et son statut. Ce qu'il ne sait pas, il le dit ; un refus
+  vient avec ce qui a été cherché. Le coût réel de la réponse est en pied de bulle.
+- **Il n'a plus de repli automatique.** La recherche lexicale du site (celle d'origine) ne tourne plus jamais
+  d'elle-même : quand le serveur est indisponible ou injoignable, un bandeau propose un bouton, et il faut le
+  cliquer. Une requête refusée (question trop longue, quota atteint) affiche un message, sans bouton — une
+  recherche de mots-clés n'est pas une réponse vérifiée.
+- **Il ne conserve aucune conversation.** Le serveur n'en enregistre pas, et ce navigateur non plus : le
+  `localStorage` ne porte plus que le profil et les préférences d'affichage. La question et le profil partent
+  au serveur, puis au fournisseur du modèle (Anthropic), qui indique dans sa politique publique ne pas
+  conserver ce contenu par défaut. La mention est sous la saisie, dans l'onglet comme dans le panneau.
+
+Le README d'origine suit.
 
 ---
 
