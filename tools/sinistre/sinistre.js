@@ -1,0 +1,926 @@
+// L'outil sinistre (story 1.9) — HTML/CSS/JS vanilla, sans build, sans framework, sans requête tierce.
+//
+// Le partage est celui du front du guide (story 1.7), et pour la même raison : **ce qui décide est
+// séparé de ce qui peint**. Les fonctions de composition (`vueFormulaire`, `vueVerdict`, `vueErreur`,
+// `vueAttente`, `clausesParClaim`, `statutTexte`, `libelleVerdict`, `coutTexte`, `corpsSinistre`)
+// sont **pures** : elles rendent un arbre de nœuds simples `{tag, cls, texte, enfants, attrs}` et ne
+// touchent ni au DOM, ni au réseau. `materialiser()` transforme cet arbre en DOM et ne décide de
+// rien — il pose du texte par `textContent`, jamais par `innerHTML` (AD-15).
+//
+// C'est ce qui rend les promesses de la story vérifiables sans navigateur : « le badge du verdict,
+// la mention de portée, la raison, les faits compris, le paquet manquant, les clauses et leurs
+// statuts sont affichés », « aucun verdict de remplacement sur une erreur », « aucune conversation
+// ni aucun sinistre en localStorage » sont des assertions sur un arbre, pas sur des pixels.
+//
+// AD-6/AD-4 : la page **affiche** le verdict, elle n'en calcule aucun morceau. Aucune règle de la
+// table AD-6 n'est ici ; `answer.verdict` arrive décidé, avec sa raison composée par le serveur.
+// AD-16 : aucun repli, ni bouton « chercher autrement », ni valeur de remplacement sur erreur.
+
+(function () {
+  "use strict";
+
+  // AD-12 : une seule origine. Le serveur qui sert cette page sert aussi l'API — aucune URL en dur,
+  // aucun CORS, et la page fonctionne à l'identique en local et sur Cloud Run.
+  var API_BASE = (window.location && /^https?:$/.test(window.location.protocol))
+    ? window.location.origin : "";
+
+  // Les bornes du serveur, recopiées de `api/schemas.SinistreRequest` et `domain/question.Faits`.
+  // Elles arment les `maxlength` de la page : un rejet en 400 après quatre secondes d'attente est
+  // une mauvaise façon d'apprendre qu'on a écrit trop long. Ce ne sont **pas** des troncatures
+  // silencieuses côté client (AD-11 : « rejet plutôt que troncature ») — le champ refuse la frappe
+  // au-delà, ce que l'utilisateur voit. Un test Python les épingle contre les schémas du serveur.
+  var QUESTION_MAX = 1000;
+  var DESCRIPTION_MAX = 2000;
+
+  // Borne d'abandon côté client : la deadline du serveur plus la marge qu'il annonce. Les deux sont
+  // des **seuils de `config.py`** (`deadline_s`, `client_abort_margin_s`), publiés par
+  // `thresholds()` et lus sur `/api/v1/sante` au démarrage — la page ne les recopie pas (convention
+  // Seuils du spine, et patron de `web/app/chat.js` depuis 1.7). Les deux littéraux ci-dessous ne
+  // sont qu'un **repli** pour la première requête si la sonde n'a pas répondu : une borne figée
+  // ferait couper par le navigateur une requête à laquelle le serveur aurait répondu, le jour où
+  // `deadline_s` monte (revue 1.9).
+  var DEADLINE_S_REPLI = 55;
+  var MARGE_ABANDON_S_REPLI = 10;
+  var seuilsServeur = null;
+
+  function seuil(nom, repli) {
+    var v = seuilsServeur && seuilsServeur[nom];
+    return (typeof v === "number" && isFinite(v) && v > 0) ? v : repli;
+  }
+
+  function abandonMs() {
+    return Math.round((seuil("deadline_s", DEADLINE_S_REPLI) +
+                       seuil("client_abort_margin_s", MARGE_ABANDON_S_REPLI)) * 1000);
+  }
+
+  var PORTEE = "au regard des conditions générales seules — verdict non validé par un expert assurance";
+
+  // ---------- nœuds : la description de ce qu'il faut peindre ----------
+
+  function noeud(tag, cls, texte, enfants) {
+    var n = { tag: tag };
+    if (cls) n.cls = cls;
+    if (texte !== undefined && texte !== null) n.texte = String(texte);
+    if (enfants && enfants.length) n.enfants = enfants;
+    return n;
+  }
+
+  function lienHttp(url) {
+    var u = String(url || "");
+    return /^https?:\/\//i.test(u) ? u : null;
+  }
+
+  // Le contrat est déjà validé par `lireReponse()` sur ce que l'écran consomme ; ces gardes valent
+  // pour les **listes imbriquées** qu'il ne descend pas (`ask_client`, `missing.faits`,
+  // `trace.steps`…). Un `TypeError` à la peinture, après un appel payé, laisserait la carte
+  // d'attente à l'écran sans rien dire — l'exact inverse d'AD-16 (revue 1.9).
+  function tableau(v) { return Array.isArray(v) ? v : []; }
+
+  function liste(cls, items) {
+    return noeud("ul", cls, null, items.map(function (t) { return noeud("li", null, String(t)); }));
+  }
+
+  function section(cls, titre, enfants) {
+    return noeud("section", cls, null, [noeud("h3", null, titre)].concat(enfants));
+  }
+
+  // ---------- textes composés ----------
+
+  // AD-6 : les quatre valeurs, et rien d'autre. Une valeur inconnue n'est **pas** traduite en
+  // « ne tranche pas » : le serveur aurait rendu quelque chose que ce contrat ne prévoit pas, et
+  // l'afficher comme un verdict connu serait le dégradé silencieux qu'AD-16 interdit. Elle se dit.
+  var VERDICTS = {
+    couvert: "couvert",
+    non_couvert: "non couvert",
+    sous_conditions: "sous conditions",
+    ne_tranche_pas: "ne tranche pas"
+  };
+
+  function libelleVerdict(value) {
+    var v = String(value || "");
+    if (Object.prototype.hasOwnProperty.call(VERDICTS, v)) {
+      return { cle: v, texte: VERDICTS[v] };
+    }
+    return { cle: "inconnu", texte: "verdict non reconnu" };
+  }
+
+  // AD-4 : les quatre statuts d'une affirmation. `applicable` est le statut **du sinistre** (il reste
+  // null en guide) : « humain » veut dire que le code a refusé de trancher, et c'est l'information
+  // la plus utile de la ligne. `edition` s'affiche **avec sa réserve**, jamais comme un statut vert.
+  var APPLICABLE = {
+    oui: "applicable",
+    non: "non applicable",
+    humain: "applicabilité à confirmer par un humain"
+  };
+
+  function statutTexte(status) {
+    if (!status) return "";
+    var p = [];
+    if (status.retrouvee === true) p.push("retrouvée");
+    if (status.pertinente === true) p.push("pertinente");
+    if (status.applicable && Object.prototype.hasOwnProperty.call(APPLICABLE, status.applicable)) {
+      p.push(APPLICABLE[status.applicable]);
+    }
+    p.push("édition " + (status.edition ? status.edition : "non précisée") +
+      " — actualité non vérifiée");
+    return p.join(" · ");
+  }
+
+  // Le `ClaimStatus` de la claim qui cite ce bloc. C'est ce qui rend la réserve d'AD-4 au **mode
+  // dégradé** : D6 exige « une liste plate de citations **avec leurs statuts** », et sans ce
+  // rattachement par bloc, l'abandon de l'appariement faisait aussi disparaître `retrouvée`,
+  // `pertinente`, `applicable` et la réserve d'édition — sous un verdict (revue 1.9).
+  function statutDeBloc(answer, blockId) {
+    var claims = tableau(answer && answer.claims);
+    for (var i = 0; i < claims.length; i++) {
+      var quotes = tableau(claims[i] && claims[i].quotes);
+      for (var j = 0; j < quotes.length; j++) {
+        if (quotes[j] && quotes[j].block_id === blockId) return claims[i].status || null;
+      }
+    }
+    return null;
+  }
+
+  // AD-2 : `Block.kind` vient de l'ingestion, jamais du modèle. Un kind hors table se dit tel quel
+  // plutôt que d'être rangé dans la case la plus proche.
+  var KINDS = {
+    garantie: "garantie", exclusion: "exclusion", condition: "condition", franchise: "franchise",
+    definition: "définition", renvoi: "renvoi", para: "paragraphe", list: "liste",
+    table: "tableau", heading: "titre", autre: "autre"
+  };
+
+  function libelleKind(kind) {
+    var k = String(kind || "");
+    return Object.prototype.hasOwnProperty.call(KINDS, k) ? KINDS[k] : k || "type inconnu";
+  }
+
+  // D7 : les clauses **non retrouvées** s'affichent avec le motif du rejet, jamais avec leur
+  // citation — les quotes d'une claim `non_retrouvee`/`ambigue` sont restées les chaînes du modèle.
+  var REJETS = {
+    non_retrouvee: "citation introuvable dans le contrat",
+    non_pertinente: "passage réel, mais jugé étranger au sinistre décrit",
+    ambigue: "citation présente à plusieurs endroits, ou clause à deux types",
+    non_citee: "affirmation vérifiée qu'aucune phrase affichée ne reprend"
+  };
+
+  function motifRejet(kind) {
+    var k = String(kind || "");
+    return Object.prototype.hasOwnProperty.call(REJETS, k) ? REJETS[k] : "écartée par la vérification";
+  }
+
+  // NFR4 : le coût **réel**, rendu par l'usage de l'API (`trace.total_cost_eur`), jamais estimé ici.
+  function coutTexte(trace) {
+    var c = trace && typeof trace.total_cost_eur === "number" ? trace.total_cost_eur : null;
+    // `isFinite` et non `!isNaN` : `Infinity` passe le second et afficherait « coûté Infinity € ».
+    // Un coût négatif n'existe pas non plus — dans les deux cas on préfère ne rien dire (revue 1.9).
+    if (c === null || !isFinite(c) || c < 0) return "";
+    if (c === 0) return "cette analyse n'a rien coûté (aucun appel facturé)";
+    return "cette analyse a coûté " + c.toFixed(4).replace(".", ",") + " €";
+  }
+
+  // FR11 / AD-16 : un message lisible composé depuis le **code** d'AD-16. Le `message` du serveur
+  // n'est jamais affiché (pydantic, en anglais, avec le chemin du champ). Aucune de ces phrases ne
+  // propose de repli : il n'y en a pas pour le sinistre.
+  function messageErreur(erreur) {
+    var e = erreur || {};
+    // Le seul « échec » que la page constate elle-même, avant tout réseau : le détail est composé
+    // par `manquant()`, jamais par le serveur, et il dit quoi corriger.
+    if (e.code === "saisie_incomplete") {
+      return String(e.detail || "La demande est incomplète.");
+    }
+    if (e.code === "hors_ligne") {
+      return "Cette page est ouverte depuis un fichier local : l'outil a besoin du serveur qui la " +
+        "sert. Ouvrez-la depuis son adresse.";
+    }
+    if (e.code === "reseau") {
+      return "Le serveur n'a pas pu être joint : rien n'a été analysé.";
+    }
+    if (e.code === "timeout_client") {
+      return "Le serveur n'a pas répondu dans le temps imparti : rien n'a été analysé.";
+    }
+    if (e.code === "rate_limited") {
+      var s = e.retry_after;
+      return typeof s === "number" && s > 0
+        ? "Trop de demandes en peu de temps : réessayez dans " + s + " seconde" + (s > 1 ? "s" : "") + "."
+        : "Trop de demandes en peu de temps : réessayez dans un instant.";
+    }
+    if (e.code === "invalid_request") {
+      return "Le serveur a refusé la demande : elle sort de ce que le contrat de l'API accepte " +
+        "(contrat non servi, description trop longue, ou champ manquant).";
+    }
+    if (e.code === "input_too_long") {
+      return "La demande envoyée est trop volumineuse pour le serveur. Raccourcissez la description.";
+    }
+    if (e.code === "reponse_illisible") {
+      return "Le serveur a répondu quelque chose que cette page ne sait pas lire : aucun verdict " +
+        "n'est affiché plutôt qu'un verdict incomplet.";
+    }
+    if (e.code === "corpus_unavailable") {
+      return "Le contrat demandé n'est pas servi en ce moment : rien n'a été analysé.";
+    }
+    // Les quatre autres 503 d'AD-16 disent la même chose à l'utilisateur — le serveur n'a pas pu
+    // aller au bout —, et la phrase se compose sur le **code**, pas sur le `kind` : le kind est une
+    // commodité de la couche réseau, le code est le contrat. Aucune de ces phrases ne propose de
+    // repli : AD-16, « aucun repli pour le sinistre ».
+    if (e.code === "llm_unavailable" || e.code === "llm_parse" || e.code === "timeout" ||
+        e.code === "budget_exceeded" || e.kind === "indisponible") {
+      return "L'analyse est indisponible pour le moment : rien n'a été analysé.";
+    }
+    return "Le serveur n'a pas pu traiter cette demande. Réessayez plus tard.";
+  }
+
+  // ---------- appariement clause ↔ affirmation (D6) ----------
+  //
+  // `ClauseSource` ne porte pas de `claim_id` : AD-11 n'en prévoit pas. Mais le serveur construit
+  // `sources[]` par l'énumération `for claim in answer.claims for quote in claim.quotes`
+  // (`api/presenter.clauses_de`) et publie `answer` en entier — la page refait donc **la même**
+  // énumération et lit `sources[]` dans l'ordre, en vérifiant à chaque pas que le `block_id`
+  // concorde. C'est exactement ce que fait `citationsParSegment` côté guide.
+  //
+  // Au moindre désaccord — un `block_id` qui ne concorde pas, des longueurs différentes —
+  // l'appariement est **abandonné** (`null`) et la page le **dit**, puis affiche une liste plate.
+  // Jamais un rattachement deviné : une clause attribuée à la mauvaise affirmation sous un verdict
+  // est pire qu'une liste sans rattachement.
+  function clausesParClaim(answer, sources) {
+    var a = answer || {};
+    var claims = tableau(a.claims);
+    var plates = tableau(sources);
+    var out = [];
+    var rang = 0;
+    for (var c = 0; c < claims.length; c++) {
+      var claim = claims[c] || {};
+      var quotes = tableau(claim.quotes);
+      var clauses = [];
+      for (var q = 0; q < quotes.length; q++) {
+        var src = plates[rang];
+        var attendue = quotes[q];
+        // Une quote sans `block_id` lisible n'apparie rien : abandonner est la seule issue honnête
+        // (D6), et c'est aussi ce qui évite un `TypeError` sur une entrée nulle (revue 1.9).
+        if (!attendue || typeof attendue.block_id !== "string") return null;
+        if (!src || src.block_id !== attendue.block_id) return null;
+        clauses.push(src);
+        rang++;
+      }
+      out.push({ claim_id: claim.claim_id, text: claim.text, status: claim.status || null,
+                 clauses: clauses });
+    }
+    if (rang !== plates.length) return null;
+    return out;
+  }
+
+  // ---------- le corps posté ----------
+  //
+  // AD-11 : les quatre champs du contrat, et pas un de plus. Pas de `dossier` (D1) : la route ne
+  // l'expose pas, tout le paquet contractuel reste réputé inconnu, et c'est ce que « au regard des
+  // conditions générales seules » veut dire. Les champs vides ne sont **pas** envoyés : `Faits.date`
+  // et `Faits.lieu` sont `str | None`, et une chaîne vide n'est pas l'absence.
+  function corpsSinistre(saisie) {
+    var s = saisie || {};
+    var faits = { description: String(s.description || "") };
+    ["date", "lieu"].forEach(function (nom) {
+      var v = String(s[nom] || "").trim();
+      if (v) faits[nom] = v;
+    });
+    var montant = String(s.montant_eur === undefined || s.montant_eur === null ? "" : s.montant_eur).trim();
+    if (montant !== "") {
+      var n = Number(montant.replace(",", "."));
+      // Un montant illisible n'est **pas** envoyé à 0 : le serveur le refuserait ou, pire,
+      // l'accepterait comme un sinistre à zéro euro. Le champ est facultatif, il reste absent.
+      if (isFinite(n) && n >= 0) faits.montant_eur = n;
+    }
+    return {
+      doc_id: String(s.doc_id || ""),
+      question: String(s.question || ""),
+      faits: faits
+    };
+  }
+
+  // ---------- les vues ----------
+
+  function vueAttente() {
+    return noeud("div", "carte attente", null, [
+      noeud("p", null, "Je cherche les clauses du contrat, puis je vérifie chaque citation mot pour " +
+        "mot avant d'afficher quoi que ce soit…"),
+      noeud("p", "attente-note", "Quatre appels au modèle au plus ; cela prend une dizaine de secondes.")
+    ]);
+  }
+
+  // L'état du sélecteur de contrat. Seuls les `kind="contrat"` y entrent : le guide **est** servi et
+  // `GET /api/v1/documents` le liste (il ne ment pas sur ce qui est servi), mais lui soumettre un
+  // sinistre n'a pas de sens — aucun de ses blocs n'est une garantie ou une exclusion —, et le
+  // serveur le refuse aussi (D3). Aucun contrat ⇒ le formulaire est **désactivé** et le dit : c'est
+  // le seul écran où « rien à analyser » doit se lire avant qu'on ait écrit une description.
+  function vueFormulaire(documents, echec) {
+    var contrats = tableau(documents).filter(function (d) { return d && d.kind === "contrat"; });
+    var options = contrats.map(function (d) {
+      var titre = String(d.title || d.doc_id);
+      // AD-4 : l'édition s'affiche **avec sa réserve**, jamais comme un statut vert. `edition` est
+      // un `str` sans `min_length` : vide, elle faisait disparaître la réserve avec elle (revue
+      // 1.9), alors que c'est justement là qu'on sait le moins de quoi on parle.
+      var edition = " — édition " + (d.edition ? String(d.edition) : "non précisée") +
+        " (actualité non vérifiée)";
+      return { valeur: String(d.doc_id), texte: titre + edition };
+    });
+    var vue = {
+      actif: contrats.length > 0,
+      options: options,
+      // La source publique du contrat sélectionné : c'est ce qui rend l'édition vérifiable par
+      // celui à qui on l'annonce. Le PDF n'est pas redistribué par ce service (AD-7).
+      sources: contrats.map(function (d) {
+        return { doc_id: String(d.doc_id), url: lienHttp(d.source_url) };
+      }),
+      // Deux situations, deux phrases (revue 1.9) : « le serveur dit qu'aucun contrat n'est servi »
+      // et « le serveur n'a pas répondu » ne se corrigent pas de la même façon, et servir la
+      // première pour la seconde ferait affirmer à la page quelque chose qu'elle ne sait pas.
+      message: contrats.length
+        ? null
+        : (echec
+          ? "La liste des contrats n'a pas pu être chargée : rien n'est proposé tant que le " +
+            "serveur n'a pas répondu. Rechargez la page."
+          : "Aucun contrat n'est servi en ce moment : il n'y a rien à confronter à un sinistre. " +
+            "L'état du service est publié sur /api/v1/sante.")
+    };
+    return vue;
+  }
+
+  function clauseVue(src, status) {
+    var meta = [noeud("span", "cl-kind", libelleKind(src.kind))];
+    if (src.kind_confirmed === false) {
+      // AD-6 : un `kind` non confirmé plafonne le verdict. Afficher « garantie » sans le dire
+      // donnerait au lecteur une certitude que le pipeline n'a pas.
+      meta.push(noeud("span", "cl-doute", "typage non confirmé"));
+    }
+    if (typeof src.page === "number") meta.push(noeud("span", "cl-page", "page " + src.page));
+    var statut = statutTexte(status);
+    if (statut) meta.push(noeud("span", "cl-statut", statut));
+    return noeud("div", "clause", null, [
+      noeud("blockquote", "cl-q", "« " + String(src.quote || "") + " »"),
+      noeud("div", "cl-meta", null, meta)
+    ]);
+  }
+
+  // AD-4/D4 : « les faits compris » sont ce que *comprendre* a extrait des faits déclarés, pas la
+  // description renvoyée en écho. C'est le seul endroit où l'utilisateur peut constater qu'il a été
+  // mal compris — et c'est pour cela que l'AC l'exige.
+  var CHAMPS_COMPRIS = [
+    { cle: "bien", libelle: "Bien concerné" },
+    { cle: "evenement", libelle: "Événement" },
+    { cle: "lieu", libelle: "Lieu" },
+    { cle: "cause", libelle: "Cause" },
+    { cle: "moment", libelle: "Moment" }
+  ];
+
+  function faitsComprisVue(faits) {
+    if (!faits) return null;
+    var lignes = [];
+    CHAMPS_COMPRIS.forEach(function (c) {
+      var v = faits[c.cle];
+      if (v === undefined || v === null || String(v).trim() === "") return;
+      lignes.push(noeud("div", "fc-ligne", null, [
+        noeud("span", "fc-cle", c.libelle),
+        noeud("span", "fc-val", String(v))
+      ]));
+    });
+    var themes = tableau(faits.themes).filter(function (t) { return String(t || "").trim(); });
+    if (themes.length) {
+      lignes.push(noeud("div", "fc-ligne", null, [
+        noeud("span", "fc-cle", "Thèmes"),
+        noeud("span", "fc-val", themes.join(", "))
+      ]));
+    }
+    if (!lignes.length) return null;
+    return section("faits-compris", "Ce que j'ai compris du sinistre", [
+      noeud("div", "fc", null, lignes),
+      noeud("p", "fc-note", "Relu depuis votre description par le modèle. Si l'un de ces éléments " +
+        "est faux, le verdict porte sur autre chose que votre sinistre.")
+    ]);
+  }
+
+  var PIECES = [
+    { cle: "conditions_particulieres", libelle: "les conditions particulières" },
+    { cle: "options_souscrites", libelle: "les options souscrites" },
+    { cle: "avenants", libelle: "les avenants" },
+    { cle: "date_effet", libelle: "la date d'effet" }
+  ];
+
+  // AD-6 : `MissingPackage` accompagne **toujours** le verdict, y compris sous un « couvert ». C'est
+  // la mesure de ce que le verdict ne pouvait pas voir.
+  function paquetVue(missing) {
+    if (!missing) return null;
+    var absentes = PIECES.filter(function (p) { return missing[p.cle] !== false; })
+      .map(function (p) { return p.libelle; });
+    var faits = tableau(missing.faits).filter(function (f) { return String(f || "").trim(); });
+    if (!absentes.length && !faits.length) return null;
+    var enfants = [];
+    if (absentes.length) {
+      enfants.push(noeud("p", null, "Pièces du contrat non lues : " + absentes.join(", ") + "."));
+    }
+    if (faits.length) {
+      enfants.push(noeud("p", null, "Faits que les clauses citées exigent et que la description " +
+        "n'établit pas :"));
+      enfants.push(liste("paquet-faits", faits));
+    }
+    return section("paquet", "Ce qui manque au dossier", enfants);
+  }
+
+  function traceVue(trace) {
+    if (!trace) return null;
+    var t = trace;
+    var lignes = [
+      "référence de requête : " + String(t.request_id || ""),
+      "pipeline : " + String(t.pipeline || "") + (t.variant ? " · variante " + t.variant : "")
+    ];
+    tableau(t.steps).forEach(function (s) {
+      s = s || {};
+      var checks = tableau(s.checks).map(function (c) { return String((c || {}).name || ""); })
+        .filter(function (n) { return n; });
+      lignes.push("étape " + String(s.name || "") +
+        (s.tier ? " · " + s.tier : " · aucun appel") +
+        (typeof s.ms === "number" ? " · " + s.ms + " ms" : "") +
+        (checks.length ? " · contrôles : " + checks.join(", ") : ""));
+    });
+    var cout = coutTexte(t);
+    if (cout) lignes.push(cout);
+    // `<details>` natif : la trace est dépliable sans une ligne de JavaScript, donc sans état.
+    return noeud("details", "trace", null, [
+      noeud("summary", null, "Comment cette réponse a été obtenue"),
+      liste("trace-lignes", lignes)
+    ]);
+  }
+
+  function vueVerdict(reponse) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var verdict = a.verdict || null;
+    var sources = tableau(r.sources);
+    var enfants = [];
+
+    var v = libelleVerdict(verdict && verdict.value);
+    enfants.push(noeud("div", "verdict-tete", null, [
+      noeud("span", "badge verdict-" + v.cle, v.texte),
+      noeud("span", "portee", PORTEE)
+    ]));
+
+    if (verdict && String(verdict.reason || "").trim()) {
+      enfants.push(noeud("p", "verdict-raison", String(verdict.reason)));
+    }
+
+    // Le texte de la réponse est **rendu par le serveur** depuis les segments vérifiés (AD-3) : la
+    // page ne recompose rien, elle le pose.
+    if (String(a.texte || "").trim()) {
+      enfants.push(section("analyse", "Ce que disent les clauses retenues", [
+        noeud("p", "analyse-txt", String(a.texte))
+      ]));
+    }
+
+    var compris = faitsComprisVue(a.faits_compris);
+    if (compris) enfants.push(compris);
+
+    var paquet = paquetVue(verdict && verdict.missing);
+    if (paquet) enfants.push(paquet);
+
+    var questions = tableau(verdict && verdict.ask_client)
+      .filter(function (q) { return String(q || "").trim(); });
+    if (questions.length) {
+      enfants.push(section("ask", "Questions à poser au client", [liste("ask-liste", questions)]));
+    }
+
+    var escalade = tableau(verdict && verdict.escalate)
+      .filter(function (q) { return String(q || "").trim(); });
+    if (escalade.length) {
+      enfants.push(section("escalate", "Points à faire trancher par un humain",
+        [liste("escalate-liste", escalade)]));
+    }
+
+    // Les clauses citées, rattachées à l'affirmation qu'elles soutiennent quand l'appariement
+    // retombe (D6) ; sinon une liste plate, et la page **le dit**.
+    var appariees = clausesParClaim(a, sources);
+    if (sources.length) {
+      var corps = [];
+      if (appariees) {
+        appariees.forEach(function (entree) {
+          if (!entree.clauses.length) return;
+          corps.push(noeud("div", "affirmation", null,
+            [noeud("p", "aff-txt", String(entree.text || ""))].concat(
+              entree.clauses.map(function (src) { return clauseVue(src, entree.status); }))));
+        });
+      } else {
+        corps.push(noeud("p", "degrade",
+          "Les clauses ci-dessous fondent ce verdict, mais je n'ai pas pu rattacher chacune à " +
+          "l'affirmation exacte qu'elle soutient : elles sont données ensemble."));
+        // D6 : « avec leurs statuts ». Le mode dégradé serait le dernier endroit où taire
+        // l'applicabilité d'une clause et la réserve d'actualité de son édition.
+        sources.forEach(function (src) {
+          corps.push(clauseVue(src, statutDeBloc(a, src.block_id)));
+        });
+      }
+      enfants.push(section("clauses", "Clauses citées, relues dans le contrat", corps));
+    }
+
+    // D7 : les clauses non retrouvées, **sans** leur citation — la quote d'une claim rejetée sur ses
+    // citations est restée la chaîne du modèle, et rien ne prouve qu'elle existe dans le contrat.
+    var rejetees = tableau(a.rejected_claims).filter(function (c) { return c; });
+    if (rejetees.length) {
+      // Le titre et la note valent pour **les quatre** `rejection_kind` d'AD-4 (revue 1.9) : dire
+      // « non retrouvées » les couvrait mal — `non_pertinente` désigne un passage bien réel, et
+      // `non_citee` une affirmation vérifiée qu'aucune phrase affichée ne reprend. Ce qui leur est
+      // commun, et seulement cela, c'est qu'elles ont été écartées et que leur citation n'est pas
+      // montrée (D7). Le motif exact est sur chaque ligne.
+      enfants.push(section("rejetees", "Affirmations écartées par la vérification", [
+        noeud("p", "rejetees-note",
+          "Le modèle a avancé ces affirmations ; les contrôles les ont écartées. Aucune de leurs " +
+          "citations n'est affichée : le motif de chacune est donné en dessous."),
+        noeud("div", "rejetees-liste", null, rejetees.map(function (c) {
+          return noeud("div", "rejetee", null, [
+            noeud("p", "rej-txt", String(c.text || "")),
+            noeud("p", "rej-motif", motifRejet(c.rejection_kind)),
+            // D7 demande « le motif du rejet en français **et** le kind du rejet » : le premier est
+            // la phrase ci-dessus, le second est la valeur typée du contrat, posée telle quelle.
+            // `RejectedClaim.motif`, lui, reste dehors : il est composé pour la **relance** de
+            // *rédiger* et cite des `block_id` qui, sur une claim `non_retrouvee`, sont ceux que le
+            // modèle a inventés — un identifiant non fiable sous un verdict n'apprend rien.
+            noeud("p", "rej-kind", String(c.rejection_kind || ""))
+          ]);
+        }))
+      ]));
+    }
+
+    var inconnus = tableau(a.unknown).filter(function (x) { return String(x || "").trim(); });
+    if (inconnus.length) {
+      enfants.push(section("inconnu", "Ce que je ne sais pas", [liste("inconnu-liste", inconnus)]));
+    }
+
+    if (a.clarification) {
+      enfants.push(section("clarif", "Une précision, pour chercher au bon endroit", [
+        noeud("p", "clarif-q", String(a.clarification))
+      ]));
+    }
+
+    var trace = traceVue(r.trace);
+    if (trace) enfants.push(trace);
+
+    return noeud("div", "carte resultat", null, enfants);
+  }
+
+  // AD-16 : une erreur affiche l'erreur, sa référence de requête, et **rien d'autre**. Aucun bouton,
+  // aucun repli, aucun verdict de remplacement — et l'appelant efface le verdict précédent avant de
+  // peindre celle-ci, pour qu'un ancien badge ne reste pas à l'écran sous un message d'échec.
+  function vueErreur(erreur) {
+    var e = erreur || {};
+    var enfants = [
+      noeud("strong", "err-titre", "Aucun verdict n'a été rendu"),
+      noeud("p", "err-txt", messageErreur(e))
+    ];
+    if (e.request_id) {
+      enfants.push(noeud("p", "err-ref", "référence de requête : " + String(e.request_id)));
+    }
+    enfants.push(noeud("p", "err-note",
+      "Rien n'est deviné à la place du serveur : il n'y a pas de mode dégradé pour un sinistre."));
+    return noeud("div", "carte erreur", null, enfants);
+  }
+
+  // ---------- le matérialiseur : il peint, il ne décide pas ----------
+  //
+  // AD-15 : tout ce qui vient du serveur est posé par `textContent`. `innerHTML` n'est employé que
+  // pour **vider** un conteneur (chaîne vide) — le DOM minimal des tests lève sur toute autre pose.
+  function materialiser(vue) {
+    var e = document.createElement(vue.tag);
+    if (vue.cls) e.className = vue.cls;
+    if (vue.tag === "button") e.type = "button";
+    if (vue.href) { e.href = vue.href; e.target = "_blank"; e.rel = "noopener noreferrer"; }
+    if (vue.texte !== undefined) e.textContent = vue.texte;
+    if (vue.attrs) {
+      Object.keys(vue.attrs).forEach(function (nom) { e.setAttribute(nom, String(vue.attrs[nom])); });
+    }
+    (vue.enfants || []).forEach(function (enfant) { e.appendChild(materialiser(enfant)); });
+    return e;
+  }
+
+  function vider(cible) {
+    if (cible) cible.innerHTML = "";
+  }
+
+  function peindre(vue, cible) {
+    var hote = cible || document.getElementById("resultat");
+    vider(hote);
+    var e = materialiser(vue);
+    hote.appendChild(e);
+    return e;
+  }
+
+  // ---------- réseau ----------
+
+  function erreurSinistre(d) {
+    var e = new Error(d.code || d.kind);
+    e.nom = "ErreurSinistre";
+    e.kind = d.kind;
+    e.code = d.code || "";
+    e.statut = d.statut || 0;
+    e.retry_after = (typeof d.retry_after === "number" && !isNaN(d.retry_after)) ? d.retry_after : null;
+    e.request_id = d.request_id || "";
+    return e;
+  }
+
+  function erreurHttp(statut, entetes, corps) {
+    var err = (corps && corps.error) || {};
+    var retry = parseInt(entetes && entetes.get ? entetes.get("Retry-After") : null, 10);
+    return erreurSinistre({
+      // `indisponible` n'ouvre **aucun** repli ici (AD-16 : « aucun repli pour le sinistre ») ; le
+      // kind sert uniquement à composer une phrase honnête sur ce qui s'est passé.
+      kind: statut === 503 ? "indisponible" : "requete",
+      code: typeof err.code === "string" ? err.code : "",
+      statut: statut,
+      retry_after: isFinite(retry) ? retry : null,
+      request_id: typeof err.request_id === "string" ? err.request_id : ""
+    });
+  }
+
+  function enLigne() { return !!API_BASE; }
+
+  function estObjet(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+
+  // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme. Un 200 incomplet n'est pas
+  // une réponse dégradée, c'est un serveur cassé : la page n'en peint aucun morceau (`reponse_illisible`).
+  // Les défauts du contrat restent tolérés à l'**absence**, jamais à `null` ni au mauvais type.
+  function lireReponse(j) {
+    var o = j || {};
+    if (!estObjet(o.answer)) throw illisible("answer");
+    if (typeof o.answer.found !== "boolean") throw illisible("answer.found");
+    if (typeof o.answer.complete !== "boolean") throw illisible("answer.complete");
+    if (typeof o.answer.texte !== "string") throw illisible("answer.texte");
+    // AD-16 : un refus sinistre **porte** un verdict, jamais rien. Un corps sans verdict n'a pas pu
+    // être écrit par la route ; le peindre afficherait « verdict non reconnu » à la place d'une
+    // erreur, c'est-à-dire un verdict de remplacement.
+    if (!estObjet(o.answer.verdict)) throw illisible("answer.verdict");
+    if (typeof o.answer.verdict.value !== "string") throw illisible("answer.verdict.value");
+    if (o.answer.claims !== undefined && !Array.isArray(o.answer.claims)) throw illisible("answer.claims");
+    if (o.sources !== undefined && !Array.isArray(o.sources)) throw illisible("sources");
+    (o.sources || []).forEach(function (s, i) {
+      if (!estObjet(s)) throw illisible("sources[" + i + "]");
+      if (typeof s.block_id !== "string") throw illisible("sources[" + i + "].block_id");
+      if (typeof s.quote !== "string") throw illisible("sources[" + i + "].quote");
+      if (typeof s.kind !== "string") throw illisible("sources[" + i + "].kind");
+    });
+    if (!estObjet(o.trace)) throw illisible("trace");
+    if (typeof o.trace.request_id !== "string") throw illisible("trace.request_id");
+    return {
+      answer: o.answer,
+      sources: o.sources || [],
+      via: typeof o.via === "string" ? o.via : "api/v1",
+      trace: o.trace
+    };
+  }
+
+  function illisible(champ) {
+    var e = erreurSinistre({ kind: "requete", code: "reponse_illisible", statut: 200 });
+    e.champ = champ;
+    return e;
+  }
+
+  function requete(chemin, options) {
+    if (!enLigne()) {
+      return Promise.reject(erreurSinistre({ kind: "requete", code: "hors_ligne", statut: 0 }));
+    }
+    var opts = options || { method: "GET" };
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    if (ctrl) opts.signal = ctrl.signal;
+    var minuteur = ctrl ? setTimeout(function () { ctrl.abort(); }, abandonMs()) : null;
+    function finir() { if (minuteur !== null) clearTimeout(minuteur); }
+    return fetch(API_BASE + chemin, opts).then(function (r) {
+      finir();
+      if (!r.ok) {
+        return r.json().then(function (j) { return j; }, function () { return null; })
+          .then(function (j) { throw erreurHttp(r.status, r.headers, j); });
+      }
+      return r.json().then(function (j) { return j; }, function () {
+        throw erreurSinistre({ kind: "requete", code: "reponse_illisible", statut: r.status });
+      });
+    }, function () {
+      finir();
+      throw erreurSinistre({
+        kind: "indisponible",
+        code: (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau",
+        statut: 0
+      });
+    });
+  }
+
+  // `GET /api/v1/sante` n'est jamais limitée et ne coûte rien : tout ce qu'elle publie a été calculé
+  // au démarrage du serveur. Le sinistre n'a pas de badge de mode à tenir — il n'en lit que les
+  // **seuils actifs**, pour que sa borne d'abandon soit celle du serveur et non une copie figée.
+  // Un échec n'empêche rien : les replis prennent le relais, et la page le dira si la requête suit.
+  function sonder() {
+    return requete("/api/v1/sante").then(function (j) {
+      if (j && j.thresholds && typeof j.thresholds === "object") seuilsServeur = j.thresholds;
+      return j;
+    }, function () { return null; });
+  }
+
+  function documents() {
+    return requete("/api/v1/documents").then(function (j) {
+      return Array.isArray(j) ? j : [];
+    });
+  }
+
+  function soumettre(saisie) {
+    return requete("/api/v1/sinistre", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpsSinistre(saisie))
+    }).then(lireReponse);
+  }
+
+  // ---------- démarrage : le seul endroit qui touche la page ----------
+
+  function $(id) { return document.getElementById(id); }
+
+  function saisieCourante() {
+    return {
+      doc_id: ($("contrat") || {}).value || "",
+      question: ($("question") || {}).value || "",
+      date: ($("date") || {}).value || "",
+      lieu: ($("lieu") || {}).value || "",
+      montant_eur: ($("montant") || {}).value || "",
+      description: ($("description") || {}).value || ""
+    };
+  }
+
+  // Le lien vers la source publique du contrat **sélectionné**, décrit comme tout le reste : c'est
+  // le matérialiseur qui pose `href`, `target` et `rel`, pas cette fonction.
+  function vueSource(vue, doc_id) {
+    var trouve = tableau(vue && vue.sources).filter(function (s) {
+      return s && s.doc_id === doc_id;
+    })[0];
+    if (!trouve || !trouve.url) return null;
+    var a = noeud("a", "source-lien", "voir le contrat à sa source publique");
+    a.href = trouve.url;
+    return a;
+  }
+
+  /** Le lien de source seul — rejoué à chaque `change`, sans toucher au `<select>`. */
+  function rafraichirSource(vue) {
+    var source = $("contrat-source");
+    if (!source) return;
+    vider(source);
+    var lien = vueSource(vue, ($("contrat") || {}).value || "");
+    if (lien) source.appendChild(materialiser(lien));
+  }
+
+  /**
+   * Pose le `<select>`, le message et le lien de source. Les `<option>` sont construites **une
+   * seule fois** (revue 1.9) : rebâtir la liste à chaque `change` remettait `select.value` sur la
+   * première option, si bien qu'avec deux contrats servis — ce qu'AD-14 prévoit — le choix de
+   * l'utilisateur était annulé en silence et le sinistre partait contre le mauvais contrat.
+   */
+  function appliquerFormulaire(vue) {
+    var select = $("contrat");
+    var bouton = $("analyser");
+    var message = $("contrats-message");
+    if (select) {
+      vider(select);
+      vue.options.forEach(function (o) {
+        var option = document.createElement("option");
+        option.value = o.valeur;
+        option.textContent = o.texte;  // AD-15 : titre et édition viennent du serveur
+        select.appendChild(option);
+      });
+      select.disabled = !vue.actif;
+      // `select.value` vaut la première option en HTML ; le DOM minimal des tests ne le dérive pas,
+      // et le poser explicitement rend le comportement identique des deux côtés.
+      if (vue.options.length && !select.value) select.value = vue.options[0].valeur;
+    }
+    if (bouton) bouton.disabled = !vue.actif;
+    if (message) {
+      message.textContent = vue.message || "";
+      message.hidden = !vue.message;
+    }
+    rafraichirSource(vue);
+  }
+
+  function verrouiller(occupe) {
+    ["contrat", "question", "date", "lieu", "montant", "description", "analyser"]
+      .forEach(function (id) { var e = $(id); if (e) e.disabled = !!occupe; });
+    var hote = $("resultat");
+    if (hote) hote.setAttribute("aria-busy", occupe ? "true" : "false");
+  }
+
+  /** Ce qui manque à la saisie pour partir, ou `null`. Le bouton n'est jamais muet (revue 1.9). */
+  function manquant(saisie) {
+    if (!String(saisie.doc_id || "").trim()) {
+      return "Choisissez le contrat auquel confronter ce sinistre.";
+    }
+    if (!String(saisie.question || "").trim()) {
+      return "La question posée au contrat ne peut pas être vide.";
+    }
+    if (!String(saisie.description || "").trim()) {
+      return "Décrivez les faits : sans description, il n'y a rien à confronter aux clauses.";
+    }
+    return null;
+  }
+
+  function demarrer() {
+    // Les `maxlength` de la page sont posés **ici**, depuis les constantes du script : la page en
+    // porte aussi la valeur en dur, mais comme repli sans JavaScript. Une seule source à
+    // l'exécution (revue 1.9) ; un test Python épingle les deux contre les schémas du serveur.
+    var bornes = [{ id: "question", max: QUESTION_MAX }, { id: "description", max: DESCRIPTION_MAX }];
+    bornes.forEach(function (b) { var e = $(b.id); if (e) e.maxLength = b.max; });
+
+    var vueForm = vueFormulaire([]);
+    // La sonde d'abord : elle porte `deadline_s` et `client_abort_margin_s`, donc la borne
+    // d'abandon de toutes les requêtes qui suivent. Elle ne coûte rien et n'est pas limitée.
+    sonder()
+      .then(documents)
+      .then(function (docs) {
+        vueForm = vueFormulaire(docs);
+        appliquerFormulaire(vueForm);
+      })
+      .catch(function (e) {
+        // `.catch` et non le second argument de `.then` : une exception levée **dans** le
+        // gestionnaire de succès (une réponse à la forme inattendue) laisserait sinon la page
+        // muette et le formulaire désactivé sans un mot (revue 1.9).
+        vueForm = vueFormulaire([], true);
+        appliquerFormulaire(vueForm);
+        peindre(vueErreur(e));
+      });
+
+    var select = $("contrat");
+    if (select) {
+      // Seul le lien de source est rejoué : reconstruire les options annulerait la sélection.
+      select.addEventListener("change", function () { rafraichirSource(vueForm); });
+    }
+
+    var form = $("formulaire");
+    if (form) {
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var saisie = saisieCourante();
+        var defaut = manquant(saisie);
+        if (defaut) {
+          // Un bouton qui ne fait rien et ne dit rien est un bouton cassé. La carte porte le même
+          // titre que les autres échecs — aucun verdict n'a été rendu — et aucune action.
+          peindre(vueErreur({ kind: "saisie", code: "saisie_incomplete", detail: defaut }));
+          return;
+        }
+        // Le verdict précédent quitte l'écran **avant** l'appel : sur une erreur, l'AC exige qu'il
+        // n'y reste pas, et le plus simple est qu'il ne survive à aucune soumission.
+        peindre(vueAttente());
+        verrouiller(true);
+        soumettre(saisie)
+          .then(function (r) {
+            verrouiller(false);
+            peindre(vueVerdict(r));
+          })
+          .catch(function (e) {
+            verrouiller(false);
+            peindre(vueErreur(e));
+          });
+      });
+    }
+  }
+
+  window.SINISTRE = {
+    // Composition pure : testable sans navigateur (`tests/js/sinistre_cases.mjs`).
+    corpsSinistre: corpsSinistre,
+    clausesParClaim: clausesParClaim,
+    statutTexte: statutTexte,
+    libelleKind: libelleKind,
+    libelleVerdict: libelleVerdict,
+    motifRejet: motifRejet,
+    coutTexte: coutTexte,
+    messageErreur: messageErreur,
+    vueAttente: vueAttente,
+    vueFormulaire: vueFormulaire,
+    vueVerdict: vueVerdict,
+    vueErreur: vueErreur,
+    // Réseau et peinture.
+    documents: documents,
+    soumettre: soumettre,
+    materialiser: materialiser,
+    peindre: peindre,
+    demarrer: demarrer,
+    apiBase: function () { return API_BASE; },
+    setApiBase: function (u) { API_BASE = u; },
+    bornes: function () {
+      return {
+        question_max: QUESTION_MAX, description_max: DESCRIPTION_MAX,
+        abandon_ms: abandonMs(), seuils_du_serveur: seuilsServeur,
+        deadline_s_repli: DEADLINE_S_REPLI, marge_abandon_s_repli: MARGE_ABANDON_S_REPLI
+      };
+    },
+    sonder: sonder,
+    manquant: manquant,
+    statutDeBloc: statutDeBloc,
+    vueSource: vueSource,
+    PORTEE: PORTEE
+  };
+
+  // Le harnais de test charge ce fichier sans page : il pose ce drapeau pour obtenir `window.SINISTRE`
+  // sans démarrage. Même mécanique que `__UI_SANS_DEMARRAGE` de `web/app/ui.js`.
+  if (!window.__SINISTRE_SANS_DEMARRAGE) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", demarrer);
+    } else {
+      demarrer();
+    }
+  }
+})();
