@@ -158,7 +158,15 @@ class Document(DomainModel):
         return self._node_of[block_id]
 
     def node_scope_kind(self, node_id: str) -> ScopeKind:
-        """`Node.scope.kind` du nœud — `commun` est le **socle** au sens d'AD-6 (règle 3)."""
+        """`Node.scope.kind` du nœud **lui-même** — `commun` est le socle au sens d'AD-6 (règle 3).
+
+        Aucune remontée vers les ancêtres, et ce n'est pas un oubli (revue 1.8) : l'ingestion résout
+        la portée nœud par nœud, et un descendant **prime** son ancêtre. Dans le contrat AXA, `a3`
+        porte `special` tandis que `a3.1` et tout son sous-arbre portent `commun` — hériter de
+        l'ancêtre ferait sortir la garantie `p34:12` (nœud `a3.1.1.1.6`) du socle, et la règle (3)
+        d'AD-6 ne rendrait plus jamais `couvert` sur ce contrat. Un nœud sans `scope` déclaré vaut
+        déjà `commun` par le défaut d'AD-2 : il n'y a rien à aller chercher plus haut.
+        """
         return self._scope_of_node[node_id]
 
     def scope_nodes(self, block_id: str) -> set[str]:

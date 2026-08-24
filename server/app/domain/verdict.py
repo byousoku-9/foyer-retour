@@ -132,12 +132,24 @@ def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
        lit le socle sur le nœud (règle 3) ; une clause dont on ignore où elle s'applique ne peut être
        ni retenue ni écartée par du code ;
     4. champs typés non rendus ⇒ `humain` — jamais devinés (AC de la story) ;
-    5. fait exigé **connu et contraire** (`fait_requis_present=false`, aucun `fait_manquant`) ⇒ `non` ;
+    5. fait exigé **connu et contraire** (`fait_requis_present=false`, aucun `fait_manquant`) ⇒ `non`,
+       **pour une garantie ou une exclusion seulement** (voir ci-dessous) ;
     6. option, conditions particulières ou fait **inconnu** ⇒ `humain` ;
     7. sinon ⇒ `oui`.
 
     L'ordre compte : (5) précède (6) parce qu'une clause qui ne s'applique pas au cas rend sans objet
     l'option dont elle dépendrait par ailleurs.
+
+    **Pourquoi (5) est fermé à `condition` et `franchise` (revue 1.8).** Sur une garantie ou une
+    exclusion, « le fait exigé est connu et contraire » se lit sans ambiguïté : la clause ne vise pas
+    ce cas (l'exclusion de la page 46 vise le bâtiment des extensions, le sinistre porte sur le
+    contenu du domicile). Sur une **condition** — « le bien doit être occupé de manière permanente » —
+    ou une **franchise**, le même jeu de champs ne distingue pas « cette condition ne concerne pas ce
+    cas » de « cette condition n'est **pas remplie** ». La seconde lecture est la plus fréquente, et
+    la traiter comme `non` sortirait la clause de la table : la règle (2) ne verrait plus de condition
+    ouverte, et un `couvert` sortirait alors qu'une condition citée est explicitement en défaut. Une
+    condition ou une franchise dont le fait exigé n'est pas établi vaut donc `humain`, quel que soit
+    `fait_manquant` — politique conservatrice, comme la règle (2) elle-même.
     """
     if not claim.clauses:
         return None
@@ -148,39 +160,45 @@ def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
     champs = claim.champs
     if champs is None:
         return "humain"
-    if not champs.fait_requis_present and not (champs.fait_manquant or "").strip():
-        return "non"
+    if not champs.fait_requis_present:
+        fondatrice = claim.kind in KINDS_FONDATEURS
+        if fondatrice and not (champs.fait_manquant or "").strip():
+            return "non"
+        return "humain"
     if champs.option_requise or champs.cp_requise or (champs.fait_manquant or "").strip():
         return "humain"
     return "oui"
 
 
-def _libelles_manquants(claims: list[ClaimJugee], *, ask_client_max: int) -> list[str]:
+def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
     """Les `fait_manquant` des claims retenues : dédupliqués, dans l'ordre, bornés (D8).
 
     Seuls textes du modèle qui traversent jusqu'à l'utilisateur ; leur **longueur** est bornée par
     l'appelant (`fait_manquant_max_chars`, qui trace ce qu'il écarte), leur **nombre** ici.
+
+    `place` est le nombre de questions encore disponibles **après** celles que le paquet manquant
+    occupe déjà, jamais `ask_client_max` brut (revue 1.8) : borner sur le total laissait
+    `missing.faits` annoncer un fait qu'aucune question de `ask_client` ne demandait, alors que le
+    front affiche l'un sous l'autre. Ce qui n'entre pas ne figure nulle part.
     """
     out: list[str] = []
     for claim in claims:
         libelle = ((claim.champs.fait_manquant if claim.champs else None) or "").strip()
         if libelle and libelle not in out:
             out.append(libelle)
-    return out[:ask_client_max]
+    return out[:max(place, 0)]
 
 
-def _questions(claims: list[ClaimJugee], manquants: list[str], missing: MissingPackage, *,
-               ask_client_max: int) -> list[str]:
-    """`ask_client[]` composé **par le code** (D8) : le paquet manquant, puis les faits à établir.
+def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> list[str]:
+    """Ce qu'il faut demander au client parce que le verdict ne lit que les conditions générales.
 
-    Les deux premières questions découlent directement de `missing` : un verdict rendu « au regard des
-    conditions générales seules » ignore *par construction* les options souscrites et les conditions
-    particulières, et c'est précisément ce qu'il faut demander au client avant d'aller plus loin. Elles
-    ne sont donc pas conditionnées aux booléens du modèle — elles se **précisent** quand une clause
-    citée en dépend explicitement, ce qui les fait passer d'une diligence à un préalable.
-
-    Les suivantes viennent des `fait_manquant`, seuls textes du modèle qui traversent jusqu'à
-    l'utilisateur (bornés en longueur par l'appelant, dédupliqués et bornés en nombre ici).
+    Une question par pièce manquante d'AD-6, et rien qui dépende du modèle : un verdict rendu « au
+    regard des conditions générales seules » ignore *par construction* les options souscrites, les
+    conditions particulières, les avenants et la date d'effet. Les deux premières se **précisent**
+    quand une clause citée en dépend explicitement (booléen typé), ce qui les fait passer d'une
+    diligence à un préalable. La troisième couvre les deux pièces restantes : les annoncer manquantes
+    dans `missing` sans jamais les demander laissait le gestionnaire devant quatre pièces absentes et
+    deux questions (revue 1.8).
     """
     out: list[str] = []
     if missing.options_souscrites:
@@ -193,9 +211,22 @@ def _questions(claims: list[ClaimJugee], manquants: list[str], missing: MissingP
         if any(c.champs is not None and c.champs.cp_requise for c in claims):
             question += " Une clause citée y renvoie."
         out.append(question)
-    for libelle in manquants:
-        out.append(f"Fait à établir auprès du client : {libelle}")
-    return out[:ask_client_max]
+    if missing.avenants or missing.date_effet:
+        out.append("À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? "
+                   "Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.")
+    return out
+
+
+def questions_du_paquet_manquant() -> list[str]:
+    """Les questions dues **sans lire une seule clause** : le paquet manquant d'AD-6, et rien d'autre.
+
+    Un refus de sinistre (hors périmètre, aucun bloc trouvé, toutes les citations rejetées) n'a aucune
+    claim à interroger, mais il lui manque exactement les mêmes pièces qu'à un verdict ordinaire — et
+    c'est le dossier qui a le plus besoin d'être complété. Le pipeline compose donc son `ask_client`
+    ici, avec le **même** code et les mêmes mots, pour qu'un refus ne soit pas le seul verdict du
+    système à ne rien réclamer (revue 1.8).
+    """
+    return _questions_du_paquet([], MissingPackage())
 
 
 def _escalades(claims: list[ClaimJugee], *, contradiction: bool, renvoi: bool) -> list[str]:
@@ -254,9 +285,14 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
     """
     retenues = [c for c in claims if c.retenue]
     etat = {c.claim_id: applicable_de_claim(c) for c in retenues}
-    manquants = _libelles_manquants(retenues, ask_client_max=ask_client_max)
+    # Les questions du paquet manquant d'abord : elles ne dépendent d'aucune sortie du modèle et
+    # elles sont dues quel que soit le verdict. Ce qu'elles laissent de place borne alors les
+    # libellés du modèle, si bien que `missing.faits` et `ask_client` disent la même chose.
+    paquet = _questions_du_paquet(retenues, MissingPackage())
+    manquants = _libelles_manquants(retenues, place=ask_client_max - len(paquet))
     missing = MissingPackage(faits=manquants)
-    ask = _questions(retenues, manquants, missing, ask_client_max=ask_client_max)
+    ask = (paquet + [f"Fait à établir auprès du client : {libelle}"
+                     for libelle in manquants])[:ask_client_max]
     contradiction = any(c.contredit for c in retenues)
     renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
     escalate = _escalades(retenues, contradiction=contradiction, renvoi=renvoi)

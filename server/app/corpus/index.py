@@ -118,12 +118,18 @@ class Index:
                  kinds_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
         """Correspondance mot entier sur `text_norm` ; tri par nb de termes canoniques distincts touchés, puis lecture.
 
-        `kinds_prioritaires` (story 1.8) ne **filtre** rien : à score égal, un bloc dont le `Block.kind`
-        y figure passe devant les autres. Le départage vit ici et non dans *retrouver* parce que le
-        score — le nombre de termes canoniques distincts touchés — n'existe qu'ici : rendu au seul
-        ordre des hits, il serait indevinable, et un tri par kind seul remonterait un bloc décisionnel
-        anecdotique devant le paragraphe qui répond vraiment. Le pipeline sinistre y passe les quatre
-        kinds décisionnels d'AD-6 ; le guide ne passe rien et son ordre de recherche est inchangé.
+        `kinds_prioritaires` (story 1.8) n'écarte aucun bloc **par son kind** : à score égal, un bloc
+        dont le `Block.kind` y figure passe devant les autres, et c'est tout ce que le tri fait. Il
+        change en revanche **qui survit à `limit`** (revue 1.8) : au-delà du quota, ce sont les blocs
+        rétrogradés qui tombent, et un bloc ordinaire ex æquo avec une clause peut donc disparaître du
+        résultat alors qu'il y figurait sans priorité. C'est l'effet recherché — les clauses passent
+        devant — mais ce n'est pas « rien ne change au-delà de l'ordre ».
+
+        Le départage vit ici et non dans *retrouver* parce que le score — le nombre de termes
+        canoniques distincts touchés — n'existe qu'ici : rendu au seul ordre des hits, il serait
+        indevinable, et un tri par kind seul remonterait un bloc décisionnel anecdotique devant le
+        paragraphe qui répond vraiment. Le pipeline sinistre y passe les quatre kinds décisionnels
+        d'AD-6 ; le guide ne passe rien et son ordre de recherche est inchangé.
         """
         if limit < 1:
             raise ValueError("limit doit être ≥ 1")
