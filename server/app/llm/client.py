@@ -168,16 +168,22 @@ class LlmClient:
         if hasattr(resultat, "__await__"):
             await resultat
 
-    def new_budget(self) -> RequestBudget:
+    def new_budget(self, deadline_s: float | None = None) -> RequestBudget:
         """Budget d'une requête, réglé sur les seuils actifs (AD-9 : deadline, appels, euros).
 
         Story 1.5 : la table des couches interdit à `pipelines` d'importer `llm` — il ne peut donc
         pas construire lui-même un `RequestBudget`. Le client, qui est le seul à s'en servir, le
         fabrique ; le pipeline le reçoit ou le demande, sans jamais connaître son type.
+
+        Story 1.8 : `deadline_s` **raccourcit** la deadline du réglage, jamais l'inverse. Un appelant
+        qui a déjà consommé du temps (un script de démonstration, une éval qui enchaîne des cas) doit
+        pouvoir donner moins que `settings.deadline_s` ; lui laisser en demander plus contournerait
+        NFR3 depuis l'extérieur du serveur.
         """
         s = self._settings
-        return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
-                             max_cost_eur=s.max_cost_eur_per_request)
+        return RequestBudget(deadline_s=min(deadline_s, s.deadline_s) if deadline_s is not None
+                             else s.deadline_s,
+                             max_attempts=s.max_llm_attempts, max_cost_eur=s.max_cost_eur_per_request)
 
     async def parse(
         self,

@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     verifier_max_claims: int = Field(8, ge=1)
     verifier_max_tokens: int = Field(1024, ge=1)
 
+    # Pipeline sinistre (story 1.8, AD-6) : contrat servi par `pipelines/sinistre.py` — un slug, pas un
+    # seuil numérique, donc absent de `thresholds()` comme `guide_doc_id`.
+    sinistre_doc_id: str = "axa-lu-optihome-2017"
+    # D8 de la spec 1.8 : `Verdict.reason`, `ask_client[]` et `escalate[]` sont composés par le code ;
+    # seuls les libellés `fait_manquant` viennent du modèle. Ce sont donc les deux seules bornes à
+    # poser sur du texte non fiable qui sera **affiché** : sa longueur (au-delà, le libellé est ignoré
+    # et la trace le dit — jamais tronqué, une demi-phrase de fait manquant induirait en erreur) et le
+    # nombre de questions posées au client. 200 caractères tiennent une question précise
+    # (« caractère subit de l'action de la chaleur ») sans ouvrir la porte à un paragraphe.
+    fait_manquant_max_chars: int = Field(200, ge=1)
+    ask_client_max: int = Field(8, ge=1)
+
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
     node_window: int = Field(30, ge=1)
@@ -234,6 +246,8 @@ class Settings(BaseSettings):
             "rediger_max_tokens": self.rediger_max_tokens,
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
+            "fait_manquant_max_chars": self.fait_manquant_max_chars,
+            "ask_client_max": self.ask_client_max,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider
