@@ -21,10 +21,11 @@
   --warn: #96570a;
   --warn-soft: #fdf5e8;
   --ok: #0c6b3e;
-  /* foyer-retour : couleur d'erreur du thème. Le site posait la même valeur en dur à sept endroits
-     (statuts `ko` du comparateur), sans variante sombre — contrairement à `--ok` et `--warn`. Les
-     blocs de l'assistant en avaient besoin ; la variable la donne à tout le monde. En thème clair
-     la valeur est inchangée, en thème sombre elle devient lisible. */
+  /* foyer-retour : couleur d'erreur des blocs de l'assistant (story 1.7). `--ok` et `--warn` ont
+     leur variante sombre, il n'existait rien d'équivalent pour l'erreur. Les huit déclarations
+     `ko` du comparateur et de la page de recommandation gardent volontairement leur littéral :
+     elles sont hors du périmètre de cette story, et les basculer changerait leur rendu en thème
+     sombre sans qu'aucune AC ne le demande. Leur lisibilité est une reprise différée. */
   --ko: #be123c;
   --ombre-s: 0 1px 2px rgba(11,18,32,.05), 0 2px 6px rgba(11,18,32,.05);
   --ombre-m: 0 6px 14px -4px rgba(11,18,32,.10), 0 18px 34px -10px rgba(11,18,32,.10);
@@ -705,9 +706,9 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 }
 .vstatut.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
 .vstatut.cond { color: var(--warn); background: var(--warn-soft); }
-.vstatut.ko { color: var(--ko); background: color-mix(in srgb, var(--ko) 11%, transparent); }
+.vstatut.ko { color: #be123c; background: color-mix(in srgb, #be123c 11%, transparent); }
 .vstatut.nf { color: var(--muted); background: var(--surface-2); }
-.vcard.ko { border-color: color-mix(in srgb, var(--ko) 30%, var(--border)); }
+.vcard.ko { border-color: color-mix(in srgb, #be123c 30%, var(--border)); }
 .vcard.ok { border-color: color-mix(in srgb, var(--ok) 30%, var(--border)); }
 .vcle { margin: 0 0 6px; color: var(--text-2); }
 .vinfo { margin: 0 0 4px; color: var(--muted); font-size: 12.5px; }
@@ -905,17 +906,17 @@ h2.faq-groupe:first-child { margin-top: 24px; }
 .reco-rang { font-weight: 700; color: var(--muted); font-size: 14px; }
 .reco-nom { font-weight: 650; font-size: 16px; flex: 1; }
 .reco-pct { font-weight: 700; font-size: 20px; }
-.reco-pct.ok { color: var(--ok); } .reco-pct.part { color: var(--warn); } .reco-pct.ko { color: var(--ko); }
+.reco-pct.ok { color: var(--ok); } .reco-pct.part { color: var(--warn); } .reco-pct.ko { color: #be123c; }
 .reco-barre { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
 .reco-barre i { display: block; height: 100%; border-radius: 99px; }
 .reco-barre i.ok { background: linear-gradient(90deg, var(--ok), color-mix(in srgb, var(--ok) 60%, var(--accent-2))); }
 .reco-barre i.part { background: var(--warn); }
-.reco-barre i.ko { background: var(--ko); }
+.reco-barre i.ko { background: #be123c; }
 .reco-ok { margin: 0; font-size: 13.5px; color: var(--ok); }
 .reco-lacunes summary { cursor: pointer; font-size: 13.5px; color: var(--accent); }
 .lacune { margin: 9px 0 0; padding: 10px 12px; border-radius: var(--r-s); background: var(--surface-2); }
 .lacune-t { margin: 0; font-size: 13.5px; color: var(--text-2); }
-.lacune-s { color: var(--ko); font-weight: 600; }
+.lacune-s { color: #be123c; font-weight: 600; }
 .lacune-c { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); font-style: italic; line-height: 1.55; }
 
 table.mrh-table { width: 100%; }
@@ -923,7 +924,7 @@ table.mrh-table td.num { text-align: center; font-size: 13px; }
 .cell-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); font-weight: 600; }
 .cell-cond { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); font-weight: 600; }
 .cell-part { color: var(--warn); background: var(--warn-soft); font-weight: 600; }
-.cell-ko { color: var(--ko); background: color-mix(in srgb, var(--ko) 8%, transparent); font-weight: 600; }
+.cell-ko { color: #be123c; background: color-mix(in srgb, #be123c 8%, transparent); font-weight: 600; }
 .cell-nf { color: var(--muted); }
 .mat-hits { display: block; font-weight: 600; }
 .mat-page { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
@@ -1040,7 +1041,7 @@ table.sm-table thead th {
   border: 1px solid var(--border); background: var(--surface); color: var(--muted);
   width: 26px; height: 26px; border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1;
 }
-.sm-retirer:hover { color: var(--ko); border-color: var(--ko); }
+.sm-retirer:hover { color: #be123c; border-color: #be123c; }
 tr.sm-score td { background: var(--surface-2); border-top: 2px solid var(--border-fort); }
 .sm-pct { font-size: 19px; font-family: var(--serif); font-weight: 400; }
 .sm-pct.sm-top { color: var(--ok); }
@@ -1073,7 +1074,7 @@ tr.sm-score td { background: var(--surface-2); border-top: 2px solid var(--borde
 }
 .pastille.ok { background: var(--ok); }
 .pastille.cond { background: var(--warn); }
-.pastille.ko { background: var(--ko); }
+.pastille.ko { background: #be123c; }
 .pastille.nf { background: var(--muted); }
 .sin-item[open] summary { border-bottom: 1px solid var(--border); }
 .sin-corps { padding: 14px 16px 16px; }
