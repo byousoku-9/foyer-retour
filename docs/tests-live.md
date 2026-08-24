@@ -179,3 +179,19 @@ Aucun réseau ni modèle : l'ingestion est locale et déterministe. Exécution r
 | Ligne de log JSON | sortie standard d'uvicorn pendant les appels ci-dessus | une ligne par requête avec `request_id`, `intent`, `found`, `cost_eur`, `severity` ; `grep` du texte de la question, de `terms_searched` et d'un extrait de bloc : **0 occurrence** |
 | Pages, même origine | `curl -o /dev/null -w '%{http_code}'` sur `/`, `/guide/`, `/sinistre/`, `/guide/app/kb.js` | `200 200 200 200` |
 | **Image reconstruite au sha du code construit (I2)** | `docker build --build-arg GIT_SHA=$(git rev-parse --short=7 HEAD) -t foyer-retour:1.6 .` puis `docker run --rm -d -e PORT=9091 -p 9091:9091 foyer-retour:1.6` | build réussi ; `/api/v1/sante` → 200 avec **`version: "fa9a576"`**, exactement le sha du commit `fa9a576` (« Revue Codex 1.6 : une source affichée est un passage du corpus que la réponse cite »), dernier commit qui change le contenu de l'image — `docs/` n'est pas copié dedans. `documents_servis` et `alerts` identiques au run local, `cloud_trace_max_chars` publié, `/`, `/guide/`, `/sinistre/` → `200 200 200`, lignes de log JSON sur la sortie standard du conteneur. Le relevé d'avant-revue annonçait `90d7baf`, le sha de *base* : la reprise différée 1.6 n'est close qu'ici |
+
+### Après revue Codex, tour 2 (2026-08-24)
+
+Un seul bloquant maintenu, `B1` : la relecture de la citation était bien faite, mais une citation
+que le corpus ne confirme pas était **retirée en silence** et la réponse partait quand même en 200,
+segment `factuel` affiché et `sources[]` vide. Corrigé en échec terminal enveloppé (AD-3/AD-16).
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **585 passed en 9,0 s**, zéro réseau (un test remplacé par deux : offsets hors bloc, bloc absent du corpus) |
+| Le correctif est épinglé par un test | 2 mutations injectées puis annulées : `_relire()` rendant `""` au lieu de lever, `_source_item()` rendant une source vide quand l'index ne connaît pas le bloc | chaque mutation fait échouer **exactement** le test qui la vise (`…_offsets_sortent_du_bloc_est_un_echec_terminal`, `…_le_bloc_a_disparu_du_corpus_est_un_echec_terminal`) ; `75 passed, 1 failed` dans les deux cas |
+| L'application se construit sans réseau | `ANTHROPIC_API_KEY= uv run python -c "from server.app.api.main import create_app; create_app()"` | `app construite` |
+| Serveur local, `/api/v1/sante` | `uv run uvicorn server.app.api.main:app --host 127.0.0.1 --port 8791 --proxy-headers --forwarded-allow-ips='*'` puis `curl -s localhost:8791/api/v1/sante` | 200, `documents_servis: ["axa-lu-optihome-2017", "lux-guide"]`, `gate_profile: null`, deux alertes `sans_gate`, `thresholds` complet |
+| **Non-régression du chemin réel** (le vrai risque du correctif : lever sur une réponse valide) | `curl -s -X POST localhost:8791/api/v1/chat -H 'X-Forwarded-For: 203.0.113.7' -H 'content-type: application/json' -d '{"question":"Quel délai ai-je pour déclarer mon arrivée à la commune ?","profil":{},"historique":[]}'` (clé dans `.env`) | **200 en 13,3 s**, `via="api/v1"`, `trace.intent="question"`, `found=true`, **3 entrées dans `sources[]`** relues du corpus (`lux-guide:q12:2`, `lux-guide:farrivee:10`, …), `fiches: ["arrivee"]`, `trace.total_cost_eur = 0,0265 €` (plafond 0,10 €). Aucune citation du corpus servi n'est refusée par le nouveau contrôle |
+| Pages, même origine | `curl -o /dev/null -w '%{http_code}'` sur `/`, `/guide/`, `/sinistre/` | `200 200 200` |
+| Image Docker | non reconstruite à ce tour | le correctif ne touche que `server/app/api/` ; le relevé du tour 1 (`version: "fa9a576"`, port injecté, pages servies) reste valable pour tout ce qui concerne l'image. La construction au sha final est refaite en 1.11 (déploiement) |
