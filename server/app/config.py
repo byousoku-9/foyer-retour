@@ -154,7 +154,8 @@ class Settings(BaseSettings):
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
     # un seuil comme les autres — il vit ici, jamais en dur dans `server/evals/run.py`, et `--max-cost`
     # ne fait que le surcharger pour un run. Valeur : le profil `vertical` exécute **deux** cas, à
-    # 0,0488 € et 0,0504 € (mesuré le 24/08/2026, `docs/tests-live.md` § 1.10) ; 1,00 € laisse donc
+    # 0,027–0,054 € pièce selon le cas et le run (quatre runs mesurés le 24/08/2026,
+    # `docs/tests-live.md` § 1.10 — le cas sinistre coûte environ le double du cas guide) ; 1,00 € laisse donc
     # un facteur dix sur le run que cette story écrit, ce qui borne une dérive sans jamais gêner un
     # re-gate. Il ne suffira **pas** au golden set complet de 4.1 : 40–60 cas au tarif mesuré valent
     # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce

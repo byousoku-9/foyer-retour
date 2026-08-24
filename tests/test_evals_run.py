@@ -948,3 +948,97 @@ def test_une_exception_inattendue_est_un_incident_pas_un_verdict(tmp_path: Path,
     code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
     assert code == 3
     assert (data / "manifest.json").read_text(encoding="utf-8") == avant
+
+
+def test_un_cas_dun_profil_differe_est_refuse_pas_ecarte(tmp_path: Path) -> None:
+    """Le filtre de `main()` retirait un cas `profile: full` **sans un mot** (revue 1.10).
+
+    Le gate se serait alors écrit avec un `cases` et un `cases_hash` amputés : un golden set dont une
+    partie ne tourne pas sans que personne le sache — la même amputation muette que les garde-fous
+    « `.yml` » et « suite différée » empêchent, par une autre porte.
+    """
+    racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    (racine / "guide" / "g-plus-tard.yaml").write_text(
+        CAS_GUIDE.format(id="g-plus-tard", profile="full", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+    cas = runner.charger_cas(racine)          # la lecture, elle, reste permissive : le schéma le permet
+    with pytest.raises(runner.RefusDeTourner) as exc:
+        runner.refuser_ce_qui_nest_pas_livre(cas, "vertical")
+    assert "full" in str(exc.value) and "4.1" in str(exc.value) and "g-plus-tard" in str(exc.value)
+
+
+def test_le_meme_refus_vaut_de_bout_en_bout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """…et il sort en code 2, sans toucher au manifest."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_text(encoding="utf-8")
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    (cases / "guide" / "g-plus-tard.yaml").write_text(
+        CAS_GUIDE.format(id="g-plus-tard", profile="full", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    _COURANT["guide"] = DoublePipeline([])
+    _COURANT["sinistre"] = DoublePipeline([])
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+    assert code == 2
+    assert (data / "manifest.json").read_text(encoding="utf-8") == avant
+
+
+def test_une_attente_de_la_suite_parsing_est_refusee_ailleurs(tmp_path: Path) -> None:
+    """`expected.text_norm` n'est lue par `juger()` que dans la suite `parsing` (story 4.2).
+
+    Toutes les autres attentes produisent un écart quand elles ne sont pas tenues ; celle-là était
+    acceptée sur n'importe quel cas et ignorée en silence — un cas la portant serait passé au vert
+    sur une attente que personne ne vérifie.
+    """
+    racine = _cases_dir(tmp_path, guide=CAS_GUIDE.replace(
+        "  fiche_ids:", '  text_norm: "le texte de la page"\n  fiche_ids:'))
+    with pytest.raises(runner.RefusDeTourner) as exc:
+        runner.charger_cas(racine)
+    assert "text_norm" in str(exc.value) and "4.2" in str(exc.value)
+
+
+def test_un_cas_range_dans_un_sous_dossier_nest_pas_ignore(tmp_path: Path) -> None:
+    """`glob("*.yaml")` n'est pas récursif : un `cases/guide/archive/g-x.yaml` disparaîtrait."""
+    racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    (racine / "guide" / "archive").mkdir()
+    (racine / "guide" / "archive" / "g-x.yaml").write_text(
+        CAS_GUIDE.format(id="g-x", profile="vertical", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+    with pytest.raises(runner.RefusDeTourner) as exc:
+        runner.charger_cas(racine)
+    assert "archive/" in str(exc.value)
+
+
+def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """`construire_contexte` ouvre un pool httpx ; les refus sortent avant toute exécution.
+
+    Le `finally` d'origine entourait l'exécution : `--gate` sur un document non servi construisait le
+    client puis quittait sans le fermer.
+    """
+    ferme: list[bool] = []
+
+    class ClientDouble:
+        async def aclose(self) -> None:
+            ferme.append(True)
+
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    monkeypatch.setattr(runner, "LlmClient", lambda *a, **k: ClientDouble())
+    _COURANT["guide"] = DoublePipeline([])
+    _COURANT["sinistre"] = DoublePipeline([])
+
+    # Chemin de refus : le document n'est pas servi.
+    assert runner.main(["--gate", "document-inconnu", "--cases-dir", str(cases),
+                        "--data-dir", str(data)]) == 2
+    assert ferme == [], "ce refus-là est levé avant même de construire le contexte"
+
+    brut = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    brut[GUIDE]["status"] = "quarantaine"
+    (data / "manifest.json").write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+    assert runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)]) == 2
+    assert ferme == [True], "le pool est resté ouvert sur le chemin de refus"

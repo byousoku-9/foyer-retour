@@ -21,7 +21,7 @@ Codes de sortie, et pourquoi ils sont quatre (D4) :
 | code | situation | manifest |
 |---|---|---|
 | 0 | tous les cas `ok` | gate écrit `evals_ok: true` (avec `--gate`) |
-| 1 | un cas rend un mauvais label ou laisse une attente inassouvie | gate écrit `evals_ok: false` |
+| 1 | un cas rend un mauvais label ou laisse une attente inassouvie | gate écrit `evals_ok: false` (avec `--gate`) |
 | 2 | refus de tourner : pas de clé, profil ou suite non livrés, cas invalide, document non servi | **non modifié** |
 | 3 | incident technique : `Timeout`, `LlmUnavailable`, `BudgetExceeded`, plafond de run atteint | **non modifié** |
 
@@ -171,6 +171,10 @@ class Cas(BaseModel):
     truth: Verite
     mode_attendu: Label
 
+    @property
+    def text_norm_declare(self) -> bool:
+        return self.expected.text_norm is not None
+
     @model_validator(mode="after")
     def _coherence(self) -> Cas:
         if self.suite == "guide" and self.faits is not None:
@@ -181,6 +185,13 @@ class Cas(BaseModel):
             if self.profil is not None or self.historique:
                 raise ValueError("le pipeline sinistre ne reçoit ni `profil` ni `historique` : "
                                  "les déclarer ferait croire qu'ils sont pris en compte")
+        if self.text_norm_declare and self.suite != "parsing":
+            # Toutes les autres attentes produisent un écart quand elles ne sont pas tenues ; celle-ci
+            # n'est lue par `juger()` que dans la suite `parsing`, qui n'est pas livrée (story 4.2).
+            # L'accepter ailleurs laissait un cas passer au vert sur une attente que personne ne
+            # vérifie — un golden set qui dit mesurer ce qu'il ne mesure pas.
+            raise ValueError("expected.text_norm n'a de sens que dans la suite `parsing` "
+                             "(story 4.2) : la retirer, ou changer de suite")
         if self.profile == "vertical" and self.truth.source != "lecture_humaine":
             # AD-14 : « `vertical` = un cas guide et un cas sinistre **relus à la main** ». C'est la
             # propriété que le profil affirme à qui lit `/sante` ; elle se contrôle ici, à l'écriture.
@@ -209,14 +220,16 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
         dossier = cases_dir / suite
         if not dossier.is_dir():
             continue
-        etrangers = sorted(f.name for f in dossier.iterdir()
-                           if f.is_file() and f.suffix != ".yaml" and not f.name.startswith("."))
+        # Tout ce que `glob("*.yaml")` (non récursif) ne ramènerait pas : un cas déposé en `.yml`,
+        # et un cas rangé dans un sous-dossier. Les deux seraient **ignorés en silence**, et le gate
+        # se réclamerait d'une suite amputée sans qu'un mot le dise. Un golden set muet est pire
+        # qu'un golden set rouge (AD-14).
+        etrangers = sorted(f.name + ("/" if f.is_dir() else "") for f in dossier.iterdir()
+                           if not f.name.startswith(".")
+                           and (f.is_dir() or f.suffix != ".yaml"))
         if etrangers:
-            # Un cas déposé en `.yml` (ou sous toute autre extension) serait **ignoré en silence**,
-            # et le gate se réclamerait d'une suite amputée sans qu'un mot le dise. Un golden set
-            # muet est pire qu'un golden set rouge (AD-14).
-            raise RefusDeTourner(f"{dossier} : fichiers hors schéma de nommage : "
-                                 f"{', '.join(etrangers)} (les cas sont des `*.yaml`)")
+            raise RefusDeTourner(f"{dossier} : entrées hors schéma de nommage : "
+                                 f"{', '.join(etrangers)} (les cas sont des `*.yaml` à plat)")
         for fichier in sorted(dossier.glob("*.yaml")):
             cas.append(_lire_cas(fichier, suite))
     vus: set[str] = set()
@@ -253,7 +266,14 @@ def _lire_cas(fichier: Path, suite_du_dossier: str) -> Cas:
 
 
 def refuser_ce_qui_nest_pas_livre(cas: list[Cas], profil: str) -> None:
-    """Le profil et les suites non livrés sont refusés **explicitement**, jamais approximés."""
+    """Le profil et les suites non livrés sont refusés **explicitement**, jamais approximés.
+
+    Le contrôle porte sur le profil **d'appel** et sur celui de **chaque cas**. Sans le second, un cas
+    `profile: full` déposé dans `cases/guide/` était retiré sans un mot par le filtre de `main()` :
+    le gate s'écrivait alors avec un `cases` et un `cases_hash` amputés, c'est-à-dire un golden set
+    dont une partie ne tourne pas sans que personne le sache. C'est exactement l'amputation muette
+    que les garde-fous « `.yml` » et « suite différée » existent pour empêcher, par une autre porte.
+    """
     if profil in PROFILS_DIFFERES:
         raise RefusDeTourner(f"profil `{profil}` : story {PROFILS_DIFFERES[profil]}")
     if profil not in PROFILS_LIVRES:
@@ -261,6 +281,9 @@ def refuser_ce_qui_nest_pas_livre(cas: list[Cas], profil: str) -> None:
     for c in cas:
         if c.suite in SUITES_DIFFEREES:
             raise RefusDeTourner(f"suite `{c.suite}` : story {SUITES_DIFFEREES[c.suite]} (cas {c.id})")
+        if c.profile in PROFILS_DIFFERES:
+            raise RefusDeTourner(f"profil `{c.profile}` : story {PROFILS_DIFFERES[c.profile]} "
+                                 f"(cas {c.id})")
 
 
 # --- le jugement d'un cas (AD-14, D2) ------------------------------------------------------------
@@ -627,20 +650,11 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                     prompts_digest_hex=contexte_gate.prompts_digest)
 
 
-async def _executer_et_fermer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
-                              sortie: Any) -> list[Resultat]:
-    """`executer`, plus la fermeture du pool de connexions du client (AD-9, comme le `lifespan` de l'API).
-
-    Le `finally` couvre aussi les deux sorties par exception : un incident technique ferme le client
-    comme un run vert, sinon le processus quitte sur un pool ouvert et le SDK s'en plaint dans un
-    canal que personne ne lit.
-    """
-    try:
-        return await executer(cas, ctx, max_cost_eur=max_cost_eur, sortie=sortie)
-    finally:
-        fermer = getattr(ctx.client, "aclose", None)
-        if fermer is not None:
-            await fermer()
+async def _fermer(client: Any) -> None:
+    """Ferme le pool de connexions du client, si c'en est un (les tests passent un double)."""
+    fermer = getattr(client, "aclose", None)
+    if fermer is not None:
+        await fermer()
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -712,11 +726,16 @@ def main(argv: list[str] | None = None) -> int:
         # 4. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
             ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile)
+            # Le client (donc un pool httpx) est construit par `construire_contexte`. Sa fermeture
+            # est confiée à la pile, et non à un `finally` autour de l'exécution : les deux refus qui
+            # suivent sortent **avant** toute exécution, et un `--gate` sur un document non servi
+            # laissait alors le pool ouvert au moment de quitter. La pile couvre les trois chemins —
+            # refus, incident, run vert — d'une seule ligne, comme le `lifespan` de l'API le fait.
+            pile.callback(lambda: asyncio.run(_fermer(ctx.client)))
             if args.gate and args.gate not in ctx.index.corpus.documents:
                 raison = ctx.index.corpus.quarantine.get(args.gate, "absent du corpus")
                 raise RefusDeTourner(f"--gate {args.gate} : document non servi ({raison})")
-            resultats = asyncio.run(
-                _executer_et_fermer(cas, ctx, max_cost_eur=max_cost, sortie=sortie))
+            resultats = asyncio.run(executer(cas, ctx, max_cost_eur=max_cost, sortie=sortie))
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
         return 2

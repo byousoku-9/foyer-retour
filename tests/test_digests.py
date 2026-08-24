@@ -115,7 +115,13 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
         suite = suite_du_document(reglages, doc_id)
         gate = manifest[doc_id]["gate"]
         assert gate is not None, f"{doc_id} n'a pas de gate : relancer `evals run --gate {doc_id}`"
-        cas = charger_cas(CASES_DIR, suites=(suite,))
+        # **Le même filtre que `main()`**, sinon les deux calculs de `cases_hash` divergeraient dès
+        # qu'un cas d'un autre profil existerait (4.1) : le gate est écrit sur les cas du profil
+        # demandé, ce test recalculerait sur toute la suite, et il rougirait sans qu'il y ait de
+        # défaut. `refuser_ce_qui_nest_pas_livre` empêche aujourd'hui la cohabitation ; ce filtre est
+        # ce qui rendra le contrôle juste le jour où elle sera permise.
+        cas = [c for c in charger_cas(CASES_DIR, suites=(suite,)) if c.profile == gate["profile"]]
+        assert cas, f"aucun cas au profil {gate['profile']} pour la suite {suite}"
         fichiers = [CASES_DIR / c.suite / f"{c.id}.yaml" for c in cas]
         assert gate["cases_hash"] == cases_hash(fichiers, CASES_DIR), (
             f"le golden set de la suite {suite} a changé depuis le gate de {doc_id} : "

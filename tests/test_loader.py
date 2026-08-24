@@ -409,10 +409,9 @@ def test_un_rapport_etranger_nest_pas_un_bloquant(data: Path) -> None:
     fichier qui ne le décrit pas. L'incohérence n'est pas tue pour autant : `api/etat` porte l'alerte
     `rapport_etranger` (revue 1.9).
     """
-    _report(data, {"doc_id": "un-autre-document",
-                   "checks": [{"name": "page_sans_texte", "level": "bloquant", "detail": ""}],
-                   "stats": {}} and json.dumps(
-        {"doc_id": "un-autre-document",
-         "checks": [{"name": "page_sans_texte", "level": "bloquant", "detail": ""}], "stats": {}}))
+    _report(data, json.dumps({
+        "doc_id": "un-autre-document",
+        "checks": [{"name": "page_sans_texte", "level": "bloquant", "detail": "p. 12"}],
+        "stats": {}}))
     c = load_corpus(data, allow_ungated=True)
     assert c.served == ["lux-guide"] and c.quarantine == {}
