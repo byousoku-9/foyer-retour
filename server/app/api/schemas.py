@@ -24,13 +24,21 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from server.app.config import Settings
 from server.app.domain.answer import Answer, AnswerSegment
+from server.app.domain.document import Bbox
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.profil import Profil
-from server.app.domain.question import Turn
+from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
 from server.app.pipelines.guide import VARIANT
+from server.app.pipelines.sinistre import VARIANT as VARIANT_SINISTRE
 
 VIA = "api/v1"
+
+# Convention Nommage du spine : « `doc_id` slug (`axa-lu-optihome-2017`, `lux-guide`) ». Le motif est
+# partagé par le corps de `POST /api/v1/sinistre` et par le paramètre de chemin de
+# `GET /api/v1/documents/{doc_id}/report` — deux portes vers la même clé, une seule forme admise.
+DOC_ID_PATTERN = r"^[a-z0-9-]+$"
+DOC_ID_MAX = 64
 
 
 class ChatRequest(BaseModel):
@@ -113,3 +121,119 @@ class SanteResponse(BaseModel):
     dictionary: EtatDictionnaire = Field(default_factory=EtatDictionnaire)
     alerts: list[Alerte] = Field(default_factory=list)
     thresholds: dict[str, float | int] = Field(default_factory=dict)
+
+
+# --- Story 1.9 : l'outil sinistre (AD-11) ---------------------------------
+
+class DocumentItem(BaseModel):
+    """Une entrée de `GET /api/v1/documents` : un document **servi**, tel qu'AD-11 l'énumère.
+
+    `source_url` s'ajoute aux cinq champs du contrat pour une raison qu'AD-7 impose : le PDF d'un
+    assureur n'est **pas** redistribué par ce service, et la seule chose qu'on puisse offrir au
+    lecteur est le lien vers sa source publique. Sans lui, « édition juin 2017 — actualité non
+    vérifiée » serait invérifiable par celui à qui on le dit.
+
+    Rien ici n'est calculé par requête : tout vient de `Document` et de `ManifestEntry`, chargés au
+    démarrage (AD-7).
+    """
+
+    doc_id: str
+    title: str
+    edition: str
+    kind: str  # `guide` ou `contrat` (AD-2) : le sélecteur de la page ne propose que les contrats
+    status: str  # toujours `servi` ici — un document en quarantaine n'est pas chargé (AD-7)
+    source_url: str | None = None
+
+
+class SinistreRequest(BaseModel):
+    """`POST /api/v1/sinistre` — les quatre champs d'AD-11, et pas un de plus.
+
+    **Ce que le corps ne porte pas, et pourquoi (D1).** `pipelines.sinistre.run(..., dossier)` dit ce
+    que l'appelant détient déjà (conditions particulières, options, avenants, date d'effet) et décide
+    de ce que `missing` annonce et de ce qu'`ask_client` réclame. La route ne l'expose **pas** :
+    AD-11 énumère les champs du corps et « une route qui en ajoute un » est une route inventée par
+    story ; sur un démonstrateur public non authentifié, un booléen « j'ai les conditions
+    particulières » est une auto-déclaration invérifiable qui referme la seule question que l'outil
+    sait poser ; et la promesse affichée est « au regard des conditions générales seules ». Le
+    paramètre reste au pipeline, pour les évals et l'usage programmatique.
+
+    `faits` est le `Faits` du domaine : sa borne (`description ≤ 2 000`) est donc appliquée par
+    pydantic **avant** la route, et un dépassement ressort en 400 par le gestionnaire de validation
+    d'AD-16 — jamais tronqué (la fin d'une description de sinistre porte souvent la cause).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Obligatoire : le corpus servira plusieurs contrats (AD-14, « ≥ 2 contrats »), et laisser la
+    # route retomber sur `settings.sinistre_doc_id` ferait répondre sur un document que l'appelant
+    # n'a pas demandé. La forme est celle d'un slug — convention Nommage du spine, `[a-z0-9-]+` —
+    # et elle est **appliquée**, pas seulement décrite (revue 1.9) : la borne de longueur seule
+    # laissait passer `../../etc/passwd`, inoffensif ici (c'est une clé de dictionnaire) mais
+    # démenti par le commentaire, et un jour recopié dans un chemin par une route qui viendra.
+    doc_id: str = Field(min_length=1, max_length=DOC_ID_MAX, pattern=DOC_ID_PATTERN)
+    question: str = Field(min_length=1, max_length=1000)
+    faits: Faits
+    lang: str | None = None
+    # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». Le littéral est importé du pipeline sinistre —
+    # ajouter une baseline se fait à un seul endroit.
+    variant: str | None = Field(default=None, pattern=f"^{VARIANT_SINISTRE}$")
+
+    @field_validator("question")
+    @classmethod
+    def _question_non_blanche(cls, v: str) -> str:
+        """Une question faite d'espaces passe `min_length=1` — et coûterait quatre appels pour rien."""
+        if not v.strip():
+            raise ValueError("question vide")
+        return v
+
+    @field_validator("faits")
+    @classmethod
+    def _description_non_blanche(cls, v: Faits) -> Faits:
+        """Un sinistre sans description n'est pas un sinistre (revue 1.9).
+
+        `Faits.description` n'a qu'un `max_length` : une chaîne vide ou faite d'espaces traversait
+        la validation et partait en quatre appels payants pour un `ne_tranche_pas` acquis d'avance —
+        exactement le motif qui fait refuser `question` blanche deux lignes plus haut, et exactement
+        ce que la page refuse déjà de poster. Le contrôle est ici, dans le **contrat HTTP**, et non
+        dans le domaine : les évals et les tests construisent des `Faits` partiels de plein droit,
+        et le pipeline n'a pas à leur imposer la borne d'une route.
+        """
+        if not v.description.strip():
+            raise ValueError("description du sinistre vide")
+        return v
+
+
+class ClauseSource(BaseModel):
+    """Une clause **relue du corpus** (AD-3), telle que la page l'affiche sous le verdict.
+
+    Les cinq champs d'AD-11 (`block_id`, `page`, `bbox`, `quote`, `status`), plus `line_ids` que le
+    contrat de la story nomme, plus deux que D5 justifie :
+
+    - `kind` : UX-DR6 exige que chaque clause affiche son **type** (garantie, exclusion, condition,
+      franchise…). Le front n'a pas de corpus et ne peut pas l'inventer ; AD-6 fait de `Block.kind`
+      la seule source de typage, et le serveur le lit sur le bloc relu, comme `page` et `bbox` ;
+    - `kind_confirmed` : un `kind` non confirmé vaut `applicable="humain"` (AD-6). Afficher
+      « garantie » sans dire que le typage n'est pas confirmé donnerait au lecteur une certitude que
+      le pipeline n'a pas.
+
+    Rien de ce que le modèle a rendu n'entre ici : `quote` est ré-extraite de `Block.text` aux
+    offsets prouvés, `page`, `bbox` et `kind` viennent du bloc du corpus.
+    """
+
+    block_id: str
+    page: int | None = None
+    bbox: Bbox | None = None
+    line_ids: list[str] = Field(default_factory=list)
+    kind: str
+    kind_confirmed: bool = False
+    quote: str
+    status: str  # "verifiee" : `sources[]` ne porte que les citations de la réponse affichée (AD-11)
+
+
+class SinistreResponse(BaseModel):
+    """La forme d'AD-11, pour **toute** sortie du pipeline sinistre : verdict, refus, `ne_tranche_pas`."""
+
+    answer: Answer
+    sources: list[ClauseSource] = Field(default_factory=list)
+    via: str = VIA
+    trace: Trace

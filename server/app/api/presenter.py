@@ -58,7 +58,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from server.app.api.schemas import SourceItem
+from server.app.api.schemas import ClauseSource, SourceItem
 from server.app.domain.answer import Answer, VerifiedQuote
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import ErrorCode, PipelineError
@@ -80,6 +80,21 @@ def _incoherence(block_id: str, motif: str) -> PipelineError:
     """
     logger.error("citation incohérente sur %s : %s — la réponse n'est pas servie", block_id, motif)
     return PipelineError(ErrorCode.internal, f"citation incohérente sur le bloc {block_id} : {motif}")
+
+
+def _document(index: Any, corpus: Any, block_id: str) -> Document | None:
+    """Le document qui porte le bloc, ou `None` s'il n'est pas dans le corpus servi.
+
+    Ce qu'il faut à une **clause** (story 1.9) : son document, pour relire le passage et lire `page`,
+    `bbox` et `kind` sur le bloc. Pas son nœud — `ClauseSource` ne porte ni `fiche_id` ni titre —, et
+    `_noeud()` le cherchait par un balayage linéaire de `Document.nodes` (751 nœuds sur le contrat
+    AXA) refait à chaque citation, pour le jeter aussitôt (revue 1.9).
+    """
+    try:
+        doc_id = index.doc_of(block_id)
+    except KeyError:
+        return None
+    return corpus.documents.get(doc_id)
 
 
 def _noeud(index: Any, corpus: Any, block_id: str) -> tuple[str, Document, Node] | None:
@@ -144,3 +159,42 @@ def fiches_de(sources: list[SourceItem]) -> list[str]:
         if s.fiche_id and s.fiche_id not in vues:
             vues.append(s.fiche_id)
     return vues
+
+
+def _clause_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) -> ClauseSource:
+    """La même relecture que `_source_item`, avec ce que la page sinistre doit peindre en plus.
+
+    `page`, `bbox` et `kind` sont lus **sur le bloc du corpus**, jamais sur ce que le modèle a rendu
+    (AD-6 : `Block.kind` est la seule source de typage). `line_ids` viennent de la `VerifiedQuote` :
+    ce sont les lignes que l'occurrence prouvée traverse, calculées par *vérifier* dans le texte
+    brut, et c'est la donnée que la visionneuse de l'epic 3 surlignera.
+    """
+    document = _document(index, corpus, quote.block_id)
+    if document is None:
+        # Même échec terminal qu'au guide (AD-3/AD-16) : une clause que le corpus servi ne confirme
+        # pas ne s'affiche pas sous un verdict — surtout pas sous un verdict.
+        raise _incoherence(quote.block_id, "le bloc cité est introuvable dans le corpus servi")
+    texte = _relire(document, quote)
+    bloc = document.block(quote.block_id)
+    return ClauseSource(block_id=quote.block_id, page=bloc.page, bbox=bloc.bbox,
+                        line_ids=list(quote.line_ids), kind=bloc.kind,
+                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=statut)
+
+
+def clauses_de(answer: Answer, index: Any, corpus: Any) -> list[ClauseSource]:
+    """Les clauses de la réponse **affichée**, relues du corpus, dans l'ordre de citation (AD-3/AD-11).
+
+    Exactement la même énumération que `sources_de` — `for claim in answer.claims for quote in
+    claim.quotes` —, et c'est **le contrat** : `ClauseSource` ne porte pas de `claim_id` (AD-11 n'en
+    prévoit pas), et la page réapparie les statuts en refaisant cette énumération sur `answer.claims`
+    (D6). Changer l'ordre ici casserait l'appariement côté page ; un test le verrouille des deux
+    côtés.
+
+    Les claims rejetées n'y entrent pas, quel que soit leur `rejection_kind` : `non_retrouvee` et
+    `ambigue` n'ont aucune occurrence prouvée et leurs quotes sont restées les chaînes du modèle
+    (D7). `answer.rejected_claims` les publie intégralement, et la page les affiche **sans** leur
+    citation.
+    """
+    return [_clause_item(quote, STATUT_VERIFIEE, index=index, corpus=corpus)
+            for claim in answer.claims  # AD-4 : retrouvées, pertinentes, et citées par un segment
+            for quote in claim.quotes]

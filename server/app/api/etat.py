@@ -23,13 +23,46 @@ from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
-from server.app.domain.ingest import GateContext
+from server.app.domain.ingest import GateContext, Report
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide
+from server.app.pipelines.sinistre import run as executer_sinistre
 
 DATA_DIR = REPO_ROOT / "data"
 DICTIONARY = "dictionary.json"
+RAPPORT = "report.json"
+SOURCE_URL = "source.url"
+# AD-7 : `source.url` peut porter l'URL publique **ou** l'URL `gs://` de la copie privée de
+# secours. Seule la première se publie : l'autre ne mène nulle part pour un lecteur, et annoncer un
+# bucket privé sur une page publique n'apprendrait rien à personne d'utile.
+SCHEMAS_PUBLIABLES = ("https://", "http://")
+# Une URL de source tient largement là-dedans (celle du contrat AXA fait 170 caractères) ; au-delà,
+# ce n'est plus une URL, c'est un fichier qu'on recopierait dans une réponse publique.
+SOURCE_URL_MAX = 2048
+
+
+def url_publiable(brut: str | None) -> str | None:
+    """L'URL publique d'un document, ou `None` — l'**unique** décision de ce qui sort (AD-7).
+
+    Deux appelants la partagent : `_sources()`, qui lit `data/{doc_id}/source.url`, et
+    `routes/documents.py`, qui publie d'abord `Document.source_url` écrit par l'ingestion. Les
+    laisser décider chacun de leur côté avait déjà produit un trou (revue 1.9) : le fichier était
+    filtré, le champ du document ne l'était pas, et un `gs://` écrit par une ingestion future serait
+    ressorti tel quel dans une réponse publique.
+
+    Ce qui est refusé, et pourquoi : un schéma qui n'est pas `http(s)` (le bucket privé de secours
+    d'AD-7 n'est ni atteignable ni instructif pour un lecteur) ; tout ce qui suit la **première
+    ligne** (`source.url` peut en porter deux — l'URL publique puis la copie privée —, et un simple
+    `strip()` laissait la seconde partir avec elle) ; toute valeur contenant un blanc (ce n'est plus
+    une URL) ; et toute valeur au-delà de `SOURCE_URL_MAX`.
+    """
+    if not brut:
+        return None
+    url = brut.strip().splitlines()[0].strip() if brut.strip() else ""
+    if not url or len(url) > SOURCE_URL_MAX or any(c.isspace() for c in url):
+        return None
+    return url if url.startswith(SCHEMAS_PUBLIABLES) else None
 
 
 @dataclass
@@ -48,6 +81,16 @@ class EtatApp:
     # explicite que l'API n'appelle **qu'un** pipeline (AD-1 : jamais de dispatch), et ce que les
     # tests remplacent par un double pour couvrir la matrice d'E/S sans réseau.
     pipeline: Any = repondre_guide
+    # Le pipeline sinistre est un second attribut, pour la même raison que le premier : la route
+    # n'appelle **qu'un** pipeline et ne dispatche jamais (AD-1). Deux routes, deux pipelines, aucun
+    # aiguillage par variante — `POST /api/v1/sinistre` appelle celui-ci et rien d'autre.
+    pipeline_sinistre: Any = executer_sinistre
+    # AD-7/AD-8 : `report.json` est écrit par l'ingestion, lu **une fois** au démarrage, et exposé
+    # tel quel par `GET /api/v1/documents/{doc_id}/report`. Aucune lecture de `data/` par requête.
+    reports: dict[str, Report] = field(default_factory=dict)
+    # `doc_id` → URL publique de la source (AD-7, `data/{doc_id}/source.url`). Lue au démarrage
+    # comme tout le reste : `GET /api/v1/documents` ne touche pas `data/`.
+    source_urls: dict[str, str] = field(default_factory=dict)
     alerts: list[Alerte] = field(default_factory=list)
 
     @property
@@ -108,6 +151,66 @@ def _dictionnaire_valide(data_dir: Path) -> bool:
         return False
 
 
+def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], list[Alerte]]:
+    """Les rapports d'ingestion des documents **servis**, lus au démarrage (AD-7/AD-8, D9).
+
+    Comme `dictionary.json`, un rapport **absent** ne fait pas tomber le démarrage : AD-8 fait du
+    rapport un artefact d'ingestion, et un document peut être servi avant qu'on l'ait écrit (le
+    guide l'a été en 1.1). Ce qui change ici, c'est un fichier **présent et invalide** : il produit
+    l'alerte `rapport_illisible` sur `/api/v1/sante` (AD-7 : une incohérence est visible, jamais
+    muette) et, sur la route, un 400 — la même réponse qu'un document inconnu, puisqu'il n'y a rien
+    d'honnête à publier.
+
+    Seuls les documents servis sont lus : un document en quarantaine n'est pas chargé (AD-7), et
+    publier son rapport laisserait croire qu'il l'est.
+    """
+    rapports: dict[str, Report] = {}
+    alertes: list[Alerte] = []
+    for doc_id in doc_ids:
+        chemin = data_dir / doc_id / RAPPORT
+        if not chemin.is_file():
+            continue
+        try:
+            rapports[doc_id] = Report.model_validate_json(chemin.read_bytes())
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            # Le détail (`exc`) resterait un diagnostic interne s'il partait dans l'enveloppe
+            # (AD-16) ; ici il est dans une alerte de `/sante`, qui n'est lue que par nous et par la
+            # page d'accueil. Le message dit **quoi**, pas le contenu du fichier.
+            alertes.append(Alerte(doc_id=doc_id, alerte="rapport_illisible",
+                                  detail=f"{RAPPORT} présent mais non conforme au schéma "
+                                         f"({type(exc).__name__})"))
+    return rapports, alertes
+
+
+def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
+    """L'URL publique de chaque document servi, lue **au démarrage** (AD-7).
+
+    Pourquoi ici et pas dans `Document.source_url` : AD-7 fait de `data/{doc_id}/source.url` le
+    fichier canonique (« `data/{doc_id}/source.url` + `source_hash` »), et l'ingestion PDF, elle,
+    laisse `Document.source_url` à `None` — le PDF d'un assureur n'est pas committé, il est
+    téléchargé au build depuis ce fichier. Le contrat AXA n'aurait donc aucune source affichable
+    alors que le repo la connaît, et l'AC de la story demande précisément qu'elle soit publiée.
+    Le champ du document, quand il est renseigné (le guide), reste prioritaire : c'est celui que
+    l'ingestion a validé.
+
+    Absent ou illisible ⇒ pas d'URL, pas d'alerte : une source non publiée n'empêche rien de servir
+    et ne cache aucune incohérence (le `source_hash`, lui, est vérifié par le loader).
+    """
+    urls: dict[str, str] = {}
+    for doc_id in doc_ids:
+        chemin = data_dir / doc_id / SOURCE_URL
+        if not chemin.is_file():
+            continue
+        try:
+            brut = chemin.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        url = url_publiable(brut)
+        if url is not None:
+            urls[doc_id] = url
+    return urls
+
+
 def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
     """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
     data_dir = DATA_DIR if data_dir is None else data_dir
@@ -118,8 +221,10 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
                            model_ids=dict(TIERS))
     corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte)
+    rapports, alertes_rapports = _rapports(data_dir, corpus.served)
+    sources = _sources(data_dir, corpus.served)
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
         prompts_digest_hex=digest_prompts, dictionary_validated=_dictionnaire_valide(data_dir),
-        alerts=_alertes(corpus))
+        reports=rapports, source_urls=sources, alerts=_alertes(corpus) + alertes_rapports)

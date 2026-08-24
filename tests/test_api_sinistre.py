@@ -1,0 +1,771 @@
+"""Matrice d'E/S HTTP de l'outil sinistre (spec 1.9) : AD-11, AD-16, AD-13, AD-10, AD-7, AD-8.
+
+Le pipeline est remplacé par un **double** (`etat.pipeline_sinistre`) : ces tests portent sur les
+trois routes, pas sur les cinq étapes, qui ont les leurs (`tests/test_pipeline_sinistre.py`). Aucun
+réseau, aucune clé — le client Claude est construit mais jamais appelé.
+
+Le corpus est **réel** (`data/`, chargé par le lifespan) pour `/documents` et `/report` — c'est le
+seul endroit où l'AC parle du contrat AXA nommément ; un mini-contrat le remplace dès qu'un test
+doit exhiber une clause aux offsets, à la page et à la bbox connus.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from server.app.api.errors import MESSAGE_INTERNE
+from server.app.api.main import create_app
+from server.app.api.schemas import SinistreRequest
+from server.app.config import Settings
+from server.app.corpus.index import Index
+from server.app.corpus.loader import Corpus
+from server.app.corpus.text import normalize
+from server.app.domain.answer import (
+    AbsenceProof,
+    Answer,
+    AnswerSegment,
+    ClaimStatus,
+    Quote,
+    RejectedClaim,
+    VerifiedClaim,
+    VerifiedQuote,
+)
+from server.app.domain.document import Document, Node
+from server.app.domain.errors import (
+    BudgetExceeded,
+    CorpusUnavailable,
+    LlmUnavailable,
+    Timeout,
+)
+from server.app.domain.ingest import ManifestEntry
+from server.app.domain.question import Faits, QuestionScope
+from server.app.domain.trace import StepTrace, Trace
+from server.app.domain.verdict import MissingPackage, Verdict
+
+XFF = {"X-Forwarded-For": "198.51.100.9"}
+DOC_ID = "cg-mini"
+GUIDE_ID = "guide-mini"
+AXA = "axa-lu-optihome-2017"
+
+GARANTIE = ("Les dégâts occasionnés au mobilier assuré par un événement soudain, résultant de "
+            "l'action subite de la chaleur, sont couverts.")
+EXCLUSION = "Sont exclus les dommages causés intentionnellement par l'assuré."
+Q_GARANTIE = "événement soudain, résultant de l'action subite de la chaleur"
+
+QUESTION = "Ce sinistre est-il couvert par les conditions générales du contrat ?"
+FAITS = {
+    "date": "2026-08-01", "lieu": "salon du domicile assuré", "montant_eur": 1200.0,
+    "description": "Une bougie allumée posée sur une table basse est tombée sur le canapé.",
+}
+
+
+# --- fabrique du corpus miniature ----------------------------------------
+
+def _mini_corpus() -> tuple[Corpus, Index]:
+    """Un contrat (avec pages, bbox et lignes) **et** un guide : `kind` décide de ce que la route accepte."""
+    blocs = [
+        {"block_id": f"{DOC_ID}:p9:1", "loc": "p9", "seq": 1, "kind": "heading", "page": 9,
+         "text": "Incendie et action de la chaleur"},
+        {"block_id": f"{DOC_ID}:p9:2", "loc": "p9", "seq": 2, "kind": "garantie", "page": 9,
+         "text": GARANTIE, "kind_source": "manual", "bbox": [70.0, 120.5, 520.0, 160.0],
+         "lines": [{"line_id": "p9:2:l1", "text": GARANTIE, "bbox": [70.0, 120.5, 520.0, 140.0]}]},
+        {"block_id": f"{DOC_ID}:p46:1", "loc": "p46", "seq": 1, "kind": "exclusion", "page": 46,
+         "text": EXCLUSION, "kind_confidence": 0.4},  # sans `kind_source` : typage **non** confirmé
+    ]
+    contrat = Document(
+        doc_id=DOC_ID, kind="contrat", title="Mini conditions générales", edition="juin 2017",
+        source_url="https://example.invalid/cg.pdf",
+        nodes=[Node(node_id=f"{DOC_ID}:socle", level=1, title="Socle",
+                    items=[{"block_id": f"{DOC_ID}:p9:1"}, {"block_id": f"{DOC_ID}:p9:2"}]),
+               Node(node_id=f"{DOC_ID}:ext", level=1, title="Extensions", scope={"kind": "extension"},
+                    items=[{"block_id": f"{DOC_ID}:p46:1"}]),
+               Node(node_id=f"{DOC_ID}:root", level=0, title="Contrat",
+                    items=[{"node_id": f"{DOC_ID}:socle"}, {"node_id": f"{DOC_ID}:ext"}])],
+        blocks=blocs)
+    guide = Document(
+        doc_id=GUIDE_ID, kind="guide", title="Mini guide", edition="git:test",
+        nodes=[Node(node_id=f"{GUIDE_ID}:f1", level=2, title="Arrivée",
+                    items=[{"block_id": f"{GUIDE_ID}:f1:1"}])],
+        blocks=[{"block_id": f"{GUIDE_ID}:f1:1", "loc": "f1", "seq": 1, "kind": "para",
+                 "text": "Vous disposez de huit jours pour vous déclarer à la commune."}])
+    for doc in (contrat, guide):
+        for b in doc.blocks:
+            b.text_norm = normalize(b.text)
+    manifest = {
+        DOC_ID: ManifestEntry(status="servi", source_hash="s1", ingest_fingerprint="f1",
+                              document_hash="d1", edition="juin 2017"),
+        GUIDE_ID: ManifestEntry(status="servi", source_hash="s2", ingest_fingerprint="f2",
+                                document_hash="d2", edition="git:test"),
+    }
+    corpus = Corpus(documents={DOC_ID: contrat, GUIDE_ID: guide}, manifest=manifest,
+                    summaries={DOC_ID: "# Mini CG", GUIDE_ID: "# Mini guide"})
+    return corpus, Index(corpus)
+
+
+def _citation(corpus: Corpus, block_id: str, extrait: str, *, line_ids: list[str] | None = None) -> VerifiedQuote:
+    """Une citation **relue du corpus** : `quote` est exactement `Block.text[text_start:text_end]`."""
+    texte = corpus.documents[DOC_ID].block(block_id).text
+    debut = texte.index(extrait)
+    return VerifiedQuote(block_id=block_id, quote=extrait, start=0, end=len(extrait),
+                         text_start=debut, text_end=debut + len(extrait),
+                         line_ids=line_ids or [])
+
+
+def _verdict(value: str = "sous_conditions", **kw: Any) -> Verdict:
+    defauts: dict[str, Any] = {
+        "reason": "Une clause conditionne la garantie (au regard des conditions générales seules)",
+        "missing": MissingPackage(faits=["caractère subit de l'action de la chaleur"]),
+        "ask_client": ["Le contrat porte-t-il l'option correspondante ?",
+                       "Le caractère subit de l'action de la chaleur est-il établi ?"],
+        "escalate": ["Faire relire la clause par un gestionnaire."],
+    }
+    return Verdict(value=value, **{**defauts, **kw})
+
+
+def _reponse(corpus: Corpus) -> Answer:
+    """Le cas nominal : une affirmation, une clause citée, un verdict conservateur."""
+    quote = _citation(corpus, f"{DOC_ID}:p9:2", Q_GARANTIE, line_ids=["p9:2:l1"])
+    claim = VerifiedClaim(
+        claim_id="c1", text="La garantie vise l'action subite de la chaleur.", quotes=[quote],
+        line_ids=["p9:2:l1"],
+        status=ClaimStatus(retrouvee=True, pertinente=True, applicable="humain", edition="juin 2017"))
+    segment = AnswerSegment(text="La garantie vise l'action subite de la chaleur.", kind="factuel",
+                            claim_ids=["c1"])
+    return Answer(
+        found=True, complete=False, lang="fr", texte=segment.text, segments=[segment],
+        claims=[claim],
+        rejected_claims=[RejectedClaim(
+            claim_id="c2", text="Une exclusion écarte les dommages du canapé.",
+            quotes=[Quote(block_id=f"{DOC_ID}:p46:1", quote="phrase que le modèle a inventée")],
+            status=ClaimStatus(retrouvee=False, edition="juin 2017"),
+            rejection_kind="non_retrouvee", motif="citation introuvable")],
+        verdict=_verdict(),
+        faits_compris=QuestionScope(bien="mobilier de salon", evenement="brûlure sans embrasement",
+                                    lieu="domicile", cause="bougie", moment="2026-08-01"),
+        unknown=["La franchise applicable n'est pas dite."])
+
+
+def _refus(kind: str = "zero_hit") -> Answer:
+    """AD-16 : un refus sinistre **porte** un verdict `ne_tranche_pas`, jamais rien."""
+    phrase = "Je n'ai trouvé aucune clause du contrat qui traite du sinistre décrit."
+    return Answer(found=False, complete=False, texte=phrase,
+                  segments=[AnswerSegment(text=phrase, kind="limite")],
+                  reason=AbsenceProof(kind=kind, terms_searched=["mobilier"], variants_count=0,
+                                      blocks_scanned=3, documents=[DOC_ID]),
+                  verdict=_verdict("ne_tranche_pas", ask_client=[], escalate=[]),
+                  faits_compris=QuestionScope(bien="mobilier de salon"))
+
+
+def _trace(**kw: Any) -> Trace:
+    defauts: dict[str, Any] = {
+        "request_id": "à-remplacer", "pipeline": "sinistre", "variant": "deterministe",
+        "intent": "question", "total_cost_eur": 0.0336,
+        "steps": [StepTrace(name="comprendre", tier="micro"), StepTrace(name="restituer")],
+    }
+    return Trace(**{**defauts, **kw})
+
+
+class Double:
+    """Double de `pipelines.sinistre.run` : enregistre ce qu'il reçoit, rend ou lève ce qu'on lui donne."""
+
+    def __init__(self, resultat: tuple[Answer, Trace] | None = None,
+                 erreur: BaseException | None = None) -> None:
+        self.resultat = resultat
+        self.erreur = erreur
+        self.appels: list[dict[str, Any]] = []
+
+    async def __call__(self, doc_id: str, question: str, faits: Any, **kw: Any) -> tuple[Answer, Trace]:
+        self.appels.append({"doc_id": doc_id, "question": question, "faits": faits, **kw})
+        if self.erreur is not None:
+            raise self.erreur
+        assert self.resultat is not None
+        answer, trace = self.resultat
+        return answer, trace.model_copy(update={"request_id": kw["request_id"]})
+
+
+# --- fixtures -------------------------------------------------------------
+
+def _settings(**kw: Any) -> Settings:
+    return Settings(_env_file=None, anthropic_api_key="", **kw)
+
+
+def _serveur(settings: Settings) -> Any:
+    app = create_app(settings)
+    with TestClient(app) as client:
+        etat = app.state.foyer
+        client.origine = (etat.corpus, etat.index, etat.pipeline_sinistre)  # type: ignore[attr-defined]
+        yield client
+
+
+@pytest.fixture(scope="module")
+def prod() -> Any:
+    yield from _serveur(_settings(env="prod", allow_ungated=True))
+
+
+@pytest.fixture(autouse=True)
+def _etat_propre(request: pytest.FixtureRequest) -> Any:
+    """L'application est partagée par le module ; son état, non — chaque test repart du réel."""
+    yield
+    client = request.node.funcargs.get("prod")
+    if client is not None:
+        etat = client.app.state.foyer
+        etat.corpus, etat.index, etat.pipeline_sinistre = client.origine
+        etat.limiter.reset()
+
+
+def _brancher(client: TestClient, double: Double, *, mini: bool = True) -> Double:
+    etat = client.app.state.foyer
+    etat.pipeline_sinistre = double
+    if mini:
+        etat.corpus, etat.index = _mini_corpus()
+    return double
+
+
+def _corps(**kw: Any) -> dict[str, Any]:
+    return {"doc_id": DOC_ID, "question": QUESTION, "faits": dict(FAITS), **kw}
+
+
+def _poster(client: TestClient, corps: dict[str, Any] | None = None, **kw: Any) -> Any:
+    return client.post("/api/v1/sinistre", json=corps if corps is not None else _corps(),
+                       headers=XFF, **kw)
+
+
+# --- ligne « Liste des contrats » ----------------------------------------
+
+def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient) -> None:
+    """AC : le contrat AXA est listé `kind="contrat"`, `status="servi"`, édition « juin 2017 », source.
+
+    Le guide y figure **aussi** : il est servi, et taire un document servi ferait de cette route une
+    vue partielle de ce que le service expose. C'est la page qui n'en propose que les contrats.
+    """
+    r = prod.get("/api/v1/documents")
+    assert r.status_code == 200
+    items = r.json()
+    assert [d["doc_id"] for d in items] == sorted(d["doc_id"] for d in items)  # triés par doc_id
+    par_id = {d["doc_id"]: d for d in items}
+    axa = par_id[AXA]
+    assert axa["kind"] == "contrat"
+    assert axa["status"] == "servi"
+    assert axa["edition"] == "juin 2017"
+    # AD-7 : le PDF n'est pas redistribué ; sa source publique est la seule chose qu'on puisse offrir,
+    # et c'est ce qui rend « édition juin 2017 » vérifiable par celui à qui on l'annonce.
+    assert axa["source_url"] and axa["source_url"].startswith("https://")
+    assert "lux-guide" in par_id and par_id["lux-guide"]["kind"] == "guide"
+
+
+def test_documents_ne_coute_rien_et_nest_pas_limitee(prod: TestClient) -> None:
+    """AD-13 : le limiteur protège les routes qui appellent un modèle. `/documents` n'en appelle aucun."""
+    quota = prod.app.state.foyer.settings.rate_limit_per_minute
+    for _ in range(quota + 3):
+        assert prod.get("/api/v1/documents", headers=XFF).status_code == 200
+    assert prod.get(f"/api/v1/documents/{AXA}/report", headers=XFF).status_code == 200
+
+
+def test_documents_na_pas_dalias_historique(prod: TestClient) -> None:
+    """AD-11 ne nomme d'alias que `/sante` et `/chat` : un alias de plus serait une route inventée."""
+    assert prod.get("/documents").status_code == 404
+    assert prod.post("/sinistre", json=_corps(), headers=XFF).status_code in (404, 405)
+
+
+# --- ligne « Rapport » et « Rapport d'un doc inconnu » --------------------
+
+def test_report_rend_le_rapport_dingestion_tel_quel(prod: TestClient) -> None:
+    """AD-8 : « le rapport est exposé tel quel ». Chargé au démarrage, jamais relu (AD-7)."""
+    r = prod.get(f"/api/v1/documents/{AXA}/report")
+    assert r.status_code == 200
+    corps = r.json()
+    assert corps["doc_id"] == AXA
+    assert corps["checks"] and {"name", "level", "detail"} <= set(corps["checks"][0])
+    assert corps["stats"]["pages"] > 0
+    # Le rapport lu au démarrage est **le même objet** que celui du fichier : aucune requête ne
+    # rouvre `data/`.
+    assert prod.app.state.foyer.reports[AXA].doc_id == AXA
+
+
+def test_report_dun_document_inconnu_est_un_400_sans_echo(prod: TestClient) -> None:
+    """AD-16 n'a pas de code 404 : lui en inventer un est exactement ce qu'il interdit.
+
+    Et le message ne recopie pas le `doc_id` reçu (AD-15) : c'est une chaîne de l'appelant.
+    """
+    r = prod.get("/api/v1/documents/pas-un-document/report")
+    assert r.status_code == 400
+    erreur = r.json()["error"]
+    assert erreur["code"] == "invalid_request"
+    assert "pas-un-document" not in erreur["message"]
+    assert erreur["request_id"]
+
+
+def test_un_rapport_illisible_est_une_alerte_et_un_400(tmp_path: Any) -> None:
+    """D9 : un `report.json` présent mais invalide s'annonce sur `/sante` — jamais muet (AD-7)."""
+    from server.app.api.etat import _rapports
+
+    (tmp_path / "doc-a").mkdir()
+    (tmp_path / "doc-a" / "report.json").write_text("{ceci n'est pas du JSON", encoding="utf-8")
+    (tmp_path / "doc-b").mkdir()  # rapport **absent** : toléré, aucune alerte (comme dictionary.json)
+    rapports, alertes = _rapports(tmp_path, ["doc-a", "doc-b"])
+    assert rapports == {}
+    assert [(a.doc_id, a.alerte) for a in alertes] == [("doc-a", "rapport_illisible")]
+    assert "report.json" in alertes[0].detail
+
+
+def _corpus_sur_disque(racine: Any, *, rapport: str | None, source: str | None,
+                       quarantaine: bool = False) -> None:
+    """Un corpus minimal **sur disque**, pour exercer `construire_etat` de bout en bout.
+
+    Les tests qui appellent `_rapports`/`_sources` directement ne prouvent pas que leur résultat
+    atteint `/sante` ni les routes (revue 1.9) : retirer la concaténation des alertes dans
+    `construire_etat` les laissait tous verts.
+    """
+    import json as _json
+
+    doc = Document(doc_id="doc-mini", kind="contrat", title="Mini", edition="2020",
+                   source_hash="s", ingest_fingerprint="f",
+                   nodes=[Node(node_id="doc-mini:n1", level=1, title="N1",
+                               items=[{"block_id": "doc-mini:p1:1"}])],
+                   blocks=[{"block_id": "doc-mini:p1:1", "loc": "p1", "seq": 1, "kind": "para",
+                            "page": 1, "text": "Un paragraphe du contrat miniature."}])
+    dossier = racine / "doc-mini"
+    dossier.mkdir()
+    charge = doc.model_dump(mode="json", exclude_defaults=True)
+    octets = _json.dumps(charge, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    (dossier / "document.json").write_bytes(octets)
+    (dossier / "summary.md").write_text("# Mini", encoding="utf-8")
+    if rapport is not None:
+        (dossier / "report.json").write_text(rapport, encoding="utf-8")
+    if source is not None:
+        (dossier / "source.url").write_text(source, encoding="utf-8")
+    import hashlib
+    entree = {"status": "quarantaine" if quarantaine else "servi", "source_hash": "s",
+              "ingest_fingerprint": "f",
+              "document_hash": hashlib.sha256(octets).hexdigest(), "edition": "2020",
+              "overlay_hash": None, "gate": None}
+    (racine / "manifest.json").write_text(_json.dumps({"doc-mini": entree}), encoding="utf-8")
+
+
+def _client_sur(racine: Any) -> Any:
+    """Une application dont le lifespan charge **ce** `data_dir` (monkeypatché sur `etat.DATA_DIR`)."""
+    from contextlib import contextmanager
+
+    from server.app.api import etat as etat_module
+
+    @contextmanager
+    def _ouvrir() -> Any:
+        ancien = etat_module.DATA_DIR
+        etat_module.DATA_DIR = racine
+        try:
+            with TestClient(create_app(_settings(env="prod", allow_ungated=True))) as c:
+                yield c
+        finally:
+            etat_module.DATA_DIR = ancien
+
+    return _ouvrir()
+
+
+def test_un_rapport_illisible_remonte_jusqua_sante_et_a_la_route(tmp_path: Any) -> None:
+    """D9/AD-7 : « une incohérence est visible, jamais muette » — sur `/sante`, et 400 sur la route."""
+    _corpus_sur_disque(tmp_path, rapport="{pas du JSON", source="https://exemple.invalid/cg.pdf")
+    with _client_sur(tmp_path) as client:
+        alertes = client.get("/api/v1/sante").json()["alerts"]
+        assert ("doc-mini", "rapport_illisible") in [(a["doc_id"], a["alerte"]) for a in alertes]
+        r = client.get("/api/v1/documents/doc-mini/report")
+        assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
+        # Le document, lui, **est** servi : un rapport illisible n'empêche pas de servir (D9).
+        assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
+
+
+def test_une_source_privee_nest_jamais_publiee(tmp_path: Any) -> None:
+    """AD-7 : `source.url` peut porter l'URI `gs://` de la copie privée. Elle ne sort pas.
+
+    Deux pièges couverts d'un coup (revue 1.9) : le schéma `gs://`, et le fichier à **deux lignes**
+    (URL publique puis copie privée) qu'un simple `strip()` publiait en entier.
+    """
+    _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
+                       source="gs://foyer-retour-sources/doc-mini.pdf\n")
+    with _client_sur(tmp_path) as client:
+        assert client.get("/api/v1/documents").json()[0]["source_url"] is None
+
+
+def test_une_source_sur_deux_lignes_ne_publie_que_la_premiere(tmp_path: Any) -> None:
+    _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
+                       source="https://exemple.invalid/cg.pdf\ngs://prive/doc-mini.pdf\n")
+    with _client_sur(tmp_path) as client:
+        publiee = client.get("/api/v1/documents").json()[0]["source_url"]
+        assert publiee == "https://exemple.invalid/cg.pdf"
+        assert "gs://" not in publiee
+
+
+@pytest.mark.parametrize("brut, attendu", [
+    ("https://exemple.invalid/cg.pdf", "https://exemple.invalid/cg.pdf"),
+    ("  https://exemple.invalid/cg.pdf \n", "https://exemple.invalid/cg.pdf"),
+    ("gs://foyer-retour-sources/cg.pdf", None),
+    ("file:///tmp/cg.pdf", None),
+    ("https://exemple.invalid/a b.pdf", None),   # un blanc : ce n'est plus une URL
+    ("https://exemple.invalid/" + "x" * 3000, None),
+    ("", None), ("   ", None), (None, None),
+])
+def test_url_publiable_est_lunique_decision_de_ce_qui_sort(brut: Any, attendu: Any) -> None:
+    """Un seul filtre pour les deux chemins de publication (`source.url` **et** `Document.source_url`)."""
+    from server.app.api.etat import url_publiable
+
+    assert url_publiable(brut) == attendu
+
+
+def test_un_source_url_de_document_non_publiable_est_filtre_aussi(prod: TestClient) -> None:
+    """La branche « champ du document » passe par le même filtre que la branche « fichier »."""
+    corpus, index = _mini_corpus()
+    corpus.documents[DOC_ID].source_url = "gs://foyer-retour-sources/cg-mini.pdf"
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+    par_id = {d["doc_id"]: d for d in prod.get("/api/v1/documents").json()}
+    assert par_id[DOC_ID]["source_url"] is None
+
+
+def test_un_document_en_quarantaine_nest_ni_liste_ni_rapporte(tmp_path: Any) -> None:
+    """AD-7 : « un document `quarantaine` n'est pas chargé ». Il n'a donc rien à publier."""
+    _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
+                       source="https://exemple.invalid/cg.pdf", quarantaine=True)
+    with _client_sur(tmp_path) as client:
+        assert client.get("/api/v1/documents").json() == []
+        assert client.get("/api/v1/documents/doc-mini/report").status_code == 400
+        alertes = client.get("/api/v1/sante").json()["alerts"]
+        assert "quarantaine" in [a["alerte"] for a in alertes]
+
+
+# --- ligne « Sinistre nominal (bougie) » ---------------------------------
+
+def test_sinistre_nominal_rend_200_avec_le_contrat_ad11(prod: TestClient) -> None:
+    """AC : 200, `sources[]` avec `page`/`bbox`/`line_ids`/`kind` et des citations **relues**."""
+    corpus, _index = _mini_corpus()
+    double = _brancher(prod, Double((_reponse(corpus), _trace())))
+    r = _poster(prod)
+    assert r.status_code == 200
+    corps = r.json()
+
+    assert set(corps) == {"answer", "sources", "via", "trace"}
+    assert corps["via"] == "api/v1"
+    assert corps["trace"]["pipeline"] == "sinistre"
+    assert corps["trace"]["request_id"] == r.headers["X-Request-Id"]
+
+    assert corps["answer"]["verdict"]["value"] == "sous_conditions"
+    assert len(corps["sources"]) == 1
+    clause = corps["sources"][0]
+    assert clause["block_id"] == f"{DOC_ID}:p9:2"
+    assert clause["page"] == 9
+    assert clause["bbox"] == [70.0, 120.5, 520.0, 160.0]
+    assert clause["line_ids"] == ["p9:2:l1"]
+    # D5 : `kind` et `kind_confirmed` viennent du **bloc du corpus** (AD-6 : seule source de typage).
+    assert clause["kind"] == "garantie"
+    assert clause["kind_confirmed"] is True
+    assert clause["status"] == "verifiee"
+    # AD-3 : la citation publiée est le passage brut du corpus, ré-extrait aux offsets prouvés.
+    assert clause["quote"] == Q_GARANTIE
+    assert clause["quote"] in GARANTIE
+
+    # Le double a bien reçu ce que la route dit lui passer, et rien d'autre.
+    assert double.appels[0]["doc_id"] == DOC_ID
+    assert double.appels[0]["faits"].description == FAITS["description"]
+    assert double.appels[0]["request_id"] == corps["trace"]["request_id"]
+
+
+def test_un_typage_non_confirme_ressort_du_serveur(prod: TestClient) -> None:
+    """D5 : `kind_confirmed` est **lu sur le bloc**, et sa valeur fausse voyage jusqu'au front.
+
+    Aucun test ne produisait la valeur `False` côté serveur (revue 1.9) : les trois qui traversaient
+    `clauses_de` citaient le même bloc typé `manual`, et le test front lisait une fixture écrite à la
+    main. Remplacer la lecture par un `True` constant serait passé — et la réserve « typage non
+    confirmé » aurait disparu de la page, alors que c'est elle qui empêche d'afficher « exclusion »
+    comme une certitude que le pipeline n'a pas (AD-6 : un kind non confirmé vaut `humain`).
+
+    Le même bloc n'a ni `page` ni `bbox` : les deux ressortent `null`, autre valeur que rien
+    n'observait.
+    """
+    corpus, _index = _mini_corpus()
+    quote = _citation(corpus, f"{DOC_ID}:p46:1", "dommages causés intentionnellement")
+    claim = VerifiedClaim(claim_id="c1", text="Une exclusion vise l'acte intentionnel.",
+                          quotes=[quote],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, applicable="humain",
+                                             edition="juin 2017"))
+    answer = Answer(found=True, complete=False, texte=claim.text,
+                    segments=[AnswerSegment(text=claim.text, kind="factuel", claim_ids=["c1"])],
+                    claims=[claim], verdict=_verdict("ne_tranche_pas"))
+    _brancher(prod, Double((answer, _trace())))
+    clause = _poster(prod).json()["sources"][0]
+    assert clause["kind"] == "exclusion"
+    assert clause["kind_confirmed"] is False
+    assert clause["page"] == 46
+    assert clause["bbox"] is None
+    assert clause["line_ids"] == []
+
+
+def test_les_faits_compris_sont_publies(prod: TestClient) -> None:
+    """D4 : « les faits compris » de l'AC sont `ParsedQuestion.scope`, publiés dans l'unique `Answer`."""
+    corpus, _ = _mini_corpus()
+    _brancher(prod, Double((_reponse(corpus), _trace())))
+    compris = _poster(prod).json()["answer"]["faits_compris"]
+    assert compris["bien"] == "mobilier de salon"
+    assert compris["cause"] == "bougie"
+
+
+def test_les_clauses_rejetees_voyagent_a_part_jamais_dans_sources(prod: TestClient) -> None:
+    """AD-11/D7 : `sources[]` ne porte que les citations de la réponse **affichée**."""
+    corpus, _ = _mini_corpus()
+    _brancher(prod, Double((_reponse(corpus), _trace())))
+    corps = _poster(prod).json()
+    blocs_publies = {s["block_id"] for s in corps["sources"]}
+    assert f"{DOC_ID}:p46:1" not in blocs_publies
+    rejetee = corps["answer"]["rejected_claims"][0]
+    assert rejetee["rejection_kind"] == "non_retrouvee"
+    assert rejetee["text"]
+
+
+def test_lordre_de_sources_est_celui_de_lenumeration_des_claims(prod: TestClient) -> None:
+    """D6 : la page réapparie par position ; l'ordre de `clauses_de` **est** le contrat."""
+    corpus, _index = _mini_corpus()
+    q1 = _citation(corpus, f"{DOC_ID}:p9:2", Q_GARANTIE)
+    q2 = _citation(corpus, f"{DOC_ID}:p9:2", "Les dégâts occasionnés au mobilier assuré")
+    claims = [
+        VerifiedClaim(claim_id="c1", text="Première.", quotes=[q1],
+                      status=ClaimStatus(retrouvee=True, pertinente=True, applicable="oui",
+                                         edition="juin 2017")),
+        VerifiedClaim(claim_id="c2", text="Seconde.", quotes=[q2],
+                      status=ClaimStatus(retrouvee=True, pertinente=True, applicable="humain",
+                                         edition="juin 2017")),
+    ]
+    answer = Answer(found=True, complete=False, texte="Première. Seconde.",
+                    segments=[AnswerSegment(text="Première.", kind="factuel", claim_ids=["c1"]),
+                              AnswerSegment(text="Seconde.", kind="factuel", claim_ids=["c2"])],
+                    claims=claims, verdict=_verdict())
+    _brancher(prod, Double((answer, _trace())))
+    sources = _poster(prod).json()["sources"]
+    assert [s["quote"] for s in sources] == [q1.quote, q2.quote]
+
+
+# --- ligne « Refus / ne_tranche_pas » ------------------------------------
+
+@pytest.mark.parametrize("kind", ["hors_perimetre", "zero_hit", "claims_rejetes",
+                                  "clarification_requise"])
+def test_un_refus_est_un_200_avec_ne_tranche_pas_et_zero_source(prod: TestClient, kind: str) -> None:
+    """AD-11 : **toute** sortie du pipeline est un 200. AD-16 : un refus porte son verdict."""
+    _brancher(prod, Double((_refus(kind), _trace())))
+    r = _poster(prod)
+    assert r.status_code == 200
+    corps = r.json()
+    assert corps["answer"]["found"] is False
+    assert corps["answer"]["verdict"]["value"] == "ne_tranche_pas"
+    assert corps["answer"]["reason"]["kind"] == kind
+    assert corps["sources"] == []
+    assert corps["trace"]["request_id"]
+
+
+# --- ligne « `doc_id` non servi » et « `doc_id` d'un guide » --------------
+
+def test_un_doc_id_non_servi_est_un_400_avant_tout_appel(prod: TestClient) -> None:
+    """AC : « `doc_id` non servi ⇒ 400 », et **avant** le premier appel facturé.
+
+    Le pipeline lèverait `CorpusUnavailable` (503), qu'AD-16 réserve à une indisponibilité
+    passagère : le corpus est chargé une fois au démarrage et ne bouge plus, un document que ce
+    service ne sert pas est une faute d'appel. La route tranche donc la première.
+    """
+    double = _brancher(prod, Double(erreur=CorpusUnavailable("ne devrait jamais être atteint")))
+    r = _poster(prod, _corps(doc_id="contrat-inexistant"))
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_request"
+    assert "contrat-inexistant" not in r.json()["error"]["message"]  # AD-15 : aucun écho
+    assert double.appels == []  # rien n'a été facturé
+
+
+def test_un_doc_id_de_guide_est_refuse_avant_tout_appel(prod: TestClient) -> None:
+    """D3 : soumettre un sinistre au guide dépenserait quatre appels pour un `ne_tranche_pas` acquis."""
+    double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
+    r = _poster(prod, _corps(doc_id=GUIDE_ID))
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_request"
+    assert "contrat" in r.json()["error"]["message"]
+    assert double.appels == []
+
+
+# --- ligne « Description hors bornes » -----------------------------------
+
+def test_une_description_hors_bornes_est_rejetee_jamais_tronquee(prod: TestClient) -> None:
+    """AD-11 : « rejet plutôt que troncature » — la fin d'une description porte souvent la cause."""
+    double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
+    corps = _corps()
+    corps["faits"]["description"] = "x" * 2001
+    r = _poster(prod, corps)
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_request"
+    assert double.appels == []
+    # La borne du schéma est celle du domaine : elle ne se recopie pas, elle se lit.
+    borne = next(m.max_length for m in Faits.model_fields["description"].metadata
+                 if getattr(m, "max_length", None) is not None)
+    assert borne == 2000
+
+
+@pytest.mark.parametrize("corps, motif", [
+    ({"question": QUESTION, "faits": dict(FAITS)}, "doc_id absent"),
+    ({"doc_id": DOC_ID, "faits": dict(FAITS)}, "question absente"),
+    ({"doc_id": DOC_ID, "question": QUESTION}, "faits absents"),
+    ({"doc_id": DOC_ID, "question": "   ", "faits": dict(FAITS)}, "question blanche"),
+    ({"doc_id": DOC_ID, "question": "x" * 1001, "faits": dict(FAITS)}, "question hors borne"),
+    ({"doc_id": DOC_ID, "question": QUESTION, "faits": {"description": "d", "montant_eur": -1}},
+     "montant négatif"),
+])
+def test_les_bornes_du_contrat_sont_appliquees_avant_la_route(prod: TestClient, corps: dict,
+                                                              motif: str) -> None:
+    """AD-11 : les bornes du schéma sont refusées par pydantic, converties en 400 par AD-16."""
+    double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
+    r = _poster(prod, corps)
+    assert r.status_code == 400, motif
+    assert r.json()["error"]["code"] == "invalid_request"
+    assert double.appels == []
+
+
+# --- ligne « Variante inconnue » -----------------------------------------
+
+def test_une_variante_inconnue_est_refusee_avant_tout_appel(prod: TestClient) -> None:
+    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », jamais traité comme la déterministe."""
+    double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
+    r = _poster(prod, _corps(variant="agentique"))
+    assert r.status_code == 400
+    assert double.appels == []
+
+
+def test_la_variante_connue_est_transmise_telle_quelle(prod: TestClient) -> None:
+    corpus, _ = _mini_corpus()
+    double = _brancher(prod, Double((_reponse(corpus), _trace())))
+    assert _poster(prod, _corps(variant="deterministe")).status_code == 200
+    assert double.appels[0]["variant"] == "deterministe"
+    # Sans `variant` dans le corps, la route ne l'impose pas : le défaut du pipeline fait foi.
+    double.appels.clear()
+    assert _poster(prod).status_code == 200
+    assert "variant" not in double.appels[0]
+
+
+# --- D1 : le `dossier` n'est pas exposé ----------------------------------
+
+def test_le_dossier_nest_pas_un_champ_du_corps(prod: TestClient) -> None:
+    """D1 : la route n'expose pas `dossier` — le paquet reste réputé inconnu, annoncé et réclamé.
+
+    Un booléen « j'ai les conditions particulières » sur un démonstrateur public non authentifié est
+    une auto-déclaration invérifiable qui referme la seule question que l'outil sait poser.
+    """
+    assert "dossier" not in SinistreRequest.model_fields
+    corpus, _ = _mini_corpus()
+    double = _brancher(prod, Double((_reponse(corpus), _trace())))
+    # Envoyé quand même : `extra="ignore"` le laisse passer sans que rien ne fasse mine de le lire.
+    r = _poster(prod, _corps(dossier={"conditions_particulieres": False}))
+    assert r.status_code == 200
+    assert "dossier" not in double.appels[0]
+    assert r.json()["answer"]["verdict"]["missing"]["conditions_particulieres"] is True
+
+
+# --- ligne « Quota dépassé » ---------------------------------------------
+
+def test_le_quota_rend_429_avec_retry_after(prod: TestClient) -> None:
+    """AD-13 : le limiteur est une dépendance de **routeur**, comme sur `/chat` — corps invalides compris."""
+    corpus, _ = _mini_corpus()
+    _brancher(prod, Double((_reponse(corpus), _trace())))
+    quota = prod.app.state.foyer.settings.rate_limit_per_minute
+    for _ in range(quota):
+        assert _poster(prod).status_code == 200
+    r = _poster(prod)
+    assert r.status_code == 429
+    assert r.json()["error"]["code"] == "rate_limited"
+    assert int(r.headers["Retry-After"]) > 0
+
+
+def test_un_corps_invalide_compte_dans_le_quota(prod: TestClient) -> None:
+    """Le limiteur placé dans la fonction n'aurait jamais vu les requêtes que pydantic refuse."""
+    _brancher(prod, Double(erreur=AssertionError("jamais appelé")))
+    quota = prod.app.state.foyer.settings.rate_limit_per_minute
+    for _ in range(quota):
+        assert _poster(prod, {"doc_id": DOC_ID}).status_code == 400
+    assert _poster(prod, {"doc_id": DOC_ID}).status_code == 429
+
+
+# --- ligne « Modèle indisponible / deadline » ----------------------------
+
+@pytest.mark.parametrize("erreur, code", [
+    (LlmUnavailable("fournisseur en 529"), "llm_unavailable"),
+    (Timeout("deadline épuisée"), "timeout"),
+    (BudgetExceeded("plafond atteint"), "budget_exceeded"),
+    (CorpusUnavailable("document mis en quarantaine pendant la requête"), "corpus_unavailable"),
+])
+def test_un_echec_terminal_rend_503_avec_sa_trace_partielle(prod: TestClient, erreur: Exception,
+                                                            code: str) -> None:
+    """AD-16 : échec terminal typé, trace partielle, **aucun repli** — et surtout aucun verdict."""
+    exc = erreur
+    exc.trace = _trace(request_id="r-partielle", total_cost_eur=0.0122)  # type: ignore[attr-defined]
+    _brancher(prod, Double(erreur=exc))
+    r = _poster(prod)
+    assert r.status_code == 503
+    corps = r.json()
+    assert corps["error"]["code"] == code
+    assert corps["trace"]["total_cost_eur"] == 0.0122  # AD-10 : le coût engagé reste mesurable
+    assert "answer" not in corps and "verdict" not in corps
+
+
+# --- ligne « Citation non confirmée » ------------------------------------
+
+def test_une_citation_que_le_corpus_ne_confirme_pas_est_un_500(prod: TestClient) -> None:
+    """AD-11 (revue 1.6, B1 tour 2) : jamais un verdict servi avec ses clauses amputées.
+
+    C'est sous un verdict que « phrase sans source » coûte le plus cher : la clause est ce qui fonde
+    la décision affichée.
+    """
+    quote = VerifiedQuote(block_id=f"{DOC_ID}:p404:1", quote="passage d'un bloc qui n'existe pas",
+                          start=0, end=10, text_start=0, text_end=10)
+    claim = VerifiedClaim(claim_id="c1", text="Affirmation.", quotes=[quote],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+    answer = Answer(found=True, complete=False, texte="Affirmation.",
+                    segments=[AnswerSegment(text="Affirmation.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim], verdict=_verdict())
+    _brancher(prod, Double((answer, _trace())))
+    r = _poster(prod)
+    assert r.status_code == 500
+    corps = r.json()
+    assert corps["error"]["code"] == "internal"
+    # AD-16 : message générique, toujours le même — le `block_id` d'une citation que le corpus ne
+    # confirme pas est justement celui qu'aucun index ne connaît (AD-15).
+    assert corps["error"]["message"] == MESSAGE_INTERNE
+    assert "p404" not in corps["error"]["message"]
+    assert corps["trace"]["pipeline"] == "sinistre"
+
+
+def test_des_offsets_hors_du_bloc_sont_un_500(prod: TestClient) -> None:
+    """`_relire` d'AD-3 : des offsets qui ne retombent pas sur le bloc ne viennent pas du pipeline."""
+    quote = VerifiedQuote(block_id=f"{DOC_ID}:p9:2", quote="peu importe", start=0, end=5,
+                          text_start=0, text_end=99999)
+    claim = VerifiedClaim(claim_id="c1", text="Affirmation.", quotes=[quote],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+    answer = Answer(found=True, complete=False, texte="Affirmation.",
+                    segments=[AnswerSegment(text="Affirmation.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim], verdict=_verdict())
+    _brancher(prod, Double((answer, _trace())))
+    assert _poster(prod).status_code == 500
+
+
+# --- AD-10 : la ligne de log ---------------------------------------------
+
+def test_la_ligne_de_log_porte_des_champs_jamais_du_texte(prod: TestClient,
+                                                          caplog: pytest.LogCaptureFixture) -> None:
+    """AD-10 : ni la question, ni la description du sinistre, ni les termes cherchés."""
+    import json
+    import logging
+
+    corpus, _ = _mini_corpus()
+    _brancher(prod, Double((_reponse(corpus), _trace())))
+    with caplog.at_level(logging.INFO, logger="foyer.request"):
+        assert _poster(prod).status_code == 200
+    lignes = [json.loads(r.message) for r in caplog.records if r.name == "foyer.request"]
+    ligne = next(l for l in lignes if l.get("path") == "/api/v1/sinistre")
+    assert ligne["verdict"] == "sous_conditions"
+    assert ligne["found"] is True
+    assert ligne["cost_eur"] == 0.0336
+    brut = json.dumps(ligne, ensure_ascii=False)
+    assert QUESTION not in brut
+    assert "bougie" not in brut
+    assert "mobilier" not in brut

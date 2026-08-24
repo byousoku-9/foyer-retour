@@ -32,7 +32,9 @@ from server.app.api.errors import gestionnaire_http, gestionnaire_pipeline, gest
 from server.app.api.etat import construire_etat
 from server.app.api.request_id import RequestIdMiddleware, configurer_journal
 from server.app.api.routes import chat as route_chat
+from server.app.api.routes import documents as route_documents
 from server.app.api.routes import sante as route_sante
+from server.app.api.routes import sinistre as route_sinistre
 from server.app.config import REPO_ROOT, Settings, get_settings
 from server.app.domain.errors import PipelineError
 
@@ -97,6 +99,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # AD-11 : `/chat` et `/sante` sont les chemins historiques attendus par `reponseApi()` et
         # `testerApi()`. Ce sont des alias, pas une seconde API : la même fonction, le même contrat.
         app.include_router(routeur, include_in_schema=False)
+
+    # Story 1.9 — hors de la boucle, et volontairement : AD-11 ne nomme d'alias historique que pour
+    # `/sante` et `/chat`, « attendus par `testerApi()`/`reponseApi()` » du site copié. Rien
+    # n'attend `/sinistre` ni `/documents` à la racine, et un alias de plus serait une route
+    # inventée par story — sans compter que `/sinistre` y entrerait en collision avec le montage
+    # statique de la page du même nom.
+    for routeur in (route_documents.router, route_sinistre.router):
+        app.include_router(routeur, prefix=API_V1)
 
     _monter(app, "/guide", WEB_DIR, "guide")
     _monter(app, "/sinistre", SINISTRE_DIR, "sinistre")
