@@ -1083,6 +1083,9 @@
 
   // Sources et boutons de relance, ajoutes une fois le texte affiche.
   // Les chips d'un meme groupe disparaissent partout des qu'on clique sur l'une.
+  // `sources` est ici la forme **locale** du site (`{t, u}`), celle de la recherche simple ; les
+  // citations du serveur ont leur propre peintre (`citationsDe`), parce qu'elles portent autre
+  // chose : le passage relu, la fiche, le statut et l'edition.
   function garnir(m, sources, chips, grp) {
     if (sources && sources.length) {
       var s = el("div", "srcs");
@@ -1120,27 +1123,10 @@
     });
   }
 
-  // Affichage progressif, mot a mot, pour les reponses de l'assistant.
-  function taper(texte, sources, chips, apres) {
-    var grp = ++chipsGroupe;
-    var ms = logsActifs().map(function (log) { return bulleDans(log, "", "bot"); });
-    var mots = String(texte).split(" ");
-    var i = 0;
-    (function pas() {
-      if (i < mots.length) {
-        ms.forEach(function (m) {
-          m.firstChild.nodeValue += (i ? " " : "") + mots[i];
-          var log = m.parentElement;
-          if (log) log.scrollTop = log.scrollHeight;
-        });
-        i++;
-        setTimeout(pas, 22);
-      } else {
-        ms.forEach(function (m) { garnir(m, sources, chips, grp); });
-        if (apres) apres();
-      }
-    })();
-  }
+  // UX-DR10 : ni frappe mot a mot, ni delai artificiel. La reponse a demande dix a quinze secondes
+  // de travail reel ; la faire semblant d'etre tapee ajoutait de l'attente a de l'attente, et
+  // laissait croire a une generation en direct alors que le texte est deja verifie a l'arrivee.
+  // L'attente, elle, se **dit** (`bulleAttente`), au lieu de trois points qui sautent.
 
   function poserProchaineQuestion() {
     var champ = window.CHAT.prochainChamp(profil);
@@ -1169,7 +1155,235 @@
     }));
   }
 
+  // ---------- Peinture d'une reponse du serveur ----------
+  //
+  // AD-15 : **tout** texte venu du serveur est pose par `textContent` (c'est ce que fait `el()`) ;
+  // aucun `innerHTML` sur ce chemin. AD-3 / FR4 : ce qui est montre comme source est le passage que
+  // le serveur a relu du corpus (`sources[].quote`), avec sa fiche, son lien officiel et le statut
+  // lu sur `answer.claims[].status`.
+
+  // Un lien ne s'ouvre que s'il est http(s). Les URL viennent de notre corpus, pas du modele —
+  // mais c'est le genre de garantie qu'on ne veut pas devoir re-verifier a chaque ingestion.
+  function lienOfficiel(url) {
+    var u = String(url || "");
+    if (!/^https?:\/\//i.test(u)) return null;
+    var a = el("a", "cite-lien", "source officielle");
+    a.href = u;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    return a;
+  }
+
+  function citationsDe(entrees) {
+    var box = el("div", "cites");
+    box.appendChild(el("strong", null, entrees.length > 1 ? "Passages cités" : "Passage cité"));
+    entrees.forEach(function (e) {
+      var src = e.source || {};
+      var c = el("div", "cite");
+      c.appendChild(el("blockquote", "cite-q", "« " + String(src.quote || "") + " »"));
+      var meta = el("div", "cite-meta");
+      if (src.fiche_id) {
+        var b = el("button", "cite-fiche", src.titre || src.fiche_id);
+        b.type = "button";
+        b.addEventListener("click", function () { ouvrir("fiches"); montrerFiche(src.fiche_id); });
+        meta.appendChild(b);
+      } else if (src.titre) {
+        meta.appendChild(el("span", "cite-fiche-txt", src.titre));
+      }
+      var lien = lienOfficiel(src.url);
+      if (lien) meta.appendChild(lien);
+      var statut = window.CHAT.statutTexte(e.status);
+      if (statut) meta.appendChild(el("span", "cite-statut", statut));
+      c.appendChild(meta);
+      box.appendChild(c);
+    });
+    return box;
+  }
+
+  // Repli honnete quand l'appariement citation ↔ phrase echoue : la liste plate, sous la reponse,
+  // sans pretendre savoir quelle phrase chaque passage soutient.
+  function citationsPlates(sources) {
+    return citationsDe(sources.map(function (s) { return { source: s, status: null }; }));
+  }
+
+  function peindreReponse(m, r) {
+    var a = r.answer || {};
+
+    // La clarification est une **question posee a l'utilisateur** : elle passe avant la phrase de
+    // refus, qui explique seulement pourquoi rien n'a ete cherche.
+    if (a.clarification) {
+      var c = el("div", "clarif");
+      c.appendChild(el("strong", null, "Une précision, pour chercher au bon endroit"));
+      c.appendChild(el("p", null, String(a.clarification)));
+      m.appendChild(c);
+    }
+
+    var segments = (a.segments && a.segments.length) ? a.segments : (r.segments || []);
+    var appariees = window.CHAT.citationsParSegment(a, r.sources || []);
+    if (segments.length && appariees) {
+      segments.forEach(function (seg, i) {
+        var bloc = el("div", "seg" + (seg.kind === "factuel" ? " seg-factuel" : ""));
+        bloc.appendChild(el("p", "seg-txt", String(seg.text || "")));
+        var cites = appariees[i] || [];
+        if (cites.length) bloc.appendChild(citationsDe(cites));
+        m.appendChild(bloc);
+      });
+    } else {
+      m.appendChild(el("p", "seg-txt", String(r.texte || "")));
+      if ((r.sources || []).length) m.appendChild(citationsPlates(r.sources));
+    }
+
+    // AD-4 : la phrase de refus vient du serveur (elle est ci-dessus, dans les segments) ; ce que le
+    // front ajoute, c'est la preuve chiffree — jamais les variantes ni les declencheurs.
+    var preuve = window.CHAT.preuveAbsence(a.reason);
+    if (preuve) m.appendChild(el("p", "preuve", preuve));
+
+    if ((r.unknown || []).length) {
+      var u = el("div", "inconnu");
+      u.appendChild(el("strong", null, "Ce que je ne sais pas"));
+      var ul = el("ul");
+      r.unknown.forEach(function (x) { ul.appendChild(el("li", null, String(x))); });
+      u.appendChild(ul);
+      m.appendChild(u);
+    }
+
+    var pied = el("div", "pied");
+    var etat = window.CHAT.etatReponse(a);
+    pied.appendChild(el("span", "etat etat-" + etat.cle, etat.texte));
+    var cout = window.CHAT.coutTexte(r.trace);
+    if (cout) pied.appendChild(el("span", "cout", cout));
+    m.appendChild(pied);
+  }
+
+  // ---------- Etat de l'echange ----------
+
+  var enAttente = false;
+
+  function verrouillerSaisie(v) {
+    enAttente = v;
+    ["#chat-input", "#widget-input", "#chat-send", "#widget-send"].forEach(function (sel) {
+      var e = $(sel);
+      if (e) e.disabled = v;
+    });
+  }
+
+  // UX-DR10 : l'attente se dit en toutes lettres. Les trois points restent, mais ils accompagnent
+  // un texte au lieu de le remplacer — une animation seule n'annonce rien a qui ne la voit pas.
+  function bulleAttente() {
+    return logsActifs().map(function (log) {
+      var m = el("div", "msg bot attente");
+      m.appendChild(el("span", "attente-txt",
+        "Je cherche dans le guide, puis je vérifie chaque phrase contre les passages cités…"));
+      var pts = el("span", "points");
+      pts.appendChild(el("span"));
+      pts.appendChild(el("span"));
+      pts.appendChild(el("span"));
+      m.appendChild(pts);
+      log.appendChild(m);
+      log.scrollTop = log.scrollHeight;
+      return m;
+    });
+  }
+
+  function badgeMode(via) {
+    var b = $("#mode-badge");
+    if (!b) return;
+    var mode = String(via || "local");
+    var api = mode.indexOf("api") === 0;
+    b.textContent = "mode " + (api ? "api" : mode);
+    b.className = "badge" + (api ? " on" : (mode === "indisponible" ? " off" : ""));
+  }
+
+  function chipsDe(q, r) {
+    var chips = (r.fiches || []).slice(0, 3).map(function (id) {
+      var f = window.KB.fiches.filter(function (x) { return x.id === id; })[0];
+      return f ? {
+        label: "Ouvrir : " + f.titre,
+        action: function () { ouvrir("fiches"); montrerFiche(f.id); }
+      } : null;
+    }).filter(Boolean);
+    // Relance : approfondir le sujet principal sans avoir a reformuler
+    if (r.fiches && r.fiches.length) {
+      var pf = window.KB.fiches.filter(function (x) { return x.id === r.fiches[0]; })[0];
+      if (pf) chips.push({
+        label: "En savoir plus",
+        action: function () { envoyer("Peux-tu détailler : " + pf.titre + " ?"); }
+      });
+    }
+    // Question d'assurance : la main passe au comparateur, qui sait faire ce que l'assistant
+    // general ne fait pas, construire le tableau. On lui transmet la question telle quelle.
+    if (r.comparateur) {
+      chips.push({
+        label: "Construire le tableau de comparaison",
+        action: function () { ouvrir("comparateur"); passerAuComparateur(q); }
+      });
+    }
+    return chips;
+  }
+
+  function afficherReponse(q, r) {
+    var grp = ++chipsGroupe;
+    var chips = chipsDe(q, r);
+    logsActifs().forEach(function (log) {
+      var m = el("div", "msg bot");
+      log.appendChild(m);
+      peindreReponse(m, r);
+      garnir(m, null, chips, grp);
+      log.scrollTop = log.scrollHeight;
+    });
+    historique.push({ role: "assistant", content: r.texte });
+    badgeMode(r.via);
+    // Panneau ancre : la fiche s'ouvre dans la page, passage surligne, sans quitter la conversation.
+    if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
+  }
+
+  // La reponse de la recherche simple : forme locale du site (`{t, u}`), badge « mode local ».
+  function afficherReponseLocale(q, r) {
+    var grp = ++chipsGroupe;
+    var chips = chipsDe(q, r);
+    logsActifs().forEach(function (log) {
+      var m = bulleDans(log, r.texte, "bot");
+      garnir(m, r.sources, chips, grp);
+    });
+    historique.push({ role: "assistant", content: r.texte });
+    badgeMode(r.via || "local");
+    if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
+  }
+
+  // FR11 / AD-11 / AD-16 : **aucun** repli automatique.
+  //   - 503 ou panne reseau : bandeau + un bouton a cliquer. Rien n'est cherche localement avant
+  //     le clic, et le badge ne bouge pas tant que l'utilisateur n'a pas tranche ;
+  //   - 4xx / 429 / 500 : un message francais compose a partir du `code`, et rien d'autre. Proposer
+  //     la recherche simple sur un 400 ferait passer une recherche de mots-cles pour une reponse.
+  function afficherErreur(q, erreur) {
+    var indispo = !!(erreur && erreur.kind === "indisponible");
+    var message = window.CHAT.messageErreur(erreur);
+    var grp = ++chipsGroupe;
+    var chips = indispo ? [{
+      label: "Consulter le guide en recherche simple",
+      action: function () { afficherReponseLocale(q, window.CHAT.rechercheSimple(q, profil)); }
+    }] : null;
+    logsActifs().forEach(function (log) {
+      var m = el("div", "msg bot " + (indispo ? "indispo" : "err"));
+      log.appendChild(m);
+      m.appendChild(el("strong", "alerte-titre",
+        indispo ? "Assistant indisponible" : "Question non traitée"));
+      m.appendChild(el("p", "alerte-txt", message));
+      if (indispo) {
+        m.appendChild(el("p", "alerte-note",
+          "Rien n'a été cherché : la recherche simple du guide compare des mots-clés, elle ne " +
+          "vérifie rien. À vous de décider si elle vous suffit."));
+      }
+      if (erreur && erreur.request_id) {
+        m.appendChild(el("p", "ref", "référence : " + erreur.request_id));
+      }
+      garnir(m, null, chips, grp);
+      log.scrollTop = log.scrollHeight;
+    });
+  }
+
   function envoyer(texteForce) {
+    if (enAttente) return;
     var q = texteForce;
     if (!q) {
       var inputs = [$("#chat-input"), $("#widget-input")].filter(Boolean);
@@ -1180,63 +1394,21 @@
     }
     if (!q) return;
     bulle(q, "me");
+    // L'historique vit en memoire de page, et nulle part ailleurs (AD-15).
     historique.push({ role: "user", content: q });
-    sauverProfil();
 
-    var attente = bulle("", "bot");
-    attente.forEach(function (m) {
-      var pts = el("span", "points");
-      pts.innerHTML = "<span></span><span></span><span></span>";
-      m.appendChild(pts);
-    });
+    var attente = bulleAttente();
+    verrouillerSaisie(true);
 
-    // Petit temps de reflexion avant la reponse, pour garder un rythme de conversation.
-    var delai = new Promise(function (res) { setTimeout(res, 500 + Math.random() * 600); });
-    Promise.all([window.CHAT.repondre(q, profil, historique), delai]).then(function (rs) {
-      var r = rs[0];
+    // Pas de `Promise.all` avec un delai : le seul temps d'attente est celui du travail reel.
+    window.CHAT.repondre(q, profil, historique).then(function (r) {
       attente.forEach(function (m) { m.remove(); });
-      var chips = (r.fiches || []).slice(0, 3).map(function (id) {
-        var f = window.KB.fiches.filter(function (x) { return x.id === id; })[0];
-        return f ? {
-          label: "Ouvrir : " + f.titre,
-          action: function () { ouvrir("fiches"); montrerFiche(f.id); }
-        } : null;
-      }).filter(Boolean);
-      // Relance : approfondir le sujet principal sans avoir a reformuler
-      if (r.fiches && r.fiches.length) {
-        var pf = window.KB.fiches.filter(function (x) { return x.id === r.fiches[0]; })[0];
-        if (pf) chips.push({
-          label: "En savoir plus",
-          action: function () { envoyer("Peux-tu détailler : " + pf.titre + " ?"); }
-        });
-      }
-      // Question d'assurance : la main passe au comparateur, qui sait faire ce
-      // que l'assistant general ne fait pas, construire le tableau. On lui
-      // transmet la question telle quelle plutot que d'y repondre deux fois.
-      if (r.comparateur) {
-        chips.push({
-          label: "Construire le tableau de comparaison",
-          action: function () {
-            ouvrir("comparateur");
-            passerAuComparateur(q);
-          }
-        });
-      }
-      taper(r.texte, r.sources, chips, function () {
-        // Panneau ancre : la fiche s'ouvre dans la page, passage surligne,
-        // sans quitter la conversation.
-        if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
-      });
-      historique.push({ role: "assistant", content: r.texte });
-      sauverProfil();
-      var b = $("#mode-badge");
-      if (b) {
-        b.textContent = "mode " + (r.via || "local");
-        b.className = "badge" + (String(r.via).indexOf("api") === 0 ? " on" : "");
-      }
-    }).catch(function (e) {
+      verrouillerSaisie(false);
+      afficherReponse(q, r);
+    }, function (e) {
       attente.forEach(function (m) { m.remove(); });
-      bulle("Une erreur est survenue : " + e.message, "bot");
+      verrouillerSaisie(false);
+      afficherErreur(q, e);
     });
   }
 
@@ -1249,7 +1421,8 @@
       profil = window.CHAT.profilVide();
       historique = [];
       effacerProfil();
-      logsActifs().forEach(function (log) { log.innerHTML = ""; });
+      verrouillerSaisie(false);
+      logsActifs().forEach(function (log) { log.textContent = ""; });
       rendreTimeline();
       rendreFiches();
       demarrerChat();
@@ -1297,12 +1470,11 @@
     } else {
       demarrerChat();
     }
+    // La sonde n'ouvre aucune porte : elle renseigne le badge, rien de plus. Quand elle echoue, le
+    // badge dit « mode indisponible » et la premiere question affiche le bandeau — jamais une
+    // reponse locale servie d'office (AD-11).
     window.CHAT.testerApi().then(function (ok) {
-      var b = $("#mode-badge");
-      if (b) {
-        b.textContent = ok ? "mode api" : "mode local";
-        b.className = "badge" + (ok ? " on" : "");
-      }
+      badgeMode(ok ? "api" : "indisponible");
     });
 
     initLargeurRail();
