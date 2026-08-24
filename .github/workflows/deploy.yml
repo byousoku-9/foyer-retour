@@ -3,10 +3,11 @@
 # **L'ordre est la garantie.** La révision est construite par Cloud Build depuis `--source`, déployée
 # **sans trafic** sous le tag `candidat`, sondée par `scripts/smoke.py` sur son URL taguée — et le
 # trafic n'est promu qu'ensuite, **nommément vers cette révision-là**. AD-12 exige les smokes « avant
-# promotion du trafic » : `deploy-cloudrun@v3` ne rend qu'une sortie, `url`, celle du **service**, si
-# bien que sonder juste après un déploiement à trafic immédiat mesurerait la nouvelle révision par
-# accident, après qu'elle a déjà servi des requêtes réelles. Le tag donne une URL propre
-# (`https://candidat---<hôte du service>`) qui n'atteint que la révision candidate.
+# promotion du trafic » : sans `no_traffic`, la nouvelle révision aurait déjà servi des requêtes
+# réelles au moment où on la sonde. Le tag donne une URL propre (`https://candidat---<hôte du
+# service>`) qui n'atteint que la révision candidate — et c'est **elle** que `deploy-cloudrun@v3`
+# publie en sortie `url` dès que l'entrée `tag` est posée (son analyseur prend l'entrée de
+# `status.traffic[]` portant le tag ; sans tag, il rendrait `status.url`, celle du service).
 #
 # Effet de bord assumé : pendant le smoke, deux révisions coexistent, chacune avec son propre
 # `--max-instances=1`. Le pic est donc de deux instances, pour la durée des quatre vérifications.
@@ -69,6 +70,14 @@ jobs:
       # Les trois variables du dépôt sont posées par `scripts/gcp_bootstrap.sh` (story 1.0). Une
       # variable vide donne sinon un échec obscur au milieu d'un build facturé.
       #
+      # **Et le projet n'est pas seulement « non vide ».** L'AC de la story écrit `project_id:
+      # foyer-retour` et FR44 a exige `--project=foyer-retour` : une variable de dépôt est éditable
+      # depuis l'interface de GitHub, sans revue et sans diff, et une valeur erronée ferait construire
+      # et déployer ce service dans **un autre projet GCP** — celui du poste par défaut, ou n'importe
+      # lequel. Le nom autoritaire est donc écrit ici, une fois, et confronté à la variable **avant**
+      # l'authentification : ce qui suit interpole `vars.GCP_PROJECT_ID` ne peut plus désigner autre
+      # chose (revue Codex 1.11).
+      #
       # Les valeurs passent par `env:` et non par `${{ vars.X }}` écrit dans le script : une
       # interpolation est **collée dans le texte du shell avant exécution**, si bien qu'une valeur
       # portant un guillemet casserait la commande — ou l'exécuterait. Le reste du fichier le fait
@@ -78,6 +87,7 @@ jobs:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
           DEPLOY_SA: ${{ vars.DEPLOY_SA }}
+          PROJET_ATTENDU: foyer-retour
         run: |
           manquantes=()
           [ -n "$GCP_PROJECT_ID" ] || manquantes+=(GCP_PROJECT_ID)
@@ -87,12 +97,32 @@ jobs:
             echo "variables du dépôt absentes : ${manquantes[*]} — les poser avec les sorties de scripts/gcp_bootstrap.sh" >&2
             exit 1
           fi
+          if [ "$GCP_PROJECT_ID" != "$PROJET_ATTENDU" ]; then
+            echo "GCP_PROJECT_ID vaut « $GCP_PROJECT_ID » : le seul projet que ce workflow déploie est « $PROJET_ATTENDU » (AC 1.11, FR44 a)" >&2
+            exit 1
+          fi
 
       # AD-11 : `/api/v1/sante` publie `version: sha7`. C'est ce que le smoke comparera — sans quoi
       # il mesurerait une révision qu'il n'a pas construite.
       - name: Empreinte courte du commit
         id: sha
         run: echo "sha7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # **Avant `auth`, et c'est la seule raison de l'ordre.** L'installateur d'uv est un script
+      # téléchargé et exécuté (`curl | sh`) : joué après l'authentification, il tournerait sur un
+      # runner où `gha-creds-*.json` existe déjà, et une compromission de cette ressource lirait le
+      # crédentiel fédéré du déployeur. Ici, il n'y a encore rien à voler (revue Codex 1.11). La
+      # version est épinglée, et `test_uv_est_epingle_sur_la_serie_du_dockerfile_et_partout_a_la_meme_version`
+      # tient cette épingle avec celle du `Dockerfile` et de `ci.yml`.
+      - name: Installer uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.32/install.sh | sh
+          # L'installateur dépose `uv` dans `~/.local/bin`, que le runner n'a pas forcément sur son
+          # `PATH` : le dire explicitement plutôt que de compter sur l'image.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Installer les dépendances (lock gelé)
+        run: uv sync --frozen
 
       - name: Identité fédérée (WIF direct, sans clé)
         uses: google-github-actions/auth@v3
@@ -142,14 +172,29 @@ jobs:
             --service-account=foyer-retour-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
           wait: true
 
-      # `deploy-cloudrun@v3` ne rend que l'URL du **service**. L'URL taguée se lit sur la description
-      # du service, dans `status.traffic[]`, à l'entrée qui porte le tag — et c'est la **même** entrée
-      # qui donne le nom de la révision. Les capturer ensemble, en un seul appel, est ce qui garantit
-      # que la révision promue plus bas est exactement celle que le smoke aura sondée.
-      - name: Résoudre la révision candidate et son URL taguée
+      # **`steps.deploy.outputs.url` est l'URL taguée**, et c'est elle que le smoke sonde (AC 1.11,
+      # AD-12). L'action rend `status.url` — l'URL du **service** — *sauf* quand l'entrée `tag` est
+      # posée : son analyseur cherche alors `status.traffic[]` à l'entrée portant ce tag et publie
+      # son `url` (`src/output-parser.ts`, `parseDeployResponse`, v3). Le commentaire précédent
+      # affirmait l'inverse et faisait sonder une URL résolue à part : la sortie de l'action est
+      # autoritaire, on la prend (revue Codex 1.11).
+      #
+      # Ce que cette étape apporte encore, et qui n'a pas de sortie d'action : le **nom** de la
+      # révision candidate, sans lequel la promotion ne pourrait que dire « la dernière créée ». Elle
+      # le lit dans la même entrée de `status.traffic[]` que l'URL — et **confronte** cette URL à
+      # celle que l'action a publiée. Les deux d'accord, la révision promue est exactement celle que
+      # le smoke a sondée ; en désaccord, quelque chose a re-tagué le service entre les deux appels et
+      # rien ne doit être promu.
+      - name: Résoudre la révision candidate et confronter son URL à celle de l'action
         id: candidate
+        env:
+          URL_ACTION: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
+          if [ -z "$URL_ACTION" ]; then
+            echo "l'action de déploiement n'a publié aucune URL : la révision candidate n'est pas adressable, rien ne sera promu" >&2
+            exit 1
+          fi
           entree="$(gcloud run services describe "$SERVICE" \
                       --region="$REGION" --project="$PROJET" --format=json \
                     | jq -c --arg tag "$TAG" 'first(.status.traffic[]? | select(.tag == $tag))')"
@@ -159,19 +204,12 @@ jobs:
             echo "aucune entrée de trafic pour le tag $TAG : la révision candidate n'est pas adressable, rien ne sera promu" >&2
             exit 1
           fi
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          if [ "$url" != "$URL_ACTION" ]; then
+            echo "l'URL taguée du service ($url) n'est pas celle que l'action a déployée ($URL_ACTION) : le smoke et la promotion ne parleraient pas de la même révision" >&2
+            exit 1
+          fi
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
           echo "révision candidate : $revision → $url"
-
-      - name: Installer uv
-        run: |
-          curl -LsSf https://astral.sh/uv/0.11.32/install.sh | sh
-          # L'installateur dépose `uv` dans `~/.local/bin`, que le runner n'a pas forcément sur son
-          # `PATH` : le dire explicitement plutôt que de compter sur l'image.
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Installer les dépendances (lock gelé)
-        run: uv sync --frozen
 
       # Les smokes d'AD-12, sur la révision candidate. Un écart ⇒ sortie 1 ⇒ le workflow échoue
       # **avant** `update-traffic`, et l'ancienne révision garde 100 % du trafic (AD-16 : jamais de
@@ -179,7 +217,7 @@ jobs:
       - name: Smoke tests sur la révision candidate
         run: uv run python scripts/smoke.py --base-url "$URL" --version "$SHA7"
         env:
-          URL: ${{ steps.candidate.outputs.url }}
+          URL: ${{ steps.deploy.outputs.url }}
           SHA7: ${{ steps.sha.outputs.sha7 }}
 
       # Seulement maintenant, et **nommément**. `--to-latest` promeut « la dernière révision créée »,

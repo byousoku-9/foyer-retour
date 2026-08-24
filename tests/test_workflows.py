@@ -193,14 +193,67 @@ def test_le_trafic_nest_promu_quapres_le_smoke() -> None:
 
 
 def test_le_smoke_sonde_lurl_taguee_et_le_sha7_du_commit() -> None:
-    """Sonder l'URL du **service** mesurerait l'ancienne révision : le tag est ce qui adresse la neuve."""
+    """L'AC écrit « smoke tests sur `steps.deploy.outputs.url` », et cette sortie **est** l'URL taguée.
+
+    `deploy-cloudrun@v3` publie `status.url` — l'URL du service — *sauf* quand l'entrée `tag` est
+    posée : `parseDeployResponse` cherche alors l'entrée de `status.traffic[]` qui porte ce tag et
+    publie son `url` (`src/output-parser.ts`, v3). Le workflow résolvait l'URL de son côté et sondait
+    la sienne ; c'est la sortie de l'action qui fait autorité (revue Codex 1.11). Sonder l'URL du
+    **service** mesurerait l'ancienne révision, puisque la candidate est déployée sans trafic.
+    """
     pas = etapes(lire(DEPLOY), "deployer")
     smoke = pas[index_de(pas, "scripts/smoke.py")]
-    assert smoke["env"]["URL"] == "${{ steps.candidate.outputs.url }}"
+    assert smoke["env"]["URL"] == "${{ steps.deploy.outputs.url }}", (
+        "l'AC nomme `steps.deploy.outputs.url` ; avec `tag`, c'est l'URL de la révision candidate")
     assert smoke["env"]["SHA7"] == "${{ steps.sha.outputs.sha7 }}"
     resolution = pas[index_de(pas, "status.traffic")]
     assert resolution["id"] == "candidate"
     assert "gcloud run services describe" in resolution["run"]
+
+
+def test_lurl_resolue_et_celle_de_laction_sont_confrontees_avant_promotion() -> None:
+    """Deux façons de nommer la révision candidate ne doivent pas pouvoir diverger en silence.
+
+    Le smoke sonde l'URL publiée par l'action ; la promotion nomme la révision lue par `describe`.
+    Si un `gcloud run deploy --tag=candidat` lancé à la main déplaçait le tag entre les deux appels,
+    on promouvrait une révision que personne n'a sondée — la promotion « quand même » qu'AD-16
+    interdit. L'étape de résolution compare donc les deux URL et échoue **avant** le smoke.
+    """
+    pas = etapes(lire(DEPLOY), "deployer")
+    resolution = pas[index_de(pas, "status.traffic")]
+    assert resolution["env"]["URL_ACTION"] == "${{ steps.deploy.outputs.url }}"
+    assert '"$url" != "$URL_ACTION"' in resolution["run"], (
+        "les deux résolutions de la révision candidate doivent être confrontées")
+    assert index_de(pas, "status.traffic") < index_de(pas, "scripts/smoke.py")
+
+
+def test_le_projet_deploye_est_celui_que_lac_nomme() -> None:
+    """AC 1.11 : `project_id: foyer-retour` ; FR44 a : « toujours `--project=foyer-retour` ».
+
+    Le projet vient d'une variable du dépôt — éditable depuis l'interface de GitHub, sans revue et
+    sans diff. « Non vide » ne suffit donc pas : une valeur erronée ferait construire et déployer
+    ailleurs. Le nom autoritaire est écrit une fois dans le workflow et confronté à la variable
+    **avant** l'authentification (revue Codex 1.11).
+    """
+    pas = etapes(lire(DEPLOY), "deployer")
+    controle = pas[_index_par_nom(pas, "Contrôler les variables")]
+    assert controle["env"]["PROJET_ATTENDU"] == "foyer-retour"
+    assert '"$GCP_PROJECT_ID" != "$PROJET_ATTENDU"' in controle["run"]
+    assert _index_par_nom(pas, "Contrôler les variables") < index_de(pas, "google-github-actions/auth")
+
+
+def test_luv_est_installe_avant_que_le_credentiel_federe_existe() -> None:
+    """`curl | sh` n'a rien à voler tant qu'`auth@v3` n'a pas écrit `gha-creds-*.json`.
+
+    L'installateur d'uv est un script téléchargé et exécuté. Joué après l'authentification, il
+    tournerait sur un runner portant le crédentiel fédéré du déployeur — une compromission de cette
+    ressource distante suffirait alors à agir avec ses droits (revue Codex 1.11). L'ordre est la
+    seule protection possible ici, et il n'a aucun coût : rien de ce que ces deux étapes font ne
+    dépend de GCP.
+    """
+    pas = etapes(lire(DEPLOY), "deployer")
+    assert index_de(pas, "astral.sh/uv") < index_de(pas, "google-github-actions/auth")
+    assert index_de(pas, "uv sync --frozen") < index_de(pas, "google-github-actions/auth")
 
 
 def test_la_promotion_nomme_la_revision_sondee_et_retire_le_tag() -> None:
