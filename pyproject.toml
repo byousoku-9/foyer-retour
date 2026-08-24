@@ -26,7 +26,37 @@ dev = [
     # convention Couches du spine). D1 de la spec 1.10 : un golden set mal parsé par un parseur
     # maison ferait passer un gate sur des attentes que personne n'a écrites.
     "pyyaml==6.0.3",
+    # Le lint de FR44 d, enfin **dans** le projet. Jusqu'ici la commande de vérification de chaque
+    # spec était un `uvx ruff@0.16.4 …` tapé à la main : le jeu de règles était décidé par celui qui
+    # tapait la commande, et rien ne l'exécutait en intégration continue — un `F821` introduit un
+    # jour ne rougissait nulle part (reprise différée de 1.9). Épinglé, et dans le groupe **dev** :
+    # l'image de production est construite avec `uv sync --frozen --no-dev`.
+    "ruff==0.16.4",
 ]
+
+[tool.ruff]
+# Le dépôt écrit large et commenté ; la borne n'est là que pour qu'une ligne vraiment aberrante se
+# voie. La plus longue ligne existante fait 188 caractères, d'où 190. Elle n'a d'effet que parce que
+# `E501` est dans `select` ci-dessous : sans lui, `line-length` n'est qu'une consigne de formatage
+# que `ruff check` ignore, et le commentaire décrivait un garde-fou qui n'existait pas (revue 1.11).
+line-length = 190
+
+[tool.ruff.lint]
+# **Ce que ce jeu attrape est ce qui casse**, pas ce qui déplaît : `F` (noms indéfinis, imports morts,
+# f-strings sans champ), `E4` (imports mal placés), `E7` (comparaisons douteuses, `except` nu, `lambda`
+# affecté), `E9` (erreurs de syntaxe et d'indentation), `W` (espaces en fin de ligne, fin de fichier).
+#
+# **Pourquoi pas `I`, `B`, `SIM`, `UP` (story 1.11).** Les quatre ensemble produisent 24 constats,
+# dont un dans `server/app/corpus/loader.py`. Le corriger change `pipeline_digest`, donc périme **les
+# deux** gates du dépôt (`test_digests.py` le tient), met `/` en `gate_perime` et exige deux runs
+# d'évals facturés — pour une règle de style, le jour d'une story de déploiement. L'élargissement est
+# redéposé en reprise différée, à faire quand les gates seront relancés de toute façon.
+# `E501` (ligne trop longue) est ce qui donne son effet à `line-length` ; il est **calibré** sur le
+# dépôt tel qu'il est écrit, pas sur une convention importée.
+select = ["E4", "E5", "E7", "E9", "F", "W"]
+# `l` désigne une **ligne** dans `server/ingest/pdf_to_blocks.py` : la variable est nommée d'après le
+# domaine, et la renommer en `ligne` rendrait le code moins clair, pas plus.
+ignore = ["E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
