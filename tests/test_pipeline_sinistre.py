@@ -487,6 +487,31 @@ async def test_a_rejected_claim_triggers_one_retry_then_refuses_with_a_verdict(i
     assert _questions_attendues(answer.verdict)
     # et la phrase servie est celle du **sinistre**, pas celle du guide
     assert "clause" in answer.texte and "guide" not in answer.texte
+    # D4, sur la **troisième** branche de *restituer* — celle où toutes les claims sont rejetées
+    # après la relance. Les deux autres (chemin nominal, `refuser()`) étaient couvertes ; retirer
+    # `faits_compris=compris` de ce seul appel laissait la suite verte, et la section « Ce que j'ai
+    # compris du sinistre » disparaissait précisément de l'écran le plus démuni : un
+    # « ne tranche pas » sans clause, où il ne reste que ce que le système a cru comprendre.
+    assert answer.faits_compris is not None
+    assert answer.faits_compris.bien == "mobilier de salon"
+    assert answer.faits_compris.cause == "bougie"
+
+
+async def test_the_rejected_claims_branch_bounds_the_understood_facts_too(index: Index) -> None:
+    """Et elle les **borne** : la troisième branche n'échappe pas à la règle de D8 (revue 1.9)."""
+    settings = _settings()
+    trop_long = "x" * (settings.fait_manquant_max_chars + 1)
+    answer, trace, _fake = await _run(index, [
+        _comprendre(cause=trop_long),
+        _rediger(MAUVAISE),
+        _rediger(("c9", "Autre tentative, aussi fausse.",
+                  [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")]))], settings=settings)
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "claims_rejetes"
+    assert answer.faits_compris is not None and answer.faits_compris.cause is None
+    assert "xxxx" not in answer.model_dump_json()
+    restituer_step = next(s for s in trace.steps if s.name == "restituer")
+    assert any(c.name == "faits_compris_hors_borne" for c in restituer_step.checks)
 
 
 async def test_a_claim_mixing_two_clauses_is_sent_back_to_the_writer(index: Index) -> None:

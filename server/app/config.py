@@ -158,6 +158,13 @@ class Settings(BaseSettings):
     # même raison que `verifier_max_claims` — un découpage qui s'emballe rendrait `complete` hors
     # d'atteinte et gonflerait le prompt de *vérifier* sans rien prouver.
     question_max_facettes: int = Field(4, ge=1)
+    # Story 1.9 (revue, tour 2) : le nombre de thèmes de `ParsedQuestion.scope` retenus pour
+    # l'affichage. `QuestionScope.borner()` bornait la **longueur** de chaque libellé mais pas leur
+    # nombre : deux cents thèmes courts passaient tous, et la page les joint en une seule ligne sous
+    # « Ce que j'ai compris du sinistre ». Convention Seuils — un nombre se règle avec les évals,
+    # une forme de contrat non. Six couvre largement un sinistre d'habitation ; au-delà, le modèle
+    # ne classe plus, il énumère.
+    scope_max_themes: int = Field(6, ge=1)
     estimate_chars_per_token: float = Field(2.0, gt=0)
     estimate_tokenizer_factor: float = Field(1.3, gt=0)
     count_tokens_timeout_s: float = Field(10.0, gt=0)
@@ -292,6 +299,7 @@ class Settings(BaseSettings):
             "question_min_terms": self.question_min_terms,
             "question_max_terms": self.question_max_terms,
             "question_max_facettes": self.question_max_facettes,
+            "scope_max_themes": self.scope_max_themes,
             "estimate_chars_per_token": self.estimate_chars_per_token,
             "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
             "count_tokens_timeout_s": self.count_tokens_timeout_s,

@@ -388,9 +388,15 @@ def test_une_source_privee_nest_jamais_publiee(tmp_path: Any) -> None:
         assert client.get("/api/v1/documents").json()[0]["source_url"] is None
 
 
-def test_une_source_sur_deux_lignes_ne_publie_que_la_premiere(tmp_path: Any) -> None:
+@pytest.mark.parametrize("fichier", [
+    "https://exemple.invalid/cg.pdf\ngs://prive/doc-mini.pdf\n",
+    # L'ordre inverse : rien ne garantit que l'URL publique vienne en premier, et un `gs://` en
+    # tête ne doit ni sortir, ni faire disparaître la source publique qui le suit.
+    "gs://prive/doc-mini.pdf\nhttps://exemple.invalid/cg.pdf\n",
+])
+def test_une_source_sur_deux_lignes_publie_la_ligne_publiable(tmp_path: Any, fichier: str) -> None:
     _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
-                       source="https://exemple.invalid/cg.pdf\ngs://prive/doc-mini.pdf\n")
+                       source=fichier)
     with _client_sur(tmp_path) as client:
         publiee = client.get("/api/v1/documents").json()[0]["source_url"]
         assert publiee == "https://exemple.invalid/cg.pdf"
@@ -405,6 +411,23 @@ def test_une_source_sur_deux_lignes_ne_publie_que_la_premiere(tmp_path: Any) -> 
     ("https://exemple.invalid/a b.pdf", None),   # un blanc : ce n'est plus une URL
     ("https://exemple.invalid/" + "x" * 3000, None),
     ("", None), ("   ", None), (None, None),
+    # L'ordre des lignes n'est garanti par rien dans l'ingestion (revue 1.9, tour 2). Ne regarder
+    # que la première rendait le filtre dépendant de cet ordre : un fichier qui écrit la copie
+    # privée d'abord ne publiait plus **aucune** source, en silence, et la page perdait le lien qui
+    # rend l'édition vérifiable. La ligne retenue est la première **publiable**, pas la première.
+    ("gs://prive/cg.pdf\nhttps://exemple.invalid/cg.pdf\n", "https://exemple.invalid/cg.pdf"),
+    ("https://exemple.invalid/cg.pdf\ngs://prive/cg.pdf\n", "https://exemple.invalid/cg.pdf"),
+    ("gs://prive/a.pdf\ngs://prive/b.pdf\n", None),   # aucune ligne publiable : rien ne sort
+    ("\n\n  \nhttps://exemple.invalid/cg.pdf", "https://exemple.invalid/cg.pdf"),
+    # RFC 3986 : le schéma est **insensible à la casse**. Un `startswith` strict rejetait une URL
+    # parfaitement valide comme il rejette un `gs://`. On filtre, on ne réécrit pas : la casse
+    # d'origine est conservée dans la valeur rendue.
+    ("HTTPS://Exemple.invalid/CG.pdf", "HTTPS://Exemple.invalid/CG.pdf"),
+    ("Http://exemple.invalid/cg.pdf", "Http://exemple.invalid/cg.pdf"),
+    ("GS://prive/cg.pdf", None),
+    # Une ligne hors borne n'empoisonne pas le fichier : elle est sautée, la suivante est lue.
+    ("https://exemple.invalid/" + "x" * 3000 + "\nhttps://exemple.invalid/cg.pdf",
+     "https://exemple.invalid/cg.pdf"),
 ])
 def test_url_publiable_est_lunique_decision_de_ce_qui_sort(brut: Any, attendu: Any) -> None:
     """Un seul filtre pour les deux chemins de publication (`source.url` **et** `Document.source_url`)."""
@@ -421,6 +444,27 @@ def test_un_source_url_de_document_non_publiable_est_filtre_aussi(prod: TestClie
     etat.corpus, etat.index = corpus, index
     par_id = {d["doc_id"]: d for d in prod.get("/api/v1/documents").json()}
     assert par_id[DOC_ID]["source_url"] is None
+
+
+def test_un_rapport_qui_decrit_un_autre_document_nest_pas_publie(tmp_path: Any) -> None:
+    """AD-8 : le rapport « exposé tel quel » est celui **de ce document**, pas d'un autre.
+
+    Un `report.json` conforme au schéma peut décrire un autre `doc_id` — copie de dossier, ingestion
+    relancée ailleurs, document renommé sans réingestion. Rien ne le comparait au dossier qui le
+    porte (revue 1.9, tour 2) : un humain lisait les checks et les statistiques d'un document qu'il
+    n'avait pas demandé, sur la route qui sert précisément à juger si un contrat est lisible.
+    """
+    _corpus_sur_disque(tmp_path, rapport='{"doc_id": "un-autre-contrat", "checks": [], "stats": {}}',
+                       source="https://exemple.invalid/cg.pdf")
+    with _client_sur(tmp_path) as client:
+        alertes = [(a["doc_id"], a["alerte"]) for a in client.get("/api/v1/sante").json()["alerts"]]
+        assert ("doc-mini", "rapport_etranger") in alertes
+        # Le nom de l'alerte est distinct de `rapport_illisible` : le fichier n'est pas illisible,
+        # il est étranger, et ce n'est pas le même correctif.
+        assert ("doc-mini", "rapport_illisible") not in alertes
+        assert client.get("/api/v1/documents/doc-mini/report").status_code == 400
+        # Le document reste servi : un rapport étranger n'est pas une incohérence du document.
+        assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
 
 
 def test_un_document_en_quarantaine_nest_ni_liste_ni_rapporte(tmp_path: Any) -> None:
@@ -612,6 +656,19 @@ def test_une_description_hors_bornes_est_rejetee_jamais_tronquee(prod: TestClien
     ({"doc_id": DOC_ID, "question": "x" * 1001, "faits": dict(FAITS)}, "question hors borne"),
     ({"doc_id": DOC_ID, "question": QUESTION, "faits": {"description": "d", "montant_eur": -1}},
      "montant négatif"),
+    # Le seul garde-fou serveur contre un sinistre sans faits : `Faits.description` n'a qu'un
+    # `max_length`, et une description d'espaces atteindrait le pipeline pour y brûler quatre appels
+    # facturés. Le supprimer laissait toute la suite verte (revue 1.9, tour 2).
+    ({"doc_id": DOC_ID, "question": QUESTION, "faits": {"description": "   "}},
+     "description blanche"),
+    ({"doc_id": DOC_ID, "question": QUESTION, "faits": {"description": ""}},
+     "description vide"),
+    # Bornes de `date` et `lieu` (revue 1.9, tour 2) : les trois champs de texte partent au modèle
+    # dans le même bloc `untrusted()`, et seul `request_max_bytes` les limitait.
+    ({"doc_id": DOC_ID, "question": QUESTION,
+      "faits": {"description": "d", "lieu": "x" * 201}}, "lieu hors borne"),
+    ({"doc_id": DOC_ID, "question": QUESTION,
+      "faits": {"description": "d", "date": "x" * 65}}, "date hors borne"),
 ])
 def test_les_bornes_du_contrat_sont_appliquees_avant_la_route(prod: TestClient, corps: dict,
                                                               motif: str) -> None:

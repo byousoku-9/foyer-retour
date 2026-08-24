@@ -288,7 +288,7 @@ def test_borner_drops_out_of_bound_labels_and_names_the_fields() -> None:
     """Hors borne, le libellé est **ignoré** — une demi-phrase de cause induirait en erreur."""
     scope = QuestionScope(bien="x" * 201, evenement="incendie", lieu="y" * 300, cause=None,
                           themes=["auto", "z" * 400])
-    borne, ignores = scope.borner(200)
+    borne, ignores = scope.borner(200, 6)
     assert borne.bien is None and borne.lieu is None
     assert borne.evenement == "incendie"  # ce qui tient dans la borne est conservé **tel quel**
     assert borne.themes == ["auto"]
@@ -297,9 +297,26 @@ def test_borner_drops_out_of_bound_labels_and_names_the_fields() -> None:
     assert "x" * 10 not in (borne.model_dump_json())
 
 
+def test_borner_bounds_the_number_of_themes_not_only_their_length() -> None:
+    """Deux cents thèmes courts passent tous la borne de longueur (revue 1.9, tour 2).
+
+    La page les joint en **une seule ligne** sous « Ce que j'ai compris du sinistre » : sans borne
+    de nombre, un modèle bavard produisait une ligne sans fin à l'écran. Les thèmes en trop sont
+    écartés par la fin — l'ordre du modèle est celui de la pertinence qu'il leur prête — et l'écart
+    se dit, comme tout ce qui est retiré.
+    """
+    scope = QuestionScope(themes=[f"theme-{i}" for i in range(200)])
+    borne, ignores = scope.borner(200, 6)
+    assert borne.themes == [f"theme-{i}" for i in range(6)]
+    assert ignores == ["themes"]
+    # Exactement la borne : rien n'est retiré, donc rien n'est signalé.
+    pile, rien = QuestionScope(themes=[f"t{i}" for i in range(6)]).borner(200, 6)
+    assert len(pile.themes) == 6 and rien == []
+
+
 def test_borner_is_a_copy_and_leaves_the_original_untouched() -> None:
     scope = QuestionScope(bien="x" * 201, evenement="incendie")
-    borne, ignores = scope.borner(200)
+    borne, ignores = scope.borner(200, 6)
     assert scope.bien == "x" * 201  # l'original n'est pas muté
     assert borne is not scope and ignores == ["bien"]
 
@@ -307,6 +324,6 @@ def test_borner_is_a_copy_and_leaves_the_original_untouched() -> None:
 def test_borner_reports_nothing_when_everything_fits() -> None:
     scope = QuestionScope(bien="mobilier", evenement="brûlure", lieu="salon", cause="bougie",
                           moment="2026-08-01", themes=["habitation"])
-    borne, ignores = scope.borner(200)
+    borne, ignores = scope.borner(200, 6)
     assert ignores == []
     assert borne.model_dump() == scope.model_dump()

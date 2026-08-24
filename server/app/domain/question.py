@@ -19,10 +19,22 @@ class Turn(DomainModel):
 
 
 class Faits(DomainModel):
-    """Faits déclarés d'un sinistre (POST /api/v1/sinistre)."""
+    """Faits déclarés d'un sinistre (POST /api/v1/sinistre).
 
-    date: str | None = None
-    lieu: str | None = None
+    **Les trois champs de texte sont bornés** (AD-11 : « bornes d'entrée strictes ; rejet plutôt que
+    troncature »). Seule `description` l'était : `date` et `lieu` partaient au modèle dans le même
+    bloc `untrusted()` que le reste, et seul `request_max_bytes` (65 536 octets, le corps entier) les
+    limitait. Un `lieu` de 60 ko entrait donc dans le prompt de *comprendre* et faisait grossir des
+    appels **facturés**, pour un champ qui décrit une pièce d'un logement (revue 1.9, tour 2).
+
+    Les bornes sont des littéraux du **domaine**, comme celle de `description`, et non des seuils de
+    `config.py` : ce sont des formes de contrat HTTP (AD-11 les énumère), pas des réglages qu'une
+    éval déplace. `date` tient une date ISO 8601 et de quoi la commenter ; `lieu` tient une adresse
+    ou la désignation d'une pièce.
+    """
+
+    date: str | None = Field(None, max_length=64)
+    lieu: str | None = Field(None, max_length=200)
     montant_eur: float | None = Field(None, ge=0)
     description: str = Field(max_length=2000)
 
@@ -37,7 +49,7 @@ class QuestionScope(DomainModel):
     cause: str | None = None
     moment: str | None = None
 
-    def borner(self, max_chars: int) -> tuple[QuestionScope, list[str]]:
+    def borner(self, max_chars: int, max_themes: int) -> tuple[QuestionScope, list[str]]:
         """Copie sans les libellés hors borne, et la liste des champs ignorés (story 1.9, D4).
 
         Ces libellés sont **produits par le modèle** (*comprendre* les extrait des faits déclarés) et
@@ -50,11 +62,19 @@ class QuestionScope(DomainModel):
         n'affiche que ce qui est renseigné, et un `bien` amputé serait indiscernable d'un `bien`
         déclaré. La liste rendue nomme les **champs**, jamais leur contenu — elle part dans un
         `CheckResult` de la trace, et AD-10 y interdit le texte.
+
+        `max_themes` borne le **nombre** de thèmes, et pas seulement leur longueur (revue 1.9, tour
+        2) : `themes` est une liste rendue par le modèle, la page les joint en une seule ligne, et
+        deux cents libellés courts passaient tous la borne de longueur pour produire une ligne sans
+        fin à l'écran. Les thèmes en trop sont écartés par la **fin** — l'ordre du modèle est celui
+        de la pertinence qu'il leur prête —, et l'écart se dit comme le reste.
         """
         ignores: list[str] = []
         themes = [t for t in self.themes if len(t) <= max_chars]
-        if len(themes) != len(self.themes):
+        tenus = themes[:max_themes]
+        if len(tenus) != len(self.themes):
             ignores.append("themes")
+        themes = tenus
         remplacements: dict[str, object] = {"themes": themes}
         for nom in ("bien", "evenement", "lieu", "cause", "moment"):
             valeur = getattr(self, nom)

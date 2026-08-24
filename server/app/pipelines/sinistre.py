@@ -229,7 +229,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         """
         if scope is None:
             return None, []
-        return scope.borner(settings.fait_manquant_max_chars)
+        return scope.borner(settings.fait_manquant_max_chars, settings.scope_max_themes)
 
     def noter_hors_borne(step: StepTrace, ignores: list[str]) -> None:
         """AD-10 : un libellé écarté se **dit**. Le check nomme les champs, jamais leur contenu."""
