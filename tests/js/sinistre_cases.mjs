@@ -896,6 +896,74 @@ async function main() {
       clarification_objet: (() => {
         const r = reponseVerdict(); r.answer.clarification = { q: "quel bien ?" }; return r;
       })(),
+      // Revue Codex 1.9 (tour 3, I2), premier volet : une clé **absente** n'est pas un champ à
+      // `None`. Les routes publient avec `response_model_exclude_none=False`, donc pydantic écrit
+      // toujours la clé : son absence est un serveur cassé, et la tolérer faisait **retrancher** en
+      // silence — une clause sans son numéro de page, une clarification escamotée, une ligne de
+      // « ce que j'ai compris » disparue.
+      sans_clarification: (() => {
+        const r = reponseVerdict(); delete r.answer.clarification; return r;
+      })(),
+      sans_faits_compris: (() => {
+        const r = reponseVerdict(); delete r.answer.faits_compris; return r;
+      })(),
+      fait_compris_absent: (() => {
+        const r = reponseVerdict(); delete r.answer.faits_compris.cause; return r;
+      })(),
+      clause_sans_cle_page: (() => {
+        const r = reponseVerdict(); delete r.sources[0].page; return r;
+      })(),
+      claim_statut_sans_cle_applicable: (() => {
+        const r = reponseVerdict(); delete r.answer.claims[0].status.applicable; return r;
+      })(),
+      // Second volet : la trace est **affichée**, et le tour 2 ne l'avait durcie que sur son
+      // `request_id`. Une trace amputée se peignait en lignes vides — et un coût absent se peignait
+      // en **rien du tout**, alors que NFR4 exige le coût réel à l'écran.
+      trace_sans_pipeline: (() => {
+        const r = reponseVerdict(); delete r.trace.pipeline; return r;
+      })(),
+      trace_pipeline_objet: (() => {
+        const r = reponseVerdict(); r.trace.pipeline = { nom: "sinistre" }; return r;
+      })(),
+      trace_sans_variante: (() => {
+        const r = reponseVerdict(); delete r.trace.variant; return r;
+      })(),
+      trace_sans_cout: (() => {
+        const r = reponseVerdict(); delete r.trace.total_cost_eur; return r;
+      })(),
+      trace_cout_en_chaine: (() => {
+        const r = reponseVerdict(); r.trace.total_cost_eur = "0,0336"; return r;
+      })(),
+      trace_cout_infini: (() => {
+        const r = reponseVerdict(); r.trace.total_cost_eur = Infinity; return r;
+      })(),
+      trace_sans_etapes: (() => {
+        const r = reponseVerdict(); delete r.trace.steps; return r;
+      })(),
+      trace_etape_null: (() => {
+        const r = reponseVerdict(); r.trace.steps[0] = null; return r;
+      })(),
+      trace_etape_sans_nom: (() => {
+        const r = reponseVerdict(); delete r.trace.steps[1].name; return r;
+      })(),
+      trace_etape_nom_objet: (() => {
+        const r = reponseVerdict(); r.trace.steps[0].name = { n: "comprendre" }; return r;
+      })(),
+      trace_etape_tier_objet: (() => {
+        const r = reponseVerdict(); r.trace.steps[0].tier = { t: "micro" }; return r;
+      })(),
+      trace_etape_ms_en_chaine: (() => {
+        const r = reponseVerdict(); r.trace.steps[1].ms = "1200"; return r;
+      })(),
+      trace_etape_sans_controles: (() => {
+        const r = reponseVerdict(); delete r.trace.steps[0].checks; return r;
+      })(),
+      trace_controle_en_chaine: (() => {
+        const r = reponseVerdict(); r.trace.steps[1].checks[0] = "applicabilite_incomplete"; return r;
+      })(),
+      trace_controle_sans_nom: (() => {
+        const r = reponseVerdict(); delete r.trace.steps[1].checks[0].name; return r;
+      })(),
     };
     cas.illisibles = {};
     for (const [nom, corps] of Object.entries(incomplets)) {
@@ -939,6 +1007,20 @@ async function main() {
         r.answer.verdict.escalate = [];
         r.answer.verdict.missing.faits = [];
         r.answer.unknown = [];
+        return r;
+      })(),
+      // Le garde-fou du tour 3 : ce que la trace a de légitimement creux. `restituer` n'appelle
+      // aucun modèle (`tier: null`), une trace peut n'avoir aucune étape (`reponseRefus`), et une
+      // analyse qui n'a rien coûté vaut `0` — pas « pas de coût ».
+      trace_sans_etape: (() => {
+        const r = reponseVerdict(); r.trace.steps = []; return r;
+      })(),
+      trace_cout_nul: (() => {
+        const r = reponseVerdict(); r.trace.total_cost_eur = 0; return r;
+      })(),
+      trace_etape_sans_appel: (() => {
+        const r = reponseVerdict();
+        r.trace.steps = [{ name: "restituer", tier: null, ms: 1, checks: [] }];
         return r;
       })(),
     };

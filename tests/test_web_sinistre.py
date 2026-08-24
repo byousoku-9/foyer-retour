@@ -592,6 +592,38 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("themes_non_liste", "answer.faits_compris.themes"),
     ("theme_objet", "answer.faits_compris.themes[1]"),
     ("clarification_objet", "answer.clarification"),
+    # Revue Codex 1.9 (tour 3, I2), premier volet : `null` est une **valeur**, l'absence de la clé
+    # n'en est pas une. Les routes publient avec `response_model_exclude_none=False`, donc pydantic
+    # écrit toujours la clé. Tolérer son absence faisait **retrancher** en silence — le symétrique
+    # exact de la réserve fabriquée du tour 2 : une clause sans son numéro de page (indiscernable
+    # d'une clause du guide, qui n'en a légitimement pas), une clarification escamotée alors qu'elle
+    # est la seule question que le système pose en retour, une ligne de « ce que j'ai compris »
+    # disparue de l'endroit même où l'utilisateur vérifie qu'il a été compris.
+    ("sans_clarification", "answer.clarification"),
+    ("sans_faits_compris", "answer.faits_compris"),
+    ("fait_compris_absent", "answer.faits_compris.cause"),
+    ("clause_sans_cle_page", "sources[0].page"),
+    ("claim_statut_sans_cle_applicable", "answer.claims[0].status.applicable"),
+    # Second volet : la trace est **affichée** (un `<details>` que l'utilisateur déplie), et le
+    # tour 2 ne l'avait durcie que sur son `request_id`. Un coût absent ne se peignait pas en « coût
+    # inconnu » mais en **rien du tout**, alors que NFR4 veut le coût réel à l'écran ; un pipeline
+    # ou une étape mal typés se peignaient en « étape [object Object] » sous le titre qui répond de
+    # l'honnêteté de tout le reste.
+    ("trace_sans_pipeline", "trace.pipeline"),
+    ("trace_pipeline_objet", "trace.pipeline"),
+    ("trace_sans_variante", "trace.variant"),
+    ("trace_sans_cout", "trace.total_cost_eur"),
+    ("trace_cout_en_chaine", "trace.total_cost_eur"),
+    ("trace_cout_infini", "trace.total_cost_eur"),
+    ("trace_sans_etapes", "trace.steps"),
+    ("trace_etape_null", "trace.steps[0]"),
+    ("trace_etape_sans_nom", "trace.steps[1].name"),
+    ("trace_etape_nom_objet", "trace.steps[0].name"),
+    ("trace_etape_tier_objet", "trace.steps[0].tier"),
+    ("trace_etape_ms_en_chaine", "trace.steps[1].ms"),
+    ("trace_etape_sans_controles", "trace.steps[0].checks"),
+    ("trace_controle_en_chaine", "trace.steps[1].checks[0]"),
+    ("trace_controle_sans_nom", "trace.steps[1].checks[0].name"),
 ])
 def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
     """AD-16 : « réponse vide présentée comme réponse ». Un corps qu'aucune route ne peut écrire.
@@ -609,6 +641,10 @@ def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, cha
 @pytest.mark.parametrize("nom", [
     "refus", "clarification", "faits_compris_null", "faits_compris_partiel",
     "clause_sans_page", "statut_sans_applicable", "listes_vides",
+    # Tour 3 : ce que la trace a de légitimement creux. `restituer` n'appelle aucun modèle
+    # (`tier: null`), une trace peut n'avoir aucune étape, et une analyse qui n'a rien coûté vaut
+    # `0` — un zéro qui doit s'afficher (« cette analyse n'a rien coûté »), pas être refusé.
+    "trace_sans_etape", "trace_cout_nul", "trace_etape_sans_appel",
 ])
 def test_un_200_conforme_nest_jamais_refuse(cas: dict[str, Any], nom: str) -> None:
     """Le garde-fou du durcissement (revue Codex 1.9, tour 2, I2) : strict, pas inutilisable.
@@ -617,8 +653,9 @@ def test_un_200_conforme_nest_jamais_refuse(cas: dict[str, Any], nom: str) -> No
     parfaitement conformes — et l'outil n'afficherait alors plus jamais de verdict. Les champs
     `X | None` du contrat (`faits_compris`, `clarification`, `page`, `pertinente`, `applicable`)
     valent `null` de plein droit ; une liste vide est une réponse ordinaire (un refus n'a ni clause,
-    ni question, ni thème). Ces sept corps-là doivent passer, et c'est ce qui rend le relevé
-    précédent lisible : les refus qu'il contient sont des refus **choisis**.
+    ni question, ni thème) ; une trace sans étape et un coût nul en sont d'autres. Ces dix corps-là
+    doivent passer, et c'est ce qui rend le relevé précédent lisible : les refus qu'il contient sont
+    des refus **choisis**.
     """
     releve = cas["lisibles"][nom]
     assert releve["refuse"] is False, f"corps conforme refusé sur {releve['champ']}"

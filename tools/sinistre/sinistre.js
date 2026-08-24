@@ -718,11 +718,21 @@
   function estNombre(v) { return typeof v === "number" && isFinite(v); }
 
   /**
-   * Un champ `X | None` du contrat. `null` en est une **valeur** (pydantic la sérialise), et JSON
-   * ne distingue pas `null` de l'absence : les deux passent, tout le reste est un serveur cassé.
+   * Un champ `X | None` du contrat. `null` en est une **valeur**, pas une absence : les routes
+   * publient avec `response_model_exclude_none=False` (`routes/sinistre.py:48`), donc pydantic
+   * sérialise **toujours** la clé, `None` compris. Une clé absente n'est donc pas « le champ vaut
+   * None », c'est un corps qu'aucune route n'a pu écrire — la même règle que partout ailleurs dans
+   * ce lecteur, et le tour 2 l'appliquait à tout sauf ici (revue Codex 1.9, tour 3, I2).
+   *
+   * Ce que la tolérance laissait passer : une `page` absente affichait une clause sans son numéro
+   * de page — indiscernable d'une clause du guide, qui n'en a légitimement pas —, une
+   * `clarification` absente escamotait la seule question que le système pose en retour, et une
+   * feuille de `faits_compris` absente retirait de « ce que j'ai compris » une ligne que le serveur
+   * n'a jamais dite muette. Dans les trois cas la page **retranche** en silence, exactement le
+   * défaut symétrique de la réserve fabriquée du tour 2.
    */
   function ouNul(predicat) {
-    return function (v) { return v === null || v === undefined || predicat(v); };
+    return function (v) { return v === null || predicat(v); };
   }
 
   function exiger(ok, champ) { if (!ok) throw illisible(champ); }
@@ -775,6 +785,24 @@
     exiger(estBooleen(s.kind_confirmed), champ + ".kind_confirmed");
     exiger(ouNul(estNombre)(s.page), champ + ".page");
     exiger(estChaine(s.status), champ + ".status");
+  }
+
+  // Une étape de la trace d'AD-10, telle que `traceVue()` la peint : « étape <name> · <tier> ·
+  // <ms> ms · contrôles : <name>, … ». Chaque feuille lue est exigée, et typée comme `StepTrace` la
+  // type (`domain/trace.py:36`) : `name: str`, `tier: str | None`, `ms: int`, `checks: list`. Sans
+  // cela, `String(s.name || "")` peignait « étape  » pour une étape sans nom et « étape
+  // [object Object] » pour un nom mal typé — une ligne de trace inventée sous « Comment cette
+  // réponse a été obtenue », c'est-à-dire à l'endroit même qui répond de l'honnêteté du reste.
+  function lireEtape(e, champ) {
+    exiger(estObjet(e), champ);
+    exiger(estChaine(e.name), champ + ".name");
+    exiger(ouNul(estChaine)(e.tier), champ + ".tier");
+    exiger(estNombre(e.ms), champ + ".ms");
+    exiger(Array.isArray(e.checks), champ + ".checks");
+    for (var i = 0; i < e.checks.length; i++) {
+      exiger(estObjet(e.checks[i]), champ + ".checks[" + i + "]");
+      exiger(estChaine(e.checks[i].name), champ + ".checks[" + i + "].name");
+    }
   }
 
   // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme — et **récursive** depuis la
@@ -855,8 +883,26 @@
     // Vide, elle est légitime (un refus n'en a aucune) ; absente, elle n'a pas été écrite.
     exiger(Array.isArray(o.sources), "sources");
     for (var s = 0; s < o.sources.length; s++) lireClause(o.sources[s], "sources[" + s + "]");
+    // La trace est **affichée** (`traceVue()`, un `<details>` que l'utilisateur déplie) : elle
+    // tombe sous la même règle que le verdict, et le tour 2 s'était arrêté à `request_id` (revue
+    // Codex 1.9, tour 3, I2). `Trace` (`domain/trace.py:47`) rend `pipeline: str`, `variant: str`,
+    // `steps: list` et `total_cost_eur: float` sur toute réponse — aucun n'est facultatif. Tolérés
+    // absents, ils se peignaient en « pipeline :  », en trace sans une seule étape, et surtout en
+    // **coût tu** : NFR4 veut le coût réel à l'écran, et `coutTexte()` ne dit rien quand il ne le
+    // trouve pas. Une analyse annoncée gratuite parce que le serveur a omis son prix est un
+    // mensonge plus grave que l'absence de trace.
     exiger(estObjet(o.trace), "trace");
     exiger(estChaine(o.trace.request_id), "trace.request_id");
+    exiger(estChaine(o.trace.pipeline), "trace.pipeline");
+    exiger(estChaine(o.trace.variant), "trace.variant");
+    // `estNombre` refuse `NaN` et `Infinity` — « coûté Infinity € » est un prix inventé. Le signe
+    // n'est pas typé ici (le domaine ne le contraint pas) : `coutTexte()` garde sa garde sur les
+    // valeurs négatives, et préfère se taire plutôt que d'afficher un coût impossible.
+    exiger(estNombre(o.trace.total_cost_eur), "trace.total_cost_eur");
+    exiger(Array.isArray(o.trace.steps), "trace.steps");
+    for (var t = 0; t < o.trace.steps.length; t++) {
+      lireEtape(o.trace.steps[t], "trace.steps[" + t + "]");
+    }
     return {
       answer: o.answer,
       sources: o.sources,
