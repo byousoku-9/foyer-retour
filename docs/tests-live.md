@@ -410,6 +410,13 @@ trois niveaux — `test_verdict.py` (table pure, 3 cas), `test_verifier.py` (l'�
 `test_pipeline_sinistre.py` (bout en bout, 2 cas) — **et** `test_sinistre_live.py`, qui affiche alors
 littéralement `couvert` contre `sous_conditions` attendu.
 
+> **Renversé au tour 2 de la revue Codex** (section plus bas). Cette lecture — « inconnue » lue sur
+> `MissingPackage`, donc sur le dossier global — réécrivait l'AC de la story au lieu de l'appliquer, et
+> les runs 12 et 13 ont montré que ce qui produisait le `couvert` était ailleurs : la garde des
+> qualités exigées ne gardait rien. La règle (2) est revenue au texte de l'AC. Ce qui reste vrai
+> ci-dessus : le constat de départ (deux runs du même code, deux verdicts) et le fait que le verdict
+> le plus engageant ne pouvait pas reposer sur un booléen de modèle sans corroborant.
+
 ### Le run de référence (celui que la fixture rejoue aujourd'hui)
 
 | Vérification | Commande | Résultat |
@@ -519,3 +526,49 @@ coût        0,0405 € (plafond 0,10 €)
 Le test live épingle maintenant l'AC mot à mot (`options`, `conditions particulières`, une formulation
 `subit`/`soudain`) au lieu de se contenter d'un `ask_client` non vide. La fixture enregistrée a été
 purgée de ses douze entrées devenues obsolètes : elle ne porte plus que les trois appels du run 11.
+
+### Revue Codex 1.8, tour 2 — la mesure qui a renversé le tour 1
+
+Codex a maintenu B1 et B3. Sur B1, son texte est celui de l'AC : « (2) garantie `oui` et
+(condition/franchise/exclusion `humain` ou **garantie hors socle / dépendant d'une option**) », puis
+« (3) garantie du socle `oui` sans condition ouverte ⇒ `couvert` », et enfin « tests avec fixtures :
+… `couvert` (**garantie socle**) ». La règle (2) élargie au dossier global réécrivait cet AC au lieu
+de l'appliquer. Elle a donc été retirée. Sur B3, Codex a montré que la garde des qualités se
+contournait de deux façons : les deux listes avaient un **défaut vide** (un modèle qui n'énumère rien
+passait en `oui`), et rien n'empêchait le modèle de recopier une liste dans l'autre.
+
+| Run | Ce que le code lisait | Résultat |
+|---|---|---|
+| 12 | Règle (2) « par clause » (B1) + qualités obligatoires + `fait_cite` **relu mot pour mot** dans les faits (B3) | `sous_conditions` — mais le modèle a cité **trois fois le même fragment** pour établir trois qualités, et `p46:1` est ressortie `humain` (l'AC veut « absente ou `non` ») |
+| 13 | + recoupement lexical du fragment avec la qualité, + périmètre des « points nommés » précisé au prompt | `ne_tranche_pas`, 0,0485 €, `p34:12` cité `humain`, `p46:1` absente, un seul appel `micro` |
+
+**Ce que le run 12 a montré, et qui a servi.** Le fragment cité pour les trois qualités de `p34:12`
+était « Une bougie allumée posée sur une table basse est tombée sur le canapé » — authentique, relu
+mot pour mot dans les faits déclarés, et n'établissant ni le caractère *soudain*, ni l'action *subite*
+de la chaleur, ni le *contact direct avec un foyer*. La relecture seule ne corrobore donc pas : elle
+prouve que le modèle cite des faits, pas qu'ils disent la qualité. Le code exige depuis que le
+fragment **emploie les mots de la qualité** (recoupement par préfixe sur les mots d'au moins
+`qualite_mot_min_chars` caractères, hors mots de structure).
+
+**Ce que le run 13 donne.** Le modèle a produit *exactement le même fragment pour les trois qualités* —
+la même sortie qu'au run 12, sur un prompt pourtant plus explicite. Cette fois le code l'a refusée
+trois fois (`fait_cite_hors_sujet`), la garantie est retombée en `humain`, et les trois qualités sont
+parties en questions au client.
+
+```
+verdict     ne_tranche_pas — « aucune règle de la table ne tranche sur les clauses retrouvées »
+            (au regard des conditions générales seules)
+claims      c1 p34:12 applicable=humain ; p46:1 non retrouvé
+missing     conditions particulières, options, avenants, date d'effet
+            faits[] = « caractère soudain de l'événement », « action subite de la chaleur »,
+                      « contact direct avec un foyer ou une substance incandescente »
+ask_client  options / conditions particulières / date d'effet et avenants, puis les trois qualités
+checks      fait_cite_hors_sujet ×3, qualite_exigee_non_etablie
+étapes      comprendre, retrouver, rediger, verifier, restituer — un seul appel `micro` dans vérifier
+coût        0,0485 € (plafond 0,10 €)
+```
+
+**Ce que ça ne prouve pas.** Le recoupement lexical est grossier : un fragment qui emploierait le mot
+« soudain » sans rien établir passerait. Il ferme le mode d'échec **mesuré** (un fragment sans aucun
+mot commun), pas la classe entière. Et deux runs consécutifs ont rendu la même auto-déclaration : la
+stabilité du modèle sur ces listes reste à mesurer — c'est l'affaire des questions-témoins de l'epic 4.
