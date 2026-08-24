@@ -45,7 +45,8 @@ Q_DEFINITION = "contenu comprend le mobilier de jardin et les objets confiés"
 QUESTION = "Ce sinistre est-il couvert par le contrat ?"
 FAITS = Faits(date="2026-08-01", lieu="salon du domicile", montant_eur=1200.0,
               description="Une bougie posée sur une table a brûlé le mobilier de salon, "
-                          "sans embrasement ni commencement d'incendie.")
+                          "sans embrasement ni commencement d'incendie. La chute a été soudaine "
+                          "et la chaleur a agi de façon subite.")
 
 
 @pytest.fixture(scope="module")
@@ -112,17 +113,31 @@ def _rediger(*claims: tuple[str, str, list[tuple[str, str]]]) -> dict:
                    for cid, texte, quotes in claims]}))
 
 
-def _verifier(*entrees: tuple, nb_segments: int = 8) -> dict:
+# Deux fragments **mot pour mot** des faits déclarés, chacun employant les mots d'une qualité : les
+# deux conditions pour qu'elle soit tenue pour établie (revue Codex 1.8, B3, tour 2).
+FRAGMENT = "la chaleur a agi de façon subite"
+FRAGMENT_SOUDAIN = "La chute a été soudaine"
+
+
+def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True) -> dict:
     """`(claim_id, pertinente, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
-    éventuellement suivi de `(qualites_exigees, qualites_etablies)` — revue Codex 1.8 (B3)."""
+    éventuellement suivi de `(qualites_exigees, qualites_etablies)` — revue Codex 1.8 (B3).
+
+    Une qualité établie est un libellé (le fragment cité est alors `FRAGMENT`) ou un couple
+    `(qualite, fait_cite)`. `enumere=False` omet les deux listes, comme un modèle qui n'énumère rien.
+    """
     applicabilite = []
     for entree in entrees:
         cid, _p, present, option, cp, manquant = entree[:6]
-        applicabilite.append({
-            "claim_id": cid, "fait_requis_present": present, "option_requise": option,
-            "cp_requise": cp, "fait_manquant": manquant,
-            "qualites_exigees": list(entree[6]) if len(entree) > 6 else [],
-            "qualites_etablies": list(entree[7]) if len(entree) > 7 else []})
+        bloc = {"claim_id": cid, "fait_requis_present": present, "option_requise": option,
+                "cp_requise": cp, "fait_manquant": manquant}
+        if enumere:
+            bloc["qualites_exigees"] = list(entree[6]) if len(entree) > 6 else []
+            bloc["qualites_etablies"] = [
+                {"qualite": q, "fait_cite": FRAGMENT} if isinstance(q, str)
+                else {"qualite": q[0], "fait_cite": q[1]}
+                for q in (entree[7] if len(entree) > 7 else [])]
+        applicabilite.append(bloc)
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "verdicts": [{"claim_id": c, "pertinente": p} for c, p, *_ in entrees],
         "facettes": [{"facette": 0, "claim_ids": [c for c, p, *_ in entrees if p]}],
@@ -213,48 +228,39 @@ async def test_an_applicable_exclusion_over_the_case_is_not_covered(index: Index
     assert answer.verdict is not None and answer.verdict.value == "non_couvert"
 
 
-async def test_a_baseline_guarantee_alone_is_conditional_without_the_file(index: Index) -> None:
-    """La même garantie du socle, sans le dossier : `sous_conditions`, et le dossier est réclamé.
-
-    C'est le cas de l'outil quand l'appelant n'a que les conditions générales : `MissingPackage` reste
-    entier, la seconde branche de la règle (2) d'AD-6 est satisfaite, et `couvert` est hors d'atteinte.
-    Mesuré : sans cette règle, un run réel du cas bougie rend `couvert` — la valeur que l'AC interdit
-    sur ce cas (revue Codex 1.8, B1, maintenu sur mesure).
-    """
-    answer, _trace, _fake = await _run(index, [
-        _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
-    verdict = answer.verdict
-    assert verdict is not None and verdict.value == "sous_conditions"
-    assert "ne sont pas au dossier" in verdict.reason
-    assert verdict.escalate == [] and verdict.missing.faits == []
-    # AD-6 : le paquet manquant est annoncé **et** demandé, une question par pièce
-    assert _questions_attendues(verdict)
-    assert [c.status.applicable for c in answer.claims] == ["oui"]
-
-
 async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
     """La fixture que l'AC exige nommément — « `couvert` (garantie socle) » —, **jouée par le pipeline**.
 
-    Revue Codex 1.8 (B1) : la règle (3) d'AD-6 n'est pas morte, il lui manquait son chemin d'entrée.
-    `run(..., dossier=…)` porte le paquet contractuel que l'appelant détient ; la même chaîne, la même
-    ébauche et les mêmes champs typés que le test précédent rendent alors `couvert`. Rien dans le
-    pipeline ne fabrique ce dossier : c'est un argument, jamais une déduction.
+    Revue Codex 1.8 (B1, tour 2). Le tour 1 lisait la seconde branche de la règle (2) d'AD-6 sur
+    `MissingPackage` — le dossier **global** —, si bien que `couvert` réclamait un argument `dossier`
+    que l'AC ne mentionne nulle part. L'AC dit : « (2) garantie `oui` et (condition/franchise/exclusion
+    `humain` ou **garantie hors socle / dépendant d'une option**) », puis « (3) garantie du socle `oui`
+    sans condition ouverte ⇒ `couvert` ». La dépendance se lit donc sur la clause, et la fixture est
+    jouée telle que l'AC l'écrit : la garantie du socle seule, sans rien de plus.
+
+    Ce qui empêche un `couvert` de complaisance n'est plus une politique globale mais le contrôle des
+    qualités (B3) : la clause exige « un événement soudain » et « l'action subite de la chaleur », le
+    modèle les énumère et cite pour chacune un fragment des faits **relu mot pour mot** par le code.
+    Le test suivant retire cette corroboration et le verdict retombe.
     """
-    complet = MissingPackage(conditions_particulieres=False, options_souscrites=False,
-                             avenants=False, date_effet=False)
+    soudain, subite = "caractère soudain de l'événement", "action subite de la chaleur"
     answer, trace, _fake = await _run(index, [
-        _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
-        dossier=complet)
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None, [soudain, subite],
+                   [(soudain, FRAGMENT_SOUDAIN), (subite, FRAGMENT)]))])
     verdict = answer.verdict
     assert verdict is not None and verdict.value == "couvert"
     assert "socle commun" in verdict.reason and "conditions générales seules" in verdict.reason
     assert verdict.escalate == [] and verdict.missing.faits == []
-    # le paquet est établi : plus rien à réclamer, les questions suivent les pièces
-    assert verdict.missing.conditions_particulieres is False
-    assert verdict.ask_client == []
     assert [c.status.applicable for c in answer.claims] == ["oui"]
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "restituer"]
+    # AD-6 : le paquet manquant accompagne **aussi** un `couvert` — le verdict ne vaut qu'au regard
+    # des conditions générales, et il le dit en réclamant les quatre pièces qu'il n'a pas lues.
+    assert verdict.missing.conditions_particulieres and verdict.missing.options_souscrites
+    assert _questions_attendues(verdict)
+    # les deux qualités exigées restent à faire confirmer par le client (B3)
+    assert sum("confirmer" in q for q in verdict.ask_client) == 2
 
     # et la table dit la même chose hors pipeline, sur la clause relue dans le corpus
     (claim,) = answer.claims
@@ -267,8 +273,63 @@ async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
         clauses=[ClauseCitee(block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
                              portee=document.scope_nodes(bloc.block_id), node_id=noeud,
                              socle=document.node_scope_kind(noeud) == "commun")])
-    au_dossier = decider([jugee], ask_client_max=_settings().ask_client_max, missing=complet)
-    assert au_dossier.value == "couvert" and au_dossier.ask_client == []
+    assert decider([jugee], ask_client_max=_settings().ask_client_max).value == "couvert"
+
+
+async def test_the_caller_who_holds_the_file_is_not_asked_for_it_again(index: Index) -> None:
+    """`run(..., dossier=…)` ne change pas la valeur, il change ce qu'on réclame (B1, tour 2).
+
+    Le paquet contractuel que l'appelant détient reste une **entrée** du pipeline — jamais une
+    déduction — et il alimente `MissingPackage` : ce qui est au dossier n'est plus annoncé manquant
+    ni redemandé. La table, elle, a déjà tranché sans lui.
+    """
+    soudain, subite = "caractère soudain de l'événement", "action subite de la chaleur"
+    complet = MissingPackage(conditions_particulieres=False, options_souscrites=False,
+                             avenants=False, date_effet=False)
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None, [soudain, subite],
+                   [(soudain, FRAGMENT_SOUDAIN), (subite, FRAGMENT)]))],
+        dossier=complet)
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "couvert"
+    assert verdict.missing.conditions_particulieres is False
+    assert all("options" not in q for q in verdict.ask_client)
+
+
+async def test_a_guarantee_whose_qualities_are_not_enumerated_is_never_covered(index: Index) -> None:
+    """Revue Codex 1.8 (B3, tour 2) : le silence du modèle ne vaut pas « aucune qualité exigée ».
+
+    Même chaîne, mêmes clauses, même `fait_requis_present=true` que la fixture `couvert` — mais le
+    modèle **n'énumère pas** les qualités. C'est le trou par lequel un `couvert` passait : le défaut
+    vide des deux listes rendait le contrôle sans prise sur une clause qui exige pourtant « un
+    événement soudain ». Le jeu de champs est désormais inexploitable et la claim vaut `humain`.
+    """
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None), enumere=False)])
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "ne_tranche_pas"
+    assert [c.status.applicable for c in answer.claims] == ["humain"]
+
+
+async def test_a_quality_corroborated_by_nothing_in_the_file_is_never_covered(index: Index) -> None:
+    """Revue Codex 1.8 (B3, tour 2) : une auto-déclaration ne vaut pas corroboration par les faits.
+
+    Le modèle recopie les qualités exigées dans les qualités établies — ce que le run réel du 24/08 a
+    fait — mais le fragment qu'il cite pour chacune est repris de la **clause**, pas des faits
+    déclarés. Le code le relit dans les faits soumis (AD-3 appliqué aux faits), ne l'y trouve pas, et
+    les qualités retombent en « non établies ».
+    """
+    soudain = "caractère soudain de l'événement"
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None, [soudain],
+                   [(soudain, "un événement soudain, résultant de l'action subite de la chaleur")]))])
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "ne_tranche_pas"
+    assert [c.status.applicable for c in answer.claims] == ["humain"]
+    assert verdict.missing.faits == [soudain]
 
 
 async def test_a_refusal_keeps_the_file_the_caller_already_has(index: Index) -> None:
@@ -364,9 +425,9 @@ async def test_a_claim_mixing_two_clauses_is_sent_back_to_the_writer(index: Inde
     # la première vérification n'a fait **aucun** appel : rien n'avait survécu au contrôle de citation
     assert [s.name for s in trace.steps].count("verifier") == 2
     assert answer.found is True and answer.verdict is not None
-    # l'exclusion des extensions ne couvre pas le cas ; ce qui ouvre le verdict est le paquet manquant
-    assert answer.verdict.value == "sous_conditions"
-    assert "ne sont pas au dossier" in answer.verdict.reason
+    # l'exclusion des extensions ne couvre pas le cas : la garantie du socle reprend la main
+    assert answer.verdict.value == "couvert"
+    assert "socle commun" in answer.verdict.reason
     # La claim mêlée a bien été rejetée par la **première** vérification — c'est elle qui a nourri la
     # relance. Elle ne figure plus dans la réponse servie parce que la seconde vérification domine et
     # la remplace en entier (AD-3) ; c'est la trace qui garde la preuve du rejet.

@@ -5,11 +5,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Une bougie allumée tombée sur un canapé du salon a brûlé le mobilier de salon (dégâts limités sans propagation) le 1er août 2026 : ce sinistre est-il couvert ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"incendie\", \"brûlure\", \"chaleur\", \"bougie\"], \"themes\": [], \"facettes\": [\"Couverture du sinistre d'incendie/brûlure du mobilier\"], \"bien\": \"mobilier de salon (canapé)\", \"evenement\": \"brûlure du mobilier par chute de bougie\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"bougie allumée tombée\", \"moment\": \"2026-08-01\"}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé du salon, causant une brûlure partielle du mobilier de salon (1200 €) sans propagation d'incendie ni dégât au bâtiment. Ce sinistre est-il couvert ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"brûlure\", \"incendie\", \"bougie\"], \"themes\": [], \"facettes\": [\"Couverture du sinistre de brûlure du mobilier\"], \"bien\": \"mobilier de salon (canapé)\", \"evenement\": \"brûlure du mobilier\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute d'une bougie allumée\", \"moment\": \"2026-08-01\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeMhx8EVaDR8wSivMWE2a",
+      "id": "msg_011CeMjwuchUzFtWTNaWiVfe",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -25,22 +25,22 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 2587,
-        "output_tokens": 217,
+        "output_tokens": 221,
         "service_tier": "standard"
       }
     }
   },
-  "claude-haiku-4-5-20251001:e278fc260cd3e1d0": {
-    "request": "claude-haiku-4-5-20251001:e278fc260cd3e1d0",
+  "claude-haiku-4-5-20251001:eab7680f4376cc62": {
+    "request": "claude-haiku-4-5-20251001:eab7680f4376cc62",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": \"caractère soudain de l'événement\", \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\"], \"qualites_etablies\": []}, {\"claim_id\": \"c2\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": []}]}",
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\", \"contact direct avec un foyer ou une substance incandescente\"], \"qualites_etablies\": [{\"qualite\": \"caractère soudain de l'événement\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"action subite de la chaleur\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"contact direct avec un foyer ou une substance incandescente\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}, {\"claim_id\": \"c2\", \"fait_requis_present\": true, \"option_requise\": true, \"cp_requise\": true, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": []}, {\"claim_id\": \"c3\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": []}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeMhyCffpuz7rruq4XiZt",
+      "id": "msg_011CeMjyGkUDLzVpK7dKyr8d",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -50,28 +50,33 @@
       "usage": {
         "cache_creation": {
           "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 5810
+          "ephemeral_5m_input_tokens": 6829
         },
-        "cache_creation_input_tokens": 5810,
+        "cache_creation_input_tokens": 6829,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 1259,
-        "output_tokens": 315,
+        "input_tokens": 1431,
+        "output_tokens": 517,
         "service_tier": "standard"
       }
     }
   },
-  "claude-sonnet-5:f19568657afeafc0": {
-    "request": "claude-sonnet-5:f19568657afeafc0",
+  "claude-sonnet-5:930995f3d8966b18": {
+    "request": "claude-sonnet-5:930995f3d8966b18",
     "response": {
       "content": [
         {
+          "signature": "EqQKCpABCBEYAipAo+uJKo5oaAC+EA5atxVBGDz/LSj/r95jP7rXqBZQzq4eh4W1k6z7nlj0ZA+ZKzX7qFIT9WQn52Bve5+HAoT7mzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAdqtsdQGEgzpG2So5k6SvoAVSgMaDNZGjxubpA2QDgnSCiIwmEwXmIG72eboEYHgqenzDBFMVQ/2OrWUKv8VfKM2Dlql0C2uWGNMjsHH7p0G6okOKsAIKWV2XyPliEvukBL6spksTucgwPYkO1t5ooTUGIw5qbwNIHkrbVhKkMZ0luIZZZ59xrkv8dmks6hvSgTZ0hZjJWW95twyR1md1b32JNayD7/gLNEldmVdESR0mrkFDm3vm+keGrCzIFGenNMTqKUeYERSkHvaOxZOugimmllnpWhhAxfTeHsexxtjevq8HUpYZa5Hk0AjhiztGPn6MtQkVvxrEXndZcrM07e/QFcHKtz7OUoDFFGPlo1FhbwpbDgrMS+4NOhHxpbUuSVKtpi/KS3dY4FuQ2YEgr/CH7TUM5O8fOnjbg2gd9dqD9oRU2KzmW5uKTFa6RL4oeVkQMzNAeNn4UqGtzVbbvUvxu1iFYk2qtwFEcopnXlgzJhOnZhuG5D+dEIF8xTcW0jmmq84K/gb4+ISt7H3kxNfXSzHNVaYb7FJuEn1wFPXpMDdhYKSSqycReKHuRROjB7jdxRYZ7L+/f/DYqHYcU+16DKDLMx/EUQyU/VgyXcrDd4JBTXiZ0+wE5u7JlbORtmR8pFL7k6wGXyqYFCpLg0gHbuS3gv+MfjpMR6GjK8dVZo7HFIekCFsdoaXeLDby/+rH5G+Ys4vecOCHSaZ/cZgKJTV1A0CJ9pIaQ9rPqtNFSn/wWfByjIHpLUp+kkFGnL9DcipoQt/7Ul1Bb6hs+PndBtBy2ouVeFP2CbOKNYpzwwSfbLAD712UB/gXwRIP4ne8UKe+XMGiBCses4P+Wb0YZhJkTMGvkz1P2dnxZzYM5CALFX+A1xxYS+bJdVY4dkq3maweQoq8FULicFjYA+vTzHLvkYVq/xOiuMA7PpHR75xBAJOeRESi8PTyT+HPXj2IksrBiBr2+7yfnhNPCz4Mm3J/neLTsvE3ENpYq63E+nmEXDo529NbOSefGMJGKUq/bORHI5gJsoNg4rej2++P/AY5k/mCk1rgaYRmtDtpZr+pMcOu2oT9PjLc3ssNhYMbsnvAmjq32Ae11SYlKJptRJULx4nsQMeT4JvMxz3R5W/RJHRcVug5rbDkUGgVn9GizejxbTab90P1kfQeOe8VlZ8rbSYWNk3FOZruS6Jm881dclwhT2zF9060iH0J9el9+SBZGDN4/s00q/yWgJxkbyBHEDWEA4Be4dkacTLirOhizriKsGnrFuW4/tkMsX984CKJ/VLqA8gsQ9A8F7aRqGN0BHeQWSrVPp8lTbgYq5hBbLnOE92uqceTEM+eQB0X6Kli8c0WTIRh3MtPliq2rxqP5NDv1kUgIibGo1uPFgijRTyO3XLQ/RyKSjEJ+TE7dXnGeu1R5xsl3Apqy478VkTAOJvxByC9/Hm0ZxsXdhcgMxWVXaVQROcIgqlvaYlAU9AVX13nEsyG86iOGs+42jM1sBBmjqG1Scjzf2iF3ge8nca87c//afJ9ut07F1tcu4tRv+Ar+WWbPyqzJl2jxWZKSkYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Les blocs fournis décrivent une garantie applicable au mobilier assuré et au bâtiment désigné en cas d'événement soudain lié à l'action subite de la chaleur ou au contact direct avec un foyer ou une substance incandescente.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette clause précise expressément qu'elle s'applique même en l'absence d'embrasement ou de commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Par ailleurs, le contrat prévoit des exclusions générales applicables à toutes les garanties.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Ces exclusions générales visent notamment les dommages causés par la faute intentionnelle ou dolosive de l'Assuré, ou se rattachant à des cataclysmes naturels, guerres, réquisitions ou phénomènes atomiques.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les blocs fournis ne permettent pas de déterminer si une bougie allumée tombée sur un canapé correspond précisément à la notion d'« événement soudain » ou de « contact direct et immédiat avec un foyer ou une substance incandescente » telle que définie ailleurs dans le lexique, ni si d'autres conditions ou limites (par exemple liées à l'entretien, à la surveillance, ou à des exclusions spécifiques à l'incendie) s'appliqueraient à ce cas précis.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat mentionne une couverture des dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain,\\nrésultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou\\nune substance incandescente\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette même clause précise que la couverture s'applique même lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"même lorsqu’il n’y a pas eu embrasement, ni commencement\\nd’incendie\"}]},{\"claim_id\":\"c3\",\"text\":\"Le contrat énonce des exclusions générales applicables à toutes les garanties, notamment pour les dommages occasionnés par la faute intentionnelle ou dolosive de l'Assuré.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p22:5\",\"quote\":\"les dommages occasionnés par la faute intentionnelle ou dolosive de l’Assuré ou bien avec\\nsa complicité\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Le sinistre décrit — une bougie tombée sur un canapé provoquant une brûlure du mobilier sans propagation d'incendie — correspond à un cas explicitement traité dans les conditions du contrat.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"La clause 3.1.1.1.6, qui relève de l'article « Incendie et périls assimilés », vise précisément les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même en l'absence d'embrasement ou de commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'application de cette disposition suppose que la garantie « incendie et périls assimilés » ait été accordée aux conditions particulières du contrat.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il existe par ailleurs une disposition distincte, propre aux extensions de garantie visées aux points 3.1.8.3 à 3.1.8.6, qui exclut ce même type de dégât lorsqu'il touche le bâtiment (et non le mobilier) en l'absence d'embrasement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les blocs fournis ne précisent pas si la garantie « incendie et périls assimilés » figure effectivement aux conditions particulières de ce contrat, ni le montant de la franchise applicable, ni la valeur assurée pour le mobilier de salon.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La clause 3.1.1.1.6 couvre les dégâts au mobilier assuré et au bâtiment désigné causés par un événement soudain lié à l'action subite de la chaleur ou au contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'article 3.1.1 « Incendie et périls assimilés » ne s'applique que si les conditions particulières mentionnent que cette garantie est accordée.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:4\",\"quote\":\"Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie “ incendie et périls assimilés ” est accordée.\"}]},{\"claim_id\":\"c3\",\"text\":\"Pour les extensions de garantie visées aux points 3.1.8.3 à 3.1.8.6, les dégâts au bâtiment causés par un événement soudain de chaleur ou de contact avec un foyer incandescent sont exclus en l'absence d'embrasement ou de commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p46:1\",\"quote\":\"les dégâts occasionnés au bâtiment par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l’absence d’embrasement ou de commencement d’incendie.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeMhxLAbJbfbPko9PPEYU",
+      "id": "msg_011CeMjx68ipPuMj5B6CkShu",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -86,10 +91,10 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 6733,
         "inference_geo": "global",
-        "input_tokens": 3972,
-        "output_tokens": 1084,
+        "input_tokens": 3228,
+        "output_tokens": 1652,
         "output_tokens_details": {
-          "thinking_tokens": 0
+          "thinking_tokens": 398
         },
         "service_tier": "standard"
       }

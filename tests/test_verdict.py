@@ -140,52 +140,47 @@ def test_an_exclusion_alone_never_covers_itself() -> None:
 
 
 def test_a_baseline_guarantee_alone_is_covered() -> None:
-    """Règle (3) : garantie du socle `oui`, aucune claim `humain`, dossier au complet ⇒ `couvert`.
+    """Règle (3) : garantie du socle `oui`, aucune claim `humain` ⇒ `couvert`.
 
-    La fixture que l'AC de la story exige nommément (« `couvert` (garantie socle) »). Ce qu'elle
-    **suppose**, et qu'il faut lire : le dossier est complet. Sans les conditions particulières et les
-    options, la seconde branche de la règle (2) est satisfaite et le verdict s'arrête à
-    `sous_conditions` — voir le test suivant, qui est le cas de l'outil quand l'appelant n'a que les
-    conditions générales. `test_pipeline_sinistre.py` joue les deux moitiés de bout en bout.
-    """
-    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX,
-                missing=PAQUET_ETABLI)
-    assert v.value == "couvert" and v.missing.faits == [] and v.escalate == []
-    assert v.missing.conditions_particulieres is False and v.missing.options_souscrites is False
-    # AD-6 : « toujours avec le paquet manquant et les questions à poser ». Le paquet étant établi et
-    # la clause n'exigeant aucune qualité, il n'y a plus rien à demander : les questions suivent les
-    # pièces, elles ne sont pas décoratives.
-    assert v.ask_client == []
-
-
-def test_a_baseline_guarantee_alone_is_only_conditional_while_the_package_is_unknown() -> None:
-    """Règle (2), seconde branche, lue **littéralement** : la pièce inconnue suffit.
-
-    Maintenu contre la revue Codex 1.8 (B1), sur mesure et non sur lecture : la lecture « par clause »
-    qu'elle propose a été implémentée puis jouée en vrai, et le cas bougie a rendu `couvert` — la
-    valeur que l'AC de la story interdit sur ce cas. Le modèle avait énuméré les trois qualités que la
-    clause exige et les avait toutes déclarées établies par des faits qui disent le contraire. Le
-    verdict le plus engageant de l'outil ne peut pas reposer là-dessus.
+    La fixture que l'AC de la story exige nommément (« `couvert` (garantie socle) »), et **sans
+    précondition ajoutée** : l'AC énonce la règle (3) « garantie du socle `oui` sans condition
+    ouverte ⇒ `couvert` », pas « et le dossier au complet ». Revue Codex 1.8 (B1, tour 2) : le tour 1
+    lisait « dépend d'une … condition particulière **inconnue** » sur `MissingPackage`, donc sur le
+    dossier global, ce qui rendait la règle (3) inatteignable sans un argument que l'AC ne mentionne
+    nulle part. La dépendance se lit sur la **clause** — `option_requise`, `cp_requise`, le socle.
     """
     v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX)
-    assert v.value == "sous_conditions"
-    assert "ne sont pas au dossier" in v.reason
-    assert "conditions particulières" in v.reason and "options souscrites" in v.reason
+    assert v.value == "couvert" and v.missing.faits == [] and v.escalate == []
+
+
+def test_an_unknown_package_is_announced_and_asked_but_never_decides() -> None:
+    """`MissingPackage` accompagne le verdict ; il ne le fixe pas (revue Codex 1.8, B1, tour 2).
+
+    Un `couvert` rendu « au regard des conditions générales seules » annonce quand même les quatre
+    pièces qu'il n'a pas lues et les réclame — **une question par pièce** : annoncer quatre absences
+    et n'en demander que deux laisserait le gestionnaire deviner (D8). Ce que le paquet ne fait plus,
+    c'est décider de la valeur.
+    """
+    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX)
+    assert v.value == "couvert"
     assert v.missing.conditions_particulieres and v.missing.options_souscrites  # le paquet reste dû
-    # **Une question par pièce manquante** : annoncer quatre pièces absentes et n'en demander que
-    # deux laisserait le gestionnaire deviner (D8).
     assert len(v.ask_client) == 3 and all("Fait à établir" not in q for q in v.ask_client)
     assert any("options" in q for q in v.ask_client)
     assert any("conditions particulières" in q for q in v.ask_client)
     assert any("avenant" in q and "date" in q for q in v.ask_client)
+    # et le dossier au complet ne change que ce qu'il y a à réclamer
+    complet = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX,
+                      missing=PAQUET_ETABLI)
+    assert complet.value == "couvert" and complet.ask_client == []
 
 
 @pytest.mark.parametrize("piece", ["conditions_particulieres", "options_souscrites"])
-def test_either_missing_piece_alone_keeps_the_verdict_conditional(piece: str) -> None:
-    """Chacune des deux pièces suffit : AD-6 nomme « une option / extension / condition particulière »."""
+def test_neither_missing_piece_changes_the_verdict_value(piece: str) -> None:
+    """Le pendant du test précédent, pièce par pièce : la valeur ne bouge pas, la question apparaît."""
     presque = PAQUET_ETABLI.model_copy(update={piece: True})
     v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX, missing=presque)
-    assert v.value == "sous_conditions" and "ne sont pas au dossier" in v.reason
+    assert v.value == "couvert"
+    assert len(v.ask_client) == 1
 
 
 def test_a_quality_the_clause_requires_is_always_asked_even_when_said_established() -> None:

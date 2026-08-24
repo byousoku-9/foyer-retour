@@ -6,11 +6,12 @@ vide) : mêmes assertions, réponses rejouées — zéro réseau.
 
 Ce que le cas doit établir (AC de la story, et « verdict cadré » de l'epic) :
 
-1. le verdict est **conservateur** — jamais `couvert` sur un contrat dont on n'a que les conditions
-   générales. C'est une propriété du **code** et non du modèle : la seconde branche de la règle (2)
-   d'AD-6 (« ou la garantie dépend d'une […] condition particulière **inconnue** ») est satisfaite
-   tant que `MissingPackage` l'est, et le pipeline ne l'établit que si l'appelant lui passe le
-   `dossier` (ce que ce test ne fait pas) ;
+1. le verdict est **conservateur** — l'AC borne le cas bougie à `{sous_conditions, ne_tranche_pas}`,
+   donc jamais `couvert`. Ce qui le tient ouvert n'est pas une politique globale (revue Codex 1.8,
+   B1, tour 2 : la seconde branche de la règle (2) d'AD-6 se lit sur la **clause**, pas sur le
+   dossier) mais le contrôle des qualités exigées (B3) : la garantie de l'article 3.1.1.1.6 exige un
+   événement *soudain* et l'action *subite* de la chaleur, et les faits déclarés ne les établissent
+   pas. Le test le rejoue hors modèle, dans les deux sens ;
 1bis. les questions posées au client nomment **ce que la clause exige** — l'AC parle de la nature
    « subite ». Le run du 24/08 avait montré que le prompt seul ne le garantit pas : le modèle avait
    déclaré la qualité établie et aucune question ne la mentionnait. Le code compose désormais une
@@ -65,13 +66,14 @@ def index() -> Index:
     return Index(load_corpus(ROOT / "data", allow_ungated=True))
 
 
-def _au_mieux_disant(answer, index: Index) -> list[ClaimJugee]:
-    """Les claims affichées, re-jugées avec la sortie de modèle **la plus favorable possible**.
+def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
+                     non_etablies: list[str] | None = None) -> list[ClaimJugee]:
+    """Les claims affichées, re-jugées avec un jeu de champs typés choisi par le test.
 
     `fait_requis_present=true`, aucune option, aucune condition particulière, aucun fait manquant :
-    c'est le jeu de champs qui rendrait chaque clause `applicable="oui"`. Rejouer la table dessus
-    montre que le verdict conservateur ne tient pas au hasard de ce que le modèle a répondu ce
-    jour-là, mais à la règle (2) d'AD-6 — ce que la fixture d'un run unique ne peut pas prouver.
+    le jeu le plus favorable qui soit. `exigees` / `non_etablies` y ajoutent le contrôle des qualités
+    (revue Codex 1.8, B3). Rejouer la table dessus montre ce qui tient réellement le verdict ouvert,
+    ce que la fixture d'un run unique ne peut pas prouver.
     """
     jugees: list[ClaimJugee] = []
     for claim in answer.claims:
@@ -87,7 +89,9 @@ def _au_mieux_disant(answer, index: Index) -> list[ClaimJugee]:
                 portee=document.scope_nodes(bloc.block_id), node_id=noeud,
                 socle=document.node_scope_kind(noeud) == "commun"))
         jugees.append(ClaimJugee(claim_id=claim.claim_id, clauses=clauses,
-                                 champs=ChampsApplicabilite(fait_requis_present=True)))
+                                 champs=ChampsApplicabilite(
+                                     fait_requis_present=True, qualites_exigees=exigees or [],
+                                     qualites_non_etablies=non_etablies or [])))
     return jugees
 
 
@@ -112,13 +116,14 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
         client=LlmClient(settings, anthropic_client=RecordedAnthropic(llm_recorder)),
         settings=settings, request_id="live-sinistre-1", budget=budget)
 
-    # (1) verdict conservateur, jamais `couvert` au regard des seules conditions générales.
-    # La valeur est **fixée** et non donnée pour un couple de possibilités (revue 1.8, tour 2) : elle
-    # ne dépend plus d'un jugement du modèle. Quoi que rende `fait_requis_present` sur la garantie —
-    # `oui` la fait tomber en (2), `humain` en (2bis) ou (4) —, le paquet manquant ferme `couvert`.
+    # (1) verdict conservateur, jamais `couvert` sur ce cas.
     verdict = answer.verdict
     assert verdict is not None, "AD-16 : un sinistre sort toujours avec un verdict, refus compris"
-    assert verdict.value == "sous_conditions", verdict.value
+    # L'AC, mot à mot : « le cas bougie … `value ∈ {sous_conditions, ne_tranche_pas}` ». Le tour 1
+    # avait fixé la valeur en fermant la règle (3) à tout le monde ; la revue Codex 1.8 (B1) a montré
+    # que c'était l'AC de la règle (2) qui était réécrit. La borne est donc celle de l'AC, et ce qui
+    # la tient est le contrôle des qualités — vérifié en (5).
+    assert verdict.value in ("sous_conditions", "ne_tranche_pas"), verdict.value
     assert "conditions générales seules" in verdict.reason
     # AD-6 : le paquet manquant accompagne toujours le verdict, et les questions à poser aussi.
     # « `ask_client` n'est pas vide » ne prouvait rien : le run du 24/08 qui a motivé la revue Codex
@@ -175,13 +180,20 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     assert budget.cost_eur < settings.max_cost_eur_per_request
     assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)
 
-    # (5) la propriété que le run seul ne prouve pas : `couvert` est hors d'atteinte **quoi que rende
-    # le modèle**. On rejoue la table sur les mêmes clauses affichées avec le jeu de champs le plus
-    # favorable qui soit (`fait_requis_present=true`, aucune option, aucune CP) — celui qui a
-    # justement produit un `couvert` sur un run d'avant-correctif. Le paquet manquant le referme.
-    au_mieux = decider(_au_mieux_disant(answer, index), ask_client_max=settings.ask_client_max)
-    assert au_mieux.value == "sous_conditions", au_mieux.value
-    assert "ne sont pas au dossier" in au_mieux.reason
+    # (5) la propriété que le run seul ne prouve pas, rejouée hors modèle sur les clauses affichées :
+    # ce qui tient le cas bougie ouvert est le contrôle des qualités exigées (B3), pas une politique
+    # qui fermerait la règle (3) à tout le monde (B1, tour 2). Deux rejeux, avec le jeu de champs le
+    # plus favorable qui soit (`fait_requis_present=true`, aucune option, aucune CP) — celui qui a
+    # produit un `couvert` sur un run d'avant-correctif.
+    subite = "action subite de la chaleur"
+    ouvert = decider(_au_mieux_disant(answer, index, exigees=[subite], non_etablies=[subite]),
+                     ask_client_max=settings.ask_client_max)
+    assert ouvert.value != "couvert", ouvert.value  # la qualité non établie referme la règle (3)
+    assert any(subite in q for q in ouvert.ask_client)
+    # et la règle (3) n'est pas morte pour autant : sans qualité exigée, la même garantie du socle
+    # sort `couvert`. C'est bien le corroborant qui manque au cas bougie, pas le chemin.
+    sans_qualite = decider(_au_mieux_disant(answer, index), ask_client_max=settings.ask_client_max)
+    assert sans_qualite.value == "couvert", sans_qualite.value
 
     # AD-6 : un verdict autre que `ne_tranche_pas` repose sur une clause fondatrice **affichée**
     if verdict.value != "ne_tranche_pas":

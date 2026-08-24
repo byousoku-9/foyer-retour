@@ -79,6 +79,13 @@ class ChampsApplicabilite(DomainModel):
     termes* ; le **code** fait la différence, et toute qualité exigée non établie rend `humain` et
     devient une question bornée. Un booléen ne se vérifie pas ; une liste qui doit se recouvrir elle-
     même, si.
+
+    **La corroboration par les faits (revue Codex 1.8, B3, tour 2).** Deux listes que le modèle remplit
+    seul restent une auto-déclaration : recopier `qualites_exigees` dans `qualites_etablies` annulait
+    le contrôle. *Vérifier* n'accepte donc une qualité pour établie que si le modèle produit avec elle
+    un **fragment des faits déclarés**, relu mot pour mot dans les faits soumis — la mécanique d'AD-3
+    appliquée aux faits. Et un modèle qui **n'énumère pas** (listes absentes) rend son jeu de champs
+    inexploitable : la claim vaut `humain`, jamais `oui` par défaut.
     """
 
     fait_requis_present: bool
@@ -330,40 +337,35 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
           tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
     (1)   exclusion `oui` dont la portée couvre les nœuds du cas ⇒ `non_couvert` ;
-    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, ou garantie hors socle,
-          **ou paquet manquant non établi**) ⇒ `sous_conditions` — politique conservatrice ;
+    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, ou garantie hors socle)
+          ⇒ `sous_conditions` — politique conservatrice ;
     (2bis) garantie `humain` **par** option ou conditions particulières ⇒ `sous_conditions` : c'est
           le « dépend d'une option / CP inconnue » d'AD-6 vu depuis la **clause**, qu'une garantie
           `oui` ne peut pas exprimer (une garantie qui dépend d'une option est `humain` par
           construction, règle (6) de `applicable_de_claim`) ;
-    (3)   garantie du socle `oui`, aucune claim retenue `humain`, **paquet établi** ⇒ `couvert` ;
+    (3)   garantie du socle `oui`, aucune claim retenue `humain` ⇒ `couvert` ;
     (4)   sinon ⇒ `ne_tranche_pas`.
 
-    **`missing` est une entrée, et il décide (revue 1.8 tour 2 ; maintenu contre la revue Codex 1.8,
-    B1 — voir la mesure ci-dessous).** AD-6 écrit la seconde branche de la règle (2) « ou la garantie
-    dépend d'une option / extension / **condition particulière inconnue** », et il définit
-    `MissingPackage` dans la même phrase comme l'objet qui dit si elles le sont. Tant que l'appelant
-    ne fournit pas le dossier, aucune garantie ne peut être tenue pour acquise : la branche est
-    satisfaite, et `couvert` est hors d'atteinte. C'est ce que veut dire « au regard des conditions
-    générales seules », et c'est pourquoi l'AC du cas témoin n'admet que
-    `{sous_conditions, ne_tranche_pas}`.
+    **`missing` accompagne le verdict ; il ne le décide pas (revue Codex 1.8, B1, tour 2).** Le tour 1
+    avait lu « la garantie dépend d'une option / extension / **condition particulière inconnue** »
+    (AD-6, règle 2) sur `MissingPackage`, c'est-à-dire sur le dossier **global** : tant que les
+    conditions particulières n'étaient pas au dossier, aucune garantie n'était tenue pour acquise et
+    `couvert` restait hors d'atteinte sans un argument `dossier`. L'AC de la story dit autre chose,
+    mot à mot : « (2) garantie `oui` et (condition/franchise/exclusion `humain` ou **garantie hors
+    socle / dépendant d'une option**) », puis « (3) garantie du socle `oui` sans condition ouverte ⇒
+    `couvert` », et enfin « tests avec fixtures : … `couvert` (**garantie socle**) ». La dépendance se
+    lit donc sur la **clause** — ses champs typés (`option_requise`, `cp_requise`) et son nœud
+    (`socle`) —, jamais sur l'absence globale du paquet. `missing` est reporté tel quel dans le
+    verdict et il alimente les questions au client, y compris sous un `couvert` : un verdict « au
+    regard des conditions générales seules » annonce ce qu'il n'a pas lu.
 
-    **Ce que la mesure dit, et pourquoi la lecture « par clause » ne suffit pas.** La revue Codex 1.8
-    (B1) demande de lire la branche sur la seule clause (`option_requise` / `cp_requise` / hors socle)
-    et de laisser `couvert` sortir d'une garantie du socle `oui`. Essayé, et joué en vrai sur le cas
-    bougie (run du 24/08, `tests/llm_fixtures/test_sinistre_live.*.json`) : le modèle a énuméré les
-    trois qualités que la clause exige — « caractère soudain de l'événement », « action subite de la
-    chaleur », « contact direct et immédiat avec un foyer » — et les a **toutes trois** déclarées
-    établies par des faits qui disent le contraire (« sans embrasement ni commencement d'incendie »).
-    Verdict rendu : `couvert`, la valeur que l'AC de la story interdit sur ce cas. Aucune règle de code
-    ne peut trancher, sur du texte libre, si un événement fut « soudain » : seule une politique le
-    peut, et AD-6 en désigne une, annotée « **politique conservatrice, décision Lancelot** ».
-
-    **La règle (3) n'est pas morte pour autant, et elle est atteignable par le pipeline** : `run()`
-    accepte un `dossier` (`MissingPackage` renseigné à `False`), le passe jusqu'ici, et `couvert`
-    sort — c'est la fixture « garantie du socle » que l'AC exige, jouée de bout en bout. Ce qui
-    manquait au tour 2 n'était pas la règle mais le chemin d'entrée. Seuls les `faits[]` sont ignorés
-    de ce qu'on reçoit : ils sont dérivés des libellés rendus par le modèle.
+    **Ce qui empêche alors un `couvert` de complaisance**, et qui est la vraie garde (revue Codex 1.8,
+    B3) : la garantie ne vaut `oui` que si **toutes** les qualités que sa clause exige sont établies
+    par les faits déclarés, et *vérifier* n'accepte une qualité pour établie que si le modèle cite un
+    fragment des faits **relu mot pour mot** dans les faits soumis. Un modèle qui n'énumère rien laisse
+    ses champs typés inexploitables, et la claim vaut `humain`. Le cas témoin de la bougie tient par là
+    — la clause exige le caractère soudain de l'événement, les faits ne le disent pas —, et non par une
+    politique qui fermerait la règle (3) à tout le monde.
 
     `applicable` est relu sur chaque claim par `applicable_de_claim()` : la table ne dépend d'aucun
     champ que l'appelant aurait pu remplir autrement.
@@ -416,29 +418,18 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
 
     ouvertes = [c for c in retenues
                 if c.kind in ("condition", "franchise", "exclusion") and etat[c.claim_id] == "humain"]
-    # « La garantie dépend d'une option / extension / condition particulière **inconnue** » (AD-6,
-    # règle 2), lu sur l'objet qu'AD-6 définit pour le dire : tant que les conditions particulières ou
-    # les options souscrites ne sont pas au dossier, aucune garantie ne peut être tenue pour acquise,
-    # quoi qu'en dise la clause. L'appelant qui **a** ces pièces les passe (`dossier`), et la règle (3)
-    # reprend la main.
-    pieces_inconnues = [libelle for libelle, absente in
-                        (("les conditions particulières", connu.conditions_particulieres),
-                         ("les options souscrites", connu.options_souscrites)) if absente]
     for garantie in garanties:
         if etat[garantie.claim_id] != "oui":
             continue
         # « … ou d'une **extension** » (AD-6, règle 2) : le nœud le dit, pas le modèle.
         hors_socle = any(not clause.socle for clause in garantie.clauses)
-        # (2) — politique conservatrice : un seul de ces trois motifs suffit à ouvrir le verdict.
-        if ouvertes or hors_socle or pieces_inconnues:
+        # (2) — politique conservatrice : un seul de ces deux motifs suffit à ouvrir le verdict.
+        if ouvertes or hors_socle:
             motifs = []
             if ouvertes:
                 motifs.append("une condition, une franchise ou une exclusion citée reste ouverte")
             if hors_socle:
                 motifs.append("la garantie ne relève pas du socle commun")
-            if pieces_inconnues:
-                motifs.append(f"{' et '.join(pieces_inconnues)} ne sont pas au dossier — la garantie "
-                              "ne peut pas être tenue pour acquise")
             return verdict("sous_conditions", "Une garantie s'applique, mais " + " ; ".join(motifs))
 
     # (2bis) — la garantie **elle-même** dépend d'une option ou de conditions particulières inconnues.
@@ -449,10 +440,10 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
             return verdict("sous_conditions", "La garantie citée ne joue que si une option ou les "
                                               "conditions particulières la prévoient")
 
-    # (3) — le seul chemin vers `couvert` : garantie du socle, plus rien d'ouvert **nulle part**, et
-    # le dossier au complet (sans quoi la règle (2) a déjà tranché plus haut). Le `oui` qui l'ouvre est
-    # doublement corroboré : par le dossier, et par `applicable_de_claim()`, qui exige que toutes les
-    # qualités exigées par la clause soient établies par les faits déclarés (B3).
+    # (3) — le seul chemin vers `couvert` : garantie du socle et plus rien d'ouvert **nulle part**.
+    # Le `oui` qui l'ouvre est corroboré par `applicable_de_claim()`, qui exige que toutes les qualités
+    # exigées par la clause soient établies par les faits déclarés — et *vérifier* n'en tient une pour
+    # établie que sur un fragment des faits relu mot pour mot (B3, tour 2).
     for garantie in garanties:
         if etat[garantie.claim_id] == "oui" and all(clause.socle for clause in garantie.clauses):
             if not any(etat[c.claim_id] == "humain" for c in retenues):

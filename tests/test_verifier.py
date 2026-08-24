@@ -637,7 +637,8 @@ RENVOI_OUVERT = "La garantie tempête s'applique dans les limites fixées à l'a
 Q_RENVOI_OUVERT = "garantie tempête s'applique dans les limites fixées à l'article 12"
 
 FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
-              description="Une bougie a mis le feu au mobilier de salon, sans embrasement.")
+              description="Une bougie a mis le feu au mobilier de salon, sans embrasement ; "
+                          "la chaleur a agi de façon subite.")
 
 
 @pytest.fixture(scope="module")
@@ -688,20 +689,33 @@ def contrat() -> Index:
     return Index(Corpus(documents={"cg": doc}, summaries={"cg": "# Mini contrat"}))
 
 
+# Un fragment **mot pour mot** des faits déclarés ci-dessus, et qui emploie les mots de la qualité :
+# les deux conditions pour qu'elle soit tenue pour établie (revue Codex 1.8, B3, tour 2).
+FRAGMENT = "la chaleur a agi de façon subite"
+
+
 def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
-                   nb_segments: int = 8, doublon: bool = False) -> dict:
+                   nb_segments: int = 8, doublon: bool = False, enumere: bool = True) -> dict:
     """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité.
 
     Une entrée est `(claim_id, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
     éventuellement suivie des deux listes de qualités `(exigees, etablies)` de la revue Codex 1.8 (B3).
+    Une qualité établie est un libellé (le fragment cité est alors `FRAGMENT`, qui se relit dans les
+    faits) ou un couple `(qualite, fait_cite)` quand le test veut choisir le fragment — tour 2.
+    `enumere=False` **omet** les deux listes, comme un modèle qui n'énumère rien.
     """
     champs = []
     for entree in entrees:
         cid, present, option, cp, manquant = entree[:5]
         exigees, etablies = entree[5] if len(entree) > 5 else [], entree[6] if len(entree) > 6 else []
-        champs.append({"claim_id": cid, "fait_requis_present": present, "option_requise": option,
-                       "cp_requise": cp, "fait_manquant": manquant,
-                       "qualites_exigees": list(exigees), "qualites_etablies": list(etablies)})
+        bloc = {"claim_id": cid, "fait_requis_present": present, "option_requise": option,
+                "cp_requise": cp, "fait_manquant": manquant}
+        if enumere:
+            bloc["qualites_exigees"] = list(exigees)
+            bloc["qualites_etablies"] = [
+                {"qualite": q, "fait_cite": FRAGMENT} if isinstance(q, str)
+                else {"qualite": q[0], "fait_cite": q[1]} for q in etablies]
+        champs.append(bloc)
     if doublon and champs:
         champs.append(dict(champs[0]))
     return fake_message(text=json.dumps({
@@ -743,11 +757,12 @@ async def test_applicability_travels_in_the_single_grouped_micro_call(contrat: I
         contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
     assert len(fake.requests) == 1 and len(step.calls) == 1
     assert v.claims[0].status.applicable == "oui"
-    # `sous_conditions` et non `couvert` : l'appelant n'a passé aucun `dossier`, donc le paquet
-    # manquant reste entier et la seconde branche de la règle (2) est satisfaite. Aucun jugement du
-    # modèle ne peut faire passer ce verdict à `couvert` — seul le dossier le peut.
-    assert v.verdict is not None and v.verdict.value == "sous_conditions"
-    assert "ne sont pas au dossier" in v.verdict.reason
+    # Règle (3) : garantie du socle `oui`, rien d'ouvert — `couvert`. Le paquet manquant reste annoncé
+    # et demandé (le verdict ne vaut qu'« au regard des conditions générales seules »), mais il ne
+    # décide pas de la valeur : la dépendance se lit sur la clause (revue Codex 1.8, B1, tour 2).
+    assert v.verdict is not None and v.verdict.value == "couvert"
+    assert v.verdict.missing.conditions_particulieres is True
+    assert any("options" in q.lower() for q in v.verdict.ask_client)
     # le préfixe porte bien les deux prompts, et les faits déclarés sont délimités (AD-15)
     systeme = fake.requests[0]["system"][0]["text"]
     assert "valeurs typées d'applicabilité" in systeme and "un booléen par" not in systeme.split("\n")[0]
@@ -889,6 +904,82 @@ async def test_a_required_quality_the_facts_establish_leaves_the_clause_applicab
     assert any("Caractère subit de la chaleur" in q and "confirmer" in q for q in v.verdict.ask_client)
 
 
+async def test_unlisted_qualities_make_the_whole_field_set_unusable(contrat: Index) -> None:
+    """Revue Codex 1.8 (B3), tour 2 : le silence du modèle n'est pas « aucune qualité exigée ».
+
+    Le défaut vide laissait une clause qui exige « un événement soudain » passer en `oui` sur une
+    liste que le modèle n'avait pas écrite — c'est par là que la garde de B3 se contournait. Deux
+    listes absentes rendent maintenant tout le jeu de champs inexploitable, exactement comme un
+    libellé hors borne (B2) : la claim vaut `humain`, jamais `oui` par défaut.
+    """
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None),
+                                        verdicts=[("c1", True)], enumere=False)])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "qualites_non_enumerees" and not c.ok]
+    assert [c for c in step.checks if c.name == "applicabilite_incomplete" and not c.ok]
+    # et le verdict ne peut plus être `couvert` : la garantie n'est pas `oui`
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+
+
+async def test_a_quality_said_established_without_a_fact_of_the_file_is_not_established(
+        contrat: Index) -> None:
+    """Revue Codex 1.8 (B3), tour 2 : « empêcher qu'une auto-déclaration tienne lieu de corroboration ».
+
+    Le modèle recopie la qualité exigée dans les qualités établies et cite, comme fragment des faits,
+    une phrase qui **n'y est pas** (ici le texte de la clause). Le code relit le fragment dans les
+    faits déclarés — la mécanique d'AD-3 appliquée aux faits — ne le trouve pas, et la qualité retombe
+    en « non établie » : la garantie vaut `humain` et la qualité part en question.
+    """
+    subite = "caractère subit de l'action de la chaleur"
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [subite],
+                                         [(subite, "l'action subite de la chaleur")]),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "fait_cite_introuvable" and not c.ok]
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert v.verdict.missing.faits == [subite]
+
+
+async def test_a_true_fragment_that_says_nothing_of_the_quality_establishes_nothing(
+        contrat: Index) -> None:
+    """Revue Codex 1.8 (B3, tour 2) : un fragment **authentique** peut n'établir aucune qualité.
+
+    C'est le run réel du 24/08 (second enregistrement) : le modèle a cité trois fois « Une bougie
+    allumée posée sur une table basse est tombée sur le canapé » pour établir « caractère soudain de
+    l'événement », « action subite de la chaleur » et « contact direct et immédiat avec un foyer ».
+    Le fragment se relit mot pour mot dans les faits — et il n'emploie aucun des mots des trois
+    qualités. La relecture seule ne suffisait donc pas : le code exige aussi le recoupement.
+    """
+    subite = "action subite de la chaleur"
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [subite],
+                                         [(subite, "Une bougie a mis le feu au mobilier de salon")]),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "fait_cite_hors_sujet" and not c.ok]
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert v.verdict.missing.faits == [subite]
+
+
+async def test_an_inflected_word_still_corroborates_the_quality(contrat: Index) -> None:
+    """Le recoupement se fait par préfixe : « subite » établit « caractère subit », pas l'inverse d'un
+    lemmatiseur que le projet n'embarque pas."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None,
+                                         ["caractère subit de la chaleur"],
+                                         [("caractère subit de la chaleur",
+                                           "la chaleur a agi de façon subite")]),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"
+    assert not [c for c in step.checks if c.name == "fait_cite_hors_sujet"]
+
+
 async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index) -> None:
     """AD-6 : bloc sans `kind` confirmé ⇒ `humain`, verdict plafonné à `sous_conditions`."""
     draft = _draft(("c1", "Le vol avec effraction est garanti.",
@@ -928,9 +1019,8 @@ async def test_an_exclusion_out_of_scope_does_not_bite(contrat: Index) -> None:
         ("c1", True, False, False, None), ("c2", True, False, False, None),
         verdicts=[("c1", True), ("c2", True)])])
     # la portée de `cg:p1:2` est `cg:ext`, le nœud du cas est `cg:socle` : elle ne mord pas — la
-    # règle (1) ne tranche pas, et le seul motif qui reste est le paquet manquant, pas l'exclusion
-    assert v.verdict is not None and v.verdict.value == "sous_conditions"
-    assert "ne sont pas au dossier" in v.verdict.reason
+    # règle (1) ne tranche pas, et la garantie du socle reprend la main sans que l'exclusion pèse
+    assert v.verdict is not None and v.verdict.value == "couvert"
     assert "exclusion" not in v.verdict.reason
 
 
@@ -1005,8 +1095,8 @@ async def test_a_contradiction_with_a_passage_nobody_shows_is_not_one(contrat: I
     draft = _draft(("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]))
     v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
         ("c1", True, False, False, None), verdicts=[("c1", True)])])
-    # aucune contradiction retenue : le verdict n'est ouvert que par le paquet manquant (règle 2)
-    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    # aucune contradiction retenue : la table tranche normalement sur la garantie du socle
+    assert v.verdict is not None and v.verdict.value == "couvert"
     assert "contredisent" not in v.verdict.reason
 
 
