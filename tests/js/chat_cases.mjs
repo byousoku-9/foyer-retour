@@ -994,9 +994,22 @@ async function main() {
       // Corps qu'aucune route n'écrit : clé absente, ou profil et compte dissociés. Aucun suffixe.
       profil_absent: (() => { const c = sante(); delete c.gate_profile; return c; })(),
       profil_sans_compte: sante({ gate_cases: null }),
+      gate_cases_fractionnaire: sante({ gate_cases: 1.5 }),
+      gate_profile_vide: sante({ gate_profile: "" }),
+    };
+    // Les alertes ne conditionnent **pas** la lecture du niveau : mal formées, elles sont écartées,
+    // et `gate_profile`/`gate_cases` restent lus (le badge ne les affiche pas).
+    const tolerees = {
       alerts_absent: (() => { const c = sante(); delete c.alerts; return c; })(),
       alerte_non_objet: sante({ alerts: ["sans_gate"] }),
     };
+    cas.alertes_tolerees = {};
+    for (const [nom, corps] of Object.entries(tolerees)) {
+      const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps }));
+      await CHAT.testerApi();
+      cas.alertes_tolerees[nom] = { lue: CHAT.validation(),
+                                    badge: CHAT.libelleMode("api/v1", CHAT.validation()) };
+    }
     cas.validation = {};
     for (const [nom, corps] of Object.entries(situations)) {
       const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps }));

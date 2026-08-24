@@ -938,13 +938,41 @@ def test_le_badge_dit_non_valide_quand_aucun_document_nest_gate(cas: dict[str, A
     assert [a["alerte"] for a in v["lue"]["alerts"]] == ["sans_gate"]
 
 
-@pytest.mark.parametrize("corps", ["profil_absent", "profil_sans_compte", "alerts_absent",
-                                   "alerte_non_objet"])
+@pytest.mark.parametrize("corps", ["profil_absent", "profil_sans_compte",
+                                   "gate_cases_fractionnaire", "gate_profile_vide"])
 def test_un_corps_de_sante_illisible_ne_suffixe_rien(cas: dict[str, Any], corps: str) -> None:
     """Une clé absente n'est pas « le champ vaut null » (patron 1.9) : aucun niveau n'est inventé."""
     v = cas["validation"][corps]
     assert v["lue"] is None
     assert v["badge"]["texte"] == "mode api"
+
+
+def test_une_alerte_mal_formee_ne_supprime_pas_le_niveau(cas: dict[str, Any]) -> None:
+    """Les alertes ne conditionnent pas la lecture du niveau : le badge ne les affiche même pas.
+
+    Les coupler faisait perdre tout le suffixe — un `gate_profile` parfaitement lisible — pour un
+    champ qui n'atteint jamais l'écran. Ce qui n'est pas lisible est écarté, le reste est retenu.
+    """
+    for nom, releve in cas["alertes_tolerees"].items():
+        assert releve["lue"] is not None, nom
+        assert releve["badge"]["texte"] == "mode api · vertical (2 cas)", nom
+
+
+def test_le_front_du_guide_et_laccueil_refusent_les_memes_corps() -> None:
+    """Deux lecteurs du même 200 ne doivent pas avoir deux contrats sur ce qu'ils lisent tous deux.
+
+    `gate_profile` (chaîne non vide ou `null`), `gate_cases` (entier ≥ 0 ou `null`) et leur
+    indissociabilité sont les trois règles partagées ; le reste (`ok`, `version`,
+    `documents_servis`) n'est lu que par l'accueil, qui l'affiche.
+    """
+    chat = "\n".join(l for l in (REPO_ROOT / "web" / "app" / "chat.js").read_text("utf-8").splitlines()
+                     if not l.strip().startswith("//"))
+    accueil = "\n".join(l for l in (REPO_ROOT / "tools" / "accueil" / "accueil.js").read_text("utf-8").splitlines()
+                        if not l.strip().startswith("//"))
+    for source in (chat, accueil):
+        assert "(p === null) !== (n === null)" in source or \
+               "(o.gate_profile === null) !== (o.gate_cases === null)" in source
+        assert "Math.floor(" in source, "un compte de cas fractionnaire doit être refusé des deux côtés"
 
 
 def test_une_sonde_morte_nannonce_aucun_niveau(cas: dict[str, Any]) -> None:

@@ -1054,16 +1054,25 @@ window.CHAT = (function () {
     if (!j || typeof j !== "object" || Array.isArray(j)) return null;
     var p = j.gate_profile;
     var n = j.gate_cases;
-    if (!(p === null || typeof p === "string")) return null;
-    if (!(n === null || (typeof n === "number" && isFinite(n)))) return null;
+    // Un profil est une chaine **non vide** : « niveau :  » ne dit rien, et le serveur n'en ecrit
+    // jamais. Un compte est un entier positif : « vertical (1.5 cas) » serait un nombre de cas
+    // invente, et l'accueil refuse deja le meme corps (`tools/accueil/accueil.js`, `estEntier`).
+    if (!(p === null || (typeof p === "string" && p.length > 0))) return null;
+    if (!(n === null || (typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 0))) {
+      return null;
+    }
     if ((p === null) !== (n === null)) return null;
-    if (!Array.isArray(j.alerts)) return null;
+    // Les alertes sont lues **sans conditionner** le niveau : une entree mal formee ne doit pas
+    // supprimer un `gate_profile` parfaitement lisible (le badge perdrait tout son suffixe pour un
+    // champ qu'il n'affiche meme pas). Ce qui n'est pas lisible est ecarte, le reste est retenu.
     var alerts = [];
-    for (var i = 0; i < j.alerts.length; i++) {
-      var a = j.alerts[i];
-      if (!a || typeof a !== "object" || typeof a.alerte !== "string" ||
-          typeof a.doc_id !== "string") return null;
-      alerts.push({ doc_id: a.doc_id, alerte: a.alerte });
+    var brutes = Array.isArray(j.alerts) ? j.alerts : [];
+    for (var i = 0; i < brutes.length; i++) {
+      var a = brutes[i];
+      if (a && typeof a === "object" && typeof a.alerte === "string" &&
+          typeof a.doc_id === "string") {
+        alerts.push({ doc_id: a.doc_id, alerte: a.alerte });
+      }
     }
     return { gate_profile: p, gate_cases: n, alerts: alerts };
   }
