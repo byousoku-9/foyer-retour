@@ -55,8 +55,12 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         raise InvalidRequest("document inconnu : ce service ne sert pas ce contrat (la liste des "
                              "documents servis est publiée par GET /api/v1/documents)")
     if document.kind != KIND_ATTENDU:
+        # Le message est lu par un appelant, pas par nous : il ne cite ni une décision de spec ni un
+        # numéro de story, qui ne veulent rien dire hors de ce dépôt (AD-16 : le message d'un code
+        # que l'appelant peut corriger lui est dû, et il doit lui servir).
         raise InvalidRequest("ce document n'est pas un contrat : un sinistre se confronte à des "
-                             "conditions générales, et le guide n'en porte aucune (D3 de la story)")
+                             "conditions générales, et ce document n'en porte aucune (voir "
+                             "GET /api/v1/documents, champ `kind`)")
 
     budget = etat.client.new_budget()  # AD-9 : deadline monotone armée ici, à l'entrée de la route
     answer, trace = await etat.pipeline_sinistre(

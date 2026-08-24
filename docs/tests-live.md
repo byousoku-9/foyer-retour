@@ -735,3 +735,38 @@ log du serveur (`cost_eur`) : trois runs du cas bougie (0,0441 + 0,0313 + 0,0408
 navigateur (0,0429 €), et les neuf requêtes courtes qui ont servi à provoquer le 429 (0,0027–0,0028 €
 chacune — description d'un mot, court-circuit `zero_hit` après le seul appel de *comprendre*). Les
 chemins 400 et 503, eux, ne coûtent rien par construction : ils sont levés avant le premier appel.
+
+### Contre-vérification indépendante (2026-08-24, sur l'arbre commité)
+
+Relevés refaits de bout en bout sur `dc72a06..df81517`, sans reprendre ceux ci-dessus : serveur
+relancé sur `:8801` (sans clé, pour les chemins gratuits) puis `:8802` (clé réelle), même corpus,
+même cas.
+
+| Vérification | Résultat |
+|---|---|
+| Suite hors ligne, front **exigé** | `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1036 passed en 11,0 s**, aucun `skip` : les 117 cas de front ont bien tourné |
+| Lint, comparé à la base | `uvx ruff check --select F,E9` rend les **mêmes 7 `F401`** sur `dc72a06` (arbre extrait par `git archive`) que sur `HEAD` : aucune régression introduite par la story |
+| `GET /api/v1/documents` | 200, deux entrées, `source_url` publiques (le PDF AXA, `kb.js` du guide) |
+| `GET …/report` et `…/inconnu/report` | 200 avec le `report.json` d'AD-8 ; **400** `invalid_request` sans écho du `doc_id` reçu |
+| `/sinistre/` et son script | 200 (9 450 o. et 42 665 o.) servis par la même origine |
+| Quatre chemins de 400 | `doc_id` non servi, `doc_id` de guide, `variant="agentique"`, description de 2 001 caractères — tous **400**, tous sans appel facturé |
+| **Cas bougie par HTTP** | **200 en 26,9 s**, `ne_tranche_pas`, **0,0547 €** ; `p34:12` (garantie, page 34, 4 `line_ids`) **et** `p46:1` (exclusion, page 46, `applicable="non"` — l'exclusion des extensions, explicitement écartée, ce que FR20 exige) ; une claim `non_pertinente` à part ; `faits_compris` renseigné sur ses cinq champs ; **six** questions au client, dont « caractère « subite » exigé par la clause citée » ; un seul appel `micro` dans *vérifier* |
+| Page en Chrome headless | sélecteur à une seule option (le contrat, pas le guide), `maxlength` 1 000 / 2 000 lus sur le serveur, attente peinte et saisie verrouillée, `localStorage` **vide**, **zéro** pose d'`innerHTML` non vide, aucun bouton dans le résultat ; 429 avec `Retry-After: 41` et un conteneur d'erreur qui ne laisse ni badge, ni clause, ni bouton |
+
+**Ce que cette campagne a trouvé de neuf, et que la précédente n'avait pas vu.** Le tour navigateur
+est ressorti en **503 `timeout` après 47,2 s**, avec 0,0445 € déjà facturés — pas la deadline globale
+(`deadline_s = 55`, non atteinte), mais l'appel de *rédiger* de la **relance** d'AD-3, au-delà des
+25 s de `llm_timeout_s`. Le chemin est celui qu'AD-16 décrit (« un appel LLM en timeout (25 s) ⇒
+503 ») et la page l'a affiché comme il faut : aucun repli, aucun verdict de remplacement, saisie
+rendue. C'est néanmoins le **second** mode d'échec intermittent que le sinistre expose à un
+utilisateur, après le `budget_exceeded` du majorant de coût différé en 1.8. `llm_timeout_s` est un
+seuil dont la valeur est écrite dans le texte d'AD-16 : le relever demanderait d'amender le spine, et
+ne se justifie que sur une distribution mesurée des latences de *rédiger*. Différé en 4.2, avec les
+questions-témoins qui rejouent 15 à 20 sinistres.
+
+*(Un défaut de rédaction corrigé au passage : le 400 du `doc_id` non-contrat citait « D3 de la
+story » dans son message — une référence interne renvoyée à l'appelant. Il renvoie désormais au champ
+`kind` de `GET /api/v1/documents`.)*
+
+Coût de cette contre-vérification : **0,0992 €** (un verdict complet par HTTP, un tour navigateur
+interrompu par le timeout, et les requêtes courtes du 429).
