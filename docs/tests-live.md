@@ -1307,3 +1307,90 @@ il ne l'affiche pas) et la page sinistre le porte dans sa trace dépliable, non 
 En prenant les mesures de la story 1.10 pour les six appels sinistre (≈ 0,050 € chacun), le total
 s'estime autour de **0,45 €** ; c'est une estimation, pas un relevé. Les builds Cloud Build tiennent
 dans le forfait gratuit.
+
+### Revue Codex 1.11, tour 1 — ce que la revue a fait vérifier en vrai (25/08, commit `c6d18f2`)
+
+Six constats de la revue Codex touchaient des choses qu'aucun test hors ligne ne peut trancher seul :
+ce que l'archive de `--source` emporte réellement, ce que la fédération d'identité autorise sur GCP,
+et ce que le service sert. Les trois ont été mesurés.
+
+**1. Le crédentiel du déployeur partait avec l'archive.** `auth@v3` écrit `gha-creds-<aléa>.json`
+dans le répertoire de travail, avant l'étape de déploiement. Reproduit et corrigé sur le poste :
+
+```
+touch gha-creds-audit.json .env.faux
+gcloud meta list-files-for-upload .
+  avant correctif → gha-creds-audit.json présent dans la liste
+  après correctif → 0 occurrence de « gha-creds » ; 123 fichiers ; la seule ligne `.env*`
+                    téléversée est `.env.example` (`!.env.example`, voulu) et `.env.faux` est exclu
+```
+
+**2. La condition du fournisseur d'identité fédérée ne bornait que le dépôt.** Corrigée dans
+`scripts/gcp_bootstrap.sh` puis **appliquée** par une réexécution du script (les 24 autres étapes ne
+disent que « déjà présent ») :
+
+```
+gcloud iam workload-identity-pools providers describe foyer-retour \
+  --workload-identity-pool=github --location=global --project=foyer-retour
+→ attributeCondition : attribute.repository == "byousoku-9/foyer-retour"
+                       && assertion.ref == "refs/heads/main"
+  attributeMapping   : attribute.actor, attribute.repository, google.subject
+  state              : ACTIVE
+```
+
+Avant, la garde `if: github.ref == 'refs/heads/main'` du job `deployer` était la **seule** chose qui
+empêchait un workflow poussé sur une branche de travail d'obtenir l'identité du déployeur — et une
+garde de workflow ne dit rien à IAM. Ce que cette correction ne prouve toujours pas : que l'échange
+de jeton aboutit. Il ne s'exerce que depuis un runner GitHub, et la borne le rend maintenant **plus
+strict** — si la fédération devait casser, c'est ici qu'il faudrait regarder au premier push.
+
+**3. Tout le chemin rejoué sur le commit corrigé.** Mêmes commandes qu'au passage de référence, même
+identité (`--impersonate-service-account=deployer@…`), sur `c6d18f2` :
+
+```
+gcloud run deploy foyer-retour --source . --no-traffic --tag=candidat \
+  --set-env-vars=GIT_SHA=c6d18f2 --set-secrets=ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:1 \
+  --service-account=foyer-retour-run@foyer-retour.iam.gserviceaccount.com \
+  --allow-unauthenticated --max-instances=1 --concurrency=2 --timeout=60 --min-instances=0
+→ révision foyer-retour-00006-vuh, 0 % de trafic, https://candidat---foyer-retour-looxzut5zq-ew.a.run.app
+
+gcloud run services describe foyer-retour --format=json \
+  | jq -c --arg tag candidat 'first(.status.traffic[]? | select(.tag == $tag))'
+→ {"revisionName":"foyer-retour-00006-vuh","tag":"candidat",
+   "url":"https://candidat---foyer-retour-looxzut5zq-ew.a.run.app"}
+
+uv run python scripts/smoke.py --base-url https://candidat---… --version c6d18f2
+→ ok · sante / ok · surfaces / ok · chat / ok · sinistre — exit 0 en 38,1 s
+
+gcloud run services update-traffic foyer-retour \
+  --to-revisions=foyer-retour-00006-vuh=100 --remove-tags=candidat
+→ 100 % foyer-retour-00006-vuh
+```
+
+Après promotion, sur l'URL publique : `/api/v1/sante` → `version: "c6d18f2"`, les deux documents,
+`gate_profile: "vertical"`, `gate_cases: 2`, `gate_countersigned: false`, `alerts: []` ; `/`,
+`/guide/` et `/sinistre/` → 200 ; l'URL taguée → 404 ; `containerConcurrency: 2`,
+`timeoutSeconds: 60`, `maxScale: 1`, `minScale` absent, SA runtime `foyer-retour-run@`.
+
+**Ce que la révision sert, et qui a changé.** La mention de confidentialité porte désormais les
+**quatre** réserves de la politique de rétention — lues sur les deux fronts publics, identiques :
+
+> … avec des exceptions — un service à rétention plus longue que vous contrôlez, un accord de
+> rétention différent conclu avec lui, l'application de sa politique d'usage, une obligation légale —
+> et le contenu que ses systèmes de sécurité signalent est conservé jusqu'à deux ans.
+
+**Ce que ce rejeu ne couvre toujours pas**, et qui reste écrit plutôt que supposé : `deploy-cloudrun@v3`
+n'a pas été exécutée — la lecture de `steps.deploy.outputs.url` s'appuie sur son
+`src/output-parser.ts` (v3), relu le 25/08/2026, qui publie l'URL de l'entrée de `status.traffic[]`
+portant le tag quand l'entrée `tag` est posée ; c'est la forme `gcloud` équivalente qui a été jouée
+ici. Le premier push sur `main` est ce qui exercera l'action, la fédération et la confrontation des
+deux URL.
+
+**Note d'exploitation, à nouveau.** `roles/iam.serviceAccountTokenCreator` a été accordé à
+`user:lancelot.oudin@gmail.com` sur le SA déployeur le temps de ce relevé (propagation constatée en
+**50 s**), puis **révoqué** : `get-iam-policy` sur le compte ne rend plus que
+`roles/iam.workloadIdentityUser`.
+
+**Coût de ce tour.** Deux requêtes de pipeline facturées (un passage du smoke : chat + sinistre),
+≈ 0,08 €. Aucun tour navigateur : rien de ce que la revue a corrigé ne change le rendu au-delà d'un
+paragraphe de texte, lu directement sur les deux pages servies.
