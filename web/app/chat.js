@@ -786,6 +786,38 @@ window.CHAT = (function () {
 
   function estObjet(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 
+  // Les invariants d'`Answer._found_coherence` (`server/app/domain/answer.py`), refaits ici. Le
+  // serveur ne peut pas servir un corps qui les viole — pydantic refuse de monter l'objet — donc un
+  // corps qui les viole ne vient pas du serveur et n'est pas une reponse. Ils comptent a l'ecran :
+  // l'etat affiche (« sûr » / « partiel » / « inconnu ») se calcule sur `found` et `complete`, et la
+  // preuve d'absence sur `reason` ; un `found=true` sans claim peindrait « sûr » sur une reponse
+  // sans une seule citation relue, un `found=false` sans `reason` un refus sans sa preuve chiffree.
+  function verifierAnswer(a) {
+    var claims = a.claims;
+    if (claims !== undefined && claims !== null && !Array.isArray(claims)) {
+      throw illisible("answer.claims");
+    }
+    claims = Array.isArray(claims) ? claims : [];
+    var unknown = a.unknown;
+    if (unknown !== undefined && unknown !== null && !Array.isArray(unknown)) {
+      throw illisible("answer.unknown");
+    }
+    unknown = Array.isArray(unknown) ? unknown : [];
+    // « found=False exige une preuve d'absence (reason) ».
+    if (!a.found && !estObjet(a.reason)) throw illisible("answer.reason");
+    // « found=True exige au moins une claim retrouvée et pertinente » ∧ « found=False exige claims=[] ».
+    if (a.found !== (claims.length > 0)) throw illisible("answer.claims");
+    // « claims[] ne contient que des claims retrouvee ∧ pertinente ».
+    for (var i = 0; i < claims.length; i++) {
+      var statut = claims[i] && claims[i].status;
+      if (!estObjet(statut) || statut.retrouvee !== true || statut.pertinente !== true) {
+        throw illisible("answer.claims");
+      }
+    }
+    // « complete=True exige found=True et unknown=[] ».
+    if (a.complete && (!a.found || unknown.length > 0)) throw illisible("answer.complete");
+  }
+
   // Lecture **stricte** du contrat d'AD-11. Plus jamais `j.reponse` (le serveur rend `texte`), et
   // les sources affichees sont **celles du serveur** : `rechercher()` n'intervient plus ici.
   //
@@ -797,6 +829,16 @@ window.CHAT = (function () {
   // reponse degradee, c'est un serveur casse — donc `reponse_illisible`, comme un corps non-JSON, et
   // sans bouton de repli (ce n'est pas une indisponibilite au sens d'AD-11).
   //
+  // « Obligatoire » se lit sur le contrat **entier**, pas sur son premier etage : `Trace` exige
+  // `request_id` et `pipeline` (les deux seuls champs sans defaut), et `Answer` porte les
+  // invariants de son `_found_coherence` — un `found=true` sans claim, un `found=false` sans preuve
+  // d'absence, un `complete=true` sur une reponse non trouvee ou trouee sont des corps que le
+  // serveur ne peut **pas** produire (pydantic les refuse au montage). Les accepter revenait a
+  // peindre en reponse ce qu'aucun serveur du projet n'a servi, avec un etat (`sur` / `partiel` /
+  // `inconnu`) calcule sur des booleens qui se contredisent : la meme « reponse vide presentee
+  // comme reponse » d'AD-16, une couche plus bas. `lireReponse()` refait donc ces invariants —
+  // `tests/test_web_chat.py` les amarre a `Answer.model_validate()` pour qu'ils ne divergent pas.
+  //
   // Les champs a valeur par defaut (`segments`, `sources`, `fiches`, `unknown`, `comparateur`,
   // `via`) restent tolerants a l'**absence** — le serveur les serialise toujours, mais leur defaut
   // est defini par le contrat lui-meme. Ils ne sont pas tolerants au **mauvais type** : un
@@ -807,7 +849,10 @@ window.CHAT = (function () {
     if (!estObjet(o.answer)) throw illisible("answer");
     if (typeof o.answer.found !== "boolean") throw illisible("answer.found");
     if (typeof o.answer.complete !== "boolean") throw illisible("answer.complete");
+    verifierAnswer(o.answer);
     if (!estObjet(o.trace)) throw illisible("trace");
+    if (typeof o.trace.request_id !== "string") throw illisible("trace.request_id");
+    if (typeof o.trace.pipeline !== "string") throw illisible("trace.pipeline");
     var listes = ["segments", "sources", "fiches", "unknown"];
     for (var i = 0; i < listes.length; i++) {
       var nom = listes[i];
