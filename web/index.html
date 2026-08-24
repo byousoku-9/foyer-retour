@@ -476,7 +476,10 @@
     </div>
     <p class="lead">
       Il construit votre profil au fil des réponses, puis cible ce qui vous concerne.
-      <span class="badge" id="mode-badge">mode local</span>
+      <!-- Avant la sonde, le mode n'est pas connu : l'annoncer « local » serait annoncer
+           le seul mode qui ne se declenche jamais tout seul. `CHAT.libelleMode()` compose
+           les trois autres etats. -->
+      <span class="badge" id="mode-badge">mode : vérification…</span>
     </p>
     <div class="card chat-wrap">
       <div class="chat-log" id="chat-log" role="log" aria-live="polite" aria-atomic="false"></div>
@@ -591,6 +594,7 @@
   <div id="widget-poignee" title="Glisser pour régler la largeur" role="separator" aria-orientation="vertical" aria-label="Régler la largeur du panneau" tabindex="0"></div>
   <div class="w-head">
     <span>Assistant du guide</span>
+    <span class="badge" id="widget-badge">mode : vérification…</span>
     <span class="w-actions">
       <button id="widget-plein" title="Ouvrir en pleine page" aria-label="Ouvrir en pleine page">⤢</button>
       <button id="widget-close" title="Fermer" aria-label="Fermer l'assistant">×</button>

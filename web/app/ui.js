@@ -1226,13 +1226,19 @@
     if (!v && aRendreLeFocus) { try { aRendreLeFocus.focus(); } catch (e) { /* element retire */ } }
   }
 
+  // Les **deux** badges, pas un seul : celui de l'onglet Assistant vit dans une section `hidden`
+  // des qu'on regarde un autre onglet, et c'est justement la que le widget flottant sert. Un badge
+  // invisible n'indique rien — la reponse s'affichait dans le widget sans dire d'ou elle venait.
+  function badgesMode() {
+    return [$("#mode-badge"), $("#widget-badge")].filter(Boolean);
+  }
+
   function badgeMode(via) {
-    var b = $("#mode-badge");
-    if (!b) return;
-    var mode = String(via || "local");
-    var api = mode.indexOf("api") === 0;
-    b.textContent = "mode " + (api ? "api" : mode);
-    b.className = "badge" + (api ? " on" : (mode === "indisponible" ? " off" : ""));
+    var libelle = window.CHAT.libelleMode(via);
+    badgesMode().forEach(function (b) {
+      b.textContent = libelle.texte;
+      b.className = libelle.cls;
+    });
   }
 
   function afficherReponse(q, r) {
@@ -3590,6 +3596,24 @@
       $("#a-status").textContent = "Contenu d'origine restauré.";
     });
   }
+
+  // ---------- Ce que les tests materialisent ----------
+  //
+  // `materialiser()` transforme l'arbre decrit par `chat.js` en DOM : c'est le seul endroit ou du
+  // texte serveur devient un noeud, et le seul ou une action decrite devient un bouton cliquable.
+  // Il etait verifie par lecture du source, pas par execution — c'est ainsi qu'un badge pose dans
+  // une seule des deux surfaces a passe la revue. `tests/js/ui_cases.mjs` l'execute contre un DOM
+  // minimal ; l'export est pose **avant** le demarrage, et le demarrage se saute sur demande : le
+  // site entier a besoin d'un `index.html`, le materialiseur n'a besoin de rien.
+  window.UI = {
+    materialiser: materialiser,
+    peindre: peindre,
+    badgeMode: badgeMode,
+    executer: executer,
+    verrouillerSaisie: verrouillerSaisie,
+    historique: function () { return historique; }
+  };
+  if (window.__UI_SANS_DEMARRAGE) return;
 
   // ---------- Demarrage ----------
 
