@@ -195,3 +195,21 @@ segment `factuel` affiché et `sources[]` vide. Corrigé en échec terminal enve
 | **Non-régression du chemin réel** (le vrai risque du correctif : lever sur une réponse valide) | `curl -s -X POST localhost:8791/api/v1/chat -H 'X-Forwarded-For: 203.0.113.7' -H 'content-type: application/json' -d '{"question":"Quel délai ai-je pour déclarer mon arrivée à la commune ?","profil":{},"historique":[]}'` (clé dans `.env`) | **200 en 13,3 s**, `via="api/v1"`, `trace.intent="question"`, `found=true`, **3 entrées dans `sources[]`** relues du corpus (`lux-guide:q12:2`, `lux-guide:farrivee:10`, …), `fiches: ["arrivee"]`, `trace.total_cost_eur = 0,0265 €` (plafond 0,10 €). Aucune citation du corpus servi n'est refusée par le nouveau contrôle |
 | Pages, même origine | `curl -o /dev/null -w '%{http_code}'` sur `/`, `/guide/`, `/sinistre/` | `200 200 200` |
 | Image Docker | non reconstruite à ce tour | le correctif ne touche que `server/app/api/` ; le relevé du tour 1 (`version: "fa9a576"`, port injecté, pages servies) reste valable pour tout ce qui concerne l'image. La construction au sha final est refaite en 1.11 (déploiement) |
+
+### 2026-08-24 — Story 1.6, revue Codex tour 3 : le diagnostic d'un 500 quitte l'enveloppe
+
+Un seul bloquant, `NB1`, sur le correctif du tour précédent : `block_id` et motif de l'incohérence
+étaient publiés dans le `message` de l'enveloppe. Corrigé — `MESSAGE_INTERNE` pour tout `internal`,
+le détail dans `foyer.error` (AD-15/AD-16).
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **586 passed en 9,0 s**, zéro réseau (un test de plus : le `block_id` hostile) |
+| Le correctif est épinglé par un test | mutation injectée puis annulée : `message = MESSAGE_INTERNE` remplacé par `pass` dans `gestionnaire_pipeline` | la mutation fait échouer **exactement** `test_le_diagnostic_dun_500_reste_dans_le_log_et_ne_part_pas_dans_lenveloppe` (`76 passed, 1 failed`), et rien d'autre |
+| L'application se construit sans réseau | `ANTHROPIC_API_KEY= uv run python -c "from server.app.api.main import create_app; create_app()"` | `app construite` |
+| Serveur local, `/api/v1/sante` | `uv run uvicorn server.app.api.main:app --host 127.0.0.1 --port 8791 --proxy-headers --forwarded-allow-ips='*'` | 200, `documents_servis: ["axa-lu-optihome-2017", "lux-guide"]`, `gate_profile: null`, deux alertes `sans_gate` |
+| **Non-régression du chemin réel** (le correctif touche le gestionnaire de *toutes* les `PipelineError`) | `curl -s -X POST localhost:8791/api/v1/chat -H 'X-Forwarded-For: 203.0.113.7' -d '{"question":"Quel délai ai-je pour déclarer mon arrivée à la commune ?","profil":{},"historique":[]}'` (clé dans `.env`) | **200 en 14,6 s**, `via="api/v1"`, `found=true`, **5 entrées dans `sources[]`**, toutes `status="verifiee"` (`lux-guide:farrivee:{3,10,9,12,2}`), `fiches: ["arrivee"]`, `trace.intent="question"`, `trace.total_cost_eur = 0,0301 €` (plafond 0,10 €) |
+| Une réponse `found=false` reste un 200 | même route, question sur le délai de déclaration d'un dégât des eaux | 200, `via="api/v1"`, `reason_kind="claims_rejetes"`, `sources: []`, 0,0181 € — le nouveau chemin d'échec ne se déclenche pas sur une réponse sans claim retenue |
+| Pages, même origine | `curl -o /dev/null -w '%{http_code}'` sur `/`, `/guide/`, `/sinistre/` | `200 200 200` |
+| Journal | sortie standard d'uvicorn pendant les appels ci-dessus | une ligne JSON par requête (`request_id`, `intent`, `found`, `cost_eur`, `reason_kind`, `severity`) ; `grep` du texte de la question : **0 occurrence** |
+| Image Docker, reconstruite au sha final | `docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t foyer-retour:1.6-t3 .` puis `docker run -e PORT=9092 -p 9092:9092` | `/api/v1/sante` → 200, `version: "938a12e"` (le sha du commit de ce tour, pas celui de la base), `documents_servis` complet, `/`, `/guide/`, `/sinistre/` → 200, lignes de log JSON sur la sortie standard |
