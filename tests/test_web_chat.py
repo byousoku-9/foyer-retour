@@ -1197,7 +1197,7 @@ def test_aucun_innerhtml_ne_sert_a_poser_du_texte() -> None:
 # généreuse que celle du tiers qui exécute la requête est la « promesse du site contredite en
 # silence » que cet AD prévient.
 MENTION = ("Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur "
-           "du modèle (Anthropic) : sa politique publique, lue le 24/08/2026, prévoit la suppression "
+           "du modèle (Anthropic) : sa politique publique, lue le 25/08/2026, prévoit la suppression "
            "des entrées et des sorties de l'API sous 30 jours, avec des exceptions — obligation "
            "légale, ou contenu que ses systèmes de sécurité signalent, conservé jusqu'à deux ans. "
            "Aucune conversation n'est enregistrée : ni par le serveur de ce site, ni dans ce "
@@ -1222,7 +1222,12 @@ def test_la_mention_de_confidentialite_est_unique_et_datee() -> None:
     # fournisseur dans la page, donc aucune seconde formulation de la promesse.
     attendu = 2 * (MENTION.count("Anthropic") + INTITULE_LIEN.count("Anthropic"))
     assert html.count("Anthropic") == attendu, "aucune autre formulation ne traîne dans la page"
-    assert "24/08/2026" in MENTION
+    # La **forme** de la date, pas sa valeur : elle bouge à chaque relecture de la politique du
+    # fournisseur (24/08 puis 25/08/2026), et l'épingler deux fois dans ce fichier en ferait un
+    # second texte à mettre à jour — celui qu'on oublie. `MENTION` en est l'unique autorité ici, et
+    # les assertions ci-dessus la confrontent au HTML et au README.
+    assert re.search(r"lue le \d{2}/\d{2}/\d{4}", MENTION), (
+        "la citation d'une politique de tiers porte la date à laquelle elle a été lue")
     readme = _plat((REPO_ROOT / "web" / "README.md").read_text("utf-8"))
     assert MENTION in readme, "le README de la copie dit la même chose, mot pour mot"
 

@@ -876,7 +876,18 @@ def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) ->
     """AD-15 amendé (revue 1.7) : durée, exceptions, lien et date de lecture — jamais plus généreux."""
     assert "sous 30 jours" in page
     assert "obligation légale" in page and "deux ans" in page
-    assert "lue le 24/08/2026" in page
+    # **La date du guide, pas une date recopiée ici.** AD-15 : « trois formulations d'une même
+    # promesse font trois promesses » — et deux dates de lecture différentes pour une même politique
+    # en font deux. Les deux littéraux identiques que portaient les deux fichiers de tests ne les
+    # couplaient que par accident : le jour où l'un est mis à jour et pas l'autre, la suite restait
+    # verte avec deux fronts qui se contredisent. On lit donc la date **sur la page du guide**, qui
+    # est l'autorité, et on exige que la page sinistre porte la même (revue 1.11).
+    guide = (REPO_ROOT / "web" / "index.html").read_text("utf-8")
+    dates_guide = set(re.findall(r"lue le \d{2}/\d{2}/\d{4}", guide))
+    assert len(dates_guide) == 1, f"le guide doit porter une seule date de lecture : {dates_guide}"
+    assert dates_guide.pop() in page, (
+        "la page sinistre cite la politique à une autre date que le guide : une même politique, "
+        "deux dates de lecture")
     assert "https://privacy.claude.com/" in page
     # Aucune promesse plus généreuse que celle du tiers qui exécute la requête.
     assert "non retenu par défaut" not in page
