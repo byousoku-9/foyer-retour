@@ -361,3 +361,33 @@ touche : une réponse trouvée (pas de `reason`) et un refus (`reason` renseign�
 
 Les relevés 503 / 429 / clic de repli / `localStorage` du tour 2 ne sont **pas** rejoués : ce tour ne
 touche que `lireReponse()` et ses témoins de test, aucun des chemins d'erreur ni de la peinture.
+
+## Story 1.8 — Un sinistre obtient un verdict conservateur fondé sur les clauses exactes (2026-08-24)
+
+Le cas témoin de la bougie, joué en vrai contre l'API sur le corpus `axa-lu-optihome-2017` **réel**
+(document + overlay de typage manuel de la story 1.2), par `tests/test_sinistre_live.py` — même
+mécanique de record/replay que `test_pipeline_live.py` : les réponses brutes sont sérialisées dans
+`tests/llm_fixtures/`, si bien que le même test rejoue hors ligne, sans réseau ni clé.
+
+Faits déclarés : « Une bougie allumée posée sur une table basse est tombée sur le canapé. Le mobilier
+de salon a brûlé sur une partie, sans embrasement ni commencement d'incendie : il n'y a eu ni flammes
+propagées, ni dégât au bâtiment. » — 2026-08-01, salon du domicile assuré, 1 200 €.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Rejeu sans réseau, suite complète | `ANTHROPIC_API_KEY= uv run pytest -q` | **841 passed en 13,0 s** (67 cas ajoutés : table AD-6, mode applicabilité de *vérifier*, pipeline sinistre, accesseurs de nœud, départage de recherche), zéro réseau. **Aucune fixture live du guide n'a été ré-enregistrée** — les prompts `comprendre.md`, `rediger.md`, `verifier.md` et `commun.md` sont inchangés à l'octet près |
+| **Cas bougie en live** | `uv run pytest -q tests/test_sinistre_live.py` (clé dans `.env`) | **1 test vert en 27,9 s**, 3 appels réels — *comprendre* `micro` 2 587 in / 221 out (0,0034 €), *rédiger* `reason` 3 228 in / 1 263 out (0,0627 €), *vérifier* `micro` 1 029 in / 241 out (0,0072 €). **0,0733 € pour la requête entière**, sous le plafond de 0,10 € (`max_cost_eur_per_request`) — mesuré à cache **froid** (aucun `cache_read`) |
+| **Verdict rendu** | même run | `sous_conditions` — « La garantie citée ne joue que si une option ou les conditions particulières la prévoient (**au regard des conditions générales seules**) ». Règle (2bis) de la table AD-6 : la garantie est `applicable="humain"` par `cp_requise`, ce qu'une garantie `oui` ne peut pas exprimer. Dans `{sous_conditions, ne_tranche_pas}`, comme l'exige l'AC |
+| **Clauses citées** | même run | `axa-lu-optihome-2017:p34:12` — la garantie de l'article 3.1.1.1.6, « les dégâts occasionnés au mobilier assuré […] par un événement soudain, résultant de l'action subite de la chaleur » — l'un des trois blocs relus à la main en 1.2 ; plus `p34:4`, le paragraphe qui subordonne les conditions spéciales incendie aux conditions particulières (`applicable=None` : ce n'est pas une clause décisionnelle typée, c'est son contexte) |
+| **Exclusion de la page 46 écartée** | même run | `p46:1` a bien été **retrouvée** par la recherche (4ᵉ bloc ouvert, juste derrière la garantie : le départage `kinds_prioritaires` fonctionne) mais **aucune claim ne la cite** — la rédaction ne l'a pas opposée au sinistre, et le verdict ne s'appuie donc sur aucune exclusion. Le cas « présente et écartée » (`applicable="non"`, parce que la clause vise le bâtiment des extensions 3.1.8.3-6) est couvert par `tests/test_verdict.py` et l'exemple de la spec |
+| **Un seul appel `micro` dans *vérifier*** | même run | `len(step.calls) == 1` pour l'étape `verifier` : pertinence, phrases soutenues, couverture des facettes **et** champs typés d'applicabilité sortent du même appel (AD-9 amendé, reprise différée de 1.5 honorée) |
+| **Paquet manquant et questions à poser** | même run | `missing` : conditions particulières, options souscrites, avenants et date d'effet, tous manquants ; `ask_client` : « Quelles options et extensions ont été souscrites ? **Une clause citée ne joue qu'à cette condition.** » et « Que prévoient les conditions particulières (montants, franchises, biens désignés) ? ». Les deux sont composées par le **code** depuis `missing` et les booléens typés (D8) |
+| **Aucun calcul confié au modèle** | schéma de sortie | `SortieVerifierSinistre` n'expose que `verdicts`, `facettes`, `segments`, `applicabilite` ; `ChampsApplicabiliteRendus` n'a que `claim_id`, `fait_requis_present`, `option_requise`, `cp_requise`, `fait_manquant`. Ni `applicable`, ni `verdict`, ni `couvert` : la place n'existe pas |
+| Départage de recherche | trace du run | 21 blocs ouverts, la garantie `p34:12` en **tête** ; définitions et paragraphes voisins toujours présents — `kinds_prioritaires` **ordonne**, il ne filtre pas (D7) |
+
+Ce que le run ne montre pas, et qu'il faut lire honnêtement : les définitions p9:2 (« contenu ») et
+p11:12 (« mobilier de jardin ») n'ont pas été ramenées, faute d'un terme canonique qui les touche
+(*comprendre* a rendu « mobilier », « chaleur », « incendie »). Le rappel du sinistre repose donc
+encore surtout sur les mots, comme D7 l'annonçait : quatre blocs typés à la main ne font pas un
+index de clauses. C'est le typage automatique de la story 3.2 qui lèvera la limite ; une entrée
+différée le consigne.
