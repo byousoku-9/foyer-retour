@@ -12,8 +12,9 @@ Trois gestionnaires suffisent à couvrir tout ce qui peut sortir de l'applicatio
 - `PipelineError` ⇒ `HTTP_STATUS[code]`, avec la `Trace` partielle si l'erreur en porte une ;
 - `HTTPException` ⇒ le code d'AD-16 qui correspond au statut, **quand il en existe un**. Un 404 ou
   un 405 n'ont pas de code dans l'`Enum` : leur inventer un serait exactement ce qu'AD-16 interdit,
-  et un fichier statique manquant doit rester un 404 nu (« 404 statique nu »). Ces statuts sortent
-  donc en texte brut.
+  et un fichier statique manquant doit rester un 404 nu (« 404 statique nu »). Ces statuts-là sortent
+  donc en texte brut. Un **5xx** sans code, lui, ressort en `500 internal` enveloppé (revue Codex
+  1.6, I1) : voir `gestionnaire_http`.
 
 L'erreur inattendue (`Exception` ⇒ 500 `internal`) est rendue par `reponse_interne()`, appelée par
 le middleware de `request_id.py` : c'est le seul endroit qui soit **à l'intérieur** de notre
@@ -23,6 +24,7 @@ Le `ServerErrorMiddleware` de Starlette, lui, est au-dessus de tout et n'en saur
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import Request
@@ -38,12 +40,18 @@ from server.app.domain.trace import Trace
 # terminal explicite, pas une trace technique publiée — le détail part dans le log serveur.
 MESSAGE_INTERNE = "erreur interne du serveur"
 
+# La pile et le détail d'un 5xx partent dans le log serveur, jamais dans la réponse. Logger séparé de
+# `foyer.request`, qui n'émet que du JSON d'une ligne (cf. `request_id.py`).
+logger_http = logging.getLogger("foyer.error")
+
 # Statut HTTP → code d'AD-16, pour les `HTTPException` que Starlette lève sans passer par nous.
 # Seuls les statuts dont `HTTP_STATUS` donne **un seul** code y figurent. 503 en est absent
 # volontairement : cinq codes d'AD-16 y mènent (`llm_unavailable`, `llm_parse`, `timeout`,
 # `budget_exceeded`, `corpus_unavailable`) et en choisir un ferait passer pour une panne du
 # fournisseur de modèle un 503 levé par n'importe quel composant — inventer un code, ce qu'AD-16
-# interdit. Nos propres 503 passent par `PipelineError`, qui porte son code avec lui.
+# interdit. Nos propres 503 passent par `PipelineError`, qui porte son code avec lui ; un 503 venu
+# d'ailleurs est enveloppé en `internal` par `gestionnaire_http` (revue Codex 1.6, I1), et non rendu
+# nu : l'enveloppe d'AD-16 n'a pas de trou côté 5xx.
 _CODE_PAR_STATUT: dict[int, ErrorCode] = {
     400: ErrorCode.invalid_request,
     413: ErrorCode.input_too_long,
@@ -113,14 +121,28 @@ async def gestionnaire_pipeline(request: Request, exc: PipelineError) -> Respons
 
 
 async def gestionnaire_http(request: Request, exc: StarletteHTTPException) -> Response:
-    """`HTTPException` ⇒ le code d'AD-16 correspondant, ou un statut nu s'il n'en existe pas.
+    """`HTTPException` ⇒ le code d'AD-16 correspondant ; un 4xx sans code sort nu, un 5xx en `internal`.
 
-    C'est ce qui garde « 404 statique nu » (matrice d'E/S) : un fichier absent sous `/guide/` n'est
-    pas une erreur du pipeline, il n'a pas de code dans l'`Enum`, et lui en attribuer un
+    Le 4xx nu, c'est « 404 statique nu » (matrice d'E/S) : un fichier absent sous `/guide/` n'est pas
+    une erreur du pipeline, il n'a pas de code dans l'`Enum`, et lui en attribuer un
     (`invalid_request` ? `internal` ?) mentirait sur sa nature.
+
+    Le 5xx, non (revue Codex 1.6, I1). AD-16 veut une **enveloppe unique** pour l'échec terminal, et
+    un 5xx qui n'est pas passé par `PipelineError` est exactement ce que `internal` décrit : une
+    panne du serveur qu'aucune étape n'a su nommer. Le laisser sortir en texte brut ouvrait un trou
+    dans l'enveloppe — une route future aurait pu rendre un 503 hors contrat sans qu'aucun test ne le
+    voie. Lui prêter `llm_unavailable` parce que c'est le 503 le plus fréquent aurait été pire : cinq
+    codes d'AD-16 mènent à 503 (`HTTP_STATUS` n'est pas injectif), et en choisir un ferait passer
+    pour une panne du fournisseur de modèle un 503 levé par n'importe quel composant. `internal` ne
+    dit rien de faux : il dit que le serveur a échoué sans savoir dire pourquoi. Nos propres 503,
+    eux, passent par `PipelineError`, qui porte son code avec lui — leur statut est intact.
     """
     code = _CODE_PAR_STATUT.get(exc.status_code)
     if code is None:
+        if exc.status_code >= 500:
+            logger_http.error("HTTPException %s hors des codes d'AD-16, rendue en 500 internal",
+                              exc.status_code)
+            return reponse_interne(request)
         return PlainTextResponse(str(exc.detail), status_code=exc.status_code, headers=exc.headers)
     _noter(request, error_code=code.value)
     return envelope(code, str(exc.detail), request_id_de(request), headers=exc.headers)

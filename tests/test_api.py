@@ -21,9 +21,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 
 from server.app.api import etat as etat_module
-from server.app.api.errors import gestionnaire_http
+from server.app.api.errors import MESSAGE_INTERNE, gestionnaire_http, gestionnaire_pipeline
 from server.app.api.main import create_app
-from server.app.api.request_id import CLOUD_TRACE_MAX, CHAMPS_DE_LOG, RequestIdMiddleware
+from server.app.api.request_id import CHAMPS_DE_LOG, RequestIdMiddleware
 from server.app.api.routes.chat import comparateur_de
 from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.index import Index
@@ -250,10 +250,111 @@ def test_une_citation_jamais_retrouvee_nentre_pas_dans_sources(prod: TestClient)
 
     j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
 
-    assert [s["status"] for s in j["sources"]] == ["verifiee", "non_pertinente"]
+    # Revue Codex 1.6, B2 : `sources[]` = les citations de la réponse **affichée**, rien d'autre. Une
+    # claim écartée n'est pas une source, quelle que soit la raison du rejet — et `SourceItem` ne
+    # porte pas de `claim_id`, donc rien ne permettrait au front de la remettre à sa place.
+    assert [s["status"] for s in j["sources"]] == ["verifiee"]
+    assert [s["block_id"] for s in j["sources"]] == [f"{DOC_ID}:farrivee:2"]
     assert all("rêvée" not in s["quote"] for s in j["sources"])
-    # Elle n'est pas perdue pour autant : le front la lit dans `rejected_claims`, avec sa nature.
+    assert all("certificat de résidence" not in s["quote"] for s in j["sources"])
+    assert j["fiches"] == ["arrivee"]  # la fiche de la claim écartée n'est pas proposée non plus
+    # Elles ne sont pas perdues pour autant : le front les lit dans `rejected_claims`, avec leur nature.
     assert [c["rejection_kind"] for c in j["answer"]["rejected_claims"]] == ["non_retrouvee", "non_pertinente"]
+    assert j["answer"]["rejected_claims"][1]["quotes"][0]["text_start"] >= 0  # offsets conservés (AD-3)
+
+
+def test_une_claim_retrouvee_que_nul_segment_ne_cite_nentre_pas_dans_sources(prod: TestClient) -> None:
+    """AD-4 : une claim `non_citee` « n'a nulle part où paraître » — `sources[]` non plus.
+
+    C'est la lettre de l'amendement de la story 1.5 : la claim est retrouvée **et** pertinente, mais
+    aucun segment factuel affiché ne la cite. La publier dans `sources[]` lui donnerait exactement
+    l'endroit où paraître que l'amendement lui refuse, et l'utilisateur lirait sous la réponse un
+    passage qu'aucune de ses phrases n'avance.
+    """
+    corpus, _ = _mini_corpus()
+    affichee = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    orpheline = RejectedClaim(
+        claim_id="c2", text="Inscription.",
+        quotes=[_citation(corpus, f"{DOC_ID}:q1:2", "certificat de résidence")],
+        status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"),
+        rejection_kind="non_citee")
+    answer = Answer(found=True, complete=False, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[affichee], rejected_claims=[orpheline])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert [s["block_id"] for s in j["sources"]] == [f"{DOC_ID}:farrivee:2"]
+    assert j["fiches"] == ["arrivee"]
+    assert j["answer"]["rejected_claims"][0]["rejection_kind"] == "non_citee"
+
+
+def test_la_citation_publiee_est_relue_du_bloc_et_non_la_chaine_recue(prod: TestClient) -> None:
+    """AD-3, à l'endroit de l'affichage : « le texte affiché comme source est toujours relu depuis
+    `corpus` » (revue Codex 1.6, B1).
+
+    *vérifier* construit déjà `VerifiedQuote.quote` depuis `Block.text`, mais le presenter le croyait
+    sur parole : une `VerifiedQuote` fabriquée ailleurs, avec des offsets valides et une chaîne
+    inventée, publiait la chaîne inventée. La sonde de la revue est reproduite ici telle quelle.
+    """
+    corpus, _ = _mini_corpus()
+    bloc = corpus.documents[DOC_ID].block(f"{DOC_ID}:farrivee:2")
+    debut = bloc.text.index("huit jours après votre arrivée")
+    menteuse = VerifiedQuote(block_id=f"{DOC_ID}:farrivee:2", quote="TEXTE INVENTÉ", start=0, end=5,
+                             text_start=debut, text_end=debut + len("huit jours après votre arrivée"))
+    claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[menteuse],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
+    answer = Answer(found=True, complete=False, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert j["sources"][0]["quote"] == "huit jours après votre arrivée"
+    assert "INVENTÉ" not in json.dumps(j["sources"], ensure_ascii=False)
+
+
+def test_une_citation_dont_les_offsets_sortent_du_bloc_nest_pas_affichee(prod: TestClient) -> None:
+    """Offsets impossibles venant du pipeline ⇒ rien n'est affiché plutôt qu'un texte tronqué au hasard."""
+    corpus, _ = _mini_corpus()
+    bloc = corpus.documents[DOC_ID].block(f"{DOC_ID}:farrivee:2")
+    hors_bloc = VerifiedQuote(block_id=f"{DOC_ID}:farrivee:2", quote="peu importe", start=0, end=5,
+                              text_start=len(bloc.text) - 2, text_end=len(bloc.text) + 500)
+    claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[hors_bloc],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
+    answer = Answer(found=True, complete=False, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert j["sources"] == [] and j["fiches"] == []
+
+
+def test_le_statut_structure_de_la_claim_reste_publie_par_answer(prod: TestClient) -> None:
+    """AD-11 fixe `sources[{block_id, fiche_id, titre, url, quote, status}]` : `status` y est un
+    champ plat, pas le `ClaimStatus` d'AD-4.
+
+    Ce qu'AD-4 exige — `retrouvee`, `pertinente`, `edition` — voyage dans `answer.claims[].status`,
+    parce qu'AD-11 publie l'`Answer` **intégral** dans la réponse. Rien du contrat n'est perdu ; ce
+    test l'atteste, et fait échouer toute projection qui viendrait rogner `answer`.
+    """
+    corpus, _ = _mini_corpus()
+    claim = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    answer = Answer(found=True, complete=False, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert set(j["sources"][0]) == {"block_id", "fiche_id", "titre", "url", "quote", "status"}
+    statut = j["answer"]["claims"][0]["status"]
+    assert statut["retrouvee"] is True and statut["pertinente"] is True
+    assert statut["edition"] == "git:test"
 
 
 # --- refus, clarification : des 200 -------------------------------------
@@ -532,13 +633,15 @@ def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod: TestClient) -> N
     assert j["thresholds"]["rate_limit_per_minute"] == 10
 
 
-def test_sante_publie_les_trois_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
+def test_sante_publie_les_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
     # Convention Seuils : une valeur numérique nouvelle vit dans `config.py` **et** se lit.
     seuils = prod.get("/api/v1/sante", headers=XFF).json()["thresholds"]
     reglages = prod.app.state.foyer.settings
     assert seuils["request_max_bytes"] == reglages.request_max_bytes
     assert seuils["rate_limit_max_clients"] == reglages.rate_limit_max_clients
     assert seuils["retry_after_s"] == reglages.retry_after_s
+    # Revue Codex 1.6, M2 : la borne du `cloud_trace` est un seuil comme les autres.
+    assert seuils["cloud_trace_max_chars"] == reglages.cloud_trace_max_chars
 
 
 def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = True) -> None:
@@ -608,6 +711,13 @@ def test_sante_dit_ok_false_et_publie_la_quarantaine_quand_le_guide_nest_pas_ser
     (b'{"validated": false}', False),
     (b'{}', False),
     (b'pas du json', False),
+    # Revue Codex 1.6, M1 : `bool("false")` vaut `True`. Un `validated` rendu en **chaîne** par le
+    # générateur du dictionnaire (story 2.1) aurait fait annoncer à `/sante` un dictionnaire validé
+    # et ré-armé le court-circuit « zéro hit » qu'AD-5 tient désactivé sans signature humaine.
+    (b'{"validated": "false"}', False),
+    (b'{"validated": "true"}', False),
+    (b'{"validated": 1}', False),
+    (b'[]', False),
 ])
 def test_letat_du_dictionnaire_se_lit_ou_reste_faux(tmp_path: Any, contenu: bytes, attendu: bool) -> None:
     # AD-5 : un dictionnaire absent ou illisible désactive une optimisation, il n'empêche pas de servir.
@@ -675,18 +785,33 @@ def test_un_fichier_statique_absent_reste_un_404_nu(prod: TestClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_un_503_qui_ne_vient_pas_du_pipeline_reste_nu() -> None:
-    """`HTTP_STATUS` n'est pas injectif : cinq codes d'AD-16 mènent à 503.
+async def test_un_5xx_qui_ne_vient_pas_du_pipeline_sort_enveloppe_en_internal() -> None:
+    """AD-16 : l'enveloppe est unique, et elle n'a pas de trou côté 5xx (revue Codex 1.6, I1).
 
-    En choisir un dans la table inverse ferait passer pour une panne du fournisseur de modèle un 503
-    levé par n'importe quel composant — c'est-à-dire inventer un code, ce qu'AD-16 interdit. Nos
-    propres 503 passent par `PipelineError`, qui porte le sien.
+    Deux choses à la fois. D'abord, un 503 levé hors `PipelineError` ne prend pas le code
+    `llm_unavailable` : `HTTP_STATUS` n'est pas injectif, cinq codes mènent à 503, et en choisir un
+    ferait passer pour une panne du fournisseur de modèle un échec de n'importe quel composant.
+    Ensuite, il ne ressort pas nu pour autant : `internal` décrit exactement une panne du serveur que
+    personne n'a su nommer, et l'enveloppe reste la même pour tout le monde.
     """
-    requete = Request({"type": "http", "method": "GET", "path": "/x", "headers": [], "state": {}})
+    requete = Request({"type": "http", "method": "GET", "path": "/x", "headers": [],
+                       "state": {"request_id": "r-5xx"}})
     reponse = await gestionnaire_http(requete, StarletteHTTPException(503, "indisponible"))
-    assert reponse.status_code == 503
-    assert reponse.media_type == "text/plain"
+    assert reponse.status_code == 500
+    corps = json.loads(reponse.body)
+    assert corps["error"] == {"code": "internal", "message": MESSAGE_INTERNE, "request_id": "r-5xx"}
     assert b"llm_unavailable" not in reponse.body
+    assert b"indisponible" not in reponse.body  # le détail part au log serveur, pas sur le réseau
+
+
+@pytest.mark.asyncio
+async def test_nos_propres_503_gardent_leur_statut_et_leur_code() -> None:
+    """Le correctif d'I1 ne touche pas le chemin normal : un `PipelineError` reste un 503 nommé."""
+    requete = Request({"type": "http", "method": "POST", "path": "/api/v1/chat", "headers": [],
+                       "state": {"request_id": "r-pipe", "log_fields": {}}})
+    reponse = await gestionnaire_pipeline(requete, LlmUnavailable("fournisseur injoignable"))
+    assert reponse.status_code == 503
+    assert json.loads(reponse.body)["error"]["code"] == "llm_unavailable"
 
 
 def test_aucune_configuration_cors(prod: TestClient) -> None:
@@ -731,7 +856,8 @@ def test_un_champ_hors_liste_ne_peut_pas_sortir_par_le_journal(caplog: pytest.Lo
                                       "terms_searched": ["sinistre", "divorce"],
                                       "question": "ma question personnelle"}}}
     with caplog.at_level(logging.INFO, logger="foyer.request"):
-        RequestIdMiddleware._journaliser(scope, request_id="r-1", statut=200, ms=12)
+        RequestIdMiddleware._journaliser(scope, request_id="r-1", statut=200, ms=12,
+                                         cloud_trace_max=128)
 
     ligne = json.loads(caplog.records[-1].message)
     assert ligne["intent"] == "question" and ligne["found"] is True
@@ -762,21 +888,29 @@ def test_le_journal_est_cable_sur_la_sortie_standard(capsys: pytest.CaptureFixtu
     try:
         RequestIdMiddleware._journaliser({"type": "http", "method": "GET", "path": "/sante",
                                           "headers": [], "state": {"log_fields": {}}},
-                                         request_id="r-2", statut=200, ms=3)
+                                         request_id="r-2", statut=200, ms=3, cloud_trace_max=128)
     finally:
         journal.propagate = True
     assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["request_id"] == "r-2"
 
 
-def test_le_cloud_trace_recu_est_borne_avant_dentrer_dans_le_journal(
-        caplog: pytest.LogCaptureFixture) -> None:
-    # Valeur cliente : sans borne, n'importe qui ferait grossir le journal à notre place.
+def test_le_cloud_trace_recu_est_borne_par_le_seuil_de_config(caplog: pytest.LogCaptureFixture) -> None:
+    """Valeur cliente : sans borne, n'importe qui ferait grossir le journal à notre place.
+
+    La borne est un seuil de `config.py` (revue Codex 1.6, M2), pas une constante du module : le test
+    la prend d'un `Settings` réglé à une autre valeur que le défaut, ce qui échouerait si le
+    middleware la recodait en dur.
+    """
     entete = [(b"x-cloud-trace-context", b"z" * 4000)]
+    reglages = _settings(cloud_trace_max_chars=37)
+    middleware = RequestIdMiddleware(None, settings=reglages)
+    assert middleware.cloud_trace_max == 37
     with caplog.at_level(logging.INFO, logger="foyer.request"):
         RequestIdMiddleware._journaliser({"type": "http", "method": "GET", "path": "/sante",
                                           "headers": entete, "state": {"log_fields": {}}},
-                                         request_id="r-3", statut=200, ms=3)
-    assert len(json.loads(caplog.records[-1].message)["cloud_trace"]) == CLOUD_TRACE_MAX
+                                         request_id="r-3", statut=200, ms=3,
+                                         cloud_trace_max=middleware.cloud_trace_max)
+    assert len(json.loads(caplog.records[-1].message)["cloud_trace"]) == 37
 
 
 def test_la_ligne_de_log_porte_une_severite_lisible_par_cloud_logging(
@@ -785,7 +919,8 @@ def test_la_ligne_de_log_porte_une_severite_lisible_par_cloud_logging(
              "state": {"log_fields": {}}}
     with caplog.at_level(logging.INFO, logger="foyer.request"):
         for statut in (200, 400, 503):
-            RequestIdMiddleware._journaliser(scope, request_id="r", statut=statut, ms=1)
+            RequestIdMiddleware._journaliser(scope, request_id="r", statut=statut, ms=1,
+                                             cloud_trace_max=128)
     severites = [json.loads(r.message)["severity"] for r in caplog.records[-3:]]
     assert severites == ["INFO", "WARNING", "ERROR"]
 

@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     # pire cas UTF-8 sur quatre octets. 65 536 laisse la marge du JSON (guillemets, échappements)
     # sans ouvrir la porte à un corps que le serveur lirait entièrement pour rien.
     request_max_bytes: int = Field(65536, ge=1)
+    # Story 1.6 — longueur maximale du `X-Cloud-Trace-Context` recopié dans la ligne de log (AD-10).
+    # C'est une valeur **cliente** : Cloud Run en pose une de quelques dizaines d'octets, n'importe
+    # qui peut en poster une de plusieurs kilos, et ce serait alors le journal qu'on ferait grossir à
+    # sa place. Elle est ici, et publiée dans `thresholds()`, parce que c'est un seuil numérique
+    # opérationnel comme les autres (revue Codex 1.6, M2) — pas une constante de protocole.
+    cloud_trace_max_chars: int = Field(128, ge=1)
 
     # Ingestion (AD-8)
     coverage_threshold: float = Field(0.8, ge=0, le=1)
@@ -242,6 +248,7 @@ class Settings(BaseSettings):
             "rate_limit_max_clients": self.rate_limit_max_clients,
             "retry_after_s": self.retry_after_s,
             "request_max_bytes": self.request_max_bytes,
+            "cloud_trace_max_chars": self.cloud_trace_max_chars,
             "coverage_threshold": self.coverage_threshold,
             "kind_confidence_min": self.kind_confidence_min,
             "header_band_pt": self.header_band_pt,

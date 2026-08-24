@@ -12,7 +12,8 @@ famille, argent, sinistre ») et le texte, et une route future qui les poserait 
 **aucun** corps de requête.
 
 `X-Cloud-Trace-Context` est logué dans son propre champ (AD-10) : il relie la ligne aux traces de
-Cloud Run sans se confondre avec notre identifiant.
+Cloud Run sans se confondre avec notre identifiant. Sa longueur est bornée par le seuil
+`cloud_trace_max_chars` de `config.py` (convention Seuils, revue Codex 1.6, M2).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from server.app.api.errors import reponse_interne
+from server.app.config import Settings, get_settings
 
 logger = logging.getLogger("foyer.request")
 # La pile d'une erreur inattendue part sur un logger **séparé** : `logger` n'émet que du
@@ -37,7 +39,6 @@ logger_erreur = logging.getLogger("foyer.error")
 
 ENTETE = "X-Request-Id"
 ENTETE_CLOUD_TRACE = "x-cloud-trace-context"
-CLOUD_TRACE_MAX = 128
 
 # AD-10, littéralement. `error_code` s'y ajoute : c'est notre propre `Enum`, jamais un texte reçu.
 CHAMPS_DE_LOG = ("intent", "found", "verdict", "reason_kind", "variants_count", "blocks_scanned",
@@ -75,8 +76,11 @@ class RequestIdMiddleware:
     logs, ce qu'AD-16 refuse (« 500 `internal` … avec `request_id` »).
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, settings: Settings | None = None) -> None:
         self.app = app
+        # Le seuil est lu une fois, au montage : `_journaliser` tourne à chaque requête et n'a pas à
+        # relire les réglages (convention Seuils — la valeur vit dans `config.py`, pas ici).
+        self.cloud_trace_max = (settings or get_settings()).cloud_trace_max_chars
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -113,10 +117,12 @@ class RequestIdMiddleware:
             await reponse(scope, receive, envoyer)
         finally:
             self._journaliser(scope, request_id=request_id, statut=statut,
-                             ms=int((time.monotonic() - t0) * 1000))
+                             ms=int((time.monotonic() - t0) * 1000),
+                             cloud_trace_max=self.cloud_trace_max)
 
     @staticmethod
-    def _journaliser(scope: Scope, *, request_id: str, statut: int, ms: int) -> None:
+    def _journaliser(scope: Scope, *, request_id: str, statut: int, ms: int,
+                     cloud_trace_max: int) -> None:
         champs: dict[str, Any] = {}
         for cle, valeur in (scope.get("state") or {}).get("log_fields", {}).items():
             if cle in CHAMPS_DE_LOG:  # AD-10 : la liste des champs logués est close
@@ -136,7 +142,7 @@ class RequestIdMiddleware:
             # Valeur **cliente** : bornée avant d'entrer dans le log. Cloud Run en pose une de
             # quelques dizaines d'octets ; n'importe qui peut en poster une de plusieurs kilos, et
             # ce serait alors le journal qu'on ferait grossir à sa place.
-            "cloud_trace": (entetes.get(ENTETE_CLOUD_TRACE) or "")[:CLOUD_TRACE_MAX] or None,
+            "cloud_trace": (entetes.get(ENTETE_CLOUD_TRACE) or "")[:cloud_trace_max] or None,
             **champs,
         }
         logger.info(json.dumps(ligne, ensure_ascii=False, sort_keys=True))

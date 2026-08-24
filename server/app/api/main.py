@@ -90,7 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Ajouté en premier ⇒ le plus intérieur des deux (Starlette empile à l'envers).
     app.add_middleware(LimiteDeCorps, max_bytes=reglages.request_max_bytes)
-    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(RequestIdMiddleware, settings=reglages)
 
     for routeur in (route_chat.router, route_sante.router):
         app.include_router(routeur, prefix=API_V1)

@@ -92,12 +92,18 @@ def _dictionnaire_valide(data_dir: Path) -> bool:
 
     Absent (c'est le cas jusqu'à la story 2.1) ou illisible ⇒ `false`. Jamais une exception au
     démarrage : un dictionnaire manquant désactive une optimisation, il n'empêche pas de servir.
+
+    Le `is True` n'est pas de la coquetterie (revue Codex 1.6, M1) : `bool("false")` vaut `True`, et
+    `validated` est écrit par un générateur (`enrich_dictionary`, story 2.1) puis relu ici. Un champ
+    rendu en chaîne au lieu d'un booléen aurait fait annoncer à `/sante` un dictionnaire validé, et
+    ré-armé le court-circuit « zéro hit » qu'AD-5 tient désactivé tant qu'un humain n'a pas signé.
+    Le seul `true` JSON strict compte.
     """
     chemin = data_dir / DICTIONARY
     if not chemin.is_file():
         return False
     try:
-        return bool(json.loads(chemin.read_bytes()).get("validated", False))
+        return json.loads(chemin.read_bytes()).get("validated", False) is True
     except (OSError, UnicodeDecodeError, ValueError, AttributeError):
         return False
 
