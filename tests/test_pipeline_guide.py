@@ -104,14 +104,18 @@ def _rediger(*claims: tuple[str, str, list[tuple[str, str]]], transition: bool =
                    for cid, texte, quotes in claims]}))
 
 
-def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None) -> dict:
-    """Verdicts groupés + découpage de la question (AD-4). Par défaut une facette, couverte par les
-    claims jugées pertinentes : la question-témoin des tests n'en pose qu'une."""
+def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
+              segments: dict[int, bool] | None = None, nb_segments: int = 8) -> dict:
+    """Verdicts groupés + phrases soutenues + découpage (AD-4). Par défaut une facette, couverte par
+    les claims jugées pertinentes (la question-témoin des tests n'en pose qu'une), et toutes les
+    phrases soumises jugées soutenues."""
     if facettes is None:
         facettes = [[c for c, ok in paires if ok]]
+    soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(model=TIERS["micro"], text=json.dumps(
         {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
-         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)]}))
+         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)],
+         "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}))
 
 
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
@@ -533,3 +537,40 @@ async def test_the_deadline_is_checked_before_a_refusal_too(index: Index) -> Non
     """Les chemins courts appellent *restituer* comme les autres : `refuser()` contrôle aussi."""
     with pytest.raises(Timeout, match="restituer"):
         await _run(index, [_comprendre("meteo")], budget=_BudgetQuiExpire(1))
+
+
+async def test_a_provider_failure_during_the_second_verification_is_terminal_too(index: Index) -> None:
+    """La ligne de partage est « un appel a-t-il démarré ? », et elle se tranche sur le **budget**.
+
+    *vérifier* ne renseignait pas `PipelineError.step` : le pipeline concluait « relance non démarrée »
+    et servait la première réponse en 200 sur une panne du fournisseur survenue pendant la **seconde
+    vérification** (revue Codex 1.5, tour 2, B5). AD-16 : « un 429/529 fournisseur ⇒ 503 avec trace
+    partielle »."""
+    panne = anthropic.APIStatusError("529", response=httpx.Response(
+        529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
+    with pytest.raises(LlmUnavailable) as exc:
+        await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+                           _rediger(BONNE, BONNE_2), panne])
+    trace = exc.value.trace
+    assert trace is not None and [s.name for s in trace.steps][-1] == "verifier"
+    # le `StepTrace` de l'appel raté voyage avec l'erreur : son coût ne disparaît pas de la trace
+    assert len([s for s in trace.steps if s.name == "verifier"]) == 2
+    assert trace.total_cost_eur > 0
+
+
+async def test_a_retry_that_covers_fewer_facets_never_replaces_the_answer(index: Index) -> None:
+    """Dernier axe de la dominance : à nombre d'affirmations, `complete` et `unknown` égaux, une
+    relance peut encore échanger une facette de la question contre une autre (revue Codex 1.5,
+    tour 2, I2). La couverture des facettes est la seule mesure de contenu stable entre deux
+    ébauches — les `claim_id`, eux, sont refaits à neuf par chaque appel de *rédiger*."""
+    limite = "Je ne sais rien des frontaliers."
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(BONNE, BONNE_2, MAUVAISE, limite=limite),
+        _verdicts(("c1", True), ("c2", True), facettes=[["c1"], ["c2"]]),
+        _rediger(BONNE, BONNE_2, limite=limite),
+        _verdicts(("c1", True), ("c2", True), facettes=[["c1"], []])])
+    assert fake.remaining_script == 0
+    assert answer.found is True and len(answer.claims) == 2 and answer.complete is False
+    verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
+    (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+    assert "1 facette(s) couverte(s) contre 2" in check.detail

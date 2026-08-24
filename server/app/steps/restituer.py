@@ -82,7 +82,10 @@ def restituer(*, language: str, verification: Verification | None = None,
     assert verification is not None
     survivantes = {c.claim_id for c in verification.claims}
     # AD-3 : un segment `factuel` dont toutes les claims sont rejetées est **retiré**. Les autres
-    # (`transition`, `limite`) ne portent aucune affirmation à soutenir : ils restent.
+    # (`transition`, `limite`) ne portent aucune affirmation à soutenir — mais ils portent du texte,
+    # et *vérifier* a déjà retiré de `Verification.segments` toute phrase, de n'importe quel kind,
+    # qui avance plus que ses passages (revue Codex 1.5, tour 2, B1). Ce qui arrive ici est donc
+    # déjà le texte contrôlé : *restituer* n'applique plus que la règle mécanique d'AD-3.
     segments = [s for s in verification.segments
                 if s.kind != "factuel" or (set(s.claim_ids) & survivantes)]
     # Les `claim_ids` d'un segment conservé sont ramenés aux claims survivantes : l'UI place les

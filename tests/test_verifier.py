@@ -77,14 +77,19 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
     return LlmClient(_settings(), anthropic_client=fake), fake
 
 
-def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None) -> dict:
-    """Verdicts groupés + découpage de la question. Par défaut : **une** facette, couverte par toutes
-    les claims jugées pertinentes — le cas nominal d'une question qui ne pose qu'une sous-question."""
+def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
+              segments: dict[int, bool] | None = None, nb_segments: int = 8) -> dict:
+    """Verdicts groupés + phrases soutenues + découpage. Par défaut : **une** facette, couverte par
+    toutes les claims jugées pertinentes (le cas nominal d'une question qui ne pose qu'une
+    sous-question) et **toutes** les phrases soumises jugées soutenues — un verdict pour chaque
+    position possible, les positions non soumises étant ignorées par le code."""
     if facettes is None:
         facettes = [[c for c, ok in paires if ok]]
+    soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(text=json.dumps(
         {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
-         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)]}),
+         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)],
+         "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}),
         model=HAIKU)
 
 
@@ -207,7 +212,10 @@ async def test_relevance_is_one_grouped_micro_call_with_delimited_content(mini: 
                              "cache_control": {"type": "ephemeral"}}]
     (msg,) = req["messages"]
     found = UNTRUSTED.findall(msg["content"])
-    assert [kind for kind, _ in found] == ["question", "claim", "claim", "claim"]
+    # AD-4 : un seul appel, et il porte tout ce que le contrôle a besoin de juger — la question, les
+    # affirmations avec leurs passages, puis **chaque phrase telle qu'elle serait affichée**
+    assert [kind for kind, _ in found] == ["question", "claim", "claim", "claim",
+                                           "segment", "segment", "segment"]
     # rien hors des balises : le contenu non fiable est intégralement délimité (AD-15)
     assert UNTRUSTED.sub("", msg["content"]).strip() == ""
     # le passage soumis est **relu dans le corpus**, jamais la chaîne du draft
@@ -249,7 +257,11 @@ async def test_claims_beyond_the_bound_are_declared_unevaluated_never_guessed(mi
     v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))], settings=settings)
     # une seule claim est soumise au modèle : `c2` n'est pas jugée, elle est déclarée non évaluée
     (req,) = fake.requests
-    assert [kind for kind, _ in UNTRUSTED.findall(req["messages"][0]["content"])] == ["question", "claim"]
+    # `c2` n'est pas soumise au jugement de pertinence ; son segment factuel, lui, reste citable (sa
+    # citation a été retrouvée) et part au contrôle des phrases — c'est le rejet de pertinence qui le
+    # retirera ensuite de l'affichage.
+    assert [kind for kind, _ in UNTRUSTED.findall(req["messages"][0]["content"])] == [
+        "question", "claim", "segment", "segment"]
     assert [c.claim_id for c in v.claims] == ["c1"]
     (rejet,) = v.rejected_claims
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None and "non évaluée" in rejet.motif
@@ -479,3 +491,80 @@ async def test_the_edition_comes_from_the_cited_document(reel: Index) -> None:
     v, _step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=reel.corpus, index=reel,
                               client=client, budget=_budget(), settings=_settings())
     assert v.claims[0].status.edition == guide.edition != contrat.edition
+
+
+# --- ce qui s'affiche : chaque phrase, pas seulement chaque claim (revue Codex 1.5, tour 2) --------
+def _draft_libre(*segments: tuple[str, str, list[str]], claims) -> AnswerDraft:
+    """Ébauche où le texte des segments est choisi librement : `(texte, kind, claim_ids)`."""
+    return AnswerDraft(
+        segments=[{"text": t, "kind": k, "claim_ids": ids} for t, k, ids in segments],
+        claims=[{"claim_id": cid, "text": texte,
+                 "quotes": [{"block_id": b, "quote": q} for b, q in quotes]} for cid, texte, quotes in claims])
+
+
+async def test_a_factual_sentence_that_says_something_else_than_its_claim_is_never_displayed(
+        mini: Index) -> None:
+    """L'AC de la story : « qu'aucune phrase ne me soit montrée sans un passage du guide qui la
+    soutient ». La règle mécanique d'AD-3 (« tout segment factuel référence ≥ 1 claim survivante »)
+    ne regarde que les `claim_ids` : un segment qui pointe vers une claim vérifiée mais dont le texte
+    dit autre chose la satisfaisait, et s'affichait (revue Codex 1.5, tour 2, B1)."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("FAIT SANS RAPPORT : la caution vaut six mois.", "factuel", ["c1"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={1: False})])
+    assert [s.text for s in v.segments] == ["Le délai est de huit jours."]
+    assert v.found is True and v.complete is False  # une phrase retirée ampute la réponse (AD-4)
+    (check,) = [c for c in step.checks if c.name == "segments_non_soutenus"]
+    assert "1 phrase(s)" in check.detail
+    # le contrôle a bien vu le **texte affiché**, pas seulement l'affirmation
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert any("FAIT SANS RAPPORT" in t for t in envoyes)
+
+
+async def test_a_transition_that_states_a_fact_is_never_displayed(mini: Index) -> None:
+    """Un segment `transition` ou `limite` ne porte aucune claim : la règle d'AD-3 ne le retient
+    jamais, et il traversait le rendu sans aucun contrôle. Il est soumis au même jugement."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("Par ailleurs, la caution vaut six mois.", "transition", []),
+        ("Le guide ne dit rien des frontaliers.", "limite", []),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
+    v, _step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={1: False})])
+    assert [s.kind for s in v.segments] == ["factuel", "limite"]
+    assert v.unknown == ["Le guide ne dit rien des frontaliers."]  # la limite, elle, tient
+
+
+async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> None:
+    """Même règle que pour `pertinente` : une phrase que le contrôle n'a pas jugée n'est pas affichée.
+    Ici c'est la seule phrase factuelle : plus rien ne cite `c1`, qui devient `non_citee` (AD-4)."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={}, nb_segments=0)])
+    assert v.segments == [] and v.claims == [] and v.found is False
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
+    assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
+
+
+async def test_two_opposite_verdicts_on_one_sentence_never_display_it(mini: Index) -> None:
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("En résumé.", "transition", []),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
+    script = [fake_message(text=json.dumps({
+        "verdicts": [{"claim_id": "c1", "pertinente": True}],
+        "facettes": [{"libelle": "f", "claim_ids": ["c1"]}],
+        "segments": [{"segment": 0, "soutenu": True}, {"segment": 1, "soutenu": True},
+                     {"segment": 1, "soutenu": False}]}), model=HAIKU)]
+    v, step, _fake = await _verifier(mini, draft, script)
+    assert [s.kind for s in v.segments] == ["factuel"]
+    assert [c.name for c in step.checks if c.name == "segment_contradictoire"]
+
+
+async def test_the_number_of_covered_facets_is_counted_not_just_the_all_or_nothing(mini: Index) -> None:
+    """`complete` ne dit que « toutes » ; la relance a besoin du compte (revue Codex 1.5, tour 2, I2)."""
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+    v, _step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), facettes=[["c1"], []])])
+    assert v.facettes_couvertes == 1 and v.complete is False

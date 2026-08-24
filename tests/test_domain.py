@@ -201,9 +201,10 @@ def test_verified_quote_carries_the_occurrence() -> None:
 
 def test_verification_fields() -> None:
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
-                                           "unknown", "motif"}
+                                           "unknown", "facettes_couvertes", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None
+    assert v.facettes_couvertes == 0  # rien de mesuré ne vaut jamais une facette couverte
 
 
 def test_draft_digest_is_canonical_and_content_sensitive() -> None:

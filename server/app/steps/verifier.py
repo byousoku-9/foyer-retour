@@ -13,6 +13,9 @@ Deux moitiés, dans cet ordre, et jamais l'inverse :
    `verifier_max_claims` : « ces passages soutiennent-ils l'affirmation **et** répond-elle à la
    question ? ». Le modèle ne rend qu'un booléen par `claim_id` — aucun texte libre, aucun calcul :
    `found` et `complete` sont calculés ici, par le code, et le motif de rejet est composé ici aussi.
+   Le **même** appel rend deux autres faits que le code ne peut pas établir seul : le découpage de la
+   question en facettes (pour `complete`), et, pour **chaque phrase réellement affichée**, si elle
+   n'avance rien au-delà des passages joints (revue Codex 1.5, tour 2, B1).
 
 Le texte soumis au modèle est celui du corpus, pas celui du draft : c'est ce qui empêche une citation
 « écho » d'être jugée pertinente sur sa propre invention. Question et passages sont délimités par
@@ -37,6 +40,7 @@ from server.app.config import Settings
 from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.answer import (
     AnswerDraft,
+    AnswerSegment,
     Claim,
     ClaimStatus,
     Quote,
@@ -46,6 +50,7 @@ from server.app.domain.answer import (
     VerifiedQuote,
 )
 from server.app.domain.document import Block
+from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
@@ -78,8 +83,20 @@ class FacettePertinence(BaseModel):
     claim_ids: list[str] = []
 
 
+class VerdictSegment(BaseModel):
+    """Une phrase de l'ébauche telle qu'elle serait **affichée**, et le seul jugement qu'on lui demande.
+
+    `segment` est la position du segment dans `AnswerDraft.segments`, telle qu'elle a été envoyée :
+    un entier de **notre** code, pas une chaîne du modèle. `soutenu` répond à une question binaire —
+    ce texte n'avance-t-il rien qui ne soit pas dans les passages joints ?
+    """
+
+    segment: int
+    soutenu: bool
+
+
 class SortieVerifier(BaseModel):
-    """Sortie de l'appel `micro` : un booléen par claim, et le découpage de la question (AD-4).
+    """Sortie de l'appel `micro` : un booléen par claim, un par phrase affichée, le découpage (AD-4).
 
     Aucun champ de justification : le modèle ne peut pas glisser de motif dans la trace, et il ne peut
     pas non plus « expliquer » un verdict que le code ne lui a pas demandé. `found` et `complete`
@@ -89,6 +106,7 @@ class SortieVerifier(BaseModel):
 
     verdicts: list[VerdictPertinence]
     facettes: list[FacettePertinence] = []
+    segments: list[VerdictSegment] = []
 
 
 def _lignes_du_bloc(block: Block) -> tuple[list[tuple[int, int, str]], bool]:
@@ -285,11 +303,23 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # produit pas sur le corpus servi, la borne est une ceinture).
     evaluees = retrouvees[: settings.verifier_max_claims]
     excedentaires = retrouvees[settings.verifier_max_claims:]
+    # Les phrases soumises au contrôle sont celles qui ont une chance d'être affichées : un segment
+    # vide ne l'est pas, et un segment `factuel` dont **aucune** claim n'a passé le contrôle de
+    # citation est retiré par AD-3 de toute façon. Payer des tokens pour les juger serait du gâchis.
+    citables = {claim.claim_id for claim, _, _ in retrouvees}
+    a_juger = [(i, s) for i, s in enumerate(draft.segments)
+               if s.text.strip() and (s.kind != "factuel" or (set(s.claim_ids) & citables))]
     verdicts: dict[str, bool] = {}
     facettes: list[FacettePertinence] = []
+    soutiens: dict[int, bool] = {}
     if evaluees:
-        verdicts, facettes = await _pertinence(evaluees, parsed=parsed, corpus=corpus, index=index,
-                                               client=client, budget=budget, settings=settings, step=step)
+        try:
+            verdicts, facettes, soutiens = await _pertinence(
+                evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
+                budget=budget, settings=settings, step=step)
+        except PipelineError:
+            step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
+            raise
 
     claims: list[VerifiedClaim] = []
     manquants = 0
@@ -338,6 +368,30 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             detail="au moins un bloc cité n'est pas la concaténation de ses lignes : "
                    "les `line_ids` de l'occurrence peuvent être incomplets"))
 
+    # --- ce qui sera réellement affiché (revue Codex 1.5, tour 2, B1) --------
+    # AD-3 ne fait porter sa règle mécanique que sur les `claim_ids` d'un segment `factuel` : elle
+    # garantit qu'une phrase affichée *pointe* vers une affirmation vérifiée, pas que son **texte**
+    # dise ce que cette affirmation dit. Rien ne contrôlait non plus les segments `transition` et
+    # `limite`, qui ne portent aucune claim et traversaient le rendu tels quels — un fait glissé dans
+    # une transition s'affichait donc sans aucune source. L'AC de la story est plus exigeant que la
+    # règle mécanique (« qu'aucune phrase ne me soit montrée sans un passage du guide qui la
+    # soutient ») : chaque phrase envoyée au contrôle groupé doit en revenir `soutenu=true`. Une
+    # phrase sans verdict n'est pas devinée — elle n'est pas affichée (même règle que `pertinente`).
+    segments_affiches = list(draft.segments)
+    ecartes = 0
+    if evaluees:  # sans appel groupé, aucun verdict n'a pu être rendu : rien n'est jugé, ni retiré
+        soumis = {i for i, _ in a_juger}
+        segments_affiches = [s for i, s in enumerate(draft.segments)
+                             if not s.text.strip() or (i in soumis and soutiens.get(i) is True)]
+        ecartes = sum(1 for i, s in enumerate(draft.segments)
+                      if s.text.strip() and not (i in soumis and soutiens.get(i) is True)
+                      and (s.kind != "factuel" or (set(s.claim_ids) & citables)))
+        if ecartes:
+            step.checks.append(CheckResult(
+                name="segments_non_soutenus", ok=False,
+                detail=f"{ecartes} phrase(s) de l'ébauche avancent plus que les passages joints "
+                       "(ou n'ont pas été jugées) : elles ne sont pas affichées"))
+
     # AD-3 : « tout segment `factuel` référence ≥ 1 claim survivante », et `Answer.texte` n'est fait
     # que des segments survivants. Une claim que **plus aucun** segment affiché ne cite n'a donc
     # nulle part où paraître : la garder dans `claims[]` autoriserait `found=True` sur un texte vide,
@@ -345,7 +399,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # passage suffit : un segment factuel ne survit que par une claim retenue, laquelle est alors
     # citée par lui.
     retenus = {c.claim_id for c in claims}
-    citees = {cid for s in draft.segments if s.kind == "factuel" and s.text.strip()
+    citees = {cid for s in segments_affiches if s.kind == "factuel" and s.text.strip()
               for cid in s.claim_ids if cid in retenus}
     orphelines = [c for c in claims if c.claim_id not in citees]
     if orphelines:
@@ -362,7 +416,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
     # AD-4 : `found` et `complete` sont calculés **ici**, jamais produits par le modèle.
     found = bool(claims)
-    unknown = [s.text for s in draft.segments if s.kind == "limite" and s.text.strip()]
+    unknown = [s.text for s in segments_affiches if s.kind == "limite" and s.text.strip()]
     cites = {q.block_id for c in claims for q in c.quotes}
     renvois_ouverts = any(corpus.documents[index.doc_of(b)].block(b).unresolved_refs for b in cites)
     # AD-4 exige « toutes les facettes de `ParsedQuestion` couvertes ». `unknown == []` n'en est pas
@@ -372,17 +426,22 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # au moins une affirmation *retenue*. Facettes non rendues (modèle muet, aucun contrôle) ⇒ pas de
     # preuve ⇒ `complete=False` : l'absence de mesure ne vaut jamais complétude.
     affichees = {c.claim_id for c in claims}
-    couvertes = bool(facettes) and all(any(cid in affichees for cid in f.claim_ids) for f in facettes)
+    nb_couvertes = sum(1 for f in facettes if any(cid in affichees for cid in f.claim_ids))
+    couvertes = bool(facettes) and nb_couvertes == len(facettes)
     if evaluees and not couvertes:
         step.checks.append(CheckResult(
             name="facettes_non_couvertes", ok=False,
             detail=f"{len(facettes)} facette(s) rendue(s) par le contrôle, toutes ne sont pas "
                    "couvertes par une affirmation affichée : la réponse n'est pas donnée pour complète"))
-    complete = found and couvertes and not retrieval.truncated and not unknown and not renvois_ouverts
+    # Une phrase écartée faute de soutien est une part de la réponse que l'ébauche voulait donner et
+    # qui n'est pas montrée — y compris une limite retirée. La réponse servie est alors amputée :
+    # elle n'est pas donnée pour complète (AD-4, « aucune troncature »).
+    complete = (found and couvertes and not retrieval.truncated and not unknown
+                and not renvois_ouverts and not ecartes)
 
     verification = Verification(
-        segments=list(draft.segments), claims=claims, rejected_claims=rejetees, found=found,
-        complete=complete, unknown=unknown,
+        segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,
+        complete=complete, unknown=unknown, facettes_couvertes=nb_couvertes,
         motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
     )
     step.checks.append(CheckResult(
@@ -393,12 +452,14 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
 
 async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *, parsed: ParsedQuestion,
-                      corpus: Any, index: Any, client: LlmClient, budget: RequestBudget,
-                      settings: Settings, step: StepTrace) -> tuple[dict[str, bool], list[FacettePertinence]]:
-    """L'unique appel `micro` groupé : un booléen par `claim_id`, et le découpage de la question.
+                      segments: list[tuple[int, AnswerSegment]], corpus: Any, index: Any,
+                      client: LlmClient, budget: RequestBudget, settings: Settings,
+                      step: StepTrace) -> tuple[dict[str, bool], list[FacettePertinence], dict[int, bool]]:
+    """L'unique appel `micro` groupé : un booléen par `claim_id`, un par phrase affichée, le découpage.
 
-    Les deux sortent du **même** appel (AD-4 : « un seul appel `micro` groupé ») : la couverture des
-    facettes ne coûte donc rien de plus que quelques dizaines de tokens de sortie.
+    Les trois sortent du **même** appel (AD-4 : « un seul appel `micro` groupé ») : la couverture des
+    facettes et le contrôle des phrases affichées ne coûtent rien de plus que le texte des segments —
+    quelques dizaines de tokens — et **aucun** appel supplémentaire.
     """
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
     parts = [untrusted("question", parsed.question_resolue)]
@@ -415,11 +476,27 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         parts.append(untrusted("claim", json.dumps(
             {"claim_id": claim.claim_id, "affirmation": claim.text, "citations": citations},
             ensure_ascii=False)))
+    for position, segment in segments:
+        # Le texte du segment vient du modèle : il est délimité comme tout le reste (AD-15). C'est
+        # bien le texte **affiché** qui est soumis, pas `Claim.text` : le premier peut dire autre
+        # chose que le second, et c'est le premier que l'utilisateur lit (revue Codex 1.5, tour 2, B1).
+        parts.append(untrusted("segment", json.dumps(
+            {"segment": position, "kind": segment.kind, "texte": segment.text,
+             "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
     content = "\n\n".join(parts)
-    result = await client.parse(tier=STEP_TIERS["verifier"], system_prefix=prefix,
-                                messages=[{"role": "user", "content": content}],
-                                output_model=SortieVerifier, budget=budget, step=step,
-                                max_tokens=settings.verifier_max_tokens)
+    try:
+        result = await client.parse(tier=STEP_TIERS["verifier"], system_prefix=prefix,
+                                    messages=[{"role": "user", "content": content}],
+                                    output_model=SortieVerifier, budget=budget, step=step,
+                                    max_tokens=settings.verifier_max_tokens)
+    except PipelineError as exc:
+        # AD-10/AD-16 (revue Codex 1.5, tour 2, B5) : l'appel a pu être facturé — `step.calls` le
+        # porte, `budget` aussi. Sans ce rattachement, le pipeline ne peut pas distinguer un appel
+        # **commencé** d'un appel qui n'a jamais démarré, et il servait alors la réponse acquise
+        # (200) sur une panne du fournisseur survenue pendant la seconde vérification. L'erreur
+        # reste terminale : c'est l'appelant qui décide, pas nous.
+        exc.step = step
+        raise
     attendus = {claim.claim_id for claim, _, _ in evaluees}
     verdicts: dict[str, bool] = {}
     for v in result.parsed.verdicts:
@@ -440,4 +517,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     # (non couverte, donc `complete=False`). Les libellés ne sortent pas d'ici.
     facettes = [FacettePertinence(libelle="", claim_ids=[c for c in f.claim_ids if c in attendus])
                 for f in result.parsed.facettes]
-    return verdicts, facettes
+    # Même règle que pour les verdicts de pertinence : une position qui n'a pas été envoyée ne décide
+    # de rien, et deux réponses opposées sur la même phrase valent « non soutenu » (« dans le doute,
+    # réponds false »). Une phrase sans verdict n'est pas devinée — elle ne sera pas affichée.
+    positions = {position for position, _ in segments}
+    soutiens: dict[int, bool] = {}
+    for s in result.parsed.segments:
+        if s.segment not in positions:
+            continue
+        if s.segment in soutiens and soutiens[s.segment] != s.soutenu:
+            soutiens[s.segment] = False
+            step.checks.append(CheckResult(
+                name="segment_contradictoire", ok=False,
+                detail="deux verdicts opposés pour une même phrase : elle n'est pas affichée"))
+            continue
+        soutiens.setdefault(s.segment, s.soutenu)
+    return verdicts, facettes, soutiens

@@ -179,6 +179,11 @@ class Verification(DomainModel):
     found: bool = False
     complete: bool = False
     unknown: list[str] = Field(default_factory=list)
+    # Nombre de facettes de la question qu'une affirmation affichée couvre (AD-4, revue Codex 1.5
+    # tour 2, I2). `complete` en est déjà le cas « toutes », mais la relance a besoin du compte : deux
+    # vérifications également incomplètes ne se valent pas si l'une répond à deux sous-questions et
+    # l'autre à une seule. C'est un compteur du **code**, jamais un jugement transmis à l'appelant.
+    facettes_couvertes: int = 0
     motif: str | None = None
 
 

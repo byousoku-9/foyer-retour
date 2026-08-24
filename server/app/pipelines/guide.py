@@ -83,12 +83,20 @@ def _domine(seconde: Verification, acquise: Verification) -> bool:
     AD-3 relance pour *améliorer*. Compter les seules claims laissait passer une relance qui, à
     nombre égal, perdait `complete`, ajoutait un `unknown` ou remplaçait une affirmation par une
     autre moins bien placée (revue Codex 1.5, I2). La dominance est donc explicite : trouver au moins
-    autant, garder au moins autant d'affirmations, ne pas déclarer moins complet, ne pas déclarer
-    plus d'inconnu. Une seconde ébauche qui échange une facette contre une autre n'est pas dominante :
-    à égalité non dominante, l'acquis fait foi.
+    autant, garder au moins autant d'affirmations, **couvrir au moins autant de facettes** de la
+    question, ne pas déclarer moins complet, ne pas déclarer plus d'inconnu. À égalité non dominante,
+    l'acquis fait foi.
+
+    Ce qui n'est **pas** comparé, faute d'exister : l'identité des affirmations conservées. Les
+    `claim_id` sont produits à neuf par chaque appel de *rédiger* et ne valent qu'à l'intérieur d'un
+    draft (`AnswerDraft` n'exige que leur unicité locale) ; le `c1` de la seconde ébauche n'est pas
+    le `c1` de la première, et leurs textes diffèrent par construction (AD-3 : « chaque relance change
+    quelque chose »). La couverture des facettes est la seule mesure de *contenu* stable entre deux
+    ébauches de la même question — c'est elle qu'on compare (revue Codex 1.5, tour 2, I2).
     """
     return (seconde.found >= acquise.found
             and len(seconde.claims) >= len(acquise.claims)
+            and seconde.facettes_couvertes >= acquise.facettes_couvertes
             and seconde.complete >= acquise.complete
             and len(seconde.unknown) <= len(acquise.unknown))
 
@@ -253,6 +261,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # --- relance unique (AD-3) ------------------------------------------
         if verification.motif and _relance_utile(verification, settings):
             acquise = verification  # ce qui est déjà vérifié : une relance ne peut que l'améliorer
+            # Compteur d'appels **avant** la relance : c'est lui qui dit si un appel a démarré, quoi
+            # qu'ait fait l'étape qui a échoué (voir le `except` plus bas).
+            appels_avant = budget.attempts
             try:
                 if budget.remaining() <= settings.llm_retry_margin_s:
                     # AD-1, littéralement : « aucun retry ne démarre sans marge ». Le retry ne démarre
@@ -286,6 +297,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                             name="relance_moins_bonne", ok=False,
                             detail=f"la relance ne domine pas la première vérification "
                                    f"({len(seconde.claims)} affirmation(s) contre {len(acquise.claims)}, "
+                                   f"{seconde.facettes_couvertes} facette(s) couverte(s) contre "
+                                   f"{acquise.facettes_couvertes}, "
                                    f"complete={seconde.complete} contre {acquise.complete}, "
                                    f"unknown={len(seconde.unknown)} contre {len(acquise.unknown)}) : "
                                    f"la première fait foi"))
@@ -302,9 +315,18 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 #   parse invalide après 1 retry, un 429/529 fournisseur ⇒ 503 avec trace partielle ».
                 #   L'avaler rendrait 200 sur une panne du fournisseur. L'erreur remonte donc, avec le
                 #   `StepTrace` de l'appel raté et la trace partielle attachés.
-                commence = exc.step is not None and bool(exc.step.calls)
+                #
+                # La question « un appel a-t-il démarré ? » se tranche sur le **budget**, pas sur ce
+                # que l'étape a bien voulu attacher à son erreur (revue Codex 1.5, tour 2, B5) : le
+                # compteur est incrémenté à l'envoi, par le client, pour toutes les étapes. Une étape
+                # qui oublierait de renseigner `exc.step` — c'était le cas de *vérifier*, si bien
+                # qu'une panne fournisseur pendant la **seconde vérification** ressortait en 200 —
+                # ne peut plus faire passer un échec commencé pour une relance jamais partie. Le
+                # `StepTrace` reste attaché quand l'étape l'a fourni : il porte le coût de l'appel raté.
+                commence = budget.attempts > appels_avant or (exc.step is not None and bool(exc.step.calls))
                 if commence:
-                    steps.append(exc.step)
+                    if exc.step is not None:
+                        steps.append(exc.step)
                     exc.trace = tracer()
                     raise
                 # AD-4 : `complete=True` exige « aucune troncature de budget ». Une relance que le
