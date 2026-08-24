@@ -705,7 +705,7 @@ ajouté — même méthode qu'en 1.7).
 
 | Vérification | Commande | Résultat |
 |---|---|---|
-| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1057 passed** (889 avant la story), aucun accès réseau |
+| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1068 passed** (889 avant la story ; 1057 avant la revue Codex tour 1), aucun accès réseau |
 | Front sans navigateur | `node tests/js/sinistre_cases.mjs` | `ok: true`, relevés complets ; **88** cas Python dans `tests/test_web_sinistre.py` (compte tenu à jour par `pytest --collect-only`, pas à la main : les deux chiffres tenus ainsi étaient faux tous les deux) |
 | Lint | `uvx ruff check --select F,E9 server tests` | 7 `F401`, **tous antérieurs** à la story (quatre `BaseModel` inutilisés dans `domain/`, trois dans des tests). `uv run ruff check`, la commande écrite dans la spec, **ne s'exécute pas** : `ruff` n'est ni une dépendance de `pyproject.toml` ni configuré (aucun `[tool.ruff]`), comme en 1.8. Avec le ruff par défaut, les fichiers de la story sont propres (`uvx ruff check server/app/api/routes/ server/app/api/schemas.py server/app/api/etat.py server/app/api/presenter.py tests/test_api_sinistre.py tests/test_web_sinistre.py` → *All checks passed*) |
 
@@ -744,12 +744,12 @@ même cas.
 
 | Vérification | Résultat |
 |---|---|
-| Suite hors ligne, front **exigé** | `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1036 passed en 11,0 s**, aucun `skip` : les 117 cas de front ont bien tourné |
-| Lint, comparé à la base | `uvx ruff check --select F,E9` rend les **mêmes 7 `F401`** sur `dc72a06` (arbre extrait par `git archive`) que sur `HEAD` : aucune régression introduite par la story |
+| Suite hors ligne, front **exigé** | `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1068 passed en 10,0 s** (1036 au moment de ce tour live), aucun `skip` : les cas de front ont bien tourné |
+| Lint, comparé à la base | `uvx ruff@0.16.4 check --select F,E9 server tests` : les 7 `F401` de référence (identiques sur `dc72a06`, arbre extrait par `git archive`) sont **résorbés** par la revue Codex tour 1 (M1) — la commande rend désormais `All checks passed!` |
 | `GET /api/v1/documents` | 200, deux entrées, `source_url` publiques (le PDF AXA, `kb.js` du guide) |
 | `GET …/report` et `…/inconnu/report` | 200 avec le `report.json` d'AD-8 ; **400** `invalid_request` sans écho du `doc_id` reçu |
 | `/sinistre/` et son script | 200 (9 450 o. et 42 665 o.) servis par la même origine |
-| Quatre chemins de 400 | `doc_id` non servi, `doc_id` de guide, `variant="agentique"`, description de 2 001 caractères — tous **400**, tous sans appel facturé |
+| Quatre chemins de 400 | `doc_id` non servi, `doc_id` de guide, `variant="agentique"`, description de 2 001 caractères — tous **400**, tous sans appel facturé. Depuis la revue Codex tour 1 (I3), `variant` n'est plus un champ du corps : le 400 vient d'`extra="forbid"` et vaut pour **tout** champ hors des quatre d'AD-11 |
 | **Cas bougie par HTTP** | **200 en 26,9 s**, `ne_tranche_pas`, **0,0547 €** ; `p34:12` (garantie, page 34, 4 `line_ids`) **et** `p46:1` (exclusion, page 46, `applicable="non"` — l'exclusion des extensions, explicitement écartée, ce que FR20 exige) ; une claim `non_pertinente` à part ; `faits_compris` renseigné sur ses cinq champs ; **six** questions au client, dont « caractère « subite » exigé par la clause citée » ; un seul appel `micro` dans *vérifier* |
 | Page en Chrome headless | sélecteur à une seule option (le contrat, pas le guide), `maxlength` 1 000 / 2 000 lus sur le serveur, attente peinte et saisie verrouillée, `localStorage` **vide**, **zéro** pose d'`innerHTML` non vide, aucun bouton dans le résultat ; 429 avec `Retry-After: 41` et un conteneur d'erreur qui ne laisse ni badge, ni clause, ni bouton |
 
@@ -832,3 +832,25 @@ relèvement du timeout :
 
 Coût des deux séries de mesure et du tour navigateur final : **0,42 €** environ, tous relevés sur les
 lignes de log du serveur.
+
+### Revue Codex, tour 1 — re-vérification live après correctifs
+
+Les correctifs du tour touchent le **contrat d'entrée** (`extra="forbid"`, `variant` retiré) et le
+**lecteur du front** (sept champs de plus exigés d'un 200). Les deux se démentent en local, pas dans
+une suite : le serveur réel a donc été rejoué. `ENV=dev uv run uvicorn server.app.api.main:app
+--port 8799`, clé lue dans `.env`.
+
+| Vérification | Résultat |
+|---|---|
+| `GET /api/v1/documents` | 200, les deux documents servis, `source_url` publiques |
+| `GET …/report` et `…/inconnu/report` | 200 avec le rapport d'AD-8 ; **400** `invalid_request` |
+| `POST /sinistre`, `doc_id` non servi | **400**, message sans écho du `doc_id`, aucun appel facturé |
+| `POST /sinistre`, `doc_id` de guide (D3) | **400**, aucun appel facturé |
+| `POST /sinistre` + `variant: "agentique"` (I3) | **400** `invalid_request`, `body.variant: Extra inputs are not permitted` — le refus vient du schéma, avant la route |
+| `POST /sinistre` + `dossier: {…}` (I3) | **400** — le champ n'est plus **acquiescé en silence** : c'est le changement que la revue demandait |
+| Cas bougie, nominal | **200 en 19,6 s**, verdict `sous_conditions`, coût **0,0408 €**, `p34:12` relue avec page, bbox et 4 `line_ids`, `kind="garantie"` confirmé, `faits_compris` sur cinq champs, six questions au client |
+| Contrat serveur ↔ lecteur du front (I2) | les **15** chemins qu'exige `lireReponse()` sont tous présents dans le corps réellement sérialisé — la même comparaison tourne désormais hors ligne dans `tests/test_api_sinistre.py`, vérifiée par mutation |
+| Tour navigateur (CDP) | verdict, portée, faits compris, paquet, six questions, clauses avec type/page/statuts, trace `<details>` fermée, `localStorage` **vide**, **zéro** pose d'`innerHTML` non vide, aucun bouton, 429 avec `Retry-After` et un conteneur d'erreur qui ne laisse survivre ni badge ni clause |
+
+Coût de cette re-vérification : **0,073 €** (une soumission nominale et le tour navigateur ; les six
+chemins de 400 sont gratuits, par construction).
