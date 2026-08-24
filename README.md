@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY= uv run pytest -q       # unitaires, sans réseau : les appels
 uv run pytest -q                          # avec la clé, les tests qui appellent un modèle ré-enregistrent leur fixture
 ```
 
-- **Les tests du front demandent `node`** (`tests/test_web_chat.py` exécute `tests/js/chat_cases.mjs` dans un `node:vm`). Sans lui, ces cas passent en `skip` — et un `skip` ne se distingue pas d'un succès dans un `pytest -q`. Poser `FRONT_TESTS_REQUIS=1` transforme le skip en échec ; la CI (story 1.11) la pose, pour qu'une image sans `node` ne puisse pas faire passer la suite au vert en taisant la moitié du front.
+- **Les tests du front demandent `node`** (`tests/test_web_chat.py` exécute `tests/js/chat_cases.mjs`, `tests/js/ui_cases.mjs` et `tests/js/corps_servi.mjs` dans un `node:vm`). Sans lui, ces cas passent en `skip` — et un `skip` ne se distingue pas d'un succès dans un `pytest -q`. Poser `FRONT_TESTS_REQUIS=1` transforme le skip en échec ; la CI (story 1.11) la pose, pour qu'une image sans `node` ne puisse pas faire passer la suite au vert en taisant la moitié du front.
 - `tests/test_layers.py` vérifie statiquement les couches du spine (`domain` n'importe rien ; une étape n'importe jamais une autre étape).
 - `tests/test_domain.py` vérifie que chaque modèle porte exactement les champs et enums de son AD.
 - Les seuils numériques vivent dans `server/app/config.py` et se surchargent par variable d'environnement.

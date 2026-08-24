@@ -347,8 +347,19 @@ async function main() {
       sources: [{ block_id: "lux-guide:fbanque:1", fiche_id: "banque", titre: "Ouvrir un compte",
                   url: "https://guichet.public.lu/banque", quote: "un compte au Luxembourg",
                   status: "verifiee" }],
-      answer: { found: true, complete: false, texte: "", segments: [], claims: [], rejected_claims: [],
-                reason: null, unknown: [], clarification: null },
+      // `found=true` exige au moins une claim retrouvée ∧ pertinente (`Answer._found_coherence`) :
+      // un corps qui n'en porte pas n'est pas servable, et le front le refuse désormais.
+      answer: {
+        found: true, complete: false, texte: "", clarification: null, reason: null, unknown: [],
+        segments: [{ text: "Vous pouvez ouvrir un compte au Luxembourg.", kind: "factuel",
+                     claim_ids: ["c1"] }],
+        claims: [{ claim_id: "c1", text: "Un compte peut être ouvert au Luxembourg.",
+                   quotes: [{ block_id: "lux-guide:fbanque:1", quote: "un compte au Luxembourg",
+                              start: 0, end: 10, text_start: 0, text_end: 10 }],
+                   status: { retrouvee: true, pertinente: true, applicable: null,
+                             edition: "git:a8e8593" } }],
+        rejected_claims: [],
+      },
       via: "api/v1",
       trace: { request_id: "r-3", pipeline: "guide", intent: "question", total_cost_eur: 0.01, steps: [] },
     };
@@ -557,20 +568,60 @@ async function main() {
 
   // --- un 200 dont le corps ne tient pas le contrat ----------------------
   {
-    // Le corps est du JSON valide, mais il manque des champs **obligatoires** de `ChatResponse`
-    // (`texte`, `answer`, `trace`) ou des booléens obligatoires d'`Answer`. Une valeur par défaut à
-    // leur place peignait un `{}` en réponse « inconnu », l'ajoutait à l'historique et la faisait
-    // repartir au serveur : c'est la « réponse vide présentée comme réponse » d'AD-16.
+    // Le corps est du JSON valide, mais il ne tient pas le contrat **réellement servi** : champ
+    // obligatoire de `ChatResponse` absent (`texte`, `answer`, `trace`), champ obligatoire de
+    // `Trace` absent (`request_id`, `pipeline`), ou invariant d'`Answer._found_coherence` violé.
+    // Une valeur par défaut à leur place peignait un `{}` en réponse « inconnu », l'ajoutait à
+    // l'historique et la faisait repartir au serveur : c'est la « réponse vide présentée comme
+    // réponse » d'AD-16. Chacun de ces corps est **aussi** rejeté par `ChatResponse.model_validate()`
+    // — le test Python le vérifie corps par corps, pour que la lecture du front ne dérive ni vers
+    // plus strict (il refuserait une réponse servie) ni vers plus permissif (le cas d'ici).
+    const TRACE = { request_id: "r-x", pipeline: "guide" };
+    const REASON = { kind: "hors_perimetre", terms_searched: [], variants_count: 0, blocks_scanned: 0 };
+    const CLAIM = {
+      claim_id: "c1", text: "Le délai est de huit jours.",
+      quotes: [{ block_id: "lux-guide:farrivee:2", quote: "huit jours", start: 0, end: 10,
+                 text_start: 0, text_end: 10 }],
+      status: { retrouvee: true, pertinente: true, applicable: null, edition: "git:a8e8593" },
+    };
     const corps = {
       vide: {},
-      sans_answer: { texte: "Vous avez huit jours.", trace: { total_cost_eur: 0.01 } },
-      sans_trace: { texte: "x", answer: { found: true, complete: true } },
-      sans_texte: { answer: { found: true, complete: true }, trace: {} },
-      answer_nul: { texte: "x", answer: null, trace: {} },
-      answer_sans_found: { texte: "x", answer: { complete: true }, trace: {} },
-      answer_sans_complete: { texte: "x", answer: { found: true }, trace: {} },
-      sources_non_liste: { texte: "x", answer: { found: true, complete: true }, trace: {},
-                           sources: { 0: {} } },
+      sans_answer: { texte: "Vous avez huit jours.", trace: TRACE },
+      sans_trace: { texte: "x", answer: { found: true, complete: true, claims: [CLAIM] } },
+      sans_texte: { answer: { found: true, complete: true, claims: [CLAIM] }, trace: TRACE },
+      answer_nul: { texte: "x", answer: null, trace: TRACE },
+      answer_sans_found: { texte: "x", answer: { complete: true }, trace: TRACE },
+      answer_sans_complete: { texte: "x", answer: { found: true, claims: [CLAIM] }, trace: TRACE },
+      // `Trace` n'a que deux champs sans valeur par défaut, et ce sont eux qui identifient la
+      // requête : une trace qui ne les porte pas n'a été montée par aucun pipeline du projet.
+      trace_sans_request_id: { texte: "x", answer: { found: true, complete: true, claims: [CLAIM] },
+                               trace: { pipeline: "guide" } },
+      trace_sans_pipeline: { texte: "x", answer: { found: true, complete: true, claims: [CLAIM] },
+                             trace: { request_id: "r-x" } },
+      // Les cinq invariants d'`Answer._found_coherence`, un par corps.
+      answer_trouve_sans_claim: { texte: "x", answer: { found: true, complete: true, claims: [] },
+                                  trace: TRACE },
+      answer_absent_sans_reason: { texte: "x", answer: { found: false, complete: false, claims: [] },
+                                   trace: TRACE },
+      answer_absent_avec_claims: { texte: "x", answer: { found: false, complete: false,
+                                                         claims: [CLAIM], reason: REASON },
+                                   trace: TRACE },
+      answer_claim_non_pertinente: {
+        texte: "x", trace: TRACE,
+        answer: { found: true, complete: true,
+                  claims: [{ ...CLAIM, status: { retrouvee: true, pertinente: false,
+                                                 applicable: null, edition: "git:a8e8593" } }] },
+      },
+      answer_complete_sans_found: { texte: "x", answer: { found: false, complete: true, claims: [],
+                                                          reason: REASON },
+                                    trace: TRACE },
+      answer_complete_avec_unknown: { texte: "x", answer: { found: true, complete: true,
+                                                            claims: [CLAIM], unknown: ["le coût"] },
+                                      trace: TRACE },
+      answer_claims_non_liste: { texte: "x", answer: { found: true, complete: true, claims: { 0: {} } },
+                                 trace: TRACE },
+      sources_non_liste: { texte: "x", answer: { found: true, complete: true, claims: [CLAIM] },
+                           trace: TRACE, sources: { 0: {} } },
       ancien_contrat: { reponse: "Vous avez huit jours.", sources: [] },
     };
     cas.contrat_incomplet = {};
@@ -585,16 +636,19 @@ async function main() {
         kind: erreur && erreur.kind, code: erreur && erreur.code, champ: erreur && erreur.champ,
         message: CHAT.messageErreur(erreur),
         lectures_du_moteur_lexical: compteur.lectures,
+        corps: c,  // relu par le test Python, qui le passe à `ChatResponse.model_validate()`
       };
     }
-    // Et le contraire : un corps complet passe, y compris avec les champs à valeur par défaut absents.
-    const minimal = { texte: "Vous avez huit jours.",
-                      answer: { found: true, complete: true, claims: [], segments: [] },
-                      trace: { total_cost_eur: 0.01 } };
+    // Et le contraire : un corps que le serveur **peut** servir passe, y compris quand tous les
+    // champs à valeur par défaut sont absents. Le plus petit corps servable est un refus : `found`
+    // à faux avec sa preuve d'absence, et les deux champs obligatoires de la trace.
+    const minimal = { texte: "Cette question sort de ce que couvre le guide.",
+                      answer: { found: false, complete: false, reason: REASON },
+                      trace: { request_id: "r-min", pipeline: "guide" } };
     const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: minimal }));
     const r = await CHAT.repondre(QUESTION, PROFIL, []);
     cas.contrat_minimal = { texte: r.texte, via: r.via, sources: r.sources, segments: r.segments,
-                            comparateur: r.comparateur };
+                            comparateur: r.comparateur, corps: minimal };
   }
 
   // --- la sonde en échec n'ouvre aucune porte ----------------------------

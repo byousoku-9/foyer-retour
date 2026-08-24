@@ -312,3 +312,27 @@ avec la vraie clé ; serveur de contrôle sur `:8792` (clé fournisseur invalide
 | Le clic, et lui seul | clic sur le bouton du bandeau | réponse locale, badge « mode local » des deux côtés, section « Sources » locale, pied « recherche simple — aucune vérification » |
 | `localStorage` après conversation | `Object.keys(localStorage)` | `luxguide.chat.v1` réduit au profil et à sa date ; aucun texte de conversation |
 | Aucun `innerHTML` sur du texte serveur | `grep -n "innerHTML" web/app/ui.js` | 30 vidages `innerHTML = ""` et une ligne de commentaire ; le chemin du serveur passe par `materialiser()`, qui n'en pose aucun — et le DOM minimal le prouve désormais par exécution |
+
+### Après la revue Codex de la story 1.7 (2026-08-24, tour 2) — un bloquant maintenu (B2)
+
+Serveur nominal sur `:8796` avec la vraie clé de `.env`. Deux appels réels au total (**0,095 €**) :
+un `POST /chat` en `curl` pour obtenir un corps servi *brut*, et un tour complet en Chrome headless
+(CDP, WebSocket brut, aucun paquet ajouté) sur `http://127.0.0.1:8796/guide/#assistant`.
+
+Ce que ce tour devait éprouver : la lecture du contrat s'est **resserrée** (les deux champs
+obligatoires de `Trace`, les cinq invariants d'`Answer`). Le risque introduit est symétrique de
+celui que la revue a relevé — une exigence de trop, et une réponse réellement servie devient un
+« assistant indisponible » à l'écran. Les deux relevés ci-dessous portent donc sur des corps que le
+**pipeline** a produits, pas sur des corps écrits à la main.
+
+| Vérification | Commande / geste | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **741 passed en 12,8 s** (28 cas ajoutés par ce tour), zéro réseau |
+| Cas du front | `node tests/js/chat_cases.mjs` | code **0**, `stderr` vide, `ok: true` |
+| Cas du matérialiseur | `node tests/js/ui_cases.mjs` | code **0**, `stderr` vide, `ok: true`, 6 relevés |
+| **Un corps réellement servi passe la lecture stricte** (B2) | `curl -s -X POST localhost:8796/chat …` puis `node tests/js/corps_servi.mjs <corps>` | 200 réel (`found=true`, `complete=false`, 1 claim, 1 source, `trace.pipeline="guide"`, coût 0,0280 €) → `lu: true`, `via: "api/v1"`, état **partiel**, **1 citation placée sous son segment**. C'est l'autre moitié de la lecture stricte : ce que le serveur sert, le front le peint |
+| **Le tour complet, dans un vrai navigateur** (B2) | Chrome headless, profil à six champs repris du `localStorage`, « Quel délai ai-je pour déclarer mon arrivée à la commune ? » | 200 en 33,4 s, badge « mode api » avant **et** après ; **3 segments**, dont 2 factuels portant chacun sa citation (« retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée ») ; « Ce que je ne sais pas » : « Les blocs fournis ne précisent pas de délai chiffré… » ; pied « **partiel** — cette réponse a coûté 0,0666 € » ; corps posté : profil **objet** à six champs, aucun `contexte` ; `localStorage` réduit à `luxguide.chat.v1` (profil seul) |
+
+Le premier segment de cette réponse est non factuel et ne porte **aucune** citation : c'est le
+comportement voulu (seul un segment `factuel` cite), et il n'a pas déclenché l'abandon de
+l'appariement — les deux segments suivants ont bien reçu la leur.

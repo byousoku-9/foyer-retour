@@ -28,6 +28,7 @@ from server.app.domain.question import Turn
 
 HARNAIS = REPO_ROOT / "tests" / "js" / "chat_cases.mjs"
 HARNAIS_UI = REPO_ROOT / "tests" / "js" / "ui_cases.mjs"
+HARNAIS_CORPS = REPO_ROOT / "tests" / "js" / "corps_servi.mjs"
 
 
 # Sans `node`, ces cas passent en `skip` — et un `skip` est indiscernable d'un succès dans un
@@ -36,7 +37,7 @@ HARNAIS_UI = REPO_ROOT / "tests" / "js" / "ui_cases.mjs"
 REQUIS = os.environ.get("FRONT_TESTS_REQUIS", "") not in ("", "0")
 
 
-def _lancer(harnais: Path) -> dict[str, Any]:
+def _lancer(harnais: Path, *args: str) -> dict[str, Any]:
     node = shutil.which("node")
     if node is None:
         motif = ("node absent de la machine : les cas du front ne peuvent pas tourner "
@@ -44,7 +45,7 @@ def _lancer(harnais: Path) -> dict[str, Any]:
         if REQUIS:
             pytest.fail("FRONT_TESTS_REQUIS=1 mais " + motif)
         pytest.skip(motif)
-    fini = subprocess.run([node, str(harnais)], capture_output=True, text=True, timeout=120,
+    fini = subprocess.run([node, str(harnais), *args], capture_output=True, text=True, timeout=120,
                           cwd=str(REPO_ROOT))
     # Le JSON sort sur stdout, les diagnostics sur stderr : un `console.log` oublié dans `chat.js`
     # ne peut plus corrompre le relevé, et le code de sortie tranche.
@@ -274,13 +275,23 @@ def test_les_sources_affichees_sont_celles_du_serveur(cas: dict[str, Any]) -> No
 
 # --- AD-16 : un 200 incomplet n'est pas une réponse ------------------------
 
-@pytest.mark.parametrize(
-    ("nom", "champ"),
-    [("vide", "texte"), ("sans_answer", "answer"), ("sans_trace", "trace"),
-     ("sans_texte", "texte"), ("answer_nul", "answer"),
-     ("answer_sans_found", "answer.found"), ("answer_sans_complete", "answer.complete"),
-     ("sources_non_liste", "sources"), ("ancien_contrat", "texte")],
-)
+CONTRATS_INCOMPLETS = [
+    ("vide", "texte"), ("sans_answer", "answer"), ("sans_trace", "trace"),
+    ("sans_texte", "texte"), ("answer_nul", "answer"),
+    ("answer_sans_found", "answer.found"), ("answer_sans_complete", "answer.complete"),
+    ("trace_sans_request_id", "trace.request_id"), ("trace_sans_pipeline", "trace.pipeline"),
+    ("answer_trouve_sans_claim", "answer.claims"),
+    ("answer_absent_sans_reason", "answer.reason"),
+    ("answer_absent_avec_claims", "answer.claims"),
+    ("answer_claim_non_pertinente", "answer.claims"),
+    ("answer_complete_sans_found", "answer.complete"),
+    ("answer_complete_avec_unknown", "answer.complete"),
+    ("answer_claims_non_liste", "answer.claims"),
+    ("sources_non_liste", "sources"), ("ancien_contrat", "texte"),
+]
+
+
+@pytest.mark.parametrize(("nom", "champ"), CONTRATS_INCOMPLETS)
 def test_un_200_qui_ne_tient_pas_le_contrat_nest_pas_peint(cas: dict[str, Any], nom: str,
                                                            champ: str) -> None:
     """AD-16 prévient « réponse vide présentée comme réponse ». Une valeur par défaut à la place d'un
@@ -295,6 +306,27 @@ def test_un_200_qui_ne_tient_pas_le_contrat_nest_pas_peint(cas: dict[str, Any], 
     assert vu["lectures_du_moteur_lexical"] == 0
 
 
+@pytest.mark.parametrize("nom", [n for n, _ in CONTRATS_INCOMPLETS])
+def test_aucun_corps_refuse_par_le_front_nest_un_corps_que_le_serveur_sert(cas: dict[str, Any],
+                                                                          nom: str) -> None:
+    """Le pendant du test précédent : ce que le front refuse, le serveur ne peut pas le servir.
+
+    `ChatResponse.model_validate()` est l'autorité — `Trace` exige `request_id` et `pipeline`,
+    `Answer._found_coherence` exige une preuve d'absence sous `found=False`, au moins une claim
+    retrouvée ∧ pertinente sous `found=True`, et `unknown=[]` sous `complete=True`. Un corps refusé
+    par le front mais accepté par pydantic serait une réponse servie perdue ; c'est cette moitié-là
+    que ce test garde, l'autre moitié étant gardée par
+    `test_les_champs_a_valeur_par_defaut_restent_facultatifs`.
+    """
+    from pydantic import ValidationError
+
+    from server.app.api.schemas import ChatResponse
+
+    corps = cas["contrat_incomplet"][nom]["corps"]
+    with pytest.raises(ValidationError):
+        ChatResponse.model_validate(corps)
+
+
 def test_le_champ_fautif_ne_va_pas_a_lecran(cas: dict[str, Any]) -> None:
     """Le nom du champ manquant sert au développeur ; l'utilisateur lit la phrase du `code`."""
     for vu in cas["contrat_incomplet"].values():
@@ -303,16 +335,87 @@ def test_le_champ_fautif_ne_va_pas_a_lecran(cas: dict[str, Any]) -> None:
 
 
 def test_les_champs_a_valeur_par_defaut_restent_facultatifs(cas: dict[str, Any]) -> None:
-    """La lecture stricte porte sur les champs **obligatoires** de `ChatResponse` (ceux sans défaut).
-    Refuser un corps parce que `sources` est absent inventerait une exigence que le contrat n'a pas."""
+    """La lecture stricte porte sur ce que le contrat exige, et **rien de plus** : refuser un corps
+    parce que `sources` est absent inventerait une exigence que `ChatResponse` n'a pas.
+
+    Le corps témoin est validé par `ChatResponse.model_validate()` avant d'être opposé au front : la
+    borne du bas est donc un corps réellement servable, et non un corps que le harnais aurait cru
+    valide. Le précédent ne l'était pas — `found=True` sans claim et une trace sans `request_id` ni
+    `pipeline` — et la lecture du front le peignait pourtant en réponse (revue Codex 1.7, B2, tour 2).
+    """
     from server.app.api.schemas import ChatResponse
 
     obligatoires = {n for n, f in ChatResponse.model_fields.items() if f.is_required()}
     assert obligatoires == {"texte", "answer", "trace"}, obligatoires
     minimal = cas["contrat_minimal"]
-    assert minimal["texte"] == "Vous avez huit jours."
+    ChatResponse.model_validate(minimal["corps"])  # le serveur peut le servir…
+    absents = set(ChatResponse.model_fields) - set(minimal["corps"])
+    assert absents == {"segments", "sources", "fiches", "unknown", "comparateur", "via"}, absents
+    assert minimal["texte"] == "Cette question sort de ce que couvre le guide."  # … le front le lit
     assert minimal["sources"] == [] and minimal["segments"] == []
     assert minimal["via"] == "api/v1" and minimal["comparateur"] is False
+
+
+def _corps_servis() -> list[dict[str, Any]]:
+    """Trois réponses **sérialisées par le serveur lui-même** : `ChatResponse.model_dump(mode="json")`
+    est exactement ce que FastAPI écrit sur le fil pour `POST /chat`.
+
+    Les corps ne sont donc pas écrits à la main : chaque champ qu'ils portent (y compris les `null`
+    des champs optionnels) vient des modèles du domaine, montés avec leurs validateurs.
+    """
+    from server.app.api.schemas import ChatResponse, SourceItem
+    from server.app.domain.answer import (
+        AbsenceProof, Answer, AnswerSegment, ClaimStatus, VerifiedClaim, VerifiedQuote,
+    )
+    from server.app.domain.trace import Trace
+
+    texte = "Vous avez huit jours pour déclarer votre arrivée."
+    quote = VerifiedQuote(block_id="lux-guide:farrivee:2", quote="huit jours",
+                          start=0, end=10, text_start=12, text_end=22)
+    claim = VerifiedClaim(claim_id="c1", text="Le délai est de huit jours.", quotes=[quote],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:a8e8593"))
+    segment = AnswerSegment(text=texte, kind="factuel", claim_ids=["c1"])
+    source = SourceItem(block_id=quote.block_id, fiche_id="arrivee", titre="Déclarer son arrivée",
+                        url="https://guichet.public.lu/arrivee", quote=quote.quote, status="verifiee")
+    trace = Trace(request_id="r-servi", pipeline="guide", intent="question", total_cost_eur=0.0278)
+
+    sure = Answer(found=True, complete=True, texte=texte, segments=[segment], claims=[claim])
+    partielle = Answer(found=True, complete=False, texte=texte, segments=[segment], claims=[claim],
+                       unknown=["le coût exact"])
+    phrase = "Cette question sort de ce que couvre le guide."
+    refus = Answer(found=False, complete=False, texte=phrase,
+                   segments=[AnswerSegment(text=phrase, kind="limite")],
+                   reason=AbsenceProof(kind="hors_perimetre", terms_searched=["météo"],
+                                       variants_count=4, blocks_scanned=312))
+    reponses = [
+        ChatResponse(texte=sure.texte, segments=sure.segments, sources=[source], fiches=["arrivee"],
+                     unknown=[], answer=sure, trace=trace),
+        ChatResponse(texte=partielle.texte, segments=partielle.segments, sources=[source],
+                     fiches=["arrivee"], unknown=partielle.unknown, answer=partielle, trace=trace),
+        ChatResponse(texte=refus.texte, segments=refus.segments, answer=refus, trace=trace),
+    ]
+    return [r.model_dump(mode="json") for r in reponses]
+
+
+def test_le_front_lit_les_reponses_que_le_serveur_sert_vraiment(tmp_path: Path) -> None:
+    """L'autre moitié de la lecture stricte : ce que le serveur sert, le front doit le **peindre**.
+
+    Une exigence de trop et une réponse valide devient un « assistant indisponible » à l'écran —
+    panne silencieuse et symétrique de celle que la revue Codex a relevée (B2). Les corps opposés au
+    front sont sérialisés par `ChatResponse`, donc par le code même de la route.
+    """
+    corps = _corps_servis()
+    fichier = tmp_path / "corps-servis.json"
+    fichier.write_text(json.dumps(corps, ensure_ascii=False), "utf-8")
+
+    releves = _lancer(HARNAIS_CORPS, str(fichier))
+
+    assert [r["lu"] for r in releves] == [True, True, True], releves
+    sure, partielle, refus = releves
+    assert sure["etat"]["cle"] == "sur" and sure["citations_par_segment"] == [1]
+    assert sure["sources"] == ["lux-guide:farrivee:2"] and sure["via"] == "api/v1"
+    assert partielle["etat"]["cle"] == "partiel"
+    assert refus["etat"]["cle"] == "inconnu" and refus["sources"] == []
 
 
 # --- l'appariement citation ↔ segment -------------------------------------
