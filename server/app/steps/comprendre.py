@@ -28,7 +28,14 @@ from pydantic import BaseModel, model_validator
 from server.app.config import Settings
 from server.app.domain.errors import PipelineError
 from server.app.domain.profil import Profil
-from server.app.domain.question import ClarificationRequise, Intent, ParsedQuestion, QuestionScope, Turn
+from server.app.domain.question import (
+    ClarificationRequise,
+    Faits,
+    Intent,
+    ParsedQuestion,
+    QuestionScope,
+    Turn,
+)
 from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -69,20 +76,33 @@ class SortieComprendre(BaseModel):
 
 
 async def comprendre(question: str, historique: list[Turn], profil: Profil, *, client: LlmClient,
-                     budget: RequestBudget, settings: Settings,
-                     lang: str | None = None) -> tuple[ParsedQuestion | ClarificationRequise, StepTrace]:
+                     budget: RequestBudget, settings: Settings, lang: str | None = None,
+                     prompt: str = "comprendre",
+                     faits: Faits | None = None) -> tuple[ParsedQuestion | ClarificationRequise, StepTrace]:
+    """`prompt` nomme le fichier de `llm/prompts/` qui suit `commun.md` ; `faits` sont ceux du sinistre.
+
+    Story 1.8 : le sinistre réutilise l'étape telle quelle (AD-1 — la chaîne est fixe, ce sont les
+    consignes qui changent) avec `prompt="comprendre_sinistre"`. Les deux paramètres ont un défaut
+    qui **est** le guide : son préfixe et son message restent byte-identiques, et les fixtures live
+    enregistrées en 1.4/1.5/1.7 — clefées sur le contenu de la requête — se rejouent sans réseau.
+    AD-5 nomme déjà les faits du sinistre parmi les entrées de l'étape (« question + historique +
+    profil (ou `faits` du sinistre) ») ; ils sont délimités par `untrusted()` comme le reste.
+    """
     t0 = time.monotonic()
     step = StepTrace(name="comprendre", tier=STEP_TIERS["comprendre"])
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
-        "comprendre", question_min_terms=settings.question_min_terms,
+        prompt, question_min_terms=settings.question_min_terms,
         question_max_terms=settings.question_max_terms,
         question_max_facettes=settings.question_max_facettes)
-    content = "\n\n".join((
+    parts = [
         untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],
                                            ensure_ascii=False)),
         untrusted("profil", json.dumps(profil.filtered(), ensure_ascii=False, sort_keys=True)),
-        untrusted("question", question),
-    ))
+    ]
+    if faits is not None:
+        parts.append(untrusted("faits", json.dumps(faits.model_dump(), ensure_ascii=False, sort_keys=True)))
+    parts.append(untrusted("question", question))
+    content = "\n\n".join(parts)
     try:
         result = await client.parse(tier=STEP_TIERS["comprendre"], system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],

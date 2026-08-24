@@ -29,7 +29,14 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique: list[Turn], *,
                   client: LlmClient, budget: RequestBudget, index: Index, doc_id: str,
-                  settings: Settings, motif: str | None = None) -> tuple[AnswerDraft, StepTrace]:
+                  settings: Settings, motif: str | None = None,
+                  prompt: str = "rediger") -> tuple[AnswerDraft, StepTrace]:
+    """`prompt` nomme le fichier de `llm/prompts/` inséré entre `commun.md` et le sommaire.
+
+    Story 1.8 : le sinistre passe `prompt="rediger_sinistre"` — mêmes contrats d'entrée et de sortie,
+    consigne « une seule clause par affirmation » en plus (AD-6). Le défaut **est** le guide : son
+    préfixe reste byte-identique, donc cacheable (AD-9) et rejouable depuis ses fixtures live.
+    """
     t0 = time.monotonic()
     step = StepTrace(name="rediger", tier=STEP_TIERS["rediger"],
                      opened_block_ids=[b.block_id for b in retrieval.blocs])
@@ -40,7 +47,7 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # sans aucune erreur — AD-16 : jamais de dégradé silencieux.
         raise ValueError(f"blocs hors du document {doc_id!r} : {etrangers}")
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
-        "rediger", quote_min_chars=settings.quote_min_chars, quote_max_chars=settings.quote_max_chars,
+        prompt, quote_min_chars=settings.quote_min_chars, quote_max_chars=settings.quote_max_chars,
         draft_max_segments=settings.draft_max_segments, draft_max_claims=settings.draft_max_claims,
     ) + "\n\n" + index.sommaire(doc_id)
     parts = [untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],

@@ -29,6 +29,7 @@ import time
 
 from server.app.domain.answer import AbsenceProof, Answer, AnswerSegment, Verification
 from server.app.domain.trace import CheckResult, StepTrace
+from server.app.domain.verdict import Verdict
 from server.app.llm.models import STEP_TIERS
 
 # Une phrase par `AbsenceProof.kind` (AD-4). Elles ne nomment jamais un terme cherché ni un extrait :
@@ -54,12 +55,26 @@ def _texte(segments: list[AnswerSegment]) -> str:
 
 
 def restituer(*, language: str, verification: Verification | None = None,
-              reason: AbsenceProof | None = None,
-              clarification: str | None = None) -> tuple[Answer, StepTrace]:
-    """`Answer` + son `StepTrace`. `reason` est obligatoire dès que la vérification n'a rien retenu."""
+              reason: AbsenceProof | None = None, clarification: str | None = None,
+              verdict: Verdict | None = None) -> tuple[Answer, StepTrace]:
+    """`Answer` + son `StepTrace`. `reason` est obligatoire dès que la vérification n'a rien retenu.
+
+    `verdict` (story 1.8) : *restituer* **recopie**, il ne calcule pas. AD-4 fait de `Verdict` un
+    champ de l'unique `Answer` et AD-6 confie la table à *vérifier* ; ce qui arrive ici est donc soit
+    `Verification.verdict`, soit — quand le pipeline sinistre court-circuite *vérifier* (question non
+    autonome, aucun bloc citable) — le `ne_tranche_pas` que le pipeline a composé. AD-16 : « aucun
+    repli pour le sinistre » se lit aussi dans l'autre sens — un refus sinistre porte un verdict,
+    jamais rien, sans quoi le front n'aurait qu'une absence à afficher. Les deux sources sont
+    exclusives : un `Verification` qui porte déjà un verdict n'en admet pas un second.
+    """
     t0 = time.monotonic()
     step = StepTrace(name="restituer", tier=STEP_TIERS["restituer"])
     trouve = verification is not None and verification.found
+    if verdict is not None and verification is not None and verification.verdict is not None:
+        raise ValueError("restituer reçoit deux verdicts (celui de la vérification et un second) : "
+                         "un seul est calculé par requête, par *vérifier*")
+    if verification is not None and verification.verdict is not None:
+        verdict = verification.verdict
 
     if not trouve and reason is None:
         # AD-16 : un `Answer` sans réponse **et** sans preuve d'absence serait un dégradé silencieux —
@@ -75,7 +90,8 @@ def restituer(*, language: str, verification: Verification | None = None,
             found=False, complete=False, lang="fr", lang_fallback=language != "fr", texte=phrase,
             segments=[AnswerSegment(text=phrase, kind="limite")],
             rejected_claims=list(verification.rejected_claims) if verification is not None else [],
-            reason=reason, unknown=list(verification.unknown) if verification is not None else [],
+            reason=reason, verdict=verdict,
+            unknown=list(verification.unknown) if verification is not None else [],
             clarification=clarification,
         )
         step.checks.append(CheckResult(name="refus", ok=True, detail=reason.kind))
@@ -125,7 +141,7 @@ def restituer(*, language: str, verification: Verification | None = None,
     answer = Answer(
         found=True, complete=verification.complete, lang=language, lang_fallback=False,
         texte=texte, segments=segments, claims=list(verification.claims),
-        rejected_claims=list(verification.rejected_claims), reason=None,
+        rejected_claims=list(verification.rejected_claims), reason=None, verdict=verdict,
         unknown=list(verification.unknown) + [t for t in limites if t not in verification.unknown],
         clarification=clarification,
     )

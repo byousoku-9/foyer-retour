@@ -26,6 +26,7 @@ Faute de tokenizer en code pur, les tokens sont majorés par l'heuristique d'`es
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
@@ -38,8 +39,17 @@ from server.app.llm.pricing import estimate_tokens
 
 
 def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
-                           budget: RetrievalBudget, settings: Settings,
-                           doc_id: str | None = None) -> tuple[RetrievalResult, StepTrace]:
+                           budget: RetrievalBudget, settings: Settings, doc_id: str | None = None,
+                           kinds_prioritaires: Iterable[str] | None = None
+                           ) -> tuple[RetrievalResult, StepTrace]:
+    """`kinds_prioritaires` (story 1.8) : à score égal, les blocs de ces `Block.kind` passent devant.
+
+    Il ne **filtre** pas — AC du sinistre : « cherche les blocs `garantie|exclusion|condition|
+    franchise` candidats », pas « ne cherche qu'eux ». Le typage étant manuel à J+1 et ne couvrant que
+    quatre blocs du contrat, le rappel du sinistre repose encore surtout sur les termes ; c'est le
+    typage automatique (story 3.2) qui donnera son plein effet à ce départage. `None` (le guide) laisse
+    l'ordre de recherche exactement tel qu'il était.
+    """
     t0 = time.monotonic()
     # Source unique des termes cherchés (story 1.5) : l'`AbsenceProof` d'un refus « zéro hit » doit
     # nommer exactement ce que cette étape a cherché (AD-4 `terms_searched`).
@@ -54,7 +64,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return corpus.documents[index.doc_of(block_id)].block(block_id)
 
     truncated = False
-    hits = index.chercher(terms, limit=budget.search_limit, doc_id=doc_id) if terms else []
+    hits = (index.chercher(terms, limit=budget.search_limit, doc_id=doc_id,
+                           kinds_prioritaires=kinds_prioritaires) if terms else [])
 
     # Nœuds candidats par score : ordre de première apparition dans les hits (déjà triés par score,
     # puis ordre de lecture) ; la fenêtre de chaque nœud contient son meilleur hit (AD-1).

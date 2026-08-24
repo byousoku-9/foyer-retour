@@ -54,9 +54,18 @@ from server.app.domain.answer import (
 )
 from server.app.domain.document import Block
 from server.app.domain.errors import PipelineError
-from server.app.domain.question import ParsedQuestion
+from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
+from server.app.domain.verdict import (
+    KINDS_DECISIONNELS,
+    ChampsApplicabilite,
+    ClaimJugee,
+    ClauseCitee,
+    Verdict,
+    applicable_de_claim,
+    decider,
+)
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
@@ -112,6 +121,36 @@ class SortieVerifier(BaseModel):
     verdicts: list[VerdictPertinence]
     facettes: list[FacettePertinence] = []
     segments: list[VerdictSegment] = []
+
+
+class ChampsApplicabiliteRendus(BaseModel):
+    """Les quatre valeurs typées d'AD-4 pour **une** affirmation qui cite une clause décisionnelle.
+
+    Aucun champ de décision : ni `applicable`, ni `couvert`, ni `verdict`. AD-6 est explicite — « le
+    modèle n'effectue aucun calcul : il extrait des valeurs typées, le code compare ». Le seul texte
+    libre est `fait_manquant`, borné par `fait_manquant_max_chars` et jamais versé dans
+    `Answer.texte` (D8 de la spec 1.8).
+    """
+
+    claim_id: str
+    fait_requis_present: bool
+    option_requise: bool
+    cp_requise: bool
+    fait_manquant: str | None
+
+
+class SortieVerifierSinistre(SortieVerifier):
+    """Mode sinistre : le **même et unique** appel `micro` rend en plus l'applicabilité (AD-9 amendé).
+
+    Hérite de `SortieVerifier` — pertinence, phrases soutenues et couverture des facettes sont
+    exactement les mêmes questions, posées dans le même appel. La reprise différée de la story 1.5
+    demandait littéralement que les champs typés arrivent « dans le même appel, pas dans un second » :
+    un second appel `micro` de plus par requête sinistre pour des faits que le modèle a déjà sous les
+    yeux serait un coût pur (NFR4), et deux lectures indépendantes des mêmes passages pourraient se
+    contredire. Le guide, lui, garde `SortieVerifier` et son préfixe inchangés — donc ses fixtures.
+    """
+
+    applicabilite: list[ChampsApplicabiliteRendus] = []
 
 
 def _lignes_du_bloc(block: Block) -> tuple[list[tuple[int, int, str]], bool]:
@@ -258,11 +297,67 @@ def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
             + "\n".join(lignes))
 
 
+def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
+    """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
+
+    `Block.kind` (ingestion) est la seule source de typage : ni *rédiger*, ni *vérifier* n'en
+    produisent. Portée, nœud parent et socle sont pris sur le document, pas sur l'index — la table
+    d'AD-6 lit `Document.scope_nodes()`, `Document.node_of()` et `Document.node_scope_kind()`, qui
+    sont les mêmes calculs pour tous les appelants.
+    """
+    clauses: list[ClauseCitee] = []
+    for block_id in block_ids:
+        document = corpus.documents[index.doc_of(block_id)]
+        block = document.block(block_id)
+        if block.kind not in KINDS_DECISIONNELS:
+            continue  # une définition ou un paragraphe est le contexte de la clause, pas une clause
+        node_id = document.node_of(block_id)
+        clauses.append(ClauseCitee(
+            block_id=block_id, kind=block.kind, kind_confirmed=block.kind_confirmed,
+            portee=document.scope_nodes(block_id), node_id=node_id,
+            socle=document.node_scope_kind(node_id) == "commun"))
+    return clauses
+
+
+def _marquer_contradictions(jugees: list[ClaimJugee], *, corpus: Any, index: Any) -> None:
+    """AD-6 : « deux claims en `relation=contredit` non résolues ⇒ `ne_tranche_pas`, les deux passages
+    affichés ».
+
+    La relation vit sur le bloc (`Block.relation.contredit`, posée à l'ingestion) ; elle ne devient un
+    problème de verdict que quand les **deux** blocs sont cités par deux claims affichées différentes
+    — un bloc qui contredit un passage que personne ne montre ne met rien en balance sous les yeux de
+    l'utilisateur. « Non résolue » se lit littéralement : rien, dans le corpus servi à J+1, ne
+    tranche une contradiction, donc toute paire citée en est une.
+    """
+    par_bloc: dict[str, str] = {}  # block_id cité → claim_id qui le cite
+    for jugee in jugees:
+        for clause in jugee.clauses:
+            par_bloc.setdefault(clause.block_id, jugee.claim_id)
+    for jugee in jugees:
+        for clause in jugee.clauses:
+            cible = corpus.documents[index.doc_of(clause.block_id)].block(clause.block_id).relation.contredit
+            if cible is None:
+                continue
+            autre = par_bloc.get(cible)
+            if autre is not None and autre != jugee.claim_id:
+                jugee.contredit = True
+
+
 async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: RetrievalResult,
                    corpus: Any, index: Any, client: LlmClient, budget: RequestBudget,
-                   settings: Settings) -> tuple[Verification, StepTrace]:
+                   settings: Settings,
+                   faits: Faits | None = None) -> tuple[Verification, StepTrace]:
+    """`faits` non nul ⇒ **mode sinistre** (AD-6) : même étape, deux jugements de plus dans le même appel.
+
+    Ce que le mode ajoute, et rien d'autre : `verifier_sinistre.md` appendu au préfixe, un bloc
+    `untrusted("faits", …)` dans le message, le schéma `SortieVerifierSinistre`, le contrôle « une
+    clause par affirmation » (D6), la dérivation d'`applicable` et l'application de la table AD-6.
+    Le nombre d'appels ne change pas : **un** appel `micro` groupé, jamais deux (AD-9 amendé).
+    Sans `faits`, l'étape est celle du guide, à l'octet près.
+    """
     t0 = time.monotonic()
     step = StepTrace(name="verifier", tier=STEP_TIERS["verifier"])
+    sinistre = faits is not None
 
     # Blocs réellement transmis à *rédiger* : le périmètre exact de ce qui est citable (AD-1,
     # « les blocs effectivement passés au modèle »).
@@ -284,6 +379,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     retrouvees: list[tuple[Claim, list[VerifiedQuote], str]] = []
     rejetees: list[RejectedClaim] = []
     noms: dict[str, str] = {}  # `claim_id` → nom sûr pour les motifs (les `claim_id` sont uniques, AD-3)
+    clauses_par_claim: dict[str, list[ClauseCitee]] = {}  # mode sinistre : les clauses de chaque claim
     for position, claim in enumerate(draft.claims, start=1):
         noms[claim.claim_id] = _nom_de_claim(claim, position)
         du_draft = [Quote(block_id=q.block_id, quote=q.quote) for q in claim.quotes]
@@ -301,7 +397,28 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 status=ClaimStatus(retrouvee=False, pertinente=None, edition=edition),
                 rejection_kind=kind, motif=" ; ".join(c.motif for c in echecs)))
             continue
-        retrouvees.append((claim, [c.quote for c in controles if c.quote is not None], edition))
+        quotes = [c.quote for c in controles if c.quote is not None]
+        if sinistre:
+            # D6 / AD-6 : « une claim décisionnelle ne couvre qu'un **seul** `kind` ». Le contrôle est
+            # en **code** — le typage vient de l'ingestion, le modèle n'a pas à s'en mêler. Deux kinds
+            # décisionnels dans une même affirmation rendraient la table d'AD-6 indécidable : la même
+            # claim serait à la fois la garantie qu'on retient et l'exclusion qui l'écarte, avec un
+            # seul jeu de champs typés pour les deux. Le rejet est `ambigue`, donc un défaut de
+            # citation au sens d'AD-3 : il déclenche la relance unique avec un motif actionnable.
+            clauses = _clauses_citees([q.block_id for q in quotes], corpus=corpus, index=index)
+            kinds = sorted({c.kind for c in clauses})
+            if len(kinds) > 1:
+                rejetees.append(RejectedClaim(
+                    claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), status=ClaimStatus(
+                        retrouvee=True, pertinente=None, edition=edition),
+                    line_ids=[lid for q in quotes for lid in q.line_ids],
+                    rejection_kind="ambigue",
+                    motif=f"affirmation qui mêle {len(kinds)} clauses de natures différentes "
+                          f"({', '.join(kinds)}) : une seule clause par affirmation — fais-en autant "
+                          f"d'affirmations distinctes"))
+                continue
+            clauses_par_claim[claim.claim_id] = clauses
+        retrouvees.append((claim, quotes, edition))
 
     # AD-4 : **un seul** appel `micro` groupé, borné par `verifier_max_claims`. Au-delà, les claims
     # excédentaires ne sont pas évaluées — jamais devinées (`draft_max_claims` fait que le cas ne se
@@ -317,22 +434,41 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     verdicts: dict[str, bool] = {}
     couverture: dict[int, list[str]] = {}
     soutiens: dict[int, bool] = {}
+    applicabilites: dict[str, ChampsApplicabilite] = {}
     if evaluees:
         try:
-            verdicts, couverture, soutiens = await _pertinence(
+            verdicts, couverture, soutiens, applicabilites = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
-                budget=budget, settings=settings, step=step)
+                budget=budget, settings=settings, step=step, faits=faits,
+                clauses=clauses_par_claim)
         except PipelineError:
             step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
             raise
 
     claims: list[VerifiedClaim] = []
+    jugees: dict[str, ClaimJugee] = {}  # mode sinistre : ce que la table AD-6 lira des claims retenues
     manquants = 0
+    applicabilite_manquante = 0
     for claim, quotes, edition in evaluees:
         pertinente = verdicts.get(claim.claim_id)
         if pertinente is None:
             manquants += 1
-        status = ClaimStatus(retrouvee=True, pertinente=pertinente, edition=edition)
+        applicable = None
+        if sinistre:
+            # D2 : `applicable` est calculé pour **toute** claim retenue, et vaut `None` quand aucune
+            # de ses quotes ne cite un bloc décisionnel — une définition n'a pas d'applicabilité.
+            clauses = clauses_par_claim.get(claim.claim_id, [])
+            champs = applicabilites.get(claim.claim_id)
+            if clauses and champs is None:
+                applicabilite_manquante += 1
+            jugee = ClaimJugee(
+                claim_id=claim.claim_id, clauses=clauses, champs=champs, retenue=pertinente is True,
+                renvoi_ouvert=any(corpus.documents[index.doc_of(q.block_id)]
+                                  .block(q.block_id).unresolved_refs for q in quotes))
+            applicable = applicable_de_claim(jugee)
+            jugees[claim.claim_id] = jugee
+        status = ClaimStatus(retrouvee=True, pertinente=pertinente, applicable=applicable,
+                             edition=edition)
         line_ids: list[str] = []
         for q in quotes:
             line_ids += [lid for lid in q.line_ids if lid not in line_ids]
@@ -366,6 +502,14 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         step.checks.append(CheckResult(
             name="pertinence_incomplete", ok=False,
             detail=f"{manquants} affirmation(s) sur {len(evaluees)} sans verdict de pertinence : écartées"))
+    if applicabilite_manquante:
+        # AC de la story : un champ d'applicabilité non rendu pour une claim décisionnelle donne
+        # `humain` — jamais une valeur devinée — et la trace le dit. Le silence du modèle ne doit
+        # jamais ressembler à une clause sans réserve.
+        step.checks.append(CheckResult(
+            name="applicabilite_incomplete", ok=False,
+            detail=f"{applicabilite_manquante} affirmation(s) citant une clause décisionnelle sans "
+                   "champs typés d'applicabilité : traitées comme `humain`"))
     if any(not b.lignes_completes for b in blocs_prepares.values()):
         # B7 : une ligne du bloc introuvable dans son propre texte brut — le surlignage serait partiel.
         step.checks.append(CheckResult(
@@ -430,6 +574,18 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             name="claims_non_citees", ok=False,
             detail=f"{len(orphelines)} affirmation(s) vérifiée(s) qu'aucun segment factuel n'affiche : écartée(s)"))
 
+    # AD-6 / D4 : le verdict porte sur les claims **affichées**, donc après le filtre `non_citee`
+    # ci-dessus. Un verdict adossé à une clause que l'utilisateur ne voit pas contredirait « rien
+    # d'affiché sans preuve » — et AD-4 vient précisément de sortir cette claim de `claims[]`.
+    verdict: Verdict | None = None
+    if sinistre:
+        affichables = [jugees[c.claim_id] for c in claims if c.claim_id in jugees]
+        _marquer_contradictions(affichables, corpus=corpus, index=index)
+        verdict = decider(affichables, ask_client_max=settings.ask_client_max)
+        step.checks.append(CheckResult(
+            name="verdict", ok=verdict.value != "ne_tranche_pas",
+            detail=f"{verdict.value} sur {len(affichables)} affirmation(s) affichée(s)"))
+
     # AD-4 : `found` et `complete` sont calculés **ici**, jamais produits par le modèle.
     found = bool(claims)
     cites = {q.block_id for c in claims for q in c.quotes}
@@ -460,7 +616,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
     verification = Verification(
         segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,
-        complete=complete, unknown=unknown, facettes_couvertes=facettes_couvertes,
+        complete=complete, unknown=unknown, facettes_couvertes=facettes_couvertes, verdict=verdict,
         motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
     )
     step.checks.append(CheckResult(
@@ -472,16 +628,32 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
 async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *, parsed: ParsedQuestion,
                       segments: list[tuple[int, AnswerSegment]], corpus: Any, index: Any,
-                      client: LlmClient, budget: RequestBudget, settings: Settings,
-                      step: StepTrace) -> tuple[dict[str, bool], dict[int, list[str]], dict[int, bool]]:
-    """L'unique appel `micro` groupé : un booléen par `claim_id`, un par phrase affichée, la couverture.
+                      client: LlmClient, budget: RequestBudget, settings: Settings, step: StepTrace,
+                      faits: Faits | None = None,
+                      clauses: dict[str, list[ClauseCitee]] | None = None,
+                      ) -> tuple[dict[str, bool], dict[int, list[str]], dict[int, bool],
+                                 dict[str, ChampsApplicabilite]]:
+    """L'unique appel `micro` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
 
-    Les trois sortent du **même** appel (AD-4 : « un seul appel `micro` groupé ») : la couverture des
-    facettes et le contrôle des phrases affichées ne coûtent rien de plus que le texte des segments —
-    quelques dizaines de tokens — et **aucun** appel supplémentaire.
+    Tout sort du **même** appel (AD-9 amendé : « un seul appel groupé, qui rend pertinence, phrases
+    soutenues, couverture des facettes **et** champs typés d'applicabilité. Jamais un second appel »).
+    Les quelques dizaines de tokens des segments et des faits déclarés ne justifient pas un appel de
+    plus, et deux lectures séparées des mêmes passages pourraient se contredire.
+
+    En mode sinistre, le préfixe **appende** `verifier_sinistre.md` à celui du guide et le schéma
+    devient `SortieVerifierSinistre` : le préfixe du guide reste byte-identique, donc ses fixtures
+    live rejouables (D5).
     """
+    sinistre = faits is not None
+    clauses = clauses or {}
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
+    if sinistre:
+        prefix += "\n\n" + load_prompt("verifier_sinistre")
     parts = [untrusted("question", parsed.question_resolue)]
+    if faits is not None:
+        # AD-15 : les faits déclarés sont du contenu utilisateur — délimités, placés après le préfixe.
+        parts.append(untrusted("faits", json.dumps(faits.model_dump(), ensure_ascii=False,
+                                                   sort_keys=True)))
     for rang, libelle in enumerate(parsed.facettes):
         # Le découpage vient de *comprendre* : il est **donné** au contrôle, numéroté par notre code.
         # Le contrôle n'a plus qu'à dire qui y répond — il ne peut plus faire disparaître une
@@ -498,9 +670,15 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         for q in quotes:
             block = corpus.documents[index.doc_of(q.block_id)].block(q.block_id)
             citations.append({"block_id": q.block_id, "passage": block.text_norm[q.start:q.end]})
-        parts.append(untrusted("claim", json.dumps(
-            {"claim_id": claim.claim_id, "affirmation": claim.text, "citations": citations},
-            ensure_ascii=False)))
+        charge: dict[str, Any] = {"claim_id": claim.claim_id, "affirmation": claim.text,
+                                  "citations": citations}
+        clauses_de_la_claim = clauses.get(claim.claim_id, [])
+        if clauses_de_la_claim:
+            # Le `kind` vient de l'ingestion, jamais du modèle (AD-6) : on le lui **dit**, pour qu'il
+            # sache de quelle affirmation on attend des champs typés — et il n'y en a qu'un, le
+            # contrôle « une clause par affirmation » l'a déjà garanti (D6).
+            charge["clause"] = clauses_de_la_claim[0].kind
+        parts.append(untrusted("claim", json.dumps(charge, ensure_ascii=False)))
     for position, segment in segments:
         # Le texte du segment vient du modèle : il est délimité comme tout le reste (AD-15). C'est
         # bien le texte **affiché** qui est soumis, pas `Claim.text` : le premier peut dire autre
@@ -512,7 +690,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     try:
         result = await client.parse(tier=STEP_TIERS["verifier"], system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
-                                    output_model=SortieVerifier, budget=budget, step=step,
+                                    output_model=SortieVerifierSinistre if sinistre else SortieVerifier,
+                                    budget=budget, step=step,
                                     max_tokens=settings.verifier_max_tokens)
     except PipelineError as exc:
         # AD-10/AD-16 (revue Codex 1.5, tour 2, B5) : l'appel a pu être facturé — `step.calls` le
@@ -563,4 +742,36 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 detail="deux verdicts opposés pour une même phrase : elle n'est pas affichée"))
             continue
         soutiens.setdefault(s.segment, s.soutenu)
-    return verdicts, couverture, soutiens
+
+    # Champs typés d'applicabilité (mode sinistre). Mêmes garde-fous que pour les verdicts : un
+    # `claim_id` inventé ne décide de rien, une affirmation sans clause décisionnelle n'a pas
+    # d'applicabilité à recevoir, et deux réponses pour la même affirmation ne s'arbitrent pas par
+    # l'ordre d'arrivée — elles sont **écartées**, ce qui rendra `humain` (jamais deviné).
+    applicabilites: dict[str, ChampsApplicabilite] = {}
+    if sinistre and isinstance(result.parsed, SortieVerifierSinistre):
+        doublons: set[str] = set()
+        for a in result.parsed.applicabilite:
+            if a.claim_id not in attendus or not clauses.get(a.claim_id):
+                continue
+            if a.claim_id in applicabilites or a.claim_id in doublons:
+                applicabilites.pop(a.claim_id, None)
+                doublons.add(a.claim_id)
+                step.checks.append(CheckResult(
+                    name="applicabilite_contradictoire", ok=False,
+                    detail="deux jeux de champs typés pour une même affirmation : elle est traitée "
+                           "comme `humain`"))
+                continue
+            libelle = (a.fait_manquant or "").strip()
+            if len(libelle) > settings.fait_manquant_max_chars:
+                # D8 : le libellé est le **seul** texte du modèle que l'utilisateur lira. Hors borne,
+                # il est ignoré — jamais tronqué : une demi-phrase de fait manquant induit en erreur
+                # plus sûrement qu'un fait tu. La claim reste `humain` par `fait_requis_present`.
+                step.checks.append(CheckResult(
+                    name="fait_manquant_hors_borne", ok=False,
+                    detail=f"un libellé de fait manquant dépasse {settings.fait_manquant_max_chars} "
+                           "caractères : il est ignoré (l'affirmation reste incertaine)"))
+                libelle = ""
+            applicabilites[a.claim_id] = ChampsApplicabilite(
+                fait_requis_present=a.fait_requis_present, option_requise=a.option_requise,
+                cp_requise=a.cp_requise, fait_manquant=libelle or None)
+    return verdicts, couverture, soutiens, applicabilites

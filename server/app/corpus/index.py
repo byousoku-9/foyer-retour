@@ -114,8 +114,17 @@ class Index:
                           next_cursor=end if end < len(block_ids) else None)
 
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
-                 doc_id: str | None = None) -> list[tuple[str, str]]:
-        """Correspondance mot entier sur `text_norm` ; tri par nb de termes canoniques distincts touchés, puis lecture."""
+                 doc_id: str | None = None,
+                 kinds_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
+        """Correspondance mot entier sur `text_norm` ; tri par nb de termes canoniques distincts touchés, puis lecture.
+
+        `kinds_prioritaires` (story 1.8) ne **filtre** rien : à score égal, un bloc dont le `Block.kind`
+        y figure passe devant les autres. Le départage vit ici et non dans *retrouver* parce que le
+        score — le nombre de termes canoniques distincts touchés — n'existe qu'ici : rendu au seul
+        ordre des hits, il serait indevinable, et un tri par kind seul remonterait un bloc décisionnel
+        anecdotique devant le paragraphe qui répond vraiment. Le pipeline sinistre y passe les quatre
+        kinds décisionnels d'AD-6 ; le guide ne passe rien et son ordre de recherche est inchangé.
+        """
         if limit < 1:
             raise ValueError("limit doit être ≥ 1")
         if isinstance(termes, str):
@@ -134,15 +143,17 @@ class Index:
             groups.append(sorted(forms))
         if not groups:
             return []
-        scored: list[tuple[int, int, str, str]] = []
+        prioritaires = frozenset(kinds_prioritaires or ())
+        scored: list[tuple[int, int, int, str, str]] = []
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
                 continue
             score = sum(1 for forms in groups if any(self._hit(e, f) for f in forms))
             if score:
-                scored.append((-score, e.rank, e.block.block_id, e.node_id))
+                rang_kind = 0 if e.block.kind in prioritaires else 1
+                scored.append((-score, rang_kind, e.rank, e.block.block_id, e.node_id))
         scored.sort()
-        return [(b, n) for _, _, b, n in scored[:limit]]
+        return [(b, n) for _, _, _, b, n in scored[:limit]]
 
     @staticmethod
     def _hit(e: _Entry, form: str) -> bool:
