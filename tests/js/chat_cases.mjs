@@ -39,7 +39,7 @@ function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = 
  * @param {string} href      l'URL de la page servie (donne `window.location.origin`)
  * @param {Function} repondre  le double de `fetch` : (url, options) → Response doublée
  */
-function chargerChat(href, repondre) {
+function chargerChat(href, repondre, { minuteurs = null } = {}) {
   const appels = [];
   const fetchDouble = (url, options) => {
     appels.push({ url, options: options || {} });
@@ -51,8 +51,19 @@ function chargerChat(href, repondre) {
       return Promise.reject(e);
     }
   };
+  // Le JSON du harnais sort sur **stdout** : un `console.log` laissé dans `chat.js` le corromprait
+  // silencieusement. Le `console` du bac à sable écrit donc sur stderr, où il est visible sans
+  // casser le contrat de sortie.
+  const journal = new console.Console(process.stderr, process.stderr);
   const window = { location: new URL(href), fetch: fetchDouble };
-  const bac = { window, fetch: fetchDouble, console, URL };
+  const bac = {
+    window, fetch: fetchDouble, console: journal, URL,
+    // `chat.js` borne ses requêtes (AbortController + setTimeout) : le bac à sable est un realm
+    // neuf, il n'hérite d'aucun global de Node.
+    setTimeout: minuteurs ? minuteurs.setTimeout : setTimeout,
+    clearTimeout: minuteurs ? minuteurs.clearTimeout : clearTimeout,
+    AbortController,
+  };
   bac.globalThis = bac;
   vm.createContext(bac);
   for (const fichier of ["web/app/kb.js", "web/app/chat.js"]) {
@@ -160,6 +171,68 @@ function refus() {
   };
 }
 
+/** Tous les nœuds d'un arbre de vue, à plat, dans l'ordre du document. */
+function noeuds(vue) {
+  if (!vue) return [];
+  return [vue].concat((vue.enfants || []).flatMap(noeuds));
+}
+
+/** Les nœuds d'une classe donnée (la classe est un mot de `cls`). */
+function parClasse(vue, cls) {
+  return noeuds(vue).filter((n) => (n.cls || "").split(" ").indexOf(cls) !== -1);
+}
+
+/** Toutes les actions décrites par l'arbre, dans l'ordre. */
+function actions(vue) {
+  return noeuds(vue).filter((n) => n.action).map((n) => n.action);
+}
+
+/** Le texte d'un nœud de classe donnée, ou null. */
+function texteDe(vue, cls) {
+  const n = parClasse(vue, cls)[0];
+  return n ? (n.texte !== undefined ? n.texte : null) : null;
+}
+
+/**
+ * Résumé assertable d'une vue de réponse : ce que l'AC promet, et rien d'autre.
+ * Chaque segment avec ses citations placées, la preuve, les inconnus, l'état, le coût, les actions.
+ */
+function resumerVue(vue) {
+  return {
+    cls_racine: vue.cls,
+    clarification: texteDe(vue, "clarif-q"),
+    ordre_des_blocs: (vue.enfants || []).map((n) => n.cls),
+    segments: parClasse(vue, "seg").map((seg) => ({
+      factuel: (seg.cls || "").split(" ").indexOf("seg-factuel") !== -1,
+      texte: texteDe(seg, "seg-txt"),
+      citations: parClasse(seg, "cite").map((c) => ({
+        quote: texteDe(c, "cite-q"),
+        fiche: texteDe(c, "cite-fiche"),
+        fiche_texte: texteDe(c, "cite-fiche-txt"),
+        lien: (parClasse(c, "cite-lien")[0] || {}).href || null,
+        statut: texteDe(c, "cite-statut"),
+      })),
+    })),
+    degrade: texteDe(vue, "degrade"),
+    citations_plates: parClasse(vue, "cites")
+      .filter((box) => !parClasse(vue, "seg").some((seg) => noeuds(seg).indexOf(box) !== -1))
+      .flatMap((box) => parClasse(box, "cite").map((c) => ({
+        quote: texteDe(c, "cite-q"), statut: texteDe(c, "cite-statut"),
+      }))),
+    preuve: texteDe(vue, "preuve"),
+    inconnus: parClasse(vue, "inconnu").flatMap(
+      (b) => noeuds(b).filter((n) => n.tag === "li").map((n) => n.texte)),
+    etat: (parClasse(vue, "etat")[0] || {}).cls || null,
+    etat_texte: texteDe(vue, "etat"),
+    cout: texteDe(vue, "cout"),
+    sans_verification: texteDe(vue, "sans-verif"),
+    attente: texteDe(vue, "attente-txt"),
+    actions: actions(vue),
+    tags_porteurs_de_texte: [...new Set(noeuds(vue).filter((n) => n.texte !== undefined)
+      .map((n) => n.tag))].sort(),
+  };
+}
+
 /** Sérialisation lisible en Python de ce que `citationsParSegment()` a rendu. */
 function aplatir(parSegment) {
   if (parSegment === null) return null;
@@ -226,9 +299,15 @@ async function main() {
 
   // --- la lecture stricte du contrat -------------------------------------
   {
-    const { CHAT, compteur } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+    let statutVu = null;
+    const { CHAT, compteur } = chargerChat(PAGE, () => {
+      const rep = reponseHttp({ corps: reponseSourcee() });
+      statutVu = rep.status;
+      return rep;
+    });
     compteur.lectures = 0;
     const r = await CHAT.repondre(QUESTION, PROFIL, []);
+    cas.statut_http_nominal = statutVu;
     cas.reponse_lue = {
       texte: r.texte,
       segments: r.segments.map((s) => ({ text: s.text, kind: s.kind, claim_ids: s.claim_ids })),
@@ -483,6 +562,169 @@ async function main() {
       absent: CHAT.etatReponse(null),
     };
     cas.exporte = Object.keys(CHAT).sort();
+  }
+
+  // --- ce que l'UI peindra : les arbres de vue -------------------------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+    const Q = QUESTION;
+
+    cas.vue_attente = resumerVue(CHAT.vueAttente());
+
+    const nominale = reponseSourcee();
+    cas.vue_nominale = resumerVue(CHAT.vueReponse(nominale, Q));
+
+    const partielle = reponseSourcee();
+    partielle.answer.complete = false;
+    partielle.answer.unknown = ["montant exact", "délai de recours"];
+    partielle.unknown = partielle.answer.unknown;
+    cas.vue_partielle = resumerVue(CHAT.vueReponse(partielle, Q));
+
+    cas.vue_refus = resumerVue(CHAT.vueReponse(refus(), "Quel temps fera-t-il ?"));
+
+    const clar = refus();
+    clar.answer.reason.kind = "clarification_requise";
+    clar.answer.reason.terms_searched = [];
+    clar.answer.reason.variants_count = 0;
+    clar.answer.reason.blocks_scanned = 0;
+    clar.answer.clarification = "Parlez-vous du bail de votre logement ou de votre contrat de travail ?";
+    cas.vue_clarification = resumerVue(CHAT.vueReponse(clar, "Et celui-là ?"));
+
+    // Appariement abandonné (un segment cite une claim absente) : les `block_id` sont intacts, donc
+    // le mode dégradé doit rendre les citations **et** leurs statuts — c'est là qu'on en dit le
+    // moins, ce serait le pire endroit où taire la réserve d'actualité.
+    const degradee = reponseSourcee();
+    degradee.answer.segments[1] = { ...degradee.answer.segments[1], claim_ids: ["c9"] };
+    cas.vue_degradee = resumerVue(CHAT.vueReponse(degradee, Q));
+
+    // `answer.segments` vide alors que `segments[]` de premier niveau ne l'est pas.
+    const sansSegmentsDansAnswer = reponseSourcee();
+    sansSegmentsDansAnswer.answer.segments = [];
+    cas.vue_segments_premier_niveau = resumerVue(CHAT.vueReponse(sansSegmentsDansAnswer, Q));
+
+    // `fiche_id` que `kb.js` ne connaît pas : titre en texte, pas un bouton qui ouvrirait la liste.
+    const ficheInconnue = reponseSourcee();
+    ficheInconnue.sources = ficheInconnue.sources.map((s) => ({ ...s, fiche_id: "fiche_disparue" }));
+    ficheInconnue.fiches = ["fiche_disparue"];
+    cas.vue_fiche_inconnue = resumerVue(CHAT.vueReponse(ficheInconnue, Q));
+
+    // Édition vide : la réserve d'actualité reste due (AD-4).
+    const sansEdition = reponseSourcee();
+    sansEdition.answer.claims = sansEdition.answer.claims.map((c) => ({
+      ...c, status: { ...c.status, edition: "" } }));
+    cas.vue_sans_edition = resumerVue(CHAT.vueReponse(sansEdition, Q));
+
+    const compar = reponseSourcee();
+    compar.comparateur = true;
+    cas.vue_comparateur = resumerVue(CHAT.vueReponse(compar, Q));
+
+    cas.vue_locale = resumerVue(CHAT.vueReponseLocale(CHAT.rechercheSimple(Q, PROFIL), Q));
+
+    const err = (kind, code, extra = {}) => ({ kind, code, request_id: "req-1", ...extra });
+    cas.vue_erreur_503 = resumerVue(CHAT.vueErreur(err("indisponible", "llm_unavailable"), Q));
+    cas.vue_erreur_reseau = resumerVue(CHAT.vueErreur(err("indisponible", "reseau"), Q));
+    cas.vue_erreur_400 = resumerVue(CHAT.vueErreur(err("requete", "invalid_request"), Q));
+    cas.vue_erreur_429 = resumerVue(
+      CHAT.vueErreur(err("requete", "rate_limited", { retry_after: 60 }), Q));
+    cas.vue_erreur_500 = resumerVue(CHAT.vueErreur(err("requete", "internal"), Q));
+    cas.vue_erreur_sans_request_id = resumerVue(
+      CHAT.vueErreur({ kind: "requete", code: "internal" }, Q));
+    cas.mode_apres_erreur = {
+      indisponible: CHAT.modeApresErreur({ kind: "indisponible" }),
+      requete: CHAT.modeApresErreur({ kind: "requete" }),
+      aucune: CHAT.modeApresErreur(null),
+    };
+  }
+
+  // --- l'historique n'emporte pas ce que la recherche simple a dit -------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+    const avecLocal = [
+      { role: "user", content: "Quel délai pour déclarer mon arrivée ?" },
+      { role: "assistant", content: "Réponse lexicale du guide, non vérifiée.", local: true },
+      { role: "user", content: "Et pour l'école ?" },
+      { role: "assistant", content: "Réponse vérifiée du serveur." },
+    ];
+    cas.historique_tour_local = CHAT.historiquePourApi(avecLocal, "Et ensuite ?");
+
+    // Un tour surdimensionné au **milieu** : on garde la queue contiguë, jamais un trou.
+    const troue = [
+      { role: "user", content: "tour 1" },
+      { role: "assistant", content: "tour 2" },
+      { role: "user", content: "tour 3" },
+      { role: "assistant", content: "z".repeat(2400) },
+      { role: "user", content: "tour 5" },
+      { role: "assistant", content: "tour 6" },
+    ];
+    cas.historique_queue_contigue = CHAT.historiquePourApi(troue, "autre chose");
+
+    // Deux trous : seule la queue qui suit le **dernier** est envoyée.
+    const deuxTrous = [
+      { role: "user", content: "tour 1" },
+      { role: "assistant", content: "y".repeat(2400) },
+      { role: "user", content: "tour 3" },
+      { role: "assistant", content: "réponse locale", local: true },
+      { role: "user", content: "tour 5" },
+    ];
+    cas.historique_deux_trous = CHAT.historiquePourApi(deuxTrous, "autre chose");
+    cas.historique_max_explicite = CHAT.historiquePourApi(
+      [1, 2, 3, 4, 5].map((i) => ({ role: "user", content: "t" + i })), "q", 2);
+  }
+
+  // --- les bornes viennent du serveur, pas d'une copie ------------------
+  {
+    const { CHAT } = chargerChat(PAGE, (url) => (String(url).endsWith("/sante")
+      ? reponseHttp({ corps: { ok: true, version: "abc", documents_servis: ["lux-guide"],
+                               thresholds: { historique_max_turns: 3, deadline_s: 20 } } })
+      : reponseHttp({ corps: reponseSourcee() })));
+    cas.bornes_avant_sonde = CHAT.bornes();
+    await CHAT.testerApi();
+    cas.bornes_apres_sonde = CHAT.bornes();
+    const dix = [1,2,3,4,5,6,7,8,9,10].map((i) => ({ role: "user", content: "tour " + i }));
+    cas.historique_borne_par_le_serveur = CHAT.historiquePourApi(dix, "q").length;
+  }
+
+  // --- le questionnaire du site et le filtre du serveur ------------------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+    cas.champs_du_questionnaire = CHAT.CHAMPS.map((c) => c.cle);
+  }
+
+  // --- une requête qui pend est abandonnée, et c'est une indisponibilité --
+  {
+    const poses = [];
+    const minuteurs = {
+      setTimeout: (fn, ms) => { poses.push({ fn, ms, annule: false }); return poses.length; },
+      clearTimeout: (n) => { if (poses[n - 1]) poses[n - 1].annule = true; },
+    };
+    const { CHAT } = chargerChat(PAGE, (url, options) => new Promise((_, rej) => {
+      // `fetch` ne résout jamais ; seul l'abandon met fin à l'attente.
+      options.signal.addEventListener("abort", () => rej(new Error("abandon")));
+    }), { minuteurs });
+    const promesse = CHAT.repondre(QUESTION, PROFIL, []);
+    cas.abandon_delai_pose_ms = poses.length ? poses[0].ms : null;
+    poses.filter((p) => !p.annule).forEach((p) => p.fn());
+    let erreur = null;
+    try { await promesse; } catch (e) { erreur = e; }
+    cas.abandon = {
+      kind: erreur && erreur.kind, code: erreur && erreur.code,
+      message: CHAT.messageErreur(erreur),
+    };
+  }
+
+  // --- page ouverte en file:// : rien à sonder, rien à poster ------------
+  {
+    const { CHAT, appels } = chargerChat("file:///Users/quelquun/web/index.html",
+      () => reponseHttp({ corps: reponseSourcee() }));
+    cas.hors_ligne_origine = CHAT.apiBase();
+    cas.hors_ligne_sonde = await CHAT.testerApi();
+    let erreur = null;
+    try { await CHAT.repondre(QUESTION, PROFIL, []); } catch (e) { erreur = e; }
+    cas.hors_ligne = {
+      kind: erreur && erreur.kind, code: erreur && erreur.code,
+      message: CHAT.messageErreur(erreur),
+      appels_reseau: appels.length,
+    };
   }
 
   return cas;
