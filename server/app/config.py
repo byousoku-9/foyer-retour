@@ -35,9 +35,13 @@ class Settings(BaseSettings):
     ungated_demande_en_prod: bool = False
     anthropic_api_key: str = ""
     usd_eur: float = Field(0.92, gt=0)
-    # AD-11 : `GET /api/v1/sante` publie `version: sha7`. Injecté dans l'image par le build
-    # (`ARG GIT_SHA` → `ENV GIT_SHA` du Dockerfile) ; `dev` hors conteneur. Ce n'est pas un seuil
-    # numérique : il n'entre pas dans `thresholds()`.
+    # AD-11 : `GET /api/v1/sante` publie `version: sha7`. En production, il vient de la
+    # **configuration du service** Cloud Run — `deploy.yml` pose `GIT_SHA=<sha7>`, ce que
+    # `gcloud run deploy --source` sait faire alors qu'il n'accepte aucun `--build-arg` —, et cette
+    # variable recouvre le `ENV GIT_SHA` que le `Dockerfile` laisse à `dev`. Hors conteneur, `dev`.
+    # C'est cette valeur que le smoke de déploiement compare au SHA du commit qui l'a déclenché : sans
+    # elle, il mesurerait une révision qu'il n'a pas construite. Ce n'est pas un seuil numérique : il
+    # n'entre pas dans `thresholds()`.
     git_sha: str = "dev"
 
     # Temps (AD-1, AD-9)

@@ -18,8 +18,13 @@ COPY tools ./tools
 
 RUN uv run --no-sync python -m server.ingest.fetch_source --all
 
-# AD-11 : `/api/v1/sante` publie `version: sha7`. Le build l'injecte (`--build-arg GIT_SHA=$(git rev-parse --short HEAD)`,
-# posé par `deploy.yml` en story 1.11) ; à défaut, `config.py` retombe sur `dev`.
+# AD-11 : `/api/v1/sante` publie `version: sha7`. **Ce n'est pas ce `ARG` qui le porte en production**
+# (story 1.11) : `gcloud run deploy --source`, qui construit l'image, n'accepte aucun `--build-arg`,
+# et `deploy.yml` pose donc `GIT_SHA=<sha7>` en **variable d'environnement du service** — laquelle
+# recouvre le `ENV` de l'image au démarrage du conteneur. Le chemin est même meilleur : il permet de
+# re-marquer une révision sans reconstruire, et `env_vars_update_strategy: overwrite` en fait
+# l'autorité. Le `ARG` reste pour qui construit l'image à la main (`docker build --build-arg …`) ;
+# à défaut de l'un comme de l'autre, `config.py` retombe sur `dev`.
 ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
 
