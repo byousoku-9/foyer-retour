@@ -155,6 +155,19 @@ class LlmClient:
             anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=0)
         self._anthropic = anthropic_client
 
+    async def aclose(self) -> None:
+        """Ferme le pool de connexions du SDK. Appelé par le `lifespan` de l'API, à l'arrêt.
+
+        Tolérant : un double fourni par les tests n'a pas forcément de `close`, et un client déjà
+        fermé ne doit pas faire échouer un arrêt.
+        """
+        fermer = getattr(self._anthropic, "close", None)
+        if fermer is None:
+            return
+        resultat = fermer()
+        if hasattr(resultat, "__await__"):
+            await resultat
+
     def new_budget(self) -> RequestBudget:
         """Budget d'une requête, réglé sur les seuils actifs (AD-9 : deadline, appels, euros).
 

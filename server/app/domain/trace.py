@@ -48,6 +48,13 @@ class Trace(DomainModel):
     request_id: str
     pipeline: str
     variant: str = "deterministe"
+    # AD-10 : « les logs portent, par requête, `intent`, `found`, `verdict.value`, `reason.kind`,
+    # `variants_count`, `blocks_scanned` et `cost_eur` ». Tous ces champs se lisent sur la réponse,
+    # sauf `intent` : il est produit par *comprendre*, à l'intérieur du pipeline, et n'apparaît nulle
+    # part dans `Answer`. Seule la trace peut le remonter jusqu'à l'API sans lui faire rouvrir une
+    # étape. `None` quand *comprendre* n'a pas abouti (échec avant, ou pendant, son appel) : le log
+    # dira alors qu'il n'y a pas eu d'intention comprise, plutôt que d'en inventer une.
+    intent: str | None = None
     steps: list[StepTrace] = Field(default_factory=list)
     total_cost_eur: float = 0.0
     source_hash: dict[str, str] = Field(default_factory=dict)  # par doc_id

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     allow_ungated: bool | None = None
     anthropic_api_key: str = ""
     usd_eur: float = Field(0.92, gt=0)
+    # AD-11 : `GET /api/v1/sante` publie `version: sha7`. Injecté dans l'image par le build
+    # (`ARG GIT_SHA` → `ENV GIT_SHA` du Dockerfile) ; `dev` hors conteneur. Ce n'est pas un seuil
+    # numérique : il n'entre pas dans `thresholds()`.
+    git_sha: str = "dev"
 
     # Temps (AD-1, AD-9)
     deadline_s: float = Field(55.0, gt=0)
@@ -119,6 +123,25 @@ class Settings(BaseSettings):
     # Limiteur best-effort par instance (AD-13)
     rate_limit_per_minute: int = Field(10, ge=1)
     rate_limit_per_day: int = Field(100, ge=1)
+    # Story 1.6 — nombre maximal d'identités clientes suivies simultanément par le limiteur. Le
+    # limiteur vit en mémoire de process (AD-13 : best-effort par instance) ; sans borne, une adresse
+    # forgée par requête ferait grossir la table jusqu'à la mémoire du conteneur. Au-delà, la plus
+    # ancienne identité vue est évincée — elle repart donc à zéro, ce qui est la limite assumée d'un
+    # limiteur best-effort. 4 096 identités ≈ quelques centaines de ko, très au-dessus du trafic
+    # d'une démonstration servie par une seule instance.
+    rate_limit_max_clients: int = Field(4096, ge=1)
+    # Borne haute du `Retry-After` annoncé sur un 429 (AD-13). La valeur exacte serait le temps
+    # restant de la fenêtre dépassée ; sur la fenêtre **journalière**, cela peut faire des heures, et
+    # annoncer 80 000 s n'aide personne. On annonce donc au plus `retry_after_s` : le client revient
+    # à un rythme raisonnable et reçoit un nouveau 429 tant que sa fenêtre n'est pas retombée —
+    # `Retry-After` est une indication, pas une promesse.
+    retry_after_s: int = Field(60, ge=1)
+    # Story 1.6 — taille maximale du corps HTTP accepté (AD-16 `413 input_too_long`), vérifiée sur
+    # `Content-Length` **avant** toute lecture du corps. Le contrat d'AD-11 tient très en dessous :
+    # question ≤ 1 000 caractères + 6 tours ≤ 2 000 + profil, soit ≤ 13 000 caractères ≈ 52 ko en
+    # pire cas UTF-8 sur quatre octets. 65 536 laisse la marge du JSON (guillemets, échappements)
+    # sans ouvrir la porte à un corps que le serveur lirait entièrement pour rien.
+    request_max_bytes: int = Field(65536, ge=1)
 
     # Ingestion (AD-8)
     coverage_threshold: float = Field(0.8, ge=0, le=1)
@@ -216,6 +239,9 @@ class Settings(BaseSettings):
             "summary_max_level": self.summary_max_level,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "rate_limit_per_day": self.rate_limit_per_day,
+            "rate_limit_max_clients": self.rate_limit_max_clients,
+            "retry_after_s": self.retry_after_s,
+            "request_max_bytes": self.request_max_bytes,
             "coverage_threshold": self.coverage_threshold,
             "kind_confidence_min": self.kind_confidence_min,
             "header_band_pt": self.header_band_pt,

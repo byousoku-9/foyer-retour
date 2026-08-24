@@ -1,0 +1,126 @@
+"""AD-16 — L'enveloppe d'erreur, fabriquée à un seul endroit.
+
+« Chaque route inventant ses codes » est précisément ce qu'AD-16 empêche : les codes sont l'`Enum`
+de `domain/errors.py`, les statuts sa table `HTTP_STATUS`, et l'enveloppe
+`{error: {code, message, request_id}, trace?}` est construite ici, par `envelope()`. Aucune route
+n'écrit de `JSONResponse` d'erreur, aucune ne choisit un statut.
+
+Trois gestionnaires suffisent à couvrir tout ce qui peut sortir de l'application :
+
+- `RequestValidationError` (pydantic, 422 par défaut de FastAPI) ⇒ **400 `invalid_request`** — AD-16
+  le demande mot pour mot (« un handler `RequestValidationError` convertit les 422 Pydantic ») ;
+- `PipelineError` ⇒ `HTTP_STATUS[code]`, avec la `Trace` partielle si l'erreur en porte une ;
+- `HTTPException` ⇒ le code d'AD-16 qui correspond au statut, **quand il en existe un**. Un 404 ou
+  un 405 n'ont pas de code dans l'`Enum` : leur inventer un serait exactement ce qu'AD-16 interdit,
+  et un fichier statique manquant doit rester un 404 nu (« 404 statique nu »). Ces statuts sortent
+  donc en texte brut.
+
+L'erreur inattendue (`Exception` ⇒ 500 `internal`) est rendue par `reponse_interne()`, appelée par
+le middleware de `request_id.py` : c'est le seul endroit qui soit **à l'intérieur** de notre
+middleware, donc le seul dont la réponse porte `X-Request-Id` et entre dans la ligne de log (AD-10).
+Le `ServerErrorMiddleware` de Starlette, lui, est au-dessus de tout et n'en saurait rien.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+
+from server.app.domain.errors import HTTP_STATUS, ErrorBody, ErrorCode, ErrorEnvelope, PipelineError
+from server.app.domain.trace import Trace
+
+# Message rendu sur une erreur inattendue : générique, toujours le même. AD-16 veut un échec
+# terminal explicite, pas une trace technique publiée — le détail part dans le log serveur.
+MESSAGE_INTERNE = "erreur interne du serveur"
+
+# Statut HTTP → code d'AD-16, pour les `HTTPException` que Starlette lève sans passer par nous.
+# Seuls les statuts dont `HTTP_STATUS` donne **un seul** code y figurent. 503 en est absent
+# volontairement : cinq codes d'AD-16 y mènent (`llm_unavailable`, `llm_parse`, `timeout`,
+# `budget_exceeded`, `corpus_unavailable`) et en choisir un ferait passer pour une panne du
+# fournisseur de modèle un 503 levé par n'importe quel composant — inventer un code, ce qu'AD-16
+# interdit. Nos propres 503 passent par `PipelineError`, qui porte son code avec lui.
+_CODE_PAR_STATUT: dict[int, ErrorCode] = {
+    400: ErrorCode.invalid_request,
+    413: ErrorCode.input_too_long,
+    429: ErrorCode.rate_limited,
+    500: ErrorCode.internal,
+}
+
+
+def envelope(code: ErrorCode, message: str, request_id: str, *, trace: Trace | None = None,
+             headers: dict[str, str] | None = None) -> JSONResponse:
+    """L'unique enveloppe d'erreur (AD-16). Le statut vient de `HTTP_STATUS`, jamais de l'appelant."""
+    corps = ErrorEnvelope(error=ErrorBody(code=code, message=message, request_id=request_id), trace=trace)
+    return JSONResponse(status_code=HTTP_STATUS[code],
+                        content=corps.model_dump(mode="json", exclude_none=True), headers=headers)
+
+
+def request_id_de(request: Request) -> str:
+    """Le `request_id` posé par le middleware (AD-10). Vide s'il n'a pas encore tourné."""
+    return getattr(request.state, "request_id", "")
+
+
+def _noter(request: Request, **champs: Any) -> None:
+    """Complète la ligne de log de la requête (AD-10) : jamais de texte utilisateur ici."""
+    champs_existants = getattr(request.state, "log_fields", None)
+    if champs_existants is None:
+        champs_existants = {}
+        request.state.log_fields = champs_existants
+    champs_existants.update(champs)
+
+
+def reponse_interne(request: Request) -> JSONResponse:
+    """500 `internal` : message générique, `request_id` présent, aucune trace technique publiée."""
+    _noter(request, error_code=ErrorCode.internal.value)
+    return envelope(ErrorCode.internal, MESSAGE_INTERNE, request_id_de(request))
+
+
+async def gestionnaire_validation(request: Request, exc: RequestValidationError) -> Response:
+    """422 pydantic ⇒ 400 `invalid_request` (AD-16), avec le **chemin** du champ fautif.
+
+    Le message ne recopie jamais la valeur reçue : `question` peut faire 1 001 caractères de texte
+    utilisateur, et l'enveloppe d'erreur n'est pas un endroit où le renvoyer (AD-15). Le chemin
+    (`body.historique`) et le motif produit par le schéma suffisent à corriger l'appel.
+    """
+    details = []
+    for e in exc.errors():
+        chemin = ".".join(str(p) for p in e.get("loc", ()))
+        details.append(f"{chemin}: {e.get('msg', 'invalide')}" if chemin else str(e.get("msg", "invalide")))
+    message = "requête invalide — " + " ; ".join(details[:5]) if details else "requête invalide"
+    _noter(request, error_code=ErrorCode.invalid_request.value)
+    return envelope(ErrorCode.invalid_request, message, request_id_de(request))
+
+
+async def gestionnaire_pipeline(request: Request, exc: PipelineError) -> Response:
+    """`PipelineError` ⇒ son statut d'AD-16, et sa `Trace` partielle si le pipeline avait commencé."""
+    _noter(request, error_code=exc.code.value)
+    if exc.trace is not None:
+        # AD-10 : le coût déjà engagé par une requête qui échoue reste mesurable.
+        _noter(request, intent=exc.trace.intent, cost_eur=exc.trace.total_cost_eur)
+    entetes = None
+    if exc.code is ErrorCode.rate_limited:
+        # AD-13 : « 429 → enveloppe d'erreur `rate_limited` + `Retry-After` ». La valeur est calculée
+        # par le limiteur, qui seul sait quand la fenêtre retombe ; il l'attache à l'erreur.
+        retry_after = getattr(exc, "retry_after_s", None)
+        if retry_after is not None:
+            entetes = {"Retry-After": str(int(retry_after))}
+    return envelope(exc.code, exc.message, request_id_de(request), trace=exc.trace, headers=entetes)
+
+
+async def gestionnaire_http(request: Request, exc: StarletteHTTPException) -> Response:
+    """`HTTPException` ⇒ le code d'AD-16 correspondant, ou un statut nu s'il n'en existe pas.
+
+    C'est ce qui garde « 404 statique nu » (matrice d'E/S) : un fichier absent sous `/guide/` n'est
+    pas une erreur du pipeline, il n'a pas de code dans l'`Enum`, et lui en attribuer un
+    (`invalid_request` ? `internal` ?) mentirait sur sa nature.
+    """
+    code = _CODE_PAR_STATUT.get(exc.status_code)
+    if code is None:
+        return PlainTextResponse(str(exc.detail), status_code=exc.status_code, headers=exc.headers)
+    _noter(request, error_code=code.value)
+    return envelope(code, str(exc.detail), request_id_de(request), headers=exc.headers)

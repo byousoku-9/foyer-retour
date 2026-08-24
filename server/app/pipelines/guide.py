@@ -186,6 +186,11 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     steps: list[StepTrace] = []
     relances = 0
     truncated = False
+    # AD-10 : l'`intent` est logué par l'API, qui ne voit que l'`Answer` et la `Trace` — et `Answer`
+    # ne le porte pas. Il est renseigné dès que *comprendre* a rendu l'une de ses deux sorties
+    # (`ParsedQuestion` ou `ClarificationRequise` : les deux portent un `intent`), et reste `None` si
+    # l'étape n'a pas abouti.
+    intent: str | None = None
 
     def echeance(avant: str) -> None:
         """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup."""
@@ -204,7 +209,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # *rédiger* décidées par AD-3 ; `truncations` = le retrieval coupé (0 ou 1 par requête).
         retries = sum(1 for s in steps for c in s.checks if c.name == "parse_retry") + relances
         return Trace(
-            request_id=request_id, pipeline=PIPELINE, variant=VARIANT, steps=steps,
+            request_id=request_id, pipeline=PIPELINE, variant=VARIANT, intent=intent, steps=steps,
             total_cost_eur=round(budget.cost_eur, 4),
             source_hash={doc_id: entry.source_hash} if entry is not None else {},
             ingest_fingerprint={doc_id: entry.ingest_fingerprint} if entry is not None else {},
@@ -223,12 +228,13 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
     async def chaine() -> tuple[Answer, Trace]:
         """Les cinq étapes. Sortie normale : un `Answer` et sa `Trace`. Échec terminal : `PipelineError`."""
-        nonlocal relances, truncated
+        nonlocal relances, truncated, intent
         # --- comprendre -----------------------------------------------------
         echeance("comprendre")
         parsed, step_comprendre = await comprendre(question, historique, profil, client=client, budget=budget,
                                                    settings=settings, lang=lang)
         steps.append(step_comprendre)
+        intent = parsed.intent  # AD-10 : les deux sorties de *comprendre* en portent un
 
         # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
         if isinstance(parsed, ClarificationRequise):

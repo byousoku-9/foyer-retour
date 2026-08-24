@@ -69,10 +69,12 @@ class PipelineError(Exception):
 class InvalidRequest(PipelineError):
     """Entrée hors bornes constatée par le pipeline (AD-11/AD-16) : jamais de troncature silencieuse.
 
-    AD-11 borne l'historique à 6 tours et exige « 400 au-delà, jamais tronqué côté serveur ». La borne
-    est portée par le pipeline et non par l'API : c'est lui qui passe l'historique à *comprendre* et à
-    *rédiger*, et il doit lever **avant** le premier appel modèle (rien n'est facturé pour une requête
-    qu'on refuse).
+    AD-11 borne l'historique à 6 tours et exige « 400 au-delà, jamais tronqué côté serveur ». Le
+    pipeline porte la borne parce qu'il est le seul chemin vers *comprendre* et *rédiger*, et il doit
+    lever **avant** le premier appel modèle (rien n'est facturé pour une requête qu'on refuse). Depuis
+    la story 1.6, la route l'applique **aussi** (`api/schemas.ChatRequest.borner`) : sur un appel HTTP
+    elle tranche la première, et le contrôle du pipeline reste le filet de tout autre appelant (évals,
+    scripts, tests) — d'où deux points d'application, volontairement, et le même message.
     """
 
     def __init__(self, message: str = "") -> None:
