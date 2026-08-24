@@ -34,6 +34,9 @@ EXTERNAL_ALLOWED: dict[str, set[str]] = {
     # Story 1.5 : un pipeline enchaîne des étapes et rien d'autre — ni `corpus`, ni `llm`, ni le SDK.
     # `corpus`, `index` et `client` lui arrivent en paramètres (annotés `Any`) depuis l'API.
     "pipelines": {"pydantic"},
+    # Story 1.6 : la couche HTTP, et rien d'autre — `anthropic` en est absent, le SDK ne se voit
+    # qu'à travers `llm` (AD-9), et `httpx` aussi : l'API ne sort jamais elle-même sur le réseau.
+    "api": {"fastapi", "starlette", "pydantic"},
     "config": {"pydantic", "pydantic_settings"},
     "digests": {"pydantic"},
 }

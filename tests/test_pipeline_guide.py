@@ -158,6 +158,9 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     assert [s.tier for s in trace.steps] == ["micro", "reason", "reason", "micro", None]
     assert trace.steps[1].calls == []  # *retrouver* déterministe n'appelle aucun modèle
     assert trace.pipeline == "guide" and trace.variant == "deterministe" and trace.request_id == "req-test"
+    # AD-10 : `intent` est le seul champ de la ligne de log que l'API ne peut pas lire sur l'`Answer` —
+    # il n'existe que dans la trace, et seul le pipeline le produit.
+    assert trace.intent == "question"
     assert trace.source_hash == {DOC_ID: "sha-source"} and trace.ingest_fingerprint == {DOC_ID: "fp-1"}
     assert trace.pipeline_digest and trace.prompts_digest
     assert trace.thresholds["quote_min_chars"] == 25 and trace.retries == 0
@@ -414,6 +417,7 @@ async def test_every_out_of_scope_intent_short_circuits(index: Index, intent: st
     answer, trace, fake = await _run(index, [_comprendre(intent)])
     assert fake.remaining_script == 0 and len(fake.requests) == 1
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert trace.intent == intent  # AD-10 : le log dit de quoi il s'agissait, même pour un refus
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "hors_perimetre"
 
@@ -429,6 +433,8 @@ async def test_a_retry_call_that_fails_is_terminal_and_carries_its_partial_trace
                            casse, casse])  # les deux tentatives du client (appel + relance motivée)
     trace = exc.value.trace
     assert trace is not None and trace.request_id == "req-test"
+    # Trace **partielle** d'un échec survenu après *comprendre* : l'intention comprise y est restée.
+    assert trace.intent == "question"
     # la `StepTrace` de l'appel raté est dans la trace : son coût y compte, il ne disparaît pas
     rediger_steps = [s for s in trace.steps if s.name == "rediger"]
     assert len(rediger_steps) == 2 and len(rediger_steps[1].calls) == 2
