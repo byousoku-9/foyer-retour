@@ -1083,9 +1083,8 @@
 
   // Sources et boutons de relance, ajoutes une fois le texte affiche.
   // Les chips d'un meme groupe disparaissent partout des qu'on clique sur l'une.
-  // `sources` est ici la forme **locale** du site (`{t, u}`), celle de la recherche simple ; les
-  // citations du serveur ont leur propre peintre (`citationsDe`), parce qu'elles portent autre
-  // chose : le passage relu, la fiche, le statut et l'edition.
+  // `garnir()` ne sert plus qu'au **questionnaire de profil** : ses puces sont des choix du site,
+  // pas du contenu serveur. Tout ce qui vient du serveur passe par `materialiser()`.
   function garnir(m, sources, chips, grp) {
     if (sources && sources.length) {
       var s = el("div", "srcs");
@@ -1126,7 +1125,7 @@
   // UX-DR10 : ni frappe mot a mot, ni delai artificiel. La reponse a demande dix a quinze secondes
   // de travail reel ; la faire semblant d'etre tapee ajoutait de l'attente a de l'attente, et
   // laissait croire a une generation en direct alors que le texte est deja verifie a l'arrivee.
-  // L'attente, elle, se **dit** (`bulleAttente`), au lieu de trois points qui sautent.
+  // L'attente, elle, se **dit** (`CHAT.vueAttente`), au lieu de trois points qui sautent.
 
   function poserProchaineQuestion() {
     var champ = window.CHAT.prochainChamp(profil);
@@ -1155,134 +1154,76 @@
     }));
   }
 
-  // ---------- Peinture d'une reponse du serveur ----------
+  // ---------- Materialisation de ce que `chat.js` decrit ----------
   //
-  // AD-15 : **tout** texte venu du serveur est pose par `textContent` (c'est ce que fait `el()`) ;
-  // aucun `innerHTML` sur ce chemin. AD-3 / FR4 : ce qui est montre comme source est le passage que
-  // le serveur a relu du corpus (`sources[].quote`), avec sa fiche, son lien officiel et le statut
-  // lu sur `answer.claims[].status`.
+  // `chat.js` compose la reponse, l'erreur et l'attente sous forme d'arbres de noeuds simples
+  // (`vueReponse`, `vueErreur`, `vueAttente`). Ici on ne fait que les materialiser : creer les
+  // elements, poser le texte par `textContent` (AD-15 : jamais `innerHTML` sur du texte serveur) et
+  // brancher les actions **decrites**. Aucune decision : pas de condition sur le contenu, pas de
+  // phrase composee, pas d'action inventee — sans quoi la regle « pas de repli sur un 4xx »
+  // revivrait ici, hors de portee des tests.
 
-  // Un lien ne s'ouvre que s'il est http(s). Les URL viennent de notre corpus, pas du modele —
-  // mais c'est le genre de garantie qu'on ne veut pas devoir re-verifier a chaque ingestion.
-  function lienOfficiel(url) {
-    var u = String(url || "");
-    if (!/^https?:\/\//i.test(u)) return null;
-    var a = el("a", "cite-lien", "source officielle");
-    a.href = u;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    return a;
+  function executer(action) {
+    if (!action) return;
+    if (action.nom === "ouvrir_fiche") { ouvrir("fiches"); montrerFiche(action.fiche_id); return; }
+    if (action.nom === "poser") { envoyer(action.question); return; }
+    if (action.nom === "comparateur") { ouvrir("comparateur"); passerAuComparateur(action.question); return; }
+    if (action.nom === "recherche_simple") { repliExplicite(action.question); }
   }
 
-  function citationsDe(entrees) {
-    var box = el("div", "cites");
-    box.appendChild(el("strong", null, entrees.length > 1 ? "Passages cités" : "Passage cité"));
-    entrees.forEach(function (e) {
-      var src = e.source || {};
-      var c = el("div", "cite");
-      c.appendChild(el("blockquote", "cite-q", "« " + String(src.quote || "") + " »"));
-      var meta = el("div", "cite-meta");
-      if (src.fiche_id) {
-        var b = el("button", "cite-fiche", src.titre || src.fiche_id);
-        b.type = "button";
-        b.addEventListener("click", function () { ouvrir("fiches"); montrerFiche(src.fiche_id); });
-        meta.appendChild(b);
-      } else if (src.titre) {
-        meta.appendChild(el("span", "cite-fiche-txt", src.titre));
-      }
-      var lien = lienOfficiel(src.url);
-      if (lien) meta.appendChild(lien);
-      var statut = window.CHAT.statutTexte(e.status);
-      if (statut) meta.appendChild(el("span", "cite-statut", statut));
-      c.appendChild(meta);
-      box.appendChild(c);
-    });
-    return box;
-  }
-
-  // Repli honnete quand l'appariement citation ↔ phrase echoue : la liste plate, sous la reponse,
-  // sans pretendre savoir quelle phrase chaque passage soutient.
-  function citationsPlates(sources) {
-    return citationsDe(sources.map(function (s) { return { source: s, status: null }; }));
-  }
-
-  function peindreReponse(m, r) {
-    var a = r.answer || {};
-
-    // La clarification est une **question posee a l'utilisateur** : elle passe avant la phrase de
-    // refus, qui explique seulement pourquoi rien n'a ete cherche.
-    if (a.clarification) {
-      var c = el("div", "clarif");
-      c.appendChild(el("strong", null, "Une précision, pour chercher au bon endroit"));
-      c.appendChild(el("p", null, String(a.clarification)));
-      m.appendChild(c);
-    }
-
-    var segments = (a.segments && a.segments.length) ? a.segments : (r.segments || []);
-    var appariees = window.CHAT.citationsParSegment(a, r.sources || []);
-    if (segments.length && appariees) {
-      segments.forEach(function (seg, i) {
-        var bloc = el("div", "seg" + (seg.kind === "factuel" ? " seg-factuel" : ""));
-        bloc.appendChild(el("p", "seg-txt", String(seg.text || "")));
-        var cites = appariees[i] || [];
-        if (cites.length) bloc.appendChild(citationsDe(cites));
-        m.appendChild(bloc);
+  function materialiser(vue, grp) {
+    var e = document.createElement(vue.tag);
+    if (vue.cls) e.className = vue.cls;
+    if (vue.tag === "button") e.type = "button";
+    if (vue.href) { e.href = vue.href; e.target = "_blank"; e.rel = "noopener noreferrer"; }
+    if (vue.texte !== undefined) e.textContent = vue.texte;
+    if (vue.cls && vue.cls.split(" ").indexOf("chips") !== -1) e.setAttribute("data-grp", String(grp));
+    if (vue.action) {
+      var action = vue.action;
+      e.addEventListener("click", function () {
+        // Les puces d'un meme groupe disparaissent partout des qu'on clique sur l'une : le choix a
+        // ete fait. Une citation cliquable, elle, n'est pas une puce et ne fait rien disparaitre.
+        var groupe = e.closest ? e.closest(".chips") : null;
+        var g = groupe && groupe.getAttribute("data-grp");
+        if (g) $$(".chips[data-grp='" + g + "']").forEach(function (x) { x.remove(); });
+        executer(action);
       });
-    } else {
-      m.appendChild(el("p", "seg-txt", String(r.texte || "")));
-      if ((r.sources || []).length) m.appendChild(citationsPlates(r.sources));
     }
+    (vue.enfants || []).forEach(function (enfant) { e.appendChild(materialiser(enfant, grp)); });
+    return e;
+  }
 
-    // AD-4 : la phrase de refus vient du serveur (elle est ci-dessus, dans les segments) ; ce que le
-    // front ajoute, c'est la preuve chiffree — jamais les variantes ni les declencheurs.
-    var preuve = window.CHAT.preuveAbsence(a.reason);
-    if (preuve) m.appendChild(el("p", "preuve", preuve));
-
-    if ((r.unknown || []).length) {
-      var u = el("div", "inconnu");
-      u.appendChild(el("strong", null, "Ce que je ne sais pas"));
-      var ul = el("ul");
-      r.unknown.forEach(function (x) { ul.appendChild(el("li", null, String(x))); });
-      u.appendChild(ul);
-      m.appendChild(u);
-    }
-
-    var pied = el("div", "pied");
-    var etat = window.CHAT.etatReponse(a);
-    pied.appendChild(el("span", "etat etat-" + etat.cle, etat.texte));
-    var cout = window.CHAT.coutTexte(r.trace);
-    if (cout) pied.appendChild(el("span", "cout", cout));
-    m.appendChild(pied);
+  // La bulle est assemblee **hors du DOM** puis ajoutee d'un bloc : une region `aria-live`
+  // annoncerait sinon un noeud vide, puis chaque mutation, une par une.
+  function peindre(vue) {
+    var grp = ++chipsGroupe;
+    return logsActifs().map(function (log) {
+      var m = materialiser(vue, grp);
+      log.appendChild(m);
+      log.scrollTop = log.scrollHeight;
+      return m;
+    });
   }
 
   // ---------- Etat de l'echange ----------
 
   var enAttente = false;
+  // Jeton de generation : une requete lancee avant une reinitialisation ne doit peindre ni pousser
+  // quoi que ce soit dans le fil neuf quand elle se resout.
+  var generation = 0;
 
-  function verrouillerSaisie(v) {
+  function verrouillerSaisie(v, aRendreLeFocus) {
     enAttente = v;
     ["#chat-input", "#widget-input", "#chat-send", "#widget-send"].forEach(function (sel) {
       var e = $(sel);
       if (e) e.disabled = v;
     });
-  }
-
-  // UX-DR10 : l'attente se dit en toutes lettres. Les trois points restent, mais ils accompagnent
-  // un texte au lieu de le remplacer — une animation seule n'annonce rien a qui ne la voit pas.
-  function bulleAttente() {
-    return logsActifs().map(function (log) {
-      var m = el("div", "msg bot attente");
-      m.appendChild(el("span", "attente-txt",
-        "Je cherche dans le guide, puis je vérifie chaque phrase contre les passages cités…"));
-      var pts = el("span", "points");
-      pts.appendChild(el("span"));
-      pts.appendChild(el("span"));
-      pts.appendChild(el("span"));
-      m.appendChild(pts);
-      log.appendChild(m);
-      log.scrollTop = log.scrollHeight;
-      return m;
+    logsActifs().forEach(function (log) {
+      if (v) log.setAttribute("aria-busy", "true");
+      else log.removeAttribute("aria-busy");
     });
+    // Le focus est repris par le verrou ; sans restitution, la conversation se poursuit a la souris.
+    if (!v && aRendreLeFocus) { try { aRendreLeFocus.focus(); } catch (e) { /* element retire */ } }
   }
 
   function badgeMode(via) {
@@ -1294,101 +1235,40 @@
     b.className = "badge" + (api ? " on" : (mode === "indisponible" ? " off" : ""));
   }
 
-  function chipsDe(q, r) {
-    var chips = (r.fiches || []).slice(0, 3).map(function (id) {
-      var f = window.KB.fiches.filter(function (x) { return x.id === id; })[0];
-      return f ? {
-        label: "Ouvrir : " + f.titre,
-        action: function () { ouvrir("fiches"); montrerFiche(f.id); }
-      } : null;
-    }).filter(Boolean);
-    // Relance : approfondir le sujet principal sans avoir a reformuler
-    if (r.fiches && r.fiches.length) {
-      var pf = window.KB.fiches.filter(function (x) { return x.id === r.fiches[0]; })[0];
-      if (pf) chips.push({
-        label: "En savoir plus",
-        action: function () { envoyer("Peux-tu détailler : " + pf.titre + " ?"); }
-      });
-    }
-    // Question d'assurance : la main passe au comparateur, qui sait faire ce que l'assistant
-    // general ne fait pas, construire le tableau. On lui transmet la question telle quelle.
-    if (r.comparateur) {
-      chips.push({
-        label: "Construire le tableau de comparaison",
-        action: function () { ouvrir("comparateur"); passerAuComparateur(q); }
-      });
-    }
-    return chips;
-  }
-
   function afficherReponse(q, r) {
-    var grp = ++chipsGroupe;
-    var chips = chipsDe(q, r);
-    logsActifs().forEach(function (log) {
-      var m = el("div", "msg bot");
-      log.appendChild(m);
-      peindreReponse(m, r);
-      garnir(m, null, chips, grp);
-      log.scrollTop = log.scrollHeight;
-    });
+    peindre(window.CHAT.vueReponse(r, q));
     historique.push({ role: "assistant", content: r.texte });
     badgeMode(r.via);
     // Panneau ancre : la fiche s'ouvre dans la page, passage surligne, sans quitter la conversation.
     if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
   }
 
-  // La reponse de la recherche simple : forme locale du site (`{t, u}`), badge « mode local ».
-  function afficherReponseLocale(q, r) {
-    var grp = ++chipsGroupe;
-    var chips = chipsDe(q, r);
-    logsActifs().forEach(function (log) {
-      var m = bulleDans(log, r.texte, "bot");
-      garnir(m, r.sources, chips, grp);
-    });
-    historique.push({ role: "assistant", content: r.texte });
+  // La seule porte vers le moteur lexical, et elle demande un clic (AD-11 / FR11).
+  function repliExplicite(q) {
+    var r = window.CHAT.rechercheSimple(q, profil);
+    peindre(window.CHAT.vueReponseLocale(r, q));
+    // `local: true` : ce tour a ete dit a l'ecran, il ne repartira pas au serveur comme sa propre
+    // parole. Sans cette marque, *comprendre* resoudrait les anaphores de la question suivante
+    // contre une comparaison de mots-cles — exactement ce que la story interdit.
+    historique.push({ role: "assistant", content: r.texte, local: true });
     badgeMode(r.via || "local");
     if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
   }
 
-  // FR11 / AD-11 / AD-16 : **aucun** repli automatique.
-  //   - 503 ou panne reseau : bandeau + un bouton a cliquer. Rien n'est cherche localement avant
-  //     le clic, et le badge ne bouge pas tant que l'utilisateur n'a pas tranche ;
-  //   - 4xx / 429 / 500 : un message francais compose a partir du `code`, et rien d'autre. Proposer
-  //     la recherche simple sur un 400 ferait passer une recherche de mots-cles pour une reponse.
   function afficherErreur(q, erreur) {
-    var indispo = !!(erreur && erreur.kind === "indisponible");
-    var message = window.CHAT.messageErreur(erreur);
-    var grp = ++chipsGroupe;
-    var chips = indispo ? [{
-      label: "Consulter le guide en recherche simple",
-      action: function () { afficherReponseLocale(q, window.CHAT.rechercheSimple(q, profil)); }
-    }] : null;
-    logsActifs().forEach(function (log) {
-      var m = el("div", "msg bot " + (indispo ? "indispo" : "err"));
-      log.appendChild(m);
-      m.appendChild(el("strong", "alerte-titre",
-        indispo ? "Assistant indisponible" : "Question non traitée"));
-      m.appendChild(el("p", "alerte-txt", message));
-      if (indispo) {
-        m.appendChild(el("p", "alerte-note",
-          "Rien n'a été cherché : la recherche simple du guide compare des mots-clés, elle ne " +
-          "vérifie rien. À vous de décider si elle vous suffit."));
-      }
-      if (erreur && erreur.request_id) {
-        m.appendChild(el("p", "ref", "référence : " + erreur.request_id));
-      }
-      garnir(m, null, chips, grp);
-      log.scrollTop = log.scrollHeight;
-    });
+    peindre(window.CHAT.vueErreur(erreur, q));
+    var mode = window.CHAT.modeApresErreur(erreur);
+    if (mode) badgeMode(mode);
   }
 
   function envoyer(texteForce) {
     if (enAttente) return;
     var q = texteForce;
+    var saisie = null;
     if (!q) {
       var inputs = [$("#chat-input"), $("#widget-input")].filter(Boolean);
       for (var i = 0; i < inputs.length; i++) {
-        if (inputs[i].value.trim()) { q = inputs[i].value.trim(); break; }
+        if (inputs[i].value.trim()) { q = inputs[i].value.trim(); saisie = inputs[i]; break; }
       }
       inputs.forEach(function (x) { x.value = ""; });
     }
@@ -1397,17 +1277,20 @@
     // L'historique vit en memoire de page, et nulle part ailleurs (AD-15).
     historique.push({ role: "user", content: q });
 
-    var attente = bulleAttente();
+    var attente = peindre(window.CHAT.vueAttente());
     verrouillerSaisie(true);
+    var mien = ++generation;
 
     // Pas de `Promise.all` avec un delai : le seul temps d'attente est celui du travail reel.
     window.CHAT.repondre(q, profil, historique).then(function (r) {
+      if (mien !== generation) return;  // conversation reinitialisee : cette reponse n'a plus de fil
       attente.forEach(function (m) { m.remove(); });
-      verrouillerSaisie(false);
+      verrouillerSaisie(false, saisie);
       afficherReponse(q, r);
     }, function (e) {
+      if (mien !== generation) return;
       attente.forEach(function (m) { m.remove(); });
-      verrouillerSaisie(false);
+      verrouillerSaisie(false, saisie);
       afficherErreur(q, e);
     });
   }
@@ -1421,6 +1304,9 @@
       profil = window.CHAT.profilVide();
       historique = [];
       effacerProfil();
+      // Une requete en vol ne doit pas peindre la reponse d'une question effacee dans le fil neuf,
+      // ni y pousser son tour : le jeton avance, elle se resoudra sans rien faire.
+      generation++;
       verrouillerSaisie(false);
       logsActifs().forEach(function (log) { log.textContent = ""; });
       rendreTimeline();
