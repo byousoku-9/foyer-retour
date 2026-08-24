@@ -937,7 +937,7 @@ son en-tête, et une entrée différée la porte (`target_story: 2.1`).
 | gate de `lux-guide` retiré, `ENV=prod` | `["axa-lu-optihome-2017"]` | `"vertical"` | 1 | `lux-guide` : quarantaine `sans_gate` |
 | gate de `lux-guide` retiré, `ENV=dev` | les deux | **`null`** | **`null`** | `lux-guide` : `sans_gate` |
 | check `level: bloquant` ajouté au `report.json` d'AXA | `["lux-guide"]` | `"vertical"` | 1 | AXA : quarantaine `bloquant_statique : page_sans_texte` |
-| `ENV=prod` **et** `ALLOW_UNGATED=true` | les deux | `"vertical"` | 2 | `*` : **`ungated_en_production`** + un `WARNING` au journal de démarrage |
+| `ENV=prod` **et** `ALLOW_UNGATED=true` | les deux | `"vertical"` | 2 | `*` : **`ungated_refuse_en_production`** + un `WARNING` au journal de démarrage — la dérogation est **refusée**, `allow_ungated` vaut `false` (revue Codex 1.10, B3 ; voir la section suivante) |
 
 Les deux lignes du milieu sont la même règle vue des deux côtés : sans dérogation, un document sans
 gate valide n'est pas servi (et `gate_profile` reste vrai de ce qui l'est) ; avec dérogation, il est
@@ -970,6 +970,61 @@ Serveur réel : `ENV=prod GIT_SHA=1.10test uv run uvicorn server.app.api.main:ap
 | `window.CHAT.validation()` | `{"gate_profile":"vertical","gate_cases":2,"alerts":[]}` |
 | Lien « ← retour » (UX-DR9) | présent dans l'en-tête, `href="/"` — acquis en 1.6, vérifié ici |
 | Console | aucune erreur JavaScript |
+
+### Revue Codex 1.10, tour 1 — ce que la mesure a rendu (2026-08-24, ≈ 0,20 €)
+
+**Le runner ne pouvait plus écrire de gate (B1).** Les runs consignés plus haut datent d'avant le
+dernier correctif de la revue interne (`4e746d7`, 21 h 37), qui a confié la fermeture du client à
+l'`ExitStack`. La pile se déroulant **après** le premier `asyncio.run`, le client était fermé sur une
+boucle neuve alors que sa connexion TLS appartenait à la boucle close : `RuntimeError: Event loop is
+closed`, code 3, manifest intact — après avoir payé les appels. Mécanisme confirmé hors du projet :
+un `AsyncAnthropic` appelé dans un `asyncio.run` puis fermé dans un second lève exactement cela
+**en TLS** (`api.anthropic.com`) et **pas** en clair sur une socket locale — ce qui explique qu'aucun
+double de test ne l'ait vu. Fermeture et exécution tiennent désormais dans une seule boucle.
+
+**Les deux gates, rejoués après les correctifs de ce tour :**
+
+| Run | Cas | Label | `ok` | Coût | Durée | Code |
+|---|---|---|---|---|---|---|
+| `--gate axa-lu-optihome-2017` | `s-bougie-canape` | `bonne_reponse` | oui | **0,0327 €** | 17,2 s | 0 |
+| `--gate lux-guide` | `g-luxtrust-prix` | `bonne_reponse` | oui | **0,0279 €** | 13,6 s | 0 |
+
+`cases_hash` du gate AXA : `bb4d6aa0c56e…` (le `truth.note` du cas a été amendé, voir I2) ; celui du
+guide est inchangé, `58552c3b344c…`.
+
+**Ce que le cas sinistre mesure vraiment (I2).** Trois exécutions réelles du même cas, avec la clé,
+hors `--gate` :
+
+| Run | Blocs cités | Verdict | Label | Coût |
+|---|---|---|---|---|
+| 1 | `p34:12` (garantie 3.1.1.1.6) | `ne_tranche_pas` | `bonne_reponse` | 0,0544 € |
+| 2 | `p34:4` (para de 3.1.1, « conditions spéciales applicables si… ») | `ne_tranche_pas` | `bonne_reponse` | 0,0332 € |
+| 3 | `p34:12` **et** `p34:4` | `ne_tranche_pas` | `bonne_reponse` | 0,0322 € |
+
+*retrouver* est déterministe : `p34:12` **est** ramenée à chaque fois. C'est *rédiger* qui ne la cite
+pas de façon stable. `expected.block_ids` étant un ensemble exigé **en entier**, y inscrire `p34:12`
+rendrait le gate rouge environ une fois sur trois — et un gate rouge met le document en quarantaine
+(AD-8). Le constat de la revue est juste (le cas passe sur n'importe quelle citation authentique), le
+remède demande une attente « au moins un parmi » que le schéma d'AD-14 ne porte pas : différé en 4.1,
+et écrit dans le `truth.note` du cas plutôt que passé sous silence.
+
+**`ALLOW_UNGATED` en production (B3), mesuré sur la configuration réelle :**
+
+| Configuration | `Settings.allow_ungated` | `documents_servis` | `alerts` |
+|---|---|---|---|
+| `ENV=prod` (l'image) | `False` | les deux | `[]` |
+| `ENV=prod ALLOW_UNGATED=true` | **`False`** (refusé) | les deux | `*` : `ungated_refuse_en_production` |
+| `ENV=dev ALLOW_UNGATED=true` | `True` | les deux | `[]` |
+
+Avant ce tour, la deuxième ligne rendait `True` : la dérogation restait armable en production par un
+`--set-env-vars`, seule surface réelle, contre l'AC de la story.
+
+**Le tour navigateur rejoué** (Chrome headless, `ENV=prod GIT_SHA=1.10rev`, port 8801) : accueil —
+trois entrées, les sept points du sujet 3, « niveau de validation : **vertical — 2 cas relus à la
+main** », `localStorage` vide, aucun cookie, aucun `innerHTML` non vide, quatre requêtes (`/`,
+`/accueil.js`, `/api/v1/sante`, `/favicon.ico`), sonde morte → « inconnu » sans profil ; guide — les
+deux badges à « **mode api · vertical (2 cas)** », lien « ← retour » présent. Seule erreur console :
+le `favicon.ico` (404, antérieur).
 
 ### Suite hors ligne
 
