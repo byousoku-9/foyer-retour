@@ -230,6 +230,39 @@ def test_les_fiches_sont_distinctes_et_dans_lordre_de_citation(prod: TestClient)
     assert j["fiches"] == ["arrivee"]  # distincts, dans l'ordre, jamais de `null`
 
 
+def test_sources_enumere_les_claims_puis_leurs_quotes_dans_cet_ordre(prod: TestClient) -> None:
+    """L'invariant dont dépend l'appariement du front (story 1.7).
+
+    `SourceItem` ne porte **pas** de `claim_id` : le front reçoit une liste plate. Pour placer chaque
+    citation sous la phrase qui la cite, `web/app/chat.js` (`citationsParSegment`) refait la **même**
+    énumération que `presenter.sources_de()` — `for claim in answer.claims for quote in claim.quotes`
+    — et lit `sources[]` dans l'ordre en vérifiant chaque `block_id`. Changer cet ordre côté serveur
+    (trier par fiche, dédupliquer, regrouper) casserait l'appariement en silence : le front
+    abandonnerait et peindrait la liste plate, sans que rien ne le dise. Ce test le rend bruyant.
+    """
+    corpus, _ = _mini_corpus()
+    # Deux claims, la première à deux quotes : l'ordre attendu est c1.q1, c1.q2, c2.q1.
+    q11 = _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours")
+    q12 = _citation(corpus, f"{DOC_ID}:q1:2", "auprès de la commune")
+    q21 = _citation(corpus, f"{DOC_ID}:farrivee:2", "Biergercenter")
+    c1 = VerifiedClaim(claim_id="c1", text="Délai et lieu.", quotes=[q11, q12],
+                       status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
+    c2 = _claim("c2", "Le guichet.", q21)
+    answer = Answer(found=True, complete=False, texte="A B",
+                    segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"]),
+                              AnswerSegment(text="B", kind="factuel", claim_ids=["c2"])],
+                    claims=[c1, c2])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    attendu = [q.block_id for claim in (c1, c2) for q in claim.quotes]
+    assert [s["block_id"] for s in j["sources"]] == attendu
+    assert [s["quote"] for s in j["sources"]] == ["huit jours", "auprès de la commune", "Biergercenter"]
+    # Aucune déduplication : le même bloc cité par deux claims paraît deux fois, à son rang.
+    assert len(j["sources"]) == sum(len(c["quotes"]) for c in j["answer"]["claims"])
+
+
 def test_une_citation_jamais_retrouvee_nentre_pas_dans_sources(prod: TestClient) -> None:
     """AD-3 : une quote non retrouvée est la chaîne du **modèle** — elle n'est pas affichée."""
     corpus, _ = _mini_corpus()
