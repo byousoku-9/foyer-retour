@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>S'installer au Luxembourg</title>
-<link rel="stylesheet" href="app/styles.css?v=17">
+<link rel="stylesheet" href="app/styles.css?v=18">
 </head>
 <body>
 
@@ -479,7 +479,7 @@
       <span class="badge" id="mode-badge">mode local</span>
     </p>
     <div class="card chat-wrap">
-      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-log" id="chat-log" role="log" aria-live="polite" aria-atomic="false"></div>
       <div class="chat-bar">
         <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
         <button class="btn" id="chat-send">Envoyer</button>
@@ -487,8 +487,15 @@
       </div>
     </div>
     <p class="hint">
-      Les réponses proviennent de la base de connaissances de ce guide, avec leurs sources.
-      Quand une information n'y figure pas, l'assistant le dit plutôt que d'inventer.
+      Les réponses proviennent des fiches de ce guide : chaque phrase affichée est adossée à un
+      passage relu dans la source, et ce que l'assistant ne sait pas, il le dit.
+    </p>
+    <!-- AD-15 / UX-DR5 : la mention vit sous la saisie, pas dans une page de mentions légales. -->
+    <p class="hint confid">
+      Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du
+      modèle (Anthropic), qui indique dans sa politique publique ne pas conserver ce contenu par
+      défaut. Le serveur n'enregistre aucune conversation ; votre navigateur ne garde que votre
+      profil et vos préférences d'affichage.
     </p>
   </section>
 
@@ -582,22 +589,27 @@
       <button id="widget-close" title="Fermer" aria-label="Fermer l'assistant">×</button>
     </span>
   </div>
-  <div class="chat-log" id="widget-log"></div>
+  <div class="chat-log" id="widget-log" role="log" aria-live="polite" aria-atomic="false"></div>
   <div class="chat-bar">
     <input type="text" id="widget-input" placeholder="Posez votre question..." autocomplete="off">
     <button class="btn" id="widget-send">Envoyer</button>
+    <p class="hint confid">
+      Question et profil envoyés au serveur de ce site puis au fournisseur du modèle (Anthropic,
+      contenu non conservé par défaut selon sa politique publique). Aucune conversation n'est
+      enregistrée, ni sur le serveur ni dans ce navigateur.
+    </p>
   </div>
 </div>
 <button id="widget-btn" title="Ouvrir l'assistant" aria-label="Ouvrir l'assistant">💬</button>
 
-<script src="app/bareme.js?v=17"></script>
-<script src="app/kb.js?v=17"></script>
-<script src="app/simulateur.js?v=17"></script>
-<script src="comparateur/contrats_kb.js?v=17"></script>
-<script src="comparateur/mrh_kb.js?v=17"></script>
-<script src="comparateur/offres_kb.js?v=17"></script>
-<script src="app/chat.js?v=17"></script>
-<script src="app/ui.js?v=17"></script>
-<script src="app/communaute.js?v=17"></script>
+<script src="app/bareme.js?v=18"></script>
+<script src="app/kb.js?v=18"></script>
+<script src="app/simulateur.js?v=18"></script>
+<script src="comparateur/contrats_kb.js?v=18"></script>
+<script src="comparateur/mrh_kb.js?v=18"></script>
+<script src="comparateur/offres_kb.js?v=18"></script>
+<script src="app/chat.js?v=18"></script>
+<script src="app/ui.js?v=18"></script>
+<script src="app/communaute.js?v=18"></script>
 </body>
 </html>
