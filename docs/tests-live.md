@@ -375,22 +375,35 @@ propagées, ni dégât au bâtiment. » — 2026-08-01, salon du domicile assur�
 
 | Vérification | Commande | Résultat |
 |---|---|---|
-| Rejeu sans réseau, suite complète | `ANTHROPIC_API_KEY= uv run pytest -q` | **842 passed en 11,8 s** (67 cas ajoutés : table AD-6, mode applicabilité de *vérifier*, pipeline sinistre, accesseurs de nœud, départage de recherche), zéro réseau. **Aucune fixture live du guide n'a été ré-enregistrée** — les prompts `comprendre.md`, `rediger.md`, `verifier.md` et `commun.md` sont inchangés à l'octet près |
-| **Cas bougie en live** | `uv run pytest -q tests/test_sinistre_live.py` (clé dans `.env`) | **1 test vert en 27,9 s**, 3 appels réels — *comprendre* `micro` 2 587 in / 221 out (0,0034 €), *rédiger* `reason` 3 228 in / 1 263 out (0,0627 €), *vérifier* `micro` 1 029 in / 241 out (0,0072 €). **0,0733 € pour la requête entière**, sous le plafond de 0,10 € (`max_cost_eur_per_request`) — mesuré à cache **froid** (aucun `cache_read`) |
-| **Verdict rendu** | même run | `sous_conditions` — « La garantie citée ne joue que si une option ou les conditions particulières la prévoient (**au regard des conditions générales seules**) ». Règle (2bis) de la table AD-6 : la garantie est `applicable="humain"` par `cp_requise`, ce qu'une garantie `oui` ne peut pas exprimer. Dans `{sous_conditions, ne_tranche_pas}`, comme l'exige l'AC |
-| **Clauses citées** | même run | `axa-lu-optihome-2017:p34:12` — la garantie de l'article 3.1.1.1.6, « les dégâts occasionnés au mobilier assuré […] par un événement soudain, résultant de l'action subite de la chaleur » — l'un des trois blocs relus à la main en 1.2 ; plus `p34:4`, le paragraphe qui subordonne les conditions spéciales incendie aux conditions particulières (`applicable=None` : ce n'est pas une clause décisionnelle typée, c'est son contexte) |
-| **Second run live, indépendant** | `uv run pytest -q tests/test_sinistre_live.py` relancé par l'agent de build, fixture ré-enregistrée | **1 test vert en 29,1 s**, 3 appels réels — *comprendre* `micro` 2 587 in / 217 out (0,0034 €), *rédiger* `reason` 3 972 in **+ 6 583 lus dans le cache du fournisseur** / 2 047 out (0,0410 €), *vérifier* `micro` 1 125 in / 185 out (0,0070 €). **0,0514 €** — moins cher que le premier run parce que le préfixe de *rédiger* (instructions + sommaire du contrat) était **déjà** dans le cache 1 h : c'est le gain d'AD-9 mesuré pour de bon. Verdict `sous_conditions` de nouveau, par la même règle (2bis) ; une seule claim affichée, sur `p34:12`. C'est **ce run-là** que la fixture rejoue |
-| **Exclusion de la page 46 écartée** | même run | `p46:1` a bien été **retrouvée** par la recherche (4ᵉ bloc ouvert, juste derrière la garantie : le départage `kinds_prioritaires` fonctionne) mais **aucune claim ne la cite** — la rédaction ne l'a pas opposée au sinistre, et le verdict ne s'appuie donc sur aucune exclusion. Le cas « présente et écartée » (`applicable="non"`, parce que la clause vise le bâtiment des extensions 3.1.8.3-6) est couvert par `tests/test_verdict.py` et l'exemple de la spec |
-| **Un seul appel `micro` dans *vérifier*** | même run | `len(step.calls) == 1` pour l'étape `verifier` : pertinence, phrases soutenues, couverture des facettes **et** champs typés d'applicabilité sortent du même appel (AD-9 amendé, reprise différée de 1.5 honorée) |
-| **Paquet manquant et questions à poser** | même run | `missing` : conditions particulières, options souscrites, avenants et date d'effet, tous manquants ; `ask_client` : « Quelles options et extensions ont été souscrites ? **Une clause citée ne joue qu'à cette condition.** » et « Que prévoient les conditions particulières (montants, franchises, biens désignés) ? ». Les deux sont composées par le **code** depuis `missing` et les booléens typés (D8) |
+| Rejeu sans réseau, suite complète | `ANTHROPIC_API_KEY= uv run pytest -q` | **865 passed en 11,3 s** (90 cas ajoutés : table AD-6, mode applicabilité de *vérifier*, pipeline sinistre, accesseurs de nœud, départage de recherche, registre de refus, bornes du budget), zéro réseau. **Aucune fixture live du guide n'a été ré-enregistrée** — les prompts `comprendre.md`, `rediger.md`, `verifier.md` et `commun.md` sont inchangés à l'octet près |
+| **Cas bougie en live** (run de référence, après revue) | `uv run pytest -q tests/test_sinistre_live.py` (clé dans `.env`) | **1 test vert en 20,7 s**, 3 appels réels — *comprendre* `micro` 2 587 in / 217 out (**0,0034 €**), *rédiger* `reason` 3 972 in **+ 6 733 lus dans le cache 1 h** / 1 310 out (**0,0309 €**), *vérifier* `micro` 1 212 in **+ 4 910 écrits dans le cache** / 208 out (**0,0077 €**). **0,0420 €** pour la requête entière. À cache **entièrement froid**, le même enchaînement vaut **0,0773 €** (préfixe de *rédiger* facturé 2× au lieu de 0,1×) — sous le plafond de 0,10 € dans les deux cas. C'est **ce run-là** que la fixture rejoue |
+| **Le préfixe de *vérifier* devient cacheable** | usage du run | Nouveau, et non anticipé : en mode sinistre le préfixe est `commun.md` + `verifier.md` + `verifier_sinistre.md` ≈ 4 910 tokens, donc **au-dessus** de la taille minimale cacheable de Haiku 4.5 (2 048) que la story 1.4 avait mesurée en dessous pour *comprendre*. Le fournisseur l'écrit dans son cache (5 min pour `micro`) et une seconde requête sinistre dans la fenêtre le relit à 0,1× — 0,0025 € au lieu de 0,0077 € |
+| **Verdict rendu** | même run | `ne_tranche_pas` — « Aucune règle de la table ne tranche sur les clauses retrouvées (**au regard des conditions générales seules**) ». C'est **exactement** la dérivation écrite dans la spec (D1, exemple du cas bougie) : la garantie `p34:12` est `applicable="humain"` parce que le modèle a rendu `fait_requis_present=false` avec `fait_manquant = "caractère soudain de l'événement"` — aucune garantie `oui`, aucune exclusion `oui`, donc règle (4). Dans `{sous_conditions, ne_tranche_pas}`, comme l'exige l'AC |
+| **Clauses citées** | même run | `axa-lu-optihome-2017:p34:12` — la garantie de l'article 3.1.1.1.6, « les dégâts occasionnés au mobilier assuré […] par un événement soudain, résultant de l'action subite de la chaleur » — l'un des trois blocs relus à la main en 1.2, seule claim affichée. Une seconde affirmation, citée sur `p22:5` (exclusions générales), a été **rejetée non pertinente** par le contrôle groupé et figure dans `rejected_claims[]` |
+| **Exclusion de la page 46 écartée** | même run | `p46:1` est **retrouvée** par la recherche (4ᵉ bloc ouvert, juste derrière la garantie : le départage `kinds_prioritaires` fonctionne) mais **aucune claim affichée ne la cite** : la rédaction en a fait un segment `limite`, que *vérifier* renvoie vers `unknown[]` — jamais vers le texte affiché (AD-3). Le verdict ne s'appuie donc sur aucune exclusion. Le cas « présente et écartée » (`applicable="non"`) est couvert par `tests/test_verdict.py` et par les tests de bout en bout de `test_verifier.py` |
+| **Un seul appel `micro` dans *vérifier*** | même run | `len(step.calls) == 1` : pertinence, phrases soutenues, couverture des facettes **et** champs typés d'applicabilité sortent du même appel (AD-9 amendé, reprise différée de 1.5 honorée) |
+| **Paquet manquant et questions à poser** | même run | `missing` : conditions particulières, options souscrites, avenants et date d'effet, tous manquants, plus `faits: ["caractère soudain de l'événement"]`. `ask_client` en compte **quatre** — une par pièce manquante (options et extensions ; conditions particulières ; date d'effet et avenant) **plus** « Fait à établir auprès du client : caractère soudain de l'événement ». L'AC de la story est satisfait mot pour mot : les options, les conditions particulières **et** la nature subite de l'action de la chaleur y sont. Toutes sont composées par le **code** ; seul le libellé du fait vient du modèle |
 | **Aucun calcul confié au modèle** | schéma de sortie | `SortieVerifierSinistre` n'expose que `verdicts`, `facettes`, `segments`, `applicabilite` ; `ChampsApplicabiliteRendus` n'a que `claim_id`, `fait_requis_present`, `option_requise`, `cp_requise`, `fait_manquant`. Ni `applicable`, ni `verdict`, ni `couvert` : la place n'existe pas |
-| Départage de recherche | trace du run | 21 blocs ouverts au premier run, 22 au second, la garantie `p34:12` en **tête** dans les deux ; définitions et paragraphes voisins toujours présents — `kinds_prioritaires` **ordonne**, il ne filtre pas (D7) |
+| Départage de recherche | trace du run | 22 blocs ouverts, la garantie `p34:12` en **tête** ; définitions et paragraphes voisins toujours présents — `kinds_prioritaires` **ordonne**, il ne filtre pas (D7) |
 
-Une seconde limite, vue sur le second run et **non corrigée ici** : le texte affiché se termine par
-un segment `transition` — « Par ailleurs, l'article sur les exclusions générales du contrat écarte
-certains dommages du champ de la garantie. » — dont le segment `factuel` qui le suivait a été retiré
-(sa claim `c2`, citée sur `p22:5`, a été jugée non pertinente). La transition avance donc un fait sur
-le contrat sans qu'aucune claim survivante ne le soutienne : le seul contrôle qui la garde est le
+### Ce que la revue a changé au comportement réel
+
+Deux runs précédents (14 h 30 et 14 h 42) rendaient `sous_conditions` par la règle (2bis), sur un
+`cp_requise=true` que le modèle posait à la fois sur la garantie **et** sur l'exclusion de la page 46
+— laquelle ressortait alors `applicable="humain"`, donc affichée sans être écartée. Le correctif est
+dans `verifier_sinistre.md` : les deux questions qui décident de `fait_requis_present` y sont
+désormais **ordonnées** — d'abord le périmètre (la clause vise-t-elle ce bien, ce lieu, cette
+situation ? les extensions nommément désignées n'incluent pas le domicile), ensuite seulement la
+qualité exigée (soudain, subit, accidentel…), qu'il est interdit d'inférer des circonstances. C'est
+cette seconde règle qui fait apparaître « caractère soudain de l'événement » dans `ask_client`, et
+donc l'AC de la story ; c'est la première qui empêche l'exclusion de la page 46 d'être opposée au
+dossier sur un simple air de famille.
+
+Une limite **non corrigée ici**, déjà vue au run précédent et toujours présente : le texte affiché se
+termine par un segment `transition` — « Par ailleurs, une liste d'exclusions générales s'applique à
+toutes les garanties du contrat. » — dont le segment `factuel` qui le suivait a été retiré (sa claim
+`c2`, citée sur `p22:5`, a été jugée non pertinente). La transition avance donc un fait sur le
+contrat sans qu'aucune claim survivante ne le soutienne : le seul contrôle qui la garde est le
 `soutenu` du modèle (AD-3, story 1.5), qui l'a jugée soutenue. Le comportement est celui du guide
 depuis 1.5, il n'est pas introduit par 1.8, et le corriger — ne garder une transition que si un
 `factuel` lui survit — changerait le rendu du guide et ses fixtures. Une entrée différée le porte
@@ -398,7 +411,8 @@ vers 4.2, où les jugements du modèle se mesurent sur les questions-témoins.
 
 Ce que le run ne montre pas, et qu'il faut lire honnêtement : les définitions p9:2 (« contenu ») et
 p11:12 (« mobilier de jardin ») n'ont pas été ramenées, faute d'un terme canonique qui les touche
-(*comprendre* a rendu « mobilier », « chaleur », « incendie »). Le rappel du sinistre repose donc
+(*comprendre* a rendu « mobilier de salon », « canapé », « incendie », « brûlure », « chaleur »,
+« bougie »). Le rappel du sinistre repose donc
 encore surtout sur les mots, comme D7 l'annonçait : quatre blocs typés à la main ne font pas un
 index de clauses. C'est le typage automatique de la story 3.2 qui lèvera la limite ; une entrée
 différée le consigne.
