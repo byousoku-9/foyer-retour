@@ -705,8 +705,8 @@ ajouté — même méthode qu'en 1.7).
 
 | Vérification | Commande | Résultat |
 |---|---|---|
-| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1036 passed** (889 avant la story), aucun accès réseau |
-| Front sans navigateur | `node tests/js/sinistre_cases.mjs` | `ok: true`, relevés complets ; 84 assertions Python dans `tests/test_web_sinistre.py` |
+| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1057 passed** (889 avant la story), aucun accès réseau |
+| Front sans navigateur | `node tests/js/sinistre_cases.mjs` | `ok: true`, relevés complets ; **88** cas Python dans `tests/test_web_sinistre.py` (compte tenu à jour par `pytest --collect-only`, pas à la main : les deux chiffres tenus ainsi étaient faux tous les deux) |
 | Lint | `uvx ruff check --select F,E9 server tests` | 7 `F401`, **tous antérieurs** à la story (quatre `BaseModel` inutilisés dans `domain/`, trois dans des tests). `uv run ruff check`, la commande écrite dans la spec, **ne s'exécute pas** : `ruff` n'est ni une dépendance de `pyproject.toml` ni configuré (aucun `[tool.ruff]`), comme en 1.8. Avec le ruff par défaut, les fichiers de la story sont propres (`uvx ruff check server/app/api/routes/ server/app/api/schemas.py server/app/api/etat.py server/app/api/presenter.py tests/test_api_sinistre.py tests/test_web_sinistre.py` → *All checks passed*) |
 
 ### Après la revue de code — le tour rejoué
