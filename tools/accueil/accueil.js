@@ -15,6 +15,8 @@
 //
 // AD-11 / AD-16 / D8 : **trois états, et trois seulement**.
 //   1. la sonde répond avec un profil  → « niveau de validation : vertical — N cas relus à la main »
+//      (ou « … relus par la boucle, contresignature humaine en attente » tant que le serveur publie
+//      `gate_countersigned: false` — la qualification humaine vient du gate, jamais du nom du profil)
 //   2. la sonde répond sans profil     → « aucun gate » + les alertes qui disent pourquoi
 //   3. la sonde ne répond pas          → « inconnu — le serveur n'a pas répondu », et **rien d'autre**
 // Le troisième n'affiche jamais le dernier profil connu ni un défaut optimiste : c'est le même
@@ -104,8 +106,12 @@
   //   - `gate_cases` : entier **≥ 1**, ou `null`. Le plancher est 1 et non 0 : `evals/run.py` refuse
   //     de tourner sur zéro cas (« aucun cas au profil … »), donc aucun gate ne peut porter
   //     `cases: 0` et « vertical — 0 cas relu à la main » est une phrase que rien ne peut produire.
-  //   - les deux nuls, ou les deux non nuls : `EtatApp.gate_cases` rend `null` dès que
-  //     `gate_profile` l'est. Un corps qui les dissocie n'a pas été écrit par cette route.
+  //   - `gate_countersigned` : booléen, ou `null`. C'est lui, et non le nom du profil, qui décide
+  //     si la page écrit « relus à la main » (revue Codex 1.10 tour 2). Un profil sans lui laisserait
+  //     la page choisir entre deux phrases dont l'une affirme une relecture humaine.
+  //   - les trois nuls, ou les trois non nuls : `EtatApp.gate_cases` et `EtatApp.gate_countersigned`
+  //     rendent `null` dès que `gate_profile` l'est. Un corps qui les dissocie n'a pas été écrit par
+  //     cette route.
   //
   // Tout ce que cette règle refuse est une **sonde illisible** (état 3), jamais un niveau à moitié
   // peint : c'est la différence entre « le serveur n'a pas répondu » et une phrase qu'il n'a pas dite.
@@ -113,8 +119,10 @@
   function compteLisible(n) {
     return n === null || (typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 1);
   }
-  function coupleLisible(p, n) {
-    return profilLisible(p) && compteLisible(n) && ((p === null) === (n === null));
+  function contresigneLisible(c) { return c === null || typeof c === "boolean"; }
+  function coupleLisible(p, n, c) {
+    return profilLisible(p) && compteLisible(n) && contresigneLisible(c) &&
+      ((p === null) === (n === null)) && ((p === null) === (c === null));
   }
 
   function lireAlerte(a) {
@@ -128,7 +136,7 @@
     if (!o || typeof o !== "object" || Array.isArray(o)) return null;
     if (typeof o.ok !== "boolean" || !estChaine(o.version)) return null;
     if (!Array.isArray(o.documents_servis) || !o.documents_servis.every(estChaine)) return null;
-    if (!coupleLisible(o.gate_profile, o.gate_cases)) return null;
+    if (!coupleLisible(o.gate_profile, o.gate_cases, o.gate_countersigned)) return null;
     if (!Array.isArray(o.alerts)) return null;
     var alertes = [];
     for (var i = 0; i < o.alerts.length; i++) {
@@ -138,7 +146,8 @@
     }
     return {
       ok: o.ok, version: o.version, documents_servis: o.documents_servis,
-      gate_profile: o.gate_profile, gate_cases: o.gate_cases, alerts: alertes
+      gate_profile: o.gate_profile, gate_cases: o.gate_cases,
+      gate_countersigned: o.gate_countersigned, alerts: alertes
     };
   }
 
@@ -165,9 +174,21 @@
     // qui ne promet aucune relecture humaine — l'écrire quand même ferait affirmer à la page une
     // relecture qui n'a pas eu lieu, exactement la classe d'invention que D8 interdit. Le profil
     // vient du serveur ; la qualification, elle, n'est écrite que là où elle est vraie.
-    var relus = (sante.gate_profile === "vertical") ? " relu" + (n > 1 ? "s" : "") + " à la main" : "";
+    //
+    // Et le profil ne suffit pas (revue Codex 1.10 tour 2, B2) : `vertical` dit quelle politique de
+    // mesure a tourné, `gate_countersigned` dit si la relecture qu'AD-14 met dans sa définition a
+    // été contresignée par la personne à qui `epics.md` l'attribue. Tant qu'elle est due, la
+    // relecture est celle de la boucle autonome, et la page le dit — c'est la même règle que pour
+    // `full` : la qualification n'est écrite que là où elle est vraie, et le serveur seul l'établit.
+    var relus = "";
+    if (sante.gate_profile === "vertical") {
+      relus = sante.gate_countersigned
+        ? " relu" + (n > 1 ? "s" : "") + " à la main"
+        : " relu" + (n > 1 ? "s" : "") + " par la boucle, contresignature humaine en attente";
+    }
     return {
       etat: "gate",
+      contresigne: sante.gate_countersigned,
       texte: "niveau de validation : " + sante.gate_profile + " — " + n + " cas" + relus
     };
   }

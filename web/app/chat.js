@@ -769,11 +769,19 @@ window.CHAT = (function () {
     return false;
   }
 
+  // La **contresignature** entre dans le suffixe pour la meme raison que la peremption (revue Codex
+  // 1.10 tour 2, B2) : AD-14 definit `vertical` comme « un cas guide et un cas sinistre relus a la
+  // main », si bien que le seul nom du profil affirme au lecteur du badge une relecture humaine.
+  // Tant que `gate_countersigned` est faux, cette relecture est celle de la boucle autonome. Le
+  // badge est court : il pose la reserve, l'accueil la dit en toutes lettres.
   function suffixeValidation(validation) {
     if (!validation) return "";
     if (validation.gate_profile === null) return " · non validé";
+    var reserves = [];
+    if (estPerime(validation)) reserves.push("périmé");
+    if (validation.gate_countersigned === false) reserves.push("non contresigné");
     return " · " + validation.gate_profile + " (" + validation.gate_cases + " cas" +
-      (estPerime(validation) ? ", périmé" : "") + ")";
+      (reserves.length ? ", " + reserves.join(", ") : "") + ")";
   }
 
   function libelleMode(via, validation) {
@@ -1068,20 +1076,25 @@ window.CHAT = (function () {
     if (!j || typeof j !== "object" || Array.isArray(j)) return null;
     var p = j.gate_profile;
     var n = j.gate_cases;
+    var c = j.gate_countersigned;
     // **La** regle du couple (profil, compte), identique a celle de `tools/accueil/accueil.js` —
     // `tests/js/sante_corpus.mjs` rejoue les memes corps dans les deux lecteurs et exige le meme
     // verdict, corps par corps (un grep sur deux sources ne verifie pas une semantique) :
     //   - `gate_profile` : chaine **non vide**, ou `null` — « mode api ·  (2 cas) » ne dit rien ;
     //   - `gate_cases` : entier **>= 1**, ou `null` — `evals/run.py` refuse de tourner sur zero cas,
     //     donc aucun gate ne porte `cases: 0`, et « vertical (0 cas) » ne peut pas etre produit ;
-    //   - les deux nuls ou les deux non nuls (`EtatApp.gate_cases` rend `null` des que
-    //     `gate_profile` l'est).
+    //   - `gate_countersigned` : booleen, ou `null` — c'est lui, et non le nom du profil, qui dit
+    //     si la relecture qu'AD-14 met dans la definition de `vertical` a ete contresignee ;
+    //   - les trois nuls ou les trois non nuls (`EtatApp.gate_cases` et
+    //     `EtatApp.gate_countersigned` rendent `null` des que `gate_profile` l'est).
     // Ce que la regle refuse ne suffixe **rien** : jamais un niveau a moitie lu.
     if (!(p === null || (typeof p === "string" && p.length > 0))) return null;
     if (!(n === null || (typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 1))) {
       return null;
     }
+    if (!(c === null || typeof c === "boolean")) return null;
     if ((p === null) !== (n === null)) return null;
+    if ((p === null) !== (c === null)) return null;
     // Les alertes sont lues **sans conditionner** le niveau : une entree mal formee ne doit pas
     // supprimer un `gate_profile` parfaitement lisible (le badge perdrait tout son suffixe pour un
     // champ qu'il n'affiche meme pas). Ce qui n'est pas lisible est ecarte, le reste est retenu.
@@ -1094,7 +1107,7 @@ window.CHAT = (function () {
         alerts.push({ doc_id: a.doc_id, alerte: a.alerte });
       }
     }
-    return { gate_profile: p, gate_cases: n, alerts: alerts };
+    return { gate_profile: p, gate_cases: n, gate_countersigned: c, alerts: alerts };
   }
 
   function testerApi() {
