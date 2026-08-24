@@ -171,23 +171,25 @@ def _alertes(corpus: Corpus) -> list[Alerte]:
 
 
 def _alerte_ungated(settings: Settings) -> list[Alerte]:
-    """`ENV=prod` + `ALLOW_UNGATED=true` : la dérogation reste possible, elle cesse d'être muette (D7).
+    """`ENV=prod` + `ALLOW_UNGATED=true` : la dérogation est **refusée**, et le dire est le reste (D7).
 
-    AD-7 nomme `ALLOW_UNGATED` comme la dérogation « dev / J+1 avant le premier gate », et l'AC de la
-    story 1.10 exige qu'elle soit **désactivée en production** : la ligne `ENV` du `Dockerfile` a donc
-    disparu, et en `prod` la valeur se dérive de `env` (donc `False`). L'interdire en dur irait plus
-    loin qu'AD-7 — et le jour où une réingestion invalide un gate, elle est le seul moyen de servir en
-    attendant la relance des témoins.
+    AD-7 cadre `ALLOW_UNGATED` — « dev / J+1 avant le premier gate » — et l'AC de la story 1.10 la
+    ferme : « désactivé en production à la fin de cette story ». Retirer la ligne du `Dockerfile` ne
+    la fermait pas : la surface réelle est la configuration du service (`--set-env-vars
+    ALLOW_UNGATED=true`), qu'aucun test hors ligne ne voit. C'est `config.Settings` qui force
+    `allow_ungated=False` en `prod` (revue Codex 1.10, B3) ; ici on publie ce refus.
 
-    Elle devient donc visible là où l'état du système se lit : une alerte sur `/api/v1/sante`, que la
-    page d'accueil affiche avec les autres. Le `doc_id` est `*` — c'est une propriété du **service**,
-    pas d'un document, et `Alerte` n'a pas d'autre place pour le dire.
+    Refuser en silence serait le défaut symétrique : celui qui a posé la variable croirait servir des
+    documents sans gate alors qu'ils sont en quarantaine. L'alerte le dit là où l'état du système se
+    lit, et la page d'accueil l'affiche avec les autres. Le `doc_id` est `*` — c'est une propriété du
+    **service**, pas d'un document, et `Alerte` n'a pas d'autre place pour le dire.
     """
-    if settings.env != "prod" or not settings.allow_ungated:
+    if settings.env != "prod" or not settings.ungated_demande_en_prod:
         return []
-    return [Alerte(doc_id="*", alerte="ungated_en_production",
-                   detail="ALLOW_UNGATED=true en ENV=prod : des documents sans gate valide seraient "
-                          "servis avec une simple alerte sans_gate (AD-7, dérogation)")]
+    return [Alerte(doc_id="*", alerte="ungated_refuse_en_production",
+                   detail="ALLOW_UNGATED=true posé avec ENV=prod : la dérogation est refusée "
+                          "(AC 1.10) — allow_ungated vaut false, un document sans gate valide reste "
+                          "en quarantaine. Retirer la variable de la configuration du service.")]
 
 
 def _dictionnaire_valide(data_dir: Path) -> bool:
@@ -302,8 +304,8 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         # d'accueil ; ce `warning` est lu par celui qui regarde le journal de démarrage du conteneur —
         # c'est-à-dire par celui qui vient de déployer, au moment où il peut encore le défaire.
         LOG.warning(
-            "ungated_en_production : ALLOW_UNGATED=true avec ENV=prod — des documents sans gate "
-            "valide seraient servis avec une simple alerte sans_gate")
+            "ungated_refuse_en_production : ALLOW_UNGATED=true posé avec ENV=prod — la dérogation "
+            "est refusée (AC 1.10) ; un document sans gate valide reste en quarantaine")
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,

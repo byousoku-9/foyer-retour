@@ -49,7 +49,8 @@
     rapport_illisible: "le rapport d'ingestion est présent mais illisible",
     rapport_etranger: "le rapport d'ingestion décrit un autre document",
     quarantaine: "document écarté au chargement",
-    ungated_en_production: "la dérogation ALLOW_UNGATED est armée en production"
+    ungated_refuse_en_production:
+      "ALLOW_UNGATED a été posé en production : la dérogation a été refusée"
   };
 
   // Les **raisons de quarantaine** ne sont pas des noms d'alerte : `corpus/loader.py` les calcule et

@@ -202,7 +202,11 @@ def _serveur(settings: Settings) -> Any:
 
 @pytest.fixture(scope="module")
 def prod() -> Any:
-    yield from _serveur(_settings(env="prod", allow_ungated=True))
+    # `env="dev"` : ce module sert un corpus doublé **sans gate**, et depuis la revue Codex 1.10 (B3)
+    # la dérogation est refusée en `prod` — un document sans gate y part en quarantaine. Ce que ces
+    # tests vérifient (routes, sources, rapports) ne dépend pas de `env` ; ce qui en dépend est
+    # asserté dans `tests/test_api.py`.
+    yield from _serveur(_settings(env="dev", allow_ungated=True))
 
 
 @pytest.fixture(autouse=True)
@@ -356,7 +360,9 @@ def _client_sur(racine: Any) -> Any:
         ancien = etat_module.DATA_DIR
         etat_module.DATA_DIR = racine
         try:
-            with TestClient(create_app(_settings(env="prod", allow_ungated=True))) as c:
+            # `env="dev"` : voir la fixture `prod` — un document sans gate n'est plus servi en
+            # production, et ces `data/` minimaux n'en portent pas.
+            with TestClient(create_app(_settings(env="dev", allow_ungated=True))) as c:
                 yield c
         finally:
             etat_module.DATA_DIR = ancien

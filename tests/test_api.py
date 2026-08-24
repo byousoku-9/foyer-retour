@@ -27,7 +27,7 @@ from server.app.api.request_id import CHAMPS_DE_LOG, RequestIdMiddleware
 from server.app.api.routes.chat import comparateur_de
 from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.index import Index
-from server.app.corpus.loader import Corpus
+from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import (
@@ -810,7 +810,31 @@ def test_sante_dit_null_sur_les_deux_quand_aucun_document_nest_servi(prod: TestC
     assert j["documents_servis"] == [] and j["gate_profile"] is None and j["gate_cases"] is None
 
 
-def test_une_derogation_armee_en_production_est_annoncee_au_journal_de_demarrage(
+def test_une_derogation_posee_en_production_est_refusee_pas_seulement_annoncee() -> None:
+    """AC 1.10 : « `ALLOW_UNGATED` est **désactivé** en production à la fin de cette story ».
+
+    Avant (revue Codex 1.10, B3) : la dérivation à `False` ne jouait que si la variable était
+    **absente**. `ENV=prod ALLOW_UNGATED=true` — un `--set-env-vars` au déploiement, la seule surface
+    réelle — produisait `allow_ungated=True`, et un document sans gate valide était servi en
+    production avec une simple alerte. Retirer la ligne du `Dockerfile` n'y changeait rien.
+    """
+    prod = Settings(_env_file=None, env="prod", allow_ungated=True, anthropic_api_key="x")
+    assert prod.allow_ungated is False, "la dérogation reste armable en production"
+    assert prod.ungated_demande_en_prod is True, "le refus doit rester dicible"
+
+    # Et la conséquence à l'endroit qui compte : un document sans gate n'est pas servi.
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=prod.allow_ungated)
+    sans_gate = [d for d in corpus.documents if corpus.manifest[d].gate is None]
+    assert sans_gate == [], sans_gate
+
+    # En `dev`, rien ne bouge : la dérogation y est le mode de travail normal (AD-7).
+    dev = Settings(_env_file=None, env="dev", allow_ungated=True, anthropic_api_key="x")
+    assert dev.allow_ungated is True and dev.ungated_demande_en_prod is False
+    defaut = Settings(_env_file=None, env="dev", anthropic_api_key="x")
+    assert defaut.allow_ungated is True
+
+
+def test_une_derogation_refusee_en_production_est_annoncee_au_journal_de_demarrage(
         caplog: pytest.LogCaptureFixture) -> None:
     """La moitié de la promesse qui atteint l'opérateur au moment du déploiement (D7).
 
@@ -822,30 +846,28 @@ def test_une_derogation_armee_en_production_est_annoncee_au_journal_de_demarrage
         with TestClient(create_app(_settings(env="prod", allow_ungated=True))):
             pass
     messages = [r.message for r in caplog.records if r.name == "foyer.etat"]
-    assert any("ungated_en_production" in m and "ALLOW_UNGATED" in m for m in messages), messages
+    assert any("ungated_refuse_en_production" in m and "ALLOW_UNGATED" in m for m in messages), messages
 
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="foyer.etat"):
         with TestClient(create_app(_settings(env="dev", allow_ungated=True))):
             pass
-    assert not [r for r in caplog.records if "ungated_en_production" in r.message], \
+    assert not [r for r in caplog.records if "ungated" in r.message], \
         "en dev, la dérogation est le mode de travail normal : l'annoncer serait du bruit"
 
 
-def test_une_derogation_armee_en_production_est_annoncee_sur_sante() -> None:
-    """D7/AD-7 : `ALLOW_UNGATED` reste possible, elle cesse d'être muette.
+def test_une_derogation_refusee_en_production_est_annoncee_sur_sante() -> None:
+    """Refuser en silence serait le défaut symétrique de servir en silence.
 
-    L'AC de la story dit « désactivé en production » : la ligne `ENV` du `Dockerfile` a disparu et la
-    valeur se dérive de `env`. La poser explicitement reste permis (AD-7 la nomme comme la dérogation
-    « dev / J+1 »), mais une bascule qu'on peut oublier est une bascule silencieuse — elle se voit
-    donc sur la page qui annonce l'état du système.
+    Celui qui a posé `ALLOW_UNGATED=true` sur le service croirait servir des documents sans gate,
+    alors qu'ils sont en quarantaine. L'alerte le dit là où l'état du système se lit.
     """
     with TestClient(create_app(_settings(env="prod", allow_ungated=True))) as client:
         alertes = client.get("/api/v1/sante", headers=XFF).json()["alerts"]
     noms = [(a["doc_id"], a["alerte"]) for a in alertes]
-    assert ("*", "ungated_en_production") in noms
-    detail = [a["detail"] for a in alertes if a["alerte"] == "ungated_en_production"][0]
-    assert "ALLOW_UNGATED" in detail
+    assert ("*", "ungated_refuse_en_production") in noms
+    detail = [a["detail"] for a in alertes if a["alerte"] == "ungated_refuse_en_production"][0]
+    assert "ALLOW_UNGATED" in detail and "refus" in detail
 
 
 @pytest.mark.parametrize("env,allow", [("prod", False), ("dev", True), ("dev", False)])
@@ -853,7 +875,7 @@ def test_lalerte_de_derogation_ne_se_leve_que_en_production(env: str, allow: boo
     """En `dev`, `ALLOW_UNGATED` est le mode de travail normal : l'annoncer serait du bruit."""
     with TestClient(create_app(_settings(env=env, allow_ungated=allow))) as client:
         alertes = client.get("/api/v1/sante", headers=XFF).json()["alerts"]
-    assert "ungated_en_production" not in [a["alerte"] for a in alertes]
+    assert "ungated_refuse_en_production" not in [a["alerte"] for a in alertes]
 
 
 def test_limage_de_production_sert_les_deux_documents_sans_derogation() -> None:

@@ -193,7 +193,7 @@ async function main() {
       corps: sante({
         alerts: [
           { doc_id: "lux-guide", alerte: "gate_perime", detail: "" },
-          { doc_id: "*", alerte: "ungated_en_production", detail: "ALLOW_UNGATED=true" },
+          { doc_id: "*", alerte: "ungated_refuse_en_production", detail: "ALLOW_UNGATED=true" },
           { doc_id: "autre", alerte: "alerte_inconnue_du_front", detail: "détail du serveur" },
           // Les raisons de quarantaine arrivent **ainsi** : nom d'alerte `quarantaine`, raison en
           // préfixe du détail (`api/etat._alertes`). Les mettre dans la table des noms d'alerte

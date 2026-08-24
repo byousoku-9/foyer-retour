@@ -8,7 +8,7 @@ Ce qu'elle dit de plus que « ok » est ce qui rend le système relisible : quel
 réellement servis, à quel niveau de validation (`gate_profile` et `gate_cases`, `null` tant qu'un
 document servi n'a pas de gate — AD-11 interdit d'annoncer un profil qu'aucun document ne porte),
 quelles alertes pèsent sur eux (`sans_gate`, `gate_perime`, `source_absente`, `bloquant_statique`,
-quarantaine, `ungated_en_production`), si le dictionnaire est validé
+quarantaine, `ungated_refuse_en_production`), si le dictionnaire est validé
 (AD-5 : sinon le court-circuit « zéro hit » dort), et les seuils actifs — les mêmes que ceux de
 `Trace.thresholds`, pour qu'une réponse et l'état du serveur se lisent avec la même règle.
 """

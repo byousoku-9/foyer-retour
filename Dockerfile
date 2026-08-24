@@ -24,13 +24,13 @@ ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
 
 # AD-7 : `ALLOW_UNGATED` n'est **plus** armé (story 1.10). Les deux documents portent désormais un
-# gate `vertical` écrit par `python -m server.evals.run --gate {doc_id}`, et `allow_ungated` se dérive
-# de `ENV` : en `prod`, elle vaut `False`. La dérogation reste possible (AD-7 la nomme « dev / J+1 »)
-# mais elle est devenue explicite **et bruyante** — la poser dans l'environnement du service produit
-# l'alerte `ungated_en_production` sur `/api/v1/sante`, affichée par la page d'accueil, plus un
-# avertissement au journal de démarrage. Ce que l'image ne fait plus, c'est l'armer en silence : un
-# document dont le gate serait invalidé par une réingestion part en quarantaine `sans_gate`, ce qui
-# est le comportement qu'AD-8 demande.
+# gate `vertical` écrit par `python -m server.evals.run --gate {doc_id}`, et l'AC de la story ferme la
+# dérogation : en `prod`, `config.py` force `allow_ungated=False`, que la variable soit absente ou
+# posée à `true`. Retirer cette ligne ne suffisait pas — la vraie surface est la configuration du
+# service (`--set-env-vars ALLOW_UNGATED=true`), hors de portée de tout test hors ligne (revue Codex
+# 1.10, B3). Le refus n'est pas muet : `/api/v1/sante` porte l'alerte `ungated_refuse_en_production`,
+# la page d'accueil l'affiche, et un avertissement part au journal de démarrage. Un document dont le
+# gate serait invalidé par une réingestion part donc en quarantaine `sans_gate` — AD-8.
 ENV ENV=prod PORT=8080
 EXPOSE 8080
 # `--proxy-headers --forwarded-allow-ips=*` fait qu'uvicorn croit `X-Forwarded-Proto` et

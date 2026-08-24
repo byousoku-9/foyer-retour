@@ -196,7 +196,7 @@ def test_les_alertes_du_serveur_sont_affichees_telles_quelles(cas: dict[str, Any
     assert "Alertes du serveur" in textes
     assert any("gate_perime" in t and "lux-guide" in t for t in textes)
     # `doc_id="*"` : une propriété du service, pas d'un document — pas de préfixe « * : ».
-    ungated = [t for t in textes if "ungated_en_production" in t]
+    ungated = [t for t in textes if "ungated_refuse_en_production" in t]
     assert ungated and not ungated[0].startswith("*")
     # Une alerte inconnue du front est **affichée** sous son nom brut : la taire serait pire.
     assert any("alerte_inconnue_du_front" in t for t in textes)
@@ -332,7 +332,7 @@ def test_la_page_sait_traduire_toutes_les_alertes_que_le_serveur_emet(cas: dict[
     emises |= set(re.findall(r'\["([a-z_]+)"\]\) if allow_ungated', loader))
     emises |= {"gate_perime"}  # posé par `_gate_alerts`, seule branche à ne pas suivre ces formes
     assert {"sans_gate", "gate_perime", "source_absente", "quarantaine", "rapport_illisible",
-            "rapport_etranger", "ungated_en_production"} <= emises, emises
+            "rapport_etranger", "ungated_refuse_en_production"} <= emises, emises
 
     connues = set(cas["alertes_connues"])
     manquantes = emises - connues

@@ -21,8 +21,18 @@ class Settings(BaseSettings):
                                       env_ignore_empty=True, extra="ignore")
 
     env: Literal["dev", "prod"] = "dev"
-    # None = dérivé de `env` : True en dev, False en prod (désactivé en production à la fin de 1.10).
+    # Dérogation d'AD-7 : servir un document sans gate valide, avec l'alerte `sans_gate`. AD-7 la
+    # cadre — « dev / J+1 avant le premier gate » — et l'AC de 1.10 la ferme : « `ALLOW_UNGATED` est
+    # **désactivé** en production à la fin de cette story ». Depuis 1.10 les deux gates existent :
+    # en `prod`, `_coherence` force donc `False`, que la variable soit absente, `false`, ou `true`.
+    # Retirer la ligne du `Dockerfile` ne suffisait pas — la surface réelle est la configuration du
+    # service (`--set-env-vars ALLOW_UNGATED=true`), qu'aucun test hors ligne ne voit (revue Codex
+    # 1.10, B3). La demande n'est pas perdue pour autant : `ungated_demande_en_prod` la retient, et
+    # `/api/v1/sante` la publie en alerte — refusée, jamais muette (AD-16).
     allow_ungated: bool | None = None
+    # Dérivé, jamais configuré : `_coherence` l'écrase en `prod`. Vrai quand `ALLOW_UNGATED=true` a
+    # été posé sur un service de production, et donc refusé.
+    ungated_demande_en_prod: bool = False
     anthropic_api_key: str = ""
     usd_eur: float = Field(0.92, gt=0)
     # AD-11 : `GET /api/v1/sante` publie `version: sha7`. Injecté dans l'image par le build
@@ -284,8 +294,14 @@ class Settings(BaseSettings):
             # un dégradé silencieux du rappel (AD-16), invisible dans la réponse.
             raise ValueError(f"verifier_max_claims ({self.verifier_max_claims}) doit être "
                              f">= draft_max_claims ({self.draft_max_claims})")
-        if self.allow_ungated is None:
-            self.allow_ungated = self.env == "dev"
+        if self.env == "prod":
+            # AC 1.10 : « désactivé en production ». Forcé, et non seulement dérivé de l'absence de
+            # la variable — sinon `ENV=prod ALLOW_UNGATED=true` armait la dérogation en production,
+            # exactement ce que l'AC ferme. La demande est retenue pour être **dite** (`/sante`).
+            self.ungated_demande_en_prod = bool(self.allow_ungated)
+            self.allow_ungated = False
+        elif self.allow_ungated is None:
+            self.allow_ungated = True
         return self
 
     def thresholds(self) -> dict[str, float | int]:

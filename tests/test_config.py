@@ -76,10 +76,21 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "guide_doc_id" not in t.thresholds and "sinistre_doc_id" not in t.thresholds
 
 
-def test_allow_ungated_follows_env_unless_explicit() -> None:
+def test_allow_ungated_est_ferme_en_production_et_libre_en_dev() -> None:
+    """AC 1.10 : « `ALLOW_UNGATED` est **désactivé** en production à la fin de cette story ».
+
+    Avant la revue Codex 1.10 (B3), `prod` ne dérivait `False` que lorsque la variable était absente :
+    `ENV=prod ALLOW_UNGATED=true` — un `--set-env-vars` au déploiement — armait la dérogation en
+    production. Elle y est maintenant refusée, et le refus reste dicible (`ungated_demande_en_prod`).
+    """
     assert Settings(_env_file=None, env="prod").allow_ungated is False
-    assert Settings(_env_file=None, env="prod", allow_ungated=True).allow_ungated is True
+    prod = Settings(_env_file=None, env="prod", allow_ungated=True)
+    assert prod.allow_ungated is False and prod.ungated_demande_en_prod is True
+    assert Settings(_env_file=None, env="prod", allow_ungated=False).ungated_demande_en_prod is False
+    # En `dev`, rien ne change : la dérogation y est le mode de travail normal (AD-7).
+    assert Settings(_env_file=None, env="dev").allow_ungated is True
     assert Settings(_env_file=None, env="dev", allow_ungated=False).allow_ungated is False
+    assert Settings(_env_file=None, env="dev", allow_ungated=True).ungated_demande_en_prod is False
 
 
 def test_bounds_and_coherence() -> None:
