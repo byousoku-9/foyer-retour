@@ -14,7 +14,12 @@ from .verdict import Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
 Applicable = Literal["oui", "non", "humain"]
-RejectionKind = Literal["non_retrouvee", "non_pertinente", "ambigue"]
+# `non_citee` amende AD-4 (revue Codex 1.5) : une claim retrouvée et pertinente qu'**aucun** segment
+# factuel affiché ne cite n'a pas d'endroit où paraître. La retenir dans `claims[]` autoriserait
+# `found=True` sur un `Answer.texte` vide — « réponse vide présentée comme réponse », ce qu'AD-16
+# nomme précisément comme ce qu'il empêche. Aucun des trois kinds d'origine ne la décrit : elle n'est
+# ni introuvable, ni ambiguë, ni jugée non pertinente.
+RejectionKind = Literal["non_retrouvee", "non_pertinente", "ambigue", "non_citee"]
 # `clarification_requise` amende AD-4 (story 1.5) : `Answer` exige un `reason` dès que `found=False`, et
 # aucun des trois kinds d'origine ne décrit « la question n'a pas pu être rendue autonome » (AD-5, deux
 # sorties exclusives de *comprendre*). Répondre `hors_perimetre` à une anaphore irrésoluble serait un
@@ -108,20 +113,33 @@ class AnswerDraft(DomainModel):
 class VerifiedQuote(Quote):
     """Quote retrouvée dans le bloc relu depuis le corpus : où, exactement (AD-3).
 
-    `start`/`end` sont des offsets dans `Block.text_norm` — la seule forme sur laquelle l'inclusion a
-    été prouvée (convention Texte : `normalize()` est l'unique normalisation admise). `line_ids` sont
-    les lignes du bloc que l'occurrence traverse, pour le surlignage PDF ; vides quand le document n'a
-    pas de lignes (le guide, ingéré depuis `kb.js`).
+    Deux systèmes d'offsets, parce qu'il y a deux textes :
+
+    - `start`/`end` indexent `Block.text_norm` — la seule forme sur laquelle l'inclusion a été prouvée
+      (convention Texte : `normalize()` est l'unique normalisation admise) ;
+    - `text_start`/`text_end` indexent `Block.text`, le texte **brut** du corpus, obtenus en
+      retraduisant l'occurrence par `normalize_spans()`. Ce sont eux que le front surligne, et c'est
+      d'eux que `quote` est extraite.
+
+    `quote` n'est donc **jamais** la chaîne rendue par le modèle (revue Codex 1.5, B2) : AD-3 veut
+    que « le texte affiché comme source soit toujours relu depuis `corpus` », et une citation
+    normalisée — même casse, mêmes accents, mêmes séparateurs — peut différer du texte source sans
+    que rien ne le signale. `line_ids` sont les lignes du bloc que l'occurrence traverse, pour le
+    surlignage PDF ; vides quand le document n'a pas de lignes (le guide, ingéré depuis `kb.js`).
     """
 
     start: int = Field(ge=0)
     end: int = Field(ge=0)
+    text_start: int = Field(ge=0)
+    text_end: int = Field(ge=0)
     line_ids: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _span_is_not_empty(self) -> VerifiedQuote:
         if self.end <= self.start:
             raise ValueError("end doit être > start (une occurrence retrouvée n'est jamais vide)")
+        if self.text_end <= self.text_start:
+            raise ValueError("text_end doit être > text_start (une occurrence retrouvée n'est jamais vide)")
         return self
 
 

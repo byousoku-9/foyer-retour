@@ -34,7 +34,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from server.app.config import Settings
-from server.app.corpus.text import normalize
+from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.answer import (
     AnswerDraft,
     Claim,
@@ -66,36 +66,71 @@ class VerdictPertinence(BaseModel):
     pertinente: bool
 
 
-class SortieVerifier(BaseModel):
-    """Sortie de l'appel `micro` : un booléen par claim, rien d'autre (AD-4).
+class FacettePertinence(BaseModel):
+    """Une sous-question de la question posée, et les affirmations qui prétendent y répondre.
 
-    Aucun champ de texte libre : le modèle ne peut pas glisser de motif dans la trace, et il ne peut
-    pas non plus « expliquer » un verdict que le code ne lui a pas demandé.
+    `libelle` est le seul texte libre que le contrôle rende, et il ne sert qu'ici : il n'entre ni dans
+    la trace, ni dans un motif, ni dans l'`Answer` (AD-10, AD-15). Il est demandé parce qu'une facette
+    nommée est une facette pensée — le modèle ne peut pas la compter sans la dire.
+    """
+
+    libelle: str = ""
+    claim_ids: list[str] = []
+
+
+class SortieVerifier(BaseModel):
+    """Sortie de l'appel `micro` : un booléen par claim, et le découpage de la question (AD-4).
+
+    Aucun champ de justification : le modèle ne peut pas glisser de motif dans la trace, et il ne peut
+    pas non plus « expliquer » un verdict que le code ne lui a pas demandé. `found` et `complete`
+    restent calculés par le code — le modèle ne rend que les faits sur lesquels le code les calcule,
+    exactement comme pour `pertinente`.
     """
 
     verdicts: list[VerdictPertinence]
+    facettes: list[FacettePertinence] = []
 
 
-def _ligne_spans(block: Block) -> list[tuple[int, int, str]]:
-    """Position de chaque ligne du bloc dans son `text_norm` : [(début, fin, line_id)].
+def _lignes_du_bloc(block: Block) -> tuple[list[tuple[int, int, str]], bool]:
+    """Position **brute** de chaque ligne dans `Block.text` : ([(début, fin, line_id)], toutes_mappées).
 
-    Les lignes sont cherchées **dans l'ordre**, à partir de la fin de la précédente : un bloc PDF est
-    la concaténation de ses lignes, donc leurs formes normalisées s'y suivent. Une ligne introuvable
-    (la règle de césure `-\\n` de `normalize()` peut souder deux lignes en un mot) est simplement
-    sautée : mieux vaut un `line_id` manquant qu'un surlignage faux.
+    Cherchée dans le texte d'origine et non dans `text_norm` (revue Codex 1.5, B7) : un bloc PDF est
+    la concaténation de ses lignes, la recherche est donc exacte et aucune règle de normalisation ne
+    peut faire disparaître une ligne. L'ancienne version cherchait la forme *normalisée* de chaque
+    ligne et sautait celles que la règle de césure `-\\n` avait soudées à la suivante — le surlignage
+    perdait alors des `line_ids` sans que rien ne le dise. Le drapeau rendu permet de le signaler si
+    le cas se présentait malgré tout (bloc dont le texte n'est pas la concaténation de ses lignes).
     """
     spans: list[tuple[int, int, str]] = []
     cursor = 0
+    toutes = True
     for line in block.lines:
-        forme = normalize(line.text)
-        if not forme:
+        if not line.text:
             continue
-        i = block.text_norm.find(forme, cursor)
+        i = block.text.find(line.text, cursor)
         if i < 0:
+            toutes = False
             continue
-        spans.append((i, i + len(forme), line.line_id))
-        cursor = i + len(forme)
-    return spans
+        spans.append((i, i + len(line.text), line.line_id))
+        cursor = i + len(line.text)
+    return spans, toutes
+
+
+class _Bloc:
+    """Ce qu'un bloc cité coûte à préparer une fois, quel que soit le nombre de claims qui le citent.
+
+    `spans` est l'image de `Block.text_norm` dans `Block.text` (`normalize_spans`) : c'est elle qui
+    retraduit une occurrence prouvée en un passage brut, celui que le front affiche.
+    """
+
+    def __init__(self, block: Block) -> None:
+        self.block = block
+        norme, spans = normalize_spans(block.text)
+        # Le loader a calculé `text_norm` avec `normalize()`, qui est la projection de
+        # `normalize_spans()` : les deux formes coïncident par construction.
+        self.norme = norme
+        self.spans = spans
+        self.lignes, self.lignes_completes = _lignes_du_bloc(block)
 
 
 class _Controle:
@@ -108,7 +143,7 @@ class _Controle:
 
 
 def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, fournis: set[str],
-                     lignes: dict[str, list[tuple[int, int, str]]], settings: Settings) -> _Controle:
+                     blocs: dict[str, _Bloc], settings: Settings) -> _Controle:
     """AD-3, dans l'ordre de son texte : existence, kind, longueur, inclusion, non-ambiguïté.
 
     « `block_id` existe » se lit ici « existe **parmi les blocs transmis à *rédiger*** », pas « existe
@@ -125,7 +160,9 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
                                           f"dans ce message ({connu}) : ne cite que les blocs reçus")
     doc_id = index.doc_of(block_id)
     document = corpus.documents[doc_id]
-    block = document.block(block_id)  # texte **toujours relu depuis le corpus**
+    if block_id not in blocs:  # une seule préparation par bloc, même si plusieurs claims le citent
+        blocs[block_id] = _Bloc(document.block(block_id))  # texte **toujours relu depuis le corpus**
+    block = blocs[block_id].block
     if block.kind == "heading":
         return _Controle("non_retrouvee", f"le bloc {block_id} est un titre : un titre ne se cite pas seul, "
                                           "cite le paragraphe qui porte l'information")
@@ -153,11 +190,16 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
         return _Controle("ambigue", f"citation ambiguë : le même passage figure aussi ailleurs dans le "
                                     f"document, hors du bloc {block_id} — étends-la pour la rendre unique")
     end = start + len(forme)
-    if block_id not in lignes:  # une seule fois par bloc, même si plusieurs claims le citent
-        lignes[block_id] = _ligne_spans(block)
-    line_ids = [lid for (a, b, lid) in lignes[block_id] if a < end and b > start]
-    return _Controle("", "", VerifiedQuote(block_id=block_id, quote=quote, start=start, end=end,
-                                           line_ids=line_ids))
+    # AD-3 : « le texte affiché comme source est toujours relu depuis `corpus` ». On retraduit donc
+    # l'occurrence prouvée dans le texte **brut** du bloc, et c'est ce passage-là — jamais la chaîne
+    # rendue par le modèle — qui devient la citation affichée (revue Codex 1.5, B2).
+    prepare = blocs[block_id]
+    text_start = prepare.spans[start][0]
+    text_end = prepare.spans[end - 1][1]
+    line_ids = [lid for (a, b, lid) in prepare.lignes if a < text_end and b > text_start]
+    return _Controle("", "", VerifiedQuote(block_id=block_id, quote=block.text[text_start:text_end],
+                                           start=start, end=end, text_start=text_start,
+                                           text_end=text_end, line_ids=line_ids))
 
 
 def _bloc_connu(index: Any, block_id: str) -> bool:
@@ -202,7 +244,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # Blocs réellement transmis à *rédiger* : le périmètre exact de ce qui est citable (AD-1,
     # « les blocs effectivement passés au modèle »).
     fournis = {b.block_id for b in retrieval.blocs}
-    lignes_par_bloc: dict[str, list[tuple[int, int, str]]] = {}
+    blocs_prepares: dict[str, _Bloc] = {}
 
     def edition_de(block_ids: list[str]) -> str:
         """`edition` (AD-4) : celle du document **cité**, affichée « édition … — actualité non vérifiée ».
@@ -224,7 +266,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         du_draft = [Quote(block_id=q.block_id, quote=q.quote) for q in claim.quotes]
         edition = edition_de([q.block_id for q in claim.quotes])
         controles = [_controler_quote(q.block_id, q.quote, corpus=corpus, index=index, fournis=fournis,
-                                      lignes=lignes_par_bloc, settings=settings)
+                                      blocs=blocs_prepares, settings=settings)
                      for q in claim.quotes]
         echecs = [c for c in controles if c.kind]
         if echecs:
@@ -244,9 +286,10 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     evaluees = retrouvees[: settings.verifier_max_claims]
     excedentaires = retrouvees[settings.verifier_max_claims:]
     verdicts: dict[str, bool] = {}
+    facettes: list[FacettePertinence] = []
     if evaluees:
-        verdicts = await _pertinence(evaluees, parsed=parsed, corpus=corpus, index=index, client=client,
-                                     budget=budget, settings=settings, step=step)
+        verdicts, facettes = await _pertinence(evaluees, parsed=parsed, corpus=corpus, index=index,
+                                               client=client, budget=budget, settings=settings, step=step)
 
     claims: list[VerifiedClaim] = []
     manquants = 0
@@ -288,15 +331,54 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         step.checks.append(CheckResult(
             name="pertinence_incomplete", ok=False,
             detail=f"{manquants} affirmation(s) sur {len(evaluees)} sans verdict de pertinence : écartées"))
+    if any(not b.lignes_completes for b in blocs_prepares.values()):
+        # B7 : une ligne du bloc introuvable dans son propre texte brut — le surlignage serait partiel.
+        step.checks.append(CheckResult(
+            name="lignes_incompletes", ok=False,
+            detail="au moins un bloc cité n'est pas la concaténation de ses lignes : "
+                   "les `line_ids` de l'occurrence peuvent être incomplets"))
+
+    # AD-3 : « tout segment `factuel` référence ≥ 1 claim survivante », et `Answer.texte` n'est fait
+    # que des segments survivants. Une claim que **plus aucun** segment affiché ne cite n'a donc
+    # nulle part où paraître : la garder dans `claims[]` autoriserait `found=True` sur un texte vide,
+    # ce qu'AD-16 nomme « réponse vide présentée comme réponse » (revue Codex 1.5, B6). Un seul
+    # passage suffit : un segment factuel ne survit que par une claim retenue, laquelle est alors
+    # citée par lui.
+    retenus = {c.claim_id for c in claims}
+    citees = {cid for s in draft.segments if s.kind == "factuel" and s.text.strip()
+              for cid in s.claim_ids if cid in retenus}
+    orphelines = [c for c in claims if c.claim_id not in citees]
+    if orphelines:
+        claims = [c for c in claims if c.claim_id in citees]
+        for c in orphelines:
+            rejetees.append(RejectedClaim(
+                claim_id=c.claim_id, text=c.text, quotes=list(c.quotes), status=c.status,
+                line_ids=list(c.line_ids), rejection_kind="non_citee",
+                motif="affirmation vérifiée qu'aucune phrase de la réponse ne cite : rattache-la à un "
+                      "segment factuel, ou retire-la"))
+        step.checks.append(CheckResult(
+            name="claims_non_citees", ok=False,
+            detail=f"{len(orphelines)} affirmation(s) vérifiée(s) qu'aucun segment factuel n'affiche : écartée(s)"))
 
     # AD-4 : `found` et `complete` sont calculés **ici**, jamais produits par le modèle.
     found = bool(claims)
     unknown = [s.text for s in draft.segments if s.kind == "limite" and s.text.strip()]
     cites = {q.block_id for c in claims for q in c.quotes}
     renvois_ouverts = any(corpus.documents[index.doc_of(b)].block(b).unresolved_refs for b in cites)
-    # « Toutes les facettes couvertes » (AD-4) n'est pas mesurable en 1.5 : `unknown == []` en est
-    # l'approximation conservatrice — elle ne surestime jamais la complétude.
-    complete = found and not retrieval.truncated and not unknown and not renvois_ouverts
+    # AD-4 exige « toutes les facettes de `ParsedQuestion` couvertes ». `unknown == []` n'en est pas
+    # une approximation conservatrice : une réponse à deux facettes dont une est omise, sans segment
+    # `limite`, sortait `complete=True` (revue Codex 1.5, B3). Le découpage est donc demandé au même
+    # appel groupé — aucun appel de plus — et le code exige que **chaque** facette soit couverte par
+    # au moins une affirmation *retenue*. Facettes non rendues (modèle muet, aucun contrôle) ⇒ pas de
+    # preuve ⇒ `complete=False` : l'absence de mesure ne vaut jamais complétude.
+    affichees = {c.claim_id for c in claims}
+    couvertes = bool(facettes) and all(any(cid in affichees for cid in f.claim_ids) for f in facettes)
+    if evaluees and not couvertes:
+        step.checks.append(CheckResult(
+            name="facettes_non_couvertes", ok=False,
+            detail=f"{len(facettes)} facette(s) rendue(s) par le contrôle, toutes ne sont pas "
+                   "couvertes par une affirmation affichée : la réponse n'est pas donnée pour complète"))
+    complete = found and couvertes and not retrieval.truncated and not unknown and not renvois_ouverts
 
     verification = Verification(
         segments=list(draft.segments), claims=claims, rejected_claims=rejetees, found=found,
@@ -312,8 +394,12 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
 async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *, parsed: ParsedQuestion,
                       corpus: Any, index: Any, client: LlmClient, budget: RequestBudget,
-                      settings: Settings, step: StepTrace) -> dict[str, bool]:
-    """L'unique appel `micro` groupé : un booléen par `claim_id`, verdicts inconnus ignorés."""
+                      settings: Settings, step: StepTrace) -> tuple[dict[str, bool], list[FacettePertinence]]:
+    """L'unique appel `micro` groupé : un booléen par `claim_id`, et le découpage de la question.
+
+    Les deux sortent du **même** appel (AD-4 : « un seul appel `micro` groupé ») : la couverture des
+    facettes ne coûte donc rien de plus que quelques dizaines de tokens de sortie.
+    """
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
     parts = [untrusted("question", parsed.question_resolue)]
     for claim, quotes, _edition in evaluees:
@@ -349,4 +435,9 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 detail="deux verdicts opposés pour une même affirmation : elle est écartée"))
             continue
         verdicts.setdefault(v.claim_id, v.pertinente)
-    return verdicts
+    # Une facette n'est retenue que si elle ne s'appuie que sur des `claim_id` attendus : un
+    # identifiant inventé ne couvre rien, et une facette vide de toute affirmation reste une facette
+    # (non couverte, donc `complete=False`). Les libellés ne sortent pas d'ici.
+    facettes = [FacettePertinence(libelle="", claim_ids=[c for c in f.claim_ids if c in attendus])
+                for f in result.parsed.facettes]
+    return verdicts, facettes

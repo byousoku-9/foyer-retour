@@ -22,7 +22,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt
-from server.app.steps.verifier import BLOC_INCONNU, verifier
+from server.app.steps.verifier import BLOC_INCONNU, _lignes_du_bloc, verifier
 from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,9 +77,15 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
     return LlmClient(_settings(), anthropic_client=fake), fake
 
 
-def _verdicts(*paires: tuple[str, bool]) -> dict:
-    return fake_message(text=json.dumps({"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires]}),
-                        model=HAIKU)
+def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None) -> dict:
+    """Verdicts groupés + découpage de la question. Par défaut : **une** facette, couverte par toutes
+    les claims jugées pertinentes — le cas nominal d'une question qui ne pose qu'une sous-question."""
+    if facettes is None:
+        facettes = [[c for c, ok in paires if ok]]
+    return fake_message(text=json.dumps(
+        {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
+         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)]}),
+        model=HAIKU)
 
 
 def _draft(*claims: tuple[str, str, list[tuple[str, str]]]) -> AnswerDraft:
@@ -103,6 +109,16 @@ async def _verifier(index: Index, draft: AnswerDraft, script: list, *, blocs: li
     verification, step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=index.corpus,
                                         index=index, client=client, budget=_budget(), settings=settings)
     return verification, step, fake
+
+
+async def _verifier_reel(index: Index, draft: AnswerDraft, blocs: list, script: list | None = None):
+    """Même chose sur le corpus réel, où l'on choisit les blocs transmis à *rédiger*."""
+    retrieval = RetrievalResult(blocs=blocs, opened_block_ids=[b.block_id for b in blocs])
+    client, _fake = _client(script if script is not None else [_verdicts(("c1", True))])
+    parsed = ParsedQuestion(question_resolue="Qu'est-ce qu'une émeute ?", intent="question")
+    verification, _step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=index.corpus,
+                                         index=index, client=client, budget=_budget(), settings=_settings())
+    return verification
 
 
 # --- contrôles de citation (code pur) ---------------------------------------
@@ -239,6 +255,56 @@ async def test_claims_beyond_the_bound_are_declared_unevaluated_never_guessed(mi
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None and "non évaluée" in rejet.motif
 
 
+# --- couverture des facettes (AD-4), et claims qu'aucun segment n'affiche ---
+async def test_complete_requires_every_facet_of_the_question_to_be_covered(mini: Index) -> None:
+    """AD-4 : « `complete=True` ⇐ toutes les facettes de `ParsedQuestion` couvertes ». `unknown == []`
+    n'en était pas une approximation conservatrice : une réponse à deux facettes dont une est rejetée,
+    sans segment `limite`, sortait `complete=True` (revue Codex 1.5, B3)."""
+    quote_arrivee = "huit jours pour déclarer votre arrivée"
+    quote_caution = "caution est plafonnée à deux mois de loyer"
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", quote_arrivee)]),
+                   ("c2", "La caution vaut deux mois.", [("mini:p1:3", quote_caution)]))
+    blocs = ["mini:p1:2", "mini:p1:3"]
+
+    # deux facettes, une seule couverte (l'autre claim est rejetée) : la réponse tient, pas complète
+    v, step, _f = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", False),
+                                                          facettes=[["c1"], ["c2"]])], blocs=blocs)
+    assert v.found is True and v.unknown == [] and v.complete is False
+    assert "facettes_non_couvertes" in [c.name for c in step.checks]
+
+    # les deux facettes couvertes : rien ne manque, la réponse est donnée pour complète
+    v2, _s2, _f2 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True),
+                                                           facettes=[["c1"], ["c2"]])], blocs=blocs)
+    assert v2.found is True and v2.complete is True
+
+    # aucune facette rendue par le contrôle : pas de preuve de couverture, donc jamais `complete`
+    v3, _s3, _f3 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True), facettes=[])],
+                                   blocs=blocs)
+    assert v3.found is True and v3.complete is False
+
+
+async def test_a_verified_claim_no_displayed_segment_cites_is_rejected(mini: Index) -> None:
+    """AD-16 empêche « une réponse vide présentée comme réponse » : une claim vérifiée qu'aucun segment
+    factuel affiché ne cite n'a nulle part où paraître (revue Codex 1.5, B6)."""
+    quote = "huit jours pour déclarer votre arrivée"
+    orpheline = AnswerDraft(segments=[{"text": "Cela dit,", "kind": "transition"}],
+                            claims=[{"claim_id": "c1", "text": "t",
+                                     "quotes": [{"block_id": "mini:p1:2", "quote": quote}]}])
+    v, step, _f = await _verifier(mini, orpheline, [_verdicts(("c1", True))], blocs=["mini:p1:2"])
+    assert v.claims == [] and v.found is False
+    (rejet,) = v.rejected_claims
+    assert rejet.claim_id == "c1" and rejet.rejection_kind == "non_citee"
+    assert rejet.status.retrouvee is True and rejet.status.pertinente is True  # elle avait tout pour elle
+    assert rejet.quotes[0].text_start >= 0  # ses offsets sont conservés (AD-3 : affichable par le front)
+    assert "claims_non_citees" in [c.name for c in step.checks]
+    # un segment factuel vide de texte ne l'affiche pas davantage
+    vide = AnswerDraft(segments=[{"text": "   ", "kind": "factuel", "claim_ids": ["c1"]}],
+                       claims=[{"claim_id": "c1", "text": "t",
+                                "quotes": [{"block_id": "mini:p1:2", "quote": quote}]}])
+    v2, _s2, _f2 = await _verifier(mini, vide, [_verdicts(("c1", True))], blocs=["mini:p1:2"])
+    assert v2.found is False and v2.rejected_claims[0].rejection_kind == "non_citee"
+
+
 # --- found / complete, calculés par le code ---------------------------------
 async def test_found_and_complete_are_computed_by_the_code(mini: Index) -> None:
     quote = "huit jours pour déclarer votre arrivée"
@@ -267,30 +333,65 @@ async def test_found_and_complete_are_computed_by_the_code(mini: Index) -> None:
 # --- offsets et line_ids sur un vrai bloc PDF -------------------------------
 def test_line_ids_cover_the_occurrence_on_a_pdf_block(reel: Index) -> None:
     bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p6:16")
-    from server.app.steps.verifier import _ligne_spans
-
-    spans = _ligne_spans(bloc)
+    spans, toutes = _lignes_du_bloc(bloc)
+    assert toutes is True
     assert [lid for _a, _b, lid in spans] == [line.line_id for line in bloc.lines]
-    (a1, b1, l1), (a2, b2, l2) = spans[0], spans[1]
-    assert a1 == 0 and b1 <= a2  # les lignes se suivent dans `text_norm`, sans chevauchement
+    (a1, b1, _l1), (a2, _b2, _l2) = spans[0], spans[1]
+    assert a1 == 0 and b1 <= a2  # les lignes se suivent dans le texte brut, sans chevauchement
 
 
 async def test_a_quote_across_two_lines_keeps_both_line_ids(reel: Index) -> None:
-    from server.app.steps.verifier import _ligne_spans
-
     bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p6:16")
-    (a1, b1, l1), (a2, b2, l2) = _ligne_spans(bloc)[0], _ligne_spans(bloc)[1]
-    quote = bloc.text_norm[b1 - 20:a2 + 20]  # à cheval sur les deux lignes
-    draft = _draft(("c1", "t", [(bloc.block_id, quote)]))
-    retrieval = RetrievalResult(blocs=[bloc], opened_block_ids=[bloc.block_id])
-    client, _fake = _client([_verdicts(("c1", True))])
-    parsed = ParsedQuestion(question_resolue="Qu'est-ce qu'une émeute ?", intent="question")
-    v, _step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=reel.corpus, index=reel,
-                              client=client, budget=_budget(), settings=_settings())
+    spans, _ = _lignes_du_bloc(bloc)
+    (_a1, b1, l1), (a2, _b2, l2) = spans[0], spans[1]
+    quote = bloc.text[b1 - 20:a2 + 20]  # à cheval sur les deux lignes
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, quote)])), [bloc])
     q = v.claims[0].quotes[0]
-    assert bloc.text_norm[q.start:q.end] == quote
+    assert bloc.text_norm[q.start:q.end] == normalize(quote)
     assert q.line_ids == [l1, l2] and v.claims[0].line_ids == [l1, l2]
     assert v.claims[0].status.edition  # l'édition imprimée du contrat, jamais un statut vert
+
+
+def test_every_line_of_every_pdf_block_is_mapped_even_across_a_hyphenation(reel: Index) -> None:
+    """Revue Codex 1.5 (B7) : chercher la forme **normalisée** de chaque ligne perdait celles que la
+    règle de césure `-\\n` soude à la suivante — un `line_id` disparaissait sans que rien ne le dise."""
+    doc = reel.corpus.documents["axa-lu-optihome-2017"]
+    for bloc in doc.blocks:
+        spans, toutes = _lignes_du_bloc(bloc)
+        assert toutes is True, bloc.block_id
+        assert [lid for _a, _b, lid in spans] == [ligne.line_id for ligne in bloc.lines if ligne.text]
+    # le bloc témoin : « … avocat au Grand-\nDuché de Luxembourg. » — `l11` était la ligne perdue
+    cesure = doc.block("axa-lu-optihome-2017:p53:2")
+    assert normalize(cesure.lines[10].text) not in cesure.text_norm  # invisible dans la forme normalisée
+    spans, _ = _lignes_du_bloc(cesure)
+    assert f"{cesure.block_id}:l11" in [lid for _a, _b, lid in spans]
+
+
+async def test_a_quote_over_a_hyphenation_keeps_the_line_ids_of_both_lines(reel: Index) -> None:
+    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p26:5")
+    debut = bloc.text.index("minimale fixée en cas de non-")
+    quote = bloc.text[debut:debut + 60]  # traverse la césure « non-\nreconstruction »
+    assert "-\n" in quote
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, quote)])), [bloc])
+    q = v.claims[0].quotes[0]
+    spans, _ = _lignes_du_bloc(bloc)
+    attendus = [lid for (a, b, lid) in spans if a < q.text_end and b > q.text_start]
+    assert len(attendus) == 2 and q.line_ids == attendus  # les deux lignes, malgré la césure
+
+
+# --- le texte affiché comme source vient du corpus, pas du modèle (AD-3) ----
+async def test_the_returned_quote_is_the_raw_corpus_passage_not_the_model_string(reel: Index) -> None:
+    """AD-3 : « le texte affiché comme source est **toujours relu depuis `corpus`** ». Une citation
+    normalisée est incluse dans `text_norm` sans être le texte du bloc (revue Codex 1.5, B2)."""
+    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p6:16")
+    du_modele = bloc.text_norm[:80].strip()  # minuscules, sans diacritiques, séparateurs écrasés
+    assert du_modele not in bloc.text  # visuellement différent du texte source
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, du_modele)])), [bloc])
+    q = v.claims[0].quotes[0]
+    assert q.quote != du_modele
+    assert q.quote == bloc.text[q.text_start:q.text_end]  # relu dans le texte brut, aux offsets bruts
+    assert normalize(q.quote) == du_modele  # et c'est bien la même occurrence
+    assert bloc.text_norm[q.start:q.end] == du_modele
 
 
 # --- correctifs de revue 1.5 -------------------------------------------------

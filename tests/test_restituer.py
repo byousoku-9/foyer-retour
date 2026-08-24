@@ -24,7 +24,8 @@ from server.app.steps.restituer import PHRASES_DE_REFUS, restituer
 
 def _claim(claim_id: str = "c1", *, pertinente: bool = True) -> VerifiedClaim:
     return VerifiedClaim(claim_id=claim_id, text=f"Affirmation {claim_id}.",
-                         quotes=[VerifiedQuote(block_id="mini:p1:2", quote="huit jours", start=0, end=10)],
+                         quotes=[VerifiedQuote(block_id="mini:p1:2", quote="huit jours", start=0, end=10,
+                                               text_start=0, text_end=10)],
                          status=ClaimStatus(retrouvee=True, pertinente=pertinente, edition="git:test"))
 
 
@@ -113,18 +114,24 @@ def test_restituer_refuses_the_two_incoherent_calls() -> None:
                   reason=AbsenceProof(kind="zero_hit"))
 
 
-def test_a_surviving_claim_no_segment_cites_is_visible_in_the_trace() -> None:
-    verification = Verification(segments=[], claims=[_claim()], found=True)
-    answer, step = restituer(language="fr", verification=verification)
-    assert answer.texte == "" and [c.name for c in step.checks] == ["aucun_segment_factuel", "texte_vide"]
+def test_an_answer_without_a_surviving_factual_segment_is_never_served() -> None:
+    """AD-16, « réponse vide présentée comme réponse » : `found=True` sans une seule phrase qui affirme
+    quelque chose n'est pas une réponse. *vérifier* écarte (`non_citee`) toute claim qu'aucun segment
+    factuel affiché ne cite ; y arriver quand même est une incohérence d'appel (revue Codex 1.5, B6)."""
+    orpheline = Verification(segments=[], claims=[_claim()], found=True)
+    with pytest.raises(ValueError, match="segment factuel"):
+        restituer(language="fr", verification=orpheline)
 
-
-def test_a_text_without_any_factual_segment_is_flagged() -> None:
-    """AD-4 fait `found` des claims, pas des segments : une réponse sans affirmation reste visible."""
-    verification = Verification(
+    # une transition seule ne remplace pas une affirmation : le seul segment factuel a été retiré
+    sans_factuel = Verification(
         segments=[AnswerSegment(text="Rejetée.", kind="factuel", claim_ids=["c2"]),
                   AnswerSegment(text="Cela dit,", kind="transition")],
         claims=[_claim()], rejected_claims=[_rejet()], found=True)
-    answer, step = restituer(language="fr", verification=verification)
-    assert answer.found is True and answer.texte == "Cela dit,"
-    assert "aucun_segment_factuel" in [c.name for c in step.checks]
+    with pytest.raises(ValueError, match="segment factuel"):
+        restituer(language="fr", verification=sans_factuel)
+
+    # un segment factuel qui ne porte que des blancs ne montre rien non plus
+    blanc = Verification(segments=[AnswerSegment(text="   ", kind="factuel", claim_ids=["c1"])],
+                         claims=[_claim()], found=True)
+    with pytest.raises(ValueError, match="segment factuel"):
+        restituer(language="fr", verification=blanc)

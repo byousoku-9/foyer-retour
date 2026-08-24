@@ -169,7 +169,10 @@ def test_answer_models() -> None:
     # trois kinds d'origine ne décrit une question qu'on n'a pas pu rendre autonome (AD-5).
     assert literal_values(answer.AbsenceProof, "kind") == {"hors_perimetre", "zero_hit", "claims_rejetes",
                                                            "clarification_requise"}
-    assert literal_values(answer.RejectedClaim, "rejection_kind") == {"non_retrouvee", "non_pertinente", "ambigue"}
+    # `non_citee` amende AD-4 (revue Codex 1.5) : une claim vérifiée qu'aucun segment factuel affiché
+    # ne cite n'a nulle part où paraître — la garder autoriserait `found=True` sur un texte vide.
+    assert literal_values(answer.RejectedClaim, "rejection_kind") == {"non_retrouvee", "non_pertinente",
+                                                                      "ambigue", "non_citee"}
     assert fields(answer.Answer) == {
         "found", "complete", "lang", "lang_fallback", "texte", "segments", "claims", "rejected_claims",
         "reason", "verdict", "unknown", "clarification",
@@ -178,13 +181,18 @@ def test_answer_models() -> None:
 
 # AD-3 (story 1.5) : ce que *vérifier* ajoute au domaine
 def test_verified_quote_carries_the_occurrence() -> None:
-    assert fields(answer.VerifiedQuote) == {"block_id", "quote", "start", "end", "line_ids"}
-    q = answer.VerifiedQuote(block_id="d:p1:1", quote="huit jours", start=3, end=13, line_ids=["l1"])
-    assert (q.start, q.end, q.line_ids) == (3, 13, ["l1"])
+    assert fields(answer.VerifiedQuote) == {"block_id", "quote", "start", "end", "text_start", "text_end",
+                                            "line_ids"}
+    q = answer.VerifiedQuote(block_id="d:p1:1", quote="huit jours", start=3, end=13, text_start=4,
+                             text_end=14, line_ids=["l1"])
+    assert (q.start, q.end, q.text_start, q.text_end, q.line_ids) == (3, 13, 4, 14, ["l1"])
     with pytest.raises(ValidationError, match="end doit être"):
-        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=5, end=5)
+        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=5, end=5, text_start=0, text_end=1)
+    # les deux systèmes d'offsets sont contrôlés : le brut sert au surlignage, il ne peut pas être vide
+    with pytest.raises(ValidationError, match="text_end doit être"):
+        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=0, end=1, text_start=5, text_end=5)
     with pytest.raises(ValidationError):
-        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=-1, end=2)
+        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=-1, end=2, text_start=0, text_end=1)
     # une claim vérifiée n'a que des quotes localisées : une quote de draft n'y entre pas
     with pytest.raises(ValidationError, match="start"):
         answer.VerifiedClaim(claim_id="c", text="t", quotes=[{"block_id": "d:p1:1", "quote": "q"}],
@@ -291,7 +299,8 @@ def test_answer_found_coherence() -> None:
     def claim(retrouvee: bool = True, pertinente: bool | None = True) -> dict:
         # story 1.5 : une claim vérifiée porte des quotes localisées (`VerifiedQuote`)
         return {"claim_id": "c", "text": "t",
-                "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1}],
+                "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1,
+                            "text_start": 0, "text_end": 1}],
                 "status": {"retrouvee": retrouvee, "pertinente": pertinente, "edition": "e"}}
 
     assert answer.Answer(found=True, complete=True, claims=[claim()]).claims[0].status.retrouvee

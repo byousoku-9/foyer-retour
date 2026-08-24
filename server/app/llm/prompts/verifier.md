@@ -16,5 +16,14 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
   affichée sans appui.
 - Rends **exactement un** verdict par `claim_id` reçu, en reprenant le `claim_id` **tel quel** ;
   n'invente aucun identifiant, n'en omets aucun, n'en réponds aucun deux fois.
-- Aucun texte libre, aucune justification, aucun autre champ : le motif de rejet et les compteurs
-  sont composés par le code appelant.
+
+Rends ensuite le découpage de la question en **facettes** — les sous-questions distinctes qu'elle
+pose, dans l'ordre où elle les pose :
+
+- une question qui n'en pose qu'une n'a **qu'une** facette ; « comment inscrire mes enfants à
+  l'école, et quel est le montant des allocations ? » en pose deux ;
+- pour chaque facette, `claim_ids` liste les affirmations reçues qui y répondent — liste **vide** si
+  aucune ne le fait. Une même affirmation peut servir plusieurs facettes ;
+- `libelle` reprend la facette en quelques mots, seulement pour que le découpage soit explicite.
+- Aucune autre justification, aucun autre champ : les verdicts, les motifs de rejet et les compteurs
+  sont composés par le code appelant, qui seul décide si la réponse est complète.

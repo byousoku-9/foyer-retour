@@ -91,18 +91,14 @@ def restituer(*, language: str, verification: Verification | None = None,
                               claim_ids=[cid for cid in s.claim_ids if cid in survivantes])
                 for s in segments]
     texte = _texte(segments)
-    if not any(s.kind == "factuel" for s in segments):
-        # `found=True` vient d'AD-4 (≥ 1 claim retrouvée ∧ pertinente) et ne dépend pas des segments :
-        # une réponse dont plus aucune phrase n'affirme quoi que ce soit reste `found`, mais elle ne
-        # ressemble plus à une réponse. Visible dans la trace plutôt que muette (revue 1.5).
-        step.checks.append(CheckResult(
-            name="aucun_segment_factuel", ok=False,
-            detail="plus aucun segment factuel après le retrait : le texte ne porte aucune affirmation"))
-    if not texte:
-        # Dégénéré mais possible : une claim survivante qu'aucun segment ne cite (l'ébauche n'oblige
-        # que l'inverse — un segment factuel cite une claim). Visible dans la trace plutôt que muet.
-        step.checks.append(CheckResult(name="texte_vide", ok=False,
-                                       detail="aucun segment survivant ne porte de texte"))
+    if not any(s.kind == "factuel" and s.text.strip() for s in segments):
+        # AD-16, « réponse vide présentée comme réponse » : une réponse dont plus aucune phrase
+        # n'affirme quoi que ce soit n'est pas une réponse. *vérifier* garantit l'inverse — il écarte
+        # (`non_citee`) toute claim qu'aucun segment factuel affiché ne cite, donc `found=True` implique
+        # un segment factuel affiché. Y arriver quand même est une incohérence d'appel, au même titre
+        # que les deux ci-dessus, et elle se dit avec les mêmes mots (revue Codex 1.5, B6).
+        raise ValueError("restituer avec found=True exige au moins un segment factuel survivant "
+                         "portant du texte (une réponse vide n'est pas une réponse)")
     retires = len(verification.segments) - len(segments)
     if retires:
         step.checks.append(CheckResult(name="segments_retires", ok=False,
