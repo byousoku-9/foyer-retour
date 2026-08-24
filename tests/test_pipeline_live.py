@@ -1,0 +1,104 @@
+"""Deux scénarios réels du pipeline du guide (story 1.5), enregistrés avec la clé, rejoués sans.
+
+Avec `ANTHROPIC_API_KEY` : la chaîne des cinq étapes tourne pour de vrai sur le corpus `lux-guide`
+réel, réponses brutes sérialisées dans `tests/llm_fixtures/`. Sans (variable vide) : mêmes
+assertions, réponses rejouées — zéro réseau.
+
+1. Une question du guide donne une réponse dont **chaque phrase affichée** est soutenue : toute
+   claim retenue est retrouvée mot pour mot dans le bloc relu depuis le corpus, et jugée pertinente
+   par le contrôle groupé. Le coût de la requête entière reste sous le plafond par requête.
+2. Une question météo est refusée après le **seul** appel `micro` de *comprendre* : l'étage `reason`
+   n'est jamais atteint pour un refus (AD-5), et le refus explique pourquoi.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from server.app.config import Settings
+from server.app.corpus.index import Index
+from server.app.corpus.loader import load_corpus
+from server.app.corpus.text import normalize
+from server.app.domain.profil import Profil
+from server.app.llm.budget import RequestBudget
+from server.app.llm.client import LlmClient
+from server.app.pipelines.guide import repondre_guide
+from tests.fixtures import LLMRecorder
+from tests.llm_fake import RecordedAnthropic
+
+ROOT = Path(__file__).resolve().parents[1]
+DEUX_SUJETS = "Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?"
+METEO = "quel temps fera-t-il demain à Luxembourg-Ville ?"
+
+
+@pytest.fixture(scope="module")
+def index() -> Index:
+    return Index(load_corpus(ROOT / "data", allow_ungated=True))
+
+
+def _settings() -> Settings:
+    # Seuils par défaut de `config.py`, jamais ceux du `.env` du poste : ils décident des blocs
+    # envoyés à *rédiger*, donc de la clé de requête — un `.env` local qui les surcharge rendrait le
+    # rejeu hors ligne impossible (revue 1.4). La clé ne sert qu'au vrai client, côté recorder.
+    return Settings(_env_file=None, anthropic_api_key="")
+
+
+def _client(llm_recorder: LLMRecorder) -> LlmClient:
+    return LlmClient(_settings(), anthropic_client=RecordedAnthropic(llm_recorder))
+
+
+def _budget() -> RequestBudget:
+    s = _settings()
+    return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
+                         max_cost_eur=s.max_cost_eur_per_request)
+
+
+async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Index,
+                                                                      llm_recorder: LLMRecorder) -> None:
+    settings, budget = _settings(), _budget()
+    answer, trace = await repondre_guide(DEUX_SUJETS, [], Profil(enfants=True), corpus=index.corpus,
+                                         index=index, client=_client(llm_recorder), settings=settings,
+                                         request_id="live-1", budget=budget)
+    assert answer.found is True and answer.reason is None
+    assert answer.claims, "aucune affirmation n'a survécu à la vérification"
+
+    documents = index.corpus.documents
+    for claim in answer.claims:
+        assert claim.status.retrouvee is True and claim.status.pertinente is True
+        assert claim.status.edition  # AD-4 : l'édition est affichée, jamais comme statut vert
+        for q in claim.quotes:
+            bloc = documents[index.doc_of(q.block_id)].block(q.block_id)
+            assert bloc.kind != "heading"
+            # le texte affiché comme source est relu depuis le corpus, aux offsets conservés (AD-3)
+            assert bloc.text_norm[q.start:q.end] == normalize(q.quote)
+
+    # AD-3 : aucun segment factuel affiché sans claim survivante, et le texte n'est que ces segments
+    survivantes = {c.claim_id for c in answer.claims}
+    factuels = [s for s in answer.segments if s.kind == "factuel"]
+    assert factuels and all(set(s.claim_ids) & survivantes for s in factuels)
+    assert answer.texte == " ".join(s.text.strip() for s in answer.segments if s.text.strip())
+
+    # AD-1 : la chaîne des cinq étapes, dans l'ordre, avec l'affectation de tiers d'AD-9
+    assert [s.name for s in trace.steps][:5] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
+    assert [s.tier for s in trace.steps][:5] == ["micro", "reason", "reason", "micro", None]
+    assert trace.steps[1].calls == []  # *retrouver* déterministe : aucun modèle
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    assert len(verifier.calls) == 1  # AD-4 : **un seul** appel groupé de pertinence
+    # NFR4 : la chaîne entière — vérification comprise — tient sous le plafond par requête
+    assert budget.cost_eur < settings.max_cost_eur_per_request
+    assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)
+
+
+async def test_a_weather_question_is_refused_before_the_reason_tier(index: Index,
+                                                                    llm_recorder: LLMRecorder) -> None:
+    budget = _budget()
+    answer, trace = await repondre_guide(METEO, [], Profil(), corpus=index.corpus, index=index,
+                                         client=_client(llm_recorder), settings=_settings(),
+                                         request_id="live-2", budget=budget)
+    assert answer.found is False and answer.claims == []
+    assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
+    assert answer.texte and answer.segments[0].kind == "limite"  # le refus explique pourquoi
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert budget.attempts == 1 and all(c.model.startswith("claude-haiku") for c in trace.steps[0].calls)
