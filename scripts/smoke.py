@@ -340,6 +340,11 @@ def verifier_sante(corps: Any, *, documents: tuple[str, ...], gate_profile: str,
     cases = _lire(corps, "gate_cases")
     if cases is _ABSENT:
         ecarts.append(_manquant("gate_cases"))
+    elif not isinstance(cases, int) or isinstance(cases, bool):
+        # `True == 1` en Python : sans ce contrôle, un `gate_cases: true` passerait pour « un cas »
+        # sur un gate qui en attend un. Un nombre de cas est un entier (revue Codex 1.11).
+        ecarts.append(f"gate_cases={cases!r} n'est pas un entier : un nombre de cas relus ne se "
+                      f"lit pas sur un booléen")
     elif cases != gate_cases:
         ecarts.append(f"gate_cases={cases!r}, attendu {gate_cases!r} d'après data/manifest.json : "
                       f"le gate servi ne repose pas sur le même nombre de cas que ce commit")
@@ -418,7 +423,14 @@ def _ecarts_de_reponse(corps: Any, *, doc_id: str, source_hash: str, found_atten
     found = _lire(corps, "answer", "found")
     if found is _ABSENT:
         ecarts.append(_manquant("answer.found"))
-    elif bool(found) is not found_attendu:
+    elif not isinstance(found, bool):
+        # `bool(found)` acceptait tout objet vrai : la chaîne `"false"`, `1`, une liste non vide
+        # passaient pour `True` quand le cas témoin attendait `True` — une révision servant un corps
+        # hors contrat aurait été promue (revue Codex 1.11). `Answer.found` est un booléen dans
+        # `domain/answer.py` ; tout le reste dit que la révision sondée ne rend pas le contrat v1.
+        ecarts.append(f"{etiquette} : answer.found={found!r} n'est pas un booléen — la révision "
+                      f"sondée ne rend pas le contrat v1 d'`Answer.found`")
+    elif found is not found_attendu:
         ecarts.append(f"{etiquette} : answer.found={found!r}, attendu {found_attendu!r} "
                       f"(attente du cas témoin)")
 

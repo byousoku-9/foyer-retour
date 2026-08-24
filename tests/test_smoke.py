@@ -300,6 +300,32 @@ def test_un_refus_la_ou_le_cas_attend_une_reponse_est_un_ecart() -> None:
     assert any("answer.found" in e for e in ecarts)
 
 
+@pytest.mark.parametrize("valeur", ["false", "true", 1, 0, [], ["oui"], None, {}])
+def test_un_found_non_booleen_est_un_ecart(valeur: object) -> None:
+    """`bool(found)` acceptait tout objet vrai comme un `True` (revue Codex 1.11).
+
+    Le contre-exemple : `answer.found: "false"` — une chaîne non vide, donc vraie — passait le smoke
+    d'un cas témoin qui attend `true`, et un service rendant un corps hors contrat était promu. Le
+    contrat v1 dit `found: bool` ; le smoke le lit comme tel, et refuse tout le reste, y compris `1`
+    et `0` qui valent pourtant `True` et `False` à la comparaison.
+    """
+    corps = chat_nominal()
+    corps["answer"]["found"] = valeur
+    ecarts = ecarts_chat(corps)
+    assert any("n'est pas un booléen" in e for e in ecarts), ecarts
+
+
+@pytest.mark.parametrize("valeur", [True, False, "2", 2.0, None, [2]])
+def test_un_gate_cases_non_entier_est_un_ecart(valeur: object) -> None:
+    """`True == 1` : un `gate_cases: true` valait « un cas » sur un gate qui en attend un.
+
+    Le compte de cas relus est ce que `/` affiche à côté du niveau de validation ; le lire sur un
+    booléen, ou sur une chaîne, c'est afficher un chiffre que rien ne tient (revue Codex 1.11).
+    """
+    ecarts = ecarts_sante(sante(gate_cases=valeur))
+    assert any("n'est pas un entier" in e for e in ecarts), ecarts
+
+
 def test_aucune_claim_retrouvee_est_un_ecart() -> None:
     """AD-3 : une réponse sans citation retrouvée n'est pas une réponse sourcée."""
     corps = chat_nominal()
