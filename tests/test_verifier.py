@@ -15,7 +15,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft
-from server.app.domain.document import Block, Document, Node
+from server.app.domain.document import Document, Node
 from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget

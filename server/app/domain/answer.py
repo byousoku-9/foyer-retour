@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .document import DomainModel
 

@@ -14,7 +14,6 @@ from server.app.domain import Document, Report
 from server.ingest import kb_to_blocks as k
 from server.ingest.jsobject import parse_js_object
 from server.ingest.report import build_report
-from server.ingest.jsobject import JSObjectError
 
 ROOT = Path(__file__).resolve().parents[1]
 MINI = Path(__file__).parent / "data" / "mini_kb.js"

@@ -13,7 +13,6 @@ from server.app.config import Settings
 from server.app.domain.errors import LlmParse, Timeout
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
-from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
