@@ -6,8 +6,10 @@ vide) : mêmes assertions, réponses rejouées — zéro réseau.
 
 Ce que le cas doit établir (AC de la story, et « verdict cadré » de l'epic) :
 
-1. le verdict est **conservateur** — `sous_conditions` ou `ne_tranche_pas`, jamais `couvert` sur un
-   contrat dont on n'a que les conditions générales ;
+1. le verdict est **conservateur** — jamais `couvert` sur un contrat dont on n'a que les conditions
+   générales. C'est désormais une propriété du **code** et non du modèle : la seconde branche de la
+   règle (2) d'AD-6 (« ou la garantie dépend d'une […] condition particulière **inconnue** ») est
+   satisfaite tant que `MissingPackage` l'est, et rien dans le pipeline ne l'établit ;
 2. il est adossé aux **clauses exactes** : au moins un des trois blocs relus à la main en story 1.2
    (p9 « contenu », p11 « mobilier de jardin », p34 la garantie de l'action subite de la chaleur) ;
 3. l'exclusion de la page 46 est **explicitement écartée** — absente, ou affichée `applicable="non"`
@@ -26,6 +28,13 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.question import Faits
+from server.app.domain.verdict import (
+    KINDS_DECISIONNELS,
+    ChampsApplicabilite,
+    ClaimJugee,
+    ClauseCitee,
+    decider,
+)
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.pipelines import sinistre
@@ -51,6 +60,32 @@ def index() -> Index:
     return Index(load_corpus(ROOT / "data", allow_ungated=True))
 
 
+def _au_mieux_disant(answer, index: Index) -> list[ClaimJugee]:
+    """Les claims affichées, re-jugées avec la sortie de modèle **la plus favorable possible**.
+
+    `fait_requis_present=true`, aucune option, aucune condition particulière, aucun fait manquant :
+    c'est le jeu de champs qui rendrait chaque clause `applicable="oui"`. Rejouer la table dessus
+    montre que le verdict conservateur ne tient pas au hasard de ce que le modèle a répondu ce
+    jour-là, mais à la règle (2) d'AD-6 — ce que la fixture d'un run unique ne peut pas prouver.
+    """
+    jugees: list[ClaimJugee] = []
+    for claim in answer.claims:
+        clauses = []
+        for q in claim.quotes:
+            document = index.corpus.documents[index.doc_of(q.block_id)]
+            bloc = document.block(q.block_id)
+            if bloc.kind not in KINDS_DECISIONNELS:
+                continue
+            noeud = document.node_of(bloc.block_id)
+            clauses.append(ClauseCitee(
+                block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
+                portee=document.scope_nodes(bloc.block_id), node_id=noeud,
+                socle=document.node_scope_kind(noeud) == "commun"))
+        jugees.append(ClaimJugee(claim_id=claim.claim_id, clauses=clauses,
+                                 champs=ChampsApplicabilite(fait_requis_present=True)))
+    return jugees
+
+
 def _settings() -> Settings:
     # Seuils par défaut de `config.py`, jamais ceux du `.env` du poste : ils décident des blocs
     # envoyés à *rédiger*, donc de la clé de requête — un `.env` local qui les surcharge rendrait le
@@ -72,10 +107,13 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
         client=LlmClient(settings, anthropic_client=RecordedAnthropic(llm_recorder)),
         settings=settings, request_id="live-sinistre-1", budget=budget)
 
-    # (1) verdict conservateur, jamais `couvert` au regard des seules conditions générales
+    # (1) verdict conservateur, jamais `couvert` au regard des seules conditions générales.
+    # La valeur est **fixée** et non donnée pour un couple de possibilités (revue 1.8, tour 2) : elle
+    # ne dépend plus d'un jugement du modèle. Quoi que rende `fait_requis_present` sur la garantie —
+    # `oui` la fait tomber en (2), `humain` en (2bis) ou (4) —, le paquet manquant ferme `couvert`.
     verdict = answer.verdict
     assert verdict is not None, "AD-16 : un sinistre sort toujours avec un verdict, refus compris"
-    assert verdict.value in ("sous_conditions", "ne_tranche_pas"), verdict.value
+    assert verdict.value == "sous_conditions", verdict.value
     assert "conditions générales seules" in verdict.reason
     # AD-6 : le paquet manquant accompagne toujours le verdict, et les questions à poser aussi
     assert verdict.missing.conditions_particulieres and verdict.missing.options_souscrites
@@ -119,6 +157,14 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
         assert len(step.calls) == 1, "AD-9 amendé : un seul appel `micro`, jamais un second"
     assert budget.cost_eur < settings.max_cost_eur_per_request
     assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)
+
+    # (5) la propriété que le run seul ne prouve pas : `couvert` est hors d'atteinte **quoi que rende
+    # le modèle**. On rejoue la table sur les mêmes clauses affichées avec le jeu de champs le plus
+    # favorable qui soit (`fait_requis_present=true`, aucune option, aucune CP) — celui qui a
+    # justement produit un `couvert` sur un run d'avant-correctif. Le paquet manquant le referme.
+    au_mieux = decider(_au_mieux_disant(answer, index), ask_client_max=settings.ask_client_max)
+    assert au_mieux.value == "sous_conditions", au_mieux.value
+    assert "ne sont pas au dossier" in au_mieux.reason
 
     # AD-6 : un verdict autre que `ne_tranche_pas` repose sur une clause fondatrice **affichée**
     if verdict.value != "ne_tranche_pas":

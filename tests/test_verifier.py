@@ -735,7 +735,11 @@ async def test_applicability_travels_in_the_single_grouped_micro_call(contrat: I
         contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
     assert len(fake.requests) == 1 and len(step.calls) == 1
     assert v.claims[0].status.applicable == "oui"
-    assert v.verdict is not None and v.verdict.value == "couvert"
+    # `sous_conditions` et non `couvert` : le pipeline ne lit que les conditions générales, donc le
+    # paquet manquant reste entier et la seconde branche de la règle (2) est satisfaite (revue 1.8,
+    # tour 2). Aucun jugement du modèle ne peut faire passer ce verdict à `couvert`.
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    assert "ne sont pas au dossier" in v.verdict.reason
     # le préfixe porte bien les deux prompts, et les faits déclarés sont délimités (AD-15)
     systeme = fake.requests[0]["system"][0]["text"]
     assert "valeurs typées d'applicabilité" in systeme and "un booléen par" not in systeme.split("\n")[0]
@@ -859,8 +863,11 @@ async def test_an_exclusion_out_of_scope_does_not_bite(contrat: Index) -> None:
     v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
         ("c1", True, False, False, None), ("c2", True, False, False, None),
         verdicts=[("c1", True), ("c2", True)])])
-    # la portée de `cg:p1:2` est `cg:ext`, le nœud du cas est `cg:socle` : elle ne mord pas
-    assert v.verdict is not None and v.verdict.value == "couvert"
+    # la portée de `cg:p1:2` est `cg:ext`, le nœud du cas est `cg:socle` : elle ne mord pas — la
+    # règle (1) ne tranche pas, et le seul motif qui reste est le paquet manquant, pas l'exclusion
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    assert "ne sont pas au dossier" in v.verdict.reason
+    assert "exclusion" not in v.verdict.reason
 
 
 async def test_an_open_condition_makes_the_verdict_conditional(contrat: Index) -> None:
@@ -934,7 +941,9 @@ async def test_a_contradiction_with_a_passage_nobody_shows_is_not_one(contrat: I
     draft = _draft(("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]))
     v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
         ("c1", True, False, False, None), verdicts=[("c1", True)])])
-    assert v.verdict is not None and v.verdict.value == "couvert"
+    # aucune contradiction retenue : le verdict n'est ouvert que par le paquet manquant (règle 2)
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    assert "contredisent" not in v.verdict.reason
 
 
 async def test_an_unresolved_reference_read_from_the_corpus_settles_nothing(contrat: Index) -> None:

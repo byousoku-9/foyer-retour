@@ -15,6 +15,7 @@ from server.app.domain.verdict import (
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
+    MissingPackage,
     applicable_de_claim,
     decider,
 )
@@ -22,6 +23,14 @@ from server.app.domain.verdict import (
 ASK_MAX = 8
 SOCLE = "d:n1"
 EXTENSION = "d:n2"
+
+# Le dossier complet : conditions particulières, options, avenants et date d'effet **au dossier**.
+# C'est ce que `decider` exige pour que la règle (3) — `couvert` — soit seulement atteignable (AD-6,
+# seconde branche de la règle 2 : « ou la garantie dépend d'une […] condition particulière
+# **inconnue** »). Rien ne le produit à J+1 : le pipeline ne lit que les conditions générales, et
+# c'est la story qui apportera les pièces au dossier qui passera ce paquet-là.
+PAQUET_ETABLI = MissingPackage(conditions_particulieres=False, options_souscrites=False,
+                               avenants=False, date_effet=False)
 
 
 def _clause(kind: str, *, block_id: str = "d:p1:1", confirmed: bool = True,
@@ -117,7 +126,9 @@ def test_an_exclusion_whose_scope_misses_the_case_does_not_exclude() -> None:
                           champs=_champs(True))
     ailleurs = _clause("exclusion", block_id="d:p1:2", portee={EXTENSION}, node_id=EXTENSION, socle=False)
     exclusion = ClaimJugee(claim_id="c2", clauses=[ailleurs], champs=_champs(True))
-    assert decider([garantie, exclusion], ask_client_max=ASK_MAX).value == "couvert"
+    # paquet établi : sans lui, la règle (2) tranche avant qu'on puisse voir si l'exclusion mord
+    v = decider([garantie, exclusion], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "couvert"
 
 
 def test_an_exclusion_alone_never_covers_itself() -> None:
@@ -128,16 +139,52 @@ def test_an_exclusion_alone_never_covers_itself() -> None:
 
 def test_a_baseline_guarantee_alone_is_covered() -> None:
     """Règle (3) : garantie du socle `oui`, aucune claim `humain` ⇒ `couvert`."""
-    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX)
+    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX,
+                missing=PAQUET_ETABLI)
     assert v.value == "couvert" and v.missing.faits == [] and v.escalate == []
+    # Ce que ce cas **suppose**, et qu'il faut lire : le dossier est complet. Sans les conditions
+    # particulières et les options, la seconde branche de la règle (2) est satisfaite et le verdict
+    # s'arrête à `sous_conditions` — voir le test suivant, qui est le cas réel de l'outil à J+1.
+    assert v.missing.conditions_particulieres is False and v.missing.options_souscrites is False
+    # AD-6 : « toujours avec le paquet manquant et les questions à poser ». Le paquet étant établi,
+    # il n'y a plus rien à demander : les questions suivent les pièces, elles ne sont pas décoratives.
+    assert v.ask_client == []
+
+
+def test_a_baseline_guarantee_alone_is_only_conditional_while_the_package_is_unknown() -> None:
+    """Règle (2), seconde branche, lue **littéralement** : la pièce inconnue suffit (revue 1.8, tour 2).
+
+    C'est le cas réel de l'outil à J+1, et la propriété qui manquait : le verdict le plus engageant
+    ne peut plus reposer sur le seul `fait_requis_present` du modèle. Mesuré en live — deux runs du
+    même code, `ne_tranche_pas` puis `couvert`, un booléen d'écart.
+    """
+    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX)
+    assert v.value == "sous_conditions"
+    assert "ne sont pas au dossier" in v.reason
+    assert "conditions particulières" in v.reason and "options souscrites" in v.reason
     assert v.missing.conditions_particulieres and v.missing.options_souscrites  # le paquet reste dû
-    # AD-6 : « toujours avec le paquet manquant et les questions à poser » — même sur un `couvert`,
-    # qui ne vaut qu'au regard des conditions générales (D8). **Une question par pièce manquante** :
-    # annoncer quatre pièces absentes et n'en demander que deux laisserait le gestionnaire deviner.
+    # **Une question par pièce manquante** : annoncer quatre pièces absentes et n'en demander que
+    # deux laisserait le gestionnaire deviner (D8).
     assert len(v.ask_client) == 3 and all("Fait à établir" not in q for q in v.ask_client)
     assert any("options" in q for q in v.ask_client)
     assert any("conditions particulières" in q for q in v.ask_client)
     assert any("avenant" in q and "date" in q for q in v.ask_client)
+
+
+@pytest.mark.parametrize("piece", ["conditions_particulieres", "options_souscrites"])
+def test_either_missing_piece_alone_keeps_the_verdict_conditional(piece: str) -> None:
+    """Chacune des deux pièces suffit : AD-6 nomme « une option / extension / condition particulière »."""
+    presque = PAQUET_ETABLI.model_copy(update={piece: True})
+    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX, missing=presque)
+    assert v.value == "sous_conditions" and "ne sont pas au dossier" in v.reason
+
+
+def test_an_unestablished_package_alone_never_produces_a_verdict_out_of_thin_air() -> None:
+    """La règle (2) **ouvre** un verdict, elle n'en crée pas : sans garantie `oui`, rien ne change."""
+    sans_garantie = _claim("c1", "condition", _champs(True))
+    assert decider([sans_garantie], ask_client_max=ASK_MAX).value == "ne_tranche_pas"
+    humaine = _claim("c2", "garantie", _champs(False, manquant="caractère subit"))
+    assert decider([humaine], ask_client_max=ASK_MAX).value == "ne_tranche_pas"
 
 
 def test_a_guarantee_with_an_open_condition_is_conditional() -> None:
@@ -195,7 +242,8 @@ def test_an_unresolved_reference_on_a_non_decisional_claim_is_not_a_blocker() ->
     """AD-4 dit « renvoi non résolu sur une claim **décisionnelle** » : une définition n'en est pas une."""
     garantie = _claim("c1", "garantie", _champs(True))
     definition = _claim("c2", None, None, renvoi_ouvert=True)
-    assert decider([garantie, definition], ask_client_max=ASK_MAX).value == "couvert"
+    v = decider([garantie, definition], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "couvert"  # aucun blocage : ni la règle (0), ni la règle (2)
 
 
 def test_without_a_guarantee_or_an_exclusion_nothing_is_settled() -> None:

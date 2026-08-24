@@ -20,6 +20,7 @@ from server.app.domain.document import Document, Node
 from server.app.domain.errors import CorpusUnavailable, InvalidRequest
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.question import Faits
+from server.app.domain.verdict import ChampsApplicabilite, ClaimJugee, ClauseCitee, MissingPackage, decider
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -206,12 +207,43 @@ async def test_an_applicable_exclusion_over_the_case_is_not_covered(index: Index
 
 
 async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
+    """Le cas de fixture que l'AC exige — garantie du socle `oui`, aucune claim `humain` —, et ce
+    qu'il **suppose** désormais, dit explicitement (revue 1.8, tour 2).
+
+    Joué de bout en bout, il ne rend **pas** `couvert` : le pipeline ne lit que les conditions
+    générales, donc `MissingPackage` reste entier et la seconde branche de la règle (2) d'AD-6 est
+    satisfaite pour toute garantie. C'est la propriété qui manquait — mesuré en live, deux runs du
+    même code avaient rendu `ne_tranche_pas` puis `couvert`, un seul booléen du modèle d'écart.
+
+    La règle (3) n'est pas morte : la même claim, jugée avec un paquet **établi**, rend bien
+    `couvert`. C'est ce que fera la story qui apportera les conditions particulières au dossier, et
+    c'est pourquoi ce test montre les deux moitiés côte à côte.
+    """
     answer, _trace, _fake = await _run(index, [
         _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
-    assert answer.verdict is not None and answer.verdict.value == "couvert"
-    assert answer.verdict.escalate == [] and answer.verdict.missing.faits == []
-    # AD-6 : même un `couvert` s'accompagne du paquet manquant et des **quatre** pièces demandées
-    assert _questions_attendues(answer.verdict)
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "sous_conditions"
+    assert "ne sont pas au dossier" in verdict.reason
+    assert verdict.escalate == [] and verdict.missing.faits == []
+    # AD-6 : le paquet manquant est annoncé **et** demandé, une question par pièce
+    assert _questions_attendues(verdict)
+    assert [c.status.applicable for c in answer.claims] == ["oui"]
+
+    # La même clause, avec le dossier complet : la seule chose qui change est le paquet.
+    (claim,) = answer.claims
+    (quote,) = claim.quotes
+    document = index.corpus.documents[DOC_ID]
+    bloc = document.block(quote.block_id)
+    noeud = document.node_of(bloc.block_id)
+    jugee = ClaimJugee(
+        claim_id=claim.claim_id, champs=ChampsApplicabilite(fait_requis_present=True),
+        clauses=[ClauseCitee(block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
+                             portee=document.scope_nodes(bloc.block_id), node_id=noeud,
+                             socle=document.node_scope_kind(noeud) == "commun")])
+    complet = MissingPackage(conditions_particulieres=False, options_souscrites=False,
+                             avenants=False, date_effet=False)
+    au_dossier = decider([jugee], ask_client_max=_settings().ask_client_max, missing=complet)
+    assert au_dossier.value == "couvert" and au_dossier.ask_client == []
 
 
 async def test_an_open_condition_keeps_the_verdict_conditional(index: Index) -> None:
@@ -274,7 +306,9 @@ async def test_a_claim_mixing_two_clauses_is_sent_back_to_the_writer(index: Inde
     # la première vérification n'a fait **aucun** appel : rien n'avait survécu au contrôle de citation
     assert [s.name for s in trace.steps].count("verifier") == 2
     assert answer.found is True and answer.verdict is not None
-    assert answer.verdict.value == "couvert"  # l'exclusion des extensions ne couvre pas le cas
+    # l'exclusion des extensions ne couvre pas le cas ; ce qui ouvre le verdict est le paquet manquant
+    assert answer.verdict.value == "sous_conditions"
+    assert "ne sont pas au dossier" in answer.verdict.reason
     # La claim mêlée a bien été rejetée par la **première** vérification — c'est elle qui a nourri la
     # relance. Elle ne figure plus dans la réponse servie parce que la seconde vérification domine et
     # la remplace en entier (AD-3) ; c'est la trace qui garde la preuve du rejet.
