@@ -1,15 +1,15 @@
 {
-  "claude-haiku-4-5-20251001:47c1fc51b8fcce68": {
-    "request": "claude-haiku-4-5-20251001:47c1fc51b8fcce68",
+  "claude-haiku-4-5-20251001:9e89d79ca8b92752": {
+    "request": "claude-haiku-4-5-20251001:9e89d79ca8b92752",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": true}]}",
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": false}, {\"claim_id\": \"c4\", \"pertinente\": true}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeLkyBdFn4FudUTcMn5AF",
+      "id": "msg_011CeLnuTdYiH89Dx7V9jhtt",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -24,8 +24,8 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 1729,
-        "output_tokens": 57,
+        "input_tokens": 1861,
+        "output_tokens": 73,
         "service_tier": "standard"
       }
     }
@@ -36,11 +36,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Comment inscrire mes enfants à l'école au Luxembourg, et quel est le montant des allocations familiales ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\", \"école\"], \"themes\": [\"scolarité\", \"école\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Comment inscrire mes enfants à l'école au Luxembourg, et quel est le montant des allocations familiales ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\", \"scolarité\"], \"themes\": [\"école\", \"scolarité\", \"allocations\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeLkxDzc3RqucSQaF4kfc",
+      "id": "msg_011CeLntRUHwLKQttTqnrYjK",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -56,22 +56,22 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 2597,
-        "output_tokens": 111,
+        "output_tokens": 117,
         "service_tier": "standard"
       }
     }
   },
-  "claude-sonnet-5:46e03156dd9f3890": {
-    "request": "claude-sonnet-5:46e03156dd9f3890",
+  "claude-sonnet-5:c839fb2687b47665": {
+    "request": "claude-sonnet-5:c839fb2687b47665",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Trois voies coexistent pour scolariser vos enfants au Luxembourg, et c'est la démarche à engager en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'école publique est gratuite et multilingue, alphabétisant en luxembourgeois avant d'introduire l'allemand puis le français ; à côté d'elle existent des écoles européennes et internationales, avec des critères d'accès et des frais variables.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Pour préparer l'inscription, il faut vérifier la disponibilité de la section linguistique visée, et récupérer avant le départ un certificat de radiation ainsi que les bulletins des dernières années.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant votre seconde question, sur le montant des allocations familiales,\",\"kind\":\"transition\"},{\"text\":\"les documents fournis ne permettent pas d'indiquer le montant des allocations familiales : ils précisent seulement qu'elles sont versées sans condition de nationalité, avec un supplément selon l'âge, mais aucun chiffre n'est donné dans les blocs disponibles.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"C'est la démarche la plus longue et contrainte de l'installation, à engager avant la recherche de logement, avec trois voies possibles.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'enseignement public alphabétise en luxembourgeois puis introduit l'allemand et le français, tandis que des écoles européennes et internationales existent en parallèle.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut vérifier la section linguistique disponible et récupérer certificat de radiation et bulletins avant le départ.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"},{\"block_id\":\"lux-guide:fecole:12\",\"quote\":\"Récupérer certificat de radiation et bulletins avant de partir.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de toute l'installation : il faut l'engager en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique gratuite et multilingue, les écoles européennes et internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il faut anticiper : vérifier la disponibilité de la section linguistique visée (pas seulement l'établissement), et récupérer avant de partir un certificat de radiation ainsi que les bulletins des dernières années, presque toujours exigés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, seule la résidence de l'enfant au Luxembourg comptant.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans (valeurs au 1er juin 2026), auquel s'ajoute chaque année en août une allocation de rentrée scolaire de 115 ou 235 euros selon l'âge, versée automatiquement sans demande.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces montants suivent l'indexation générale et sont revalorisés à chaque tranche indiciaire, si bien qu'un montant lu il y a un an peut ne plus correspondre à la valeur actuelle.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire doit être engagée en premier, avant même la recherche de logement, car c'est la démarche la plus longue et la plus contrainte de l'installation.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires coexistent : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen.\"},{\"block_id\":\"lux-guide:fecole:2\",\"quote\":\"Trois voies possibles, et un choix qui se prépare bien avant le déménagement.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut vérifier la section linguistique visée et récupérer certificat de radiation et bulletins avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]},{\"claim_id\":\"c4\",\"text\":\"Le montant de base des allocations familiales est de 315,04 € par mois et par enfant, avec suppléments selon l'âge et une allocation de rentrée automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"},{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeLkxPizsj3iM4sEGm75Y",
+      "id": "msg_011CeLntaK7589FwMx4octEb",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -86,8 +86,8 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 6809,
         "inference_geo": "global",
-        "input_tokens": 2895,
-        "output_tokens": 992,
+        "input_tokens": 2922,
+        "output_tokens": 1282,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
