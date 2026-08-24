@@ -365,6 +365,31 @@ def test_le_credentiel_federe_ne_part_ni_dans_le_bucket_ni_dans_limage() -> None
             f"`{nom}` doit exclure le crédentiel écrit par `auth@v3` dans le répertoire de travail")
 
 
+# --- `scripts/gcp_bootstrap.sh` : la frontière d'identité, côté GCP -------------------------------
+
+def test_la_condition_du_provider_wif_borne_le_depot_et_la_branche() -> None:
+    """Le `if:` d'un workflow n'est pas une frontière IAM (revue Codex 1.11).
+
+    La condition du provider était `attribute.repository == "byousoku-9/foyer-retour"` seule :
+    **n'importe quel** workflow du dépôt, sur **n'importe quelle** branche, pouvait échanger son
+    jeton OIDC contre l'identité du déployeur — il suffisait de pousser un fichier dans
+    `.github/workflows/` sur une branche de travail, sans revue et sans passer par `main`. La garde
+    `if: github.ref == 'refs/heads/main'` du job ne protège que `deploy.yml` lui-même ; elle ne dit
+    rien à GCP. C'est la condition d'attribut qui doit le dire, et elle exige donc aussi
+    `assertion.ref == "refs/heads/main"` — le seul contexte où AD-12 autorise un déploiement.
+    """
+    script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
+    condition = re.search(r'^PROVIDER_CONDITION="(.+)"$', script, re.M)
+    assert condition, "la condition du provider doit être un littéral relisible du script"
+    texte_condition = condition.group(1)
+    assert r'attribute.repository == \"${REPO}\"' in texte_condition, "le dépôt reste borné"
+    assert r'assertion.ref == \"refs/heads/main\"' in texte_condition, (
+        "la branche doit être bornée côté IAM, pas seulement par le `if:` du workflow")
+    assert " && " in texte_condition, "les deux bornes valent ensemble, pas au choix"
+    # …et le mapping doit exposer ce que la condition lit, sinon `update-oidc` la refuse.
+    assert "attribute.repository=assertion.repository" in script
+
+
 # --- `ci.yml` ------------------------------------------------------------------------------------
 
 def test_la_ci_se_declenche_sur_les_pull_requests() -> None:

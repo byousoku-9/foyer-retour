@@ -182,7 +182,18 @@ else
 fi
 PROVIDER_ISSUER="https://token.actions.githubusercontent.com"
 PROVIDER_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor"
-PROVIDER_CONDITION="attribute.repository == \"${REPO}\""
+# **La condition est la frontière d'identité, pas le `if:` du workflow** (revue Codex 1.11). Bornée
+# au seul dépôt, elle laissait n'importe quel workflow du dépôt — sur n'importe quelle branche, donc
+# poussé sans revue et sans passer par `main` — échanger son jeton OIDC contre l'identité du
+# déployeur. La garde `if: github.ref == 'refs/heads/main'` de `deploy.yml` ne protège que
+# `deploy.yml` : GCP, lui, n'en sait rien. On borne donc aussi la référence à `main`, le seul
+# contexte où AD-12 autorise un déploiement. `assertion.ref` se lit directement dans la condition,
+# sans passer par un attribut mappé.
+#
+# Le `workflow_ref` n'est volontairement **pas** borné : le fichier de workflow vit sur `main`, et
+# l'y modifier demande un push sur `main` — lequel déclenche déjà `deploy.yml` avec ces droits. La
+# borne n'ajouterait aucune frontière, et un renommage du fichier casserait la fédération.
+PROVIDER_CONDITION="attribute.repository == \"${REPO}\" && assertion.ref == \"refs/heads/main\""
 if PROVIDER_ACTUEL="$($G iam workload-identity-pools providers describe "${PROVIDER}" \
       --workload-identity-pool="${POOL}" --location=global \
       --format='value(attributeCondition)' 2>/dev/null)"; then
