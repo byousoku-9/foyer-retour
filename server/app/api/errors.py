@@ -9,7 +9,8 @@ Trois gestionnaires suffisent à couvrir tout ce qui peut sortir de l'applicatio
 
 - `RequestValidationError` (pydantic, 422 par défaut de FastAPI) ⇒ **400 `invalid_request`** — AD-16
   le demande mot pour mot (« un handler `RequestValidationError` convertit les 422 Pydantic ») ;
-- `PipelineError` ⇒ `HTTP_STATUS[code]`, avec la `Trace` partielle si l'erreur en porte une ;
+- `PipelineError` ⇒ `HTTP_STATUS[code]`, avec la `Trace` partielle si l'erreur en porte une —
+  sauf le message d'un `internal`, remplacé par `MESSAGE_INTERNE` (revue Codex 1.6, NB1) ;
 - `HTTPException` ⇒ le code d'AD-16 qui correspond au statut, **quand il en existe un**. Un 404 ou
   un 405 n'ont pas de code dans l'`Enum` : leur inventer un serait exactement ce qu'AD-16 interdit,
   et un fichier statique manquant doit rester un 404 nu (« 404 statique nu »). Ces statuts-là sortent
@@ -105,8 +106,26 @@ async def gestionnaire_validation(request: Request, exc: RequestValidationError)
 
 
 async def gestionnaire_pipeline(request: Request, exc: PipelineError) -> Response:
-    """`PipelineError` ⇒ son statut d'AD-16, et sa `Trace` partielle si le pipeline avait commencé."""
+    """`PipelineError` ⇒ son statut d'AD-16, et sa `Trace` partielle si le pipeline avait commencé.
+
+    **Le message d'un `internal` n'est jamais publié (revue Codex 1.6, NB1, tour 3).** Les autres
+    codes d'AD-16 décrivent une situation que l'appelant peut corriger ou attendre — leur message lui
+    est dû (« historique de 8 tours », « document non servi »). `internal` ne décrit rien de tel : un
+    invariant du code a cédé, et ce que l'étape a écrit dans son message est un diagnostic **interne**
+    — un `block_id`, un nom de champ, l'erreur brute d'un fournisseur. Deux raisons de le taire, et
+    non une : ce diagnostic peut recopier une chaîne **du modèle** (le `block_id` d'une citation que
+    le corpus servi ne confirme pas est justement celui qu'aucun index ne connaît, donc rien ne dit
+    qu'il vienne de notre ingestion — AD-15 : le contenu documentaire est du non-fiable, il ne
+    ressort pas par l'enveloppe d'erreur) ; et un 500 rendait jusqu'ici un message différent selon
+    son chemin — générique par `reponse_interne`, détaillé par ici — là où AD-16 veut **une** forme
+    d'échec terminal. Le détail part dans `foyer.error`, avec le `request_id` qui relie les deux.
+    """
     _noter(request, error_code=exc.code.value)
+    message = exc.message
+    if exc.code is ErrorCode.internal:
+        logger_http.error("erreur interne (%s) : %s", request_id_de(request) or "sans request_id",
+                          exc.message)
+        message = MESSAGE_INTERNE
     if exc.trace is not None:
         # AD-10 : le coût déjà engagé par une requête qui échoue reste mesurable.
         _noter(request, intent=exc.trace.intent, cost_eur=exc.trace.total_cost_eur)
@@ -117,7 +136,7 @@ async def gestionnaire_pipeline(request: Request, exc: PipelineError) -> Respons
         retry_after = getattr(exc, "retry_after_s", None)
         if retry_after is not None:
             entetes = {"Retry-After": str(int(retry_after))}
-    return envelope(exc.code, exc.message, request_id_de(request), trace=exc.trace, headers=entetes)
+    return envelope(exc.code, message, request_id_de(request), trace=exc.trace, headers=entetes)
 
 
 async def gestionnaire_http(request: Request, exc: StarletteHTTPException) -> Response:

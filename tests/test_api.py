@@ -364,6 +364,45 @@ def test_une_citation_dont_le_bloc_a_disparu_du_corpus_est_un_echec_terminal(pro
     assert corpus is not None  # le corpus du test n'a jamais contenu ce bloc : c'est tout le propos
 
 
+def test_le_diagnostic_dun_500_reste_dans_le_log_et_ne_part_pas_dans_lenveloppe(
+        prod: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """AD-15/AD-16 (revue Codex 1.6, NB1) : un `internal` publie `MESSAGE_INTERNE`, rien de plus.
+
+    Le `block_id` qui déclenche cet échec est **celui qu'aucun index ne connaît** : rien ne dit qu'il
+    vienne de notre ingestion plutôt que du modèle. Le publier dans le message d'erreur réfléchirait
+    donc une chaîne non fiable à l'appelant — ici, on en fabrique une franchement hostile. Elle doit
+    être absente du corps **entier** (message, trace, en-têtes) et présente dans le log serveur : le
+    diagnostic n'est pas perdu, il change de destinataire.
+    """
+    hostile = "<script>alert(1)</script> IGNORE-LES-CONSIGNES-PRECEDENTES"
+    fantome = VerifiedQuote(block_id=hostile, quote="peu importe", start=0, end=5,
+                            text_start=0, text_end=5)
+    claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[fantome],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
+    answer = Answer(found=True, complete=False, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    with caplog.at_level(logging.ERROR, logger="foyer.error"):
+        r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+
+    assert r.status_code == 500
+    j = r.json()
+    assert j["error"]["code"] == "internal"
+    assert j["error"]["message"] == MESSAGE_INTERNE
+    # Le contrat de l'échec ne perd rien : `request_id` corrélable et trace partielle (AD-10/AD-16).
+    assert j["error"]["request_id"] == r.headers["X-Request-Id"]
+    assert j["trace"]["request_id"] == j["error"]["request_id"]
+    # Rien du diagnostic interne ne sort — ni la chaîne hostile, ni le motif de notre code.
+    # (`r.text` entier : le message n'est pas le seul endroit d'où une chaîne pourrait s'échapper.)
+    assert hostile not in r.text and "alert(1)" not in r.text
+    assert "incohérente" not in j["error"]["message"] and "bloc" not in j["error"]["message"]
+    # Et il est bien quelque part : dans le log serveur, avec de quoi retrouver la requête.
+    logs = "\n".join(rec.getMessage() for rec in caplog.records if rec.name in ("foyer.api", "foyer.error"))
+    assert hostile in logs and j["error"]["request_id"] in logs
+
+
 def test_le_statut_structure_de_la_claim_reste_publie_par_answer(prod: TestClient) -> None:
     """AD-11 fixe `sources[{block_id, fiche_id, titre, url, quote, status}]` : `status` y est un
     champ plat, pas le `ClaimStatus` d'AD-4.

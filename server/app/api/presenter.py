@@ -71,9 +71,12 @@ STATUT_VERIFIEE = "verifiee"
 def _incoherence(block_id: str, motif: str) -> PipelineError:
     """L'échec terminal d'AD-16 pour une citation que le corpus servi ne confirme pas.
 
-    Le message ne porte que le `block_id` et le motif — jamais un extrait de bloc ni du texte
-    utilisateur (AD-15) —, et il part aussi dans le log serveur : l'enveloppe dit qu'on a échoué, le
-    log dit sur quel bloc.
+    Le diagnostic — `block_id` et motif — part dans le **log serveur**, et n'atteint jamais le client
+    (revue Codex 1.6, NB1) : `gestionnaire_pipeline` publie `MESSAGE_INTERNE` pour tout `internal`.
+    C'est nécessaire ici plus qu'ailleurs : ce `block_id` est précisément celui qu'aucun index ne
+    connaît, donc rien ne prouve qu'il vienne de notre ingestion plutôt que du modèle — le renvoyer
+    dans l'enveloppe réfléchirait une chaîne non fiable à l'appelant (AD-15). Il reste porté par
+    l'exception pour le log, jamais pour la réponse.
     """
     logger.error("citation incohérente sur %s : %s — la réponse n'est pas servie", block_id, motif)
     return PipelineError(ErrorCode.internal, f"citation incohérente sur le bloc {block_id} : {motif}")
