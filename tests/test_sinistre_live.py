@@ -148,9 +148,16 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
             assert q.quote == bloc.text[q.text_start:q.text_end]
             assert bloc.text_norm[q.start:q.end] == normalize(q.quote)
 
-    # (4) la chaîne, ses tiers, son unique appel groupé et son coût
-    assert [s.name for s in trace.steps][:5] == ["comprendre", "retrouver", "rediger", "verifier",
-                                                 "restituer"]
+    # (4) la chaîne, ses tiers, son unique appel groupé et son coût.
+    # La forme admise tolère la relance d'AD-3 : elle est un chemin **normal**, pas un incident, et
+    # un run réel l'emprunte dès qu'une citation est rejetée. Une assertion sur les cinq premières
+    # étapes rendait donc ce test rouge sur un run parfaitement conforme (mesuré : le run du
+    # 24/08 qui a relancé *rédiger*). On exige la chaîne d'AD-1 et, au plus, **une** paire de
+    # relance insérée entre la première vérification et *restituer*.
+    etapes = [s.name for s in trace.steps]
+    assert etapes[:4] == ["comprendre", "retrouver", "rediger", "verifier"]
+    assert etapes[-1] == "restituer"
+    assert etapes[4:-1] in ([], ["rediger"], ["rediger", "verifier"]), etapes
     assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
     assert trace.steps[1].calls == []  # *retrouver* déterministe : aucun modèle
     for step in (s for s in trace.steps if s.name == "verifier"):
