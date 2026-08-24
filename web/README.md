@@ -15,10 +15,10 @@ carte — sauf de l'onglet Assistant, qui interroge désormais le serveur qui se
   d'elle-même : quand le serveur est indisponible ou injoignable, un bandeau propose un bouton, et il faut le
   cliquer. Une requête refusée (question trop longue, quota atteint) affiche un message, sans bouton — une
   recherche de mots-clés n'est pas une réponse vérifiée.
-- **Il ne conserve aucune conversation.** Le serveur n'en enregistre pas, et ce navigateur non plus : le
-  `localStorage` ne porte plus que le profil et les préférences d'affichage. La question et le profil partent
-  au serveur, puis au fournisseur du modèle (Anthropic), qui indique dans sa politique publique ne pas
-  conserver ce contenu par défaut. La mention est sous la saisie, dans l'onglet comme dans le panneau.
+- **Il ne conserve aucune conversation.** La mention affichée sous la saisie — la même dans l'onglet, dans le
+  panneau flottant et ici, parce que trois formulations d'une même promesse font trois promesses — dit :
+
+  > Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic), dont la politique publique, lue le 23/08/2026, indique que ce contenu n'est pas conservé par défaut. Aucune conversation n'est enregistrée : ni par le serveur, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
 
 Le README d'origine suit.
 
