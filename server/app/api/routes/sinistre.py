@@ -70,8 +70,11 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         # `dossier` n'est **pas** passé (D1) : la route ne l'expose pas, donc tout le paquet
         # contractuel est réputé inconnu, annoncé par `missing` et réclamé par `ask_client`. C'est
         # ce que « au regard des conditions générales seules » veut dire, et c'est écrit.
-        pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex,
-        **({"variant": demande.variant} if demande.variant is not None else {}))
+        # `variant` n'est pas transmis non plus (revue Codex 1.9, tour 1) : le corps ne le porte
+        # plus, AD-11 ne l'énumère pas, et le défaut du pipeline est la seule variante existante.
+        # AD-1 (« un `pipeline.variant` inconnu ⇒ 400 ») est servi par `extra="forbid"` du schéma,
+        # avant le premier appel facturé.
+        pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex)
 
     try:
         sources = clauses_de(answer, etat.index, etat.corpus)

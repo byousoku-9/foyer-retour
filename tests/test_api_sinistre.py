@@ -682,22 +682,78 @@ def test_les_bornes_du_contrat_sont_appliquees_avant_la_route(prod: TestClient, 
 
 # --- ligne « Variante inconnue » -----------------------------------------
 
-def test_une_variante_inconnue_est_refusee_avant_tout_appel(prod: TestClient) -> None:
-    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », jamais traité comme la déterministe."""
+@pytest.mark.parametrize("valeur", ["agentique", "deterministe"])
+def test_une_variante_postee_est_refusee_avant_tout_appel(prod: TestClient, valeur: str) -> None:
+    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 » — et AD-11 n'en énumère aucune dans ce corps.
+
+    Le champ a existé (story 1.9) puis a été retiré par la revue Codex tour 1 (I3) : AD-11 énumère
+    `doc_id, question, faits, lang?`, et la story refusait `dossier` **en invoquant** cette
+    énumération. `extra="forbid"` rend donc les deux formes en 400, avant le premier appel facturé —
+    la variante inconnue qu'AD-1 vise, et la variante connue qu'aucune règle n'autorise à choisir
+    par HTTP (elle se choisit en éval, `pipelines.sinistre.run(variant=…)`).
+    """
     double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
-    r = _poster(prod, _corps(variant="agentique"))
+    r = _poster(prod, _corps(variant=valeur))
     assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_request"
     assert double.appels == []
 
 
-def test_la_variante_connue_est_transmise_telle_quelle(prod: TestClient) -> None:
+def test_le_serveur_emet_tout_ce_que_la_page_exige_dun_200(prod: TestClient) -> None:
+    """Le contrat, pris des **deux** côtés à la fois (revue Codex 1.9, tour 1, I2).
+
+    `tools/sinistre/sinistre.js::lireReponse()` refuse un 200 auquel manque l'un des champs
+    qu'UX-DR6 fait afficher, et rend `reponse_illisible` plutôt que de peindre un verdict amputé de
+    ses réserves. Les deux moitiés sont testées séparément — le serveur par ce module, la page par
+    `tests/test_web_sinistre.py` — et **jamais l'une contre l'autre** : durcir le lecteur sans que
+    rien ne le confronte à ce que la route écrit vraiment, c'est se donner le moyen de rendre la
+    page inutilisable sans qu'un test rougisse.
+
+    Le test lit donc les chemins exigés **dans le source du front** (`throw illisible("…")`) et les
+    cherche dans la réponse réellement sérialisée par FastAPI. Il ne demande pas `node` : ce sont
+    les noms de champs qui sont comparés, pas le comportement du script.
+    """
+    import re
+    from server.app.config import REPO_ROOT
+
+    source = (REPO_ROOT / "tools" / "sinistre" / "sinistre.js").read_text(encoding="utf-8")
+    # Le corps de `lireReponse()` seul : `documents()` a son propre `illisible("documents")`, qui
+    # parle d'une **autre** route.
+    debut = source.index("function lireReponse(")
+    corps_js = source[debut:source.index("\n  }", debut)]
+    exiges = sorted(set(re.findall(r'throw illisible\("([^"]+)"\)', corps_js)))
+    assert len(exiges) >= 15, f"le lecteur du front n'exige plus que {exiges} : le motif a changé"
+
+    corpus, _ = _mini_corpus()
+    _brancher(prod, Double((_reponse(corpus), _trace())))
+    corps = _poster(prod).json()
+    assert corps["sources"], "le cas témoin doit publier au moins une clause"
+
+    manquants = []
+    for chemin in exiges:
+        # `sources[i]` est indexé par le front ; le test vérifie la première entrée, qui existe.
+        cible: Any = corps
+        for partie in chemin.replace("sources[", "sources.").replace("]", "").split("."):
+            if isinstance(cible, list):
+                cible = cible[int(partie)] if partie.isdigit() else None
+            elif isinstance(cible, dict) and partie in cible:
+                cible = cible[partie]
+            else:
+                cible = None
+            if cible is None:
+                break
+        if cible is None:
+            manquants.append(chemin)
+    assert not manquants, f"la page exige des champs que la route n'écrit pas : {manquants}"
+
+
+def test_le_corps_ne_porte_que_les_quatre_champs_dad_11(prod: TestClient) -> None:
+    """L'énumération d'AD-11, épinglée : ni plus, ni moins."""
+    assert set(SinistreRequest.model_fields) == {"doc_id", "question", "faits", "lang"}
     corpus, _ = _mini_corpus()
     double = _brancher(prod, Double((_reponse(corpus), _trace())))
-    assert _poster(prod, _corps(variant="deterministe")).status_code == 200
-    assert double.appels[0]["variant"] == "deterministe"
-    # Sans `variant` dans le corps, la route ne l'impose pas : le défaut du pipeline fait foi.
-    double.appels.clear()
     assert _poster(prod).status_code == 200
+    # Aucune variante n'est imposée par la route : le défaut du pipeline fait foi.
     assert "variant" not in double.appels[0]
 
 
@@ -710,12 +766,20 @@ def test_le_dossier_nest_pas_un_champ_du_corps(prod: TestClient) -> None:
     une auto-déclaration invérifiable qui referme la seule question que l'outil sait poser.
     """
     assert "dossier" not in SinistreRequest.model_fields
-    corpus, _ = _mini_corpus()
-    double = _brancher(prod, Double((_reponse(corpus), _trace())))
-    # Envoyé quand même : `extra="ignore"` le laisse passer sans que rien ne fasse mine de le lire.
+    double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
+    # Envoyé quand même : depuis la revue Codex 1.9 (I3), `extra="forbid"` le **refuse** au lieu de
+    # l'ignorer. Ignorer, c'était acquiescer en silence à un corps qu'on n'honore pas : l'appelant
+    # repartait avec un verdict « conditions générales seules » en croyant avoir déclaré son paquet.
     r = _poster(prod, _corps(dossier={"conditions_particulieres": False}))
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_request"
+    assert double.appels == []
+
+    # Et sans le champ, le paquet reste réputé inconnu : c'est ce que `missing` annonce.
+    corpus, _ = _mini_corpus()
+    _brancher(prod, Double((_reponse(corpus), _trace())))
+    r = _poster(prod)
     assert r.status_code == 200
-    assert "dossier" not in double.appels[0]
     assert r.json()["answer"]["verdict"]["missing"]["conditions_particulieres"] is True
 
 

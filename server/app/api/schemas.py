@@ -30,7 +30,6 @@ from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
 from server.app.pipelines.guide import VARIANT
-from server.app.pipelines.sinistre import VARIANT as VARIANT_SINISTRE
 
 VIA = "api/v1"
 
@@ -162,7 +161,15 @@ class SinistreRequest(BaseModel):
     d'AD-16 — jamais tronqué (la fin d'une description de sinistre porte souvent la cause).
     """
 
-    model_config = ConfigDict(extra="ignore")
+    # `extra="forbid"`, et non `extra="ignore"` comme `ChatRequest` (revue Codex 1.9, tour 1, I3).
+    # Le contrat de `POST /api/v1/chat` porte une clause d'AD-11 que celui du sinistre n'a pas — le
+    # `contexte` de l'ancien site, « reçu, jamais lu » —, et rien de tel n'existe ici : AD-11 énumère
+    # `doc_id, question, faits, lang?`, un point. Ignorer un champ en trop laissait le serveur
+    # acquiescer en silence à un corps qu'il n'honore pas — un `dossier: true` posté par un appelant
+    # qui a lu D1 de travers repartait avec un verdict rendu « conditions générales seules » sans que
+    # rien ne le démente. Un champ hors contrat est donc un 400, comme une borne franchie : AD-11 veut
+    # « le rejet plutôt que la troncature », et ignorer est une troncature du corps.
+    model_config = ConfigDict(extra="forbid")
 
     # Obligatoire : le corpus servira plusieurs contrats (AD-14, « ≥ 2 contrats »), et laisser la
     # route retomber sur `settings.sinistre_doc_id` ferait répondre sur un document que l'appelant
@@ -174,9 +181,15 @@ class SinistreRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     faits: Faits
     lang: str | None = None
-    # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». Le littéral est importé du pipeline sinistre —
-    # ajouter une baseline se fait à un seul endroit.
-    variant: str | None = Field(default=None, pattern=f"^{VARIANT_SINISTRE}$")
+    # **Pas de `variant`** (revue Codex 1.9, tour 1, I3). Le champ existait pour AD-1 (« un
+    # `pipeline.variant` inconnu ⇒ 400 »), mais AD-11 ne l'énumère pas dans le corps de cette route,
+    # et la story a refusé `dossier` **en invoquant cette énumération** : le garder revenait à
+    # opposer AD-11 à un champ et à l'ignorer pour un autre. Il était de surcroît inutile — le
+    # littéral n'a qu'une valeur, si bien qu'il ne permettait de choisir que le défaut. AD-1 reste
+    # servi, et mieux : `extra="forbid"` rend `variant="agentique"` — comme toute variante, connue
+    # ou non — en 400 `invalid_request`, avant le premier appel facturé. La sélection de variante
+    # reste au pipeline, pour les évals et l'usage programmatique (`pipelines.sinistre.run(variant=…)`),
+    # qui sont les seuls appelants qu'AD-1 vise : une baseline se compare en éval, pas par HTTP.
 
     @field_validator("question")
     @classmethod
