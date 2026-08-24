@@ -479,6 +479,78 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
   vertical-align: middle; text-transform: uppercase; letter-spacing: .8px;
 }
 .badge.on { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
+.badge.off { background: color-mix(in srgb, #be123c 12%, transparent); color: #be123c; border-color: color-mix(in srgb, #be123c 38%, transparent); }
+
+/* ---------- Assistant : la reponse du serveur (story 1.7) ---------- */
+/* Tout se greffe sur .msg / .srcs / .badge : les couleurs viennent des variables du theme,
+   donc le mode sombre suit sans regle supplementaire. */
+
+/* Une reponse sourcee porte des citations : la bulle a besoin d'un peu plus de largeur que les
+   74 % d'une phrase. `:has` n'est pas indispensable — sans lui, la bulle garde sa largeur. */
+.msg.bot:has(.pied) { max-width: 88%; }
+
+/* Une reponse du serveur est faite d'elements, pas d'un bloc de texte : la conservation des
+   retours a la ligne se replie sur les paragraphes eux-memes. */
+.msg.bot .seg, .msg.bot .clarif, .msg.bot .inconnu { white-space: normal; }
+.msg.bot .seg-txt { margin: 0; white-space: pre-wrap; }
+.msg .seg + .seg { margin-top: 12px; }
+
+.msg .cites { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid var(--border-fort); }
+.msg .cites > strong {
+  display: block; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 1px; font-size: var(--micro); margin-bottom: 5px;
+}
+.msg .cite + .cite { margin-top: 9px; }
+.msg .cite-q { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); font-style: italic; }
+.msg .cite-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 4px; font-size: 12.5px; }
+.msg .cite-fiche {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--accent); text-decoration: underline;
+}
+.msg .cite-fiche:hover { text-decoration: none; }
+.msg .cite-fiche-txt { color: var(--muted); }
+.msg .cite-lien { font-size: 12.5px; }
+.msg .cite-statut { color: var(--muted); font-size: var(--micro); }
+
+.msg .clarif { margin: 0 0 12px; padding: 10px 13px; border-radius: 12px; background: var(--accent-soft); }
+.msg .clarif > strong { display: block; font-size: var(--micro); text-transform: uppercase; letter-spacing: 1px; color: var(--accent); margin-bottom: 4px; }
+.msg .clarif p { margin: 0; }
+
+.msg .preuve { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+
+.msg .inconnu { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); font-size: 13px; }
+.msg .inconnu > strong { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-size: var(--micro); margin-bottom: 5px; }
+.msg .inconnu ul { margin: 0; padding-left: 18px; }
+
+.msg .pied {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--border);
+  font-size: var(--micro); color: var(--muted);
+}
+.msg .etat { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: .8px; font-weight: 620; }
+.msg .etat-sur { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
+.msg .etat-partiel { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
+.msg .etat-inconnu { background: var(--surface-2); }
+
+/* Attente : un texte, et les trois points en accompagnement (UX-DR10) */
+.msg.attente { display: flex; align-items: center; gap: 10px; white-space: normal; }
+.msg .attente-txt { font-size: 13.5px; color: var(--muted); }
+
+/* Indisponibilite (503, panne reseau) et requete refusee (4xx) : jamais de repli automatique,
+   le bouton de la recherche simple est une .chip du bloc `.indispo`. */
+.msg.bot.indispo, .msg.bot.err { white-space: normal; border-style: dashed; }
+.msg.bot.indispo { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+.msg.bot.err { border-color: color-mix(in srgb, #be123c 45%, var(--border)); }
+.msg .alerte-titre { display: block; font-size: var(--micro); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+.msg.bot.indispo .alerte-titre { color: var(--warn); }
+.msg.bot.err .alerte-titre { color: #be123c; }
+.msg .alerte-txt { margin: 0; }
+.msg .alerte-note { margin: 7px 0 0; font-size: 12.5px; color: var(--muted); }
+.msg .ref { margin: 7px 0 0; font-size: var(--micro); color: var(--muted); }
+
+/* La mention de confidentialite (AD-15) se lit sous la saisie, y compris dans le panneau. */
+.hint.confid { margin-top: 7px; font-size: 12.5px; }
+.chat-bar .hint.confid { flex: 1 0 100%; margin: 0; }
 
 /* ---------- Frise ---------- */
 
@@ -1202,7 +1274,8 @@ html, body { overflow-x: hidden; }
   .tl-lien, .tl-item span { min-height: 40px; display: flex; align-items: center; }
 
   /* Liens de sources et de fiches : une ligne de texte seule est trop fine */
-  .faq-sources a, .detail-cote .bloc a, .lien-fiche, .lien-fiche-inline, .msg .srcs a {
+  .faq-sources a, .detail-cote .bloc a, .lien-fiche, .lien-fiche-inline, .msg .srcs a,
+  .msg .cite-lien, .msg .cite-fiche {
     display: inline-block; padding: 8px 0; min-height: 40px;
   }
   .faq-item summary { min-height: 52px; display: flex; align-items: center; }
