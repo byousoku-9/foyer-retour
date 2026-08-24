@@ -241,7 +241,31 @@ donc un **vrai** 503) et `RATE_LIMIT_PER_MINUTE=1`, pour obtenir un 429 sans pay
 
 | Vérification | Ce qui a été fait | Résultat |
 |---|---|---|
-| **503 : bandeau, bouton, rien avant le clic** | une question posée | bandeau « Assistant indisponible » + « L'assistant est indisponible pour le moment. » + la réserve (« la recherche simple compare des mots-clés, elle ne vérifie rien ») + « référence : 749de97d-… » + **un** bouton « Consulter le guide en recherche simple ». `document.querySelectorAll('#chat-log .srcs').length === 0` : **aucun** résultat local calculé, et le badge reste « mode api » jusqu'au clic |
+| **503 : bandeau, bouton, rien avant le clic** | une question posée | bandeau « Assistant indisponible » + « L'assistant est indisponible pour le moment. » + la réserve (« la recherche simple compare des mots-clés, elle ne vérifie rien ») + « référence : 749de97d-… » + **un** bouton « Consulter le guide en recherche simple ». `document.querySelectorAll('#chat-log .srcs').length === 0` : **aucun** résultat local calculé. *(Le badge disait alors encore « mode api » — deux indicateurs qui se contredisaient dans la même vue ; corrigé à la revue, relevé ci-dessous.)* |
 | **429 : message français, aucun bouton** | question suivante, quota déjà consommé | statut **429**, en-tête `Retry-After: 60` ; affiché « Question non traitée — Trop de questions en peu de temps : réessayez dans 60 secondes. » ; **0 bouton** dans la bulle. Le `message` brut du serveur (anglais, chemin pydantic) n'apparaît pas |
 | **Le clic, et lui seul, produit le mode local** | clic sur le bouton du bandeau | badge « mode local » (classe `badge`, pas `badge on`), une bulle avec le texte des fiches, sa section « Sources » (`.srcs`, forme locale `{t, u}`) et les puces d'ouverture de fiches. C'est le premier moment où le moteur lexical tourne |
 | **Serveur injoignable (panne réseau)** | `window.CHAT.setApiBase("http://127.0.0.1:1")` puis une question | même porte, même bouton : « L'assistant est injoignable : la page n'a pas pu joindre le serveur. » — `fetch` rejeté est traité comme un 503, et pas autrement |
+
+
+### Après revue de la story 1.7 (2026-08-24) — 26 constats `patch`, quatre relecteurs
+
+Le bloquant : `ui.js` n'était vérifié par rien. La revue l'a démontré en remplaçant
+`erreur.kind === "indisponible"` par `!!erreur` — le bouton de repli s'offrait alors sur un 400,
+un 413 et un 429, le repli sur 4xx qu'AD-16 interdit nommément, et la suite restait à **646 passed**.
+La composition de l'affichage est sortie de `ui.js` : `chat.js` rend un **arbre de description**
+(`vueReponse`, `vueErreur`, `vueAttente`) et `ui.js` n'est plus qu'un matérialiseur sans décision.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **680 passed en 8,2 s** (34 cas ajoutés par le triage), zéro réseau |
+| Cas du front | `node tests/js/chat_cases.mjs` | JSON `ok: true`, 68 relevés ; `console` du bac à sable dérouté vers stderr (un `console.log` laissé dans `chat.js` ne peut plus corrompre le JSON de stdout), minuteurs et `AbortController` injectés dans le realm |
+| **La mutation de la revue échoue maintenant** | `indispo = !!erreur` dans `vueErreur` | **3 failed** — `test_une_requete_refusee_ne_porte_aucune_action[vue_erreur_400 / _429 / _500]`, et rien d'autre. C'est exactement le trou qui était démontré |
+| Cinq autres mutations, injectées puis annulées | tour `local` renvoyé au serveur ; statut retiré du repli plat ; jeton de génération supprimé ; réserve d'édition tue quand `edition` est vide ; borne du serveur ignorée | chaque mutation fait échouer **exactement** le test qui la vise (`…recherche_simple_ne_repart_pas_au_serveur`, `…degrade_visiblement_sans_rien_retirer`, `…requete_en_vol_ne_survit_pas_a_la_reinitialisation`, `…edition_vide_garde_la_reserve`, `…borne_de_tours_est_celle_que_le_serveur_publie`) |
+| **Badge et bandeau ne se contredisent plus** (C26) | 503 dans le navigateur | badge « **mode indisponible** », classe `badge off` — puis « mode local » après le clic. Sur le 429 qui suit, le badge ne bouge pas : le serveur a répondu, il a refusé la requête |
+| **La saisie verrouillée se voit** (C16) | `getComputedStyle(#chat-input).opacity` avec `disabled` | **0.55** (avant : aucune règle, le clic paraissait ignoré) ; `aria-busy` posé sur les journaux pendant l'attente et retiré après, focus rendu à la saisie utilisée |
+| **Le repli plat garde la réserve d'AD-4** (C5) | appariement abandonné | les trois citations gardent « retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée », et une ligne dit que le rattachement phrase par phrase n'a pas pu être fait |
+| **La réponse locale n'emprunte plus la forme d'une réponse servie** | clic sur le bouton du bandeau | pied « recherche simple — aucune vérification : ces passages viennent d'une comparaison de mots-clés », badge « mode local » |
+| **Non-régression du chemin nominal** (le refactor touche tout le rendu) | question réelle, serveur avec clé, Chrome headless | **200 en 16,1 s**, corps posté inchangé (`profil` objet avec ses six champs, `historique: []`), 3 segments dont 2 factuels **avec** leurs citations (passage relu, fiche cliquable, lien officiel, statut), « Ce que je ne sais pas » à deux entrées, pied « partiel — cette réponse a coûté **0,0328 €** », `localStorage` réduit au profil |
+| Mentions de confidentialité | `document.querySelectorAll('.hint.confid')` | deux mentions de **354 caractères chacune**, désormais rigoureusement identiques (avant : 327 et 244, deux formulations), datées (« politique publique, lue le 23/08/2026 »), rattachées par `aria-describedby` à `#chat-input` et `#widget-input` ; `maxlength="1000"` sur les deux saisies |
+| 429, après le correctif | quota à 1/min sur le serveur de contrôle | statut **429**, `Retry-After: 60`, « Trop de questions en peu de temps : réessayez dans 60 secondes. », **0 bouton** |
+| Serveur injoignable | `setApiBase("http://127.0.0.1:1")` | « L'assistant est injoignable : la page n'a pas pu joindre le serveur. » + le bouton, badge « mode indisponible » |
