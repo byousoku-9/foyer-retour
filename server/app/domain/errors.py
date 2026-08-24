@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -48,12 +49,21 @@ class ErrorEnvelope(DomainModel):
 
 
 class PipelineError(Exception):
-    """Erreur terminale d'une étape ; l'API la convertit en enveloppe."""
+    """Erreur terminale d'une étape ; l'API la convertit en enveloppe.
+
+    AD-16 : « 503 avec trace partielle ». L'erreur porte donc ce qui a déjà été observé au moment où
+    elle est levée — `step`, le `StepTrace` de l'étape qui a échoué (renseigné par l'étape, avec ses
+    `calls[]` : un appel facturé qui échoue reste tracé, AD-10), et `trace`, la `Trace` partielle
+    assemblée par le pipeline. Sans eux, le coût d'un appel raté disparaîtrait de la trace tout en
+    comptant dans le budget (revue Codex 1.5, B5).
+    """
 
     def __init__(self, code: ErrorCode, message: str = "") -> None:
         super().__init__(message or code.value)
         self.code = code
         self.message = message or code.value
+        self.step: Any = None
+        self.trace: Trace | None = None
 
 
 class InvalidRequest(PipelineError):

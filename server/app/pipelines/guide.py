@@ -33,6 +33,7 @@ from server.app.domain.errors import (
     InvalidRequest,
     LlmParse,
     LlmUnavailable,
+    PipelineError,
     Timeout,
 )
 from server.app.domain.profil import Profil
@@ -74,6 +75,22 @@ def _retrieval_budget(settings: Settings) -> RetrievalBudget:
 # AD-3 nomme les motifs de relance par des défauts de **citation** (« quote introuvable dans block_id
 # X, bloc heading, quote trop courte ») : ce sont eux que le modèle peut corriger en recopiant mieux.
 REJETS_DE_CITATION = frozenset({"non_retrouvee", "ambigue"})
+
+
+def _domine(seconde: Verification, acquise: Verification) -> bool:
+    """La seconde vérification est-elle au moins aussi bonne que l'acquise, sur **tous** les axes ?
+
+    AD-3 relance pour *améliorer*. Compter les seules claims laissait passer une relance qui, à
+    nombre égal, perdait `complete`, ajoutait un `unknown` ou remplaçait une affirmation par une
+    autre moins bien placée (revue Codex 1.5, I2). La dominance est donc explicite : trouver au moins
+    autant, garder au moins autant d'affirmations, ne pas déclarer moins complet, ne pas déclarer
+    plus d'inconnu. Une seconde ébauche qui échange une facette contre une autre n'est pas dominante :
+    à égalité non dominante, l'acquis fait foi.
+    """
+    return (seconde.found >= acquise.found
+            and len(seconde.claims) >= len(acquise.claims)
+            and seconde.complete >= acquise.complete
+            and len(seconde.unknown) <= len(acquise.unknown))
 
 
 def _relance_utile(verification: Verification, settings: Settings) -> bool:
@@ -174,116 +191,153 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
+        echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
         answer, step = restituer(language=language, reason=_absence(kind, parsed, doc_id=doc_id, corpus=corpus),
                                  clarification=clarification)
         steps.append(step)
         return answer, tracer()
 
-    # --- comprendre -----------------------------------------------------
-    echeance("comprendre")
-    parsed, step_comprendre = await comprendre(question, historique, profil, client=client, budget=budget,
-                                               settings=settings, lang=lang)
-    steps.append(step_comprendre)
+    async def chaine() -> tuple[Answer, Trace]:
+        """Les cinq étapes. Sortie normale : un `Answer` et sa `Trace`. Échec terminal : `PipelineError`."""
+        nonlocal relances, truncated
+        # --- comprendre -----------------------------------------------------
+        echeance("comprendre")
+        parsed, step_comprendre = await comprendre(question, historique, profil, client=client, budget=budget,
+                                                   settings=settings, lang=lang)
+        steps.append(step_comprendre)
 
-    # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
-    if isinstance(parsed, ClarificationRequise):
-        return refuser("clarification_requise", None, language=parsed.language,
-                       clarification=parsed.clarification)
-    if parsed.intent in INTENTS_REFUSES:
-        # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
-        return refuser("hors_perimetre", None, language=parsed.language)
+        # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
+        if isinstance(parsed, ClarificationRequise):
+            return refuser("clarification_requise", None, language=parsed.language,
+                           clarification=parsed.clarification)
+        if parsed.intent in INTENTS_REFUSES:
+            # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
+            return refuser("hors_perimetre", None, language=parsed.language)
 
-    # --- retrouver (code pur) -------------------------------------------
-    echeance("retrouver")
-    retrieval, step_retrouver = retrouver_deterministe(parsed, corpus=corpus, index=index,
-                                                       budget=_retrieval_budget(settings),
-                                                       settings=settings, doc_id=doc_id)
-    steps.append(step_retrouver)
-    truncated = retrieval.truncated
-    if not retrieval.blocs:
-        # Court-circuit « zéro bloc », **après** *retrouver* : distinct de celui d'AD-5, qui est fondé
-        # sur le dictionnaire et reste désactivé tant que `validated=false` (story 2.1). Appeler
-        # `reason` sans un seul bloc citable ne peut produire que des claims sans source — et coûte
-        # le prix plein. L'`AbsenceProof` dit ce qui a été cherché, jamais que l'information n'existe
-        # pas (AD-1).
-        return refuser("zero_hit", parsed, language=parsed.language)
+        # --- retrouver (code pur) -------------------------------------------
+        echeance("retrouver")
+        retrieval, step_retrouver = retrouver_deterministe(parsed, corpus=corpus, index=index,
+                                                           budget=_retrieval_budget(settings),
+                                                           settings=settings, doc_id=doc_id)
+        steps.append(step_retrouver)
+        truncated = retrieval.truncated
+        if not retrieval.blocs and retrieval.truncated:
+            # AD-1, littéralement : « budget épuisé ou troncature non résolue ⇒ `complete=False` et
+            # **aucune absence du corpus n'est affirmée** » (NFR2 le répète). Un retrieval vide *parce
+            # que* le budget a tout écarté ne dit rien du corpus : le convertir en `zero_hit` fabriquerait
+            # une preuve d'absence à partir d'une borne qui est la nôtre (revue Codex 1.5, B4). Il n'y a
+            # pas d'`Answer` honnête à rendre ici — c'est une erreur terminale, avec son code.
+            raise BudgetExceeded(
+                f"le budget de retrieval n'a laissé passer aucun bloc ({settings.retrieval_max_blocks} blocs, "
+                f"{settings.retrieval_max_tokens} tokens) : aucune absence du corpus n'est affirmée")
+        if not retrieval.blocs:
+            # Court-circuit « zéro bloc », **après** *retrouver* : distinct de celui d'AD-5, qui est fondé
+            # sur le dictionnaire et reste désactivé tant que `validated=false` (story 2.1). Appeler
+            # `reason` sans un seul bloc citable ne peut produire que des claims sans source — et coûte
+            # le prix plein. L'`AbsenceProof` dit ce qui a été cherché, jamais que l'information n'existe
+            # pas (AD-1).
+            return refuser("zero_hit", parsed, language=parsed.language)
 
-    # --- rédiger --------------------------------------------------------
-    echeance("rediger")
-    draft, step_rediger = await rediger(parsed, retrieval, historique, client=client, budget=budget,
-                                        index=index, doc_id=doc_id, settings=settings)
-    steps.append(step_rediger)
+        # --- rédiger --------------------------------------------------------
+        echeance("rediger")
+        draft, step_rediger = await rediger(parsed, retrieval, historique, client=client, budget=budget,
+                                            index=index, doc_id=doc_id, settings=settings)
+        steps.append(step_rediger)
 
-    # --- vérifier -------------------------------------------------------
-    echeance("verifier")
-    verification, step_verifier = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=corpus,
-                                                 index=index, client=client, budget=budget, settings=settings)
-    steps.append(step_verifier)
+        # --- vérifier -------------------------------------------------------
+        echeance("verifier")
+        verification, step_verifier = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=corpus,
+                                                     index=index, client=client, budget=budget, settings=settings)
+        steps.append(step_verifier)
 
-    # --- relance unique (AD-3) ------------------------------------------
-    if verification.motif and _relance_utile(verification, settings):
-        acquise = verification  # ce qui est déjà vérifié : une relance ne peut que l'améliorer
-        try:
-            if budget.remaining() <= settings.llm_retry_margin_s:
-                # AD-1, littéralement : « aucun retry ne démarre sans marge ». Le retry ne démarre
-                # pas ; la requête, elle, a déjà sa réponse vérifiée.
-                raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
-            draft_2, step_rediger_2 = await rediger(parsed, retrieval, historique, client=client, budget=budget,
-                                                    index=index, doc_id=doc_id, settings=settings,
-                                                    motif=verification.motif)
-            steps.append(step_rediger_2)
-            relances += 1
-            if draft_2.digest() == draft.digest():
-                # AD-3 : « chaque relance change quelque chose ». Rien n'a changé : re-vérifier rendrait
-                # exactement le même résultat pour le prix d'un appel `micro` de plus.
-                step_rediger_2.checks.append(CheckResult(
-                    name="relance_sans_effet", ok=False,
-                    detail="l'ébauche relancée est identique (même hash canonique) : arrêt sur la première vérification"))
-            else:
-                seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed, retrieval=retrieval,
-                                                          corpus=corpus, index=index, client=client,
-                                                          budget=budget, settings=settings)
-                steps.append(step_verifier_2)
-                if len(seconde.claims) >= len(acquise.claims):
-                    verification = seconde
+        # --- relance unique (AD-3) ------------------------------------------
+        if verification.motif and _relance_utile(verification, settings):
+            acquise = verification  # ce qui est déjà vérifié : une relance ne peut que l'améliorer
+            try:
+                if budget.remaining() <= settings.llm_retry_margin_s:
+                    # AD-1, littéralement : « aucun retry ne démarre sans marge ». Le retry ne démarre
+                    # pas ; la requête, elle, a déjà sa réponse vérifiée.
+                    raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
+                draft_2, step_rediger_2 = await rediger(parsed, retrieval, historique, client=client, budget=budget,
+                                                        index=index, doc_id=doc_id, settings=settings,
+                                                        motif=verification.motif)
+                steps.append(step_rediger_2)
+                relances += 1
+                if draft_2.digest() == draft.digest():
+                    # AD-3 : « chaque relance change quelque chose ». Rien n'a changé : re-vérifier rendrait
+                    # exactement le même résultat pour le prix d'un appel `micro` de plus.
+                    step_rediger_2.checks.append(CheckResult(
+                        name="relance_sans_effet", ok=False,
+                        detail="l'ébauche relancée est identique (même hash canonique) : arrêt sur la première vérification"))
                 else:
-                    # AD-3 relance pour **améliorer** : rien ne garantit que la seconde ébauche fasse
-                    # mieux. Elle retient moins — la remplacer jetterait des affirmations déjà
-                    # vérifiées, et pourrait transformer une réponse en refus `claims_rejetes`
-                    # (revue 1.5). L'acquis fait foi, et la trace dit que la relance n'a pas payé.
-                    step_verifier_2.checks.append(CheckResult(
-                        name="relance_moins_bonne", ok=False,
-                        detail=f"la relance retient {len(seconde.claims)} affirmation(s) contre "
-                               f"{len(acquise.claims)} : la première vérification fait foi"))
-        except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
-            # La relance est une **tentative d'amélioration**, pas la réponse. Le plafond par requête
-            # (NFR4) ou la deadline (AD-1) l'arrêtent avant tout appel facturé — mesuré en 1.5 : sur un
-            # cache de préfixe froid, `comprendre + rédiger` engagent déjà ≈ 0,065 € des 0,10 €, et le
-            # majorant de la relance seul vaut ≈ 0,044 €. Un second appel `reason` peut aussi échouer
-            # au parse ou chez le fournisseur : même surface d'échec, même traitement (revue 1.5).
-            # Rendre 503 ici jetterait une réponse déjà vérifiée : ce n'est pas un dégradé silencieux,
-            # c'est le contraire, et la trace le dit. Un draft relancé mais **non vérifié** n'est
-            # jamais montré (AD-3) : on repart de la vérification acquise.
-            # AD-4 : `complete=True` exige « aucune troncature de budget ». Une relance que le
-            # plafond ou la deadline ont empêchée en est une : la réponse est servie, mais elle n'est
-            # pas donnée pour complète.
-            verification = acquise.model_copy(update={"complete": False})
-            step_verifier.checks.append(CheckResult(
-                name="relance_abandonnee", ok=False,
-                detail=f"relance de rédiger non menée à terme ({exc.code.value}) : "
-                       f"la première vérification fait foi — {exc.message}"))
-            if not verification.found:
-                # Rien de vérifié à servir : le refus motivé d'AD-3 est la seule sortie honnête, et
-                # c'est un `Answer` complet (200), pas une erreur.
-                step_verifier.checks[-1].detail += " ; aucune affirmation n'avait survécu"
+                    seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed, retrieval=retrieval,
+                                                              corpus=corpus, index=index, client=client,
+                                                              budget=budget, settings=settings)
+                    steps.append(step_verifier_2)
+                    if _domine(seconde, acquise):
+                        verification = seconde
+                    else:
+                        # AD-3 relance pour **améliorer** : rien ne garantit que la seconde ébauche fasse
+                        # mieux. Elle ne domine pas — la prendre jetterait des affirmations déjà
+                        # vérifiées, dégraderait `complete` ou allongerait `unknown`, et pourrait
+                        # transformer une réponse en refus `claims_rejetes` (revue 1.5). L'acquis fait
+                        # foi, et la trace dit que la relance n'a pas payé.
+                        step_verifier_2.checks.append(CheckResult(
+                            name="relance_moins_bonne", ok=False,
+                            detail=f"la relance ne domine pas la première vérification "
+                                   f"({len(seconde.claims)} affirmation(s) contre {len(acquise.claims)}, "
+                                   f"complete={seconde.complete} contre {acquise.complete}, "
+                                   f"unknown={len(seconde.unknown)} contre {len(acquise.unknown)}) : "
+                                   f"la première fait foi"))
+            except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
+                # Deux situations qu'AD-16 sépare, et qu'il ne faut surtout pas confondre (revue Codex
+                # 1.5, B5) :
+                #
+                # - **aucun appel n'a démarré** (plafond de coût ou d'appels atteint, marge de deadline
+                #   insuffisante) : rien n'a été facturé, la relance est une *tentative d'amélioration*
+                #   qui n'a pas eu lieu, et la réponse déjà vérifiée reste due. C'est le texte d'AD-1
+                #   (« aucun retry ne démarre sans marge »), étendu aux euros par AD-4 ;
+                # - **un appel a démarré et a échoué** (parse invalide après le retry du client, erreur
+                #   fournisseur, timeout d'appel) : AD-16 est explicite — « un appel LLM en timeout, un
+                #   parse invalide après 1 retry, un 429/529 fournisseur ⇒ 503 avec trace partielle ».
+                #   L'avaler rendrait 200 sur une panne du fournisseur. L'erreur remonte donc, avec le
+                #   `StepTrace` de l'appel raté et la trace partielle attachés.
+                commence = exc.step is not None and bool(exc.step.calls)
+                if commence:
+                    steps.append(exc.step)
+                    exc.trace = tracer()
+                    raise
+                # AD-4 : `complete=True` exige « aucune troncature de budget ». Une relance que le
+                # plafond ou la deadline ont empêchée en est une : la réponse est servie, mais elle n'est
+                # pas donnée pour complète. Un draft relancé mais **non vérifié** n'est jamais montré
+                # (AD-3) : on repart de la vérification acquise.
+                verification = acquise.model_copy(update={"complete": False})
+                step_verifier.checks.append(CheckResult(
+                    name="relance_abandonnee", ok=False,
+                    detail=f"relance de rédiger non démarrée ({exc.code.value}) : "
+                           f"la première vérification fait foi — {exc.message}"))
+                if not verification.found:
+                    # Rien de vérifié à servir : le refus motivé d'AD-3 est la seule sortie honnête, et
+                    # c'est un `Answer` complet (200), pas une erreur.
+                    step_verifier.checks[-1].detail += " ; aucune affirmation n'avait survécu"
 
-    # --- restituer ------------------------------------------------------
-    if not verification.found:
-        # AD-3 : zéro claim survivante après la relance ⇒ refus motivé, jamais un dégradé silencieux.
-        answer, step_restituer = restituer(
-            language=parsed.language, verification=verification,
-            reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus))
-    else:
-        answer, step_restituer = restituer(language=parsed.language, verification=verification)
-    steps.append(step_restituer)
-    return answer, tracer()
+        # --- restituer ------------------------------------------------------
+        echeance("restituer")
+        if not verification.found:
+            # AD-3 : zéro claim survivante après la relance ⇒ refus motivé, jamais un dégradé silencieux.
+            answer, step_restituer = restituer(
+                language=parsed.language, verification=verification,
+                reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus))
+        else:
+            answer, step_restituer = restituer(language=parsed.language, verification=verification)
+        steps.append(step_restituer)
+        return answer, tracer()
+
+    try:
+        return await chaine()
+    except PipelineError as exc:
+        # AD-16 : « 503 avec trace partielle ». Ce qui a déjà tourné — étapes, appels, coût engagé —
+        # voyage avec l'erreur, sinon l'API de 1.6 rendrait une panne sans rien pour la situer.
+        if exc.trace is None:
+            exc.trace = tracer()
+        raise

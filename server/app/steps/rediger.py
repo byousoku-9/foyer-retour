@@ -17,6 +17,7 @@ import time
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.domain.answer import AnswerDraft
+from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import StepTrace
@@ -52,8 +53,17 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.
         tail += "\n" + untrusted("motif", motif)
     content = "\n\n".join(parts) + "\n\n" + tail
-    result = await client.parse(tier=STEP_TIERS["rediger"], system_prefix=prefix,
-                                messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
-                                budget=budget, step=step, max_tokens=settings.rediger_max_tokens)
+    try:
+        result = await client.parse(tier=STEP_TIERS["rediger"], system_prefix=prefix,
+                                    messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
+                                    budget=budget, step=step, max_tokens=settings.rediger_max_tokens)
+    except PipelineError as exc:
+        # AD-10/AD-16 : l'appel raté a pu être facturé (`step.calls` le porte, `budget` aussi). Sans
+        # ce rattachement, l'étape disparaît de la trace alors que son coût y compte, et l'appelant ne
+        # peut pas distinguer un appel **commencé** d'un appel qui n'a jamais démarré (revue Codex
+        # 1.5, B5). L'erreur reste terminale : c'est l'appelant qui décide, pas nous.
+        step.ms = int((time.monotonic() - t0) * 1000)
+        exc.step = step
+        raise
     step.ms = int((time.monotonic() - t0) * 1000)
     return result.parsed, step

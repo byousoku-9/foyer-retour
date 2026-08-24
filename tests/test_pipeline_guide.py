@@ -17,7 +17,17 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.digests import pipeline_digest, prompts_digest
-from server.app.domain.errors import CorpusUnavailable, InvalidRequest, Timeout
+import anthropic
+import httpx
+
+from server.app.domain.errors import (
+    BudgetExceeded,
+    CorpusUnavailable,
+    InvalidRequest,
+    LlmParse,
+    LlmUnavailable,
+    Timeout,
+)
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Turn
@@ -80,10 +90,13 @@ def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
         "themes": [], "bien": None, "evenement": None, "lieu": None, "cause": None, "moment": None}))
 
 
-def _rediger(*claims: tuple[str, str, list[tuple[str, str]]], transition: bool = False) -> dict:
+def _rediger(*claims: tuple[str, str, list[tuple[str, str]]], transition: bool = False,
+             limite: str | None = None) -> dict:
     segments = [{"text": f"Segment {cid}.", "kind": "factuel", "claim_ids": [cid]} for cid, _, _ in claims]
     if transition:
         segments.append({"text": "En résumé.", "kind": "transition", "claim_ids": []})
+    if limite is not None:
+        segments.append({"text": limite, "kind": "limite", "claim_ids": []})
     return fake_message(model=TIERS["reason"], text=json.dumps({
         "segments": segments,
         "claims": [{"claim_id": cid, "text": texte,
@@ -91,9 +104,14 @@ def _rediger(*claims: tuple[str, str, list[tuple[str, str]]], transition: bool =
                    for cid, texte, quotes in claims]}))
 
 
-def _verdicts(*paires: tuple[str, bool]) -> dict:
+def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None) -> dict:
+    """Verdicts groupés + découpage de la question (AD-4). Par défaut une facette, couverte par les
+    claims jugées pertinentes : la question-témoin des tests n'en pose qu'une."""
+    if facettes is None:
+        facettes = [[c for c, ok in paires if ok]]
     return fake_message(model=TIERS["micro"], text=json.dumps(
-        {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires]}))
+        {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
+         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)]}))
 
 
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
@@ -341,16 +359,43 @@ async def test_every_out_of_scope_intent_short_circuits(index: Index, intent: st
     assert answer.reason.kind == "hors_perimetre"
 
 
-async def test_a_retry_that_parses_badly_never_takes_the_verified_answer_with_it(index: Index) -> None:
-    """Même surface d'échec que le budget, même traitement : la première vérification fait foi."""
+async def test_a_retry_call_that_fails_is_terminal_and_carries_its_partial_trace(index: Index) -> None:
+    """AD-16, littéralement : « un appel LLM en timeout, un parse invalide après 1 retry, un 429/529
+    fournisseur ⇒ **503 avec trace partielle** ». Un appel **commencé** — donc facturé — qui échoue
+    n'est pas une relance qui n'a pas démarré : l'avaler rendrait 200 sur une panne du fournisseur
+    (revue Codex 1.5, B5)."""
     casse = fake_message(model=TIERS["reason"], text="{ pas du json")
+    with pytest.raises(LlmParse) as exc:
+        await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+                           casse, casse])  # les deux tentatives du client (appel + relance motivée)
+    trace = exc.value.trace
+    assert trace is not None and trace.request_id == "req-test"
+    # la `StepTrace` de l'appel raté est dans la trace : son coût y compte, il ne disparaît pas
+    rediger_steps = [s for s in trace.steps if s.name == "rediger"]
+    assert len(rediger_steps) == 2 and len(rediger_steps[1].calls) == 2
+    assert trace.total_cost_eur > 0
+
+
+async def test_a_provider_failure_on_the_retry_is_terminal_too(index: Index) -> None:
+    answer_script = [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+                     anthropic.APIStatusError("529", response=httpx.Response(
+                         529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)]
+    with pytest.raises(LlmUnavailable) as exc:
+        await _run(index, answer_script)
+    assert exc.value.trace is not None and [s.name for s in exc.value.trace.steps][-1] == "rediger"
+
+
+async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(index: Index) -> None:
+    """La contrepartie : plafond d'appels atteint, rien n'a été facturé, la réponse acquise reste due
+    (AD-1 « aucun retry ne démarre sans marge », étendu aux euros par AD-4)."""
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
-                                             _verdicts(("c1", True)), casse, casse])
-    assert fake.remaining_script == 0  # les deux tentatives du client (appel + relance motivée)
-    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
-    verifier_step = next(s for s in trace.steps if s.name == "verifier")
-    (check,) = [c for c in verifier_step.checks if c.name == "relance_abandonnee"]
-    assert "llm_parse" in check.detail
+                                             _verdicts(("c1", True))], budget=budget)
+    assert fake.remaining_script == 0 and answer.found is True
+    rediger_steps = [s for s in trace.steps if s.name == "rediger"]
+    assert len(rediger_steps) == 1  # l'étape avortée n'a rien appelé : elle n'entre pas dans la trace
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]
 
 
 async def test_a_retry_that_verifies_worse_never_replaces_the_answer(index: Index) -> None:
@@ -418,3 +463,73 @@ async def test_trace_retries_counts_the_client_parse_retries_too(index: Index) -
     rediger_step = next(s for s in trace.steps if s.name == "rediger")
     assert [c.name for c in rediger_step.checks] == ["parse_retry"]
     assert trace.retries == 1  # la relance motivée du client, sans relance d'AD-3
+
+
+async def test_a_retrieval_emptied_by_the_budget_never_becomes_a_proof_of_absence(index: Index) -> None:
+    """AD-1 / NFR2 : « budget épuisé ou troncature non résolue ⇒ `complete=False` et **aucune absence
+    du corpus n'est affirmée** ». Un `zero_hit` produit par notre propre borne serait une preuve
+    d'absence fabriquée (revue Codex 1.5, B4)."""
+    settings = _settings(retrieval_max_tokens=1)  # aucune unité n'entre dans le budget
+    with pytest.raises(BudgetExceeded, match="aucun bloc"):
+        await _run(index, [_comprendre()], settings=settings)
+    # la trace partielle voyage avec l'erreur (AD-16), et *retrouver* y figure avec sa troncature
+    try:
+        await _run(index, [_comprendre()], settings=settings)
+    except BudgetExceeded as exc:
+        assert exc.trace is not None and [s.name for s in exc.trace.steps] == ["comprendre", "retrouver"]
+        assert exc.trace.truncations == 1
+    # sans troncature, un retrieval vide reste un refus `zero_hit` motivé : rien n'a empêché la recherche
+    answer, _trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])])
+    assert answer.reason is not None and answer.reason.kind == "zero_hit"
+
+
+async def test_a_retry_that_ties_on_claims_but_loses_completeness_never_replaces_the_answer(
+        index: Index) -> None:
+    """La dominance porte sur tous les axes, pas sur le seul décompte : à nombre égal, une relance qui
+    perd `complete` ou allonge `unknown` dégrade encore la réponse (revue Codex 1.5, I2)."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+        _rediger(BONNE, limite="Je ne sais rien des frontaliers."), _verdicts(("c1", True))])
+    assert fake.remaining_script == 0
+    # même nombre d'affirmations, mais la seconde ébauche déclare un inconnu de plus et n'est plus complète
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    assert answer.unknown == [] and answer.complete is True  # l'acquis, pas la relance
+    verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
+    (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+    assert "ne domine pas" in check.detail
+
+
+class _BudgetQuiExpire(RequestBudget):
+    """Budget dont la deadline s'épuise juste après le n-ième appel facturé (horloge factice).
+
+    Compter les appels plutôt que les secondes rend le test déterministe : l'instant d'expiration est
+    exactement l'entre-deux-étapes que l'on veut éprouver, sans dépendre de l'horloge de la machine.
+    """
+
+    def __init__(self, apres_appels: int) -> None:
+        super().__init__(deadline_s=30.0, max_attempts=6, max_cost_eur=0.10)
+        self._restants = apres_appels
+
+    def note_call(self, usage) -> None:
+        super().note_call(usage)
+        self._restants -= 1
+
+    def remaining(self) -> float:
+        return 30.0 if self._restants > 0 else -1.0
+
+
+@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (2, "verifier"), (3, "restituer")])
+async def test_the_deadline_is_checked_before_every_step_including_restituer(index: Index, appels: int,
+                                                                             etape: str) -> None:
+    """Contrat du pipeline : « deadline vérifiée **avant chaque étape** ». *restituer* en est une —
+    elle ne l'était pas, et une requête dont le temps venait d'expirer rendait une réponse normale
+    (revue Codex 1.5, I3). AD-16 : « la deadline globale (AD-9) produit `timeout` »."""
+    with pytest.raises(Timeout, match=etape):
+        await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
+                   budget=_BudgetQuiExpire(appels))
+
+
+async def test_the_deadline_is_checked_before_a_refusal_too(index: Index) -> None:
+    """Les chemins courts appellent *restituer* comme les autres : `refuser()` contrôle aussi."""
+    with pytest.raises(Timeout, match="restituer"):
+        await _run(index, [_comprendre("meteo")], budget=_BudgetQuiExpire(1))
