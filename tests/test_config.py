@@ -20,7 +20,7 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
-    assert s.deadline_s == 55 and s.llm_timeout_s == 25
+    assert s.deadline_s == 55 and s.llm_timeout_s == 40  # 40 s : AD-16 amendé en 1.9, sur mesure
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_cost_eur_per_request == 0.10 and s.cost_alert_eur == 0.05

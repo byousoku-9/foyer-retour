@@ -32,7 +32,24 @@ class Settings(BaseSettings):
 
     # Temps (AD-1, AD-9)
     deadline_s: float = Field(55.0, gt=0)
-    llm_timeout_s: float = Field(25.0, gt=0)
+    # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
+    # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
+    # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier
+    # `reason`, Sonnet 5, effort `medium`, une ébauche de clauses citées) prend **12,9 / 15,9 / 17,6 s**
+    # quand il aboutit, et a franchi les 25 s **deux fois sur six** requêtes — une fois sur son premier
+    # appel, une fois sur celui de la relance d'AD-3. Un tiers des soumissions d'une démonstration
+    # publique ressortait donc en 503 sur un chemin parfaitement nominal, sans que rien ne soit en
+    # panne. 25 s bornait la queue de la distribution, pas un incident.
+    # Le garde-fou réel reste ailleurs, et il n'est pas touché : la deadline globale (`deadline_s`)
+    # que `RequestBudget.timeout_for_call()` impose déjà en `min(llm_timeout_s, restant)`, le plafond
+    # de coût par requête (`max_cost_eur_per_request`, appliqué **avant** l'appel), le plafond
+    # d'appels (`max_llm_attempts`) et, au déploiement, `--timeout=60` de Cloud Run. 40 s laisse la
+    # chaîne nominale (comprendre ≈ 3 s + rédiger + vérifier ≈ 4 s) tenir sous les 55 s, et une
+    # relance qui déborderait est coupée par la deadline globale — le même 503, mais pour la vraie
+    # raison. `[HYPOTHÈSE]` : à re-régler sur la distribution complète que donneront les 15–20
+    # sinistres des questions-témoins (4.2), qui diront aussi s'il faut baisser l'effort de *rédiger*
+    # plutôt que d'attendre plus longtemps.
+    llm_timeout_s: float = Field(40.0, gt=0)
     # Marge que le **navigateur** ajoute à `deadline_s` avant d'abandonner sa requête (AD-11 :
     # `chat.js` borne son attente, sans quoi la saisie reste verrouillée indéfiniment). Elle vit ici
     # et non dans `chat.js` — un seuil numérique n'a qu'un domicile (convention du projet) — et

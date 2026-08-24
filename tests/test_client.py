@@ -71,7 +71,7 @@ async def test_request_shape_micro_no_effort_temperature_zero() -> None:
     assert req["output_config"]["format"]["type"] == "json_schema"
     assert req["output_config"]["format"]["schema"]["required"] == ["mot"]
     assert req["max_tokens"] == _settings().llm_max_output_tokens
-    assert 0 < req["timeout"] <= 25.0  # min(llm_timeout_s=25, restant≈40)
+    assert 0 < req["timeout"] <= 40.0  # min(llm_timeout_s=40, restant)
     assert "tools" not in req
 
 
