@@ -6,7 +6,7 @@ Le fil rouge : **on ne gagne pas sur « comment on retrouve », on gagne sur « 
 
 ## État
 
-Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). Story 1.2 : le contrat AXA OptiHome 2017 est téléchargé (hash vérifié), découpé en blocs par page avec lignes et boîtes (`data/axa-lu-optihome-2017/`), et ses quatre clauses du cas « bougie » sont typées par overlay manuel. Story 1.3 : le client Claude unique (`server/app/llm/`) — tiers, prix, budget par requête, prompts versionnés, erreurs typées. Story 1.4 : les trois premières étapes (`server/app/steps/`) — *comprendre*, *retrouver* (déterministe, sans modèle) et *rédiger* — produisent une ébauche dont chaque affirmation cite un bloc du corpus. Story 1.5 : *vérifier* confronte chaque citation au corpus (code pur) puis juge la pertinence en un seul appel groupé, *restituer* rend la réponse depuis les seules affirmations qui ont survécu, et `server/app/pipelines/guide.py` enchaîne les cinq étapes — court-circuits, relance unique, trace complète. La section déploiement arrive avec la story 1.11.
+Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`). Story 1.2 : le contrat AXA OptiHome 2017 est téléchargé (hash vérifié), découpé en blocs par page avec lignes et boîtes (`data/axa-lu-optihome-2017/`), et ses quatre clauses du cas « bougie » sont typées par overlay manuel. Story 1.3 : le client Claude unique (`server/app/llm/`) — tiers, prix, budget par requête, prompts versionnés, erreurs typées. Story 1.4 : les trois premières étapes (`server/app/steps/`) — *comprendre*, *retrouver* (déterministe, sans modèle) et *rédiger* — produisent une ébauche dont chaque affirmation cite un bloc du corpus. Story 1.5 : *vérifier* confronte chaque citation au corpus (code pur) puis juge la pertinence en un seul appel groupé, *restituer* rend la réponse depuis les seules affirmations qui ont survécu, et `server/app/pipelines/guide.py` enchaîne les cinq étapes — court-circuits, relance unique, trace complète. Story 1.6 : le serveur répond sur HTTP (`server/app/api/`) — `POST /api/v1/chat`, `GET /api/v1/sante`, les alias historiques `/chat` et `/sante`, la copie du site sous `/guide/`, un accueil provisoire sur `/` et une page d'attente sur `/sinistre/`, le tout sur **une seule origine** (donc pas de CORS), avec identifiant de requête, journal JSON sans texte, limiteur best-effort et bornes d'entrée. La section déploiement arrive avec la story 1.11.
 
 ## Lancer
 
@@ -14,9 +14,19 @@ Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du dom
 uv sync                                   # Python 3.13 et dépendances épinglées (pyproject.toml, uv.lock)
 cp .env.example .env                      # puis renseigner ANTHROPIC_API_KEY (jamais commité)
 uv run python -m server.app.llm.models --check   # vérifie que les IDs de modèles existent (exit 2 sans clé)
+uv run uvicorn server.app.api.main:app --port 8787 --proxy-headers --forwarded-allow-ips='*'
 ```
 
-Le serveur HTTP arrive en story 1.6 ; le site copié (`web/`) s'ouvre déjà tel quel (`web/index.html`).
+Puis <http://localhost:8787/> : l'accueil, le guide sous `/guide/`, l'outil sinistre sous `/sinistre/` (page d'attente), l'API sous `/api/v1/`.
+
+```bash
+curl -s localhost:8787/api/v1/sante | python3 -m json.tool
+curl -s -X POST localhost:8787/api/v1/chat -H 'X-Forwarded-For: 203.0.113.7' \
+     -H 'content-type: application/json' \
+     -d '{"question":"Quel délai pour déclarer mon arrivée ?","profil":{},"historique":[]}'
+```
+
+`--proxy-headers --forwarded-allow-ips='*'` dit à uvicorn de croire le proxy sur le schéma et l'adresse d'origine : c'est ce qui garde les redirections de `/guide` en `https` derrière Cloud Run. Le limiteur, lui, n'en dépend pas — il lit l'en-tête `X-Forwarded-For` directement, comme AD-13 le demande. En `ENV=dev` l'en-tête est facultatif (identité `local`) ; en production, une requête de pipeline qui n'en porte pas est refusée en 400.
 
 ## Tester
 
@@ -95,6 +105,18 @@ Ce qu'il ajoute aux étapes :
 - **La trace.** Étapes, tiers, durées, usage et coût réel, blocs ouverts et écartés, contrôles, seuils actifs, digests du pipeline et des prompts, `source_hash` et `ingest_fingerprint` du document — et **jamais** le texte d'un bloc.
 
 Toute sortie normale — réponse, refus, clarification, claims toutes rejetées — est un `Answer` complet ; seules les entrées hors bornes et les échecs terminaux des étapes remontent en exception (l'API en fera des 4xx/503 en story 1.6). `tests/test_pipeline_live.py` rejoue deux scénarios réels : une question du guide dont chaque phrase affichée est soutenue, et un refus météo qui n'atteint jamais l'étage `reason`.
+
+## Le serveur HTTP
+
+`server/app/api/` (story 1.6). **Une seule origine** sert tout (AD-12) : `/` (accueil provisoire, `tools/accueil/` — le vrai accueil est la story 1.10), `/guide/` (la copie du site, fichiers jamais renommés), `/sinistre/` (page d'attente, l'outil arrive en 1.9), `/api/v1/chat`, `/api/v1/sante`, plus les alias historiques `/chat` et `/sante` attendus par `reponseApi()`/`testerApi()`. Aucune configuration CORS : il n'y a pas de seconde origine à autoriser.
+
+- **Au démarrage, une seule fois** (`api/etat.py`) : les digests du pipeline et des prompts (ils relisent toute l'arborescence du code — les calculer par requête, ou les laisser au repli mémoïsé du pipeline, ferait servir des empreintes périmées sans que rien ne le dise), le `GateContext` de l'image, le corpus en lecture seule, l'index, le client Claude async. Une requête ne recharge rien.
+- **Tout ce que le pipeline rend est un 200** (AD-11) : réponse, refus, clarification, affirmations toutes rejetées. Le corps porte `{texte, segments, sources, fiches, unknown, comparateur, answer, via: "api/v1", trace}`. `sources[]` ne contient que des citations **relues du corpus** (`VerifiedQuote`) — une citation que le validateur n'a pas retrouvée est restée la chaîne du modèle, et elle n'est pas affichée ; elle reste lisible dans `answer.rejected_claims`, où sa nature est explicite.
+- **Les échecs sont terminaux, jamais dégradés** (AD-16) : une seule enveloppe `{error: {code, message, request_id}, trace?}`, les codes de `domain/errors.py` et rien d'autre. `400 invalid_request` pour une borne du contrat (question > 1 000 caractères, historique > 6 tours — **jamais tronqué** —, variante inconnue), `413 input_too_long` pour un corps HTTP au-delà de `request_max_bytes` (refusé avant d'être lu), `429 rate_limited`, `503` pour les pannes du pipeline (avec la trace partielle), `500 internal` générique pour l'imprévu. Un fichier statique absent reste un 404 nu : lui inventer un code serait précisément ce qu'AD-16 interdit.
+- **Un identifiant par requête** (AD-10) : uuid4 posé par `api/request_id.py`, rendu en `X-Request-Id`, repris dans la `Trace` et dans l'enveloppe d'erreur. Une ligne JSON par requête sur la sortie standard, avec `intent`, `found`, `verdict`, `reason_kind`, `variants_count`, `blocks_scanned`, `cost_eur` — et **jamais** le texte de la question ni `terms_searched` (ils peuvent révéler santé, famille, argent). La liste des champs logués est close en code : une route ne peut pas la contourner. `X-Cloud-Trace-Context` est logué à part.
+- **Le limiteur (`api/limiter.py`) est best-effort, par instance.** Il ne promet pas un quota global : ses compteurs vivent en mémoire de process (un redémarrage les remet à zéro, deux instances servent deux fois le quota), une adresse forgée par requête le contourne, et sa table est bornée (`rate_limit_max_clients`, la plus ancienne identité évincée repart de zéro). Ce qu'il protège, c'est le budget d'une démonstration servie par une seule instance — avec le plafond par requête (0,10 €) et le plafond fournisseur derrière lui. L'identité est le premier élément de `X-Forwarded-For`, lu directement dans l'en-tête (IPv4 entière, IPv6 tronquée au /64, parce qu'un abonné se voit déléguer un /64 entier). `Retry-After` annonce le reste de la fenêtre dépassée, borné par `retry_after_s`.
+- `/sante` n'est jamais limitée (le front la sonde à chaque chargement de page) et publie ce qui a été calculé au démarrage : `ok`, `version` (`GIT_SHA`), `documents_servis`, `gate_profile` (**`null`** tant qu'aucun gate n'est écrit — annoncer un profil qu'aucun document ne porte serait une bascule silencieuse), `dictionary.validated`, `alerts[]` (`sans_gate`, `gate_perime`, `source_absente`, quarantaine) et les seuils actifs.
+- `comparateur` est calculé par la règle du site (`web/app/chat.js`, `toucheContrats`) transposée telle quelle sur la question normalisée : AD-11 le conserve « pour l'UI existante », et le laisser toujours faux retirerait une fonction du site en silence.
 
 ## Infrastructure
 
