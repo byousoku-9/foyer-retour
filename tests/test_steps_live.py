@@ -23,6 +23,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.profil import Profil
+from server.app.domain.question import ParsedQuestion
 from server.app.domain.retrieval import RetrievalBudget
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -82,6 +83,8 @@ def _covers(themes: list[str], *needles: str) -> bool:
 async def test_famille_profile_widens_the_scope_to_school_and_allocations(llm_recorder: LLMRecorder) -> None:
     parsed, step = await comprendre(FAMILLE, [], Profil(enfants=True, famille="couple avec enfants"),
                                     client=_client(llm_recorder), budget=_budget(), settings=_settings())
+    # AD-5 : une question autonome donne une `ParsedQuestion`, jamais une clarification
+    assert isinstance(parsed, ParsedQuestion)
     assert parsed.intent in ("question", "suivi")
     assert parsed.language == "fr"
     assert parsed.terms and all(t.strip() for t in parsed.terms)
@@ -96,6 +99,7 @@ async def test_meteo_question_is_settled_by_the_intent_alone(llm_recorder: LLMRe
     budget = _budget()
     parsed, step = await comprendre("quel temps fera-t-il demain à Luxembourg-Ville ?", [], Profil(),
                                     client=_client(llm_recorder), budget=budget, settings=_settings())
+    assert isinstance(parsed, ParsedQuestion)
     assert parsed.intent == "meteo"  # l'intent seul décide le refus : aucune autre étape n'est requise
     assert len(step.calls) == 1 and step.tier == "micro"  # jamais d'appel `reason`
     assert budget.attempts == 1
@@ -105,6 +109,7 @@ async def test_full_chain_draft_is_sourced_on_at_least_two_fiches(index: Index, 
     client, budget = _client(llm_recorder), _budget()
     parsed, step_c = await comprendre(DEUX_SUJETS, [], Profil(enfants=True), client=client, budget=budget,
                                       settings=_settings())
+    assert isinstance(parsed, ParsedQuestion)
 
     retrieval, step_r = retrouver_deterministe(parsed, corpus=index.corpus, index=index,
                                                budget=_retrieval_budget(), settings=_settings(),

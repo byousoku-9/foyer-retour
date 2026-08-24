@@ -10,9 +10,9 @@ import re
 import pytest
 
 from server.app.config import Settings
-from server.app.domain.errors import Timeout
+from server.app.domain.errors import LlmParse, Timeout
 from server.app.domain.profil import Profil
-from server.app.domain.question import Turn
+from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
 from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -77,28 +77,60 @@ async def test_meteo_intent_alone_is_enough_to_decide_the_short_circuit() -> Non
     assert len(step.calls) == 1  # un seul appel micro : aucune autre étape requise pour le refus
 
 
-async def test_an_irresolvable_anaphora_is_signalled_instead_of_being_invented() -> None:
+async def test_an_irresolvable_anaphora_yields_a_clarification_and_never_a_parsed_question() -> None:
     """AD-5, mot pour mot : « une anaphore non résoluble avec l'historique produit
     `Answer.clarification` (question à l'utilisateur) — *comprendre* ne fabrique jamais une
-    `question_resolue` » (revue Codex 1.4, B4, tour 2). Sans champ typé, une `question_resolue` non
-    autonome partait à *retrouver* sans que rien ne le signale."""
+    `question_resolue` » (revue Codex 1.4, B4, tour 3). Les deux issues sont **des types distincts** :
+    porter la clarification par un champ de `ParsedQuestion` (tour 2) laissait subsister une
+    `question_resolue` non autonome (« et pour eux ? ») que rien n'empêchait de partir à *retrouver*."""
     client, _ = _client([fake_message(
-        text=_sortie(question_resolue="et pour eux ?", clarification="De quelles personnes parlez-vous ?",
+        text=_sortie(question_resolue=None, clarification="De quelles personnes parlez-vous ?",
                      terms=[], themes=[]), model=HAIKU)])
-    parsed, _ = await _comprendre(client, question="et pour eux ?")  # aucun historique
-    assert parsed.clarification == "De quelles personnes parlez-vous ?"
-    assert parsed.question_resolue == "et pour eux ?"  # reprise telle quelle, rien d'inventé
-    # cas courant : la question se comprend seule, aucun signal
+    sortie, step = await _comprendre(client, question="et pour eux ?")  # aucun historique
+    assert isinstance(sortie, ClarificationRequise)
+    assert not isinstance(sortie, ParsedQuestion)  # aucune question résolue n'existe dans le résultat
+    assert sortie.clarification == "De quelles personnes parlez-vous ?"
+    assert sortie.intent == "question" and sortie.language == "fr"
+    assert "et pour eux" not in sortie.model_dump_json()  # la question non autonome ne voyage pas
+    assert len(step.calls) == 1  # une clarification coûte un seul appel micro, comme un refus
+    # cas courant : la question se comprend seule, aucune clarification
     client, _ = _client([fake_message(text=_sortie(clarification="   "), model=HAIKU)])
-    parsed, _ = await _comprendre(client)
-    assert parsed.clarification is None  # une chaîne vide n'est pas une demande de clarification
+    sortie, _ = await _comprendre(client)
+    assert isinstance(sortie, ParsedQuestion)  # une chaîne vide n'est pas une demande de clarification
+    assert sortie.question_resolue == "À quelle école inscrire mes enfants ?"
+
+
+@pytest.mark.parametrize("resolue, clarification", [
+    (None, None),          # aucune des deux issues
+    (None, "   "),         # ni l'une ni l'autre, à l'espace près
+    ("et pour eux ?", "De quelles personnes parlez-vous ?"),  # les deux à la fois
+])
+async def test_neither_or_both_outcomes_is_a_validation_error_not_an_arbitrary_choice(
+        resolue: str | None, clarification: str | None) -> None:
+    """L'exclusivité des deux issues est portée par le schéma de sortie, pas par le code de l'étape :
+    sa violation emprunte la relance motivée du client (AD-9, « 1 retry sur parse invalide »), qui
+    nomme le champ fautif. Le premier appel invalide est suivi d'un second, valide."""
+    invalide = fake_message(text=_sortie(question_resolue=resolue, clarification=clarification), model=HAIKU)
+    client, _ = _client([invalide, fake_message(text=_sortie(), model=HAIKU)])
+    sortie, step = await _comprendre(client)
+    assert isinstance(sortie, ParsedQuestion) and len(step.calls) == 2
+    assert any("question_resolue" in (c.detail or "") for c in step.checks), step.checks
+    # sans seconde chance, l'étape échoue plutôt que de trancher elle-même entre les deux issues
+    client, _ = _client([invalide, invalide])
+    with pytest.raises(LlmParse):
+        await _comprendre(client)
 
 
 async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_question() -> None:
     """La propriété sémantique vit dans le prompt, pas dans le code (AD-5)."""
     prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6)
-    assert "renseigne `clarification`" in prefixe
-    assert "N'invente jamais ce que l'historique ne dit pas" in prefixe
+    assert "deux issues exclusives" in prefixe
+    assert "`clarification` est alors renseignée à sa place" in prefixe
+    assert "que l'historique ne dit pas" in prefixe
+    # mesuré en réel : sans cette consigne, une question météo revenait avec les **deux** champs à
+    # `null` (le modèle jugeait la question résolue inutile hors périmètre) — un appel perdu en
+    # relance motivée à chaque refus (revue Codex 1.4, B4, tour 3 ; `docs/tests-live.md`)
+    assert "quel que soit l'`intent`" in prefixe
 
 
 async def test_forced_lang_wins_over_detection() -> None:

@@ -305,8 +305,11 @@ def test_error_codes() -> None:
 def test_question_and_retrieval() -> None:
     assert fields(question.Turn) == {"role", "texte"}
     assert literal_values(question.Turn, "role") == {"user", "assistant"}
-    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms", "scope",
-                                               "clarification"}
+    # AD-5 : les deux issues de *comprendre* sont deux types distincts — une `ParsedQuestion` est
+    # toujours autonome, la clarification ne s'y cache pas dans un champ (revue Codex 1.4, B4, tour 3).
+    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms", "scope"}
+    assert fields(question.ClarificationRequise) == {"clarification", "intent", "language"}
+    assert question.ClarificationRequise(clarification="qui ?", intent="suivi", language="fr-LU").language == "fr"
     assert {"meteo", "bavardage", "hors_perimetre"} <= literal_values(question.ParsedQuestion, "intent")
     assert fields(question.Faits) == {"date", "lieu", "montant_eur", "description"}
     assert fields(retrieval.RetrievalResult) == {"blocs", "opened_block_ids", "discarded_block_ids", "truncated"}
