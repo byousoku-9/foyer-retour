@@ -477,8 +477,10 @@
     <p class="lead">
       Il construit votre profil au fil des réponses, puis cible ce qui vous concerne.
       <!-- Avant la sonde, le mode n'est pas connu : l'annoncer « local » serait annoncer
-           le seul mode qui ne se declenche jamais tout seul. `CHAT.libelleMode()` compose
-           les trois autres etats. -->
+           le seul mode qui ne se declenche jamais tout seul. `CHAT.libelleMode(via, validation)`
+           compose les trois autres etats, et suffixe le mode api du niveau de validation du
+           corpus servi (« mode api · vertical (2 cas) » / « mode api · non validé »), lu sur
+           /sante ; `ui.js` se contente de le poser. -->
       <span class="badge" id="mode-badge">mode : vérification…</span>
     </p>
     <div class="card chat-wrap">

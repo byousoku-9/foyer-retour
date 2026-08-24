@@ -31,6 +31,10 @@ window.CHAT = (function () {
   // l'amarre a `Turn.model_fields["texte"]` pour qu'une divergence soit bruyante.
   var TOUR_MAX_CARACTERES = 2000;
   var seuilsServeur = {};
+  // Ce que la sonde a dit du **niveau de validation** du corpus servi (story 1.10, reprise de 1.7).
+  // `null` tant qu'elle n'a pas repondu, ou quand sa reponse n'etait pas lisible : le badge ne
+  // suffixe alors rien, plutot que d'annoncer un niveau que personne n'a lu.
+  var validationServeur = null;
 
   // Une page ouverte en `file://` a pour `origin` la chaine "null" : il n'y a aucun serveur a
   // joindre, et sonder `null/sante` ne produirait qu'une erreur console incomprehensible.
@@ -744,10 +748,28 @@ window.CHAT = (function () {
   // L'etat initial n'est **pas** « mode local » : avant que la sonde ait repondu, le mode n'est pas
   // connu, et annoncer le mode local avant meme d'avoir essaye le serveur est le contraire de ce
   // que la story promet — c'est meme le seul mode qui ne se declenche jamais tout seul.
-  function libelleMode(via) {
+  //
+  // Story 1.10 (reprise differee de 1.7, D10) : le badge du mode api porte desormais le **niveau de
+  // validation** du corpus servi. `testerApi()` lisait `gate_profile` et `alerts` sur `/sante` et
+  // les jetait, si bien que le badge disait « mode api » de la meme facon que le corpus soit valide
+  // par des questions-temoins ou pas du tout — c'est-a-dire dans l'etat ou les reponses reposent sur
+  // des documents que rien n'a mesures. `validation` est ce que la sonde a rendu, ou `null` tant
+  // qu'elle n'a pas repondu (ou que sa reponse n'etait pas lisible) : **aucun** suffixe alors, jamais
+  // un niveau par defaut (AD-11 : la bascule silencieuse est ce qu'on empeche).
+  function suffixeValidation(validation) {
+    if (!validation) return "";
+    if (validation.gate_profile === null) return " · non validé";
+    return " · " + validation.gate_profile + " (" + validation.gate_cases + " cas)";
+  }
+
+  function libelleMode(via, validation) {
     var m = String(via === null || via === undefined ? "" : via);
     if (!m) return { texte: "mode : vérification…", cls: "badge" };
-    if (m.indexOf("api") === 0) return { texte: "mode api", cls: "badge on" };
+    // Le suffixe ne vaut que pour le mode api : c'est le seul ou une reponse s'appuie sur le corpus
+    // servi. « mode local · non validé » melangerait deux choses sans rapport.
+    if (m.indexOf("api") === 0) {
+      return { texte: "mode api" + suffixeValidation(validation), cls: "badge on" };
+    }
     if (m === "indisponible") return { texte: "mode indisponible", cls: "badge off" };
     return { texte: "mode " + m, cls: "badge" };
   }
@@ -1020,6 +1042,32 @@ window.CHAT = (function () {
     return e;
   }
 
+  // Le niveau de validation, lu **strictement** sur le corps de `/sante` (story 1.10).
+  //
+  // Meme regle qu'ailleurs depuis la revue Codex 1.9 : une cle **absente** n'est pas « le champ vaut
+  // null ». `routes/sante.py` publie avec le defaut de FastAPI, donc pydantic serialise toujours la
+  // cle, `null` compris ; un corps sans `gate_profile` n'a pas ete ecrit par cette route. Et les deux
+  // champs sont **lies** cote serveur (`EtatApp.gate_cases` rend `null` des que `gate_profile` l'est)
+  // : un corps qui les dissocie ferait afficher « vertical (null cas) », c'est-a-dire une phrase que
+  // le serveur n'a jamais dite. Dans les deux cas : `null`, donc aucun suffixe.
+  function lireValidation(j) {
+    if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+    var p = j.gate_profile;
+    var n = j.gate_cases;
+    if (!(p === null || typeof p === "string")) return null;
+    if (!(n === null || (typeof n === "number" && isFinite(n)))) return null;
+    if ((p === null) !== (n === null)) return null;
+    if (!Array.isArray(j.alerts)) return null;
+    var alerts = [];
+    for (var i = 0; i < j.alerts.length; i++) {
+      var a = j.alerts[i];
+      if (!a || typeof a !== "object" || typeof a.alerte !== "string" ||
+          typeof a.doc_id !== "string") return null;
+      alerts.push({ doc_id: a.doc_id, alerte: a.alerte });
+    }
+    return { gate_profile: p, gate_cases: n, alerts: alerts };
+  }
+
   function testerApi() {
     if (apiDisponible !== null) return Promise.resolve(apiDisponible);
     // La sonde vaut sur **toute** origine http(s) : le serveur qui sert cette page sert aussi l'API
@@ -1045,6 +1093,9 @@ window.CHAT = (function () {
         // Les seuils actifs du serveur, servis a chaque chargement de page : le front s'en sert
         // plutot que de recopier `config.py`.
         if (j && j.thresholds) seuilsServeur = j.thresholds;
+        // Et le niveau de validation du corpus servi (story 1.10) : la sonde le publie deja, il
+        // etait lu puis jete (reprise differee de 1.7).
+        validationServeur = lireValidation(j);
         return apiDisponible;
       })
       .catch(function () { finir(); apiDisponible = false; return false; });
@@ -1154,7 +1205,12 @@ window.CHAT = (function () {
     vueErreur: vueErreur,
     modeApresErreur: modeApresErreur,
     libelleMode: libelleMode,
-    setApiBase: function (u) { API_BASE = u; apiDisponible = null; },
+    suffixeValidation: suffixeValidation,
+    // Ce que la sonde a dit du niveau de validation, ou `null` : `ui.js` le passe a `libelleMode`
+    // au moment de poser le badge, il ne le retient pas.
+    validation: function () { return validationServeur; },
+    lireValidation: lireValidation,
+    setApiBase: function (u) { API_BASE = u; apiDisponible = null; validationServeur = null; },
     apiBase: function () { return API_BASE; },
     // Pour les tests : ce que le front croit des bornes du serveur, et d'ou il le tient.
     bornes: function () {
@@ -1162,7 +1218,8 @@ window.CHAT = (function () {
         historique_max_tours: historiqueMaxTours(),
         tour_max_caracteres: TOUR_MAX_CARACTERES,
         delai_abandon_ms: delaiAbandonMs(),
-        seuils_du_serveur: seuilsServeur
+        seuils_du_serveur: seuilsServeur,
+        validation_du_serveur: validationServeur
       };
     }
   };

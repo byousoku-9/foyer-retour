@@ -916,6 +916,73 @@ def test_le_badge_de_mode_existe_dans_les_deux_surfaces(dom: dict[str, Any]) -> 
             assert (b[mode][surface]["texte"], b[mode][surface]["cls"]) == attendu, (mode, surface)
 
 
+# --- story 1.10 (D10) : le badge dit le niveau de validation du corpus servi ---
+#
+# Reprise différée de 1.7 : `testerApi()` lisait `gate_profile` et `alerts` sur `/sante` puis les
+# jetait. Le badge disait « mode api » de la même façon que le corpus soit validé par des
+# questions-témoins ou pas du tout — c'est-à-dire dans l'état où les réponses reposent sur des
+# documents que rien n'a mesurés, la « bascule silencieuse » qu'AD-11 nomme, dans le seul écran où
+# l'information était déjà là.
+
+def test_le_badge_porte_le_profil_de_gate_et_son_nombre_de_cas(cas: dict[str, Any]) -> None:
+    v = cas["validation"]
+    assert v["gate"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+    # Le nombre vient du serveur : un gate à un cas s'écrit « 1 cas », pas « 2 ».
+    assert v["un_cas"]["badge"]["texte"] == "mode api · vertical (1 cas)"
+    assert v["gate"]["lue"]["gate_profile"] == "vertical" and v["gate"]["lue"]["gate_cases"] == 2
+
+
+def test_le_badge_dit_non_valide_quand_aucun_document_nest_gate(cas: dict[str, Any]) -> None:
+    v = cas["validation"]["sans_gate"]
+    assert v["badge"]["texte"] == "mode api · non validé"
+    assert [a["alerte"] for a in v["lue"]["alerts"]] == ["sans_gate"]
+
+
+@pytest.mark.parametrize("corps", ["profil_absent", "profil_sans_compte", "alerts_absent",
+                                   "alerte_non_objet"])
+def test_un_corps_de_sante_illisible_ne_suffixe_rien(cas: dict[str, Any], corps: str) -> None:
+    """Une clé absente n'est pas « le champ vaut null » (patron 1.9) : aucun niveau n'est inventé."""
+    v = cas["validation"][corps]
+    assert v["lue"] is None
+    assert v["badge"]["texte"] == "mode api"
+
+
+def test_une_sonde_morte_nannonce_aucun_niveau(cas: dict[str, Any]) -> None:
+    v = cas["validation"]["sonde_morte"]
+    assert v["lue"] is None
+    assert v["badge"]["texte"] == "mode indisponible"
+    assert v["badge_api"]["texte"] == "mode api"
+
+
+def test_le_suffixe_ne_vaut_que_pour_le_mode_api(cas: dict[str, Any]) -> None:
+    """« mode local · non validé » mêlerait deux choses sans rapport : le suffixe parle du corpus."""
+    autres = cas["validation"]["autres_modes"]
+    assert autres["local"]["texte"] == "mode local"
+    assert autres["indisponible"]["texte"] == "mode indisponible"
+    assert autres["avant_sonde"]["texte"] == "mode : vérification…"
+
+
+def test_ui_pose_le_suffixe_dans_les_deux_surfaces(dom: dict[str, Any]) -> None:
+    """`ui.js` ne lit rien : il passe à `libelleMode()` ce que `chat.js` a retenu de la sonde.
+
+    Le défaut de 1.7 (revue Codex, B6) était précisément un badge composé et jamais posé dans le
+    widget flottant : le suffixe doit atteindre les **deux** surfaces.
+    """
+    b = dom["badge_validation"]
+    for surface in ("onglet", "widget"):
+        assert b["avec_gate"][surface]["texte"] == "mode api · vertical (2 cas)"
+        assert b["sans_gate"][surface]["texte"] == "mode api · non validé"
+        assert b["sonde_morte"][surface]["texte"] == "mode api"
+
+
+def test_le_niveau_de_validation_nest_pas_un_litteral_du_front() -> None:
+    """Ni le profil ni le compte ne sont écrits dans `chat.js` : ils viennent de `/sante`."""
+    code = "\n".join(l for l in (REPO_ROOT / "web" / "app" / "chat.js").read_text("utf-8").splitlines()
+                     if not l.strip().startswith("//"))
+    assert "vertical" not in code
+    assert "gate_profile" in code and "gate_cases" in code
+
+
 def test_letat_initial_du_badge_nannonce_pas_un_mode_quon_na_pas_essaye(
         dom: dict[str, Any]) -> None:
     """La page servait « mode local » avant même la sonde — le seul mode qui ne se déclenche jamais

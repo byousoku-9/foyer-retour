@@ -37,7 +37,7 @@ const ELEMENTS = [
   { tag: "button", id: "widget-send" },
 ];
 
-function monter() {
+function monter(fetchDouble) {
   const document = new Document();
   const elements = {};
   for (const spec of ELEMENTS) {
@@ -61,7 +61,7 @@ function monter() {
     // Aucun appel réseau n'est déclenché : le démarrage (donc la sonde) est sauté, et la seule
     // action exercée est la recherche simple, qui est purement locale. Un `fetch` appelé quand
     // même doit faire échouer le harnais, pas passer inaperçu.
-    fetch: () => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); },
+    fetch: fetchDouble || (() => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); }),
     __UI_SANS_DEMARRAGE: true,
   };
 
@@ -69,6 +69,11 @@ function monter() {
   const bac = {
     window, document, localStorage, console: journal, URL,
     setTimeout: () => 0, clearTimeout: () => {}, JSON, Math, Date, Number, String, Array, Object,
+    // `chat.js` appelle `fetch` et `AbortController` **nus** : sur `window` seul, ils resteraient
+    // introuvables dans le bac à sable. Sans double fourni, `fetch` lève — un appel réseau non
+    // attendu dans ce harnais doit faire échouer, pas passer inaperçu.
+    Promise, isFinite, AbortController,
+    fetch: fetchDouble || (() => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); }),
   };
   bac.globalThis = bac;
   vm.createContext(bac);
@@ -155,7 +160,7 @@ function erreur(kind, code, extra) {
 
 const cas = {};
 
-function main() {
+async function main() {
   // --- une réponse sourcée devient du DOM, et rien que du texte ------------
   {
     const { window, document, elements } = monter();
@@ -193,6 +198,39 @@ function main() {
     // L'état avant la sonde, tel que `chat.js` le compose : ni « api », ni « local ».
     releve.avant_sonde = window.CHAT.libelleMode(null);
     cas.badges = releve;
+  }
+
+  // --- story 1.10 : le badge posé par `ui.js` porte le niveau de validation --
+  //
+  // `ui.js` ne le lit pas : il passe à `libelleMode()` ce que `chat.js` a retenu de la sonde. Ce cas
+  // est ce qui prouve que le suffixe **atteint les deux surfaces** — le défaut de 1.7 (B6) était
+  // précisément un badge composé et jamais posé dans le widget flottant.
+  {
+    const sante = { ok: true, version: "abc1234", documents_servis: ["lux-guide"],
+                    gate_profile: "vertical", gate_cases: 2, alerts: [], thresholds: {} };
+    const reponse = {
+      ok: true, status: 200, headers: { get: () => null },
+      json: () => Promise.resolve(sante),
+    };
+    const { window, elements } = monter(() => Promise.resolve(reponse));
+    await window.CHAT.testerApi();
+    window.UI.badgeMode("api/v1");
+    cas.badge_validation = { avec_gate: badges(elements) };
+
+    const sansGate = Object.assign({}, sante, { gate_profile: null, gate_cases: null });
+    const { window: w2, elements: e2 } = monter(() => Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      json: () => Promise.resolve(sansGate),
+    }));
+    await w2.CHAT.testerApi();
+    w2.UI.badgeMode("api/v1");
+    cas.badge_validation.sans_gate = badges(e2);
+
+    // Sonde en panne : le badge ne suffixe rien — aucun niveau n'a été lu.
+    const { window: w3, elements: e3 } = monter(() => Promise.reject(new TypeError("Failed to fetch")));
+    await w3.CHAT.testerApi();
+    w3.UI.badgeMode("api/v1");
+    cas.badge_validation.sonde_morte = badges(e3);
   }
 
   // --- 503 : exactement un bouton, et le clic seul ouvre le mode local -----
@@ -284,9 +322,7 @@ function main() {
   process.stdout.write(JSON.stringify({ ok: true, cas }, null, 1));
 }
 
-try {
-  main();
-} catch (e) {
-  process.stdout.write(JSON.stringify({ ok: false, erreur: String(e && e.stack || e) }, null, 1));
+main().catch((e) => {
+  process.stdout.write(JSON.stringify({ ok: false, erreur: String((e && e.stack) || e) }, null, 1));
   process.exitCode = 1;
-}
+});

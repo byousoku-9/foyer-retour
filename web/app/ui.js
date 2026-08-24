@@ -1234,7 +1234,9 @@
   }
 
   function badgeMode(via) {
-    var libelle = window.CHAT.libelleMode(via);
+    // Le niveau de validation du corpus servi (story 1.10) est passe au compositeur, jamais lu ici :
+    // `ui.js` pose ce que `chat.js` a decide, et n'ajoute aucun mot de son cru.
+    var libelle = window.CHAT.libelleMode(via, window.CHAT.validation());
     badgesMode().forEach(function (b) {
       b.textContent = libelle.texte;
       b.className = libelle.cls;

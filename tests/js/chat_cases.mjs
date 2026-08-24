@@ -976,6 +976,55 @@ async function main() {
     };
   }
 
+  // --- story 1.10 : le badge dit le niveau de validation du corpus servi -----
+  //
+  // Reprise différée de 1.7 (D10) : `testerApi()` lisait `gate_profile` et `alerts` sur `/sante` et
+  // les jetait. Le badge disait « mode api » de la même façon que le corpus soit validé ou non.
+  {
+    const sante = (extra) => Object.assign({
+      ok: true, version: "abc1234", documents_servis: ["lux-guide"],
+      gate_profile: "vertical", gate_cases: 2, alerts: [], thresholds: {},
+    }, extra || {});
+
+    const situations = {
+      gate: sante(),
+      un_cas: sante({ gate_cases: 1 }),
+      sans_gate: sante({ gate_profile: null, gate_cases: null,
+                         alerts: [{ doc_id: "lux-guide", alerte: "sans_gate", detail: "" }] }),
+      // Corps qu'aucune route n'écrit : clé absente, ou profil et compte dissociés. Aucun suffixe.
+      profil_absent: (() => { const c = sante(); delete c.gate_profile; return c; })(),
+      profil_sans_compte: sante({ gate_cases: null }),
+      alerts_absent: (() => { const c = sante(); delete c.alerts; return c; })(),
+      alerte_non_objet: sante({ alerts: ["sans_gate"] }),
+    };
+    cas.validation = {};
+    for (const [nom, corps] of Object.entries(situations)) {
+      const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps }));
+      await CHAT.testerApi();
+      cas.validation[nom] = {
+        lue: CHAT.validation(),
+        badge: CHAT.libelleMode("api/v1", CHAT.validation()),
+        bornes: CHAT.bornes().validation_du_serveur,
+      };
+    }
+    // Sonde en panne : le badge ne suffixe rien plutôt que d'annoncer un niveau que personne n'a lu.
+    const { CHAT } = chargerChat(PAGE, () => { throw new TypeError("Failed to fetch"); });
+    await CHAT.testerApi();
+    cas.validation.sonde_morte = {
+      lue: CHAT.validation(),
+      badge: CHAT.libelleMode("indisponible", CHAT.validation()),
+      badge_api: CHAT.libelleMode("api/v1", CHAT.validation()),
+    };
+    // Les autres modes ne portent **jamais** le suffixe : il ne parle que du corpus servi.
+    const { CHAT: c2 } = chargerChat(PAGE, () => reponseHttp({ corps: sante() }));
+    await c2.testerApi();
+    cas.validation.autres_modes = {
+      local: c2.libelleMode("local", c2.validation()),
+      indisponible: c2.libelleMode("indisponible", c2.validation()),
+      avant_sonde: c2.libelleMode(null, c2.validation()),
+    };
+  }
+
   return cas;
 }
 
