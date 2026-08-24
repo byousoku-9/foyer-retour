@@ -28,6 +28,7 @@ from __future__ import annotations
 import time
 
 from server.app.domain.answer import AbsenceProof, Answer, AnswerSegment, Verification
+from server.app.domain.question import QuestionScope
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.domain.verdict import Verdict
 from server.app.llm.models import STEP_TIERS
@@ -92,7 +93,7 @@ def _texte(segments: list[AnswerSegment]) -> str:
 
 def restituer(*, language: str, verification: Verification | None = None,
               reason: AbsenceProof | None = None, clarification: str | None = None,
-              verdict: Verdict | None = None,
+              verdict: Verdict | None = None, faits_compris: QuestionScope | None = None,
               registre: str = REGISTRE_GUIDE) -> tuple[Answer, StepTrace]:
     """`Answer` + son `StepTrace`. `reason` est obligatoire dès que la vérification n'a rien retenu.
 
@@ -108,6 +109,13 @@ def restituer(*, language: str, verification: Verification | None = None,
     repli pour le sinistre » se lit aussi dans l'autre sens — un refus sinistre porte un verdict,
     jamais rien, sans quoi le front n'aurait qu'une absence à afficher. Les deux sources sont
     exclusives : un `Verification` qui porte déjà un verdict n'en admet pas un second.
+
+    `faits_compris` (story 1.9, D4) : *restituer* **recopie** ici aussi. C'est
+    `ParsedQuestion.scope`, borné par l'appelant — le pipeline est le seul à voir `settings` et la
+    question comprise —, et il est recopié tel quel sur **les deux** issues. Sur un refus surtout :
+    « je n'ai trouvé aucune clause » se lit tout autrement quand on voit à côté ce que le système a
+    cru comprendre du sinistre, et c'est le seul écran où l'utilisateur peut constater qu'il a été
+    mal compris. `None` en guide, comme le verdict.
     """
     t0 = time.monotonic()
     step = StepTrace(name="restituer", tier=STEP_TIERS["restituer"])
@@ -136,7 +144,7 @@ def restituer(*, language: str, verification: Verification | None = None,
             found=False, complete=False, lang="fr", lang_fallback=language != "fr", texte=phrase,
             segments=[AnswerSegment(text=phrase, kind="limite")],
             rejected_claims=list(verification.rejected_claims) if verification is not None else [],
-            reason=reason, verdict=verdict,
+            reason=reason, verdict=verdict, faits_compris=faits_compris,
             unknown=list(verification.unknown) if verification is not None else [],
             clarification=clarification,
         )
@@ -188,6 +196,7 @@ def restituer(*, language: str, verification: Verification | None = None,
         found=True, complete=verification.complete, lang=language, lang_fallback=False,
         texte=texte, segments=segments, claims=list(verification.claims),
         rejected_claims=list(verification.rejected_claims), reason=None, verdict=verdict,
+        faits_compris=faits_compris,
         unknown=list(verification.unknown) + [t for t in limites if t not in verification.unknown],
         clarification=clarification,
     )

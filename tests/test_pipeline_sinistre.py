@@ -20,7 +20,13 @@ from server.app.domain.document import Document, Node
 from server.app.domain.errors import CorpusUnavailable, InvalidRequest
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.question import Faits
-from server.app.domain.verdict import ChampsApplicabilite, ClaimJugee, ClauseCitee, MissingPackage, decider
+from server.app.domain.verdict import (
+    ChampsApplicabilite,
+    ClaimJugee,
+    ClauseCitee,
+    MissingPackage,
+    decider,
+)
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -100,14 +106,21 @@ def _budget(deadline_s: float = 30.0) -> RequestBudget:
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
-                clarification: str | None = None) -> dict:
+                clarification: str | None = None, **champs) -> dict:
+    """`champs` surcharge la portée rendue (`bien`, `evenement`, `lieu`, `cause`, `moment`, `themes`).
+
+    Ce sont des libellés **du modèle**, et la story 1.9 les affiche (`Answer.faits_compris`, D4) :
+    pouvoir en scripter un hors borne est ce qui rend la règle « borner, jamais tronquer » testable.
+    """
     resolue = None if clarification else "Le mobilier de salon brûlé par une bougie est-il couvert ?"
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "intent": intent, "question_resolue": resolue, "clarification": clarification,
         "language": "fr", "terms": terms if terms is not None else ["mobilier", "chaleur", "contenu"],
         "themes": [], "facettes": ["couverture du sinistre"], "bien": "mobilier de salon",
         "evenement": "incendie sans embrasement", "lieu": "domicile", "cause": "bougie",
-        "moment": "2026-08-01"}))
+        "moment": "2026-08-01",
+        # `champs` en dernier : ce que le test surcharge l'emporte sur le défaut.
+        **champs}))
 
 
 def _rediger(*claims: tuple[str, str, list[tuple[str, str]]]) -> dict:
@@ -587,3 +600,115 @@ async def test_decisional_blocks_come_first_at_equal_score(index: Index) -> None
     assert f"{DOC_ID}:p1:2" in ouverts  # la garantie est bien transmise
     assert f"{DOC_ID}:p1:4" in ouverts  # la définition aussi : le typage ne **filtre** pas
     assert answer.found is True
+
+
+# --- `faits_compris` (story 1.9, D4) : ce que *comprendre* a compris, borné, publié ------
+
+async def test_the_understood_facts_reach_the_single_answer(index: Index) -> None:
+    """D4 : l'AC de 1.9 exige « les faits compris » à l'écran ; ils voyagent dans l'unique `Answer`.
+
+    Ce sont `ParsedQuestion.scope` — bien, événement, lieu, cause, moment —, c'est-à-dire ce que
+    FR15 fait extraire par *comprendre*. Avant 1.9, ils étaient écrits par l'étape et relus par
+    personne (reprise différée de 1.8).
+    """
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(),
+        _rediger(GAR),
+        _verifier(("c1", True, False, False, False, None))])
+    compris = answer.faits_compris
+    assert compris is not None
+    assert compris.bien == "mobilier de salon"
+    assert compris.evenement == "incendie sans embrasement"
+    assert compris.lieu == "domicile"
+    assert compris.cause == "bougie"
+    assert compris.moment == "2026-08-01"
+
+
+@pytest.mark.parametrize("intent, kind", [("hors_perimetre", "hors_perimetre"),
+                                          ("question", "zero_hit")])
+async def test_a_refusal_bounds_the_understood_facts_too(index: Index, intent: str,
+                                                         kind: str) -> None:
+    """Le chemin de refus borne comme le chemin nominal — et sa trace le dit (revue 1.9).
+
+    Sans cette assertion, retirer le bornage de `refuser()` laissait toute la suite verte : le test
+    hors borne ne passait que par le chemin nominal, et le test de refus n'observait qu'un libellé
+    court. Un libellé de cause de longueur arbitraire, produit par le modèle, atteignait alors
+    l'écran **entier**, à l'endroit même que D4 désigne comme celui où les faits compris comptent
+    le plus.
+    """
+    settings = _settings()
+    trop_long = "x" * (settings.fait_manquant_max_chars + 1)
+    termes = ["helicoptere"] if kind == "zero_hit" else None
+    answer, trace, _fake = await _run(
+        index, [_comprendre(intent, terms=termes, cause=trop_long)], settings=settings)
+    assert answer.found is False and answer.reason is not None and answer.reason.kind == kind
+    compris = answer.faits_compris
+    assert compris is not None
+    assert compris.cause is None  # ignoré, jamais tronqué
+    assert compris.bien == "mobilier de salon"
+    assert "xxxx" not in answer.model_dump_json()
+    restituer_step = next(s for s in trace.steps if s.name == "restituer")
+    check = next(c for c in restituer_step.checks if c.name == "faits_compris_hors_borne")
+    assert check.ok is False and "cause" in check.detail and trop_long not in check.detail
+
+
+@pytest.mark.parametrize("intent, kind", [("hors_perimetre", "hors_perimetre"),
+                                          ("question", "zero_hit")])
+async def test_a_refusal_still_publishes_the_understood_facts(index: Index, intent: str,
+                                                              kind: str) -> None:
+    """C'est sur un refus qu'ils comptent le plus : « je n'ai rien trouvé » se lit autrement à côté.
+
+    `zero_hit` est obtenu par des termes qui ne touchent aucun bloc ; `hors_perimetre` court-circuite
+    dès *comprendre* — dans les deux cas, la portée existe déjà et rien ne justifie de la taire.
+    """
+    termes = ["helicoptere"] if kind == "zero_hit" else None
+    answer, _trace, _fake = await _run(index, [_comprendre(intent, terms=termes)])
+    assert answer.found is False and answer.reason is not None and answer.reason.kind == kind
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert answer.faits_compris is not None and answer.faits_compris.bien == "mobilier de salon"
+
+
+async def test_a_clarification_publishes_no_understood_facts(index: Index) -> None:
+    """`ClarificationRequise` n'a pas de portée (AD-5 : deux sorties typées exclusives) — rien à publier."""
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(clarification="De quel bien parlez-vous ?")])
+    assert answer.clarification == "De quel bien parlez-vous ?"
+    assert answer.faits_compris is None
+
+
+async def test_an_out_of_bound_understood_fact_is_dropped_and_the_trace_says_so(index: Index) -> None:
+    """D8 de 1.8, appliqué aux faits compris : hors borne, le libellé est **ignoré**, jamais tronqué.
+
+    Une demi-phrase de cause ou de lieu induit en erreur plus sûrement qu'une case vide — et c'est
+    du texte du modèle qui atteint un écran, donc la même règle que `fait_manquant`.
+    """
+    settings = _settings()
+    trop_long = "x" * (settings.fait_manquant_max_chars + 1)
+    answer, trace, _fake = await _run(index, [
+        _comprendre(cause=trop_long, themes=["habitation", trop_long]),
+        _rediger(GAR),
+        _verifier(("c1", True, False, False, False, None))], settings=settings)
+
+    compris = answer.faits_compris
+    assert compris is not None
+    assert compris.cause is None  # ignoré
+    assert compris.themes == ["habitation"]
+    assert compris.bien == "mobilier de salon"  # ce qui tenait dans la borne est intact
+    assert "xxxx" not in answer.model_dump_json()  # jamais tronqué : aucun préfixe ne subsiste
+
+    # AD-10 : le libellé écarté se **dit**, et le check nomme les champs, jamais leur contenu.
+    restituer_step = next(s for s in trace.steps if s.name == "restituer")
+    check = next(c for c in restituer_step.checks if c.name == "faits_compris_hors_borne")
+    assert check.ok is False
+    assert "cause" in check.detail and "themes" in check.detail
+    assert trop_long not in check.detail
+
+
+async def test_facts_that_fit_leave_no_check_behind(index: Index) -> None:
+    """Le check ne se pose que s'il y a quelque chose à dire — sinon la trace mentirait par bruit."""
+    _answer, trace, _fake = await _run(index, [
+        _comprendre(),
+        _rediger(GAR),
+        _verifier(("c1", True, False, False, False, None))])
+    restituer_step = next(s for s in trace.steps if s.name == "restituer")
+    assert [c.name for c in restituer_step.checks if c.name == "faits_compris_hors_borne"] == []

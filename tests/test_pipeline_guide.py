@@ -158,6 +158,10 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     assert [s.tier for s in trace.steps] == ["micro", "reason", "reason", "micro", None]
     assert trace.steps[1].calls == []  # *retrouver* déterministe n'appelle aucun modèle
     assert trace.pipeline == "guide" and trace.variant == "deterministe" and trace.request_id == "req-test"
+    # Story 1.9 : `faits_compris` et `verdict` sont les deux champs de l'unique `Answer` que le guide
+    # ne remplit **pas**. Le profil du guide n'est pas « ce qu'on a compris d'un sinistre », et une
+    # question du guide n'a pas de verdict à porter (AD-4).
+    assert answer.faits_compris is None and answer.verdict is None
     # AD-10 : `intent` est le seul champ de la ligne de log que l'API ne peut pas lire sur l'`Answer` —
     # il n'existe que dans la trace, et seul le pipeline le produit.
     assert trace.intent == "question"

@@ -37,6 +37,32 @@ class QuestionScope(DomainModel):
     cause: str | None = None
     moment: str | None = None
 
+    def borner(self, max_chars: int) -> tuple[QuestionScope, list[str]]:
+        """Copie sans les libellés hors borne, et la liste des champs ignorés (story 1.9, D4).
+
+        Ces libellés sont **produits par le modèle** (*comprendre* les extrait des faits déclarés) et
+        la page sinistre les **affiche** sous « les faits compris ». Ils tombent donc sous la règle
+        de D8 (spec 1.8), qui vaut pour tout texte du modèle qui atteint un écran : hors borne, le
+        libellé est **ignoré**, jamais tronqué — une demi-phrase de cause ou de lieu induirait en
+        erreur plus sûrement qu'une case vide —, et la trace dit lesquels.
+
+        Le champ ignoré devient `None` (ou disparaît de `themes`) plutôt que de rester : le front
+        n'affiche que ce qui est renseigné, et un `bien` amputé serait indiscernable d'un `bien`
+        déclaré. La liste rendue nomme les **champs**, jamais leur contenu — elle part dans un
+        `CheckResult` de la trace, et AD-10 y interdit le texte.
+        """
+        ignores: list[str] = []
+        themes = [t for t in self.themes if len(t) <= max_chars]
+        if len(themes) != len(self.themes):
+            ignores.append("themes")
+        remplacements: dict[str, object] = {"themes": themes}
+        for nom in ("bien", "evenement", "lieu", "cause", "moment"):
+            valeur = getattr(self, nom)
+            if valeur is not None and len(valeur) > max_chars:
+                ignores.append(nom)
+                remplacements[nom] = None
+        return self.model_copy(update=remplacements), ignores
+
 
 # Convention « Données & formats » du spine : langues **ISO 639-1**, donc exactement deux lettres
 # (revue Codex 1.4, I2 — `^[a-z]{2,3}$` laissait passer `eng`/`fra` jusque dans la consigne de rédaction).

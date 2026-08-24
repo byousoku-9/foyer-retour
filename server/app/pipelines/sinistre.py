@@ -39,7 +39,7 @@ from server.app.domain.errors import (
     Timeout,
 )
 from server.app.domain.profil import Profil
-from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion
+from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion, QuestionScope
 from server.app.domain.trace import CheckResult, StepTrace, Trace
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
@@ -219,13 +219,38 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                             blocks_scanned=len(document.blocks) if document is not None else 0,
                             documents=[doc_id] if document is not None else [])
 
+    def faits_compris(scope: QuestionScope | None) -> tuple[QuestionScope | None, list[str]]:
+        """Ce que *comprendre* a compris des faits, borné avant d'atteindre l'écran (story 1.9, D4).
+
+        `ParsedQuestion.scope` porte des libellés **du modèle** (bien, événement, lieu, cause,
+        moment), et l'AC de la story les affiche. La règle de D8 (spec 1.8) leur vaut donc : hors
+        borne, le libellé est ignoré, jamais tronqué. Le pipeline est le seul à voir `settings` et
+        la question comprise — *restituer* ne fait que recopier ce qu'on lui donne (AD-4).
+        """
+        if scope is None:
+            return None, []
+        return scope.borner(settings.fait_manquant_max_chars)
+
+    def noter_hors_borne(step: StepTrace, ignores: list[str]) -> None:
+        """AD-10 : un libellé écarté se **dit**. Le check nomme les champs, jamais leur contenu."""
+        if ignores:
+            step.checks.append(CheckResult(
+                name="faits_compris_hors_borne", ok=False,
+                detail=f"{len(ignores)} champ(s) des faits compris dépassent "
+                       f"{settings.fait_manquant_max_chars} caractères et ne sont pas affichés "
+                       f"(jamais tronqués) : {', '.join(ignores)}"))
+
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
+                scope: QuestionScope | None = None,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
         echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
+        compris, ignores = faits_compris(scope)
         answer, step = restituer(language=language, reason=absence(kind, parsed),
                                  clarification=clarification,
                                  verdict=_verdict_de_refus(kind, dossier),
+                                 faits_compris=compris,
                                  registre=REGISTRE_SINISTRE)
+        noter_hors_borne(step, ignores)
         steps.append(step)
         return answer, tracer()
 
@@ -244,11 +269,19 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         intent = parsed.intent
 
         if isinstance(parsed, ClarificationRequise):
+            # Seul refus qui ne publie **aucun** fait compris, et ce n'est pas un oubli (revue 1.9) :
+            # AD-5 donne à *comprendre* deux sorties typées **exclusives**, et `ClarificationRequise`
+            # ne porte pas de `scope` — il n'y a rien à publier, pas même une portée partielle. Le
+            # sens de la règle tient : *comprendre* n'a pas pu rendre la question autonome, donc il
+            # n'a rien « compris » du sinistre qu'on puisse afficher sans l'inventer. La question
+            # posée à l'utilisateur (`answer.clarification`) est ce que cet écran a à montrer.
             return refuser("clarification_requise", None, language=parsed.language,
                            clarification=parsed.clarification)
         if parsed.intent in INTENTS_REFUSES:
-            # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus.
-            return refuser("hors_perimetre", None, language=parsed.language)
+            # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus. Les faits
+            # compris, eux, existent déjà — *comprendre* a tourné —, et c'est justement sur un refus
+            # « hors périmètre » qu'ils comptent le plus : ils disent ce que le système a cru lire.
+            return refuser("hors_perimetre", None, language=parsed.language, scope=parsed.scope)
 
         # --- retrouver (code pur) -------------------------------------------
         echeance("retrouver")
@@ -264,7 +297,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 f"le budget de retrieval n'a laissé passer aucun bloc ({settings.retrieval_max_blocks} blocs, "
                 f"{settings.retrieval_max_tokens} tokens) : aucune absence du contrat n'est affirmée")
         if not retrieval.blocs:
-            return refuser("zero_hit", parsed, language=parsed.language)
+            return refuser("zero_hit", parsed, language=parsed.language, scope=parsed.scope)
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
@@ -341,6 +374,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
 
         # --- restituer ------------------------------------------------------
         echeance("restituer")
+        compris, ignores = faits_compris(parsed.scope)
         if not verification.found:
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé. Le verdict, lui, a bien été
             # calculé par *vérifier* sur zéro clause affichée : c'est un `ne_tranche_pas` gagné, et
@@ -348,10 +382,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             verification = _verdict_par_defaut(verification, dossier)
             answer, step_restituer = restituer(language=parsed.language, verification=verification,
                                                reason=absence("claims_rejetes", parsed),
+                                               faits_compris=compris,
                                                registre=REGISTRE_SINISTRE)
         else:
             answer, step_restituer = restituer(language=parsed.language, verification=verification,
+                                               faits_compris=compris,
                                                registre=REGISTRE_SINISTRE)
+        noter_hors_borne(step_restituer, ignores)
         steps.append(step_restituer)
         return answer, tracer()
 

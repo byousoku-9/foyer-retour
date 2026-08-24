@@ -12,6 +12,7 @@ from .document import DomainModel
 
 # `Applicable` vit dans `verdict.py` (story 1.8) : c'est AD-6 qui en fixe les trois valeurs et le
 # code qui les dérive. Deux littéraux identiques dans deux modules auraient pu diverger en silence.
+from .question import QuestionScope
 from .verdict import Applicable, Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
@@ -217,6 +218,14 @@ class Answer(DomainModel):
     rejected_claims: list[RejectedClaim] = Field(default_factory=list)
     reason: AbsenceProof | None = None
     verdict: Verdict | None = None
+    # Ce que *comprendre* a **compris** des faits déclarés (story 1.9, D4) : `ParsedQuestion.scope`,
+    # c'est-à-dire le bien, l'événement, le lieu, la cause et le moment que FR15 fait extraire. L'AC
+    # de la story exige de les afficher, et aucun canal ne les publiait — ils étaient écrits par
+    # *comprendre* et relus par personne (reprise différée de 1.8). Ils voyagent donc dans l'unique
+    # `Answer` d'AD-4, posés par *restituer* comme le verdict, et bornés **avant** par le pipeline :
+    # ce sont des libellés du modèle qui atteignent un écran. `None` en guide — le profil du guide
+    # n'est pas « ce qui a été compris d'un sinistre », et rien ne l'affiche.
+    faits_compris: QuestionScope | None = None
     unknown: list[str] = Field(default_factory=list)
     clarification: str | None = None
 

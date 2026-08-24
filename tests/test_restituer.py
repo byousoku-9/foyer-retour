@@ -19,6 +19,7 @@ from server.app.domain.answer import (
     VerifiedClaim,
     VerifiedQuote,
 )
+from server.app.domain.question import QuestionScope
 from server.app.domain.verdict import Verdict
 from server.app.steps.restituer import (
     PHRASES_DE_REFUS,
@@ -241,3 +242,71 @@ def test_every_registry_covers_exactly_the_absence_kinds_of_ad4() -> None:
 def test_an_unknown_registry_is_an_incoherent_call() -> None:
     with pytest.raises(ValueError, match="registre de refus inconnu"):
         restituer(language="fr", reason=AbsenceProof(kind="zero_hit"), registre="autre")
+
+
+# --- `faits_compris` (story 1.9, D4) : *restituer* recopie, il ne calcule pas ---------
+
+def _scope(**kw: object) -> QuestionScope:
+    return QuestionScope(**{"bien": "mobilier de salon", "cause": "bougie", **kw})  # type: ignore[arg-type]
+
+
+def test_faits_compris_travels_in_the_single_answer_on_the_normal_path() -> None:
+    """D4 : l'AC de la story 1.9 exige « les faits compris » à l'écran, et aucun canal ne les publiait."""
+    verification = Verification(segments=[AnswerSegment(text="Affirmation c1.", kind="factuel",
+                                                        claim_ids=["c1"])],
+                                claims=[_claim()], found=True, complete=True)
+    answer, _step = restituer(language="fr", verification=verification, faits_compris=_scope(),
+                              registre=REGISTRE_SINISTRE)
+    assert answer.faits_compris is not None
+    assert answer.faits_compris.bien == "mobilier de salon"
+    assert answer.faits_compris.cause == "bougie"
+
+
+def test_faits_compris_travels_on_the_refusal_path_too() -> None:
+    """C'est sur un refus qu'ils comptent le plus : le seul écran où l'on voit qu'on a été mal compris."""
+    answer, _step = restituer(language="fr", reason=AbsenceProof(kind="zero_hit"),
+                              verdict=_verdict("ne_tranche_pas"), faits_compris=_scope(),
+                              registre=REGISTRE_SINISTRE)
+    assert answer.found is False
+    assert answer.faits_compris is not None and answer.faits_compris.bien == "mobilier de salon"
+
+
+def test_the_guide_publishes_no_faits_compris() -> None:
+    """`None` en guide, comme le verdict : le profil du guide n'est pas « ce qu'on a compris d'un sinistre »."""
+    verification = Verification(segments=[AnswerSegment(text="Affirmation c1.", kind="factuel",
+                                                        claim_ids=["c1"])],
+                                claims=[_claim()], found=True, complete=True)
+    answer, _step = restituer(language="fr", verification=verification)
+    assert answer.faits_compris is None
+    refus, _s = restituer(language="fr", reason=AbsenceProof(kind="zero_hit"))
+    assert refus.faits_compris is None
+
+
+# --- `QuestionScope.borner` : borner, jamais tronquer (D8 de 1.8, D4 de 1.9) ----------
+
+def test_borner_drops_out_of_bound_labels_and_names_the_fields() -> None:
+    """Hors borne, le libellé est **ignoré** — une demi-phrase de cause induirait en erreur."""
+    scope = QuestionScope(bien="x" * 201, evenement="incendie", lieu="y" * 300, cause=None,
+                          themes=["auto", "z" * 400])
+    borne, ignores = scope.borner(200)
+    assert borne.bien is None and borne.lieu is None
+    assert borne.evenement == "incendie"  # ce qui tient dans la borne est conservé **tel quel**
+    assert borne.themes == ["auto"]
+    assert sorted(ignores) == ["bien", "lieu", "themes"]
+    # Le champ n'est jamais tronqué : rien ne porte un préfixe du libellé écarté.
+    assert "x" * 10 not in (borne.model_dump_json())
+
+
+def test_borner_is_a_copy_and_leaves_the_original_untouched() -> None:
+    scope = QuestionScope(bien="x" * 201, evenement="incendie")
+    borne, ignores = scope.borner(200)
+    assert scope.bien == "x" * 201  # l'original n'est pas muté
+    assert borne is not scope and ignores == ["bien"]
+
+
+def test_borner_reports_nothing_when_everything_fits() -> None:
+    scope = QuestionScope(bien="mobilier", evenement="brûlure", lieu="salon", cause="bougie",
+                          moment="2026-08-01", themes=["habitation"])
+    borne, ignores = scope.borner(200)
+    assert ignores == []
+    assert borne.model_dump() == scope.model_dump()

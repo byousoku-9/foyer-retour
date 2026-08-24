@@ -193,9 +193,12 @@ def test_answer_models() -> None:
     # ne cite n'a nulle part où paraître — la garder autoriserait `found=True` sur un texte vide.
     assert literal_values(answer.RejectedClaim, "rejection_kind") == {"non_retrouvee", "non_pertinente",
                                                                       "ambigue", "non_citee"}
+    # `faits_compris` amende AD-4 (story 1.9, D4) : « les faits compris » que l'AC de la story fait
+    # afficher sont `ParsedQuestion.scope`, et aucun canal ne les publiait. Ils voyagent donc dans
+    # l'unique `Answer`, comme le verdict, et *restituer* est le seul à les y poser.
     assert fields(answer.Answer) == {
         "found", "complete", "lang", "lang_fallback", "texte", "segments", "claims", "rejected_claims",
-        "reason", "verdict", "unknown", "clarification",
+        "reason", "verdict", "faits_compris", "unknown", "clarification",
     }
 
 
