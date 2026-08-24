@@ -19,6 +19,7 @@ from server.app.domain.answer import (
     VerifiedClaim,
     VerifiedQuote,
 )
+from server.app.domain.verdict import Verdict
 from server.app.steps.restituer import PHRASES_DE_REFUS, restituer
 
 
@@ -153,3 +154,51 @@ def test_an_answer_without_a_surviving_factual_segment_is_never_served() -> None
                          claims=[_claim()], found=True)
     with pytest.raises(ValueError, match="segment factuel"):
         restituer(language="fr", verification=blanc)
+
+
+# --- le verdict du sinistre (story 1.8) : *restituer* recopie, il ne calcule pas ------
+def _verdict(value: str = "sous_conditions") -> Verdict:
+    return Verdict(value=value, reason="raison composée par le code (au regard des conditions "
+                                       "générales seules)", ask_client=["Quelles options ?"])
+
+
+def test_the_verdict_of_the_verification_reaches_the_single_answer() -> None:
+    """AD-4 : `Verdict` voyage dans l'unique `Answer` ; AD-6 : il est calculé par *vérifier*."""
+    verification = Verification(segments=[AnswerSegment(text="Clause c1.", kind="factuel", claim_ids=["c1"])],
+                                claims=[_claim()], found=True, verdict=_verdict())
+    answer, _step = restituer(language="fr", verification=verification)
+    assert answer.verdict is not None and answer.verdict.value == "sous_conditions"
+    assert answer.verdict is verification.verdict  # recopié tel quel, jamais recomposé
+
+
+def test_a_refusal_still_carries_its_verdict() -> None:
+    """AD-16 : « aucun repli pour le sinistre » — un refus sinistre porte `ne_tranche_pas`, jamais rien."""
+    verification = Verification(rejected_claims=[_rejet()], found=False,
+                                verdict=_verdict("ne_tranche_pas"))
+    answer, _step = restituer(language="fr", verification=verification,
+                              reason=AbsenceProof(kind="claims_rejetes"))
+    assert answer.found is False and answer.verdict is not None
+    assert answer.verdict.value == "ne_tranche_pas"
+
+
+def test_a_short_circuited_refusal_receives_its_verdict_from_the_pipeline() -> None:
+    """Court-circuit d'AD-5 : aucune vérification n'a tourné, le pipeline compose le `ne_tranche_pas`."""
+    answer, _step = restituer(language="fr", reason=AbsenceProof(kind="zero_hit"),
+                              verdict=_verdict("ne_tranche_pas"))
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert answer.reason is not None and answer.reason.kind == "zero_hit"
+
+
+def test_the_guide_never_carries_a_verdict() -> None:
+    verification = Verification(segments=[AnswerSegment(text="Clause c1.", kind="factuel", claim_ids=["c1"])],
+                                claims=[_claim()], found=True)
+    answer, _step = restituer(language="fr", verification=verification)
+    assert answer.verdict is None
+
+
+def test_two_verdicts_for_one_answer_is_an_incoherent_call() -> None:
+    """Un seul verdict par requête, calculé par *vérifier* : deux sources ne s'arbitrent pas ici."""
+    verification = Verification(found=False, verdict=_verdict("ne_tranche_pas"))
+    with pytest.raises(ValueError, match="deux verdicts"):
+        restituer(language="fr", verification=verification, reason=AbsenceProof(kind="claims_rejetes"),
+                  verdict=_verdict("couvert"))

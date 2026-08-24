@@ -16,13 +16,19 @@ from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft
 from server.app.domain.document import Block, Document, Node
-from server.app.domain.question import ParsedQuestion
+from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt
-from server.app.steps.verifier import BLOC_INCONNU, _lignes_du_bloc, verifier
+from server.app.steps.verifier import (
+    BLOC_INCONNU,
+    ChampsApplicabiliteRendus,
+    SortieVerifierSinistre,
+    _lignes_du_bloc,
+    verifier,
+)
 from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -606,3 +612,274 @@ async def test_which_facets_are_covered_is_recorded_not_just_how_many(mini: Inde
     v2, _s2, _f2 = await _verifier(mini, draft, [_verdicts(("c1", True), facettes=[[], ["c1"]])],
                                    nb_facettes=2)
     assert v2.facettes_couvertes == [1] and v2.complete is False
+
+
+# --- mode sinistre : champs typés d'applicabilité et table AD-6 (story 1.8) -------------
+GARANTIE = ("Les dégâts occasionnés au mobilier assuré par un événement soudain, résultant de "
+            "l'action subite de la chaleur, sont couverts.")
+EXCLUSION = ("Pour les extensions mentionnées au point 2, les dégâts occasionnés au bâtiment par "
+             "l'action subite de la chaleur sont exclus.")
+CONDITION = "La garantie n'est acquise que si le bien est occupé de manière permanente."
+DEFINITION = "Le contenu comprend le mobilier de jardin et les objets confiés à un Assuré."
+Q_GARANTIE = "dégâts occasionnés au mobilier assuré par un événement soudain"
+Q_EXCLUSION = "dégâts occasionnés au bâtiment par l'action subite de la chaleur"
+Q_CONDITION = "n'est acquise que si le bien est occupé de manière permanente"
+Q_DEFINITION = "contenu comprend le mobilier de jardin et les objets confiés"
+EXCLUSION_SOCLE = "Sont exclus les dommages causés intentionnellement par un Assuré, en toute circonstance."
+Q_EXCLUSION_SOCLE = "exclus les dommages causés intentionnellement par un Assuré"
+
+FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
+              description="Une bougie a mis le feu au mobilier de salon, sans embrasement.")
+
+
+@pytest.fixture(scope="module")
+def contrat() -> Index:
+    """Mini-contrat typé à la main : un socle (`commun`) et une extension, comme le contrat AXA.
+
+    `p1:1` garantie du socle, `p1:2` exclusion portée sur la seule extension, `p1:3` condition du
+    socle, `p1:4` définition (kind non décisionnel), `p1:5` garantie au `kind_source` non confirmé.
+    """
+    blocs = [
+        {"block_id": "cg:p1:1", "loc": "p1", "seq": 1, "kind": "garantie", "text": GARANTIE,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:2", "loc": "p1", "seq": 2, "kind": "exclusion", "text": EXCLUSION,
+         "kind_source": "manual", "scope_node_id": "cg:ext"},
+        {"block_id": "cg:p1:3", "loc": "p1", "seq": 3, "kind": "condition", "text": CONDITION,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:4", "loc": "p1", "seq": 4, "kind": "definition", "text": DEFINITION,
+         "kind_source": "manual", "defines": "contenu", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:5", "loc": "p1", "seq": 5, "kind": "garantie", "text":
+            "Le vol commis avec effraction dans le bâtiment désigné est garanti sans franchise.",
+         "kind_source": "model", "kind_confidence": 0.4, "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:6", "loc": "p1", "seq": 6, "kind": "exclusion", "text": EXCLUSION_SOCLE,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+    ]
+    doc = Document(
+        doc_id="cg", kind="contrat", title="Mini contrat", edition="juin 2017",
+        nodes=[Node(node_id="cg:socle", level=1, title="Socle",
+                    items=[{"block_id": "cg:p1:1"}, {"block_id": "cg:p1:3"}, {"block_id": "cg:p1:4"},
+                           {"block_id": "cg:p1:5"}, {"block_id": "cg:p1:6"}]),
+               Node(node_id="cg:ext", level=1, title="Extensions", scope={"kind": "extension"},
+                    items=[{"block_id": "cg:p1:2"}]),
+               Node(node_id="cg:root", level=0, title="Contrat",
+                    items=[{"node_id": "cg:socle"}, {"node_id": "cg:ext"}])],
+        blocks=blocs)
+    for b in doc.blocks:
+        b.text_norm = normalize(b.text)
+    return Index(Corpus(documents={"cg": doc}, summaries={"cg": "# Mini contrat"}))
+
+
+def _applicabilite(*entrees: tuple[str, bool, bool, bool, str | None], verdicts: list[tuple[str, bool]],
+                   nb_segments: int = 8, doublon: bool = False) -> dict:
+    """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité."""
+    champs = [{"claim_id": cid, "fait_requis_present": present, "option_requise": option,
+               "cp_requise": cp, "fait_manquant": manquant}
+              for cid, present, option, cp, manquant in entrees]
+    if doublon and champs:
+        champs.append(dict(champs[0]))
+    return fake_message(text=json.dumps({
+        "verdicts": [{"claim_id": c, "pertinente": p} for c, p in verdicts],
+        "facettes": [{"facette": 0, "claim_ids": [c for c, ok in verdicts if ok]}],
+        "segments": [{"segment": i, "soutenu": True} for i in range(nb_segments)],
+        "applicabilite": champs}), model=HAIKU)
+
+
+async def _verifier_sinistre(index: Index, draft: AnswerDraft, script: list, *,
+                             blocs: list[str] | None = None, settings: Settings | None = None):
+    settings = settings or _settings()
+    doc = index.corpus.documents["cg"]
+    ids = blocs if blocs is not None else [b.block_id for b in doc.blocks]
+    retrieval = RetrievalResult(blocs=[doc.block(b) for b in ids], opened_block_ids=list(ids))
+    client, fake = _client(script)
+    parsed = ParsedQuestion(question_resolue="Ce sinistre est-il couvert ?", intent="question",
+                            terms=["mobilier de jardin", "chaleur"], facettes=["couverture du sinistre"])
+    verification, step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=index.corpus,
+                                        index=index, client=client, budget=_budget(), settings=settings,
+                                        faits=FAITS)
+    return verification, step, fake
+
+
+async def test_the_guide_mode_never_derives_an_applicability(mini: Index) -> None:
+    """AD-4 : `applicable` vaut `None` en guide, et aucun verdict n'est calculé — un seul appel."""
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+    v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    assert v.verdict is None and v.claims[0].status.applicable is None
+    assert len(fake.requests) == 1
+    # le préfixe du guide est inchangé : `verifier_sinistre.md` n'y figure pas
+    assert "applicabilite" not in fake.requests[0]["system"][0]["text"]
+
+
+async def test_applicability_travels_in_the_single_grouped_micro_call(contrat: Index) -> None:
+    """AD-9 amendé : « un seul appel groupé […] Jamais un second appel »."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
+    assert len(fake.requests) == 1 and len(step.calls) == 1
+    assert v.claims[0].status.applicable == "oui"
+    assert v.verdict is not None and v.verdict.value == "couvert"
+    # le préfixe porte bien les deux prompts, et les faits déclarés sont délimités (AD-15)
+    systeme = fake.requests[0]["system"][0]["text"]
+    assert "valeurs typées d'applicabilité" in systeme and "un booléen par" not in systeme.split("\n")[0]
+    kinds = dict(UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"]))
+    assert "faits" in kinds and "bougie" in kinds["faits"]
+
+
+async def test_the_model_never_returns_a_verdict_field(contrat: Index) -> None:
+    """AD-6 : « le modèle n'effectue aucun calcul ». Le schéma de sortie ne lui offre pas la place."""
+    champs = SortieVerifierSinistre.model_json_schema()["properties"]
+    assert set(champs) == {"verdicts", "facettes", "segments", "applicabilite"}
+    rendus = ChampsApplicabiliteRendus.model_json_schema()["properties"]
+    assert set(rendus) == {"claim_id", "fait_requis_present", "option_requise", "cp_requise",
+                           "fait_manquant"}
+    assert not {"applicable", "verdict", "couvert", "value"} & set(rendus)
+
+
+async def test_a_claim_citing_two_decisional_kinds_is_rejected_as_ambiguous(contrat: Index) -> None:
+    """D6 / AD-6 : « une claim décisionnelle ne couvre qu'un seul `kind` » — rejet `ambigue`, relance."""
+    draft = _draft(("c1", "La garantie joue sauf exclusion.",
+                    [("cg:p1:1", Q_GARANTIE), ("cg:p1:2", Q_EXCLUSION)]))
+    v, _step, fake = await _verifier_sinistre(contrat, draft, [])  # aucun appel : rien n'est évalué
+    (rejet,) = v.rejected_claims
+    assert rejet.rejection_kind == "ambigue" and "une seule clause par affirmation" in rejet.motif
+    assert "exclusion" in rejet.motif and "garantie" in rejet.motif
+    assert fake.remaining_script == 0 and len(fake.requests) == 0
+    assert v.motif is not None  # le motif actionnable part vers la relance d'AD-3
+
+
+async def test_a_clause_joined_to_its_definition_stays_admissible(contrat: Index) -> None:
+    """D6 : « un mélange clause + paragraphe non typé reste admis : c'est le contexte de la clause »."""
+    draft = _draft(("c1", "Le mobilier de jardin relève du contenu couvert.",
+                    [("cg:p1:1", Q_GARANTIE), ("cg:p1:4", Q_DEFINITION)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
+    assert v.rejected_claims == [] and v.claims[0].status.applicable == "oui"
+
+
+async def test_a_claim_citing_no_clause_has_no_applicability(contrat: Index) -> None:
+    """D2 : une définition seule n'a pas d'applicabilité — `None`, et pas de champs demandés."""
+    draft = _draft(("c1", "Le contenu comprend le mobilier de jardin.", [("cg:p1:4", Q_DEFINITION)]))
+    v, step, fake = await _verifier_sinistre(contrat, draft, [_applicabilite(verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable is None
+    assert not [c for c in step.checks if c.name == "applicabilite_incomplete"]
+    # le bloc `claim` envoyé au modèle ne porte pas de `clause` : rien ne lui est demandé pour elle
+    claims = [json.loads(v) for k, v in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+              if k == "claim"]
+    assert claims and "clause" not in claims[0]
+    # et le verdict, faute de clause fondatrice, ne tranche rien (règle 0bis)
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+
+
+async def test_missing_typed_fields_are_human_and_traced(contrat: Index) -> None:
+    """AC : aucun champ rendu pour une claim décisionnelle ⇒ `humain` + `applicabilite_incomplete`."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "applicabilite_incomplete" and not c.ok]
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+
+
+async def test_two_opposite_field_sets_for_one_claim_are_discarded(contrat: Index) -> None:
+    """Même règle que pour la pertinence : deux réponses pour la même affirmation ⇒ `humain`."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)],
+                                        doublon=True)])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "applicabilite_contradictoire"]
+
+
+async def test_an_oversized_missing_fact_label_is_dropped_never_truncated(contrat: Index) -> None:
+    """D8 : le seul texte du modèle affiché est borné — hors borne, ignoré, et la trace le dit."""
+    trop_long = "x" * 40
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", False, False, False, trop_long), verdicts=[("c1", True)])],
+        settings=_settings(fait_manquant_max_chars=20))
+    assert [c for c in step.checks if c.name == "fait_manquant_hors_borne"]
+    assert v.verdict is not None
+    assert v.verdict.missing.faits == [] and all(trop_long not in q for q in v.verdict.ask_client)
+    # le libellé est ignoré, pas tronqué : la clause reste « connue et contraire » (D1)
+    assert v.claims[0].status.applicable == "non"
+
+
+async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index) -> None:
+    """AD-6 : bloc sans `kind` confirmé ⇒ `humain`, verdict plafonné à `sous_conditions`."""
+    draft = _draft(("c1", "Le vol avec effraction est garanti.",
+                    [("cg:p1:5", "vol commis avec effraction dans le bâtiment désigné")]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None and v.verdict.value in ("sous_conditions", "ne_tranche_pas")
+    assert any("typage" in e for e in v.verdict.escalate)
+
+
+async def test_an_applicable_exclusion_covering_the_case_excludes_it(contrat: Index) -> None:
+    """Règle (1) de la table, sur de vrais blocs : la portée de l'exclusion couvre le nœud du cas."""
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("Le dommage intentionnel est exclu.", "factuel", ["c2"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
+                ("c2", "Le dommage intentionnel est exclu.", [("cg:p1:6", Q_EXCLUSION_SOCLE)])])
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", True, False, False, None),
+        verdicts=[("c1", True), ("c2", True)])])
+    # `cg:p1:6` porte sur `cg:socle`, le nœud du cas : l'exclusion prime la garantie
+    assert v.verdict is not None and v.verdict.value == "non_couvert"
+    assert [c.status.applicable for c in v.claims] == ["oui", "oui"]
+
+
+async def test_an_exclusion_out_of_scope_does_not_bite(contrat: Index) -> None:
+    """AD-2 : `Document.scope_nodes()` est l'unique calcul de « la portée couvre le cas »."""
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("Le bâtiment des extensions est exclu.", "factuel", ["c2"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
+                ("c2", "Le bâtiment des extensions est exclu.", [("cg:p1:2", Q_EXCLUSION)])])
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", True, False, False, None),
+        verdicts=[("c1", True), ("c2", True)])])
+    # la portée de `cg:p1:2` est `cg:ext`, le nœud du cas est `cg:socle` : elle ne mord pas
+    assert v.verdict is not None and v.verdict.value == "couvert"
+
+
+async def test_an_open_condition_makes_the_verdict_conditional(contrat: Index) -> None:
+    """Règle (2), politique conservatrice : garantie `oui` + condition `humain` ⇒ `sous_conditions`."""
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("Une condition d'occupation s'applique.", "factuel", ["c2"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
+                ("c2", "Une condition d'occupation s'applique.", [("cg:p1:3", Q_CONDITION)])])
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", False, False, False, "occupation permanente du bien"),
+        verdicts=[("c1", True), ("c2", True)])])
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    assert v.verdict.missing.faits == ["occupation permanente du bien"]
+    assert [c.status.applicable for c in v.claims] == ["oui", "humain"]
+
+
+async def test_the_verdict_only_counts_displayed_claims(contrat: Index) -> None:
+    """D4 : une claim `non_citee` sort de `claims[]` — elle ne peut plus fonder le verdict."""
+    draft = _draft_libre(
+        ("Une condition d'occupation s'applique.", "factuel", ["c2"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
+                ("c2", "Une condition d'occupation s'applique.", [("cg:p1:3", Q_CONDITION)])])
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", True, False, False, None),
+        verdicts=[("c1", True), ("c2", True)])])
+    assert [c.claim_id for c in v.claims] == ["c2"]
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
+    # la garantie n'est plus affichée : la table n'a plus de clause fondatrice (règle 0bis)
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+
+
+async def test_a_verdict_other_than_ne_tranche_pas_always_rests_on_a_displayed_clause(
+        contrat: Index) -> None:
+    """AC : `value != ne_tranche_pas` ⇒ ≥ 1 claim affichée de kind `garantie` ou `exclusion`."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
+    assert v.verdict is not None and v.verdict.value != "ne_tranche_pas"
+    fondatrices = [c for c in v.claims
+                   if contrat.corpus.documents["cg"].block(c.quotes[0].block_id).kind
+                   in ("garantie", "exclusion")]
+    assert fondatrices

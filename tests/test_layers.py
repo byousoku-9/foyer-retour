@@ -133,6 +133,27 @@ def test_layer_dependencies(layer: str) -> None:
     assert not violations, "\n".join(violations)
 
 
+def test_the_verdict_table_is_pure_code(tmp_path: Path) -> None:
+    """AD-6 (story 1.8) : `domain/verdict.py` porte le découpage d'exécution — le **code** décide.
+
+    `check_external("domain")` couvre déjà toute la couche, mais l'invariant vaut d'être nommé pour ce
+    fichier-là : la table d'AD-6 doit rester jouable sans corpus, sans client de modèle et sans étape,
+    c'est ce qui la rend testable ligne par ligne (`tests/test_verdict.py`) et ce qui interdit qu'un
+    verdict se mette un jour à dépendre d'un appel.
+    """
+    fichier = APP / "domain" / "verdict.py"
+    assert fichier.is_file()
+    interdits = []
+    for mod, ligne in _imports(fichier, APP):
+        top = mod.split(".")[0]
+        cible = _layer_of(mod)
+        if cible in ("corpus", "llm", "steps", "pipelines", "api"):
+            interdits.append(f"verdict.py:{ligne} importe {mod}")
+        elif not _stdlib(top) and top not in ("pydantic",) and cible is None:
+            interdits.append(f"verdict.py:{ligne} importe {mod}")
+    assert not interdits, "\n".join(interdits)
+
+
 def _fake_app(tmp_path: Path, files: dict[str, str]) -> Path:
     app = tmp_path / "app"
     for rel, content in files.items():

@@ -1051,7 +1051,7 @@ def test_les_digests_viennent_du_demarrage_et_pas_du_repli_du_pipeline(prod: Tes
 
 
 async def test_le_repli_memoise_du_pipeline_nest_jamais_atteint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Reprise 1.6 : les digests passés par l'API rendent `guide._digests()` inutile.
+    """Reprise 1.6 : les digests passés par l'API rendent le repli `commun.digests()` inutile.
 
     Le repli relit toute l'arborescence du code à chaque fois qu'il est reconstruit ; surtout, une
     image dont le code changerait à chaud servirait des empreintes calculées sur *autre chose* que
@@ -1061,7 +1061,7 @@ async def test_le_repli_memoise_du_pipeline_nest_jamais_atteint(monkeypatch: pyt
     def interdit() -> tuple[str, str]:
         raise AssertionError("le repli mémoïsé des digests ne doit jamais être atteint")
 
-    monkeypatch.setattr(guide, "_digests", interdit)
+    monkeypatch.setattr(guide, "digests", interdit)
     corpus, index = _mini_corpus()
     # Deadline déjà épuisée : le pipeline lève avant tout appel modèle, et assemble sa trace partielle.
     budget = RequestBudget(deadline_s=0.0, max_attempts=6, max_cost_eur=0.10)

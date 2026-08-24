@@ -85,6 +85,35 @@ def test_index_computes_missing_text_norm_and_refuses_id_collisions() -> None:
         Index(Corpus(documents={"d": _doc(2), "d2": _doc(2, prefix="x-")}))
 
 
+def test_chercher_puts_decisional_blocks_first_at_equal_score_only() -> None:
+    """Story 1.8 / D7 : `kinds_prioritaires` départage les **ex æquo**, il ne filtre ni ne surclasse.
+
+    Trois blocs : un paragraphe qui touche les deux termes, une garantie et un paragraphe qui n'en
+    touchent qu'un. À score égal, la garantie passe devant le paragraphe ; au-dessus d'elle, le bloc
+    qui répond le mieux reste premier — sans quoi le typage manuel de quatre clauses (J+1) évincerait
+    le rappel lexical, seul rappel réel tant que le typage automatique (3.2) n'existe pas.
+    """
+    blocks = [Block(block_id="d:p1:1", text="La chaleur du mobilier assuré.", loc="p1", seq=1),
+              Block(block_id="d:p1:2", text="Le mobilier de jardin.", loc="p1", seq=2),
+              Block(block_id="d:p1:3", text="Le mobilier assuré est garanti.", loc="p1", seq=3,
+                    kind="garantie", kind_source="manual")]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                               nodes=nodes, blocks=blocks)}))
+    termes = {"mobilier": [], "chaleur": []}
+    # sans priorité : score puis ordre de lecture
+    assert [b for b, _ in ix.chercher(termes, limit=5)] == ["d:p1:1", "d:p1:2", "d:p1:3"]
+    # avec priorité : la garantie passe devant `d:p1:2` (même score), jamais devant `d:p1:1` (score 2)
+    assert [b for b, _ in ix.chercher(termes, limit=5, kinds_prioritaires={"garantie", "exclusion"})] == [
+        "d:p1:1", "d:p1:3", "d:p1:2"]
+    # priorité vide ou sans effet : ordre inchangé (le guide ne passe rien)
+    assert [b for b, _ in ix.chercher(termes, limit=5, kinds_prioritaires=set())] == [
+        "d:p1:1", "d:p1:2", "d:p1:3"]
+    # et il ne **filtre** pas : les trois blocs restent rendus
+    assert len(ix.chercher(termes, limit=5, kinds_prioritaires={"garantie"})) == 3
+
+
 def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
     hits = mini_index.chercher({"commune": ["biergercenter"], "matricule": []}, limit=20)
     # corps[2] « matricule, délivré par la commune » touche les deux termes ; il précède tout bloc à un seul terme

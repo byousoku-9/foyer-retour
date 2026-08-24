@@ -131,6 +131,26 @@ def test_document_referential_invariants(field: str, value: object, fragment: st
         _doc(nodes, [_blk(1), _blk(2) | {field: value}])
 
 
+def test_a_block_knows_its_node_and_that_node_its_scope_kind() -> None:
+    """Story 1.8 : la table d'AD-6 lit le nœud d'un bloc et son `scope.kind` **depuis le document**.
+
+    `domain/verdict.py` ne peut importer ni `corpus` ni `llm` (table des couches) : sans ces deux
+    accesseurs, « la garantie est-elle du socle ? » (règle 3) aurait dû passer par l'index, donc par
+    une couche que le domaine n'a pas le droit de voir. Les données sont celles que
+    `_tree_invariants` parcourt déjà — aucun second parcours de `Node.items`.
+    """
+    nodes = [{"node_id": "root", "items": [{"node_id": "d:socle"}, {"node_id": "d:ext"}]},
+             {"node_id": "d:socle", "items": [{"block_id": "d:p1:1"}]},
+             {"node_id": "d:ext", "scope": {"kind": "extension"}, "items": [{"block_id": "d:p1:2"}]}]
+    doc = _doc(nodes, [_blk(1), _blk(2)])
+    assert doc.node_of("d:p1:1") == "d:socle" and doc.node_of("d:p1:2") == "d:ext"
+    # `commun` est le défaut d'AD-2 et **le socle** au sens de la règle (3) d'AD-6
+    assert doc.node_scope_kind("d:socle") == "commun"
+    assert doc.node_scope_kind("d:ext") == "extension"
+    with pytest.raises(KeyError):
+        doc.node_of("d:p1:9")
+
+
 def test_scope_nodes_explicit_list_restricts_the_subtree() -> None:
     """Amendement AD-2 (revue Codex 1.2) : « pour les extensions 3.1.8.3 à 3.1.8.6 » ne couvre ni 3.1.8.1 ni 3.1.8.8."""
     nodes = [{"node_id": "d", "items": [{"node_id": "d:a3.1.8"}]},
@@ -201,10 +221,13 @@ def test_verified_quote_carries_the_occurrence() -> None:
 
 def test_verification_fields() -> None:
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
-                                           "unknown", "facettes_couvertes", "motif"}
+                                           "unknown", "facettes_couvertes", "verdict", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None
     assert v.facettes_couvertes == []  # rien de mesuré ne vaut jamais une facette couverte
+    # AD-4/AD-6 (story 1.8) : *vérifier* calcule le verdict, *restituer* le recopie. `None` en guide —
+    # une question du guide n'a pas de verdict, et `Answer` n'a pas de second objet de réponse.
+    assert v.verdict is None
 
 
 def test_draft_digest_is_canonical_and_content_sensitive() -> None:

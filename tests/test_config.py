@@ -43,11 +43,13 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
             "comprendre_max_tokens", "rediger_max_tokens", "retrieval_max_blocks",
             # story 1.5 : bornes du pipeline et de *vérifier*
-            "historique_max_turns", "verifier_max_claims", "verifier_max_tokens"} <= set(t.thresholds)
+            "historique_max_turns", "verifier_max_claims", "verifier_max_tokens",
+            # story 1.8 : les deux bornes posées sur ce que le modèle fait afficher au sinistre
+            "fait_manquant_max_chars", "ask_client_max"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
-    # `guide_doc_id` est un slug, pas un seuil : il n'a rien à faire dans `Trace.thresholds`
-    # (typé `dict[str, float | int]` — l'y mettre ferait échouer la sérialisation de la trace).
-    assert "guide_doc_id" not in t.thresholds
+    # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
+    # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).
+    assert "guide_doc_id" not in t.thresholds and "sinistre_doc_id" not in t.thresholds
 
 
 def test_allow_ungated_follows_env_unless_explicit() -> None:

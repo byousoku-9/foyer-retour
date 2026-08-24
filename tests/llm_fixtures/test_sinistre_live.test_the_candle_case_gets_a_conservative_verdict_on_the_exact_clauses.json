@@ -1,0 +1,103 @@
+{
+  "claude-haiku-4-5-20251001:8063cf3060754a4d": {
+    "request": "claude-haiku-4-5-20251001:8063cf3060754a4d",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé du salon, causant une brûlure partielle du mobilier de salon (1200 €) sans propagation d'incendie ni dégât au bâtiment. Ce sinistre est-il couvert ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"brûlure\", \"incendie\", \"bougie\"], \"themes\": [], \"facettes\": [\"Couverture du sinistre de brûlure du mobilier\"], \"bien\": \"mobilier de salon (canapé)\", \"evenement\": \"brûlure du mobilier\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute d'une bougie allumée\", \"moment\": \"2026-08-01\"}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeMaAv5RpBg8sV7BrMNwK",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 2587,
+        "output_tokens": 221,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:96798044f25fcaa5": {
+    "request": "claude-haiku-4-5-20251001:96798044f25fcaa5",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": true, \"cp_requise\": false, \"fait_manquant\": null}, {\"claim_id\": \"c2\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": true, \"fait_manquant\": \"mention de la garantie « incendie et périls assimilés » dans les conditions particulières\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeMaCZbgj3Acip6c3sEn6",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4433
+        },
+        "cache_creation_input_tokens": 4433,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1029,
+        "output_tokens": 241,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:7a68098d5196c26d": {
+    "request": "claude-sonnet-5:7a68098d5196c26d",
+    "response": {
+      "content": [
+        {
+          "signature": "EukKCpABCBEYAipAa9vnI9ACcPc8lTlXJo51Nt2khRVGXR3U59E7cld96LPiOHbNq0zb/xPVEdGA+fublovcZFPmh4F1Rmm3wfRp+jIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAc/xsNQGEgx+WsIsnaBWtSxJW90aDA/a+IcxN5UIC/GVDCIw3DR4N0RxPwUBJKhcDsXEZkzpBMFl7KLAzCUn3jeLBH0qggdLMAxL/1RCA7avO/ZbKoUJ6SOph52cogeJeZq7YQz8FkL8qxCiGz4V1yz0OJgMgWhuoR4pcmMwM5GxPqujUYOPvrkNjg7ZPyv3zg0aaZdo0eIWlLA8+ulD5oz0LM3PvIjzOm8vXx1JZPP/0K8+9cSHvR4Cyw6Sf+6S+i48+Y0ubN1pdefTZnCORvBZWcClyo9TeKUY2hRGbqvoq/oHBTbCJH+2kDrzptuZt8ysNaysPmUbqHNxXQWtX3HtzfT4EXenTTml9ls+PzTgSlS+bcXXhsAQP4wpJW80rPoShrVFUUFEsm1duH1aRCJu/DjqCR2JixFquK89UrQoax+yh5lNMQKHVkYMgUBvED68kxnHxplJaiaBaI3G5+MRTHi6tlahn06uuZKtXvAAAtEYh55ldtcucHPe9YbpY/FfeElBF+xkp9iXGnysftmfRbdE58nUdCDRBcVDoL/x/+Fg/TTobueY0Dd9cKEBGc7y8ITQ1NQ2iRWwkXw7RS8Zm3x/kYny1ev7yZtb1/hgiB1Fqod8SBeR+Ozn6LcSxhXjfUwnQPqncx9ySYxmwIlvOVVRMu57sXm+HeF7hQIFvl++V9HZSZPv+n+2C8ZsY7/TsrSHKp4Xk/5nyPp6SQcWej2qWoPAmHDL7LU0E6bV4A5cJ0hG28kdAXBmT9qb09k1hGLTwkc9KfYLwfElyDZGB2In+LjCBX5EI8ve4AUKp/7yKHaw1EOkhH4oZypoKl17hazuTSVZKqIzLg+CNkYVMFBhCCVopuz65fvCDLUT8za9YNIFJUlZj0+Hm5uxTNm5q7GoxGgd/Ve07frzJSQiWT1/GUMBYyf/nQ0EsYeDOvj2xHl/JQTG1aNYOhMeBTVi0AGpQXOp+Q+XxTeh01Kq6O5Ys5gyW4lckxa/f1NlW48e1KnnlC4coi3pUT0wT9YJZ2xiX3KQl39pQr9en5Bb1vdGaNomDXoi2FIfrX/QCxeZ9KayJFEOVt9tPJMdtkAu+DBg5MWsZlkDI1zeiD12scFWDP4a5kNy4tS5UNCJd7aWEaC3W+IAt9QUhPUMm5uTtxVHTWe/PAo6E+87aZgHTKI2SzHmUWBWsMKaQqC3KsJg5JffTjBTY13CbTsKdzTw9ziwuqHcKVITtnEVgSxQEPfh+IP1L4wd0oapBV25hBXFXlnbpM5qzkH1gOTfQ+6o3Yu39aP1/smPXMM7KhnCWr7AV4WEmxvHugqXPrOq16hf7OWj2+3LhraSypivs+N64kpOrEhYm85pqoJehQ2O4MW1HTfDHOVrnH4BdbJpJt450Jr8by4JasU56bTikmn3++y/Za1kkEAqwE3jkf0tfPIaiAcjFe10Ht+8GF5+k+vRCAhO/M05S+gXF9/T1LckiCv/tJ5A8WChcnSAHrGsEul4RWC25QgoBN/ioeJxjAUTUoaLAPnYOQYCA7iPGYf4BDYQ5IvLaLHzGr+UFxYV+Pk94RrrRt8932k8/fVFm/O5lZVC+FakWpQ0oRfGydVPEoKgCpKLLcWzGZFkWDHvlLsnw83IZpAtWF+rpvTtA4ZyNVDmSaZOBAgYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le sinistre décrit correspond à un dommage causé au mobilier par un événement soudain lié à la chaleur, sans embrasement ni début d'incendie — une situation que les conditions spéciales relatives à l'incendie et aux périls assimilés traitent expressément.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'application de ces conditions spéciales est elle-même subordonnée à une condition contractuelle distincte.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le texte précise que ces dispositions ne s'appliquent que si les conditions particulières du contrat mentionnent que la garantie « incendie et périls assimilés » a été accordée.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Les blocs fournis ne contiennent pas les conditions particulières du contrat en question, ce qui ne permet pas d'établir si cette garantie a effectivement été souscrite pour ce dossier, ni de connaître le montant de franchise applicable ou une éventuelle limite d'indemnité pour le mobilier.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente sont visés, même en l'absence d'embrasement ou de commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"Les conditions spéciales relatives à l'incendie et aux périls assimilés ne sont applicables que si les conditions particulières mentionnent que cette garantie est accordée.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:4\",\"quote\":\"Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie “ incendie et périls assimilés ” est accordée.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeMaB7V2NrnJbn5fiRYK5",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6583,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 6583,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 3228,
+        "output_tokens": 1263,
+        "output_tokens_details": {
+          "thinking_tokens": 425
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}

@@ -265,3 +265,34 @@ def test_unknown_doc_id_raises_like_the_index() -> None:
     for parsed in (_parsed(["matricule"]), _parsed([])):
         with pytest.raises(KeyError):
             _run(parsed, corpus, index, doc_id="inconnu")
+
+
+def test_decisional_kinds_are_a_tie_break_never_a_filter() -> None:
+    """Story 1.8 / D7 : AC « cherche les blocs `garantie|exclusion|condition|franchise` candidats ».
+
+    L'étape se contente de transmettre le départage à l'index (là où le score existe) : ce qui compte
+    ici, c'est qu'aucun bloc ne **disparaisse** parce qu'il n'est pas une clause. À J+1 le typage est
+    manuel et ne couvre que quatre blocs du contrat AXA — filtrer viderait le rappel.
+    """
+    blocks = [
+        Block(block_id="d:p1:1", text="Le mobilier de jardin est un paragraphe ordinaire.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Le mobilier assuré est garanti par la présente clause.", loc="p1",
+              seq=2, kind="garantie", kind_source="manual"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p1:2")])]
+    corpus = Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                             nodes=nodes, blocks=blocks)})
+    index = Index(corpus)
+    parsed = _parsed(["mobilier"])
+    sans = _run(parsed, corpus, index)[0]
+    avec, step = retrouver_deterministe(parsed, corpus=corpus, index=index, budget=_budget(),
+                                        settings=_s(), doc_id="d",
+                                        kinds_prioritaires={"garantie", "exclusion"})
+    # les deux blocs sont là dans les deux cas : le typage ne filtre rien
+    assert {b.block_id for b in sans.blocs} == {b.block_id for b in avec.blocs} == {"d:p1:1", "d:p1:2"}
+    # mais la clause est ouverte la première quand la priorité est donnée
+    assert [b.block_id for b in avec.blocs][0] == "d:p1:2"
+    assert [b.block_id for b in sans.blocs][0] == "d:p1:1"
+    assert step.calls == []  # toujours du code pur (AD-1)

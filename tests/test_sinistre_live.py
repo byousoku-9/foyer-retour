@@ -1,0 +1,124 @@
+"""Le cas témoin de la bougie, joué en vrai sur le contrat AXA (story 1.8), enregistré puis rejoué.
+
+Avec `ANTHROPIC_API_KEY` : la chaîne des cinq étapes tourne pour de bon sur le corpus
+`axa-lu-optihome-2017` réel, réponses brutes sérialisées dans `tests/llm_fixtures/`. Sans (variable
+vide) : mêmes assertions, réponses rejouées — zéro réseau.
+
+Ce que le cas doit établir (AC de la story, et « verdict cadré » de l'epic) :
+
+1. le verdict est **conservateur** — `sous_conditions` ou `ne_tranche_pas`, jamais `couvert` sur un
+   contrat dont on n'a que les conditions générales ;
+2. il est adossé aux **clauses exactes** : au moins un des trois blocs relus à la main en story 1.2
+   (p9 « contenu », p11 « mobilier de jardin », p34 la garantie de l'action subite de la chaleur) ;
+3. l'exclusion de la page 46 est **explicitement écartée** — absente, ou affichée `applicable="non"`
+   parce qu'elle vise le bâtiment des extensions 3.1.8.3-6 et non le contenu du domicile ;
+4. la requête entière tient sous le plafond de coût, et *vérifier* n'a fait qu'**un** appel `micro`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from server.app.config import Settings
+from server.app.corpus.index import Index
+from server.app.corpus.loader import load_corpus
+from server.app.corpus.text import normalize
+from server.app.domain.question import Faits
+from server.app.llm.budget import RequestBudget
+from server.app.llm.client import LlmClient
+from server.app.pipelines import sinistre
+from tests.fixtures import LLMRecorder
+from tests.llm_fake import RecordedAnthropic
+
+ROOT = Path(__file__).resolve().parents[1]
+DOC_ID = "axa-lu-optihome-2017"
+QUESTION = "Ce sinistre est-il couvert par les conditions générales du contrat ?"
+FAITS = Faits(
+    date="2026-08-01", lieu="salon du domicile assuré", montant_eur=1200.0,
+    description="Une bougie allumée posée sur une table basse est tombée sur le canapé. "
+                "Le mobilier de salon a brûlé sur une partie, sans embrasement ni commencement "
+                "d'incendie : il n'y a eu ni flammes propagées, ni dégât au bâtiment.")
+# Les trois blocs relus à la main en story 1.2 : la définition du contenu, celle du mobilier de
+# jardin, et la garantie « action subite de la chaleur » de l'article 3.1.1.1.6.
+BLOCS_ATTENDUS = {f"{DOC_ID}:p9:2", f"{DOC_ID}:p11:12", f"{DOC_ID}:p34:12"}
+EXCLUSION_P46 = f"{DOC_ID}:p46:1"
+
+
+@pytest.fixture(scope="module")
+def index() -> Index:
+    return Index(load_corpus(ROOT / "data", allow_ungated=True))
+
+
+def _settings() -> Settings:
+    # Seuils par défaut de `config.py`, jamais ceux du `.env` du poste : ils décident des blocs
+    # envoyés à *rédiger*, donc de la clé de requête — un `.env` local qui les surcharge rendrait le
+    # rejeu hors ligne impossible. La clé ne sert qu'au vrai client, côté recorder.
+    return Settings(_env_file=None, anthropic_api_key="")
+
+
+def _budget() -> RequestBudget:
+    s = _settings()
+    return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
+                         max_cost_eur=s.max_cost_eur_per_request)
+
+
+async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
+        index: Index, llm_recorder: LLMRecorder) -> None:
+    settings, budget = _settings(), _budget()
+    answer, trace = await sinistre.run(
+        DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index,
+        client=LlmClient(settings, anthropic_client=RecordedAnthropic(llm_recorder)),
+        settings=settings, request_id="live-sinistre-1", budget=budget)
+
+    # (1) verdict conservateur, jamais `couvert` au regard des seules conditions générales
+    verdict = answer.verdict
+    assert verdict is not None, "AD-16 : un sinistre sort toujours avec un verdict, refus compris"
+    assert verdict.value in ("sous_conditions", "ne_tranche_pas"), verdict.value
+    assert "conditions générales seules" in verdict.reason
+    # AD-6 : le paquet manquant accompagne toujours le verdict, et les questions à poser aussi
+    assert verdict.missing.conditions_particulieres and verdict.missing.options_souscrites
+    assert verdict.ask_client
+
+    # (2) les clauses exactes : au moins un des trois blocs relus à la main en 1.2
+    cites = {q.block_id for c in answer.claims for q in c.quotes}
+    assert cites & BLOCS_ATTENDUS, f"aucun des blocs témoins parmi {sorted(cites)}"
+
+    # (3) l'exclusion de la page 46 est écartée, jamais opposée en silence
+    affichee = next((c for c in answer.claims
+                     if any(q.block_id == EXCLUSION_P46 for q in c.quotes)), None)
+    assert affichee is None or affichee.status.applicable in ("non", "humain")
+
+    # chaque claim affichée porte un statut d'applicabilité typé, dérivé par le code (AD-4)
+    documents = index.corpus.documents
+    for claim in answer.claims:
+        assert claim.status.retrouvee is True and claim.status.pertinente is True
+        assert claim.status.edition  # « édition juin 2017 — actualité non vérifiée »
+        decisionnelle = any(documents[index.doc_of(q.block_id)].block(q.block_id).kind
+                            in ("garantie", "exclusion", "condition", "franchise")
+                            for q in claim.quotes)
+        assert (claim.status.applicable in ("oui", "non", "humain")) is decisionnelle
+        for q in claim.quotes:
+            bloc = documents[index.doc_of(q.block_id)].block(q.block_id)
+            assert bloc.kind != "heading"
+            # AD-3 : la citation affichée est le passage **relu dans le corpus**, aux offsets prouvés
+            assert q.quote == bloc.text[q.text_start:q.text_end]
+            assert bloc.text_norm[q.start:q.end] == normalize(q.quote)
+
+    # (4) la chaîne, ses tiers, son unique appel groupé et son coût
+    assert [s.name for s in trace.steps][:5] == ["comprendre", "retrouver", "rediger", "verifier",
+                                                 "restituer"]
+    assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
+    assert trace.steps[1].calls == []  # *retrouver* déterministe : aucun modèle
+    for step in (s for s in trace.steps if s.name == "verifier"):
+        assert len(step.calls) == 1, "AD-9 amendé : un seul appel `micro`, jamais un second"
+    assert budget.cost_eur < settings.max_cost_eur_per_request
+    assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)
+
+    # AD-6 : un verdict autre que `ne_tranche_pas` repose sur une clause fondatrice **affichée**
+    if verdict.value != "ne_tranche_pas":
+        fondatrices = [c for c in answer.claims
+                       if any(documents[index.doc_of(q.block_id)].block(q.block_id).kind
+                              in ("garantie", "exclusion") for q in c.quotes)]
+        assert fondatrices
