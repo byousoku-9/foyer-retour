@@ -337,13 +337,32 @@ def test_le_gcloudignore_empeche_la_cle_de_quitter_le_poste() -> None:
     assert fichier.is_file(), "sans ce fichier, gcloud dérive ses exclusions de `.gitignore`"
     motifs = {ligne.strip() for ligne in fichier.read_text("utf-8").splitlines()
               if ligne.strip() and not ligne.lstrip().startswith("#")}
-    for secret in (".env", ".env.*", "*.key", "service-account*.json"):
+    for secret in (".env", ".env.*", "*.key", "service-account*.json", "gha-creds-*.json"):
         assert secret in motifs, f"`{secret}` doit rester exclu du téléversement de `--source`"
     # …et rien ne doit les réadmettre par une négation.
     assert not any(m.startswith("!") and "env" in m and m != "!.env.example" for m in motifs)
     # La méthode de travail ne descend jamais dans le dépôt public, et a fortiori pas dans un bucket.
     for interne in ("_bmad", "_bmad-output", "_reference", ".claude"):
         assert interne in motifs
+
+
+def test_le_credentiel_federe_ne_part_ni_dans_le_bucket_ni_dans_limage() -> None:
+    """`auth@v3` dépose `gha-creds-<aléa>.json` **dans le répertoire de travail**, et avant le déploiement.
+
+    `create_credentials_file` vaut vrai par défaut : le fichier existe donc sur le disque du runner
+    quand `deploy-cloudrun --source` archive le dossier. Sans exclusion, ce crédentiel fédéré — qui
+    vaut l'identité du déployeur pour la durée du job — partait dans `gs://run-sources-…` puis dans
+    le contexte de build (revue Codex 1.11, reproduit par `gcloud meta list-files-for-upload`, qui
+    listait bien un `gha-creds-*.json` posé sur le poste). Les trois filtres le disent maintenant :
+    `.gcloudignore` (ce qui quitte le poste), `.dockerignore` (ce qui entre dans l'image) et
+    `.gitignore` (ce qui entre dans l'historique public).
+    """
+    racine = WORKFLOWS.parents[1]
+    for nom in (".gcloudignore", ".dockerignore", ".gitignore"):
+        motifs = {ligne.strip() for ligne in (racine / nom).read_text("utf-8").splitlines()
+                  if ligne.strip() and not ligne.lstrip().startswith("#")}
+        assert "gha-creds-*.json" in motifs, (
+            f"`{nom}` doit exclure le crédentiel écrit par `auth@v3` dans le répertoire de travail")
 
 
 # --- `ci.yml` ------------------------------------------------------------------------------------

@@ -18,6 +18,13 @@
 !.env.example
 *.key
 service-account*.json
+# `google-github-actions/auth@v3` écrit son fichier de crédentiels **dans le répertoire de travail**
+# (`gha-creds-<aléa>.json`, `create_credentials_file` étant vrai par défaut), et il le fait **avant**
+# l'étape de déploiement : sans cette ligne, le jeton fédéré du déployeur partait dans
+# `gs://run-sources-…` avec l'archive, puis dans le contexte de build (revue Codex 1.11, reproduit
+# par `gcloud meta list-files-for-upload`). Un identifiant de courte durée reste un identifiant : il
+# n'a rien à faire dans un bucket ni dans une image.
+gha-creds-*.json
 
 # Historique et métadonnées : l'archive est un instantané, pas un clone
 .git

@@ -4,6 +4,8 @@
 !.env.example
 *.key
 service-account*.json
+# Crédentiels fédérés écrits dans le répertoire de travail par `auth@v3` sur un runner GitHub.
+gha-creds-*.json
 
 # Python
 __pycache__/
