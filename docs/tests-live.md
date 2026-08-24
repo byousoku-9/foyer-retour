@@ -611,3 +611,127 @@ effet à une qualité qu'il ne connaît pas ne déclencherait rien, et le contr�
 l'énumération du modèle. C'est un filet déterministe, pas une lecture juridique.
 
 Revue Codex : 3 bloquants / 0 importants, convergé en 3 tour(s) (boucle autonome)
+
+## Story 1.9 — L'outil sinistre en ligne, clauses retrouvées et paquet manquant (2026-08-24)
+
+Serveur nominal sur `:8799` (`ANTHROPIC_API_KEY` réelle, `ENV=dev`, `ALLOW_UNGATED=1`), corpus AXA
+réel, page `/sinistre/` servie par le même service (AD-12, une seule origine). Le cas rejoué est
+**celui de la story 1.8** — la bougie —, cette fois soumis **par HTTP**.
+
+### Les trois routes
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Liste des documents servis | `curl -s :8799/api/v1/documents` | 200, deux entrées triées par `doc_id` : `axa-lu-optihome-2017` (`kind=contrat`, `status=servi`, `edition="juin 2017"`, `source_url` = le PDF public d'AXA) et `lux-guide` (`kind=guide`). Le guide est listé parce qu'il **est** servi ; c'est la page qui ne propose que les contrats |
+| Rapport d'ingestion | `curl -s :8799/api/v1/documents/axa-lu-optihome-2017/report` | 200, le `report.json` d'AD-8 tel quel (4 checks, `stats.pages=109`), lu **au démarrage** — aucune requête ne rouvre `data/` |
+| Rapport d'un document inconnu | `curl -s :8799/api/v1/documents/inconnu/report` | **400** `invalid_request` (AD-16 n'a pas de code 404), message sans écho du `doc_id` reçu |
+| Sinistre nominal, cas bougie | `POST :8799/api/v1/sinistre` (corps de `tests/test_sinistre_live.py`) | **200 en 21,1 s**, `verdict.value = ne_tranche_pas` (∈ {`sous_conditions`, `ne_tranche_pas`} — l'AC), `trace.pipeline = "sinistre"`, `variant = "deterministe"`, **0,0441 €** |
+
+### Ce que le 200 du cas bougie porte réellement (run 1)
+
+- `sources[]` : une clause, `axa-lu-optihome-2017:p34:12` — **page 34**, `bbox` renseignée,
+  **4 `line_ids`**, `kind = "garantie"`, `kind_confirmed = true`, citation **relue** du contrat.
+  C'est l'un des trois blocs relus à la main en story 1.2, celui de l'article 3.1.1.1.6.
+- `answer.claims[c1].status.applicable = "humain"` — la garantie exige trois qualités que les faits
+  n'établissent pas ; `missing.faits` les nomme (« caractère soudain de l'événement », « action
+  subite de la chaleur », « contact direct et immédiat avec un foyer ou une substance
+  incandescente ») et `ask_client` en fait **six** questions (les quatre pièces du paquet + les
+  qualités), dont la nature « subite » que l'AC de 1.8 exigeait.
+- `answer.faits_compris` (nouveau, D4) : `bien = "mobilier de salon (canapé)"`,
+  `evenement = "brûlure du mobilier par chute de bougie"`, `lieu = "salon du domicile assuré"`,
+  `cause = "bougie allumée tombée"`, `moment = "2026-08-01"`. C'est ce que *comprendre* a compris,
+  pas la description en écho — et c'est le seul écran où l'on peut constater qu'on a été mal compris.
+- `rejected_claims` : une claim `non_pertinente` (l'exclusion des extensions p46) — publiée
+  **sans** sa citation côté page (D7).
+- Étapes : `comprendre 3,2 s · retrouver 8 ms · rediger 13,7 s · verifier 4,1 s · restituer 0 ms`,
+  **un seul** appel `micro` dans *vérifier* (AD-9 amendé).
+
+### D2 — le TTL du préfixe `micro` : mesuré, et laissé à 5 minutes
+
+Trois requêtes **consécutives** du même cas (runs 1 à 3), toutes dans la fenêtre de 5 minutes :
+
+| Run | *vérifier* : `cache_write` | *vérifier* : `cache_read` | coût de *vérifier* | coût total |
+|---|---|---|---|---|
+| 1 (cache froid) | **7 090** tokens | 0 | 0,0106 € | 0,0441 € |
+| 2 | 0 | **7 090** | **0,0032 €** | 0,0313 € |
+| 3 | 0 | **7 090** | **0,0035 €** | 0,0408 € |
+
+Le préfixe du mode sinistre (`commun.md` + `verifier.md` + `verifier_sinistre.md`) est bien
+au-dessus du minimum cacheable de Haiku 4.5, le fournisseur l'écrit, et les deux requêtes suivantes
+le relisent : **l'écriture est repayée dès la deuxième requête** (0,0106 € contre 0,0032 €, soit
+0,0074 € économisés à chaque relecture).
+
+**Décision : `MODEL_CAPS[micro]["cache_ttl"]` reste à 5 minutes.** Passer à 1 h ferait payer
+l'écriture 2× l'entrée au lieu de 1,25× (≈ 0,017 € au lieu de 0,0106 €) : sur une démonstration qui
+enchaîne des sinistres — le seul usage réel de cette page — la fenêtre de 5 minutes suffit et coûte
+moins cher ; sur un trafic espacé de plus d'une heure, aucun TTL n'aide. L'entrée différée de 1.8 est
+**close** sur cette mesure, pas sur une intuition.
+
+*(La ligne `rediger` lit déjà 6 733 tokens de cache sur les trois runs : c'est le préfixe `reason`,
+en TTL 1 h, inchangé depuis 1.5.)*
+
+### Les chemins d'erreur, en vrai
+
+| Chemin | Requête | Résultat |
+|---|---|---|
+| `doc_id` non servi | `doc_id="pas-servi"` | **400** `invalid_request`, « document inconnu : ce service ne sert pas ce contrat » — **aucun appel facturé**, et surtout pas le 503 `corpus_unavailable` du pipeline (le corpus est chargé une fois, un document absent est une faute d'appel) |
+| `doc_id` d'un guide (D3) | `doc_id="lux-guide"` | **400** `invalid_request`, « ce document n'est pas un contrat » — quatre appels payants épargnés pour un `ne_tranche_pas` acquis d'avance |
+| Variante inconnue | `variant="agentique"` | **400** `invalid_request`, `body.variant: String should match pattern '^deterministe$'` (pydantic, avant la route) |
+| Description hors bornes | `faits.description` de 2 001 caractères | **400** `invalid_request`, `body.faits.description: String should have at most 2000 characters` — **jamais tronquée**, et les 2 001 caractères ne sont pas réfléchis dans le message (AD-15) |
+| Quota dépassé | 11ᵉ `POST` dans la minute, même IP | **429** `rate_limited` + `Retry-After: 21` |
+| Plafond de coût | serveur relancé avec `MAX_COST_EUR_PER_REQUEST=0.0001` | **503** `budget_exceeded` avec sa **trace partielle** (`pipeline="sinistre"`, `total_cost_eur=0.0`, `steps=[]`) — levé **avant** le premier appel, coût réel nul |
+
+### La page, pilotée en Chrome headless
+
+`node /tmp/cdp-sinistre.mjs http://127.0.0.1:8799/sinistre/` (CDP, WebSocket brut, aucun paquet
+ajouté — même méthode qu'en 1.7).
+
+| Vérification | Résultat |
+|---|---|
+| Sélecteur de contrat | une seule option : « Conditions d'assurances OptiHome (multirisques habitation) — édition juin 2017 (**actualité non vérifiée**) » ; le guide n'y est pas. Lien « voir le contrat à sa source publique » vers le PDF d'AXA |
+| Bornes du formulaire | `question.maxLength = 1000`, `description.maxLength = 2000` — celles des schémas du serveur |
+| Attente | dès la soumission : bulle d'attente peinte, saisie et bouton verrouillés ; le verdict précédent quitte l'écran **avant** l'appel |
+| Verdict servi | **24,0 s**, badge « **ne tranche pas** » en tête, suivi de « au regard des conditions générales seules — verdict non validé par un expert assurance » |
+| Raison, faits compris, paquet | raison composée par le serveur ; les **cinq** faits compris ligne à ligne ; « Ce qui manque au dossier » : les quatre pièces + les trois faits non établis |
+| Questions à poser | les six `ask_client`, dont « action subite de la chaleur » |
+| Clauses | une clause : citation relue, puis `garantie · page 34 · retrouvée · pertinente · applicabilité à confirmer par un humain · édition juin 2017 — actualité non vérifiée` |
+| Clauses non retrouvées | deux, avec leur texte et leur motif en français (« passage réel, mais jugé étranger au sinistre décrit ») — **aucune quote affichée** (D7) |
+| Trace | `<details>` **fermé par défaut**, dépliable : référence de requête, pipeline et variante, les cinq étapes avec leur tier, leur durée et leurs contrôles, puis « cette analyse a coûté 0,0429 € » |
+| AD-15 | `localStorage` **vide** (`[]`) ; espion posé sur le setter `Element.prototype.innerHTML` : **zéro** pose non vide sur tout le tour ; aucun bouton dans `#resultat` |
+| AD-16, chemin 429 | 12 `POST` depuis la page ⇒ **429** `rate_limited`, `Retry-After: 21` ; l'erreur peinte ne laisse **aucun** badge, **aucune** clause et **aucun** bouton dans le conteneur — le verdict précédent a disparu |
+| Console | aucune erreur JavaScript ; les seules entrées sont les 429 provoqués et le `/favicon.ico` absent (404, antérieur à cette story) |
+
+### Hors ligne
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1036 passed** (889 avant la story), aucun accès réseau |
+| Front sans navigateur | `node tests/js/sinistre_cases.mjs` | `ok: true`, relevés complets ; 84 assertions Python dans `tests/test_web_sinistre.py` |
+| Lint | `uvx ruff check --select F,E9 server tests` | 7 `F401`, **tous antérieurs** à la story (quatre `BaseModel` inutilisés dans `domain/`, trois dans des tests). `uv run ruff check`, la commande écrite dans la spec, **ne s'exécute pas** : `ruff` n'est ni une dépendance de `pyproject.toml` ni configuré (aucun `[tool.ruff]`), comme en 1.8. Avec le ruff par défaut, les fichiers de la story sont propres (`uvx ruff check server/app/api/routes/ server/app/api/schemas.py server/app/api/etat.py server/app/api/presenter.py tests/test_api_sinistre.py tests/test_web_sinistre.py` → *All checks passed*) |
+
+### Après la revue de code — le tour rejoué
+
+La revue a changé la page sur des points visibles (sonde `/api/v1/sante` pour la borne d'abandon,
+options du sélecteur construites une seule fois, `maxlength` posés par le script, plus aucun `name`
+sur les champs, `<noscript>`, message explicite sur une saisie incomplète). Le tour a donc été
+rejoué en entier sur `:8797`, même cas, même pilote CDP :
+
+| Vérification | Résultat |
+|---|---|
+| Ordre des appels au chargement | `GET /api/v1/sante` **puis** `GET /api/v1/documents` — la borne d'abandon vient des seuils du serveur, elle n'est plus figée dans la page |
+| Verdict servi | **ne tranche pas** en 21,9 s, **0,0483 €** ; `p34:12` cité (garantie, page 34, `applicabilité à confirmer par un humain`) |
+| Réserve D5 observée en vrai | une seconde clause citée est un bloc `list` de la page 22 : la page affiche `liste · typage non confirmé · page 22`, exactement la réserve qu'AD-6 impose quand `Block.kind` n'est pas confirmé |
+| Sept questions au client | les quatre pièces du paquet **plus** les trois qualités que la clause écrit et que les faits n'établissent pas, dont « action subite de la chaleur » |
+| Affirmation écartée | affichée avec son motif **et son kind** (`passage réel, mais jugé étranger au sinistre décrit` / `non_pertinente`), sans sa citation |
+| AD-15 | `localStorage` vide, **zéro** pose d'`innerHTML` non vide (espion sur le setter), aucun bouton dans `#resultat`, plus aucun `name` sur les champs (une soumission native n'enverrait rien) |
+| 429 et effacement du verdict | inchangés : `Retry-After` présent, aucun badge ni clause ne survit à l'erreur |
+| Console | aucune erreur JavaScript ; seuls les 429 provoqués et le `/favicon.ico` (404, antérieur) |
+
+Coût de cette seconde campagne : **0,0735 €** (un verdict complet, plus les requêtes courtes du
+chemin 429).
+
+**Coût total de la vérification live : 0,1842 €** sur 13 requêtes facturées, relevé sur les lignes de
+log du serveur (`cost_eur`) : trois runs du cas bougie (0,0441 + 0,0313 + 0,0408 €), un run
+navigateur (0,0429 €), et les neuf requêtes courtes qui ont servi à provoquer le 429 (0,0027–0,0028 €
+chacune — description d'un mot, court-circuit `zero_hit` après le seul appel de *comprendre*). Les
+chemins 400 et 503, eux, ne coûtent rien par construction : ils sont levés avant le premier appel.
