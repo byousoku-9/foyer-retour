@@ -82,12 +82,16 @@ def _budget(deadline_s: float = 30.0) -> RequestBudget:
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
-                clarification: str | None = None, language: str = "fr") -> dict:
+                clarification: str | None = None, language: str = "fr",
+                facettes: list[str] | None = None) -> dict:
+    """*comprendre* arrête aussi le découpage de la question en facettes (AD-4, revue Codex 1.5,
+    tour 3) : c'est lui le barème de `complete`, et il est fixé avant toute rédaction."""
     resolue = None if clarification else "Quel délai pour déclarer mon arrivée ?"
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "intent": intent, "question_resolue": resolue, "clarification": clarification,
         "language": language, "terms": terms if terms is not None else ["arrivée", "école"],
-        "themes": [], "bien": None, "evenement": None, "lieu": None, "cause": None, "moment": None}))
+        "themes": [], "facettes": facettes if facettes is not None else ["délai de déclaration"],
+        "bien": None, "evenement": None, "lieu": None, "cause": None, "moment": None}))
 
 
 def _rediger(*claims: tuple[str, str, list[tuple[str, str]]], transition: bool = False,
@@ -106,15 +110,16 @@ def _rediger(*claims: tuple[str, str, list[tuple[str, str]]], transition: bool =
 
 def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
               segments: dict[int, bool] | None = None, nb_segments: int = 8) -> dict:
-    """Verdicts groupés + phrases soutenues + découpage (AD-4). Par défaut une facette, couverte par
-    les claims jugées pertinentes (la question-témoin des tests n'en pose qu'une), et toutes les
-    phrases soumises jugées soutenues."""
+    """Verdicts groupés + phrases soutenues + couverture des facettes (AD-4). `facettes[i]` = les
+    `claim_id` attribués à la facette de rang `i` de la question (le découpage vient de
+    *comprendre*). Par défaut une facette, couverte par les claims jugées pertinentes (la
+    question-témoin des tests n'en pose qu'une), et toutes les phrases soumises jugées soutenues."""
     if facettes is None:
         facettes = [[c for c, ok in paires if ok]]
     soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(model=TIERS["micro"], text=json.dumps(
         {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
-         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)],
+         "facettes": [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(facettes)],
          "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}))
 
 
@@ -329,6 +334,56 @@ async def test_an_unaffordable_retry_serves_the_verified_answer_instead_of_a_503
     verifier = next(s for s in trace.steps if s.name == "verifier")
     (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
     assert check.ok is False and "budget_exceeded" in check.detail
+
+
+async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Index) -> None:
+    """AD-1, « aucun retry ne démarre sans marge », appliqué au **compteur d'appels** : une relance,
+    c'est deux appels — rédiger, puis vérifier ce qu'elle a rendu — et AD-3 interdit de montrer un
+    draft relancé mais non vérifié. Avec la place pour un seul, démarrer *rédiger* serait payer un
+    appel `reason` dont rien ne pourrait sortir (NFR4). Mesuré en live (revue Codex 1.5, tour 3) :
+    le plafond par défaut coupait pile entre les deux, et la question ressortait en 503."""
+    budget = RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.10)  # 3 + 1 : pas les deux
+    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+                                             _verdicts(("c1", True))], budget=budget)
+    assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    assert answer.complete is False  # AD-4 : une relance empêchée est une troncature
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
+    assert "budget_exceeded" in check.detail and "2 requis" in check.detail
+
+
+async def test_a_second_verification_that_never_starts_keeps_the_verified_answer(index: Index) -> None:
+    """La ligne de partage d'AD-16 se lit sur l'appel qui **rate**, pas sur la relance entière : le
+    plafond de coût atteint *après* une relance rédigée n'est pas un appel raté, c'est un appel qui
+    n'a jamais démarré. Le compteur de référence est donc ré-armé après chaque appel réussi (revue
+    Codex 1.5, tour 3) — sans quoi la réponse déjà vérifiée partait en 503."""
+    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=30.0, max_attempts=6, max_cost_eur=10.0), 4)
+    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+                                             _verdicts(("c1", True)), _rediger(BONNE, BONNE_2)],
+                                     budget=budget)
+    assert fake.remaining_script == 0  # la relance a bien été rédigée, la seconde vérification non
+    assert trace.retries == 1 and budget.attempts == 4
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    assert answer.complete is False
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
+    assert "budget_exceeded" in check.detail
+
+
+def _ferme_le_budget_apres(budget: RequestBudget, appels: int) -> RequestBudget:
+    """Referme le plafond de coût dès que `appels` appels ont été envoyés (le client vérifie le coût
+    **avant** d'envoyer : c'est exactement le « jamais démarré » d'AD-16)."""
+    original = type(budget).note_call
+
+    def note_call(self, *a, **kw):
+        out = original(self, *a, **kw)
+        if self.attempts >= appels:
+            self.max_cost_eur = 0.0
+        return out
+
+    budget.note_call = note_call.__get__(budget, type(budget))
+    return budget
 
 
 async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: Index) -> None:
@@ -558,14 +613,58 @@ async def test_a_provider_failure_during_the_second_verification_is_terminal_too
     assert trace.total_cost_eur > 0
 
 
+DEUX_FACETTES = ["délai de déclaration", "inscription à l'école"]
+
+
+async def test_a_limit_written_by_the_model_never_reaches_the_answer_text(index: Index) -> None:
+    """De bout en bout : « le guide ne dit rien de X » est une assertion d'absence, qu'aucun passage
+    ne peut soutenir (revue Codex 1.5, tour 3, B1). Elle ne s'affiche pas dans la réponse ; elle est
+    dite par `unknown[]`, qui interdit déjà `complete=True`. La seule phrase d'absence que
+    l'utilisateur lise reste celle du refus, composée par le code."""
+    limite = "Le guide ne dit rien des frontaliers."
+    answer, _trace, fake = await _run(index, [
+        _comprendre(), _rediger(BONNE, transition=True, limite=limite), _verdicts(("c1", True))])
+    assert fake.remaining_script == 0
+    assert answer.found is True
+    assert "frontaliers" not in answer.texte
+    assert [s.kind for s in answer.segments] == ["factuel", "transition"]
+    assert answer.unknown == [limite] and answer.complete is False
+
+
+async def test_a_facet_of_the_question_the_answer_never_covers_forbids_complete(index: Index) -> None:
+    """AD-4, littéralement : « toutes les facettes de `ParsedQuestion` couvertes ». Le découpage est
+    celui qu'a arrêté *comprendre*, avant tout retrieval — celui qui répond ne peut donc plus effacer
+    la sous-question qu'il a manquée en ne la rendant pas (revue Codex 1.5, tour 3, B3)."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE),
+        _verdicts(("c1", True), facettes=[["c1"], []])])
+    assert fake.remaining_script == 0
+    assert answer.found is True and answer.unknown == [] and answer.complete is False
+    verifier = [s for s in trace.steps if s.name == "verifier"][-1]
+    (check,) = [c for c in verifier.checks if c.name == "facettes_non_couvertes"]
+    assert "1 facette(s) couverte(s) par une affirmation affichée sur 2 posée(s)" in check.detail
+    # et le libellé de la facette, qui vient de la question, ne fuit pas dans la trace (AD-10)
+    assert "école" not in json.dumps([s.model_dump(mode="json") for s in trace.steps], ensure_ascii=False)
+
+
+async def test_a_question_without_any_facet_is_never_declared_complete(index: Index) -> None:
+    """*comprendre* muet sur le découpage : rien ne prouve la couverture, donc `complete=False`.
+    L'absence de mesure ne vaut jamais complétude (AD-4)."""
+    answer, _trace, fake = await _run(index, [
+        _comprendre(facettes=[]), _rediger(BONNE), _verdicts(("c1", True), facettes=[])])
+    assert fake.remaining_script == 0
+    assert answer.found is True and answer.complete is False
+
+
 async def test_a_retry_that_covers_fewer_facets_never_replaces_the_answer(index: Index) -> None:
     """Dernier axe de la dominance : à nombre d'affirmations, `complete` et `unknown` égaux, une
     relance peut encore échanger une facette de la question contre une autre (revue Codex 1.5,
-    tour 2, I2). La couverture des facettes est la seule mesure de contenu stable entre deux
-    ébauches — les `claim_id`, eux, sont refaits à neuf par chaque appel de *rédiger*."""
+    tour 2, I2). Les facettes sont celles de la question, arrêtées une seule fois par *comprendre* :
+    leurs rangs sont donc stables d'une ébauche à l'autre, là où les `claim_id` sont refaits à neuf
+    par chaque appel de *rédiger*."""
     limite = "Je ne sais rien des frontaliers."
     answer, trace, fake = await _run(index, [
-        _comprendre(), _rediger(BONNE, BONNE_2, MAUVAISE, limite=limite),
+        _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE, BONNE_2, MAUVAISE, limite=limite),
         _verdicts(("c1", True), ("c2", True), facettes=[["c1"], ["c2"]]),
         _rediger(BONNE, BONNE_2, limite=limite),
         _verdicts(("c1", True), ("c2", True), facettes=[["c1"], []])])
@@ -574,3 +673,38 @@ async def test_a_retry_that_covers_fewer_facets_never_replaces_the_answer(index:
     verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
     (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
     assert "1 facette(s) couverte(s) contre 2" in check.detail
+
+
+async def test_a_retry_that_swaps_one_facet_for_another_never_replaces_the_answer(index: Index) -> None:
+    """Compter les facettes ne suffisait pas : deux vérifications qui en couvrent chacune **une**,
+    mais pas la même, ont le même compte, et la seconde était acceptée — elle échangeait une
+    sous-question contre une autre (revue Codex 1.5, tour 3, I2). La dominance porte donc sur
+    l'**ensemble** des rangs couverts, stables parce que le découpage vient de *comprendre*."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE, MAUVAISE),
+        _verdicts(("c1", True), facettes=[["c1"], []]),
+        _rediger(BONNE_2),
+        _verdicts(("c2", True), facettes=[[], ["c2"]])])
+    assert fake.remaining_script == 0
+    # la première réponse est servie : la seconde couvre autant de facettes, mais pas les mêmes
+    assert [c.claim_id for c in answer.claims] == ["c1"]
+    verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
+    assert [c.name for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+
+
+async def test_a_retry_that_drops_a_cited_block_never_replaces_the_answer(index: Index) -> None:
+    """Deuxième identité stable entre deux ébauches (revue Codex 1.5, tour 3, I2) : le `block_id`,
+    produit par **notre** ingestion. Une relance qui répond à la même facette, en même nombre, mais
+    en s'appuyant sur un autre passage, remplacerait une affirmation vérifiée par une autre sans que
+    rien ne le dise. Les `claim_id` ne peuvent pas l'attraper (refaits à neuf) ; les blocs, si."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(BONNE, MAUVAISE),
+        _verdicts(("c1", True)),
+        _rediger(BONNE_2),          # même facette, même compte, **autre** bloc cité
+        _verdicts(("c2", True))])
+    assert fake.remaining_script == 0
+    assert [c.claim_id for c in answer.claims] == ["c1"]
+    assert {q.block_id for c in answer.claims for q in c.quotes} == {f"{DOC_ID}:f1:2"}
+    verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
+    (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+    assert "1 bloc(s) cité(s) contre 1" in check.detail

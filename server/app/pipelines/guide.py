@@ -75,6 +75,20 @@ def _retrieval_budget(settings: Settings) -> RetrievalBudget:
 # AD-3 nomme les motifs de relance par des défauts de **citation** (« quote introuvable dans block_id
 # X, bloc heading, quote trop courte ») : ce sont eux que le modèle peut corriger en recopiant mieux.
 REJETS_DE_CITATION = frozenset({"non_retrouvee", "ambigue"})
+# Ce que coûte la relance d'AD-3 en **appels** : rédiger une seconde fois, puis vérifier ce qu'elle a
+# rendu. Les deux sont indissociables — AD-3 interdit de montrer un draft relancé mais non vérifié.
+APPELS_DE_LA_RELANCE = 2
+
+
+def _blocs_cites(verification: Verification) -> set[str]:
+    """Les blocs du corpus sur lesquels repose ce qui est **affiché** : l'identité stable d'un contenu.
+
+    Ni les `claim_id` (refaits à neuf par chaque appel de *rédiger*) ni les offsets d'une quote (qui
+    bougent dès que le modèle recopie un passage un peu plus large) ne sont comparables d'une ébauche
+    à l'autre. Le `block_id`, lui, est **notre** identifiant, produit par l'ingestion : deux ébauches
+    de la même question qui s'appuient sur le même passage citent le même bloc.
+    """
+    return {q.block_id for c in verification.claims for q in c.quotes}
 
 
 def _domine(seconde: Verification, acquise: Verification) -> bool:
@@ -82,21 +96,23 @@ def _domine(seconde: Verification, acquise: Verification) -> bool:
 
     AD-3 relance pour *améliorer*. Compter les seules claims laissait passer une relance qui, à
     nombre égal, perdait `complete`, ajoutait un `unknown` ou remplaçait une affirmation par une
-    autre moins bien placée (revue Codex 1.5, I2). La dominance est donc explicite : trouver au moins
-    autant, garder au moins autant d'affirmations, **couvrir au moins autant de facettes** de la
-    question, ne pas déclarer moins complet, ne pas déclarer plus d'inconnu. À égalité non dominante,
+    autre moins bien placée (revue Codex 1.5, I2). La dominance est donc explicite, et elle porte sur
+    des **ensembles** là où des compteurs ne suffisent pas : deux vérifications qui couvrent chacune
+    une facette *différente* ont le même compte, et prendre la seconde échangerait une sous-question
+    contre une autre (tour 3, I2). Sont donc exigés : trouver au moins autant, garder au moins autant
+    d'affirmations, couvrir **au moins les mêmes facettes**, s'appuyer sur **au moins les mêmes
+    blocs**, ne pas déclarer moins complet, ne pas déclarer plus d'inconnu. À égalité non dominante,
     l'acquis fait foi.
 
-    Ce qui n'est **pas** comparé, faute d'exister : l'identité des affirmations conservées. Les
-    `claim_id` sont produits à neuf par chaque appel de *rédiger* et ne valent qu'à l'intérieur d'un
-    draft (`AnswerDraft` n'exige que leur unicité locale) ; le `c1` de la seconde ébauche n'est pas
-    le `c1` de la première, et leurs textes diffèrent par construction (AD-3 : « chaque relance change
-    quelque chose »). La couverture des facettes est la seule mesure de *contenu* stable entre deux
-    ébauches de la même question — c'est elle qu'on compare (revue Codex 1.5, tour 2, I2).
+    Les rangs de facettes sont stables entre les deux ébauches : le découpage vient de *comprendre*,
+    qui n'a tourné qu'une fois pour la requête (AD-4). Les `block_id` le sont aussi — ils viennent de
+    l'ingestion. C'est ce qui rend la comparaison possible sans rien inventer ; l'appariement plus fin
+    des passages (mêmes offsets, même phrase) reste une reprise ouverte vers 4.2.
     """
     return (seconde.found >= acquise.found
             and len(seconde.claims) >= len(acquise.claims)
-            and seconde.facettes_couvertes >= acquise.facettes_couvertes
+            and set(seconde.facettes_couvertes) >= set(acquise.facettes_couvertes)
+            and _blocs_cites(seconde) >= _blocs_cites(acquise)
             and seconde.complete >= acquise.complete
             and len(seconde.unknown) <= len(acquise.unknown))
 
@@ -261,18 +277,30 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # --- relance unique (AD-3) ------------------------------------------
         if verification.motif and _relance_utile(verification, settings):
             acquise = verification  # ce qui est déjà vérifié : une relance ne peut que l'améliorer
-            # Compteur d'appels **avant** la relance : c'est lui qui dit si un appel a démarré, quoi
-            # qu'ait fait l'étape qui a échoué (voir le `except` plus bas).
+            # Compteur d'appels **avant** l'appel en cours : c'est lui qui dit si un appel a démarré,
+            # quoi qu'ait fait l'étape qui a échoué (voir le `except` plus bas). Il est **ré-armé**
+            # après chaque appel réussi de la relance : une relance rédigée puis laissée sans seconde
+            # vérification faute de budget n'est pas un appel raté, c'est un appel qui n'a jamais
+            # démarré (revue Codex 1.5, tour 3 — mesuré en live, la chaîne ressortait en 503).
             appels_avant = budget.attempts
             try:
                 if budget.remaining() <= settings.llm_retry_margin_s:
                     # AD-1, littéralement : « aucun retry ne démarre sans marge ». Le retry ne démarre
                     # pas ; la requête, elle, a déjà sa réponse vérifiée.
                     raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
+                if budget.attempts + APPELS_DE_LA_RELANCE > budget.max_attempts:
+                    # Même règle, appliquée au **compteur d'appels** : une relance, c'est deux appels
+                    # — rédiger puis vérifier — et un draft relancé mais non vérifié n'est jamais
+                    # montré (AD-3). Démarrer le premier en sachant que le second ne passera pas,
+                    # c'est payer un appel `reason` pour rien (NFR4).
+                    raise BudgetExceeded(
+                        f"plafond d'appels trop bas pour la relance et sa vérification "
+                        f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
                 draft_2, step_rediger_2 = await rediger(parsed, retrieval, historique, client=client, budget=budget,
                                                         index=index, doc_id=doc_id, settings=settings,
                                                         motif=verification.motif)
                 steps.append(step_rediger_2)
+                appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
                 relances += 1
                 if draft_2.digest() == draft.digest():
                     # AD-3 : « chaque relance change quelque chose ». Rien n'a changé : re-vérifier rendrait
@@ -297,8 +325,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                             name="relance_moins_bonne", ok=False,
                             detail=f"la relance ne domine pas la première vérification "
                                    f"({len(seconde.claims)} affirmation(s) contre {len(acquise.claims)}, "
-                                   f"{seconde.facettes_couvertes} facette(s) couverte(s) contre "
-                                   f"{acquise.facettes_couvertes}, "
+                                   f"{len(seconde.facettes_couvertes)} facette(s) couverte(s) contre "
+                                   f"{len(acquise.facettes_couvertes)}, "
+                                   f"{len(_blocs_cites(seconde))} bloc(s) cité(s) contre "
+                                   f"{len(_blocs_cites(acquise))}, "
                                    f"complete={seconde.complete} contre {acquise.complete}, "
                                    f"unknown={len(seconde.unknown)} contre {len(acquise.unknown)}) : "
                                    f"la première fait foi"))

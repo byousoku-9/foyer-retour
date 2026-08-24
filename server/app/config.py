@@ -54,7 +54,15 @@ class Settings(BaseSettings):
     max_opens: int = Field(6, ge=1)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
-    max_llm_attempts: int = Field(4, ge=1)  # global à la requête
+    # Global à la requête. La chaîne du guide fait **cinq** appels dans son pire cas nominal —
+    # *comprendre*, *rédiger*, *vérifier*, puis la relance unique d'AD-3 et la seconde vérification
+    # qu'elle exige — plus une relance motivée du client sur un parse invalide (AD-16, « 1 retry »).
+    # À 4, le plafond coupait **après** la relance de *rédiger* et **avant** la seconde vérification :
+    # un appel avait démarré, l'échec était donc terminal (AD-16) et une question qui déclenchait la
+    # relance d'AD-3 ressortait en 503 au lieu de sa réponse vérifiée — mesuré en live, revue Codex
+    # 1.5, tour 3. Ce plafond est une ceinture contre l'emballement ; le garde-fou du coût, lui, est
+    # `max_cost_eur_per_request`, qui s'applique **avant** qu'un appel démarre (AD-1).
+    max_llm_attempts: int = Field(6, ge=1)
     max_llm_turns: int = Field(2, ge=1)
     # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
