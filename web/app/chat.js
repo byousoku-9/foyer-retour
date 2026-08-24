@@ -21,9 +21,11 @@ window.CHAT = (function () {
   // sonde n'a pas encore repondu.
   var HISTORIQUE_MAX_TOURS_REPLI = 6;   // config.historique_max_turns
   var DEADLINE_SERVEUR_REPLI = 55;      // config.deadline_s
-  // Marge au-dessus de la deadline du serveur : en dessous, on couperait une requete a laquelle il
-  // aurait repondu ; bien au-dela, l'utilisateur attendrait pour rien.
-  var MARGE_ABANDON_S = 10;
+  // Marge au-dessus de la deadline du serveur avant que le navigateur n'abandonne : en dessous, on
+  // couperait une requete a laquelle il aurait repondu ; bien au-dela, l'utilisateur attendrait
+  // pour rien. Ce n'etait pas un seuil du serveur, c'en est un : `config.client_abort_margin_s`,
+  // publie par `/sante`. Ce qui reste ici n'est, comme les deux autres, qu'un **repli**.
+  var MARGE_ABANDON_S_REPLI = 10;       // config.client_abort_margin_s
   // `Turn.texte <= 2000` (server/app/domain/question.py) n'est **pas** dans `thresholds()` : c'est
   // une contrainte de schema, pas un seuil de configuration. Elle reste donc ecrite ici, et un test
   // l'amarre a `Turn.model_fields["texte"]` pour qu'une divergence soit bruyante.
@@ -38,14 +40,17 @@ window.CHAT = (function () {
   }
 
   function historiqueMaxTours() {
-    var v = seuilsServeur.historique_max_turns;
-    return (typeof v === "number" && v > 0) ? v : HISTORIQUE_MAX_TOURS_REPLI;
+    return seuil("historique_max_turns", HISTORIQUE_MAX_TOURS_REPLI);
+  }
+
+  function seuil(nom, repli) {
+    var v = seuilsServeur[nom];
+    return (typeof v === "number" && v > 0) ? v : repli;
   }
 
   function delaiAbandonMs() {
-    var v = seuilsServeur.deadline_s;
-    var d = (typeof v === "number" && v > 0) ? v : DEADLINE_SERVEUR_REPLI;
-    return Math.round((d + MARGE_ABANDON_S) * 1000);
+    return Math.round((seuil("deadline_s", DEADLINE_SERVEUR_REPLI) +
+                       seuil("client_abort_margin_s", MARGE_ABANDON_S_REPLI)) * 1000);
   }
 
   // ---------- Profil progressif ----------
@@ -410,20 +415,38 @@ window.CHAT = (function () {
 
   function pluriel(n, mot) { return n + " " + mot + (n > 1 ? "s" : ""); }
 
+  function entier(v) {
+    return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.floor(v) : 0;
+  }
+
   // AD-4 : la preuve chiffree d'une absence — termes **canoniques**, nombre de variantes, passages
   // parcourus. Jamais la liste des variantes ni des declencheurs : le contrat ne les transporte pas.
+  //
+  // Les compteurs s'affichent **meme a zero**. L'AC demande « N variantes essayees, M passages
+  // parcourus » : zero est une reponse a cette question, et c'est meme la plus probante — « rien n'a
+  // ete cherche » et « 312 passages ont ete lus sans rien trouver » sont deux refus differents, que
+  // l'omission rendait indiscernables. Un refus `hors_perimetre` court-circuite avant tout retrieval
+  // (AD-5) : ses deux compteurs sont nuls, et c'est precisement ce qu'il faut dire.
+  //
+  // La seule exception est `clarification_requise` : AD-4 pose que « `terms_searched` est alors vide
+  // et `blocks_scanned` nul : rien n'a ete cherche ». Ce n'est pas un refus mais une question posee
+  // en retour ; lui accrocher « 0 variante essayee » repondrait a une question que personne ne pose.
   function preuveAbsence(reason) {
     if (!reason) return "";
+    if (reason.kind === "clarification_requise") return "";
     var termes = (reason.terms_searched || []).filter(function (t) { return String(t || "").trim(); });
-    var variantes = reason.variants_count || 0;
-    var blocs = reason.blocks_scanned || 0;
-    var chiffres = [];
-    if (variantes) chiffres.push(pluriel(variantes, "variante") + (variantes > 1 ? " essayées" : " essayée"));
-    if (blocs) chiffres.push(pluriel(blocs, "passage") + (blocs > 1 ? " parcourus" : " parcouru"));
-    if (!termes.length && !chiffres.length) return "";
-    if (!termes.length) return chiffres.join(", ");
-    var debut = "Termes cherchés : " + termes.join(", ");
-    return chiffres.length ? debut + " — " + chiffres.join(", ") : debut;
+    var variantes = entier(reason.variants_count);
+    var blocs = entier(reason.blocks_scanned);
+    var chiffres = [
+      pluriel(variantes, "variante") + (variantes > 1 ? " essayées" : " essayée"),
+      pluriel(blocs, "passage") + (blocs > 1 ? " parcourus" : " parcouru")
+    ];
+    // Aucun terme retenu se **dit** aussi : la question n'a produit aucun terme canonique, ce qui
+    // explique a soi seul les deux zeros qui suivent.
+    var debut = termes.length
+      ? "Termes cherchés : " + termes.join(", ")
+      : "Aucun terme du guide n'a été retenu";
+    return debut + " — " + chiffres.join(", ");
   }
 
   // NFR4 : le cout reel de la reponse, en pied de reponse. Il vient de l'usage rendu par l'API
@@ -713,6 +736,22 @@ window.CHAT = (function () {
     return (erreur && erreur.kind === "indisponible") ? "indisponible" : null;
   }
 
+  // Le libelle du badge de mode. Il se compose **ici**, comme tout ce qui s'affiche : `ui.js` ne
+  // fait que le poser, dans les deux surfaces (l'onglet Assistant et le widget flottant — le
+  // panneau est `hidden` des qu'on regarde un autre onglet, et un indicateur invisible n'indique
+  // rien).
+  //
+  // L'etat initial n'est **pas** « mode local » : avant que la sonde ait repondu, le mode n'est pas
+  // connu, et annoncer le mode local avant meme d'avoir essaye le serveur est le contraire de ce
+  // que la story promet — c'est meme le seul mode qui ne se declenche jamais tout seul.
+  function libelleMode(via) {
+    var m = String(via === null || via === undefined ? "" : via);
+    if (!m) return { texte: "mode : vérification…", cls: "badge" };
+    if (m.indexOf("api") === 0) return { texte: "mode api", cls: "badge on" };
+    if (m === "indisponible") return { texte: "mode indisponible", cls: "badge off" };
+    return { texte: "mode " + m, cls: "badge" };
+  }
+
   // ---------- Mode API ----------
 
   // L'erreur typee que `repondre()` propage. `kind` decide de ce que l'UI propose :
@@ -745,21 +784,57 @@ window.CHAT = (function () {
     });
   }
 
+  function estObjet(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+
   // Lecture **stricte** du contrat d'AD-11. Plus jamais `j.reponse` (le serveur rend `texte`), et
   // les sources affichees sont **celles du serveur** : `rechercher()` n'intervient plus ici.
+  //
+  // « Stricte » se lit litteralement : les champs **obligatoires** de `ChatResponse` (`texte`,
+  // `answer`, `trace` — les trois sans valeur par defaut) et les deux booleens obligatoires
+  // d'`Answer` (`found`, `complete`) sont **exiges**. Une valeur par defaut a leur place peignait un
+  // corps `{}` en reponse « inconnu », l'ajoutait a l'historique et la faisait repartir au serveur :
+  // c'est la « reponse vide presentee comme reponse » qu'AD-16 nomme. Un 200 incomplet n'est pas une
+  // reponse degradee, c'est un serveur casse — donc `reponse_illisible`, comme un corps non-JSON, et
+  // sans bouton de repli (ce n'est pas une indisponibilite au sens d'AD-11).
+  //
+  // Les champs a valeur par defaut (`segments`, `sources`, `fiches`, `unknown`, `comparateur`,
+  // `via`) restent tolerants a l'**absence** — le serveur les serialise toujours, mais leur defaut
+  // est defini par le contrat lui-meme. Ils ne sont pas tolerants au **mauvais type** : un
+  // `sources: {}` la ou le contrat promet une liste est la meme casse silencieuse.
   function lireReponse(j) {
     var o = j || {};
+    if (typeof o.texte !== "string") throw illisible("texte");
+    if (!estObjet(o.answer)) throw illisible("answer");
+    if (typeof o.answer.found !== "boolean") throw illisible("answer.found");
+    if (typeof o.answer.complete !== "boolean") throw illisible("answer.complete");
+    if (!estObjet(o.trace)) throw illisible("trace");
+    var listes = ["segments", "sources", "fiches", "unknown"];
+    for (var i = 0; i < listes.length; i++) {
+      var nom = listes[i];
+      if (o[nom] !== undefined && o[nom] !== null && !Array.isArray(o[nom])) throw illisible(nom);
+    }
+    if (o.comparateur !== undefined && o.comparateur !== null &&
+        typeof o.comparateur !== "boolean") throw illisible("comparateur");
+    if (o.via !== undefined && o.via !== null && typeof o.via !== "string") throw illisible("via");
     return {
-      texte: typeof o.texte === "string" ? o.texte : "",
+      texte: o.texte,
       segments: Array.isArray(o.segments) ? o.segments : [],
       sources: Array.isArray(o.sources) ? o.sources : [],
       fiches: Array.isArray(o.fiches) ? o.fiches : [],
       unknown: Array.isArray(o.unknown) ? o.unknown : [],
       comparateur: o.comparateur === true,
-      answer: o.answer || null,
+      answer: o.answer,
       via: typeof o.via === "string" ? o.via : "api/v1",
-      trace: o.trace || null
+      trace: o.trace
     };
+  }
+
+  // Le champ fautif ne va **pas** a l'ecran : `messageErreur()` compose la phrase depuis le seul
+  // `code`. Il voyage dans l'erreur pour le harnais de test et la console du developpeur.
+  function illisible(champ) {
+    var e = erreurChat({ kind: "requete", code: "reponse_illisible", statut: 200 });
+    e.champ = champ;
+    return e;
   }
 
   function testerApi() {
@@ -769,8 +844,19 @@ window.CHAT = (function () {
     // partout ailleurs — c'est-a-dire en production. Une page ouverte en `file://`, elle, n'a
     // aucun serveur a sonder.
     if (!enLigne()) { apiDisponible = false; return Promise.resolve(false); }
-    return fetch(API_BASE + "/sante", { method: "GET" })
-      .then(function (r) { return r.ok ? r.json() : null; })
+    // La sonde est ce qui **rapporte les seuils** : la premiere question l'attend (voir
+    // `reponseApi`). Elle doit donc etre bornee, sinon un `/sante` qui pend verrouillerait la
+    // saisie sans fin. La marge d'abandon du client suffit largement pour un simple etat de sante.
+    var options = { method: "GET" };
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    if (ctrl) options.signal = ctrl.signal;
+    var minuteur = ctrl
+      ? setTimeout(function () { ctrl.abort(); },
+                   Math.round(seuil("client_abort_margin_s", MARGE_ABANDON_S_REPLI) * 1000))
+      : null;
+    function finir() { if (minuteur !== null) clearTimeout(minuteur); }
+    return fetch(API_BASE + "/sante", options)
+      .then(function (r) { finir(); return r.ok ? r.json() : null; })
       .then(function (j) {
         apiDisponible = !!(j && j.ok);
         // Les seuils actifs du serveur, servis a chaque chargement de page : le front s'en sert
@@ -778,13 +864,22 @@ window.CHAT = (function () {
         if (j && j.thresholds) seuilsServeur = j.thresholds;
         return apiDisponible;
       })
-      .catch(function () { apiDisponible = false; return false; });
+      .catch(function () { finir(); apiDisponible = false; return false; });
   }
 
   function reponseApi(question, profil, historique) {
     if (!enLigne()) {
       return Promise.reject(erreurChat({ kind: "indisponible", code: "hors_ligne", statut: 0 }));
     }
+    // La sonde porte les seuils du serveur (`historique_max_turns`, `deadline_s`,
+    // `client_abort_margin_s`). Sans cette attente, la **premiere** requete partait sur les replis
+    // ecrits ici et ignorait une configuration differente — un serveur regle a 3 tours recevait
+    // les 6 du repli, donc un 400. `testerApi()` est memoise : les requetes suivantes ne coutent
+    // rien, et son resultat n'ouvre aucun repli (il ne sert qu'a lire les seuils).
+    return testerApi().then(function () { return envoyerRequete(question, profil, historique); });
+  }
+
+  function envoyerRequete(question, profil, historique) {
     var options = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -875,6 +970,7 @@ window.CHAT = (function () {
     vueReponseLocale: vueReponseLocale,
     vueErreur: vueErreur,
     modeApresErreur: modeApresErreur,
+    libelleMode: libelleMode,
     setApiBase: function (u) { API_BASE = u; apiDisponible = null; },
     apiBase: function () { return API_BASE; },
     // Pour les tests : ce que le front croit des bornes du serveur, et d'ou il le tient.
