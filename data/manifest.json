@@ -10,7 +10,7 @@
       "profile": "vertical",
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "2b11ed22ca146ee9b3e3d00f40d9284ef87e77d8321cd76469a0eb396e5292a5",
-      "cases_hash": "baba15ca978604ad50ab5023fe0b1fb8bd69232c1605b011d5185e874c635dbf",
+      "cases_hash": "bb4d6aa0c56eedf14d348de8520fb882fbf2b54aa2ddac6a8f1169e193636f63",
       "pipeline_digest": "e3bf58d400b41048d0eba8826c13e00da27170813ee1bdf8de1ca26079307d2f",
       "prompts_digest": "c440741d5e2cb604e33aae2deb0b77d54bed3d4beae696393694c6fdbb252800",
       "model_ids": {
@@ -19,7 +19,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-24T19:11:12Z",
+      "date": "2026-08-24T20:11:25Z",
       "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
       "cases": 1
     }
@@ -44,7 +44,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-24T19:10:47Z",
+      "date": "2026-08-24T20:11:46Z",
       "overlay_hash": null,
       "cases": 1
     }
