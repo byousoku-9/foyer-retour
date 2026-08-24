@@ -204,7 +204,7 @@ def test_verification_fields() -> None:
                                            "unknown", "facettes_couvertes", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None
-    assert v.facettes_couvertes == 0  # rien de mesuré ne vaut jamais une facette couverte
+    assert v.facettes_couvertes == []  # rien de mesuré ne vaut jamais une facette couverte
 
 
 def test_draft_digest_is_canonical_and_content_sensitive() -> None:
@@ -360,7 +360,11 @@ def test_question_and_retrieval() -> None:
     assert literal_values(question.Turn, "role") == {"user", "assistant"}
     # AD-5 : les deux issues de *comprendre* sont deux types distincts — une `ParsedQuestion` est
     # toujours autonome, la clarification ne s'y cache pas dans un champ (revue Codex 1.4, B4, tour 3).
-    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms", "scope"}
+    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms",
+                                               "scope", "facettes"}
+    # AD-4 : les facettes sont celles de `ParsedQuestion`, arrêtées par *comprendre* — pas un
+    # découpage rendu par le contrôle qui juge ensuite sa propre couverture (revue Codex 1.5, tour 3)
+    assert question.ParsedQuestion(question_resolue="q", intent="question").facettes == []
     assert fields(question.ClarificationRequise) == {"clarification", "intent", "language"}
     assert question.ClarificationRequise(clarification="qui ?", intent="suivi", language="fr-LU").language == "fr"
     assert {"meteo", "bavardage", "hors_perimetre"} <= literal_values(question.ParsedQuestion, "intent")

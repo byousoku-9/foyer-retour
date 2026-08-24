@@ -43,14 +43,32 @@ def test_texte_is_rendered_deterministically_from_the_surviving_segments() -> No
                   AnswerSegment(text="Je ne sais pas pour les frontaliers.", kind="limite")],
         claims=[_claim()], found=True, complete=False, unknown=["Je ne sais pas pour les frontaliers."])
     answer, step = restituer(language="fr", verification=verification)
-    assert answer.texte == ("Vous avez huit jours. Par ailleurs, Je ne sais pas pour les frontaliers.")
+    # La phrase d'absence n'est **pas** affichée : aucune citation ne prouve une absence, et la seule
+    # phrase d'absence qu'on montre est celle du refus, composée par le code (revue Codex 1.5,
+    # tour 3, B1). *vérifier* l'a déjà écartée ; *restituer* le refait, parce qu'il est le seul
+    # endroit où un `Answer` se fabrique et que l'invariant doit tenir quel que soit l'appelant.
+    assert answer.texte == "Vous avez huit jours. Par ailleurs,"
     # rendre deux fois la même vérification donne le même texte, au caractère près
     assert restituer(language="fr", verification=verification)[0].texte == answer.texte
     assert answer.found is True and answer.complete is False and answer.lang == "fr"
     assert answer.lang_fallback is False and answer.reason is None
-    assert [s.kind for s in answer.segments] == ["factuel", "transition", "limite"]
-    assert answer.unknown == ["Je ne sais pas pour les frontaliers."]
+    assert [s.kind for s in answer.segments] == ["factuel", "transition"]
+    assert answer.unknown == ["Je ne sais pas pour les frontaliers."]  # la lacune, elle, est dite
+    assert [c.name for c in step.checks] == ["limites_non_affichees"]
     assert step.name == "restituer" and step.tier is None and step.calls == []
+
+
+def test_a_limit_never_reaches_the_displayed_text_but_never_disappears_either() -> None:
+    """Une limite qu'aucun `unknown` ne porte encore (appelant autre que le pipeline du guide) est
+    déplacée, jamais perdue : la lacune reste dite, elle n'est simplement plus affirmée."""
+    verification = Verification(
+        segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"]),
+                  AnswerSegment(text="Le guide ne dit rien des frontaliers.", kind="limite")],
+        claims=[_claim()], found=True, complete=False)
+    answer, _step = restituer(language="fr", verification=verification)
+    assert "frontaliers" not in answer.texte
+    assert [s.kind for s in answer.segments] == ["factuel"]
+    assert answer.unknown == ["Le guide ne dit rien des frontaliers."]
 
 
 def test_a_factual_segment_without_a_surviving_claim_is_removed() -> None:

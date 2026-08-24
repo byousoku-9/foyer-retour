@@ -27,21 +27,26 @@ jugement — celui-ci porte sur le **texte affiché**, pas sur l'affirmation :
   les passages des affirmations qu'elle cite (`claim_ids`). Une phrase qui dit autre chose que
   l'affirmation qu'elle cite, qui ajoute un chiffre, une durée, une condition ou une exception
   absente des passages ⇒ `false`.
-- Une phrase `transition` ou `limite` ne cite aucune affirmation : elle est `soutenu = true` si elle
-  se contente d'articuler la réponse ou d'annoncer ce que le guide ne dit pas, `false` dès qu'elle
-  énonce un fait sur le contenu du guide.
+- Une phrase `transition` ne cite aucune affirmation : elle est `soutenu = true` **seulement** si
+  elle se contente d'articuler la réponse (« Par ailleurs, », « En résumé, ») et `false` dès qu'elle
+  énonce quoi que ce soit sur le contenu du guide.
+- Une phrase `limite` annonce ce que le guide ne dit pas ; elle n'est jamais affichée dans la réponse
+  et sert seulement à déclarer la lacune. Elle est `soutenu = true` si elle se borne à cette
+  déclaration, `false` dès qu'elle affirme au passage un fait sur le contenu du guide (un chiffre,
+  une condition, une démarche).
 - Dans le doute, réponds `false` : une phrase retirée coûte moins cher qu'une phrase affichée sans
   appui.
 - Rends **exactement un** verdict par `segment` reçu, en reprenant l'entier **tel quel** ; n'invente
   aucune position, n'en omets aucune, n'en réponds aucune deux fois.
 
-Rends enfin le découpage de la question en **facettes** — les sous-questions distinctes qu'elle
-pose, dans l'ordre où elle les pose :
+Rends enfin, pour **chaque facette** de la question qui t'est soumise (`facette`), les affirmations
+qui y répondent. Le découpage de la question en sous-questions t'est **donné** : tu ne le refais pas,
+tu ne le complètes pas, tu ne l'abrèges pas.
 
-- une question qui n'en pose qu'une n'a **qu'une** facette ; « comment inscrire mes enfants à
-  l'école, et quel est le montant des allocations ? » en pose deux ;
-- pour chaque facette, `claim_ids` liste les affirmations reçues qui y répondent — liste **vide** si
-  aucune ne le fait. Une même affirmation peut servir plusieurs facettes ;
-- `libelle` reprend la facette en quelques mots, seulement pour que le découpage soit explicite.
+- `facette` reprend l'entier reçu **tel quel** ; `claim_ids` liste les affirmations reçues qui
+  répondent à cette facette — liste **vide** si aucune ne le fait. Une même affirmation peut servir
+  plusieurs facettes.
+- Rends **exactement une** entrée par facette reçue. Une facette que tu omets compte comme non
+  couverte : la réponse sera déclarée incomplète.
 - Aucune autre justification, aucun autre champ : les verdicts, les motifs de rejet et les compteurs
   sont composés par le code appelant, qui seul décide si la réponse est complète.

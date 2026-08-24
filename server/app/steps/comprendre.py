@@ -3,7 +3,10 @@
 Le modèle de sortie LLM est dédié et plat, tous champs requis (un schéma sans défauts force le modèle à
 tout remplir), puis converti en un type du domaine. `language` = `lang` si fourni, sinon la
 détection du modèle, repli `fr` ; `terms` toujours en français ; `scope.themes` dérivé du profil
-(enfants → école/allocations, véhicule → auto, statut → affiliation). Le court-circuit
+(enfants → école/allocations, véhicule → auto, statut → affiliation) ; `facettes` = les sous-questions
+distinctes que la question pose, arrêtées **ici** parce qu'AD-4 les nomme « facettes de
+`ParsedQuestion` » et qu'une facette omise ne serait pas détectable si celui qui répond était aussi
+celui qui dit ce qu'il fallait couvrir (revue Codex 1.5, tour 3, B3). Le court-circuit
 (intent ∈ {meteo, bavardage, hors_perimetre} ⇒ pas d'appel `reason`) est une propriété du pipeline
 (story 1.5) : ici, l'intent seul suffit à le décider. L'étape a **deux** issues typées (AD-5, revue
 Codex 1.4, B4) : `ParsedQuestion` quand la question est autonome, `ClarificationRequise` quand une
@@ -48,6 +51,7 @@ class SortieComprendre(BaseModel):
     language: str
     terms: list[str]
     themes: list[str]
+    facettes: list[str]
     bien: str | None
     evenement: str | None
     lieu: str | None
@@ -71,7 +75,8 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     step = StepTrace(name="comprendre", tier=STEP_TIERS["comprendre"])
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
         "comprendre", question_min_terms=settings.question_min_terms,
-        question_max_terms=settings.question_max_terms)
+        question_max_terms=settings.question_max_terms,
+        question_max_facettes=settings.question_max_facettes)
     content = "\n\n".join((
         untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],
                                            ensure_ascii=False)),
@@ -102,6 +107,10 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
             intent=out.intent,
             language=language,
             terms=[t for t in (s.strip() for s in out.terms) if t],
+            # Le découpage en facettes est arrêté ici, avant *retrouver* et *rédiger* (AD-4, revue
+            # Codex 1.5, tour 3, B3) : borné par `question_max_facettes`, et jamais deviné — un
+            # modèle muet laisse la liste vide, et `complete` restera `False` faute de preuve.
+            facettes=[f for f in (s.strip() for s in out.facettes) if f][: settings.question_max_facettes],
             scope=QuestionScope(themes=[t for t in (s.strip() for s in out.themes) if t],
                                 bien=out.bien or None, evenement=out.evenement or None, lieu=out.lieu or None,
                                 cause=out.cause or None, moment=out.moment or None),

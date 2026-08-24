@@ -13,9 +13,12 @@ Deux moitiés, dans cet ordre, et jamais l'inverse :
    `verifier_max_claims` : « ces passages soutiennent-ils l'affirmation **et** répond-elle à la
    question ? ». Le modèle ne rend qu'un booléen par `claim_id` — aucun texte libre, aucun calcul :
    `found` et `complete` sont calculés ici, par le code, et le motif de rejet est composé ici aussi.
-   Le **même** appel rend deux autres faits que le code ne peut pas établir seul : le découpage de la
-   question en facettes (pour `complete`), et, pour **chaque phrase réellement affichée**, si elle
-   n'avance rien au-delà des passages joints (revue Codex 1.5, tour 2, B1).
+   Le **même** appel rend deux autres faits que le code ne peut pas établir seul : quelles
+   affirmations couvrent chacune des facettes de `ParsedQuestion` (pour `complete` — le découpage,
+   lui, vient de *comprendre* et n'est pas rediscuté ici, revue Codex 1.5 tour 3 B3), et, pour
+   **chaque phrase réellement affichée**, si elle n'avance rien au-delà des passages joints (tour 2,
+   B1). Une phrase `limite` — « le guide ne dit rien de X » — n'est affichable par aucune de ces
+   preuves : elle ne rejoint que `unknown[]` (tour 3, B1).
 
 Le texte soumis au modèle est celui du corpus, pas celui du draft : c'est ce qui empêche une citation
 « écho » d'être jugée pertinente sur sa propre invention. Question et passages sont délimités par
@@ -72,14 +75,16 @@ class VerdictPertinence(BaseModel):
 
 
 class FacettePertinence(BaseModel):
-    """Une sous-question de la question posée, et les affirmations qui prétendent y répondre.
+    """La couverture d'**une** facette de `ParsedQuestion` : son rang, et les affirmations qui y répondent.
 
-    `libelle` est le seul texte libre que le contrôle rende, et il ne sert qu'ici : il n'entre ni dans
-    la trace, ni dans un motif, ni dans l'`Answer` (AD-10, AD-15). Il est demandé parce qu'une facette
-    nommée est une facette pensée — le modèle ne peut pas la compter sans la dire.
+    `facette` est la position de la facette dans `ParsedQuestion.facettes`, telle qu'elle a été
+    envoyée : un entier de **notre** code, pas une chaîne du modèle. Le contrôle ne **découpe** plus
+    la question — le découpage lui est donné, arrêté par *comprendre* avant toute rédaction (revue
+    Codex 1.5, tour 3, B3). Il ne rend donc plus aucun texte libre : une facette qu'il oublie reste
+    une facette de la question, non couverte, et `complete` reste `False`.
     """
 
-    libelle: str = ""
+    facette: int
     claim_ids: list[str] = []
 
 
@@ -310,11 +315,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     a_juger = [(i, s) for i, s in enumerate(draft.segments)
                if s.text.strip() and (s.kind != "factuel" or (set(s.claim_ids) & citables))]
     verdicts: dict[str, bool] = {}
-    facettes: list[FacettePertinence] = []
+    couverture: dict[int, list[str]] = {}
     soutiens: dict[int, bool] = {}
     if evaluees:
         try:
-            verdicts, facettes, soutiens = await _pertinence(
+            verdicts, couverture, soutiens = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step)
         except PipelineError:
@@ -377,12 +382,12 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # règle mécanique (« qu'aucune phrase ne me soit montrée sans un passage du guide qui la
     # soutient ») : chaque phrase envoyée au contrôle groupé doit en revenir `soutenu=true`. Une
     # phrase sans verdict n'est pas devinée — elle n'est pas affichée (même règle que `pertinente`).
-    segments_affiches = list(draft.segments)
+    survivants = list(draft.segments)
     ecartes = 0
     if evaluees:  # sans appel groupé, aucun verdict n'a pu être rendu : rien n'est jugé, ni retiré
         soumis = {i for i, _ in a_juger}
-        segments_affiches = [s for i, s in enumerate(draft.segments)
-                             if not s.text.strip() or (i in soumis and soutiens.get(i) is True)]
+        survivants = [s for i, s in enumerate(draft.segments)
+                      if not s.text.strip() or (i in soumis and soutiens.get(i) is True)]
         ecartes = sum(1 for i, s in enumerate(draft.segments)
                       if s.text.strip() and not (i in soumis and soutiens.get(i) is True)
                       and (s.kind != "factuel" or (set(s.claim_ids) & citables)))
@@ -391,6 +396,17 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 name="segments_non_soutenus", ok=False,
                 detail=f"{ecartes} phrase(s) de l'ébauche avancent plus que les passages joints "
                        "(ou n'ont pas été jugées) : elles ne sont pas affichées"))
+
+    # --- ce qu'une phrase ne peut pas prouver : l'absence (revue Codex 1.5, tour 3, B1) -----
+    # Un segment `limite` dit ce que le guide **ne dit pas**. Aucun passage ne peut le soutenir : une
+    # assertion d'absence n'est pas citable, par construction — la seule preuve d'absence que le
+    # projet sache produire est l'`AbsenceProof` d'AD-4, composée par le **code**, et la seule phrase
+    # d'absence affichée est celle du refus, écrite dans `restituer.PHRASES_DE_REFUS`. Une limite
+    # rédigée par le modèle ne rejoint donc jamais `Answer.texte` ni `Answer.segments[]` : elle
+    # subsiste dans `Answer.unknown[]`, le canal typé qu'AD-4 réserve aux lacunes, qui interdit
+    # `complete=True` et que le front rend comme une limite — jamais comme une réponse.
+    segments_affiches = [s for s in survivants if s.kind != "limite"]
+    unknown = [s.text for s in survivants if s.kind == "limite" and s.text.strip()]
 
     # AD-3 : « tout segment `factuel` référence ≥ 1 claim survivante », et `Answer.texte` n'est fait
     # que des segments survivants. Une claim que **plus aucun** segment affiché ne cite n'a donc
@@ -416,23 +432,26 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
     # AD-4 : `found` et `complete` sont calculés **ici**, jamais produits par le modèle.
     found = bool(claims)
-    unknown = [s.text for s in segments_affiches if s.kind == "limite" and s.text.strip()]
     cites = {q.block_id for c in claims for q in c.quotes}
     renvois_ouverts = any(corpus.documents[index.doc_of(b)].block(b).unresolved_refs for b in cites)
     # AD-4 exige « toutes les facettes de `ParsedQuestion` couvertes ». `unknown == []` n'en est pas
     # une approximation conservatrice : une réponse à deux facettes dont une est omise, sans segment
-    # `limite`, sortait `complete=True` (revue Codex 1.5, B3). Le découpage est donc demandé au même
-    # appel groupé — aucun appel de plus — et le code exige que **chaque** facette soit couverte par
-    # au moins une affirmation *retenue*. Facettes non rendues (modèle muet, aucun contrôle) ⇒ pas de
-    # preuve ⇒ `complete=False` : l'absence de mesure ne vaut jamais complétude.
+    # `limite`, sortait `complete=True` (revue Codex 1.5, B3). Les facettes sont celles de
+    # `ParsedQuestion`, **littéralement** : le découpage a été arrêté par *comprendre*, avant tout
+    # retrieval et toute rédaction, et le contrôle groupé ne fait que dire qui y répond (tour 3). Une
+    # sous-question à laquelle la réponse n'a pas répondu ne peut donc plus s'effacer du barème avec
+    # elle. Aucune facette au barème (question sans découpage rendu) ⇒ aucune preuve ⇒
+    # `complete=False` : l'absence de mesure ne vaut jamais complétude.
     affichees = {c.claim_id for c in claims}
-    nb_couvertes = sum(1 for f in facettes if any(cid in affichees for cid in f.claim_ids))
-    couvertes = bool(facettes) and nb_couvertes == len(facettes)
+    facettes_couvertes = sorted(rang for rang, ids in couverture.items()
+                                if any(cid in affichees for cid in ids))
+    couvertes = bool(parsed.facettes) and len(facettes_couvertes) == len(parsed.facettes)
     if evaluees and not couvertes:
         step.checks.append(CheckResult(
             name="facettes_non_couvertes", ok=False,
-            detail=f"{len(facettes)} facette(s) rendue(s) par le contrôle, toutes ne sont pas "
-                   "couvertes par une affirmation affichée : la réponse n'est pas donnée pour complète"))
+            detail=f"{len(facettes_couvertes)} facette(s) couverte(s) par une affirmation affichée sur "
+                   f"{len(parsed.facettes)} posée(s) par la question : la réponse n'est pas donnée "
+                   "pour complète"))
     # Une phrase écartée faute de soutien est une part de la réponse que l'ébauche voulait donner et
     # qui n'est pas montrée — y compris une limite retirée. La réponse servie est alors amputée :
     # elle n'est pas donnée pour complète (AD-4, « aucune troncature »).
@@ -441,7 +460,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
     verification = Verification(
         segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,
-        complete=complete, unknown=unknown, facettes_couvertes=nb_couvertes,
+        complete=complete, unknown=unknown, facettes_couvertes=facettes_couvertes,
         motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
     )
     step.checks.append(CheckResult(
@@ -454,8 +473,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *, parsed: ParsedQuestion,
                       segments: list[tuple[int, AnswerSegment]], corpus: Any, index: Any,
                       client: LlmClient, budget: RequestBudget, settings: Settings,
-                      step: StepTrace) -> tuple[dict[str, bool], list[FacettePertinence], dict[int, bool]]:
-    """L'unique appel `micro` groupé : un booléen par `claim_id`, un par phrase affichée, le découpage.
+                      step: StepTrace) -> tuple[dict[str, bool], dict[int, list[str]], dict[int, bool]]:
+    """L'unique appel `micro` groupé : un booléen par `claim_id`, un par phrase affichée, la couverture.
 
     Les trois sortent du **même** appel (AD-4 : « un seul appel `micro` groupé ») : la couverture des
     facettes et le contrôle des phrases affichées ne coûtent rien de plus que le texte des segments —
@@ -463,6 +482,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     """
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
     parts = [untrusted("question", parsed.question_resolue)]
+    for rang, libelle in enumerate(parsed.facettes):
+        # Le découpage vient de *comprendre* : il est **donné** au contrôle, numéroté par notre code.
+        # Le contrôle n'a plus qu'à dire qui y répond — il ne peut plus faire disparaître une
+        # sous-question en ne la rendant pas (revue Codex 1.5, tour 3, B3).
+        parts.append(untrusted("facette", json.dumps({"facette": rang, "libelle": libelle},
+                                                     ensure_ascii=False)))
     for claim, quotes, _edition in evaluees:
         # Le passage soumis est **relu dans le corpus** : `text_norm[start:end]`, l'occurrence même
         # dont l'inclusion a été prouvée — jamais la chaîne du draft. Une citation « écho » ne peut
@@ -512,11 +537,17 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 detail="deux verdicts opposés pour une même affirmation : elle est écartée"))
             continue
         verdicts.setdefault(v.claim_id, v.pertinente)
-    # Une facette n'est retenue que si elle ne s'appuie que sur des `claim_id` attendus : un
-    # identifiant inventé ne couvre rien, et une facette vide de toute affirmation reste une facette
-    # (non couverte, donc `complete=False`). Les libellés ne sortent pas d'ici.
-    facettes = [FacettePertinence(libelle="", claim_ids=[c for c in f.claim_ids if c in attendus])
-                for f in result.parsed.facettes]
+    # La couverture ne s'entend que sur des rangs **envoyés** et des `claim_id` **attendus** : un
+    # rang inventé ne couvre rien, un identifiant inventé non plus, et une facette dont le contrôle
+    # ne dit rien reste une facette de la question — non couverte, donc `complete=False`.
+    rangs = set(range(len(parsed.facettes)))
+    couverture: dict[int, list[str]] = {}
+    for f in result.parsed.facettes:
+        if f.facette not in rangs:
+            continue
+        couverture.setdefault(f.facette, [])
+        couverture[f.facette] += [c for c in f.claim_ids if c in attendus
+                                  and c not in couverture[f.facette]]
     # Même règle que pour les verdicts de pertinence : une position qui n'a pas été envoyée ne décide
     # de rien, et deux réponses opposées sur la même phrase valent « non soutenu » (« dans le doute,
     # réponds false »). Une phrase sans verdict n'est pas devinée — elle ne sera pas affichée.
@@ -532,4 +563,4 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 detail="deux verdicts opposés pour une même phrase : elle n'est pas affichée"))
             continue
         soutiens.setdefault(s.segment, s.soutenu)
-    return verdicts, facettes, soutiens
+    return verdicts, couverture, soutiens

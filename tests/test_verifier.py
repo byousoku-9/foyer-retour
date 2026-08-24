@@ -79,16 +79,20 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
 
 def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
               segments: dict[int, bool] | None = None, nb_segments: int = 8) -> dict:
-    """Verdicts groupés + phrases soutenues + découpage. Par défaut : **une** facette, couverte par
-    toutes les claims jugées pertinentes (le cas nominal d'une question qui ne pose qu'une
-    sous-question) et **toutes** les phrases soumises jugées soutenues — un verdict pour chaque
-    position possible, les positions non soumises étant ignorées par le code."""
+    """Verdicts groupés + phrases soutenues + couverture des facettes.
+
+    `facettes[i]` = les `claim_id` que le contrôle attribue à la facette de rang `i` de la
+    `ParsedQuestion` (le **découpage**, lui, vient de *comprendre* — voir `_verifier(nb_facettes=…)`).
+    Par défaut : une seule facette, couverte par toutes les claims jugées pertinentes (le cas nominal
+    d'une question qui ne pose qu'une sous-question) et **toutes** les phrases soumises jugées
+    soutenues — un verdict pour chaque position possible, les positions non soumises étant ignorées
+    par le code."""
     if facettes is None:
         facettes = [[c for c, ok in paires if ok]]
     soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(text=json.dumps(
         {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
-         "facettes": [{"libelle": f"facette {i}", "claim_ids": ids} for i, ids in enumerate(facettes, 1)],
+         "facettes": [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(facettes)],
          "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}),
         model=HAIKU)
 
@@ -102,15 +106,18 @@ def _draft(*claims: tuple[str, str, list[tuple[str, str]]]) -> AnswerDraft:
 
 
 async def _verifier(index: Index, draft: AnswerDraft, script: list, *, blocs: list[str] | None = None,
-                    truncated: bool = False, settings: Settings | None = None):
+                    truncated: bool = False, settings: Settings | None = None, nb_facettes: int = 1):
     settings = settings or _settings()
     doc = next(iter(index.corpus.documents.values()))
     ids = blocs if blocs is not None else [b.block_id for b in doc.blocks]
     retrieval = RetrievalResult(blocs=[doc.block(b) for b in ids], opened_block_ids=list(ids),
                                truncated=truncated)
     client, fake = _client(script)
+    # Le découpage en facettes est celui de la question, arrêté par *comprendre* (AD-4, revue Codex
+    # 1.5, tour 3) : le contrôle groupé ne fait qu'y rattacher des affirmations.
     parsed = ParsedQuestion(question_resolue="Quel délai pour déclarer mon arrivée ?", intent="question",
-                            terms=["déclaration d'arrivée"])
+                            terms=["déclaration d'arrivée"],
+                            facettes=[f"facette {i + 1}" for i in range(nb_facettes)])
     verification, step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=index.corpus,
                                         index=index, client=client, budget=_budget(), settings=settings)
     return verification, step, fake
@@ -120,7 +127,8 @@ async def _verifier_reel(index: Index, draft: AnswerDraft, blocs: list, script: 
     """Même chose sur le corpus réel, où l'on choisit les blocs transmis à *rédiger*."""
     retrieval = RetrievalResult(blocs=blocs, opened_block_ids=[b.block_id for b in blocs])
     client, _fake = _client(script if script is not None else [_verdicts(("c1", True))])
-    parsed = ParsedQuestion(question_resolue="Qu'est-ce qu'une émeute ?", intent="question")
+    parsed = ParsedQuestion(question_resolue="Qu'est-ce qu'une émeute ?", intent="question",
+                            facettes=["définition de l'émeute"])
     verification, _step = await verifier(draft, parsed=parsed, retrieval=retrieval, corpus=index.corpus,
                                          index=index, client=client, budget=_budget(), settings=_settings())
     return verification
@@ -212,14 +220,16 @@ async def test_relevance_is_one_grouped_micro_call_with_delimited_content(mini: 
                              "cache_control": {"type": "ephemeral"}}]
     (msg,) = req["messages"]
     found = UNTRUSTED.findall(msg["content"])
-    # AD-4 : un seul appel, et il porte tout ce que le contrôle a besoin de juger — la question, les
-    # affirmations avec leurs passages, puis **chaque phrase telle qu'elle serait affichée**
-    assert [kind for kind, _ in found] == ["question", "claim", "claim", "claim",
+    # AD-4 : un seul appel, et il porte tout ce que le contrôle a besoin de juger — la question, ses
+    # facettes (arrêtées par *comprendre*, jamais redécoupées ici), les affirmations avec leurs
+    # passages, puis **chaque phrase telle qu'elle serait affichée**
+    assert [kind for kind, _ in found] == ["question", "facette", "claim", "claim", "claim",
                                            "segment", "segment", "segment"]
+    assert json.loads(found[1][1]) == {"facette": 0, "libelle": "facette 1"}
     # rien hors des balises : le contenu non fiable est intégralement délimité (AD-15)
     assert UNTRUSTED.sub("", msg["content"]).strip() == ""
     # le passage soumis est **relu dans le corpus**, jamais la chaîne du draft
-    charge = json.loads(found[1][1])
+    charge = json.loads(found[2][1])
     bloc = mini.corpus.documents["mini"].block("mini:p1:2")
     q = v.claims[0].quotes[0]
     assert charge["citations"][0]["passage"] == bloc.text_norm[q.start:q.end]
@@ -261,7 +271,7 @@ async def test_claims_beyond_the_bound_are_declared_unevaluated_never_guessed(mi
     # citation a été retrouvée) et part au contrôle des phrases — c'est le rejet de pertinence qui le
     # retirera ensuite de l'affichage.
     assert [kind for kind, _ in UNTRUSTED.findall(req["messages"][0]["content"])] == [
-        "question", "claim", "segment", "segment"]
+        "question", "facette", "claim", "segment", "segment"]
     assert [c.claim_id for c in v.claims] == ["c1"]
     (rejet,) = v.rejected_claims
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None and "non évaluée" in rejet.motif
@@ -280,19 +290,39 @@ async def test_complete_requires_every_facet_of_the_question_to_be_covered(mini:
 
     # deux facettes, une seule couverte (l'autre claim est rejetée) : la réponse tient, pas complète
     v, step, _f = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", False),
-                                                          facettes=[["c1"], ["c2"]])], blocs=blocs)
+                                                          facettes=[["c1"], ["c2"]])],
+                                  blocs=blocs, nb_facettes=2)
     assert v.found is True and v.unknown == [] and v.complete is False
     assert "facettes_non_couvertes" in [c.name for c in step.checks]
 
     # les deux facettes couvertes : rien ne manque, la réponse est donnée pour complète
     v2, _s2, _f2 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True),
-                                                           facettes=[["c1"], ["c2"]])], blocs=blocs)
+                                                           facettes=[["c1"], ["c2"]])],
+                                   blocs=blocs, nb_facettes=2)
     assert v2.found is True and v2.complete is True
 
-    # aucune facette rendue par le contrôle : pas de preuve de couverture, donc jamais `complete`
-    v3, _s3, _f3 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True), facettes=[])],
-                                   blocs=blocs)
+    # la facette que le contrôle **omet** reste une facette de la question : elle n'est pas couverte,
+    # et la réponse n'est pas complète (revue Codex 1.5, tour 3, B3 — le barème ne vient plus de
+    # celui qui s'y note, le contrôle ne peut donc plus effacer la sous-question qu'il a manquée)
+    v3, s3, _f3 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True),
+                                                          facettes=[["c1"]])],
+                                  blocs=blocs, nb_facettes=2)
     assert v3.found is True and v3.complete is False
+    assert "1 facette(s) couverte(s)" in [c.detail for c in s3.checks
+                                          if c.name == "facettes_non_couvertes"][0]
+
+    # aucun rang de facette rendu du tout : pas de preuve de couverture, donc jamais `complete`
+    v4, _s4, _f4 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True), facettes=[])],
+                                   blocs=blocs, nb_facettes=2)
+    assert v4.found is True and v4.complete is False
+
+    # une couverture rendue sur un rang **jamais envoyé** ne couvre rien
+    v5, _s5, _f5 = await _verifier(mini, draft, [fake_message(text=json.dumps({
+        "verdicts": [{"claim_id": "c1", "pertinente": True}, {"claim_id": "c2", "pertinente": True}],
+        "facettes": [{"facette": 0, "claim_ids": ["c1"]}, {"facette": 7, "claim_ids": ["c2"]}],
+        "segments": [{"segment": 0, "soutenu": True}, {"segment": 1, "soutenu": True}]}), model=HAIKU)],
+        blocs=blocs, nb_facettes=2)
+    assert v5.facettes_couvertes == [0] and v5.complete is False
 
 
 async def test_a_verified_claim_no_displayed_segment_cites_is_rejected(mini: Index) -> None:
@@ -532,8 +562,11 @@ async def test_a_transition_that_states_a_fact_is_never_displayed(mini: Index) -
         ("Le guide ne dit rien des frontaliers.", "limite", []),
         claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
     v, _step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={1: False})])
-    assert [s.kind for s in v.segments] == ["factuel", "limite"]
-    assert v.unknown == ["Le guide ne dit rien des frontaliers."]  # la limite, elle, tient
+    # Et la `limite`, elle, ne s'affiche **pas** : aucune citation ne prouve une absence (revue Codex
+    # 1.5, tour 3, B1). Elle ne subsiste que dans `unknown[]`, qui interdit déjà `complete=True`.
+    assert [s.kind for s in v.segments] == ["factuel"]
+    assert "frontaliers" not in " ".join(s.text for s in v.segments)
+    assert v.unknown == ["Le guide ne dit rien des frontaliers."]
 
 
 async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> None:
@@ -555,7 +588,7 @@ async def test_two_opposite_verdicts_on_one_sentence_never_display_it(mini: Inde
         claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
     script = [fake_message(text=json.dumps({
         "verdicts": [{"claim_id": "c1", "pertinente": True}],
-        "facettes": [{"libelle": "f", "claim_ids": ["c1"]}],
+        "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
         "segments": [{"segment": 0, "soutenu": True}, {"segment": 1, "soutenu": True},
                      {"segment": 1, "soutenu": False}]}), model=HAIKU)]
     v, step, _fake = await _verifier(mini, draft, script)
@@ -563,8 +596,13 @@ async def test_two_opposite_verdicts_on_one_sentence_never_display_it(mini: Inde
     assert [c.name for c in step.checks if c.name == "segment_contradictoire"]
 
 
-async def test_the_number_of_covered_facets_is_counted_not_just_the_all_or_nothing(mini: Index) -> None:
-    """`complete` ne dit que « toutes » ; la relance a besoin du compte (revue Codex 1.5, tour 2, I2)."""
+async def test_which_facets_are_covered_is_recorded_not_just_how_many(mini: Index) -> None:
+    """`complete` ne dit que « toutes » ; la relance a besoin de **lesquelles** — deux vérifications
+    qui couvrent chacune une facette différente ont le même compte (revue Codex 1.5, tours 2 et 3, I2)."""
     draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
-    v, _step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), facettes=[["c1"], []])])
-    assert v.facettes_couvertes == 1 and v.complete is False
+    v, _step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), facettes=[["c1"], []])],
+                                      nb_facettes=2)
+    assert v.facettes_couvertes == [0] and v.complete is False
+    v2, _s2, _f2 = await _verifier(mini, draft, [_verdicts(("c1", True), facettes=[[], ["c1"]])],
+                                   nb_facettes=2)
+    assert v2.facettes_couvertes == [1] and v2.complete is False

@@ -179,11 +179,14 @@ class Verification(DomainModel):
     found: bool = False
     complete: bool = False
     unknown: list[str] = Field(default_factory=list)
-    # Nombre de facettes de la question qu'une affirmation affichée couvre (AD-4, revue Codex 1.5
-    # tour 2, I2). `complete` en est déjà le cas « toutes », mais la relance a besoin du compte : deux
-    # vérifications également incomplètes ne se valent pas si l'une répond à deux sous-questions et
-    # l'autre à une seule. C'est un compteur du **code**, jamais un jugement transmis à l'appelant.
-    facettes_couvertes: int = 0
+    # **Quelles** facettes de la question une affirmation affichée couvre — leurs rangs dans
+    # `ParsedQuestion.facettes`, triés (AD-4, revue Codex 1.5, tours 2 et 3, I2). `complete` n'en est
+    # que le cas « toutes » ; la relance, elle, a besoin de l'ensemble et pas de son cardinal : deux
+    # vérifications qui couvrent chacune **une** facette différente ont le même compte et ne se
+    # valent pas — accepter la seconde échangerait une sous-question contre une autre. Les rangs sont
+    # stables entre deux ébauches de la même question, puisque le découpage est arrêté une fois par
+    # *comprendre*. C'est une donnée du **code**, jamais un jugement transmis à l'appelant.
+    facettes_couvertes: list[int] = Field(default_factory=list)
     motif: str | None = None
 
 

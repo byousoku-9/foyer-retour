@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     draft_max_claims: int = Field(4, ge=1)
     question_min_terms: int = Field(2, ge=0)
     question_max_terms: int = Field(6, ge=1)
+    # AD-4 : le découpage de la question en sous-questions, rendu par *comprendre*. Borné pour la
+    # même raison que `verifier_max_claims` — un découpage qui s'emballe rendrait `complete` hors
+    # d'atteinte et gonflerait le prompt de *vérifier* sans rien prouver.
+    question_max_facettes: int = Field(4, ge=1)
     estimate_chars_per_token: float = Field(2.0, gt=0)
     estimate_tokenizer_factor: float = Field(1.3, gt=0)
     count_tokens_timeout_s: float = Field(10.0, gt=0)
@@ -195,6 +199,7 @@ class Settings(BaseSettings):
             "draft_max_claims": self.draft_max_claims,
             "question_min_terms": self.question_min_terms,
             "question_max_terms": self.question_max_terms,
+            "question_max_facettes": self.question_max_facettes,
             "estimate_chars_per_token": self.estimate_chars_per_token,
             "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
             "count_tokens_timeout_s": self.count_tokens_timeout_s,

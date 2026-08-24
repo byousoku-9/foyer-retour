@@ -68,6 +68,15 @@ class ParsedQuestion(DomainModel):
     language: str = "fr"
     terms: list[str] = Field(default_factory=list)  # toujours en français
     scope: QuestionScope = Field(default_factory=QuestionScope)
+    # Les sous-questions distinctes que la question pose, dans l'ordre où elle les pose (AD-4,
+    # « toutes les facettes de `ParsedQuestion` couvertes »). Elles vivent **ici**, et non dans la
+    # sortie de *vérifier*, parce qu'AD-4 les nomme « facettes de `ParsedQuestion` » : le découpage
+    # est arrêté par *comprendre*, avant tout retrieval et toute rédaction, par un appel qui n'a
+    # jamais vu l'ébauche. C'est ce qui rend une facette **omise** détectable — celui qui attribue la
+    # couverture ne peut plus effacer la sous-question à laquelle il n'a pas répondu (revue Codex
+    # 1.5, tour 3, B3). Liste vide = aucun découpage rendu ⇒ aucune preuve de couverture ⇒
+    # `complete=False`, jamais l'inverse.
+    facettes: list[str] = Field(default_factory=list)
 
     @field_validator("language")
     @classmethod

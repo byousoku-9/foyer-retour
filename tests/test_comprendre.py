@@ -37,7 +37,8 @@ def _sortie(**over) -> str:
     base = {"intent": "question", "question_resolue": "À quelle école inscrire mes enfants ?",
             "clarification": None,
             "language": "fr", "terms": ["école", "inscription scolaire"],
-            "themes": ["école", "allocations"], "bien": None, "evenement": None, "lieu": None,
+            "themes": ["école", "allocations"], "facettes": ["école des enfants"],
+            "bien": None, "evenement": None, "lieu": None,
             "cause": None, "moment": None}
     return json.dumps(base | over, ensure_ascii=False)
 
@@ -123,7 +124,8 @@ async def test_neither_or_both_outcomes_is_a_validation_error_not_an_arbitrary_c
 
 async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_question() -> None:
     """La propriété sémantique vit dans le prompt, pas dans le code (AD-5)."""
-    prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6)
+    prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6,
+                            question_max_facettes=4)
     assert "deux issues exclusives" in prefixe
     assert "`clarification` est alors renseignée à sa place" in prefixe
     assert "que l'historique ne dit pas" in prefixe
@@ -175,7 +177,8 @@ async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -
     # préfixe statique byte-identique (pas de sommaire : micro, cache 5 min), tier micro
     assert req["model"] == HAIKU
     attendu = load_prompt("commun") + "\n\n" + render_prompt(
-        "comprendre", question_min_terms=s.question_min_terms, question_max_terms=s.question_max_terms)
+        "comprendre", question_min_terms=s.question_min_terms, question_max_terms=s.question_max_terms,
+        question_max_facettes=s.question_max_facettes)
     assert req["system"] == [{"type": "text", "text": attendu,
                               "cache_control": {"type": "ephemeral"}}]
     assert req["extra_body"] == {"temperature": 0}
@@ -183,8 +186,8 @@ async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -
     assert req["max_tokens"] == s.comprendre_max_tokens == 1024
     # le schéma dédié est plat et tout est requis (aucun défaut)
     assert set(req["output_config"]["format"]["schema"]["required"]) == {
-        "intent", "question_resolue", "clarification", "language", "terms", "themes", "bien", "evenement",
-        "lieu", "cause", "moment"}
+        "intent", "question_resolue", "clarification", "language", "terms", "themes", "facettes",
+        "bien", "evenement", "lieu", "cause", "moment"}
     # question, historique et profil chacun sous untrusted() ; rien hors balises
     (msg,) = req["messages"]
     sections = _sections(msg["content"])

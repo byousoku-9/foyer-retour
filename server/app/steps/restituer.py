@@ -7,7 +7,10 @@ Deux issues, et rien entre les deux :
   texte libre parallèle n'est affiché ») ; `Answer.segments[]` est conservé tel quel pour que l'UI
   place chaque citation sous la phrase qu'elle soutient (FR3) ;
 - **un refus** — un unique segment `limite` porteur d'une phrase composée **par le code**, et
-  l'`AbsenceProof` qui dit ce qui a été cherché. Une phrase par `AbsenceProof.kind` : l'utilisateur
+  l'`AbsenceProof` qui dit ce qui a été cherché. C'est la **seule** phrase d'absence que
+  l'utilisateur lise : une limite rédigée par le modèle (« le guide ne dit rien de X ») n'est
+  soutenue par aucun passage — aucune citation ne prouve une absence — et *vérifier* l'a déjà
+  renvoyée vers `Answer.unknown[]` plutôt que vers le texte affiché (revue Codex 1.5, tour 3, B1). Une phrase par `AbsenceProof.kind` : l'utilisateur
   doit pouvoir distinguer « hors périmètre » de « rien trouvé » et de « rien qui tienne la
   vérification » — ce sont trois situations différentes, et une seule d'entre elles vaut la peine de
   reformuler sa question.
@@ -81,13 +84,27 @@ def restituer(*, language: str, verification: Verification | None = None,
 
     assert verification is not None
     survivantes = {c.claim_id for c in verification.claims}
-    # AD-3 : un segment `factuel` dont toutes les claims sont rejetées est **retiré**. Les autres
-    # (`transition`, `limite`) ne portent aucune affirmation à soutenir — mais ils portent du texte,
-    # et *vérifier* a déjà retiré de `Verification.segments` toute phrase, de n'importe quel kind,
-    # qui avance plus que ses passages (revue Codex 1.5, tour 2, B1). Ce qui arrive ici est donc
-    # déjà le texte contrôlé : *restituer* n'applique plus que la règle mécanique d'AD-3.
+    # AD-3 : un segment `factuel` dont toutes les claims sont rejetées est **retiré**. Les
+    # `transition` ne portent aucune affirmation à soutenir — mais ils portent du texte, et
+    # *vérifier* a déjà retiré de `Verification.segments` toute phrase, de n'importe quel kind, qui
+    # avance plus que ses passages (revue Codex 1.5, tour 2, B1), puis les `limite` en entier, qui
+    # affirment une absence qu'aucun passage ne prouve (tour 3, B1). Ce qui arrive ici est donc déjà
+    # le texte contrôlé : *restituer* n'applique plus que la règle mécanique d'AD-3.
     segments = [s for s in verification.segments
                 if s.kind != "factuel" or (set(s.claim_ids) & survivantes)]
+    # Seconde ceinture sur l'assertion d'absence (revue Codex 1.5, tour 3, B1). *vérifier* a déjà
+    # sorti les `limite` de `Verification.segments` ; *restituer* est le **seul** endroit où un
+    # `Answer` se fabrique (guide aujourd'hui, sinistre en 1.8, API en 1.6), et c'est donc ici que
+    # l'invariant doit tenir quel que soit l'appelant : rien de ce qui affirme une absence n'entre
+    # dans le texte affiché. La lacune n'est pas perdue pour autant — elle rejoint `unknown[]`.
+    retires = len(verification.segments) - len(segments)  # compté avant, il ne nomme que la règle d'AD-3
+    limites = [s.text.strip() for s in segments if s.kind == "limite" and s.text.strip()]
+    segments = [s for s in segments if s.kind != "limite"]
+    if limites:
+        step.checks.append(CheckResult(
+            name="limites_non_affichees", ok=False,
+            detail=f"{len(limites)} phrase(s) d'absence retirée(s) du texte affiché : aucune citation "
+                   "ne prouve une absence — elles restent dans unknown[]"))
     # Les `claim_ids` d'un segment conservé sont ramenés aux claims survivantes : l'UI place les
     # citations sous la phrase, elle ne doit pas chercher une claim qui n'est plus dans `claims[]`.
     segments = [AnswerSegment(text=s.text, kind=s.kind,
@@ -102,7 +119,6 @@ def restituer(*, language: str, verification: Verification | None = None,
         # que les deux ci-dessus, et elle se dit avec les mêmes mots (revue Codex 1.5, B6).
         raise ValueError("restituer avec found=True exige au moins un segment factuel survivant "
                          "portant du texte (une réponse vide n'est pas une réponse)")
-    retires = len(verification.segments) - len(segments)
     if retires:
         step.checks.append(CheckResult(name="segments_retires", ok=False,
                                        detail=f"{retires} segment(s) factuel(s) sans claim survivante retiré(s)"))
@@ -110,7 +126,8 @@ def restituer(*, language: str, verification: Verification | None = None,
         found=True, complete=verification.complete, lang=language, lang_fallback=False,
         texte=texte, segments=segments, claims=list(verification.claims),
         rejected_claims=list(verification.rejected_claims), reason=None,
-        unknown=list(verification.unknown), clarification=clarification,
+        unknown=list(verification.unknown) + [t for t in limites if t not in verification.unknown],
+        clarification=clarification,
     )
     step.ms = int((time.monotonic() - t0) * 1000)
     return answer, step

@@ -47,8 +47,18 @@ l'une des deux, jamais les deux, jamais aucune.
   liste vide si le profil est absent ou sans rapport. N'écris jamais la clé du profil elle-même
   (`enfants`, `vehicule`, `statut`) : elle ne se cherche pas dans le guide — écris ce qu'elle rend
   cherchable, en **reprenant les mots de la table ci-dessus**, jamais un synonyme administratif
-  (« aides sociales », « prestations familiales ») : la recherche est littérale. Un thème large et vague (« logement »,
+  (« aides sociales », « prestations familiales ») : la recherche est littérale. Écris **tous** les
+  mots de la table que la question touche, y compris quand `terms` porte déjà une forme plus longue
+  du même mot (« allocations familiales » dans `terms` et « allocations » ici) : la recherche étant
+  littérale, les deux formes ne trouvent pas les mêmes passages. Un thème large et vague (« logement »,
   « administratif », « argent ») ne cible rien : ne l'écris jamais.
+- `facettes` : les **sous-questions distinctes** que la question pose, dans l'ordre où elle les pose,
+  1 à $question_max_facettes. Une question qui n'en pose qu'une n'a **qu'une** facette (« quel est le
+  délai pour déclarer mon arrivée ? ») ; « comment inscrire mes enfants à l'école, et quel est le
+  montant des allocations ? » en pose **deux**. Chaque facette tient en quelques mots, reprend les
+  mots de la question et **ne préjuge pas** de la réponse — tu découpes la demande, tu ne la
+  complètes pas : n'ajoute jamais une sous-question que la question ne pose pas. Une salutation ou
+  une question hors périmètre n'en a aucune : liste vide.
 - `bien`, `evenement`, `lieu`, `cause`, `moment` : uniquement si la question décrit un sinistre ou
   un événement concret (quel bien est touché, quel événement, où, quelle cause, quand) ; sinon
   `null`.
