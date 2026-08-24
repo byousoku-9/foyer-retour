@@ -970,3 +970,23 @@ disparu : c'était le garde-fou posé en 1.6 pour rappeler de retirer `ENV ALLOW
 c'est le comportement que l'AC de la story attend.
 
 `uvx ruff@0.16.4 check --select F,E9 server tests` → « All checks passed! ».
+
+### Revue interne (quatre relecteurs) — re-vérification live après correctifs
+
+Les correctifs de la revue touchent `server/app/corpus/loader.py`, qui entre dans `pipeline_digest` :
+les deux gates écrits plus haut sont devenus **périmés** au sens d'AD-7, et le test ajouté par la
+revue (`tests/test_digests.py::test_les_gates_du_depot_sont_ceux_de_limage_courante`) l'a dit avant
+que quiconque le voie en ligne. Les deux runs ont donc été rejoués sur le corpus réel :
+
+| Run | Cas | Label | Coût | Durée | Code |
+|---|---|---|---|---|---|
+| `--gate lux-guide` | `g-luxtrust-prix` | `bonne_reponse` | **0,0274 €** | 13,0 s | 0 |
+| `--gate axa-lu-optihome-2017` | `s-bougie-canape` | `bonne_reponse` | **0,0538 €** | 24,1 s | 0 |
+
+`ENV=prod` sans dérogation, après re-gate : `documents_servis` porte les deux documents,
+`gate_profile: "vertical"`, `gate_cases: 2`, `alerts: []`. Suite hors ligne :
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1250 passed, aucun `skip`** — le
+garde-fou d'`ALLOW_UNGATED` posé en 1.6 n'est plus mis en `skip` par disparition de son objet : il
+est **inversé** et vert (tant qu'un gate existe, l'image ne doit plus armer la dérogation).
+
+Coût total de la story, tous runs compris : **≈ 0,30 €**.
