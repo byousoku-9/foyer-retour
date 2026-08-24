@@ -260,6 +260,16 @@ def test_le_champ_reponse_de_lancien_contrat_nest_plus_lu(cas: dict[str, Any]) -
     assert cas["contrat_incomplet"]["ancien_contrat"]["code"] == "reponse_illisible"
 
 
+def test_un_compteur_de_preuve_non_entier_nest_pas_une_reponse(cas: dict[str, Any]) -> None:
+    """AD-16 : un 200 dont un champ affiché n'a pas le type du contrat est `reponse_illisible`,
+    jamais peint comme une réponse (ici les compteurs de `AbsenceProof`, rendus à l'écran)."""
+    for nom in ("preuve_compteur_objet", "preuve_compteur_chaine"):
+        vu = cas["contrat_incomplet"][nom]
+        assert vu["a_repondu"] is False, nom
+        assert vu["code"] == "reponse_illisible", nom
+        assert vu["lectures_du_moteur_lexical"] == 0, nom
+
+
 def test_les_sources_affichees_sont_celles_du_serveur(cas: dict[str, Any]) -> None:
     """AD-3 : ce qui est montré comme source est le passage **relu du corpus** par le serveur."""
     lue = cas["reponse_lue"]

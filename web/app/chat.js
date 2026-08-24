@@ -825,6 +825,14 @@ window.CHAT = (function () {
     return v;
   }
 
+  // Un compteur affiche par l'ecran doit etre un entier fini : un objet ou une chaine
+  // passeraient sinon jusqu'au rendu (AD-16 : jamais de 200 incomplet presente comme reponse).
+  function entierDefaut(v, nom) {
+    if (v === undefined) return 0;
+    if (typeof v !== "number" || !isFinite(v) || Math.floor(v) !== v || v < 0) throw illisible(nom);
+    return v;
+  }
+
   function listeDefaut(v, nom) {
     var l = defaut(v, nom);
     if (l === undefined) return [];
@@ -862,8 +870,8 @@ window.CHAT = (function () {
     litteral(r.kind, KINDS_ABSENCE, nom + ".kind");
     listeDeChaines(r.terms_searched, nom + ".terms_searched");
     listeDeChaines(r.documents, nom + ".documents");
-    defaut(r.variants_count, nom + ".variants_count");
-    defaut(r.blocks_scanned, nom + ".blocks_scanned");
+    entierDefaut(r.variants_count, nom + ".variants_count");
+    entierDefaut(r.blocks_scanned, nom + ".blocks_scanned");
   }
 
   // `AnswerSegment` : `text` et `kind` sont obligatoires ; `claim_ids` porte l'appariement.

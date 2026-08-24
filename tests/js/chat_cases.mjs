@@ -671,6 +671,15 @@ async function main() {
                                      claims: [{ claim_id: CLAIM.claim_id, text: CLAIM.text,
                                                 quotes: CLAIM.quotes }] } },
       ancien_contrat: { reponse: "Vous avez huit jours.", sources: [] },
+      // Un compteur de la preuve d'absence qui n'est pas un entier : il serait **affiche** tel quel.
+      preuve_compteur_objet: { texte: "x", trace: TRACE,
+                               answer: { found: false, complete: false,
+                                         reason: { kind: "zero_hit", terms_searched: [], documents: [],
+                                                   variants_count: {}, blocks_scanned: 0 } } },
+      preuve_compteur_chaine: { texte: "x", trace: TRACE,
+                                answer: { found: false, complete: false,
+                                          reason: { kind: "zero_hit", terms_searched: [], documents: [],
+                                                    variants_count: 3, blocks_scanned: "12" } } },
     };
     cas.contrat_incomplet = {};
     for (const [nom, c] of Object.entries(corps)) {
