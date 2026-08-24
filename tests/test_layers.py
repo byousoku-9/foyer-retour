@@ -21,7 +21,7 @@ ALLOWED: dict[str, set[str]] = {
     "corpus": {"domain"},
     "llm": {"domain", "config"},
     "steps": {"domain", "corpus", "llm", "config"},
-    "pipelines": {"steps", "domain", "config"},
+    "pipelines": {"steps", "domain", "config", "digests"},
     "api": {"pipelines", "corpus", "domain", "config", "digests", "llm"},
     "config": set(),
     "digests": set(),
@@ -31,6 +31,9 @@ EXTERNAL_ALLOWED: dict[str, set[str]] = {
     "corpus": set(),  # stdlib + domain seulement : jamais pydantic en direct
     "llm": {"anthropic", "pydantic"},  # AC 1.3 : rien d'autre hors domain, config, stdlib
     "steps": {"pydantic"},  # NFR9 (story 1.4) : jamais anthropic — le SDK ne se voit qu'à travers llm
+    # Story 1.5 : un pipeline enchaîne des étapes et rien d'autre — ni `corpus`, ni `llm`, ni le SDK.
+    # `corpus`, `index` et `client` lui arrivent en paramètres (annotés `Any`) depuis l'API.
+    "pipelines": {"pydantic"},
     "config": {"pydantic", "pydantic_settings"},
     "digests": {"pydantic"},
 }

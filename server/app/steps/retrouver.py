@@ -41,10 +41,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                            budget: RetrievalBudget, settings: Settings,
                            doc_id: str | None = None) -> tuple[RetrievalResult, StepTrace]:
     t0 = time.monotonic()
-    terms: list[str] = []
-    for t in (*parsed.terms, *parsed.scope.themes):
-        if t and t not in terms:
-            terms.append(t)
+    # Source unique des termes cherchés (story 1.5) : l'`AbsenceProof` d'un refus « zéro hit » doit
+    # nommer exactement ce que cette étape a cherché (AD-4 `terms_searched`).
+    terms = parsed.termes_de_recherche()
 
     if doc_id is not None and doc_id not in corpus.documents:
         # `chercher` lève déjà sur un doc_id inconnu, mais il n'est pas appelé quand aucun terme n'a

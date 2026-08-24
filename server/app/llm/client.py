@@ -155,6 +155,17 @@ class LlmClient:
             anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=0)
         self._anthropic = anthropic_client
 
+    def new_budget(self) -> RequestBudget:
+        """Budget d'une requête, réglé sur les seuils actifs (AD-9 : deadline, appels, euros).
+
+        Story 1.5 : la table des couches interdit à `pipelines` d'importer `llm` — il ne peut donc
+        pas construire lui-même un `RequestBudget`. Le client, qui est le seul à s'en servir, le
+        fabrique ; le pipeline le reçoit ou le demande, sans jamais connaître son type.
+        """
+        s = self._settings
+        return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
+                             max_cost_eur=s.max_cost_eur_per_request)
+
     async def parse(
         self,
         *,
