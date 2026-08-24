@@ -15,10 +15,38 @@ window.CHAT = (function () {
   var API_BASE = window.location.origin;
   var apiDisponible = null; // null = pas encore teste
 
-  // Bornes du contrat d'AD-11, cote client : elles evitent un 400 previsible.
-  // `historique_max_turns` = 6 et `Turn.texte` <= 2000 (server/app/config.py, domain/question.py).
-  var HISTORIQUE_MAX_TOURS = 6;
+  // Les seuils vivent dans `server/app/config.py` et sont servis a chaque chargement de page par
+  // `GET /sante` (`SanteResponse.thresholds`). Les recopier ici les ferait diverger en silence : on
+  // les retient de la sonde. Ce qui suit n'est qu'un **repli**, pour la premiere requete quand la
+  // sonde n'a pas encore repondu.
+  var HISTORIQUE_MAX_TOURS_REPLI = 6;   // config.historique_max_turns
+  var DEADLINE_SERVEUR_REPLI = 55;      // config.deadline_s
+  // Marge au-dessus de la deadline du serveur : en dessous, on couperait une requete a laquelle il
+  // aurait repondu ; bien au-dela, l'utilisateur attendrait pour rien.
+  var MARGE_ABANDON_S = 10;
+  // `Turn.texte <= 2000` (server/app/domain/question.py) n'est **pas** dans `thresholds()` : c'est
+  // une contrainte de schema, pas un seuil de configuration. Elle reste donc ecrite ici, et un test
+  // l'amarre a `Turn.model_fields["texte"]` pour qu'une divergence soit bruyante.
   var TOUR_MAX_CARACTERES = 2000;
+  var seuilsServeur = {};
+
+  // Une page ouverte en `file://` a pour `origin` la chaine "null" : il n'y a aucun serveur a
+  // joindre, et sonder `null/sante` ne produirait qu'une erreur console incomprehensible.
+  function enLigne() {
+    var p = window.location.protocol;
+    return p === "http:" || p === "https:";
+  }
+
+  function historiqueMaxTours() {
+    var v = seuilsServeur.historique_max_turns;
+    return (typeof v === "number" && v > 0) ? v : HISTORIQUE_MAX_TOURS_REPLI;
+  }
+
+  function delaiAbandonMs() {
+    var v = seuilsServeur.deadline_s;
+    var d = (typeof v === "number" && v > 0) ? v : DEADLINE_SERVEUR_REPLI;
+    return Math.round((d + MARGE_ABANDON_S) * 1000);
+  }
 
   // ---------- Profil progressif ----------
 
@@ -273,20 +301,26 @@ window.CHAT = (function () {
   // ---------- Ce que l'UI peindra : des fonctions pures ----------
 
   // L'historique du site est `{role, content}` ; le contrat d'AD-11 attend `{role, texte}`.
-  // Trois regles, dans cet ordre :
+  //
   //   1. le dernier tour utilisateur est exclu s'il est identique a `question` — le site pousse la
   //      question dans l'historique avant l'appel, et l'envoyer deux fois la ferait resoudre contre
   //      elle-meme ;
-  //   2. on garde les plus recents (`historique_max_turns` = 6) — au-dela, le serveur rend 400,
-  //      jamais une troncature ;
-  //   3. un tour de plus de 2 000 caracteres est **ecarte**, jamais coupe : le couper changerait ce
-  //      qui a ete dit. L'ecart se fait apres l'etape 2, donc il ne peut pas faire remonter un tour
-  //      plus ancien a la place.
-  function historiquePourApi(historique, question) {
+  //   2. deux sortes de tours ne peuvent pas etre envoyees : celui que la **recherche simple** a
+  //      produit (`local: true`) — l'expedier ferait traiter par *comprendre*, comme sa propre
+  //      parole, une comparaison de mots-cles ; et celui qui depasse `Turn.texte` — le couper
+  //      changerait ce qui a ete dit ;
+  //   3. un tour qu'on ne peut pas envoyer **casse la chaine** : ce qui le precede parle d'un
+  //      echange que le serveur ne verra pas, et deux tours du meme role se suivraient. On ne garde
+  //      donc que la **queue contigue** qui suit le dernier trou, jamais un historique troue ;
+  //   4. on borne aux plus recents (`historique_max_turns`, lu sur `/sante`) — au-dela le serveur
+  //      rend 400, et il ne tronque jamais lui-meme.
+  function historiquePourApi(historique, question, maxTours) {
+    var max = (typeof maxTours === "number" && maxTours > 0) ? maxTours : historiqueMaxTours();
     var tours = (historique || []).map(function (t) {
       return {
         role: t && t.role === "assistant" ? "assistant" : "user",
-        texte: String((t && (t.texte !== undefined ? t.texte : t.content)) || "")
+        texte: String((t && (t.texte !== undefined ? t.texte : t.content)) || ""),
+        local: !!(t && t.local)
       };
     }).filter(function (t) { return t.texte.trim() !== ""; });
 
@@ -295,8 +329,13 @@ window.CHAT = (function () {
         tours[tours.length - 1].texte.trim() === q) {
       tours = tours.slice(0, -1);
     }
-    return tours.slice(-HISTORIQUE_MAX_TOURS).filter(function (t) {
-      return t.texte.length <= TOUR_MAX_CARACTERES;
+
+    var depart = 0;
+    for (var i = 0; i < tours.length; i++) {
+      if (tours[i].local || tours[i].texte.length > TOUR_MAX_CARACTERES) depart = i + 1;
+    }
+    return tours.slice(depart).slice(-max).map(function (t) {
+      return { role: t.role, texte: t.texte };
     });
   }
 
@@ -317,7 +356,10 @@ window.CHAT = (function () {
     var segments = a.segments || [];
     var plates = sources || [];
 
-    var parClaim = {};
+    // Sans prototype : un `claim_id` valant "toString" ou "constructor" trouverait sinon un
+    // heritage, et l'abandon — la seule protection contre une citation mal placee — ne se
+    // declencherait pas.
+    var parClaim = Object.create(null);
     var rang = 0;
     for (var c = 0; c < claims.length; c++) {
       var claim = claims[c] || {};
@@ -358,7 +400,11 @@ window.CHAT = (function () {
     var p = [];
     if (status.retrouvee === true) p.push("retrouvée");
     if (status.pertinente === true) p.push("pertinente");
-    if (status.edition) p.push("édition " + status.edition + " — actualité non vérifiée");
+    // `Document.edition` est un `str` sans `min_length` : elle peut etre vide. La reserve
+    // d'actualite reste due — sans elle, la citation passerait pour a jour, ce qu'AD-4 refuse
+    // precisement (« jamais comme statut vert »).
+    p.push("édition " + (status.edition ? status.edition : "non précisée") +
+           " — actualité non vérifiée");
     return p.join(" · ");
   }
 
@@ -385,6 +431,9 @@ window.CHAT = (function () {
   function coutTexte(trace) {
     var c = trace && typeof trace.total_cost_eur === "number" ? trace.total_cost_eur : null;
     if (c === null || isNaN(c)) return "";
+    // Un total nul veut dire qu'aucun appel n'a ete facture (court-circuit avant tout appel, ou
+    // reponse entierement servie du cache) : « 0,0000 € » ferait croire a un arrondi.
+    if (c === 0) return "cette réponse n'a rien coûté (aucun appel facturé)";
     return "cette réponse a coûté " + c.toFixed(4).replace(".", ",") + " €";
   }
 
@@ -405,6 +454,13 @@ window.CHAT = (function () {
     if (e.code === "reseau") {
       return "L'assistant est injoignable : la page n'a pas pu joindre le serveur.";
     }
+    if (e.code === "hors_ligne") {
+      return "Cette page est ouverte depuis un fichier local : l'assistant a besoin du serveur " +
+        "qui sert le guide. Ouvrez le guide depuis son adresse.";
+    }
+    if (e.code === "timeout_client") {
+      return "L'assistant n'a pas répondu dans le temps imparti. Réessayez, ou consultez le guide.";
+    }
     if (e.code === "rate_limited") {
       var s = e.retry_after;
       return typeof s === "number" && s > 0
@@ -422,6 +478,239 @@ window.CHAT = (function () {
       return "L'assistant est indisponible pour le moment.";
     }
     return "Le serveur n'a pas pu répondre à cette question. Réessayez plus tard.";
+  }
+
+  // ---------- Ce que l'UI peint : une description, pas du DOM ----------
+  //
+  // Toutes les promesses de la story sont des verbes d'affichage : « affiche chaque segment factuel
+  // suivi de ses citations », « bandeau + bouton », « message sans repli », « le coût en pied ».
+  // Les verifier demandait soit un faux DOM — qui teste la doublure —, soit que la **composition**
+  // quitte `ui.js`. C'est celle-ci : `vueReponse`, `vueReponseLocale`, `vueErreur` et `vueAttente`
+  // rendent un arbre de noeuds simples `{tag, cls, texte, enfants, action, href}` que `ui.js`
+  // materialise sans decider de rien.
+  //
+  // Une `action` est **decrite** (`{nom: "recherche_simple", question}`), jamais une fermeture :
+  // c'est ce qui permet d'affirmer « ce bandeau porte exactement une action de recherche simple, et
+  // ce message zero » — la regle d'AD-16 qu'aucun test ne voyait auparavant.
+  function noeud(tag, cls, texte, enfants) {
+    var n = { tag: tag };
+    if (cls) n.cls = cls;
+    if (texte !== undefined && texte !== null) n.texte = String(texte);
+    if (enfants && enfants.length) n.enfants = enfants;
+    return n;
+  }
+
+  function ficheConnue(id) {
+    if (!id || !window.KB || !window.KB.fiches) return null;
+    return window.KB.fiches.filter(function (f) { return f.id === id; })[0] || null;
+  }
+
+  // Un lien ne s'ouvre que s'il est http(s). Les URL viennent de notre corpus, pas du modele — mais
+  // c'est le genre de garantie qu'on ne veut pas devoir re-verifier a chaque ingestion.
+  function lienHttp(url) {
+    var u = String(url || "");
+    return /^https?:\/\//i.test(u) ? u : null;
+  }
+
+  // Le statut d'une citation retrouve par son bloc : c'est ce qui rend la reserve d'AD-4 au mode
+  // degrade, ou la liste est plate et ou l'appariement claim → citation a ete abandonne.
+  function statutDeBloc(answer, blockId) {
+    var claims = (answer && answer.claims) || [];
+    for (var i = 0; i < claims.length; i++) {
+      var quotes = claims[i].quotes || [];
+      for (var j = 0; j < quotes.length; j++) {
+        if (quotes[j].block_id === blockId) return claims[i].status || null;
+      }
+    }
+    return null;
+  }
+
+  function citationsVue(entrees) {
+    var enfants = [noeud("strong", null, entrees.length > 1 ? "Passages cités" : "Passage cité")];
+    entrees.forEach(function (e) {
+      var src = e.source || {};
+      var meta = [];
+      // `fiche_id` vient du corpus servi, qui peut diverger de `kb.js` : un bouton qui ouvre une
+      // fiche inconnue retomberait sur la liste complete, sans explication. Titre en texte alors.
+      var fiche = ficheConnue(src.fiche_id);
+      if (fiche) {
+        var b = noeud("button", "cite-fiche", src.titre || fiche.titre);
+        b.action = { nom: "ouvrir_fiche", fiche_id: src.fiche_id };
+        meta.push(b);
+      } else if (src.titre) {
+        meta.push(noeud("span", "cite-fiche-txt", src.titre));
+      }
+      var url = lienHttp(src.url);
+      if (url) {
+        var a = noeud("a", "cite-lien", "source officielle");
+        a.href = url;
+        meta.push(a);
+      }
+      var statut = statutTexte(e.status);
+      if (statut) meta.push(noeud("span", "cite-statut", statut));
+      enfants.push(noeud("div", "cite", null, [
+        noeud("blockquote", "cite-q", "« " + String(src.quote || "") + " »"),
+        noeud("div", "cite-meta", null, meta)
+      ]));
+    });
+    return noeud("div", "cites", null, enfants);
+  }
+
+  function chipsVue(r, question) {
+    var boutons = [];
+    var fiches = (r && r.fiches) || [];
+    fiches.slice(0, 3).forEach(function (id) {
+      var f = ficheConnue(id);
+      if (!f) return;
+      var b = noeud("button", "chip", "Ouvrir : " + f.titre);
+      b.action = { nom: "ouvrir_fiche", fiche_id: id };
+      boutons.push(b);
+    });
+    // Relance : approfondir le sujet principal sans avoir a reformuler.
+    var principale = ficheConnue(fiches[0]);
+    if (principale) {
+      var relance = noeud("button", "chip", "En savoir plus");
+      relance.action = { nom: "poser", question: "Peux-tu détailler : " + principale.titre + " ?" };
+      boutons.push(relance);
+    }
+    // Question d'assurance : la main passe au comparateur, qui sait construire le tableau que
+    // l'assistant general ne construit pas. On lui transmet la question telle quelle.
+    if (r && r.comparateur) {
+      var comp = noeud("button", "chip", "Construire le tableau de comparaison");
+      comp.action = { nom: "comparateur", question: String(question || "") };
+      boutons.push(comp);
+    }
+    return boutons.length ? noeud("div", "chips", null, boutons) : null;
+  }
+
+  function vueAttente() {
+    return noeud("div", "msg bot attente", null, [
+      noeud("span", "attente-txt",
+        "Je cherche dans le guide, puis je vérifie chaque phrase contre les passages cités…"),
+      noeud("span", "points", null, [noeud("span"), noeud("span"), noeud("span")])
+    ]);
+  }
+
+  function vueReponse(r, question) {
+    var a = (r && r.answer) || {};
+    var sources = (r && r.sources) || [];
+    var enfants = [];
+
+    // La clarification est une **question posee a l'utilisateur** : elle passe avant la phrase de
+    // refus, qui explique seulement pourquoi rien n'a ete cherche.
+    if (a.clarification) {
+      enfants.push(noeud("div", "clarif", null, [
+        noeud("strong", null, "Une précision, pour chercher au bon endroit"),
+        noeud("p", "clarif-q", String(a.clarification))
+      ]));
+    }
+
+    // `answer.segments` fait foi ; `segments[]` de premier niveau en est la copie du contrat. Si
+    // l'un est vide et pas l'autre, l'appariement doit porter sur **ceux qu'on peint**, sans quoi
+    // les citations disparaitraient des deux cotes.
+    var segments = (a.segments && a.segments.length) ? a.segments : ((r && r.segments) || []);
+    var appariees = citationsParSegment({ claims: a.claims || [], segments: segments }, sources);
+    var placees = 0;
+    if (appariees) appariees.forEach(function (c) { placees += c.length; });
+
+    if (segments.length && appariees && placees === sources.length) {
+      segments.forEach(function (seg, i) {
+        var bloc = [noeud("p", "seg-txt", String(seg.text || ""))];
+        var cites = appariees[i] || [];
+        if (cites.length) bloc.push(citationsVue(cites));
+        enfants.push(noeud("div", "seg" + (seg.kind === "factuel" ? " seg-factuel" : ""), null, bloc));
+      });
+    } else {
+      // Degradation **visible**, et qui ne retire rien : le texte entier, la raison de la
+      // degradation, puis la liste plate avec ses statuts — le mode degrade serait le dernier
+      // endroit ou taire la reserve d'actualite.
+      enfants.push(noeud("p", "seg-txt", String((r && r.texte) || "")));
+      if (sources.length) {
+        enfants.push(noeud("p", "degrade",
+          "Les passages ci-dessous soutiennent cette réponse, mais je n'ai pas pu rattacher " +
+          "chacun à la phrase exacte qu'il appuie : ils sont donnés ensemble."));
+        enfants.push(citationsVue(sources.map(function (src) {
+          return { source: src, status: statutDeBloc(a, src.block_id) };
+        })));
+      }
+    }
+
+    // AD-4 : la phrase de refus vient du serveur (elle est ci-dessus, dans les segments) ; ce que le
+    // front ajoute, c'est la preuve chiffree — jamais les variantes ni les declencheurs.
+    var preuve = preuveAbsence(a.reason);
+    if (preuve) enfants.push(noeud("p", "preuve", preuve));
+
+    var inconnus = (r && r.unknown) || [];
+    if (inconnus.length) {
+      enfants.push(noeud("div", "inconnu", null, [
+        noeud("strong", null, "Ce que je ne sais pas"),
+        noeud("ul", null, null, inconnus.map(function (x) { return noeud("li", null, String(x)); }))
+      ]));
+    }
+
+    var etat = etatReponse(a);
+    var pied = [noeud("span", "etat etat-" + etat.cle, etat.texte)];
+    var cout = coutTexte(r && r.trace);
+    if (cout) pied.push(noeud("span", "cout", cout));
+    enfants.push(noeud("div", "pied", null, pied));
+
+    var chips = chipsVue(r, question);
+    if (chips) enfants.push(chips);
+    return noeud("div", "msg bot", null, enfants);
+  }
+
+  // La reponse de la recherche simple. Son pied ne porte ni etat ni cout — elle n'a rien coute et
+  // rien n'a ete verifie : elle le dit, plutot que d'emprunter la forme d'une reponse sourcee.
+  function vueReponseLocale(r, question) {
+    var enfants = [noeud("p", "seg-txt", String((r && r.texte) || ""))];
+    var sources = (r && r.sources) || [];
+    if (sources.length) {
+      enfants.push(noeud("div", "srcs", null, [noeud("strong", null, "Sources")].concat(
+        sources.map(function (src) {
+          var a = noeud("a", null, src.t);
+          var url = lienHttp(src.u);
+          if (url) a.href = url;
+          return a;
+        }))));
+    }
+    enfants.push(noeud("div", "pied", null, [
+      noeud("span", "etat etat-local", "recherche simple"),
+      noeud("span", "sans-verif",
+        "aucune vérification : ces passages viennent d'une comparaison de mots-clés")
+    ]));
+    var chips = chipsVue(r, question);
+    if (chips) enfants.push(chips);
+    return noeud("div", "msg bot locale", null, enfants);
+  }
+
+  // FR11 / AD-11 / AD-16 : l'action de recherche simple n'est portee que par une indisponibilite.
+  // C'est ici, et nulle part ailleurs, que la regle « pas de repli sur un 4xx » se decide.
+  function vueErreur(erreur, question) {
+    var indispo = !!(erreur && erreur.kind === "indisponible");
+    var enfants = [
+      noeud("strong", "alerte-titre", indispo ? "Assistant indisponible" : "Question non traitée"),
+      noeud("p", "alerte-txt", messageErreur(erreur))
+    ];
+    if (indispo) {
+      enfants.push(noeud("p", "alerte-note",
+        "Rien n'a été cherché : la recherche simple du guide compare des mots-clés, elle ne " +
+        "vérifie rien. À vous de décider si elle vous suffit."));
+    }
+    if (erreur && erreur.request_id) {
+      enfants.push(noeud("p", "ref", "référence : " + erreur.request_id));
+    }
+    if (indispo) {
+      var bouton = noeud("button", "chip", "Consulter le guide en recherche simple");
+      bouton.action = { nom: "recherche_simple", question: String(question || "") };
+      enfants.push(noeud("div", "chips", null, [bouton]));
+    }
+    return noeud("div", "msg bot " + (indispo ? "indispo" : "err"), null, enfants);
+  }
+
+  // Le badge et le bandeau ne peuvent pas se contredire dans la meme vue : sur une indisponibilite,
+  // le mode l'est aussi. Sur un 4xx, non — le serveur a repondu, il a refuse la requete.
+  function modeApresErreur(erreur) {
+    return (erreur && erreur.kind === "indisponible") ? "indisponible" : null;
   }
 
   // ---------- Mode API ----------
@@ -475,17 +764,28 @@ window.CHAT = (function () {
 
   function testerApi() {
     if (apiDisponible !== null) return Promise.resolve(apiDisponible);
-    // La sonde vaut sur **toute** origine : le serveur qui sert cette page sert aussi l'API
+    // La sonde vaut sur **toute** origine http(s) : le serveur qui sert cette page sert aussi l'API
     // (AD-12). L'ancienne garde « hors localhost, inutile d'essayer » eteignait le mode api
-    // partout ailleurs — c'est-a-dire en production.
+    // partout ailleurs — c'est-a-dire en production. Une page ouverte en `file://`, elle, n'a
+    // aucun serveur a sonder.
+    if (!enLigne()) { apiDisponible = false; return Promise.resolve(false); }
     return fetch(API_BASE + "/sante", { method: "GET" })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { apiDisponible = !!(j && j.ok); return apiDisponible; })
+      .then(function (j) {
+        apiDisponible = !!(j && j.ok);
+        // Les seuils actifs du serveur, servis a chaque chargement de page : le front s'en sert
+        // plutot que de recopier `config.py`.
+        if (j && j.thresholds) seuilsServeur = j.thresholds;
+        return apiDisponible;
+      })
       .catch(function () { apiDisponible = false; return false; });
   }
 
   function reponseApi(question, profil, historique) {
-    return fetch(API_BASE + "/chat", {
+    if (!enLigne()) {
+      return Promise.reject(erreurChat({ kind: "indisponible", code: "hors_ligne", statut: 0 }));
+    }
+    var options = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -498,7 +798,17 @@ window.CHAT = (function () {
         // `request_max_bytes` de 65 536) que le serveur, `extra="ignore"`, ne lit jamais. Du poids
         // et un risque de 413 pour zero effet.
       })
-    }).then(function (r) {
+    };
+    // Sans borne de temps, une requete qui pend laisse l'attente affichee et la saisie verrouillee
+    // sans fin. La deadline du serveur (`deadline_s`) plus une marge : au-dessous on couperait une
+    // requete a laquelle il aurait repondu.
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    if (ctrl) options.signal = ctrl.signal;
+    var minuteur = ctrl ? setTimeout(function () { ctrl.abort(); }, delaiAbandonMs()) : null;
+    function finir() { if (minuteur !== null) clearTimeout(minuteur); }
+
+    return fetch(API_BASE + "/chat", options).then(function (r) {
+      finir();
       if (!r.ok) {
         return r.json().then(function (j) { return j; }, function () { return null; })
           .then(function (j) { throw erreurHttp(r.status, r.headers, j); });
@@ -509,7 +819,13 @@ window.CHAT = (function () {
         throw erreurChat({ kind: "requete", code: "reponse_illisible", statut: r.status });
       });
     }, function () {
-      throw erreurChat({ kind: "indisponible", code: "reseau", statut: 0 });
+      finir();
+      // Un abandon est bien une indisponibilite : le serveur n'a pas repondu a temps.
+      throw erreurChat({
+        kind: "indisponible",
+        code: (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau",
+        statut: 0
+      });
     });
   }
 
@@ -553,7 +869,22 @@ window.CHAT = (function () {
     coutTexte: coutTexte,
     etatReponse: etatReponse,
     messageErreur: messageErreur,
+    // Les vues : l'arbre de ce qui doit etre peint. `ui.js` ne fait plus que le materialiser.
+    vueAttente: vueAttente,
+    vueReponse: vueReponse,
+    vueReponseLocale: vueReponseLocale,
+    vueErreur: vueErreur,
+    modeApresErreur: modeApresErreur,
     setApiBase: function (u) { API_BASE = u; apiDisponible = null; },
-    apiBase: function () { return API_BASE; }
+    apiBase: function () { return API_BASE; },
+    // Pour les tests : ce que le front croit des bornes du serveur, et d'ou il le tient.
+    bornes: function () {
+      return {
+        historique_max_tours: historiqueMaxTours(),
+        tour_max_caracteres: TOUR_MAX_CARACTERES,
+        delai_abandon_ms: delaiAbandonMs(),
+        seuils_du_serveur: seuilsServeur
+      };
+    }
   };
 })();
