@@ -307,6 +307,23 @@
   // l'expose pas, tout le paquet contractuel reste réputé inconnu, et c'est ce que « au regard des
   // conditions générales seules » veut dire. Les champs vides ne sont **pas** envoyés : `Faits.date`
   // et `Faits.lieu` sont `str | None`, et une chaîne vide n'est pas l'absence.
+  /**
+   * Le montant saisi, en nombre — ou `null` s'il n'y en a pas, ou `false` s'il est illisible.
+   *
+   * Trois issues, et non deux : le champ est **facultatif** (vide ⇒ `null`, rien à envoyer), mais
+   * une saisie non vide qui n'est pas un nombre fini positif ou nul est une **erreur de saisie**
+   * (`false`), pas une absence. `Faits.montant_eur` est un `float | None` : le confondre avec
+   * l'absence faisait analyser un sinistre sans son montant sans que personne ne le dise.
+   * La virgule décimale française est acceptée — la page lit « 1200,50 », et `Faits.montant_eur`
+   * est un `float`.
+   */
+  function montantSaisi(brut) {
+    var t = String(brut === undefined || brut === null ? "" : brut).trim();
+    if (t === "") return null;
+    var n = Number(t.replace(",", "."));
+    return (isFinite(n) && n >= 0) ? n : false;
+  }
+
   function corpsSinistre(saisie) {
     var s = saisie || {};
     var faits = { description: String(s.description || "") };
@@ -314,13 +331,13 @@
       var v = String(s[nom] || "").trim();
       if (v) faits[nom] = v;
     });
-    var montant = String(s.montant_eur === undefined || s.montant_eur === null ? "" : s.montant_eur).trim();
-    if (montant !== "") {
-      var n = Number(montant.replace(",", "."));
-      // Un montant illisible n'est **pas** envoyé à 0 : le serveur le refuserait ou, pire,
-      // l'accepterait comme un sinistre à zéro euro. Le champ est facultatif, il reste absent.
-      if (isFinite(n) && n >= 0) faits.montant_eur = n;
-    }
+    var n = montantSaisi(s.montant_eur);
+    // Un montant illisible n'est **pas** envoyé à 0 : le serveur le refuserait ou, pire,
+    // l'accepterait comme un sinistre à zéro euro. Il n'est pas non plus **supprimé** en silence —
+    // `manquant()` le refuse en amont (revue Codex 1.9, tour 1, I1) : avec `novalidate`, un `-100`
+    // saisi repartait en requête sans `montant_eur`, et le pipeline analysait alors des faits qui
+    // ne sont pas ceux qu'on a écrits. Ce corps ne compose que ce qui a été validé.
+    if (typeof n === "number") faits.montant_eur = n;
     return {
       doc_id: String(s.doc_id || ""),
       question: String(s.question || ""),
@@ -697,7 +714,12 @@
 
   // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme. Un 200 incomplet n'est pas
   // une réponse dégradée, c'est un serveur cassé : la page n'en peint aucun morceau (`reponse_illisible`).
-  // Les défauts du contrat restent tolérés à l'**absence**, jamais à `null` ni au mauvais type.
+  // « Ce que l'écran consomme » est pris au mot depuis la revue Codex 1.9 (tour 1, I2) : **tout**
+  // ce qu'UX-DR6 fait afficher est exigé présent et bien typé. Un défaut de schéma côté serveur
+  // (`Field(default_factory=…)`) n'est pas un champ facultatif sur le fil — pydantic le sérialise
+  // toujours —, et le tolérer absent revenait à peindre le verdict sans ses réserves.
+  // Les seuls champs vraiment facultatifs du contrat (`faits_compris`, `clarification`, `reason`)
+  // ne sont pas listés ici : ils valent `null` de plein droit, et les vues les traitent comme tels.
   function lireReponse(j) {
     var o = j || {};
     if (!estObjet(o.answer)) throw illisible("answer");
@@ -709,9 +731,26 @@
     // erreur, c'est-à-dire un verdict de remplacement.
     if (!estObjet(o.answer.verdict)) throw illisible("answer.verdict");
     if (typeof o.answer.verdict.value !== "string") throw illisible("answer.verdict.value");
-    if (o.answer.claims !== undefined && !Array.isArray(o.answer.claims)) throw illisible("answer.claims");
-    if (o.sources !== undefined && !Array.isArray(o.sources)) throw illisible("sources");
-    (o.sources || []).forEach(function (s, i) {
+    // Les cinq champs du `Verdict` d'AD-6 : `value`, `reason`, `missing`, `ask_client`, `escalate`.
+    // Aucun n'est facultatif côté serveur (`reason: str`, les trois autres ont un `default_factory`,
+    // donc pydantic les sérialise toujours) : leur absence est un serveur cassé, pas un verdict
+    // sobre. Tolérée, elle laissait peindre un verdict **privé de ses réserves** — sans le paquet
+    // manquant, sans les questions à poser, sans la raison —, c'est-à-dire un verdict plus assuré
+    // que celui que le serveur a rendu (revue Codex 1.9, tour 1, I2). UX-DR6 les exige à l'écran ;
+    // AD-16 dit que ce qui manque ne se comble pas en silence.
+    if (typeof o.answer.verdict.reason !== "string") throw illisible("answer.verdict.reason");
+    if (!estObjet(o.answer.verdict.missing)) throw illisible("answer.verdict.missing");
+    if (!Array.isArray(o.answer.verdict.ask_client)) throw illisible("answer.verdict.ask_client");
+    if (!Array.isArray(o.answer.verdict.escalate)) throw illisible("answer.verdict.escalate");
+    if (!Array.isArray(o.answer.claims)) throw illisible("answer.claims");
+    // `rejected_claims` porte les affirmations écartées par la vérification : l'écran le plus
+    // démuni — un `ne_tranche_pas` sans clause — n'a souvent que cette section à montrer.
+    if (!Array.isArray(o.answer.rejected_claims)) throw illisible("answer.rejected_claims");
+    // `sources` **doit** être là : c'est la liste des clauses relues du corpus (AD-11), et un
+    // verdict peint sans elle serait un verdict sans ses clauses — la promesse même de l'outil.
+    // Vide, elle est légitime (un refus n'en a aucune) ; absente, elle n'a pas été écrite.
+    if (!Array.isArray(o.sources)) throw illisible("sources");
+    o.sources.forEach(function (s, i) {
       if (!estObjet(s)) throw illisible("sources[" + i + "]");
       if (typeof s.block_id !== "string") throw illisible("sources[" + i + "].block_id");
       if (typeof s.quote !== "string") throw illisible("sources[" + i + "].quote");
@@ -721,7 +760,7 @@
     if (typeof o.trace.request_id !== "string") throw illisible("trace.request_id");
     return {
       answer: o.answer,
-      sources: o.sources || [],
+      sources: o.sources,
       via: typeof o.via === "string" ? o.via : "api/v1",
       trace: o.trace
     };
@@ -876,6 +915,17 @@
     if (!String(saisie.description || "").trim()) {
       return "Décrivez les faits : sans description, il n'y a rien à confronter aux clauses.";
     }
+    // `novalidate` a rendu la page responsable de tout ce que le navigateur validait pour elle
+    // (revue 1.9), et le montant en faisait partie : `min="0"` bloquait `-100` tant que la
+    // validation native jouait, plus personne ne le bloque ensuite (`type="number"` ramène bien
+    // `douze` à la chaîne vide, mais il tient `-100` pour une valeur). Le supprimer du corps aurait
+    // été pire que le refuser —
+    // le sinistre partait, analysé sur des faits amputés de ce qu'on avait écrit (revue Codex
+    // 1.9, tour 1, I1). Le montant reste **facultatif** : c'est la saisie illisible qui est dite.
+    if (montantSaisi(saisie.montant_eur) === false) {
+      return "Le montant doit être un nombre en euros, zéro ou davantage (par exemple 1200,50) — "
+        + "ou laissez le champ vide.";
+    }
     return null;
   }
 
@@ -946,6 +996,7 @@
   window.SINISTRE = {
     // Composition pure : testable sans navigateur (`tests/js/sinistre_cases.mjs`).
     corpsSinistre: corpsSinistre,
+    montantSaisi: montantSaisi,
     clausesParClaim: clausesParClaim,
     statutTexte: statutTexte,
     libelleKind: libelleKind,

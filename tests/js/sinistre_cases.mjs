@@ -326,6 +326,16 @@ async function main() {
     cas.corps_montant_virgule = SINISTRE.corpsSinistre({
       doc_id: DOC_ID, question: QUESTION, montant_eur: "1200,50", description: "Deux mots.",
     });
+    // Revue Codex 1.9 (I1) : un montant illisible ne se supprime plus en silence — il se dit.
+    // `montantSaisi()` a trois issues : le nombre, `null` (champ vide, facultatif), `false`
+    // (saisie illisible, refusée par `manquant()` avant tout appel).
+    cas.montant_saisi = {};
+    [["vide", ""], ["blancs", "   "], ["zero", "0"], ["entier", "1200"],
+     ["virgule", "1200,50"], ["point", "1200.50"], ["negatif", "-100"],
+     ["mots", "douze"], ["infini", "Infinity"], ["nan", "NaN"]].forEach(function (p) {
+      const v = SINISTRE.montantSaisi(p[1]);
+      cas.montant_saisi[p[0]] = (v === false) ? "illisible" : v;
+    });
 
     const liste = await SINISTRE.documents();
     cas.documents_url = appels.filter((a) => String(a.url).endsWith("/api/v1/documents"))[0].url;
@@ -682,7 +692,28 @@ async function main() {
       sans_description: SINISTRE.manquant(Object.assign({}, SAISIE, { description: " " })),
       sans_question: SINISTRE.manquant(Object.assign({}, SAISIE, { question: "" })),
       sans_contrat: SINISTRE.manquant(Object.assign({}, SAISIE, { doc_id: "" })),
+      // Facultatif, donc vide passe ; illisible ne passe pas (revue Codex 1.9, I1).
+      montant_vide: SINISTRE.manquant(Object.assign({}, SAISIE, { montant_eur: "" })),
+      montant_negatif: SINISTRE.manquant(Object.assign({}, SAISIE, { montant_eur: "-100" })),
+      montant_mots: SINISTRE.manquant(Object.assign({}, SAISIE, { montant_eur: "douze" })),
     };
+
+    // Et la soumission DOM elle-même : un montant négatif ne part pas, et ne part surtout pas
+    // **amputé de son montant** — ce que la suppression silencieuse produisait.
+    elements.contrat.value = DOC_ID;
+    elements.question.value = QUESTION;
+    elements.description.value = SAISIE.description;
+    elements.montant.value = "-100";
+    const avant = appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre")).length;
+    elements.formulaire.declencher("submit");
+    await tick();
+    cas.montant_negatif_soumis = {
+      appels: appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre")).length - avant,
+      texte: elements.resultat.textContent,
+      cartes_erreur: elements.resultat.querySelectorAll(".erreur").length,
+      badges: elements.resultat.querySelectorAll(".badge").length,
+    };
+    elements.montant.value = "";
   }
 
   // --- le serveur ne répond pas au chargement : le formulaire le dit --------
@@ -770,6 +801,26 @@ async function main() {
       sources_null: (() => { const r = reponseVerdict(); r.sources = null; return r; })(),
       clause_sans_kind: (() => {
         const r = reponseVerdict(); delete r.sources[0].kind; return r;
+      })(),
+      // Revue Codex 1.9 (I2) : un 200 amputé de ce qu'UX-DR6 fait afficher n'est pas un verdict
+      // sobre, c'est un serveur cassé. Aucun de ces champs n'est facultatif côté serveur.
+      sans_sources: (() => { const r = reponseVerdict(); delete r.sources; return r; })(),
+      sans_raison: (() => {
+        const r = reponseVerdict(); delete r.answer.verdict.reason; return r;
+      })(),
+      sans_paquet: (() => {
+        const r = reponseVerdict(); delete r.answer.verdict.missing; return r;
+      })(),
+      paquet_null: (() => { const r = reponseVerdict(); r.answer.verdict.missing = null; return r; })(),
+      sans_ask_client: (() => {
+        const r = reponseVerdict(); delete r.answer.verdict.ask_client; return r;
+      })(),
+      sans_escalate: (() => {
+        const r = reponseVerdict(); delete r.answer.verdict.escalate; return r;
+      })(),
+      sans_claims: (() => { const r = reponseVerdict(); delete r.answer.claims; return r; })(),
+      sans_rejetees: (() => {
+        const r = reponseVerdict(); delete r.answer.rejected_claims; return r;
       })(),
     };
     cas.illisibles = {};

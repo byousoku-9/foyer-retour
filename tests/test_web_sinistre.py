@@ -100,8 +100,9 @@ def test_le_corps_porte_exactement_les_champs_du_contrat(cas: dict[str, Any]) ->
     assert corps["faits"]["montant_eur"] == 1200
     assert cas["corps_methode"] == "POST"
     assert cas["corps_entetes"]["Content-Type"] == "application/json"
-    # Les champs du corps sont **exactement** ceux que le schéma du serveur accepte comme requis ou
-    # facultatifs — `variant` et `lang` restant à leur défaut, ils ne sont pas envoyés.
+    # Les champs du corps sont **exactement** ceux que le schéma du serveur accepte — depuis la
+    # revue Codex 1.9 (I3), il les **exige** (`extra="forbid"`) : un champ en trop est un 400, et
+    # ce test est ce qui empêche la page de le découvrir en production. `lang` reste à son défaut.
     assert set(corps) <= set(SinistreRequest.model_fields)
 
 
@@ -550,6 +551,17 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("sans_trace", "trace"),
     ("sources_null", "sources"),
     ("clause_sans_kind", "sources[0].kind"),
+    # Revue Codex 1.9 (tour 1, I2) : tout ce qu'UX-DR6 fait afficher, et qu'aucun défaut de schéma
+    # ne rend facultatif sur le fil. Un 200 amputé de sa raison, de son paquet manquant ou de ses
+    # questions donnait un verdict **plus assuré** que celui que le serveur a rendu.
+    ("sans_sources", "sources"),
+    ("sans_raison", "answer.verdict.reason"),
+    ("sans_paquet", "answer.verdict.missing"),
+    ("paquet_null", "answer.verdict.missing"),
+    ("sans_ask_client", "answer.verdict.ask_client"),
+    ("sans_escalate", "answer.verdict.escalate"),
+    ("sans_claims", "answer.claims"),
+    ("sans_rejetees", "answer.rejected_claims"),
 ])
 def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
     """AD-16 : « réponse vide présentée comme réponse ». Un corps qu'aucune route ne peut écrire.
@@ -717,6 +729,37 @@ def test_manquant_nomme_ce_qui_manque_et_rien_dautre(cas: dict[str, Any]) -> Non
     assert cas["manquant"]["complet"] is None
     assert all(cas["manquant"][c] for c in ("sans_description", "sans_question", "sans_contrat"))
     assert len({cas["manquant"][c] for c in ("sans_description", "sans_question", "sans_contrat")}) == 3
+
+
+def test_le_montant_a_trois_issues_et_non_deux(cas: dict[str, Any]) -> None:
+    """Revue Codex 1.9 (tour 1, I1) : vide ≠ illisible.
+
+    `Faits.montant_eur` est un `float | None` : le champ est **facultatif**, mais une saisie non
+    vide qui n'est pas un nombre fini positif ou nul est une erreur de saisie, pas une absence.
+    """
+    m = cas["montant_saisi"]
+    assert m["vide"] is None and m["blancs"] is None
+    assert m["zero"] == 0 and m["entier"] == 1200
+    assert m["virgule"] == 1200.5 and m["point"] == 1200.5  # la page lit « 1200,50 »
+    for illisible in ("negatif", "mots", "infini", "nan"):
+        assert m[illisible] == "illisible", illisible
+
+
+def test_un_montant_illisible_ne_part_pas_ampute_mais_refuse(cas: dict[str, Any]) -> None:
+    """Revue Codex 1.9 (tour 1, I1) : le supprimer du corps, c'était analyser d'autres faits.
+
+    `novalidate` (revue 1.9, tour 2) a retiré au navigateur la validation de `min="0"` : `-100`
+    atteignait donc `corpsSinistre()`, qui **supprimait** le champ. Le sinistre partait alors —
+    quatre appels payés — sur des faits amputés de ce que l'utilisateur avait écrit, et l'écran ne
+    disait rien. La page le refuse maintenant avant tout appel, et dit pourquoi.
+    """
+    assert cas["manquant"]["montant_vide"] is None  # facultatif : vide reste vide
+    for cle in ("montant_negatif", "montant_mots"):
+        assert "nombre en euros" in cas["manquant"][cle]
+    releve = cas["montant_negatif_soumis"]
+    assert releve["appels"] == 0
+    assert "nombre en euros" in releve["texte"]
+    assert releve["cartes_erreur"] == 1 and releve["badges"] == 0
 
 
 def test_une_liste_de_documents_en_echec_le_dit_sans_mentir(cas: dict[str, Any]) -> None:
