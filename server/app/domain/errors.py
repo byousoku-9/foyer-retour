@@ -69,6 +69,17 @@ class InvalidRequest(PipelineError):
         super().__init__(ErrorCode.invalid_request, message)
 
 
+class CorpusUnavailable(PipelineError):
+    """Le document demandé n'est pas servi : absent du manifest, ou mis en quarantaine (AD-7).
+
+    Levé par le pipeline **avant** le premier appel modèle : sans ce contrôle, `retrouver` finit sur
+    un `KeyError` nu — donc un 500 `internal` — après une étape déjà facturée (revue 1.5).
+    """
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(ErrorCode.corpus_unavailable, message)
+
+
 class LlmUnavailable(PipelineError):
     """Fournisseur injoignable ou en erreur (`llm_unavailable`), ou requête fausse de notre part (`internal`)."""
 

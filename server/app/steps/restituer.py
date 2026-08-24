@@ -91,6 +91,13 @@ def restituer(*, language: str, verification: Verification | None = None,
                               claim_ids=[cid for cid in s.claim_ids if cid in survivantes])
                 for s in segments]
     texte = _texte(segments)
+    if not any(s.kind == "factuel" for s in segments):
+        # `found=True` vient d'AD-4 (≥ 1 claim retrouvée ∧ pertinente) et ne dépend pas des segments :
+        # une réponse dont plus aucune phrase n'affirme quoi que ce soit reste `found`, mais elle ne
+        # ressemble plus à une réponse. Visible dans la trace plutôt que muette (revue 1.5).
+        step.checks.append(CheckResult(
+            name="aucun_segment_factuel", ok=False,
+            detail="plus aucun segment factuel après le retrait : le texte ne porte aucune affirmation"))
     if not texte:
         # Dégénéré mais possible : une claim survivante qu'aucun segment ne cite (l'ébauche n'oblige
         # que l'inverse — un segment factuel cite une claim). Visible dans la trace plutôt que muet.

@@ -186,7 +186,10 @@ class Settings(BaseSettings):
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
             "historique_max_turns": self.historique_max_turns,
-            "relance_sur_non_pertinence": self.relance_sur_non_pertinence,
+            # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
+            # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider
+            # (revue 1.5) — la valeur reste lisible, et le type déclaré reste vrai.
+            "relance_sur_non_pertinence": int(self.relance_sur_non_pertinence),
             "quote_max_chars": self.quote_max_chars,
             "draft_max_segments": self.draft_max_segments,
             "draft_max_claims": self.draft_max_claims,

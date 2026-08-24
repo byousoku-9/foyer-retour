@@ -27,7 +27,14 @@ from typing import Any
 from server.app.config import Settings
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import AbsenceProof, Answer, Verification
-from server.app.domain.errors import BudgetExceeded, InvalidRequest, Timeout
+from server.app.domain.errors import (
+    BudgetExceeded,
+    CorpusUnavailable,
+    InvalidRequest,
+    LlmParse,
+    LlmUnavailable,
+    Timeout,
+)
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalBudget
@@ -118,6 +125,15 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`, `LlmUnavailable`) remontent.
     """
     doc_id = doc_id or settings.guide_doc_id
+    if doc_id not in corpus.documents:
+        # Document en quarantaine, absent ou mal nommé : `retrouver` lèverait un `KeyError` nu **après**
+        # *comprendre*, donc après un appel facturé, et l'API en ferait un 500 (revue 1.5). AD-16 a un
+        # code pour ça, et le contrôle a sa place ici, avec les autres bornes d'entrée.
+        raise CorpusUnavailable(f"document {doc_id!r} non servi (absent du corpus ou en quarantaine)")
+    # La longueur de `question` et celle de chaque tour sont bornées par le contrat HTTP d'AD-11
+    # (≤ 1 000 et ≤ 2 000 caractères, story 1.6 ; `Turn.texte` porte déjà la seconde dans le domaine).
+    # Le **nombre** de tours, lui, est une borne du pipeline : c'est lui qui passe l'historique à
+    # *comprendre* et à *rédiger*.
     if len(historique) > settings.historique_max_turns:
         # Avant le premier appel modèle : une requête refusée ne coûte rien (AD-11 : 400 au-delà,
         # jamais tronqué côté serveur — tronquer perdrait le tour qui porte l'anaphore).
@@ -224,19 +240,34 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     name="relance_sans_effet", ok=False,
                     detail="l'ébauche relancée est identique (même hash canonique) : arrêt sur la première vérification"))
             else:
-                verification, step_verifier_2 = await verifier(draft_2, parsed=parsed, retrieval=retrieval,
-                                                               corpus=corpus, index=index, client=client,
-                                                               budget=budget, settings=settings)
+                seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed, retrieval=retrieval,
+                                                          corpus=corpus, index=index, client=client,
+                                                          budget=budget, settings=settings)
                 steps.append(step_verifier_2)
-        except (BudgetExceeded, Timeout) as exc:
-            # La relance est une **tentative d'amélioration**, pas la réponse : le plafond par requête
-            # (NFR4) ou la deadline (AD-1) l'arrêtent avant tout appel facturé. Mesuré en 1.5 : sur un
+                if len(seconde.claims) >= len(acquise.claims):
+                    verification = seconde
+                else:
+                    # AD-3 relance pour **améliorer** : rien ne garantit que la seconde ébauche fasse
+                    # mieux. Elle retient moins — la remplacer jetterait des affirmations déjà
+                    # vérifiées, et pourrait transformer une réponse en refus `claims_rejetes`
+                    # (revue 1.5). L'acquis fait foi, et la trace dit que la relance n'a pas payé.
+                    step_verifier_2.checks.append(CheckResult(
+                        name="relance_moins_bonne", ok=False,
+                        detail=f"la relance retient {len(seconde.claims)} affirmation(s) contre "
+                               f"{len(acquise.claims)} : la première vérification fait foi"))
+        except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
+            # La relance est une **tentative d'amélioration**, pas la réponse. Le plafond par requête
+            # (NFR4) ou la deadline (AD-1) l'arrêtent avant tout appel facturé — mesuré en 1.5 : sur un
             # cache de préfixe froid, `comprendre + rédiger` engagent déjà ≈ 0,065 € des 0,10 €, et le
-            # majorant de la relance seul vaut ≈ 0,044 € — la refuser est le comportement voulu.
+            # majorant de la relance seul vaut ≈ 0,044 €. Un second appel `reason` peut aussi échouer
+            # au parse ou chez le fournisseur : même surface d'échec, même traitement (revue 1.5).
             # Rendre 503 ici jetterait une réponse déjà vérifiée : ce n'est pas un dégradé silencieux,
             # c'est le contraire, et la trace le dit. Un draft relancé mais **non vérifié** n'est
             # jamais montré (AD-3) : on repart de la vérification acquise.
-            verification = acquise
+            # AD-4 : `complete=True` exige « aucune troncature de budget ». Une relance que le
+            # plafond ou la deadline ont empêchée en est une : la réponse est servie, mais elle n'est
+            # pas donnée pour complète.
+            verification = acquise.model_copy(update={"complete": False})
             step_verifier.checks.append(CheckResult(
                 name="relance_abandonnee", ok=False,
                 detail=f"relance de rédiger non menée à terme ({exc.code.value}) : "

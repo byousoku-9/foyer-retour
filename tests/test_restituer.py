@@ -6,6 +6,8 @@ ni fixture — ce qui est exactement la propriété à préserver.
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
 
 from server.app.domain.answer import (
@@ -64,7 +66,10 @@ def test_a_factual_segment_without_a_surviving_claim_is_removed() -> None:
     assert [c.name for c in step.checks] == ["segments_retires"]
 
 
-@pytest.mark.parametrize("kind", ["hors_perimetre", "zero_hit", "claims_rejetes", "clarification_requise"])
+ABSENCE_KINDS = sorted(get_args(AbsenceProof.model_fields["kind"].annotation))
+
+
+@pytest.mark.parametrize("kind", ABSENCE_KINDS)
 def test_every_absence_kind_has_its_own_sentence(kind: str) -> None:
     reason = AbsenceProof(kind=kind, terms_searched=["école"], blocks_scanned=506, documents=["lux-guide"])
     answer, step = restituer(language="fr", reason=reason)
@@ -73,8 +78,10 @@ def test_every_absence_kind_has_its_own_sentence(kind: str) -> None:
     # un refus rend **un** segment `limite` : l'UI n'a qu'une chose à afficher
     assert [(s.kind, s.text) for s in answer.segments] == [("limite", PHRASES_DE_REFUS[kind])]
     assert answer.reason is reason and step.checks[0].detail == kind
-    # quatre phrases distinctes : « hors périmètre » ne se confond pas avec « rien trouvé »
-    assert len(set(PHRASES_DE_REFUS.values())) == 4
+    # une phrase distincte par kind : « hors périmètre » ne se confond pas avec « rien trouvé ».
+    # Dérivé du Literal du domaine : un cinquième kind sans phrase serait un KeyError en production.
+    assert set(PHRASES_DE_REFUS) == set(ABSENCE_KINDS)
+    assert len(set(PHRASES_DE_REFUS.values())) == len(ABSENCE_KINDS)
 
 
 def test_a_refusal_in_another_language_says_it_falls_back_to_french() -> None:
@@ -109,4 +116,15 @@ def test_restituer_refuses_the_two_incoherent_calls() -> None:
 def test_a_surviving_claim_no_segment_cites_is_visible_in_the_trace() -> None:
     verification = Verification(segments=[], claims=[_claim()], found=True)
     answer, step = restituer(language="fr", verification=verification)
-    assert answer.texte == "" and [c.name for c in step.checks] == ["texte_vide"]
+    assert answer.texte == "" and [c.name for c in step.checks] == ["aucun_segment_factuel", "texte_vide"]
+
+
+def test_a_text_without_any_factual_segment_is_flagged() -> None:
+    """AD-4 fait `found` des claims, pas des segments : une réponse sans affirmation reste visible."""
+    verification = Verification(
+        segments=[AnswerSegment(text="Rejetée.", kind="factuel", claim_ids=["c2"]),
+                  AnswerSegment(text="Cela dit,", kind="transition")],
+        claims=[_claim()], rejected_claims=[_rejet()], found=True)
+    answer, step = restituer(language="fr", verification=verification)
+    assert answer.found is True and answer.texte == "Cela dit,"
+    assert "aucun_segment_factuel" in [c.name for c in step.checks]

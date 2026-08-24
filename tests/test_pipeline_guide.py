@@ -16,7 +16,8 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
-from server.app.domain.errors import InvalidRequest, Timeout
+from server.app.digests import pipeline_digest, prompts_digest
+from server.app.domain.errors import CorpusUnavailable, InvalidRequest, Timeout
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Turn
@@ -29,10 +30,10 @@ from tests.llm_fake import FakeAnthropic, fake_message
 DOC_ID = "mini"
 ARRIVEE = ("Vous disposez de huit jours après votre arrivée pour vous déclarer au Biergercenter de "
            "votre commune de résidence.")
-ECOLE = ("L'inscription scolaire se fait auprès de la commune, avant le 1er septembre, sur "
+ECOLE = ("L'inscription à l'école se fait auprès de la commune, avant le 1er septembre, sur "
          "présentation du certificat de résidence.")
 Q_ARRIVEE = "huit jours après votre arrivée pour vous déclarer"
-Q_ECOLE = "L'inscription scolaire se fait auprès de la commune"
+Q_ECOLE = "L'inscription à l'école se fait auprès de la commune"
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +63,8 @@ def index() -> Index:
 
 
 def _settings(**kw) -> Settings:
-    return Settings(_env_file=None, anthropic_api_key="", guide_doc_id=DOC_ID, **kw)
+    kw.setdefault("guide_doc_id", DOC_ID)
+    return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
 def _budget(deadline_s: float = 30.0) -> RequestBudget:
@@ -149,11 +151,16 @@ async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None
 async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: Index) -> None:
     """Reprise 1.4 : `max_blocks`/`max_tokens` existaient sans que personne ne les renseigne."""
     settings = _settings(retrieval_max_blocks=1)
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
-                                       settings=settings)
+    # La borne mord au point que le bloc cité par BONNE n'est plus transmis : la claim est donc
+    # rejetée (« bloc non fourni »), la relance rejoue la même ébauche et le refus est motivé.
+    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE), _rediger(BONNE)],
+                                     settings=settings)
+    assert fake.remaining_script == 0
     retrouver = trace.steps[1]
-    assert len(retrouver.opened_block_ids) == 1  # la borne mord : sans elle, trois blocs partaient
+    assert len(retrouver.opened_block_ids) == 1  # sans la borne, plusieurs blocs partaient
     assert trace.truncations == 1
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "claims_rejetes"
 
 
 # --- court-circuits d'AD-5 ---------------------------------------------------
@@ -321,3 +328,93 @@ async def test_an_unaffordable_retry_with_nothing_verified_is_a_refusal_not_an_e
     assert answer.reason.kind == "claims_rejetes"  # un `Answer` complet (200), jamais une 503
     verifier = next(s for s in trace.steps if s.name == "verifier")
     assert "aucune affirmation n'avait survécu" in verifier.checks[-1].detail
+
+
+# --- correctifs de revue 1.5 -------------------------------------------------
+@pytest.mark.parametrize("intent", ["meteo", "bavardage", "hors_perimetre"])
+async def test_every_out_of_scope_intent_short_circuits(index: Index, intent: str) -> None:
+    """AD-5 : « l'étage `reason` n'est jamais atteint pour un refus » — pour les trois intents."""
+    answer, trace, fake = await _run(index, [_comprendre(intent)])
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "hors_perimetre"
+
+
+async def test_a_retry_that_parses_badly_never_takes_the_verified_answer_with_it(index: Index) -> None:
+    """Même surface d'échec que le budget, même traitement : la première vérification fait foi."""
+    casse = fake_message(model=TIERS["reason"], text="{ pas du json")
+    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+                                             _verdicts(("c1", True)), casse, casse])
+    assert fake.remaining_script == 0  # les deux tentatives du client (appel + relance motivée)
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    verifier_step = next(s for s in trace.steps if s.name == "verifier")
+    (check,) = [c for c in verifier_step.checks if c.name == "relance_abandonnee"]
+    assert "llm_parse" in check.detail
+
+
+async def test_a_retry_that_verifies_worse_never_replaces_the_answer(index: Index) -> None:
+    """AD-3 relance pour améliorer : une seconde ébauche moins bonne ne jette pas l'acquis."""
+    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+                                             _verdicts(("c1", True)), _rediger(MAUVAISE)])
+    assert fake.remaining_script == 0  # la seconde vérification n'a rien à juger : aucun appel micro
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
+    (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+    assert "0 affirmation(s) contre 1" in check.detail
+
+
+async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
+    """AD-4 : `complete=True` exige « aucune troncature de budget » — une relance refusée en est une."""
+    settings = _settings(retrieval_max_blocks=2)  # pas de troncature « naturelle » ici
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)
+    answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]),
+                                               _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))],
+                                       settings=settings, budget=budget)
+    assert answer.found is True and answer.complete is False
+
+
+async def test_an_unserved_document_is_refused_before_any_paid_call(index: Index) -> None:
+    with pytest.raises(CorpusUnavailable, match="non servi"):
+        await _run(index, [], settings=_settings(guide_doc_id="mini-inexistant"))
+
+
+async def test_without_a_budget_the_pipeline_asks_the_client_for_one(index: Index) -> None:
+    """Chemin de la story 1.6 : l'API appelle `repondre_guide` sans budget."""
+    settings = _settings()
+    fake = FakeAnthropic([_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
+    client = LlmClient(settings, anthropic_client=fake)
+    answer, trace = await repondre_guide("Quel délai ?", [], Profil(), corpus=index.corpus, index=index,
+                                         client=client, settings=settings, request_id="sans-budget")
+    assert answer.found is True and trace.deadline_remaining_s is not None
+    # le budget vient des seuils actifs : la deadline restante ne dépasse jamais `deadline_s`
+    assert 0 < trace.deadline_remaining_s <= settings.deadline_s
+    budget = client.new_budget()
+    assert (budget.deadline_s, budget.max_attempts, budget.max_cost_eur) == (
+        settings.deadline_s, settings.max_llm_attempts, settings.max_cost_eur_per_request)
+
+
+async def test_the_trace_digests_are_the_real_ones_and_can_be_supplied(index: Index) -> None:
+    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
+    assert trace.pipeline_digest == pipeline_digest() != prompts_digest()
+    assert trace.prompts_digest == prompts_digest()
+
+    settings = _settings()
+    fake = FakeAnthropic([_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
+    _a, fournis = await repondre_guide(
+        "Quel délai ?", [], Profil(), corpus=index.corpus, index=index,
+        client=LlmClient(settings, anthropic_client=fake), settings=settings, request_id="digests",
+        budget=_budget(), pipeline_digest_hex="pipe-de-l-image", prompts_digest_hex="prompts-de-l-image")
+    # story 1.6 : l'API les calcule au démarrage et les passe ; ils sont repris tels quels
+    assert (fournis.pipeline_digest, fournis.prompts_digest) == ("pipe-de-l-image", "prompts-de-l-image")
+
+
+async def test_trace_retries_counts_the_client_parse_retries_too(index: Index) -> None:
+    """AD-10 ne définit pas `retries` : le pipeline le fait, et le test l'épingle."""
+    casse = fake_message(model=TIERS["reason"], text="{ pas du json")
+    _answer, trace, fake = await _run(index, [_comprendre(), casse, _rediger(BONNE),
+                                              _verdicts(("c1", True))])
+    assert fake.remaining_script == 0
+    rediger_step = next(s for s in trace.steps if s.name == "rediger")
+    assert [c.name for c in rediger_step.checks] == ["parse_retry"]
+    assert trace.retries == 1  # la relance motivée du client, sans relance d'AD-3
