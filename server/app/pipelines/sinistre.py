@@ -87,7 +87,7 @@ RAISONS_DE_REFUS: dict[str, str] = {
 RAISON_DE_REFUS_GENERIQUE = "Le dossier n'a pas pu être confronté aux clauses du contrat"
 
 
-def _verdict_de_refus(kind: str) -> Verdict:
+def _verdict_de_refus(kind: str, dossier: MissingPackage | None = None) -> Verdict:
     """AD-16 : un refus sinistre porte `ne_tranche_pas`, jamais rien.
 
     Le front sinistre affiche d'abord un badge de verdict ; sans verdict, il n'aurait qu'une absence à
@@ -99,10 +99,11 @@ def _verdict_de_refus(kind: str) -> Verdict:
     question serait le seul verdict du système à ne rien réclamer (revue 1.8). Les questions sont
     celles qu'un verdict ordinaire compose — même code, mêmes mots, aucune claim à interroger.
     """
+    paquet = (dossier or MissingPackage()).model_copy(deep=True, update={"faits": []})
     return Verdict(value="ne_tranche_pas",
                    reason=f"{RAISONS_DE_REFUS.get(kind, RAISON_DE_REFUS_GENERIQUE)} ({PORTEE})",
-                   missing=MissingPackage(),
-                   ask_client=questions_du_paquet_manquant(),
+                   missing=paquet,
+                   ask_client=questions_du_paquet_manquant(paquet),
                    escalate=["Aucune clause du contrat n'a pu être opposée au sinistre : "
                              "reprendre le dossier à la main."])
 
@@ -146,7 +147,8 @@ def _faits(faits: Faits | Mapping[str, Any]) -> Faits:
 async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any], *, corpus: Any,
               index: Any, client: Any, settings: Settings, request_id: str,
               variant: str = "deterministe", lang: str | None = None, deadline_s: float | None = None,
-              budget: Any = None, pipeline_digest_hex: str | None = None,
+              budget: Any = None, dossier: MissingPackage | None = None,
+              pipeline_digest_hex: str | None = None,
               prompts_digest_hex: str | None = None) -> tuple[Answer, Trace]:
     """Un sinistre décrit → l'unique `Answer` d'AD-4, verdict compris, et sa `Trace`.
 
@@ -154,6 +156,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
     200, AD-11). Seules les entrées hors bornes (`InvalidRequest`), le document non servi
     (`CorpusUnavailable`) et les échecs terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`,
     `LlmUnavailable`) remontent — sans repli, AD-16.
+
+    `dossier` (revue Codex 1.8, B1) est le paquet contractuel que l'appelant **détient** : un
+    `MissingPackage` dont les booléens à `False` disent les pièces qu'il n'a plus à réclamer. C'est le
+    seul chemin vers `couvert` (règle (3) d'AD-6), et il est **explicite** : sans lui, tout est réputé
+    inconnu et la règle (2) plafonne le verdict à `sous_conditions` — « au regard des conditions
+    générales seules ». Rien dans le pipeline ne le fabrique ni ne le devine ; les `faits[]` qu'il
+    porterait sont ignorés, ils sont dérivés des libellés rendus par le modèle.
     """
     if variant not in VARIANTES:
         # Avant tout appel facturé : une variante inconnue est une faute d'appel, pas un cas à traiter.
@@ -214,7 +223,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 clarification: str | None = None) -> tuple[Answer, Trace]:
         echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
         answer, step = restituer(language=language, reason=absence(kind, parsed),
-                                 clarification=clarification, verdict=_verdict_de_refus(kind),
+                                 clarification=clarification,
+                                 verdict=_verdict_de_refus(kind, dossier),
                                  registre=REGISTRE_SINISTRE)
         steps.append(step)
         return answer, tracer()
@@ -267,7 +277,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         echeance("verifier")
         verification, step_verifier = await verifier(draft, parsed=parsed, retrieval=retrieval,
                                                      corpus=corpus, index=index, client=client,
-                                                     budget=budget, settings=settings, faits=faits)
+                                                     budget=budget, settings=settings, faits=faits,
+                                                     dossier=dossier)
         steps.append(step_verifier)
 
         # --- relance unique (AD-3) ------------------------------------------
@@ -294,7 +305,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 else:
                     seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed, retrieval=retrieval,
                                                               corpus=corpus, index=index, client=client,
-                                                              budget=budget, settings=settings, faits=faits)
+                                                              budget=budget, settings=settings,
+                                                              faits=faits, dossier=dossier)
                     steps.append(step_verifier_2)
                     if domine(seconde, acquise):
                         verification = seconde
@@ -333,7 +345,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé. Le verdict, lui, a bien été
             # calculé par *vérifier* sur zéro clause affichée : c'est un `ne_tranche_pas` gagné, et
             # *restituer* le recopie tel quel (AD-16 : jamais un refus sinistre sans verdict).
-            verification = _verdict_par_defaut(verification)
+            verification = _verdict_par_defaut(verification, dossier)
             answer, step_restituer = restituer(language=parsed.language, verification=verification,
                                                reason=absence("claims_rejetes", parsed),
                                                registre=REGISTRE_SINISTRE)
@@ -352,7 +364,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         raise
 
 
-def _verdict_par_defaut(verification: Verification) -> Verification:
+def _verdict_par_defaut(verification: Verification,
+                        dossier: MissingPackage | None = None) -> Verification:
     """Ceinture d'AD-16 : une vérification sinistre sans verdict n'atteint jamais *restituer*.
 
     *vérifier* en mode sinistre en calcule toujours un — y compris sur zéro claim affichée, où la
@@ -363,4 +376,5 @@ def _verdict_par_defaut(verification: Verification) -> Verification:
     """
     if verification.verdict is not None:
         return verification
-    return verification.model_copy(update={"verdict": _verdict_de_refus("claims_rejetes")})
+    return verification.model_copy(
+        update={"verdict": _verdict_de_refus("claims_rejetes", dossier)})

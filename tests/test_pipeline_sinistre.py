@@ -112,26 +112,33 @@ def _rediger(*claims: tuple[str, str, list[tuple[str, str]]]) -> dict:
                    for cid, texte, quotes in claims]}))
 
 
-def _verifier(*entrees: tuple[str, bool, bool, bool, bool, str | None], nb_segments: int = 8) -> dict:
-    """`(claim_id, pertinente, fait_requis_present, option_requise, cp_requise, fait_manquant)`."""
+def _verifier(*entrees: tuple, nb_segments: int = 8) -> dict:
+    """`(claim_id, pertinente, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
+    éventuellement suivi de `(qualites_exigees, qualites_etablies)` — revue Codex 1.8 (B3)."""
+    applicabilite = []
+    for entree in entrees:
+        cid, _p, present, option, cp, manquant = entree[:6]
+        applicabilite.append({
+            "claim_id": cid, "fait_requis_present": present, "option_requise": option,
+            "cp_requise": cp, "fait_manquant": manquant,
+            "qualites_exigees": list(entree[6]) if len(entree) > 6 else [],
+            "qualites_etablies": list(entree[7]) if len(entree) > 7 else []})
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "verdicts": [{"claim_id": c, "pertinente": p} for c, p, *_ in entrees],
         "facettes": [{"facette": 0, "claim_ids": [c for c, p, *_ in entrees if p]}],
         "segments": [{"segment": i, "soutenu": True} for i in range(nb_segments)],
-        "applicabilite": [{"claim_id": c, "fait_requis_present": present, "option_requise": option,
-                           "cp_requise": cp, "fait_manquant": manquant}
-                          for c, _p, present, option, cp, manquant in entrees]}))
+        "applicabilite": applicabilite}))
 
 
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
-               variant: str = "deterministe"):
+               variant: str = "deterministe", dossier: MissingPackage | None = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await sinistre.run(doc_id, QUESTION, faits, corpus=index.corpus, index=index,
                                        client=client, settings=settings, request_id="req-sinistre",
-                                       variant=variant, budget=budget or _budget())
+                                       variant=variant, budget=budget or _budget(), dossier=dossier)
     return answer, trace, fake
 
 
@@ -206,18 +213,13 @@ async def test_an_applicable_exclusion_over_the_case_is_not_covered(index: Index
     assert answer.verdict is not None and answer.verdict.value == "non_couvert"
 
 
-async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
-    """Le cas de fixture que l'AC exige — garantie du socle `oui`, aucune claim `humain` —, et ce
-    qu'il **suppose** désormais, dit explicitement (revue 1.8, tour 2).
+async def test_a_baseline_guarantee_alone_is_conditional_without_the_file(index: Index) -> None:
+    """La même garantie du socle, sans le dossier : `sous_conditions`, et le dossier est réclamé.
 
-    Joué de bout en bout, il ne rend **pas** `couvert` : le pipeline ne lit que les conditions
-    générales, donc `MissingPackage` reste entier et la seconde branche de la règle (2) d'AD-6 est
-    satisfaite pour toute garantie. C'est la propriété qui manquait — mesuré en live, deux runs du
-    même code avaient rendu `ne_tranche_pas` puis `couvert`, un seul booléen du modèle d'écart.
-
-    La règle (3) n'est pas morte : la même claim, jugée avec un paquet **établi**, rend bien
-    `couvert`. C'est ce que fera la story qui apportera les conditions particulières au dossier, et
-    c'est pourquoi ce test montre les deux moitiés côte à côte.
+    C'est le cas de l'outil quand l'appelant n'a que les conditions générales : `MissingPackage` reste
+    entier, la seconde branche de la règle (2) d'AD-6 est satisfaite, et `couvert` est hors d'atteinte.
+    Mesuré : sans cette règle, un run réel du cas bougie rend `couvert` — la valeur que l'AC interdit
+    sur ce cas (revue Codex 1.8, B1, maintenu sur mesure).
     """
     answer, _trace, _fake = await _run(index, [
         _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
@@ -229,7 +231,32 @@ async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
     assert _questions_attendues(verdict)
     assert [c.status.applicable for c in answer.claims] == ["oui"]
 
-    # La même clause, avec le dossier complet : la seule chose qui change est le paquet.
+
+async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
+    """La fixture que l'AC exige nommément — « `couvert` (garantie socle) » —, **jouée par le pipeline**.
+
+    Revue Codex 1.8 (B1) : la règle (3) d'AD-6 n'est pas morte, il lui manquait son chemin d'entrée.
+    `run(..., dossier=…)` porte le paquet contractuel que l'appelant détient ; la même chaîne, la même
+    ébauche et les mêmes champs typés que le test précédent rendent alors `couvert`. Rien dans le
+    pipeline ne fabrique ce dossier : c'est un argument, jamais une déduction.
+    """
+    complet = MissingPackage(conditions_particulieres=False, options_souscrites=False,
+                             avenants=False, date_effet=False)
+    answer, trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
+        dossier=complet)
+    verdict = answer.verdict
+    assert verdict is not None and verdict.value == "couvert"
+    assert "socle commun" in verdict.reason and "conditions générales seules" in verdict.reason
+    assert verdict.escalate == [] and verdict.missing.faits == []
+    # le paquet est établi : plus rien à réclamer, les questions suivent les pièces
+    assert verdict.missing.conditions_particulieres is False
+    assert verdict.ask_client == []
+    assert [c.status.applicable for c in answer.claims] == ["oui"]
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+
+    # et la table dit la même chose hors pipeline, sur la clause relue dans le corpus
     (claim,) = answer.claims
     (quote,) = claim.quotes
     document = index.corpus.documents[DOC_ID]
@@ -240,10 +267,41 @@ async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
         clauses=[ClauseCitee(block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
                              portee=document.scope_nodes(bloc.block_id), node_id=noeud,
                              socle=document.node_scope_kind(noeud) == "commun")])
-    complet = MissingPackage(conditions_particulieres=False, options_souscrites=False,
-                             avenants=False, date_effet=False)
     au_dossier = decider([jugee], ask_client_max=_settings().ask_client_max, missing=complet)
     assert au_dossier.value == "couvert" and au_dossier.ask_client == []
+
+
+async def test_a_refusal_keeps_the_file_the_caller_already_has(index: Index) -> None:
+    """Le `dossier` accompagne aussi un refus : on ne réclame pas au gestionnaire ce qu'il a déjà."""
+    complet = MissingPackage(conditions_particulieres=False, options_souscrites=False,
+                             avenants=False, date_effet=False)
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(MAUVAISE), _rediger(("c9", "Autre tentative, aussi fausse.",
+                                                     [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")]))],
+        dossier=complet)
+    assert answer.found is False and answer.verdict is not None
+    assert answer.verdict.value == "ne_tranche_pas"
+    assert answer.verdict.missing.conditions_particulieres is False
+    assert answer.verdict.ask_client == []
+
+
+async def test_the_same_guarantee_with_an_unestablished_quality_is_not_covered(index: Index) -> None:
+    """Revue Codex 1.8 (B3), le pendant du test précédent : ce qui sépare `couvert` de `ne_tranche_pas`.
+
+    La garantie de la fixture exige « l'action **subite** de la chaleur ». Le modèle la nomme et ne la
+    retrouve pas dans les faits déclarés — puis coche quand même `fait_requis_present`, exactement
+    comme le run réel qui a motivé le finding. Le code fait la différence des deux listes, la claim
+    vaut `humain`, et la qualité manquante part en question au client.
+    """
+    subite = "caractère subit de l'action de la chaleur"
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None, [subite], []))])
+    verdict = answer.verdict
+    assert [c.status.applicable for c in answer.claims] == ["humain"]
+    assert verdict is not None and verdict.value == "ne_tranche_pas"
+    assert verdict.missing.faits == [subite]
+    assert any(subite in q for q in verdict.ask_client)
 
 
 async def test_an_open_condition_keeps_the_verdict_conditional(index: Index) -> None:
