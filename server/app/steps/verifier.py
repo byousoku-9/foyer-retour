@@ -69,7 +69,7 @@ from server.app.domain.verdict import (
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
-from server.app.llm.prompting import load_prompt, untrusted
+from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 # Un `claim_id` produit par le modèle n'entre dans un motif que s'il ressemble à ce que le prompt
 # demande (`c1`, `c2`, …) : court, sans espace ni balise. Tout le reste est nommé par sa position.
@@ -582,8 +582,12 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         affichables = [jugees[c.claim_id] for c in claims if c.claim_id in jugees]
         _marquer_contradictions(affichables, corpus=corpus, index=index)
         verdict = decider(affichables, ask_client_max=settings.ask_client_max)
+        # `ok=True` quelle que soit la valeur : AD-6 fait de `ne_tranche_pas` « un résultat rare et
+        # gagné, pas un repli par défaut » (AD-3 le redit). Le marquer en échec ferait passer pour un
+        # défaut du système la seule réponse honnête sur un contrat qui ne tranche pas — et un lecteur
+        # de trace y verrait un incident. La valeur reste dans le détail, qui est là pour ça.
         step.checks.append(CheckResult(
-            name="verdict", ok=verdict.value != "ne_tranche_pas",
+            name="verdict", ok=True,
             detail=f"{verdict.value} sur {len(affichables)} affirmation(s) affichée(s)"))
 
     # AD-4 : `found` et `complete` sont calculés **ici**, jamais produits par le modèle.
@@ -648,7 +652,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     clauses = clauses or {}
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
     if sinistre:
-        prefix += "\n\n" + load_prompt("verifier_sinistre")
+        # `render_prompt` et non `load_prompt` : la borne du libellé est un seuil de `config.py`, et un
+        # prompt qui l'annonce est un seuil comme un autre (convention Seuils). Sans elle, un libellé
+        # trop long est **ignoré** par le code — le fait manquant disparaît alors de `ask_client` sans
+        # que le modèle ait jamais su qu'il y avait une limite à tenir (revue 1.8).
+        prefix += "\n\n" + render_prompt("verifier_sinistre",
+                                          fait_manquant_max_chars=settings.fait_manquant_max_chars)
     parts = [untrusted("question", parsed.question_resolue)]
     if faits is not None:
         # AD-15 : les faits déclarés sont du contenu utilisateur — délimités, placés après le préfixe.
@@ -692,7 +701,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                                     messages=[{"role": "user", "content": content}],
                                     output_model=SortieVerifierSinistre if sinistre else SortieVerifier,
                                     budget=budget, step=step,
-                                    max_tokens=settings.verifier_max_tokens)
+                                    max_tokens=(settings.verifier_sinistre_max_tokens if sinistre
+                                                else settings.verifier_max_tokens))
     except PipelineError as exc:
         # AD-10/AD-16 (revue Codex 1.5, tour 2, B5) : l'appel a pu être facturé — `step.calls` le
         # porte, `budget` aussi. Sans ce rattachement, le pipeline ne peut pas distinguer un appel

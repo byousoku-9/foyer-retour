@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # (« caractère subit de l'action de la chaleur ») sans ouvrir la porte à un paragraphe.
     fait_manquant_max_chars: int = Field(200, ge=1)
     ask_client_max: int = Field(8, ge=1)
+    # L'appel `micro` du sinistre rend tout ce que rend celui du guide **plus** une entrée
+    # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
+    # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
+    # ce qui masquait le problème : à `verifier_max_claims` (8) claims, la sortie tronquée devient un
+    # `LlmParse`, donc un sinistre **sans verdict** (AD-16), pour une raison de configuration.
+    # Calcul : 8 verdicts de pertinence (~25 tokens), 8 phrases soutenues (~15), 4 facettes (~30) et
+    # 8 blocs d'applicabilité (4 champs + un libellé de `fait_manquant_max_chars` caractères, soit
+    # ~90 tokens chacun) ≈ 1 300 tokens, plus la marge de la ponctuation JSON : 2 048.
+    verifier_sinistre_max_tokens: int = Field(2048, ge=1)
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
@@ -201,7 +210,8 @@ class Settings(BaseSettings):
                              f"< title_min_size_pt ({self.title_min_size_pt})")
         for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
                             ("rediger_max_tokens", self.rediger_max_tokens),
-                            ("verifier_max_tokens", self.verifier_max_tokens)):
+                            ("verifier_max_tokens", self.verifier_max_tokens),
+                            ("verifier_sinistre_max_tokens", self.verifier_sinistre_max_tokens)):
             # Le plafond par étape ne peut pas dépasser le plafond de sortie du client : il part tel
             # quel au fournisseur et entre au tarif `output` dans le majorant `estimate_cost` (NFR4).
             if valeur > self.llm_max_output_tokens:
@@ -246,6 +256,7 @@ class Settings(BaseSettings):
             "rediger_max_tokens": self.rediger_max_tokens,
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
+            "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,
             "fait_manquant_max_chars": self.fait_manquant_max_chars,
             "ask_client_max": self.ask_client_max,
             "historique_max_turns": self.historique_max_turns,

@@ -48,6 +48,42 @@ PHRASES_DE_REFUS: dict[str, str] = {
         "Je n'ai pas pu déterminer à quoi votre question fait référence ; précisez-la et je chercherai.",
 }
 
+# Les mêmes quatre situations, dites pour un dossier de sinistre (story 1.8, revue). Un refus servait
+# jusqu'ici les phrases du guide — « Cette question sort de ce que couvre **le guide** », « aucun
+# passage **du guide** » — à un gestionnaire qui vient de décrire un sinistre sur un contrat AXA :
+# le texte affiché nommait un document que la requête ne touche pas. Les clés sont exactement celles
+# de `PHRASES_DE_REFUS` (`REGISTRES` le vérifie au chargement) : un registre n'ajoute jamais un kind,
+# il traduit les mêmes.
+PHRASES_DE_REFUS_SINISTRE: dict[str, str] = {
+    "hors_perimetre":
+        "Cette demande ne relève pas de ce que couvre un contrat d'assurance habitation : je ne la "
+        "traite pas plutôt que de la rapprocher d'une clause qui ne la vise pas.",
+    "zero_hit":
+        "Je n'ai trouvé aucune clause du contrat qui traite du sinistre décrit. Je préfère ne rien "
+        "conclure que d'opposer au dossier un passage qui ne le concerne pas.",
+    "claims_rejetes":
+        "Je n'ai retenu aucune clause : les passages cités ne soutenaient pas ce qui en était dit, ou "
+        "ne répondaient pas au sinistre décrit. Aucune clause ne vous est montrée sans vérification.",
+    "clarification_requise":
+        "Je n'ai pas pu déterminer sur quoi porte la demande ; précisez-la et je chercherai dans le "
+        "contrat.",
+}
+
+REGISTRE_GUIDE = "guide"
+REGISTRE_SINISTRE = "sinistre"
+# Le registre choisit **le vocabulaire du refus**, jamais sa logique : mêmes kinds, mêmes règles, même
+# `AbsenceProof`. Le défaut est le guide, à l'octet près — ses fixtures et ses tests en dépendent.
+REGISTRES: dict[str, dict[str, str]] = {
+    REGISTRE_GUIDE: PHRASES_DE_REFUS,
+    REGISTRE_SINISTRE: PHRASES_DE_REFUS_SINISTRE,
+}
+# Invariant de chargement : aucun registre n'invente ni n'oublie un kind d'`AbsenceProof`. Un `KeyError`
+# à la première phrase de refus servie serait un 500 sur le chemin le plus exposé (AD-16).
+_MANQUANTS = {nom: set(PHRASES_DE_REFUS) ^ set(phrases) for nom, phrases in REGISTRES.items()}
+if any(_MANQUANTS.values()):  # pragma: no cover — invariant vérifié au chargement du module
+    raise RuntimeError(f"registre(s) de refus incomplet(s) : "
+                       f"{ {n: sorted(k) for n, k in _MANQUANTS.items() if k} }")
+
 
 def _texte(segments: list[AnswerSegment]) -> str:
     """Rendu déterministe : les textes des segments survivants, dans l'ordre, séparés par une espace."""
@@ -56,8 +92,14 @@ def _texte(segments: list[AnswerSegment]) -> str:
 
 def restituer(*, language: str, verification: Verification | None = None,
               reason: AbsenceProof | None = None, clarification: str | None = None,
-              verdict: Verdict | None = None) -> tuple[Answer, StepTrace]:
+              verdict: Verdict | None = None,
+              registre: str = REGISTRE_GUIDE) -> tuple[Answer, StepTrace]:
     """`Answer` + son `StepTrace`. `reason` est obligatoire dès que la vérification n'a rien retenu.
+
+    `registre` (story 1.8, revue) choisit le **vocabulaire** de la phrase de refus, et rien d'autre :
+    le guide parle du guide, le sinistre parle du contrat. Le paramètre est explicite plutôt que
+    déduit de la présence d'un verdict — deux appelants, deux registres, aucune inférence — et son
+    défaut laisse le guide inchangé à l'octet près.
 
     `verdict` (story 1.8) : *restituer* **recopie**, il ne calcule pas. AD-4 fait de `Verdict` un
     champ de l'unique `Answer` et AD-6 confie la table à *vérifier* ; ce qui arrive ici est donc soit
@@ -83,9 +125,13 @@ def restituer(*, language: str, verification: Verification | None = None,
     if trouve and reason is not None:
         raise ValueError("restituer avec une réponse retenue n'admet pas d'AbsenceProof (reason)")
 
+    if registre not in REGISTRES:
+        raise ValueError(f"registre de refus inconnu : {registre!r} "
+                         f"(connus : {', '.join(sorted(REGISTRES))})")
+
     if not trouve:
         assert reason is not None  # garanti par le contrôle ci-dessus (mypy/lecture)
-        phrase = PHRASES_DE_REFUS[reason.kind]
+        phrase = REGISTRES[registre][reason.kind]
         answer = Answer(
             found=False, complete=False, lang="fr", lang_fallback=language != "fr", texte=phrase,
             segments=[AnswerSegment(text=phrase, kind="limite")],

@@ -41,7 +41,13 @@ from server.app.domain.errors import (
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace, Trace
-from server.app.domain.verdict import KINDS_DECISIONNELS, MissingPackage, PORTEE, Verdict
+from server.app.domain.verdict import (
+    KINDS_DECISIONNELS,
+    PORTEE,
+    MissingPackage,
+    Verdict,
+    questions_du_paquet_manquant,
+)
 from server.app.pipelines.commun import (
     APPELS_DE_LA_RELANCE,
     INTENTS_REFUSES,
@@ -53,7 +59,7 @@ from server.app.pipelines.commun import (
 )
 from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
-from server.app.steps.restituer import restituer
+from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
 from server.app.steps.retrouver import retrouver_deterministe
 from server.app.steps.verifier import verifier
 
@@ -74,25 +80,41 @@ RAISONS_DE_REFUS: dict[str, str] = {
 }
 
 
+# Ce que l'on dit quand `AbsenceProof.kind` n'est pas dans la table ci-dessus. AD-16 interdit le
+# dégradé silencieux : retomber sur la phrase de `claims_rejetes` ferait affirmer au verdict qu'aucune
+# clause n'a passé le contrôle des citations, alors que ce n'est *pas* ce qui s'est passé — un kind
+# ajouté plus tard (AD-4 en a déjà gagné un en 1.5) mentirait sans que rien ne le signale.
+RAISON_DE_REFUS_GENERIQUE = "Le dossier n'a pas pu être confronté aux clauses du contrat"
+
+
 def _verdict_de_refus(kind: str) -> Verdict:
     """AD-16 : un refus sinistre porte `ne_tranche_pas`, jamais rien.
 
     Le front sinistre affiche d'abord un badge de verdict ; sans verdict, il n'aurait qu'une absence à
     montrer là où l'utilisateur attend une position. `ne_tranche_pas` **est** cette position, et sa
-    raison dit franchement pourquoi la table n'a rien eu à trancher. Le paquet manquant reste entier :
-    rien n'a été vérifié, donc rien n'est acquis.
+    raison dit franchement pourquoi la table n'a rien eu à trancher.
+
+    Le paquet manquant reste **entier**, et il est donc **demandé** : c'est le dossier qui a le plus
+    besoin d'être complété, et le laisser repartir avec quatre pièces annoncées absentes et aucune
+    question serait le seul verdict du système à ne rien réclamer (revue 1.8). Les questions sont
+    celles qu'un verdict ordinaire compose — même code, mêmes mots, aucune claim à interroger.
     """
     return Verdict(value="ne_tranche_pas",
-                   reason=f"{RAISONS_DE_REFUS.get(kind, RAISONS_DE_REFUS['claims_rejetes'])} ({PORTEE})",
+                   reason=f"{RAISONS_DE_REFUS.get(kind, RAISON_DE_REFUS_GENERIQUE)} ({PORTEE})",
                    missing=MissingPackage(),
+                   ask_client=questions_du_paquet_manquant(),
                    escalate=["Aucune clause du contrat n'a pu être opposée au sinistre : "
                              "reprendre le dossier à la main."])
 
 
 # Borne du domaine, lue sur le schéma : `Faits.description` la porte (AD-11), et la recopier ici en
-# dur la ferait mentir le jour où elle bouge.
+# dur la ferait mentir le jour où elle bouge. Absente du schéma, elle ferait servir « limitée à None
+# caractères » à l'appelant : mieux vaut que l'import échoue au démarrage, là où un humain le voit.
 _DESCRIPTION_MAX = next((m.max_length for m in Faits.model_fields["description"].metadata
                          if getattr(m, "max_length", None) is not None), None)
+if _DESCRIPTION_MAX is None:  # pragma: no cover — invariant de schéma, vérifié au chargement du module
+    raise RuntimeError("Faits.description a perdu sa borne de longueur : AD-11 exige un rejet chiffré, "
+                       "et le message d'erreur du pipeline la cite")
 
 
 def _faits(faits: Faits | Mapping[str, Any]) -> Faits:
@@ -106,14 +128,19 @@ def _faits(faits: Faits | Mapping[str, Any]) -> Faits:
     if isinstance(faits, Faits):
         return faits
     try:
+        # `dict(faits)` est **dans** le `try` : une chaîne, une liste ou un objet non convertible lève
+        # `ValueError`/`TypeError`, que l'API traduirait en 500 `internal` — un corps mal formé est
+        # pourtant exactement ce que le 400 d'AD-16 décrit (revue 1.8).
         return Faits.model_validate(dict(faits))
-    except ValidationError as exc:
+    except (ValidationError, TypeError, ValueError) as exc:
         # AD-15 : rien de ce que l'appelant a envoyé n'entre dans le message — ni la valeur, ni le
         # chemin pydantic, qui peut porter une clé inconnue de son cru. Seuls le **compte** d'erreurs
         # et notre propre borne, lue sur le schéma pour qu'elle ne se désynchronise pas du domaine.
-        raise InvalidRequest(f"faits du sinistre hors bornes : {exc.error_count()} champ(s) invalide(s) "
-                             f"(la description est limitée à {_DESCRIPTION_MAX} caractères, "
-                             f"jamais tronquée côté serveur)") from exc
+        combien = exc.error_count() if isinstance(exc, ValidationError) else 0
+        detail = (f"{combien} champ(s) invalide(s)" if combien
+                  else "les faits ne forment pas un objet lisible")
+        raise InvalidRequest(f"faits du sinistre hors bornes : {detail} (la description est limitée à "
+                             f"{_DESCRIPTION_MAX} caractères, jamais tronquée côté serveur)") from exc
 
 
 async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any], *, corpus: Any,
@@ -132,6 +159,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # Avant tout appel facturé : une variante inconnue est une faute d'appel, pas un cas à traiter.
         raise InvalidRequest(f"variante de recherche inconnue : {variant!r} "
                              f"(connues : {', '.join(sorted(VARIANTES))})")
+    if budget is not None and deadline_s is not None:
+        # Le budget **porte** sa deadline, et elle court déjà (horloge monotone armée à sa création).
+        # Accepter les deux laissait `deadline_s` sans effet, en silence : l'appelant croyait borner la
+        # requête et ne bornait rien (revue 1.8). AD-16 : jamais de dégradé silencieux.
+        raise InvalidRequest("budget et deadline_s sont exclusifs : un budget porte déjà sa deadline "
+                             "(passer l'un ou l'autre, jamais les deux)")
     faits = _faits(faits)
     doc_id = doc_id or settings.sinistre_doc_id
     if doc_id not in corpus.documents:
@@ -181,7 +214,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 clarification: str | None = None) -> tuple[Answer, Trace]:
         echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
         answer, step = restituer(language=language, reason=absence(kind, parsed),
-                                 clarification=clarification, verdict=_verdict_de_refus(kind))
+                                 clarification=clarification, verdict=_verdict_de_refus(kind),
+                                 registre=REGISTRE_SINISTRE)
         steps.append(step)
         return answer, tracer()
 
@@ -301,9 +335,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # *restituer* le recopie tel quel (AD-16 : jamais un refus sinistre sans verdict).
             verification = _verdict_par_defaut(verification)
             answer, step_restituer = restituer(language=parsed.language, verification=verification,
-                                               reason=absence("claims_rejetes", parsed))
+                                               reason=absence("claims_rejetes", parsed),
+                                               registre=REGISTRE_SINISTRE)
         else:
-            answer, step_restituer = restituer(language=parsed.language, verification=verification)
+            answer, step_restituer = restituer(language=parsed.language, verification=verification,
+                                               registre=REGISTRE_SINISTRE)
         steps.append(step_restituer)
         return answer, tracer()
 
