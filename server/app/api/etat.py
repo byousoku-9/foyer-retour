@@ -52,17 +52,30 @@ def url_publiable(brut: str | None) -> str | None:
     ressorti tel quel dans une réponse publique.
 
     Ce qui est refusé, et pourquoi : un schéma qui n'est pas `http(s)` (le bucket privé de secours
-    d'AD-7 n'est ni atteignable ni instructif pour un lecteur) ; tout ce qui suit la **première
-    ligne** (`source.url` peut en porter deux — l'URL publique puis la copie privée —, et un simple
-    `strip()` laissait la seconde partir avec elle) ; toute valeur contenant un blanc (ce n'est plus
-    une URL) ; et toute valeur au-delà de `SOURCE_URL_MAX`.
+    d'AD-7 n'est ni atteignable ni instructif pour un lecteur) ; toute valeur contenant un blanc (ce
+    n'est plus une URL) ; et toute valeur au-delà de `SOURCE_URL_MAX`.
+
+    **La ligne retenue est la première dont le schéma est publiable, pas la première tout court**
+    (revue 1.9, tour 2). `source.url` peut porter deux lignes — l'URL publique et la copie privée —
+    et rien dans l'ingestion ne garantit leur ordre. Ne regarder que la première rendait le filtre
+    dépendant de cet ordre : un fichier qui écrit `gs://…` d'abord ne publiait plus **aucune**
+    source, en silence, et la page perdait le lien « voir le contrat à sa source publique » — le
+    seul qui rende « édition juin 2017 » vérifiable par celui à qui on l'annonce (AD-7). Balayer les
+    lignes ne relâche rien : un `gs://` n'est jamais publié, quelle que soit sa position.
+
+    La comparaison de schéma est **insensible à la casse** : `HTTPS://` est une URL valide (RFC 3986
+    : le schéma est insensible à la casse), et un `startswith` strict la rejetait comme un `gs://`.
+    L'URL rendue, elle, garde sa casse d'origine — on filtre, on ne réécrit pas.
     """
     if not brut:
         return None
-    url = brut.strip().splitlines()[0].strip() if brut.strip() else ""
-    if not url or len(url) > SOURCE_URL_MAX or any(c.isspace() for c in url):
-        return None
-    return url if url.startswith(SCHEMAS_PUBLIABLES) else None
+    for ligne in brut.splitlines():
+        url = ligne.strip()
+        if not url or len(url) > SOURCE_URL_MAX or any(c.isspace() for c in url):
+            continue
+        if url.lower().startswith(SCHEMAS_PUBLIABLES):
+            return url
+    return None
 
 
 @dataclass
@@ -171,7 +184,7 @@ def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], li
         if not chemin.is_file():
             continue
         try:
-            rapports[doc_id] = Report.model_validate_json(chemin.read_bytes())
+            rapport = Report.model_validate_json(chemin.read_bytes())
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             # Le détail (`exc`) resterait un diagnostic interne s'il partait dans l'enveloppe
             # (AD-16) ; ici il est dans une alerte de `/sante`, qui n'est lue que par nous et par la
@@ -179,6 +192,19 @@ def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], li
             alertes.append(Alerte(doc_id=doc_id, alerte="rapport_illisible",
                                   detail=f"{RAPPORT} présent mais non conforme au schéma "
                                          f"({type(exc).__name__})"))
+            continue
+        if rapport.doc_id != doc_id:
+            # Un rapport conforme au schéma peut parler d'un **autre** document (copie de dossier,
+            # ingestion relancée ailleurs, `doc_id` renommé sans réingestion). Le publier tel quel
+            # sous cette clé ferait lire à un humain les checks et les statistiques d'un document
+            # qu'il n'a pas demandé — sur la route qui sert précisément à juger si un contrat est
+            # lisible (AD-8). L'alerte porte un nom distinct de `rapport_illisible` : le fichier
+            # n'est pas illisible, il est **étranger**, et ce n'est pas le même correctif.
+            alertes.append(Alerte(doc_id=doc_id, alerte="rapport_etranger",
+                                  detail=f"{RAPPORT} décrit un autre document que le dossier qui "
+                                         f"le porte : il n'est pas publié"))
+            continue
+        rapports[doc_id] = rapport
     return rapports, alertes
 
 

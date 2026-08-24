@@ -161,13 +161,18 @@ def fiches_de(sources: list[SourceItem]) -> list[str]:
     return vues
 
 
-def _clause_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) -> ClauseSource:
+def _clause_item(quote: VerifiedQuote, *, index: Any, corpus: Any) -> ClauseSource:
     """La même relecture que `_source_item`, avec ce que la page sinistre doit peindre en plus.
 
     `page`, `bbox` et `kind` sont lus **sur le bloc du corpus**, jamais sur ce que le modèle a rendu
     (AD-6 : `Block.kind` est la seule source de typage). `line_ids` viennent de la `VerifiedQuote` :
     ce sont les lignes que l'occurrence prouvée traverse, calculées par *vérifier* dans le texte
     brut, et c'est la donnée que la visionneuse de l'epic 3 surlignera.
+
+    Le `status` d'une `ClauseSource` est **toujours** `verifiee` : AD-11 le veut dans le contrat, et
+    `clauses_de()` n'énumère que `answer.claims`, dont AD-4 garantit qu'elles sont retrouvées et
+    pertinentes. En faire un paramètre laissait croire qu'un appelant pouvait en décider (revue 1.9,
+    tour 2) : c'est le champ plat du contrat, pas le `ClaimStatus`, qui voyage dans `answer`.
     """
     document = _document(index, corpus, quote.block_id)
     if document is None:
@@ -178,7 +183,7 @@ def _clause_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) 
     bloc = document.block(quote.block_id)
     return ClauseSource(block_id=quote.block_id, page=bloc.page, bbox=bloc.bbox,
                         line_ids=list(quote.line_ids), kind=bloc.kind,
-                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=statut)
+                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=STATUT_VERIFIEE)
 
 
 def clauses_de(answer: Answer, index: Any, corpus: Any) -> list[ClauseSource]:
@@ -195,6 +200,6 @@ def clauses_de(answer: Answer, index: Any, corpus: Any) -> list[ClauseSource]:
     (D7). `answer.rejected_claims` les publie intégralement, et la page les affiche **sans** leur
     citation.
     """
-    return [_clause_item(quote, STATUT_VERIFIEE, index=index, corpus=corpus)
+    return [_clause_item(quote, index=index, corpus=corpus)
             for claim in answer.claims  # AD-4 : retrouvées, pertinentes, et citées par un segment
             for quote in claim.quotes]
