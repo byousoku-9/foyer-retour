@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -668,6 +669,130 @@ def test_ecrire_le_gate_ne_touche_que_lentree_visee(tmp_path: Path) -> None:
     assert ManifestEntry.model_validate(apres[GUIDE]).gate is not None
 
 
+# --- revue Codex 1.10 tour 2 (B2) : la contresignature humaine de la relecture -----------------
+
+CAS_CONTRESIGNE = """
+id: {id}
+suite: guide
+profile: {profile}
+question: "Quelle est la façon la moins chère d'obtenir LuxTrust ?"
+lang: fr
+expected:
+  found: true
+  fiche_ids: ["{fiche}"]
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: "Lancelot Oudin, 2026-08-25"
+  validated_by_expert: false
+  note: "relu à la main"
+"""
+
+
+def test_le_gate_dit_si_la_relecture_est_contresignee(tmp_path: Path) -> None:
+    """AD-14 définit `vertical` par une relecture **à la main**, « affichée comme tel » sur `/`.
+
+    Revue Codex 1.10 tour 2, B2 : `truth.source: lecture_humaine` dit comment l'attente a été
+    établie, pas par qui. Tant que `countersigned_by` est `null`, la relecture est celle de la boucle
+    autonome, et `/` ne doit pas écrire « relus à la main ». Le gate porte donc la conjonction sur
+    les cas exécutés — c'est une propriété du run, pas un littéral de la page.
+    """
+    entry = ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                          document_hash="d", edition="2020")
+    ctx = _contexte([])
+
+    du = _cases_dir(tmp_path / "du", guide=CAS_GUIDE)
+    gate = runner.construire_gate(entry, ctx, profil="vertical",
+                                  cas=runner.charger_cas(du, suites=("guide",)),
+                                  cases_dir=du, evals_ok=True)
+    assert gate.countersigned is False
+
+    fait = _cases_dir(tmp_path / "fait", guide=CAS_CONTRESIGNE)
+    gate = runner.construire_gate(entry, ctx, profil="vertical",
+                                  cas=runner.charger_cas(fait, suites=("guide",)),
+                                  cases_dir=fait, evals_ok=True)
+    assert gate.countersigned is True
+
+    # Un seul cas non contresigné suffit : « 2 cas relus à la main » serait faux dès que l'un des
+    # deux ne l'est pas. La conjonction est donc sur **tous** les cas du run.
+    melange = _cases_dir(tmp_path / "melange", guide=CAS_CONTRESIGNE)
+    (melange / "guide" / "g-autre.yaml").write_text(
+        CAS_GUIDE.format(id="g-autre", profile="vertical", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+    gate = runner.construire_gate(entry, ctx, profil="vertical",
+                                  cas=runner.charger_cas(melange, suites=("guide",)),
+                                  cases_dir=melange, evals_ok=True)
+    assert gate.countersigned is False
+
+    # Et la contresignature entre dans `cases_hash` : la poser périme le gate, qui doit être relancé.
+    assert runner.charger_cas(du, suites=("guide",))[0].truth.countersigned_by is None
+
+
+def test_une_contresignature_doit_nommer_quelquun(tmp_path: Path) -> None:
+    """`countersigned_by: ""` serait une contresignature par personne — et ferait basculer la page."""
+    racine = _cases_dir(tmp_path, guide=CAS_CONTRESIGNE.replace(
+        '"Lancelot Oudin, 2026-08-25"', '"   "'))
+    with pytest.raises(runner.RefusDeTourner) as exc:
+        runner.charger_cas(racine, suites=("guide",))
+    assert "countersigned_by" in str(exc.value)
+
+
+def test_un_gate_hors_schema_ne_bloque_pas_lecriture_du_suivant(tmp_path: Path) -> None:
+    """Le même cul-de-sac que le gate rouge, par une autre porte (revue Codex 1.10 tour 2).
+
+    Quand `Gate` gagne un champ obligatoire, tous les gates déjà écrits deviennent des entrées de
+    manifest invalides. `ecrire_gate` validait le manifest **entier** avant d'écrire : refaire le
+    gate du premier document devenait impossible tant que le second n'était pas refait, et
+    réciproquement. Les autres entrées sont recopiées telles quelles — rien n'est réparé en douce —,
+    et un manifest réellement abîmé arrête toujours tout.
+    """
+    racine = _data_dir(tmp_path)
+    chemin = racine / "manifest.json"
+    brut = json.loads(chemin.read_text(encoding="utf-8"))
+    perime = {"profile": "vertical", "source_hash": "s", "ingest_fingerprint": "f",
+              "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {},
+              "evals_ok": True, "date": "2026-08-23", "overlay_hash": None, "cases": 1}
+    brut[GUIDE]["gate"] = dict(perime)
+    brut[CONTRAT]["gate"] = dict(perime)
+    chemin.write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+
+    racine_cas = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    entry = ManifestEntry.model_validate({**brut[GUIDE], "gate": None})
+    gate = runner.construire_gate(entry, _contexte([]), profil="vertical",
+                                  cas=runner.charger_cas(racine_cas, suites=("guide",)),
+                                  cases_dir=racine_cas, evals_ok=True)
+    runner.ecrire_gate(chemin, GUIDE, gate)
+    apres = json.loads(chemin.read_text(encoding="utf-8"))
+    assert apres[GUIDE]["gate"]["countersigned"] is False
+    # L'autre document garde son gate périmé **mot pour mot** : son propre run le refera.
+    assert apres[CONTRAT]["gate"] == perime
+
+
+def test_un_gate_hors_schema_se_reprend_comme_un_gate_rouge(tmp_path: Path) -> None:
+    """`construire_contexte(regate=...)` : un gate que l'image ne sait pas lire n'est pas un gate.
+
+    Sans cela, le document part en quarantaine « entrée de manifest invalide » et `--gate` refuse en
+    code 2 « document non servi » — alors que réécrire ce gate est exactement ce que la commande
+    demande (revue Codex 1.10 tour 2).
+    """
+    racine = _data_dir(tmp_path)
+    chemin = racine / "manifest.json"
+    brut = json.loads(chemin.read_text(encoding="utf-8"))
+    brut[GUIDE]["gate"] = {"profile": "vertical", "source_hash": brut[GUIDE]["source_hash"],
+                           "ingest_fingerprint": brut[GUIDE]["ingest_fingerprint"],
+                           "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q",
+                           "model_ids": {}, "evals_ok": True, "date": "2026-08-23",
+                           "overlay_hash": None, "cases": 1}
+    chemin.write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+
+    with ExitStack() as pile:
+        ombre = runner._sans_gate_sur_disque(racine, GUIDE, pile)
+        lu = json.loads((ombre / "manifest.json").read_text(encoding="utf-8"))
+        assert lu[GUIDE]["gate"] is None
+        # `data/` n'est pas touché, et l'autre document garde le sien.
+        assert json.loads(chemin.read_text(encoding="utf-8"))[GUIDE]["gate"] is not None
+        assert lu[CONTRAT]["gate"] == brut[CONTRAT]["gate"]
+
+
 def test_un_manifest_invalide_arrete_tout_sans_rien_ecrire(tmp_path: Path) -> None:
     racine = _data_dir(tmp_path)
     chemin = racine / "manifest.json"
@@ -736,7 +861,7 @@ def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
         assert gate["evals_ok"] is True and gate["profile"] == "vertical" and gate["cases"] == 1
         assert set(gate) >= {"profile", "source_hash", "ingest_fingerprint", "cases_hash",
                              "pipeline_digest", "prompts_digest", "model_ids", "evals_ok", "date",
-                             "overlay_hash", "cases"}
+                             "overlay_hash", "cases", "countersigned"}
     # …et le corpus se recharge sans `sans_gate` ni `gate_perime` (AC).
     from server.app.domain.ingest import GateContext
     contexte = GateContext(pipeline_digest=manifest[GUIDE]["gate"]["pipeline_digest"],
@@ -895,7 +1020,7 @@ def test_un_document_en_quarantaine_pour_autre_chose_reste_refuse(tmp_path: Path
     brut[GUIDE]["gate"] = {"profile": "vertical", "source_hash": "s", "ingest_fingerprint": "f",
                            "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q",
                            "model_ids": {}, "evals_ok": False, "date": "2026-08-24",
-                           "overlay_hash": None, "cases": 1}
+                           "overlay_hash": None, "cases": 1, "countersigned": False}
     brut[GUIDE]["document_hash"] = "un-hash-qui-ne-correspond-plus"
     (data / "manifest.json").write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch) == 2

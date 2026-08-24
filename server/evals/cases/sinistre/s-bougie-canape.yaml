@@ -31,6 +31,11 @@ mode_attendu: bonne_reponse
 
 truth:
   source: lecture_humaine
+  # `null` : trois des quatre blocs ont bien été relus par Lancelot Oudin en story 1.2, mais **sur le
+  # PDF**, pas en tant que cas d'éval — la question, les verdicts admissibles et les attentes de ce
+  # fichier, elles, n'ont été relues que par la boucle. La contresignature reste donc due, et le gate
+  # en tire `countersigned: false` (revue Codex 1.10 tour 2, B2).
+  countersigned_by: null
   validated_by_expert: false
   note: >-
     Trois des quatre blocs de ce cas ont été relus **par Lancelot Oudin** en story 1.2, sur le rendu
@@ -58,5 +63,7 @@ truth:
     Ce qui manque est une attente « au moins un parmi », que le schéma d'AD-14 ne porte pas : c'est
     la story 4.1, qui réécrit ce juge, qui peut la poser. Entrée différée.
     Ce qui reste dû : la contresignature de Lancelot Oudin sur le cas **en tant que cas d'éval**
-    (question, verdict admissible, attentes) — entrée différée `target_story: 1.11`.
+    (question, verdict admissible, attentes) — entrée différée `target_story: 1.11`, et
+    `countersigned_by: null` ci-dessus la rend lisible par le code : le gate porte
+    `countersigned: false` et l'accueil n'écrit pas « relus à la main ».
     validated_by_expert reste false : aucun expert assurance n'a validé ce verdict.

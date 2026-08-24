@@ -1044,20 +1044,34 @@ async function main() {
   {
     const sante = (extra) => Object.assign({
       ok: true, version: "abc1234", documents_servis: ["lux-guide"],
-      gate_profile: "vertical", gate_cases: 2, alerts: [], thresholds: {},
+      gate_profile: "vertical", gate_cases: 2, gate_countersigned: false,
+      alerts: [], thresholds: {},
     }, extra || {});
 
     const situations = {
+      // `gate_countersigned: false` est l'état du dépôt aujourd'hui (revue Codex 1.10 tour 2, B2) :
+      // le badge porte la réserve tant que la contresignature humaine est due.
       gate: sante(),
-      un_cas: sante({ gate_cases: 1 }),
-      sans_gate: sante({ gate_profile: null, gate_cases: null,
+      contresigne: sante({ gate_countersigned: true }),
+      un_cas: sante({ gate_cases: 1, gate_countersigned: true }),
+      sans_gate: sante({ gate_profile: null, gate_cases: null, gate_countersigned: null,
                          alerts: [{ doc_id: "lux-guide", alerte: "sans_gate", detail: "" }] }),
       // Corps qu'aucune route n'écrit : clé absente, ou profil et compte dissociés. Aucun suffixe.
       profil_absent: (() => { const c = sante(); delete c.gate_profile; return c; })(),
       profil_sans_compte: sante({ gate_cases: null }),
+      contresignature_absente: (() => { const c = sante(); delete c.gate_countersigned; return c; })(),
+      profil_sans_contresignature: sante({ gate_countersigned: null }),
+      contresignature_non_booleenne: sante({ gate_countersigned: "true" }),
       gate_cases_fractionnaire: sante({ gate_cases: 1.5 }),
       gate_profile_vide: sante({ gate_profile: "" }),
       gate_perime: sante({ alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
+      // Les deux réserves à la fois : le badge les liste dans l'ordre, sans en taire une.
+      perime_et_non_contresigne: sante({
+        gate_countersigned: false,
+        alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
+      perime_et_contresigne: sante({
+        gate_countersigned: true,
+        alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
       perime_et_autres_alertes: sante({ alerts: [
         { doc_id: "axa-lu-optihome-2017", alerte: "source_absente", detail: "" },
         { doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),

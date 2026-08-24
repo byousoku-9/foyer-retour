@@ -63,6 +63,21 @@ class Gate(DomainModel):
     # sans `cases`, ou à 0, est désormais une entrée de manifest invalide, et le loader met **ce seul**
     # document en quarantaine (AD-7) au lieu de le servir sous un contrat que personne ne sait lire.
     cases: int = Field(ge=1)
+    # Les cas exécutés portent-ils **tous** la contresignature humaine de leur relecture ?
+    # (amendement AD-7 / AD-14, revue Codex 1.10 tour 2, B2)
+    #
+    # AD-14 définit `vertical` comme « un cas guide et un cas sinistre **relus à la main** », et
+    # exige que ce soit « affiché comme tel ». La relecture qui fonde ces deux cas a été faite par la
+    # boucle autonome ; la contresignature de la personne à qui `epics.md` l'attribue reste due. Sans
+    # ce champ, `/` affirmait « 2 cas relus à la main » sur la seule foi du nom du profil — une
+    # affirmation de relecture humaine que rien dans le dépôt n'établissait, c'est-à-dire exactement
+    # la classe d'invention qu'AD-16 interdit et que cette story combat.
+    #
+    # `truth.countersigned_by` porte la contresignature **par cas** ; ce booléen est la conjonction
+    # sur les cas du run, écrite là où elle est constatée. Il est **obligatoire**, comme `cases` :
+    # la phrase publiée par l'accueil bascule dessus, et un gate qui ne le dit pas laisserait le
+    # loader choisir à la place du run — alors qu'AD-7 réserve l'écriture du gate au runner.
+    countersigned: bool
 
 
 class GateContext(DomainModel):

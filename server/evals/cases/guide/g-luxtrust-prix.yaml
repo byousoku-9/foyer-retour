@@ -31,6 +31,12 @@ mode_attendu: bonne_reponse
 
 truth:
   source: lecture_humaine
+  # `source` dit **comment** l'attente a été établie (en lisant le corpus, pas en interrogeant un
+  # modèle) ; `countersigned_by` dit **par qui**, et il est `null` : la relecture ci-dessous est
+  # celle de la boucle autonome, la contresignature de Lancelot Oudin reste due. Le gate en tire
+  # `countersigned: false`, et l'accueil écrit « relus par la boucle, contresignature humaine en
+  # attente » plutôt que « relus à la main » (revue Codex 1.10 tour 2, B2).
+  countersigned_by: null
   validated_by_expert: false
   note: >-
     Relu par la boucle autonome (agent de build, 2026-08-24) dans
@@ -44,5 +50,9 @@ truth:
     aucune autre fiche du guide n'emploie le mot LuxTrust.
     Ce qui reste dû : la contresignature de Lancelot Oudin, à qui le tableau « Ce qui incombe à
     Lancelot » d'epics.md attribue la relecture des deux cas vertical (bloquant). Elle est portée
-    par une entrée différée `target_story: 1.11` de deferred-work.md. validated_by_expert reste
-    false : la relecture porte sur le corpus, jamais sur une justesse juridique.
+    par une entrée différée `target_story: 1.11` de deferred-work.md, et elle est désormais **lue
+    par le code** : `countersigned_by: null` ci-dessus met le gate à `countersigned: false` et
+    retire à la page d'accueil le droit d'écrire « relus à la main ». La remplir par le nom et la
+    date, puis relancer `--gate` (cases_hash change), est tout ce qu'il y a à faire.
+    validated_by_expert reste false : la relecture porte sur le corpus, jamais sur une justesse
+    juridique.

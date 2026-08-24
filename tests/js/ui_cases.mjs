@@ -207,7 +207,8 @@ async function main() {
   // précisément un badge composé et jamais posé dans le widget flottant.
   {
     const sante = { ok: true, version: "abc1234", documents_servis: ["lux-guide"],
-                    gate_profile: "vertical", gate_cases: 2, alerts: [], thresholds: {} };
+                    gate_profile: "vertical", gate_cases: 2, gate_countersigned: true,
+                    alerts: [], thresholds: {} };
     const reponse = {
       ok: true, status: 200, headers: { get: () => null },
       json: () => Promise.resolve(sante),
@@ -217,7 +218,8 @@ async function main() {
     window.UI.badgeMode("api/v1");
     cas.badge_validation = { avec_gate: badges(elements) };
 
-    const sansGate = Object.assign({}, sante, { gate_profile: null, gate_cases: null });
+    const sansGate = Object.assign({}, sante,
+                                   { gate_profile: null, gate_cases: null, gate_countersigned: null });
     const { window: w2, elements: e2 } = monter(() => Promise.resolve({
       ok: true, status: 200, headers: { get: () => null },
       json: () => Promise.resolve(sansGate),
@@ -231,6 +233,16 @@ async function main() {
     await w3.CHAT.testerApi();
     w3.UI.badgeMode("api/v1");
     cas.badge_validation.sonde_morte = badges(e3);
+
+    // Contresignature due : la réserve doit atteindre **les deux** surfaces, comme le suffixe.
+    const nonContresigne = Object.assign({}, sante, { gate_countersigned: false });
+    const { window: w4, elements: e4 } = monter(() => Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      json: () => Promise.resolve(nonContresigne),
+    }));
+    await w4.CHAT.testerApi();
+    w4.UI.badgeMode("api/v1");
+    cas.badge_validation.non_contresigne = badges(e4);
   }
 
   // --- 503 : exactement un bouton, et le clic seul ouvre le mode local -----

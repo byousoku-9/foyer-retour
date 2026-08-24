@@ -92,7 +92,8 @@ def test_manifest_status_quarantaine_is_not_loaded(data: Path) -> None:
 
 def _gate(e: dict, **over) -> dict:
     return {"profile": "vertical", "source_hash": e["source_hash"], "ingest_fingerprint": e["ingest_fingerprint"],
-            "cases_hash": "c", "cases": 1, "pipeline_digest": "p", "prompts_digest": "q",
+            "cases_hash": "c", "cases": 1, "countersigned": True,
+            "pipeline_digest": "p", "prompts_digest": "q",
             "model_ids": {"micro": "m"},
             "evals_ok": True, "date": "2026-08-23", "overlay_hash": e.get("overlay_hash")} | over
 
@@ -115,6 +116,27 @@ def test_un_gate_sans_compte_de_cas_credible_met_le_document_en_quarantaine(data
         gate.pop("cases")
     else:
         gate["cases"] = cases
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    for allow in (False, True):
+        corpus = load_corpus(data, allow_ungated=allow)
+        assert corpus.served == []
+        assert "entrée de manifest invalide" in corpus.quarantine["lux-guide"]
+
+
+def test_un_gate_qui_ne_dit_pas_la_contresignature_met_le_document_en_quarantaine(
+        data: Path) -> None:
+    """Revue Codex 1.10 tour 2, B2 : la phrase publiée par `/` bascule sur ce champ.
+
+    `Gate.countersigned` dit si la relecture qu'AD-14 met dans la définition de `vertical` a été
+    contresignée par un humain. Un gate qui ne le dit pas laisserait le loader — ou la page —
+    choisir à la place du run, alors qu'AD-7 réserve l'écriture du gate au runner ; et le seul
+    choix « optimiste » possible ferait afficher « relus à la main » sans qu'aucune main n'ait lu.
+    Comme pour `cases`, l'entrée est invalide et ce seul document part en quarantaine.
+    """
+    m = _manifest(data)
+    gate = _gate(m["lux-guide"])
+    gate.pop("countersigned")
     m["lux-guide"]["gate"] = gate
     _write_manifest(data, m)
     for allow in (False, True):

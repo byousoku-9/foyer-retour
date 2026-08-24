@@ -1056,3 +1056,74 @@ garde-fou d'`ALLOW_UNGATED` posé en 1.6 n'est plus mis en `skip` par disparitio
 est **inversé** et vert (tant qu'un gate existe, l'image ne doit plus armer la dérogation).
 
 Coût total de la story, tous runs compris : **≈ 0,30 €**.
+
+### Revue Codex 1.10, tour 2 — la contresignature humaine (2026-08-24, ≈ 0,14 €)
+
+**Ce que le tour corrige (B2).** AD-14 définit `vertical` comme « un cas guide et un cas sinistre
+**relus à la main** », « affiché comme tel » ; `/` écrivait donc « 2 cas relus à la main » sur la
+seule foi du nom du profil. Or la relecture qui fonde ces deux cas est celle de la boucle autonome :
+la contresignature de Lancelot Oudin, que le tableau « Ce qui incombe à Lancelot » d'`epics.md`
+marque **bloquante**, reste due. `truth.countersigned_by` (par cas) et `manifest.gate.countersigned`
+(conjonction du run, publié en `gate_countersigned`) la rendent lisible par le code : la
+qualification vient du gate, plus jamais du profil.
+
+**Les deux gates, rejoués en réel** (les YAML ont changé, donc `cases_hash` aussi) :
+
+| Run | Cas | Label | `ok` | `countersigned` | Coût | Durée | Code |
+|---|---|---|---|---|---|---|---|
+| `--gate lux-guide` | `g-luxtrust-prix` | `bonne_reponse` | oui | **false** | **0,0289 €** | 12,7 s | 0 |
+| `--gate axa-lu-optihome-2017` | `s-bougie-canape` | `bonne_reponse` | oui | **false** | **0,0495 €** | 23,7 s | 0 |
+
+`cases_hash` : guide `9e325311b481…`, AXA `b02293a7fe68…`. Les deux runs ont écrit sur `stderr`
+l'avertissement « gate `vertical` écrit sur des cas non contresignés » — le gate est permis, il n'est
+pas muet. Deux runs antérieurs du même tour (0,0296 € et 0,0305 €) ont **payé sans écrire** : le
+manifest a été refusé à l'écriture parce que les gates de la story y étaient devenus invalides au
+sens du nouveau schéma. C'est ce blocage circulaire qui a été corrigé (voir ci-dessous) ; il a coûté
+0,06 € et il est le meilleur argument pour la reprise.
+
+**Le blocage circulaire, mesuré.** Ajouter un champ obligatoire à `Gate` périme tous les gates
+écrits : le loader met leur document en quarantaine « entrée de manifest invalide », `--gate` refuse
+en code 2 « document non servi », et `ecrire_gate` refuse parce que le manifest **entier** est
+invalide. Il n'existait donc aucun chemin pour écrire le gate au nouveau schéma — exactement le
+cul-de-sac que la reprise d'un gate rouge évite, par une autre porte. Deux correctifs :
+`construire_contexte(regate=…)` traite un gate que l'image ne sait pas lire comme absent (pour ce
+seul document, en lecture) ; `ecrire_gate` valide chaque entrée **sans son gate** et recopie les
+autres telles quelles. Deux tests le tiennent
+(`test_un_gate_hors_schema_se_reprend_comme_un_gate_rouge`,
+`test_un_gate_hors_schema_ne_bloque_pas_lecriture_du_suivant`).
+
+**`ENV=prod`, configuration de l'image, après le rejeu :**
+
+| Vérification | Résultat |
+|---|---|
+| `Settings.allow_ungated` | `False` |
+| `documents_servis` | `axa-lu-optihome-2017`, `lux-guide` |
+| `gate_profile` / `gate_cases` / `gate_countersigned` | `vertical` / `2` / **`false`** |
+| `alerts` | `[]` |
+
+**Le tour navigateur rejoué** (Chrome headless, `ENV=prod GIT_SHA=1.10rev2`, port 8803,
+`/tmp/cdp-accueil.mjs` et `/tmp/cdp-badge.mjs`) :
+
+| Vérification | Résultat |
+|---|---|
+| Niveau de validation sur `/` | « niveau de validation : **vertical — 2 cas relus par la boucle, contresignature humaine en attente** », classe `carte etat-gate` |
+| Les trois entrées, le sujet 3 | inchangés — `/guide/`, `/sinistre/`, `#sujet-3` ; les **sept** points |
+| Documents et version | « documents servis : axa-lu-optihome-2017, lux-guide », « version servie : 1.10rev2 » |
+| Requêtes réseau | `/`, `/accueil.js`, `/api/v1/sante`, `/favicon.ico` — aucune requête tierce |
+| AD-15 | `localStorage` vide, `document.cookie` vide, **zéro** pose d'`innerHTML` non vide |
+| Sonde morte / sonde sans profil | « inconnu » et « aucun gate » — **aucune** occurrence de `vertical` ni `full` |
+| Badges du guide (onglet **et** widget) | « **mode api · vertical (2 cas, non contresigné)** », classe `badge on` |
+| `window.CHAT.validation()` | `{"gate_profile":"vertical","gate_cases":2,"gate_countersigned":false,"alerts":[]}` |
+| Lien « ← retour » (UX-DR9) | présent, `href="/"` |
+| Console | seule erreur : le `favicon.ico` (404, antérieur) |
+
+**Ce que la page dira le jour de la contresignature**, sans qu'une ligne de code bouge : remplir
+`truth.countersigned_by` dans les deux YAML et relancer les deux `--gate` met `countersigned: true`,
+et la phrase redevient **mot pour mot** celle de l'AC — « niveau de validation : vertical — 2 cas
+relus à la main ». Le test `test_le_niveau_de_validation_vient_du_serveur` l'exerce déjà sur ce corps.
+
+**Suite hors ligne** : `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1279 passed**,
+aucun `skip`, aucun accès réseau. `uvx ruff@0.16.4 check --select F,E9 server tests` → « All checks
+passed! ». `node tests/js/accueil_cases.mjs` et `node tests/js/chat_cases.mjs` → `ok: true`.
+
+Coût total de la story, tous runs compris : **≈ 0,44 €**.

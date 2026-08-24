@@ -33,6 +33,10 @@ function sante(extra) {
     documents_servis: ["axa-lu-optihome-2017", "lux-guide"],
     gate_profile: "vertical",
     gate_cases: 2,
+    // L'état **du dépôt aujourd'hui** : les deux cas sont relus par la boucle, la contresignature
+    // humaine reste due (revue Codex 1.10 tour 2, B2). Le cas `contresigne` ci-dessous est celui
+    // que l'AC décrit — c'est lui qui doit rendre « 2 cas relus à la main ».
+    gate_countersigned: false,
     dictionary: { validated: false },
     alerts: [],
     thresholds: { deadline_s: 55.0 },
@@ -164,6 +168,23 @@ async function main() {
     cas.un_seul_cas = ctx.ACCUEIL.libelleValidation(lu);
   }
 
+  // --- état 1 ter : la contresignature humaine est faite ----------------------
+  // C'est l'état que l'AC décrit (« 2 cas relus à la main ») et le seul où la page l'écrit.
+  {
+    const ctx = charger(PAGE, () => reponseHttp({ corps: sante({ gate_countersigned: true }) }));
+    const lu = await ctx.ACCUEIL.sonder();
+    const vue = ctx.ACCUEIL.vueEtat(lu);
+    cas.contresigne = { validation: ctx.ACCUEIL.libelleValidation(lu), textes: textesDe(vue) };
+  }
+
+  // --- état 1 ter bis : un seul cas, contresigné (l'accord du pluriel) --------
+  {
+    const ctx = charger(PAGE, () => reponseHttp({
+      corps: sante({ documents_servis: ["lux-guide"], gate_cases: 1, gate_countersigned: true }) }));
+    const lu = await ctx.ACCUEIL.sonder();
+    cas.un_seul_cas_contresigne = ctx.ACCUEIL.libelleValidation(lu);
+  }
+
   // --- état 1 quater : un profil qui ne promet aucune relecture humaine -------
   {
     const ctx = charger(PAGE, () => reponseHttp({ corps: sante({ gate_profile: "full", gate_cases: 47 }) }));
@@ -211,7 +232,7 @@ async function main() {
   {
     const ctx = charger(PAGE, () => reponseHttp({
       corps: sante({
-        gate_profile: null, gate_cases: null,
+        gate_profile: null, gate_cases: null, gate_countersigned: null,
         alerts: [{ doc_id: "lux-guide", alerte: "sans_gate", detail: "" }] }) }));
     const lu = await ctx.ACCUEIL.sonder();
     const vue = ctx.ACCUEIL.vueEtat(lu);
@@ -226,6 +247,7 @@ async function main() {
   {
     const ctx = charger(PAGE, () => reponseHttp({
       corps: sante({ ok: false, documents_servis: [], gate_profile: null, gate_cases: null,
+                     gate_countersigned: null,
                      alerts: [{ doc_id: "lux-guide", alerte: "quarantaine",
                                 detail: "document_hash différent du manifest" }] }) }));
     const lu = await ctx.ACCUEIL.sonder();
@@ -291,7 +313,15 @@ async function main() {
       gate_cases_negatif: (c) => { c.gate_cases = -3; },
       gate_profile_vide: (c) => { c.gate_profile = ""; },
       profil_sans_compte: (c) => { c.gate_cases = null; },
-      compte_sans_profil: (c) => { c.gate_profile = null; },
+      compte_sans_profil: (c) => { c.gate_profile = null; c.gate_countersigned = null; },
+      // La contresignature décide de « relus à la main » : un corps qui ne la porte pas, ou qui la
+      // dissocie du profil, ferait choisir la page entre deux phrases dont l'une affirme une
+      // relecture humaine (revue Codex 1.10 tour 2).
+      gate_countersigned_absent: (c) => { delete c.gate_countersigned; },
+      gate_countersigned_non_booleen: (c) => { c.gate_countersigned = "true"; },
+      gate_countersigned_numerique: (c) => { c.gate_countersigned = 1; },
+      profil_sans_contresignature: (c) => { c.gate_countersigned = null; },
+      contresignature_sans_profil: (c) => { c.gate_profile = null; c.gate_cases = null; },
       alerts_absent: (c) => { delete c.alerts; },
       alerts_non_tableau: (c) => { c.alerts = { doc_id: "x" }; },
       alerte_sans_doc_id: (c) => { c.alerts = [{ alerte: "sans_gate", detail: "" }]; },
@@ -320,8 +350,10 @@ async function main() {
   {
     const conformes = {
       nominal: sante(),
-      sans_gate: sante({ gate_profile: null, gate_cases: null }),
-      aucun_document: sante({ ok: false, documents_servis: [], gate_profile: null, gate_cases: null }),
+      contresigne: sante({ gate_countersigned: true }),
+      sans_gate: sante({ gate_profile: null, gate_cases: null, gate_countersigned: null }),
+      aucun_document: sante({ ok: false, documents_servis: [], gate_profile: null, gate_cases: null,
+                              gate_countersigned: null }),
       alerte_sans_detail_vide: sante({ alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
       version_vide: sante({ version: "" }),
     };
@@ -332,7 +364,8 @@ async function main() {
       let lu = null;
       try { lu = await ctx.ACCUEIL.sonder(); } catch (e) { motif = e; }
       cas.corps_conformes[nom] = { motif, gate_profile: lu && lu.gate_profile,
-                                   gate_cases: lu && lu.gate_cases };
+                                   gate_cases: lu && lu.gate_cases,
+                                   gate_countersigned: lu && lu.gate_countersigned };
     }
   }
 

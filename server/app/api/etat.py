@@ -160,6 +160,30 @@ class EtatApp:
             total += entree.gate.cases
         return total
 
+    @property
+    def gate_countersigned(self) -> bool | None:
+        """Les cas qui fondent le profil publié sont-ils tous contresignés par un humain, ou `null`.
+
+        Amendement AD-7 / AD-14 (revue Codex 1.10 tour 2, B2). AD-14 définit `vertical` comme « un
+        cas guide et un cas sinistre **relus à la main** », « affiché comme tel » : c'est donc la
+        page d'accueil qui affirme publiquement la relecture. Tant que la contresignature de la
+        personne à qui `epics.md` l'attribue est due, la relecture est celle de la boucle autonome,
+        et l'affirmer humaine serait la sorte d'invention qu'AD-16 interdit.
+
+        Comme `gate_cases` : strictement adossé à `gate_profile` (`null` dès qu'il l'est) et
+        **conjonction** sur les documents servis — un seul document dont les cas ne sont pas
+        contresignés retire la qualification à la phrase entière, qui les additionne.
+        """
+        if self.gate_profile is None:
+            return None
+        for doc_id in self.corpus.served:
+            entree = self.corpus.manifest.get(doc_id)
+            if entree is None or entree.gate is None:  # impossible si `gate_profile` n'est pas nul
+                return None
+            if not entree.gate.countersigned:
+                return False
+        return True
+
 
 def _alertes(corpus: Corpus) -> list[Alerte]:
     """Les alertes des documents servis (AD-7), et les documents que le chargement a écartés."""

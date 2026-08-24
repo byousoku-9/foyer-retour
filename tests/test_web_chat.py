@@ -926,10 +926,28 @@ def test_le_badge_de_mode_existe_dans_les_deux_surfaces(dom: dict[str, Any]) -> 
 
 def test_le_badge_porte_le_profil_de_gate_et_son_nombre_de_cas(cas: dict[str, Any]) -> None:
     v = cas["validation"]
-    assert v["gate"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+    assert v["contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas)"
     # Le nombre vient du serveur : un gate à un cas s'écrit « 1 cas », pas « 2 ».
     assert v["un_cas"]["badge"]["texte"] == "mode api · vertical (1 cas)"
     assert v["gate"]["lue"]["gate_profile"] == "vertical" and v["gate"]["lue"]["gate_cases"] == 2
+
+
+def test_le_badge_dit_que_la_contresignature_humaine_est_due(cas: dict[str, Any]) -> None:
+    """AD-14 définit `vertical` par une relecture **à la main** (revue Codex 1.10 tour 2, B2).
+
+    Le seul nom du profil affirme donc au lecteur du badge une relecture humaine. Tant que
+    `gate_countersigned` est faux, cette relecture est celle de la boucle autonome : le badge pose la
+    réserve, comme il pose déjà celle de la péremption, et l'accueil la dit en toutes lettres.
+    """
+    v = cas["validation"]
+    assert v["gate"]["lue"]["gate_countersigned"] is False
+    assert v["gate"]["badge"]["texte"] == "mode api · vertical (2 cas, non contresigné)"
+    assert v["contresigne"]["lue"]["gate_countersigned"] is True
+    assert v["contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+    # Les deux réserves cohabitent : aucune n'en efface une autre.
+    assert v["perime_et_non_contresigne"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, périmé, non contresigné)"
+    assert v["perime_et_contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
 
 
 def test_le_badge_dit_la_peremption_que_le_serveur_signale(cas: dict[str, Any]) -> None:
@@ -941,12 +959,17 @@ def test_le_badge_dit_la_peremption_que_le_serveur_signale(cas: dict[str, Any]) 
     alertes, `suffixeValidation()` ne les regardait pas.
     """
     v = cas["validation"]
-    assert v["gate_perime"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
+    assert v["gate_perime"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, périmé, non contresigné)"
     # La péremption se trouve où qu'elle soit dans la liste…
-    assert v["perime_et_autres_alertes"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
+    assert v["perime_et_autres_alertes"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, périmé, non contresigné)"
+    # …et seule, sur un gate contresigné, elle s'écrit seule.
+    assert v["perime_et_contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
     # …et une alerte qui n'est pas une péremption ne la déclenche pas.
-    assert v["alertes_sans_peremption"]["badge"]["texte"] == "mode api · vertical (2 cas)"
-    assert v["gate"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+    assert v["alertes_sans_peremption"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, non contresigné)"
+    assert v["contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas)"
 
 
 def test_le_badge_dit_non_valide_quand_aucun_document_nest_gate(cas: dict[str, Any]) -> None:
@@ -956,7 +979,9 @@ def test_le_badge_dit_non_valide_quand_aucun_document_nest_gate(cas: dict[str, A
 
 
 @pytest.mark.parametrize("corps", ["profil_absent", "profil_sans_compte",
-                                   "gate_cases_fractionnaire", "gate_profile_vide"])
+                                   "gate_cases_fractionnaire", "gate_profile_vide",
+                                   "contresignature_absente", "profil_sans_contresignature",
+                                   "contresignature_non_booleenne"])
 def test_un_corps_de_sante_illisible_ne_suffixe_rien(cas: dict[str, Any], corps: str) -> None:
     """Une clé absente n'est pas « le champ vaut null » (patron 1.9) : aucun niveau n'est inventé."""
     v = cas["validation"][corps]
@@ -972,7 +997,7 @@ def test_une_alerte_mal_formee_ne_supprime_pas_le_niveau(cas: dict[str, Any]) ->
     """
     for nom, releve in cas["alertes_tolerees"].items():
         assert releve["lue"] is not None, nom
-        assert releve["badge"]["texte"] == "mode api · vertical (2 cas)", nom
+        assert releve["badge"]["texte"] == "mode api · vertical (2 cas, non contresigné)", nom
 
 
 def test_le_front_du_guide_et_laccueil_jugent_les_memes_corps_pareil(cas: dict[str, Any]) -> None:
@@ -997,8 +1022,8 @@ def test_le_front_du_guide_et_laccueil_jugent_les_memes_corps_pareil(cas: dict[s
 
     # Et la table exerce bien les deux côtés de la règle, sans quoi « tout le monde d'accord »
     # pourrait vouloir dire « tout le monde refuse tout ».
-    assert sum(1 for v in guide.values() if v["attendu"]) >= 4
-    assert sum(1 for v in guide.values() if not v["attendu"]) >= 8
+    assert sum(1 for v in guide.values() if v["attendu"]) >= 5
+    assert sum(1 for v in guide.values() if not v["attendu"]) >= 13
 
 
 def test_une_sonde_morte_nannonce_aucun_niveau(cas: dict[str, Any]) -> None:
@@ -1025,6 +1050,10 @@ def test_ui_pose_le_suffixe_dans_les_deux_surfaces(dom: dict[str, Any]) -> None:
     b = dom["badge_validation"]
     for surface in ("onglet", "widget"):
         assert b["avec_gate"][surface]["texte"] == "mode api · vertical (2 cas)"
+        # La réserve de contresignature atteint elle aussi les deux surfaces (revue Codex 1.10
+        # tour 2) : c'est le même défaut de 1.7 qui la guettait.
+        assert b["non_contresigne"][surface]["texte"] == \
+            "mode api · vertical (2 cas, non contresigné)"
         assert b["sans_gate"][surface]["texte"] == "mode api · non validé"
         assert b["sonde_morte"][surface]["texte"] == "mode api"
 

@@ -33,6 +33,7 @@ async def sante(request: Request) -> SanteResponse:
         documents_servis=etat.documents_servis,
         gate_profile=etat.gate_profile,
         gate_cases=etat.gate_cases,
+        gate_countersigned=etat.gate_countersigned,
         dictionary=EtatDictionnaire(validated=etat.dictionary_validated),
         alerts=etat.alerts,
         thresholds=etat.settings.thresholds())

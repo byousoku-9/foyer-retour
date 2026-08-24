@@ -749,11 +749,12 @@ def test_sante_publie_les_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
 
 
 def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = True,
-               cases: int = 1) -> None:
+               cases: int = 1, countersigned: bool = True) -> None:
     """Pose un gate sur une entrée du manifest. `coherent=False` = un gate que le loader neutralise."""
     entree = corpus.manifest[doc_id]
     entree.gate = Gate(
         profile=profil, evals_ok=True, cases_hash="c", date="2026-08-24", cases=cases,
+        countersigned=countersigned,
         source_hash=entree.source_hash if coherent else "autre",
         ingest_fingerprint=entree.ingest_fingerprint, overlay_hash=entree.overlay_hash,
         pipeline_digest="p", prompts_digest="q", model_ids={})

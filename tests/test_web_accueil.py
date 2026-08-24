@@ -117,14 +117,50 @@ def test_une_page_hors_ligne_ne_sonde_rien(cas: dict[str, Any]) -> None:
 # --- D8, état 1 : la sonde répond avec un profil --------------------------
 
 def test_le_niveau_de_validation_vient_du_serveur(cas: dict[str, Any]) -> None:
-    """AC : « niveau de validation : vertical — 2 cas relus à la main », lu sur `/api/v1/sante`."""
-    assert cas["nominal"]["validation"] == {
+    """AC : « niveau de validation : vertical — 2 cas relus à la main », lu sur `/api/v1/sante`.
+
+    La phrase de l'AC est celle de l'état que l'AC décrit : deux cas dont la relecture a été
+    **contresignée**. Le serveur le dit par `gate_countersigned` (amendement AD-7 / AD-14, revue
+    Codex 1.10 tour 2, B2) ; le cas `nominal` du harnais est l'état du dépôt aujourd'hui, où la
+    contresignature est due — voir `test_un_gate_non_contresigne_ne_dit_pas_relus_a_la_main`.
+    """
+    assert cas["contresigne"]["validation"] == {
         "etat": "gate",
+        "contresigne": True,
         "texte": "niveau de validation : vertical — 2 cas relus à la main"}
+    assert "niveau de validation : vertical — 2 cas relus à la main" in cas["contresigne"]["textes"]
     textes = cas["nominal"]["textes"]
-    assert "niveau de validation : vertical — 2 cas relus à la main" in textes
     assert any("documents servis : axa-lu-optihome-2017, lux-guide" == t for t in textes)
     assert any("version servie : b79ca1b" == t for t in textes)
+
+
+def test_un_gate_non_contresigne_ne_dit_pas_relus_a_la_main(cas: dict[str, Any],
+                                                            code: str) -> None:
+    """AD-14 / AC : `vertical` = « relus à la main », et la page l'affirme **publiquement**.
+
+    Revue Codex 1.10 tour 2, B2 : la relecture qui fonde les deux cas du dépôt a été faite par la
+    boucle autonome, et la contresignature de la personne à qui `epics.md` l'attribue (entrée humaine
+    **bloquante**) reste due. La page écrivait pourtant « 2 cas relus à la main » sur la seule foi du
+    nom du profil — une affirmation de relecture humaine que rien dans le dépôt n'établissait, c'est
+    la classe d'invention qu'AD-16 interdit et que cette story combat.
+
+    La qualification vient donc de `gate_countersigned`, pas du profil. Et elle ne se code pas dans
+    la page : le mot « contresignature » n'y est écrit qu'une fois, dans la phrase de réserve.
+    """
+    validation = cas["nominal"]["validation"]
+    assert validation["contresigne"] is False
+    assert validation["texte"] == (
+        "niveau de validation : vertical — 2 cas relus par la boucle, "
+        "contresignature humaine en attente")
+    assert "à la main" not in validation["texte"]
+    # Le pluriel suit le compte du serveur des deux côtés de la bascule.
+    assert cas["un_seul_cas"]["texte"] == (
+        "niveau de validation : vertical — 1 cas relu par la boucle, "
+        "contresignature humaine en attente")
+    assert cas["un_seul_cas_contresigne"]["texte"] == \
+        "niveau de validation : vertical — 1 cas relu à la main"
+    # La bascule est lue sur le corps, jamais déduite d'autre chose.
+    assert "gate_countersigned" in code
 
 
 def test_le_compte_de_cas_nest_pas_ecrit_dans_la_page(cas: dict[str, Any], code: str,
@@ -134,7 +170,8 @@ def test_le_compte_de_cas_nest_pas_ecrit_dans_la_page(cas: dict[str, Any], code:
     Un serveur qui publie `gate_cases: 1` doit faire écrire « 1 cas relu », singulier compris —
     c'est la preuve que le nombre n'est pas un littéral déguisé.
     """
-    assert cas["un_seul_cas"]["texte"] == "niveau de validation : vertical — 1 cas relu à la main"
+    assert cas["un_seul_cas_contresigne"]["texte"] == \
+        "niveau de validation : vertical — 1 cas relu à la main"
     for littéral in ("2 cas", "vertical —", "niveau de validation : vertical"):
         assert littéral not in page, f"{littéral!r} est écrit en dur dans la page"
     # `vertical` apparaît une fois dans le code, et une seule : la qualification « relus à la main »
@@ -251,7 +288,8 @@ def test_au_demarrage_nominal_le_niveau_est_peint_dans_la_page(cas: dict[str, An
     dom = cas["demarrage"]["dom"]
     assert dom["enfants"], "le bloc d'état est resté vide après une sonde qui a répondu"
     textes = _textes(dom)
-    assert "niveau de validation : vertical — 2 cas relus à la main" in textes
+    assert ("niveau de validation : vertical — 2 cas relus par la boucle, "
+            "contresignature humaine en attente") in textes
     assert any("documents servis : axa-lu-optihome-2017, lux-guide" == t for t in textes)
     assert any("version servie : b79ca1b" == t for t in textes)
     # …et surtout : ce n'est pas la vue d'échec qui a été peinte.
@@ -276,9 +314,16 @@ def test_un_200_que_la_route_naurait_pas_pu_ecrire_est_refuse(cas: dict[str, Any
 
 
 def test_profil_et_compte_sont_indissociables(cas: dict[str, Any]) -> None:
-    """`EtatApp.gate_cases` rend `null` dès que `gate_profile` l'est : un corps qui les dissocie ment."""
-    assert cas["corps_refuses"]["profil_sans_compte"]["motif"] == "reponse_illisible"
-    assert cas["corps_refuses"]["compte_sans_profil"]["motif"] == "reponse_illisible"
+    """`EtatApp.gate_cases` rend `null` dès que `gate_profile` l'est : un corps qui les dissocie ment.
+
+    Depuis la revue Codex 1.10 tour 2, `gate_countersigned` fait partie du même triplet : c'est lui
+    qui décide de « relus à la main », et un corps qui le tait ferait choisir la page entre deux
+    phrases dont l'une affirme une relecture humaine.
+    """
+    for nom in ("profil_sans_compte", "compte_sans_profil", "gate_countersigned_absent",
+                "gate_countersigned_non_booleen", "gate_countersigned_numerique",
+                "profil_sans_contresignature", "contresignature_sans_profil"):
+        assert cas["corps_refuses"][nom]["motif"] == "reponse_illisible", nom
 
 
 @pytest.mark.parametrize("corps", ["gate_profile_vide", "gate_cases_zero", "gate_cases_negatif"])

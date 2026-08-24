@@ -122,6 +122,12 @@ class SanteResponse(BaseModel):
     # relus à la main » et n'écrit « 2 » nulle part : le compte vient du serveur, qui le tient du run
     # qui l'a constaté (AD-7 : `manifest.gate` n'est écrit que par `evals run --gate`).
     gate_cases: int | None = None
+    # La relecture de ces cas est-elle contresignée par un humain ? — `null` exactement quand
+    # `gate_profile` l'est (amendement AD-7 / AD-14, revue Codex 1.10 tour 2). C'est ce champ, et non
+    # le nom du profil, qui autorise l'accueil à écrire « relus à la main » : `vertical` dit quelle
+    # politique de mesure a tourné, celui-ci dit si la relecture qu'AD-14 met dans sa définition a
+    # bien été faite par la personne à qui `epics.md` l'attribue.
+    gate_countersigned: bool | None = None
     dictionary: EtatDictionnaire = Field(default_factory=EtatDictionnaire)
     alerts: list[Alerte] = Field(default_factory=list)
     thresholds: dict[str, float | int] = Field(default_factory=dict)

@@ -150,7 +150,29 @@ class Verite(BaseModel):
 
     source: TruthSource
     validated_by_expert: Literal[False] = False
+    # **Qui a contresigné la relecture de ce cas, et quand** — `null` tant qu'elle est due
+    # (amendement AD-14, revue Codex 1.10 tour 2, B2).
+    #
+    # `source: lecture_humaine` dit *comment* l'attente a été établie : en lisant le corpus, et non
+    # en demandant à un modèle. Il ne dit pas *par qui* — et la boucle autonome qui a préparé ces
+    # deux cas n'est pas la personne à qui `epics.md` attribue la relecture (« relire à la main les
+    # 2 cas vertical », entrée humaine bloquante). Tant que ce champ est `null`, la relecture est
+    # celle de la boucle : le gate le publie (`Gate.countersigned`) et l'accueil écrit « relus par
+    # la boucle, contresignature humaine en attente » au lieu de « relus à la main ».
+    #
+    # Le champ est libre — le nom et la date, comme `validated_by`/`validated_at` du dictionnaire
+    # (story 2.1) — et non un booléen : « contresigné » sans dire par qui ne se vérifie pas.
+    countersigned_by: str | None = None
     note: str = ""
+
+    @model_validator(mode="after")
+    def _contresignature_nommee(self) -> Verite:
+        # `countersigned_by: ""` (ou des espaces) serait une contresignature par personne : elle
+        # ferait pourtant basculer le gate à `countersigned: true` et la page à « relus à la main ».
+        if self.countersigned_by is not None and not self.countersigned_by.strip():
+            raise ValueError("truth.countersigned_by doit nommer qui a contresigné (et quand), "
+                             "ou valoir `null` tant que la contresignature est due")
+        return self
 
 
 class Cas(BaseModel):
@@ -525,12 +547,18 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
     `cases_hash` couvre **la suite réellement exécutée** (D5), et `cases` en donne le nombre : deux
     runs ne sont comparables qu'à hash égal (AD-14), et l'accueil affiche « N cas relus à la main »
     sans coder N en dur.
+
+    `countersigned` est la **conjonction** des `truth.countersigned_by` des cas exécutés (revue Codex
+    1.10 tour 2, B2) : c'est ce qui autorise, ou non, la page d'accueil à écrire « relus à la main ».
+    Un seul cas sans contresignature suffit à mettre le gate à `false` — « 2 cas relus à la main »
+    serait faux dès qu'un des deux ne l'est pas.
     """
     fichiers = [cases_dir / c.suite / f"{c.id}.yaml" for c in cas]
     return Gate(
         profile=profil, source_hash=entry.source_hash,
         ingest_fingerprint=entry.ingest_fingerprint, overlay_hash=entry.overlay_hash,
         cases_hash=cases_hash(fichiers, cases_dir), cases=len(cas),
+        countersigned=all(c.truth.countersigned_by is not None for c in cas),
         pipeline_digest=ctx.pipeline_digest_hex, prompts_digest=ctx.prompts_digest_hex,
         model_ids=dict(TIERS), evals_ok=evals_ok,
         date=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"))
@@ -551,13 +579,40 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
         raise RefusDeTourner(f"{manifest_path} illisible : {type(exc).__name__}") from exc
     if not isinstance(brut, dict) or doc_id not in brut:
         raise RefusDeTourner(f"{manifest_path} : aucune entrée {doc_id!r}")
+    # Un gate **périmé au sens du schéma** n'empêche pas d'en écrire un neuf (revue Codex 1.10
+    # tour 2). Quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
+    # —, tous les gates déjà écrits deviennent invalides et doivent être refaits, un document après
+    # l'autre. Refuser d'écrire parce qu'un gate n'est pas encore refait est un blocage circulaire :
+    #   - pour le document visé, son gate est **remplacé** par celui du run ; sa valeur d'avant n'a
+    #     donc aucune importance, et l'entrée est validée sans lui ;
+    #   - pour les autres, l'entrée est recopiée **telle quelle**, gate compris — rien n'est réécrit,
+    #     et leur document reste en quarantaine tant que leur propre `--gate` n'a pas tourné.
+    # Tout le reste de chaque entrée doit être valide : un manifest réellement abîmé arrête toujours
+    # l'écriture, sans rien modifier sur disque.
+    def _valide_hors_gate(valeur: Any) -> ManifestEntry:
+        if not isinstance(valeur, dict):
+            raise ValidationError.from_exception_data("ManifestEntry", [])
+        return ManifestEntry.model_validate({**valeur, "gate": None})
+
     for autre, valeur in brut.items():
         try:
             ManifestEntry.model_validate(valeur)
         except ValidationError as exc:
-            raise RefusDeTourner(f"{manifest_path} : entrée {autre!r} invalide "
-                                 f"({exc.errors()[0].get('msg', '')})") from exc
-    entree = ManifestEntry.model_validate(brut[doc_id]).model_copy(update={"gate": gate})
+            try:
+                _valide_hors_gate(valeur)
+            except ValidationError:
+                raise RefusDeTourner(f"{manifest_path} : entrée {autre!r} invalide "
+                                     f"({exc.errors()[0].get('msg', '')})") from exc
+            if autre != doc_id:
+                print(f"avertissement : {manifest_path} : le gate de {autre!r} n'est plus au schéma "
+                      "en vigueur, il devra être relancé — entrée recopiée telle quelle",
+                      file=sys.stderr)
+    try:
+        entree = _valide_hors_gate(brut[doc_id]).model_copy(update={"gate": gate})
+    except ValidationError as exc:
+        raise RefusDeTourner(f"{manifest_path} : entrée {doc_id!r} invalide "
+                             f"({exc.errors()[0].get('msg', '') if exc.errors() else 'hors schéma'})"
+                             ) from exc
     brut[doc_id] = entree.model_dump(mode="json")
     # Nom temporaire **unique**, dans le répertoire du manifest (revue Codex 1.10, M1) : un
     # `manifest.json.tmp` fixe était partagé par deux `--gate` concurrents, qui se marchaient dessus
@@ -638,8 +693,17 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
 
     `regate` va un cran plus loin, et seulement pour le document que `--gate` vise : il fait lire un
     manifest où **son** gate vaut `null`, ce qui permet de reprendre la mesure d'un document dont le
-    gate précédent était rouge (`gate_echoue`). Voir `_sans_gate_sur_disque` : `data/` n'est pas
-    touché, et un document en quarantaine pour une autre raison le reste.
+    gate précédent était rouge (`gate_echoue`) **ou que le schéma en vigueur ne sait plus lire**.
+    Voir `_sans_gate_sur_disque` : `data/` n'est pas touché, et un document en quarantaine pour une
+    autre raison le reste.
+
+    Le second cas est le même cul-de-sac que le premier, par une autre porte (revue Codex 1.10
+    tour 2) : quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
+    —, tous les gates déjà écrits deviennent des entrées de manifest invalides, le loader met leur
+    document en quarantaine, et `--gate` refuse en code 2 « document non servi ». Il n'existerait
+    alors aucun chemin pour écrire le gate au nouveau schéma, alors que c'est exactement ce que la
+    commande demande. Un gate que l'image courante ne sait pas lire n'est pas un gate : pour ce seul
+    document, et pour la lecture seulement, il est traité comme absent.
     """
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
                                 model_ids=dict(TIERS))
@@ -647,10 +711,17 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     if regate is not None and pile is not None:
         entree_brute = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8")) \
             if (data_dir / MANIFEST).is_file() else {}
-        gate_rouge = (isinstance(entree_brute.get(regate), dict)
-                      and isinstance(entree_brute[regate].get("gate"), dict)
-                      and entree_brute[regate]["gate"].get("evals_ok") is False)
-        if gate_rouge:
+        brut_gate = (entree_brute[regate].get("gate")
+                     if isinstance(entree_brute.get(regate), dict) else None)
+        gate_a_refaire = False
+        if isinstance(brut_gate, dict):
+            gate_a_refaire = brut_gate.get("evals_ok") is False
+            if not gate_a_refaire:
+                try:
+                    Gate.model_validate(brut_gate)
+                except ValidationError:
+                    gate_a_refaire = True
+        if gate_a_refaire:
             lecture = _sans_gate_sur_disque(data_dir, regate, pile)
     corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate)
     return Contexte(settings=settings, index=Index(corpus), client=LlmClient(settings),
@@ -798,7 +869,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"refus : {exc}", file=sys.stderr)
             return 2
         print(f"gate écrit sur {args.gate} : profile={gate.profile} evals_ok={gate.evals_ok} "
-              f"cases={gate.cases} cases_hash={gate.cases_hash[:12]}… date={gate.date}", file=sortie)
+              f"cases={gate.cases} countersigned={gate.countersigned} "
+              f"cases_hash={gate.cases_hash[:12]}… date={gate.date}", file=sortie)
+        if not gate.countersigned:
+            # AD-14 définit `vertical` par une relecture humaine. Écrire un gate dont les cas ne
+            # sont pas contresignés est permis — sans quoi aucun gate ne pourrait exister avant la
+            # contresignature — mais jamais muet : l'accueil dira la réserve, et ceci la dit à qui
+            # lance le run (revue Codex 1.10 tour 2, B2).
+            manquants = ", ".join(c.id for c in cas if c.truth.countersigned_by is None)
+            print(f"ATTENTION : gate `{gate.profile}` écrit sur des cas non contresignés "
+                  f"({manquants}) — l'accueil n'écrira pas « relus à la main » tant que "
+                  "`truth.countersigned_by` n'est pas rempli, et le gate devra être relancé",
+                  file=sys.stderr)
     return 0 if tous_ok else 1
 
 

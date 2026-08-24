@@ -436,8 +436,12 @@ def test_ingest_models() -> None:
     # `cases` (story 1.10) : le nombre de cas de la suite exécutée par le run qui a écrit ce gate.
     # L'accueil affiche « N cas relus à la main » et ne code pas N en dur — c'est une propriété du
     # gate, pas de la page.
+    # `countersigned` (revue Codex 1.10 tour 2) : les cas exécutés sont-ils tous contresignés par un
+    # humain ? AD-14 définit `vertical` comme « relus à la main » — c'est ce booléen, et non le nom du
+    # profil, qui autorise `/` à l'écrire.
     assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
-                                   "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash", "cases"}
+                                   "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash", "cases",
+                                   "countersigned"}
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
     assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
                                             "overlay_hash", "gate"}
