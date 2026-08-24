@@ -24,24 +24,46 @@
   var API_BASE = (window.location && /^https?:$/.test(window.location.protocol))
     ? window.location.origin : "";
 
-  // Borne d'abandon de la sonde. `/api/v1/sante` ne coûte rien et n'est pas limitée, mais une sonde
-  // qui pend laisserait le bloc « état du système » vide sans un mot. La marge est celle du serveur
-  // (`client_abort_margin_s`, config.py) ; ce littéral n'est qu'un **repli** : la page ne peut pas
-  // lire le seuil sur la sonde qu'elle est en train de borner, et le recopier plus finement le
-  // ferait diverger de `config.py` (convention Seuils). Un test l'amarre à `Settings().thresholds()`.
-  var MARGE_ABANDON_S_REPLI = 10;
+  // Budget **total** de la sonde, en secondes. `/api/v1/sante` ne coûte rien et n'est pas limitée,
+  // mais une sonde qui pend laisserait le bloc « état du système » vide sans un mot.
+  //
+  // Ce n'est pas une marge ajoutée à une deadline serveur — il n'y a pas de deadline serveur sur
+  // `/sante`, tout y est calculé au démarrage. C'est le temps qu'on accepte d'attendre pour un état
+  // de santé, et la valeur choisie est celle que `config.py` réserve déjà au client
+  // (`client_abort_margin_s`) : la page ne peut pas lire un seuil sur la sonde qu'elle est en train
+  // de borner, et en recopier un autre le ferait diverger de `config.py` (convention Seuils). Un
+  // test l'amarre à `Settings().thresholds()["client_abort_margin_s"]`.
+  var SONDE_BUDGET_S = 10;
 
+  // Les **noms d'alerte** que `/api/v1/sante` publie, traduits. Un nom inconnu s'affiche tel quel :
+  // taire une alerte qu'on ne sait pas nommer serait pire que la montrer brute.
   var ALERTES = {
     sans_gate: "aucune question-témoin ne valide ce document",
-    gate_echoue: "les questions-témoins de ce document ont échoué",
     gate_perime: "le gate a été obtenu avec un autre code, d'autres prompts ou d'autres modèles",
     source_absente: "le fichier source n'est pas présent à côté des artefacts",
     rapport_illisible: "le rapport d'ingestion est présent mais illisible",
     rapport_etranger: "le rapport d'ingestion décrit un autre document",
-    bloquant_statique: "un contrôle bloquant d'ingestion pèse sur ce document",
     quarantaine: "document écarté au chargement",
     ungated_en_production: "la dérogation ALLOW_UNGATED est armée en production"
   };
+
+  // Les **raisons de quarantaine** ne sont pas des noms d'alerte : `corpus/loader.py` les calcule et
+  // `api/etat._alertes` les publie sous `alerte: "quarantaine"`, la raison dans `detail`. Les mettre
+  // dans `ALERTES` en faisait du code mort — la page n'aurait jamais traduit un seul d'entre eux.
+  // Ils sont donc cherchés là où ils arrivent : en préfixe du détail.
+  var RAISONS = [
+    ["gate_echoue", "les questions-témoins de ce document ont échoué"],
+    ["bloquant_statique", "un contrôle bloquant du rapport d'ingestion pèse sur ce document"],
+    ["sans_gate", "aucune question-témoin ne valide ce document"]
+  ];
+
+  function raisonTraduite(detail) {
+    var d = String(detail || "");
+    for (var i = 0; i < RAISONS.length; i++) {
+      if (d.indexOf(RAISONS[i][0]) === 0) return RAISONS[i][1];
+    }
+    return "";
+  }
 
   // ---------- nœuds : la description de ce qu'il faut peindre ----------
 
@@ -116,11 +138,21 @@
       };
     }
     var n = sante.gate_cases;
+    // « relus à la main » n'est vrai que du profil `vertical` : AD-14 le définit comme « un cas
+    // guide et un cas sinistre **relus à la main** ». `full` (story 4.1) est la politique complète,
+    // qui ne promet aucune relecture humaine — l'écrire quand même ferait affirmer à la page une
+    // relecture qui n'a pas eu lieu, exactement la classe d'invention que D8 interdit. Le profil
+    // vient du serveur ; la qualification, elle, n'est écrite que là où elle est vraie.
+    var relus = (sante.gate_profile === "vertical") ? " relu" + (n > 1 ? "s" : "") + " à la main" : "";
     return {
       etat: "gate",
-      texte: "niveau de validation : " + sante.gate_profile + " — " + n + " cas relu" +
-             (n > 1 ? "s" : "") + " à la main"
+      texte: "niveau de validation : " + sante.gate_profile + " — " + n + " cas" + relus
     };
+  }
+
+  /** Le serveur signale-t-il que le gate ne correspond plus à l'image qui tourne ? */
+  function perime(sante) {
+    return tableau(sante && sante.alerts).some(function (a) { return a.alerte === "gate_perime"; });
   }
 
   /** Les alertes du serveur, en français, sans jamais rien en déduire de plus. */
@@ -130,6 +162,8 @@
       var phrase = (a.doc_id === "*" ? "" : a.doc_id + " : ") +
         (connu ? ALERTES[a.alerte] : a.alerte) +
         (connu ? " (" + a.alerte + ")" : "");
+      var traduite = raisonTraduite(a.detail);
+      if (traduite) phrase += " : " + traduite;
       if (a.detail) phrase += " — " + a.detail;
       return noeud("li", null, phrase);
     });
@@ -150,10 +184,22 @@
     var validation = libelleValidation(sante);
     var enfants = [noeud("p", "validation", validation.texte)];
     if (validation.etat === "gate") {
-      enfants.push(noeud("p", "detail",
-        "Un gate n'est écrit que par un run réel des questions-témoins sur le corpus servi ; il " +
-        "porte les empreintes du corpus, du code et des prompts qui l'ont obtenu. Les verdicts ne " +
-        "sont validés par aucun expert assurance."));
+      // La phrase disait « il porte les empreintes du corpus, du code et des prompts qui l'ont
+      // obtenu » — vrai en général, **faux** précisément quand le serveur lève `gate_perime`, qui
+      // veut dire que ces empreintes ne sont plus celles de l'image servie. AD-7 garde le document
+      // servi dans ce cas ; ce qu'il ne permet pas, c'est de le dire à l'envers. La page n'affirme
+      // donc plus que ce que la sonde établit, et le péremption a sa propre ligne.
+      if (perime(sante)) {
+        enfants.push(noeud("p", "detail",
+          "Réserve : le serveur signale que ce gate a été obtenu avec un autre code, d'autres " +
+          "prompts ou d'autres modèles que ceux qui tournent ici. Le niveau ci-dessus décrit ce " +
+          "qui a été mesuré alors, pas ce qui tourne maintenant."));
+      } else {
+        enfants.push(noeud("p", "detail",
+          "Ce gate a été écrit par un run réel des questions-témoins sur le corpus servi, et le " +
+          "serveur ne signale aucun écart entre les empreintes qu'il porte et l'image qui tourne. " +
+          "Les verdicts ne sont validés par aucun expert assurance."));
+      }
     } else if (!sante.documents_servis.length) {
       // `gate_profile` est aussi `null` quand **rien** n'est servi : le dire « aucun gate » sans
       // préciser cela laisserait croire qu'un corpus attend d'être validé.
@@ -168,6 +214,13 @@
       "documents servis : " + (sante.documents_servis.length
         ? sante.documents_servis.join(", ") : "aucun")));
     enfants.push(noeud("p", "detail", "version servie : " + sante.version));
+    if (sante.ok !== true) {
+      // `ok` est ce que le front du guide lit pour décider s'il peut poser une question : le taire
+      // ici afficherait un état normal alors que le guide n'est pas servi.
+      enfants.push(noeud("p", "detail",
+        "Le serveur répond, mais il annonce que l'assistant du guide n'est pas disponible : une " +
+        "question posée dans le guide n'obtiendrait pas de réponse."));
+    }
     var alertes = vueAlertes(sante.alerts);
     if (alertes) enfants.push(alertes);
     return noeud("div", "carte etat-" + validation.etat, null, enfants);
@@ -232,14 +285,25 @@
   /** `GET /api/v1/sante`. Rend le corps lu, ou rejette avec un motif — jamais une valeur inventée. */
   function sonder() {
     if (!enLigne()) return Promise.reject("hors_ligne");
+    if (typeof fetch !== "function") return Promise.reject("reseau");
     var opts = { method: "GET" };
     var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
     if (ctrl) opts.signal = ctrl.signal;
     var minuteur = ctrl
-      ? setTimeout(function () { ctrl.abort(); }, Math.round(MARGE_ABANDON_S_REPLI * 1000))
+      ? setTimeout(function () { ctrl.abort(); }, Math.round(SONDE_BUDGET_S * 1000))
       : null;
     function finir() { if (minuteur !== null) clearTimeout(minuteur); }
-    return fetch(API_BASE + "/api/v1/sante", opts).then(function (r) {
+    var envoi;
+    try {
+      envoi = fetch(API_BASE + "/api/v1/sante", opts);
+    } catch (e) {
+      // Un `fetch` qui lève **de façon synchrone** (URL rejetée, navigateur ancien) sortait de
+      // `sonder()` par une exception, pas par un rejet : `demarrer()` ne la voyait pas, et la page
+      // restait muette — ni niveau, ni message d'échec.
+      finir();
+      return Promise.reject("reseau");
+    }
+    return envoi.then(function (r) {
       finir();
       // Un non-200 sur `/sante` n'est pas « le système n'a pas de gate » : c'est une sonde qui a
       // échoué (AD-16). L'état 3 est le seul honnête.
@@ -271,6 +335,7 @@
     // Composition pure : testable sans navigateur (`tests/js/accueil_cases.mjs`).
     lireSante: lireSante,
     libelleValidation: libelleValidation,
+    perime: perime,
     vueEtat: vueEtat,
     vueAlertes: vueAlertes,
     vueSondeEchouee: vueSondeEchouee,
@@ -282,8 +347,10 @@
     demarrer: demarrer,
     apiBase: function () { return API_BASE; },
     setApiBase: function (u) { API_BASE = u; },
-    bornes: function () { return { marge_abandon_s_repli: MARGE_ABANDON_S_REPLI }; },
-    ALERTES: ALERTES
+    bornes: function () { return { sonde_budget_s: SONDE_BUDGET_S }; },
+    ALERTES: ALERTES,
+    RAISONS: RAISONS,
+    raisonTraduite: raisonTraduite
   };
 
   // Le harnais de test charge ce fichier sans page : il pose ce drapeau pour obtenir

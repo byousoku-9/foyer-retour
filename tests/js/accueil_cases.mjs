@@ -163,6 +163,29 @@ async function main() {
     cas.un_seul_cas = ctx.ACCUEIL.libelleValidation(lu);
   }
 
+  // --- état 1 quater : un profil qui ne promet aucune relecture humaine -------
+  {
+    const ctx = charger(PAGE, () => reponseHttp({ corps: sante({ gate_profile: "full", gate_cases: 47 }) }));
+    const lu = await ctx.ACCUEIL.sonder();
+    cas.profil_full = ctx.ACCUEIL.libelleValidation(lu);
+  }
+
+  // --- état 1 quinquies : le serveur signale un gate périmé -------------------
+  {
+    const ctx = charger(PAGE, () => reponseHttp({
+      corps: sante({ alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }) }));
+    const lu = await ctx.ACCUEIL.sonder();
+    cas.gate_perime = { perime: ctx.ACCUEIL.perime(lu), textes: textesDe(ctx.ACCUEIL.vueEtat(lu)) };
+  }
+
+  // --- état 1 sexies : le serveur répond mais `ok: false` ---------------------
+  {
+    const ctx = charger(PAGE, () => reponseHttp({
+      corps: sante({ ok: false, documents_servis: ["axa-lu-optihome-2017"], gate_cases: 1 }) }));
+    const lu = await ctx.ACCUEIL.sonder();
+    cas.pas_ok = { textes: textesDe(ctx.ACCUEIL.vueEtat(lu)) };
+  }
+
   // --- état 1 ter : les alertes du serveur sont affichées telles qu'elles sont
   {
     const ctx = charger(PAGE, () => reponseHttp({
@@ -171,6 +194,12 @@ async function main() {
           { doc_id: "lux-guide", alerte: "gate_perime", detail: "" },
           { doc_id: "*", alerte: "ungated_en_production", detail: "ALLOW_UNGATED=true" },
           { doc_id: "autre", alerte: "alerte_inconnue_du_front", detail: "détail du serveur" },
+          // Les raisons de quarantaine arrivent **ainsi** : nom d'alerte `quarantaine`, raison en
+          // préfixe du détail (`api/etat._alertes`). Les mettre dans la table des noms d'alerte
+          // en aurait fait du code mort.
+          { doc_id: "axa", alerte: "quarantaine",
+            detail: "bloquant_statique : page_sans_texte" },
+          { doc_id: "vieux", alerte: "quarantaine", detail: "gate_echoue" },
         ] }) }));
     const lu = await ctx.ACCUEIL.sonder();
     const vue = ctx.ACCUEIL.vueEtat(lu);

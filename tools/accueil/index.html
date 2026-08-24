@@ -118,7 +118,10 @@ porte.</p>
 <section class="bloc">
 <h2>Ce qui a été vérifié</h2>
 <p class="reserve">Lu à l'instant sur <code>/api/v1/sante</code>, jamais écrit dans cette page.</p>
-<div id="etat"></div>
+<!-- Rempli par `accueil.js` après la sonde : `role="status"` + `aria-live="polite"`
+     pour qu'un lecteur d'écran entende apparaître le niveau de validation, qui est l'information
+     que cette section existe pour donner. -->
+<div id="etat" role="status" aria-live="polite"></div>
 <noscript><p class="reserve">JavaScript est désactivé&nbsp;: le niveau de validation n'a pas pu être
 lu. Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
 </section>

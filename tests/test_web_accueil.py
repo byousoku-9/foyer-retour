@@ -137,7 +137,57 @@ def test_le_compte_de_cas_nest_pas_ecrit_dans_la_page(cas: dict[str, Any], code:
     assert cas["un_seul_cas"]["texte"] == "niveau de validation : vertical — 1 cas relu à la main"
     for littéral in ("2 cas", "vertical —", "niveau de validation : vertical"):
         assert littéral not in page, f"{littéral!r} est écrit en dur dans la page"
-    assert "vertical" not in code, "le profil de gate est un littéral du script"
+    # `vertical` apparaît une fois dans le code, et une seule : la qualification « relus à la main »
+    # n'est vraie que de ce profil (AD-14), et la page ne doit pas la promettre sous un `full`. Le
+    # profil affiché, lui, vient toujours du serveur — jamais du script.
+    assert code.count('"vertical"') == 1, "le profil de gate ne doit servir qu'à un test, pas à un affichage"
+    assert 'gate_profile + " — "' in code or "gate_profile +" in code, \
+        "le profil affiché doit venir du corps de la sonde"
+
+
+def test_un_profil_ne_promet_une_relecture_humaine_que_sil_en_est_une(cas: dict[str, Any]) -> None:
+    """AD-14 : `vertical` = « relus à la main ». `full` (story 4.1) ne promet aucune relecture.
+
+    Écrire « relus à la main » sous un gate `full` ferait affirmer à la page une relecture humaine
+    qui n'a pas eu lieu — la classe d'invention que D8 interdit. Le profil vient du serveur ; la
+    qualification n'est écrite que là où elle est vraie.
+    """
+    assert cas["profil_full"]["texte"] == "niveau de validation : full — 47 cas"
+    assert "à la main" not in cas["profil_full"]["texte"]
+
+
+def test_un_gate_perime_nest_pas_annonce_comme_a_jour(cas: dict[str, Any]) -> None:
+    """AD-7 laisse un gate périmé servir le document ; il n'autorise pas à le dire à jour.
+
+    La page affirmait « il porte les empreintes du corpus, du code et des prompts qui l'ont obtenu »
+    — précisément ce que `gate_perime` dément. Le niveau reste affiché (le serveur le publie), avec
+    sa réserve.
+    """
+    assert cas["gate_perime"]["perime"] is True
+    textes = cas["gate_perime"]["textes"]
+    assert any("Réserve" in t and "autre code" in t for t in textes)
+    assert not any("ne signale aucun écart" in t for t in textes)
+    # Et le nominal dit bien l'inverse, sinon la réserve ne distinguerait rien.
+    assert any("ne signale aucun écart" in t for t in cas["nominal"]["textes"])
+
+
+def test_un_service_degrade_nest_pas_peint_comme_un_service_sain(cas: dict[str, Any]) -> None:
+    """`ok: false` était lu par `lireSante` puis jeté : le guide en quarantaine s'affichait normal."""
+    assert any("l'assistant du guide n'est pas disponible" in t for t in cas["pas_ok"]["textes"])
+    assert not any("n'est pas disponible" in t for t in cas["nominal"]["textes"])
+
+
+def test_une_raison_de_quarantaine_est_traduite_la_ou_elle_arrive(cas: dict[str, Any]) -> None:
+    """`gate_echoue` et `bloquant_statique` ne sont pas des **noms** d'alerte.
+
+    `corpus/loader.py` les calcule comme raisons de quarantaine et `api/etat._alertes` les publie
+    sous `alerte: "quarantaine"`, la raison dans `detail`. Les mettre dans la table des noms
+    d'alerte en faisait du code mort : la page n'en aurait traduit aucun.
+    """
+    textes = cas["alertes"]["textes"]
+    assert any("contrôle bloquant du rapport d'ingestion" in t and "page_sans_texte" in t
+               for t in textes)
+    assert any("questions-témoins de ce document ont échoué" in t for t in textes)
 
 
 def test_les_alertes_du_serveur_sont_affichees_telles_quelles(cas: dict[str, Any]) -> None:
@@ -297,7 +347,11 @@ def test_la_page_porte_les_liens_vers_le_depot(page: str) -> None:
 
 def test_le_bloc_detat_est_vide_dans_le_html(page: str) -> None:
     """AD-11 : la page n'écrit aucun niveau ; le bloc est rempli par le script, ou pas du tout."""
-    assert re.search(r'<div id="etat">\s*</div>', page)
+    assert re.search(r'<div id="etat"[^>]*>\s*</div>', page)
+    # Rempli après la sonde : sans région live, un lecteur d'écran n'entend jamais apparaître le
+    # niveau de validation, qui est l'information que cette section existe pour donner.
+    assert re.search(r'<div id="etat"[^>]*role="status"', page)
+    assert 'aria-live="polite"' in page
     assert "<noscript>" in page, "sans JavaScript, le lecteur doit savoir pourquoi le bloc est vide"
 
 
@@ -314,10 +368,15 @@ def test_le_script_est_charge_par_la_page(page: str) -> None:
 
 # --- Convention Seuils ----------------------------------------------------
 
-def test_le_repli_dabandon_est_celui_du_serveur(cas: dict[str, Any]) -> None:
-    """Le littéral du front n'est qu'un repli, et il vaut ce que `config.py` publie."""
+def test_le_budget_de_la_sonde_est_un_seuil_du_serveur(cas: dict[str, Any]) -> None:
+    """Convention Seuils : le littéral du front vaut ce que `config.py` publie, et rien d'autre.
+
+    Ce n'est pas une marge ajoutée à une deadline — `/sante` n'en a pas —, c'est le temps qu'on
+    accepte d'attendre pour un état de santé ; la valeur choisie est celle que `config.py` réserve
+    déjà au client.
+    """
     seuils = Settings(_env_file=None).thresholds()
-    assert cas["bornes"]["marge_abandon_s_repli"] == seuils["client_abort_margin_s"]
+    assert cas["bornes"]["sonde_budget_s"] == seuils["client_abort_margin_s"]
 
 
 # --- UX-DR9 : le lien « ← retour » de la copie du site --------------------
