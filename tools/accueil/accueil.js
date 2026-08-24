@@ -3,10 +3,15 @@
 //
 // Même partage qu'en 1.7 et 1.9, et pour la même raison : **ce qui décide est séparé de ce qui
 // peint**. `libelleValidation`, `vueEtat`, `vueAlertes` et `vueSondeEchouee` sont **pures** — elles
-// rendent un arbre `{tag, cls, texte, enfants, href}` et ne touchent ni au DOM ni au réseau ;
+// rendent un arbre `{tag, cls, texte, enfants}` et ne touchent ni au DOM ni au réseau ;
 // `materialiser()` transforme cet arbre en DOM et ne décide de rien, en posant tout texte par
 // `textContent` (AD-15). C'est ce qui rend la promesse de la story vérifiable sans navigateur : « la
 // page n'invente aucun niveau quand la sonde échoue » est une assertion sur un arbre.
+//
+// L'arbre est exactement `{tag, cls, texte, enfants}` — **pas** de `href` : tous les liens de cette
+// page sont statiques (les trois entrées, le pied de page) et vivent dans `index.html`. Le
+// matérialiseur en portait la branche, que `noeud()` ne pouvait pas produire : du code que rien ne
+// pouvait atteindre, et un en-tête qui décrivait un contrat plus large que le vrai (revue 1.10).
 //
 // AD-11 / AD-16 / D8 : **trois états, et trois seulement**.
 //   1. la sonde répond avec un profil  → « niveau de validation : vertical — N cas relus à la main »
@@ -87,7 +92,29 @@
   // dirait sur l'état du système quelque chose que le serveur n'a pas dit.
 
   function estChaine(v) { return typeof v === "string"; }
-  function estEntier(v) { return typeof v === "number" && isFinite(v) && Math.floor(v) === v; }
+
+  // **La** règle du couple (profil, compte), écrite une fois et partagée mot pour mot avec
+  // `web/app/chat.js` — `tests/js/sante_corpus.mjs` rejoue les mêmes corps dans les deux lecteurs et
+  // exige le même verdict, corps par corps :
+  //
+  //   - `gate_profile` : chaîne **non vide**, ou `null`. « niveau de validation :  — 2 cas » ne dit
+  //     rien, et `routes/sante.py` n'écrit jamais une chaîne vide (`EtatApp.gate_profile` rend le
+  //     profil d'un gate ou `None`).
+  //   - `gate_cases` : entier **≥ 1**, ou `null`. Le plancher est 1 et non 0 : `evals/run.py` refuse
+  //     de tourner sur zéro cas (« aucun cas au profil … »), donc aucun gate ne peut porter
+  //     `cases: 0` et « vertical — 0 cas relu à la main » est une phrase que rien ne peut produire.
+  //   - les deux nuls, ou les deux non nuls : `EtatApp.gate_cases` rend `null` dès que
+  //     `gate_profile` l'est. Un corps qui les dissocie n'a pas été écrit par cette route.
+  //
+  // Tout ce que cette règle refuse est une **sonde illisible** (état 3), jamais un niveau à moitié
+  // peint : c'est la différence entre « le serveur n'a pas répondu » et une phrase qu'il n'a pas dite.
+  function profilLisible(p) { return p === null || (estChaine(p) && p.length > 0); }
+  function compteLisible(n) {
+    return n === null || (typeof n === "number" && isFinite(n) && Math.floor(n) === n && n >= 1);
+  }
+  function coupleLisible(p, n) {
+    return profilLisible(p) && compteLisible(n) && ((p === null) === (n === null));
+  }
 
   function lireAlerte(a) {
     if (!a || typeof a !== "object" || Array.isArray(a)) return null;
@@ -100,13 +127,7 @@
     if (!o || typeof o !== "object" || Array.isArray(o)) return null;
     if (typeof o.ok !== "boolean" || !estChaine(o.version)) return null;
     if (!Array.isArray(o.documents_servis) || !o.documents_servis.every(estChaine)) return null;
-    if (!(o.gate_profile === null || estChaine(o.gate_profile))) return null;
-    if (!(o.gate_cases === null || estEntier(o.gate_cases))) return null;
-    // Les deux sont **strictement liés** côté serveur (`EtatApp.gate_cases` rend `null` dès que
-    // `gate_profile` l'est). Un corps qui les dissocie n'a pas pu être écrit par cette route : le
-    // tolérer ferait afficher « niveau : vertical » sans son compte, ou un compte sans niveau —
-    // deux phrases que le serveur n'a jamais dites. C'est une sonde illisible, donc l'état 3.
-    if ((o.gate_profile === null) !== (o.gate_cases === null)) return null;
+    if (!coupleLisible(o.gate_profile, o.gate_cases)) return null;
     if (!Array.isArray(o.alerts)) return null;
     var alertes = [];
     for (var i = 0; i < o.alerts.length; i++) {
@@ -263,7 +284,6 @@
   function materialiser(vue) {
     var e = document.createElement(vue.tag);
     if (vue.cls) e.className = vue.cls;
-    if (vue.href) { e.href = vue.href; e.rel = "noopener noreferrer"; }
     if (vue.texte !== undefined) e.textContent = vue.texte;
     (vue.enfants || []).forEach(function (enfant) { e.appendChild(materialiser(enfant)); });
     return e;
@@ -303,8 +323,10 @@
       finir();
       return Promise.reject("reseau");
     }
+    // `finir()` n'est appelé qu'au **règlement** de la promesse, pas à la réception des en-têtes :
+    // `r.json()` attend le corps, et l'annuler plus tôt laissait un corps qui ne se termine jamais
+    // bloquer la page indéfiniment — sur le seul état qu'elle ne sait pas dire (ni niveau, ni échec).
     return envoi.then(function (r) {
-      finir();
       // Un non-200 sur `/sante` n'est pas « le système n'a pas de gate » : c'est une sonde qui a
       // échoué (AD-16). L'état 3 est le seul honnête.
       if (!r.ok) throw "http_" + r.status;
@@ -314,8 +336,14 @@
         return lu;
       }, function () { throw "reponse_illisible"; });
     }, function () {
-      finir();
       throw (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau";
+    }).then(function (lu) {
+      finir();
+      return lu;
+    }, function (motif) {
+      finir();
+      throw (ctrl && ctrl.signal.aborted && motif === "reponse_illisible")
+        ? "timeout_client" : motif;
     });
   }
 
@@ -334,6 +362,7 @@
   window.ACCUEIL = {
     // Composition pure : testable sans navigateur (`tests/js/accueil_cases.mjs`).
     lireSante: lireSante,
+    coupleLisible: coupleLisible,
     libelleValidation: libelleValidation,
     perime: perime,
     vueEtat: vueEtat,
