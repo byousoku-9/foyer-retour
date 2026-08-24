@@ -336,3 +336,28 @@ celui que la revue a relevé — une exigence de trop, et une réponse réelleme
 Le premier segment de cette réponse est non factuel et ne porte **aucune** citation : c'est le
 comportement voulu (seul un segment `factuel` cite), et il n'a pas déclenché l'abandon de
 l'appariement — les deux segments suivants ont bien reçu la leur.
+
+### Après la revue Codex de la story 1.7 (2026-08-24, tour 3) — le même bloquant maintenu (B2)
+
+Serveur nominal sur `:8802` avec la vraie clé de `.env`. **Deux appels réels, 0,0301 € au total.**
+
+Ce tour resserre la lecture du contrat une troisième fois : les champs obligatoires des objets
+**imbriqués** que l'écran consomme (`AbsenceProof.kind` en tête) et le refus de `null` sur les champs
+à valeur par défaut. Le risque reste le même et il est symétrique : une exigence de trop, et une
+réponse réellement servie devient un « assistant indisponible ». Les deux corps ci-dessous sont donc
+produits par le **pipeline**, pas écrits à la main — et ils couvrent les deux branches que ce tour
+touche : une réponse trouvée (pas de `reason`) et un refus (`reason` renseignée).
+
+| Vérification | Commande / geste | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **773 passed en 11,0 s** (32 cas ajoutés par ce tour), zéro réseau |
+| Cas du front | `node tests/js/chat_cases.mjs` | code **0**, `stderr` vide (0 octet), `ok: true` |
+| Cas du matérialiseur | `node tests/js/ui_cases.mjs` | code **0**, `stderr` vide (0 octet), `ok: true`, 6 relevés |
+| Le fichier servi est le nouveau | `diff <(curl -s localhost:8802/guide/app/chat.js) web/app/chat.js` | identique, et le bloc « trois formes d'exigence » y est |
+| Le seuil client vient toujours de `config.py` | `curl -s localhost:8802/sante` | `thresholds.client_abort_margin_s = 10.0`, `deadline_s = 55.0`, `historique_max_turns = 6` |
+| **Une réponse trouvée passe la lecture resserrée** (B2) | `POST /chat` « Quel délai ai-je pour déclarer mon arrivée à la commune ? » puis `node tests/js/corps_servi.mjs` | 200 réel (`found=true`, `complete=false`, 2 claims, 3 sources, coût **0,0270 €**) → `lu: true`, `via: "api/v1"`, état **partiel**, **3 citations placées** sous 2 segments |
+| **Un refus réel passe la lecture resserrée** (B2) | `POST /chat` « Quelle est la météo prévue à Esch-sur-Alzette la semaine prochaine ? » puis le même harnais | 200 réel (`found=false`, `reason.kind = "hors_perimetre"`, `terms_searched=[]`, `variants_count=0`, `blocks_scanned=0`, coût **0,0031 €**) → `lu: true`, état **inconnu**, 0 source. C'est la branche que ce tour resserre : un `reason` **complet** est lu, un `reason: {}` ne l'est plus |
+| Aucun `innerHTML` sur du texte serveur | `grep -n "innerHTML" web/app/ui.js` | 30 vidages `innerHTML = ""` et une ligne de commentaire, inchangés (ce tour ne touche pas `ui.js`) |
+
+Les relevés 503 / 429 / clic de repli / `localStorage` du tour 2 ne sont **pas** rejoués : ce tour ne
+touche que `lireReponse()` et ses témoins de test, aucun des chemins d'erreur ni de la peinture.
