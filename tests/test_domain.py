@@ -165,12 +165,53 @@ def test_answer_models() -> None:
     assert literal_values(answer.AnswerSegment, "kind") == {"factuel", "transition", "limite"}
     assert fields(answer.AnswerDraft) == {"segments", "claims"}
     assert fields(answer.AbsenceProof) == {"kind", "terms_searched", "variants_count", "blocks_scanned", "documents"}
-    assert literal_values(answer.AbsenceProof, "kind") == {"hors_perimetre", "zero_hit", "claims_rejetes"}
+    # `clarification_requise` amende AD-4 (story 1.5) : `found=False` exige un `reason`, et aucun des
+    # trois kinds d'origine ne décrit une question qu'on n'a pas pu rendre autonome (AD-5).
+    assert literal_values(answer.AbsenceProof, "kind") == {"hors_perimetre", "zero_hit", "claims_rejetes",
+                                                           "clarification_requise"}
     assert literal_values(answer.RejectedClaim, "rejection_kind") == {"non_retrouvee", "non_pertinente", "ambigue"}
     assert fields(answer.Answer) == {
         "found", "complete", "lang", "lang_fallback", "texte", "segments", "claims", "rejected_claims",
         "reason", "verdict", "unknown", "clarification",
     }
+
+
+# AD-3 (story 1.5) : ce que *vérifier* ajoute au domaine
+def test_verified_quote_carries_the_occurrence() -> None:
+    assert fields(answer.VerifiedQuote) == {"block_id", "quote", "start", "end", "line_ids"}
+    q = answer.VerifiedQuote(block_id="d:p1:1", quote="huit jours", start=3, end=13, line_ids=["l1"])
+    assert (q.start, q.end, q.line_ids) == (3, 13, ["l1"])
+    with pytest.raises(ValidationError, match="end doit être"):
+        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=5, end=5)
+    with pytest.raises(ValidationError):
+        answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=-1, end=2)
+    # une claim vérifiée n'a que des quotes localisées : une quote de draft n'y entre pas
+    with pytest.raises(ValidationError, match="start"):
+        answer.VerifiedClaim(claim_id="c", text="t", quotes=[{"block_id": "d:p1:1", "quote": "q"}],
+                             status={"retrouvee": True, "pertinente": True, "edition": "e"})
+
+
+def test_verification_fields() -> None:
+    assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
+                                           "unknown", "motif"}
+    v = answer.Verification()
+    assert v.found is False and v.complete is False and v.motif is None
+
+
+def test_draft_digest_is_canonical_and_content_sensitive() -> None:
+    """AD-3 : « un draft identique — même hash canonique — arrête la relance »."""
+    def draft(text: str = "Vous avez huit jours.", quote: str = "huit jours pour declarer") -> answer.AnswerDraft:
+        return answer.AnswerDraft(
+            segments=[{"text": text, "kind": "factuel", "claim_ids": ["c1"]}],
+            claims=[{"claim_id": "c1", "text": "Le délai est de huit jours.",
+                     "quotes": [{"block_id": "d:p1:1", "quote": quote}]}])
+
+    assert draft().digest() == draft().digest()
+    # les blancs ne font pas le contenu : un draft ré-indenté est le même draft
+    assert draft(text="  Vous   avez\n huit jours. ").digest() == draft().digest()
+    assert draft(text="Vous avez huit jours ouvrables.").digest() != draft().digest()
+    assert draft(quote="huit jours pour declarer votre arrivee").digest() != draft().digest()
+    assert len(draft().digest()) == 64
 
 
 def test_claim_requires_one_quote_per_block() -> None:
@@ -248,7 +289,9 @@ def test_answer_found_coherence() -> None:
     with pytest.raises(ValidationError, match="claim"):
         answer.Answer(found=True, complete=True)
     def claim(retrouvee: bool = True, pertinente: bool | None = True) -> dict:
-        return {"claim_id": "c", "text": "t", "quotes": [{"block_id": "d:p1:1", "quote": "q"}],
+        # story 1.5 : une claim vérifiée porte des quotes localisées (`VerifiedQuote`)
+        return {"claim_id": "c", "text": "t",
+                "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1}],
                 "status": {"retrouvee": retrouvee, "pertinente": pertinente, "edition": "e"}}
 
     assert answer.Answer(found=True, complete=True, claims=[claim()]).claims[0].status.retrouvee

@@ -74,6 +74,21 @@ class ParsedQuestion(DomainModel):
     def _normalise_language(cls, value: str) -> str:
         return _lang_or_fr(value)
 
+    def termes_de_recherche(self) -> list[str]:
+        """Termes réellement cherchés : `terms` puis `scope.themes`, dédupliqués, ordre conservé.
+
+        Source **unique** (story 1.5) : *retrouver* construit ainsi ses termes, et l'`AbsenceProof`
+        du pipeline doit dire exactement ce qui a été cherché (AD-4 `terms_searched`). Les deux
+        calculs vivaient dans deux fichiers qu'aucun test ne reliait — une divergence aurait fait
+        mentir le refus affiché à l'utilisateur sans faire échouer quoi que ce soit.
+        """
+        out: list[str] = []
+        for t in (*self.terms, *self.scope.themes):
+            t = t.strip()
+            if t and t not in out:
+                out.append(t)
+        return out
+
 
 class ClarificationRequise(DomainModel):
     """Seconde issue de *comprendre* : la question n'est pas résoluble, il faut la poser (AD-5).

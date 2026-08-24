@@ -56,6 +56,19 @@ class PipelineError(Exception):
         self.message = message or code.value
 
 
+class InvalidRequest(PipelineError):
+    """Entrée hors bornes constatée par le pipeline (AD-11/AD-16) : jamais de troncature silencieuse.
+
+    AD-11 borne l'historique à 6 tours et exige « 400 au-delà, jamais tronqué côté serveur ». La borne
+    est portée par le pipeline et non par l'API : c'est lui qui passe l'historique à *comprendre* et à
+    *rédiger*, et il doit lever **avant** le premier appel modèle (rien n'est facturé pour une requête
+    qu'on refuse).
+    """
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(ErrorCode.invalid_request, message)
+
+
 class LlmUnavailable(PipelineError):
     """Fournisseur injoignable ou en erreur (`llm_unavailable`), ou requête fausse de notre part (`internal`)."""
 
