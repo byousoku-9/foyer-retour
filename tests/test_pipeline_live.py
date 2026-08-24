@@ -71,13 +71,19 @@ async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Ind
         for q in claim.quotes:
             bloc = documents[index.doc_of(q.block_id)].block(q.block_id)
             assert bloc.kind != "heading"
-            # le texte affiché comme source est relu depuis le corpus, aux offsets conservés (AD-3)
+            # AD-3 : le texte affiché comme source est **relu depuis le corpus**, dans sa forme
+            # d'origine — jamais la chaîne rendue par le modèle (revue Codex 1.5, B2)
+            assert q.quote == bloc.text[q.text_start:q.text_end]
+            # et c'est bien l'occurrence dont l'inclusion a été prouvée dans la forme normalisée
             assert bloc.text_norm[q.start:q.end] == normalize(q.quote)
 
     # AD-3 : aucun segment factuel affiché sans claim survivante, et le texte n'est que ces segments
     survivantes = {c.claim_id for c in answer.claims}
     factuels = [s for s in answer.segments if s.kind == "factuel"]
     assert factuels and all(set(s.claim_ids) & survivantes for s in factuels)
+    # AD-16 : réciproquement, aucune affirmation retenue que plus aucune phrase n'affiche
+    citees = {cid for s in factuels for cid in s.claim_ids}
+    assert survivantes <= citees
     assert answer.texte == " ".join(s.text.strip() for s in answer.segments if s.text.strip())
 
     # AD-1 : la chaîne des cinq étapes, dans l'ordre, avec l'affectation de tiers d'AD-9
