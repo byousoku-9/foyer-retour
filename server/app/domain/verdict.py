@@ -1,14 +1,43 @@
-"""AD-6 — Verdict « au regard des conditions générales seules », décidé par table."""
+"""AD-6 — Verdict « au regard des conditions générales seules », décidé par table.
+
+Ce module est **du code pur** : il ne connaît ni le modèle, ni le corpus, ni les étapes. AD-6 confie
+au modèle l'extraction de *valeurs typées* et au code la décision — le découpage d'exécution est donc
+littéral :
+
+(a) `applicable_de_claim()` dérive `ClaimStatus.applicable ∈ {oui, non, humain}` d'une claim retenue,
+    à partir du typage des blocs qu'elle cite (`Block.kind`, seule source de typage) et des quatre
+    champs typés rendus par l'unique appel `micro` de *vérifier* ;
+(b) `decider()` applique la table exclusive d'AD-6 aux claims **affichées** et compose le `Verdict`
+    — sa valeur, sa raison, le paquet manquant, les questions à poser, les points à escalader.
+
+Rien de ce que le modèle rend n'est une décision : il dit si le fait exigé par la clause est présent,
+si une option ou des conditions particulières conditionnent la clause, et quel fait lui manque. Le
+seul texte du modèle qui traverse jusqu'à l'utilisateur est le libellé d'un `fait_manquant`, borné et
+dédupliqué par l'appelant, et il n'entre jamais dans `Answer.texte`.
+"""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from .document import DomainModel
 
 VerdictValue = Literal["couvert", "non_couvert", "sous_conditions", "ne_tranche_pas"]
+Applicable = Literal["oui", "non", "humain"]
+
+# AD-6 : les `Block.kind` qui portent une décision. Une claim n'en couvre qu'**un seul** (les clauses
+# hétérogènes sont éclatées en claims distinctes) ; un bloc `para`, `definition` ou `table` cité à
+# côté reste le contexte de la clause, et n'a pas d'applicabilité.
+KINDS_DECISIONNELS: frozenset[str] = frozenset({"garantie", "exclusion", "condition", "franchise"})
+# Les deux seuls kinds qui peuvent porter un verdict autre que `ne_tranche_pas` : la table d'AD-6 ne
+# tranche que sur une garantie ou une exclusion ; une condition ou une franchise ouvre le verdict,
+# elle ne le fonde jamais.
+KINDS_FONDATEURS: frozenset[str] = frozenset({"garantie", "exclusion"})
+
+# Portée affichée, invariable : le verdict ne vaut **jamais** décision d'indemnisation (AD-6).
+PORTEE = "au regard des conditions générales seules"
 
 
 class MissingPackage(DomainModel):
@@ -25,3 +54,267 @@ class Verdict(DomainModel):
     missing: MissingPackage = Field(default_factory=MissingPackage)
     ask_client: list[str] = Field(default_factory=list)
     escalate: list[str] = Field(default_factory=list)
+
+
+class ChampsApplicabilite(DomainModel):
+    """Les quatre valeurs typées d'AD-4, telles que le code les reçoit — jamais un verdict.
+
+    - `fait_requis_present` : le fait que la clause exige est-il **établi** par les faits déclarés ?
+    - `option_requise` / `cp_requise` : la clause ne joue-t-elle que si une option / les conditions
+      particulières le prévoient ?
+    - `fait_manquant` : le fait que la clause exige et que les faits déclarés ne disent **pas**.
+
+    Deux situations que `fait_requis_present=false` ne distingue pas seul, et que la table doit
+    séparer (D1 de la spec 1.8) : le fait est **connu et contraire** (la clause ne s'applique pas —
+    c'est ce qui écarte l'exclusion p. 46, qui vise le bâtiment quand le sinistre porte sur le
+    contenu) ou le fait est **inconnu** (personne ne peut trancher). C'est `fait_manquant` qui les
+    sépare : renseigné, le fait est inconnu ; vide, il est connu et contraire.
+    """
+
+    fait_requis_present: bool
+    option_requise: bool = False
+    cp_requise: bool = False
+    fait_manquant: str | None = None
+
+
+class ClauseCitee(DomainModel):
+    """Un bloc de kind décisionnel cité par une claim, réduit à ce dont la table a besoin.
+
+    Construit par *vérifier* depuis le bloc **relu dans le corpus** : le modèle ne produit ni `kind`
+    (AD-6 : « `Block.kind` (ingestion) est la seule source de typage ; *rédiger* ne produit pas de
+    `kind` »), ni portée, ni socle.
+    """
+
+    block_id: str
+    kind: str
+    kind_confirmed: bool = False
+    # `Document.scope_nodes(block_id)` — l'unique calcul de « la portée couvre le cas » (AD-2).
+    # Vide = la clause n'a pas de portée déclarée.
+    portee: set[str] = Field(default_factory=set)
+    node_id: str = ""  # `Document.node_of(block_id)`
+    socle: bool = False  # `Document.node_scope_kind(node_id) == "commun"` (AD-6, règle 3)
+
+
+class ClaimJugee(DomainModel):
+    """Une claim retenue, vue par la table AD-6 : ses clauses, ses champs typés, ses défauts.
+
+    `retenue=False` la laisse dans le calcul de l'applicabilité (le front l'affiche avec son statut)
+    mais la sort de la table : AD-6 ne compte que les claims `retrouvee ∧ pertinente`, et D4 de la
+    spec 1.8 restreint encore aux claims **affichées** — un verdict adossé à une clause que
+    l'utilisateur ne voit pas contredirait « rien d'affiché sans preuve ».
+    """
+
+    claim_id: str
+    clauses: list[ClauseCitee] = Field(default_factory=list)
+    champs: ChampsApplicabilite | None = None
+    retenue: bool = True
+    renvoi_ouvert: bool = False  # `Block.unresolved_refs` sur l'un des blocs cités
+    contredit: bool = False  # `Block.relation.contredit` vise un bloc cité par une autre claim retenue
+
+    @property
+    def kind(self) -> str | None:
+        """Le kind décisionnel de la claim — un seul, garanti par le contrôle « une clause par
+        affirmation » de *vérifier* (D6) ; `None` si elle ne cite aucune clause décisionnelle."""
+        return self.clauses[0].kind if self.clauses else None
+
+
+def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
+    """Découpage (a) d'AD-6 : `applicable` est **dérivé**, jamais rendu par le modèle.
+
+    Ordre de dérivation (D1 de la spec 1.8), du plus prudent au plus engageant :
+
+    1. aucune clause décisionnelle citée ⇒ `None` — une définition ou un paragraphe n'a pas
+       d'applicabilité, et lui en prêter une ferait entrer dans la table une claim qui n'y a rien à
+       faire ;
+    2. un bloc cité sans `kind` confirmé ⇒ `humain` — AD-6, littéralement : « une claim décisionnelle
+       dont le bloc n'a pas de `kind` confirmé est traitée `applicable="humain"` » ;
+    3. une clause décisionnelle **sans portée** ⇒ `humain` — la table compare des portées (règle 1) et
+       lit le socle sur le nœud (règle 3) ; une clause dont on ignore où elle s'applique ne peut être
+       ni retenue ni écartée par du code ;
+    4. champs typés non rendus ⇒ `humain` — jamais devinés (AC de la story) ;
+    5. fait exigé **connu et contraire** (`fait_requis_present=false`, aucun `fait_manquant`) ⇒ `non` ;
+    6. option, conditions particulières ou fait **inconnu** ⇒ `humain` ;
+    7. sinon ⇒ `oui`.
+
+    L'ordre compte : (5) précède (6) parce qu'une clause qui ne s'applique pas au cas rend sans objet
+    l'option dont elle dépendrait par ailleurs.
+    """
+    if not claim.clauses:
+        return None
+    if any(not c.kind_confirmed for c in claim.clauses):
+        return "humain"
+    if any(not c.portee for c in claim.clauses):
+        return "humain"
+    champs = claim.champs
+    if champs is None:
+        return "humain"
+    if not champs.fait_requis_present and not (champs.fait_manquant or "").strip():
+        return "non"
+    if champs.option_requise or champs.cp_requise or (champs.fait_manquant or "").strip():
+        return "humain"
+    return "oui"
+
+
+def _libelles_manquants(claims: list[ClaimJugee], *, ask_client_max: int) -> list[str]:
+    """Les `fait_manquant` des claims retenues : dédupliqués, dans l'ordre, bornés (D8).
+
+    Seuls textes du modèle qui traversent jusqu'à l'utilisateur ; leur **longueur** est bornée par
+    l'appelant (`fait_manquant_max_chars`, qui trace ce qu'il écarte), leur **nombre** ici.
+    """
+    out: list[str] = []
+    for claim in claims:
+        libelle = ((claim.champs.fait_manquant if claim.champs else None) or "").strip()
+        if libelle and libelle not in out:
+            out.append(libelle)
+    return out[:ask_client_max]
+
+
+def _questions(claims: list[ClaimJugee], manquants: list[str], missing: MissingPackage, *,
+               ask_client_max: int) -> list[str]:
+    """`ask_client[]` composé **par le code** (D8) : le paquet manquant, puis les faits à établir.
+
+    Les deux premières questions découlent directement de `missing` : un verdict rendu « au regard des
+    conditions générales seules » ignore *par construction* les options souscrites et les conditions
+    particulières, et c'est précisément ce qu'il faut demander au client avant d'aller plus loin. Elles
+    ne sont donc pas conditionnées aux booléens du modèle — elles se **précisent** quand une clause
+    citée en dépend explicitement, ce qui les fait passer d'une diligence à un préalable.
+
+    Les suivantes viennent des `fait_manquant`, seuls textes du modèle qui traversent jusqu'à
+    l'utilisateur (bornés en longueur par l'appelant, dédupliqués et bornés en nombre ici).
+    """
+    out: list[str] = []
+    if missing.options_souscrites:
+        question = "Quelles options et extensions ont été souscrites ?"
+        if any(c.champs is not None and c.champs.option_requise for c in claims):
+            question += " Une clause citée ne joue qu'à cette condition."
+        out.append(question)
+    if missing.conditions_particulieres:
+        question = "Que prévoient les conditions particulières (montants, franchises, biens désignés) ?"
+        if any(c.champs is not None and c.champs.cp_requise for c in claims):
+            question += " Une clause citée y renvoie."
+        out.append(question)
+    for libelle in manquants:
+        out.append(f"Fait à établir auprès du client : {libelle}")
+    return out[:ask_client_max]
+
+
+def _escalades(claims: list[ClaimJugee], *, contradiction: bool, renvoi: bool) -> list[str]:
+    """`escalate[]` composé par le code : ce qu'aucune règle ne peut trancher sans un humain."""
+    out: list[str] = []
+    if contradiction:
+        out.append("Deux clauses citées se contredisent sans que les conditions générales les "
+                   "départagent : arbitrage humain requis.")
+    if renvoi:
+        out.append("Un renvoi d'une clause décisionnelle n'a pas été résolu à l'ingestion : "
+                   "la clause visée reste à lire.")
+    if any(not clause.kind_confirmed for c in claims for clause in c.clauses):
+        out.append("Le typage d'au moins une clause citée n'est pas confirmé : relecture humaine "
+                   "requise avant toute conclusion.")
+    if any(not clause.portee for c in claims for clause in c.clauses):
+        out.append("La portée d'au moins une clause citée n'est pas déclarée : relecture humaine "
+                   "requise pour savoir où elle s'applique.")
+    return out
+
+
+def _noeuds_du_cas(claims: list[ClaimJugee], *, hors: set[str]) -> set[str]:
+    """Les nœuds du contrat que le cas met en jeu (D3).
+
+    Les nœuds parents des blocs cités par les claims `garantie` retenues ; à défaut de garantie, ceux
+    de **toutes** les claims retenues, moins les blocs de l'exclusion testée — une exclusion ne
+    s'auto-couvre pas, sans quoi toute exclusion citée serait « applicable au cas » par le seul fait
+    d'avoir été citée.
+    """
+    garanties = {clause.node_id for c in claims if c.kind == "garantie"
+                 for clause in c.clauses if clause.node_id}
+    if garanties:
+        return garanties
+    return {clause.node_id for c in claims for clause in c.clauses
+            if clause.node_id and clause.block_id not in hors}
+
+
+def decider(claims: list[ClaimJugee], *, ask_client_max: int) -> Verdict:
+    """Découpage (b) d'AD-6 : la table exclusive, dans l'ordre, sur les claims **affichées** (D4).
+
+    (0)   contradiction non résolue entre deux claims retenues, ou renvoi non résolu sur une claim
+          décisionnelle ⇒ `ne_tranche_pas`, les deux passages restant affichés (AD-6) ;
+    (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
+          tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
+    (1)   exclusion `oui` dont la portée couvre les nœuds du cas ⇒ `non_couvert` ;
+    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, ou garantie hors socle)
+          ⇒ `sous_conditions` — politique conservatrice, décision Lancelot ;
+    (2bis) garantie `humain` **par** option ou conditions particulières ⇒ `sous_conditions` : c'est
+          le « dépend d'une option / CP inconnue » d'AD-6, qu'une garantie `oui` ne peut pas exprimer
+          (une garantie qui dépend d'une option est `humain` par construction, règle (6) de
+          `applicable_de_claim`) ;
+    (3)   garantie du socle `oui`, aucune claim retenue `humain` ⇒ `couvert` ;
+    (4)   sinon ⇒ `ne_tranche_pas`.
+
+    `applicable` est relu sur chaque claim par `applicable_de_claim()` : la table ne dépend d'aucun
+    champ que l'appelant aurait pu remplir autrement.
+    """
+    retenues = [c for c in claims if c.retenue]
+    etat = {c.claim_id: applicable_de_claim(c) for c in retenues}
+    manquants = _libelles_manquants(retenues, ask_client_max=ask_client_max)
+    missing = MissingPackage(faits=manquants)
+    ask = _questions(retenues, manquants, missing, ask_client_max=ask_client_max)
+    contradiction = any(c.contredit for c in retenues)
+    renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
+    escalate = _escalades(retenues, contradiction=contradiction, renvoi=renvoi)
+
+    def verdict(value: VerdictValue, reason: str) -> Verdict:
+        return Verdict(value=value, reason=f"{reason} ({PORTEE})",
+                       missing=missing.model_copy(deep=True), ask_client=ask, escalate=escalate)
+
+    # (0) — ni une contradiction ni un renvoi ouvert ne se tranchent par du code.
+    if contradiction:
+        return verdict("ne_tranche_pas", "Deux clauses citées se contredisent et rien dans les "
+                                         "conditions générales ne les départage")
+    if renvoi:
+        return verdict("ne_tranche_pas", "Une clause décisionnelle renvoie à un passage que "
+                                         "l'ingestion n'a pas résolu")
+
+    fondatrices = [c for c in retenues if c.kind in KINDS_FONDATEURS]
+    if not fondatrices:
+        return verdict("ne_tranche_pas", "Aucune garantie ni exclusion n'a été retrouvée et affichée")
+
+    exclusions = [c for c in retenues if c.kind == "exclusion"]
+    garanties = [c for c in retenues if c.kind == "garantie"]
+
+    # (1) — l'exclusion prime, à condition que sa portée couvre le cas (AD-2, `scope_nodes`).
+    for exclusion in exclusions:
+        if etat[exclusion.claim_id] != "oui":
+            continue
+        hors = {clause.block_id for clause in exclusion.clauses}
+        cas = _noeuds_du_cas(retenues, hors=hors)
+        if any(clause.portee & cas for clause in exclusion.clauses):
+            return verdict("non_couvert", "Une exclusion applicable couvre le cas décrit")
+
+    ouvertes = [c for c in retenues
+                if c.kind in ("condition", "franchise", "exclusion") and etat[c.claim_id] == "humain"]
+    for garantie in garanties:
+        if etat[garantie.claim_id] != "oui":
+            continue
+        hors_socle = any(not clause.socle for clause in garantie.clauses)
+        # (2) — politique conservatrice : une condition ouverte ou une garantie hors socle suffit.
+        if ouvertes or hors_socle:
+            motif = ("une garantie hors du socle commun" if hors_socle and not ouvertes else
+                     "une condition, une franchise ou une exclusion reste ouverte")
+            return verdict("sous_conditions", f"Une garantie s'applique, mais {motif}")
+
+    # (2bis) — la garantie **elle-même** dépend d'une option ou de conditions particulières inconnues.
+    for garantie in garanties:
+        champs = garantie.champs
+        if etat[garantie.claim_id] == "humain" and champs is not None and (champs.option_requise
+                                                                           or champs.cp_requise):
+            return verdict("sous_conditions", "La garantie citée ne joue que si une option ou les "
+                                              "conditions particulières la prévoient")
+
+    # (3) — le seul chemin vers `couvert` : garantie du socle, et plus rien d'ouvert **nulle part**.
+    for garantie in garanties:
+        if etat[garantie.claim_id] == "oui" and all(clause.socle for clause in garantie.clauses):
+            if not any(etat[c.claim_id] == "humain" for c in retenues):
+                return verdict("couvert", "Une garantie du socle commun s'applique et aucune clause "
+                                          "citée ne reste ouverte")
+
+    # (4) — reste de la table : aucune règle n'a tranché.
+    return verdict("ne_tranche_pas", "Aucune règle de la table ne tranche sur les clauses retrouvées")

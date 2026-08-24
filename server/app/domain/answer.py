@@ -10,10 +10,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .document import DomainModel
 
-from .verdict import Verdict
+# `Applicable` vit dans `verdict.py` (story 1.8) : c'est AD-6 qui en fixe les trois valeurs et le
+# code qui les dérive. Deux littéraux identiques dans deux modules auraient pu diverger en silence.
+from .verdict import Applicable, Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
-Applicable = Literal["oui", "non", "humain"]
 # `non_citee` amende AD-4 (revue Codex 1.5) : une claim retrouvée et pertinente qu'**aucun** segment
 # factuel affiché ne cite n'a pas d'endroit où paraître. La retenir dans `claims[]` autoriserait
 # `found=True` sur un `Answer.texte` vide — « réponse vide présentée comme réponse », ce qu'AD-16
@@ -187,6 +188,11 @@ class Verification(DomainModel):
     # stables entre deux ébauches de la même question, puisque le découpage est arrêté une fois par
     # *comprendre*. C'est une donnée du **code**, jamais un jugement transmis à l'appelant.
     facettes_couvertes: list[int] = Field(default_factory=list)
+    # AD-4/AD-6 (story 1.8) : le verdict du sinistre est **calculé ici**, par la table d'AD-6 appliquée
+    # aux claims affichées, et *restituer* ne fait que le recopier dans l'unique `Answer`. `None` en
+    # guide — AD-4 : « `Verdict` voyage dans l'unique `Answer` », il n'y a pas de second objet de
+    # réponse, et une question du guide n'a pas de verdict à porter.
+    verdict: Verdict | None = None
     motif: str | None = None
 
 

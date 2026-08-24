@@ -143,9 +143,23 @@ class Document(DomainModel):
     source_hash: str = ""
     ingest_fingerprint: str = ""  # empreinte du parseur/schéma/règles (AD-2 stabilité), couverte par document_hash
     _by_id: dict[str, Block] = PrivateAttr(default_factory=dict)
+    # Rattachement bloc → nœud et portée déclarée de chaque nœud, tous deux **déjà** parcourus par
+    # `_tree_invariants` (story 1.8) : la table AD-6 a besoin du nœud d'un bloc et du `scope.kind` de
+    # ce nœud, et `domain/verdict.py` ne peut importer ni `corpus` ni `llm` (table des couches).
+    # Les recalculer à chaque claim referait le parcours de `Node.items` pour rien.
+    _node_of: dict[str, str] = PrivateAttr(default_factory=dict)
+    _scope_of_node: dict[str, ScopeKind] = PrivateAttr(default_factory=dict)
 
     def block(self, block_id: str) -> Block:
         return self._by_id[block_id]
+
+    def node_of(self, block_id: str) -> str:
+        """Nœud auquel le bloc est rattaché (AD-2 : exactement un, garanti par les invariants d'arbre)."""
+        return self._node_of[block_id]
+
+    def node_scope_kind(self, node_id: str) -> ScopeKind:
+        """`Node.scope.kind` du nœud — `commun` est le **socle** au sens d'AD-6 (règle 3)."""
+        return self._scope_of_node[node_id]
 
     def scope_nodes(self, block_id: str) -> set[str]:
         """Nœuds couverts par la portée d'un bloc : `scope_node_ids` (et leurs descendants) s'ils sont donnés,
@@ -235,6 +249,8 @@ class Document(DomainModel):
         if self.nodes and len(roots) != 1:
             raise ValueError(f"exactement un nœud racine attendu, trouvé : {roots}")
         self._by_id = by_id
+        self._node_of = parents
+        self._scope_of_node = {n.node_id: n.scope.kind for n in self.nodes}
         return self
 
     @field_validator("doc_id")
