@@ -875,21 +875,32 @@ ce que le serveur dit — et rien de plus. Les trois sont ci-dessous.
 Plafond de run : 1,00 € (`evals_max_cost_eur`), jamais approché. Deux runs à blanc (sans `--gate`)
 avaient précédé, au même prix : total de la mesure ≈ **0,20 €**.
 
-Contenu exact des deux gates écrits dans `data/manifest.json` :
+Contenu des deux gates écrits par **ce premier run** (superséeés plus bas : la revue a corrigé
+`corpus/loader.py`, qui entre dans `pipeline_digest`, et les deux gates ont été relancés — voir
+« re-vérification après correctifs ») :
+
+```json
+"lux-guide":  {"profile": "vertical", "evals_ok": true, "cases": 1, "date": "2026-08-24T18:43:50Z",
+               "cases_hash": "58552c3b…", "pipeline_digest": "a3936aeb…"}
+"axa-lu-optihome-2017": {…, "cases": 1, "date": "2026-08-24T18:44:21Z",
+               "cases_hash": "baba15ca…", "pipeline_digest": "a3936aeb…"}
+```
+
+**Contenu final, celui que `data/manifest.json` porte aujourd'hui** :
 
 ```json
 "lux-guide": {"profile": "vertical", "evals_ok": true, "cases": 1,
   "cases_hash": "58552c3b344c1a7df92a235f08df3dbc6cbf7218adfd3db83e76ef7be9cbb97a",
-  "pipeline_digest": "a3936aeb6ee009ff72408bfded73d505d85aa2cfa4e99678cce0d3b7ac721cc2",
+  "pipeline_digest": "e3bf58d400b41048d0eba8826c13e00da27170813ee1bdf8de1ca26079307d2f",
   "prompts_digest": "c440741d5e2cb604e33aae2deb0b77d54bed3d4beae696393694c6fdbb252800",
   "model_ids": {"ingest": "claude-opus-5", "reason": "claude-sonnet-5",
                 "micro": "claude-haiku-4-5-20251001"},
-  "source_hash": "abe65f06…", "ingest_fingerprint": "b791a248…", "overlay_hash": null,
-  "date": "2026-08-24T18:43:50Z"}
+  "source_hash": "abe65f06…", "ingest_fingerprint": "b791a248…",
+  "overlay_hash": null, "date": "2026-08-24T19:10:47Z"}
 
 "axa-lu-optihome-2017": {…, "cases": 1,
   "cases_hash": "baba15ca978604ad50ab5023fe0b1fb8bd69232c1605b011d5185e874c635dbf",
-  "overlay_hash": "eed4bc53…", "date": "2026-08-24T18:44:21Z"}
+  "overlay_hash": "eed4bc53…", "date": "2026-08-24T19:11:12Z"}
 ```
 
 Les deux `pipeline_digest`/`prompts_digest` sont identiques (même image), les `cases_hash` diffèrent

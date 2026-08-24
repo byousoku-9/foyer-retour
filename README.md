@@ -62,7 +62,7 @@ Codes de sortie, et ce qu'ils font au manifest :
 | code | situation | `data/manifest.json` |
 |---|---|---|
 | 0 | tous les cas `ok` | gate écrit `evals_ok: true` (avec `--gate`) |
-| 1 | un cas rend un mauvais label, ou laisse une attente inassouvie | gate écrit `evals_ok: false` — le document part en `gate_echoue` au prochain démarrage |
+| 1 | un cas rend un mauvais label, ou laisse une attente inassouvie | **avec `--gate`** : gate écrit `evals_ok: false`, le document part en `gate_echoue` au prochain démarrage. Sans `--gate` : rien n'est écrit |
 | 2 | refus : pas de clé, profil ou suite non livrés, cas invalide, document non servi | **non modifié** |
 | 3 | incident : `Timeout`, `LlmUnavailable`, `BudgetExceeded`, plafond de run atteint | **non modifié** |
 
