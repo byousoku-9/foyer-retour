@@ -372,6 +372,26 @@ async function main() {
     manquante.sources = manquante.sources.slice(0, 2);
     cas.citations_source_manquante = CHAT.citationsParSegment(manquante.answer, manquante.sources);
 
+    // Un `claim_id` qui est un nom du prototype d'Object : sur un dictionnaire nu, `parClaim["toString"]`
+    // trouverait un héritage, et l'abandon — la seule protection contre une citation mal placée —
+    // ne se déclencherait pas (il lèverait, ou pire, laisserait passer).
+    const heritee = reponseSourcee();
+    heritee.answer.segments[1] = { ...heritee.answer.segments[1], claim_ids: ["toString"] };
+    try {
+      cas.citations_claim_id_herite = CHAT.citationsParSegment(heritee.answer, heritee.sources);
+    } catch (e) {
+      cas.citations_claim_id_herite = "exception: " + String(e && e.message);
+    }
+    const prototype = reponseSourcee();
+    prototype.answer.claims[0] = { ...prototype.answer.claims[0], claim_id: "constructor" };
+    prototype.answer.segments[0] = { ...prototype.answer.segments[0], claim_ids: ["constructor", "c2"] };
+    try {
+      cas.citations_claim_id_prototype = aplatir(
+        CHAT.citationsParSegment(prototype.answer, prototype.sources));
+    } catch (e) {
+      cas.citations_claim_id_prototype = "exception: " + String(e && e.message);
+    }
+
     // Un segment qui cite une claim absente de `claims[]`.
     const orpheline = reponseSourcee();
     orpheline.answer.segments[1] = { ...orpheline.answer.segments[1], claim_ids: ["c9"] };

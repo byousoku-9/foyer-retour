@@ -247,6 +247,28 @@ def test_un_appariement_qui_ne_concorde_pas_est_abandonne(cas: dict[str, Any], n
     assert cas[nom] is None
 
 
+def test_un_claim_id_herite_du_prototype_ne_trompe_pas_lappariement(cas: dict[str, Any]) -> None:
+    """Le dictionnaire par `claim_id` est indexé par des chaînes qui viennent du modèle. Sur un objet
+    nu, `parClaim["toString"]` trouve un héritage : l'abandon ne se déclenchait pas, et le rendu
+    levait au lieu de dégrader."""
+    assert cas["citations_claim_id_herite"] is None, cas["citations_claim_id_herite"]
+    # Et un `claim_id` réellement nommé « constructor » reste apparié normalement.
+    apparie = cas["citations_claim_id_prototype"]
+    assert isinstance(apparie, list), apparie
+    assert [c["claim_id"] for c in apparie[0]] == ["constructor", "c2"]
+
+
+def test_la_bulle_est_assemblee_hors_du_dom(cas: dict[str, Any]) -> None:
+    """Une région `aria-live` annoncerait sinon un nœud vide, puis chaque mutation, une par une."""
+    ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
+    corps = _corps(ui, "function peindre(vue) {")
+    assert corps.index("materialiser(vue, grp)") < corps.index("appendChild"), corps
+    # `materialiser()` n'attache jamais rien au document : il ne connaît que les nœuds qu'il crée.
+    fabrique = _corps(ui, "function materialiser(vue, grp) {")
+    assert "document.createElement" in fabrique
+    assert "log" not in fabrique and "document.body" not in fabrique
+
+
 def test_un_refus_naapparie_rien_et_ne_montre_aucune_source(cas: dict[str, Any]) -> None:
     assert cas["citations_refus"] == [[]]
     assert cas["refus"]["sources"] == 0
