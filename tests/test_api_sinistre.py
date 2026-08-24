@@ -709,41 +709,52 @@ def test_le_serveur_emet_tout_ce_que_la_page_exige_dun_200(prod: TestClient) -> 
     rien ne le confronte à ce que la route écrit vraiment, c'est se donner le moyen de rendre la
     page inutilisable sans qu'un test rougisse.
 
-    Le test lit donc les chemins exigés **dans le source du front** (`throw illisible("…")`) et les
-    cherche dans la réponse réellement sérialisée par FastAPI. Il ne demande pas `node` : ce sont
-    les noms de champs qui sont comparés, pas le comportement du script.
+    Le test lit donc les chemins exigés **dans le source du front** (les littéraux passés à
+    `exiger()` / `exigerListe()` dans `lireReponse`) et les cherche dans la réponse réellement
+    sérialisée par FastAPI. Il ne demande pas `node` : ce sont les noms de champs qui sont comparés,
+    pas le comportement du script.
+
+    Depuis le tour 2 (I2), la comparaison porte sur la **présence de la clé**, pas sur une valeur non
+    nulle : `answer.faits_compris` et `answer.clarification` sont `X | None` du contrat, et un
+    `None` sérialisé est ce que la route doit écrire — le compter manquant aurait fait rougir le
+    test sur un corps parfaitement conforme. Un chemin dont un ancêtre vaut `null` n'est pas
+    atteignable et n'est pas exigible : il est ignoré, pas compté manquant.
     """
     import re
     from server.app.config import REPO_ROOT
 
     source = (REPO_ROOT / "tools" / "sinistre" / "sinistre.js").read_text(encoding="utf-8")
     # Le corps de `lireReponse()` seul : `documents()` a son propre `illisible("documents")`, qui
-    # parle d'une **autre** route.
+    # parle d'une **autre** route. Les chemins des **éléments** de liste (`sources[0].kind`,
+    # `answer.claims[0].status`) sont composés à l'exécution dans `lireClause()`/`lireClaim()` : ils
+    # ne sont pas des littéraux et ne sont donc pas relevés ici — c'est le harnais JS qui les couvre.
     debut = source.index("function lireReponse(")
     corps_js = source[debut:source.index("\n  }", debut)]
-    exiges = sorted(set(re.findall(r'throw illisible\("([^"]+)"\)', corps_js)))
-    assert len(exiges) >= 15, f"le lecteur du front n'exige plus que {exiges} : le motif a changé"
+    exiges = sorted(set(re.findall(r'exiger(?:Liste)?\([^;]*?"([^"]+)"\)', corps_js)))
+    assert len(exiges) >= 25, f"le lecteur du front n'exige plus que {exiges} : le motif a changé"
+    # Le durcissement du tour 2 se lit ici, pas seulement dans un compte : ces quatre booléens sont
+    # ceux dont l'absence faisait annoncer une pièce du contrat « non lue » qui ne l'était pas.
+    assert "answer.verdict.missing.conditions_particulieres" in exiges
 
     corpus, _ = _mini_corpus()
     _brancher(prod, Double((_reponse(corpus), _trace())))
     corps = _poster(prod).json()
     assert corps["sources"], "le cas témoin doit publier au moins une clause"
+    # Sans quoi la règle « ancêtre `null` ⇒ chemin non exigible » viderait le test de six chemins
+    # sans que rien ne le dise : le cas témoin doit porter des faits compris.
+    assert corps["answer"]["faits_compris"], "le cas témoin doit publier des faits compris"
 
     manquants = []
     for chemin in exiges:
-        # `sources[i]` est indexé par le front ; le test vérifie la première entrée, qui existe.
         cible: Any = corps
-        for partie in chemin.replace("sources[", "sources.").replace("]", "").split("."):
-            if isinstance(cible, list):
-                cible = cible[int(partie)] if partie.isdigit() else None
-            elif isinstance(cible, dict) and partie in cible:
+        for partie in chemin.split("."):
+            if cible is None:
+                break  # ancêtre `null` : le chemin n'est pas atteignable, il n'est pas exigible
+            if isinstance(cible, dict) and partie in cible:
                 cible = cible[partie]
             else:
-                cible = None
-            if cible is None:
+                manquants.append(chemin)
                 break
-        if cible is None:
-            manquants.append(chemin)
     assert not manquants, f"la page exige des champs que la route n'écrit pas : {manquants}"
 
 
