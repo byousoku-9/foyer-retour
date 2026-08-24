@@ -215,3 +215,33 @@ le détail dans `foyer.error` (AD-15/AD-16).
 | Image Docker, reconstruite au sha final | `docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t foyer-retour:1.6-t3 .` puis `docker run -e PORT=9092 -p 9092:9092` | `/api/v1/sante` → 200, `version: "938a12e"` (le sha du commit de ce tour, pas celui de la base), `documents_servis` complet, `/`, `/guide/`, `/sinistre/` → 200, lignes de log JSON sur la sortie standard |
 
 Revue Codex : 4 bloquants / 2 importants, convergé en 3 tour(s) (boucle autonome).
+
+## Story 1.7 — Le chat du site parle au serveur et affiche ses sources (2026-08-24)
+
+Piloté par Chrome headless (CDP, WebSocket brut, aucun paquet ajouté) sur `http://127.0.0.1:8797/guide/#assistant`.
+Le corps réellement posté est relevé par `Network.requestWillBeSent`, pas reconstitué.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Rejeu sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **646 passed en 14,7 s** (60 cas ajoutés : 58 sur le front, l'ordre de `sources[]`, `horizon` dans `PROFIL_KEYS`), zéro réseau |
+| Cas du front, sans navigateur | `node tests/js/chat_cases.mjs` | JSON `ok: true`, 40 relevés (corps envoyé, historique, appariement, erreurs typées, textes composés) ; `kb.js` + `chat.js` chargés dans un `node:vm` avec `window`, `location` et `fetch` doublés |
+| Le fichier servi est le nouveau | `curl -s localhost:8797/guide/app/chat.js \| head -20` | l'entête « foyer-retour (story 1.7, AD-11) » et `API_BASE = window.location.origin` sont bien ceux servis sous `/guide/` |
+| Aucun `innerHTML` sur du texte serveur | `grep -n "innerHTML" web/app/ui.js` | 31 occurrences, **toutes** `innerHTML = ""` (vidage d'un conteneur) sauf une ligne de commentaire ; un test le verrouille (`test_aucun_innerhtml_ne_sert_a_poser_du_texte_venu_du_serveur`) |
+| **Corps réellement posté** (AD-11 c, d) | question posée depuis le navigateur, profil complet repris du `localStorage` | `{"question":"Quel délai ai-je pour déclarer mon arrivée à la commune ?","profil":{"situation":"En famille","enfants":"2","statut":"Salarie","logement":"Louer","vehicule":"Oui","horizon":"Je viens d'arriver"},"historique":[]}` — profil **objet** (plus `decrireProfil()`), les **six** champs du questionnaire (`horizon` compris, cf. le correctif de `PROFIL_KEYS`), **aucun** `contexte`. `POST http://127.0.0.1:8797/chat`, donc l'origine courante |
+| Réponse sourcée affichée | même requête, 200 en **15,2 s** | badge « mode api » (`badge on`), 4 segments dont 3 factuels, **chacun suivi de sa citation** : passage relu entre guillemets, titre de fiche cliquable (« Comment fonctionne l'administration », « Garde d'enfants et chèque-service »), lien officiel `guichet.public.lu`, statut « retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée ». Le segment de transition n'a aucune citation, et n'en réclame pas |
+| Pied de réponse (NFR4, FR5) | même réponse | « partiel » + « cette réponse a coûté **0,0320 €** » (lu sur `trace.total_cost_eur`, plafond 0,10 €) ; section « Ce que je ne sais pas » : « Les blocs fournis ne précisent pas de délai chiffré… » — l'état vient de `found`/`complete`, pas d'une appréciation du front |
+| Attente explicite, saisie verrouillée (UX-DR10) | 300 ms après le clic sur Envoyer | « Je cherche dans le guide, puis je vérifie chaque phrase contre les passages cités… », `#chat-input.disabled === true` pendant l'appel, `false` après. Aucun délai artificiel : les 15,2 s sont le travail réel |
+| **`localStorage` après conversation** (AD-15) | `Object.keys(localStorage)` en fin d'échange | une seule clé de chat, `luxguide.chat.v1 = {"profil":{…},"maj":"…"}` — **aucun texte de conversation**. Au rechargement, le journal dit « Profil enregistré : … Les conversations ne sont pas conservées : celle-ci repart de zéro » |
+| Mention de confidentialité, deux saisies | `document.querySelectorAll('.hint.confid')` | 2 mentions (327 et 244 caractères), onglet Assistant **et** panneau flottant ; `#chat-log` et `#widget-log` portent `aria-live="polite"` |
+
+### Les quatre chemins d'échec, dans le navigateur
+
+Serveur de contrôle sur le port 8798 : clé fournisseur volontairement invalide (401 → `llm_unavailable`,
+donc un **vrai** 503) et `RATE_LIMIT_PER_MINUTE=1`, pour obtenir un 429 sans payer dix appels réels.
+
+| Vérification | Ce qui a été fait | Résultat |
+|---|---|---|
+| **503 : bandeau, bouton, rien avant le clic** | une question posée | bandeau « Assistant indisponible » + « L'assistant est indisponible pour le moment. » + la réserve (« la recherche simple compare des mots-clés, elle ne vérifie rien ») + « référence : 749de97d-… » + **un** bouton « Consulter le guide en recherche simple ». `document.querySelectorAll('#chat-log .srcs').length === 0` : **aucun** résultat local calculé, et le badge reste « mode api » jusqu'au clic |
+| **429 : message français, aucun bouton** | question suivante, quota déjà consommé | statut **429**, en-tête `Retry-After: 60` ; affiché « Question non traitée — Trop de questions en peu de temps : réessayez dans 60 secondes. » ; **0 bouton** dans la bulle. Le `message` brut du serveur (anglais, chemin pydantic) n'apparaît pas |
+| **Le clic, et lui seul, produit le mode local** | clic sur le bouton du bandeau | badge « mode local » (classe `badge`, pas `badge on`), une bulle avec le texte des fiches, sa section « Sources » (`.srcs`, forme locale `{t, u}`) et les puces d'ouverture de fiches. C'est le premier moment où le moteur lexical tourne |
+| **Serveur injoignable (panne réseau)** | `window.CHAT.setApiBase("http://127.0.0.1:1")` puis une question | même porte, même bouton : « L'assistant est injoignable : la page n'a pas pu joindre le serveur. » — `fetch` rejeté est traité comme un 503, et pas autrement |
