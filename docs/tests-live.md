@@ -756,13 +756,10 @@ même cas.
 **Ce que cette campagne a trouvé de neuf, et que la précédente n'avait pas vu.** Le tour navigateur
 est ressorti en **503 `timeout` après 47,2 s**, avec 0,0445 € déjà facturés — pas la deadline globale
 (`deadline_s = 55`, non atteinte), mais l'appel de *rédiger* de la **relance** d'AD-3, au-delà des
-25 s de `llm_timeout_s`. Le chemin est celui qu'AD-16 décrit (« un appel LLM en timeout (25 s) ⇒
-503 ») et la page l'a affiché comme il faut : aucun repli, aucun verdict de remplacement, saisie
-rendue. C'est néanmoins le **second** mode d'échec intermittent que le sinistre expose à un
-utilisateur, après le `budget_exceeded` du majorant de coût différé en 1.8. `llm_timeout_s` est un
-seuil dont la valeur est écrite dans le texte d'AD-16 : le relever demanderait d'amender le spine, et
-ne se justifie que sur une distribution mesurée des latences de *rédiger*. Différé en 4.2, avec les
-questions-témoins qui rejouent 15 à 20 sinistres.
+25 s d'alors de `llm_timeout_s`. Le chemin est celui qu'AD-16 décrit et la page l'a affiché comme il
+faut : aucun repli, aucun verdict de remplacement, saisie rendue. C'est néanmoins un mode d'échec que
+le sinistre expose à un **utilisateur**, et il a fallu le mesurer avant d'en décider — voir la
+section suivante.
 
 *(Un défaut de rédaction corrigé au passage : le 400 du `doc_id` non-contrat citait « D3 de la
 story » dans son message — une référence interne renvoyée à l'appelant. Il renvoie désormais au champ
@@ -770,3 +767,68 @@ story » dans son message — une référence interne renvoyée à l'appelant. I
 
 Coût de cette contre-vérification : **0,0992 €** (un verdict complet par HTTP, un tour navigateur
 interrompu par le timeout, et les requêtes courtes du 429).
+
+### Le timeout par appel : mesuré, puis relevé de 25 s à 40 s (amendement AD-16)
+
+Le 503 `timeout` ci-dessus n'était pas un accident. Dix requêtes réelles du cas bougie ont été
+jouées sur `POST /api/v1/sinistre`, en deux séries, pour savoir si c'était une queue de distribution
+ou un incident.
+
+**Avant (`llm_timeout_s = 25`), six requêtes :**
+
+| Requête | Issue | *rédiger* | Coût |
+|---|---|---|---|
+| HTTP 1 | 200 `ne_tranche_pas` | — (26,9 s de bout en bout) | 0,0547 € |
+| Navigateur 1 | **503 `timeout`** — l'appel de la relance d'AD-3 | > 25 s | 0,0445 € |
+| Navigateur 2 | **503 `timeout`** — le **premier** appel de *rédiger* | > 25 s | 0,0034 € |
+| HTTP 2 | 200 `ne_tranche_pas` | 17 595 ms | 0,0508 € |
+| HTTP 3 | 200 `ne_tranche_pas` | 12 890 ms | 0,0362 € |
+| HTTP 4 | 200 `sous_conditions` | 15 922 ms | 0,0384 € |
+
+*rédiger* (tier `reason`, Sonnet 5, effort `medium`) tient donc entre **12,9 et 17,6 s** quand il
+aboutit, et franchit 25 s **deux fois sur six** — une fois sur son premier appel, ce qui exclut de
+n'incriminer que la relance. Un tiers des soumissions d'un démonstrateur public ressortait en 503 sur
+un chemin parfaitement nominal, sans que rien ne soit en panne.
+
+**Décision : `llm_timeout_s` passe à 40 s, et le spine est amendé** (AD-16, story 1.9). La règle
+d'AD-16 — l'échec est terminal, jamais dégradé — ne bouge pas ; c'est la **valeur** qui bornait la
+queue d'une distribution au lieu de borner un incident. Les garde-fous réels sont ailleurs et sont
+intacts : la deadline globale d'AD-9 (`RequestBudget.timeout_for_call()` rend déjà
+`min(llm_timeout_s, restant)`, donc 55 s au total), le plafond de coût par requête appliqué **avant**
+l'appel, le plafond d'appels, et `--timeout=60` de Cloud Run au déploiement. Une relance qui
+déborderait est coupée par la deadline globale — le même 503, mais pour la vraie raison.
+
+**Après (`llm_timeout_s = 40`), quatre requêtes de plus :**
+
+| Requête | Issue | *rédiger* | Coût |
+|---|---|---|---|
+| HTTP 5 | 200 `ne_tranche_pas` (`p34:4` cité) | 12 070 ms | 0,0320 € |
+| HTTP 6 | 200 `ne_tranche_pas` (`p34:12`) | 17 595 ms | 0,0398 € |
+| HTTP 7 | 200 `sous_conditions` (`p34:4` **et** `p34:12`) | 11 733 ms | 0,0333 € |
+| HTTP 8 | **503 `budget_exceeded`** à 42,3 s, sur le chemin de la relance | — | 0,0790 € |
+
+Plus aucun `timeout`. Reste le `budget_exceeded` — **l'entrée différée de la story 1.8**, et non un
+effet du relèvement : le coût **réel** mesuré était de 0,079 € contre un plafond de 0,10 €, et c'est
+le **majorant** `estimate_cost` qui a refusé l'appel suivant. Relever le plafond masquerait un
+estimateur pessimiste au lieu de le corriger ; l'entrée reste ouverte vers 4.2, avec cette seconde
+observation à l'appui (elle en avait une seule).
+
+### Le tour navigateur, rejoué sur l'arbre final
+
+`node /tmp/cdp-sinistre.mjs http://127.0.0.1:8804/sinistre/`, après les 16 correctifs de revue et le
+relèvement du timeout :
+
+| Vérification | Résultat |
+|---|---|
+| Verdict servi | **25,0 s**, badge « ne tranche pas », portée « au regard des conditions générales seules — verdict non validé par un expert assurance », raison composée par le serveur |
+| Faits compris | les **cinq** champs, ligne à ligne (bien, événement, lieu, cause, moment) |
+| Paquet manquant | les quatre pièces du contrat **plus** les trois faits que les clauses citées exigent et que la description n'établit pas |
+| Questions au client | six, dont « action subite de la chaleur » et « caractère « soudain » exigé par la clause citée » |
+| Clauses | citation relue entre guillemets, type, page et statuts |
+| Trace | `<details>` fermé par défaut ; aucun bouton dans le résultat |
+| AD-15 | `localStorage` **vide**, **zéro** pose d'`innerHTML` non vide (espion sur le setter) |
+| 429 | `Retry-After` présent, message français, aucun badge ni clause ne survit à l'erreur, saisie rendue |
+| Console | aucune erreur JavaScript ; seuls les 429 provoqués et le `/favicon.ico` (404, antérieur) |
+
+Coût des deux séries de mesure et du tour navigateur final : **0,42 €** environ, tous relevés sur les
+lignes de log du serveur.
