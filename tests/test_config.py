@@ -26,6 +26,9 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.rate_limit_per_minute == 10 and s.rate_limit_per_day == 100
     assert s.coverage_threshold == 0.8 and s.kind_confidence_min == 0.7
     assert s.env == "dev" and s.allow_ungated is True
+    # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
+    assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
+    assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 1024
 
 
 def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -38,8 +41,13 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
             # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
-            "comprendre_max_tokens", "rediger_max_tokens", "retrieval_max_blocks"} <= set(t.thresholds)
+            "comprendre_max_tokens", "rediger_max_tokens", "retrieval_max_blocks",
+            # story 1.5 : bornes du pipeline et de *vérifier*
+            "historique_max_turns", "verifier_max_claims", "verifier_max_tokens"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
+    # `guide_doc_id` est un slug, pas un seuil : il n'a rien à faire dans `Trace.thresholds`
+    # (typé `dict[str, float | int]` — l'y mettre ferait échouer la sérialisation de la trace).
+    assert "guide_doc_id" not in t.thresholds
 
 
 def test_allow_ungated_follows_env_unless_explicit() -> None:
@@ -59,6 +67,13 @@ def test_bounds_and_coherence() -> None:
         Settings(_env_file=None, rediger_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="comprendre_max_tokens"):
         Settings(_env_file=None, comprendre_max_tokens=8192, llm_max_output_tokens=4096)
+    with pytest.raises(ValidationError, match="verifier_max_tokens"):
+        Settings(_env_file=None, verifier_max_tokens=8192, llm_max_output_tokens=4096)
+    # story 1.5 : *vérifier* doit pouvoir juger tout ce que *rédiger* peut produire, sinon des claims
+    # retrouvées seraient rejetées « non évaluées » par pure configuration (dégradé silencieux).
+    with pytest.raises(ValidationError, match="verifier_max_claims"):
+        Settings(_env_file=None, verifier_max_claims=2, draft_max_claims=4)
+    Settings(_env_file=None, verifier_max_claims=4, draft_max_claims=4)
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
                 {"rate_limit_per_day": 0}):
         with pytest.raises(ValidationError):

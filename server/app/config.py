@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     quote_min_chars: int = Field(25, ge=1)
     quote_min_ratio: float = Field(0.6, ge=0, le=1)
 
+    # Pipeline guide (story 1.5) : document servi par `pipelines/guide.py` — un slug, jamais un seuil
+    # numérique, donc absent de `thresholds()` ; longueur maximale de l'historique accepté (AD-11 :
+    # 400 au-delà, **jamais** de troncature côté serveur) ; bornes de *vérifier* (AD-4 « max_claims »
+    # de l'appel de pertinence groupé, et sortie maximale de cet appel).
+    guide_doc_id: str = "lux-guide"
+    # AD-3 nomme les motifs de relance par des défauts de **citation** ; une claim écartée par le seul
+    # jugement de pertinence est déjà « conservée dans rejected_claims[] », et relancer *rédiger* pour
+    # elle coûte un second appel `reason` (≈ 0,03 €, le tiers du budget). `[HYPOTHÈSE]` : à mesurer
+    # avec les questions-témoins (4.2) — la relance rattrape-t-elle des réponses, ou brûle-t-elle du
+    # budget ? Faux tant que rien ne l'a montré ; la relance reste inconditionnelle quand **aucune**
+    # affirmation n'a survécu (là, elle est le seul chemin vers une réponse).
+    relance_sur_non_pertinence: bool = False
+    historique_max_turns: int = Field(6, ge=0)
+    verifier_max_claims: int = Field(8, ge=1)
+    verifier_max_tokens: int = Field(1024, ge=1)
+
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
     node_window: int = Field(30, ge=1)
@@ -124,7 +140,8 @@ class Settings(BaseSettings):
             raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
                              f"< title_min_size_pt ({self.title_min_size_pt})")
         for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
-                            ("rediger_max_tokens", self.rediger_max_tokens)):
+                            ("rediger_max_tokens", self.rediger_max_tokens),
+                            ("verifier_max_tokens", self.verifier_max_tokens)):
             # Le plafond par étape ne peut pas dépasser le plafond de sortie du client : il part tel
             # quel au fournisseur et entre au tarif `output` dans le majorant `estimate_cost` (NFR4).
             if valeur > self.llm_max_output_tokens:
@@ -136,6 +153,12 @@ class Settings(BaseSettings):
         if self.question_min_terms > self.question_max_terms:
             raise ValueError(f"question_min_terms ({self.question_min_terms}) doit être "
                              f"<= question_max_terms ({self.question_max_terms})")
+        if self.verifier_max_claims < self.draft_max_claims:
+            # Story 1.5 : *rédiger* peut rendre `draft_max_claims` claims ; si *vérifier* en évalue
+            # moins, des claims retrouvées seraient rejetées « non évaluées » par pure configuration —
+            # un dégradé silencieux du rappel (AD-16), invisible dans la réponse.
+            raise ValueError(f"verifier_max_claims ({self.verifier_max_claims}) doit être "
+                             f">= draft_max_claims ({self.draft_max_claims})")
         if self.allow_ungated is None:
             self.allow_ungated = self.env == "dev"
         return self
@@ -160,6 +183,10 @@ class Settings(BaseSettings):
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,
             "rediger_max_tokens": self.rediger_max_tokens,
+            "verifier_max_tokens": self.verifier_max_tokens,
+            "verifier_max_claims": self.verifier_max_claims,
+            "historique_max_turns": self.historique_max_turns,
+            "relance_sur_non_pertinence": self.relance_sur_non_pertinence,
             "quote_max_chars": self.quote_max_chars,
             "draft_max_segments": self.draft_max_segments,
             "draft_max_claims": self.draft_max_claims,
