@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     # (« caractère subit de l'action de la chaleur ») sans ouvrir la porte à un paragraphe.
     fait_manquant_max_chars: int = Field(200, ge=1)
     ask_client_max: int = Field(8, ge=1)
+    # Revue Codex 1.8 (B3) : les qualités que la clause exige sont **énumérées** par le modèle et
+    # recoupées par le code (`qualites_exigees − qualites_etablies`). Ce sont des libellés du modèle
+    # affichables dans `ask_client` : même borne de longueur que `fait_manquant`, plus une borne de
+    # nombre par affirmation. Une clause d'assurance subordonne rarement son effet à plus de trois
+    # qualités (« soudain », « accidentel », « direct et immédiat ») ; au-delà, le modèle paraphrase.
+    qualites_exigees_max: int = Field(4, ge=1)
     # L'appel `micro` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
@@ -259,6 +265,7 @@ class Settings(BaseSettings):
             "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,
             "fait_manquant_max_chars": self.fait_manquant_max_chars,
             "ask_client_max": self.ask_client_max,
+            "qualites_exigees_max": self.qualites_exigees_max,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider

@@ -62,6 +62,7 @@ from server.app.domain.verdict import (
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
+    MissingPackage,
     Verdict,
     applicable_de_claim,
     decider,
@@ -137,6 +138,16 @@ class ChampsApplicabiliteRendus(BaseModel):
     option_requise: bool
     cp_requise: bool
     fait_manquant: str | None
+    # Revue Codex 1.8 (B3). Deux **listes** plutôt qu'un second booléen : le modèle nomme ce que la
+    # clause subordonne à l'événement, au bien ou à l'assuré, puis ce que les faits déclarés
+    # établissent *dans ces termes*. Le code fait la différence — c'est AD-6 à la lettre (« il extrait
+    # des valeurs typées, le code compare ») et c'est ce qu'un `fait_requis_present` seul ne permettait
+    # pas : rien ne pouvait contredire un booléen. Valeurs par défaut vides, comme `facettes` et
+    # `segments` de `SortieVerifier` : un modèle qui n'énumère rien ne fait pas échouer tout le parse
+    # (donc un sinistre sans verdict, AD-16) — il laisse simplement le contrôle sans prise, et la trace
+    # le dit (`qualites_non_enumerees`).
+    qualites_exigees: list[str] = []
+    qualites_etablies: list[str] = []
 
 
 class SortieVerifierSinistre(SortieVerifier):
@@ -346,7 +357,8 @@ def _marquer_contradictions(jugees: list[ClaimJugee], *, corpus: Any, index: Any
 async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: RetrievalResult,
                    corpus: Any, index: Any, client: LlmClient, budget: RequestBudget,
                    settings: Settings,
-                   faits: Faits | None = None) -> tuple[Verification, StepTrace]:
+                   faits: Faits | None = None,
+                   dossier: MissingPackage | None = None) -> tuple[Verification, StepTrace]:
     """`faits` non nul ⇒ **mode sinistre** (AD-6) : même étape, deux jugements de plus dans le même appel.
 
     Ce que le mode ajoute, et rien d'autre : `verifier_sinistre.md` appendu au préfixe, un bloc
@@ -354,6 +366,10 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     clause par affirmation » (D6), la dérivation d'`applicable` et l'application de la table AD-6.
     Le nombre d'appels ne change pas : **un** appel `micro` groupé, jamais deux (AD-9 amendé).
     Sans `faits`, l'étape est celle du guide, à l'octet près.
+
+    `dossier` est le `MissingPackage` que l'appelant **a** déjà (conditions particulières, options,
+    avenants, date d'effet). Il n'est jamais deviné ni rempli ici : absent, tout est réputé inconnu et
+    la règle (2) d'AD-6 plafonne le verdict à `sous_conditions`.
     """
     t0 = time.monotonic()
     step = StepTrace(name="verifier", tier=STEP_TIERS["verifier"])
@@ -581,7 +597,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     if sinistre:
         affichables = [jugees[c.claim_id] for c in claims if c.claim_id in jugees]
         _marquer_contradictions(affichables, corpus=corpus, index=index)
-        verdict = decider(affichables, ask_client_max=settings.ask_client_max)
+        verdict = decider(affichables, ask_client_max=settings.ask_client_max, missing=dossier)
         # `ok=True` quelle que soit la valeur : AD-6 fait de `ne_tranche_pas` « un résultat rare et
         # gagné, pas un repli par défaut » (AD-3 le redit). Le marquer en échec ferait passer pour un
         # défaut du système la seule réponse honnête sur un contrat qui ne tranche pas — et un lecteur
@@ -657,7 +673,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         # trop long est **ignoré** par le code — le fait manquant disparaît alors de `ask_client` sans
         # que le modèle ait jamais su qu'il y avait une limite à tenir (revue 1.8).
         prefix += "\n\n" + render_prompt("verifier_sinistre",
-                                          fait_manquant_max_chars=settings.fait_manquant_max_chars)
+                                          fait_manquant_max_chars=settings.fait_manquant_max_chars,
+                                          qualites_exigees_max=settings.qualites_exigees_max)
     parts = [untrusted("question", parsed.question_resolue)]
     if faits is not None:
         # AD-15 : les faits déclarés sont du contenu utilisateur — délimités, placés après le préfixe.
@@ -771,17 +788,49 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     detail="deux jeux de champs typés pour une même affirmation : elle est traitée "
                            "comme `humain`"))
                 continue
-            libelle = (a.fait_manquant or "").strip()
-            if len(libelle) > settings.fait_manquant_max_chars:
-                # D8 : le libellé est le **seul** texte du modèle que l'utilisateur lira. Hors borne,
-                # il est ignoré — jamais tronqué : une demi-phrase de fait manquant induit en erreur
-                # plus sûrement qu'un fait tu. La claim reste `humain` par `fait_requis_present`.
+            libelles = [(a.fait_manquant or "").strip(),
+                        *(q.strip() for q in a.qualites_exigees),
+                        *(q.strip() for q in a.qualites_etablies)]
+            trop_long = any(len(libelle) > settings.fait_manquant_max_chars for libelle in libelles)
+            trop_nombreux = (len(a.qualites_exigees) > settings.qualites_exigees_max
+                             or len(a.qualites_etablies) > settings.qualites_exigees_max)
+            if trop_long or trop_nombreux:
+                # D8 : ces libellés sont les **seuls** textes du modèle que l'utilisateur lira. Hors
+                # borne, ils sont ignorés — jamais tronqués : une demi-phrase de fait manquant induit
+                # en erreur plus sûrement qu'un fait tu. Mais on ne peut pas se contenter d'effacer le
+                # libellé en gardant les booléens (revue Codex 1.8, B2) : `fait_requis_present=false`
+                # **sans** `fait_manquant` est précisément la signature du « fait connu et contraire »,
+                # qui rend `applicable="non"` sur une garantie ou une exclusion. Un fait explicitement
+                # manquant mais trop long devenait alors une certitude d'inapplicabilité, et une
+                # exclusion potentiellement applicable pouvait être écartée. Le jeu de champs entier
+                # est donc **inexploitable** : l'entrée est abandonnée, la claim retombe sur
+                # `applicabilite_incomplete` et vaut `humain` (jamais deviné).
                 step.checks.append(CheckResult(
-                    name="fait_manquant_hors_borne", ok=False,
-                    detail=f"un libellé de fait manquant dépasse {settings.fait_manquant_max_chars} "
-                           "caractères : il est ignoré (l'affirmation reste incertaine)"))
-                libelle = ""
+                    name="applicabilite_hors_borne", ok=False,
+                    detail=f"un libellé dépasse {settings.fait_manquant_max_chars} caractères ou plus "
+                           f"de {settings.qualites_exigees_max} qualités sont rendues : le jeu de "
+                           "champs typés est ignoré (l'affirmation est traitée comme `humain`)"))
+                continue
+            # B3 : le **code** compare, le modèle n'a fait qu'énumérer. La comparaison passe par
+            # `normalize()` — la même normalisation que les citations — pour qu'une majuscule ou un
+            # accent ne fasse pas croire à une qualité non établie.
+            etablies = {normalize(q) for q in a.qualites_etablies if q.strip()}
+            exigees = [q.strip() for q in a.qualites_exigees if q.strip()]
+            non_etablies: list[str] = []
+            for q in exigees:
+                if normalize(q) not in etablies and q not in non_etablies:
+                    non_etablies.append(q)
             applicabilites[a.claim_id] = ChampsApplicabilite(
                 fait_requis_present=a.fait_requis_present, option_requise=a.option_requise,
-                cp_requise=a.cp_requise, fait_manquant=libelle or None)
+                cp_requise=a.cp_requise, fait_manquant=(a.fait_manquant or "").strip() or None,
+                qualites_exigees=exigees, qualites_non_etablies=non_etablies)
+            if a.fait_requis_present and non_etablies:
+                # Le modèle s'est contredit : il coche « le fait exigé est présent » après avoir nommé
+                # ce que les faits déclarés n'établissent pas. Le code tranche du côté prudent (la
+                # claim vaut `humain`) et la trace le dit, parce que c'est exactement le run réel qui a
+                # motivé B3 — la qualité « subite » donnée pour acquise sur des circonstances.
+                step.checks.append(CheckResult(
+                    name="qualite_exigee_non_etablie", ok=False,
+                    detail=f"{len(non_etablies)} qualité(s) exigée(s) par une clause citée ne sont pas "
+                           "établies par les faits déclarés : l'affirmation est traitée comme `humain`"))
     return verdicts, couverture, soutiens, applicabilites

@@ -688,12 +688,20 @@ def contrat() -> Index:
     return Index(Corpus(documents={"cg": doc}, summaries={"cg": "# Mini contrat"}))
 
 
-def _applicabilite(*entrees: tuple[str, bool, bool, bool, str | None], verdicts: list[tuple[str, bool]],
+def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
                    nb_segments: int = 8, doublon: bool = False) -> dict:
-    """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité."""
-    champs = [{"claim_id": cid, "fait_requis_present": present, "option_requise": option,
-               "cp_requise": cp, "fait_manquant": manquant}
-              for cid, present, option, cp, manquant in entrees]
+    """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité.
+
+    Une entrée est `(claim_id, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
+    éventuellement suivie des deux listes de qualités `(exigees, etablies)` de la revue Codex 1.8 (B3).
+    """
+    champs = []
+    for entree in entrees:
+        cid, present, option, cp, manquant = entree[:5]
+        exigees, etablies = entree[5] if len(entree) > 5 else [], entree[6] if len(entree) > 6 else []
+        champs.append({"claim_id": cid, "fait_requis_present": present, "option_requise": option,
+                       "cp_requise": cp, "fait_manquant": manquant,
+                       "qualites_exigees": list(exigees), "qualites_etablies": list(etablies)})
     if doublon and champs:
         champs.append(dict(champs[0]))
     return fake_message(text=json.dumps({
@@ -735,9 +743,9 @@ async def test_applicability_travels_in_the_single_grouped_micro_call(contrat: I
         contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
     assert len(fake.requests) == 1 and len(step.calls) == 1
     assert v.claims[0].status.applicable == "oui"
-    # `sous_conditions` et non `couvert` : le pipeline ne lit que les conditions générales, donc le
-    # paquet manquant reste entier et la seconde branche de la règle (2) est satisfaite (revue 1.8,
-    # tour 2). Aucun jugement du modèle ne peut faire passer ce verdict à `couvert`.
+    # `sous_conditions` et non `couvert` : l'appelant n'a passé aucun `dossier`, donc le paquet
+    # manquant reste entier et la seconde branche de la règle (2) est satisfaite. Aucun jugement du
+    # modèle ne peut faire passer ce verdict à `couvert` — seul le dossier le peut.
     assert v.verdict is not None and v.verdict.value == "sous_conditions"
     assert "ne sont pas au dossier" in v.verdict.reason
     # le préfixe porte bien les deux prompts, et les faits déclarés sont délimités (AD-15)
@@ -753,7 +761,7 @@ async def test_the_model_never_returns_a_verdict_field(contrat: Index) -> None:
     assert set(champs) == {"verdicts", "facettes", "segments", "applicabilite"}
     rendus = ChampsApplicabiliteRendus.model_json_schema()["properties"]
     assert set(rendus) == {"claim_id", "fait_requis_present", "option_requise", "cp_requise",
-                           "fait_manquant"}
+                           "fait_manquant", "qualites_exigees", "qualites_etablies"}
     assert not {"applicable", "verdict", "couvert", "value"} & set(rendus)
 
 
@@ -811,18 +819,74 @@ async def test_two_opposite_field_sets_for_one_claim_are_discarded(contrat: Inde
     assert [c for c in step.checks if c.name == "applicabilite_contradictoire"]
 
 
-async def test_an_oversized_missing_fact_label_is_dropped_never_truncated(contrat: Index) -> None:
-    """D8 : le seul texte du modèle affiché est borné — hors borne, ignoré, et la trace le dit."""
+@pytest.mark.parametrize("kind, quote", [("garantie", Q_GARANTIE), ("exclusion", Q_EXCLUSION)])
+async def test_an_oversized_label_discards_the_whole_field_set_never_truncates_it(
+        contrat: Index, kind: str, quote: str) -> None:
+    """Revue Codex 1.8 (B2) : hors borne, ce n'est pas le libellé qu'on efface, c'est le jeu entier.
+
+    D8 borne le seul texte du modèle qui sera affiché : hors borne il est **ignoré**, jamais tronqué.
+    Mais l'effacer en gardant `fait_requis_present=false` fabriquait la signature exacte du « fait
+    connu et contraire » (D1) : la clause valait alors `applicable="non"`, c'est-à-dire une certitude
+    d'inapplicabilité tirée d'un fait explicitement **manquant**. Sur une exclusion, cela l'écartait
+    du cas. Le jeu de champs est donc inexploitable en bloc : `humain`, et la trace le dit.
+    """
+    bloc = "cg:p1:1" if kind == "garantie" else "cg:p1:2"
     trop_long = "x" * 40
-    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [(bloc, quote)]))
     v, step, _fake = await _verifier_sinistre(
         contrat, draft, [_applicabilite(("c1", False, False, False, trop_long), verdicts=[("c1", True)])],
         settings=_settings(fait_manquant_max_chars=20))
-    assert [c for c in step.checks if c.name == "fait_manquant_hors_borne"]
+    assert [c for c in step.checks if c.name == "applicabilite_hors_borne" and not c.ok]
+    assert [c for c in step.checks if c.name == "applicabilite_incomplete" and not c.ok]
     assert v.verdict is not None
     assert v.verdict.missing.faits == [] and all(trop_long not in q for q in v.verdict.ask_client)
-    # le libellé est ignoré, pas tronqué : la clause reste « connue et contraire » (D1)
-    assert v.claims[0].status.applicable == "non"
+    assert v.claims[0].status.applicable == "humain"
+
+
+async def test_too_many_required_qualities_discard_the_field_set_too(contrat: Index) -> None:
+    """Même règle de bord pour les listes de la revue Codex 1.8 (B3) : hors borne ⇒ `humain`."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, ["a", "b", "c"], []),
+                                        verdicts=[("c1", True)])],
+        settings=_settings(qualites_exigees_max=2))
+    assert [c for c in step.checks if c.name == "applicabilite_hors_borne"]
+    assert v.claims[0].status.applicable == "humain"
+
+
+async def test_a_required_quality_the_facts_do_not_establish_is_never_a_yes(contrat: Index) -> None:
+    """Revue Codex 1.8 (B3) : le modèle énumère, le **code** compare — `fait_requis_present` ne suffit plus.
+
+    C'est le run réel qui a motivé le finding : la qualité « subite » donnée pour établie sur des
+    circonstances qui ne la disent pas, et un `couvert` que rien ne pouvait contredire. Ici le modèle
+    se contredit exactement de la même façon (il coche le booléen après avoir nommé ce qu'il n'a pas
+    trouvé dans les faits) ; le code tranche du côté prudent et pose la question.
+    """
+    subite = "caractère subit de l'action de la chaleur"
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [subite], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "qualite_exigee_non_etablie" and not c.ok]
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert v.verdict.missing.faits == [subite]
+    assert any(subite in q for q in v.verdict.ask_client)
+
+
+async def test_a_required_quality_the_facts_establish_leaves_the_clause_applicable(contrat: Index) -> None:
+    """La contrepartie : recouvrement complet des deux listes ⇒ le `oui` tient, à la casse près."""
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None,
+                                         ["Caractère subit de la chaleur"],
+                                         ["caractere subit de la chaleur"]),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"
+    assert not [c for c in step.checks if c.name == "qualite_exigee_non_etablie"]
+    # la qualité reste **demandée** même déclarée établie (B3) : le code ne peut pas la vérifier
+    assert v.verdict is not None
+    assert any("Caractère subit de la chaleur" in q and "confirmer" in q for q in v.verdict.ask_client)
 
 
 async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index) -> None:
