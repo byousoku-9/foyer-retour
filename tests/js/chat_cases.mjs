@@ -15,6 +15,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
+import { CORPS_PARTAGES } from "./sante_corpus.mjs";
+
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 const RACINE = path.resolve(ICI, "..", "..");
 
@@ -996,6 +998,14 @@ async function main() {
       profil_sans_compte: sante({ gate_cases: null }),
       gate_cases_fractionnaire: sante({ gate_cases: 1.5 }),
       gate_profile_vide: sante({ gate_profile: "" }),
+      gate_perime: sante({ alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
+      perime_et_autres_alertes: sante({ alerts: [
+        { doc_id: "axa-lu-optihome-2017", alerte: "source_absente", detail: "" },
+        { doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
+      alertes_sans_peremption: sante({ alerts: [
+        { doc_id: "lux-guide", alerte: "source_absente", detail: "" }] }),
+      gate_cases_zero: sante({ gate_cases: 0 }),
+      gate_cases_negatif: sante({ gate_cases: -3 }),
     };
     // Les alertes ne conditionnent **pas** la lecture du niveau : mal formées, elles sont écartées,
     // et `gate_profile`/`gate_cases` restent lus (le badge ne les affiche pas).
@@ -1009,6 +1019,16 @@ async function main() {
       await CHAT.testerApi();
       cas.alertes_tolerees[nom] = { lue: CHAT.validation(),
                                     badge: CHAT.libelleMode("api/v1", CHAT.validation()) };
+    }
+    // Le verdict de `lireValidation()` sur la table partagée avec l'accueil : un test Python
+    // compare les deux relevés corps par corps.
+    {
+      const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: sante() }));
+      cas.corpus_partage = {};
+      for (const [nom, entree] of Object.entries(CORPS_PARTAGES)) {
+        cas.corpus_partage[nom] = { lisible: CHAT.lireValidation(entree.corps) !== null,
+                                    attendu: entree.lisible };
+      }
     }
     cas.validation = {};
     for (const [nom, corps] of Object.entries(situations)) {

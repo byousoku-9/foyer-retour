@@ -932,6 +932,23 @@ def test_le_badge_porte_le_profil_de_gate_et_son_nombre_de_cas(cas: dict[str, An
     assert v["gate"]["lue"]["gate_profile"] == "vertical" and v["gate"]["lue"]["gate_cases"] == 2
 
 
+def test_le_badge_dit_la_peremption_que_le_serveur_signale(cas: dict[str, Any]) -> None:
+    """Le badge affirmait un niveau à jour que `/sante` démentait (revue 1.10).
+
+    `gate_perime` veut dire que les empreintes du gate ne sont plus celles de l'image qui répond.
+    L'accueil pose sa réserve depuis la revue ; le badge, lui, écrivait « vertical (2 cas) » — et
+    c'est le seul écran où l'on pose réellement une question. `lireValidation()` collectait déjà les
+    alertes, `suffixeValidation()` ne les regardait pas.
+    """
+    v = cas["validation"]
+    assert v["gate_perime"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
+    # La péremption se trouve où qu'elle soit dans la liste…
+    assert v["perime_et_autres_alertes"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
+    # …et une alerte qui n'est pas une péremption ne la déclenche pas.
+    assert v["alertes_sans_peremption"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+    assert v["gate"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+
+
 def test_le_badge_dit_non_valide_quand_aucun_document_nest_gate(cas: dict[str, Any]) -> None:
     v = cas["validation"]["sans_gate"]
     assert v["badge"]["texte"] == "mode api · non validé"
@@ -958,21 +975,30 @@ def test_une_alerte_mal_formee_ne_supprime_pas_le_niveau(cas: dict[str, Any]) ->
         assert releve["badge"]["texte"] == "mode api · vertical (2 cas)", nom
 
 
-def test_le_front_du_guide_et_laccueil_refusent_les_memes_corps() -> None:
-    """Deux lecteurs du même 200 ne doivent pas avoir deux contrats sur ce qu'ils lisent tous deux.
+def test_le_front_du_guide_et_laccueil_jugent_les_memes_corps_pareil(cas: dict[str, Any]) -> None:
+    """Les deux lecteurs stricts du 200 de `/sante`, confrontés à la **même** table de corps.
 
-    `gate_profile` (chaîne non vide ou `null`), `gate_cases` (entier ≥ 0 ou `null`) et leur
-    indissociabilité sont les trois règles partagées ; le reste (`ok`, `version`,
-    `documents_servis`) n'est lu que par l'accueil, qui l'affiche.
+    La version précédente de ce test grepait deux littéraux dans les deux sources. Elle serait restée
+    verte pendant que l'accueil acceptait `gate_profile: ""` et un `gate_cases` négatif que le badge
+    refusait — la divergence même qu'elle prétendait empêcher. Un grep sur du texte source ne vérifie
+    pas une sémantique : `tests/js/sante_corpus.mjs` porte la table, les deux harnais la rejouent
+    dans leur lecteur, et les verdicts sont comparés corps par corps.
     """
-    chat = "\n".join(l for l in (REPO_ROOT / "web" / "app" / "chat.js").read_text("utf-8").splitlines()
-                     if not l.strip().startswith("//"))
-    accueil = "\n".join(l for l in (REPO_ROOT / "tools" / "accueil" / "accueil.js").read_text("utf-8").splitlines()
-                        if not l.strip().startswith("//"))
-    for source in (chat, accueil):
-        assert "(p === null) !== (n === null)" in source or \
-               "(o.gate_profile === null) !== (o.gate_cases === null)" in source
-        assert "Math.floor(" in source, "un compte de cas fractionnaire doit être refusé des deux côtés"
+    accueil = _lancer(REPO_ROOT / "tests" / "js" / "accueil_cases.mjs")["corpus_partage"]
+    guide = cas["corpus_partage"]
+    assert set(accueil) == set(guide) and len(guide) >= 15
+
+    desaccords = {nom: (guide[nom]["lisible"], accueil[nom]["lisible"])
+                  for nom in guide if guide[nom]["lisible"] != accueil[nom]["lisible"]}
+    assert not desaccords, f"le badge et l'accueil jugent différemment (badge, accueil) : {desaccords}"
+
+    faux = {nom: v["lisible"] for nom, v in guide.items() if v["lisible"] != v["attendu"]}
+    assert not faux, f"verdict contraire à la règle partagée : {faux}"
+
+    # Et la table exerce bien les deux côtés de la règle, sans quoi « tout le monde d'accord »
+    # pourrait vouloir dire « tout le monde refuse tout ».
+    assert sum(1 for v in guide.values() if v["attendu"]) >= 4
+    assert sum(1 for v in guide.values() if not v["attendu"]) >= 8
 
 
 def test_une_sonde_morte_nannonce_aucun_niveau(cas: dict[str, Any]) -> None:
@@ -1302,4 +1328,7 @@ def test_le_harnais_vit_dans_le_depot_et_ne_depend_de_rien() -> None:
     source = Path(HARNAIS).read_text("utf-8")
     imports = {ligne.split('"')[1] for ligne in source.splitlines()
                if ligne.startswith("import ") and '"' in ligne}
-    assert imports <= {"node:fs", "node:path", "node:url", "node:vm"}, imports
+    # `./sante_corpus.mjs` est la table de corps partagée avec le harnais de l'accueil : un module du
+    # dépôt, pas une dépendance — c'est précisément ce qui permet aux deux lecteurs d'être confrontés
+    # aux mêmes corps sans que rien ne s'installe.
+    assert imports <= {"node:fs", "node:path", "node:url", "node:vm", "./sante_corpus.mjs"}, imports

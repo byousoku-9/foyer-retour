@@ -241,6 +241,24 @@ def test_un_non_200_nest_pas_une_absence_de_gate(cas: dict[str, Any]) -> None:
     assert any("503" in t for t in cas["sonde_echouee"]["http_503"]["textes"])
 
 
+def test_au_demarrage_nominal_le_niveau_est_peint_dans_la_page(cas: dict[str, Any]) -> None:
+    """L'AC principale de la story, au seul endroit où elle se joue en entier (revue 1.10).
+
+    Le harnais relevait déjà `cas.demarrage.dom` et rien ne le lisait : seule la branche d'échec
+    était assertée. Retirer `peindre(vueEtat(sante))` de la branche de succès laissait `/` avec un
+    bloc « Ce qui a été vérifié » **vide** en production, sans qu'un seul test rougisse.
+    """
+    dom = cas["demarrage"]["dom"]
+    assert dom["enfants"], "le bloc d'état est resté vide après une sonde qui a répondu"
+    textes = _textes(dom)
+    assert "niveau de validation : vertical — 2 cas relus à la main" in textes
+    assert any("documents servis : axa-lu-optihome-2017, lux-guide" == t for t in textes)
+    assert any("version servie : b79ca1b" == t for t in textes)
+    # …et surtout : ce n'est pas la vue d'échec qui a été peinte.
+    assert not any("inconnu" in t for t in textes)
+    assert cas["demarrage"]["localStorage"] == {}
+
+
 def test_au_demarrage_une_sonde_morte_ne_laisse_pas_la_page_muette(cas: dict[str, Any]) -> None:
     """Le bloc « état du système » est vide dans le HTML : s'il le reste, le lecteur ne sait rien."""
     textes = cas["demarrage_sonde_morte"]["textes"]
@@ -263,11 +281,23 @@ def test_profil_et_compte_sont_indissociables(cas: dict[str, Any]) -> None:
     assert cas["corps_refuses"]["compte_sans_profil"]["motif"] == "reponse_illisible"
 
 
+@pytest.mark.parametrize("corps", ["gate_profile_vide", "gate_cases_zero", "gate_cases_negatif"])
+def test_un_niveau_que_le_serveur_ne_peut_pas_ecrire_est_refuse(cas: dict[str, Any],
+                                                                corps: str) -> None:
+    """Le plancher est **1**, pas 0, et un profil est une chaîne **non vide**.
+
+    `evals/run.py` refuse de tourner sur zéro cas (« aucun cas au profil … ») : aucun gate ne peut
+    porter `cases: 0`, et « niveau de validation : vertical — 0 cas relu à la main » est une phrase
+    que rien ne peut produire. Un compte négatif et un profil vide sont du même ordre d'impossibilité
+    que les deux champs dissociés — trois corps qu'aucune route n'écrit, donc trois sondes illisibles.
+    """
+    assert cas["corps_refuses"][corps]["motif"] == "reponse_illisible"
+
+
 def test_un_200_conforme_nest_jamais_refuse(cas: dict[str, Any]) -> None:
     """Le garde-fou du durcissement : un lecteur trop strict n'afficherait plus jamais de niveau."""
     for nom, releve in cas["corps_conformes"].items():
         assert releve["motif"] is None, f"{nom} refusé alors qu'il est conforme"
-    assert cas["corps_conformes"]["zero_cas"]["gate_cases"] == 0
     assert cas["corps_conformes"]["sans_gate"]["gate_profile"] is None
 
 
@@ -280,6 +310,49 @@ def test_le_serveur_emet_tout_ce_que_la_page_exige_dun_200() -> None:
     champs = set(SanteResponse.model_fields)
     for exige in ("ok", "version", "documents_servis", "gate_profile", "gate_cases", "alerts"):
         assert exige in champs, f"la page lit `{exige}`, que `SanteResponse` ne publie pas"
+
+
+def test_la_page_sait_traduire_toutes_les_alertes_que_le_serveur_emet(cas: dict[str, Any]) -> None:
+    """Croisement de la table du front avec les noms d'alerte réellement émis (revue 1.10).
+
+    `cas.alertes_connues` était relevé par le harnais et lu par personne : rien ne reliait la table
+    `ALERTES` de la page aux `Alerte(alerte=…)` que `api/etat` construit et à ceux que
+    `corpus/loader` fait remonter. Une alerte ajoutée côté serveur serait apparue brute à l'écran,
+    suite verte.
+
+    Les **raisons de quarantaine** (`gate_echoue`, `bloquant_statique`, `sans_gate`) ne sont pas des
+    noms d'alerte : elles voyagent dans `detail` sous `alerte: "quarantaine"`, et la page les traduit
+    par `RAISONS` — c'est l'objet d'un test voisin.
+    """
+    etat = (REPO_ROOT / "server" / "app" / "api" / "etat.py").read_text("utf-8")
+    loader = (REPO_ROOT / "server" / "app" / "corpus" / "loader.py").read_text("utf-8")
+    emises = set(re.findall(r'alerte="([a-z_]+)"', etat))
+    # Celles que le loader pose dans `Corpus.alerts`, et qu'`_alertes()` recopie telles quelles.
+    emises |= set(re.findall(r'alerts\.append\("([a-z_]+)"\)', loader))
+    emises |= set(re.findall(r'\["([a-z_]+)"\]\) if allow_ungated', loader))
+    emises |= {"gate_perime"}  # posé par `_gate_alerts`, seule branche à ne pas suivre ces formes
+    assert {"sans_gate", "gate_perime", "source_absente", "quarantaine", "rapport_illisible",
+            "rapport_etranger", "ungated_en_production"} <= emises, emises
+
+    connues = set(cas["alertes_connues"])
+    manquantes = emises - connues
+    assert not manquantes, (
+        f"le serveur émet des alertes que la page ne sait pas traduire : {sorted(manquantes)} — "
+        "elles apparaîtraient brutes à l'écran")
+
+
+def test_la_page_sait_traduire_toutes_les_raisons_de_quarantaine(cas: dict[str, Any]) -> None:
+    """Même croisement pour les raisons que `corpus/loader` met dans `Corpus.quarantine`.
+
+    Seules celles qu'un lecteur peut comprendre et corriger sont traduites : les raisons purement
+    techniques (`document.json absent`, `overlay : …`) sont des phrases françaises complètes, que la
+    page affiche telles quelles.
+    """
+    raisons = {r[0] for r in cas["raisons_connues"]}
+    assert {"gate_echoue", "bloquant_statique", "sans_gate"} <= raisons
+    loader = (REPO_ROOT / "server" / "app" / "corpus" / "loader.py").read_text("utf-8")
+    for raison in raisons:
+        assert raison in loader, f"{raison!r} n'est plus une raison de quarantaine du loader"
 
 
 # --- AD-15 : `textContent` seul, aucun stockage ---------------------------

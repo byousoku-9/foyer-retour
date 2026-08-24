@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 import { Document, stockage } from "./dom_minimal.mjs";
+import { CORPS_PARTAGES } from "./sante_corpus.mjs";
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 const RACINE = path.resolve(ICI, "..", "..");
@@ -286,6 +287,9 @@ async function main() {
       gate_cases_absent: (c) => { delete c.gate_cases; },
       gate_cases_chaine: (c) => { c.gate_cases = "2"; },
       gate_cases_fractionnaire: (c) => { c.gate_cases = 1.5; },
+      gate_cases_zero: (c) => { c.gate_cases = 0; },
+      gate_cases_negatif: (c) => { c.gate_cases = -3; },
+      gate_profile_vide: (c) => { c.gate_profile = ""; },
       profil_sans_compte: (c) => { c.gate_cases = null; },
       compte_sans_profil: (c) => { c.gate_profile = null; },
       alerts_absent: (c) => { delete c.alerts; },
@@ -318,7 +322,6 @@ async function main() {
       nominal: sante(),
       sans_gate: sante({ gate_profile: null, gate_cases: null }),
       aucun_document: sante({ ok: false, documents_servis: [], gate_profile: null, gate_cases: null }),
-      zero_cas: sante({ gate_cases: 0 }),
       alerte_sans_detail_vide: sante({ alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
       version_vide: sante({ version: "" }),
     };
@@ -356,11 +359,25 @@ async function main() {
     };
   }
 
+  // --- la table partagée avec le front du guide ------------------------------
+  //
+  // Le verdict de `lireSante()` sur chaque corps de `tests/js/sante_corpus.mjs` ; le harnais du
+  // guide relève le sien sur la **même** table, et un test Python compare les deux corps par corps.
+  {
+    const { ACCUEIL } = charger(PAGE, () => reponseHttp({ corps: sante() }));
+    cas.corpus_partage = {};
+    for (const [nom, entree] of Object.entries(CORPS_PARTAGES)) {
+      cas.corpus_partage[nom] = { lisible: ACCUEIL.lireSante(entree.corps) !== null,
+                                  attendu: entree.lisible };
+    }
+  }
+
   // --- bornes ---------------------------------------------------------------
   {
     const { ACCUEIL } = charger(PAGE, () => reponseHttp({ corps: sante() }));
     cas.bornes = ACCUEIL.bornes();
     cas.alertes_connues = Object.keys(ACCUEIL.ALERTES);
+    cas.raisons_connues = ACCUEIL.RAISONS;
   }
 
   return cas;
