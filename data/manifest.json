@@ -10,7 +10,7 @@
       "profile": "vertical",
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "2b11ed22ca146ee9b3e3d00f40d9284ef87e77d8321cd76469a0eb396e5292a5",
-      "cases_hash": "bb4d6aa0c56eedf14d348de8520fb882fbf2b54aa2ddac6a8f1169e193636f63",
+      "cases_hash": "b02293a7fe68ddb94a4c0c54922cb0542ffa15d65cf959bf9ef0dde3ac82c3e9",
       "pipeline_digest": "e3bf58d400b41048d0eba8826c13e00da27170813ee1bdf8de1ca26079307d2f",
       "prompts_digest": "c440741d5e2cb604e33aae2deb0b77d54bed3d4beae696393694c6fdbb252800",
       "model_ids": {
@@ -19,9 +19,10 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-24T20:11:25Z",
+      "date": "2026-08-24T20:34:48Z",
       "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
-      "cases": 1
+      "cases": 1,
+      "countersigned": false
     }
   },
   "lux-guide": {
@@ -35,7 +36,7 @@
       "profile": "vertical",
       "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
       "ingest_fingerprint": "b791a248028c2d6c73a9e26eeea4f7dafa6d3cbd996114c39c5d8535405709c4",
-      "cases_hash": "58552c3b344c1a7df92a235f08df3dbc6cbf7218adfd3db83e76ef7be9cbb97a",
+      "cases_hash": "9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791",
       "pipeline_digest": "e3bf58d400b41048d0eba8826c13e00da27170813ee1bdf8de1ca26079307d2f",
       "prompts_digest": "c440741d5e2cb604e33aae2deb0b77d54bed3d4beae696393694c6fdbb252800",
       "model_ids": {
@@ -44,9 +45,10 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-24T20:11:46Z",
+      "date": "2026-08-24T20:34:20Z",
       "overlay_hash": null,
-      "cases": 1
+      "cases": 1,
+      "countersigned": false
     }
   }
 }
