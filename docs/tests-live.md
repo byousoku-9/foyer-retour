@@ -854,3 +854,5 @@ une suite : le serveur réel a donc été rejoué. `ENV=dev uv run uvicorn serve
 
 Coût de cette re-vérification : **0,073 €** (une soumission nominale et le tour navigateur ; les six
 chemins de 400 sont gratuits, par construction).
+
+Revue Codex : 2 bloquants / 3 importants, convergé en 3 tour(s) (boucle autonome).
