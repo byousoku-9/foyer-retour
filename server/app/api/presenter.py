@@ -30,7 +30,21 @@ source est toujours relu depuis `corpus` ». *vérifier* construit déjà `Verif
 `Block.text[text_start:text_end]`, mais l'invariant se lit alors depuis un autre module : rien, dans
 la couche qui **affiche**, n'empêcherait un jour de publier une chaîne fabriquée ailleurs. La
 citation rendue est donc ré-extraite du bloc du corpus, aux offsets prouvés, à l'endroit même où elle
-part sur le réseau. Une entrée dont les offsets ne retombent pas sur le bloc n'est pas affichée.
+part sur le réseau.
+
+**Une citation qui ne se relit pas est un échec terminal (revue Codex 1.6, B1, tour 2).** Le premier
+correctif ré-extrayait la citation du bloc et, quand les offsets ne retombaient pas dessus, n'affichait
+rien : la réponse partait quand même en 200, avec son segment `factuel` et `sources[]` vide. C'est
+exactement les deux choses qu'AD-3 empêche (« phrase sans source », « jamais de dégradé silencieux »)
+et ce qu'AD-16 nomme un dégradé en silence. Toute incohérence — bloc absent de l'index, document
+absent du corpus, offsets hors du bloc — lève donc une `PipelineError` qui ressort dans l'enveloppe
+d'AD-16, avec la `Trace` de la requête.
+
+Le code est `internal` (500), pas `corpus_unavailable` (503) : le corpus est chargé **une seule fois
+au démarrage** (`api/etat.py`) et ne bouge plus de la vie du processus. Un bloc cité qui n'y est pas
+ne peut donc pas être une indisponibilité passagère que réessayer réparerait — c'est un invariant du
+code qui a cédé, et `internal` est le seul code d'AD-16 qui le dise sans mentir. 503 ferait de surcroît
+proposer le mode local par le front (AD-11) pour une panne que le mode local ne contourne pas.
 
 **`fiche_id`.** Le nœud parent d'un bloc du guide est `lux-guide:f{fiche_id}` (`ingest/kb_to_blocks`) ;
 `fiche_id` est donc ce nœud privé de son préfixe, et c'est exactement l'identifiant que `ui.js`
@@ -47,10 +61,22 @@ from typing import Any
 from server.app.api.schemas import SourceItem
 from server.app.domain.answer import Answer, VerifiedQuote
 from server.app.domain.document import Document, Node
+from server.app.domain.errors import ErrorCode, PipelineError
 
 logger = logging.getLogger("foyer.api")
 
 STATUT_VERIFIEE = "verifiee"
+
+
+def _incoherence(block_id: str, motif: str) -> PipelineError:
+    """L'échec terminal d'AD-16 pour une citation que le corpus servi ne confirme pas.
+
+    Le message ne porte que le `block_id` et le motif — jamais un extrait de bloc ni du texte
+    utilisateur (AD-15) —, et il part aussi dans le log serveur : l'enveloppe dit qu'on a échoué, le
+    log dit sur quel bloc.
+    """
+    logger.error("citation incohérente sur %s : %s — la réponse n'est pas servie", block_id, motif)
+    return PipelineError(ErrorCode.internal, f"citation incohérente sur le bloc {block_id} : {motif}")
 
 
 def _noeud(index: Any, corpus: Any, block_id: str) -> tuple[str, Document, Node] | None:
@@ -69,35 +95,31 @@ def _noeud(index: Any, corpus: Any, block_id: str) -> tuple[str, Document, Node]
     return None
 
 
-def _relire(document: Document, quote: VerifiedQuote) -> str | None:
+def _relire(document: Document, quote: VerifiedQuote) -> str:
     """AD-3, à l'endroit de l'affichage : le passage **brut** du corpus, aux offsets prouvés.
 
-    `None` quand les offsets ne retombent pas sur le bloc — ce qui, venant du pipeline, ne peut pas
-    arriver (`steps/verifier` les obtient de la table de correspondance de `normalize()`). C'est
-    précisément pourquoi le cas est journalisé en `error` plutôt que passé sous silence : il
-    signifierait qu'une `VerifiedQuote` a été fabriquée sans le corpus, et la seule réponse juste est
-    de ne rien afficher.
+    Des offsets qui ne retombent pas sur le bloc ne peuvent pas venir du pipeline (`steps/verifier`
+    les obtient de la table de correspondance de `normalize()`). Quand ils n'y retombent pas, la
+    `VerifiedQuote` a été fabriquée sans ce corpus : il n'y a rien de vrai à afficher, et taire la
+    source tout en servant la phrase qui la cite serait la « phrase sans source » d'AD-3. On échoue.
     """
     try:
         bloc = document.block(quote.block_id)
     except KeyError:
-        return None
+        raise _incoherence(quote.block_id, "le bloc cité est absent du document servi") from None
     if not 0 <= quote.text_start < quote.text_end <= len(bloc.text):
-        logger.error("offsets de citation hors du bloc %s : la source n'est pas affichée", quote.block_id)
-        return None
+        raise _incoherence(quote.block_id, "les offsets de la citation sortent du bloc")
     return bloc.text[quote.text_start:quote.text_end]
 
 
-def _source_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) -> SourceItem | None:
+def _source_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) -> SourceItem:
     trouve = _noeud(index, corpus, quote.block_id)
     if trouve is None:
-        # Une `VerifiedQuote` vient d'un bloc du corpus : ne pas le retrouver signifie que le corpus a
-        # changé sous les pieds de la requête. On n'affiche pas de source plutôt que d'en inventer une.
-        return None
+        # Une `VerifiedQuote` vient d'un bloc du corpus : ne pas le retrouver signifie que la réponse
+        # a été vérifiée contre un autre corpus que celui qu'on sert. Échec terminal (AD-3/AD-16).
+        raise _incoherence(quote.block_id, "le bloc cité est introuvable dans le corpus servi")
     doc_id, document, node = trouve
     texte = _relire(document, quote)
-    if texte is None:
-        return None
     prefixe = f"{doc_id}:f"
     fiche_id = node.node_id[len(prefixe):] if node.node_id.startswith(prefixe) else None
     lien = node.sources[0].url if node.sources else None
@@ -107,13 +129,9 @@ def _source_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) 
 
 def sources_de(answer: Answer, index: Any, corpus: Any) -> list[SourceItem]:
     """Les citations de la réponse **affichée**, relues du corpus, dans l'ordre de citation (AD-3/AD-11)."""
-    sources: list[SourceItem] = []
-    for claim in answer.claims:  # AD-4 : `claims[]` = les seules claims retrouvées, pertinentes et citées
-        for quote in claim.quotes:
-            item = _source_item(quote, STATUT_VERIFIEE, index=index, corpus=corpus)
-            if item is not None:
-                sources.append(item)
-    return sources
+    return [_source_item(quote, STATUT_VERIFIEE, index=index, corpus=corpus)
+            for claim in answer.claims  # AD-4 : les seules claims retrouvées, pertinentes et citées
+            for quote in claim.quotes]
 
 
 def fiches_de(sources: list[SourceItem]) -> list[str]:

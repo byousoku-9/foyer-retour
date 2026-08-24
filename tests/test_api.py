@@ -316,8 +316,13 @@ def test_la_citation_publiee_est_relue_du_bloc_et_non_la_chaine_recue(prod: Test
     assert "INVENTÉ" not in json.dumps(j["sources"], ensure_ascii=False)
 
 
-def test_une_citation_dont_les_offsets_sortent_du_bloc_nest_pas_affichee(prod: TestClient) -> None:
-    """Offsets impossibles venant du pipeline ⇒ rien n'est affiché plutôt qu'un texte tronqué au hasard."""
+def test_une_citation_dont_les_offsets_sortent_du_bloc_est_un_echec_terminal(prod: TestClient) -> None:
+    """AD-3/AD-16 (revue Codex 1.6, B1, tour 2) : jamais la phrase servie sans la source qu'elle cite.
+
+    Le premier correctif retirait la citation illisible et servait quand même la réponse en 200 —
+    donc un segment `factuel` affiché sans aucune source, ce qu'AD-3 empêche (« phrase sans source »)
+    et ce qu'AD-16 nomme un dégradé en silence. C'est maintenant un échec terminal enveloppé.
+    """
     corpus, _ = _mini_corpus()
     bloc = corpus.documents[DOC_ID].block(f"{DOC_ID}:farrivee:2")
     hors_bloc = VerifiedQuote(block_id=f"{DOC_ID}:farrivee:2", quote="peu importe", start=0, end=5,
@@ -329,9 +334,34 @@ def test_une_citation_dont_les_offsets_sortent_du_bloc_nest_pas_affichee(prod: T
                     claims=[claim])
     _brancher(prod, Double((answer, _trace())), mini=True)
 
-    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
 
-    assert j["sources"] == [] and j["fiches"] == []
+    assert r.status_code == 500
+    j = r.json()
+    assert j["error"]["code"] == "internal"
+    assert j["error"]["request_id"] == r.headers["X-Request-Id"]
+    # AD-10 : la trace partielle suit l'échec, le coût déjà engagé reste mesurable.
+    assert j["trace"]["request_id"] == j["error"]["request_id"]
+    # Et rien de la réponse n'est servi : ni le texte, ni un `sources[]` vide qui la ferait passer.
+    assert "sources" not in j and "Délai." not in json.dumps(j, ensure_ascii=False)
+
+
+def test_une_citation_dont_le_bloc_a_disparu_du_corpus_est_un_echec_terminal(prod: TestClient) -> None:
+    """Même règle quand c'est l'index, et non les offsets, qui ne confirme pas la citation (B1, tour 2)."""
+    corpus, _ = _mini_corpus()
+    fantome = VerifiedQuote(block_id=f"{DOC_ID}:fjamais:9", quote="peu importe", start=0, end=5,
+                            text_start=0, text_end=5)
+    claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[fantome],
+                          status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
+    answer = Answer(found=True, complete=False, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+
+    assert r.status_code == 500 and r.json()["error"]["code"] == "internal"
+    assert corpus is not None  # le corpus du test n'a jamais contenu ce bloc : c'est tout le propos
 
 
 def test_le_statut_structure_de_la_claim_reste_publie_par_answer(prod: TestClient) -> None:

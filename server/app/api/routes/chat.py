@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, Request
 from server.app.api.presenter import fiches_de, sources_de
 from server.app.api.schemas import VIA, ChatRequest, ChatResponse
 from server.app.corpus.text import normalize
+from server.app.domain.errors import PipelineError
 
 
 async def verifier_quota(request: Request) -> None:
@@ -72,7 +73,14 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
         request_id=request.state.request_id, lang=demande.lang, budget=budget,
         pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex)
 
-    sources = sources_de(answer, etat.index, etat.corpus)
+    try:
+        sources = sources_de(answer, etat.index, etat.corpus)
+    except PipelineError as exc:
+        # AD-3/AD-16 (revue Codex 1.6, B1 tour 2) : une citation que le corpus servi ne confirme pas
+        # est un échec terminal, pas une réponse amputée de ses sources. La trace de la requête suit
+        # l'erreur — AD-10 : le coût déjà engagé reste mesurable même quand rien n'est servi.
+        exc.trace = trace
+        raise
     # AD-10 : la ligne de log ne porte que des champs — jamais la question, jamais `terms_searched`,
     # jamais le texte d'un bloc. Le filtre final est dans `request_id.py`.
     request.state.log_fields.update(
