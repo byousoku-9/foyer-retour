@@ -21,6 +21,11 @@
   --warn: #96570a;
   --warn-soft: #fdf5e8;
   --ok: #0c6b3e;
+  /* foyer-retour : couleur d'erreur du thème. Le site posait la même valeur en dur à sept endroits
+     (statuts `ko` du comparateur), sans variante sombre — contrairement à `--ok` et `--warn`. Les
+     blocs de l'assistant en avaient besoin ; la variable la donne à tout le monde. En thème clair
+     la valeur est inchangée, en thème sombre elle devient lisible. */
+  --ko: #be123c;
   --ombre-s: 0 1px 2px rgba(11,18,32,.05), 0 2px 6px rgba(11,18,32,.05);
   --ombre-m: 0 6px 14px -4px rgba(11,18,32,.10), 0 18px 34px -10px rgba(11,18,32,.10);
   --ombre-l: 0 16px 28px -12px rgba(11,18,32,.16), 0 40px 70px -20px rgba(11,18,32,.22);
@@ -53,6 +58,7 @@
     --warn: #e7b165;
     --warn-soft: #221a0e;
     --ok: #5ccb90;
+    --ko: #f4738f;
     --ombre-s: 0 1px 3px rgba(0,0,0,.5);
     --ombre-m: 0 8px 20px -6px rgba(0,0,0,.6);
     --ombre-l: 0 24px 60px -16px rgba(0,0,0,.75);
@@ -62,7 +68,7 @@
   --bg: #080a0f; --bg-alt: #0d1017; --surface: #12161e; --surface-2: #1a1f29;
   --border: #232a36; --border-fort: #36404f; --text: #f0f3f7; --text-2: #c6cfda;
   --muted: #8792a1; --accent: #5fa8f5; --accent-2: #3ad6ee; --accent-3: #a78bfa;
-  --accent-soft: #10203a; --warn: #e7b165; --warn-soft: #221a0e; --ok: #5ccb90;
+  --accent-soft: #10203a; --warn: #e7b165; --warn-soft: #221a0e; --ok: #5ccb90; --ko: #f4738f;
   --ombre-s: 0 1px 3px rgba(0,0,0,.5);
   --ombre-m: 0 8px 20px -6px rgba(0,0,0,.6);
   --ombre-l: 0 24px 60px -16px rgba(0,0,0,.75);
@@ -473,13 +479,19 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 }
 .chat-bar input { flex: 1 1 12rem; min-width: 0; }
 .chat-bar .btn { flex: 0 0 auto; }
+/* Pendant l'attente, saisie et boutons sont `disabled` : sans règle, rien ne changeait à l'écran
+   et le clic paraissait simplement ignoré (UX-DR10 : l'état de chargement doit être explicite). */
+.chat-bar input:disabled, .chat-bar .btn:disabled {
+  opacity: .55; cursor: not-allowed; background: var(--surface-2);
+}
+.chat-log[aria-busy="true"] { cursor: progress; }
 .badge {
   font-size: var(--micro); padding: 4px 11px; border-radius: 999px; font-weight: 620;
   background: var(--surface-2); color: var(--muted); border: 1px solid var(--border);
   vertical-align: middle; text-transform: uppercase; letter-spacing: .8px;
 }
 .badge.on { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
-.badge.off { background: color-mix(in srgb, #be123c 12%, transparent); color: #be123c; border-color: color-mix(in srgb, #be123c 38%, transparent); }
+.badge.off { background: color-mix(in srgb, var(--ko) 12%, transparent); color: var(--ko); border-color: color-mix(in srgb, var(--ko) 38%, transparent); }
 
 /* ---------- Assistant : la reponse du serveur (story 1.7) ---------- */
 /* Tout se greffe sur .msg / .srcs / .badge : les couleurs viennent des variables du theme,
@@ -531,6 +543,13 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 .msg .etat-sur { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
 .msg .etat-partiel { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
 .msg .etat-inconnu { background: var(--surface-2); }
+/* La recherche simple n'a ni état vérifié ni coût : son pied le dit, sans emprunter les couleurs
+   d'une réponse sourcée. */
+.msg .etat-local { background: var(--surface-2); color: var(--muted); }
+.msg .sans-verif { font-style: italic; }
+/* Appariement citation ↔ phrase abandonné : la dégradation se voit, elle ne se devine pas. */
+.msg .degrade { margin: 10px 0 0; font-size: 12.5px; color: var(--warn); }
+.msg .clarif-q { margin: 0; }
 
 /* Attente : un texte, et les trois points en accompagnement (UX-DR10) */
 .msg.attente { display: flex; align-items: center; gap: 10px; white-space: normal; }
@@ -540,10 +559,10 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
    le bouton de la recherche simple est une .chip du bloc `.indispo`. */
 .msg.bot.indispo, .msg.bot.err { white-space: normal; border-style: dashed; }
 .msg.bot.indispo { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
-.msg.bot.err { border-color: color-mix(in srgb, #be123c 45%, var(--border)); }
+.msg.bot.err { border-color: color-mix(in srgb, var(--ko) 45%, var(--border)); }
 .msg .alerte-titre { display: block; font-size: var(--micro); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
 .msg.bot.indispo .alerte-titre { color: var(--warn); }
-.msg.bot.err .alerte-titre { color: #be123c; }
+.msg.bot.err .alerte-titre { color: var(--ko); }
 .msg .alerte-txt { margin: 0; }
 .msg .alerte-note { margin: 7px 0 0; font-size: 12.5px; color: var(--muted); }
 .msg .ref { margin: 7px 0 0; font-size: var(--micro); color: var(--muted); }
@@ -686,9 +705,9 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 }
 .vstatut.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
 .vstatut.cond { color: var(--warn); background: var(--warn-soft); }
-.vstatut.ko { color: #be123c; background: color-mix(in srgb, #be123c 11%, transparent); }
+.vstatut.ko { color: var(--ko); background: color-mix(in srgb, var(--ko) 11%, transparent); }
 .vstatut.nf { color: var(--muted); background: var(--surface-2); }
-.vcard.ko { border-color: color-mix(in srgb, #be123c 30%, var(--border)); }
+.vcard.ko { border-color: color-mix(in srgb, var(--ko) 30%, var(--border)); }
 .vcard.ok { border-color: color-mix(in srgb, var(--ok) 30%, var(--border)); }
 .vcle { margin: 0 0 6px; color: var(--text-2); }
 .vinfo { margin: 0 0 4px; color: var(--muted); font-size: 12.5px; }
@@ -886,17 +905,17 @@ h2.faq-groupe:first-child { margin-top: 24px; }
 .reco-rang { font-weight: 700; color: var(--muted); font-size: 14px; }
 .reco-nom { font-weight: 650; font-size: 16px; flex: 1; }
 .reco-pct { font-weight: 700; font-size: 20px; }
-.reco-pct.ok { color: var(--ok); } .reco-pct.part { color: var(--warn); } .reco-pct.ko { color: #be123c; }
+.reco-pct.ok { color: var(--ok); } .reco-pct.part { color: var(--warn); } .reco-pct.ko { color: var(--ko); }
 .reco-barre { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
 .reco-barre i { display: block; height: 100%; border-radius: 99px; }
 .reco-barre i.ok { background: linear-gradient(90deg, var(--ok), color-mix(in srgb, var(--ok) 60%, var(--accent-2))); }
 .reco-barre i.part { background: var(--warn); }
-.reco-barre i.ko { background: #be123c; }
+.reco-barre i.ko { background: var(--ko); }
 .reco-ok { margin: 0; font-size: 13.5px; color: var(--ok); }
 .reco-lacunes summary { cursor: pointer; font-size: 13.5px; color: var(--accent); }
 .lacune { margin: 9px 0 0; padding: 10px 12px; border-radius: var(--r-s); background: var(--surface-2); }
 .lacune-t { margin: 0; font-size: 13.5px; color: var(--text-2); }
-.lacune-s { color: #be123c; font-weight: 600; }
+.lacune-s { color: var(--ko); font-weight: 600; }
 .lacune-c { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); font-style: italic; line-height: 1.55; }
 
 table.mrh-table { width: 100%; }
@@ -904,7 +923,7 @@ table.mrh-table td.num { text-align: center; font-size: 13px; }
 .cell-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); font-weight: 600; }
 .cell-cond { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); font-weight: 600; }
 .cell-part { color: var(--warn); background: var(--warn-soft); font-weight: 600; }
-.cell-ko { color: #be123c; background: color-mix(in srgb, #be123c 8%, transparent); font-weight: 600; }
+.cell-ko { color: var(--ko); background: color-mix(in srgb, var(--ko) 8%, transparent); font-weight: 600; }
 .cell-nf { color: var(--muted); }
 .mat-hits { display: block; font-weight: 600; }
 .mat-page { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
@@ -1021,7 +1040,7 @@ table.sm-table thead th {
   border: 1px solid var(--border); background: var(--surface); color: var(--muted);
   width: 26px; height: 26px; border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1;
 }
-.sm-retirer:hover { color: #be123c; border-color: #be123c; }
+.sm-retirer:hover { color: var(--ko); border-color: var(--ko); }
 tr.sm-score td { background: var(--surface-2); border-top: 2px solid var(--border-fort); }
 .sm-pct { font-size: 19px; font-family: var(--serif); font-weight: 400; }
 .sm-pct.sm-top { color: var(--ok); }
@@ -1054,7 +1073,7 @@ tr.sm-score td { background: var(--surface-2); border-top: 2px solid var(--borde
 }
 .pastille.ok { background: var(--ok); }
 .pastille.cond { background: var(--warn); }
-.pastille.ko { background: #be123c; }
+.pastille.ko { background: var(--ko); }
 .pastille.nf { background: var(--muted); }
 .sin-item[open] summary { border-bottom: 1px solid var(--border); }
 .sin-corps { padding: 14px 16px 16px; }
