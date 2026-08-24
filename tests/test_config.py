@@ -32,7 +32,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 1024
     # story 1.8 : contrat servi par le pipeline sinistre, et les bornes de son appel groupé
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
-    assert s.verifier_sinistre_max_tokens == 2048
+    assert s.verifier_sinistre_max_tokens == 3072
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
 
 

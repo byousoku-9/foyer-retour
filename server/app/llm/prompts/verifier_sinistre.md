@@ -31,6 +31,13 @@ null` — rien ne manque, on **sait** que la clause ne vise pas ce cas. C'est le
   Le périmètre prime : une clause qui ne vise pas ce cas n'a pas à être examinée plus loin, même si
   l'événement qu'elle décrit ressemble à celui du dossier.
 
+  Une clause qui se limite à des **points nommés du contrat** (« pour les extensions mentionnées aux
+  points 3.1.8.3 à 3.1.8.6 ») est une question de périmètre, et **les faits déclarés la tranchent** :
+  le lieu et le bien disent si le sinistre relève de ces points. Ce n'est ni un `fait_manquant`, ni un
+  renvoi aux conditions particulières — n'écris pas `cp_requise = true` pour dire « je ne sais pas si
+  cette clause vise ce cas ». Si le sinistre a lieu au domicile assuré et que la clause ne vaut que
+  pour des extensions désignées, alors `fait_requis_present = false` et `fait_manquant = null`.
+
 **2. La qualité exigée.** Si le périmètre est bon, la clause subordonne-t-elle son effet à une
 **qualité** de l'événement, du bien ou de l'assuré — soudain, subit, accidentel, imprévisible,
 permanent, direct et immédiat, avec effraction, à titre principal… ? Si les faits déclarés ne
@@ -52,39 +59,56 @@ pour cette affirmation et la renvoie à un humain — le fait manquant disparaî
 posées au client, ce qui est pire que de l'écrire court. Va donc droit au fait, sans le reformuler ni
 l'expliquer.
 
-### `qualites_exigees` et `qualites_etablies` : tu énumères, le code compare
+### `qualites_exigees` et `qualites_etablies` : tu énumères et tu cites, le code compare
 
 Ces deux listes sont le contrôle de la précédente : elles rendent vérifiable ce que
 `fait_requis_present` se contente d'affirmer. Elles portent sur **la clause de cette affirmation-là**,
 jamais sur une autre : deux affirmations qui citent deux clauses différentes n'ont aucune raison
 d'avoir les mêmes qualités.
 
-**Si le périmètre n'est pas bon (question 1), les deux listes sont vides.** Une clause qui ne vise pas
-ce cas n'exige rien de lui : le périmètre prime ici comme partout. Ne recopie pas les qualités d'une
-clause qui, elle, vise le cas.
+**Les deux listes sont obligatoires.** Une clause qui n'exige aucune qualité particulière rend
+`"qualites_exigees": []` — la liste vide, écrite. Omettre l'une des deux listes n'est pas neutre : le
+code appelant ignore alors **tous** tes champs typés pour cette affirmation et la renvoie à un humain.
+
+**Si le périmètre n'est pas bon (question 1), les deux listes sont vides** (`[]`, écrites). Une clause
+qui ne vise pas ce cas n'exige rien de lui : le périmètre prime ici comme partout. Ne recopie pas les
+qualités d'une clause qui, elle, vise le cas.
 
 - `qualites_exigees` : les qualités que **la clause citée** subordonne à l'événement, au bien ou à
   l'assuré, chacune en quelques mots repris du **vocabulaire de la clause** (« caractère subit de
   l'action de la chaleur », « caractère soudain de l'événement », « effraction », « occupation
-  permanente du bien »). Une clause qui n'exige aucune qualité particulière rend une liste **vide**.
-  N'y mets ni le périmètre (le bien, le lieu, la nature de l'événement : c'est la question 1), ni une
-  option, ni un renvoi aux conditions particulières.
+  permanente du bien »). N'y mets ni le périmètre (le bien, le lieu, la nature de l'événement : c'est
+  la question 1), ni une option, ni un renvoi aux conditions particulières.
 
 - `qualites_etablies` : parmi les précédentes, et **uniquement** parmi elles, celles que les faits
-  déclarés établissent **dans ces termes**, reprises **mot pour mot** de `qualites_exigees`. Une
-  qualité que tu n'as pas trouvée dans les faits déclarés n'y figure pas — ne l'infère jamais des
+  déclarés établissent **dans ces termes**. Chaque entrée est un objet à deux champs :
+
+  - `qualite` : la qualité, reprise **mot pour mot** de `qualites_exigees` ;
+  - `fait_cite` : le **fragment des faits déclarés** qui l'établit, recopié **caractère pour
+    caractère** depuis `<untrusted kind="faits">`. Le code le relit dans les faits soumis : un
+    fragment introuvable, reformulé ou résumé fait tomber la qualité en « non établie ». Ne cite que
+    ce que les faits disent — ni la clause, ni ton raisonnement, ni une paraphrase.
+
+    Le code vérifie aussi que le fragment **emploie les mots de la qualité**. « Une bougie allumée
+    est tombée sur le canapé » ne contient ni *soudain*, ni *subite*, ni *foyer* : il n'établit
+    aucune de ces qualités, et le citer trois fois pour trois qualités différentes les fait toutes
+    tomber. Si les faits ne disent pas la qualité **avec ses mots**, elle n'est pas établie : c'est
+    précisément ce qu'il faut faire préciser au client.
+
+  Une qualité que tu n'as pas trouvée dans les faits déclarés n'y figure pas — ne l'infère jamais des
   circonstances : « une bougie est tombée sur le canapé » ne dit pas que l'action de la chaleur ait
   été *subite* au sens de la clause, et « le mobilier a brûlé » ne dit pas que la chaleur ait agi de
   façon *subite*. Dans le doute, **ne l'y mets pas** : une qualité laissée à confirmer coûte moins
   cher qu'une qualité tenue pour acquise.
 
-Le code appelant fait la différence des deux listes : toute qualité exigée qui n'est pas établie rend
+Le code appelant fait la différence des deux listes : toute qualité exigée qui n'est pas établie —
+parce que tu ne l'as pas listée, ou parce que son `fait_cite` ne se relit pas dans les faits — rend
 l'affirmation incertaine et devient une question posée au client, **même si tu as coché
 `fait_requis_present = true`**. Tu n'as donc rien à gagner à trancher : énumère juste, et cite.
 
-**Au plus $qualites_exigees_max qualités par liste, au plus $fait_manquant_max_chars caractères
-chacune.** Au-delà, l'ensemble de tes champs typés pour cette affirmation est ignoré et la clause est
-renvoyée à un humain.
+**Au plus $qualites_exigees_max qualités par liste, au plus $fait_manquant_max_chars caractères par
+libellé (`qualite` comme `fait_cite`).** Au-delà, l'ensemble de tes champs typés pour cette
+affirmation est ignoré et la clause est renvoyée à un humain.
 
 ### Les deux autres champs
 

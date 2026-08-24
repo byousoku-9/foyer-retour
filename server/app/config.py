@@ -78,15 +78,26 @@ class Settings(BaseSettings):
     # nombre par affirmation. Une clause d'assurance subordonne rarement son effet à plus de trois
     # qualités (« soudain », « accidentel », « direct et immédiat ») ; au-delà, le modèle paraphrase.
     qualites_exigees_max: int = Field(4, ge=1)
+    # Revue Codex 1.8 (B3, tour 2). Une qualité n'est tenue pour établie que si le fragment des faits
+    # que le modèle cite emploie **les mots de la qualité** : mesuré, le modèle citait trois fois le
+    # même fragment (« Une bougie allumée posée sur une table basse est tombée sur le canapé ») pour
+    # établir « caractère soudain », « action subite de la chaleur » et « contact direct et immédiat
+    # avec un foyer » — un fragment authentique qui n'établit aucune des trois. Le recoupement porte
+    # sur les mots d'au moins 5 caractères : en dessous, « été », « une », « feu » recouperaient
+    # n'importe quoi.
+    qualite_mot_min_chars: int = Field(5, ge=1)
     # L'appel `micro` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
     # ce qui masquait le problème : à `verifier_max_claims` (8) claims, la sortie tronquée devient un
     # `LlmParse`, donc un sinistre **sans verdict** (AD-16), pour une raison de configuration.
     # Calcul : 8 verdicts de pertinence (~25 tokens), 8 phrases soutenues (~15), 4 facettes (~30) et
-    # 8 blocs d'applicabilité (4 champs + un libellé de `fait_manquant_max_chars` caractères, soit
-    # ~90 tokens chacun) ≈ 1 300 tokens, plus la marge de la ponctuation JSON : 2 048.
-    verifier_sinistre_max_tokens: int = Field(2048, ge=1)
+    # 8 blocs d'applicabilité ≈ 1 300 tokens, plus la marge de la ponctuation JSON : 2 048.
+    # Revue Codex 1.8 (B3, tour 2) : une qualité établie porte désormais **avec elle** le fragment des
+    # faits qui l'établit (`fait_cite`, relu par le code). Un bloc d'applicabilité peut donc rendre
+    # jusqu'à `qualites_exigees_max` libellés de plus, chacun borné par `fait_manquant_max_chars` —
+    # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072.
+    verifier_sinistre_max_tokens: int = Field(3072, ge=1)
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
@@ -266,6 +277,7 @@ class Settings(BaseSettings):
             "fait_manquant_max_chars": self.fait_manquant_max_chars,
             "ask_client_max": self.ask_client_max,
             "qualites_exigees_max": self.qualites_exigees_max,
+            "qualite_mot_min_chars": self.qualite_mot_min_chars,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider

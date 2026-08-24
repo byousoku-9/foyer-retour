@@ -124,6 +124,46 @@ class SortieVerifier(BaseModel):
     segments: list[VerdictSegment] = []
 
 
+# Les mots qui nomment la **catégorie** d'une qualité, jamais la qualité elle-même : les retrouver
+# dans les faits ne corrobore rien (revue Codex 1.8, B3, tour 2). « caractère soudain de l'événement »
+# n'est établi que par « soudain », pas par « caractère » ni par « événement ».
+MOTS_DE_STRUCTURE: frozenset[str] = frozenset({
+    "caractere", "nature", "qualite", "existence", "evenement", "action", "contact", "moment",
+    "presence", "situation", "element", "assure", "clause", "garantie", "sinistre"})
+
+
+def _mots_significatifs(libelle: str, *, min_chars: int) -> set[str]:
+    """Les mots d'un libellé qui portent la qualité — normalisés, assez longs, non structurels."""
+    return {m for m in re.findall(r"[a-z0-9]+", normalize(libelle))
+            if len(m) >= min_chars and m not in MOTS_DE_STRUCTURE}
+
+
+def _se_recoupent(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
+    """Le fragment cité emploie-t-il un mot de la qualité ? Recoupement par **préfixe**.
+
+    « subit » et « subite », « soudain » et « soudaine » sont le même mot pour ce qui nous occupe, et
+    le projet n'embarque pas de lemmatiseur pour si peu : deux mots d'au moins `min_chars` caractères
+    dont l'un préfixe l'autre se recoupent. Grossier, déterministe, et suffisant pour la question
+    posée — le fragment parle-t-il de *cette* qualité, ou d'autre chose ?
+    """
+    mots = _mots_significatifs(qualite, min_chars=min_chars)
+    cites = _mots_significatifs(fait_cite, min_chars=min_chars)
+    return any(a.startswith(b) or b.startswith(a) for a in mots for b in cites)
+
+
+class QualiteEtablie(BaseModel):
+    """Une qualité que la clause exige **et** le fragment des faits déclarés qui l'établit.
+
+    Revue Codex 1.8 (B3), tour 2 : « empêcher qu'une simple auto-déclaration du modèle dans les deux
+    listes tienne lieu de corroboration par les faits ». Le fragment est repris **mot pour mot** des
+    faits soumis et relu par le code (`normalize`) : ce que le modèle ne peut pas montrer dans les
+    faits, il ne l'a pas établi.
+    """
+
+    qualite: str
+    fait_cite: str
+
+
 class ChampsApplicabiliteRendus(BaseModel):
     """Les quatre valeurs typées d'AD-4 pour **une** affirmation qui cite une clause décisionnelle.
 
@@ -142,12 +182,18 @@ class ChampsApplicabiliteRendus(BaseModel):
     # clause subordonne à l'événement, au bien ou à l'assuré, puis ce que les faits déclarés
     # établissent *dans ces termes*. Le code fait la différence — c'est AD-6 à la lettre (« il extrait
     # des valeurs typées, le code compare ») et c'est ce qu'un `fait_requis_present` seul ne permettait
-    # pas : rien ne pouvait contredire un booléen. Valeurs par défaut vides, comme `facettes` et
-    # `segments` de `SortieVerifier` : un modèle qui n'énumère rien ne fait pas échouer tout le parse
-    # (donc un sinistre sans verdict, AD-16) — il laisse simplement le contrôle sans prise, et la trace
-    # le dit (`qualites_non_enumerees`).
-    qualites_exigees: list[str] = []
-    qualites_etablies: list[str] = []
+    # pas : rien ne pouvait contredire un booléen.
+    #
+    # Tour 2 de la même revue, deux corrections. (a) `None` **n'est pas** une liste vide : une liste
+    # absente veut dire « je n'ai pas énuméré », et le contrôle est alors sans prise — le jeu de champs
+    # entier est abandonné (`qualites_non_enumerees`) et la claim vaut `humain`. Le défaut vide laissait
+    # au contraire une clause qui exige « un événement soudain » passer en `oui` sur un silence.
+    # Une clause qui n'exige réellement aucune qualité se dit `[]`, explicitement. (b) une qualité
+    # établie n'est pas une affirmation mais une **citation** : le modèle joint le fragment des faits
+    # déclarés qui l'établit, et le code le relit mot pour mot dans les faits soumis (AD-3 appliqué aux
+    # faits) — sans quoi recopier `qualites_exigees` dans `qualites_etablies` annulait le contrôle.
+    qualites_exigees: list[str] | None = None
+    qualites_etablies: list[QualiteEtablie] | None = None
 
 
 class SortieVerifierSinistre(SortieVerifier):
@@ -777,6 +823,10 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     applicabilites: dict[str, ChampsApplicabilite] = {}
     if sinistre and isinstance(result.parsed, SortieVerifierSinistre):
         doublons: set[str] = set()
+        # Les faits déclarés, normalisés une fois : c'est le seul texte contre lequel une qualité
+        # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
+        faits_norm = normalize(" ".join(
+            str(v) for v in (faits.model_dump() if faits is not None else {}).values() if v is not None))
         for a in result.parsed.applicabilite:
             if a.claim_id not in attendus or not clauses.get(a.claim_id):
                 continue
@@ -788,9 +838,20 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     detail="deux jeux de champs typés pour une même affirmation : elle est traitée "
                            "comme `humain`"))
                 continue
+            if a.qualites_exigees is None or a.qualites_etablies is None:
+                # Revue Codex 1.8 (B3), tour 2 : le silence n'est pas « aucune qualité exigée ». Une
+                # liste absente laisse le contrôle sans prise — et c'est précisément par là qu'une
+                # clause exigeant « un événement soudain » passait en `oui` sans que rien ne l'établisse.
+                # Le jeu de champs est inexploitable : la claim retombe sur `applicabilite_incomplete`.
+                step.checks.append(CheckResult(
+                    name="qualites_non_enumerees", ok=False,
+                    detail="les qualités exigées ou établies n'ont pas été énumérées : le jeu de "
+                           "champs typés est ignoré (l'affirmation est traitée comme `humain`)"))
+                continue
             libelles = [(a.fait_manquant or "").strip(),
                         *(q.strip() for q in a.qualites_exigees),
-                        *(q.strip() for q in a.qualites_etablies)]
+                        *(q.qualite.strip() for q in a.qualites_etablies),
+                        *(q.fait_cite.strip() for q in a.qualites_etablies)]
             trop_long = any(len(libelle) > settings.fait_manquant_max_chars for libelle in libelles)
             trop_nombreux = (len(a.qualites_exigees) > settings.qualites_exigees_max
                              or len(a.qualites_etablies) > settings.qualites_exigees_max)
@@ -814,7 +875,37 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             # B3 : le **code** compare, le modèle n'a fait qu'énumérer. La comparaison passe par
             # `normalize()` — la même normalisation que les citations — pour qu'une majuscule ou un
             # accent ne fasse pas croire à une qualité non établie.
-            etablies = {normalize(q) for q in a.qualites_etablies if q.strip()}
+            #
+            # Tour 2 : une qualité n'est retenue pour établie que si le fragment des faits que le
+            # modèle produit avec elle se **relit mot pour mot** dans les faits déclarés (AD-3 appliqué
+            # aux faits). Sans cela, recopier `qualites_exigees` dans `qualites_etablies` suffisait à
+            # annuler le contrôle : le modèle se corroborait lui-même.
+            etablies: set[str] = set()
+            for q in a.qualites_etablies:
+                if not q.qualite.strip():
+                    continue
+                cite = normalize(q.fait_cite)
+                if not cite or cite not in faits_norm:
+                    step.checks.append(CheckResult(
+                        name="fait_cite_introuvable", ok=False,
+                        detail="une qualité dite établie ne cite aucun fragment relu dans les faits "
+                               "déclarés : elle est traitée comme non établie"))
+                    continue
+                # Le fragment est authentique — reste à savoir s'il dit **cette** qualité. Mesuré sur
+                # un run réel : le modèle a cité trois fois « Une bougie allumée posée sur une table
+                # basse est tombée sur le canapé » pour établir « caractère soudain de l'événement »,
+                # « action subite de la chaleur » et « contact direct et immédiat avec un foyer ».
+                # Un fragment vrai, trois qualités qu'il n'établit pas. La clause exige la qualité
+                # « dans ces termes » : le code demande donc que le fragment emploie au moins un des
+                # mots qui portent la qualité. C'est grossier, et c'est du code — un modèle ne peut
+                # plus se corroborer lui-même en recopiant une liste dans l'autre.
+                if _se_recoupent(q.qualite, q.fait_cite, min_chars=settings.qualite_mot_min_chars):
+                    etablies.add(normalize(q.qualite))
+                else:
+                    step.checks.append(CheckResult(
+                        name="fait_cite_hors_sujet", ok=False,
+                        detail="le fragment cité pour une qualité n'en emploie aucun des mots : la "
+                               "qualité est traitée comme non établie"))
             exigees = [q.strip() for q in a.qualites_exigees if q.strip()]
             non_etablies: list[str] = []
             for q in exigees:
