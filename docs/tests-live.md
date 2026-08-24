@@ -1127,3 +1127,183 @@ aucun `skip`, aucun accès réseau. `uvx ruff@0.16.4 check --select F,E9 server 
 passed! ». `node tests/js/accueil_cases.mjs` et `node tests/js/chat_cases.mjs` → `ok: true`.
 
 Coût total de la story, tous runs compris : **≈ 0,44 €**.
+
+## Story 1.11 — Déployé sur Cloud Run depuis `main`, avec smoke tests et garde-fous (2026-08-24 → 25)
+
+Ce que la boucle a pu jouer en vrai, et ce qu'elle n'a pas pu : **tout** le chemin de déploiement a
+été rejoué avec l'identité du compte de service déployeur (`--impersonate-service-account`), donc avec
+exactement ses droits — build, secret, drapeaux, résolution de la révision taguée, smokes, promotion
+nommée. Le seul segment non exercé est l'échange de jeton OIDC entre GitHub et le pool WIF, qui ne se
+produit que depuis un runner GitHub : il sera exercé à la première exécution réelle de `deploy.yml`,
+au premier push de `main`.
+
+**Le bootstrap resserré, et ce que le déploiement réel a corrigé.** Quatre exécutions de
+`bash scripts/gcp_bootstrap.sh`, chacune après un échec qui a dit ce qui manquait vraiment :
+
+| # | Ce que le déploiement a refusé | Correctif, et sa portée |
+|---|---|---|
+| 1 | `storage.buckets.get denied on run-sources-foyer-retour-europe-west1` | `gcloud run deploy --source` dépose l'archive dans `run-sources-{projet}-{région}`, plus dans le bucket `_cloudbuild` historique. Le bucket est ajouté aux buckets gérés par le script, avec `storage.admin` **au niveau du bucket** |
+| 2 | `storage.buckets.list denied on the project` | L'énumération des buckets est une opération de projet qu'aucune liaison par bucket ne satisfait. Ajout de `roles/storage.bucketViewer` — exactement `buckets.get` + `buckets.list`, **aucun** accès aux objets |
+| 3 | `caller does not have permission to act as service account …-compute@` | `--source` fait construire l'image par Cloud Build, sous le compte de service compute. Le déployeur reçoit un `actAs` **ciblé** sur ce compte, comme il en avait déjà un sur le runtime |
+| 4 | — | Déploiement réussi |
+
+C'est la réponse empirique à la reprise différée de 1.0 (« resserrer `iam.serviceAccountUser` quand
+on saura ce que `gcloud run deploy --source` exige ») : **deux** `actAs` nommés — runtime et build —
+et rien au niveau projet. Le rôle projet est retiré activement par le script (`unbind_project_role`),
+et non seulement plus accordé. La revue a déplacé ce retrait **après** les deux liaisons ciblées :
+le faire avant ouvrait une fenêtre où le déployeur n'avait ni le droit large ni ses remplaçants, et
+le contrôle d'existence du compte de build — qui sort en 1 — tombait précisément dedans.
+
+Deux autres défauts d'idempotence sont tombés au passage, mesurés en réexécutant le script :
+
+- le témoin du budget cherchait le nom exact `foyer-retour-50`, alors que le budget avait été renommé
+  `foyer-retour-10` le 23/08 en abaissant son montant : **un second budget était créé à chaque
+  exécution**. Un a été créé, puis supprimé à la main ; le témoin est désormais le préfixe ;
+- `gcloud storage buckets get-iam-policy` écrit sur ce poste un avertissement d'environnement **sur
+  stdout** avant le JSON (gcloud sur Python 3.9), ce qui faisait échouer le contrôle et re-lier un
+  rôle déjà lié à chaque exécution. Le JSON est désormais isolé avant lecture.
+
+Après correctifs, la quatrième exécution ne dit plus que « déjà présent » / « déjà absent » sur
+chacune de ses **24** étapes vérifiables.
+
+### Le premier passage (24/08, révision `foyer-retour-00002-qon`) — et le seul écart que le smoke ait attrapé
+
+Le smoke a d'abord été rouge, **à raison** :
+`sinistre/s-bougie-canape : verdict={'value': 'ne_tranche_pas', 'reason': …}, hors des valeurs
+admissibles`. Il comparait `answer.verdict` — le **`Verdict` d'AD-6, un objet** — à une liste de
+valeurs, et aurait donc rendu *tout* déploiement rouge en accusant le système d'un verdict qu'il
+n'avait pas rendu. Corrigé (`answer.verdict.value`, comme `evals/run.py::juger`), et tenu hors ligne
+par `tests/test_smoke.py::test_le_verdict_est_lu_dans_lobjet_et_non_compare_entier` plus la
+validation des corps de référence contre `Verdict` et `ClaimStatus`. C'est exactement ce qu'un smoke
+écrit en `curl | jq` n'aurait pas rendu réparable sans redéployer.
+
+Ce passage a promu le trafic avec `--to-latest`. La revue a montré que c'était **la forme que le
+workflow interdit désormais** (`test_la_promotion_nomme_la_revision_sondee_et_retire_le_tag`) : « la
+dernière révision créée » n'est pas forcément celle que le smoke a validée. Le relevé qui suit est
+donc le rejeu complet, à la lettre du workflow livré.
+
+### Le passage de référence (25/08, commit `4afafe7`, révision `foyer-retour-00004-cuy`)
+
+Toutes les commandes ci-dessous portent
+`--impersonate-service-account=deployer@foyer-retour.iam.gserviceaccount.com`,
+`--project=foyer-retour` et `--region=europe-west1`.
+
+**1. Construire et déployer sans trafic, sous le tag** — les drapeaux sont ceux de `deploy.yml` :
+
+```
+gcloud run deploy foyer-retour --source . --no-traffic --tag=candidat \
+  --set-env-vars=GIT_SHA=4afafe7 --set-secrets=ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:1 \
+  --service-account=foyer-retour-run@foyer-retour.iam.gserviceaccount.com \
+  --allow-unauthenticated --max-instances=1 --concurrency=2 --timeout=60 --min-instances=0
+→ révision foyer-retour-00004-cuy déployée, 0 % de trafic,
+  joignable sur https://candidat---foyer-retour-looxzut5zq-ew.a.run.app
+```
+
+Le build Cloud Build depuis `--source` réussit : c'est le seul `docker build` réellement exécuté du
+projet (reprise différée de 1.2). `uv sync --frozen --no-dev` résout le lock, et
+`python -m server.ingest.fetch_source --all` télécharge le PDF **au build**, empreinte vérifiée.
+
+**2. Résoudre la révision candidate et son URL taguée** — l'étape que le premier passage n'avait pas
+exercée, rejouée avec le `jq` littéral du workflow :
+
+```
+gcloud run services describe foyer-retour --format=json \
+  | jq -c --arg tag candidat 'first(.status.traffic[]? | select(.tag == $tag))'
+→ {"revisionName":"foyer-retour-00004-cuy","tag":"candidat",
+   "url":"https://candidat---foyer-retour-looxzut5zq-ew.a.run.app"}
+```
+
+L'URL et le nom de la révision viennent de la **même** entrée : c'est ce qui garantit que la révision
+promue à l'étape 4 est exactement celle que l'étape 3 a sondée.
+
+**3. Les quatre smokes, sur la révision candidate :**
+
+```
+uv run python scripts/smoke.py --base-url https://candidat---… --version 4afafe7
+ok    · sante
+ok    · surfaces
+ok    · chat
+ok    · sinistre
+ok    · les quatre vérifications passent (version 4afafe7)   — exit 0, 39,3 s
+```
+
+**4. Promouvoir la révision sondée, nommément, et retirer le tag :**
+
+```
+gcloud run services update-traffic foyer-retour \
+  --to-revisions=foyer-retour-00004-cuy=100 --remove-tags=candidat
+→ 100 % foyer-retour-00004-cuy
+```
+
+**5. Ce que le service public porte ensuite :**
+
+| Vérification | Résultat |
+|---|---|
+| `curl /api/v1/sante` | `ok: true`, `version: "4afafe7"`, `documents_servis: [axa-lu-optihome-2017, lux-guide]`, `gate_profile: "vertical"`, `gate_cases: 2`, `gate_countersigned: false`, `alerts: []` |
+| Les trois surfaces d'AD-12 | `/` **200**, `/guide/` **200**, `/sinistre/` **200** |
+| L'URL taguée | **404** — le tag a bien été retiré ; la révision n'est plus adressable hors du trafic |
+| `serviceAccountName` | `foyer-retour-run@foyer-retour.iam.gserviceaccount.com` |
+| `containerConcurrency` / `timeoutSeconds` / `maxScale` / `minScale` | **2** / **60** / **1** / absent (= 0) — les valeurs d'AD-13, là où le hello-world de 1.0 portait 80 et 300 |
+| `resources.limits` | `cpu=1000m`, `memory=512Mi` — **le défaut de la plateforme**, non posé par un drapeau. C'est le chiffre sur lequel raisonne la règle « pas de 2/8 sans test mémoire/latence » du README ; il est constaté ici, il n'est décidé nulle part |
+| Variables du conteneur | `GIT_SHA=4afafe7` et `ANTHROPIC_API_KEY` monté depuis **`ANTHROPIC_API_KEY:1`** (version épinglée) — et rien d'autre : `--set-env-vars` est l'équivalent d'`env_vars_update_strategy: overwrite`, donc un `ALLOW_UNGATED` posé à la main ne survivrait pas |
+
+**Le tour navigateur de bout en bout** (Chrome headless 151, CDP, sur l'**URL publique** ; pilote
+`/tmp/cdp-1-11b.mjs`, non versionné) :
+
+| Page | Ce qui a été lu |
+|---|---|
+| `/` | « niveau de validation : **vertical — 2 cas relus par la boucle, contresignature humaine en attente** », « documents servis : axa-lu-optihome-2017, lux-guide », « version servie : **4afafe7** » — donc lue sur l'API, pas écrite en dur ; `localStorage` vide |
+| `/guide/` | Les **deux** badges (onglet et widget flottant) portent « mode api · vertical (2 cas, non contresigné) ». La question du cas témoin reçoit une réponse **sourcée** : trois passages cités, dont « Le chemin le moins coûteux passe par une banque luxembourgeoise, qui la fournit souvent gratuitement à ses clients. », chacun `retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée`, une section « ce que je ne sais pas », et le pied « partiel — cette réponse a coûté **0,0298 €** » |
+| `/sinistre/` | Le cas bougie rend le verdict conservateur « **ne tranche pas** — au regard des conditions générales seules — verdict non validé par un expert assurance », raison « Aucune règle de la table ne tranche sur les clauses retrouvées », la clause de garantie p. 34 **relue dans le contrat**, les trois faits que la clause exige et que la description n'établit pas, et les questions à poser au client ; `localStorage` vide |
+| Console | **aucune** erreur ni exception sur les trois pages |
+
+**Rétention Anthropic (FR48), relue le 25/08/2026** — la page a été rouverte ce jour-là et n'a pas
+changé : « we automatically delete inputs and outputs on our backend within 30 days of receipt or
+generation », avec conservation jusqu'à **deux ans** pour un contenu signalé (et sept ans pour les
+scores de classification), plus les réserves légales. Les deux fronts et `web/README.md` portent donc
+« lue le 25/08/2026 », mot pour mot la même phrase, avec le lien
+`privacy.claude.com/en/articles/7996866-…` — constaté en navigateur sur les deux pages (tableau
+ci-dessus). Ce qui a changé cette fois n'est pas le texte mais la **garde** : le test du sinistre lit
+désormais la date sur la page du guide au lieu de recopier un littéral, de sorte que les deux fronts
+ne peuvent plus dater la même politique de deux façons.
+
+**Suite hors ligne** : `uv run ruff check server tests scripts` → « All checks passed! » ;
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **1399 passed**, aucun `skip`, aucun
+accès réseau. Ce sont, au `fetch_source --all` près, les commandes que `ci.yml` exécute.
+
+**Ce qui reste non vérifié, et qui est écrit plutôt que supposé :**
+
+- l'**échange de jeton OIDC** GitHub ↔ pool WIF (`auth@v3`) : il n'existe que sur un runner GitHub.
+  Tout ce qu'il protège — les rôles du déployeur — a été exercé par impersonation ;
+- le comportement de `deploy-cloudrun@v3` lui-même (traduction de ses entrées en drapeaux `gcloud`) :
+  `tests/test_workflows.py` asserte le texte du YAML, il n'exécute pas l'action. Les commandes
+  ci-dessus sont la forme `gcloud` équivalente, pas l'action ;
+- l'étape `if: failure() || cancelled()` de détagage : le tag a été retiré ici par la promotion
+  nominale (chemin nominal), jamais par un échec provoqué ;
+- la ligne « dérogation armée sur le service » n'est constatée qu'à moitié : le smoke refuse toute
+  alerte (exercé hors ligne), mais personne n'a **posé** `ALLOW_UNGATED=true` sur le service réel pour
+  voir l'alerte apparaître puis disparaître — le faire demanderait de servir volontairement des
+  documents non gatés au public (re-différé, voir `deferred-work.md`) ;
+- ce qu'un pilote headless ne voit pas : contrastes réels, tailles, débordements, lecteur d'écran,
+  Firefox et Safari (re-différé vers 2.5) ;
+- la **contresignature humaine** des deux cas témoins reste due : `/` continue d'écrire
+  « relus par la boucle, contresignature humaine en attente », et le smoke n'exige **pas**
+  `gate_countersigned: true` — il exigerait une propriété que le dépôt sait fausse.
+
+**Note d'exploitation.** Rejouer ce chemin depuis un poste demande de s'accorder d'abord
+`roles/iam.serviceAccountTokenCreator` sur le SA déployeur
+(`gcloud iam service-accounts add-iam-policy-binding deployer@foyer-retour.iam.gserviceaccount.com --member="user:…" --role=roles/iam.serviceAccountTokenCreator --project=foyer-retour`),
+d'attendre une minute que la liaison se propage — le premier appel échoue sinon en
+`iam.serviceAccounts.getAccessToken denied` —, et de **la retirer ensuite** : elle a été accordée le
+temps de ce relevé, puis révoquée (vérifié : seul `roles/iam.workloadIdentityUser` subsiste sur le
+compte). Le bootstrap ne l'accorde pas — ce n'est pas un droit du chemin de déploiement, c'est une
+commodité de vérification.
+
+**Coût de la story.** Douze requêtes de pipeline facturées : deux passages du smoke le 24/08, deux
+tours navigateur le 24/08, un passage du smoke et un tour navigateur le 25/08 (chat + sinistre à
+chaque fois). Les seuls coûts **lus** sont ceux que le front affiche en pied de réponse — 0,0263 €,
+0,0287 € puis **0,0298 €** pour la question du guide. Le smoke ne publie pas le coût (il lit `trace`,
+il ne l'affiche pas) et la page sinistre le porte dans sa trace dépliable, non relevée par le pilote.
+En prenant les mesures de la story 1.10 pour les six appels sinistre (≈ 0,050 € chacun), le total
+s'estime autour de **0,45 €** ; c'est une estimation, pas un relevé. Les builds Cloud Build tiennent
+dans le forfait gratuit.
