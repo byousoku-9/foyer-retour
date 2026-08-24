@@ -92,8 +92,35 @@ def test_manifest_status_quarantaine_is_not_loaded(data: Path) -> None:
 
 def _gate(e: dict, **over) -> dict:
     return {"profile": "vertical", "source_hash": e["source_hash"], "ingest_fingerprint": e["ingest_fingerprint"],
-            "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {"micro": "m"},
+            "cases_hash": "c", "cases": 1, "pipeline_digest": "p", "prompts_digest": "q",
+            "model_ids": {"micro": "m"},
             "evals_ok": True, "date": "2026-08-23", "overlay_hash": e.get("overlay_hash")} | over
+
+
+@pytest.mark.parametrize("cases", [None, 0, -1])
+def test_un_gate_sans_compte_de_cas_credible_met_le_document_en_quarantaine(data: Path,
+                                                                           cases: int | None) -> None:
+    """Revue Codex 1.10, I3 : le plancher appartient au domaine, pas à deux clients.
+
+    `Gate.cases` était optionnel avec un défaut à 0. Un gate écrit à la main sans ce champ était donc
+    accepté, le document servi, et `/api/v1/sante` publiait `gate_profile: "vertical"` avec
+    `gate_cases: 0` — un corps que les deux fronts déclarent illisible (le runner refuse de tourner
+    sur zéro cas, donc aucun run ne peut le produire). Un serveur vivant faisait dire aux pages
+    « le serveur n'a pas répondu ». Un gate qui n'est pas écrit par un run est désormais une entrée
+    invalide, et ce seul document part en quarantaine (AD-7).
+    """
+    m = _manifest(data)
+    gate = _gate(m["lux-guide"])
+    if cases is None:
+        gate.pop("cases")
+    else:
+        gate["cases"] = cases
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    for allow in (False, True):
+        corpus = load_corpus(data, allow_ungated=allow)
+        assert corpus.served == []
+        assert "entrée de manifest invalide" in corpus.quarantine["lux-guide"]
 
 
 def test_valid_gate_serves_without_alert(data: Path) -> None:

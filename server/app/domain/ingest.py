@@ -54,8 +54,15 @@ class Gate(DomainModel):
     # L'accueil annonce « niveau de validation : vertical — N cas relus à la main » : ce N est une
     # propriété **du gate**, pas un littéral de la page — écrit là où il est constaté, publié par
     # `/api/v1/sante` (`gate_cases`), et couvert par `cases_hash` qui dit *quels* cas c'étaient.
-    # Défaut 0 : les gates écrits avant ce champ (il n'y en a aucun) resteraient lisibles.
-    cases: int = Field(default=0, ge=0)
+    #
+    # **Obligatoire, et ≥ 1** (revue Codex 1.10, I3). Un défaut à 0 rendait valide un gate écrit à la
+    # main sans ce champ : le document était servi, `/api/v1/sante` publiait `gate_profile: "vertical"`
+    # avec `gate_cases: 0`, et les deux fronts — qui savent qu'un run refuse de tourner sur zéro cas —
+    # déclaraient ce corps illisible. Un serveur parfaitement vivant faisait donc dire aux pages
+    # « le serveur n'a pas répondu ». Le plancher appartient au domaine, pas à deux clients : un gate
+    # sans `cases`, ou à 0, est désormais une entrée de manifest invalide, et le loader met **ce seul**
+    # document en quarantaine (AD-7) au lieu de le servir sous un contrat que personne ne sait lire.
+    cases: int = Field(ge=1)
 
 
 class GateContext(DomainModel):
