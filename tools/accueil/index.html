@@ -3,44 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>foyer-retour</title>
-<!-- Accueil provisoire (story 1.6, AD-12 : une origine, trois entrées ; texte de l'entrée sinistre
-     rafraîchi en 1.9, qui livre l'outil — la seule page qui y mène disait encore qu'il n'existait
-     pas). L'accueil définitif —
-     réponse au sujet 3, questions-témoins, niveau de validation lu sur /api/v1/sante — est la
-     story 1.10. Rien ici ne lit l'API : annoncer un profil de gate avant qu'il existe serait
-     précisément la bascule silencieuse qu'AD-11 interdit. -->
+<title>foyer-retour — retour à trois problématiques de Foyer</title>
+<!-- Accueil du retour (story 1.10, AD-12 : une seule origine, trois entrées).
+     Ce que cette page **ne fait pas** : elle n'écrit aucun niveau de validation en dur. Le bloc
+     « état du système » est vide ici et rempli par `accueil.js` depuis `GET /api/v1/sante` ; quand
+     la sonde ne répond pas, la page dit que le niveau est inconnu et n'affiche aucun profil
+     (AD-11, AD-16). Aucun build, aucun framework, aucune requête tierce, aucun `localStorage`. -->
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light dark; --trait: color-mix(in srgb, currentColor 22%, transparent); }
+  * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 48px 20px; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    max-width: 760px; margin-inline: auto;
+    margin: 0 auto; padding: 48px 20px 64px; max-width: 780px;
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  h1 { font-size: 26px; margin: 0 0 4px; }
-  p.sous { margin: 0 0 32px; opacity: .75; }
-  ul { list-style: none; padding: 0; margin: 0 0 32px; display: grid; gap: 12px; }
+  h1 { font-size: 27px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 19px; margin: 40px 0 10px; }
+  h3 { font-size: 15px; margin: 20px 0 6px; }
+  p.sous { margin: 0 0 28px; opacity: .75; }
+  ul.entrees { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 12px; }
   a.entree {
     display: block; padding: 16px 18px; border: 1px solid currentColor; border-radius: 12px;
     text-decoration: none; color: inherit;
   }
-  a.entree:hover { border-width: 2px; padding: 15px 17px; }
+  a.entree:hover, a.entree:focus-visible { border-width: 2px; padding: 15px 17px; }
   a.entree b { display: block; font-size: 17px; }
   a.entree span { opacity: .75; font-size: 14px; }
-  p.etat { font-size: 14px; opacity: .75; border-top: 1px solid; border-color: color-mix(in srgb, currentColor 25%, transparent); padding-top: 16px; }
+  section.bloc { border-top: 1px solid var(--trait); padding-top: 8px; margin-top: 40px; }
+  ul.puces { padding-left: 20px; margin: 8px 0; }
+  ul.puces li { margin: 4px 0; }
+  p.reserve { font-size: 14px; opacity: .75; }
+  /* L'état du système : rempli par `accueil.js`, jamais par ce fichier. */
+  #etat { font-size: 15px; }
+  #etat .carte { border: 1px solid var(--trait); border-radius: 12px; padding: 14px 16px; }
+  #etat .validation { font-weight: 600; margin: 0 0 6px; }
+  #etat .inconnu { font-weight: 600; margin: 0 0 6px; opacity: .85; }
+  #etat .detail { margin: 2px 0; font-size: 14px; opacity: .8; }
+  #etat ul { padding-left: 20px; margin: 6px 0 0; font-size: 14px; }
+  #etat h3 { margin: 12px 0 2px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em;
+             opacity: .7; }
+  footer { margin-top: 44px; border-top: 1px solid var(--trait); padding-top: 14px; font-size: 14px; }
+  footer a { color: inherit; }
+  code { font-size: .92em; }
 </style>
 </head>
 <body>
 
 <h1>foyer-retour</h1>
-<p class="sous">Retour à trois problématiques de Foyer : un assistant sourcé, un sinistre confronté aux conditions générales, un « RAG » sur un Excel de cent mille lignes.</p>
+<p class="sous">Retour de Lancelot Oudin aux trois problématiques de Foyer&nbsp;: un assistant sourcé
+sur un guide, un sinistre confronté aux conditions générales d'un contrat, et « le RAG sur un Excel
+de cent mille lignes ». Tout est servi par un seul service&nbsp;; le code est public.</p>
 
-<ul>
-  <li><a class="entree" href="/guide/"><b>Le guide et son assistant</b><span>La copie du site « S'installer au Luxembourg », dont l'assistant répond depuis le guide, sources à l'appui.</span></a></li>
-  <li><a class="entree" href="/sinistre/"><b>Sinistre et conditions générales</b><span>Décrire un sinistre, lire un verdict « au regard des conditions générales seules » : les clauses exactes du contrat, le paquet manquant et les questions à poser.</span></a></li>
-  <li><a class="entree" href="https://github.com/byousoku-9/foyer-retour"><b>Le dépôt</b><span>Le code, les choix, les limites — et les questions-témoins quand elles seront là.</span></a></li>
+<ul class="entrees">
+  <li><a class="entree" href="/guide/"><b>1 · Le guide et son assistant</b><span>La copie du site
+    « S'installer au Luxembourg », dont l'assistant répond depuis le guide&nbsp;: chaque phrase
+    affichée cite un passage retrouvé mot pour mot par du code, ou n'est pas affichée.</span></a></li>
+  <li><a class="entree" href="/sinistre/"><b>2 · Sinistre et conditions générales</b><span>Décrire un
+    sinistre, lire un verdict « au regard des conditions générales seules »&nbsp;: les clauses
+    exactes du contrat, leur page, le paquet manquant et les questions à poser au client.</span></a></li>
+  <li><a class="entree" href="#sujet-3"><b>3 · L'Excel de 100 000 lignes</b><span>La réponse est
+    écrite ci-dessous, et elle commence par « je ne fais pas un RAG ».</span></a></li>
 </ul>
 
-<p class="etat">En construction. Le serveur répond sur <code>/api/v1/sante</code>, <code>/api/v1/chat</code>, <code>/api/v1/sinistre</code> et <code>/api/v1/documents</code> ; aucun document n'a encore passé le gate des questions-témoins, et l'accueil ne l'annoncera qu'une fois que ce sera vrai.</p>
+<section class="bloc" id="sujet-3">
+<h2>3 · L'Excel de 100 000 lignes — je ne fais pas un RAG</h2>
 
+<p>Découper un tableau en morceaux de texte et les chercher par similarité, c'est perdre ce qui fait
+la valeur d'un tableau&nbsp;: ses colonnes, ses types, et le fait qu'une somme se calcule. Cent mille
+lignes ne tiennent pas dans un contexte, et un « top 5 » retrouvé par ressemblance n'est pas un
+résultat — c'est un échantillon dont personne ne sait ce qu'il a manqué. La bonne réponse est
+ancienne&nbsp;: <strong>une table va dans une base</strong>.</p>
+
+<h3>Ce que je fais à la place</h3>
+<ul class="puces">
+  <li><strong>La table entre dans une base SQL</strong> (SQLite ou DuckDB pour une démonstration,
+    l'entrepôt de l'entreprise en vrai). Elle garde ses colonnes et ses types.</li>
+  <li><strong>Un profil par colonne est calculé à l'ingestion</strong> — type, valeurs distinctes,
+    taux de nuls, bornes, valeurs aberrantes. Il est payé une fois, et c'est lui qui permet au modèle
+    d'écrire une requête juste plutôt que plausible.</li>
+  <li><strong>Le modèle traduit la question en requête</strong>, avec le schéma et un échantillon de
+    valeurs sous les yeux. Il n'écrit que du <code>SELECT</code>, sur une liste blanche de tables,
+    avec un <code>LIMIT</code> et un délai maximal, sur une connexion en lecture seule.</li>
+  <li><strong>La requête est affichée telle qu'elle a été exécutée.</strong> C'est la pièce
+    vérifiable&nbsp;: un lecteur qui sait lire du SQL peut contredire la réponse sans me croire sur
+    parole.</li>
+  <li><strong>Le modèle ne calcule rien.</strong> Les sommes, les moyennes, les comptages et les
+    tris sont faits par la base. Un modèle qui additionne est un modèle qui se trompe sans le dire.</li>
+  <li><strong>Le texte libre n'est cherché qu'après le filtre</strong>, et seulement sur les colonnes
+    de texte. On filtre d'abord sur ce qui est structuré (dates, montants, communes, codes), puis on
+    cherche dans les commentaires du sous-ensemble obtenu — jamais l'inverse.</li>
+  <li><strong>La restitution montre son travail</strong>&nbsp;: la requête, le nombre de lignes
+    trouvées, les lignes sources, et ce que les données <em>ne disent pas</em> (colonnes vides,
+    période incomplète, agrégat partiel).</li>
+</ul>
+
+<h3>Où la recherche sémantique garde sa place</h3>
+<p>Sur les colonnes de commentaire libre, et sur elles seules&nbsp;: une fois le filtre structuré
+appliqué, chercher « dégât des eaux » dans mille commentaires est un problème de texte, pas de
+tableau. Elle reste une voix dans la recherche, jamais la décision.</p>
+
+<h3>Chez Foyer</h3>
+<p>Le même découpage vaut pour un extrait de sinistres, de contrats ou de primes&nbsp;: la
+volumétrie et les jointures vont à la base, le modèle sert à écrire la requête et à rédiger la
+réponse, et le gestionnaire voit la requête. Ce qui se transpose le moins bien n'est pas la
+technique, c'est la gouvernance&nbsp;: quelles colonnes un modèle a le droit de voir, et ce qu'on
+accepte d'envoyer à un fournisseur tiers.</p>
+
+<p class="reserve">Une mini-démonstration sur un jeu synthétique de 100 000 lignes — question,
+requête affichée, lignes sources, limites — <em>viendrait</em> en bonus si le temps le permet. Elle
+n'existe pas aujourd'hui, et cette page n'annonce pas de page <code>/excel/</code>&nbsp;: annoncer
+ce qui n'est pas fait est la même faute que d'annoncer un niveau de validation qu'aucun document ne
+porte.</p>
+</section>
+
+<section class="bloc">
+<h2>Ce qui a été vérifié</h2>
+<p class="reserve">Lu à l'instant sur <code>/api/v1/sante</code>, jamais écrit dans cette page.</p>
+<div id="etat"></div>
+<noscript><p class="reserve">JavaScript est désactivé&nbsp;: le niveau de validation n'a pas pu être
+lu. Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
+</section>
+
+<footer>
+<p>Le code, les choix et les limites&nbsp;:
+<a href="https://github.com/byousoku-9/foyer-retour">github.com/byousoku-9/foyer-retour</a> —
+le <a href="https://github.com/byousoku-9/foyer-retour/tree/main/server/evals/cases">golden set des
+questions-témoins</a> et le
+<a href="https://github.com/byousoku-9/foyer-retour/blob/main/docs/tests-live.md">journal des tests
+réels</a> y sont publiés, résultats compris.</p>
+<p class="reserve">Le guide servi sous <code>/guide/</code> est une copie du site « S'installer au
+Luxembourg », reproduite avec l'accord de son auteur et modifiée a minima. Les conditions générales
+servies sous <code>/sinistre/</code> sont celles d'un contrat public, dans leur édition imprimée —
+actualité non vérifiée. Aucun verdict n'est validé par un expert assurance.</p>
+</footer>
+
+<script src="accueil.js"></script>
 </body>
 </html>
