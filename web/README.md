@@ -19,7 +19,7 @@ carte — sauf de l'onglet Assistant, qui interroge désormais le serveur qui se
   panneau flottant et ici, parce que trois formulations d'une même promesse font trois promesses — dit ce que
   la politique du fournisseur dit, avec le lien pour la relire (elle donne 30 jours, pas « rien ») :
 
-  > Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic) : sa politique publique, lue le 25/08/2026, prévoit la suppression des entrées et des sorties de l'API sous 30 jours, avec des exceptions — obligation légale, ou contenu que ses systèmes de sécurité signalent, conservé jusqu'à deux ans. Aucune conversation n'est enregistrée : ni par le serveur de ce site, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
+  > Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic) : sa politique publique, lue le 25/08/2026, prévoit la suppression des entrées et des sorties de l'API sous 30 jours, avec des exceptions — un service à rétention plus longue que vous contrôlez, un accord de rétention différent conclu avec lui, l'application de sa politique d'usage, une obligation légale — et le contenu que ses systèmes de sécurité signalent est conservé jusqu'à deux ans. Aucune conversation n'est enregistrée : ni par le serveur de ce site, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
   > [Politique de conservation d'Anthropic](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data)
 
 Le README d'origine suit.

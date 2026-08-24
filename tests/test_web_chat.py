@@ -1198,10 +1198,22 @@ def test_aucun_innerhtml_ne_sert_a_poser_du_texte() -> None:
 # silence » que cet AD prévient.
 MENTION = ("Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur "
            "du modèle (Anthropic) : sa politique publique, lue le 25/08/2026, prévoit la suppression "
-           "des entrées et des sorties de l'API sous 30 jours, avec des exceptions — obligation "
-           "légale, ou contenu que ses systèmes de sécurité signalent, conservé jusqu'à deux ans. "
+           "des entrées et des sorties de l'API sous 30 jours, avec des exceptions — un service à "
+           "rétention plus longue que vous contrôlez, un accord de rétention différent conclu avec "
+           "lui, l'application de sa politique d'usage, une obligation légale — et le contenu que "
+           "ses systèmes de sécurité signalent est conservé jusqu'à deux ans. "
            "Aucune conversation n'est enregistrée : ni par le serveur de ce site, ni dans ce "
            "navigateur, qui ne garde que votre profil et vos préférences d'affichage.")
+
+# Les réserves que la politique lue le 25/08/2026 oppose aux 30 jours, et qu'AD-15 exige de dire —
+# « accord de rétention différent » y est nommément écrit. En taire une rend la promesse du site plus
+# généreuse que l'engagement du tiers qui exécute la requête : la « promesse contredite en silence »
+# que cet AD prévient. Les deux fronts doivent les porter toutes (revue Codex 1.11).
+RESERVES = ("service à rétention plus longue que vous contrôlez",
+            "accord de rétention différent",
+            "politique d'usage",
+            "obligation légale",
+            "deux ans")
 
 LIEN_POLITIQUE = ("https://privacy.claude.com/en/articles/"
                   "7996866-how-long-do-you-store-my-organization-s-data")
@@ -1240,7 +1252,7 @@ def test_la_mention_dit_la_duree_reelle_et_donne_le_lien() -> None:
     readme = _plat((REPO_ROOT / "web" / "README.md").read_text("utf-8"))
     assert "n'est pas conservé par défaut" not in html + readme, (
         "la phrase démentie par la politique du fournisseur")
-    for morceau in ("sous 30 jours", "avec des exceptions"):
+    for morceau in ("sous 30 jours", "avec des exceptions", *RESERVES):
         assert html.count(morceau) == 2, morceau
         assert morceau in readme
     assert html.count(LIEN_POLITIQUE) == 2, "le lien sous les deux saisies"

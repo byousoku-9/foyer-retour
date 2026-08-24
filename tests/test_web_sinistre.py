@@ -875,7 +875,13 @@ def test_lavertissement_demonstrateur_est_pres_du_formulaire(page: str) -> None:
 def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) -> None:
     """AD-15 amendé (revue 1.7) : durée, exceptions, lien et date de lecture — jamais plus généreux."""
     assert "sous 30 jours" in page
-    assert "obligation légale" in page and "deux ans" in page
+    # Les quatre réserves de la politique, pas deux : AD-15 nomme « accord de rétention différent »,
+    # et la page n'en disait rien — la promesse y était plus généreuse que celle du tiers qui exécute
+    # la requête (revue Codex 1.11). La liste est celle du guide, qui reste l'autorité.
+    for reserve in ("service à rétention plus longue que vous contrôlez",
+                    "accord de rétention différent", "politique d'usage",
+                    "obligation légale", "deux ans"):
+        assert reserve in page, reserve
     # **La date du guide, pas une date recopiée ici.** AD-15 : « trois formulations d'une même
     # promesse font trois promesses » — et deux dates de lecture différentes pour une même politique
     # en font deux. Les deux littéraux identiques que portaient les deux fichiers de tests ne les
