@@ -728,9 +728,11 @@ def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod: TestClient) -> N
     assert j["ok"] is True
     assert j["version"] == "dev"
     assert j["documents_servis"] == ["axa-lu-optihome-2017", "lux-guide"]
-    # Aucun gate n'est encore écrit (story 1.10) : annoncer un profil serait une bascule silencieuse.
-    assert j["gate_profile"] is None
-    assert "sans_gate" in [a["alerte"] for a in j["alerts"]]
+    # Story 1.10 : les deux documents portent un gate `vertical` écrit par `evals run --gate`, donc
+    # `/sante` l'annonce — et il n'y a plus une seule alerte `sans_gate` à publier (AC de la story).
+    assert j["gate_profile"] == "vertical"
+    assert j["gate_cases"] == 2
+    assert "sans_gate" not in [a["alerte"] for a in j["alerts"]]
     assert j["dictionary"]["validated"] is False  # AD-5 : le court-circuit « zéro hit » dort
     assert j["thresholds"]["rate_limit_per_minute"] == 10
 
@@ -746,11 +748,12 @@ def test_sante_publie_les_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
     assert seuils["cloud_trace_max_chars"] == reglages.cloud_trace_max_chars
 
 
-def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = True) -> None:
+def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = True,
+               cases: int = 1) -> None:
     """Pose un gate sur une entrée du manifest. `coherent=False` = un gate que le loader neutralise."""
     entree = corpus.manifest[doc_id]
     entree.gate = Gate(
-        profile=profil, evals_ok=True, cases_hash="c", date="2026-08-24",
+        profile=profil, evals_ok=True, cases_hash="c", date="2026-08-24", cases=cases,
         source_hash=entree.source_hash if coherent else "autre",
         ingest_fingerprint=entree.ingest_fingerprint, overlay_hash=entree.overlay_hash,
         pipeline_digest="p", prompts_digest="q", model_ids={})
@@ -758,11 +761,14 @@ def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = Tru
 
 def test_sante_publie_le_profil_quand_tous_les_documents_servis_en_ont_un(prod: TestClient) -> None:
     corpus, index = _mini_corpus()
-    _avec_gate(corpus, DOC_ID, "vertical")
+    _avec_gate(corpus, DOC_ID, "vertical", cases=3)
     etat = prod.app.state.foyer
     etat.corpus, etat.index = corpus, index
 
-    assert prod.get("/api/v1/sante", headers=XFF).json()["gate_profile"] == "vertical"
+    j = prod.get("/api/v1/sante", headers=XFF).json()
+    assert j["gate_profile"] == "vertical"
+    # `gate_cases` est la **somme** des cas des documents servis : l'accueil affiche ce nombre.
+    assert j["gate_cases"] == 3
 
 
 def test_sante_tait_le_profil_quand_le_loader_a_neutralise_le_gate(prod: TestClient) -> None:
@@ -776,6 +782,69 @@ def test_sante_tait_le_profil_quand_le_loader_a_neutralise_le_gate(prod: TestCli
     etat.corpus, etat.index = corpus, index
 
     assert prod.get("/api/v1/sante", headers=XFF).json()["gate_profile"] is None
+
+
+def test_sante_tait_le_compte_de_cas_des_que_le_profil_est_tu(prod: TestClient) -> None:
+    """`gate_cases` est strictement adossé à `gate_profile` (story 1.10).
+
+    Publier « 2 cas » à côté d'un `gate_profile: null` laisserait l'accueil écrire un compte sous un
+    système dont un document n'est validé par rien : c'est la même bascule silencieuse, chiffrée.
+    """
+    corpus, index = _mini_corpus()
+    _avec_gate(corpus, DOC_ID, "vertical", coherent=False, cases=2)
+    corpus.alerts[DOC_ID] = ["sans_gate"]
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+
+    j = prod.get("/api/v1/sante", headers=XFF).json()
+    assert j["gate_profile"] is None and j["gate_cases"] is None
+
+
+def test_sante_dit_null_sur_les_deux_quand_aucun_document_nest_servi(prod: TestClient) -> None:
+    corpus, index = _mini_corpus()
+    corpus.documents.clear()
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+
+    j = prod.get("/api/v1/sante", headers=XFF).json()
+    assert j["documents_servis"] == [] and j["gate_profile"] is None and j["gate_cases"] is None
+
+
+def test_une_derogation_armee_en_production_est_annoncee_sur_sante() -> None:
+    """D7/AD-7 : `ALLOW_UNGATED` reste possible, elle cesse d'être muette.
+
+    L'AC de la story dit « désactivé en production » : la ligne `ENV` du `Dockerfile` a disparu et la
+    valeur se dérive de `env`. La poser explicitement reste permis (AD-7 la nomme comme la dérogation
+    « dev / J+1 »), mais une bascule qu'on peut oublier est une bascule silencieuse — elle se voit
+    donc sur la page qui annonce l'état du système.
+    """
+    with TestClient(create_app(_settings(env="prod", allow_ungated=True))) as client:
+        alertes = client.get("/api/v1/sante", headers=XFF).json()["alerts"]
+    noms = [(a["doc_id"], a["alerte"]) for a in alertes]
+    assert ("*", "ungated_en_production") in noms
+    detail = [a["detail"] for a in alertes if a["alerte"] == "ungated_en_production"][0]
+    assert "ALLOW_UNGATED" in detail
+
+
+@pytest.mark.parametrize("env,allow", [("prod", False), ("dev", True), ("dev", False)])
+def test_lalerte_de_derogation_ne_se_leve_que_en_production(env: str, allow: bool) -> None:
+    """En `dev`, `ALLOW_UNGATED` est le mode de travail normal : l'annoncer serait du bruit."""
+    with TestClient(create_app(_settings(env=env, allow_ungated=allow))) as client:
+        alertes = client.get("/api/v1/sante", headers=XFF).json()["alerts"]
+    assert "ungated_en_production" not in [a["alerte"] for a in alertes]
+
+
+def test_limage_de_production_sert_les_deux_documents_sans_derogation() -> None:
+    """AC : « `ENV=prod` **sans** `ALLOW_UNGATED` ⇒ les deux documents sont servis (leur gate suffit) ».
+
+    C'est exactement la configuration du `Dockerfile` depuis cette story. Sans les gates, ce test
+    rendrait `documents_servis: []`.
+    """
+    with TestClient(create_app(_settings(env="prod"))) as client:
+        j = client.get("/api/v1/sante", headers=XFF).json()
+    assert j["documents_servis"] == ["axa-lu-optihome-2017", "lux-guide"]
+    assert j["gate_profile"] == "vertical" and j["gate_cases"] == 2
+    assert [a["alerte"] for a in j["alerts"] if a["alerte"] == "sans_gate"] == []
 
 
 def test_sante_tait_le_profil_quand_deux_documents_nont_pas_le_meme(prod: TestClient) -> None:

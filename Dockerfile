@@ -23,12 +23,15 @@ RUN uv run --no-sync python -m server.ingest.fetch_source --all
 ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
 
-# AD-7 : « `ALLOW_UNGATED` (dev / J+1 avant le premier gate) sert avec l'alerte `sans_gate` ».
-# Aucun document n'a encore de gate (il s'écrit en story 1.10) et `allow_ungated` se dérive sinon de
-# `ENV` : en `prod`, les deux documents partiraient en quarantaine et le conteneur servirait
-# `documents_servis: []` — mesuré en exécutant le `CMD` ci-dessous hors conteneur. La ligne se retire
-# à la fin de la story 1.10, quand le gate `vertical` existe ; `/sante` publie l'alerte en attendant.
-ENV ENV=prod ALLOW_UNGATED=true PORT=8080
+# AD-7 : `ALLOW_UNGATED` n'est **plus** armé (story 1.10). Les deux documents portent désormais un
+# gate `vertical` écrit par `python -m server.evals.run --gate {doc_id}`, et `allow_ungated` se dérive
+# de `ENV` : en `prod`, elle vaut `False`. La dérogation reste possible (AD-7 la nomme « dev / J+1 »)
+# mais elle est devenue explicite **et bruyante** — la poser dans l'environnement du service produit
+# l'alerte `ungated_en_production` sur `/api/v1/sante`, affichée par la page d'accueil, plus un
+# avertissement au journal de démarrage. Ce que l'image ne fait plus, c'est l'armer en silence : un
+# document dont le gate serait invalidé par une réingestion part en quarantaine `sans_gate`, ce qui
+# est le comportement qu'AD-8 demande.
+ENV ENV=prod PORT=8080
 EXPOSE 8080
 # `--proxy-headers --forwarded-allow-ips=*` fait qu'uvicorn croit `X-Forwarded-Proto` et
 # `X-Forwarded-For` du proxy : il en tire `scope["scheme"]` (donc les redirections de `StaticFiles`

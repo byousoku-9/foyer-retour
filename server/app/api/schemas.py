@@ -117,6 +117,11 @@ class SanteResponse(BaseModel):
     # `null` dès qu'un document servi n'a pas de gate : publier un profil alors qu'un document n'est
     # pas validé serait la bascule silencieuse qu'AD-11 interdit.
     gate_profile: str | None = None
+    # Le nombre de cas relus à la main qui fondent ce profil, somme des `Gate.cases` des documents
+    # servis — `null` exactement quand `gate_profile` l'est. L'accueil affiche « vertical — 2 cas
+    # relus à la main » et n'écrit « 2 » nulle part : le compte vient du serveur, qui le tient du run
+    # qui l'a constaté (AD-7 : `manifest.gate` n'est écrit que par `evals run --gate`).
+    gate_cases: int | None = None
     dictionary: EtatDictionnaire = Field(default_factory=EtatDictionnaire)
     alerts: list[Alerte] = Field(default_factory=list)
     thresholds: dict[str, float | int] = Field(default_factory=dict)

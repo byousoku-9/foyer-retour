@@ -13,6 +13,7 @@ mémoire de process). Le seul objet vivant est le limiteur, dont c'est la raison
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -133,6 +134,27 @@ class EtatApp:
             profils.add(gate.profile)
         return profils.pop() if len(profils) == 1 else None
 
+    @property
+    def gate_cases(self) -> int | None:
+        """Le nombre total de cas relus qui fondent le profil publié, ou `null`.
+
+        Strictement adossé à `gate_profile` : `null` dès que celui-ci est `null`. L'accueil affiche
+        « niveau de validation : vertical — N cas relus à la main » ; publier un compte sans profil
+        laisserait écrire « 2 cas » sous un système dont un document n'est validé par rien, ce
+        qu'AD-11 nomme la bascule silencieuse. Le compte est la **somme** des `Gate.cases` des
+        documents servis : c'est ce que dit l'AC (« `gate_cases == 2 » pour deux documents gatés à un
+        cas chacun), et chaque terme est écrit par le run qui l'a constaté (AD-7 : jamais à la main).
+        """
+        if self.gate_profile is None:
+            return None
+        total = 0
+        for doc_id in self.corpus.served:
+            entree = self.corpus.manifest.get(doc_id)
+            if entree is None or entree.gate is None:  # impossible si `gate_profile` n'est pas nul
+                return None
+            total += entree.gate.cases
+        return total
+
 
 def _alertes(corpus: Corpus) -> list[Alerte]:
     """Les alertes des documents servis (AD-7), et les documents que le chargement a écartés."""
@@ -141,6 +163,26 @@ def _alertes(corpus: Corpus) -> list[Alerte]:
     alertes += [Alerte(doc_id=doc_id, alerte="quarantaine", detail=raison)
                 for doc_id, raison in sorted(corpus.quarantine.items())]
     return alertes
+
+
+def _alerte_ungated(settings: Settings) -> list[Alerte]:
+    """`ENV=prod` + `ALLOW_UNGATED=true` : la dérogation reste possible, elle cesse d'être muette (D7).
+
+    AD-7 nomme `ALLOW_UNGATED` comme la dérogation « dev / J+1 avant le premier gate », et l'AC de la
+    story 1.10 exige qu'elle soit **désactivée en production** : la ligne `ENV` du `Dockerfile` a donc
+    disparu, et en `prod` la valeur se dérive de `env` (donc `False`). L'interdire en dur irait plus
+    loin qu'AD-7 — et le jour où une réingestion invalide un gate, elle est le seul moyen de servir en
+    attendant la relance des témoins.
+
+    Elle devient donc visible là où l'état du système se lit : une alerte sur `/api/v1/sante`, que la
+    page d'accueil affiche avec les autres. Le `doc_id` est `*` — c'est une propriété du **service**,
+    pas d'un document, et `Alerte` n'a pas d'autre place pour le dire.
+    """
+    if settings.env != "prod" or not settings.allow_ungated:
+        return []
+    return [Alerte(doc_id="*", alerte="ungated_en_production",
+                   detail="ALLOW_UNGATED=true en ENV=prod : des documents sans gate valide seraient "
+                          "servis avec une simple alerte sans_gate (AD-7, dérogation)")]
 
 
 def _dictionnaire_valide(data_dir: Path) -> bool:
@@ -249,8 +291,17 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte)
     rapports, alertes_rapports = _rapports(data_dir, corpus.served)
     sources = _sources(data_dir, corpus.served)
+    alertes_ungated = _alerte_ungated(settings)
+    if alertes_ungated:
+        # AD-7 : une incohérence est visible, jamais muette. L'alerte de `/sante` est lue par la page
+        # d'accueil ; ce `warning` est lu par celui qui regarde le journal de démarrage du conteneur —
+        # c'est-à-dire par celui qui vient de déployer, au moment où il peut encore le défaire.
+        logging.getLogger("foyer").warning(
+            "ungated_en_production : ALLOW_UNGATED=true avec ENV=prod — des documents sans gate "
+            "valide seraient servis avec une simple alerte sans_gate")
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
         prompts_digest_hex=digest_prompts, dictionary_validated=_dictionnaire_valide(data_dir),
-        reports=rapports, source_urls=sources, alerts=_alertes(corpus) + alertes_rapports)
+        reports=rapports, source_urls=sources,
+        alerts=_alertes(corpus) + alertes_rapports + alertes_ungated)
