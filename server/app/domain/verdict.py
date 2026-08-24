@@ -69,12 +69,27 @@ class ChampsApplicabilite(DomainModel):
     c'est ce qui écarte l'exclusion p. 46, qui vise le bâtiment quand le sinistre porte sur le
     contenu) ou le fait est **inconnu** (personne ne peut trancher). C'est `fait_manquant` qui les
     sépare : renseigné, le fait est inconnu ; vide, il est connu et contraire.
+
+    **`qualites_exigees` / `qualites_non_etablies` (revue Codex 1.8, B3).** `fait_requis_present` est
+    un booléen : rien dans la trace ne dit *ce que* la clause exigeait, et un run réel a rendu la
+    qualité « subite » pour établie sans que rien ne puisse le contredire. AD-6 prescrit le remède
+    littéralement — « le modèle n'effectue aucun calcul : il extrait des valeurs typées, le code
+    compare ». Le modèle **énumère** donc les qualités que la clause subordonne à l'événement, au bien
+    ou à l'assuré (`qualites_exigees`) puis celles que les faits déclarés établissent *dans ces
+    termes* ; le **code** fait la différence, et toute qualité exigée non établie rend `humain` et
+    devient une question bornée. Un booléen ne se vérifie pas ; une liste qui doit se recouvrir elle-
+    même, si.
     """
 
     fait_requis_present: bool
     option_requise: bool = False
     cp_requise: bool = False
     fait_manquant: str | None = None
+    # Ce que la clause exige, tel que le modèle l'a nommé — affiché nulle part, il sert la trace.
+    qualites_exigees: list[str] = Field(default_factory=list)
+    # `qualites_exigees` moins celles que les faits déclarés établissent : la différence est faite par
+    # l'appelant (*vérifier*), qui seul borne et normalise les libellés du modèle.
+    qualites_non_etablies: list[str] = Field(default_factory=list)
 
 
 class ClauseCitee(DomainModel):
@@ -134,8 +149,17 @@ def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
     4. champs typés non rendus ⇒ `humain` — jamais devinés (AC de la story) ;
     5. fait exigé **connu et contraire** (`fait_requis_present=false`, aucun `fait_manquant`) ⇒ `non`,
        **pour une garantie ou une exclusion seulement** (voir ci-dessous) ;
-    6. option, conditions particulières ou fait **inconnu** ⇒ `humain` ;
+    6. option, conditions particulières, fait **inconnu**, ou **qualité exigée par la clause que les
+       faits déclarés n'établissent pas** ⇒ `humain` ;
     7. sinon ⇒ `oui`.
+
+    **(6) et les qualités exigées (revue Codex 1.8, B3).** `fait_requis_present=true` est une réponse
+    du modèle que rien ne corroborait : c'est le seul chemin vers `oui`, donc vers `couvert`. La
+    différence `qualites_exigees − qualites_etablies`, calculée par *vérifier*, le corrobore en code :
+    une clause qui exige « le caractère subit de l'action de la chaleur » et des faits qui ne le disent
+    pas donnent `humain`, quoi que vaille le booléen. C'est l'AC de la story lu à la lettre — « humain
+    dès qu'une option, une CP ou **un fait manque** » —, et cela vaut *aussi* quand le modèle s'est
+    contredit en cochant `fait_requis_present` après avoir nommé ce qu'il n'a pas trouvé.
 
     L'ordre compte : (5) précède (6) parce qu'une clause qui ne s'applique pas au cas rend sans objet
     l'option dont elle dépendrait par ailleurs.
@@ -165,13 +189,20 @@ def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
         if fondatrice and not (champs.fait_manquant or "").strip():
             return "non"
         return "humain"
-    if champs.option_requise or champs.cp_requise or (champs.fait_manquant or "").strip():
+    if (champs.option_requise or champs.cp_requise or (champs.fait_manquant or "").strip()
+            or champs.qualites_non_etablies):
         return "humain"
     return "oui"
 
 
 def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
-    """Les `fait_manquant` des claims retenues : dédupliqués, dans l'ordre, bornés (D8).
+    """Les faits que le dossier ne dit pas, côté clauses : dédupliqués, dans l'ordre, bornés (D8).
+
+    Deux sources, du même appel groupé et de la même nature — ce que la clause exige et que les faits
+    déclarés ne donnent pas : le `fait_manquant` nommé par le modèle, et les `qualites_non_etablies`
+    que le **code** a calculées par différence (revue Codex 1.8, B3 : « forcer `humain` **et produire
+    une question bornée** »). Une qualité exigée qu'on rendrait `humain` sans jamais la demander
+    laisserait le gestionnaire devant un verdict ouvert sans savoir quoi aller chercher.
 
     Seuls textes du modèle qui traversent jusqu'à l'utilisateur ; leur **longueur** est bornée par
     l'appelant (`fait_manquant_max_chars`, qui trace ce qu'il écarte), leur **nombre** ici.
@@ -183,10 +214,37 @@ def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
     """
     out: list[str] = []
     for claim in claims:
-        libelle = ((claim.champs.fait_manquant if claim.champs else None) or "").strip()
-        if libelle and libelle not in out:
-            out.append(libelle)
+        if claim.champs is None:
+            continue
+        for libelle in [(claim.champs.fait_manquant or "").strip(),
+                        *claim.champs.qualites_non_etablies]:
+            if libelle and libelle not in out:
+                out.append(libelle)
     return out[:max(place, 0)]
+
+
+def _qualites_a_confirmer(claims: list[ClaimJugee]) -> list[str]:
+    """Les qualités qu'une clause exige et que le modèle a dites **établies** — à confirmer quand même.
+
+    AC de la story : « `ask_client` mentionne les options/CP **et la nature « subite »** ». Le run réel
+    du 24/08 a montré que rien ne le garantissait : le modèle a déclaré la qualité subite établie par
+    des faits qui disent le contraire, `fait_manquant` est resté nul, et aucune question ne l'a
+    mentionnée (revue Codex 1.8, B3). Le code ne peut pas juger si « soudain » est établi ; il peut en
+    revanche poser la question **à chaque fois que la clause l'exige**, quelle qu'ait été la réponse du
+    modèle. Un verdict « au regard des conditions générales seules » ne prouve de toute façon aucune
+    qualité de l'événement : elle se confirme auprès du client.
+
+    Les qualités **non** établies partent, elles, dans `missing.faits` — ce sont des faits à établir,
+    pas des faits à confirmer, et le paquet manquant les annonce.
+    """
+    out: list[str] = []
+    for claim in claims:
+        if claim.champs is None:
+            continue
+        for libelle in claim.champs.qualites_exigees:
+            if libelle and libelle not in claim.champs.qualites_non_etablies and libelle not in out:
+                out.append(libelle)
+    return out
 
 
 def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> list[str]:
@@ -217,7 +275,7 @@ def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> l
     return out
 
 
-def questions_du_paquet_manquant() -> list[str]:
+def questions_du_paquet_manquant(missing: MissingPackage | None = None) -> list[str]:
     """Les questions dues **sans lire une seule clause** : le paquet manquant d'AD-6, et rien d'autre.
 
     Un refus de sinistre (hors périmètre, aucun bloc trouvé, toutes les citations rejetées) n'a aucune
@@ -226,7 +284,7 @@ def questions_du_paquet_manquant() -> list[str]:
     ici, avec le **même** code et les mêmes mots, pour qu'un refus ne soit pas le seul verdict du
     système à ne rien réclamer (revue 1.8).
     """
-    return _questions_du_paquet([], MissingPackage())
+    return _questions_du_paquet([], missing or MissingPackage())
 
 
 def _escalades(claims: list[ClaimJugee], *, contradiction: bool, renvoi: bool) -> list[str]:
@@ -281,25 +339,31 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     (3)   garantie du socle `oui`, aucune claim retenue `humain`, **paquet établi** ⇒ `couvert` ;
     (4)   sinon ⇒ `ne_tranche_pas`.
 
-    **`missing` est une entrée, pas une constante fabriquée ici (revue 1.8, tour 2).** AD-6 écrit la
-    seconde branche de la règle (2) « ou la garantie dépend d'une option / extension / **condition
-    particulière inconnue** », et il définit lui-même `MissingPackage` comme ce qui dit si elles le
-    sont. À J+1 rien ne les établit — le pipeline ne voit que les conditions générales, aucun chemin
-    ne met ces booléens à `False` —, donc la branche est satisfaite pour **toute** garantie, et
-    `couvert` est hors d'atteinte. C'est exactement ce que veut dire « au regard des conditions
-    générales seules », et c'est pourquoi la note de décision de l'epic n'admet que
-    `{sous_conditions, ne_tranche_pas}` sur le cas témoin.
+    **`missing` est une entrée, et il décide (revue 1.8 tour 2 ; maintenu contre la revue Codex 1.8,
+    B1 — voir la mesure ci-dessous).** AD-6 écrit la seconde branche de la règle (2) « ou la garantie
+    dépend d'une option / extension / **condition particulière inconnue** », et il définit
+    `MissingPackage` dans la même phrase comme l'objet qui dit si elles le sont. Tant que l'appelant
+    ne fournit pas le dossier, aucune garantie ne peut être tenue pour acquise : la branche est
+    satisfaite, et `couvert` est hors d'atteinte. C'est ce que veut dire « au regard des conditions
+    générales seules », et c'est pourquoi l'AC du cas témoin n'admet que
+    `{sous_conditions, ne_tranche_pas}`.
 
-    Mesuré, et c'est ce qui a fait lire la règle jusqu'au bout : sur le cas bougie joué en live, deux
-    runs successifs du **même code** ont rendu `ne_tranche_pas` puis `couvert`, la seule chose ayant
-    bougé étant le `fait_requis_present` du modèle. Le verdict le plus engageant que l'outil sache
-    rendre reposait sur un unique booléen, sans rien qui le corrobore. La règle (2) le corrobore : il
-    faut le dossier, pas seulement une lecture de clause.
+    **Ce que la mesure dit, et pourquoi la lecture « par clause » ne suffit pas.** La revue Codex 1.8
+    (B1) demande de lire la branche sur la seule clause (`option_requise` / `cp_requise` / hors socle)
+    et de laisser `couvert` sortir d'une garantie du socle `oui`. Essayé, et joué en vrai sur le cas
+    bougie (run du 24/08, `tests/llm_fixtures/test_sinistre_live.*.json`) : le modèle a énuméré les
+    trois qualités que la clause exige — « caractère soudain de l'événement », « action subite de la
+    chaleur », « contact direct et immédiat avec un foyer » — et les a **toutes trois** déclarées
+    établies par des faits qui disent le contraire (« sans embrasement ni commencement d'incendie »).
+    Verdict rendu : `couvert`, la valeur que l'AC de la story interdit sur ce cas. Aucune règle de code
+    ne peut trancher, sur du texte libre, si un événement fut « soudain » : seule une politique le
+    peut, et AD-6 en désigne une, annotée « **politique conservatrice, décision Lancelot** ».
 
-    La règle (3) n'est pas morte pour autant — elle attend le paquet. Un appelant qui **a** les
-    conditions particulières, les options, les avenants et la date d'effet passe un `MissingPackage`
-    renseigné à `False`, et `couvert` redevient atteignable. Seuls les `faits[]` sont ignorés de ce
-    qu'on reçoit : ils sont dérivés des libellés rendus par le modèle.
+    **La règle (3) n'est pas morte pour autant, et elle est atteignable par le pipeline** : `run()`
+    accepte un `dossier` (`MissingPackage` renseigné à `False`), le passe jusqu'ici, et `couvert`
+    sort — c'est la fixture « garantie du socle » que l'AC exige, jouée de bout en bout. Ce qui
+    manquait au tour 2 n'était pas la règle mais le chemin d'entrée. Seuls les `faits[]` sont ignorés
+    de ce qu'on reçoit : ils sont dérivés des libellés rendus par le modèle.
 
     `applicable` est relu sur chaque claim par `applicable_de_claim()` : la table ne dépend d'aucun
     champ que l'appelant aurait pu remplir autrement.
@@ -314,8 +378,10 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     paquet = _questions_du_paquet(retenues, connu)
     manquants = _libelles_manquants(retenues, place=ask_client_max - len(paquet))
     missing_final = connu.model_copy(update={"faits": manquants})
-    ask = (paquet + [f"Fait à établir auprès du client : {libelle}"
-                     for libelle in manquants])[:ask_client_max]
+    ask = (paquet
+           + [f"Fait à établir auprès du client : {libelle}" for libelle in manquants]
+           + [f"Qualité exigée par une clause citée, à faire confirmer par le client : {libelle}"
+              for libelle in _qualites_a_confirmer(retenues)])[:ask_client_max]
     contradiction = any(c.contredit for c in retenues)
     renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
     escalate = _escalades(retenues, contradiction=contradiction, renvoi=renvoi)
@@ -351,15 +417,17 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     ouvertes = [c for c in retenues
                 if c.kind in ("condition", "franchise", "exclusion") and etat[c.claim_id] == "humain"]
     # « La garantie dépend d'une option / extension / condition particulière **inconnue** » (AD-6,
-    # règle 2), lu littéralement sur l'objet qu'AD-6 définit pour le dire : tant que les conditions
-    # particulières ou les options souscrites ne sont pas au dossier, aucune garantie ne peut être
-    # tenue pour acquise, quoi qu'en dise la clause.
+    # règle 2), lu sur l'objet qu'AD-6 définit pour le dire : tant que les conditions particulières ou
+    # les options souscrites ne sont pas au dossier, aucune garantie ne peut être tenue pour acquise,
+    # quoi qu'en dise la clause. L'appelant qui **a** ces pièces les passe (`dossier`), et la règle (3)
+    # reprend la main.
     pieces_inconnues = [libelle for libelle, absente in
                         (("les conditions particulières", connu.conditions_particulieres),
                          ("les options souscrites", connu.options_souscrites)) if absente]
     for garantie in garanties:
         if etat[garantie.claim_id] != "oui":
             continue
+        # « … ou d'une **extension** » (AD-6, règle 2) : le nœud le dit, pas le modèle.
         hors_socle = any(not clause.socle for clause in garantie.clauses)
         # (2) — politique conservatrice : un seul de ces trois motifs suffit à ouvrir le verdict.
         if ouvertes or hors_socle or pieces_inconnues:
@@ -382,9 +450,9 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
                                               "conditions particulières la prévoient")
 
     # (3) — le seul chemin vers `couvert` : garantie du socle, plus rien d'ouvert **nulle part**, et
-    # le paquet **établi** (sans quoi la règle (2) a déjà tranché plus haut). Tant que l'outil ne lit
-    # que les conditions générales, cette branche est inatteignable — et c'est la vérité de ce qu'il
-    # sait, pas une prudence ajoutée.
+    # le dossier au complet (sans quoi la règle (2) a déjà tranché plus haut). Le `oui` qui l'ouvre est
+    # doublement corroboré : par le dossier, et par `applicable_de_claim()`, qui exige que toutes les
+    # qualités exigées par la clause soient établies par les faits déclarés (B3).
     for garantie in garanties:
         if etat[garantie.claim_id] == "oui" and all(clause.socle for clause in garantie.clauses):
             if not any(etat[c.claim_id] == "humain" for c in retenues):

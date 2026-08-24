@@ -25,10 +25,10 @@ SOCLE = "d:n1"
 EXTENSION = "d:n2"
 
 # Le dossier complet : conditions particulières, options, avenants et date d'effet **au dossier**.
-# C'est ce que `decider` exige pour que la règle (3) — `couvert` — soit seulement atteignable (AD-6,
-# seconde branche de la règle 2 : « ou la garantie dépend d'une […] condition particulière
-# **inconnue** »). Rien ne le produit à J+1 : le pipeline ne lit que les conditions générales, et
-# c'est la story qui apportera les pièces au dossier qui passera ce paquet-là.
+# Il ne décide **pas** de la valeur du verdict (revue Codex 1.8, B1 : la seconde branche de la règle
+# (2) d'AD-6 porte sur la clause — « la garantie **dépend** d'une option / extension / condition
+# particulière inconnue » —, pas sur le dossier) ; il décide de ce qu'il reste à **demander**. Rien
+# ne le produit à J+1 : le pipeline ne lit que les conditions générales.
 PAQUET_ETABLI = MissingPackage(conditions_particulieres=False, options_souscrites=False,
                                avenants=False, date_effet=False)
 
@@ -40,9 +40,11 @@ def _clause(kind: str, *, block_id: str = "d:p1:1", confirmed: bool = True,
 
 
 def _champs(present: bool = True, *, option: bool = False, cp: bool = False,
-            manquant: str | None = None) -> ChampsApplicabilite:
+            manquant: str | None = None, exigees: list[str] | None = None,
+            non_etablies: list[str] | None = None) -> ChampsApplicabilite:
     return ChampsApplicabilite(fait_requis_present=present, option_requise=option, cp_requise=cp,
-                               fait_manquant=manquant)
+                               fait_manquant=manquant, qualites_exigees=exigees or [],
+                               qualites_non_etablies=non_etablies or [])
 
 
 def _claim(claim_id: str, kind: str | None, champs: ChampsApplicabilite | None = None, **kw) -> ClaimJugee:
@@ -126,7 +128,7 @@ def test_an_exclusion_whose_scope_misses_the_case_does_not_exclude() -> None:
                           champs=_champs(True))
     ailleurs = _clause("exclusion", block_id="d:p1:2", portee={EXTENSION}, node_id=EXTENSION, socle=False)
     exclusion = ClaimJugee(claim_id="c2", clauses=[ailleurs], champs=_champs(True))
-    # paquet établi : sans lui, la règle (2) tranche avant qu'on puisse voir si l'exclusion mord
+    # dossier au complet : sans lui, la règle (2) tranche avant qu'on puisse voir si l'exclusion mord
     v = decider([garantie, exclusion], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
     assert v.value == "couvert"
 
@@ -138,25 +140,32 @@ def test_an_exclusion_alone_never_covers_itself() -> None:
 
 
 def test_a_baseline_guarantee_alone_is_covered() -> None:
-    """Règle (3) : garantie du socle `oui`, aucune claim `humain` ⇒ `couvert`."""
+    """Règle (3) : garantie du socle `oui`, aucune claim `humain`, dossier au complet ⇒ `couvert`.
+
+    La fixture que l'AC de la story exige nommément (« `couvert` (garantie socle) »). Ce qu'elle
+    **suppose**, et qu'il faut lire : le dossier est complet. Sans les conditions particulières et les
+    options, la seconde branche de la règle (2) est satisfaite et le verdict s'arrête à
+    `sous_conditions` — voir le test suivant, qui est le cas de l'outil quand l'appelant n'a que les
+    conditions générales. `test_pipeline_sinistre.py` joue les deux moitiés de bout en bout.
+    """
     v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX,
                 missing=PAQUET_ETABLI)
     assert v.value == "couvert" and v.missing.faits == [] and v.escalate == []
-    # Ce que ce cas **suppose**, et qu'il faut lire : le dossier est complet. Sans les conditions
-    # particulières et les options, la seconde branche de la règle (2) est satisfaite et le verdict
-    # s'arrête à `sous_conditions` — voir le test suivant, qui est le cas réel de l'outil à J+1.
     assert v.missing.conditions_particulieres is False and v.missing.options_souscrites is False
-    # AD-6 : « toujours avec le paquet manquant et les questions à poser ». Le paquet étant établi,
-    # il n'y a plus rien à demander : les questions suivent les pièces, elles ne sont pas décoratives.
+    # AD-6 : « toujours avec le paquet manquant et les questions à poser ». Le paquet étant établi et
+    # la clause n'exigeant aucune qualité, il n'y a plus rien à demander : les questions suivent les
+    # pièces, elles ne sont pas décoratives.
     assert v.ask_client == []
 
 
 def test_a_baseline_guarantee_alone_is_only_conditional_while_the_package_is_unknown() -> None:
-    """Règle (2), seconde branche, lue **littéralement** : la pièce inconnue suffit (revue 1.8, tour 2).
+    """Règle (2), seconde branche, lue **littéralement** : la pièce inconnue suffit.
 
-    C'est le cas réel de l'outil à J+1, et la propriété qui manquait : le verdict le plus engageant
-    ne peut plus reposer sur le seul `fait_requis_present` du modèle. Mesuré en live — deux runs du
-    même code, `ne_tranche_pas` puis `couvert`, un booléen d'écart.
+    Maintenu contre la revue Codex 1.8 (B1), sur mesure et non sur lecture : la lecture « par clause »
+    qu'elle propose a été implémentée puis jouée en vrai, et le cas bougie a rendu `couvert` — la
+    valeur que l'AC de la story interdit sur ce cas. Le modèle avait énuméré les trois qualités que la
+    clause exige et les avait toutes déclarées établies par des faits qui disent le contraire. Le
+    verdict le plus engageant de l'outil ne peut pas reposer là-dessus.
     """
     v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX)
     assert v.value == "sous_conditions"
@@ -177,6 +186,43 @@ def test_either_missing_piece_alone_keeps_the_verdict_conditional(piece: str) ->
     presque = PAQUET_ETABLI.model_copy(update={piece: True})
     v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX, missing=presque)
     assert v.value == "sous_conditions" and "ne sont pas au dossier" in v.reason
+
+
+def test_a_quality_the_clause_requires_is_always_asked_even_when_said_established() -> None:
+    """Revue Codex 1.8 (B3) : l'AC « `ask_client` mentionne […] la nature « subite » » devient du code.
+
+    Mesuré : sur un run réel, le modèle a déclaré la qualité subite **établie**, `fait_manquant` est
+    resté nul, et aucune question ne l'a mentionnée — l'AC était donc violé par un run vert. Le code
+    ne peut pas juger si « soudain » est établi ; il peut poser la question dès que la clause exige la
+    qualité, quelle qu'ait été la réponse du modèle. Un verdict rendu au regard des seules conditions
+    générales ne prouve de toute façon aucune qualité de l'événement.
+    """
+    subite = "caractère subit de l'action de la chaleur"
+    etablie = _champs(True, exigees=[subite])  # le modèle dit : exigée **et** établie
+    v = decider([_claim("c1", "garantie", etablie)], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "couvert"  # établie : la clause reste applicable…
+    assert v.missing.faits == []  # …et ce n'est pas un fait manquant…
+    assert any(subite in q and "confirmer" in q for q in v.ask_client)  # …mais on le fait confirmer
+
+
+def test_a_required_quality_left_unestablished_keeps_the_guarantee_human() -> None:
+    """Revue Codex 1.8 (B3) : `fait_requis_present=true` ne suffit plus à faire un `oui`.
+
+    Un run réel a rendu la qualité « subite » pour établie sur des circonstances qui ne la disent pas,
+    et rien ne pouvait contredire ce booléen. Le modèle **énumère** désormais ce que la clause exige et
+    ce que les faits établissent ; le code fait la différence (AD-6 : « il extrait des valeurs typées,
+    le code compare »). Une qualité exigée non établie rend `humain`, quoi que vaille le booléen.
+    """
+    subite = "caractère subit de l'action de la chaleur"
+    champs = _champs(True, exigees=[subite], non_etablies=[subite])
+    assert applicable_de_claim(_claim("c1", "garantie", champs)) == "humain"
+    v = decider([_claim("c1", "garantie", champs)], ask_client_max=ASK_MAX)
+    assert v.value == "ne_tranche_pas"
+    # « forcer `humain` **et produire une question bornée** » : la qualité manquante est demandée
+    assert v.missing.faits == [subite]
+    assert any(subite in q for q in v.ask_client)
+    # une qualité exigée **et** établie ne retire rien
+    assert applicable_de_claim(_claim("c1", "garantie", _champs(True, exigees=[subite]))) == "oui"
 
 
 def test_an_unestablished_package_alone_never_produces_a_verdict_out_of_thin_air() -> None:
