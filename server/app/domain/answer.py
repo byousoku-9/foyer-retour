@@ -137,9 +137,12 @@ class RejectedClaim(VerifiedClaim):
     rejection_kind: RejectionKind
     motif: str = ""
 
-    # Une claim rejetée n'a pas forcément d'occurrence retrouvée : ses quotes restent celles du draft,
-    # sans offsets (AD-3 : les claims non retrouvées sont **conservées**, elles ne sont pas vérifiées).
-    quotes: list[Quote] = Field(min_length=1)
+    # Une claim rejetée sur ses citations n'a pas d'occurrence à conserver : ses quotes restent celles
+    # du draft, sans offsets. Une claim rejetée sur la **pertinence**, elle, a bien été retrouvée : ses
+    # offsets et `line_ids` sont conservés (AD-3 : les claims rejetées sont « conservées […] affichables
+    # par le front » — sans offsets, le front n'a rien à surligner). D'où l'union, `VerifiedQuote`
+    # d'abord : pydantic essaie le membre le plus riche avant de retomber sur la quote nue.
+    quotes: list[VerifiedQuote | Quote] = Field(min_length=1)
 
 
 class Verification(DomainModel):

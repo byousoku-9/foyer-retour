@@ -107,14 +107,23 @@ class _Controle:
         self.quote = quote
 
 
-def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any,
-                     settings: Settings) -> _Controle:
-    """AD-3, dans l'ordre de son texte : existence, kind, longueur, inclusion, non-ambiguïté."""
-    try:
-        doc_id = index.doc_of(block_id)
-    except KeyError:
-        # Le `block_id` vient du modèle : il n'est pas recopié dans le motif (AD-15).
-        return _Controle("non_retrouvee", f"citation rattachée à un bloc qui n'existe pas ({BLOC_INCONNU})")
+def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, fournis: set[str],
+                     lignes: dict[str, list[tuple[int, int, str]]], settings: Settings) -> _Controle:
+    """AD-3, dans l'ordre de son texte : existence, kind, longueur, inclusion, non-ambiguïté.
+
+    « `block_id` existe » se lit ici « existe **parmi les blocs transmis à *rédiger*** », pas « existe
+    quelque part dans le corpus » (revue 1.5). Un identifiant réel mais jamais ouvert est une source
+    que le rédacteur n'a pas lue : la quote s'y trouve par coïncidence de vocabulaire, et l'afficher
+    reviendrait à sourcer une phrase sur un passage que rien n'a mis sous les yeux du modèle. AD-1
+    fait de `opened_block_ids` « les blocs effectivement passés au modèle » ; c'est ce périmètre-là.
+    """
+    if block_id not in fournis:
+        # Le `block_id` vient du modèle : il n'est pas recopié dans le motif (AD-15). Un identifiant
+        # du corpus mais hors des blocs fournis n'est pas plus citable qu'un identifiant inventé.
+        connu = block_id if _bloc_connu(index, block_id) else BLOC_INCONNU
+        return _Controle("non_retrouvee", f"citation rattachée à un bloc qui n'a pas été fourni "
+                                          f"dans ce message ({connu}) : ne cite que les blocs reçus")
+    doc_id = index.doc_of(block_id)
     document = corpus.documents[doc_id]
     block = document.block(block_id)  # texte **toujours relu depuis le corpus**
     if block.kind == "heading":
@@ -138,14 +147,26 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any,
     # Deux occurrences dans le **même** bloc ne trompent personne (même bloc, même portée, même
     # texte) : on garde la première pour les offsets. Deux blocs différents, en revanche, attribuent
     # la phrase au mauvais endroit du document.
-    blocs_porteurs = [b.block_id for b in document.blocks if forme in b.text_norm]
-    if len(blocs_porteurs) > 1:
-        return _Controle("ambigue", f"citation ambiguë : le même passage figure dans {len(blocs_porteurs)} blocs "
-                                    f"du document (dont {block_id}) — étends la citation pour la rendre unique")
+    autre = next((b.block_id for b in document.blocks
+                  if b.block_id != block_id and forme in b.text_norm), None)
+    if autre is not None:  # on s'arrête au premier doublon : le compte exact n'ajoute rien au motif
+        return _Controle("ambigue", f"citation ambiguë : le même passage figure aussi ailleurs dans le "
+                                    f"document, hors du bloc {block_id} — étends-la pour la rendre unique")
     end = start + len(forme)
-    line_ids = [lid for (a, b, lid) in _ligne_spans(block) if a < end and b > start]
+    if block_id not in lignes:  # une seule fois par bloc, même si plusieurs claims le citent
+        lignes[block_id] = _ligne_spans(block)
+    line_ids = [lid for (a, b, lid) in lignes[block_id] if a < end and b > start]
     return _Controle("", "", VerifiedQuote(block_id=block_id, quote=quote, start=start, end=end,
                                            line_ids=line_ids))
+
+
+def _bloc_connu(index: Any, block_id: str) -> bool:
+    """Le `block_id` est-il une chaîne du corpus (donc de **notre** code) ou une invention du modèle ?"""
+    try:
+        index.doc_of(block_id)
+    except KeyError:
+        return False
+    return True
 
 
 def _nom_de_claim(claim: Claim, position: int) -> str:
@@ -153,15 +174,23 @@ def _nom_de_claim(claim: Claim, position: int) -> str:
     return claim.claim_id if _CLAIM_ID.match(claim.claim_id) else f"claim n° {position}"
 
 
-def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str]) -> str:
+def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
+                      inactionnables: set[str]) -> str | None:
     """Motif composé par **notre** code, transmis tel quel à la relance de *rédiger* (AD-3).
 
     Il est délimité par `untrusted()` dans *rédiger* : ce texte mêle nos phrases à des `block_id`, et
-    il ne devient jamais une consigne de confiance.
+    il ne devient jamais une consigne de confiance. L'en-tête ne présume pas de la nature du défaut :
+    chaque ligne dit déjà si c'est la citation ou la pertinence qui a été rejetée, et annoncer « le
+    contrôle des citations » sur un rejet de pertinence enverrait le modèle recopier mieux un passage
+    déjà retrouvé mot pour mot. `None` quand rien n'est actionnable.
     """
-    lignes = [f"- {noms[claim.claim_id]} : {claim.motif}" for claim in rejetees]
-    return ("Le contrôle des citations a rejeté les affirmations suivantes. Corrige-les précisément "
-            "(ou remplace-les par ce que les blocs fournis soutiennent vraiment) :\n" + "\n".join(lignes))
+    actionnables = [c for c in rejetees if c.claim_id not in inactionnables]
+    if not actionnables:
+        return None
+    lignes = [f"- {noms[claim.claim_id]} : {claim.motif}" for claim in actionnables]
+    return ("Le contrôle a rejeté les affirmations suivantes. Corrige précisément ce que chacune "
+            "décrit, ou remplace-la par ce que les blocs fournis soutiennent vraiment :\n"
+            + "\n".join(lignes))
 
 
 async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: RetrievalResult,
@@ -170,18 +199,32 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     t0 = time.monotonic()
     step = StepTrace(name="verifier", tier=STEP_TIERS["verifier"])
 
-    # `edition` (AD-4) : celle du document cité, affichée « édition … — actualité non vérifiée ».
-    # Une réponse du guide porte sur un seul document (le pipeline passe un `doc_id`), et elle est
-    # connue avant tout contrôle — y compris pour une claim dont aucune citation ne survit.
-    edition = corpus.documents[index.doc_of(retrieval.blocs[0].block_id)].edition if retrieval.blocs else ""
+    # Blocs réellement transmis à *rédiger* : le périmètre exact de ce qui est citable (AD-1,
+    # « les blocs effectivement passés au modèle »).
+    fournis = {b.block_id for b in retrieval.blocs}
+    lignes_par_bloc: dict[str, list[tuple[int, int, str]]] = {}
 
-    retrouvees: list[tuple[Claim, list[VerifiedQuote]]] = []
+    def edition_de(block_ids: list[str]) -> str:
+        """`edition` (AD-4) : celle du document **cité**, affichée « édition … — actualité non vérifiée ».
+
+        Prise sur les blocs de la claim, jamais sur le premier bloc du retrieval : le guide n'a qu'un
+        document, le sinistre en aura plusieurs (1.8), et une édition empruntée à un autre document
+        serait affichée sous la citation sans que rien ne le signale (revue 1.5).
+        """
+        for b in block_ids:
+            if b in fournis:
+                return corpus.documents[index.doc_of(b)].edition
+        return ""
+
+    retrouvees: list[tuple[Claim, list[VerifiedQuote], str]] = []
     rejetees: list[RejectedClaim] = []
     noms: dict[str, str] = {}  # `claim_id` → nom sûr pour les motifs (les `claim_id` sont uniques, AD-3)
     for position, claim in enumerate(draft.claims, start=1):
         noms[claim.claim_id] = _nom_de_claim(claim, position)
         du_draft = [Quote(block_id=q.block_id, quote=q.quote) for q in claim.quotes]
-        controles = [_controler_quote(q.block_id, q.quote, corpus=corpus, index=index, settings=settings)
+        edition = edition_de([q.block_id for q in claim.quotes])
+        controles = [_controler_quote(q.block_id, q.quote, corpus=corpus, index=index, fournis=fournis,
+                                      lignes=lignes_par_bloc, settings=settings)
                      for q in claim.quotes]
         echecs = [c for c in controles if c.kind]
         if echecs:
@@ -193,7 +236,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 status=ClaimStatus(retrouvee=False, pertinente=None, edition=edition),
                 rejection_kind=kind, motif=" ; ".join(c.motif for c in echecs)))
             continue
-        retrouvees.append((claim, [c.quote for c in controles if c.quote is not None]))
+        retrouvees.append((claim, [c.quote for c in controles if c.quote is not None], edition))
 
     # AD-4 : **un seul** appel `micro` groupé, borné par `verifier_max_claims`. Au-delà, les claims
     # excédentaires ne sont pas évaluées — jamais devinées (`draft_max_claims` fait que le cas ne se
@@ -207,7 +250,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
     claims: list[VerifiedClaim] = []
     manquants = 0
-    for claim, quotes in evaluees:
+    for claim, quotes, edition in evaluees:
         pertinente = verdicts.get(claim.claim_id)
         if pertinente is None:
             manquants += 1
@@ -223,14 +266,19 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                  "l'affirmation ne répond pas à la question posée"
                  if pertinente is False else
                  "pertinence non rendue par le contrôle groupé : l'affirmation est écartée plutôt que devinée")
+        # Ces quotes **ont** été retrouvées : leurs offsets et `line_ids` sont conservés, c'est ce qui
+        # rend la claim « affichable par le front » comme AD-3 le demande.
         rejetees.append(RejectedClaim(
-            claim_id=claim.claim_id, text=claim.text,
-            quotes=[Quote(block_id=q.block_id, quote=q.quote) for q in quotes], status=status,
-            rejection_kind="non_pertinente", motif=motif))
-    for claim, quotes in excedentaires:
+            claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), status=status,
+            line_ids=line_ids, rejection_kind="non_pertinente", motif=motif))
+    # Une claim que la borne `verifier_max_claims` a laissée hors du contrôle groupé n'a rien à
+    # corriger : elle n'a pas été jugée. La faire figurer dans le motif de relance demanderait au
+    # modèle de réparer une décision qui est la nôtre (revue 1.5).
+    inactionnables = {claim.claim_id for claim, _, _ in excedentaires}
+    for claim, quotes, edition in excedentaires:
         rejetees.append(RejectedClaim(
-            claim_id=claim.claim_id, text=claim.text,
-            quotes=[Quote(block_id=q.block_id, quote=q.quote) for q in quotes],
+            claim_id=claim.claim_id, text=claim.text, quotes=list(quotes),
+            line_ids=[lid for q in quotes for lid in q.line_ids],
             status=ClaimStatus(retrouvee=True, pertinente=None, edition=edition),
             rejection_kind="non_pertinente",
             motif=f"affirmation non évaluée : le contrôle de pertinence est borné à "
@@ -253,7 +301,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     verification = Verification(
         segments=list(draft.segments), claims=claims, rejected_claims=rejetees, found=found,
         complete=complete, unknown=unknown,
-        motif=_motif_de_relance(rejetees, noms) if rejetees else None,
+        motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
     )
     step.checks.append(CheckResult(
         name="citations", ok=not rejetees,
@@ -262,13 +310,13 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     return verification, step
 
 
-async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote]]], *, parsed: ParsedQuestion,
+async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *, parsed: ParsedQuestion,
                       corpus: Any, index: Any, client: LlmClient, budget: RequestBudget,
                       settings: Settings, step: StepTrace) -> dict[str, bool]:
     """L'unique appel `micro` groupé : un booléen par `claim_id`, verdicts inconnus ignorés."""
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
     parts = [untrusted("question", parsed.question_resolue)]
-    for claim, quotes in evaluees:
+    for claim, quotes, _edition in evaluees:
         # Le passage soumis est **relu dans le corpus** : `text_norm[start:end]`, l'occurrence même
         # dont l'inclusion a été prouvée — jamais la chaîne du draft. Une citation « écho » ne peut
         # donc pas être jugée pertinente sur sa propre invention (AD-3). La forme normalisée suffit
@@ -286,9 +334,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote]]], *, pars
                                 messages=[{"role": "user", "content": content}],
                                 output_model=SortieVerifier, budget=budget, step=step,
                                 max_tokens=settings.verifier_max_tokens)
-    attendus = {claim.claim_id for claim, _ in evaluees}
+    attendus = {claim.claim_id for claim, _, _ in evaluees}
     verdicts: dict[str, bool] = {}
     for v in result.parsed.verdicts:
-        if v.claim_id in attendus:  # un identifiant inventé ne décide de rien
-            verdicts.setdefault(v.claim_id, v.pertinente)
+        if v.claim_id not in attendus:  # un identifiant inventé ne décide de rien
+            continue
+        if v.claim_id in verdicts and verdicts[v.claim_id] != v.pertinente:
+            # Le prompt interdit de répondre deux fois pour un même identifiant, et dit « dans le
+            # doute, réponds false ». Une contradiction est un doute : elle écarte la claim, elle ne
+            # s'arbitre pas par l'ordre d'arrivée (revue 1.5).
+            verdicts[v.claim_id] = False
+            step.checks.append(CheckResult(
+                name="verdict_contradictoire", ok=False,
+                detail="deux verdicts opposés pour une même affirmation : elle est écartée"))
+            continue
+        verdicts.setdefault(v.claim_id, v.pertinente)
     return verdicts
