@@ -1,0 +1,84 @@
+# FR44 d — L'intégration continue : le lint et la suite hors ligne, sur chaque pull request.
+#
+# Ce fichier est aussi appelé par `deploy.yml` (`workflow_call`) : les mêmes commandes gardent la
+# porte des deux côtés, et il n'existe qu'**un** texte qui dise ce que « vert » veut dire. Deux
+# copies auraient divergé au premier réglage, et c'est exactement le « deux textes faisant autorité »
+# que la convention Seuils du spine interdit.
+#
+# **Ce qui n'est pas ici, et pourquoi.** Pas d'évals : elles coûtent, exigent la clé et n'ont de sens
+# qu'en sous-ensemble rapide — story 4.1 (AD-14). Pas de déploiement : une pull request ne touche
+# jamais le service (AD-12, « les PR exécutent tests sans déployer »).
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    name: Lint et suite hors ligne
+    runs-on: ubuntu-latest
+    # La suite tient en une quinzaine de secondes ; le reste est de l'installation. Au-delà, quelque
+    # chose attend ce qui ne viendra pas — mieux vaut le dire que d'occuper un runner une heure.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # uv épinglé sur la même série que le `Dockerfile` (`ghcr.io/astral-sh/uv:0.11`) : la CI et
+      # l'image de production résolvent le même `uv.lock` avec le même résolveur.
+      - name: Installer uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.32/install.sh | sh
+          # L'installateur dépose `uv` dans `~/.local/bin`, que le runner n'a pas forcément sur son
+          # `PATH` : le dire explicitement plutôt que de compter sur l'image.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # `node` est **épinglé**, comme `uv`. Avec `FRONT_TESTS_REQUIS=1`, 130 cas de front dépendent
+      # de lui : s'en remettre à la version que l'image du runner embarque, c'est laisser GitHub
+      # choisir le moteur qui exécute la moitié de nos assertions, et le changer sans prévenir. Les
+      # harnais de `tests/js/` n'utilisent que `node:vm`, `node:fs`, `node:path` et `node:url`.
+      - name: Installer node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # `--frozen` : le lock fait foi. Une dépendance ajoutée sans relancer `uv lock` fait échouer la
+      # CI au lieu de résoudre autre chose que ce que l'image construira.
+      - name: Installer les dépendances (lock gelé)
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check server tests scripts
+
+      # Le PDF du contrat n'est pas dans le dépôt (FR32) — et sans lui,
+      # `test_real_pdf_regenerates_committed_artefacts` se met en `skip` à la **collecte** : le seul
+      # test qui prouve que les artefacts AXA committés sont encore ceux que le parseur produit
+      # disparaissait de la CI qui garde la production. Le télécharger ici est donc voulu, et c'est
+      # la seule étape de ce job qui sorte sur le réseau : `pytest` lui-même n'y touche pas.
+      #
+      # **Ce que cette étape coûte, et qu'il faut savoir avant de la lire comme gratuite** : la CI
+      # est ici *plus fragile* que le build. `fetch_source` se replie sur `gs://foyer-retour-sources/`
+      # avec le jeton du serveur de métadonnées — que Cloud Build a, et qu'un runner GitHub n'a pas
+      # (donner une identité GCP à `ci.yml` la rendrait déployable, ce qu'AD-12 interdit et que
+      # `test_la_ci_ne_deploie_rien` tient). Une URL publique morte rend donc **toutes** les pull
+      # requests rouges alors que le déploiement, lui, passerait par le repli. C'est un prix accepté
+      # en connaissance : le jour où il se paie, la sortie de secours est de retirer cette étape,
+      # pas de donner un jeton à la CI (revue 1.11).
+      - name: Télécharger les sources non committées (empreinte vérifiée)
+        run: uv run python -m server.ingest.fetch_source --all
+
+      # `ANTHROPIC_API_KEY=` : la suite doit passer **sans** clé (AD-14) — les fixtures LLM sont
+      # enregistrées, et un test qui sortirait sur le réseau échouerait ici plutôt qu'en silence.
+      #
+      # `FRONT_TESTS_REQUIS=1` : sans elle, l'absence de `node` fait passer **130** cas de front en
+      # `skip` — 42 pour le guide, 88 pour le sinistre — et un `skip` est indiscernable d'un succès
+      # dans un `pytest -q`. La variable transforme la disparition de `node` en échec plutôt qu'en
+      # silence (reprise différée de 1.7 et 1.9).
+      - name: Tests unitaires, sans réseau, front compris
+        env:
+          ANTHROPIC_API_KEY: ''
+          FRONT_TESTS_REQUIS: '1'
+        run: uv run pytest -q

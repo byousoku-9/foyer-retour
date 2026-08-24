@@ -1,0 +1,225 @@
+# FR44 a–c / AD-12 — Le déploiement sur Cloud Run depuis `main`, avec les smoke tests devant.
+#
+# **L'ordre est la garantie.** La révision est construite par Cloud Build depuis `--source`, déployée
+# **sans trafic** sous le tag `candidat`, sondée par `scripts/smoke.py` sur son URL taguée — et le
+# trafic n'est promu qu'ensuite, **nommément vers cette révision-là**. AD-12 exige les smokes « avant
+# promotion du trafic » : `deploy-cloudrun@v3` ne rend qu'une sortie, `url`, celle du **service**, si
+# bien que sonder juste après un déploiement à trafic immédiat mesurerait la nouvelle révision par
+# accident, après qu'elle a déjà servi des requêtes réelles. Le tag donne une URL propre
+# (`https://candidat---<hôte du service>`) qui n'atteint que la révision candidate.
+#
+# Effet de bord assumé : pendant le smoke, deux révisions coexistent, chacune avec son propre
+# `--max-instances=1`. Le pic est donc de deux instances, pour la durée des quatre vérifications.
+#
+# **Retour arrière** (README, § Déploiement) :
+#   gcloud run revisions list --service=foyer-retour --region=europe-west1 --project=foyer-retour
+#   gcloud run services update-traffic foyer-retour --to-revisions=<révision>=100 \
+#     --region=europe-west1 --project=foyer-retour
+name: Déploiement Cloud Run
+
+on:
+  push:
+    branches: [main]
+  # Relancer un déploiement, ou re-sonder le service, sans avoir à pousser un commit pour cela.
+  # **Le bouton de GitHub laisse choisir la branche** : sans la garde `if:` posée sur le job
+  # `deployer` plus bas, un `Run workflow` sur une branche de travail construirait et promouvrait ce
+  # code en production. Le déclencheur ne relâche donc rien parce que la garde est là, pas parce que
+  # GitHub le restreint : la seule référence que `deploy.yml` déploie est `main`, et le workflow
+  # re-joue lint, suite, build et smokes à l'identique.
+  workflow_dispatch:
+
+# `id-token: write` est ce qui permet à `auth@v3` de demander le jeton OIDC de GitHub et de
+# l'échanger contre une identité fédérée : aucune clé de compte de service dans le dépôt (AD-12).
+permissions:
+  contents: read
+  id-token: write
+
+# Deux déploiements simultanés se promouvraient l'un l'autre dans le désordre. On sérialise, et on
+# n'annule pas celui qui est en cours : il a peut-être déjà construit une image.
+concurrency:
+  group: deploiement-cloud-run
+  cancel-in-progress: false
+
+jobs:
+  # Le même texte que sur une pull request : rien n'est déployé qui n'ait passé le lint et la suite
+  # hors ligne. Une seule définition, appelée des deux côtés.
+  verifier:
+    uses: ./.github/workflows/ci.yml
+
+  deployer:
+    name: Construire, sonder, promouvoir
+    needs: verifier
+    # AD-12 : « environnement unique (`main` → `foyer-retour`) ». `push` est déjà borné à `main`,
+    # mais `workflow_dispatch` accepte n'importe quelle référence : c'est ici que la borne tient pour
+    # les deux. Sur une autre branche, le lint et la suite tournent, et rien n'est déployé.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Le build Cloud Build tient en quelques minutes, les smokes en une. Au-delà, un appel bloqué
+    # garderait le groupe `concurrency` — et une révision taguée, publique, en vol — jusqu'au plafond
+    # de six heures de GitHub. Mieux vaut échouer, ce qui déclenche le nettoyage du tag ci-dessous.
+    timeout-minutes: 30
+    env:
+      SERVICE: foyer-retour
+      REGION: europe-west1
+      TAG: candidat
+      PROJET: ${{ vars.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Les trois variables du dépôt sont posées par `scripts/gcp_bootstrap.sh` (story 1.0). Une
+      # variable vide donne sinon un échec obscur au milieu d'un build facturé.
+      #
+      # Les valeurs passent par `env:` et non par `${{ vars.X }}` écrit dans le script : une
+      # interpolation est **collée dans le texte du shell avant exécution**, si bien qu'une valeur
+      # portant un guillemet casserait la commande — ou l'exécuterait. Le reste du fichier le fait
+      # déjà ainsi pour `URL`, `SHA7` et `REVISION` ; ici aussi.
+      - name: Contrôler les variables du dépôt
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          DEPLOY_SA: ${{ vars.DEPLOY_SA }}
+        run: |
+          manquantes=()
+          [ -n "$GCP_PROJECT_ID" ] || manquantes+=(GCP_PROJECT_ID)
+          [ -n "$WIF_PROVIDER" ]   || manquantes+=(WIF_PROVIDER)
+          [ -n "$DEPLOY_SA" ]      || manquantes+=(DEPLOY_SA)
+          if [ ${#manquantes[@]} -ne 0 ]; then
+            echo "variables du dépôt absentes : ${manquantes[*]} — les poser avec les sorties de scripts/gcp_bootstrap.sh" >&2
+            exit 1
+          fi
+
+      # AD-11 : `/api/v1/sante` publie `version: sha7`. C'est ce que le smoke comparera — sans quoi
+      # il mesurerait une révision qu'il n'a pas construite.
+      - name: Empreinte courte du commit
+        id: sha
+        run: echo "sha7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Identité fédérée (WIF direct, sans clé)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - name: gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      # `env_vars_update_strategy: overwrite` fait de ce fichier l'**autorité** sur la configuration
+      # du service : un `ALLOW_UNGATED=true` posé à la main sur le service ne survit pas au
+      # déploiement suivant (reprise différée de 1.10), et le smoke refuse d'ailleurs de promouvoir
+      # tant que l'alerte `ungated_refuse_en_production` est là. `ENV=prod` et `PORT` viennent du
+      # `Dockerfile` et ne sont pas des variables de service : `overwrite` ne les touche pas.
+      # Même raisonnement pour les secrets : la version est **épinglée ici** (`:1`), pas héritée.
+      #
+      # `wait: true` est posé parce qu'AD-12 l'écrit. L'action le documente comme n'ayant d'effet que
+      # sur les *jobs* ; pour un service, la synchronicité vient de `gcloud run deploy` lui-même, qui
+      # attend que la révision soit prête. La ligne reste, littéralement conforme au spine.
+      - name: Déployer sans trafic, sous le tag candidat
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ env.SERVICE }}
+          source: .
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          region: ${{ env.REGION }}
+          no_traffic: true
+          tag: ${{ env.TAG }}
+          env_vars: |-
+            GIT_SHA=${{ steps.sha.outputs.sha7 }}
+          env_vars_update_strategy: overwrite
+          secrets: |-
+            ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:1
+          secrets_update_strategy: overwrite
+          # AD-13, et les cinq valeurs de dimensionnement ont ici leur **autorité** : ce sont des
+          # drapeaux d'infrastructure, pas des seuils de `config.py` (qui configure le processus).
+          # Le passage à 2 instances et 8 requêtes concurrentes n'aura lieu qu'après un test
+          # mémoire/latence, et le README porte cette règle.
+          flags: >-
+            --allow-unauthenticated
+            --max-instances=1
+            --concurrency=2
+            --timeout=60
+            --min-instances=0
+            --service-account=foyer-retour-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          wait: true
+
+      # `deploy-cloudrun@v3` ne rend que l'URL du **service**. L'URL taguée se lit sur la description
+      # du service, dans `status.traffic[]`, à l'entrée qui porte le tag — et c'est la **même** entrée
+      # qui donne le nom de la révision. Les capturer ensemble, en un seul appel, est ce qui garantit
+      # que la révision promue plus bas est exactement celle que le smoke aura sondée.
+      - name: Résoudre la révision candidate et son URL taguée
+        id: candidate
+        run: |
+          set -euo pipefail
+          entree="$(gcloud run services describe "$SERVICE" \
+                      --region="$REGION" --project="$PROJET" --format=json \
+                    | jq -c --arg tag "$TAG" 'first(.status.traffic[]? | select(.tag == $tag))')"
+          url="$(jq -r '.url // empty' <<<"$entree")"
+          revision="$(jq -r '.revisionName // empty' <<<"$entree")"
+          if [ -z "$url" ] || [ -z "$revision" ]; then
+            echo "aucune entrée de trafic pour le tag $TAG : la révision candidate n'est pas adressable, rien ne sera promu" >&2
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "révision candidate : $revision → $url"
+
+      - name: Installer uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.32/install.sh | sh
+          # L'installateur dépose `uv` dans `~/.local/bin`, que le runner n'a pas forcément sur son
+          # `PATH` : le dire explicitement plutôt que de compter sur l'image.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Installer les dépendances (lock gelé)
+        run: uv sync --frozen
+
+      # Les smokes d'AD-12, sur la révision candidate. Un écart ⇒ sortie 1 ⇒ le workflow échoue
+      # **avant** `update-traffic`, et l'ancienne révision garde 100 % du trafic (AD-16 : jamais de
+      # promotion « quand même », jamais de valeur de repli).
+      - name: Smoke tests sur la révision candidate
+        run: uv run python scripts/smoke.py --base-url "$URL" --version "$SHA7"
+        env:
+          URL: ${{ steps.candidate.outputs.url }}
+          SHA7: ${{ steps.sha.outputs.sha7 }}
+
+      # Seulement maintenant, et **nommément**. `--to-latest` promeut « la dernière révision créée »,
+      # qui n'est pas forcément celle qu'on vient de sonder : un `gcloud run deploy` lancé à la main
+      # pendant le smoke aurait reçu 100 % du trafic sans avoir jamais été vérifié — exactement la
+      # promotion « quand même » qu'AD-16 interdit. On promeut la révision dont le smoke a lu la
+      # santé, la version et les deux cas témoins. Le tag est retiré dans le même appel : il ne
+      # désigne une révision que le temps de la sonder.
+      - name: Promouvoir la révision sondée et retirer le tag
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "$SERVICE" \
+            --to-revisions="$REVISION=100" --remove-tags="$TAG" \
+            --region="$REGION" --project="$PROJET"
+        env:
+          REVISION: ${{ steps.candidate.outputs.revision }}
+
+      # Le smoke est rouge (ou le job a échoué autrement) : la révision refusée reste sinon taguée
+      # `candidat`, donc **publiquement joignable** (`--allow-unauthenticated`) avec le secret
+      # Anthropic monté, jusqu'au prochain déploiement réussi. On retire le tag ; `|| true` parce que
+      # ce nettoyage ne doit jamais devenir la cause d'échec affichée à la place de la vraie.
+      #
+      # `cancelled()` autant que `failure()` : une annulation à la main, ou le plafond
+      # `timeout-minutes` atteint pendant les 40 s du smoke, laisse exactement la même révision non
+      # validée en vol. `failure()` seul ne s'y déclenche pas — c'est le cas que le paragraphe
+      # ci-dessus décrit, et il était le seul à ne pas être couvert (revue 1.11).
+      - name: Retirer le tag de la révision refusée
+        if: failure() || cancelled()
+        run: |
+          gcloud run services update-traffic "$SERVICE" --remove-tags="$TAG" \
+            --region="$REGION" --project="$PROJET" || \
+            echo "tag $TAG non retiré : le retirer à la main (la cause d'échec est plus haut)" >&2
+
+      - name: Résumé
+        run: |
+          url="$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJET" \
+                 --format='value(status.url)')"
+          {
+            echo "### Déployé : \`${{ steps.candidate.outputs.revision }}\` (version ${{ steps.sha.outputs.sha7 }})"
+            echo ""
+            echo "- URL : $url"
+            echo "- Retour arrière : \`gcloud run services update-traffic $SERVICE --to-revisions=<révision>=100 --region=$REGION --project=$PROJET\`"
+          } >> "$GITHUB_STEP_SUMMARY"

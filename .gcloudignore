@@ -1,0 +1,58 @@
+# Ce que `gcloud run deploy --source` téléverse dans le bucket de sources — et rien d'autre.
+#
+# **Pourquoi ce fichier existe alors que `.dockerignore` est là.** Les deux gouvernent deux étapes
+# différentes, et une seule des deux protège la clé. `.dockerignore` décide de ce qui entre dans le
+# *contexte de build* une fois l'archive arrivée chez Cloud Build ; `.gcloudignore` décide de ce qui
+# **quitte le poste**. Sans lui, gcloud applique un défaut implicite (dérivé de `.gitignore` quand le
+# dossier est un dépôt git) : le comportement est correct aujourd'hui, mais il est **hérité**, non
+# déclaré — il changerait avec une version de gcloud, ou avec un `git init` absent, et c'est
+# `.env` (la clé Anthropic) qui partirait alors dans un bucket. Une protection de secret ne se
+# déduit pas d'un fichier écrit pour autre chose.
+#
+# Ce que l'archive doit contenir : ce que l'image a besoin de construire — `Dockerfile`,
+# `pyproject.toml`, `uv.lock`, `server/`, `data/`, `web/`, `tools/`.
+
+# Secrets et configuration locale (AD-12 : aucune clé hors de Secret Manager)
+.env
+.env.*
+!.env.example
+*.key
+service-account*.json
+
+# Historique et métadonnées : l'archive est un instantané, pas un clone
+.git
+.gitignore
+.gcloudignore
+.github
+
+# Méthode et références de travail — hors du dépôt public, et a fortiori de l'image
+_bmad
+_bmad-output
+_reference
+.claude
+.agents
+
+# Ce qui ne sert pas à construire l'image (le `Dockerfile` ne les copie pas)
+tests
+docs
+scripts
+
+# Environnements et caches
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+node_modules
+
+# Sources non redistribuées : `fetch_source --all` les télécharge au build (FR32)
+data/*/source.pdf
+data/*/*.tmp
+
+# Bruit de poste
+.DS_Store
+.idea
+.vscode
+*.swp
