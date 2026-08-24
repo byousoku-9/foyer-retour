@@ -213,3 +213,5 @@ le détail dans `foyer.error` (AD-15/AD-16).
 | Pages, même origine | `curl -o /dev/null -w '%{http_code}'` sur `/`, `/guide/`, `/sinistre/` | `200 200 200` |
 | Journal | sortie standard d'uvicorn pendant les appels ci-dessus | une ligne JSON par requête (`request_id`, `intent`, `found`, `cost_eur`, `reason_kind`, `severity`) ; `grep` du texte de la question : **0 occurrence** |
 | Image Docker, reconstruite au sha final | `docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t foyer-retour:1.6-t3 .` puis `docker run -e PORT=9092 -p 9092:9092` | `/api/v1/sante` → 200, `version: "938a12e"` (le sha du commit de ce tour, pas celui de la base), `documents_servis` complet, `/`, `/guide/`, `/sinistre/` → 200, lignes de log JSON sur la sortie standard |
+
+Revue Codex : 4 bloquants / 2 importants, convergé en 3 tour(s) (boucle autonome).
