@@ -1033,28 +1033,35 @@
   var profil = window.CHAT.profilVide();
   var historique = [];
 
-  // La conversation et le profil sont conserves d'une visite a l'autre.
-  function sauverConversation() {
+  // AD-15 / UX-DR5 : le profil et les preferences survivent a la visite, **pas les conversations**.
+  // Le site d'origine enregistrait les quarante derniers tours dans le navigateur ; le projet
+  // promet, sous la saisie, qu'aucune conversation n'est conservee. Les deux ne peuvent pas etre
+  // vrais ensemble. L'historique ne vit plus qu'en memoire de page, le temps de l'echange.
+  function sauverProfil() {
     try {
       localStorage.setItem(STORAGE_CHAT, JSON.stringify({
         profil: profil,
-        historique: historique.slice(-40),
         maj: new Date().toISOString()
       }));
     } catch (e) { /* stockage indisponible */ }
   }
 
-  function chargerConversation() {
+  function chargerProfil() {
+    var d = null;
     try {
-      var d = JSON.parse(localStorage.getItem(STORAGE_CHAT) || "null");
-      if (!d || !d.historique) return false;
-      profil = d.profil || {};
-      historique = d.historique;
-      return historique.length > 0;
+      d = JSON.parse(localStorage.getItem(STORAGE_CHAT) || "null");
     } catch (e) { return false; }
+    if (!d) return false;
+    profil = d.profil || {};
+    // Un navigateur qui a visite le guide avant cette version porte encore la conversation
+    // d'alors. La lire serait deja la restaurer : on la reecrit sans elle des le chargement,
+    // plutot que d'attendre la prochaine ecriture.
+    if (d.historique) sauverProfil();
+    for (var k in profil) { if (Object.prototype.hasOwnProperty.call(profil, k)) return true; }
+    return false;
   }
 
-  function effacerConversation() {
+  function effacerProfil() {
     try { localStorage.removeItem(STORAGE_CHAT); } catch (e) {}
   }
 
@@ -1155,7 +1162,7 @@
         action: function () {
           profil[champ.cle] = o;
           bulle(window.CHAT.afficher(o), "me");
-          sauverConversation();
+          sauverProfil();
           setTimeout(poserProchaineQuestion, 260);
         }
       };
@@ -1174,7 +1181,7 @@
     if (!q) return;
     bulle(q, "me");
     historique.push({ role: "user", content: q });
-    sauverConversation();
+    sauverProfil();
 
     var attente = bulle("", "bot");
     attente.forEach(function (m) {
@@ -1221,7 +1228,7 @@
         if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
       });
       historique.push({ role: "assistant", content: r.texte });
-      sauverConversation();
+      sauverProfil();
       var b = $("#mode-badge");
       if (b) {
         b.textContent = "mode " + (r.via || "local");
@@ -1241,7 +1248,7 @@
     $("#chat-reset").addEventListener("click", function () {
       profil = window.CHAT.profilVide();
       historique = [];
-      effacerConversation();
+      effacerProfil();
       logsActifs().forEach(function (log) { log.innerHTML = ""; });
       rendreTimeline();
       rendreFiches();
@@ -1278,16 +1285,15 @@
       });
     }
 
-    // Reprise de la conversation precedente si elle existe
-    if (chargerConversation()) {
-      historique.forEach(function (m) {
-        bulle(m.content, m.role === "user" ? "me" : "bot");
-      });
-      bulle("Conversation reprise. Profil enregistré : " + window.CHAT.decrireProfil(profil) +
-        ".\nVous pouvez continuer, ou tout réinitialiser.", "bot");
+    // Le profil est repris, la conversation ne l'est pas (AD-15) : elle n'a jamais ete ecrite.
+    if (chargerProfil()) {
+      bulle("Profil enregistré : " + window.CHAT.decrireProfil(profil) +
+        ".\nLes conversations ne sont pas conservées : celle-ci repart de zéro. " +
+        "Posez votre question, ou réinitialisez.", "bot");
       // Le profil restaure personnalise le parcours et les fiches
       rendreTimeline();
       rendreFiches();
+      if (!window.CHAT.profilComplet(profil)) setTimeout(poserProchaineQuestion, 250);
     } else {
       demarrerChat();
     }
