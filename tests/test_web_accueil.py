@@ -163,6 +163,39 @@ def test_un_gate_non_contresigne_ne_dit_pas_relus_a_la_main(cas: dict[str, Any],
     assert "gate_countersigned" in code
 
 
+def test_le_readme_ne_decrit_pas_une_relecture_que_les_gates_livres_nattestent_pas() -> None:
+    """AD-16 : rien n'affirme ce que rien n'établit — et le README est une surface publique.
+
+    Revue Codex 1.10 tour 3, B2 : le tour 2 avait retiré « relus à la main » des deux fronts, mais la
+    prose du dépôt décrivait toujours l'état contresigné comme le comportement courant (« la sonde
+    répond avec un profil (“niveau de validation : vertical — N cas relus à la main”) »), alors
+    qu'aucun cas du dépôt n'est contresigné. Le symptôme cité par la revue avait disparu de la page ;
+    la même affirmation subsistait dans le fichier que lit qui n'ouvre pas la page.
+
+    Le garde-fou n'est pas un `grep` figé : il **relit `data/manifest.json`**. Tant qu'un gate livré
+    porte `countersigned: false`, le README ne décrit pas la phrase de l'état contresigné comme celle
+    que la sonde compose. La contresignature portée dans les deux cas et les gates rejoués, le test
+    se tait de lui-même et le README pourra reprendre la phrase de l'AC.
+
+    Portée : `README.md` seul. `docs/tests-live.md` est un journal daté de runs — il consigne ce qui
+    a été relevé à une date, et le réécrire serait la falsification inverse.
+    """
+    gates = [entree["gate"] for entree in
+             json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8")).values()
+             if isinstance(entree, dict) and entree.get("gate")]
+    assert gates, "le dépôt livre au moins un gate depuis la story 1.10"
+    if all(g.get("countersigned") for g in gates):
+        pytest.skip("tous les gates livrés sont contresignés : le README peut le dire")
+    motif = re.compile(r"niveau de validation\s*:[^»]*\brelus?\s+à\s+la\s+main")
+    fautes = [(n, ligne) for n, ligne in
+              enumerate((REPO_ROOT / "README.md").read_text("utf-8").splitlines(), 1)
+              if motif.search(ligne)]
+    assert not fautes, (
+        "le README décrit « relus à la main » comme la phrase affichée, alors que "
+        f"{sum(1 for g in gates if not g.get('countersigned'))} gate(s) livré(s) portent "
+        f"countersigned: false : {fautes}")
+
+
 def test_le_compte_de_cas_nest_pas_ecrit_dans_la_page(cas: dict[str, Any], code: str,
                                                       page: str) -> None:
     """D8 : « `gate_cases` vient du serveur ; “2 cas” n'est écrit nulle part dans la page ».
