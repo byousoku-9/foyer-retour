@@ -29,6 +29,10 @@
       <button role="tab" id="tab-assistant" data-panel="assistant" aria-selected="false" aria-controls="panel-assistant" tabindex="-1">Assistant</button>
     </nav>
     <div class="top-outils">
+      <!-- foyer-retour : le guide est servi sous /guide/ d'une origine qui a aussi un accueil et un
+           outil sinistre (AD-12). Un lien discret y ramène ; le style reprend celui des outils de
+           l'en-tête, en ligne pour ne pas toucher à styles.css. -->
+      <a id="retour-projet" class="outil" href="/" style="width:auto;padding:0 10px;font-size:13px;text-decoration:none;white-space:nowrap;" title="Retour à l'accueil du projet" aria-label="Retour à l'accueil du projet">&#8592; retour</a>
       <button id="theme-btn" class="outil" title="Changer de thème" aria-label="Changer de thème"></button>
       <button id="admin-btn" class="outil" data-panel="admin" title="Administration du contenu" aria-label="Administration du contenu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
