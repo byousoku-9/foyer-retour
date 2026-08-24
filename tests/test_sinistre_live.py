@@ -85,10 +85,14 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     cites = {q.block_id for c in answer.claims for q in c.quotes}
     assert cites & BLOCS_ATTENDUS, f"aucun des blocs témoins parmi {sorted(cites)}"
 
-    # (3) l'exclusion de la page 46 est écartée, jamais opposée en silence
+    # (3) l'exclusion de la page 46 est écartée, jamais opposée en silence. L'AC dit « absente ou
+    # `applicable="non"` », et `non` est bien atteignable : `p46:1` est typée `manual` dans l'overlay
+    # de 1.2 (donc `kind` confirmé) et porte une portée explicite (3.1.8.3 à 3.1.8.6) — les deux
+    # marches qui mèneraient sinon à `humain`. Accepter `humain` ici laisserait passer une régression
+    # du typage ou de la portée sans que rien ne le dise.
     affichee = next((c for c in answer.claims
                      if any(q.block_id == EXCLUSION_P46 for q in c.quotes)), None)
-    assert affichee is None or affichee.status.applicable in ("non", "humain")
+    assert affichee is None or affichee.status.applicable == "non"
 
     # chaque claim affichée porte un statut d'applicabilité typé, dérivé par le code (AD-4)
     documents = index.corpus.documents

@@ -132,8 +132,12 @@ def test_a_baseline_guarantee_alone_is_covered() -> None:
     assert v.value == "couvert" and v.missing.faits == [] and v.escalate == []
     assert v.missing.conditions_particulieres and v.missing.options_souscrites  # le paquet reste dû
     # AD-6 : « toujours avec le paquet manquant et les questions à poser » — même sur un `couvert`,
-    # qui ne vaut qu'au regard des conditions générales (D8).
-    assert len(v.ask_client) == 2 and all("Fait à établir" not in q for q in v.ask_client)
+    # qui ne vaut qu'au regard des conditions générales (D8). **Une question par pièce manquante** :
+    # annoncer quatre pièces absentes et n'en demander que deux laisserait le gestionnaire deviner.
+    assert len(v.ask_client) == 3 and all("Fait à établir" not in q for q in v.ask_client)
+    assert any("options" in q for q in v.ask_client)
+    assert any("conditions particulières" in q for q in v.ask_client)
+    assert any("avenant" in q and "date" in q for q in v.ask_client)
 
 
 def test_a_guarantee_with_an_open_condition_is_conditional() -> None:
@@ -216,14 +220,60 @@ def test_ask_client_is_deduplicated_and_bounded() -> None:
     """D8 : les libellés du modèle sont dédupliqués et bornés en nombre ; le reste est composé ici."""
     claims = [_claim(f"c{i}", "condition", _champs(False, manquant=f"fait {i % 2}")) for i in range(6)]
     claims.append(_claim("c9", "garantie", _champs(True, option=True)))
-    v = decider(claims, ask_client_max=4)
+    v = decider(claims, ask_client_max=5)
     assert v.missing.faits == ["fait 0", "fait 1"]  # six libellés, deux distincts
-    assert len(v.ask_client) == 4
+    assert len(v.ask_client) == 5
     assert v.ask_client[0].startswith("Quelles options") and "à cette condition" in v.ask_client[0]
     assert [q for q in v.ask_client if q.endswith("fait 0")] and [q for q in v.ask_client
                                                                   if q.endswith("fait 1")]
-    # la borne coupe les questions **et** les libellés retenus : rien n'est affiché hors quota
-    assert len(decider(claims, ask_client_max=2).ask_client) == 2
+
+
+def test_a_missing_fact_that_no_question_can_carry_is_not_announced_either() -> None:
+    """Revue 1.8 : `missing.faits` et `ask_client` disent la même chose, ou ne disent rien.
+
+    Les trois questions du paquet manquant occupent les premières places ; ce qu'elles laissent borne
+    les libellés du modèle. Sans cela, le front affichait « fait à établir : X » dans le paquet et
+    aucune question pour le demander — un manque annoncé que rien ne réclame.
+    """
+    claims = [_claim(f"c{i}", "condition", _champs(False, manquant=f"fait {i}")) for i in range(4)]
+    claims.append(_claim("c9", "garantie", _champs(True)))
+    # exactement la place du paquet : aucun libellé ne rentre, donc aucun n'est annoncé
+    juste = decider(claims, ask_client_max=3)
+    assert len(juste.ask_client) == 3 and juste.missing.faits == []
+    # une place de plus : le premier libellé entre, et il est **demandé**
+    une = decider(claims, ask_client_max=4)
+    assert une.missing.faits == ["fait 0"]
+    assert [q for q in une.ask_client if q.endswith("fait 0")]
+    # sous la taille du paquet, les questions elles-mêmes sont coupées, et rien n'est annoncé de plus
+    serre = decider(claims, ask_client_max=2)
+    assert len(serre.ask_client) == 2 and serre.missing.faits == []
+    # dans tous les cas, tout ce que `missing.faits` annonce a sa question
+    for v in (juste, une, serre):
+        assert all(any(q.endswith(libelle) for q in v.ask_client) for libelle in v.missing.faits)
+
+
+@pytest.mark.parametrize("kind", ["condition", "franchise"])
+@pytest.mark.parametrize("manquant", [None, "occupation permanente du bien"])
+def test_a_condition_or_a_franchise_is_never_declared_inapplicable(kind: str,
+                                                                   manquant: str | None) -> None:
+    """Revue 1.8 : `non` est réservé aux clauses fondatrices.
+
+    Sur une condition, `fait_requis_present=false` ne distingue pas « cette condition ne concerne pas
+    ce cas » de « cette condition n'est **pas remplie** ». Lire la première rendrait `non`, sortirait
+    la clause de la règle (2) et laisserait passer un `couvert` alors qu'une condition citée est en
+    défaut — l'inverse exact de la politique conservatrice d'AD-6.
+    """
+    claim = _claim("c1", kind, _champs(False, manquant=manquant))
+    assert applicable_de_claim(claim) == "humain"
+    garantie = _claim("c2", "garantie", _champs(True))
+    v = decider([garantie, claim], ask_client_max=ASK_MAX)
+    assert v.value == "sous_conditions"
+
+
+@pytest.mark.parametrize("kind", ["garantie", "exclusion"])
+def test_a_founding_clause_keeps_the_inapplicable_reading(kind: str) -> None:
+    """Le pendant : sur une garantie ou une exclusion, « connu et contraire » veut dire « pas ce cas »."""
+    assert applicable_de_claim(_claim("c1", kind, _champs(False))) == "non"
 
 
 def test_the_bougie_case_derives_exactly_as_the_spec_says() -> None:

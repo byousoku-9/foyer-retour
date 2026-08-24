@@ -20,7 +20,13 @@ from server.app.domain.answer import (
     VerifiedQuote,
 )
 from server.app.domain.verdict import Verdict
-from server.app.steps.restituer import PHRASES_DE_REFUS, restituer
+from server.app.steps.restituer import (
+    PHRASES_DE_REFUS,
+    PHRASES_DE_REFUS_SINISTRE,
+    REGISTRE_SINISTRE,
+    REGISTRES,
+    restituer,
+)
 
 
 def _claim(claim_id: str = "c1", *, pertinente: bool = True) -> VerifiedClaim:
@@ -202,3 +208,36 @@ def test_two_verdicts_for_one_answer_is_an_incoherent_call() -> None:
     with pytest.raises(ValueError, match="deux verdicts"):
         restituer(language="fr", verification=verification, reason=AbsenceProof(kind="claims_rejetes"),
                   verdict=_verdict("couvert"))
+
+
+# --- le registre du refus (story 1.8, revue) : le sinistre ne parle pas du guide ------
+@pytest.mark.parametrize("kind", sorted(PHRASES_DE_REFUS))
+def test_a_sinistre_refusal_never_serves_the_guide_sentences(kind: str) -> None:
+    """Le **texte servi** est celui du registre demandé, et il ne nomme pas le mauvais document.
+
+    Un gestionnaire qui vient de décrire un sinistre sur un contrat AXA lisait « Cette question sort
+    de ce que couvre **le guide** » : la seule phrase que l'utilisateur voit désignait un document que
+    sa requête ne touche pas.
+    """
+    answer, _step = restituer(language="fr", reason=AbsenceProof(kind=kind),
+                              registre=REGISTRE_SINISTRE)
+    assert answer.texte == PHRASES_DE_REFUS_SINISTRE[kind]
+    assert answer.segments == [AnswerSegment(text=answer.texte, kind="limite")]
+    assert "guide" not in answer.texte
+    assert answer.texte != PHRASES_DE_REFUS[kind]
+    # et le guide, lui, ne bouge pas d'un octet
+    guide, _s = restituer(language="fr", reason=AbsenceProof(kind=kind))
+    assert guide.texte == PHRASES_DE_REFUS[kind]
+
+
+def test_every_registry_covers_exactly_the_absence_kinds_of_ad4() -> None:
+    """Un registre traduit les mêmes situations ; il n'en ajoute ni n'en retire aucune."""
+    kinds = set(get_args(AbsenceProof.model_fields["kind"].annotation))
+    for nom, phrases in REGISTRES.items():
+        assert set(phrases) == kinds, nom
+        assert all(p.strip() for p in phrases.values()), nom
+
+
+def test_an_unknown_registry_is_an_incoherent_call() -> None:
+    with pytest.raises(ValueError, match="registre de refus inconnu"):
+        restituer(language="fr", reason=AbsenceProof(kind="zero_hit"), registre="autre")

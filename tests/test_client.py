@@ -526,3 +526,22 @@ async def test_count_tokens_maps_provider_errors() -> None:
 
 async def _raise_rate_limit(**kwargs):
     raise provider_exception(anthropic.RateLimitError)
+
+
+def test_new_budget_takes_the_active_settings_and_never_extends_the_deadline() -> None:
+    """Story 1.8 : `deadline_s` **raccourcit** la deadline du réglage, jamais l'inverse (NFR3).
+
+    `pipelines` ne peut pas construire un `RequestBudget` (table des couches) : il le demande au
+    client. Un appelant qui a déjà consommé du temps — un script, une éval qui enchaîne des cas — doit
+    pouvoir en demander moins ; lui laisser en demander **plus** offrirait, depuis l'extérieur du
+    serveur, un contournement de la deadline par requête.
+    """
+    settings = _settings(deadline_s=55.0, max_llm_attempts=6, max_cost_eur_per_request=0.10)
+    client, _fake = _client([], settings)
+    defaut = client.new_budget()
+    assert defaut.deadline_s == 55.0
+    assert defaut.max_attempts == 6 and defaut.max_cost_eur == 0.10
+    # une valeur plus petite passe telle quelle
+    assert client.new_budget(deadline_s=12.0).deadline_s == 12.0
+    # une valeur plus grande est ramenée au plafond du réglage
+    assert client.new_budget(deadline_s=600.0).deadline_s == 55.0

@@ -627,6 +627,14 @@ Q_CONDITION = "n'est acquise que si le bien est occupé de manière permanente"
 Q_DEFINITION = "contenu comprend le mobilier de jardin et les objets confiés"
 EXCLUSION_SOCLE = "Sont exclus les dommages causés intentionnellement par un Assuré, en toute circonstance."
 Q_EXCLUSION_SOCLE = "exclus les dommages causés intentionnellement par un Assuré"
+# Deux clauses que l'ingestion a marquées comme se contredisant (`Block.relation.contredit`).
+CONTREDIT_A = "Le vol de vélos rangés dans le garage est couvert sans limitation de montant."
+CONTREDIT_B = "Sont exclus les vols de vélos, quel que soit le lieu de rangement du bien."
+Q_CONTREDIT_A = "vol de vélos rangés dans le garage est couvert sans limitation"
+Q_CONTREDIT_B = "exclus les vols de vélos, quel que soit le lieu de rangement"
+# Une clause décisionnelle dont un renvoi n'a pas été résolu à l'ingestion.
+RENVOI_OUVERT = "La garantie tempête s'applique dans les limites fixées à l'article 12 des présentes."
+Q_RENVOI_OUVERT = "garantie tempête s'applique dans les limites fixées à l'article 12"
 
 FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
               description="Une bougie a mis le feu au mobilier de salon, sans embrasement.")
@@ -653,12 +661,23 @@ def contrat() -> Index:
          "kind_source": "model", "kind_confidence": 0.4, "scope_node_id": "cg:socle"},
         {"block_id": "cg:p1:6", "loc": "p1", "seq": 6, "kind": "exclusion", "text": EXCLUSION_SOCLE,
          "kind_source": "manual", "scope_node_id": "cg:socle"},
+        # AD-6, règle (0) : deux clauses que l'ingestion a marquées contradictoires. La relation est
+        # portée par le **bloc**, pas par la claim : c'est le corpus qui la donne au verdict.
+        {"block_id": "cg:p1:7", "loc": "p1", "seq": 7, "kind": "garantie", "text": CONTREDIT_A,
+         "kind_source": "manual", "scope_node_id": "cg:socle", "relation": {"contredit": "cg:p1:8"}},
+        {"block_id": "cg:p1:8", "loc": "p1", "seq": 8, "kind": "exclusion", "text": CONTREDIT_B,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        # AD-4/AD-6 : un renvoi que l'ingestion n'a pas résolu sur une clause décisionnelle.
+        {"block_id": "cg:p1:9", "loc": "p1", "seq": 9, "kind": "garantie", "text": RENVOI_OUVERT,
+         "kind_source": "manual", "scope_node_id": "cg:socle", "unresolved_refs": ["article 12"]},
     ]
     doc = Document(
         doc_id="cg", kind="contrat", title="Mini contrat", edition="juin 2017",
         nodes=[Node(node_id="cg:socle", level=1, title="Socle",
                     items=[{"block_id": "cg:p1:1"}, {"block_id": "cg:p1:3"}, {"block_id": "cg:p1:4"},
-                           {"block_id": "cg:p1:5"}, {"block_id": "cg:p1:6"}]),
+                           {"block_id": "cg:p1:5"}, {"block_id": "cg:p1:6"},
+                           {"block_id": "cg:p1:7"}, {"block_id": "cg:p1:8"},
+                           {"block_id": "cg:p1:9"}]),
                Node(node_id="cg:ext", level=1, title="Extensions", scope={"kind": "extension"},
                     items=[{"block_id": "cg:p1:2"}]),
                Node(node_id="cg:root", level=0, title="Contrat",
@@ -809,7 +828,9 @@ async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index)
     v, _step, _fake = await _verifier_sinistre(
         contrat, draft, [_applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)])])
     assert v.claims[0].status.applicable == "humain"
-    assert v.verdict is not None and v.verdict.value in ("sous_conditions", "ne_tranche_pas")
+    # Le modèle est scripté : la valeur est déterministe. La garantie n'est ni `oui` (règles 2 et 3)
+    # ni `humain` **par une option** (règle 2bis) — elle est `humain` par son typage. Reste (4).
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
     assert any("typage" in e for e in v.verdict.escalate)
 
 
@@ -883,3 +904,51 @@ async def test_a_verdict_other_than_ne_tranche_pas_always_rests_on_a_displayed_c
                    if contrat.corpus.documents["cg"].block(c.quotes[0].block_id).kind
                    in ("garantie", "exclusion")]
     assert fondatrices
+
+
+async def test_a_contradiction_declared_by_the_corpus_settles_nothing(contrat: Index) -> None:
+    """AD-6, règle (0), **depuis le corpus** : `Block.relation.contredit` entre deux claims affichées.
+
+    Le drapeau `ClaimJugee.contredit` n'est jamais posé à la main par le pipeline : c'est
+    `_marquer_contradictions` qui le lit sur les blocs relus, et il ne le pose que quand les **deux**
+    passages sont cités par deux claims affichées différentes — un bloc qui contredit un passage que
+    personne ne montre ne met rien en balance sous les yeux de l'utilisateur.
+    """
+    draft = _draft_libre(
+        ("Le vol de vélos au garage est couvert.", "factuel", ["c1"]),
+        ("Le vol de vélos est exclu.", "factuel", ["c2"]),
+        claims=[("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]),
+                ("c2", "Le vol de vélos est exclu.", [("cg:p1:8", Q_CONTREDIT_B)])])
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", True, False, False, None),
+        verdicts=[("c1", True), ("c2", True)])])
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert "contredisent" in v.verdict.reason
+    assert any("arbitrage humain" in e for e in v.verdict.escalate)
+    # AD-6 : « les deux passages restent affichés »
+    assert {c.claim_id for c in v.claims} == {"c1", "c2"}
+
+
+async def test_a_contradiction_with_a_passage_nobody_shows_is_not_one(contrat: Index) -> None:
+    """La garantie `cg:p1:7` déclare contredire `cg:p1:8`, mais aucune claim ne cite `cg:p1:8`."""
+    draft = _draft(("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]))
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), verdicts=[("c1", True)])])
+    assert v.verdict is not None and v.verdict.value == "couvert"
+
+
+async def test_an_unresolved_reference_read_from_the_corpus_settles_nothing(contrat: Index) -> None:
+    """AD-4/AD-6 : `Block.unresolved_refs` sur une claim décisionnelle ⇒ `ne_tranche_pas`.
+
+    Le renvoi est lu sur le bloc du corpus, pas déclaré par le test : sans lui, la garantie serait
+    `oui` et du socle, donc `couvert` — c'est exactement le verdict qu'un renvoi ouvert interdit.
+    """
+    draft = _draft(("c1", "La garantie tempête s'applique dans certaines limites.",
+                    [("cg:p1:9", Q_RENVOI_OUVERT)]))
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"  # la clause s'applique…
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"  # …mais rien ne se tranche
+    assert "renvoie" in v.verdict.reason
+    assert any("renvoi" in e for e in v.verdict.escalate)
+    assert v.complete is False  # AD-4 : un renvoi non résolu interdit déjà `complete`

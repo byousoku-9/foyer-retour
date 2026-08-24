@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,24 @@ def test_defaults_match_spine_hypotheses() -> None:
     # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
     assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
     assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 1024
+    # story 1.8 : contrat servi par le pipeline sinistre, et les bornes de son appel groupé
+    assert s.sinistre_doc_id == "axa-lu-optihome-2017"
+    assert s.verifier_sinistre_max_tokens == 2048
+    assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
+
+
+def test_the_served_documents_of_the_defaults_exist_in_the_real_corpus() -> None:
+    """Les deux `*_doc_id` par défaut désignent des documents que le corpus livré sert vraiment.
+
+    Tous les tests de pipeline les surchargent par un corpus synthétique : une faute de frappe dans le
+    défaut ne se verrait donc nulle part, et **toute** requête non paramétrée ressortirait en 503
+    `corpus_unavailable` — en production d'abord (revue 1.8). Le manifeste suffit à le dire, sans
+    charger les documents.
+    """
+    s = Settings(_env_file=None)
+    manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
+    servis = set(manifest.get("documents", manifest))
+    assert {s.guide_doc_id, s.sinistre_doc_id} <= servis, sorted(servis)
 
 
 def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:

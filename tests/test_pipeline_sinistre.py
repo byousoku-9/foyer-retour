@@ -134,6 +134,17 @@ async def _run(index: Index, script: list, *, settings: Settings | None = None,
     return answer, trace, fake
 
 
+def _questions_attendues(verdict) -> bool:
+    """AD-6 : « toujours avec le paquet manquant **et les questions à poser** ».
+
+    Les quatre pièces annoncées manquantes doivent chacune avoir sa question — sans quoi le
+    gestionnaire lit quatre absences et se voit demander deux choses (revue 1.8).
+    """
+    questions = " ".join(verdict.ask_client).lower()
+    return ("options" in questions and "conditions particulières" in questions
+            and "avenant" in questions and "date" in questions)
+
+
 GAR = ("c1", "Les dégâts au mobilier par action subite de la chaleur sont couverts.",
        [(f"{DOC_ID}:p1:2", Q_GARANTIE)])
 DEF = ("c2", "Le contenu comprend le mobilier.", [(f"{DOC_ID}:p1:4", Q_DEFINITION)])
@@ -160,8 +171,10 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(index
     assert answer.found is True
     verdict = answer.verdict
     assert verdict is not None
-    # exclusion p2:1 écartée (`non` : elle vise les extensions), garantie incertaine (`humain`)
-    assert verdict.value in ("sous_conditions", "ne_tranche_pas")
+    # Le modèle est **intégralement scripté** : la valeur est déterministe, elle se fixe. Exclusion
+    # p2:1 écartée (`non` : elle vise les extensions), garantie incertaine (`humain` par son fait
+    # manquant), aucune garantie `oui` ni exclusion `oui` ⇒ règle (4) de la table.
+    assert verdict.value == "ne_tranche_pas"
     statuts = {c.claim_id: c.status.applicable for c in answer.claims}
     assert statuts == {"c1": "humain", "c2": None, "c3": "non"}
     assert verdict.missing.faits == ["caractère subit de l'action de la chaleur"]
@@ -197,8 +210,8 @@ async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
         _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
     assert answer.verdict is not None and answer.verdict.value == "couvert"
     assert answer.verdict.escalate == [] and answer.verdict.missing.faits == []
-    # AD-6 : même un `couvert` s'accompagne du paquet manquant et des questions à poser
-    assert len(answer.verdict.ask_client) == 2
+    # AD-6 : même un `couvert` s'accompagne du paquet manquant et des **quatre** pièces demandées
+    assert _questions_attendues(answer.verdict)
 
 
 async def test_an_open_condition_keeps_the_verdict_conditional(index: Index) -> None:
@@ -206,6 +219,20 @@ async def test_an_open_condition_keeps_the_verdict_conditional(index: Index) -> 
         _comprendre(), _rediger(GAR, COND),
         _verifier(("c1", True, True, False, False, None),
                   ("c5", True, False, False, False, "occupation permanente du bien"))])
+    assert answer.verdict is not None and answer.verdict.value == "sous_conditions"
+
+
+async def test_a_condition_not_met_never_yields_a_covered_verdict(index: Index) -> None:
+    """Revue 1.8 (P1) : une condition citée dont le fait exigé n'est **pas** établi ouvre le verdict.
+
+    Le modèle rend ici `fait_requis_present=false` sans nommer de fait manquant — la lecture naturelle
+    de « le bien n'est pas occupé de manière permanente ». Traiter cela comme `non` sortirait la
+    condition de la règle (2) et rendrait `couvert` sur un dossier dont une condition est en défaut.
+    """
+    answer, _trace, _fake = await _run(index, [
+        _comprendre(), _rediger(GAR, COND),
+        _verifier(("c1", True, True, False, False, None), ("c5", True, False, False, False, None))])
+    assert [c.status.applicable for c in answer.claims] == ["oui", "humain"]
     assert answer.verdict is not None and answer.verdict.value == "sous_conditions"
 
 
@@ -230,6 +257,10 @@ async def test_a_rejected_claim_triggers_one_retry_then_refuses_with_a_verdict(i
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert answer.rejected_claims and all(c.rejection_kind == "non_retrouvee"
                                           for c in answer.rejected_claims)
+    # le dossier qui a le plus besoin d'être complété est aussi celui qu'on questionne (revue 1.8)
+    assert _questions_attendues(answer.verdict)
+    # et la phrase servie est celle du **sinistre**, pas celle du guide
+    assert "clause" in answer.texte and "guide" not in answer.texte
 
 
 async def test_a_claim_mixing_two_clauses_is_sent_back_to_the_writer(index: Index) -> None:
@@ -244,8 +275,13 @@ async def test_a_claim_mixing_two_clauses_is_sent_back_to_the_writer(index: Inde
     assert [s.name for s in trace.steps].count("verifier") == 2
     assert answer.found is True and answer.verdict is not None
     assert answer.verdict.value == "couvert"  # l'exclusion des extensions ne couvre pas le cas
-    motifs = [c.motif for c in answer.rejected_claims]
-    assert not motifs or all("clause" in m for m in motifs)
+    # La claim mêlée a bien été rejetée par la **première** vérification — c'est elle qui a nourri la
+    # relance. Elle ne figure plus dans la réponse servie parce que la seconde vérification domine et
+    # la remplace en entier (AD-3) ; c'est la trace qui garde la preuve du rejet.
+    premiere = next(s for s in trace.steps if s.name == "verifier")
+    citations = next(c for c in premiere.checks if c.name == "citations")
+    assert citations.ok is False and "1 rejetée(s) sur 1" in citations.detail
+    assert answer.rejected_claims == []  # la seconde ébauche, éclatée, ne rejette rien
 
 
 # --- bornes d'entrée : rien de facturé -----------------------------------------
@@ -260,11 +296,39 @@ async def test_an_unknown_variant_is_refused_before_any_billed_call(index: Index
 
 
 async def test_an_oversized_description_is_rejected_never_truncated(index: Index) -> None:
-    with pytest.raises(InvalidRequest, match="hors bornes"):
+    # la borne citée dans le message vient du schéma, pas d'une constante recopiée (revue 1.8)
+    assert sinistre._DESCRIPTION_MAX == 2000
+    with pytest.raises(InvalidRequest, match="2000 caractères"):
         await _run(index, [], faits={"description": "x" * 2001})
     # le domaine porte la même borne : le pipeline ne fait que lui donner son code d'erreur
     with pytest.raises(ValueError):
         Faits(description="x" * 2001)
+
+
+@pytest.mark.parametrize("mal_forme", ["une description libre", ["description"], 42])
+async def test_malformed_facts_are_a_bad_request_not_an_internal_error(index: Index,
+                                                                       mal_forme: object) -> None:
+    """AD-16 : un corps que le serveur ne sait pas lire est un 400, jamais un 500 `internal`.
+
+    `dict(faits)` lève `ValueError`/`TypeError` sur une chaîne, une liste ou un entier : hors du
+    `try`, ces trois-là ressortaient en erreur interne alors que l'appelant a simplement mal formé
+    son corps (revue 1.8).
+    """
+    with pytest.raises(InvalidRequest, match="objet lisible"):
+        await _run(index, [], faits=mal_forme)
+
+
+async def test_a_budget_and_a_deadline_are_exclusive(index: Index) -> None:
+    """Revue 1.8 : `deadline_s` était ignoré en silence quand un budget était fourni.
+
+    Le budget porte sa deadline et son horloge court déjà : accepter les deux laissait l'appelant
+    croire qu'il bornait la requête alors qu'il ne bornait rien.
+    """
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=FakeAnthropic([]))
+    with pytest.raises(InvalidRequest, match="exclusifs"):
+        await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+                           settings=settings, request_id="r", budget=_budget(), deadline_s=5.0)
 
 
 # --- court-circuits d'AD-5, toujours avec un verdict ----------------------------
@@ -275,6 +339,9 @@ async def test_an_out_of_scope_request_is_refused_after_one_micro_call(index: In
     assert answer.found is False and answer.reason is not None
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert answer.verdict.escalate  # AD-16 : le dossier repart à la main, ce n'est pas un repli
+    assert _questions_attendues(answer.verdict)
+    # le texte servi parle du **contrat**, pas du guide (revue 1.8)
+    assert "assurance habitation" in answer.texte and "guide" not in answer.texte
 
 
 async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Index) -> None:
@@ -283,6 +350,8 @@ async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Ind
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert _questions_attendues(answer.verdict)
+    assert "aucune clause du contrat" in answer.texte.lower() and "guide" not in answer.texte
 
 
 async def test_a_request_that_cannot_be_made_autonomous_still_carries_a_verdict(index: Index) -> None:
@@ -290,6 +359,8 @@ async def test_a_request_that_cannot_be_made_autonomous_still_carries_a_verdict(
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.clarification == "De quel bien parlez-vous ?"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert _questions_attendues(answer.verdict)
+    assert "contrat" in answer.texte and "guide" not in answer.texte
 
 
 # --- retrieval : les clauses passent devant à score égal (D7) --------------------

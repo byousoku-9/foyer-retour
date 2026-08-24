@@ -133,7 +133,7 @@ def test_layer_dependencies(layer: str) -> None:
     assert not violations, "\n".join(violations)
 
 
-def test_the_verdict_table_is_pure_code(tmp_path: Path) -> None:
+def test_the_verdict_table_is_pure_code() -> None:
     """AD-6 (story 1.8) : `domain/verdict.py` porte le découpage d'exécution — le **code** décide.
 
     `check_external("domain")` couvre déjà toute la couche, mais l'invariant vaut d'être nommé pour ce
