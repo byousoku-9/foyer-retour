@@ -569,8 +569,11 @@ async function main() {
   // --- un 200 dont le corps ne tient pas le contrat ----------------------
   {
     // Le corps est du JSON valide, mais il ne tient pas le contrat **réellement servi** : champ
-    // obligatoire de `ChatResponse` absent (`texte`, `answer`, `trace`), champ obligatoire de
-    // `Trace` absent (`request_id`, `pipeline`), ou invariant d'`Answer._found_coherence` violé.
+    // obligatoire absent, au premier étage (`texte`, `answer`, `trace`) comme dans les objets
+    // imbriqués que l'écran consomme (`Trace.request_id`/`pipeline`, `AbsenceProof.kind`,
+    // `AnswerSegment.text`/`kind`, `SourceItem.block_id`/`quote`/`status`, `VerifiedClaim.quotes`
+    // non vide et `.status`) ; `null` sur un champ à valeur par défaut (aucun n'est `| None` dans le
+    // contrat) ; ou invariant d'`Answer._found_coherence` violé.
     // Une valeur par défaut à leur place peignait un `{}` en réponse « inconnu », l'ajoutait à
     // l'historique et la faisait repartir au serveur : c'est la « réponse vide présentée comme
     // réponse » d'AD-16. Chacun de ces corps est **aussi** rejeté par `ChatResponse.model_validate()`
@@ -584,6 +587,7 @@ async function main() {
                  text_start: 0, text_end: 10 }],
       status: { retrouvee: true, pertinente: true, applicable: null, edition: "git:a8e8593" },
     };
+    const ANSWER_OK = { found: true, complete: true, claims: [CLAIM] };
     const corps = {
       vide: {},
       sans_answer: { texte: "Vous avez huit jours.", trace: TRACE },
@@ -622,6 +626,50 @@ async function main() {
                                  trace: TRACE },
       sources_non_liste: { texte: "x", answer: { found: true, complete: true, claims: [CLAIM] },
                            trace: TRACE, sources: { 0: {} } },
+      // --- `null` n'est pas l'absence -----------------------------------
+      // Aucun champ a valeur par defaut du contrat n'est `| None` : pydantic refuse `null` comme il
+      // refuse une chaine a la place d'une liste. Les convertir en silence en valeur par defaut
+      // peignait une reponse a partir d'un corps qu'aucune route ne peut ecrire (revue Codex 1.7,
+      // B2, tour 3).
+      segments_nuls: { texte: "x", answer: ANSWER_OK, trace: TRACE, segments: null },
+      sources_nulles: { texte: "x", answer: ANSWER_OK, trace: TRACE, sources: null },
+      fiches_nulles: { texte: "x", answer: ANSWER_OK, trace: TRACE, fiches: null },
+      unknown_nul: { texte: "x", answer: ANSWER_OK, trace: TRACE, unknown: null },
+      comparateur_nul: { texte: "x", answer: ANSWER_OK, trace: TRACE, comparateur: null },
+      via_nul: { texte: "x", answer: ANSWER_OK, trace: TRACE, via: null },
+      cout_nul: { texte: "x", answer: ANSWER_OK,
+                  trace: { request_id: "r-x", pipeline: "guide", total_cost_eur: null } },
+      answer_claims_nulles: { texte: "x", trace: TRACE,
+                              answer: { found: false, complete: false, reason: REASON,
+                                        claims: null } },
+      answer_unknown_nul: { texte: "x", trace: TRACE,
+                            answer: { found: true, complete: false, claims: [CLAIM],
+                                      unknown: null } },
+      // --- la preuve d'absence est un `AbsenceProof`, pas un objet quelconque ---
+      // `reason.kind` est le seul champ obligatoire d'`AbsenceProof`, et celui dont l'ecran depend :
+      // `clarification_requise` supprime la preuve chiffree, les trois autres l'affichent. Un
+      // `reason: {}` passait pour un refus muni d'une preuve « 0 variante, 0 passage » que rien
+      // n'avait calculee.
+      answer_reason_vide: { texte: "x", trace: TRACE,
+                            answer: { found: false, complete: false, reason: {} } },
+      answer_reason_kind_inconnu: { texte: "x", trace: TRACE,
+                                    answer: { found: false, complete: false,
+                                              reason: { kind: "autre" } } },
+      answer_reason_termes_nuls: { texte: "x", trace: TRACE,
+                                   answer: { found: false, complete: false,
+                                             reason: { kind: "zero_hit", terms_searched: null } } },
+      // --- les champs obligatoires des objets imbriques que l'ecran consomme ---
+      segment_sans_kind: { texte: "x", answer: ANSWER_OK, trace: TRACE,
+                           segments: [{ text: "Vous avez huit jours." }] },
+      source_sans_quote: { texte: "x", answer: ANSWER_OK, trace: TRACE,
+                           sources: [{ block_id: "lux-guide:farrivee:2", status: "verifiee" }] },
+      claim_sans_quote: { texte: "x", trace: TRACE,
+                          answer: { found: true, complete: true,
+                                    claims: [{ ...CLAIM, quotes: [] }] } },
+      claim_sans_status: { texte: "x", trace: TRACE,
+                           answer: { found: true, complete: true,
+                                     claims: [{ claim_id: CLAIM.claim_id, text: CLAIM.text,
+                                                quotes: CLAIM.quotes }] } },
       ancien_contrat: { reponse: "Vous avez huit jours.", sources: [] },
     };
     cas.contrat_incomplet = {};

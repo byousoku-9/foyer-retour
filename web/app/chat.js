@@ -786,6 +786,142 @@ window.CHAT = (function () {
 
   function estObjet(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 
+  // ---------- Les trois formes d'exigence du contrat ----------
+  //
+  // `ChatResponse` et les modeles du domaine distinguent trois choses ; la lecture du front doit les
+  // distinguer aussi, sous peine d'etre soit plus permissive que le contrat (un corps que personne
+  // n'a pu servir, peint en reponse : la « reponse vide presentee comme reponse » d'AD-16), soit
+  // plus stricte que lui (une reponse servie transformee en « assistant indisponible ») :
+  //
+  //   - **obligatoire** (`texte`, `answer`, `trace`, `Trace.request_id`, `AbsenceProof.kind`,
+  //     `AnswerSegment.kind`, `SourceItem.quote`…) : absent, pydantic refuse de monter l'objet —
+  //     aucune route du projet n'a donc pu ecrire ce corps ;
+  //   - **a valeur par defaut** (`sources`, `unknown`, `via`, `terms_searched`, `total_cost_eur`…) :
+  //     l'**absence** est normale, mais `null` **n'est pas** l'absence. Aucun de ces champs n'est
+  //     `| None` dans le contrat : pydantic refuse `null` comme il refuse une chaine a la place
+  //     d'une liste. Le convertir en silence en valeur par defaut, c'etait a nouveau peindre une
+  //     reponse a partir d'un corps qu'aucune route ne peut ecrire ;
+  //   - **nullable** (`reason`, `clarification`, `fiche_id`, `url`, `pertinente`…) : `null` est une
+  //     valeur du contrat, et se lit comme telle.
+  //
+  // Les types **imbriques** comptent autant que le premier etage, parce que ce sont eux que l'ecran
+  // consomme : `reason.kind` decide de la preuve chiffree, `segments[].kind` de la mise en forme,
+  // `sources[].block_id` de l'appariement citation ↔ phrase, `claims[].quotes[]` de son enumeration.
+  // Un `reason: {}` passait ainsi pour un refus muni d'une preuve « 0 variante essayee, 0 passage
+  // parcouru » que rien n'avait calculee (revue Codex 1.7, B2, tour 3).
+  //
+  // Ce qui n'est **pas** verifie ici l'est deliberement : pydantic lit en mode permissif (`"4"` vaut
+  // `4`), et refuser ce qu'il accepte ferait disparaitre une reponse reellement servie.
+  // `tests/test_web_chat.py` tient les deux bords — tout corps refuse ici doit l'etre par
+  // `ChatResponse.model_validate()`, et tout corps serialise par `ChatResponse` doit etre peint.
+
+  function exigerChaine(v, nom) { if (typeof v !== "string") throw illisible(nom); }
+
+  function exigerObjet(v, nom) { if (!estObjet(v)) throw illisible(nom); }
+
+  // Un champ a valeur par defaut : absent, on rend `undefined` ; `null`, c'est une casse.
+  function defaut(v, nom) {
+    if (v === null) throw illisible(nom);
+    return v;
+  }
+
+  function listeDefaut(v, nom) {
+    var l = defaut(v, nom);
+    if (l === undefined) return [];
+    if (!Array.isArray(l)) throw illisible(nom);
+    return l;
+  }
+
+  function listeDeChaines(v, nom) {
+    var l = listeDefaut(v, nom);
+    for (var i = 0; i < l.length; i++) {
+      if (typeof l[i] !== "string") throw illisible(nom + "[" + i + "]");
+    }
+    return l;
+  }
+
+  // Un champ nullable de type chaine : absent ou `null` ⇒ rien, sinon une chaine.
+  function chaineNullable(v, nom) {
+    if (v === undefined || v === null) return null;
+    exigerChaine(v, nom);
+    return v;
+  }
+
+  function litteral(v, valeurs, nom) {
+    for (var i = 0; i < valeurs.length; i++) { if (v === valeurs[i]) return v; }
+    throw illisible(nom);
+  }
+
+  var KINDS_ABSENCE = ["hors_perimetre", "zero_hit", "claims_rejetes", "clarification_requise"];
+  var KINDS_SEGMENT = ["factuel", "transition", "limite"];
+
+  // `AbsenceProof` (AD-4) : `kind` est le seul champ obligatoire, et c'est celui dont l'ecran depend
+  // le plus — `clarification_requise` supprime la preuve chiffree, les trois autres l'affichent.
+  function verifierPreuve(r, nom) {
+    exigerObjet(r, nom);
+    litteral(r.kind, KINDS_ABSENCE, nom + ".kind");
+    listeDeChaines(r.terms_searched, nom + ".terms_searched");
+    listeDeChaines(r.documents, nom + ".documents");
+    defaut(r.variants_count, nom + ".variants_count");
+    defaut(r.blocks_scanned, nom + ".blocks_scanned");
+  }
+
+  // `AnswerSegment` : `text` et `kind` sont obligatoires ; `claim_ids` porte l'appariement.
+  function verifierSegments(v, nom) {
+    var l = listeDefaut(v, nom);
+    for (var i = 0; i < l.length; i++) {
+      var ou = nom + "[" + i + "]";
+      exigerObjet(l[i], ou);
+      exigerChaine(l[i].text, ou + ".text");
+      litteral(l[i].kind, KINDS_SEGMENT, ou + ".kind");
+      listeDeChaines(l[i].claim_ids, ou + ".claim_ids");
+    }
+    return l;
+  }
+
+  // `SourceItem` : `block_id`, `quote` et `status` sont obligatoires — ce sont les trois que la
+  // citation affiche, et `block_id` est ce sur quoi l'appariement se verifie a chaque pas.
+  function verifierSources(v, nom) {
+    var l = listeDefaut(v, nom);
+    for (var i = 0; i < l.length; i++) {
+      var ou = nom + "[" + i + "]";
+      exigerObjet(l[i], ou);
+      exigerChaine(l[i].block_id, ou + ".block_id");
+      exigerChaine(l[i].quote, ou + ".quote");
+      exigerChaine(l[i].status, ou + ".status");
+      if (defaut(l[i].titre, ou + ".titre") !== undefined) exigerChaine(l[i].titre, ou + ".titre");
+      chaineNullable(l[i].fiche_id, ou + ".fiche_id");
+      chaineNullable(l[i].url, ou + ".url");
+    }
+    return l;
+  }
+
+  // `VerifiedClaim` : la forme d'une claim, sans son invariant de coherence (celui-ci depend de
+  // `found` et se juge plus bas). `quotes` a un `min_length=1` — une claim sans citation relue ne
+  // peut pas exister, et l'appariement lit `sources[]` au rythme de cette enumeration.
+  function verifierClaims(v, nom) {
+    var l = listeDefaut(v, nom);
+    for (var i = 0; i < l.length; i++) {
+      var ou = nom + "[" + i + "]";
+      exigerObjet(l[i], ou);
+      exigerChaine(l[i].claim_id, ou + ".claim_id");
+      exigerChaine(l[i].text, ou + ".text");
+      var quotes = l[i].quotes;
+      if (!Array.isArray(quotes) || !quotes.length) throw illisible(ou + ".quotes");
+      for (var q = 0; q < quotes.length; q++) {
+        var oq = ou + ".quotes[" + q + "]";
+        exigerObjet(quotes[q], oq);
+        exigerChaine(quotes[q].block_id, oq + ".block_id");
+        exigerChaine(quotes[q].quote, oq + ".quote");
+      }
+      var st = l[i].status;
+      exigerObjet(st, ou + ".status");
+      if (typeof st.retrouvee !== "boolean") throw illisible(ou + ".status.retrouvee");
+      exigerChaine(st.edition, ou + ".status.edition");
+    }
+    return l;
+  }
+
   // Les invariants d'`Answer._found_coherence` (`server/app/domain/answer.py`), refaits ici. Le
   // serveur ne peut pas servir un corps qui les viole — pydantic refuse de monter l'objet — donc un
   // corps qui les viole ne vient pas du serveur et n'est pas une reponse. Ils comptent a l'ecran :
@@ -793,83 +929,77 @@ window.CHAT = (function () {
   // preuve d'absence sur `reason` ; un `found=true` sans claim peindrait « sûr » sur une reponse
   // sans une seule citation relue, un `found=false` sans `reason` un refus sans sa preuve chiffree.
   function verifierAnswer(a) {
-    var claims = a.claims;
-    if (claims !== undefined && claims !== null && !Array.isArray(claims)) {
-      throw illisible("answer.claims");
-    }
-    claims = Array.isArray(claims) ? claims : [];
-    var unknown = a.unknown;
-    if (unknown !== undefined && unknown !== null && !Array.isArray(unknown)) {
-      throw illisible("answer.unknown");
-    }
-    unknown = Array.isArray(unknown) ? unknown : [];
-    // « found=False exige une preuve d'absence (reason) ».
+    var claims = verifierClaims(a.claims, "answer.claims");
+    var unknown = listeDeChaines(a.unknown, "answer.unknown");
+    verifierSegments(a.segments, "answer.segments");
+    if (defaut(a.texte, "answer.texte") !== undefined) exigerChaine(a.texte, "answer.texte");
+    chaineNullable(a.clarification, "answer.clarification");
+    // « found=False exige une preuve d'absence (reason) » — et cette preuve est un `AbsenceProof`
+    // entier, pas un objet quelconque : c'est `reason.kind` qui decide de ce qui s'affiche.
+    if (a.reason !== undefined && a.reason !== null) verifierPreuve(a.reason, "answer.reason");
     if (!a.found && !estObjet(a.reason)) throw illisible("answer.reason");
     // « found=True exige au moins une claim retrouvée et pertinente » ∧ « found=False exige claims=[] ».
     if (a.found !== (claims.length > 0)) throw illisible("answer.claims");
     // « claims[] ne contient que des claims retrouvee ∧ pertinente ».
     for (var i = 0; i < claims.length; i++) {
-      var statut = claims[i] && claims[i].status;
-      if (!estObjet(statut) || statut.retrouvee !== true || statut.pertinente !== true) {
-        throw illisible("answer.claims");
-      }
+      var statut = claims[i].status;
+      if (statut.retrouvee !== true || statut.pertinente !== true) throw illisible("answer.claims");
     }
     // « complete=True exige found=True et unknown=[] ».
     if (a.complete && (!a.found || unknown.length > 0)) throw illisible("answer.complete");
   }
 
+  // `Trace` : deux champs sans valeur par defaut, `request_id` et `pipeline` — les deux qui relient
+  // l'ecran a la ligne de log (AD-10). `total_cost_eur` porte le cout affiche en pied (NFR4).
+  function verifierTrace(t) {
+    exigerObjet(t, "trace");
+    exigerChaine(t.request_id, "trace.request_id");
+    exigerChaine(t.pipeline, "trace.pipeline");
+    defaut(t.total_cost_eur, "trace.total_cost_eur");
+  }
+
   // Lecture **stricte** du contrat d'AD-11. Plus jamais `j.reponse` (le serveur rend `texte`), et
   // les sources affichees sont **celles du serveur** : `rechercher()` n'intervient plus ici.
   //
-  // « Stricte » se lit litteralement : les champs **obligatoires** de `ChatResponse` (`texte`,
-  // `answer`, `trace` — les trois sans valeur par defaut) et les deux booleens obligatoires
-  // d'`Answer` (`found`, `complete`) sont **exiges**. Une valeur par defaut a leur place peignait un
-  // corps `{}` en reponse « inconnu », l'ajoutait a l'historique et la faisait repartir au serveur :
-  // c'est la « reponse vide presentee comme reponse » qu'AD-16 nomme. Un 200 incomplet n'est pas une
-  // reponse degradee, c'est un serveur casse — donc `reponse_illisible`, comme un corps non-JSON, et
-  // sans bouton de repli (ce n'est pas une indisponibilite au sens d'AD-11).
+  // « Stricte » se lit litteralement, et sur le contrat **entier** : les trois champs obligatoires
+  // de `ChatResponse` (`texte`, `answer`, `trace`), les deux booleens obligatoires d'`Answer`, les
+  // invariants de son `_found_coherence`, les deux champs obligatoires de `Trace`, et les champs
+  // obligatoires des objets imbriques que l'ecran consomme (`AbsenceProof.kind`,
+  // `AnswerSegment.text`/`kind`, `SourceItem.block_id`/`quote`/`status`, `VerifiedClaim.quotes`…).
+  // Une valeur par defaut a leur place peignait un corps incomplet en reponse, l'ajoutait a
+  // l'historique et le faisait repartir au serveur : c'est la « reponse vide presentee comme
+  // reponse » qu'AD-16 nomme. Un 200 incomplet n'est pas une reponse degradee, c'est un serveur
+  // casse — donc `reponse_illisible`, comme un corps non-JSON, et sans bouton de repli (ce n'est pas
+  // une indisponibilite au sens d'AD-11).
   //
-  // « Obligatoire » se lit sur le contrat **entier**, pas sur son premier etage : `Trace` exige
-  // `request_id` et `pipeline` (les deux seuls champs sans defaut), et `Answer` porte les
-  // invariants de son `_found_coherence` — un `found=true` sans claim, un `found=false` sans preuve
-  // d'absence, un `complete=true` sur une reponse non trouvee ou trouee sont des corps que le
-  // serveur ne peut **pas** produire (pydantic les refuse au montage). Les accepter revenait a
-  // peindre en reponse ce qu'aucun serveur du projet n'a servi, avec un etat (`sur` / `partiel` /
-  // `inconnu`) calcule sur des booleens qui se contredisent : la meme « reponse vide presentee
-  // comme reponse » d'AD-16, une couche plus bas. `lireReponse()` refait donc ces invariants —
-  // `tests/test_web_chat.py` les amarre a `Answer.model_validate()` pour qu'ils ne divergent pas.
-  //
-  // Les champs a valeur par defaut (`segments`, `sources`, `fiches`, `unknown`, `comparateur`,
-  // `via`) restent tolerants a l'**absence** — le serveur les serialise toujours, mais leur defaut
-  // est defini par le contrat lui-meme. Ils ne sont pas tolerants au **mauvais type** : un
-  // `sources: {}` la ou le contrat promet une liste est la meme casse silencieuse.
+  // Les champs a valeur par defaut restent tolerants a l'**absence** — leur defaut est defini par le
+  // contrat lui-meme — mais ni au **mauvais type**, ni a `null` : voir le commentaire des trois
+  // formes d'exigence, plus haut.
   function lireReponse(j) {
     var o = j || {};
-    if (typeof o.texte !== "string") throw illisible("texte");
-    if (!estObjet(o.answer)) throw illisible("answer");
+    exigerChaine(o.texte, "texte");
+    exigerObjet(o.answer, "answer");
     if (typeof o.answer.found !== "boolean") throw illisible("answer.found");
     if (typeof o.answer.complete !== "boolean") throw illisible("answer.complete");
     verifierAnswer(o.answer);
-    if (!estObjet(o.trace)) throw illisible("trace");
-    if (typeof o.trace.request_id !== "string") throw illisible("trace.request_id");
-    if (typeof o.trace.pipeline !== "string") throw illisible("trace.pipeline");
-    var listes = ["segments", "sources", "fiches", "unknown"];
-    for (var i = 0; i < listes.length; i++) {
-      var nom = listes[i];
-      if (o[nom] !== undefined && o[nom] !== null && !Array.isArray(o[nom])) throw illisible(nom);
-    }
-    if (o.comparateur !== undefined && o.comparateur !== null &&
-        typeof o.comparateur !== "boolean") throw illisible("comparateur");
-    if (o.via !== undefined && o.via !== null && typeof o.via !== "string") throw illisible("via");
+    verifierTrace(o.trace);
+    var segments = verifierSegments(o.segments, "segments");
+    var sources = verifierSources(o.sources, "sources");
+    var fiches = listeDeChaines(o.fiches, "fiches");
+    var unknown = listeDeChaines(o.unknown, "unknown");
+    var comparateur = defaut(o.comparateur, "comparateur");
+    if (comparateur !== undefined && typeof comparateur !== "boolean") throw illisible("comparateur");
+    var via = defaut(o.via, "via");
+    if (via !== undefined) exigerChaine(via, "via");
     return {
       texte: o.texte,
-      segments: Array.isArray(o.segments) ? o.segments : [],
-      sources: Array.isArray(o.sources) ? o.sources : [],
-      fiches: Array.isArray(o.fiches) ? o.fiches : [],
-      unknown: Array.isArray(o.unknown) ? o.unknown : [],
-      comparateur: o.comparateur === true,
+      segments: segments,
+      sources: sources,
+      fiches: fiches,
+      unknown: unknown,
+      comparateur: comparateur === true,
       answer: o.answer,
-      via: typeof o.via === "string" ? o.via : "api/v1",
+      via: via === undefined ? "api/v1" : via,
       trace: o.trace
     };
   }

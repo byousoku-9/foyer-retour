@@ -288,6 +288,19 @@ CONTRATS_INCOMPLETS = [
     ("answer_complete_avec_unknown", "answer.complete"),
     ("answer_claims_non_liste", "answer.claims"),
     ("sources_non_liste", "sources"), ("ancien_contrat", "texte"),
+    # `null` n'est pas l'absence : aucun champ à valeur par défaut du contrat n'est `| None`.
+    ("segments_nuls", "segments"), ("sources_nulles", "sources"), ("fiches_nulles", "fiches"),
+    ("unknown_nul", "unknown"), ("comparateur_nul", "comparateur"), ("via_nul", "via"),
+    ("cout_nul", "trace.total_cost_eur"), ("answer_claims_nulles", "answer.claims"),
+    ("answer_unknown_nul", "answer.unknown"),
+    # La preuve d'absence est un `AbsenceProof` entier, pas un objet quelconque.
+    ("answer_reason_vide", "answer.reason.kind"),
+    ("answer_reason_kind_inconnu", "answer.reason.kind"),
+    ("answer_reason_termes_nuls", "answer.reason.terms_searched"),
+    # Les champs obligatoires des objets imbriqués que l'écran consomme.
+    ("segment_sans_kind", "segments[0].kind"), ("source_sans_quote", "sources[0].quote"),
+    ("claim_sans_quote", "answer.claims[0].quotes"),
+    ("claim_sans_status", "answer.claims[0].status"),
 ]
 
 
@@ -297,7 +310,12 @@ def test_un_200_qui_ne_tient_pas_le_contrat_nest_pas_peint(cas: dict[str, Any], 
     """AD-16 prévient « réponse vide présentée comme réponse ». Une valeur par défaut à la place d'un
     champ obligatoire peignait un corps `{}` en réponse « inconnu », l'ajoutait à l'historique et le
     faisait repartir au serveur au tour suivant. Un 200 incomplet est un serveur cassé, pas une
-    réponse dégradée : `reponse_illisible`, comme un corps non-JSON."""
+    réponse dégradée : `reponse_illisible`, comme un corps non-JSON.
+
+    « Incomplet » se lit sur le contrat **entier** : les objets imbriqués que l'écran consomme ont
+    eux aussi des champs obligatoires (`AbsenceProof.kind` décide de la preuve chiffrée affichée), et
+    `null` n'est **pas** l'absence — aucun champ à valeur par défaut de `ChatResponse` n'est `| None`,
+    donc pydantic refuse `null` là où il accepte l'omission."""
     vu = cas["contrat_incomplet"][nom]
     assert vu["a_repondu"] is False, f"{nom} a été peint comme une réponse"
     assert (vu["kind"], vu["code"]) == ("requete", "reponse_illisible")
