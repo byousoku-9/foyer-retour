@@ -481,7 +481,10 @@
     <div class="card chat-wrap">
       <div class="chat-log" id="chat-log" role="log" aria-live="polite" aria-atomic="false"></div>
       <div class="chat-bar">
-        <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off">
+        <!-- `maxlength` = la borne de `ChatRequest.question` (1 000). C'est le 400 le plus
+             probable des trois, et le seul que le navigateur puisse éviter tout seul. -->
+        <input type="text" id="chat-input" placeholder="Posez votre question..." autocomplete="off"
+               maxlength="1000" aria-describedby="confid-chat">
         <button class="btn" id="chat-send">Envoyer</button>
         <button class="btn ghost" id="chat-reset" title="Réinitialiser le profil">Réinitialiser</button>
       </div>
@@ -490,12 +493,12 @@
       Les réponses proviennent des fiches de ce guide : chaque phrase affichée est adossée à un
       passage relu dans la source, et ce que l'assistant ne sait pas, il le dit.
     </p>
-    <!-- AD-15 / UX-DR5 : la mention vit sous la saisie, pas dans une page de mentions légales. -->
-    <p class="hint confid">
-      Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du
-      modèle (Anthropic), qui indique dans sa politique publique ne pas conserver ce contenu par
-      défaut. Le serveur n'enregistre aucune conversation ; votre navigateur ne garde que votre
-      profil et vos préférences d'affichage.
+    <!-- AD-15 / UX-DR5 : la mention vit sous la saisie, pas dans une page de mentions légales,
+         et elle est rattachée à la saisie par `aria-describedby`. Une seule formulation, ici,
+         dans le panneau flottant et dans `web/README.md` : trois versions d'une même promesse
+         donnent trois promesses. La date est celle de la lecture de la politique. -->
+    <p class="hint confid" id="confid-chat">
+      Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic), dont la politique publique, lue le 23/08/2026, indique que ce contenu n'est pas conservé par défaut. Aucune conversation n'est enregistrée : ni par le serveur, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
     </p>
   </section>
 
@@ -591,12 +594,11 @@
   </div>
   <div class="chat-log" id="widget-log" role="log" aria-live="polite" aria-atomic="false"></div>
   <div class="chat-bar">
-    <input type="text" id="widget-input" placeholder="Posez votre question..." autocomplete="off">
+    <input type="text" id="widget-input" placeholder="Posez votre question..." autocomplete="off"
+           maxlength="1000" aria-describedby="confid-widget">
     <button class="btn" id="widget-send">Envoyer</button>
-    <p class="hint confid">
-      Question et profil envoyés au serveur de ce site puis au fournisseur du modèle (Anthropic,
-      contenu non conservé par défaut selon sa politique publique). Aucune conversation n'est
-      enregistrée, ni sur le serveur ni dans ce navigateur.
+    <p class="hint confid" id="confid-widget">
+      Votre question et votre profil sont envoyés au serveur de ce site, puis au fournisseur du modèle (Anthropic), dont la politique publique, lue le 23/08/2026, indique que ce contenu n'est pas conservé par défaut. Aucune conversation n'est enregistrée : ni par le serveur, ni dans ce navigateur, qui ne garde que votre profil et vos préférences d'affichage.
     </p>
   </div>
 </div>
