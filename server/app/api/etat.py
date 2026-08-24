@@ -30,6 +30,11 @@ from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide
 from server.app.pipelines.sinistre import run as executer_sinistre
 
+# Logger de module, comme `api/main`, `api/request_id` et `api/errors` (`foyer.*`) : un
+# `getLogger("foyer")` posé en ligne d'appel n'aurait pas de nom propre, donc pas de filtre possible,
+# et un test ne saurait pas quoi capturer.
+LOG = logging.getLogger("foyer.etat")
+
 DATA_DIR = REPO_ROOT / "data"
 DICTIONARY = "dictionary.json"
 RAPPORT = "report.json"
@@ -296,7 +301,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         # AD-7 : une incohérence est visible, jamais muette. L'alerte de `/sante` est lue par la page
         # d'accueil ; ce `warning` est lu par celui qui regarde le journal de démarrage du conteneur —
         # c'est-à-dire par celui qui vient de déployer, au moment où il peut encore le défaire.
-        logging.getLogger("foyer").warning(
+        LOG.warning(
             "ungated_en_production : ALLOW_UNGATED=true avec ENV=prod — des documents sans gate "
             "valide seraient servis avec une simple alerte sans_gate")
     return EtatApp(

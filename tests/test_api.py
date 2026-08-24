@@ -810,6 +810,28 @@ def test_sante_dit_null_sur_les_deux_quand_aucun_document_nest_servi(prod: TestC
     assert j["documents_servis"] == [] and j["gate_profile"] is None and j["gate_cases"] is None
 
 
+def test_une_derogation_armee_en_production_est_annoncee_au_journal_de_demarrage(
+        caplog: pytest.LogCaptureFixture) -> None:
+    """La moitié de la promesse qui atteint l'opérateur au moment du déploiement (D7).
+
+    Trois documents l'annoncent — `Dockerfile`, `.env.example`, README — et l'alerte de `/sante` ne
+    la couvre pas : elle est lue par la page d'accueil, pas par celui qui vient de pousser une
+    révision. Sans cette assertion, supprimer l'avertissement laissait la suite verte.
+    """
+    with caplog.at_level(logging.WARNING, logger="foyer.etat"):
+        with TestClient(create_app(_settings(env="prod", allow_ungated=True))):
+            pass
+    messages = [r.message for r in caplog.records if r.name == "foyer.etat"]
+    assert any("ungated_en_production" in m and "ALLOW_UNGATED" in m for m in messages), messages
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="foyer.etat"):
+        with TestClient(create_app(_settings(env="dev", allow_ungated=True))):
+            pass
+    assert not [r for r in caplog.records if "ungated_en_production" in r.message], \
+        "en dev, la dérogation est le mode de travail normal : l'annoncer serait du bruit"
+
+
 def test_une_derogation_armee_en_production_est_annoncee_sur_sante() -> None:
     """D7/AD-7 : `ALLOW_UNGATED` reste possible, elle cesse d'être muette.
 
@@ -913,28 +935,29 @@ def test_lalias_chat_rend_exactement_le_meme_contrat(prod: TestClient) -> None:
     assert a == b
 
 
-def test_allow_ungated_de_limage_se_retire_des_quun_gate_existe() -> None:
-    """Garde-fou de la ligne `ENV ALLOW_UNGATED=true` du `Dockerfile` (AD-7).
+def test_limage_narme_plus_allow_ungated_maintenant_que_les_gates_existent() -> None:
+    """Garde-fou de la ligne `ENV` du `Dockerfile` (AD-7), **inversé** par la story 1.10.
 
-    Elle n'y est que parce qu'aucun document n'a encore de gate : sans elle, l'image de production
-    mettrait les deux documents en quarantaine et répondrait 503 à toute question. Le commentaire du
-    `Dockerfile` dit qu'elle se retire à la fin de la story 1.10 — un commentaire ne garantit rien.
-    Ce test échoue le jour où le premier gate est écrit : c'est le rappel, en dur.
+    Posé en 1.6, il échouait le jour où le premier gate apparaîtrait alors que la ligne
+    `ENV ALLOW_UNGATED=true` était encore là. Ce jour est arrivé, la ligne est partie, et l'invariant
+    s'est retourné : tant qu'un gate existe, l'image ne doit **plus** armer la dérogation. Le laisser
+    en `skip` aurait fait d'un test devenu vert par disparition de son objet un test qui ne dit plus
+    rien — et rien n'empêcherait de remettre la ligne demain.
     """
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    if "ALLOW_UNGATED=true" not in dockerfile:
-        pytest.skip("la ligne a été retirée : le garde-fou n'a plus d'objet")
     manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_bytes())
     gates = [doc_id for doc_id, e in manifest.items() if e.get("gate") is not None]
-    assert not gates, (
-        f"un gate existe désormais ({gates}) : retirer `ENV ALLOW_UNGATED=true` du Dockerfile, "
-        "sinon l'image continuerait de servir des documents non validés avec une simple alerte")
+    assert gates, "aucun gate : relancer `python -m server.evals.run --gate {doc_id}`"
+    lignes_env = [l for l in dockerfile.splitlines() if l.startswith("ENV ")]
+    assert not any("ALLOW_UNGATED" in l for l in lignes_env), (
+        f"un gate existe ({gates}) et le Dockerfile arme encore ALLOW_UNGATED : l'image servirait "
+        "des documents non validés avec une simple alerte que personne ne regarde")
 
 
 # --- pages statiques (AD-12) ---------------------------------------------
 
-@pytest.mark.parametrize("chemin", ["/", "/guide/", "/guide/app/kb.js", "/guide/app/styles.css",
-                                    "/sinistre/"])
+@pytest.mark.parametrize("chemin", ["/", "/accueil.js", "/guide/", "/guide/app/kb.js",
+                                    "/guide/app/styles.css", "/sinistre/", "/sinistre/sinistre.js"])
 def test_les_pages_sont_servies_sur_la_meme_origine(prod: TestClient, chemin: str) -> None:
     assert prod.get(chemin).status_code == 200
 

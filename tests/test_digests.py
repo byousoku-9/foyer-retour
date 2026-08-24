@@ -106,16 +106,51 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
     """
     import json
 
-    from server.app.config import REPO_ROOT
-    from server.evals.run import CASES_DIR, charger_cas
+    from server.app.config import REPO_ROOT, Settings
+    from server.evals.run import CASES_DIR, charger_cas, suite_du_document
 
+    reglages = Settings(_env_file=None)
     manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
-    settings_doc = {"lux-guide": "guide", "axa-lu-optihome-2017": "sinistre"}
-    for doc_id, suite in settings_doc.items():
+    for doc_id in (reglages.guide_doc_id, reglages.sinistre_doc_id):
+        suite = suite_du_document(reglages, doc_id)
         gate = manifest[doc_id]["gate"]
         assert gate is not None, f"{doc_id} n'a pas de gate : relancer `evals run --gate {doc_id}`"
         cas = charger_cas(CASES_DIR, suites=(suite,))
         fichiers = [CASES_DIR / c.suite / f"{c.id}.yaml" for c in cas]
         assert gate["cases_hash"] == cases_hash(fichiers, CASES_DIR), (
-            f"le golden set de la suite {suite} a changé depuis le gate de {doc_id}")
+            f"le golden set de la suite {suite} a changé depuis le gate de {doc_id} : "
+            f"relancer `uv run python -m server.evals.run --gate {doc_id} --profile vertical`")
         assert gate["cases"] == len(cas)
+
+
+def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
+    """AD-7 : un `pipeline_digest`/`prompts_digest`/`model_ids` ≠ l'image ⇒ alerte `gate_perime`.
+
+    L'alerte laisse le document **servi** — c'est ce qu'AD-7 veut — et rien, hors ligne, ne disait
+    qu'elle allait se lever : `test_repo_data_loads` charge sans `current=`, et les tests de `/sante`
+    n'assertent que des valeurs que `gate_perime` ne change pas. Concrètement, la première story qui
+    touche `steps/`, `pipelines/`, `corpus/`, `llm/` ou un prompt rendait les deux gates périmés
+    pendant que l'accueil continuait d'annoncer « vertical — 2 cas relus à la main », sans qu'un seul
+    test rougisse.
+
+    Ce test est ce rappel, et son message est la procédure : relancer les deux gates. C'est le pendant
+    exact du garde-fou d'`ALLOW_UNGATED` posé en 1.6 — un commentaire ne garantit rien, un test si.
+    """
+    import json
+
+    from server.app.config import REPO_ROOT, Settings
+    from server.app.llm.models import TIERS
+
+    reglages = Settings(_env_file=None)
+    manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
+    attendus = {"pipeline_digest": pipeline_digest(), "prompts_digest": prompts_digest(),
+                "model_ids": dict(TIERS)}
+    for doc_id in (reglages.guide_doc_id, reglages.sinistre_doc_id):
+        gate = manifest[doc_id]["gate"]
+        assert gate is not None, f"{doc_id} n'a pas de gate"
+        for champ, attendu in attendus.items():
+            assert gate[champ] == attendu, (
+                f"{doc_id} : le gate porte un {champ} qui n'est plus celui de l'image — le serveur "
+                f"le servira avec l'alerte `gate_perime` pendant que `/` annoncera son profil. "
+                f"Relancer : `uv run python -m server.evals.run --gate {doc_id} --profile vertical` "
+                f"(≈ 0,05 € par document, clé requise).")
