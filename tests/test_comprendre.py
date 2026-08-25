@@ -235,6 +235,20 @@ async def test_scope_fields_and_term_cleanup_are_converted() -> None:
     assert parsed.scope.cause is None and parsed.scope.moment is None
 
 
+async def test_le_sinistre_canonise_le_synonyme_contractuel_sans_inventer_le_sujet() -> None:
+    """Story 2.7 : le modèle a choisi l'animal ; le code ne corrige que le mot du contrat."""
+    sortie = _sortie(terms=["dégâts des eaux", "dommages causés par un animal", "mobilier"],
+                      themes=[])
+    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
+    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
+    assert parsed.terms == ["dégâts des eaux", "dégâts causés par un animal", "mobilier"]
+
+    # Le guide n'est pas un contrat : la même chaîne y reste intacte.
+    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
+    parsed, _step = await _comprendre(client)
+    assert parsed.terms == ["dégâts des eaux", "dommages causés par un animal", "mobilier"]
+
+
 async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -> None:
     client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
     historique = [Turn(role="user", texte="on arrive en mars"), Turn(role="assistant", texte="bien noté")]

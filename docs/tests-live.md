@@ -2391,7 +2391,7 @@ Conclusion : campagne A interrompue après un défaut corrigé mais non revalid�
 préparée mais non exécutée. Reprise exacte après recharge : redémarrer le serveur, confirmer d'abord le
 cas « huit jours », rejouer A en entier, puis exécuter B1–B10 sans remplacer aucun énoncé.
 
-### Reprise après recharge — le rappel guide est confirmé, le cas multiple reste bloquant
+### Reprise après recharge — le rappel guide et le cas multiple sont confirmés
 
 La clé réelle répond de nouveau le 25/08/2026. Les deux gates `vertical` ont été rejoués sur les
 digests courants : `lux-guide` passe 1/1 à 0,0236 € et `axa-lu-optihome-2017` passe 1/1 à 0,0506 € ;
@@ -2405,9 +2405,24 @@ appel de contrôle, dont la projection locale a échoué après réception, avai
 météo et « ? » refusent sans *retrouver* à 0,0008 € chacun ; l'entrée vide rend 400 sans appel.
 
 Le cas chien rend 200 à 0,0373 €, retrouve et cite l'exclusion `p35:2`. Le cas « mon chat a mangé la
-Lune » rend 200 à 0,0033 €, `hors_perimetre`, sans clause ni verdict inventé. En revanche, le cas à
-deux dommages ne satisfait pas le critère de cadrage sur cette reprise : le premier run rend 200 à
-0,0480 € et retrouve la garantie dégâts des eaux, mais l'exclusion animale n'entre pas dans le
-contexte ; le second run s'arrête en 503 `budget_exceeded` après 0,0796 €. Conformément au `Block If`
-de la story, la campagne s'arrête là : poursuivre B1–B10 ou déclarer la story livrée fabriquerait une
-preuve alors qu'un cas explicitement bloquant reste rouge.
+Lune » rend 200 à 0,0033 €, `hors_perimetre`, sans clause ni verdict inventé. Le premier passage du
+cas à deux dommages rend toutefois 200 à 0,0480 € avec la garantie seule ; le second s'arrête en 503
+`budget_exceeded` après 0,0796 €. La campagne s'arrête alors sur ce bloquant, avant B1–B10.
+
+**Diagnostic isolé, avant tout appel aval.** Deux appels réels de *comprendre* à 0,0040 € chacun
+rendent la même notion sous la forme `dommages causés par un animal`, malgré la consigne qui demande
+`dégâts causés par un animal`. Avec les termes bruts du modèle, `p37:13` est rang 4, tandis que
+`p35:2` est hors des dix premiers. Un durcissement textuel du prompt est essayé puis retiré : deux
+nouveaux appels à 0,0039 € gardent exactement le même synonyme. Le modèle a bien choisi le sujet
+complet « causés par un animal » ; seul le mot lexical du contrat diverge.
+
+La correction canonise donc ce seul synonyme complet après *comprendre*, seulement pour le sinistre :
+elle ne déduit jamais l'animal depuis « chien » ou « mâchonnement », n'ajoute aucun sujet et ne change
+aucun seuil. Deux nouveaux diagnostics réels rendent `dégâts des eaux`, `dégâts causés par un animal`
+et les autres termes choisis par le modèle ; à 0,0040 € chacun, `p35:2` est rang 1 et `p37:13` rang 5.
+
+Deux runs HTTP complets consécutifs confirment ensuite le critère : 200 à 0,0419 € puis 200 à
+0,0462 €, `p35:2` et `p37:13` présents dans le contexte dans les deux runs. L'exclusion `p35:2` est
+aussi citée dans les deux réponses ; la garantie est citée via `p37:14`. Après le correctif, les gates
+`vertical` sont réécrits sur le pipeline courant : guide 1/1 à 0,0252 €, contrat 1/1 à 0,0739 €,
+toujours `countersigned=false`.

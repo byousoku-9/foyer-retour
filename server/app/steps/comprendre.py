@@ -65,6 +65,20 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 # évals, et est bien un champ de `Settings` (`libelle_max_chars`).
 LISTE_MAX = LISTE_MAX_ITEMS
 
+# Story 2.7 : le modèle choisit toujours le sujet recherché ; ce petit alias ne l'infère jamais
+# depuis les faits. Il corrige uniquement le synonyme exact observé deux fois en live après que le
+# modèle a déjà choisi la notion contractuelle complète « causés par un animal ». Le contrat écrit
+# « dégâts », pas « dommages » : sans cette canonisation lexicale, les quatre autres mots ne donnent
+# qu'un partiel et l'exclusion sort du `search_limit`. Ce n'est ni un seuil, ni une ontologie, ni un
+# nouveau moteur de recherche — seulement la forme du corpus pour un sujet déjà décidé.
+_TERMES_CONTRACTUELS: dict[str, str] = {
+    "dommages causés par un animal": "dégâts causés par un animal",
+}
+
+
+def _canoniser_termes_contractuels(terms: list[str]) -> list[str]:
+    return [_TERMES_CONTRACTUELS.get(term.casefold(), term) for term in terms]
+
 
 class SortieComprendre(DomainModel):
     """Sortie structurée de l'appel `micro` : plate, tous champs requis (aucun défaut).
@@ -275,6 +289,8 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         # muet laisse la liste vide, et `complete` restera `False` faute de preuve.
         terms, hors_terms = _libelles(out.terms, max_chars=settings.libelle_max_chars,
                                       garder=settings.question_max_terms)
+        if prompt == "comprendre_sinistre":
+            terms = _canoniser_termes_contractuels(terms)
         facettes, hors_facettes = _libelles(out.facettes, max_chars=settings.libelle_max_chars,
                                             garder=settings.question_max_facettes)
         themes, hors_themes = _libelles(out.themes, max_chars=settings.libelle_max_chars,
