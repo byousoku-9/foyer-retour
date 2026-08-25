@@ -2012,6 +2012,11 @@ par *rédiger* ont ensuite été rejouées avec `ANTHROPIC_API_KEY=`.
 | `lux-guide`, profil `vertical` | `g-luxtrust-prix` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0219 € | 11,8 s |
 | `axa-lu-optihome-2017`, profil `vertical` | `s-bougie-canape` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0343 € | 19,8 s |
 
+Les deux gates ont été rejoués **une seconde fois** après les correctifs de revue, qui touchent de
+nouveau `steps/` et `pipelines/` : `lux-guide` 0,0275 €, `axa-lu-optihome-2017` 0,0423 €, mêmes
+labels, `evals_ok=true` les deux fois. Ce sont ces derniers gates que `data/manifest.json` porte et
+que `tests/test_digests.py` compare à l'image courante.
+
 Signature de fidélité des six retraductions attendue de **Lancelot : en attente** (input humain non
 bloquant). La validation humaine de `data/dictionary.json` reste elle aussi due ; tant que
 `validated=false`, les variantes multilingues sont utilisées mais le refus « zéro hit » reste
