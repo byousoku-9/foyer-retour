@@ -2066,10 +2066,17 @@ servie ramenait `language` à `fr` alors que la question posée restait, elle, d
 `clarification` en de (allemand), quelle que soit la langue de la question »), sur le patron du
 `tail` de *rédiger* — jamais dans le préfixe, qui est le seul segment caché (AD-9) et reste
 byte-identique. La langue **détectée**, elle, n'est connue qu'après la réponse : la clarification est
-alors déjà écrite, et `ClarificationRequise.clarification_affichable` rend `None`. La question n'est
-pas affichée, le refus français de *restituer* dit toujours qu'il faut préciser, `lang_fallback` dit
-pourquoi la réponse est en français, et le retrait est **tracé**
-(`CheckResult(name="clarification_non_affichable")`, le fait, jamais le texte — AD-10).
+alors déjà écrite, et le tour 1 a conclu qu'il fallait ne **pas l'afficher**
+(`ClarificationRequise.clarification_affichable` rendant `None`), le refus français de *restituer*
+disant toujours qu'il faut préciser.
+
+> **Infirmé au tour 2 de la même revue (NB1)** — voir « Revue Codex 2.4, tour 2 » plus bas. Retirer
+> la question était une régression d'AD-5 (« une anaphore non résoluble … produit
+> `Answer.clarification: str` ») et de l'AC 2.2 (la page reconduit cette question en tour
+> d'historique). Elle est de nouveau servie ; ce qui est publié, c'est la divergence de langue
+> (`Answer.lang_fallback`, plus le check `clarification_langue_non_affirmee`). Seule la moitié
+> « langue forcée » de ce paragraphe tient encore. La moitié infirmée reste écrite ici : c'est un
+> journal, pas un état.
 
 ### Ce qu'une consigne ajoutée à *comprendre* déplace (mesuré le 2026-08-25)
 
