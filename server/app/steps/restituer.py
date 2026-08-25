@@ -38,7 +38,7 @@ from server.app.domain.answer import (
     Verification,
 )
 from server.app.domain.langue import LANGUES_SERVIES
-from server.app.domain.question import QuestionScope
+from server.app.domain.question import Faits, QuestionScope
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.domain.verdict import Verdict
 from server.app.llm.models import STEP_TIERS
@@ -180,6 +180,18 @@ REGISTRES: dict[str, dict[str, dict[str, str]]] = {
     REGISTRE_GUIDE: PHRASES_DE_REFUS,
     REGISTRE_SINISTRE: PHRASES_DE_REFUS_SINISTRE,
 }
+
+# Une réponse sinistre doit garder lisibles les repères que *comprendre* a déjà extraits et bornés,
+# même lorsque *rédiger* va droit aux clauses. Ce ne sont pas des affirmations sur le contrat : ils
+# sont explicitement présentés comme les faits déclarés, dans un segment `transition` sans claim.
+# Le registre traduit uniquement le libellé composé par le code ; le contenu recopie la description
+# HTTP bornée. `QuestionScope.moment` décide seulement si cette chronologie doit précéder les clauses.
+REPERES_DECLARATION: dict[str, str] = {
+    "fr": "Faits déclarés",
+    "en": "Reported facts",
+    "de": "Gemeldete Tatsachen",
+    "pt": "Factos declarados",
+}
 # Invariant de chargement : aucun registre n'invente ni n'oublie un kind d'`AbsenceProof`. Un `KeyError`
 # à la première phrase de refus servie serait un 500 sur le chemin le plus exposé (AD-16).
 _LANGUES_MANQUANTES = {
@@ -192,6 +204,7 @@ _MANQUANTS = {
     for lang in set(LANGUES_SERVIES) & set(phrases)
 }
 _LANGUES_LACUNES_MANQUANTES = set(LANGUES_SERVIES) ^ set(PHRASES_DE_LACUNE)
+_LANGUES_REPERES_MANQUANTES = set(LANGUES_SERVIES) ^ set(REPERES_DECLARATION)
 _KINDS_LACUNE = set(get_args(LacuneKind))
 _LACUNES_MANQUANTES = {
     lang: _KINDS_LACUNE ^ set(PHRASES_DE_LACUNE[lang])
@@ -207,12 +220,14 @@ _FORMES_LACUNES_INVALIDES = {
         or (kind not in LACUNES_PLURALISEES
             and (not isinstance(patron, str) or not patron.strip())))
 }
-if (any(_LANGUES_MANQUANTES.values()) or _LANGUES_LACUNES_MANQUANTES
+if (any(_LANGUES_MANQUANTES.values()) or _LANGUES_LACUNES_MANQUANTES or _LANGUES_REPERES_MANQUANTES
         or any(_MANQUANTS.values()) or any(_LACUNES_MANQUANTES.values())
         or _FORMES_LACUNES_INVALIDES):
     differences = {**_LANGUES_MANQUANTES, **_MANQUANTS, **_LACUNES_MANQUANTES}
     if _LANGUES_LACUNES_MANQUANTES:
         differences["lacunes.langues"] = _LANGUES_LACUNES_MANQUANTES
+    if _LANGUES_REPERES_MANQUANTES:
+        differences["reperes.langues"] = _LANGUES_REPERES_MANQUANTES
     if _FORMES_LACUNES_INVALIDES:
         differences["lacunes.formes"] = _FORMES_LACUNES_INVALIDES
     raise RuntimeError(f"registre(s) de refus incomplet(s) : "
@@ -222,6 +237,25 @@ if (any(_LANGUES_MANQUANTES.values()) or _LANGUES_LACUNES_MANQUANTES
 def _texte(segments: list[AnswerSegment]) -> str:
     """Rendu déterministe : les textes des segments survivants, dans l'ordre, séparés par une espace."""
     return " ".join(s.text.strip() for s in segments if s.text.strip())
+
+
+def _reperes_declares(scope: QuestionScope | None, faits: Faits | None,
+                      language: str) -> AnswerSegment | None:
+    """Recopie le fait déclaré quand *comprendre* a identifié une chronologie.
+
+    `QuestionScope.moment` est le signal structurel : aucun vocabulaire de cas n'est recherché. Le
+    texte affiché vient toutefois de `Faits.description`, et non du résumé du modèle, car un résumé
+    peut perdre précisément « depuis des mois » ou « d'un coup ». Cette entrée HTTP est déjà bornée
+    par le domaine ; la recopier ne crée ni fait, ni interprétation, ni nouveau seuil.
+    """
+    if scope is None or faits is None or not (scope.moment or "").strip():
+        return None
+    description = faits.description.strip()
+    if not description:
+        return None
+    suffixe = "" if description.endswith((".", "!", "?")) else "."
+    return AnswerSegment(text=f"{REPERES_DECLARATION[language]} — {description}{suffixe}",
+                         kind="transition")
 
 
 def _rendre_lacune(lacune: Lacune, language: str) -> str:
@@ -249,6 +283,7 @@ def restituer(*, language: str, lang_fallback: bool = False,
               verification: Verification | None = None,
               reason: AbsenceProof | None = None, clarification: str | None = None,
               verdict: Verdict | None = None, faits_compris: QuestionScope | None = None,
+              faits_declares: Faits | None = None,
               registre: str = REGISTRE_GUIDE) -> tuple[Answer, StepTrace]:
     """`Answer` + son `StepTrace`. `reason` est obligatoire dès que la vérification n'a rien retenu.
 
@@ -340,6 +375,13 @@ def restituer(*, language: str, lang_fallback: bool = False,
     segments = [AnswerSegment(text=s.text, kind=s.kind,
                               claim_ids=[cid for cid in s.claim_ids if cid in survivantes])
                 for s in segments]
+    reperes = (_reperes_declares(faits_compris, faits_declares, language)
+               if registre == REGISTRE_SINISTRE else None)
+    if reperes is not None:
+        # Ajout après *vérifier* : ce segment ne prétend rien sur le contrat et ne doit donc pas être
+        # évalué contre une quote. Il recopie seulement la projection bornée des faits déclarés que
+        # l'unique `Answer` publie déjà dans `faits_compris`.
+        segments = [reperes, *segments]
     texte = _texte(segments)
     if not any(s.kind == "factuel" and s.text.strip() for s in segments):
         # AD-16, « réponse vide présentée comme réponse » : une réponse dont plus aucune phrase

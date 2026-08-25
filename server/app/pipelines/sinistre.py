@@ -428,6 +428,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                lang_fallback=parsed.lang_fallback,
                                                verification=verification,
                                                faits_compris=compris,
+                                               faits_declares=faits,
                                                registre=REGISTRE_SINISTRE)
         noter_hors_borne(step_restituer, ignores)
         steps.append(step_restituer)

@@ -40,16 +40,32 @@ def _inclure_clause_decisionnelle_de_tete(
     mot pour mot depuis le corpus. *Vérifier* garde tous ses contrôles de citation, pertinence,
     applicabilité et AD-6.
 
-    La ceinture ne s'active que pour une clause décisionnelle au typage confirmé et dans la place
-    `draft_max_claims` existante. Un titre, une définition, un passage non typé ou une clause déjà
-    citée ne change rien ; le guide n'appelle jamais cette fonction.
+    La ceinture ne s'active que pour une clause décisionnelle au typage confirmé. Elle reste sous
+    `draft_max_claims` : s'il reste une place elle l'utilise ; sinon elle remplace la dernière claim
+    qui ne cite aucune clause décisionnelle confirmée, en réutilisant son identifiant. Un titre, une
+    définition, un passage non typé ou une clause déjà citée ne change rien ; le guide n'appelle
+    jamais cette fonction.
     """
-    if not retrieval.blocs or len(draft.claims) >= settings.draft_max_claims:
+    if not retrieval.blocs:
         return draft
     bloc = retrieval.blocs[0]
     if bloc.kind not in KINDS_DECISIONNELS or not bloc.kind_confirmed:
         return draft
     if any(quote.block_id == bloc.block_id for claim in draft.claims for quote in claim.quotes):
+        return draft
+    if len(draft.claims) >= settings.draft_max_claims:
+        fournis = {b.block_id: b for b in retrieval.blocs}
+        for position in range(len(draft.claims) - 1, -1, -1):
+            actuelle = draft.claims[position]
+            if any((citee := fournis.get(quote.block_id)) is not None
+                   and citee.kind in KINDS_DECISIONNELS and citee.kind_confirmed
+                   for quote in actuelle.quotes):
+                continue
+            claim = Claim(claim_id=actuelle.claim_id, text=bloc.text,
+                          quotes=[Quote(block_id=bloc.block_id, quote=bloc.text)])
+            claims = list(draft.claims)
+            claims[position] = claim
+            return draft.model_copy(update={"claims": claims})
         return draft
     ids = {claim.claim_id for claim in draft.claims}
     rang = 1

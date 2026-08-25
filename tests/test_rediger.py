@@ -15,7 +15,7 @@ import pytest
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
-from server.app.domain.answer import AnswerDraft
+from server.app.domain.answer import AnswerDraft, Claim, Quote
 from server.app.domain.errors import ErrorCode, LlmParse
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
@@ -153,7 +153,7 @@ def test_sinistre_inclut_la_clause_decisionnelle_confirmee_classee_en_tete() -> 
     ]
 
 
-def test_sinistre_ne_force_ni_bloc_non_type_ni_clause_au_dela_de_la_borne() -> None:
+def test_sinistre_ne_force_pas_un_bloc_non_type() -> None:
     index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     p35 = doc.block("axa-lu-optihome-2017:p35:2")
@@ -165,11 +165,27 @@ def test_sinistre_ne_force_ni_bloc_non_type_ni_clause_au_dela_de_la_borne() -> N
 
     non_type = _inclure_clause_decisionnelle_de_tete(
         draft, RetrievalResult(blocs=[p35, p34]), _settings())
-    borne = _inclure_clause_decisionnelle_de_tete(
-        draft, RetrievalResult(blocs=[p34]), _settings(draft_max_claims=1, verifier_max_claims=1))
-
     assert non_type == draft
-    assert borne == draft
+
+
+def test_sinistre_remplace_une_claim_non_decisionnelle_quand_la_borne_est_pleine() -> None:
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    p34 = doc.block("axa-lu-optihome-2017:p34:12")
+    p35 = doc.block("axa-lu-optihome-2017:p35:2")
+    draft = AnswerDraft(
+        segments=[{"text": "Passage voisin.", "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": "Passage voisin.",
+                 "quotes": [{"block_id": p35.block_id, "quote": p35.text}]}])
+
+    borne = _inclure_clause_decisionnelle_de_tete(
+        draft, RetrievalResult(blocs=[p34, p35]),
+        _settings(draft_max_claims=1, verifier_max_claims=1))
+
+    assert len(borne.claims) == 1
+    assert borne.claims[0] == Claim(
+        claim_id="c1", text=p34.text,
+        quotes=[Quote(block_id=p34.block_id, quote=p34.text)])
 
 
 async def test_request_shape_cacheable_prefix_with_summary_then_delimited_content(mini_index: Index) -> None:

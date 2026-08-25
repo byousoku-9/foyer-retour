@@ -22,7 +22,7 @@ from server.app.domain.answer import (
     VerifiedClaim,
     VerifiedQuote,
 )
-from server.app.domain.question import QuestionScope
+from server.app.domain.question import Faits, QuestionScope
 from server.app.domain.verdict import Verdict
 from server.app.steps.restituer import (
     PHRASES_DE_REFUS,
@@ -319,6 +319,42 @@ def test_faits_compris_travels_in_the_single_answer_on_the_normal_path() -> None
     assert answer.faits_compris is not None
     assert answer.faits_compris.bien == "mobilier de salon"
     assert answer.faits_compris.cause == "bougie"
+
+
+def test_les_relations_declarees_precedent_les_clauses_sans_devenir_une_claim() -> None:
+    """A9 : la concision contractuelle ne fusionne pas cause progressive et effet soudain."""
+    verification = Verification(segments=[AnswerSegment(text="La clause traite les écoulements.",
+                                                         kind="factuel", claim_ids=["c1"])],
+                                claims=[_claim()], found=True, complete=True)
+    scope = _scope(evenement="effondrement soudain du plafond", cause="fuite progressive",
+                   moment="hier, après plusieurs mois de fuite")
+
+    answer, step = restituer(language="fr", verification=verification, faits_compris=scope,
+                             faits_declares=Faits(
+                                 description=("Ça fuyait un peu depuis des mois, mais le plafond "
+                                              "est tombé d'un coup hier.")),
+                             registre=REGISTRE_SINISTRE)
+
+    assert answer.segments[0] == AnswerSegment(
+        text=("Faits déclarés — Ça fuyait un peu depuis des mois, mais le plafond est tombé "
+              "d'un coup hier."),
+        kind="transition")
+    assert answer.segments[0].claim_ids == []
+    assert answer.texte.startswith(answer.segments[0].text)
+    assert "La clause traite les écoulements." in answer.texte
+    assert step.checks == []
+
+
+def test_un_repere_isole_ne_gonfle_pas_la_reponse_sinistre() -> None:
+    verification = Verification(segments=[AnswerSegment(text="Clause.", kind="factuel",
+                                                        claim_ids=["c1"])],
+                                claims=[_claim()], found=True, complete=True)
+    answer, step = restituer(language="fr", verification=verification,
+                             faits_compris=QuestionScope(moment="hier"),
+                             faits_declares=None,
+                             registre=REGISTRE_SINISTRE)
+    assert answer.texte == "Clause."
+    assert step.checks == []
 
 
 def test_faits_compris_travels_on_the_refusal_path_too() -> None:
