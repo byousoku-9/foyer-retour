@@ -1495,3 +1495,177 @@ servi doit être celui que le commit contient ; `dictionnaire_non_valide` est at
 `data/dictionary.json` n'est pas signé, et son **absence** devient alors un écart) et il est couvert
 hors ligne par `tests/test_smoke.py`, mais sa première exécution réelle sera celle du prochain push
 de `main`.
+
+## Story 2.2 — Le suivi conversationnel et la clarification, mesurés (2026-08-25)
+
+Trois appels `micro` réels ont exercé *comprendre* sur le corpus `lux-guide` réel, avec le périmètre
+que le serveur lui rend vraiment (`Corpus.perimetres`, story 2.1). Ils sont enregistrés en fixtures
+rejouables (`tests/test_suivi_live.py`, `tests/llm_fixtures/test_suivi_live.*.json`) : la suite hors
+ligne les rejoue sans réseau. C'est la reprise différée de 1.4/1.5 — « aucune fixture live n'exerce
+encore ce chemin » — qui est levée ici.
+
+**Sur quel arbre.** Base de la story : `c427111ffc7828c94e629b7a0abc3516488d7e76` (le
+`baseline_revision` de `spec-2-2-suivi-et-clarification.md`). Tous les relevés ci-dessous — appels
+enregistrés, suite hors ligne, tour navigateur — ont été pris sur l'**arbre de travail** de la story,
+c'est-à-dire cette base plus les changements de la story, avant commit. Le **prompt** de *comprendre*
+est resté intact — c'est une décision de la story, prise sur mesure (§ ci-dessous) —, donc
+`prompts_digest` ne bouge pas et aucune fixture live n'a eu à être ré-enregistrée. `pipeline_digest`,
+lui, a bougé une fois, en fin de story, pour domicilier `libelle_max_chars` : les deux gates ont été
+rejoués, et c'est la dernière section de ce chapitre.
+Le tour navigateur a été **rejoué à l'identique après les correctifs de la revue coordonnée** (la
+borne de composition de `tourAssistant`) : mêmes chaînes relevées, au caractère près — la borne ne
+change rien pour une clarification de 41 caractères, et le relevé ci-dessous est bien celui de
+l'arbre livré, pas d'un état intermédiaire.
+
+| Scénario | Appels | Modèle | Coût |
+|---|---|---|---|
+| Suivi résolu (« Et pour la voiture ? » après un tour logement) | 1 `micro` | `claude-haiku-4-5-20251001` | 0,0056 € |
+| Anaphore irrésoluble, sans historique | 1 `micro` | idem | 0,0008 € |
+| Boucle refermée (la clarification est dans l'historique) | 1 `micro` | idem | 0,0011 € |
+| **Total** | **3** | | **0,0075 €** |
+
+Le premier scénario paie l'écriture du cache du préfixe (4 282 tokens en `cache_creation`) ; les deux
+suivants le relisent (`cache_read`), ce qui explique l'écart de coût entre trois requêtes de taille
+comparable. Aucun étage `reason` n'a été atteint : *comprendre* tranche seul les trois cas.
+
+### Ce qui a été obtenu, littéralement
+
+**1. Suivi résolu.** Historique : « Quelles démarches pour mon logement en arrivant ? » puis la
+réponse (huit jours, Biergercenter, pièce d'identité, contrat de bail). Question : « Et pour la
+voiture ? »
+
+> `intent = "suivi"`
+> `question_resolue = « Quelles démarches pour ma voiture en arrivant au Luxembourg ? »`
+> `terms = ["immatriculation", "véhicule", "arrivée"]`
+
+La question rendue est **autonome** : elle nomme la voiture, que seule la question portait, et le
+prédicat des démarches d'arrivée, que seul l'historique portait. C'est exactement l'AC de la story,
+et c'est aussi ce qui montre que le court-circuit « zéro hit » doit lire cette question-là : les mots
+de la question brute (« et », « pour », « la », « voiture ») ne mènent nulle part, `immatriculation`
+et `véhicule` si.
+
+**2. Anaphore irrésoluble.** Aucun historique, question « Et celui-là, il faut le faire quand ? »
+
+> `intent = "suivi"`, `question_resolue = null`
+> `clarification = « De quel document ou démarche parlez-vous ? »`
+
+Aucune `question_resolue` n'est construite (AD-5 : deux sorties typées exclusives) ; rien ne peut
+donc partir en recherche, et la page peint cette phrase comme une **question**, avant le refus.
+
+**3. Boucle refermée.** Historique : la même anaphore, puis le tour assistant tel que
+`web/app/chat.js::tourAssistant` le compose — la question posée suivie de la phrase générique
+(« De quel document ou démarche parlez-vous ? Je n'ai pas pu déterminer à quoi votre question fait
+référence ; précisez-la et je chercherai. »). Question : « du permis de conduire »
+
+> `intent = "suivi"`
+> `question_resolue = « Quand faut-il faire la demande de permis de conduire ? »`
+> `terms = ["permis de conduire", "demande", "délai"]`
+
+C'est la mesure qui **désigne le défaut** que la story corrige : trois mots suffisent à rouvrir la
+recherche, mais seulement parce que l'historique porte la question posée. Tant que la page ne
+poussait que `Answer.texte`, *comprendre* recevait un historique où sa propre question ne figurait
+pas et reposait indéfiniment la même.
+
+### Ce qui n'a pas pu être mesuré, et pourquoi
+
+**La chaîne complète n'a pas été rejouée en live sur ces trois questions.** Seule *comprendre* est
+appelée — c'est la seule étape que le suivi et la clarification traversent différemment (avec
+*rédiger*, qui reçoit le même historique). Le reste de la chaîne est mesuré depuis 1.4 et 1.5
+(`tests/test_steps_live.py`, `tests/test_pipeline_live.py`) et n'a pas changé.
+
+**L'historique du scénario 3 est une reconstitution, pas un relevé de page.** Il est composé dans
+le test à partir de `PHRASES_DE_REFUS["clarification_requise"]` et de la clarification mesurée au
+scénario 2, c'est-à-dire **littéralement** ce que `tourAssistant` produit. Le relevé pris sur une
+page réellement servie, lui, est la section « Le tour navigateur » ci-dessous : les deux chaînes
+coïncident.
+
+**Le cas non transférable n'a pas été enregistré en fixture.** La mesure préalable (spec 2.2,
+§ Design Notes) montre que « Et pour la voiture ? » après un tour de **bail** donne une
+clarification, pas une résolution : le prédicat ne se transfère pas. C'est le comportement qu'AD-5
+demande, et en faire un test le figerait — la story a décidé de ne pas durcir le prompt pour forcer
+une résolution que le modèle a raison de refuser. Il reste consigné comme mesure, pas comme
+assertion.
+
+**Le refus 400 au-delà de six tours n'a pas été rejoué en live** : il est couvert hors ligne depuis
+1.6 (`tests/test_api.py`) et l'AC 2.2 le re-vérifie sans le ré-implémenter — aucune requête n'atteint
+le modèle, il n'y a donc rien à mesurer chez le fournisseur.
+
+**Aucune fixture live existante n'a été ré-enregistrée**, et c'est le point qui commandait le reste :
+le prompt de *comprendre* et le schéma de son appel sont inchangés, donc `prompts_digest` et toutes
+les clés de requête le sont aussi. Les deux gates, eux, **ont** été rejoués — mais pour une autre
+raison, arrivée en fin de story (la borne de libellé domiciliée dans `config.py`), et le relevé en
+est donné plus bas.
+
+### Le tour navigateur (Chrome headless, CDP, `/tmp/cdp-2-2.mjs`) — la boucle, en vrai
+
+Serveur réel : `ENV=dev GIT_SHA=2.2test uv run uvicorn server.app.api.main:app --port 8802`.
+`ENV=dev` et non `prod` pour une raison qui n'a rien à voir avec la story : AD-13 fait du premier
+élément de `X-Forwarded-For` l'identité du limiteur, et hors `dev` son absence est un **400** — un
+navigateur qui parle en direct à uvicorn, sans reverse proxy devant, ne pose pas cet en-tête. Mesuré
+ici (deux `POST /chat` en `400 invalid_request` avant de basculer) ; c'est le comportement attendu de
+NFR5, pas un défaut, et Cloud Run pose l'en-tête.
+
+Un espion sur `window.fetch` est installé **avant** la navigation : le tableau ci-dessous relève le
+corps réellement posté, pas ce que la page croit envoyer. Le pilote CDP lui-même vit **hors dépôt**
+(`/tmp/cdp-2-2.mjs`), comme ceux des stories 1.10 et 1.11 : c'est un instrument de mesure jetable,
+pas un test que la CI rejoue — ce qui est rejouable de ce tour l'est par `tests/js/ui_cases.mjs` et
+`tests/test_web_chat.py`, sans navigateur.
+
+| Vérification | Résultat |
+|---|---|
+| Tour 1 — question anaphorique « Et celui-là, il faut le faire quand ? » | bloc `clarif` **en premier**, puis `seg`, puis `pied` — la clarification est posée avant la phrase |
+| La question posée | « De quel document ou démarche parlez-vous ? » ; état affiché « inconnu » ; coût 0,0008 €, `reason_kind: clarification_requise`, `blocks_scanned: 0` |
+| L'historique de page après le tour 1 | `{role: "assistant", content: "De quel document ou démarche parlez-vous ? Je n'ai pas pu déterminer à quoi votre question fait référence ; précisez-la et je chercherai."}` — **la question posée y est** ; avant cette story, seule la seconde phrase l'était |
+| Le corps posté au tour 2 | `historique[1].texte` porte cette même chaîne : la question repart au serveur |
+| Tour 2 — « du permis de conduire » | la chaîne complète tourne (506 passages parcourus, 6 variantes, 0,0654 €) : la question est redevenue autonome. Verdict `claims_rejetes` — le guide n'a rien qui soutienne le **délai** demandé, et l'assistant préfère ne rien affirmer. La boucle se referme ; ce qu'elle trouve au bout est une autre affaire |
+| Second tour de mesure — « Dois-je déclarer mon arrivée à la commune ? » puis « et pour mon conjoint ? » | `found: true` aux **deux** tours (0,0287 € puis 0,0251 €), état « partiel », et la réponse du second tour porte sur le conjoint sans que le mot « commune » ni « arrivée » ait été retapé : « la déclaration d'arrivée à la commune concerne l'ensemble du foyer […] y compris celles du conjoint » |
+| AD-15 / NFR6 | `localStorage` **vide**, `document.cookie` vide — l'historique ne vit qu'en mémoire de page |
+| Console | aucune exception JavaScript sur les deux tours |
+
+Coût total du tour navigateur : **0,120 €** (quatre requêtes réelles, dont deux chaînes complètes).
+
+### Hors ligne
+
+C'est ce que la reprise différée de 1.4/1.5 demandait d'établir : le chemin du suivi et de la
+clarification est désormais exercé par des appels réels **et** rejouable sans réseau.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1626 passed**, ≈ 22 s, aucun accès réseau (1605 avant la story : +11 pour le front et la boucle complète, +9 pour le contrat d'AD-1, la matrice brute/résolue et la mesure, +1 pour la borne de libellé domiciliée) |
+| Les trois appels live, rejoués | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_suivi_live.py` | **3 passed**, ≈ 0,9 s — les fixtures de `tests/llm_fixtures/test_suivi_live.*.json` répondent à la place du fournisseur ; la variable **vide** force le rejeu même si `.env` porte une clé |
+| Les mêmes, enregistrés | `uv run pytest -q tests/test_suivi_live.py` (une fois, avec la clé) | **3 passed**, ≈ 10,8 s, 0,0075 € — les trois fichiers de fixtures écrits |
+| Lint | `uv run ruff check .` | *All checks passed!* |
+| Gates du dépôt | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` | vert **sans** relancer de gate : ni `server/app/**` ni un prompt n'a bougé |
+
+### La reprise différée de la revue Codex 2.1 (M3), et les deux gates rejoués
+
+`LIBELLE_MAX = 500` vivait en dur dans `server/app/steps/comprendre.py`, ce que la Convention Seuils
+interdit, et `_libelles()` écartait les libellés hors borne **sans rien en dire**. La story 2.2 porte
+cette reprise (`deferred-work.md`, `target_story: 2.2`), et la tranche en deux, parce que les deux
+bornes ne sont pas de même nature :
+
+- la borne de **longueur** est un seuil : c'est le code qui l'applique, elle se règle sur ce qu'on
+  observe des termes utiles. Elle devient `Settings.libelle_max_chars`, publiée dans
+  `Trace.thresholds` comme les autres ;
+- la borne de **nombre d'éléments** (`LISTE_MAX = 32`) reste un littéral de l'étape, et c'est la même
+  convention qui le veut : elle entre dans le **schéma JSON** envoyé au modèle, donc dans la clé de
+  requête et dans le préfixe caché (AD-9). Réglable par `.env`, un poste de travail déplacerait en
+  silence ce qui est facturé et invaliderait toutes les fixtures enregistrées. Même raisonnement que
+  pour `Turn.texte ≤ 2000` et les bornes de `Faits`, laissées au domaine en story 1.9.
+
+Ce qui est écarté se dit désormais dans la trace : `CheckResult(name="libelles_hors_borne")` nomme
+les listes appauvries et compte, **jamais** le texte écarté (AD-10, AD-15).
+
+Toucher `steps/comprendre.py` déplace `pipeline_digest` : `tests/test_digests.py` a rougi, comme
+prévu, et les deux gates ont été rejoués sur des appels réels.
+
+| Gate | Cas | Label | `evals_ok` | `countersigned` | Coût | Durée |
+|---|---|---|---|---|---|---|
+| `--gate lux-guide --profile vertical` | `g-luxtrust-prix` | `bonne_reponse` | **true** | **false** | 0,0236 € | 15,4 s |
+| `--gate axa-lu-optihome-2017 --profile vertical` | `s-bougie-canape` | `bonne_reponse` | **true** | **false** | 0,0509 € | 25,7 s |
+
+Les deux runs ont réaffiché l'avertissement attendu — « gate `vertical` écrit sur des cas non
+contresignés » — et `countersigned` reste `false` : la relecture humaine des deux cas est toujours
+due (tableau « Ce qui incombe à Lancelot », story 1.10), et `/` continue d'écrire « relus par la
+boucle, contresignature humaine en attente ». Aucune fixture live n'a eu à être ré-enregistrée : ni
+le prompt ni le schéma de sortie ne bougent, donc aucune clé de requête ne bouge.
