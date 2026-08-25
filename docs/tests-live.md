@@ -2540,3 +2540,42 @@ digests, Ruff et `git diff --check` passent. Les deux gates `vertical` finaux pa
 `pipeline_digest=fdca336f861cf61626c7bb86a6ce36ea734d85d8e87f230f4afe57265fb5575d`
 et le `prompts_digest` inchangé
 `20c7e254a7f6f82f9516bf84dc8f391de9391b389188fedc93c31a1a60a2feb8`.
+
+### Clôture du socle A — deux facettes électriques sans retry de rédaction
+
+Le build `640243f` a régressé sur l'énoncé exact « L'orage a grillé la télé et le congélateur ; la
+nourriture perdue compte aussi ou seulement les appareils ? », avec les faits « L'orage a grillé la
+télé et le congélateur ; la nourriture est perdue. » : un passage s'arrêtait en 503
+`budget_exceeded` après 32,038 s et 0,0713 €. Le soupçon initial portait sur la ceinture p34 ajoutée
+pour A6. Le diagnostic réel l'infirme : le premier bloc ouvert d'A11 est le titre non typé `p10:5`,
+et `_inclure_clause_decisionnelle_de_tete` est donc un no-op. `p34:15` est déjà ouverte en position
+14. Le premier appel *rédiger* atteignait en revanche `max_tokens=2048`, puis sa réponse incomplète
+était réinjectée dans le retry ; après 0,0392 € + 0,0279 €, l'estimation de *vérifier* dépassait le
+budget restant.
+
+Le retry n'inclut désormais plus le texte tronqué : il garde un marqueur constant et demande une
+régénération concise. Ce filet a supprimé le 503 (200 à 0,0642 € puis 0,0692 €), mais gardait 33,641
+et 36,491 s de latence. Le défaut d'expérience restait donc ouvert. La correction finale agit avant
+l'appel : le message dynamique de *rédiger* reçoit le **nombre** de facettes déjà produit par
+`ParsedQuestion` et demande de traiter chacune une seule fois, sans transitions ni redites inutiles.
+Les libellés des facettes ne sont pas recopiés hors des délimiteurs, le préfixe cacheable reste
+byte-identique, aucun seuil n'est ajouté et la variante 2.6 n'est pas touchée.
+
+La ceinture A6 reste bornée par les propriétés du contexte : elle ne s'active que si le premier bloc
+déjà ouvert est une clause décisionnelle au typage confirmé, omise du brouillon, avec une place sous
+`draft_max_claims`. Exiger en plus une clause opposée dans les claims a été essayé puis retiré : le
+gate bougie a alors produit un incident sans clause survivante. A11 commence par un titre non typé et
+A7 par des passages non typés ; aucune des deux ne déclenche cette ceinture.
+
+| Cas final, même processus | HTTP / durée | Rédaction | Sources exigées | Coût |
+|---|---:|---|---|---:|
+| A11 run 1 | 200 / 13,502 s | 1 appel, 8,463 s, 830 tokens, aucun retry/check `max_tokens` | `p34:15`, `p37:9` | 0,0289 € |
+| A11 run 2 | 200 / 16,484 s | 1 appel, 11,869 s, 1 267 tokens, aucun retry/check `max_tokens` | `p34:15`, `p37:9`, `p26:1` | 0,0353 € |
+| A6 bougie | 200 / 16,160 s | 1 appel, aucun retry | `p34:12`, `p46:1` | 0,0321 € |
+| A7 chien / baie vitrée | 200 / 18,359 s | 1 appel, aucun retry | `p35:1` rang 1, `p35:2` rang 2, toutes deux affichées ; 2 claims retenues, 0 rejet | 0,0347 € |
+
+La suite affectée hermétique passe 259/259 après réenregistrement réel de la fixture bougie, puis la
+suite complète passe 2 093/2 093. Les 10 tests de digests, Ruff et `git diff --check` passent. Un
+premier gate contrat a honnêtement échoué pendant l'essai de ceinture trop restrictive ; après son
+retrait, les gates finaux passent 1/1 : contrat à 0,0269 € en 13,028 s et guide à 0,0195 € en
+10,102 s, toujours `countersigned=false`.
