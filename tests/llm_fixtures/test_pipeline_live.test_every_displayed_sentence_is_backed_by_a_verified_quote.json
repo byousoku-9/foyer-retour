@@ -1,6 +1,37 @@
 {
-  "claude-haiku-4-5-20251001:59faf40ae27a5717": {
-    "request": "claude-haiku-4-5-20251001:59faf40ae27a5717",
+  "claude-haiku-4-5-20251001:41b604458d4ac994": {
+    "request": "claude-haiku-4-5-20251001:41b604458d4ac994",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\"]}, {\"facette\": 1, \"claim_ids\": [\"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNXn6fo6VkPkocezGcCo",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3831,
+        "output_tokens": 187,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:d6a89a0332b121aa": {
+    "request": "claude-haiku-4-5-20251001:d6a89a0332b121aa",
     "response": {
       "content": [
         {
@@ -9,7 +40,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeLtwLWRberptjbv7KaV7",
+      "id": "msg_011CeNXmLj7DLxizSpMUP3cf",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -22,41 +53,10 @@
           "ephemeral_5m_input_tokens": 0
         },
         "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
+        "cache_read_input_tokens": 4282,
         "inference_geo": "not_available",
-        "input_tokens": 2946,
+        "input_tokens": 86,
         "output_tokens": 133,
-        "service_tier": "standard"
-      }
-    }
-  },
-  "claude-haiku-4-5-20251001:5cf55625bfa82396": {
-    "request": "claude-haiku-4-5-20251001:5cf55625bfa82396",
-    "response": {
-      "content": [
-        {
-          "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\"]}, {\"facette\": 1, \"claim_ids\": [\"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeLtxNGNSk9osgfmDiymc",
-      "model": "claude-haiku-4-5-20251001",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "inference_geo": "not_available",
-        "input_tokens": 4192,
-        "output_tokens": 204,
         "service_tier": "standard"
       }
     }
@@ -67,11 +67,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Trois voies coexistent pour scolariser vos enfants : l'école publique luxembourgeoise, gratuite et multilingue, les écoles européennes et internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"C'est la démarche à engager en tout premier, avant même la recherche de logement, car les places dans les sections linguistiques les plus recherchées peuvent partir un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années, presque toujours exigés à l'inscription.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, seule la résidence de l'enfant au Luxembourg comptant.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Au 1er juin 2026, le montant de base est de 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans. Une allocation de rentrée scolaire, versée automatiquement en août, s'y ajoute : 115 euros pour un enfant de plus de six ans et 235 euros au-delà de douze ans.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas les modalités concrètes d'inscription à la commune ni les délais exacts d'ouverture des sections dans chaque établissement, au-delà de la recommandation générale d'anticiper largement.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Trois voies existent pour scolariser les enfants : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Il existe par ailleurs des écoles internationales publiques, gratuites, avec des sections anglophone, francophone ou germanophone, très demandées.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'inscription scolaire doit être engagée avant même la recherche de logement, les places pouvant partir un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"c'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut récupérer certificat de radiation et bulletins avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"Montants des allocations familiales et de rentrée scolaire au 1er juin 2026, sans condition de nationalité.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Il faut anticiper l'inscription scolaire bien avant le déménagement, car c'est la démarche la plus longue et la plus contrainte de l'installation.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique gratuite et multilingue, les écoles européennes et internationales, et les établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de partir, il est recommandé de récupérer certains documents auprès de l'école d'origine.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence de l'enfant étant le seul critère.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les documents ne précisent pas la procédure détaillée d'inscription à la commune pour l'école, au-delà du fait qu'elle précède généralement l'inscription scolaire.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de toute l'installation, à engager avant même la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies de scolarisation existent : école publique, écoles européennes/internationales, et établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de quitter le pays.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, seule la résidence de l'enfant au Luxembourg comptant.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeLtwTZqAR1yc1rzUkyPx",
+      "id": "msg_011CeNXmTUAPBYGWQG677k6V",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -87,7 +87,7 @@
         "cache_read_input_tokens": 6809,
         "inference_geo": "global",
         "input_tokens": 2915,
-        "output_tokens": 1323,
+        "output_tokens": 901,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

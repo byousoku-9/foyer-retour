@@ -29,6 +29,10 @@ OVERLAY_REQUIRED: dict[str, tuple[str, ...]] = {
     "definition": ("defines",), "garantie": ("scope_node_id",), "exclusion": ("scope_node_id",),
     "condition": ("scope_node_id",), "franchise": ("scope_node_id",),
 }
+# Défaut de `Settings.perimetre_max_chars` (story 2.1). Il est recopié ici — et testé égal — parce
+# que `corpus` n'importe pas `config` (table des couches du spine) : l'appelant passe la valeur
+# réglée, ce littéral ne sert qu'à ce que `load_corpus` reste appelable seul (tests, `evals`).
+PERIMETRE_MAX_CHARS = 4000
 
 
 @dataclass
@@ -38,6 +42,14 @@ class Corpus:
     summaries: dict[str, str] = field(default_factory=dict)
     quarantine: dict[str, str] = field(default_factory=dict)  # doc_id → raison
     alerts: dict[str, list[str]] = field(default_factory=dict)  # doc_id → alertes (document servi)
+    # doc_id → périmètre du document, projection des titres de son arbre (story 2.1). C'est ce que
+    # *comprendre* annonce au modèle pour classer l'`intent` : la liste écrite à la main dans
+    # `prompts/comprendre.md` ne nommait pas l'identité numérique, et « Comment obtenir LuxTrust au
+    # meilleur prix ? » ressortait `hors_perimetre` alors que le guide a une fiche entière dessus.
+    # Calculé **une fois** au chargement : le préfixe de *comprendre* reste déterministe et
+    # cacheable (AD-9), mais il devient vrai — une fiche ajoutée entre dans le périmètre sans qu'on
+    # réécrive une phrase.
+    perimetres: dict[str, str] = field(default_factory=dict)
 
     @property
     def served(self) -> list[str]:
@@ -166,6 +178,35 @@ def _apply_overlay(raw_doc: dict, overlay: object) -> str:
     return ""
 
 
+def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
+    """Périmètre d'un document : ses nœuds de **niveau 1** et leurs enfants directs, une ligne chacun.
+
+    Le niveau 1 est la catégorie (« Logement »), ses enfants directs sont les fiches (« Signer un
+    bail », « Assurer son logement ») : c'est exactement la granularité qu'il faut pour dire « ce
+    sujet est dans le guide » sans recopier le sommaire — les titres sont écrits par l'ingestion, pas
+    par un modèle, et aucun texte de bloc n'y entre (AD-10).
+
+    **Borné en retirant des lignes entières, jamais en coupant une ligne** : une catégorie tronquée
+    au milieu d'un titre de fiche ferait croire au modèle que la fiche s'appelle autrement. Les
+    dernières catégories tombent d'abord — elles sont les moins prioritaires par construction, l'ordre
+    est celui du document.
+    """
+    par_id = {n.node_id: n for n in doc.nodes}
+    lignes: list[str] = []
+    for node in doc.nodes:
+        if node.level != 1 or not node.title.strip():
+            continue
+        enfants = [par_id[c].title.strip() for c in node.children
+                   if c in par_id and par_id[c].title.strip()]
+        ligne = f"- {node.title.strip()}"
+        if enfants:
+            ligne += " : " + ", ".join(enfants)
+        lignes.append(ligne)
+    while lignes and len("\n".join(lignes)) > max_chars:
+        lignes.pop()
+    return "\n".join(lignes)
+
+
 def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated: bool,
               current: GateContext | None) -> tuple[Document | None, str, list[str]]:
     """Renvoie (document | None, raison de quarantaine, alertes). Aucune exception ne sort : tout devient une raison."""
@@ -234,10 +275,13 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
     return doc, "", alerts
 
 
-def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateContext | None = None) -> Corpus:
+def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateContext | None = None,
+                perimetre_max_chars: int = PERIMETRE_MAX_CHARS) -> Corpus:
     """Charge chaque document du manifest ; une incohérence met ce seul document en quarantaine (AD-7).
 
     `current` décrit l'image en cours (digests, modèles) ; sans lui, la péremption du gate n'est pas évaluée.
+    `perimetre_max_chars` borne la projection des titres rendue à *comprendre* (story 2.1) ; son
+    défaut est celui de `config.Settings`, que `corpus` ne peut pas importer.
     """
     data_dir = Path(data_dir)
     manifest_path = data_dir / "manifest.json"
@@ -269,4 +313,5 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         corpus.documents[doc_id] = doc
         corpus.summaries[doc_id] = summary
         corpus.alerts[doc_id] = alerts
+        corpus.perimetres[doc_id] = perimetre(doc, perimetre_max_chars)
     return corpus

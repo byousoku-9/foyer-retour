@@ -464,3 +464,57 @@ def test_un_rapport_etranger_nest_pas_un_bloquant(data: Path) -> None:
         "stats": {}}))
     c = load_corpus(data, allow_ungated=True)
     assert c.served == ["lux-guide"] and c.quarantine == {}
+
+
+# --- story 2.1 : le périmètre dérivé du corpus ------------------------------
+
+def test_le_perimetre_projette_les_titres_de_niveau_1_et_leurs_enfants(data: Path) -> None:
+    """Reprise différée `target_story: 2.1` : la liste de périmètre de *comprendre* doit venir du
+    corpus, pas d'une phrase écrite à la main dans un prompt."""
+    corpus = load_corpus(data, allow_ungated=True)
+    doc = corpus.documents["lux-guide"]
+    lignes = corpus.perimetres["lux-guide"].splitlines()
+
+    categories = [n for n in doc.nodes if n.level == 1 and n.title.strip()]
+    assert len(lignes) == len(categories)
+    par_id = {n.node_id: n for n in doc.nodes}
+    for ligne, node in zip(lignes, categories, strict=True):
+        assert ligne.startswith(f"- {node.title}")
+        for enfant in node.children:
+            assert par_id[enfant].title in ligne
+    # AD-10 : aucune projection ne porte le texte d'un bloc — ce sont des titres, écrits par
+    # l'ingestion, jamais par un modèle.
+    for bloc in doc.blocks:
+        if bloc.kind != "heading" and len(bloc.text) > 40:
+            assert bloc.text not in corpus.perimetres["lux-guide"]
+
+
+def test_le_perimetre_est_borne_en_retirant_des_lignes_entieres(data: Path) -> None:
+    """Une catégorie tronquée au milieu d'un titre de fiche ferait croire au modèle que la fiche
+    s'appelle autrement : on retire des lignes, on n'en coupe aucune."""
+    entier = load_corpus(data, allow_ungated=True).perimetres["lux-guide"]
+    court = load_corpus(data, allow_ungated=True, perimetre_max_chars=40).perimetres["lux-guide"]
+    assert len(court) <= 40
+    assert court == "" or court in entier
+    for ligne in court.splitlines():
+        assert ligne in entier.splitlines()
+    assert load_corpus(data, allow_ungated=True, perimetre_max_chars=1).perimetres["lux-guide"] == ""
+
+
+def test_le_defaut_du_loader_est_celui_de_settings() -> None:
+    """`corpus` n'importe pas `config` (table des couches) : le littéral est recopié, donc il se
+    vérifie. Sans ce test, régler `PERIMETRE_MAX_CHARS` ne changerait que la moitié du système."""
+    from server.app.config import Settings
+    from server.app.corpus.loader import PERIMETRE_MAX_CHARS
+
+    assert PERIMETRE_MAX_CHARS == Settings(_env_file=None).perimetre_max_chars
+
+
+def test_un_document_en_quarantaine_na_pas_de_perimetre(data: Path) -> None:
+    """Un document non chargé n'est pas servi (AD-7) : lui prêter un périmètre reviendrait à
+    annoncer à *comprendre* des fiches que personne ne peut ouvrir."""
+    m = _manifest(data)
+    m["lux-guide"]["status"] = "quarantaine"
+    _write_manifest(data, m)
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.perimetres == {} and corpus.documents == {}

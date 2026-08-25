@@ -1,6 +1,6 @@
 {
-  "claude-haiku-4-5-20251001:59faf40ae27a5717": {
-    "request": "claude-haiku-4-5-20251001:59faf40ae27a5717",
+  "claude-haiku-4-5-20251001:699034d01d1759d3": {
+    "request": "claude-haiku-4-5-20251001:699034d01d1759d3",
     "response": {
       "content": [
         {
@@ -9,7 +9,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeLtpQjynhEja4BDj7K9x",
+      "id": "msg_011CeNXjohGvsFV3vu2RhR2N",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -24,7 +24,7 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 2946,
+        "input_tokens": 3351,
         "output_tokens": 133,
         "service_tier": "standard"
       }
@@ -36,11 +36,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Pour scolariser vos enfants, il faut anticiper : c'est l'une des démarches à engager en tout premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique luxembourgeoise (gratuite, multilingue), les écoles européennes et internationales, ou des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée ; avant de quitter votre pays d'origine, pensez à demander un certificat de radiation et les bulletins des dernières années, souvent exigés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence de l'enfant au Luxembourg suffisant.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans (valeurs applicables au 1er juin 2026). Une allocation de rentrée scolaire de 115 euros (plus de six ans) ou 235 euros (plus de douze ans) est versée automatiquement chaque année en août, sans démarche à effectuer.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces montants suivent l'indexation générale et sont revalorisés à chaque tranche indiciaire ; les blocs fournis ne permettent pas de préciser d'autres conditions éventuelles liées à la situation familiale.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et contrainte de l'installation, à engager avant même la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires existent : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen.\"},{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut anticiper l'inscription communale, vérifier la section linguistique et récupérer certificat de radiation et bulletins avant le départ.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité et s'élèvent à 315,04 euros par mois et par enfant, avec suppléments selon l'âge et allocation de rentrée automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Trois voies coexistent pour scolariser vos enfants au Luxembourg, et cette démarche doit être engagée en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'école publique luxembourgeoise, gratuite, alphabétise d'abord en luxembourgeois puis introduit l'allemand et le français ; elle intègre bien les enfants arrivés jeunes, mais la barrière linguistique peut être réelle pour une arrivée plus tardive. Il existe aussi des écoles européennes (accès prioritaire aux enfants de personnels des institutions européennes, sinon selon places disponibles et minerval), des écoles internationales publiques gratuites très demandées, et des établissements privés avec des frais significatifs.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée, pas seulement de l'établissement. Avant de partir, il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité — seule la résidence de l'enfant au Luxembourg compte.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans (valeurs au 1er juin 2026). S'y ajoute chaque année en août une allocation de rentrée scolaire de 115 euros (plus de six ans) ou 235 euros (plus de douze ans), versée automatiquement sans démarche.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces montants suivent l'indexation générale et sont revalorisés à chaque tranche indiciaire, ce qui explique qu'une valeur lue il y a un an ne corresponde plus.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Scolariser ses enfants est la démarche la plus longue et contrainte de l'installation, à engager avant la recherche de logement, avec trois voies possibles.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Les trois voies scolaires (publique, européenne/internationale, privée) ont chacune leurs caractéristiques linguistiques et financières.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription communale précède l'inscription scolaire et il faut préparer certificat de radiation et bulletins avant le départ.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, avec un montant de base de 315,04 euros majoré selon l'âge, et une allocation de rentrée automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeLtpXU3KQVsCdaFfK3if",
+      "id": "msg_011CeNXjxpxEmb8tRkBacZda",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -56,7 +56,7 @@
         "cache_read_input_tokens": 6809,
         "inference_geo": "global",
         "input_tokens": 2915,
-        "output_tokens": 1362,
+        "output_tokens": 1510,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

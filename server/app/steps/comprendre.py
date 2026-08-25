@@ -23,9 +23,10 @@ from __future__ import annotations
 import json
 import time
 
-from pydantic import BaseModel, model_validator
+from pydantic import Field, model_validator
 
 from server.app.config import Settings
+from server.app.domain.document import DomainModel
 from server.app.domain.errors import PipelineError
 from server.app.domain.profil import Profil
 from server.app.domain.question import (
@@ -43,22 +44,39 @@ from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
-class SortieComprendre(BaseModel):
+# Bornes de **forme** des trois listes rendues par le modèle (reprise différée `target_story: 2.1`).
+# Ce sont des formes de contrat, pas des seuils de `config.py` : elles ne se règlent avec aucune éval,
+# elles disent seulement « au-delà, ce n'est plus une liste de termes, c'est un déversement ». Les
+# vraies bornes de travail, elles, sont `question_max_terms`, `scope_max_themes` et
+# `question_max_facettes`, appliquées plus bas — généreuses ici pour qu'un modèle un peu bavard soit
+# **tronqué par notre code** (perte bornée et lisible) plutôt que rejeté en `LlmParse` (échec
+# terminal). Un `max_length` par élément borde au passage la longueur d'un libellé.
+LISTE_MAX = 32
+
+
+class SortieComprendre(DomainModel):
     """Sortie structurée de l'appel `micro` : plate, tous champs requis (aucun défaut).
 
     `question_resolue` et `clarification` sont les deux issues exclusives d'AD-5 : exactement l'une
     des deux est renseignée. L'invariant est porté par le schéma de sortie et non par le code de
     l'étape, pour que sa violation emprunte la relance motivée du client (comme les invariants
     d'`AnswerDraft` pour *rédiger*) plutôt que de choisir arbitrairement une issue.
+
+    Elle hérite de `DomainModel` (`extra="forbid"`) comme tous les autres schémas de sortie du
+    projet : un champ surnuméraire inventé par le modèle est une violation de contrat, pas une
+    donnée à garder. Elle héritait de `BaseModel`, donc de `extra="ignore"` (reprise différée de la
+    revue 1.4). Le changement modifie le schéma JSON envoyé, donc la clé de requête : il n'était
+    faisable que le jour où les fixtures live sont réécrites de toute façon — c'est cette story,
+    puisque `$perimetre_guide` change déjà le préfixe.
     """
 
     intent: Intent
     question_resolue: str | None
     clarification: str | None
     language: str
-    terms: list[str]
-    themes: list[str]
-    facettes: list[str]
+    terms: list[str] = Field(max_length=LISTE_MAX)
+    themes: list[str] = Field(max_length=LISTE_MAX)
+    facettes: list[str] = Field(max_length=LISTE_MAX)
     bien: str | None
     evenement: str | None
     lieu: str | None
@@ -77,9 +95,14 @@ class SortieComprendre(BaseModel):
 
 async def comprendre(question: str, historique: list[Turn], profil: Profil, *, client: LlmClient,
                      budget: RequestBudget, settings: Settings, lang: str | None = None,
-                     prompt: str = "comprendre",
+                     prompt: str = "comprendre", perimetre: str = "",
                      faits: Faits | None = None) -> tuple[ParsedQuestion | ClarificationRequise, StepTrace]:
     """`prompt` nomme le fichier de `llm/prompts/` qui suit `commun.md` ; `faits` sont ceux du sinistre.
+
+    `perimetre` (story 2.1) est la projection des titres du document servi (`Corpus.perimetres`),
+    rendue dans `$perimetre_guide`. L'étape ne la calcule pas : elle ne voit pas le corpus, et c'est
+    le chargement qui en fait autorité (AD-7). Vide par défaut — le prompt du sinistre n'a pas ce
+    placeholder, et `Template.substitute` ignore un kwarg en trop.
 
     Story 1.8 : le sinistre réutilise l'étape telle quelle (AD-1 — la chaîne est fixe, ce sont les
     consignes qui changent) avec `prompt="comprendre_sinistre"`. Les deux paramètres ont un défaut
@@ -93,7 +116,8 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
         prompt, question_min_terms=settings.question_min_terms,
         question_max_terms=settings.question_max_terms,
-        question_max_facettes=settings.question_max_facettes)
+        question_max_facettes=settings.question_max_facettes,
+        perimetre_guide=perimetre)
     parts = [
         untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],
                                            ensure_ascii=False)),
@@ -126,12 +150,17 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
             question_resolue=(out.question_resolue or "").strip(),
             intent=out.intent,
             language=language,
-            terms=[t for t in (s.strip() for s in out.terms) if t],
+            # `terms` et `themes` sont tronqués **par le code** à leur seuil de travail, comme
+            # `facettes` l'était déjà (reprise différée de la revue 1.4). Le prompt demande
+            # `question_max_terms` termes : quand le modèle en rend plus, ce sont les derniers —
+            # les moins prioritaires selon lui — qui tombent, et la recherche reste bornée à ce que
+            # `search_limit` peut classer. Écarter par la fin, jamais couper un libellé.
+            terms=[t for t in (s.strip() for s in out.terms) if t][: settings.question_max_terms],
             # Le découpage en facettes est arrêté ici, avant *retrouver* et *rédiger* (AD-4, revue
             # Codex 1.5, tour 3, B3) : borné par `question_max_facettes`, et jamais deviné — un
             # modèle muet laisse la liste vide, et `complete` restera `False` faute de preuve.
             facettes=[f for f in (s.strip() for s in out.facettes) if f][: settings.question_max_facettes],
-            scope=QuestionScope(themes=[t for t in (s.strip() for s in out.themes) if t],
+            scope=QuestionScope(themes=[t for t in (s.strip() for s in out.themes) if t][: settings.scope_max_themes],
                                 bien=out.bien or None, evenement=out.evenement or None, lieu=out.lieu or None,
                                 cause=out.cause or None, moment=out.moment or None),
         )

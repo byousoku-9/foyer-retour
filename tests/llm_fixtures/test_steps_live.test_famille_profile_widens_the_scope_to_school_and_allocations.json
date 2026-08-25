@@ -1,15 +1,15 @@
 {
-  "claude-haiku-4-5-20251001:0e8e11ffe9e9cd13": {
-    "request": "claude-haiku-4-5-20251001:0e8e11ffe9e9cd13",
+  "claude-haiku-4-5-20251001:41291f24c3821722": {
+    "request": "claude-haiku-4-5-20251001:41291f24c3821722",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Je viens d'arriver avec mes enfants : comment les inscrire à l'école et quelles allocations demander ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\", \"arrivée\"], \"themes\": [\"école\", \"scolarité\", \"allocations\"], \"facettes\": [\"inscription des enfants à l'école\", \"allocations familiales à demander\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Je viens d'arriver avec mes enfants : comment les inscrire à l'école et quelles allocations demander ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\", \"arrivée\"], \"themes\": [\"école\", \"scolarité\", \"allocations\"], \"facettes\": [\"inscription des enfants à l'école\", \"allocations familiales\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeLtp6pxb5hZnM7K8RZfF",
+      "id": "msg_011CeNXjAjnL9DDgGLhwCZnk",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -24,8 +24,8 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 2959,
-        "output_tokens": 142,
+        "input_tokens": 3364,
+        "output_tokens": 139,
         "service_tier": "standard"
       }
     }

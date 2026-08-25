@@ -124,7 +124,7 @@ async def test_neither_or_both_outcomes_is_a_validation_error_not_an_arbitrary_c
 async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_question() -> None:
     """La propriété sémantique vit dans le prompt, pas dans le code (AD-5)."""
     prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6,
-                            question_max_facettes=4)
+                            question_max_facettes=4, perimetre_guide="- Logement : Signer un bail")
     assert "deux issues exclusives" in prefixe
     assert "`clarification` est alors renseignée à sa place" in prefixe
     assert "que l'historique ne dit pas" in prefixe
@@ -177,7 +177,7 @@ async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -
     assert req["model"] == HAIKU
     attendu = load_prompt("commun") + "\n\n" + render_prompt(
         "comprendre", question_min_terms=s.question_min_terms, question_max_terms=s.question_max_terms,
-        question_max_facettes=s.question_max_facettes)
+        question_max_facettes=s.question_max_facettes, perimetre_guide="")
     assert req["system"] == [{"type": "text", "text": attendu,
                               "cache_control": {"type": "ephemeral"}}]
     assert req["extra_body"] == {"temperature": 0}
@@ -218,3 +218,78 @@ async def test_the_prompt_announces_the_configured_term_bounds() -> None:
     prefixe = fake.requests[0]["system"][0]["text"]
     assert "3 à 9 termes de recherche" in prefixe
     assert "2 à 6 termes de recherche" not in prefixe
+
+
+# --- story 2.1 : le périmètre vient du corpus, et les listes sont bornées ----
+
+async def test_le_perimetre_du_prompt_vient_du_corpus_et_non_dune_liste_ecrite_a_la_main() -> None:
+    """Reprise différée `target_story: 2.1` — faux refus mesuré le 2026-08-24.
+
+    « Comment obtenir LuxTrust au meilleur prix ? » ressortait `hors_perimetre` parce que la liste de
+    périmètre de `prompts/comprendre.md` énumérait « démarches administratives (commune, matricule,
+    titres de séjour)… » sans nommer l'identité numérique, alors que le guide a une fiche entière
+    dessus. Le périmètre est désormais une projection des titres du corpus : une fiche ajoutée entre
+    dans le périmètre sans qu'on réécrive une phrase.
+    """
+    client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    perimetre = "- Administratif : LuxTrust et MyGuichet, Les huit premiers jours"
+    await _comprendre(client, perimetre=perimetre)
+    prefixe = fake.requests[0]["system"][0]["text"]
+    assert perimetre in prefixe
+    # L'énumération écrite à la main a disparu : c'est elle qui produisait le faux refus.
+    assert "titres de séjour" not in prefixe
+    # …et la consigne qui dit que la fiche décide, pas le contexte d'installation.
+    assert "c'est la fiche qui décide" in prefixe
+
+
+async def test_le_perimetre_ne_change_pas_le_reste_du_prefixe_et_reste_deterministe() -> None:
+    """AD-9 : le préfixe reste **byte-identique** d'un appel à l'autre à corpus constant (cacheable)."""
+    perimetre = "- Famille : Allocations familiales"
+    rendus = []
+    for _ in range(2):
+        client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+        await _comprendre(client, perimetre=perimetre)
+        rendus.append(fake.requests[0]["system"][0]["text"])
+    assert rendus[0] == rendus[1]
+
+
+async def test_le_code_tronque_terms_et_themes_aux_seuils_de_config() -> None:
+    """Reprise différée `target_story: 2.1` : le prompt demandait 2 à 6 termes, rien ne l'appliquait.
+
+    Tronqué **par la fin** et jamais coupé au milieu d'un libellé : l'ordre du modèle est celui de la
+    pertinence qu'il leur prête, et un terme amputé chercherait autre chose. Comme `facettes`, qui
+    l'était déjà.
+    """
+    client, fake = _client([fake_message(
+        text=_sortie(terms=[f"t{i}" for i in range(12)], themes=[f"h{i}" for i in range(12)],
+                     facettes=[f"f{i}" for i in range(12)]), model=HAIKU)])
+    s = _settings()
+    parsed, _step = await comprendre("q", [], Profil(), client=client, budget=_budget(), settings=s)
+    assert parsed.terms == [f"t{i}" for i in range(s.question_max_terms)]
+    assert parsed.scope.themes == [f"h{i}" for i in range(s.scope_max_themes)]
+    assert parsed.facettes == [f"f{i}" for i in range(s.question_max_facettes)]
+    assert fake.remaining_script == 0
+
+
+async def test_le_schema_de_sortie_interdit_un_champ_surnumeraire_et_borne_les_listes() -> None:
+    """Reprise différée `target_story: 2.1` : `SortieComprendre` héritait de `BaseModel`.
+
+    `extra="forbid"` fait d'un champ inventé une violation de contrat, qui emprunte la relance motivée
+    du client au lieu d'être ignorée en silence. Les listes portent une borne de **forme** généreuse :
+    au-delà, ce n'est plus une liste de termes, c'est un déversement — et le rejet est alors le bon
+    comportement, puisque la troncature du code ne saurait plus de quoi elle tronque.
+    """
+    from server.app.steps.comprendre import LISTE_MAX, SortieComprendre
+
+    assert SortieComprendre.model_config["extra"] == "forbid"
+    with pytest.raises(ValueError, match="extra_forbidden|Extra inputs"):
+        SortieComprendre.model_validate_json(_sortie(inconnu="valeur"))
+    with pytest.raises(ValueError, match="too_long|at most"):
+        SortieComprendre.model_validate_json(_sortie(terms=[f"t{i}" for i in range(LISTE_MAX + 1)]))
+    # Le schéma envoyé au modèle porte la borne **et** l'interdiction des champs surnuméraires :
+    # `anthropic.transform_schema` reporte les contraintes non supportées dans la `description`.
+    client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    await _comprendre(client)
+    schema = fake.requests[0]["output_config"]["format"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert f"maxItems: {LISTE_MAX}" in schema["properties"]["terms"]["description"]
