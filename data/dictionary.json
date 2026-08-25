@@ -1,0 +1,2181 @@
+{
+  "candidate_questions": {
+    "lux-guide:fachat": [
+      "Puis-je emprunter si je viens d'arriver au Luxembourg ?",
+      "Quel apport personnel faut-il pour acheter un logement ?",
+      "Quelles sont les étapes entre l'offre et la signature chez le notaire ?",
+      "Quels frais s'ajoutent au prix d'achat d'un bien ?",
+      "Qui peut bénéficier de la TVA à 3 % sur un logement ?"
+    ],
+    "lux-guide:fadministration": [
+      "Combien de temps attendre une réponse de l'administration ?",
+      "Dans quelle langue remplir mes formulaires administratifs ?",
+      "Faut-il prendre rendez-vous avant d'aller à un guichet ?",
+      "Pourquoi tout passe-t-il encore par le courrier papier ?",
+      "À qui m'adresser quand je ne sais pas quel service contacter ?"
+    ],
+    "lux-guide:fallocations": [
+      "Ai-je droit aux allocations familiales si je ne suis pas luxembourgeois ?",
+      "Combien touche-t-on par enfant et par mois ?",
+      "Comment demander les allocations pour mes enfants après mon arrivée ?",
+      "Le montant augmente-t-il quand mon enfant grandit ?",
+      "Y a-t-il une aide versée pour la rentrée scolaire ?"
+    ],
+    "lux-guide:farrivee": [
+      "Combien de temps ai-je pour déclarer mon arrivée à la commune ?",
+      "Comment obtenir mon matricule national ?",
+      "Je déménage dans une autre commune, que dois-je signaler ?",
+      "Que se passe-t-il si je ne m'inscris pas dans les délais ?",
+      "Quels papiers apporter pour m'inscrire à la commune ?"
+    ],
+    "lux-guide:fassurance_auto": [
+      "Faut-il assurer la voiture avant de l'immatriculer ?",
+      "Mon ancien assureur peut-il attester mes années sans accident ?",
+      "Mon bonus acquis à l'étranger est-il repris ici ?",
+      "Quelle assurance est obligatoire pour rouler au Luxembourg ?",
+      "Tous risques ou juste responsabilité civile, que choisir ?"
+    ],
+    "lux-guide:fassurance_habitation": [
+      "Combien coûte une assurance habitation au Luxembourg ?",
+      "L'assurance habitation est-elle obligatoire pour louer ?",
+      "Quand souscrire l'assurance avant de recevoir les clés ?",
+      "Quelles garanties choisir dans mon contrat d'assurance logement ?"
+    ],
+    "lux-guide:fassurance_sante": [
+      "Ai-je vraiment besoin d'une mutuelle au Luxembourg ?",
+      "Combien coûte une complémentaire pour une chambre seule à l'hôpital ?",
+      "Les soins dentaires sont-ils bien pris en charge ?",
+      "Qu'est-ce qui n'est pas remboursé par la caisse de maladie ?",
+      "Quelle mutuelle choisir quand on vient d'arriver ?"
+    ],
+    "lux-guide:fbail": [
+      "Combien de mois de caution peut-on me demander ?",
+      "Comment récupérer ma garantie locative à la fin du bail ?",
+      "Que vérifier avant de signer mon contrat de location ?",
+      "Quel préavis dois-je donner pour quitter mon logement ?",
+      "Qui paie la commission de l'agence depuis la réforme ?"
+    ],
+    "lux-guide:fbanque": [
+      "Comment faire bloquer la garantie locative demandée par mon propriétaire ?",
+      "Dois-je vraiment ouvrir un compte dans une banque locale en arrivant ?",
+      "Puis-je garder ma banque en ligne étrangère pour recevoir mon salaire ?",
+      "Quels documents me demande-t-on pour ouvrir un compte bancaire ?",
+      "Quels moyens de paiement sont acceptés au quotidien ?"
+    ],
+    "lux-guide:fchoisir_commune": [
+      "Combien de temps de trajet si j'habite en dehors de la capitale ?",
+      "Dans quelle commune vaut-il mieux s'installer quand on travaille en ville ?",
+      "Puis-je vivre au Luxembourg sans voiture ?",
+      "Quels critères regarder avant de choisir un quartier ?"
+    ],
+    "lux-guide:fconges": [
+      "Combien de jours de congé ai-je droit par an ?",
+      "Comment sont calculés mes congés si j'ai été embauché en cours d'année ?",
+      "Mon contrat peut-il me donner plus de congés que le minimum légal ?",
+      "Puis-je prendre des vacances pendant ma période d'essai ?",
+      "Quels sont les jours fériés au Luxembourg ?"
+    ],
+    "lux-guide:fconseil_fiscal": [
+      "Ai-je besoin d'un conseiller fiscal la première année ?",
+      "Comment vérifier que ma classe d'impôt est correcte ?",
+      "Que faire côté impôts pendant ma première année ici ?",
+      "Quels leviers fiscaux activer dès mon arrivée ?",
+      "À quoi sert l'article 111bis pour moi ?"
+    ],
+    "lux-guide:fcout_vie": [
+      "Combien reste-t-il en net sur un salaire brut ?",
+      "Comment fonctionne l'index et quand mon salaire augmente-t-il ?",
+      "Quel budget prévoir chaque mois pour le logement et les courses ?",
+      "Quel salaire faut-il pour vivre correctement au Luxembourg ?",
+      "À combien s'élève le salaire minimum et qui y a droit ?"
+    ],
+    "lux-guide:fdechets": [
+      "Comment obtenir mes poubelles quand j'arrive ?",
+      "Comment trier correctement mes déchets ici ?",
+      "Faut-il une carte pour entrer au centre de recyclage ?",
+      "Où jeter des encombrants ou des cartons ?",
+      "Quand sont ramassés les déchets dans ma rue ?"
+    ],
+    "lux-guide:fdeductions": [
+      "Combien puis-je mettre en prévoyance-vieillesse par an ?",
+      "Est-ce que l'épargne-logement fait baisser mon impôt ?",
+      "Mes trajets domicile-travail sont-ils déductibles ?",
+      "Quelles dépenses puis-je déduire de mes impôts au Luxembourg ?",
+      "Quels justificatifs garder pour mes déductions ?"
+    ],
+    "lux-guide:fecole": [
+      "Combien coûte une école internationale au Luxembourg ?",
+      "Faut-il s'occuper de l'école avant même de déménager ?",
+      "Quand faut-il inscrire son enfant à l'école ?",
+      "Quelles écoles pour mes enfants si nous ne parlons pas luxembourgeois ?",
+      "École publique, européenne ou internationale : comment choisir ?"
+    ],
+    "lux-guide:femmenagement": [
+      "Comment organiser le jour de mon emménagement ?",
+      "Faut-il prévoir des lampes en entrant dans un logement vide ?",
+      "Mes meubles passeront-ils dans l'ascenseur de l'immeuble ?",
+      "Où acheter des meubles pas trop chers en arrivant ?",
+      "Quels délais de livraison prévoir pour la cuisine et les meubles ?"
+    ],
+    "lux-guide:femploi": [
+      "Ai-je droit au chômage si je perds mon travail ici ?",
+      "Comment chercher un emploi quand je viens d'arriver au Luxembourg ?",
+      "Faut-il s'inscrire à l'ADEM pour trouver du travail ?",
+      "Où trouver les offres d'emploi déclarées par les entreprises ?",
+      "Quelles langues sont demandées par les employeurs luxembourgeois ?"
+    ],
+    "lux-guide:fgarde": [
+      "Combien coûte une crèche avec l'aide de l'État ?",
+      "Comment obtenir le chèque-service accueil pour la crèche ?",
+      "Comment trouver une place de garde pour mon enfant ?",
+      "Quelle différence entre crèche et maison relais ?",
+      "Qui a droit au chèque-service quand on vient d'arriver ?"
+    ],
+    "lux-guide:fimpatries": [
+      "Pendant combien d'années dure l'avantage impatrié ?",
+      "Puis-je bénéficier du régime des impatriés ?",
+      "Quelle part de mon salaire est exonérée comme impatrié ?",
+      "Quelles conditions mon employeur doit-il remplir ?"
+    ],
+    "lux-guide:fimpots_classes": [
+      "C'est quoi la classe 1a et qui la reçoit ?",
+      "Combien je paie en plus si je suis en classe 1 ?",
+      "Comment faire changer ma classe d'impôt ?",
+      "Je suis marié : ai-je droit à la classe 2 ?",
+      "Quelle classe d'impôt s'applique à ma situation ?"
+    ],
+    "lux-guide:findependant": [
+      "Ai-je besoin d'une autorisation pour exercer mon métier à mon compte ?",
+      "Combien coûtent les cotisations sociales quand on est indépendant ?",
+      "Dans quel délai déclarer mon activité indépendante à la sécurité sociale ?",
+      "Je veux travailler en freelance : quelles démarches faire au Luxembourg ?",
+      "Puis-je être dispensé de cotiser si mon activité est très réduite ?"
+    ],
+    "lux-guide:finterets": [
+      "Et si le logement est loué au lieu d'être habité ?",
+      "Le plafond augmente-t-il avec le nombre d'enfants ?",
+      "Quel est le plafond de déduction des intérêts par personne ?"
+    ],
+    "lux-guide:flangues": [
+      "Ai-je besoin de l'allemand pour travailler ?",
+      "Où prendre des cours de luxembourgeois ?",
+      "Puis-je vivre ici en ne parlant que l'anglais ?",
+      "Quelle langue faut-il parler pour les démarches administratives ?"
+    ],
+    "lux-guide:flogement_abordable": [
+      "Ai-je droit à un logement abordable avec mes revenus ?",
+      "Combien de temps faut-il attendre pour obtenir un logement abordable ?",
+      "Comment déposer une demande de logement à coût modéré ?",
+      "Puis-je revendre librement un logement acheté à prix encadré ?",
+      "Quels sont les plafonds de revenus à ne pas dépasser ?"
+    ],
+    "lux-guide:fluxtrust": [
+      "Comment créer mon espace sur MyGuichet ?",
+      "Comment obtenir mon produit LuxTrust au meilleur prix ?",
+      "Puis-je signer un document électroniquement depuis mon téléphone ?",
+      "Quelles démarches puis-je faire en ligne plutôt qu'au guichet ?",
+      "À quoi sert LuxTrust exactement ?"
+    ],
+    "lux-guide:fmatricule": [
+      "Comment obtenir mon matricule de sécurité sociale en arrivant au Luxembourg ?",
+      "Dois-je m'inscrire moi-même à la CNS quand je commence un emploi ?",
+      "Je paie le médecin puis je me fais rembourser, comment ça marche ?",
+      "Mon conjoint et mes enfants sont-ils couverts par mon affiliation ?",
+      "Quand vais-je recevoir ma carte de sécurité sociale ?"
+    ],
+    "lux-guide:fnationalite": [
+      "Après combien d'années de résidence puis-je demander la nationalité ?",
+      "Est-ce que je dois renoncer à ma nationalité d'origine ?",
+      "Mes enfants nés ici peuvent-ils devenir luxembourgeois ?",
+      "Quel niveau de luxembourgeois faut-il pour la naturalisation ?",
+      "Quelles sont les étapes d'une demande de naturalisation ?"
+    ],
+    "lux-guide:fpermis": [
+      "Combien de temps ai-je pour régulariser mon permis après mon arrivée ?",
+      "Comment échanger un permis délivré hors de l'Union européenne ?",
+      "Dois-je faire enregistrer mon permis de conduire, et est-ce payant ?",
+      "Mon permis européen reste-t-il valable si je m'installe au Luxembourg ?",
+      "À qui je m'adresse pour les démarches liées au permis ?"
+    ],
+    "lux-guide:frdv_technique": [
+      "Dois-je être présent pendant le raccordement ?",
+      "Le technicien n'est pas venu, qui je contacte ?",
+      "Que faire si le technicien ne trouve pas mon logement ?",
+      "Quelles informations donner pour que l'installation ait lieu ?"
+    ],
+    "lux-guide:frecherche_logement": [
+      "Combien de temps faut-il compter pour trouver un appartement ?",
+      "Comment me démarquer quand plusieurs candidats visitent le même logement ?",
+      "Faut-il passer par une agence immobilière et combien ça coûte ?",
+      "Où chercher les annonces de location au Luxembourg ?",
+      "Quels documents préparer pour candidater à une location ?"
+    ],
+    "lux-guide:freclamation": [
+      "Comment contester une facture que je trouve fausse ?",
+      "Comment saisir un médiateur pour un litige ?",
+      "Que dois-je écrire dans ma lettre de réclamation ?",
+      "Un appel au service client suffit-il pour réclamer ?",
+      "À qui m'adresser si l'entreprise ne répond pas ?"
+    ],
+    "lux-guide:fsante_pratique": [
+      "Comment trouver un médecin généraliste près de chez moi ?",
+      "Où trouver une pharmacie ouverte la nuit ou le dimanche ?",
+      "Puis-je consulter un spécialiste sans passer par un généraliste ?",
+      "Que faire si je tombe malade un week-end ?",
+      "Qui appeler en cas d'urgence médicale ?"
+    ],
+    "lux-guide:ftelecom": [
+      "Combien de temps pour avoir internet chez moi ?",
+      "Comment me connecter en attendant la fibre ?",
+      "Puis-je résilier mon abonnement internet si je déménage ?",
+      "Quel opérateur choisir pour mon forfait mobile ?"
+    ],
+    "lux-guide:ftransport": [
+      "Ai-je besoin d'un ticket pour voyager en première classe ?",
+      "Comment savoir si ma commune est bien desservie ?",
+      "Les bus et les trains sont-ils vraiment gratuits pour tout le monde ?",
+      "Où consulter les horaires de bus, de train et de tram ?",
+      "Peut-on se passer de voiture en vivant hors de la capitale ?"
+    ],
+    "lux-guide:fvehicule": [
+      "Combien coûte l'immatriculation d'une voiture d'occasion ?",
+      "Comment immatriculer une voiture que j'apporte de l'étranger ?",
+      "Est-ce différent si j'achète chez un garage plutôt qu'à un particulier ?",
+      "Faut-il passer au contrôle technique avant d'immatriculer mon véhicule ?",
+      "Quels papiers demande-t-on pour obtenir des plaques luxembourgeoises ?"
+    ],
+    "lux-guide:q1": [
+      "Sur quels critères choisir la commune où je vais m'installer ?",
+      "Vaut-il mieux habiter en ville ou en périphérie ?"
+    ],
+    "lux-guide:q10": [
+      "Mon employeur peut-il voir combien gagne mon conjoint ?",
+      "Quelles informations sur mon ménage apparaissent sur ma fiche d'impôt ?"
+    ],
+    "lux-guide:q11": [
+      "Comment éviter une mauvaise surprise fiscale l'année prochaine ?",
+      "Pourquoi dois-je payer un supplément d'impôt après ma déclaration ?"
+    ],
+    "lux-guide:q12": [
+      "Combien de jours ai-je pour me déclarer à la commune après mon arrivée ?",
+      "Que se passe-t-il si je déclare mon arrivée en retard ?"
+    ],
+    "lux-guide:q13": [
+      "Combien de temps faut-il attendre pour recevoir mon matricule ?",
+      "Comment obtenir mon numéro de matricule national ?"
+    ],
+    "lux-guide:q14": [
+      "Ai-je besoin d'un compte bancaire au Luxembourg pour être payé ?",
+      "Puis-je garder mon compte étranger pour mon salaire et mon loyer ?"
+    ],
+    "lux-guide:q15": [
+      "Comment récupérer ma garantie locative en fin de bail ?",
+      "Quelle caution un propriétaire peut-il légalement me demander ?"
+    ],
+    "lux-guide:q16": [
+      "Comment trouver un logement quand le marché est saturé ?",
+      "Quel dossier préparer pour convaincre un bailleur ?"
+    ],
+    "lux-guide:q17": [
+      "L'assurance habitation est-elle obligatoire pour un locataire ?",
+      "À quel moment dois-je souscrire mon assurance habitation ?"
+    ],
+    "lux-guide:q18": [
+      "Dois-je échanger mon permis de conduire après mon installation ?",
+      "Puis-je continuer à conduire avec mon permis d'un autre pays de l'UE ?"
+    ],
+    "lux-guide:q19": [
+      "Combien coûte l'importation de mon véhicule ?",
+      "Quelles démarches pour immatriculer ma voiture au Luxembourg ?"
+    ],
+    "lux-guide:q2": [
+      "Dans quel ordre faire mes démarches pour éviter les blocages ?",
+      "Quelles erreurs font échouer une installation au Luxembourg ?"
+    ],
+    "lux-guide:q20": [
+      "Dans quels cas dois-je encore acheter un billet de transport ?",
+      "Les bus et les trains sont-ils gratuits pour tout le monde ?"
+    ],
+    "lux-guide:q21": [
+      "Qu'est-ce que le régime fiscal des impatriés et qui peut en bénéficier ?",
+      "Quels avantages fiscaux si je suis recruté depuis l'étranger ?"
+    ],
+    "lux-guide:q22": [
+      "Quelle est la différence entre la classe 1 et la classe 2 ?",
+      "Vais-je changer de classe d'impôt en me mariant ?"
+    ],
+    "lux-guide:q23": [
+      "Mes trajets domicile-travail sont-ils déductibles ?",
+      "Quelles dépenses puis-je déduire de mes impôts ?"
+    ],
+    "lux-guide:q24": [
+      "Ma classe d'impôt est fausse, comment la faire corriger ?",
+      "Puis-je récupérer le trop-payé si ma classe était erronée ?"
+    ],
+    "lux-guide:q25": [
+      "Dois-je demander moi-même ma fiche de retenue d'impôt ?",
+      "Que faire si mon employeur n'a pas reçu ma carte d'impôt ?"
+    ],
+    "lux-guide:q26": [
+      "La déduction change-t-elle si le bien est loué ou habité par moi ?",
+      "Puis-je déduire les intérêts de mon crédit immobilier ?"
+    ],
+    "lux-guide:q27": [
+      "Quel apport personnel dois-je prévoir pour acheter ?",
+      "Quelle part du prix du bien une banque accepte-t-elle de financer ?"
+    ],
+    "lux-guide:q28": [
+      "Comment demander le taux de TVA réduit pour mon logement ?",
+      "La TVA à 3 % s'applique-t-elle à tous les logements neufs ?"
+    ],
+    "lux-guide:q29": [
+      "Est-ce que mes revenus me permettent d'accéder à un logement abordable ?",
+      "Où déposer une demande de logement à coût modéré ?"
+    ],
+    "lux-guide:q3": [
+      "Comment prouver que j'étais présent au rendez-vous du technicien ?",
+      "On me facture un déplacement pour absence alors que j'étais chez moi, que faire ?"
+    ],
+    "lux-guide:q30": [
+      "Puis-je être indépendant en parallèle de mon emploi salarié ?",
+      "Quelles autorisations et cotisations pour une activité accessoire ?"
+    ],
+    "lux-guide:q31": [
+      "Comment inscrire mes enfants à l'école après notre arrivée ?",
+      "Faut-il choisir l'école publique ou une école internationale ?"
+    ],
+    "lux-guide:q32": [
+      "Comment obtenir le chèque-service accueil pour mon enfant ?",
+      "Existe-t-il une aide financière pour payer la crèche ?"
+    ],
+    "lux-guide:q33": [
+      "Combien vais-je toucher d'allocations familiales par enfant ?",
+      "Qui peut prétendre aux allocations familiales luxembourgeoises ?"
+    ],
+    "lux-guide:q34": [
+      "Combien y a-t-il de jours fériés au Luxembourg ?",
+      "À combien de jours de congé ai-je droit par an ?"
+    ],
+    "lux-guide:q35": [
+      "Combien de temps faut-il pour avoir internet dans mon nouveau logement ?",
+      "Comment avoir une connexion en attendant le raccordement ?"
+    ],
+    "lux-guide:q36": [
+      "Que faire si mon opérateur télécom ne règle pas mon problème ?",
+      "À quel organisme signaler un litige avec mon fournisseur internet ?"
+    ],
+    "lux-guide:q37": [
+      "Dois-je apprendre le luxembourgeois pour vivre et travailler ici ?",
+      "Quelle langue est utilisée au travail et dans les administrations ?"
+    ],
+    "lux-guide:q38": [
+      "Quel numéro appeler en cas d'urgence médicale ?",
+      "Qui contacter la nuit ou le week-end si j'ai besoin d'un médecin ?"
+    ],
+    "lux-guide:q39": [
+      "Comment trier mes déchets et quelles poubelles utiliser ?",
+      "Où déposer les encombrants et les objets recyclables ?"
+    ],
+    "lux-guide:q4": [
+      "Comment contester une facture que je juge injustifiée ?",
+      "À qui m'adresser si mon fournisseur refuse ma réclamation ?"
+    ],
+    "lux-guide:q40": [
+      "Puis-je devenir luxembourgeois sans perdre ma nationalité actuelle ?",
+      "Quelles conditions pour demander la nationalité luxembourgeoise ?"
+    ],
+    "lux-guide:q41": [
+      "Qu'est-ce que l'index et comment augmente-t-il mon salaire ?",
+      "Quand une tranche d'indexation est-elle déclenchée ?"
+    ],
+    "lux-guide:q5": [
+      "Qu'est-ce qui est normalement fourni dans un logement loué ?",
+      "Y aura-t-il des lampes quand j'entrerai dans le logement ?"
+    ],
+    "lux-guide:q6": [
+      "Comment savoir si mes meubles passeront dans l'ascenseur ?",
+      "Que faire si l'accès à l'appartement est trop étroit pour le déménagement ?"
+    ],
+    "lux-guide:q7": [
+      "Ai-je vraiment besoin d'une mutuelle en plus de la CNS ?",
+      "Qu'est-ce qui n'est pas remboursé par l'assurance maladie ?"
+    ],
+    "lux-guide:q8": [
+      "Comment vérifier ce que couvre réellement mon contrat d'assurance ?",
+      "Quels documents demander avant de signer avec un assureur ?"
+    ],
+    "lux-guide:q9": [
+      "Les démarches administratives sont-elles vraiment compliquées ici ?",
+      "À quoi m'attendre face aux administrations luxembourgeoises ?"
+    ]
+  },
+  "corpus": {
+    "ADEM": [
+      "Arbeitsamt",
+      "agence pour l'emploi",
+      "agência de emprego",
+      "employment agency",
+      "service de l'emploi"
+    ],
+    "CCSS": [
+      "centre commun",
+      "joint social security centre"
+    ],
+    "CMCM": [
+      "Caisse médico-chirurgicale mutualiste",
+      "mutuelle CMCM"
+    ],
+    "CNS": [
+      "Caisse nationale de santé",
+      "Krankenkasse",
+      "caisse de maladie",
+      "caixa de saúde",
+      "health insurance fund"
+    ],
+    "IBAN luxembourgeois": [
+      "IBAN LU",
+      "Kontonummer",
+      "Luxembourgish IBAN",
+      "numéro de compte",
+      "número IBAN"
+    ],
+    "LuxTrust": [
+      "LuxTrust Mobile",
+      "Smartcard",
+      "certificat LuxTrust",
+      "produit LuxTrust",
+      "token LuxTrust"
+    ],
+    "MyGuichet": [
+      "MyGuichet.lu",
+      "espace privé",
+      "guichet en ligne",
+      "guichet.lu",
+      "online portal"
+    ],
+    "SNCA": [
+      "Société nationale circulation automobile",
+      "autorité du permis",
+      "service des permis"
+    ],
+    "TVA logement": [
+      "MwSt. Neubau",
+      "VAT on new build",
+      "demande d'application directe",
+      "remboursement de TVA"
+    ],
+    "TVA logement 3 %": [
+      "IVA reduzido",
+      "TVA réduite",
+      "ermäßigte Mehrwertsteuer",
+      "reduced VAT",
+      "taux super-réduit"
+    ],
+    "accès au déménagement": [
+      "Zugang für Umzug",
+      "acesso para mudança",
+      "cage d'escalier étroite",
+      "monte-meubles",
+      "moving access"
+    ],
+    "accès au logement": [
+      "Zugang zur Wohnung",
+      "accès technique",
+      "acesso ao imóvel",
+      "building access",
+      "code de porte"
+    ],
+    "achat de voiture": [
+      "Autokauf",
+      "achat chez concessionnaire",
+      "car purchase",
+      "comprar carro",
+      "voiture neuve"
+    ],
+    "achat immobilier": [
+      "Immobilienkauf",
+      "acheter un logement",
+      "buying property",
+      "comprar casa",
+      "devenir propriétaire"
+    ],
+    "activité indépendante accessoire": [
+      "Nebentätigkeit",
+      "activité secondaire",
+      "atividade independente secundária",
+      "side business"
+    ],
+    "adresse exacte": [
+      "adresse complète",
+      "endereço exato",
+      "exact address",
+      "genaue Adresse",
+      "numéro d'étage"
+    ],
+    "affiliation au CCSS": [
+      "Anmeldung Sozialversicherung",
+      "CCSS",
+      "déclaration au CCSS",
+      "inscrição segurança social",
+      "social security registration"
+    ],
+    "aide pour la crèche": [
+      "CSA",
+      "Kinderbetreuungshilfe",
+      "apoio para creche",
+      "childcare subsidy",
+      "chèque-service accueil",
+      "garde d'enfants subventionnée"
+    ],
+    "allemand": [
+      "Deutsch",
+      "German",
+      "alemão",
+      "langue allemande"
+    ],
+    "allocation de rentrée scolaire": [
+      "Schulanfangszulage",
+      "back-to-school allowance",
+      "prime de rentrée",
+      "subsídio escolar"
+    ],
+    "allocations familiales": [
+      "CAE",
+      "Familienleistungen",
+      "Kindergeld",
+      "abono de família",
+      "allocation familiale",
+      "child benefit",
+      "family allowance"
+    ],
+    "anglais au travail": [
+      "Englisch im Beruf",
+      "english at work",
+      "inglês no trabalho",
+      "langue de travail"
+    ],
+    "apprendre le luxembourgeois": [
+      "Luxemburgisch lernen",
+      "aprender luxemburguês",
+      "cours de luxembourgeois",
+      "langue luxembourgeoise",
+      "learn Luxembourgish"
+    ],
+    "article 111bis": [
+      "111bis",
+      "plafond 111bis",
+      "prévoyance-vieillesse 111bis"
+    ],
+    "assurance automobile": [
+      "Autoversicherung",
+      "Kfz-Versicherung",
+      "assurance auto",
+      "assurance voiture",
+      "car insurance",
+      "seguro automóvel"
+    ],
+    "assurance habitation": [
+      "Hausratversicherung",
+      "Wohngebäudeversicherung",
+      "assurance du locataire",
+      "assurance logement",
+      "home insurance",
+      "seguro de habitação"
+    ],
+    "assurance tous risques": [
+      "Vollkasko",
+      "casco complet",
+      "comprehensive cover"
+    ],
+    "autorisation d'établissement": [
+      "Niederlassungsgenehmigung",
+      "autorisation de commerce",
+      "business permit",
+      "licença de estabelecimento",
+      "permis d'établissement"
+    ],
+    "bacs à ordures": [
+      "Mülltonnen",
+      "bins",
+      "conteneurs",
+      "contentores",
+      "poubelles"
+    ],
+    "banque en ligne": [
+      "N26",
+      "Onlinebanking",
+      "Revolut",
+      "banco online",
+      "banque mobile",
+      "néobanque",
+      "online banking"
+    ],
+    "bonus-malus": [
+      "Schadenfreiheitsrabatt",
+      "bónus de seguro",
+      "no-claims bonus",
+      "réduction sans sinistre"
+    ],
+    "box internet": [
+      "WLAN-Router",
+      "modem",
+      "router",
+      "router wifi",
+      "routeur"
+    ],
+    "bus": [
+      "Bus",
+      "autobus",
+      "autocarro",
+      "ligne de bus",
+      "réseau RGTR"
+    ],
+    "calendrier de collecte": [
+      "Abfallkalender",
+      "calendário de recolha",
+      "collection calendar",
+      "jours de ramassage"
+    ],
+    "candidature": [
+      "Bewerbung",
+      "application",
+      "candidatura",
+      "postuler",
+      "recrutement"
+    ],
+    "capacité d'emprunt": [
+      "Beleihungswert",
+      "apport personnel",
+      "capacidade de empréstimo",
+      "loan to value",
+      "quotité de financement"
+    ],
+    "carte de sécurité sociale": [
+      "Sozialversicherungskarte",
+      "carte CNS",
+      "carte de sécu",
+      "cartão de saúde",
+      "social security card"
+    ],
+    "carte verte": [
+      "attestation d'assurance",
+      "carta verde",
+      "green card",
+      "grüne Karte"
+    ],
+    "caution locative": [
+      "Mietkaution",
+      "caução de aluguer",
+      "dépôt de garantie",
+      "garantie locative",
+      "rental deposit"
+    ],
+    "centre de recyclage": [
+      "Recyclingcenter",
+      "centro de reciclagem",
+      "déchetterie",
+      "parc à conteneurs",
+      "recycling centre"
+    ],
+    "certificat d'immatriculation": [
+      "Fahrzeugschein",
+      "carte grise",
+      "documento do veículo",
+      "registration certificate"
+    ],
+    "certificat d'éligibilité": [
+      "Berechtigungsschein",
+      "attestation de revenus",
+      "certificado de elegibilidade",
+      "eligibility certificate"
+    ],
+    "certificat de résidence": [
+      "Wohnsitzbescheinigung",
+      "attestation de résidence",
+      "certificado de residência",
+      "certificat d'inscription",
+      "residence certificate"
+    ],
+    "certificat électronique": [
+      "Zertifikat",
+      "certificado digital",
+      "certificat de signature",
+      "clé de signature",
+      "digital certificate"
+    ],
+    "chambre particulière": [
+      "Einzelzimmer",
+      "private room",
+      "quarto individual"
+    ],
+    "changement d'adresse": [
+      "Adressänderung",
+      "Umzug",
+      "change of address",
+      "changement de commune",
+      "déclaration de déménagement",
+      "déménagement",
+      "mudança de endereço"
+    ],
+    "chercher un emploi": [
+      "Arbeitssuche",
+      "job hunting",
+      "job search",
+      "procurar emprego",
+      "recherche d'emploi",
+      "trouver un travail"
+    ],
+    "choisir sa commune": [
+      "Gemeinde auswählen",
+      "choix du quartier",
+      "choosing a municipality",
+      "escolher o município",
+      "où habiter"
+    ],
+    "choix de la commune": [
+      "Gemeinde auswählen",
+      "choisir sa commune",
+      "choosing a commune",
+      "commune de résidence",
+      "escolher o município"
+    ],
+    "chèque-service accueil": [
+      "Betreuungsgutschein",
+      "CSA",
+      "childcare voucher",
+      "chèque service"
+    ],
+    "classe d'impôt": [
+      "Steuerklasse",
+      "barème d'imposition",
+      "classe 1",
+      "classe 1a",
+      "classe 2",
+      "classe de imposto",
+      "splitting",
+      "tax class"
+    ],
+    "classe d'impôt erronée": [
+      "classe de imposto errada",
+      "corriger sa classe",
+      "falsche Steuerklasse",
+      "mauvaise classe d'impôt",
+      "wrong tax class"
+    ],
+    "coassuré": [
+      "Mitversicherung",
+      "affiliation du conjoint",
+      "ayant droit",
+      "couverture des enfants",
+      "dependent coverage"
+    ],
+    "commune": [
+      "Gemeinde",
+      "administration communale",
+      "comuna",
+      "mairie",
+      "municipality"
+    ],
+    "commune de résidence": [
+      "Einwohneramt",
+      "Gemeinde",
+      "administration communale",
+      "bureau de la population",
+      "city hall",
+      "commune",
+      "câmara municipal",
+      "mairie"
+    ],
+    "complémentaire santé": [
+      "Zusatzversicherung",
+      "assurance santé privée",
+      "complementary health insurance",
+      "mutuelle",
+      "seguro de saúde complementar",
+      "top-up insurance"
+    ],
+    "compromis de vente": [
+      "Kaufvorvertrag",
+      "contrato-promessa",
+      "offre d'achat",
+      "promesse de vente",
+      "purchase agreement"
+    ],
+    "compte bancaire luxembourgeois": [
+      "Bankkonto eröffnen",
+      "bank account Luxembourg",
+      "compte en banque",
+      "conta bancária",
+      "open a bank account",
+      "ouvrir un compte"
+    ],
+    "conditions d'éligibilité logement": [
+      "Einkommensgrenzen",
+      "critères d'attribution",
+      "eligibility criteria",
+      "plafonds de revenus"
+    ],
+    "conditions générales d'assurance": [
+      "Versicherungsbedingungen",
+      "attestation d'assurance",
+      "condições gerais",
+      "police d'assurance",
+      "policy documents"
+    ],
+    "confidentialité du salaire": [
+      "Gehalt des Partners",
+      "salaire du conjoint",
+      "salário do cônjuge",
+      "spouse's salary"
+    ],
+    "congé légal": [
+      "annual leave",
+      "congés payés",
+      "férias anuais",
+      "gesetzlicher Urlaub",
+      "jours de congé",
+      "paid leave",
+      "vacances annuelles"
+    ],
+    "congés annuels": [
+      "Urlaubstage",
+      "annual leave",
+      "congé légal",
+      "dias de férias",
+      "jours de congé payé"
+    ],
+    "conseil fiscal": [
+      "Steuerberatung",
+      "conseiller fiscal",
+      "conselho fiscal",
+      "optimisation fiscale",
+      "tax advice"
+    ],
+    "contester une facture": [
+      "Rechnung anfechten",
+      "contestar uma fatura",
+      "dispute a bill",
+      "erreur de facturation",
+      "facture erronée"
+    ],
+    "contrat de bail": [
+      "Mietvertrag",
+      "bail de location",
+      "contrato de arrendamento",
+      "lease agreement",
+      "rental contract",
+      "signer un bail"
+    ],
+    "contrôle technique": [
+      "SNCT",
+      "TÜV",
+      "inspeção técnica",
+      "technical inspection",
+      "technische Kontrolle"
+    ],
+    "convention collective": [
+      "CCT",
+      "Tarifvertrag",
+      "accord collectif",
+      "collective agreement",
+      "convenção coletiva"
+    ],
+    "correction de la classe": [
+      "Steuerklasse ändern",
+      "corrigir classe de imposto",
+      "rectifier la classe"
+    ],
+    "correction fiscale": [
+      "Berichtigung beim Steueramt",
+      "demande de changement",
+      "tax correction"
+    ],
+    "cotisations sociales indépendant": [
+      "Sozialbeiträge",
+      "charges sociales",
+      "contribuições sociais",
+      "cotisations CCSS",
+      "social contributions"
+    ],
+    "courrier postal": [
+      "Einschreiben",
+      "Post",
+      "correio registado",
+      "courrier officiel",
+      "lettre recommandée",
+      "postal mail",
+      "poste",
+      "registered letter"
+    ],
+    "cours Vivre ensemble": [
+      "Vivre ensemble au Luxembourg",
+      "civic course",
+      "cours d'éducation civique",
+      "curso de educação cívica",
+      "instruction civique"
+    ],
+    "cours de langue": [
+      "Sprachkurse",
+      "apprendre la langue",
+      "cursos de língua",
+      "formation linguistique",
+      "language courses"
+    ],
+    "coût de la garde": [
+      "Betreuungskosten",
+      "childcare costs",
+      "frais de garde",
+      "tarif crèche"
+    ],
+    "coût de la vie": [
+      "Lebenshaltungskosten",
+      "budget mensuel",
+      "cherté de la vie",
+      "cost of living",
+      "custo de vida",
+      "niveau des prix"
+    ],
+    "crèche": [
+      "Kinderkrippe",
+      "Kita",
+      "creche",
+      "daycare",
+      "nursery"
+    ],
+    "crédit immobilier": [
+      "Hypothekendarlehen",
+      "crédito habitação",
+      "emprunt logement",
+      "home loan",
+      "prêt hypothécaire"
+    ],
+    "créer son activité": [
+      "Gewerbe anmelden",
+      "abrir atividade",
+      "monter sa boîte",
+      "start a business"
+    ],
+    "créneau de passage": [
+      "Zeitfenster",
+      "janela horária",
+      "plage horaire",
+      "time slot"
+    ],
+    "date de souscription assurance": [
+      "Versicherungsbeginn",
+      "quand assurer"
+    ],
+    "demande d'allocation": [
+      "Antrag stellen",
+      "claim for benefits",
+      "formulaire CAE",
+      "pedido de subsídio"
+    ],
+    "desserte des communes": [
+      "Anbindung",
+      "fréquence des bus",
+      "horaires de passage",
+      "ligação local",
+      "local service"
+    ],
+    "dimensions de l'ascenseur": [
+      "Aufzug messen",
+      "lift dimensions",
+      "medidas do elevador",
+      "monte-meubles",
+      "taille de l'ascenseur"
+    ],
+    "dispense d'affiliation": [
+      "Befreiung",
+      "activité occasionnelle",
+      "exemption d'affiliation",
+      "exemption from registration"
+    ],
+    "documents de l'assureur": [
+      "Unterlagen vom Versicherer",
+      "documentos do seguro",
+      "insurance documents",
+      "pièces à demander"
+    ],
+    "domiciliation bancaire": [
+      "Dauerauftrag",
+      "direct debit",
+      "débito direto",
+      "mandat de prélèvement",
+      "prélèvement automatique"
+    ],
+    "dossier de location": [
+      "Bewerbungsmappe",
+      "candidatura de arrendamento",
+      "dossier locataire",
+      "pièces justificatives",
+      "rental application"
+    ],
+    "double nationalité": [
+      "bi-nationalité",
+      "deux passeports",
+      "doppelte Staatsbürgerschaft",
+      "dual citizenship",
+      "dual nationality",
+      "dupla nacionalidade"
+    ],
+    "droit aux congés": [
+      "Urlaubsanspruch",
+      "calcul des congés",
+      "direito a férias",
+      "leave entitlement",
+      "solde de congés"
+    ],
+    "déchets ménagers": [
+      "Hausmüll",
+      "household waste",
+      "lixo doméstico",
+      "ordures",
+      "poubelle"
+    ],
+    "déclaration d'arrivée": [
+      "Anmeldung",
+      "declaration of arrival",
+      "déclarer son arrivée",
+      "enregistrement communal",
+      "inscription à la commune",
+      "inscrição na comuna",
+      "registo de residência",
+      "residence registration"
+    ],
+    "déductions fiscales": [
+      "Steuerabzüge",
+      "abattements",
+      "deduções fiscais",
+      "réduire son impôt",
+      "tax deductions"
+    ],
+    "dégât des eaux": [
+      "Wasserschaden",
+      "danos de água",
+      "fuite d'eau",
+      "water damage"
+    ],
+    "délai d'installation": [
+      "Wartezeit",
+      "installation lead time",
+      "prazo de instalação",
+      "temps d'attente"
+    ],
+    "délai de raccordement internet": [
+      "Internetanschluss Frist",
+      "installation de la fibre",
+      "internet installation time",
+      "mise en service internet",
+      "prazo de instalação internet"
+    ],
+    "délai de traitement": [
+      "Bearbeitungszeit",
+      "Wartezeit",
+      "délais",
+      "prazo de tratamento",
+      "processing time",
+      "temps d'attente",
+      "waiting time"
+    ],
+    "démarches administratives": [
+      "Behördengänge",
+      "Verwaltungsverfahren",
+      "administrative procedures",
+      "burocracia",
+      "formalités",
+      "paperasse",
+      "procédures",
+      "tramites administrativos"
+    ],
+    "démarches en ligne": [
+      "Online-Dienste",
+      "dématérialisation",
+      "e-administration",
+      "online procedures",
+      "services en ligne",
+      "serviços online"
+    ],
+    "déménagement raté": [
+      "failed move",
+      "gescheiterter Umzug",
+      "installation qui échoue",
+      "mudança que falha"
+    ],
+    "dépenses spéciales": [
+      "Sonderausgaben",
+      "charges déductibles",
+      "despesas especiais",
+      "special expenses"
+    ],
+    "emménagement": [
+      "Einzug",
+      "Umzug",
+      "déménagement",
+      "jour du déménagement",
+      "moving in",
+      "mudança"
+    ],
+    "enregistrement du permis": [
+      "Registrierung Führerschein",
+      "inscrire son permis",
+      "licence registration",
+      "registo da carta"
+    ],
+    "erreurs à éviter": [
+      "Fehler vermeiden",
+      "common mistakes",
+      "erros a evitar",
+      "pièges de l'installation"
+    ],
+    "exonération fiscale": [
+      "50% exonéré",
+      "Steuerbefreiung",
+      "isenção fiscal",
+      "revenu exonéré",
+      "tax exemption"
+    ],
+    "facture erronée": [
+      "billing error",
+      "erreur de facturation",
+      "falsche Rechnung",
+      "fatura errada",
+      "surfacturation"
+    ],
+    "feuille de maladie": [
+      "Arztrechnung",
+      "doctor's invoice",
+      "facture du médecin",
+      "fatura médica",
+      "mémoire d'honoraires"
+    ],
+    "fibre optique": [
+      "Glasfaser",
+      "fiber",
+      "fibra",
+      "fibre",
+      "très haut débit"
+    ],
+    "forfait mobile": [
+      "Mobilfunkvertrag",
+      "abonnement téléphone",
+      "carte SIM",
+      "mobile plan",
+      "plano móvel"
+    ],
+    "frais bancaires": [
+      "Bankgebühren",
+      "bank fees",
+      "coût du compte",
+      "taxas bancárias"
+    ],
+    "frais d'absence": [
+      "Fehlanfahrtskosten",
+      "déplacement sans intervention",
+      "facturation pour absence",
+      "missed appointment fee",
+      "taxa de ausência"
+    ],
+    "frais d'agence": [
+      "Maklerprovision",
+      "agency fee",
+      "comissão da agência",
+      "commission d'agence"
+    ],
+    "frais de déplacement": [
+      "Kilometerpauschale",
+      "commuting allowance",
+      "despesas de deslocação",
+      "forfait kilométrique",
+      "frais de trajet"
+    ],
+    "frais de notaire": [
+      "Notarkosten",
+      "acte notarié",
+      "custos de notário",
+      "droits d'enregistrement",
+      "notary fees"
+    ],
+    "frais non remboursés": [
+      "Eigenanteil",
+      "dépassement d'honoraires",
+      "out-of-pocket costs",
+      "reste à charge",
+      "ticket modérateur"
+    ],
+    "garantie locative": [
+      "Mietkaution",
+      "caution du loyer",
+      "caução de aluguer",
+      "dépôt de garantie",
+      "garantie bancaire",
+      "rental deposit"
+    ],
+    "garanties du contrat": [
+      "Deckung",
+      "coberturas",
+      "couverture",
+      "franchise",
+      "policy cover"
+    ],
+    "garde d'enfants": [
+      "Kinderbetreuung",
+      "childcare",
+      "childcare options",
+      "guarda de crianças",
+      "mode de garde"
+    ],
+    "garde médicale": [
+      "Bereitschaftsdienst",
+      "maison médicale",
+      "médecin de garde",
+      "out-of-hours care"
+    ],
+    "guichet": [
+      "Schalter",
+      "accueil",
+      "atendimento ao público",
+      "balcão",
+      "comptoir",
+      "counter",
+      "front desk",
+      "service au public"
+    ],
+    "habitation principale": [
+      "Hauptwohnung",
+      "logement occupé",
+      "main home",
+      "residência principal",
+      "résidence principale"
+    ],
+    "hospitalisation": [
+      "Krankenhausaufenthalt",
+      "hospital stay",
+      "internamento hospitalar",
+      "séjour à l'hôpital"
+    ],
+    "huit premiers jours": [
+      "acht Tage",
+      "dans les huit jours",
+      "délai de 8 jours",
+      "first eight days",
+      "premiers jours",
+      "primeiros oito dias"
+    ],
+    "hôpital": [
+      "Krankenhaus",
+      "Notaufnahme",
+      "clinique",
+      "hospital",
+      "hospital de urgência",
+      "service des urgences"
+    ],
+    "identité numérique": [
+      "digital identity",
+      "digitale Identität",
+      "eID",
+      "electronic identity",
+      "identidade digital",
+      "identifiant électronique"
+    ],
+    "immatriculation du véhicule": [
+      "Fahrzeug anmelden",
+      "Zulassung",
+      "matrícula",
+      "plaque d'immatriculation",
+      "registo do veículo",
+      "vehicle registration"
+    ],
+    "importation de véhicule": [
+      "Fahrzeugimport",
+      "importar carro",
+      "importer sa voiture",
+      "vehicle import",
+      "véhicule d'occasion importé"
+    ],
+    "importer sa voiture": [
+      "Auto importieren",
+      "import a car",
+      "importar o carro",
+      "voiture de l'étranger"
+    ],
+    "imposition collective": [
+      "Zusammenveranlagung",
+      "couple marié impôt",
+      "imposition commune",
+      "joint taxation",
+      "tributação conjunta"
+    ],
+    "indemnité de chômage": [
+      "Arbeitslosengeld",
+      "allocation de chômage",
+      "chômage",
+      "subsídio de desemprego",
+      "unemployment benefit"
+    ],
+    "indexation des salaires": [
+      "Indexierung",
+      "index",
+      "indexação salarial",
+      "tranche indiciaire",
+      "wage indexation",
+      "échelle mobile des salaires"
+    ],
+    "inscription scolaire": [
+      "Schulanmeldung",
+      "inscrição escolar",
+      "school enrolment",
+      "école fondamentale"
+    ],
+    "internet à domicile": [
+      "Internetanschluss",
+      "abonnement internet",
+      "connexion internet",
+      "home internet",
+      "internet em casa"
+    ],
+    "intégration": [
+      "Integration",
+      "integration",
+      "integração",
+      "parcours d'intégration"
+    ],
+    "intérêts d'emprunt": [
+      "Schuldzinsen",
+      "intérêts de crédit",
+      "intérêts débiteurs",
+      "juros do empréstimo",
+      "mortgage interest"
+    ],
+    "intérêts du prêt immobilier": [
+      "Schuldzinsen abziehen",
+      "déduction des intérêts",
+      "intérêts débiteurs déductibles",
+      "juros do crédito habitação",
+      "mortgage interest deduction"
+    ],
+    "jours fériés": [
+      "Feiertage",
+      "bank holidays",
+      "feriados",
+      "fêtes légales",
+      "jours fériés légaux",
+      "public holidays"
+    ],
+    "jours fériés légaux": [
+      "feriados",
+      "fêtes légales",
+      "gesetzliche Feiertage",
+      "public holidays"
+    ],
+    "langues administratives": [
+      "Amtssprachen",
+      "administrative languages",
+      "français allemand",
+      "langue des formulaires",
+      "línguas administrativas"
+    ],
+    "langues au Luxembourg": [
+      "Sprachen in Luxemburg",
+      "français allemand luxembourgeois",
+      "langue au travail",
+      "working language"
+    ],
+    "libre choix du médecin": [
+      "choisir son docteur",
+      "free choice of doctor",
+      "freie Arztwahl"
+    ],
+    "liste d'attente logement": [
+      "Warteliste",
+      "demande de logement social",
+      "lista de espera",
+      "waiting list"
+    ],
+    "litige": [
+      "Streitfall",
+      "conflit",
+      "dispute",
+      "désaccord commercial",
+      "litígio"
+    ],
+    "litige avec l'opérateur": [
+      "ILR",
+      "Streit mit Anbieter",
+      "litígio com operadora",
+      "plainte opérateur",
+      "réclamation télécom",
+      "telecom dispute"
+    ],
+    "livraison de meubles": [
+      "Möbellieferung",
+      "délai de livraison",
+      "entrega de móveis",
+      "furniture delivery",
+      "montage des meubles"
+    ],
+    "logement abordable": [
+      "affordable housing",
+      "bezahlbarer Wohnraum",
+      "habitation subventionnée",
+      "habitação acessível",
+      "logement à coût modéré"
+    ],
+    "logement à coût modéré": [
+      "Sozialwohnung",
+      "affordable housing",
+      "habitação a custo moderado",
+      "logement abordable",
+      "logement social"
+    ],
+    "loyer": [
+      "Miete",
+      "charges locatives",
+      "montant du loyer",
+      "renda",
+      "rent"
+    ],
+    "loyers élevés": [
+      "Mietpreise",
+      "budget logement",
+      "housing costs",
+      "preço da habitação",
+      "prix du logement"
+    ],
+    "luminaires": [
+      "Lampen",
+      "candeeiros",
+      "lampes et plafonniers",
+      "light fittings",
+      "éclairage"
+    ],
+    "luminaires du logement": [
+      "Lampen inklusive",
+      "lampes fournies",
+      "light fittings",
+      "luminárias incluídas",
+      "points lumineux"
+    ],
+    "luxembourgeois": [
+      "Luxembourgish",
+      "Luxemburgisch",
+      "Lëtzebuergesch",
+      "luxemburguês"
+    ],
+    "maison relais": [
+      "Betreuungsstruktur",
+      "accueil périscolaire",
+      "after-school care"
+    ],
+    "marché du travail luxembourgeois": [
+      "Arbeitsmarkt",
+      "emploi frontalier",
+      "labour market",
+      "marché de l'emploi",
+      "mercado de trabalho"
+    ],
+    "marché locatif tendu": [
+      "angespannter Wohnungsmarkt",
+      "concurrence entre candidats",
+      "pénurie de logements",
+      "tight rental market"
+    ],
+    "matricule national": [
+      "Matrikelnummer",
+      "matricule",
+      "national identification number",
+      "numéro d'identification",
+      "numéro matricule",
+      "numéro national",
+      "número de identificação"
+    ],
+    "matricule sécurité sociale": [
+      "Sozialversicherungsnummer",
+      "matricule luxembourgeois",
+      "numéro de matricule",
+      "numéro sécurité sociale",
+      "número de segurança social",
+      "social security number"
+    ],
+    "meubler son logement": [
+      "Möbel kaufen",
+      "achat de meubles",
+      "ameublement",
+      "furnishing",
+      "mobiliar a casa"
+    ],
+    "meubles dans l'ascenseur": [
+      "Möbel im Aufzug",
+      "dimensions de l'ascenseur",
+      "furniture in lift",
+      "móveis no elevador"
+    ],
+    "moyens de paiement": [
+      "Digicash",
+      "Payconiq",
+      "Zahlungsmittel",
+      "carte bancaire",
+      "carte de débit",
+      "meios de pagamento",
+      "payment methods"
+    ],
+    "médecin de garde": [
+      "Bereitschaftsdienst",
+      "garde médicale",
+      "out-of-hours doctor",
+      "urgences médicales"
+    ],
+    "médecin généraliste": [
+      "GP",
+      "Hausarzt",
+      "docteur",
+      "general practitioner",
+      "médecin traitant",
+      "médico de família"
+    ],
+    "médecin spécialiste": [
+      "Facharzt",
+      "médico especialista",
+      "specialist doctor",
+      "spécialiste sans orientation"
+    ],
+    "médiation": [
+      "Mediation",
+      "Schlichtung",
+      "mediation",
+      "mediação",
+      "médiateur"
+    ],
+    "nationalité luxembourgeoise": [
+      "Luxembourgish nationality",
+      "citoyenneté luxembourgeoise",
+      "luxemburgische Staatsangehörigkeit",
+      "nacionalidade luxemburguesa",
+      "passeport luxembourgeois"
+    ],
+    "naturalisation": [
+      "Einbürgerung",
+      "demande de naturalisation",
+      "devenir luxembourgeois",
+      "naturalization",
+      "naturalização"
+    ],
+    "naturalisation luxembourgeoise": [
+      "Einbürgerung",
+      "demande de nationalité",
+      "nacionalidade luxemburguesa",
+      "naturalisation",
+      "obtenir la nationalité"
+    ],
+    "numéro d'urgence": [
+      "112",
+      "113 police",
+      "Notrufnummer",
+      "emergency number",
+      "número de emergência"
+    ],
+    "numéro d'urgence 112": [
+      "112",
+      "Notruf",
+      "appel d'urgence",
+      "emergency number",
+      "número de emergência"
+    ],
+    "obtenir son matricule": [
+      "Matrikel beantragen",
+      "attribution du matricule",
+      "demande de matricule",
+      "get a matricule"
+    ],
+    "opérateur télécom": [
+      "Anbieter",
+      "fournisseur d'accès",
+      "fournisseur internet",
+      "operadora",
+      "telecom provider"
+    ],
+    "où s'installer": [
+      "Wohnort wählen",
+      "onde morar",
+      "quartier où habiter",
+      "where to live"
+    ],
+    "parc de recyclage": [
+      "Recyclingpark",
+      "Valorlux",
+      "centre de recyclage",
+      "déchetterie",
+      "recycling centre"
+    ],
+    "permis de conduire": [
+      "Führerschein",
+      "carta de condução",
+      "driver's license",
+      "driving licence",
+      "licence de conduite",
+      "permis européen"
+    ],
+    "permis de conduire européen": [
+      "EU driving licence",
+      "EU-Führerschein",
+      "conduire avec son permis",
+      "permis UE"
+    ],
+    "permis hors UE": [
+      "Drittstaat Führerschein",
+      "carta estrangeira",
+      "non-EU licence",
+      "permis non européen",
+      "permis étranger"
+    ],
+    "pharmacie": [
+      "Apotheke",
+      "farmácia",
+      "officine",
+      "pharmacie de garde",
+      "pharmacy"
+    ],
+    "plafond de la caution": [
+      "Kautionshöhe",
+      "deposit limit",
+      "montant maximum caution",
+      "trois mois de loyer"
+    ],
+    "plafond de revenus": [
+      "Einkommensgrenze",
+      "conditions de revenus",
+      "income ceiling",
+      "limite de rendimentos"
+    ],
+    "plafond déductible": [
+      "Höchstbetrag",
+      "deduction ceiling",
+      "limite dedutível",
+      "montant maximal",
+      "plafond par personne"
+    ],
+    "poste vacant": [
+      "déclaration de poste vacant",
+      "job offer",
+      "job vacancy",
+      "offene Stelle",
+      "offre d'emploi",
+      "vaga de emprego"
+    ],
+    "pouvoir d'achat": [
+      "Kaufkraft",
+      "poder de compra",
+      "purchasing power",
+      "reste à vivre"
+    ],
+    "première année d'imposition": [
+      "erstes Steuerjahr",
+      "first tax year",
+      "première déclaration",
+      "primeiro ano fiscal"
+    ],
+    "première classe": [
+      "billet première classe",
+      "erste Klasse",
+      "first class",
+      "primeira classe"
+    ],
+    "première classe payante": [
+      "Erste Klasse Zuschlag",
+      "exceptions à la gratuité",
+      "first class ticket",
+      "supplément 1re classe"
+    ],
+    "prendre rendez-vous médical": [
+      "Arzttermin",
+      "doctor appointment",
+      "marcar consulta"
+    ],
+    "preuve écrite": [
+      "Nachweis",
+      "accusé de réception",
+      "prova escrita",
+      "trace écrite",
+      "written proof"
+    ],
+    "prime d'assurance": [
+      "Versicherungsprämie",
+      "cotisation annuelle",
+      "premium",
+      "prémio de seguro"
+    ],
+    "prime participative": [
+      "Prämie steuerfrei",
+      "exonération de prime",
+      "prime d'impatriation",
+      "prémio isento"
+    ],
+    "préavis de résiliation": [
+      "Kündigungsfrist",
+      "aviso prévio",
+      "donner congé",
+      "notice period",
+      "résilier le bail"
+    ],
+    "prévoyance-vieillesse": [
+      "Altersvorsorge",
+      "pension savings",
+      "poupança-reforma",
+      "troisième pilier",
+      "épargne retraite"
+    ],
+    "prêt immobilier": [
+      "Hypothek",
+      "Immobilienkredit",
+      "crédit logement",
+      "crédito à habitação",
+      "hypothèque",
+      "mortgage"
+    ],
+    "période d'essai": [
+      "Probezeit",
+      "essai",
+      "período experimental",
+      "probation period",
+      "trial period"
+    ],
+    "quartier de Luxembourg-ville": [
+      "Stadtviertel",
+      "bairros",
+      "city districts",
+      "quartiers de la capitale"
+    ],
+    "quotité de financement": [
+      "Beleihungsquote",
+      "LTV",
+      "apport personnel",
+      "loan to value"
+    ],
+    "raccordement": [
+      "Anschluss",
+      "branchement",
+      "connection",
+      "installation de la ligne",
+      "ligação"
+    ],
+    "raccordement fibre": [
+      "Glasfaseranschluss",
+      "fiber installation",
+      "fibra ótica",
+      "fibre optique"
+    ],
+    "recherche de logement": [
+      "Wohnungssuche",
+      "agence immobilière",
+      "annonce immobilière",
+      "chercher un appartement",
+      "flat search",
+      "house hunting",
+      "procura de casa",
+      "trouver un logement"
+    ],
+    "relevé d'informations": [
+      "Schadenfreiheitsbescheinigung",
+      "attestation de sinistres",
+      "claims history",
+      "declaração de sinistros",
+      "historique de sinistres"
+    ],
+    "remboursement des soins": [
+      "Kostenerstattung",
+      "avance de frais",
+      "reembolso de despesas médicas",
+      "reimbursement of medical costs",
+      "remboursement CNS"
+    ],
+    "rendez-vous administratif": [
+      "Termin",
+      "Terminvereinbarung",
+      "agendamento",
+      "appointment",
+      "booking",
+      "marcação",
+      "prise de rendez-vous"
+    ],
+    "rendez-vous technique": [
+      "Technikertermin",
+      "passage du technicien",
+      "rendez-vous installateur",
+      "technical appointment",
+      "visita do técnico"
+    ],
+    "responsabilité civile": [
+      "Haftpflichtversicherung",
+      "RC vie privée",
+      "liability cover",
+      "responsabilidade civil"
+    ],
+    "revente encadrée": [
+      "Weiterverkaufsbindung",
+      "clause de revente",
+      "plus-value limitée",
+      "resale restrictions"
+    ],
+    "réclamation écrite": [
+      "courrier de réclamation",
+      "lettre de réclamation",
+      "reclamação escrita",
+      "schriftliche Beschwerde",
+      "written complaint"
+    ],
+    "réduire son impôt": [
+      "Steuer senken",
+      "abattements",
+      "frais de déplacement déductibles",
+      "lower my tax"
+    ],
+    "réforme du bail 2024": [
+      "2024 rental reform",
+      "Mietrechtsreform"
+    ],
+    "régime des impatriés": [
+      "Expatriates-Regelung",
+      "expatriate regime",
+      "impatriate regime",
+      "regime de impatriados",
+      "statut d'impatrié"
+    ],
+    "régularisation d'impôt": [
+      "Steuerausgleich",
+      "rattrapage d'impôt",
+      "retenue insuffisante",
+      "tax adjustment"
+    ],
+    "résidence durable": [
+      "Aufenthaltsdauer",
+      "années de résidence",
+      "durée de résidence",
+      "long-term residence",
+      "residência duradoura",
+      "résidence continue"
+    ],
+    "salaire au Luxembourg": [
+      "Gehalt",
+      "Lohn",
+      "paie",
+      "rémunération",
+      "salaire brut net",
+      "salary in Luxembourg",
+      "salário"
+    ],
+    "salaire brut et net": [
+      "Brutto Netto",
+      "bruto e líquido",
+      "gross and net",
+      "net à payer",
+      "retenues sur salaire"
+    ],
+    "salaire social minimum": [
+      "Mindestlohn",
+      "SSM",
+      "SSM qualifié",
+      "minimum wage",
+      "salaire minimum",
+      "salário mínimo"
+    ],
+    "scolariser ses enfants": [
+      "Einschulung",
+      "inscription scolaire",
+      "matricular os filhos",
+      "school enrolment",
+      "school registration"
+    ],
+    "scolarité": [
+      "Schulsystem",
+      "escolaridade",
+      "parcours scolaire",
+      "schooling"
+    ],
+    "service client": [
+      "Kundendienst",
+      "customer service",
+      "hotline",
+      "service clientèle",
+      "serviço ao cliente"
+    ],
+    "signature électronique": [
+      "assinatura eletrónica",
+      "digital signature",
+      "electronic signature",
+      "elektronische Signatur",
+      "signature numérique"
+    ],
+    "soins dentaires": [
+      "Zahnbehandlung",
+      "dental care",
+      "dentiste",
+      "orthodontie",
+      "prothèse dentaire",
+      "tratamento dentário"
+    ],
+    "solution provisoire": [
+      "clé 4G",
+      "internet temporaire",
+      "solução provisória",
+      "temporary solution",
+      "Übergangslösung"
+    ],
+    "supplément selon l'âge": [
+      "Alterszuschlag",
+      "age supplement",
+      "majoration d'âge"
+    ],
+    "taux d'imposition": [
+      "Steuersatz",
+      "barème",
+      "tax rate",
+      "taxa de imposto",
+      "tranches d'impôt"
+    ],
+    "taxe sur les véhicules": [
+      "Kfz-Steuer",
+      "imposto automóvel",
+      "taxe automobile",
+      "vehicle tax",
+      "vignette fiscale"
+    ],
+    "technicien pas venu": [
+      "Techniker nicht gekommen",
+      "no-show technicien",
+      "rendez-vous manqué",
+      "technician no-show"
+    ],
+    "test de langue luxembourgeoise": [
+      "Luxembourgish language test",
+      "Sproochentest",
+      "cours de langue",
+      "examen de luxembourgeois",
+      "teste de luxemburguês"
+    ],
+    "train": [
+      "CFL",
+      "Zug",
+      "chemins de fer luxembourgeois",
+      "comboio",
+      "train régional",
+      "trem"
+    ],
+    "trajet domicile-travail": [
+      "Pendeln",
+      "commute",
+      "deslocação casa-trabalho",
+      "navette quotidienne",
+      "temps de trajet"
+    ],
+    "tram": [
+      "Luxtram",
+      "Straßenbahn",
+      "elétrico",
+      "tram de la capitale",
+      "tramway"
+    ],
+    "transports en commun": [
+      "bus et train",
+      "public transport",
+      "réseau de bus",
+      "transportes públicos",
+      "öffentlicher Verkehr"
+    ],
+    "transports publics gratuits": [
+      "free public transport",
+      "gratis öffentlicher Verkehr",
+      "gratuité des transports",
+      "mobilité gratuite",
+      "transportes públicos gratuitos"
+    ],
+    "travailleur indépendant": [
+      "Selbständiger",
+      "auto-entrepreneur",
+      "freelance",
+      "indépendant",
+      "self-employed",
+      "statut d'indépendant",
+      "trabalhador independente"
+    ],
+    "tri des déchets": [
+      "Mülltrennung",
+      "recyclage",
+      "separação de lixo",
+      "tri sélectif",
+      "waste sorting"
+    ],
+    "virement bancaire": [
+      "bank transfer",
+      "transfert d'argent",
+      "transferência bancária",
+      "virement SEPA",
+      "Überweisung"
+    ],
+    "visite de logement": [
+      "Besichtigung",
+      "viewing",
+      "visita ao imóvel",
+      "visite d'appartement"
+    ],
+    "vivre en périphérie": [
+      "Umland",
+      "banlieue",
+      "fora da cidade",
+      "suburbs"
+    ],
+    "échange de permis": [
+      "Umtausch Führerschein",
+      "convertir son permis",
+      "exchange of licence",
+      "permis luxembourgeois",
+      "troca da carta"
+    ],
+    "école européenne": [
+      "Europaschule",
+      "European School",
+      "escola europeia"
+    ],
+    "école internationale": [
+      "escola internacional",
+      "international school",
+      "internationale Schule",
+      "école privée"
+    ],
+    "école publique luxembourgeoise": [
+      "enseignement public",
+      "escola pública",
+      "public school",
+      "école fondamentale",
+      "öffentliche Schule"
+    ],
+    "école publique ou internationale": [
+      "choix de l'école",
+      "international school",
+      "internationale Schule",
+      "école européenne"
+    ],
+    "éligibilité": [
+      "Anspruchsvoraussetzungen",
+      "conditions d'accès",
+      "critères d'attribution",
+      "elegibilidade",
+      "eligibility"
+    ],
+    "épargne-logement": [
+      "Bausparen",
+      "contrat épargne logement",
+      "home savings",
+      "poupança-habitação"
+    ],
+    "état des lieux": [
+      "inventory of fixtures",
+      "vistoria do imóvel",
+      "Übergabeprotokoll"
+    ]
+  },
+  "corpus_source_hashes": {
+    "lux-guide": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5"
+  },
+  "intents": {
+    "bavardage": [
+      "au revoir",
+      "bis später",
+      "boa tarde",
+      "bom dia",
+      "bonjour",
+      "bonne journée",
+      "bonne soirée",
+      "bonsoir",
+      "comment ça va",
+      "coucou",
+      "enchanté",
+      "good morning",
+      "guten abend",
+      "guten tag",
+      "hallo",
+      "hello",
+      "hey",
+      "hi there",
+      "how are you",
+      "olá",
+      "quoi de neuf",
+      "salut",
+      "see you later",
+      "tschüss",
+      "tu es qui",
+      "what's up",
+      "who are you",
+      "wie geht es dir",
+      "à bientôt",
+      "ça va ?"
+    ],
+    "hors_perimetre": [
+      "classement de ligue",
+      "combien font",
+      "coupe du monde",
+      "cours du bitcoin",
+      "crypto price",
+      "cryptomonnaie",
+      "dernières actualités",
+      "football score",
+      "fußballergebnis",
+      "horoscope",
+      "horoskop",
+      "kochrezept",
+      "latest news",
+      "movie recommendation",
+      "racine carrée",
+      "raconte une blague",
+      "receita de bolo",
+      "recette de cuisine",
+      "resultado do jogo",
+      "résous cette équation",
+      "résultat du match",
+      "score du match",
+      "solve this equation",
+      "tell me a joke",
+      "witz erzählen",
+      "write a poem",
+      "write python code",
+      "écris du code",
+      "écris un poème",
+      "élection présidentielle"
+    ],
+    "meteo": [
+      "averses",
+      "bewölkt",
+      "bulletin météo",
+      "ciel dégagé",
+      "céu limpo",
+      "ensoleillé",
+      "how is the weather",
+      "meteorologia",
+      "météo",
+      "météo demain",
+      "météo du week-end",
+      "nuageux",
+      "pleuvra-t-il demain",
+      "previsão do tempo",
+      "prévisions météo",
+      "quel temps fait-il",
+      "rainy day",
+      "regnet es morgen",
+      "sonnig",
+      "sunny tomorrow",
+      "tempo amanhã",
+      "va-t-il pleuvoir",
+      "vai chover",
+      "vai chover amanhã",
+      "weather",
+      "weather forecast",
+      "wetter",
+      "wettervorhersage",
+      "wie ist das wetter",
+      "will it rain"
+    ]
+  },
+  "schema_version": "1",
+  "validated": false,
+  "validated_at": null,
+  "validated_by": null
+}
