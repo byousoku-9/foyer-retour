@@ -1916,3 +1916,67 @@ texte servi sans que rien ne le dise.
 trois modules du tier `reason`, enregistrement des trois fixtures de `test_profil_live`, trois tours
 navigateur et **trois** rejeux de gate (0,0632 € + 0,0800 €). Les deux `countersigned` restent
 `false` : la relecture humaine des deux cas témoins est toujours due (story 1.10).
+
+### Revue Codex 2.3 : trois clauses rendues à leur texte, et les gates repartent une quatrième fois
+
+La revue indépendante (tour 1/1) a rendu trois **bloquants** et un **important**. Les quatre sont
+corrigés ; aucun n'a été rejeté.
+
+| Id | Ce qui n'allait pas | Ce qui a changé |
+|---|---|---|
+| B1 | Les nœuds du profil arrivaient à *retrouver* par un paramètre nommé (`noeuds_prioritaires`), alors que l'AC place la construction dans `ParsedQuestion.scope` et qu'AD-1 écrit « *retrouver* ne voit que `ParsedQuestion` ». | `QuestionScope.noeuds`, rempli par *comprendre* (code pur sur `Document.parcours`), lu par *retrouver*. |
+| B2 | « statut → impôts », terme littéral de l'AC, n'avait **aucun** canal : ni le parcours ni le prompt. | Un mot dans la table `themes` de `prompts/comprendre.md`, au singulier (`impôt`). |
+| B3 | Une lecture tronquée dont aucune claim ne survivait publiait quand même un `AbsenceProof` (`claims_rejetes`), ce que NFR2 et AD-1 interdisent mot pour mot. | `BudgetExceeded` avant le refus, dans les **deux** pipelines. |
+| I1 | Un nœud promu par le profil dont le budget de blocs écartait la fenêtre laissait pour de bon le nœud qu'il avait évincé. | La lecture est rejouable ; une place réservée non occupée est **rendue**. |
+
+**Pourquoi le singulier, pour B2.** La recherche est littérale sur des formes normalisées. Mesuré sur
+le corpus servi :
+
+```
+['impôts']        -> ['lux-guide:q23']
+['impôt']         -> ['lux-guide:fachat', 'lux-guide:fdeductions', 'lux-guide:fimpots_classes']
+['classe d impot']-> ['lux-guide:fconseil_fiscal', 'lux-guide:fimpots_classes', 'lux-guide:q10', 'lux-guide:q24']
+```
+
+Le pluriel de l'AC ne touche qu'une FAQ ; le singulier le contient et atteint les fiches fiscales.
+C'est la forme qui tient la clause, pas celle qui la recopie.
+
+**Les appels réels de la revue.** `prompts_digest` a bougé (B2), donc la clé de requête de tous les
+appels `micro` : onze fixtures live ré-enregistrées avec la clé, puis rejouées hors ligne.
+
+| Module | Fixtures | Ce qui a été vérifié |
+|---|---|---|
+| `test_profil_live.py` | 3 ré-enregistrées + **2 neuves** | `statut` salarié **et** indépendant font sortir des thèmes d'affiliation **et** d'impôt, et les termes réellement cherchés touchent une fiche fiscale du guide |
+| `test_steps_live.py` | 3 | inchangé sur le fond |
+| `test_suivi_live.py` | 3 | inchangé sur le fond |
+| `test_pipeline_live.py` | 2 | inchangé sur le fond |
+
+Les deux nouveaux cas n'assertent pas seulement le libellé rendu par le modèle : ils vérifient que
+`ParsedQuestion.termes_de_recherche()` atteint `fimpots_classes` / `fdeductions` /
+`fconseil_fiscal` / `fimpatries` / `finterets`. Un thème qui ne trouve rien ne priorise aucun nœud.
+
+**Ré-ingestion.** Aucune : `SCHEMA_VERSION` et `ingest/*` n'ont pas bougé.
+`uv run python -m server.ingest.kb_to_blocks` rend `ids_disparus: 0`, `ids_nouveaux: 0`,
+`parcours_fiches: 9`, `parcours_etapes_ignorees: 29`, et `git diff data/` ne montre que
+`manifest.json` — les gates.
+
+**Les deux gates, rejoués** (`pipeline_digest` **et** `prompts_digest` ont bougé) :
+
+| Gate | Cas | Résultat | Coût |
+|---|---|---|---|
+| `lux-guide` | `g-luxtrust-prix` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0252 € |
+| `axa-lu-optihome-2017` | `s-bougie-canape` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0516 € |
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète, hors ligne | `ANTHROPIC_API_KEY= uv run pytest -q` | **1706 passed** en 29,1 s |
+| Lint | `uv run ruff check .` | *All checks passed!* |
+
+**Coût des appels réels de la revue : ≈ 0,32 €** (onze fixtures + deux nouvelles + deux gates), ce
+qui porte la story à ≈ 0,74 €.
+
+**Ce que la revue n'a pas changé, et qui reste dû.** La réserve du profil n'a toujours pas été
+exercée par un appel réel (reprise différée, `target_story: 4.2`) ; « partiel » reste l'état
+quasi nominal (même reprise) ; la règle de profil reste écrite deux fois sans garde-fou croisé
+(`target_story: 2.5`) ; les deux `countersigned` restent `false` et le dictionnaire non validé — deux
+mains humaines, qu'aucune boucle ne peut remplacer.
