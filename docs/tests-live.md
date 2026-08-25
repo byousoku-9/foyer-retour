@@ -2476,3 +2476,33 @@ sinistre a d'abord été réenregistrée en direct), puis la suite complète pas
 tests de digests, Ruff et `git diff --check` passent. Les deux gates `vertical` sont réécrits sur les
 digests finaux : `lux-guide` 1/1 à 0,0241 € et `axa-lu-optihome-2017` 1/1 à 0,0422 €, toujours
 `countersigned=false` et sans prétendre à une contresignature humaine.
+
+### Clôture du socle A — l'exclusion animale est toujours affichée
+
+Un dernier run réel du socle A a montré un défaut non déterministe sur l'énoncé exact « Mon chien a
+couru dans la baie vitrée et l'a cassée, je suis couvert ? ». La réponse était lisible et `p35:2`
+avait été retrouvé, ouvert, vérifié et jugé pertinent, mais sa claim ne portait plus aucun segment
+factuel survivant : le contrôle `non_citee` l'écartait donc correctement, et seule `p35:1` rejoignait
+`sources[]`. Le rappel lexical n'était pas en cause : dans les confirmations ci-dessous, `p35:1` et
+`p35:2` sont rangs 1 et 2 des blocs ouverts.
+
+Le défaut venait de deux formulations du même jugement dans la sortie groupée : la pertinence dit
+déjà que les citations soutiennent `Claim.text` et que cette affirmation répond à la question, alors
+que le booléen du segment pouvait écarter sa paraphrase ou que le rédacteur pouvait garder la claim
+sans phrase. Pour le seul pipeline sinistre, chaque segment factuel est désormais aligné sur le texte
+exact de ses claims atomiques et toute claim oubliée reçoit un segment ; quand ce texte identique est
+pertinent, un second booléen opposé ne peut plus le faire disparaître. La règle `non_citee` reste
+inchangée pour une claim réellement sans segment, une paraphrase non soutenue ou une claim non
+pertinente. Le contrat d'intention, le classement 2.6, les seuils et la table AD-6 ne changent pas.
+
+| Run consécutif | HTTP / durée | Blocs ouverts en tête | Sources affichées | Claims / rejets | Coût |
+|---|---:|---|---|---|---:|
+| 1 | 200 / 19,332 s | `p35:1` rang 1, `p35:2` rang 2 | `p35:1`, `p35:2` | 1 retenue / 0 rejetée | 0,0316 € |
+| 2 | 200 / 32,528 s | `p35:1` rang 1, `p35:2` rang 2 | `p35:1`, `p35:2`, `p35:2` | 3 retenues / 0 rejetée | 0,0653 € |
+
+La fixture réelle du cas bougie a été réenregistrée sans effacer ses entrées antérieures. Sur l'arbre
+final, 253 tests ciblés passent, puis la suite complète hermétique passe 2 090/2 090. Les 10 tests de
+digests, Ruff et `git diff --check` passent. Les deux gates `vertical` finaux passent 1/1 :
+`lux-guide` à 0,0219 € et `axa-lu-optihome-2017` à 0,0313 €, toujours `countersigned=false`. Ils
+portent `pipeline_digest=dc1359d04ba5f4105a67345f5974d117d46704c263553c6cdcadb26d3a73cef2`
+et `prompts_digest=20c7e254a7f6f82f9516bf84dc8f391de9391b389188fedc93c31a1a60a2feb8`.
