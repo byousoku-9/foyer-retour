@@ -69,7 +69,7 @@ def test_faq_to_unknown_fiche_is_unresolved_alert(mini_kb: dict) -> None:
     mini_kb["faq"][0]["fiche"] = "inconnue"
     doc = k.build_document(mini_kb, edition="e", source_hash="h")
     assert doc.block("lux-guide:q1:2").unresolved_refs == ["lux-guide:finconnue"]
-    report = build_report(doc, None, mini_kb)
+    report = build_report(doc, None, mini_kb, parcours_ignorees=0, parcours_alertes=[])
     assert [c.name for c in report.alerts] == ["unresolved_refs"]
 
 
@@ -99,7 +99,7 @@ def test_run_writes_artefacts_and_is_deterministic(data_dir: Path) -> None:
     report, entry = k.run(data_dir, edition="git:test")
     assert entry.status == "servi" and entry.gate is None
     assert not report.blocking and report.stats["fiches"] == 2 and report.stats["faq"] == 2
-    assert [c.name for c in report.checks if c.level == "info"] == ["invariants_arbre", "timeline_non_ingeree", "taille_sommaire"]
+    assert [c.name for c in report.checks if c.level == "info"] == ["invariants_arbre", "parcours_ingere", "taille_sommaire"]
     first = {p.name: p.read_bytes() for p in data_dir.iterdir()} | {"manifest": (data_dir.parent / "manifest.json").read_bytes()}
     doc = Document.model_validate_json(first["document.json"])
     assert "text_norm" not in json.loads(first["document.json"])["blocks"][0]
@@ -179,7 +179,18 @@ def test_real_source_matches_committed_artefacts() -> None:
     assert k.build_summary(doc, kb) == (REAL / "summary.md").read_text("utf-8")
     summary = k.build_summary(doc, kb)
     previous = Document.model_validate_json((REAL / "document.json").read_bytes())
-    assert build_report(doc, previous, kb, summary=summary) == Report.model_validate_json((REAL / "report.json").read_bytes())
+    parcours = k.parcours_conditions(kb, {n.node_id for n in doc.nodes})
+    assert build_report(doc, previous, kb, summary=summary, parcours_ignorees=parcours.ignorees,
+                        parcours_alertes=parcours.alertes) == Report.model_validate_json((REAL / "report.json").read_bytes())
+    # Story 2.3 : les neuf fiches que la `timeline` conditionne, dans l'ordre du parcours, sans
+    # doublon (trois étapes différentes conditionnent `ecole` sur `{enfants: true}`). Les conditions
+    # sont celles de la **source** — aucun texte d'étape n'a été ingéré, et aucun n'a de bloc.
+    assert [c.node_id for c in doc.parcours] == [f"lux-guide:f{f}" for f in (
+        "ecole", "garde", "recherche_logement", "achat", "assurance_auto", "allocations",
+        "independant", "vehicule", "permis")]
+    assert doc.parcours[0].si == {"enfants": True} and doc.parcours[3].si == {"logement": "Acheter"}
+    assert (parcours.ignorees, parcours.alertes) == (29, [])  # 9 + 29 = les 38 étapes de la timeline
+    assert not any(any(c.node_id == b.block_id for c in doc.parcours) for b in doc.blocks)
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))["lux-guide"]
     assert manifest["source_hash"] == source_hash and manifest["ingest_fingerprint"] == k.ingest_fingerprint()
     # Story 1.10 : le gate `vertical` est désormais écrit — par `evals run --gate`, jamais par
@@ -275,3 +286,45 @@ def test_faq_to_unknown_fiche_never_uses_refs(mini_kb: dict) -> None:
     a = doc.block("lux-guide:q2:2")
     assert a.refs == [] and a.unresolved_refs == ["lux-guide:fnulle_part"]
     assert doc.ingest_fingerprint == k.ingest_fingerprint()
+
+
+# --- ce que la `timeline` donne, et ce qu'elle ne donne pas (story 2.3) ------
+def test_le_parcours_du_mini_kb_dedoublonne_et_ignore_les_etapes_sans_condition(mini_kb: dict) -> None:
+    """Quatre étapes, deux conditionnent la même fiche : ce que le parcours désigne est une **fiche**."""
+    doc = k.build_document(mini_kb, edition="e", source_hash="h")
+    assert [(c.node_id, c.si) for c in doc.parcours] == [
+        ("lux-guide:fbail_test", {"logement": "Louer"}),
+        ("lux-guide:farrivee", {"enfants": True})]
+    parcours = k.parcours_conditions(mini_kb, {n.node_id for n in doc.nodes})
+    assert (parcours.ignorees, parcours.alertes) == (2, [])  # l'étape sans `si` et le doublon
+    # Aucun texte d'étape n'est ingéré (spec 1.1, « Never ») : il n'appartient à aucune fiche.
+    assert not any("Relire le bail" in b.text for b in doc.blocks)
+
+
+@pytest.mark.parametrize(("remplacement", "fragment"), [
+    ('{ t: "x", fiche: "inconnue", si: { enfants: true } }', "fiche 'inconnue' inconnue"),
+    ('{ t: "x", fiche: "arrivee", si: { enfants: { imbrique: 1 } } }', "non conforme"),
+    ('{ t: "x", fiche: "arrivee", si: { marmotte: "Oui" } }', "hors du profil (marmotte)"),
+])
+def test_une_condition_inexploitable_est_une_alerte_jamais_un_bloquant(
+        data_dir: Path, remplacement: str, fragment: str) -> None:
+    """AD-8 : « une condition perdue dégrade un classement, elle ne rend pas le document illisible ».
+
+    Les trois branches d'anomalie de `parcours_conditions` — fiche inconnue, `si` non conforme, clé
+    hors `PROFIL_KEYS` — n'étaient exercées par aucun test (revue coordonnée 2.3, A7) : la règle
+    n'était tenue par rien, et un futur durcissement en bloquant serait passé inaperçu. Le document
+    reste **servi**, l'alerte est levée, et la condition n'entre pas dans `Document.parcours`.
+    """
+    src = (data_dir / "source.js").read_text("utf-8")
+    ancienne = '      { t: "Relire le bail avant de signer.", fiche: "bail_test", si: { logement: "Louer" } }\n'
+    assert ancienne in src
+    (data_dir / "source.js").write_text(src.replace(ancienne, f"      {remplacement}\n"), "utf-8")
+
+    report, entry = k.run(data_dir, edition="e")
+    assert not report.blocking and entry.status == "servi"
+    (alerte,) = [c for c in report.checks if c.name == "parcours_condition_ignoree"]
+    assert alerte.level == "alerte" and fragment in alerte.detail
+    doc = Document.model_validate_json((data_dir / "document.json").read_bytes())
+    assert [c.node_id for c in doc.parcours] == ["lux-guide:fbail_test", "lux-guide:farrivee"]
+    # Le compte du rapport ne gonfle pas d'une condition que rien ne pourra jamais satisfaire.
+    assert report.stats["parcours_fiches"] == 2 and report.stats["parcours_etapes_ignorees"] == 2

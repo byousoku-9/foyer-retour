@@ -131,6 +131,23 @@ class Node(DomainModel):
         return [i.block_id for i in self.items if isinstance(i, BlockRef)]
 
 
+class ParcoursCondition(DomainModel):
+    """Condition de parcours d'une source : « ce nœud concerne un profil qui vérifie `si` » (story 2.3).
+
+    C'est une **donnée de la source**, pas un jugement : la `timeline` de `kb.js` attache à chaque
+    étape la fiche qu'elle vise et la condition de profil qui la rend pertinente (`si: {enfants:
+    true}` → fiche `ecole`). L'ingestion n'en reprend que le couple `(node_id, si)` — jamais le texte
+    des étapes, qui deviendrait citable alors qu'il n'appartient à aucune fiche (spec 1.1).
+
+    Les valeurs de `si` sont celles que la source écrit : un booléen (`enfants`, `vehicule`) ou l'un
+    des libellés sans accent du questionnaire (`"Louer"`, `"Acheter"`, `"Independant"`). C'est
+    `domain/profil.py::noeuds_du_profil` — et lui seul — qui décide si un profil les satisfait.
+    """
+
+    node_id: str
+    si: dict[str, str | bool] = Field(default_factory=dict)
+
+
 class Document(DomainModel):
     doc_id: str
     kind: DocumentKind
@@ -139,6 +156,9 @@ class Document(DomainModel):
     lang: str = "fr"
     nodes: list[Node] = Field(default_factory=list)
     blocks: list[Block] = Field(default_factory=list)  # registre ; Node.items reste la seule source de l'ordre
+    # Conditions de parcours de la source (story 2.3) : vide par défaut — un contrat PDF n'en a pas,
+    # et `exclude_defaults=True` laisse son `document.json` inchangé.
+    parcours: list[ParcoursCondition] = Field(default_factory=list)
     source_url: str | None = None
     source_hash: str = ""
     ingest_fingerprint: str = ""  # empreinte du parseur/schéma/règles (AD-2 stabilité), couverte par document_hash
@@ -229,6 +249,9 @@ class Document(DomainModel):
             for t in b.scope_node_ids:
                 if t not in node_ids:
                     raise ValueError(f"{b.block_id}.scope_node_ids vise un nœud inconnu : {t}")
+        for condition in self.parcours:  # story 2.3 : un parcours ne désigne que des nœuds du document
+            if condition.node_id not in node_ids:
+                raise ValueError(f"parcours vise un nœud inconnu : {condition.node_id}")
         node_parent: dict[str, str] = {}
         children: dict[str, list[str]] = {n.node_id: n.children for n in self.nodes}
         for n in self.nodes:

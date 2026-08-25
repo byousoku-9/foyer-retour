@@ -19,8 +19,20 @@ def report_from_validation_error(doc_id: str, exc: ValidationError) -> Report:
     return Report(doc_id=doc_id, checks=[Check(name="invariants_arbre", level="bloquant", detail=detail)])
 
 
-def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *, summary: str = "") -> Report:
-    """Checks statiques calculés sans pipeline ; `doc` a déjà passé les invariants du modèle."""
+def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *,
+                 parcours_ignorees: int, parcours_alertes: list[str], summary: str = "") -> Report:
+    """Checks statiques calculés sans pipeline ; `doc` a déjà passé les invariants du modèle.
+
+    `parcours_ignorees`/`parcours_alertes` viennent de `kb_to_blocks.parcours_conditions` : ce module
+    ne peut pas l'appeler lui-même (`kb_to_blocks` l'importe déjà) et n'a pas à redécider ce qui a
+    été retenu de la `timeline` — il en rend compte.
+
+    Les deux sont **obligatoires** (revue coordonnée 2.3, A5). Avec un défaut, un appelant qui les
+    omettait publiait « N phases, M étapes : 0 fiche(s) conditionnée(s), 0 étape(s) ignorée(s) » sur
+    un document qui en porte neuf — un check arithmétiquement faux, alors que le commentaire du même
+    bloc revendique qu'un lecteur puisse vérifier que 9 + 29 = 38 sans ouvrir la source. Deux tests
+    du dépôt étaient déjà dans ce cas.
+    """
     checks: list[Check] = [Check(name="invariants_arbre", level="info", detail="ok")]
     kinds = Counter(b.kind for b in doc.blocks)
     fiches = kb.get("fiches", [])
@@ -34,8 +46,22 @@ def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *
         "timeline_phases": len(kb.get("timeline", [])),
     }
     timeline_items = sum(len(p.get("items", [])) for p in kb.get("timeline", []))
-    checks.append(Check(name="timeline_non_ingeree", level="info",
-                        detail=f"{stats['timeline_phases']} phases, {timeline_items} étapes : parcours hors périmètre (story 1.4)"))
+    stats["timeline_etapes"] = timeline_items
+    stats["parcours_fiches"] = len(doc.parcours)
+    stats["parcours_etapes_ignorees"] = parcours_ignorees
+    # Story 2.3 : la `timeline` n'est plus « hors périmètre », elle est projetée en conditions de
+    # parcours. L'info dit les deux moitiés du compte — ce qui a été retenu, ce qui ne l'a pas été —
+    # parce que la seconde est le cas nominal (une étape sans `si` ne dit rien d'un profil) et
+    # qu'un lecteur du rapport doit pouvoir vérifier que 9 + 29 = 38 sans ouvrir la source.
+    checks.append(Check(name="parcours_ingere", level="info",
+                        detail=f"{stats['timeline_phases']} phases, {timeline_items} étapes : "
+                               f"{len(doc.parcours)} fiche(s) conditionnée(s) par le profil, "
+                               f"{parcours_ignorees} étape(s) ignorée(s) (texte des étapes jamais ingéré)"))
+    if parcours_alertes:
+        # AD-8 : alerte et non bloquant — une condition perdue dégrade un classement, elle ne rend
+        # pas le document illisible (voir `kb_to_blocks.parcours_conditions`).
+        checks.append(Check(name="parcours_condition_ignoree", level="alerte",
+                            detail="; ".join(parcours_alertes)[:2000]))
     if summary:
         stats["sommaire_chars"] = len(summary)
         stats["sommaire_tokens_estimes"] = len(summary) // CHARS_PER_TOKEN

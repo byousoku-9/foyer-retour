@@ -42,7 +42,16 @@ window.KB = {
     { q: "Et la caution ?", a: "Deux mois au maximum.", fiche: "bail_test" },
   ],
 
+  // Story 2.3 : seules les conditions `si` sont ingérées (Document.parcours), jamais le texte `t`.
+  // Une étape sans `si` (le cas nominal, 29 des 38 étapes du guide réel) est ignorée ; deux étapes
+  // conditionnent ici deux fiches distinctes, et une troisième reconditionne la même fiche pour que
+  // la déduplication par node_id soit exercée.
   timeline: [
-    { phase: "Semaine 1", items: [{ t: "Déclarer l'arrivée.", fiche: "arrivee" }] }
+    { phase: "Semaine 1", items: [
+      { t: "Déclarer l'arrivée.", fiche: "arrivee" },
+      { t: "Préparer le dossier de location.", fiche: "bail_test", si: { logement: "Louer" } },
+      { t: "Inscrire les enfants à l'école.", fiche: "arrivee", si: { enfants: true } },
+      { t: "Relire le bail avant de signer.", fiche: "bail_test", si: { logement: "Louer" } }
+    ]}
   ]
 };

@@ -17,7 +17,10 @@ from pydantic import TypeAdapter, ValidationError
 from server.app.domain import Document, ManifestEntry
 
 # "2" (story 1.2) : `exclude_defaults` — les valeurs par défaut sont rétablies par le modèle au chargement (reprise 1.1).
-SCHEMA_VERSION = "2"
+# "3" (story 2.3) : `Document.parcours` — les conditions de profil de la source, sérialisées avec le document.
+# AD-7 : l'empreinte entre dans les **deux** `ingest_fingerprint`, guide et contrat, même si seul le
+# guide en porte : le champ appartient au schéma, et deux documents au même schéma le disent pareil.
+SCHEMA_VERSION = "3"
 
 
 def document_json(doc: Document) -> str:

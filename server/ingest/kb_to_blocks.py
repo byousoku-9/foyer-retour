@@ -4,7 +4,9 @@
 
 Ordre des blocs d'une fiche : `titre` (heading), `resume`, `corps[]` (str → para, {h} → heading),
 `tableaux[]` (heading du titre + bloc `table`), `aRetenir[]`. FAQ : `q{i}:1` (question), `q{i}:2` (réponse,
-`refs` = bloc titre de la fiche liée). La `timeline` n'est pas ingérée (elle n'est qu'un compte dans `report.json`).
+`refs` = bloc titre de la fiche liée). Du `timeline`, seules les **conditions** sont reprises, dans
+`Document.parcours` (story 2.3) : le couple (nœud de la fiche visée, `si`), jamais le texte des
+étapes — il deviendrait citable alors qu'il n'appartient à aucune fiche (spec 1.1, « Never »).
 """
 
 from __future__ import annotations
@@ -15,12 +17,14 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import ValidationError
 
 from server.app.corpus.text import normalize, normalize_version
-from server.app.domain import Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, Report, Source
+from server.app.domain.profil import PROFIL_KEYS
+from server.app.domain import (Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, ParcoursCondition, Report,
+                               Source)
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash, read_manifest,
                                      write_atomic)
 from server.ingest.jsobject import parse_js_object
@@ -34,7 +38,11 @@ DEFAULT_EDITION = "git:a8e8593"
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
 PARSER_VERSION = "1"
 SEGMENTATION_RULES = "fiche:titre,resume,corps[str=para|h=heading],tableaux[titre=heading,table],aRetenir;faq:q,a"
-FLAGS = {"timeline": False, "table_sep": " | "}
+# `timeline: "parcours"` (story 2.3) remplace `timeline: False` : les étapes ne sont toujours pas
+# ingérées en blocs, mais leurs conditions le sont désormais dans `Document.parcours` — deux
+# ingestions du même `source.js` avec et sans cette projection ne rendent pas le même document, et
+# `ingest_fingerprint` doit le dire (AD-2, stabilité).
+FLAGS = {"timeline": "parcours", "table_sep": " | "}
 
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 
@@ -104,6 +112,75 @@ def _fiche_blocks(fiche: dict[str, Any]) -> list[Block]:
     return out
 
 
+class Parcours(NamedTuple):
+    """Ce que la `timeline` a donné : les conditions retenues, les étapes ignorées, les alertes.
+
+    Un seul objet, calculé une seule fois et transporté jusqu'au rapport (revue coordonnée 2.3, A6) :
+    `build_document` le calculait puis jetait les alertes, et `run` recalculait tout sur un ensemble
+    de `node_id` construit autrement — deux vérités possibles pour un même `source.js`.
+    """
+
+    conditions: list[ParcoursCondition]
+    ignorees: int
+    alertes: list[str]
+
+
+def parcours_conditions(kb: dict[str, Any], node_ids: set[str]) -> Parcours:
+    """Projette la `timeline` en conditions de parcours (story 2.3).
+
+    Une étape entre dans le parcours si — et seulement si — elle porte un `si` non vide, une `fiche`
+    dont le nœud existe, et des clés que le profil peut réellement satisfaire. Les autres sont
+    **ignorées**, ce qui est le cas nominal : 29 des 38 étapes du guide ne portent aucune condition,
+    et elles n'ont rien à dire d'un profil. Les entrées sont dédupliquées par `node_id` : trois
+    étapes différentes conditionnent la fiche `ecole` sur `{enfants: true}`, et ce que le parcours
+    désigne est une **fiche**, pas une étape.
+
+    Trois anomalies, toutes en **alerte** et jamais bloquantes (AD-8) : fiche inconnue, `si` non
+    conforme, et clé hors `PROFIL_KEYS`. Le parcours ne fait qu'ordonner des nœuds déjà candidats, et
+    perdre une condition dégrade le classement d'une réponse — cela ne rend pas le document illisible.
+    Bloquer l'ingestion du guide entier sur une clé de profil mal écrite serait une quarantaine
+    injustifiée.
+
+    **Pourquoi la clé hors `PROFIL_KEYS` est une anomalie et non un silence** (revue coordonnée 2.3,
+    A9). AD-11 filtre le profil par `PROFIL_KEYS` avant tout usage : une condition sur `marmotte` ne
+    peut jamais être satisfaite, quel que soit le profil. L'ingérer gonflerait le compte du rapport
+    d'une fiche qui ne sera jamais promue, et donnerait à lire « 10 fiches conditionnées » pour neuf
+    fiches utiles. Elle est donc écartée, et dite.
+    """
+    conditions: list[ParcoursCondition] = []
+    vus: set[str] = set()
+    ignorees = 0
+    alertes: list[str] = []
+    for phase in kb.get("timeline", []):
+        for i, item in enumerate(phase.get("items", [])):
+            if not isinstance(item, dict) or not item.get("si"):
+                ignorees += 1
+                continue
+            repere = f"{phase.get('phase', '?')}[{i}]"
+            si = item["si"]
+            fiche = item.get("fiche")
+            node_id = f"{DOC_ID}:f{fiche}" if isinstance(fiche, str) and fiche else ""
+            anomalie = None
+            if node_id not in node_ids:
+                anomalie = f"fiche {fiche!r} inconnue"
+            elif not isinstance(si, dict) or not all(
+                    isinstance(k, str) and k and isinstance(v, str | bool) for k, v in si.items()):
+                anomalie = "condition `si` non conforme (attendu {clé: str|bool})"
+            elif not set(si) <= PROFIL_KEYS:
+                anomalie = (f"condition `si` sur des clés hors du profil ({', '.join(sorted(set(si) - PROFIL_KEYS))}) : "
+                            "aucun profil ne pourra la satisfaire")
+            if anomalie is not None:
+                alertes.append(f"{repere} : {anomalie}")
+                ignorees += 1
+                continue
+            if node_id in vus:
+                ignorees += 1
+                continue
+            vus.add(node_id)
+            conditions.append(ParcoursCondition(node_id=node_id, si=si))
+    return Parcours(conditions, ignorees, alertes)
+
+
 def check_structure(kb: Any) -> dict[str, Any]:
     """Structure attendue de `kb.js` : objet, `fiches` liste de dicts, `faq` liste de dicts, `timeline` liste de phases."""
     if not isinstance(kb, dict) or not isinstance(kb.get("fiches"), list):
@@ -117,7 +194,8 @@ def check_structure(kb: Any) -> dict[str, Any]:
     return kb
 
 
-def build_document(kb: dict[str, Any], *, edition: str, source_hash: str) -> Document:
+def build_document_et_parcours(kb: dict[str, Any], *, edition: str,
+                               source_hash: str) -> tuple[Document, Parcours]:
     nodes: list[Node] = []
     blocks: list[Block] = []
     root = Node(node_id=DOC_ID, level=0, title=TITLE)
@@ -159,9 +237,16 @@ def build_document(kb: dict[str, Any], *, edition: str, source_hash: str) -> Doc
     all_nodes = [root, *cats.values(), *nodes]
     if faq_nodes:
         all_nodes += [faq_root, *faq_nodes]
-    return Document(doc_id=DOC_ID, kind="guide", title=TITLE, edition=edition, lang="fr", nodes=all_nodes,
-                    blocks=blocks, source_url=SOURCE_URL, source_hash=source_hash,
-                    ingest_fingerprint=ingest_fingerprint())
+    parcours = parcours_conditions(kb, {n.node_id for n in all_nodes})
+    doc = Document(doc_id=DOC_ID, kind="guide", title=TITLE, edition=edition, lang="fr", nodes=all_nodes,
+                   blocks=blocks, parcours=parcours.conditions, source_url=SOURCE_URL,
+                   source_hash=source_hash, ingest_fingerprint=ingest_fingerprint())
+    return doc, parcours
+
+
+def build_document(kb: dict[str, Any], *, edition: str, source_hash: str) -> Document:
+    """Le document seul, pour les appelants qui n'ont que faire du compte-rendu de la `timeline`."""
+    return build_document_et_parcours(kb, edition=edition, source_hash=source_hash)[0]
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -227,9 +312,10 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
         source_bytes = (data_dir / "source.js").read_bytes()
         source_hash = hashlib.sha256(source_bytes).hexdigest()
         kb = check_structure(parse_js_object(source_bytes.decode("utf-8")))
-        doc = build_document(kb, edition=edition, source_hash=source_hash)
+        doc, parcours = build_document_et_parcours(kb, edition=edition, source_hash=source_hash)
         summary = build_summary(doc, kb)
-        report = build_report(doc, previous, kb, summary=summary)
+        report = build_report(doc, previous, kb, summary=summary,
+                              parcours_ignorees=parcours.ignorees, parcours_alertes=parcours.alertes)
     except ValidationError as exc:
         report = report_from_validation_error(DOC_ID, exc)
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError) as exc:
