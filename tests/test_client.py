@@ -545,6 +545,50 @@ async def test_raw_tool_turn_cache_deadline_and_provider_error_use_common_guards
     assert len(error_step.calls) == 1 and error_step.calls[0].usage.cost_eur == 0
 
 
+async def test_raw_tool_turn_checks_deadline_before_a_cache_hit() -> None:
+    tools = [{"name": "chercher", "input_schema": {"type": "object"}}]
+    cache = MemoryResponseCache()
+    client, fake = _client([fake_message(model=SONNET)], cache=cache)
+    kwargs = {"tier": "reason", "system_prefix": "p",
+              "messages": [{"role": "user", "content": "q"}], "tools": tools,
+              "step": StepTrace(name="retrouver"), "max_tokens": 20}
+    await client.tool_turn(**kwargs, budget=_budget())
+    with pytest.raises(Timeout):
+        await client.tool_turn(**(kwargs | {"step": StepTrace(name="retrouver")}),
+                               budget=_budget(deadline_s=0))
+    assert len(fake.requests) == 1
+
+
+@pytest.mark.parametrize("bad_cost", [None, "invalide", float("nan")])
+async def test_raw_tool_turn_maps_an_invalid_cached_cost_to_llm_parse(bad_cost: object) -> None:
+    tools = [{"name": "chercher", "input_schema": {"type": "object"}}]
+    cache = MemoryResponseCache()
+    client, _fake = _client([fake_message(model=SONNET)], cache=cache)
+    kwargs = {"tier": "reason", "system_prefix": "p", "messages": [], "tools": tools,
+              "step": StepTrace(name="retrouver"), "max_tokens": 20}
+    await client.tool_turn(**kwargs, budget=_budget())
+    cached = next(iter(cache._store.values()))
+    if bad_cost is None:
+        cached.pop("cost_eur")
+    else:
+        cached["cost_eur"] = bad_cost
+    with pytest.raises(LlmParse, match="cache d'évals invalide"):
+        await client.tool_turn(**(kwargs | {"step": StepTrace(name="retrouver")}), budget=_budget())
+
+
+async def test_raw_tool_turn_rejects_the_estimated_cost_before_provider_call() -> None:
+    tools = [{"name": "chercher", "description": "d" * 400_000,
+              "input_schema": {"type": "object"}}]
+    client, fake = _client([])
+    budget = _budget(max_cost=0.01)
+    budget.cost_eur = 0.0099
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await client.tool_turn(
+            tier="reason", system_prefix="p", messages=[], tools=tools,
+            budget=budget, step=StepTrace(name="retrouver"), max_tokens=20)
+    assert fake.requests == [] and budget.attempts == 0
+
+
 async def test_estimate_counts_tools_and_non_text_blocks() -> None:
     # revue P11 : les définitions d'outils et les blocs non-texte (tool_result) entrent dans l'estimation.
     from server.app.llm.pricing import estimate_cost

@@ -34,7 +34,7 @@ from server.app.domain.errors import (
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Turn
-from server.app.domain.trace import StepTrace
+from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -262,6 +262,39 @@ async def test_outils_without_a_useful_tool_falls_back_to_deterministic_retrieva
     assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
     assert [request["model"] for request in fake.requests] == [
         TIERS["micro"], TIERS["micro"], TIERS["reason"], TIERS["micro"]]
+
+
+async def test_outils_partial_result_is_replaced_and_merges_fallback_trace(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app.pipelines import guide as guide_module
+
+    real_fallback = guide_module.retrouver_deterministe
+
+    def fallback_with_check(*args: Any, **kwargs: Any):
+        result, step = real_fallback(*args, **kwargs)
+        step.checks.append(CheckResult(name="controle_deterministe", ok=True, detail="fusionné"))
+        return result, step
+
+    monkeypatch.setattr(guide_module, "retrouver_deterministe", fallback_with_check)
+    tool_candidates = [b for b, _ in index.chercher(["école"], limit=_settings().search_limit,
+                                                     doc_id=DOC_ID)]
+    tool_call = fake_message(
+        model=TIERS["micro"], stop_reason="max_tokens",
+        content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
+                  "input": {"termes": ["école"]}},
+                 {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
+                  "input": {"node_id": f"{DOC_ID}:f2"}}])
+    answer, trace, _fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), tool_call,
+                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
+
+    assert answer.found
+    retrouver = trace.steps[1]
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
+    assert retrouver.discarded_block_ids == tool_candidates
+    assert [check.name for check in retrouver.checks] == [
+        "repli_deterministe", "controle_deterministe"]
+    assert retrouver.calls and retrouver.usage.cost_eur > 0
 
 
 async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) -> None:

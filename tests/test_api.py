@@ -1426,7 +1426,7 @@ def _script_du_mini_guide() -> list[dict]:
     ]
 
 
-def _pipeline_reel(script: list[dict]) -> Any:
+def _pipeline_reel(script: list[dict], *, fake: Any = None) -> Any:
     """Le **vrai** `repondre_guide`, avec un modèle scripté à la place du réseau.
 
     La route ne passe pas de `doc_id` (elle laisse le pipeline prendre `settings.guide_doc_id`, qui
@@ -1436,13 +1436,67 @@ def _pipeline_reel(script: list[dict]) -> Any:
     from server.app.llm.client import LlmClient
     from tests.llm_fake import FakeAnthropic
 
+    anthropic_fake = fake or FakeAnthropic(script)
+
     async def appeler(question: str, historique: list, profil: Any, **kw: Any):
         settings = kw.pop("settings")
-        kw["client"] = LlmClient(settings, anthropic_client=FakeAnthropic(script))
+        kw["client"] = LlmClient(settings, anthropic_client=anthropic_fake)
         return await guide.repondre_guide(question, historique, profil, settings=settings,
                                           doc_id=DOC_ID, **kw)
 
     return appeler
+
+
+@pytest.mark.parametrize("variant", [None, "outils"])
+def test_chat_reel_uses_the_four_navigation_tools_for_default_and_explicit_variant(
+        prod: TestClient, monkeypatch: pytest.MonkeyPatch, variant: str | None) -> None:
+    from server.app.llm.models import TIERS
+    from tests.llm_fake import FakeAnthropic, fake_message
+
+    corpus, index = _mini_corpus()
+    calls = {name: 0 for name in ("sommaire", "ouvrir_noeud", "chercher", "definitions")}
+    for name in calls:
+        original = getattr(index, name)
+
+        def record(*args: Any, _name: str = name, _original: Any = original, **kwargs: Any):
+            calls[_name] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(index, name, record)
+
+    tools = fake_message(
+        model=TIERS["micro"], stop_reason="tool_use",
+        content=[
+            {"type": "tool_use", "id": "toolu_summary", "name": "sommaire",
+             "input": {"doc_id": DOC_ID}},
+            {"type": "tool_use", "id": "toolu_search", "name": "chercher",
+             "input": {"termes": ["arrivée"]}},
+            {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
+             "input": {"node_id": f"{DOC_ID}:farrivee",
+                       "focus_block_id": f"{DOC_ID}:farrivee:2"}},
+            {"type": "tool_use", "id": "toolu_defs", "name": "definitions",
+             "input": {"termes": ["arrivée"],
+                       "blocs_ouverts": [f"{DOC_ID}:farrivee:2"]}},
+        ])
+    script = _script_du_mini_guide()
+    script.insert(1, tools)
+    fake = FakeAnthropic(script)
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+    etat.pipeline = _pipeline_reel([], fake=fake)
+    body: dict[str, Any] = {"question": "Quel délai après mon arrivée ?", "profil": {}}
+    if variant is not None:
+        body["variant"] = variant
+
+    response = prod.post("/api/v1/chat", json=body, headers=XFF)
+
+    assert response.status_code == 200 and response.json()["sources"]
+    assert response.json()["trace"]["variant"] == "outils"
+    # `sommaire` est lu une première fois pour le prompt puis une seconde par l'outil lui-même ;
+    # les trois autres compteurs ne peuvent provenir que de l'exécution des tool_use scriptés.
+    assert calls["sommaire"] >= 2
+    assert all(calls[name] > 0 for name in ("ouvrir_noeud", "chercher", "definitions"))
+    assert [tool["name"] for tool in fake.requests[1]["tools"]] == list(calls)
 
 
 def test_une_reponse_servie_porte_ses_blocs_resolus_et_le_profil_de_son_gate(

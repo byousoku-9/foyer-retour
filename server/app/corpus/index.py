@@ -122,12 +122,15 @@ class Index:
             start = (cursor // node_window) * node_window
         end = start + node_window
         doc = self.corpus.documents[doc_id]
+        next_cursor = end if end < len(block_ids) else None
+        # Une page séquentielle n'est tronquée que s'il reste une page à lire. Une ouverture
+        # focalisée, elle, omet aussi honnêtement ce qui précède sa fenêtre.
+        truncated = next_cursor is not None or (focus_block_id is not None and start > 0)
         return NodeWindow(node_id=node_id, title=self._node_titles[node_id],
                           children=[NodeChild(node_id=child, title=self._node_titles[child])
                                     for child in self._node_children[node_id]],
                           blocks=[doc.block(b) for b in block_ids[start:end]],
-                          truncated=len(block_ids) > node_window,
-                          next_cursor=end if end < len(block_ids) else None)
+                          truncated=truncated, next_cursor=next_cursor)
 
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,

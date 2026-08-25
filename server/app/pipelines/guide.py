@@ -359,10 +359,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # revue Codex 2.3, B1) —, et le pipeline n'a rien à leur ajouter ici.
         borne_retrieval = retrieval_budget(settings)
         if variant == "outils":
+            candidats_outils: list[str] = []
             try:
                 retrieval, step_retrouver = await retrouver_outils(
                     parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
-                    client=client, request_budget=budget, doc_id=doc_id, dictionnaire=dictionnaire)
+                    client=client, request_budget=budget, doc_id=doc_id, dictionnaire=dictionnaire,
+                    candidats_out=candidats_outils)
             except PipelineError as exc:
                 if exc.step is not None:
                     steps.append(exc.step)
@@ -372,20 +374,26 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             retrieval, step_retrouver = retrouver_deterministe(
                 parsed, corpus=corpus, index=index, budget=borne_retrieval,
                 settings=settings, doc_id=doc_id, dictionnaire=dictionnaire)
-        if variant == "outils" and retrieval.truncated and not retrieval.blocs:
-            # O9 / amendement AD-1 : une navigation sans outil utile ou épuisée ne prouve aucune
-            # absence. La baseline déterministe est le repli borné de la seule étape *retrouver*;
-            # la chaîne, la variante demandée et la vérification aval restent inchangées.
+        if variant == "outils" and retrieval.truncated:
+            # Une navigation partielle n'est pas un contexte final : même lorsqu'elle a admis un
+            # bloc, la baseline déterministe bornée remplace entièrement son résultat. Les appels et
+            # coûts outils restent toutefois dans la trace de cette même étape.
+            candidats_deterministes: list[str] = []
             fallback, fallback_step = retrouver_deterministe(
                 parsed, corpus=corpus, index=index, budget=borne_retrieval,
-                settings=settings, doc_id=doc_id, dictionnaire=dictionnaire)
+                settings=settings, doc_id=doc_id, dictionnaire=dictionnaire,
+                candidats_out=candidats_deterministes)
             step_retrouver.checks.append(CheckResult(
                 name="repli_deterministe", ok=False,
-                detail="navigation par outils tronquée sans bloc ; repli déterministe borné"))
+                detail="navigation par outils tronquée ; repli déterministe borné transmis"))
+            step_retrouver.checks.extend(fallback_step.checks)
             step_retrouver.ms += fallback_step.ms
             step_retrouver.opened_block_ids = list(fallback.opened_block_ids)
-            step_retrouver.discarded_block_ids = list(fallback.discarded_block_ids)
-            retrieval = fallback
+            finaux = set(fallback.opened_block_ids)
+            candidats = [*candidats_outils, *candidats_deterministes]
+            discarded = list(dict.fromkeys(b for b in candidats if b not in finaux))
+            step_retrouver.discarded_block_ids = discarded
+            retrieval = fallback.model_copy(update={"discarded_block_ids": discarded})
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
@@ -82,6 +83,13 @@ def _tool_message(*uses: dict[str, object], stop_reason: str = "tool_use") -> di
     return fake_message(model="claude-sonnet-5", stop_reason=stop_reason, content=list(uses))
 
 
+@pytest.mark.parametrize("max_llm_turns", [0, 3])
+def test_retrieval_budget_enforces_the_tool_turn_invariant_for_direct_callers(
+        max_llm_turns: int) -> None:
+    with pytest.raises(ValidationError, match="max_llm_turns"):
+        _budget(max_llm_turns=max_llm_turns)
+
+
 async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None = None,
                        parsed: ParsedQuestion | None = None, budget: RetrievalBudget | None = None,
                        settings: Settings | None = None, dictionnaire=None):
@@ -115,6 +123,17 @@ async def test_outils_nominal_exposes_four_tools_and_stops_after_one_useful_turn
     assert fake.requests[0]["model"] == TIERS["micro"]
     assert len(step.calls) == 1 and step.usage.cost_eur == request_budget.cost_eur > 0
     assert step.opened_block_ids == result.opened_block_ids
+
+
+async def test_outils_reason_tier_reaches_the_provider_and_the_trace_unchanged() -> None:
+    settings = _s(max_cost_eur_per_request=1.0, retrouver_outils_tier="reason")
+    result, step, fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1")),
+    ], settings=settings)
+    assert result.opened_block_ids
+    assert fake.requests[0]["model"] == TIERS["reason"]
+    assert step.tier == "reason" and step.calls[0].model == TIERS["reason"]
 
 
 async def test_outils_category_without_blocks_returns_title_and_titled_children() -> None:
@@ -170,6 +189,66 @@ async def test_outils_budget_is_atomic_and_first_turn_without_tool_is_incomplete
         _tool_message(_tool("sommaire", "t2", doc_id="d")),
     ])
     assert summary_only.blocs == [] and summary_only.truncated
+
+
+async def test_outils_primary_and_automatic_definition_are_one_atomic_unit() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Le premier cas emploie Alpha.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Le second cas reste autonome.", loc="p1", seq=2),
+        Block(block_id="d:p9:1", text="Alpha désigne la première notion.", loc="p9", seq=1,
+              kind="definition", defines="alpha"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n"), NodeRef(node_id="defs")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"), BlockRef(block_id="d:p1:2")]),
+             Node(node_id="defs", items=[BlockRef(block_id="d:p9:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="n")),
+    ], corpus=corpus, parsed=_parsed(["second"]),
+        budget=_budget(max_blocks=1, max_tokens=6000))
+    assert result.opened_block_ids == ["d:p1:2"]
+    assert "d:p1:1" not in result.opened_block_ids and "d:p9:1" not in result.opened_block_ids
+    assert result.truncated
+
+
+async def test_definitions_tool_only_serializes_question_or_opened_terms_and_one_level_refs() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Le passage emploie Alpha.", loc="p1", seq=1,
+              refs=["d:p2:1"]),
+        Block(block_id="d:p1:2", text="Page suivante.", loc="p1", seq=2),
+        Block(block_id="d:p2:1", text="Premier renvoi.", loc="p2", seq=1,
+              refs=["d:p3:1"]),
+        Block(block_id="d:p3:1", text="Second renvoi interdit.", loc="p3", seq=1),
+        Block(block_id="d:p9:1", text="Alpha désigne la notion admise.", loc="p9", seq=1,
+              kind="definition", defines="alpha"),
+        Block(block_id="d:p9:2", text="Bêta désigne une notion sans lien.", loc="p9", seq=2,
+              kind="definition", defines="bêta"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=n) for n in ("n", "r1", "r2", "defs")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"), BlockRef(block_id="d:p1:2")]),
+             Node(node_id="r1", items=[BlockRef(block_id="d:p2:1")]),
+             Node(node_id="r2", items=[BlockRef(block_id="d:p3:1")]),
+             Node(node_id="defs", items=[BlockRef(block_id="d:p9:1"),
+                                           BlockRef(block_id="d:p9:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    result, _step, fake, _ = await _run_outils([
+        _tool_message(
+            _tool("ouvrir_noeud", "t1", node_id="n"),
+            _tool("definitions", "t2", termes=["alpha", "bêta"],
+                  blocs_ouverts=["d:p1:1"])),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["passage"]),
+        budget=_budget(node_window=1, max_blocks=10, max_tokens=6000))
+    assert {"d:p1:1", "d:p2:1", "d:p9:1"} <= set(result.opened_block_ids)
+    assert "d:p9:2" not in result.opened_block_ids and "d:p3:1" not in result.opened_block_ids
+    serialized = fake.requests[1]["messages"][-1]["content"][1]["content"]
+    assert '"block_id": "d:p2:1"' in serialized
+    assert '"block_id": "d:p9:1"' in serialized
+    assert "d:p9:2" not in serialized and "d:p3:1" not in serialized
 
 
 async def test_outils_invalid_open_still_consumes_the_global_open_quota() -> None:
@@ -327,6 +406,25 @@ def test_definitions_of_terms_met_in_the_opened_blocks_are_followed_too() -> Non
     result, _ = _run(_parsed(["garantie"]), corpus, Index(corpus))
     assert result.opened_block_ids == ["d:p1:1", "d:p9:1"]
     assert result.discarded_block_ids == []  # la définition n'est pas un candidat de `chercher`
+
+
+def test_deterministic_primary_and_automatic_definition_are_one_atomic_unit() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Le premier cas emploie Alpha.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Le second cas reste autonome.", loc="p1", seq=2),
+        Block(block_id="d:p9:1", text="Alpha désigne la première notion.", loc="p9", seq=1,
+              kind="definition", defines="alpha"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n"), NodeRef(node_id="defs")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"), BlockRef(block_id="d:p1:2")]),
+             Node(node_id="defs", items=[BlockRef(block_id="d:p9:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)})
+    result, _step = _run(_parsed(["cas"]), corpus, Index(corpus),
+                         _budget(max_blocks=1, max_tokens=6000))
+    assert result.opened_block_ids == ["d:p1:2"]
+    assert "d:p1:1" not in result.opened_block_ids and "d:p9:1" not in result.opened_block_ids
+    assert result.truncated
 
 
 def test_truncated_window_marks_the_result() -> None:
@@ -679,7 +777,7 @@ def test_les_definitions_continuent_de_recevoir_les_termes_seuls(tmp_path: Path)
     dico = _dictionnaire(tmp_path, corpus, {"matricule": ["contenu"]})
     retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
                            settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
-    assert vus == [["matricule"]]  # une liste de termes, jamais le dict élargi
+    assert vus and all(item == ["matricule"] for item in vus)  # jamais le dict élargi
 
 
 def test_un_dictionnaire_nelargit_que_le_document_dont_il_porte_lempreinte(tmp_path: Path) -> None:

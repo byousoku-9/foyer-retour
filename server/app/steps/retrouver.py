@@ -114,7 +114,8 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
 async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                             budget: RetrievalBudget, settings: Settings, client: Any,
                             request_budget: Any, doc_id: str,
-                            dictionnaire: Dictionnaire | None = None
+                            dictionnaire: Dictionnaire | None = None,
+                            candidats_out: list[str] | None = None,
                             ) -> tuple[RetrievalResult, StepTrace]:
     """Variante bornée de navigation par les quatre outils d'AD-1, sur deux tours au plus."""
     t0 = time.monotonic()
@@ -265,7 +266,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             primary: list[str] = []
             newly: list[str] = []
             for item in window.blocks:
-                unit = [item.block_id, *[r for r in item.refs if r != item.block_id]]
+                # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
+                # l'unité entière entre, ou le primaire n'est pas transmis isolément.
+                definitions = [b for b, _ in index.definitions(
+                    terms, doc_id=doc_id, blocs_ouverts=[item.block_id])]
+                unit = [item.block_id, *[r for r in item.refs if r != item.block_id], *definitions]
                 got = admit(unit)
                 if item.block_id in got:
                     primary.append(item.block_id)
@@ -273,11 +278,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     if item.block_id not in window_opened:
                         window_opened.append(item.block_id)
                 newly.extend(got)
-            definitions = [b for b, _ in index.definitions(
-                terms, doc_id=doc_id, blocs_ouverts=window_opened) if b not in admitted_set]
             dependencies: list[str] = [b for b in newly if b not in primary]
-            for definition in definitions:
-                dependencies.extend(admit([definition]))
             return {
                 "node_id": window.node_id, "title": window.title,
                 "children": [c.model_dump(mode="json") for c in window.children],
@@ -300,15 +301,28 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 refs = [r for b in ouverts for r in block(b).refs]
             except KeyError:
                 return invalid()
+            # L'index sait déjà reconnaître les termes définis de la question et ceux réellement
+            # rencontrés dans les blocs ouverts. On borne les demandes du modèle à cette union,
+            # sans vocabulaire codé en dur ni exception documentaire.
+            allowed_definitions = {
+                b for b, _ in index.definitions(terms, doc_id=doc_id, blocs_ouverts=ouverts)
+            }
+            allowed_definitions.update(
+                b for b, _ in index.definitions([], doc_id=doc_id, blocs_ouverts=ouverts)
+            )
+            requested_definitions = [
+                b for b, _ in index.definitions(termes, doc_id=doc_id, blocs_ouverts=ouverts)
+                if b in allowed_definitions
+            ]
             ids: list[str] = []
-            for candidate in (*refs, *(b for b, _ in index.definitions(
-                    termes, doc_id=doc_id, blocs_ouverts=ouverts))):
+            for candidate in (*refs, *requested_definitions):
                 if candidate not in ids:
                     ids.append(candidate)
-            kept: list[str] = []
             for candidate in ids:
-                kept.extend(admit([candidate]))
-            return {"blocks": rendered(kept), "truncated": any(b not in admitted_set for b in ids)}, False
+                admit([candidate])
+            kept = [b for b in ids if b in admitted_set]
+            return {"blocks": rendered(kept),
+                    "truncated": any(b not in admitted_set for b in ids)}, False
         return invalid()
 
     used_tools = False
@@ -364,6 +378,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         truncated = True
 
     discarded = [b for b in search_candidates if b not in admitted_set]
+    if candidats_out is not None:
+        candidats_out.extend(b for b in search_candidates if b not in candidats_out)
     result = RetrievalResult(
         blocs=[block(b) for b in admitted], opened_block_ids=list(admitted),
         discarded_block_ids=discarded, truncated=truncated)
@@ -407,7 +423,8 @@ def _reserver(nodes: list[str], noeuds_prioritaires: Iterable[str] | None, max_o
 def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                            budget: RetrievalBudget, settings: Settings, doc_id: str | None = None,
                            kinds_prioritaires: Iterable[str] | None = None,
-                           dictionnaire: Dictionnaire | None = None
+                           dictionnaire: Dictionnaire | None = None,
+                           candidats_out: list[str] | None = None,
                            ) -> tuple[RetrievalResult, StepTrace]:
     """`kinds_prioritaires` (story 1.8) : à score égal, les blocs de ces `Block.kind` passent devant.
 
@@ -486,6 +503,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     cherches = dictionnaire.expand(terms) if elargi else terms
     hits = (index.chercher(cherches, limit=budget.search_limit, doc_id=doc_id,
                            kinds_prioritaires=kinds_prioritaires) if terms else [])
+    if candidats_out is not None:
+        candidats_out.extend(b for b, _ in hits if b not in candidats_out)
 
     # Nœuds candidats par score : ordre de première apparition dans les hits (déjà triés par score,
     # puis ordre de lecture) ; la fenêtre de chaque nœud contient son meilleur hit (AD-1).
@@ -520,23 +539,34 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     fenetres.append(b.block_id)
                     noeud_de[b.block_id] = node_id
 
-        # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre et, avec lui, les cibles
-        # d'un seul niveau de ses renvois (les cibles ne sont pas suivies à leur tour — Deferred du
-        # spine « renvois en chaîne »). Une cible déjà présente dans une fenêtre reste à sa place.
+        # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre voyage avec les cibles
+        # d'un seul niveau de ses renvois et ses définitions applicables. Une unité trop grande est
+        # sautée entière ; ni un primaire privé de sa définition, ni une définition orpheline ne
+        # peut ainsi atteindre la rédaction.
         unites: list[list[str]] = []
+        definitions: list[str] = []
+        renvois: list[str] = []
         for block_id in fenetres:
             unite = [block_id]
             for cible in bloc(block_id).refs:
                 if cible not in fenetres and cible not in unite:
                     unite.append(cible)
+                    if cible not in renvois:
+                        renvois.append(cible)
+            for definition, _ in index.definitions(
+                    terms, doc_id=doc_id, blocs_ouverts=[block_id]):
+                if definition not in unite:
+                    unite.append(definition)
+                if definition not in fenetres and definition not in definitions:
+                    definitions.append(definition)
             unites.append(unite)
-
-        # Définitions (hors quota `max_opens`) : des termes de la question et de ceux rencontrés dans
-        # les blocs ouverts, résolues dans leur portée par l'index (AD-1, AD-2). Elles se suffisent à
-        # elles-mêmes — aucun référent à conserver — et passent donc en premier dans le budget.
-        definitions = [b for b, _ in index.definitions(terms, doc_id=doc_id, blocs_ouverts=fenetres)
-                       if b not in fenetres]
-        unites = [[d] for d in definitions] + unites
+        # Sans hit textuel, une définition directement demandée est elle-même le résultat primaire
+        # (elle n'est la dépendance d'aucun autre bloc). Ce chemin préserve les questions du type
+        # « qu'est-ce que X ? » dont `defines` est la seule occurrence indexée de X.
+        if not fenetres:
+            definitions = [b for b, _ in index.definitions(terms, doc_id=doc_id,
+                                                           blocs_ouverts=[])]
+            unites = [[definition] for definition in definitions]
 
         seen: set[str] = set()
         blocs_utilises, tokens_utilises = 0, 0
@@ -556,7 +586,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis les cibles de renvoi,
         # puis les définitions — l'ordre d'admission dans le budget n'est pas l'ordre de lecture.
         ordre: list[str] = []
-        for b in (*fenetres, *(c for u in unites for c in u[1:]), *definitions):
+        for b in (*fenetres, *renvois, *definitions):
             if b in seen and b not in ordre:
                 ordre.append(b)
         return ordre, noeud_de, tronque

@@ -52,13 +52,23 @@ def test_sommaire(mini_index: Index) -> None:
 
 def test_ouvrir_noeud_window_focus_and_cursor() -> None:
     ix = Index(Corpus(documents={"d": _doc(8)}))
+    debut = ix.ouvrir_noeud("n", node_window=3)
+    assert [b.block_id for b in debut.blocks] == ["d:p1:1", "d:p1:2", "d:p1:3"]
+    assert debut.truncated and debut.next_cursor == 3
+    milieu = ix.ouvrir_noeud("n", cursor=debut.next_cursor, node_window=3)
+    assert [b.block_id for b in milieu.blocks] == ["d:p1:4", "d:p1:5", "d:p1:6"]
+    assert milieu.truncated and milieu.next_cursor == 6
+    fin = ix.ouvrir_noeud("n", cursor=milieu.next_cursor, node_window=3)
+    assert [b.block_id for b in fin.blocks] == ["d:p1:7", "d:p1:8"]
+    assert not fin.truncated and fin.next_cursor is None
+
     w = ix.ouvrir_noeud("n", focus_block_id="d:p1:6", node_window=3)
     assert [b.block_id for b in w.blocks] == ["d:p1:4", "d:p1:5", "d:p1:6"]
     assert w.truncated and w.next_cursor == 6 and w.node_id == "n"
     w = ix.ouvrir_noeud("n", cursor=w.next_cursor, node_window=3)
-    assert [b.block_id for b in w.blocks] == ["d:p1:7", "d:p1:8"] and w.truncated and w.next_cursor is None
-    w = ix.ouvrir_noeud("n", node_window=3)
-    assert [b.block_id for b in w.blocks] == ["d:p1:1", "d:p1:2", "d:p1:3"] and w.next_cursor == 3
+    assert [b.block_id for b in w.blocks] == ["d:p1:7", "d:p1:8"] and not w.truncated
+    focus_fin = ix.ouvrir_noeud("n", focus_block_id="d:p1:8", node_window=3)
+    assert focus_fin.next_cursor is None and focus_fin.truncated  # les six premiers blocs sont omis
     w = ix.ouvrir_noeud("n", node_window=30)
     assert len(w.blocks) == 8 and not w.truncated and w.next_cursor is None
     assert ix.ouvrir_noeud("root", node_window=3).blocks == []

@@ -13,7 +13,9 @@ class RetrievalBudget(DomainModel):
     max_opens: int
     node_window: int
     search_limit: int
-    max_llm_turns: int
+    # L'invariant appartient au budget lui-même : les tests, évals et appels directs ne passent pas
+    # nécessairement par `Settings`, mais aucun d'eux ne doit pouvoir ouvrir un troisième tour.
+    max_llm_turns: int = Field(ge=1, le=2)
     max_blocks: int | None = None
     max_tokens: int | None = None
     # Story 2.3 : les places réservées, **parmi** `max_opens`, aux nœuds que le profil désigne. Elle

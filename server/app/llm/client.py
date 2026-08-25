@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, Protocol, TypeVar
@@ -395,19 +396,26 @@ class LlmClient:
                 "messages": messages, "tools": tools, "output_config": output_config,
                 "extra_body": extra_body}
         key = _cache_key(body)
+        # Une fixture n'autorise jamais à dépasser la deadline : le cache évite le fournisseur, pas
+        # les bornes de la requête.
+        if budget.remaining() <= 0:
+            raise Timeout(f"deadline épuisée avant l'appel ({budget.remaining():.1f} s restantes)")
         if self._cache is not None and (hit := self._cache.get(key)) is not None:
             try:
                 message = anthropic.types.Message.model_validate(hit["response"])
-            except (pydantic.ValidationError, KeyError, TypeError) as exc:
+                cost_eur = hit["cost_eur"]
+                if (isinstance(cost_eur, bool) or not isinstance(cost_eur, (int, float))
+                        or not math.isfinite(cost_eur) or cost_eur < 0):
+                    raise ValueError("cost_eur invalide")
+                usage = Usage(cached_response=True, cost_eur=0.0,
+                              cost_eur_original=float(cost_eur))
+            except (pydantic.ValidationError, KeyError, TypeError, ValueError) as exc:
                 raise LlmParse(f"entrée de cache d'évals invalide : {type(exc).__name__}") from exc
-            usage = Usage(cached_response=True, cost_eur=0.0, cost_eur_original=hit["cost_eur"])
             call = LLMCall(model=message.model, ms=0, usage=usage,
                            tools=[str(t.get("name", "")) for t in tools])
             self._note_call(step, call)
             return ToolTurnResult(message=message, usage=usage, call=call)
 
-        if budget.remaining() <= 0:
-            raise Timeout(f"deadline épuisée avant l'appel ({budget.remaining():.1f} s restantes)")
         if budget.attempts >= budget.max_attempts:
             raise BudgetExceeded(f"plafond d'appels atteint ({budget.attempts}/{budget.max_attempts})")
         estimate = estimate_cost(model, system, messages, max_tokens, settings, tools=tools,
