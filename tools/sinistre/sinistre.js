@@ -299,6 +299,7 @@
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
     quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
     refus: "refus composé, avec sa preuve d'absence",
+    repli_deterministe: "navigation par outils incomplète : repli déterministe borné",
     relance_abandonnee: "relance de la rédaction abandonnée faute de budget",
     relance_moins_bonne: "relance rendue moins bonne que le premier essai : écartée",
     relance_sans_effet: "relance sans effet sur la réponse",
