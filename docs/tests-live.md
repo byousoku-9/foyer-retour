@@ -1631,11 +1631,11 @@ clarification est désormais exercé par des appels réels **et** rejouable sans
 
 | Vérification | Commande | Résultat |
 |---|---|---|
-| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1626 passed**, ≈ 22 s, aucun accès réseau (1605 avant la story : +11 pour le front et la boucle complète, +9 pour le contrat d'AD-1, la matrice brute/résolue et la mesure, +1 pour la borne de libellé domiciliée) |
+| Suite complète sans réseau | `ANTHROPIC_API_KEY= uv run pytest -q` | **1631 passed**, ≈ 23 s, aucun accès réseau (1605 avant la story : +11 pour le front et la boucle complète, +9 pour le contrat d'AD-1, la matrice brute/résolue et la mesure, +1 pour la borne de libellé domiciliée, +5 pour la revue Codex — borne de clarification et domicile de `LISTE_MAX_ITEMS`) |
 | Les trois appels live, rejoués | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_suivi_live.py` | **3 passed**, ≈ 0,9 s — les fixtures de `tests/llm_fixtures/test_suivi_live.*.json` répondent à la place du fournisseur ; la variable **vide** force le rejeu même si `.env` porte une clé |
 | Les mêmes, enregistrés | `uv run pytest -q tests/test_suivi_live.py` (une fois, avec la clé) | **3 passed**, ≈ 10,8 s, 0,0075 € — les trois fichiers de fixtures écrits |
 | Lint | `uv run ruff check .` | *All checks passed!* |
-| Gates du dépôt | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` | vert **sans** relancer de gate : ni `server/app/**` ni un prompt n'a bougé |
+| Gates du dépôt | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` | **10 passed** — vert **après** réécriture des deux gates : `steps/comprendre.py` a bougé, donc `pipeline_digest` aussi (relevé détaillé ci-dessous) |
 
 ### La reprise différée de la revue Codex 2.1 (M3), et les deux gates rejoués
 
@@ -1669,3 +1669,38 @@ contresignés » — et `countersigned` reste `false` : la relecture humaine des
 due (tableau « Ce qui incombe à Lancelot », story 1.10), et `/` continue d'écrire « relus par la
 boucle, contresignature humaine en attente ». Aucune fixture live n'a eu à être ré-enregistrée : ni
 le prompt ni le schéma de sortie ne bougent, donc aucune clé de requête ne bouge.
+
+### Revue Codex 2.2 : la clarification est bornée, et les deux gates rejoués une seconde fois
+
+La revue a relevé (B1) qu'une clarification de plus de 2 000 caractères — atteignable avec
+`comprendre_max_tokens = 1024` — était **silencieusement** remplacée par la phrase générique dans le
+tour d'historique : la question posée disparaissait, et l'assistant la reposait indéfiniment. La
+story bordait la conséquence, pas la cause. La cause est désormais bordée à la source :
+`SortieComprendre` rejette une clarification hors borne par un **validateur** (donc hors du schéma
+JSON envoyé au modèle : la clé de requête ne bouge pas, aucune fixture live n'a été ré-enregistrée),
+ce qui emprunte la relance motivée du client puis échoue en `LlmParse` ; `ClarificationRequise` et
+`Answer.clarification` portent la même borne que `Turn.texte`, et un test amarre les trois nombres.
+La reprise M3 a par ailleurs été achevée (I2) : `LISTE_MAX` a quitté l'étape pour `config.py`
+(`LISTE_MAX_ITEMS`, constante de module, publiée dans `Trace.thresholds`).
+
+Toucher `steps/comprendre.py` une seconde fois déplace `pipeline_digest` une seconde fois : les deux
+gates ont donc été rejoués, sur des appels réels.
+
+| Gate | Cas | Label | `evals_ok` | `countersigned` | Coût | Durée |
+|---|---|---|---|---|---|---|
+| `--gate lux-guide --profile vertical` | `g-luxtrust-prix` | `bonne_reponse` | **true** | **false** | 0,0230 € | 7,9 s |
+| `--gate axa-lu-optihome-2017 --profile vertical` | `s-bougie-canape` | `bonne_reponse` | **true** | **false** | 0,0803 € | 40,1 s |
+
+Coût de ce second rejeu : **0,1033 €**. Le cas AXA est plus cher et plus lent qu'au premier passage
+(0,0509 € / 25,7 s) sans qu'aucune consigne n'ait changé — l'écart vient de la longueur de la
+rédaction et de ce que le fournisseur a réellement caché du préfixe ; c'est la variance ordinaire
+d'un appel réel, et c'est la raison pour laquelle ces chiffres sont relevés plutôt que prédits.
+`evals_ok` reste `true` et `countersigned` reste `false` sur les deux : la contresignature humaine
+est toujours due.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète, hors ligne | `ANTHROPIC_API_KEY= uv run pytest -q` | **1631 passed** en 22,9 s |
+| Gates du dépôt | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` | **10 passed** — les deux gates portent le `pipeline_digest` courant |
+| Les trois fixtures live, rejouées | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_suivi_live.py` | **3 passed** — inchangées : le validateur n'entre pas dans le schéma, donc pas dans la clé de requête |
+| Lint | `uv run ruff check .` | *All checks passed!* |
