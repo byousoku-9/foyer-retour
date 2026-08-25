@@ -9,7 +9,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeNXjohGvsFV3vu2RhR2N",
+      "id": "msg_011CeNruohGXqBfdWLC8rJXv",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -26,6 +26,40 @@
         "inference_geo": "not_available",
         "input_tokens": 3351,
         "output_tokens": 133,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b2c409f60058d44f": {
+    "request": "claude-sonnet-5:b2c409f60058d44f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager le plus tôt, avant même la recherche de logement, car trois voies coexistent : l'école publique, gratuite et multilingue, les écoles européennes ou internationales, et les établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il faut vérifier la disponibilité de la section linguistique visée (pas seulement de l'établissement), l'inscription à la commune précédant généralement l'inscription scolaire, et emporter avant de partir un certificat de radiation ainsi que les bulletins des dernières années.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, sur le seul critère de résidence de l'enfant au Luxembourg.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, ces valeurs étant applicables au 1er juin 2026. S'y ajoute chaque année en août une allocation de rentrée scolaire, versée automatiquement sans démarche, de 115 euros pour un enfant de plus de six ans et de 235 euros au-delà de douze ans.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces montants suivent l'indexation générale et sont revalorisés à chaque tranche indiciaire, ce qui explique qu'un chiffre lu il y a un an ne corresponde plus à la réalité actuelle.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire doit être engagée avant la recherche de logement, avec trois voies possibles: école publique, écoles européennes/internationales, ou privées.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut vérifier la section linguistique et préparer certificat de radiation et bulletins avant le départ.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement. Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années\"}]},{\"claim_id\":\"c3\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, la résidence de l'enfant étant le critère déterminant.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité. C'est la résidence qui compte, pas le passeport\"}]},{\"claim_id\":\"c4\",\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré selon l'âge, avec une allocation de rentrée automatique en août.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNruxTckXUgqo7XKGCme",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6811,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 6811,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2915,
+        "output_tokens": 1241,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }

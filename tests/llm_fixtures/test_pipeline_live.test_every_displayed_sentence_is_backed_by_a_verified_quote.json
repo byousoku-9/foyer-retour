@@ -30,17 +30,17 @@
       }
     }
   },
-  "claude-haiku-4-5-20251001:d6a89a0332b121aa": {
-    "request": "claude-haiku-4-5-20251001:d6a89a0332b121aa",
+  "claude-haiku-4-5-20251001:92a0702cabfd473f": {
+    "request": "claude-haiku-4-5-20251001:92a0702cabfd473f",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\"], \"themes\": [\"école\", \"scolarité\", \"allocations\"], \"facettes\": [\"inscription des enfants à l'école\", \"montant des allocations familiales\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\"]}, {\"facette\": 1, \"claim_ids\": []}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeNXmLj7DLxizSpMUP3cf",
+      "id": "msg_011CeNrx33FUzqDi5jT1FEpy",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -53,10 +53,75 @@
           "ephemeral_5m_input_tokens": 0
         },
         "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 4282,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4278,
+        "output_tokens": 197,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:d6a89a0332b121aa": {
+    "request": "claude-haiku-4-5-20251001:d6a89a0332b121aa",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"allocations familiales\"], \"themes\": [\"école\", \"scolarité\", \"allocations\"], \"facettes\": [\"inscription des enfants à l'école\", \"montant des allocations familiales\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNrvt119a4Qx5y6hVvGu",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4282
+        },
+        "cache_creation_input_tokens": 4282,
+        "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 86,
         "output_tokens": 133,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b2c409f60058d44f": {
+    "request": "claude-sonnet-5:b2c409f60058d44f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus contraignante de l'installation : il faut l'engager avant même de chercher un logement, car les places dans les sections les plus recherchées peuvent se remplir un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique luxembourgeoise, gratuite et multilingue, mais avec une intégration plus délicate pour les arrivées tardives ; les écoles européennes et internationales, avec un accès prioritaire ou des sections très demandées selon les cas ; et des établissements privés proposant des cursus internationaux, avec des frais significatifs.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de partir, il est recommandé de récupérer auprès de l'école d'origine un certificat de radiation et les bulletins des dernières années, car ces documents sont presque toujours exigés et difficiles à obtenir une fois le départ effectué.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence de l'enfant au Luxembourg suffisant.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, avec un supplément de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, valeurs applicables au 1er juin 2026. S'y ajoute chaque année en août une allocation de rentrée scolaire de 115 euros ou 235 euros selon l'âge, versée automatiquement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas les délais concrets d'attribution d'une place scolaire ni les modalités détaillées de dépôt du dossier auprès de la caisse des allocations, au-delà de la possibilité de le faire via MyGuichet ou par formulaire.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire doit être engagée avant même la recherche de logement, les places dans les sections recherchées partant parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"c'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires coexistent : école publique, écoles européennes/internationales, et établissements privés à frais significatifs.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"Pour une arrivée plus tardive, en revanche, la barrière linguistique est réelle et doit être évaluée sans complaisance\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut récupérer certificat de radiation et bulletins avant de quitter le pays d'origine.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"Le montant de base des allocations familiales est de 315,04 euros par mois et par enfant, majoré selon l'âge, avec une allocation de rentrée automatique en août.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNrvzo32BDHL28Qwha5y",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2915,
+        "output_tokens": 1430,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }

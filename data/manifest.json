@@ -2,16 +2,16 @@
   "axa-lu-optihome-2017": {
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-    "ingest_fingerprint": "2b11ed22ca146ee9b3e3d00f40d9284ef87e77d8321cd76469a0eb396e5292a5",
-    "document_hash": "87116ecbef9f337f2715e9772e5cbf038673f720f8e8276ca723fd39d2ba5fdf",
+    "ingest_fingerprint": "831d016d8046145aebf3759b93ee14d9736d31c26dca0e5951795ca21651a92a",
+    "document_hash": "c80b6c0eba3a8665be8e3e34f9e0daa07e2556cf43895939398f45995e7623dc",
     "edition": "juin 2017",
     "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
     "gate": {
       "profile": "vertical",
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-      "ingest_fingerprint": "2b11ed22ca146ee9b3e3d00f40d9284ef87e77d8321cd76469a0eb396e5292a5",
+      "ingest_fingerprint": "831d016d8046145aebf3759b93ee14d9736d31c26dca0e5951795ca21651a92a",
       "cases_hash": "b02293a7fe68ddb94a4c0c54922cb0542ffa15d65cf959bf9ef0dde3ac82c3e9",
-      "pipeline_digest": "6b276d737347acccd1fbb0e7e50f6f4e81e601b828da5feb8cd4d9efe0ef7812",
+      "pipeline_digest": "e0477089de2a80975feb38ec42d9df97921ba79290a6ca8c64ebd7fb136a1fff",
       "prompts_digest": "7e7c5f66e74b001674019360be4af5afac691789cd3a38259cc7fcd37d168e19",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -19,7 +19,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-25T03:55:49Z",
+      "date": "2026-08-25T05:42:12Z",
       "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
       "cases": 1,
       "countersigned": false
@@ -28,16 +28,16 @@
   "lux-guide": {
     "status": "servi",
     "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
-    "ingest_fingerprint": "b791a248028c2d6c73a9e26eeea4f7dafa6d3cbd996114c39c5d8535405709c4",
-    "document_hash": "cebb86e29c367611e80c58b6fe4b72b1be31e8e6807857f992d1277eb59fd0cf",
+    "ingest_fingerprint": "b030c98acaaeab62c69f8acdfeb0d94e16acfd86f1432a48efc060ac3d8cebe3",
+    "document_hash": "5428d5a402ce60376d2c73f1c6ac48d5ade1046eea14597b7f4336ecf2c751da",
     "edition": "git:a8e8593",
     "overlay_hash": null,
     "gate": {
       "profile": "vertical",
       "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
-      "ingest_fingerprint": "b791a248028c2d6c73a9e26eeea4f7dafa6d3cbd996114c39c5d8535405709c4",
+      "ingest_fingerprint": "b030c98acaaeab62c69f8acdfeb0d94e16acfd86f1432a48efc060ac3d8cebe3",
       "cases_hash": "9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791",
-      "pipeline_digest": "6b276d737347acccd1fbb0e7e50f6f4e81e601b828da5feb8cd4d9efe0ef7812",
+      "pipeline_digest": "e0477089de2a80975feb38ec42d9df97921ba79290a6ca8c64ebd7fb136a1fff",
       "prompts_digest": "7e7c5f66e74b001674019360be4af5afac691789cd3a38259cc7fcd37d168e19",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -45,7 +45,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-25T03:55:06Z",
+      "date": "2026-08-25T05:41:46Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false
