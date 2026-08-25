@@ -1259,3 +1259,28 @@ def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,
     (data / "manifest.json").write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
     assert runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)]) == 2
     assert ferme == [True], "le pool est resté ouvert sur le chemin de refus"
+
+
+# --- story 2.1 : le gate mesure l'image, dictionnaire compris ---------------
+
+def test_le_contexte_porte_le_dictionnaire_comme_api_etat(tmp_path: Path) -> None:
+    """`Contexte` est « exactement ce qu'`api/etat.py` construit pour les routes ».
+
+    Sans le dictionnaire, le gate mesurerait un pipeline **sans** variantes et sans le court-circuit
+    d'AD-5, alors que la production les a : le gate juge l'image, pas une variante de l'image.
+    """
+    racine = _data_dir(tmp_path)
+    ctx = runner.construire_contexte(_settings(), racine)
+    assert isinstance(ctx.dictionnaire, runner.Dictionnaire)
+    # Aucun `dictionary.json` ici : l'objet est inerte, et rien ne lève au chargement (AD-7).
+    assert ctx.dictionnaire.charge is False and ctx.dictionnaire.court_circuit_actif is False
+
+
+def test_le_dictionnaire_du_contexte_part_au_pipeline_du_guide() -> None:
+    """Le passer au `Contexte` sans le passer au pipeline n'aurait rien mesuré du tout."""
+    _corpus_, index = _corpus()
+    ctx = _armer(_contexte([(_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]),
+                             _trace())]))
+    _executer(ctx, [_cas(id="g-luxtrust", expected={"found": True})])
+    kw = ctx._guide.appels[0]["kw"]      # type: ignore[attr-defined]
+    assert kw["dictionnaire"] is ctx.dictionnaire

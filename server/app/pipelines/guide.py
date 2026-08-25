@@ -7,7 +7,8 @@ pipeline ajoute aux étapes — et qui n'appartient à aucune d'elles :
   `historique_max_turns` (au-delà : `InvalidRequest`, **jamais** de troncature silencieuse — AD-11,
   AD-16), deadline vérifiée avant chaque étape ;
 - **les court-circuits d'AD-5** : `intent ∈ {meteo, bavardage, hors_perimetre}`, clarification
-  requise, ou retrieval vide ⇒ *restituer* directement, **sans** appel `reason` ;
+  requise, « zéro hit » du dictionnaire validé (**avant** *retrouver*, story 2.1), ou retrieval vide
+  ⇒ *restituer* directement, **sans** appel `reason` ;
 - **la relance d'AD-3** : une claim rejetée ⇒ **une** relance de *rédiger* avec le motif de
   *vérifier* ; un draft identique (même hash canonique) arrête là ;
 - **la trace d'AD-10** : les `StepTrace` de chaque étape, les digests, les seuils, les hashes du
@@ -56,16 +57,26 @@ PIPELINE = "guide"
 VARIANT = "deterministe"
 
 
-def _absence(kind: str, parsed: ParsedQuestion | None, *, doc_id: str, corpus: Any) -> AbsenceProof:
+def _absence(kind: str, parsed: ParsedQuestion | None, *, doc_id: str, corpus: Any,
+             dictionnaire: Any = None) -> AbsenceProof:
     """Preuve d'absence (AD-4) : ce qui a été cherché, jamais les variantes ni les déclencheurs.
 
-    `variants_count=0` tant que le dictionnaire n'est pas validé (AD-5, story 2.1) : aucune variante
-    n'a été essayée, et l'annoncer autrement serait faux.
+    `terms_searched` reste ce que *comprendre* a produit — les termes de la question, « canoniques »
+    au sens d'AD-4 (par opposition aux variantes) — et jamais les clés du dictionnaire : les publier
+    ferait fuir, terme par terme, une partie de ce qu'AD-4 interdit d'exposer, et dirait à
+    l'utilisateur des mots qu'il n'a pas employés.
+
+    `variants_count` est le nombre de formes **ajoutées** effectivement cherchées. Il vaut `0` quand
+    le dictionnaire n'est pas utilisable (absent, illisible, d'un autre corpus) : aucune variante n'a
+    été essayée, et l'annoncer autrement serait faux — c'est la seule chose que ce chiffre promet.
     """
     if parsed is None:  # rien n'a été cherché : ni termes, ni passages parcourus
         return AbsenceProof(kind=kind)
     document = corpus.documents.get(doc_id)
-    return AbsenceProof(kind=kind, terms_searched=parsed.termes_de_recherche(), variants_count=0,
+    termes = parsed.termes_de_recherche()
+    variants = (dictionnaire.variants_count(termes)
+                if dictionnaire is not None and dictionnaire.utilisable else 0)
+    return AbsenceProof(kind=kind, terms_searched=termes, variants_count=variants,
                         blocks_scanned=len(document.blocks) if document is not None else 0,
                         documents=[doc_id] if document is not None else [])
 
@@ -74,7 +85,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                          index: Any, client: Any, settings: Settings, request_id: str,
                          lang: str | None = None, doc_id: str | None = None, budget: Any = None,
                          pipeline_digest_hex: str | None = None,
-                         prompts_digest_hex: str | None = None) -> tuple[Answer, Trace]:
+                         prompts_digest_hex: str | None = None,
+                         dictionnaire: Any = None) -> tuple[Answer, Trace]:
     """Une question du guide → l'unique `Answer` d'AD-4 et sa `Trace`.
 
     Toute sortie normale — réponse, refus, clarification, claims toutes rejetées — est un `Answer`
@@ -137,7 +149,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
         echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
-        answer, step = restituer(language=language, reason=_absence(kind, parsed, doc_id=doc_id, corpus=corpus),
+        answer, step = restituer(language=language,
+                                 reason=_absence(kind, parsed, doc_id=doc_id, corpus=corpus,
+                                                 dictionnaire=dictionnaire),
                                  clarification=clarification)
         steps.append(step)
         return answer, tracer()
@@ -147,8 +161,15 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         nonlocal relances, truncated, intent
         # --- comprendre -----------------------------------------------------
         echeance("comprendre")
+        # Le périmètre annoncé à *comprendre* vient du **corpus** (story 2.1) : `Corpus.perimetres`
+        # est une projection des titres du document servi, calculée une fois au chargement. La liste
+        # écrite à la main dans `prompts/comprendre.md` ne nommait pas l'identité numérique, et
+        # « Comment obtenir LuxTrust au meilleur prix ? » ressortait `hors_perimetre` alors que le
+        # guide a une fiche entière dessus (faux refus mesuré le 2026-08-24). Le préfixe reste
+        # déterministe — donc cacheable (AD-9) — mais il devient vrai.
         parsed, step_comprendre = await comprendre(question, historique, profil, client=client, budget=budget,
-                                                   settings=settings, lang=lang)
+                                                   settings=settings, lang=lang,
+                                                   perimetre=corpus.perimetres.get(doc_id, ""))
         steps.append(step_comprendre)
         intent = parsed.intent  # AD-10 : les deux sorties de *comprendre* en portent un
 
@@ -158,13 +179,40 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                            clarification=parsed.clarification)
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
+            # Il reste actif **dans tous les cas**, dictionnaire validé ou non : c'est le seul des
+            # deux court-circuits d'AD-5 qui ne dépende de rien d'autre que de l'`intent`.
             return refuser("hors_perimetre", None, language=parsed.language)
+
+        # --- court-circuit « zéro hit » d'AD-5, **avant** *retrouver* -------
+        # AD-5, mot pour mot : « court-circuit vers *restituer* … si aucun terme canonique (ni ses
+        # variantes) n'a de hit dans l'index », et « si `validated=false` ou `corpus_source_hashes`
+        # ne correspond pas au corpus chargé, le court-circuit « zéro hit » est **désactivé** et la
+        # requête poursuit vers *retrouver* ». `court_circuit_actif` porte exactement cette
+        # disjonction, et `/api/v1/sante` la publie.
+        #
+        # **Distinct du garde-fou « zéro bloc » de 1.5**, plus bas : celui-ci est fondé sur le
+        # dictionnaire et s'exécute avant *retrouver* ; l'autre constate après coup qu'aucun bloc
+        # n'est citable. Les deux produisent `kind="zero_hit"` — c'est le même fait pour
+        # l'utilisateur — et ce qui les distingue est observable : la présence de l'étape *retrouver*
+        # dans la trace.
+        #
+        # Il porte sur `ParsedQuestion.question_resolue` (les termes en viennent, AD-5) et sur des
+        # termes **toujours en français** (invariant de `ParsedQuestion.terms`), et n'est jamais
+        # atteint après un appel `reason` : *comprendre* est un appel `micro`, et rien d'autre n'a
+        # tourné à ce point de la chaîne.
+        termes = parsed.termes_de_recherche()
+        if termes and dictionnaire is not None and dictionnaire.court_circuit_actif:
+            if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id):
+                return refuser("zero_hit", parsed, language=parsed.language)
+        # Aucun terme extrait : rien n'a été cherché, donc rien ne prouve une absence (AD-1). La
+        # question poursuit vers *retrouver*, et c'est le garde-fou « zéro bloc » qui tranchera.
 
         # --- retrouver (code pur) -------------------------------------------
         echeance("retrouver")
         retrieval, step_retrouver = retrouver_deterministe(parsed, corpus=corpus, index=index,
                                                            budget=retrieval_budget(settings),
-                                                           settings=settings, doc_id=doc_id)
+                                                           settings=settings, doc_id=doc_id,
+                                                           dictionnaire=dictionnaire)
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:
@@ -301,7 +349,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé, jamais un dégradé silencieux.
             answer, step_restituer = restituer(
                 language=parsed.language, verification=verification,
-                reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus))
+                reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus,
+                                dictionnaire=dictionnaire))
         else:
             answer, step_restituer = restituer(language=parsed.language, verification=verification)
         steps.append(step_restituer)

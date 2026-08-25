@@ -56,6 +56,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from server.app.config import REPO_ROOT, Settings
+from server.app.config import cle_absente as config_cle_absente
+from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.digests import cases_hash, pipeline_digest, prompts_digest
@@ -429,6 +431,10 @@ class Contexte:
     client: LlmClient
     pipeline_digest_hex: str
     prompts_digest_hex: str
+    # Story 2.1 : le dictionnaire enrichi, chargé exactement comme `api/etat.py` le charge. Sans lui,
+    # le gate mesurerait un pipeline **sans** variantes et sans le court-circuit d'AD-5, alors que la
+    # production les a : le gate est censé juger l'image, pas une variante de l'image.
+    dictionnaire: Dictionnaire = field(default_factory=Dictionnaire)
 
 
 def suite_du_document(settings: Settings, doc_id: str) -> str:
@@ -467,7 +473,8 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str, budget_restant_e
                   prompts_digest_hex=ctx.prompts_digest_hex)
     if cas.suite == "guide":
         answer, trace = await repondre_guide(cas.question, list(cas.historique),
-                                             cas.profil or Profil(), doc_id=doc_id, **commun)
+                                             cas.profil or Profil(), doc_id=doc_id,
+                                             dictionnaire=ctx.dictionnaire, **commun)
     else:
         assert cas.faits is not None  # garanti par `Cas._coherence`
         answer, trace = await pipeline_sinistre.run(doc_id, cas.question, cas.faits, **commun)
@@ -641,15 +648,11 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
 def cle_absente(settings: Settings) -> bool:
     """AD-14 : « sans `ANTHROPIC_API_KEY`, les évals refusent de tourner ».
 
-    La variable d'environnement fait foi **quand elle est posée**, vide comprise : `Settings` la
-    laisse tomber quand elle est vide (`env_ignore_empty=True`) et retombe alors sur le `.env` du
-    poste, si bien que `ANTHROPIC_API_KEY= uv run …` aurait tourné et facturé — l'inverse exact de ce
-    que la commande dit vouloir. Non posée du tout, c'est `.env` qui répond, comme pour le serveur.
+    La règle elle-même vit dans `config.cle_absente` depuis la story 2.1 : l'ingestion du
+    dictionnaire fait la même promesse sur la même variable, et deux commandes qui promettent la même
+    chose ne peuvent pas la tenir par deux codes différents. Ce nom reste le point d'entrée des évals.
     """
-    brut = os.environ.get("ANTHROPIC_API_KEY")
-    if brut is not None:
-        return not brut.strip()
-    return not settings.anthropic_api_key.strip()
+    return config_cle_absente(settings)
 
 
 def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
@@ -723,10 +726,14 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                     gate_a_refaire = True
         if gate_a_refaire:
             lecture = _sans_gate_sur_disque(data_dir, regate, pile)
-    corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate)
+    corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate,
+                         perimetre_max_chars=settings.perimetre_max_chars)
     return Contexte(settings=settings, index=Index(corpus), client=LlmClient(settings),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
-                    prompts_digest_hex=contexte_gate.prompts_digest)
+                    prompts_digest_hex=contexte_gate.prompts_digest,
+                    # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
+                    # le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
+                    dictionnaire=load_dictionary(data_dir, corpus))
 
 
 async def _fermer(client: Any) -> None:

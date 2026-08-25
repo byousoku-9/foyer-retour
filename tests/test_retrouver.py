@@ -296,3 +296,126 @@ def test_decisional_kinds_are_a_tie_break_never_a_filter() -> None:
     assert [b.block_id for b in avec.blocs][0] == "d:p1:2"
     assert [b.block_id for b in sans.blocs][0] == "d:p1:1"
     assert step.calls == []  # toujours du code pur (AD-1)
+
+
+# --- story 2.1 : l'élargissement par le dictionnaire (AD-5) ------------------
+
+def _dictionnaire(corpus: Corpus, termes: dict[str, list[str]], *, validated: bool = False,
+                  source_hash: str | None = None):
+    """Un `Dictionnaire` chargé depuis un fichier réel : jamais un objet fabriqué à la main.
+
+    C'est ce que le serveur fait au démarrage, et c'est le seul chemin qui exerce à la fois le schéma
+    du fichier, la comparaison des empreintes et l'indexation des formes.
+    """
+    import json
+    import tempfile
+
+    from server.app.corpus.dictionary import load_dictionary
+
+    dossier = Path(tempfile.mkdtemp())
+    hashes = {d: (source_hash if source_hash is not None else corpus.manifest[d].source_hash)
+              for d in corpus.served}
+    signature = ({"validated": True, "validated_by": "Lancelot Oudin",
+                  "validated_at": "2026-08-25T10:00:00Z"} if validated else
+                 {"validated": False, "validated_by": None, "validated_at": None})
+    (dossier / "dictionary.json").write_text(json.dumps(
+        {"schema_version": "1", "corpus_source_hashes": hashes, "corpus": termes,
+         "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
+    return load_dictionary(dossier, corpus)
+
+
+def _corpus_avec_manifest() -> Corpus:
+    from server.app.domain.ingest import ManifestEntry
+
+    corpus = _corpus()
+    corpus.manifest["d"] = ManifestEntry(status="servi", source_hash="sha-source",
+                                         ingest_fingerprint="fp", document_hash="sha-doc",
+                                         edition="e")
+    return corpus
+
+
+def test_une_variante_ouvre_la_fiche_du_canonique() -> None:
+    """AC 2.1 : « une question dont un terme français est une variante d'un canonique du guide ⇒ la
+    fiche du canonique figure dans `RetrievalResult.opened_block_ids` »."""
+    corpus = _corpus_avec_manifest()
+    dico = _dictionnaire(corpus, {"matricule": ["numéro de sécurité sociale"]})
+    assert dico.utilisable is True
+
+    # Sans dictionnaire, ce terme ne touche rien : c'est exactement le faux refus qu'AD-5 vise.
+    nu, _ = _run(_parsed(["numéro de sécurité sociale"]), corpus, Index(corpus))
+    assert nu.opened_block_ids == []
+
+    result, step = retrouver_deterministe(
+        _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(), settings=_s(), dictionnaire=dico)
+    assert "d:p1:1" in result.opened_block_ids  # la fiche du canonique « matricule »
+    (check,) = [c for c in step.checks if c.name == "dictionnaire"]
+    assert check.ok is True and check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
+
+
+def test_la_trace_dit_le_nombre_de_variantes_jamais_lesquelles() -> None:
+    """AD-4 : `AbsenceProof` ne porte jamais la liste des variantes ; AD-10 : la trace non plus.
+
+    Publier les formes ajoutées ferait fuir le dictionnaire terme par terme, dans un canal que le
+    front « pourquoi cette réponse » affiche.
+    """
+    corpus = _corpus_avec_manifest()
+    dico = _dictionnaire(corpus, {"matricule": ["numero national", "social security number"]})
+    _result, step = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+                                           budget=_budget(), settings=_s(), dictionnaire=dico)
+    detail = next(c.detail for c in step.checks if c.name == "dictionnaire")
+    assert detail == "2 variante(s) ajoutée(s) à 1 terme(s)"
+    for variante in ("numero national", "social security number"):
+        assert variante not in step.model_dump_json()
+
+
+def test_un_dictionnaire_inutilisable_ne_change_rien_du_tout() -> None:
+    """`corpus_ok` commande les variantes : un dictionnaire d'un **autre** corpus ne dit rien de
+    celui-ci, et *retrouver* fait exactement ce qu'il faisait avant cette story — sans check."""
+    corpus = _corpus_avec_manifest()
+    perime = _dictionnaire(corpus, {"matricule": ["numéro de sécurité sociale"]},
+                           source_hash="empreinte-dun-autre-corpus")
+    assert perime.charge is True and perime.utilisable is False
+
+    attendu, _ = _run(_parsed(["numéro de sécurité sociale"]), corpus, Index(corpus))
+    result, step = retrouver_deterministe(
+        _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(), settings=_s(), dictionnaire=perime)
+    assert result.opened_block_ids == attendu.opened_block_ids == []
+    assert [c.name for c in step.checks] == []
+
+
+def test_les_variantes_servent_sans_validation_humaine() -> None:
+    """Design Note 2.1 : `validated` ne commande **que** le court-circuit d'AD-5, pas l'élargissement.
+
+    Élargir n'affirme rien — chaque phrase affichée reste vérifiée contre le corpus (AD-3) ; refuser
+    est une affirmation négative, et c'est elle que la signature humaine garde.
+    """
+    corpus = _corpus_avec_manifest()
+    dico = _dictionnaire(corpus, {"matricule": ["numéro de sécurité sociale"]}, validated=False)
+    assert (dico.utilisable, dico.court_circuit_actif) == (True, False)
+    result, _step = retrouver_deterministe(
+        _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(), settings=_s(), dictionnaire=dico)
+    assert "d:p1:1" in result.opened_block_ids
+
+
+def test_les_definitions_continuent_de_recevoir_les_termes_seuls() -> None:
+    """Reprise différée `target_story: 4.2` : `definitions()` apparie `defines` et les termes dans
+    les **deux sens**, et lui passer les variantes multiplierait un faux positif connu et non
+    corrigé. Le spec le dit littéralement : « `index.definitions()` continue de recevoir `terms` ».
+    """
+    corpus = _corpus_avec_manifest()
+    index = Index(corpus)
+    vus: list = []
+    reel = index.definitions
+
+    def espion(termes, **kw):
+        vus.append(termes)
+        return reel(termes, **kw)
+
+    index.definitions = espion  # type: ignore[method-assign]
+    dico = _dictionnaire(corpus, {"matricule": ["contenu"]})
+    retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
+                           settings=_s(), dictionnaire=dico)
+    assert vus == [["matricule"]]  # une liste de termes, jamais le dict élargi

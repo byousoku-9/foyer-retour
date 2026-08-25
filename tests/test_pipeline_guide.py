@@ -8,6 +8,8 @@ ainsi que « aucun appel `reason` pour un refus » (AD-5) se vérifie sans compt
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -125,14 +127,34 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
 
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
                settings: Settings | None = None, budget: RequestBudget | None = None,
-               question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None):
+               question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None,
+               dictionnaire: Any = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await repondre_guide(question, historique or [], Profil(), corpus=index.corpus,
                                          index=index, client=client, settings=settings,
-                                         request_id="req-test", lang=lang, budget=budget or _budget())
+                                         request_id="req-test", lang=lang, budget=budget or _budget(),
+                                         dictionnaire=dictionnaire)
     return answer, trace, fake
+
+
+def _dictionnaire(index: Index, termes: dict[str, list[str]], *, validated: bool,
+                  source_hash: str = "sha-source"):
+    """Un `Dictionnaire` **chargé depuis un fichier**, comme le serveur le fait au démarrage."""
+    import json
+    import tempfile
+
+    from server.app.corpus.dictionary import load_dictionary
+
+    dossier = Path(tempfile.mkdtemp())
+    signature = ({"validated": True, "validated_by": "Lancelot Oudin",
+                  "validated_at": "2026-08-25T10:00:00Z"} if validated else
+                 {"validated": False, "validated_by": None, "validated_at": None})
+    (dossier / "dictionary.json").write_text(json.dumps(
+        {"schema_version": "1", "corpus_source_hashes": {DOC_ID: source_hash}, "corpus": termes,
+         "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
+    return load_dictionary(dossier, index.corpus)
 
 
 BONNE = ("c1", "Le délai est de huit jours.", [(f"{DOC_ID}:f1:2", Q_ARRIVEE)])
@@ -718,3 +740,137 @@ async def test_a_retry_that_drops_a_cited_block_never_replaces_the_answer(index:
     verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
     (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
     assert "1 bloc(s) cité(s) contre 1" in check.detail
+
+
+# --- story 2.1 : le court-circuit « zéro hit » d'AD-5 ------------------------
+# `FakeAnthropic` lève sur tout appel non scripté : un script d'un seul `_comprendre()` **est**
+# l'assertion « aucun appel `reason` n'a eu lieu » (AD-5 : l'étage `reason` n'est jamais atteint
+# pour un refus).
+
+HIPPO = {"matricule": ["numéro national"]}
+
+
+async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index) -> None:
+    """AC 2.1, mot pour mot : `found=False`, `reason.kind == "zero_hit"`, `variants_count > 0`,
+    aucun appel au tier `reason`, et `Trace.steps` **ne contient pas** l'étape `retrouver`."""
+    dico = _dictionnaire(index, HIPPO, validated=True)
+    assert dico.court_circuit_actif is True
+
+    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"])],
+                                     dictionnaire=dico)
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1  # le seul appel est `micro`
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert "retrouver" not in [s.name for s in trace.steps]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "zero_hit"
+    assert answer.reason.variants_count == 1
+    # `terms_searched` reste ce que *comprendre* a produit, jamais les canoniques du dictionnaire.
+    assert answer.reason.terms_searched == ["hippopotame", "matricule"]
+    assert answer.reason.blocks_scanned == 4 and answer.reason.documents == [DOC_ID]
+
+
+async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index) -> None:
+    """AC 2.1 : « le même dictionnaire avec `validated: false` ⇒ `Trace.steps` contient `retrouver` ».
+
+    Le refus vient alors du garde-fou « zéro bloc » de 1.5, avec la **même** preuve : c'est le même
+    fait pour l'utilisateur, et ce qui distingue les deux court-circuits est observable dans la trace.
+    """
+    dico = _dictionnaire(index, HIPPO, validated=False)
+    assert dico.utilisable is True and dico.court_circuit_actif is False
+
+    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"])],
+                                     dictionnaire=dico)
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
+    assert answer.reason is not None and answer.reason.kind == "zero_hit"
+    assert answer.reason.variants_count == 1  # les variantes **ont** servi, elles n'ont rien trouvé
+
+
+async def test_le_refus_par_intent_reste_actif_dictionnaire_ou_pas(index: Index) -> None:
+    """AD-5 : « le refus par intent reste actif dans tous les cas ». C'est le seul des deux
+    court-circuits qui ne dépende que de l'`intent`."""
+    for dico in (None, _dictionnaire(index, HIPPO, validated=False),
+                 _dictionnaire(index, HIPPO, validated=True)):
+        answer, trace, fake = await _run(index, [_comprendre("meteo")], dictionnaire=dico)
+        assert fake.remaining_script == 0 and [s.name for s in trace.steps] == ["comprendre", "restituer"]
+        assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
+
+
+async def test_un_dictionnaire_dun_autre_corpus_ne_court_circuite_pas(index: Index) -> None:
+    """AD-5 : « `validated=false` **ou** `corpus_source_hashes` ≠ corpus chargé ⇒ court-circuit
+    désactivé, la requête poursuit vers *retrouver* ». Signé, mais sur un autre corpus."""
+    perime = _dictionnaire(index, HIPPO, validated=True, source_hash="empreinte-dun-autre-corpus")
+    assert perime.validated is True and perime.court_circuit_actif is False
+
+    answer, trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])],
+                                      dictionnaire=perime)
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
+    # Aucune variante n'a été essayée : l'annoncer autrement serait faux (AD-4).
+    assert answer.reason is not None and answer.reason.variants_count == 0
+
+
+async def test_un_hit_par_variante_ne_court_circuite_pas_et_repond(index: Index) -> None:
+    """Le court-circuit porte sur « aucun terme **ni aucune variante** n'a de hit » (AD-5) : une
+    question qui ne touche le guide que par une variante doit être **répondue**, pas refusée."""
+    dico = _dictionnaire(index, {"arrivée": ["Anmeldung"]}, validated=True)
+
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["Anmeldung"]), _rediger(BONNE), _verdicts(("c1", True))],
+        dictionnaire=dico)
+
+    assert fake.remaining_script == 0
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    assert answer.found is True
+    check = next(c for c in trace.steps[1].checks if c.name == "dictionnaire")
+    assert check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
+
+
+async def test_sans_terme_extrait_rien_nest_court_circuite(index: Index) -> None:
+    """AD-1 : « aucune absence du corpus n'est affirmée » sans recherche. Zéro terme, c'est zéro
+    recherche : le court-circuit d'AD-5 ne peut pas conclure, et le garde-fou de 1.5 tranche après."""
+    dico = _dictionnaire(index, HIPPO, validated=True)
+    answer, trace, _fake = await _run(index, [_comprendre(terms=[])], dictionnaire=dico)
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
+    assert answer.reason is not None and answer.reason.terms_searched == []
+
+
+async def test_labsence_serialisee_ne_porte_jamais_une_variante_ni_un_declencheur(index: Index) -> None:
+    """AD-4 : `AbsenceProof` ne porte **jamais** la liste des variantes ni des déclencheurs.
+
+    Le contrôle est fait sur l'objet **sérialisé** : c'est ce qui part au front, et c'est là que la
+    fuite se produirait — terme par terme, dans une réponse publique.
+    """
+    dico = _dictionnaire(index, {"matricule": ["numéro national", "Sozialversicherungsnummer"]},
+                         validated=True)
+    answer, _trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])], dictionnaire=dico)
+    assert answer.reason is not None
+    serialise = answer.reason.model_dump_json()
+    for variante in ("numéro national", "Sozialversicherungsnummer", "matricule"):
+        assert variante not in serialise
+    assert "hippopotame" in serialise  # ce que *comprendre* a produit, lui, y est
+
+
+async def test_le_variants_count_dun_refus_de_claims_est_reel_aussi(index: Index) -> None:
+    """`variants_count` décrit la recherche, pas le kind du refus : un `claims_rejetes` l'annonce
+    comme un `zero_hit`, sinon deux refus de la même requête donneraient deux comptes différents."""
+    dico = _dictionnaire(index, {"arrivée": ["Anmeldung"]}, validated=True)
+    answer, _trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), _rediger(MAUVAISE), _rediger(MAUVAISE)],
+        dictionnaire=dico)
+    assert fake.remaining_script == 0
+    assert answer.reason is not None and answer.reason.kind == "claims_rejetes"
+    assert answer.reason.variants_count == 1
+
+
+async def test_le_perimetre_du_corpus_part_a_comprendre(index: Index) -> None:
+    """Reprise différée `target_story: 2.1` : la liste de périmètre vient du **corpus** servi."""
+    index.corpus.perimetres[DOC_ID] = "- Arrivée : Déclarer son arrivée"
+    try:
+        _answer, _trace, fake = await _run(index, [_comprendre(), _rediger(BONNE),
+                                                   _verdicts(("c1", True))])
+    finally:  # l'index est partagé par le module : rien ne fuit vers le test suivant
+        index.corpus.perimetres.pop(DOC_ID, None)
+    assert "- Arrivée : Déclarer son arrivée" in fake.requests[0]["system"][0]["text"]

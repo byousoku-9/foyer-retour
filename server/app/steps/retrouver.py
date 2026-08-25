@@ -29,18 +29,20 @@ import time
 from collections.abc import Iterable
 
 from server.app.config import Settings
+from server.app.corpus.dictionary import Dictionnaire
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.domain import Block, RetrievalBudget, RetrievalResult
 from server.app.domain.question import ParsedQuestion
-from server.app.domain.trace import StepTrace
+from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.models import STEP_TIERS
 from server.app.llm.pricing import estimate_tokens
 
 
 def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                            budget: RetrievalBudget, settings: Settings, doc_id: str | None = None,
-                           kinds_prioritaires: Iterable[str] | None = None
+                           kinds_prioritaires: Iterable[str] | None = None,
+                           dictionnaire: Dictionnaire | None = None
                            ) -> tuple[RetrievalResult, StepTrace]:
     """`kinds_prioritaires` (story 1.8) : à score égal, les blocs de ces `Block.kind` passent devant.
 
@@ -49,6 +51,19 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     quatre blocs du contrat, le rappel du sinistre repose encore surtout sur les termes ; c'est le
     typage automatique (story 3.2) qui donnera son plein effet à ce départage. `None` (le guide) laisse
     l'ordre de recherche exactement tel qu'il était.
+
+    `dictionnaire` (story 2.1, AD-5) : le **seul** point d'entrée élargi. `chercher` accepte déjà
+    `{canonique: [variantes]}` — formes normalisées par groupe, score = nombre de groupes touchés —
+    donc l'élargissement ne change ni le classement ni la déduplication, il ajoute des formes à
+    chercher pour les mêmes termes. Il n'est employé que si le dictionnaire est `utilisable`
+    (chargé **et** décrivant le corpus servi) : `validated` ne commande que le court-circuit du
+    pipeline, pas l'élargissement — élargir n'affirme rien, chaque phrase affichée reste vérifiée
+    contre le corpus (AD-3), tandis que refuser est une affirmation négative qui, elle, demande une
+    signature humaine.
+
+    `index.definitions()` continue de recevoir `terms` **seuls** : son appariement `defines`/terme se
+    fait déjà dans les deux sens, et lui donner les variantes multiplierait un faux positif connu et
+    non corrigé (reprise différée `target_story: 4.2`, à border avec une mesure).
     """
     t0 = time.monotonic()
     # Source unique des termes cherchés (story 1.5) : l'`AbsenceProof` d'un refus « zéro hit » doit
@@ -64,7 +79,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return corpus.documents[index.doc_of(block_id)].block(block_id)
 
     truncated = False
-    hits = (index.chercher(terms, limit=budget.search_limit, doc_id=doc_id,
+    elargi = dictionnaire is not None and dictionnaire.utilisable
+    cherches = dictionnaire.expand(terms) if elargi else terms
+    hits = (index.chercher(cherches, limit=budget.search_limit, doc_id=doc_id,
                            kinds_prioritaires=kinds_prioritaires) if terms else [])
 
     # Nœuds candidats par score : ordre de première apparition dans les hits (déjà triés par score,
@@ -139,4 +156,14 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                              truncated=truncated)
     step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"], ms=int((time.monotonic() - t0) * 1000),
                      opened_block_ids=list(opened), discarded_block_ids=list(discarded))
+    if elargi:
+        # AD-10 / AD-16 : la trace dit **combien** de formes ont été ajoutées et à combien de termes,
+        # jamais lesquelles. AD-4 interdit de publier la liste des variantes, et la trace est lue par
+        # le front « pourquoi cette réponse » : un compte se recoupe avec `variants_count` de
+        # l'`AbsenceProof`, une liste ferait fuir le dictionnaire terme par terme.
+        ajoutees = dictionnaire.variants_count(terms)
+        touches = sum(1 for v in cherches.values() if v)
+        step.checks.append(CheckResult(
+            name="dictionnaire", ok=True,
+            detail=f"{ajoutees} variante(s) ajoutée(s) à {touches} terme(s)"))
     return result, step
