@@ -238,6 +238,8 @@ function resumerVue(vue) {
     etat_texte: texteDe(vue, "etat"),
     etat_phrase: texteDe(vue, "etat-phrase"),
     pied: parClasse(vue, "pied").flatMap((p) => (p.enfants || []).map((n) => n.cls)),
+    mentions_langue: parClasse(vue, "langue-mention").map((n) => n.texte),
+    repli_langue: texteDe(vue, "langue-repli"),
     cout: texteDe(vue, "cout"),
     sans_verification: texteDe(vue, "sans-verif"),
     attente: texteDe(vue, "attente-txt"),
@@ -649,6 +651,13 @@ async function main() {
       answer_unknown_nul: { texte: "x", trace: TRACE,
                             answer: { found: true, complete: false, claims: [CLAIM],
                                       unknown: null } },
+      answer_lang_nombre: { texte: "x", trace: TRACE,
+                            answer: { found: true, complete: true, claims: [CLAIM], lang: 42 } },
+      answer_lang_nul: { texte: "x", trace: TRACE,
+                         answer: { found: true, complete: true, claims: [CLAIM], lang: null } },
+      answer_repli_nul: { texte: "x", trace: TRACE,
+                          answer: { found: true, complete: true, claims: [CLAIM],
+                                    lang_fallback: null } },
       // --- la preuve d'absence est un `AbsenceProof`, pas un objet quelconque ---
       // `reason.kind` est le seul champ obligatoire d'`AbsenceProof`, et celui dont l'ecran depend :
       // `clarification_requise` supprime la preuve chiffree, les trois autres l'affichent. Un
@@ -793,6 +802,23 @@ async function main() {
 
     const nominale = reponseSourcee();
     cas.vue_nominale = resumerVue(CHAT.vueReponse(nominale, Q));
+    const langueAbsente = reponseSourcee();
+    delete langueAbsente.answer.lang;
+    delete langueAbsente.answer.lang_fallback;
+    cas.vue_langue_absente = resumerVue(CHAT.vueReponse(langueAbsente, Q));
+
+    // Story 2.4 : les quatre combinaisons visibles du pied. Le chrome reste français ; seule la
+    // réponse suit la langue détectée, et le repli est une information indépendante.
+    const traduite = reponseSourcee();
+    traduite.answer.lang = "de";
+    cas.vue_traduite = resumerVue(CHAT.vueReponse(traduite, Q));
+    const repliee = reponseSourcee();
+    repliee.answer.lang_fallback = true;
+    cas.vue_repliee = resumerVue(CHAT.vueReponse(repliee, Q));
+    const traduiteEtRepliee = reponseSourcee();
+    traduiteEtRepliee.answer.lang = "pt";
+    traduiteEtRepliee.answer.lang_fallback = true;
+    cas.vue_traduite_et_repliee = resumerVue(CHAT.vueReponse(traduiteEtRepliee, Q));
 
     const partielle = reponseSourcee();
     partielle.answer.complete = false;

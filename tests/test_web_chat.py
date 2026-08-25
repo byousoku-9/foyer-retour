@@ -278,7 +278,7 @@ def test_le_tour_dune_clarification_porte_la_question_posee(cas: dict[str, Any])
     from server.app.steps.restituer import PHRASES_DE_REFUS
 
     releve = cas["tour_assistant_clarification"]
-    assert releve["texte"] == PHRASES_DE_REFUS["clarification_requise"]
+    assert releve["texte"] == PHRASES_DE_REFUS["fr"]["clarification_requise"]
     assert releve["clarification"].endswith("?")
     assert releve["tour"] == releve["clarification"] + " " + releve["texte"]
     assert releve["tour"].index(releve["clarification"]) < releve["tour"].index(releve["texte"])
@@ -535,6 +535,8 @@ CONTRATS_INCOMPLETS = [
     ("unknown_nul", "unknown"), ("comparateur_nul", "comparateur"), ("via_nul", "via"),
     ("cout_nul", "trace.total_cost_eur"), ("answer_claims_nulles", "answer.claims"),
     ("answer_unknown_nul", "answer.unknown"),
+    ("answer_lang_nombre", "answer.lang"), ("answer_lang_nul", "answer.lang"),
+    ("answer_repli_nul", "answer.lang_fallback"),
     # La preuve d'absence est un `AbsenceProof` entier, pas un objet quelconque.
     ("answer_reason_vide", "answer.reason.kind"),
     ("answer_reason_kind_inconnu", "answer.reason.kind"),
@@ -544,6 +546,29 @@ CONTRATS_INCOMPLETS = [
     ("claim_sans_quote", "answer.claims[0].quotes"),
     ("claim_sans_status", "answer.claims[0].status"),
 ]
+
+
+def test_le_pied_dit_la_traduction_et_le_repli_sans_les_confondre(cas: dict[str, Any]) -> None:
+    """Story 2.4 : mention et repli sont deux faits indépendants, absents quand ils ne valent pas."""
+    aucune = cas["vue_nominale"]
+    defauts_absents = cas["vue_langue_absente"]
+    traduction = cas["vue_traduite"]
+    repli = cas["vue_repliee"]
+    les_deux = cas["vue_traduite_et_repliee"]
+
+    assert aucune["mentions_langue"] == [] and aucune["repli_langue"] is None
+    assert defauts_absents["mentions_langue"] == [] and defauts_absents["repli_langue"] is None
+    assert traduction["mentions_langue"] == [
+        "traduit depuis le guide (français) — les passages cités restent tels qu'ils sont écrits"
+    ]
+    assert traduction["repli_langue"] is None
+    assert repli["mentions_langue"] == [
+        "langue non prise en charge ou non détectée : réponse en français"
+    ]
+    assert les_deux["mentions_langue"] == [
+        "traduit depuis le guide (français) — les passages cités restent tels qu'ils sont écrits",
+        "langue non prise en charge ou non détectée : réponse en français",
+    ]
 
 
 @pytest.mark.parametrize(("nom", "champ"), CONTRATS_INCOMPLETS)
@@ -747,7 +772,7 @@ def test_le_refus_affiche_la_phrase_du_serveur_et_la_preuve_chiffree(cas: dict[s
     from server.app.steps.restituer import PHRASES_DE_REFUS
 
     refus = cas["refus"]
-    assert refus["texte"] == PHRASES_DE_REFUS["hors_perimetre"]
+    assert refus["texte"] == PHRASES_DE_REFUS["fr"]["hors_perimetre"]
     assert refus["segments_kind"] == ["limite"]
     assert refus["preuve"] == "Termes cherchés : météo — 4 variantes essayées, 312 passages parcourus"
     assert refus["etat"] == {"cle": "inconnu", "texte": "inconnu"}
@@ -1028,7 +1053,7 @@ def test_un_refus_montre_la_phrase_du_serveur_puis_la_preuve(cas: dict[str, Any]
     from server.app.steps.restituer import PHRASES_DE_REFUS
 
     vue = cas["vue_refus"]
-    assert vue["segments"][0]["texte"] == PHRASES_DE_REFUS["hors_perimetre"]
+    assert vue["segments"][0]["texte"] == PHRASES_DE_REFUS["fr"]["hors_perimetre"]
     assert vue["segments"][0]["citations"] == []
     assert vue["preuve"] == "Termes cherchés : météo — 4 variantes essayées, 312 passages parcourus"
     # La preuve **suit** la phrase, elle ne la remplace pas.

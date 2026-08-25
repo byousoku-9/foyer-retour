@@ -547,6 +547,12 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 /* La phrase qui rend l'etat explicite : meme ton discret que le cout (elle herite du `.pied`), elle
    prend la place restante et passe a la ligne plutot que de comprimer le badge ou le cout. */
 .msg .etat-phrase { flex: 1 1 22ch; min-width: 0; }
+.msg .langue-mention { flex: 1 0 100%; color: var(--muted); font-style: italic; }
+.msg .langue-repli { color: var(--warning, #8a5a00); }
+
+@media (prefers-color-scheme: dark) {
+  .msg .langue-repli { color: #e7bd69; }
+}
 /* La recherche simple n'a ni état vérifié ni coût : son pied le dit, sans emprunter les couleurs
    d'une réponse sourcée. */
 .msg .etat-local { background: var(--surface-2); color: var(--muted); }

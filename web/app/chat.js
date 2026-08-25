@@ -773,6 +773,16 @@ window.CHAT = (function () {
       noeud("span", "etat-phrase",
         phraseEtat(etat, { liste: inconnus.length > 0, preuve: !!preuve }))
     ];
+    // `Answer.lang` a un défaut pydantic (`fr`) : un corps minimal qui l'omet doit se peindre comme
+    // le même objet sérialisé avec son défaut, sans inventer une traduction.
+    if ((a.lang || "fr") !== "fr") {
+      pied.push(noeud("span", "langue-mention",
+        "traduit depuis le guide (français) — les passages cités restent tels qu'ils sont écrits"));
+    }
+    if (a.lang_fallback === true) {
+      pied.push(noeud("span", "langue-mention langue-repli",
+        "langue non prise en charge ou non détectée : réponse en français"));
+    }
     var cout = coutTexte(r && r.trace);
     if (cout) pied.push(noeud("span", "cout", cout));
     enfants.push(noeud("div", "pied", null, pied));
@@ -1081,6 +1091,12 @@ window.CHAT = (function () {
     var unknown = listeDeChaines(a.unknown, "answer.unknown");
     verifierSegments(a.segments, "answer.segments");
     if (defaut(a.texte, "answer.texte") !== undefined) exigerChaine(a.texte, "answer.texte");
+    var lang = defaut(a.lang, "answer.lang");
+    if (lang !== undefined) exigerChaine(lang, "answer.lang");
+    var langFallback = defaut(a.lang_fallback, "answer.lang_fallback");
+    if (langFallback !== undefined && typeof langFallback !== "boolean") {
+      throw illisible("answer.lang_fallback");
+    }
     chaineNullable(a.clarification, "answer.clarification");
     // « found=False exige une preuve d'absence (reason) » — et cette preuve est un `AbsenceProof`
     // entier, pas un objet quelconque : c'est `reason.kind` qui decide de ce qui s'affiche.
