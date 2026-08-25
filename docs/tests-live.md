@@ -1394,3 +1394,100 @@ deux URL.
 **Coût de ce tour.** Deux requêtes de pipeline facturées (un passage du smoke : chat + sinistre),
 ≈ 0,08 €. Aucun tour navigateur : rien de ce que la revue a corrigé ne change le rendu au-delà d'un
 paragraphe de texte, lu directement sur les deux pages servies.
+
+## Story 2.1 — Le dictionnaire enrichi, validé une fois, nourrit le refus justifié (2026-08-25)
+
+Trois choses ont été mesurées en vrai : le run d'ingestion en Batch API, le faux refus de
+*comprendre* que le périmètre dérivé du corpus devait corriger, et le comportement du serveur une
+fois `data/dictionary.json` chargé. Ce qui n'a **pas** pu l'être est dit à la fin, en clair.
+
+### Le run d'enrichissement (Batch API, tier `ingest`)
+
+`uv run python -m server.ingest.enrich_dictionary`, lot `msgbatch_01RJJNDEZW3MSqVXCTrTt5NZ` :
+
+| Mesure | Valeur |
+|---|---|
+| Requêtes | 11 (dix catégories du guide + une pour les intentions) |
+| Modèle | `claude-opus-5`, effort `high`, sortie 16 000 tokens |
+| Durée du lot | ≈ 24 min entre la soumission et `ended` (11 succès, 0 erreur) |
+| Majorant calculé **avant** soumission | 2,1251 € (escompte batch 0,5), plafond 3,0000 € |
+| Coût réel | **0,4900 €** — soit 23 % du majorant |
+| Écrit | 242 canoniques, 1 178 variantes, 254 questions candidates, 90 déclencheurs, `validated: false` |
+
+**Les contrôles du code ont réellement écarté quelque chose**, et c'est le point qui compte pour
+AD-5 / FR29 (« le modèle d'ingestion ne renvoie jamais de texte de bloc ») : 34 chaînes rejetées —
+`terme_trop_de_mots=32`, `question_recopiee_dun_bloc=1`, `terme_vide_apres_normalisation=1`. La
+deuxième est exactement ce que le contrôle existe pour attraper : une « question candidate » qui
+était une phrase du guide recopiée. Écartée, jamais tronquée.
+
+Le fichier a été relu à la main sur un échantillon : les variantes sont bien FR/EN/DE/PT
+(`CNS` → *Caisse nationale de santé, Krankenkasse, caisse de maladie, caixa de saúde, health
+insurance fund*), les canoniques sont des termes du domaine et non des passages, et
+`corpus_source_hashes` ne nomme que `lux-guide` (`abe65f06…`), le seul document que ce dictionnaire
+décrive.
+
+### Le faux refus de *comprendre* (reprise différée de 1.10, mesurée le 2026-08-24)
+
+« Comment obtenir LuxTrust au meilleur prix ? » ressortait `hors_perimetre` et était refusée après le
+seul appel `micro`, alors que le guide a une fiche entière dessus. Avec `$perimetre_guide` rendu
+depuis `Corpus.perimetres` (les titres des dix catégories et de leurs fiches), **trois** appels
+consécutifs par `POST /api/v1/chat` :
+
+| Run | `intent` | `found` | fiches citées | coût |
+|---|---|---|---|---|
+| 1 | `question` | oui | `luxtrust` | 0,0307 € |
+| 2 | `question` | oui | `luxtrust` | 0,0257 € |
+| 3 | `question` | oui | `luxtrust` | 0,0270 € |
+
+Le refus par intent, lui, reste actif : « Quel temps fera-t-il demain à Luxembourg-ville ? » →
+`intent=meteo`, `found=false`, `reason.kind=hors_perimetre`, **deux** étapes seulement
+(`comprendre`, `restituer`), 0,0009 € — l'étage `reason` n'est pas atteint (AD-5).
+
+### Le dictionnaire chargé par le serveur
+
+`GET /api/v1/sante` publie `dictionary = {validated: false, corpus_ok: true,
+refus_zero_hit_actif: false}` et l'alerte `dictionnaire_non_valide` avec `doc_id: "*"`. La page
+d'accueil, rendue **contre ce serveur** dans un DOM minimal (`node`, aucun navigateur), écrit :
+
+> dictionnaire des variantes : aucune validation humaine — le refus « zéro hit » est désactivé ; une
+> question sans aucun passage trouvé poursuit vers la recherche au lieu d'être refusée d'avance.
+
+**Une variante trouve la fiche du canonique**, mesuré sur une question anglaise :
+« How do I get my social security number when I arrive in Luxembourg? » → `intent=question`,
+`lang=en`, `found=true`, fiches `arrivee` et `matricule`, et le `StepTrace` de *retrouver* porte
+`dictionnaire : 15 variante(s) ajoutée(s) à 2 terme(s)` — un compte, jamais la liste (AD-4, AD-10).
+
+**Le court-circuit d'AD-5 armé** a été observé sur une **copie hors dépôt** du dictionnaire signée
+pour la mesure (`data/dictionary.json` du dépôt reste `validated: false` : la signature appartient à
+Lancelot, la boucle ne l'écrit pas). `court_circuit_actif = True` y est bien vrai, et une question
+nominale y suit toujours la chaîne complète — le court-circuit ne se déclenche pas quand il y a des
+hits, ce qui est la moitié qu'on peut prouver ici.
+
+### Ce qui n'a pas pu être mesuré, et pourquoi
+
+**Aucune question réelle n'a atteint le court-circuit « zéro hit ».** Cinq questions ont été
+essayées, choisies pour porter du vocabulaire absent du guide (apiculture, drone, succession et
+testament, adoption, réparation de vélo) : quatre sont classées `hors_perimetre` par *comprendre* et
+refusées avant toute recherche — ce qui est le bon refus, et l'effet direct du périmètre désormais
+dérivé du corpus —, et la cinquième (« tapage nocturne des voisins ») a trouvé des blocs, dont
+aucune claim n'a survécu : `reason.kind=claims_rejetes`, `terms_searched=["tapage nocturne",
+"nuisances sonores", "voisinage", "immeuble"]`, `variants_count=0`, `blocks_scanned=506`.
+
+C'est un résultat, pas un trou de couverture : sur un corpus de 506 blocs et un dictionnaire de
+242 canoniques, le refus par intent tranche presque toujours en premier, et le court-circuit
+« zéro hit » est un chemin **rare**. Le chemin lui-même est couvert hors ligne
+(`tests/test_pipeline_guide.py::test_zero_hit_dictionnaire_valide_refuse_avant_retrouver` et son
+pendant non validé), et le jour où le harness de questions-témoins existera (4.1/4.2), c'est lui qui
+devra en écrire un cas plutôt que de compter sur une question trouvée à la main.
+
+**Les gates ont été relancés** — `steps/`, `pipelines/`, `corpus/` et un prompt ont bougé, donc les
+deux digests aussi : `lux-guide` (1 cas, `bonne_reponse`, 0,0230 €) et `axa-lu-optihome-2017` (1 cas,
+`bonne_reponse`, 0,0509 €), tous deux `evals_ok=true`, `countersigned=false`. Six fixtures live ont
+été ré-enregistrées avec la clé (≈ 0,20 €) : `$perimetre_guide` et le schéma de `SortieComprendre`
+changent la clé de requête, le rejeu hors ligne était impossible sans.
+
+**Le smoke de déploiement n'a pas été rejoué sur Cloud Run.** Il a été adapté (l'état du dictionnaire
+servi doit être celui que le commit contient ; `dictionnaire_non_valide` est attendue tant que
+`data/dictionary.json` n'est pas signé, et son **absence** devient alors un écart) et il est couvert
+hors ligne par `tests/test_smoke.py`, mais sa première exécution réelle sera celle du prochain push
+de `main`.
