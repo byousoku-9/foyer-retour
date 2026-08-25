@@ -23,7 +23,11 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
-from server.app.steps.rediger import _inclure_clause_decisionnelle_de_tete, rediger
+from server.app.steps.rediger import (
+    _inclure_clause_decisionnelle_de_tete,
+    _rattacher_claims_sinistre,
+    rediger,
+)
 from server.ingest import kb_to_blocks as k
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -126,10 +130,40 @@ async def test_sinistre_rattache_deterministement_toute_claim_a_un_segment_factu
 
     assert [(s.text, s.kind, s.claim_ids) for s in draft.segments] == [
         ("Le heurt est mentionné.", "factuel", ["c1"]),
-        ("La suite dépend du contrat.", "limite", []),
         ("Les dégâts causés par un animal sont exceptés.", "factuel", ["c2"]),
+        ("La suite dépend du contrat.", "limite", []),
     ]
     assert step.checks == []
+
+
+def test_sinistre_projette_chaque_claim_une_fois_sous_la_borne_de_segments() -> None:
+    claims = [
+        Claim(claim_id="c1", text="Première clause.", quotes=[Quote(block_id="d:p1:1", quote="q1")]),
+        Claim(claim_id="c2", text="Deuxième clause.", quotes=[Quote(block_id="d:p1:2", quote="q2")]),
+        Claim(claim_id="c3", text="Clause orpheline.", quotes=[Quote(block_id="d:p1:3", quote="q3")]),
+    ]
+    draft = AnswerDraft(
+        segments=[
+            {"text": "Deux clauses mêlées.", "kind": "factuel", "claim_ids": ["c2", "c1"]},
+            {"text": "Première répétée.", "kind": "factuel", "claim_ids": ["c1"]},
+            {"text": "Transition.", "kind": "transition", "claim_ids": ["c2"]},
+            {"text": "Limite.", "kind": "limite", "claim_ids": ["c3"]},
+        ],
+        claims=claims,
+    )
+
+    projete, changements = _rattacher_claims_sinistre(
+        draft, _settings(draft_max_segments=4, draft_max_claims=3, verifier_max_claims=3))
+
+    assert changements > 0
+    assert [(s.text, s.kind, s.claim_ids) for s in projete.segments] == [
+        ("Deuxième clause.", "factuel", ["c2"]),
+        ("Première clause.", "factuel", ["c1"]),
+        ("Clause orpheline.", "factuel", ["c3"]),
+        ("Transition.", "transition", []),
+    ]
+    assert len(projete.segments) == 4
+    assert sorted(cid for s in projete.segments for cid in s.claim_ids) == ["c1", "c2", "c3"]
 
 
 def test_sinistre_inclut_la_clause_decisionnelle_confirmee_classee_en_tete() -> None:
@@ -188,6 +222,37 @@ def test_sinistre_remplace_une_claim_non_decisionnelle_quand_la_borne_est_pleine
         quotes=[Quote(block_id=p34.block_id, quote=p34.text)])
 
 
+@pytest.mark.parametrize("borne_pleine", [False, True])
+async def test_rediger_sinistre_rattache_atomiquement_la_clause_de_tete_reelle(
+        borne_pleine: bool) -> None:
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    p34 = doc.block("axa-lu-optihome-2017:p34:12")
+    voisin = doc.block("axa-lu-optihome-2017:p35:2" if borne_pleine
+                       else "axa-lu-optihome-2017:p46:1")
+    retrieval = RetrievalResult(blocs=[p34, voisin],
+                                opened_block_ids=[p34.block_id, voisin.block_id])
+    brut = _draft(
+        segments=[{"text": "Ancien texte du modèle.", "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": "Clause voisine.",
+                 "quotes": [{"block_id": voisin.block_id, "quote": voisin.text}]}],
+    )
+    settings = (_settings(draft_max_segments=1, draft_max_claims=1, verifier_max_claims=1)
+                if borne_pleine else _settings())
+    fake = FakeAnthropic([fake_message(text=brut, model=SONNET)])
+
+    draft, _step = await rediger(
+        _parsed(), retrieval, [], client=LlmClient(settings, anthropic_client=fake),
+        budget=_budget(), index=index, doc_id=doc.doc_id, settings=settings,
+        prompt="rediger_sinistre")
+
+    par_bloc = {quote.block_id: claim.claim_id for claim in draft.claims for quote in claim.quotes}
+    assert p34.block_id in par_bloc
+    segment = next(s for s in draft.segments if s.claim_ids == [par_bloc[p34.block_id]])
+    assert segment.kind == "factuel" and segment.text == p34.text
+    assert "Ancien texte du modèle" not in " ".join(s.text for s in draft.segments)
+
+
 async def test_request_shape_cacheable_prefix_with_summary_then_delimited_content(mini_index: Index) -> None:
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
     historique = [Turn(role="user", texte="on vient d'arriver"), Turn(role="assistant", texte="bienvenue")]
@@ -233,10 +298,14 @@ async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(
     await _rediger(client, mini_index, parsed=parsed, prompt="rediger_sinistre")
 
     (req,) = fake.requests
+    assert req["output_config"]["effort"] == "low"
     content = req["messages"][0]["content"]
     outside = UNTRUSTED.sub("", content)
     assert "Plan de sortie concis : 2 facette(s)" in outside
     assert "Traite chacune au plus une fois" in outside
+    assert "une claim d'une seule phrase courte" in outside
+    assert "la plus courte quote contiguë qui la soutient" in outside
+    assert "n'énumère pas les autres items d'une liste contractuelle" in outside
     assert "les appareils" not in outside and "les denrées" not in outside
     expected_prefix = load_prompt("commun") + "\n\n" + render_prompt(
         "rediger_sinistre", quote_min_chars=_settings().quote_min_chars,

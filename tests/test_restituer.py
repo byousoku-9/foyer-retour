@@ -22,7 +22,7 @@ from server.app.domain.answer import (
     VerifiedClaim,
     VerifiedQuote,
 )
-from server.app.domain.question import Faits, QuestionScope
+from server.app.domain.question import QuestionScope
 from server.app.domain.verdict import Verdict
 from server.app.steps.restituer import (
     PHRASES_DE_REFUS,
@@ -330,14 +330,11 @@ def test_les_relations_declarees_precedent_les_clauses_sans_devenir_une_claim() 
                    moment="hier, après plusieurs mois de fuite")
 
     answer, step = restituer(language="fr", verification=verification, faits_compris=scope,
-                             faits_declares=Faits(
-                                 description=("Ça fuyait un peu depuis des mois, mais le plafond "
-                                              "est tombé d'un coup hier.")),
                              registre=REGISTRE_SINISTRE)
 
     assert answer.segments[0] == AnswerSegment(
-        text=("Faits déclarés — Ça fuyait un peu depuis des mois, mais le plafond est tombé "
-              "d'un coup hier."),
+        text=("Faits compris — cause : fuite progressive ; puis événement : effondrement soudain "
+              "du plafond ; moment : hier, après plusieurs mois de fuite."),
         kind="transition")
     assert answer.segments[0].claim_ids == []
     assert answer.texte.startswith(answer.segments[0].text)
@@ -351,9 +348,11 @@ def test_un_repere_isole_ne_gonfle_pas_la_reponse_sinistre() -> None:
                                 claims=[_claim()], found=True, complete=True)
     answer, step = restituer(language="fr", verification=verification,
                              faits_compris=QuestionScope(moment="hier"),
-                             faits_declares=None,
                              registre=REGISTRE_SINISTRE)
-    assert answer.texte == "Clause."
+    assert answer.segments[0] == AnswerSegment(
+        text="Faits compris — moment : hier.", kind="transition")
+    assert answer.texte == "Faits compris — moment : hier. Clause."
+    assert len(answer.segments[0].text) < 50
     assert step.checks == []
 
 

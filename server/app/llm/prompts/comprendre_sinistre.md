@@ -53,4 +53,9 @@ l'une des deux, jamais les deux, jamais aucune.
   N'ajoute jamais une sous-question que la demande ne pose pas : tu découpes, tu ne complètes pas.
 - `bien`, `evenement`, `lieu`, `cause`, `moment` : renseigne-les depuis les faits déclarés — le bien
   touché, l'événement survenu, le lieu, la cause immédiate, le moment. `null` pour ce que la
-  description ne dit pas ; n'invente rien, c'est précisément ce qui manquera au dossier.
+  description ne dit pas ; n'invente rien, c'est précisément ce qui manquera au dossier. Ces champs
+  sont la projection factuelle courte qui sera montrée au gestionnaire : quand plusieurs phases
+  sont déclarées, garde dans `cause` et `evenement` les qualificatifs temporels **et causaux**
+  propres à chacune, notamment son caractère volontaire ou accidentel lorsqu'il est déclaré, et
+  dans `moment` leur durée ou leur ordre. Ne laisse jamais ces qualificatifs uniquement dans
+  `question_resolue` ou `terms`.

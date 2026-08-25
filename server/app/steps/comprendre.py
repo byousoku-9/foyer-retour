@@ -70,13 +70,18 @@ LISTE_MAX = LISTE_MAX_ITEMS
 # modèle a déjà choisi la notion contractuelle complète « causés par un animal ». Le contrat écrit
 # « dégâts », pas « dommages » : sans cette canonisation lexicale, les quatre autres mots ne donnent
 # qu'un partiel et l'exclusion sort du `search_limit`. Ce n'est ni un seuil, ni une ontologie, ni un
-# nouveau moteur de recherche — seulement la forme du corpus pour un sujet déjà décidé.
+# nouveau moteur de recherche — seulement la forme du corpus AXA pour un sujet déjà décidé. Le
+# pipeline fournit le document effectivement servi : *comprendre* ne connaît pas le corpus et ne
+# peut donc pas appliquer cet alias tout seul à tous les contrats.
+_DOC_TERMES_CONTRACTUELS = "axa-lu-optihome-2017"
 _TERMES_CONTRACTUELS: dict[str, str] = {
     "dommages causés par un animal": "dégâts causés par un animal",
 }
 
 
-def _canoniser_termes_contractuels(terms: list[str]) -> list[str]:
+def _canoniser_termes_contractuels(terms: list[str], *, doc_id: str) -> list[str]:
+    if doc_id != _DOC_TERMES_CONTRACTUELS:
+        return list(terms)
     canonises = [_TERMES_CONTRACTUELS.get(term.casefold(), term) for term in terms]
     formes = {term.casefold() for term in canonises}
     # Campagne B, story 2.7 : sur le dommage causé par le fils du voisin, le modèle a choisi
@@ -98,10 +103,23 @@ def _canoniser_termes_contractuels(terms: list[str]) -> list[str]:
             "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
             "mobilier",
         ]
-        return composes
+        # Les autres notions choisies par le modèle restent dans leur ordre. Le quartet est compacté
+        # en deux formes discriminantes, il ne devient jamais un remplacement de toute la question.
+        extras = [term for term in canonises if term.casefold() not in faits_rc_materielle]
+        return [*composes, *extras]
     if {"responsabilité civile", "dégâts causés par un tiers"} <= formes:
         canonises = [
             rc_privee if term.casefold() == "responsabilité civile" else term
+            for term in canonises
+        ]
+    # A11, campagne réelle : le modèle avait bien choisi les deux notions « congélateur » et
+    # « contenu », mais leurs formes isolées classaient d'abord toutes les définitions génériques
+    # du contrat. La clause AXA emploie ces deux mots ensemble. Les composer ne choisit donc ni une
+    # facette ni un dommage à la place du modèle ; cela conserve ses deux choix et leur ordre tout
+    # en les exprimant sous la forme discriminante du document effectivement servi.
+    if {"congélateur", "contenu"} <= formes:
+        canonises = [
+            "contenu congélateur" if term.casefold() == "contenu" else term
             for term in canonises
         ]
     return canonises
@@ -316,8 +334,6 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         # muet laisse la liste vide, et `complete` restera `False` faute de preuve.
         terms, hors_terms = _libelles(out.terms, max_chars=settings.libelle_max_chars,
                                       garder=settings.question_max_terms)
-        if prompt == "comprendre_sinistre":
-            terms = _canoniser_termes_contractuels(terms)
         facettes, hors_facettes = _libelles(out.facettes, max_chars=settings.libelle_max_chars,
                                             garder=settings.question_max_facettes)
         themes, hors_themes = _libelles(out.themes, max_chars=settings.libelle_max_chars,

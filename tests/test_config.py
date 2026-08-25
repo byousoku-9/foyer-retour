@@ -113,6 +113,8 @@ def test_bounds_and_coherence() -> None:
     # retrouvées seraient rejetées « non évaluées » par pure configuration (dégradé silencieux).
     with pytest.raises(ValidationError, match="verifier_max_claims"):
         Settings(_env_file=None, verifier_max_claims=2, draft_max_claims=4)
+    with pytest.raises(ValidationError, match="draft_max_claims.*draft_max_segments"):
+        Settings(_env_file=None, draft_max_claims=4, draft_max_segments=3)
     Settings(_env_file=None, verifier_max_claims=4, draft_max_claims=4)
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
                 {"evals_max_cost_eur": -1}, {"rate_limit_per_day": 0}):

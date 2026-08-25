@@ -76,7 +76,7 @@ def _inclure_clause_decisionnelle_de_tete(
     return draft.model_copy(update={"claims": [*draft.claims, claim]})
 
 
-def _rattacher_claims_sinistre(draft: AnswerDraft) -> tuple[AnswerDraft, int]:
+def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[AnswerDraft, int]:
     """Fait des claims atomiques le texte factuel effectivement soumis à *vérifier*.
 
     Campagne réelle 2.7 : le rédacteur savait citer l'exclusion animale de `p35:2`, mais pouvait
@@ -84,38 +84,39 @@ def _rattacher_claims_sinistre(draft: AnswerDraft) -> tuple[AnswerDraft, int]:
     passaient alors tous les contrôles, avant que la claim ne soit justement rejetée `non_citee`.
 
     En sinistre, `Claim.text` est déjà l'affirmation atomique (« une seule clause par affirmation »)
-    que *vérifier* confronte aux passages. Le segment factuel ne gagne donc rien à la paraphraser :
-    on le remplace par la concaténation exacte des claims qu'il annonce, puis on ajoute une phrase
-    factuelle pour chaque claim oubliée. Aucun sujet, aucune clause et aucun seuil ne sont ajoutés ;
-    les transitions et limites du modèle restent inchangées. Le guide conserve son brouillon à
-    l'octet près, comme sa variante 2.6.
+    que *vérifier* confronte aux passages. La projection reconstruit donc exactement un segment
+    factuel par claim : ordre de la première référence dans le brouillon, puis claims orphelines dans
+    leur ordre. Les transitions et limites ne gardent aucun `claim_id` et n'occupent que les places
+    restantes sous `draft_max_segments`. L'invariant de configuration
+    `draft_max_claims <= draft_max_segments` garantit ainsi qu'aucune claim autorisée n'est perdue.
+    Le guide conserve son brouillon à l'octet près, comme sa variante 2.6.
     """
     par_id = {claim.claim_id: claim for claim in draft.claims}
-    rattachees: set[str] = set()
-    segments: list[AnswerSegment] = []
-    changements = 0
+    ordre: list[str] = []
+    vus: set[str] = set()
     for segment in draft.segments:
         if segment.kind != "factuel":
-            segments.append(segment)
             continue
-        ids = list(dict.fromkeys(cid for cid in segment.claim_ids if cid in par_id))
-        texte = " ".join(par_id[cid].text.strip() for cid in ids if par_id[cid].text.strip())
-        if not ids or not texte:
-            # Les deux cas sont normalement fermés par `AnswerDraft`; garder le segment permet au
-            # vérificateur d'appliquer son refus conservateur si un producteur futur les autorise.
-            segments.append(segment)
-            continue
-        aligne = AnswerSegment(text=texte, kind="factuel", claim_ids=ids)
-        segments.append(aligne)
-        rattachees.update(ids)
-        changements += int(aligne != segment)
+        for cid in segment.claim_ids:
+            if cid in par_id and cid not in vus:
+                ordre.append(cid)
+                vus.add(cid)
     for claim in draft.claims:
-        if claim.claim_id in rattachees or not claim.text.strip():
-            continue
-        segments.append(AnswerSegment(text=claim.text.strip(), kind="factuel",
-                                      claim_ids=[claim.claim_id]))
-        rattachees.add(claim.claim_id)
-        changements += 1
+        if claim.claim_id not in vus:
+            ordre.append(claim.claim_id)
+            vus.add(claim.claim_id)
+
+    if len(ordre) > settings.draft_max_segments:
+        raise ValueError("plus de claims que de segments autorisés : la configuration doit garantir "
+                         "draft_max_claims <= draft_max_segments")
+    factuels = [AnswerSegment(text=par_id[cid].text.strip(), kind="factuel", claim_ids=[cid])
+                for cid in ordre]
+    place = settings.draft_max_segments - len(factuels)
+    non_factuels = [AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[])
+                    for segment in draft.segments if segment.kind != "factuel"][:place]
+    segments = [*factuels, *non_factuels]
+    changements = sum(1 for avant, apres in zip(draft.segments, segments, strict=False)
+                       if avant != apres) + abs(len(draft.segments) - len(segments))
     if not changements:
         return draft, 0
     return draft.model_copy(update={"segments": segments}), changements
@@ -158,8 +159,10 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # préfixe cacheable byte-identique, et demande seulement d'éviter les redites entre facettes.
         tail += (f"\nPlan de sortie concis : {len(parsed.facettes)} facette(s) ont déjà été extraites. "
                  "Traite chacune au plus une fois, dès les premiers segments, avec seulement les "
-                 "claims directement nécessaires ; n'ajoute ni transition ni reformulation de "
-                 "contexte si une claim factuelle suffit.")
+                 "claims directement nécessaires. Pour chaque clause utile, rends une claim d'une "
+                 "seule phrase courte et la plus courte quote contiguë qui la soutient ; n'énumère "
+                 "pas les autres items d'une liste contractuelle. N'ajoute ni transition, ni "
+                 "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
     if motif is not None:
         # AD-15 : le motif vient de *vérifier* (1.5), qui le compose à partir de la sortie du modèle et
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.
@@ -168,7 +171,14 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     try:
         result = await client.parse(tier=STEP_TIERS["rediger"], system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
-                                    budget=budget, step=step, max_tokens=settings.rediger_max_tokens)
+                                    budget=budget, step=step, max_tokens=settings.rediger_max_tokens,
+                                    # La rédaction sinistre transcrit des clauses déjà retrouvées ;
+                                    # son raisonnement de couverture appartient à *vérifier*. Avec
+                                    # `medium`, le raisonnement invisible pouvait consommer les 2 048
+                                    # tokens malgré un JSON court et forcer un retry. `low` conserve le
+                                    # même modèle, le même schéma et les mêmes bornes, et ne touche pas
+                                    # la variante guide 2.6.
+                                    effort="low" if prompt == "rediger_sinistre" else None)
     except PipelineError as exc:
         # AD-10/AD-16 : l'appel raté a pu être facturé (`step.calls` le porte, `budget` aussi). Sans
         # ce rattachement, l'étape disparaît de la trace alors que son coût y compte, et l'appelant ne
@@ -180,6 +190,6 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     draft = result.parsed
     if prompt == "rediger_sinistre":
         draft = _inclure_clause_decisionnelle_de_tete(draft, retrieval, settings)
-        draft, _changements = _rattacher_claims_sinistre(draft)
+        draft, _changements = _rattacher_claims_sinistre(draft, settings)
     step.ms = int((time.monotonic() - t0) * 1000)
     return draft, step

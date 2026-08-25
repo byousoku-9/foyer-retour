@@ -951,16 +951,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     # réponds false »). Une phrase sans verdict n'est pas devinée — elle ne sera pas affichée.
     positions = {position for position, _ in segments}
     soutiens: dict[int, bool] = {}
+    positions_dupliquees: set[int] = set()
     for s in result.parsed.segments:
         if s.segment not in positions:
             continue
-        if s.segment in soutiens and soutiens[s.segment] != s.soutenu:
-            soutiens[s.segment] = False
-            step.checks.append(CheckResult(
-                name="segment_contradictoire", ok=False,
-                detail="deux verdicts opposés pour une même phrase : elle n'est pas affichée"))
+        if s.segment in soutiens:
+            positions_dupliquees.add(s.segment)
+            if soutiens[s.segment] != s.soutenu:
+                soutiens[s.segment] = False
+                step.checks.append(CheckResult(
+                    name="segment_contradictoire", ok=False,
+                    detail="deux verdicts opposés pour une même phrase : elle n'est pas affichée"))
             continue
-        soutiens.setdefault(s.segment, s.soutenu)
+        soutiens[s.segment] = s.soutenu
 
     if sinistre:
         # Campagne réelle 2.7 : *rédiger* aligne désormais chaque segment factuel sur le texte exact
@@ -980,7 +983,11 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             attendu = " ".join(claim.text.strip() for claim in claims_segment if claim is not None)
             if not attendu or normalize(segment.text) != normalize(attendu):
                 continue
-            if all(verdicts.get(cid) is True for cid in segment.claim_ids):
+            # L'override ne répare que le défaut live précisément observé : un **unique** verdict
+            # `soutenu=false`, redondant avec toutes les claims pertinentes. Le silence n'est pas
+            # deviné, et une position dupliquée — opposée ou non — est ambiguë par construction.
+            if (soutiens.get(position) is False and position not in positions_dupliquees
+                    and all(verdicts.get(cid) is True for cid in segment.claim_ids)):
                 soutiens[position] = True
 
     # Champs typés d'applicabilité (mode sinistre). Mêmes garde-fous que pour les verdicts : un

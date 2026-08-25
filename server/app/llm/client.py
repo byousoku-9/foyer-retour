@@ -19,7 +19,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Literal, Protocol, TypeVar
 
 import anthropic
 import pydantic
@@ -196,6 +196,7 @@ class LlmClient:
         step: StepTrace,
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
+        effort: Literal["low", "medium", "high", "max"] | None = None,
     ) -> LlmResult[T]:
         """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide."""
         settings = self._settings
@@ -213,8 +214,10 @@ class LlmClient:
         output_config: dict[str, Any] = {
             "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)},
         }
+        if effort is not None and not caps["effort"]:
+            raise ValueError(f"le modèle du tier {tier!r} n'accepte pas de paramètre effort")
         if caps["effort"]:
-            output_config["effort"] = EFFORT[tier]
+            output_config["effort"] = effort or EFFORT[tier]
         extra_body = {"temperature": 0} if caps["temperature"] else None
         # Story 1.4 (reprise B5) : empreinte du préfixe facturable — modèle + système + tools + schéma de
         # sortie. Déjà vue dans la requête ⇒ l'estimation compte le préfixe au tarif `cache_read` ; notée
@@ -340,7 +343,9 @@ class LlmClient:
             # permet au modèle de corriger précisément le champ signalé par le motif.
             tronquee = message.stop_reason == "max_tokens"
             reponse_precedente = "(réponse tronquée omise)" if tronquee else (text or "(réponse vide)")
-            correction = ("Repars de zéro et formule chaque champ au plus concis, sans rien ajouter. "
+            correction = ("Repars de zéro. Respecte intégralement toutes les listes et cardinalités "
+                          "exigées par le schéma ; rends seulement le texte libre de chaque champ "
+                          "au plus concis, sans omettre aucun élément requis. "
                           if tronquee else "Corrige exactement ce qu'il décrit. ")
             msgs = [*msgs,
                     {"role": "assistant", "content": reponse_precedente},

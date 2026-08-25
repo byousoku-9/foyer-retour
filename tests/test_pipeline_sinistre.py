@@ -9,17 +9,20 @@ vérifie sans compter les appels à la main.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
-from server.app.corpus.loader import Corpus
+from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, InvalidRequest
 from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.question import Faits
+from server.app.domain.retrieval import RetrievalResult
+from server.app.domain.trace import StepTrace
 from server.app.domain.verdict import (
     ChampsApplicabilite,
     ClaimJugee,
@@ -195,11 +198,11 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True) -> di
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
                variant: str = "deterministe", dossier: MissingPackage | None = None,
-               lang: str | None = None):
+               lang: str | None = None, question: str = QUESTION):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
-    answer, trace = await sinistre.run(doc_id, QUESTION, faits, corpus=index.corpus, index=index,
+    answer, trace = await sinistre.run(doc_id, question, faits, corpus=index.corpus, index=index,
                                        client=client, settings=settings, request_id="req-sinistre",
                                        variant=variant, budget=budget or _budget(), dossier=dossier,
                                        lang=lang)
@@ -314,6 +317,112 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
         "block_id": f"{DOC_ID}:p1:2", "doc_id": DOC_ID, "node_id": f"{DOC_ID}:socle",
         "fiche_id": None, "titre": "Socle commun"}
     assert corps["sources"][0]["block_id"] == f"{DOC_ID}:p1:2"
+
+
+def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
+        index: Index, gate_du_mini_contrat) -> None:
+    """A9 : retirer le forwarding ou la projection fait disparaître le premier segment servi."""
+    from fastapi.testclient import TestClient
+
+    from server.app.api.main import create_app
+
+    script = [
+        _comprendre(cause="fuite progressive depuis des mois",
+                    evenement="effondrement soudain du plafond", moment="hier"),
+        _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None)),
+    ]
+    fake = FakeAnthropic(script)
+
+    async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
+        settings = kw["settings"]
+        kw["client"] = LlmClient(settings, anthropic_client=fake)
+        return await sinistre.run(doc_id, question, faits, **kw)
+
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    description_brute = ("DESCRIPTION BRUTE À NE PAS RÉINJECTER. " * 20).strip()
+    with TestClient(app) as client:
+        etat = app.state.foyer
+        etat.corpus, etat.index = index.corpus, index
+        etat.pipeline_sinistre = pipeline_http
+        reponse = client.post("/api/v1/sinistre", json={
+            "doc_id": DOC_ID, "question": QUESTION,
+            "faits": {"description": description_brute},
+        })
+
+    assert reponse.status_code == 200, reponse.text
+    answer = reponse.json()["answer"]
+    repere = answer["segments"][0]
+    assert repere == {
+        "text": ("Faits compris — cause : fuite progressive depuis des mois ; puis événement : "
+                 "effondrement soudain du plafond ; moment : hier."),
+        "kind": "transition", "claim_ids": [],
+    }
+    assert answer["texte"].index("fuite progressive") < answer["texte"].index("effondrement soudain")
+    assert description_brute not in answer["texte"]
+
+
+async def test_la_rc_sens_inverse_reste_prudente_de_bout_en_bout() -> None:
+    """B9 : p66:10 est conservée sans décider quel assureur répond ni déclarer la lecture complète."""
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    p66 = index.corpus.documents[doc_id].block(f"{doc_id}:p66:10")
+    quote = p66.text[:240]
+    affirmation = ("La responsabilité civile vie privée du contrat vise les dommages causés "
+                   "accidentellement par l'Assuré à des tiers.")
+    question = ("Le fils du voisin a cassé ma table en jouant chez moi, c'est leur RC ou mon "
+                "contrat habitation qui répond ?")
+    sortie_rediger = fake_message(model=TIERS["reason"], text=json.dumps({
+        "segments": [{"text": affirmation, "kind": "factuel", "claim_ids": ["c1"]}],
+        "claims": [{"claim_id": "c1", "text": affirmation,
+                    "quotes": [{"block_id": p66.block_id, "quote": quote}]}],
+    }))
+    sortie_verifier = fake_message(model=TIERS["micro"], text=json.dumps({
+        "verdicts": [{"claim_id": "c1", "pertinente": True}],
+        "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
+        "segments": [{"segment": 0, "soutenu": True}],
+        "applicabilite": [],
+    }))
+    answer, trace, fake = await _run(
+        index, [
+            _comprendre(
+                terms=["mobilier", "dégâts causés par un tiers", "responsabilité civile",
+                       "dommage accidentel"],
+                question_resolue=question, facettes=["comparaison des responsabilités civiles"],
+                bien="table", evenement="bris accidentel", cause="fils du voisin", moment=None),
+            sortie_rediger, sortie_verifier,
+        ],
+        settings=_settings(sinistre_doc_id=doc_id), doc_id=doc_id, question=question,
+        faits=Faits(description="Le fils du voisin a cassé ma table en jouant chez moi."),
+    )
+
+    assert fake.remaining_script == 0
+    assert {q.block_id for claim in answer.claims for q in claim.quotes} == {p66.block_id}
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert "passages ont été retrouvés et affichés" in answer.verdict.reason.lower()
+    assert answer.complete is False
+    texte = answer.texte.casefold()
+    assert "leur rc répond" not in texte and "mon contrat habitation répond" not in texte
+    assert p66.block_id in next(s for s in trace.steps if s.name == "retrouver").opened_block_ids
+
+
+async def test_un_autre_contrat_ne_recoit_pas_les_aliases_lexicaux_axa(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    terme = "dommages causés par un animal"
+    recus: list[list[str]] = []
+
+    def retrouver_capture(parsed, **_kw):
+        recus.append(list(parsed.terms))
+        return RetrievalResult(), StepTrace(name="retrouver", tier="reason")
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", retrouver_capture)
+    answer, trace, fake = await _run(index, [_comprendre(terms=[terme])])
+
+    assert fake.remaining_script == 0
+    assert recus == [[terme]]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "zero_hit" and answer.reason.terms_searched == [terme]
+    assert [step.name for step in trace.steps] == ["comprendre", "retrouver", "restituer"]
 
 
 async def test_every_displayed_claim_carries_a_typed_applicability(index: Index) -> None:

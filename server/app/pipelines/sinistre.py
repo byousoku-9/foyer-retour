@@ -61,7 +61,7 @@ from server.app.pipelines.commun import (
     relance_utile,
     retrieval_budget,
 )
-from server.app.steps.comprendre import comprendre
+from server.app.steps.comprendre import _canoniser_termes_contractuels, comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
 from server.app.steps.retrouver import retrouver_deterministe
@@ -300,6 +300,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             return refuser("hors_perimetre", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback, scope=parsed.scope)
 
+        # Les aliases contractuels de 2.7 décrivent le vocabulaire d'un corpus précis. L'étape
+        # *comprendre* n'a volontairement ni corpus ni `doc_id`; le pipeline, lui, connaît le
+        # document effectivement servi et borne donc la réécriture avant *retrouver*.
+        termes_contractuels = _canoniser_termes_contractuels(parsed.terms, doc_id=doc_id)
+        if termes_contractuels != parsed.terms:
+            parsed = parsed.model_copy(update={"terms": termes_contractuels})
+
         # --- retrouver (code pur) -------------------------------------------
         echeance("retrouver")
         retrieval, step_retrouver = retrouver_deterministe(
@@ -428,7 +435,6 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                lang_fallback=parsed.lang_fallback,
                                                verification=verification,
                                                faits_compris=compris,
-                                               faits_declares=faits,
                                                registre=REGISTRE_SINISTRE)
         noter_hors_borne(step_restituer, ignores)
         steps.append(step_restituer)

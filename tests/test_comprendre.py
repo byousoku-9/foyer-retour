@@ -18,7 +18,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
-from server.app.steps.comprendre import comprendre
+from server.app.steps.comprendre import _canoniser_termes_contractuels, comprendre
 from tests.llm_fake import FakeAnthropic, fake_message
 
 HAIKU = TIERS["micro"]
@@ -51,8 +51,9 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
 async def _comprendre(client: LlmClient, question: str = "à quelle école inscrire mes enfants ?",
                       historique: list[Turn] | None = None, profil: Profil | None = None,
                       budget: RequestBudget | None = None, **kw):
+    settings = kw.pop("settings", None) or _settings()
     return await comprendre(question, historique or [], profil or Profil(), client=client,
-                            budget=budget or _budget(), settings=_settings(), **kw)
+                            budget=budget or _budget(), settings=settings, **kw)
 
 
 def _sections(content: str) -> dict[str, str]:
@@ -235,43 +236,66 @@ async def test_scope_fields_and_term_cleanup_are_converted() -> None:
     assert parsed.scope.cause is None and parsed.scope.moment is None
 
 
-async def test_le_sinistre_canonise_le_synonyme_contractuel_sans_inventer_le_sujet() -> None:
+def test_le_pipeline_sinistre_canonise_le_synonyme_seulement_pour_le_contrat_axa() -> None:
     """Story 2.7 : le modèle a choisi l'animal ; le code ne corrige que le mot du contrat."""
-    sortie = _sortie(terms=["dégâts des eaux", "dommages causés par un animal", "mobilier"],
-                      themes=[])
-    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
-    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
-    assert parsed.terms == ["dégâts des eaux", "dégâts causés par un animal", "mobilier"]
+    termes = ["dégâts des eaux", "dommages causés par un animal", "mobilier"]
+    assert _canoniser_termes_contractuels(
+        termes, doc_id="axa-lu-optihome-2017") == [
+            "dégâts des eaux", "dégâts causés par un animal", "mobilier"]
 
-    # Le guide n'est pas un contrat : la même chaîne y reste intacte.
-    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
-    parsed, _step = await _comprendre(client)
-    assert parsed.terms == ["dégâts des eaux", "dommages causés par un animal", "mobilier"]
+    # Un autre contrat n'hérite pas du vocabulaire AXA seulement parce qu'il passe par le pipeline.
+    assert _canoniser_termes_contractuels(termes, doc_id="autre-contrat") == termes
 
 
-async def test_le_sinistre_precise_la_rc_seulement_quand_le_modele_a_choisi_le_tiers() -> None:
+def test_le_sinistre_precise_la_rc_sans_perdre_les_notions_supplementaires() -> None:
     """Campagne B 2.7 : la forme du contrat est ajoutée, jamais le sujet RC lui-même."""
-    sortie = _sortie(terms=["mobilier", "dégâts causés par un tiers", "responsabilité civile",
-                              "dommage accidentel"], themes=[])
-    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
-    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
-    assert parsed.terms == [
+    termes = ["mobilier", "dégâts causés par un tiers", "responsabilité civile",
+              "dommage accidentel", "bris de table", "enfant du voisin"]
+    assert _canoniser_termes_contractuels(termes, doc_id="axa-lu-optihome-2017") == [
         "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
         "mobilier",
+        "bris de table",
+        "enfant du voisin",
     ]
 
     # Une RC générique sans le sujet « tiers » choisi peut viser une autre section du contrat.
-    sortie = _sortie(terms=["bâtiment", "responsabilité civile"], themes=[])
-    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
-    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
-    assert parsed.terms == ["bâtiment", "responsabilité civile"]
+    assert _canoniser_termes_contractuels(
+        ["bâtiment", "responsabilité civile"], doc_id="axa-lu-optihome-2017") == [
+            "bâtiment", "responsabilité civile"]
 
     # Le sujet tiers choisi sans les autres attributs reste précisé, mais le code n'invente pas
     # la matérialité ni le caractère accidentel absents de la sortie du modèle.
-    sortie = _sortie(terms=["dégâts causés par un tiers", "responsabilité civile"], themes=[])
+    assert _canoniser_termes_contractuels(
+        ["dégâts causés par un tiers", "responsabilité civile"],
+        doc_id="axa-lu-optihome-2017") == [
+        "dégâts causés par un tiers", "responsabilité civile vie privée"]
+
+
+def test_le_sinistre_compose_contenu_et_congelateur_seulement_si_deja_choisis() -> None:
+    """A11 : la forme AXA discrimine la clause sans inventer la facette alimentaire."""
+    termes = ["orage", "surtension électrique", "télévision", "congélateur",
+              "dégâts causés par la foudre", "contenu"]
+    assert _canoniser_termes_contractuels(
+        termes, doc_id="axa-lu-optihome-2017") == [
+            "orage", "surtension électrique", "télévision", "congélateur",
+            "dégâts causés par la foudre", "contenu congélateur"]
+
+    assert _canoniser_termes_contractuels(
+        ["orage", "contenu"], doc_id="axa-lu-optihome-2017") == ["orage", "contenu"]
+    assert _canoniser_termes_contractuels(termes, doc_id="autre-contrat") == termes
+
+
+async def test_les_extras_rc_hors_borne_restent_declares_par_comprendre() -> None:
+    sortie = _sortie(terms=["mobilier", "dégâts causés par un tiers", "responsabilité civile",
+                              "dommage accidentel", "bris de table", "enfant du voisin"], themes=[])
     client, _ = _client([fake_message(text=sortie, model=HAIKU)])
-    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
-    assert parsed.terms == ["dégâts causés par un tiers", "responsabilité civile vie privée"]
+    parsed, step = await _comprendre(
+        client, prompt="comprendre_sinistre", settings=_settings(question_max_terms=5))
+
+    assert parsed.terms == ["mobilier", "dégâts causés par un tiers", "responsabilité civile",
+                            "dommage accidentel", "bris de table"]
+    (check,) = [c for c in step.checks if c.name == "libelles_hors_borne"]
+    assert "terms (1)" in check.detail
 
 
 async def test_le_prompt_sinistre_preserve_les_phases_declarees_sans_clarification() -> None:
@@ -280,6 +304,9 @@ async def test_le_prompt_sinistre_preserve_les_phases_declarees_sans_clarificati
     assert "phases successives ou apparemment contradictoires" in prefixe
     assert "conserve toutes les phases, leur chronologie" in prefixe
     assert "ne demande\n  jamais de choisir l'une des phases" in prefixe
+    assert "les qualificatifs temporels **et causaux**" in prefixe
+    assert "son caractère volontaire ou accidentel lorsqu'il est déclaré" in prefixe
+    assert "Ne laisse jamais ces qualificatifs uniquement dans" in prefixe
 
 
 async def test_le_prompt_sinistre_garde_la_comparaison_rc_dans_le_dossier_contractuel() -> None:

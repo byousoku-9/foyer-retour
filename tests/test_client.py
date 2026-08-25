@@ -176,8 +176,17 @@ async def test_max_tokens_retry_omits_the_truncated_answer_and_requests_concisio
     assert second["messages"][:1] == first["messages"]
     assert second["messages"][1] == {"role": "assistant", "content": "(réponse tronquée omise)"}
     assert '"mot": "tronq' not in str(second["messages"])
-    assert "Repars de zéro" in second["messages"][2]["content"]
-    assert "au plus concis" in second["messages"][2]["content"]
+    consigne = second["messages"][2]["content"]
+    assert ("Respecte intégralement toutes les listes et cardinalités exigées par le schéma" in
+            consigne)
+    assert "seulement le texte libre de chaque champ au plus concis" in consigne
+    assert "sans omettre aucun élément requis" in consigne
+
+
+async def test_effort_explicit_remplace_le_defaut_seulement_sur_un_modele_compatible() -> None:
+    client, fake = _client([fake_message(text='{"mot": "ok"}', model=SONNET)])
+    await _call(client, tier="reason", effort="low")
+    assert fake.requests[0]["output_config"]["effort"] == "low"
 
 
 async def test_invalid_parse_without_margin_fails_after_one_call() -> None:

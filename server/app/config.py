@@ -390,6 +390,10 @@ class Settings(BaseSettings):
         if self.question_min_terms > self.question_max_terms:
             raise ValueError(f"question_min_terms ({self.question_min_terms}) doit être "
                              f"<= question_max_terms ({self.question_max_terms})")
+        if self.draft_max_claims > self.draft_max_segments:
+            raise ValueError(f"draft_max_claims ({self.draft_max_claims}) doit être "
+                             f"<= draft_max_segments ({self.draft_max_segments}) : une claim "
+                             "sinistre exige son segment factuel atomique")
         if self.verifier_max_claims < self.draft_max_claims:
             # Story 1.5 : *rédiger* peut rendre `draft_max_claims` claims ; si *vérifier* en évalue
             # moins, des claims retrouvées seraient rejetées « non évaluées » par pure configuration —

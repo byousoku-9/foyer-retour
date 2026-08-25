@@ -645,6 +645,59 @@ async def test_sinistre_keeps_a_segment_identical_to_its_pertinent_claim_despite
     assert not [c for c in step.checks if not c.ok]
 
 
+async def test_sinistre_ne_devine_pas_un_verdict_de_segment_absent(contrat: Index) -> None:
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
+    sortie = _applicabilite(
+        ("c1", True, False, False, None), verdicts=[("c1", True)], nb_segments=0)
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
+
+    assert v.segments == [] and v.claims == []
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
+    assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
+
+
+async def test_sinistre_ne_repare_pas_une_position_de_segment_contradictoire(contrat: Index) -> None:
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
+    sortie = fake_message(text=json.dumps({
+        "verdicts": [{"claim_id": "c1", "pertinente": True}],
+        "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
+        "segments": [{"segment": 0, "soutenu": True}, {"segment": 0, "soutenu": False}],
+        "applicabilite": [{
+            "claim_id": "c1", "fait_requis_present": False, "option_requise": False,
+            "cp_requise": False, "fait_manquant": None, "qualites_exigees": [],
+            "qualites_etablies": [],
+        }],
+    }), model=HAIKU)
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
+
+    assert v.segments == [] and v.claims == []
+    assert [c.name for c in step.checks if c.name == "segment_contradictoire"]
+
+
+async def test_sinistre_ne_repare_pas_deux_verdicts_identiques_sur_la_meme_position(
+        contrat: Index) -> None:
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
+    sortie = fake_message(text=json.dumps({
+        "verdicts": [{"claim_id": "c1", "pertinente": True}],
+        "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
+        "segments": [{"segment": 0, "soutenu": False}, {"segment": 0, "soutenu": False}],
+        "applicabilite": [{
+            "claim_id": "c1", "fait_requis_present": False, "option_requise": False,
+            "cp_requise": False, "fait_manquant": None, "qualites_exigees": [],
+            "qualites_etablies": [],
+        }],
+    }), model=HAIKU)
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
+
+    assert v.segments == [] and v.claims == []
+
+
 async def test_two_opposite_verdicts_on_one_sentence_never_display_it(mini: Index) -> None:
     draft = _draft_libre(
         ("Le délai est de huit jours.", "factuel", ["c1"]),
