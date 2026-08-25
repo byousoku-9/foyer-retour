@@ -23,11 +23,11 @@
 // interdit qu'AD-16 pose au front du sinistre. Aucun compte de cas n'est écrit dans ce fichier :
 // `gate_cases` vient du serveur, qui le tient du run qui l'a constaté (AD-7).
 //
-// AD-5 (story 2.1) : la page dit aussi où en est le **dictionnaire des variantes**, en trois
-// formulations — armé, non validé, d'un autre corpus. Ce qu'elle en annonce, c'est le sort du refus
-// « zéro hit », et elle le lit sur `dictionary.refus_zero_hit_actif` : la règle qui combine les deux
-// verrous n'a qu'une autorité, le serveur (`api/schemas.EtatDictionnaire`). Aucun nombre, aucune
-// conjonction refaite ici.
+// AD-5 (story 2.1) : la page dit aussi où en est le **dictionnaire des variantes**, en quatre
+// formulations — armé, chargé mais non signé, d'un autre corpus, absent. Ce qu'elle en annonce, c'est
+// le sort du refus « zéro hit », et elle le lit sur `dictionary.refus_zero_hit_actif` : la règle qui
+// combine les deux verrous n'a qu'une autorité, le serveur (`api/schemas.EtatDictionnaire`). Aucun
+// nombre, aucune conjonction refaite ici.
 
 (function () {
   "use strict";
@@ -241,19 +241,32 @@
     });
   }
 
-  /** La phrase du dictionnaire des variantes — trois formulations, aucune règle recalculée.
+  /** La phrase du dictionnaire des variantes — quatre formulations, aucune règle recalculée.
    *
    * AD-5 / AD-16 : un dictionnaire inutilisable est **dit**. Ce que la ligne annonce est le sort du
    * refus « zéro hit » — la seule chose que la validation humaine arme —, et il est lu tel quel sur
    * `refus_zero_hit_actif`, jamais recomposé à partir des deux faits.
    *
-   * Ce qui distingue les deux formulations désarmées est l'**alerte du serveur**, pas un calcul de
-   * la page (même patron que `perime()` pour le gate). `corpus_ok` vaut `false` aussi bien quand le
-   * fichier est absent que quand il décrit un autre corpus : les deux cas ont le même booléen et
-   * n'ont pas le même correctif, et le serveur seul sait les séparer — il le dit en publiant
-   * `dictionnaire_corpus_perime` exactement quand le fichier se lit sans décrire le corpus servi
-   * (`api/etat._alertes_dictionnaire`). Écrire « périmé » sur la seule foi de `corpus_ok` ferait
-   * annoncer un fichier périmé là où il n'y a aucun fichier.
+   * **Quatre** états, parce que le serveur en établit quatre et qu'ils n'ont pas les mêmes
+   * conséquences pour celui qui pose une question (revue coordonnée 2.1) :
+   *
+   *   1. `refus_zero_hit_actif` — signé et conforme : le refus est armé ;
+   *   2. l'alerte `dictionnaire_corpus_perime` — le fichier se lit mais décrit un autre corpus :
+   *      ni ses variantes ni le refus ;
+   *   3. `corpus_ok` sans cette alerte — chargé, conforme, **pas signé** : ses variantes élargissent
+   *      réellement la recherche, seul le refus dort ;
+   *   4. ni l'un ni l'autre — rien n'est chargé : la recherche est exactement celle d'avant.
+   *
+   * Les trois et quatre disaient la même phrase (« aucune validation humaine ») alors que la
+   * différence est matérielle : dans un cas une question en anglais ouvre la bonne fiche, dans
+   * l'autre non. `corpus_ok` la porte, le serveur la publie, la page n'a rien à en déduire.
+   *
+   * Ce qui distingue « périmé » d'« absent » reste l'**alerte du serveur**, jamais un calcul de la
+   * page (même patron que `perime()` pour le gate) : `corpus_ok` vaut `false` dans les deux cas, ils
+   * n'ont pas le même correctif — régénérer, ou ingérer pour la première fois —, et le serveur seul
+   * sait les séparer. Il le dit en publiant `dictionnaire_corpus_perime` exactement quand le fichier
+   * se lit sans décrire le corpus servi (`api/etat._alertes_dictionnaire`). Écrire « périmé » sur la
+   * seule foi de `corpus_ok` ferait annoncer un fichier périmé là où il n'y a aucun fichier.
    */
   function libelleDictionnaire(sante) {
     var d = sante && sante.dictionary;
@@ -270,14 +283,22 @@
       return {
         etat: "corpus_perime",
         texte: "dictionnaire des variantes : il décrit un autre corpus que celui qui est servi — " +
-               "le refus « zéro hit » est désactivé et ses variantes ne sont pas employées."
+               "le refus « zéro hit » est désactivé, et ses variantes ne sont pas employées."
+      };
+    }
+    if (d.corpus_ok) {
+      return {
+        etat: "non_signe",
+        texte: "dictionnaire des variantes : chargé, et ses empreintes décrivent le corpus servi, " +
+               "mais personne ne l'a signé — ses variantes élargissent bien la recherche ; seul le " +
+               "refus « zéro hit » est désactivé, faute de validation humaine."
       };
     }
     return {
-      etat: "non_valide",
-      texte: "dictionnaire des variantes : aucune validation humaine — le refus « zéro hit » est " +
-             "désactivé ; une question sans aucun passage trouvé poursuit vers la recherche au lieu " +
-             "d'être refusée d'avance."
+      etat: "absent",
+      texte: "dictionnaire des variantes : aucun dictionnaire n'est chargé — le refus « zéro hit » " +
+             "est désactivé, et la recherche se fait sur les seuls termes de la question, sans " +
+             "aucune variante."
     };
   }
 

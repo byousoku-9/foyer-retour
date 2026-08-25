@@ -29,10 +29,13 @@ export function santeConforme(extra) {
     gate_cases: 2,
     gate_countersigned: false,
     // AD-5 (story 2.1) : `EtatDictionnaire` a **trois** champs, tous sérialisés par
-    // `routes/sante.py`. Le corps de référence porte donc les trois, et l'état publié est celui du
-    // dépôt aujourd'hui — aucun `data/dictionary.json` n'est livré, donc rien n'est validé, rien ne
-    // décrit le corpus servi, et le refus « zéro hit » dort.
-    dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false },
+    // `routes/sante.py`. Le corps de référence porte donc les trois, et l'état publié est celui que
+    // le service écrit **aujourd'hui** : `data/dictionary.json` est livré et ses `corpus_source_hashes`
+    // décrivent le corpus servi (`corpus_ok: true`), mais la validation humaine est due, donc le
+    // refus « zéro hit » dort. Un test compare ce corps à celui que la route rend réellement : un
+    // corps de référence qui décrit un dépôt révolu fait passer des cas que la production ne voit
+    // jamais (revue coordonnée 2.1).
+    dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false },
     alerts: [],
     thresholds: { deadline_s: 55.0 },
   }, extra || {});
@@ -111,19 +114,23 @@ function sansDictionnaire(mutation) {
 }
 
 export const CORPS_DICTIONNAIRE = {
-  // --- conformes : les trois combinaisons que le serveur peut écrire ---------
-  dictionnaire_desarme: { corps: santeConforme(), lisible: true },
+  // --- conformes : les quatre états que le serveur peut écrire ---------------
+  // Le nominal du dépôt : chargé, conforme au corpus servi, signé par personne.
+  dictionnaire_non_signe: { corps: santeConforme(), lisible: true },
   dictionnaire_arme: {
     corps: santeConforme({
       dictionary: { validated: true, corpus_ok: true, refus_zero_hit_actif: true } }),
     lisible: true },
+  dictionnaire_absent: {
+    corps: santeConforme({
+      dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false } }),
+    lisible: true },
+  // `validated` et `corpus_ok` sont deux **faits** distincts : une signature posée sur un fichier
+  // qu'une réingestion a depuis rendu étranger au corpus est un corps que la route écrit, et une
+  // sonde parfaitement lisible.
   dictionnaire_signe_hors_corpus: {
     corps: santeConforme({
       dictionary: { validated: true, corpus_ok: false, refus_zero_hit_actif: false } }),
-    lisible: true },
-  dictionnaire_conforme_non_signe: {
-    corps: santeConforme({
-      dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false } }),
     lisible: true },
 
   // --- refusés : des corps qu'aucune route n'a pu écrire --------------------

@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 import { Document, stockage } from "./dom_minimal.mjs";
-import { CORPS_DICTIONNAIRE, CORPS_PARTAGES } from "./sante_corpus.mjs";
+import { CORPS_DICTIONNAIRE, CORPS_PARTAGES, santeConforme } from "./sante_corpus.mjs";
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 const RACINE = path.resolve(ICI, "..", "..");
@@ -38,9 +38,11 @@ function sante(extra) {
     // que l'AC décrit — c'est lui qui doit rendre « 2 cas relus à la main ».
     gate_countersigned: false,
     // AD-5 (story 2.1) : les trois booléens d'`EtatDictionnaire`, tels que `routes/sante.py` les
-    // sérialise. L'état du dépôt aujourd'hui : aucun `data/dictionary.json` livré, donc rien de
-    // signé, rien qui décrive le corpus servi, et le refus « zéro hit » désarmé.
-    dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false },
+    // sérialise. L'état que le service écrit **aujourd'hui** : `data/dictionary.json` est livré et
+    // décrit bien le corpus servi (`corpus_ok: true`), mais personne ne l'a signé — ses variantes
+    // élargissent la recherche, seul le refus « zéro hit » dort. Un test Python compare ce corps à
+    // celui que la route rend réellement.
+    dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false },
     alerts: [],
     thresholds: { deadline_s: 55.0 },
   }, extra || {});
@@ -276,15 +278,17 @@ async function main() {
         dictionary: { validated: true, corpus_ok: true, refus_zero_hit_actif: true },
         alerts: [],
       },
-      // Le fichier se lit et décrit bien le corpus, mais personne ne l'a signé.
-      non_valide: {
+      // Le nominal du dépôt : le fichier se lit et décrit bien le corpus, mais personne ne l'a
+      // signé. Ses variantes servent — seul le refus dort, et la phrase doit le dire.
+      non_signe: {
         dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false },
         alerts: [alerteDico("dictionnaire_non_valide",
                             "aucune validation humaine : le refus « zéro hit » d'AD-5 est " +
                             "désactivé (la recherche se poursuit vers *retrouver*)")],
       },
-      // Aucun fichier : `corpus_ok` est faux lui aussi, et la page ne doit pas pour autant annoncer
-      // un dictionnaire « périmé » là où il n'y en a aucun.
+      // Aucun fichier : `corpus_ok` est faux, et rien n'est chargé — ni variantes ni refus. La page
+      // ne doit ni le confondre avec le cas précédent (les variantes n'y sont pas), ni annoncer un
+      // dictionnaire « périmé » là où il n'y en a aucun.
       absent: {
         dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false },
         alerts: [alerteDico("dictionnaire_non_valide",
@@ -498,6 +502,17 @@ async function main() {
       cas.corpus_dictionnaire[nom] = { lisible: lu !== null, attendu: entree.lisible,
                                        dictionary: lu && lu.dictionary };
     }
+  }
+
+  // --- les corps de référence eux-mêmes -------------------------------------
+  //
+  // Ce que les deux harnais **posent** comme corps nominal, relevé tel quel. Un test Python le
+  // confronte à ce que `GET /api/v1/sante` rend réellement : le défaut relevé par la revue
+  // coordonnée était un corps de référence décrivant un dépôt révolu (`corpus_ok: false` alors que
+  // `data/dictionary.json` est livré), qui faisait passer des cas que la production ne voit jamais.
+  // Les deux copies sont relevées, parce qu'elles peuvent aussi dériver l'une de l'autre.
+  {
+    cas.corps_nominal = { accueil: sante(), partage: santeConforme() };
   }
 
   // --- bornes ---------------------------------------------------------------

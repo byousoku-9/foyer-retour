@@ -297,29 +297,47 @@ def _ligne_dictionnaire(textes: list[str]) -> str:
     return lignes[0]
 
 
+ETATS_DICTIONNAIRE = ("arme", "non_signe", "corpus_perime", "absent")
+
+
 def test_la_page_dit_ou_en_est_le_dictionnaire_des_variantes(cas: dict[str, Any]) -> None:
     """AD-5 / AD-16 : un dictionnaire inutilisable est **dit**, jamais tu.
 
-    Trois formulations, une par état que le serveur peut publier, et chacune annonce la seule chose
-    qui change pour celui qui pose une question : le refus « zéro hit » est-il armé ? Le taire
-    laisserait lire « niveau de validation : vertical » comme si tout l'était.
+    **Quatre** formulations (revue coordonnée 2.1), une par état que le serveur établit, et chacune
+    annonce ce qui change pour celui qui pose une question. Le taire laisserait lire « niveau de
+    validation : vertical » comme si tout l'était.
     """
     arme = _ligne_dictionnaire(cas["dictionnaire"]["arme"]["textes"])
     assert "le refus « zéro hit » est armé" in arme
     assert "validé" in arme and "corpus servi" in arme
 
-    non_valide = _ligne_dictionnaire(cas["dictionnaire"]["non_valide"]["textes"])
-    assert "aucune validation humaine" in non_valide
-    assert "le refus « zéro hit » est désactivé" in non_valide
+    # Chargé, conforme, non signé : ses variantes servent — c'est la différence matérielle avec
+    # l'absence, et la phrase doit la porter.
+    non_signe = _ligne_dictionnaire(cas["dictionnaire"]["non_signe"]["textes"])
+    assert "personne ne l'a signé" in non_signe
+    assert "variantes élargissent bien la recherche" in non_signe
+    assert "le refus « zéro hit » est désactivé" in non_signe
 
     perime = _ligne_dictionnaire(cas["dictionnaire"]["corpus_perime"]["textes"])
     assert "autre corpus" in perime
     assert "le refus « zéro hit » est désactivé" in perime
 
+    absent = _ligne_dictionnaire(cas["dictionnaire"]["absent"]["textes"])
+    assert "aucun dictionnaire n'est chargé" in absent
+    assert "sans aucune variante" in absent
+    assert "le refus « zéro hit » est désactivé" in absent
+
+    # Les quatre états ont quatre phrases distinctes : deux états confondus, c'est une différence
+    # observable que la page tait.
+    lignes = {nom: _ligne_dictionnaire(cas["dictionnaire"][nom]["textes"])
+              for nom in ETATS_DICTIONNAIRE}
+    assert len(set(lignes.values())) == 4, lignes
+    assert {cas["dictionnaire"][nom]["libelle"]["etat"] for nom in ETATS_DICTIONNAIRE} == \
+        set(ETATS_DICTIONNAIRE)
+
     # …et la ligne est bien **peinte**, pas seulement décidée.
-    for nom in ("arme", "non_valide", "corpus_perime", "absent"):
-        assert _ligne_dictionnaire(_textes(cas["dictionnaire"][nom]["dom"])) == \
-            _ligne_dictionnaire(cas["dictionnaire"][nom]["textes"]), nom
+    for nom in ETATS_DICTIONNAIRE:
+        assert _ligne_dictionnaire(_textes(cas["dictionnaire"][nom]["dom"])) == lignes[nom], nom
 
 
 def test_le_refus_nest_annonce_arme_que_quand_le_serveur_le_dit(cas: dict[str, Any],
@@ -330,7 +348,7 @@ def test_le_refus_nest_annonce_arme_que_quand_le_serveur_le_dit(cas: dict[str, A
     le serveur (`api/schemas.EtatDictionnaire`). Une page qui referait la conjonction afficherait un
     jour un refus armé qui ne l'est pas, le jour où la règle bougerait d'un côté seulement.
     """
-    for nom in ("non_valide", "absent", "corpus_perime"):
+    for nom in ("non_signe", "absent", "corpus_perime"):
         ligne = _ligne_dictionnaire(cas["dictionnaire"][nom]["textes"])
         assert "armé" not in ligne, f"{nom} : le refus est annoncé armé alors qu'il ne l'est pas"
         assert cas["dictionnaire"][nom]["lu"]["refus_zero_hit_actif"] is False, nom
@@ -341,21 +359,37 @@ def test_le_refus_nest_annonce_arme_que_quand_le_serveur_le_dit(cas: dict[str, A
         "la page recalcule la règle au lieu de la lire"
 
 
-def test_un_dictionnaire_absent_nest_pas_annonce_perime(cas: dict[str, Any]) -> None:
-    """`corpus_ok: false` recouvre deux situations que seul le serveur sépare.
+def test_un_dictionnaire_absent_nest_ni_perime_ni_confondu_avec_un_dictionnaire_charge(
+        cas: dict[str, Any]) -> None:
+    """Les deux confusions que `corpus_ok: false` et `validated: false` invitent à faire.
 
-    Un fichier absent et un fichier d'un **autre** corpus publient les mêmes trois booléens ; ce qui
-    les distingue est l'alerte `dictionnaire_corpus_perime`, qu'`api/etat._alertes_dictionnaire`
-    n'émet que lorsque le fichier se lit sans décrire le corpus servi. Écrire « périmé » sur la
-    seule foi de `corpus_ok` ferait annoncer un fichier périmé là où il n'y a aucun fichier — et
-    enverrait chercher le mauvais correctif (réingérer, au lieu de signer).
+    **Absent ≠ périmé** : un fichier absent et un fichier d'un autre corpus publient les mêmes trois
+    booléens ; ce qui les distingue est l'alerte `dictionnaire_corpus_perime`, qu'`api/etat.
+    _alertes_dictionnaire` n'émet que lorsque le fichier se lit sans décrire le corpus servi. Écrire
+    « périmé » sur la seule foi de `corpus_ok` annoncerait un fichier périmé là où il n'y en a aucun,
+    et enverrait chercher le mauvais correctif (réingérer, au lieu d'ingérer).
+
+    **Absent ≠ chargé mais non signé** (revue coordonnée 2.1) : les deux ont `validated: false`, et
+    la page rendait la même phrase pour les deux. La différence est pourtant matérielle et le
+    serveur la publie — `corpus_ok` : dans un cas les variantes élargissent réellement la recherche
+    (une question en anglais ouvre la bonne fiche), dans l'autre rien n'est chargé et la recherche
+    est exactement celle d'avant la story.
     """
     assert cas["dictionnaire"]["absent"]["perime"] is False
     assert cas["dictionnaire"]["corpus_perime"]["perime"] is True
     absent = _ligne_dictionnaire(cas["dictionnaire"]["absent"]["textes"])
     assert "autre corpus" not in absent
-    assert cas["dictionnaire"]["absent"]["libelle"]["etat"] == "non_valide"
+    assert cas["dictionnaire"]["absent"]["libelle"]["etat"] == "absent"
     assert cas["dictionnaire"]["corpus_perime"]["libelle"]["etat"] == "corpus_perime"
+
+    # Les deux états `validated: false` que `corpus_ok` sépare.
+    charge = cas["dictionnaire"]["non_signe"]
+    vide = cas["dictionnaire"]["absent"]
+    assert charge["lu"]["validated"] is False and vide["lu"]["validated"] is False
+    assert charge["lu"]["corpus_ok"] is True and vide["lu"]["corpus_ok"] is False
+    assert charge["libelle"]["etat"] != vide["libelle"]["etat"]
+    assert "variantes élargissent bien la recherche" in _ligne_dictionnaire(charge["textes"])
+    assert "sans aucune variante" in absent
 
 
 def test_les_deux_alertes_du_dictionnaire_sont_traduites(cas: dict[str, Any]) -> None:
@@ -389,6 +423,11 @@ def test_un_corps_sans_dictionnaire_lisible_est_une_sonde_illisible(cas: dict[st
     assert not faux, f"verdict contraire à la table du dictionnaire : {faux}"
     assert sum(1 for v in table.values() if v["attendu"]) >= 4
     assert sum(1 for v in table.values() if not v["attendu"]) >= 10
+    # Les quatre états que le serveur écrit sont tous **lisibles** : un lecteur trop strict
+    # n'afficherait plus jamais qu'un état 3.
+    for nom in ("dictionnaire_arme", "dictionnaire_non_signe", "dictionnaire_absent",
+                "dictionnaire_signe_hors_corpus"):
+        assert table[nom]["lisible"] is True, nom
     # Un dictionnaire signé mais d'un autre corpus reste un corps **lisible** : c'est un état que le
     # serveur publie (`validated` et `corpus_ok` sont deux faits distincts), pas une sonde en panne.
     assert table["dictionnaire_signe_hors_corpus"]["dictionary"] == {
@@ -405,6 +444,37 @@ def test_le_serveur_publie_les_trois_booleens_que_la_page_lit() -> None:
     champs = set(EtatDictionnaire.model_fields)
     assert champs == {"validated", "corpus_ok", "refus_zero_hit_actif"}, champs
     assert "dictionary" in set(SanteResponse.model_fields)
+
+
+def test_le_corps_de_reference_des_harnais_est_celui_que_la_route_ecrit(
+        cas: dict[str, Any]) -> None:
+    """Un corps de référence qui décrit un dépôt révolu ne mesure plus rien (revue coordonnée 2.1).
+
+    Les harnais posent `dictionary: {…}` comme corps **nominal** : tous les cas non spécifiques en
+    héritent, et c'est lui qui décide de la formulation que la page rend par défaut. Il portait
+    `corpus_ok: false` avec le commentaire « aucun `data/dictionary.json` n'est livré » — vrai à
+    l'écriture, faux depuis que le dictionnaire est committé. La suite restait verte en exerçant un
+    état que la production ne voit plus, et la formulation réellement servie n'était couverte par
+    rien.
+
+    Le garde-fou n'est donc pas un littéral figé : il **démarre le service** et compare. Quand la
+    validation humaine sera posée (`validated: true`), ce test rougira — et ce sera juste : il dira
+    que les corps de référence ont pris du retard sur ce que le serveur publie.
+
+    Les **deux** copies du corps nominal sont vérifiées (`tests/js/sante_corpus.mjs` et
+    `tests/js/accueil_cases.mjs`) : elles peuvent aussi dériver l'une de l'autre.
+    """
+    from fastapi.testclient import TestClient
+
+    from server.app.api.main import app
+
+    with TestClient(app) as client:
+        publie = client.get("/api/v1/sante").json()["dictionary"]
+
+    for source, corps in cas["corps_nominal"].items():
+        assert corps["dictionary"] == publie, (
+            f"le corps nominal de {source} décrit un état que la route n'écrit plus : "
+            f"{corps['dictionary']} vs {publie}")
 
 
 # --- D8, état 3 : la sonde échoue -----------------------------------------
