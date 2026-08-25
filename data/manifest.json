@@ -11,7 +11,7 @@
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "2b11ed22ca146ee9b3e3d00f40d9284ef87e77d8321cd76469a0eb396e5292a5",
       "cases_hash": "b02293a7fe68ddb94a4c0c54922cb0542ffa15d65cf959bf9ef0dde3ac82c3e9",
-      "pipeline_digest": "34bc6b42193ebc4b0be45dc28666d86d2a46d0f3caff898308b04a9c89515d99",
+      "pipeline_digest": "3af72a24c971f6a1531867f3715ad7a9e436fae95bd23105e684cb895a0271df",
       "prompts_digest": "7e7c5f66e74b001674019360be4af5afac691789cd3a38259cc7fcd37d168e19",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -19,7 +19,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-25T02:35:23Z",
+      "date": "2026-08-25T03:33:34Z",
       "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
       "cases": 1,
       "countersigned": false
@@ -37,7 +37,7 @@
       "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
       "ingest_fingerprint": "b791a248028c2d6c73a9e26eeea4f7dafa6d3cbd996114c39c5d8535405709c4",
       "cases_hash": "9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791",
-      "pipeline_digest": "34bc6b42193ebc4b0be45dc28666d86d2a46d0f3caff898308b04a9c89515d99",
+      "pipeline_digest": "3af72a24c971f6a1531867f3715ad7a9e436fae95bd23105e684cb895a0271df",
       "prompts_digest": "7e7c5f66e74b001674019360be4af5afac691789cd3a38259cc7fcd37d168e19",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -45,7 +45,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-25T02:34:54Z",
+      "date": "2026-08-25T03:33:04Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false
