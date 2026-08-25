@@ -2258,3 +2258,5 @@ publiés sans texte de bloc dans la trace.
 - La validation du dictionnaire, la contresignature des deux gates et la signature des six
   retraductions de la story 2.4 restent dues : ce sont des signatures humaines, non inventées par la
   boucle. Les écrans affichent donc volontairement leur absence.
+
+Revue Codex : 0 bloquants / 2 importants, convergé en 1 tour(s) (boucle autonome).
