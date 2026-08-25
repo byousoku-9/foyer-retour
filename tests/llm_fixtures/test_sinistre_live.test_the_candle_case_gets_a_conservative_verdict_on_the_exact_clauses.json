@@ -123,6 +123,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:d7b1820d88af5d55": {
+    "request": "claude-haiku-4-5-20251001:d7b1820d88af5d55",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\", \"contact direct et immédiat avec une substance incandescente\"], \"qualites_etablies\": [{\"qualite\": \"caractère soudain de l'événement\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"action subite de la chaleur\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"contact direct et immédiat avec une substance incandescente\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}, {\"claim_id\": \"c2\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": true, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": []}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePtjqLhVgcMkYtmn3S38",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7419,
+        "inference_geo": "not_available",
+        "input_tokens": 1307,
+        "output_tokens": 435,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:dbc5fbf328ffbba5": {
     "request": "claude-haiku-4-5-20251001:dbc5fbf328ffbba5",
     "response": {
@@ -164,7 +195,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CePrsiiKnDhWFMRgWS3gr",
+      "id": "msg_011CePtiNRv7yvRdGxSHBMqx",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -245,6 +276,45 @@
         "output_tokens": 1002,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:35ea38f920212b17": {
+    "request": "claude-sonnet-5:35ea38f920212b17",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le sinistre décrit porte sur un dommage par brûlure localisée, sans embrasement, causé au mobilier du salon.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le contrat prévoit que les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont visés même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Un autre passage du contrat précise que, pour certaines extensions de garanties à d'autres biens (points 3.1.8.3 à 3.1.8.6), ce même type de dégâts au bâtiment par événement soudain sans embrasement est exclu.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Les blocs fournis ne précisent pas si le salon du domicile assuré relève de ces extensions particulières (3.1.8.3 à 3.1.8.6) ou de la garantie de base incendie et périls assimilés ; cette distinction ne peut donc pas être établie à partir des seuls extraits transmis.\",\"kind\":\"limite\",\"claim_ids\":[]},{\"text\":\"Les extraits fournis ne mentionnent pas de disposition spécifique traitant d'un dommage causé par une bougie allumée en particulier ; seules les formulations générales relatives à l'action de la chaleur ou au contact avec une substance incandescente ont été identifiées.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat prévoit que les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont visés même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"Un autre passage du contrat précise que, pour certaines extensions de garanties à d'autres biens (points 3.1.8.3 à 3.1.8.6), ce même type de dégâts au bâtiment par événement soudain sans embrasement est exclu.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p46:1\",\"quote\":\"les dégâts occasionnés au bâtiment par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l’absence d’embrasement ou de commencement d’incendie.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePtiauG3DyEqJfBcNqQe",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7109,
+        "inference_geo": "global",
+        "input_tokens": 4019,
+        "output_tokens": 1637,
+        "output_tokens_details": {
+          "thinking_tokens": 523
         },
         "service_tier": "standard"
       }

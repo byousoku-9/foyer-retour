@@ -40,6 +40,8 @@ def test_le_prompt_sinistre_prefere_le_passage_complet_sans_claim_de_remplissage
     assert "d'une définition, d'un titre ou d'une table des matières" in prompt
     assert "compare la RC d'un tiers au contrat du déclarant" in prompt
     assert "Les plafonds et\n  la définition du mobilier ne répondent pas" in prompt
+    assert "Chaque claim doit être effectivement affichée" in prompt
+    assert "reprend exactement `claim.text`" in prompt
 
 
 @pytest.fixture(scope="module")
@@ -102,6 +104,32 @@ async def test_nominal_returns_the_draft_and_its_own_step_trace(mini_index: Inde
     assert step.name == "rediger" and step.tier == "reason" and step.ms >= 0
     assert step.opened_block_ids == ["lux-guide:farrivee:3", "lux-guide:fbail_test:3"]
     assert len(step.calls) == 1 and step.calls[0].model == SONNET
+
+
+async def test_sinistre_rattache_deterministement_toute_claim_a_un_segment_factuel(
+        mini_index: Index) -> None:
+    """2.7 : une exclusion vérifiée ne peut plus rester en réserve puis tomber `non_citee`."""
+    claims = [
+        {"claim_id": "c1", "text": "Le heurt est mentionné.",
+         "quotes": [{"block_id": "lux-guide:farrivee:3",
+                     "quote": "huit jours pour déclarer votre arrivée"}]},
+        {"claim_id": "c2", "text": "Les dégâts causés par un animal sont exceptés.",
+         "quotes": [{"block_id": "lux-guide:fbail_test:3",
+                     "quote": "garantie locative auprès de votre banque"}]},
+    ]
+    brut = _draft(
+        segments=[{"text": "Une paraphrase du heurt.", "kind": "factuel", "claim_ids": ["c1"]},
+                  {"text": "La suite dépend du contrat.", "kind": "limite", "claim_ids": []}],
+        claims=claims)
+    client, _fake = _client([fake_message(text=brut, model=SONNET)])
+    draft, step = await _rediger(client, mini_index, prompt="rediger_sinistre")
+
+    assert [(s.text, s.kind, s.claim_ids) for s in draft.segments] == [
+        ("Le heurt est mentionné.", "factuel", ["c1"]),
+        ("La suite dépend du contrat.", "limite", []),
+        ("Les dégâts causés par un animal sont exceptés.", "factuel", ["c2"]),
+    ]
+    assert step.checks == []
 
 
 async def test_request_shape_cacheable_prefix_with_summary_then_delimited_content(mini_index: Index) -> None:

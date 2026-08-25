@@ -962,6 +962,27 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             continue
         soutiens.setdefault(s.segment, s.soutenu)
 
+    if sinistre:
+        # Campagne réelle 2.7 : *rédiger* aligne désormais chaque segment factuel sur le texte exact
+        # de ses claims atomiques. Pour cette forme seulement, `pertinente=true` a déjà répondu à la
+        # même question que `soutenu=true` : le passage soutient **cette assertion** et elle répond à
+        # la question. Une sortie groupée qui rendrait les deux booléens opposés ne doit plus faire
+        # disparaître la clause (`non_citee`) au hasard. On ne déduit rien pour une paraphrase, une
+        # transition, une claim absente/non pertinente ou un texte vide : le verdict de segment du
+        # modèle continue alors de faire foi.
+        claims_par_id = {claim.claim_id: claim for claim, _, _ in evaluees}
+        for position, segment in segments:
+            if segment.kind != "factuel" or not segment.claim_ids:
+                continue
+            claims_segment = [claims_par_id.get(cid) for cid in segment.claim_ids]
+            if any(claim is None for claim in claims_segment):
+                continue
+            attendu = " ".join(claim.text.strip() for claim in claims_segment if claim is not None)
+            if not attendu or normalize(segment.text) != normalize(attendu):
+                continue
+            if all(verdicts.get(cid) is True for cid in segment.claim_ids):
+                soutiens[position] = True
+
     # Champs typés d'applicabilité (mode sinistre). Mêmes garde-fous que pour les verdicts : un
     # `claim_id` inventé ne décide de rien, une affirmation sans clause décisionnelle n'a pas
     # d'applicabilité à recevoir, et deux réponses pour la même affirmation ne s'arbitrent pas par

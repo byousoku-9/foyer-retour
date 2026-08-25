@@ -21,6 +21,9 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   - `limite` — ce que les blocs fournis ne permettent pas d'affirmer ; `claim_ids` vide.
 - `claims` : une entrée par affirmation vérifiable — `claim_id` unique (`c1`, `c2`, …), `text` = la
   phrase affirmée, `quotes` = une ou deux citations qui la soutiennent.
+- Chaque claim doit être effectivement affichée : rattache son `claim_id` à un segment `factuel`
+  dont le texte reprend exactement `claim.text`. N'ajoute jamais une claim « en réserve » sans
+  phrase factuelle correspondante.
 - **Une seule clause par affirmation.** Une claim ne cite qu'**une** clause du contrat : si un
   passage de garantie et un passage d'exclusion se rapportent tous deux au sinistre, fais-en deux
   claims distinctes. Une claim qui mélange deux clauses est rejetée par le contrôle et te sera

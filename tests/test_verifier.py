@@ -629,6 +629,22 @@ async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> Non
     assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
 
 
+async def test_sinistre_keeps_a_segment_identical_to_its_pertinent_claim_despite_opposite_boolean(
+        contrat: Index) -> None:
+    """2.7 : les deux booléens du même appel ne peuvent plus rendre une clause `non_citee` au hasard."""
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
+    sortie = _applicabilite(
+        ("c1", True, False, False, None), verdicts=[("c1", True)], segments={0: False})
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
+
+    assert [c.claim_id for c in v.claims] == ["c1"]
+    assert v.rejected_claims == []
+    assert [s.text for s in v.segments] == ["La garantie couvre le mobilier."]
+    assert not [c for c in step.checks if not c.ok]
+
+
 async def test_two_opposite_verdicts_on_one_sentence_never_display_it(mini: Index) -> None:
     draft = _draft_libre(
         ("Le délai est de huit jours.", "factuel", ["c1"]),
@@ -749,7 +765,8 @@ QUALITES_FIDELES = ([SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN), (SUBITE, FR
 
 
 def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
-                   nb_segments: int = 8, doublon: bool = False, enumere: bool = True) -> dict:
+                   nb_segments: int = 8, segments: dict[int, bool] | None = None,
+                   doublon: bool = False, enumere: bool = True) -> dict:
     """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité.
 
     Une entrée est `(claim_id, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
@@ -777,10 +794,11 @@ def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
         champs.append(bloc)
     if doublon and champs:
         champs.append(dict(champs[0]))
+    soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(text=json.dumps({
         "verdicts": [{"claim_id": c, "pertinente": p} for c, p in verdicts],
         "facettes": [{"facette": 0, "claim_ids": [c for c, ok in verdicts if ok]}],
-        "segments": [{"segment": i, "soutenu": True} for i in range(nb_segments)],
+        "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())],
         "applicabilite": champs}), model=HAIKU)
 
 

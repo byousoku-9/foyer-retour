@@ -16,7 +16,7 @@ import time
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
-from server.app.domain.answer import AnswerDraft
+from server.app.domain.answer import AnswerDraft, AnswerSegment
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
@@ -26,6 +26,51 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
+
+
+def _rattacher_claims_sinistre(draft: AnswerDraft) -> tuple[AnswerDraft, int]:
+    """Fait des claims atomiques le texte factuel effectivement soumis à *vérifier*.
+
+    Campagne réelle 2.7 : le rédacteur savait citer l'exclusion animale de `p35:2`, mais pouvait
+    créer une claim distincte sans la rattacher à aucun segment. La citation et sa pertinence
+    passaient alors tous les contrôles, avant que la claim ne soit justement rejetée `non_citee`.
+
+    En sinistre, `Claim.text` est déjà l'affirmation atomique (« une seule clause par affirmation »)
+    que *vérifier* confronte aux passages. Le segment factuel ne gagne donc rien à la paraphraser :
+    on le remplace par la concaténation exacte des claims qu'il annonce, puis on ajoute une phrase
+    factuelle pour chaque claim oubliée. Aucun sujet, aucune clause et aucun seuil ne sont ajoutés ;
+    les transitions et limites du modèle restent inchangées. Le guide conserve son brouillon à
+    l'octet près, comme sa variante 2.6.
+    """
+    par_id = {claim.claim_id: claim for claim in draft.claims}
+    rattachees: set[str] = set()
+    segments: list[AnswerSegment] = []
+    changements = 0
+    for segment in draft.segments:
+        if segment.kind != "factuel":
+            segments.append(segment)
+            continue
+        ids = list(dict.fromkeys(cid for cid in segment.claim_ids if cid in par_id))
+        texte = " ".join(par_id[cid].text.strip() for cid in ids if par_id[cid].text.strip())
+        if not ids or not texte:
+            # Les deux cas sont normalement fermés par `AnswerDraft`; garder le segment permet au
+            # vérificateur d'appliquer son refus conservateur si un producteur futur les autorise.
+            segments.append(segment)
+            continue
+        aligne = AnswerSegment(text=texte, kind="factuel", claim_ids=ids)
+        segments.append(aligne)
+        rattachees.update(ids)
+        changements += int(aligne != segment)
+    for claim in draft.claims:
+        if claim.claim_id in rattachees or not claim.text.strip():
+            continue
+        segments.append(AnswerSegment(text=claim.text.strip(), kind="factuel",
+                                      claim_ids=[claim.claim_id]))
+        rattachees.add(claim.claim_id)
+        changements += 1
+    if not changements:
+        return draft, 0
+    return draft.model_copy(update={"segments": segments}), changements
 
 
 async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique: list[Turn], *,
@@ -74,5 +119,8 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         step.ms = int((time.monotonic() - t0) * 1000)
         exc.step = step
         raise
+    draft = result.parsed
+    if prompt == "rediger_sinistre":
+        draft, _changements = _rattacher_claims_sinistre(draft)
     step.ms = int((time.monotonic() - t0) * 1000)
-    return result.parsed, step
+    return draft, step
