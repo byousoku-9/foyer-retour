@@ -461,13 +461,19 @@ def test_gate_trace_accepte_les_deux_seuls_etats_coherents() -> None:
 @pytest.mark.parametrize("valeurs", [
     {"charge": False, "validated": True},
     {"charge": False, "corpus_ok": True},
-    {"charge": True, "validated": True, "corpus_ok": True, "court_circuit_actif": False},
     {"charge": True, "validated": False, "corpus_ok": True, "court_circuit_actif": True},
     {"charge": True, "validated": True, "corpus_ok": False, "court_circuit_actif": True},
 ])
 def test_dictionnaire_trace_refuse_les_etats_impossibles(valeurs: dict) -> None:
     with pytest.raises(ValidationError, match="non chargé|court_circuit_actif"):
         trace.DictionnaireTrace(**valeurs)
+
+
+def test_dictionnaire_trace_accepte_un_court_circuit_inactif_pour_un_autre_document() -> None:
+    """M1, revue 2.5 : la conjonction globale n'implique pas l'activation pour cette requête."""
+    dico = trace.DictionnaireTrace(charge=True, validated=True, corpus_ok=True,
+                                    court_circuit_actif=False)
+    assert dico.court_circuit_actif is False
 
 
 def test_dictionnaire_trace_accepte_les_etats_reels_du_loader() -> None:

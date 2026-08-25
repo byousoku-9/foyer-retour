@@ -330,6 +330,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         termes = parsed.termes_de_recherche()
         # `court_circuit_pour(doc_id)` et non `court_circuit_actif` (revue Codex 2.1, B3) : le
         # dictionnaire n'arme un refus que sur le document dont il porte l'empreinte.
+        # Amendement AD-5, story 2.5 : une preuve issue de la recherche effectivement menée doit
+        # remplacer tout pré-contrôle quand le même périmètre tronqué a désarmé le refus.
         if (not hors_perimetre_desarme and termes and dictionnaire is not None
                 and dictionnaire.court_circuit_pour(doc_id)):
             echeance("court-circuit zéro hit")  # comme avant chaque étape (AD-1/AD-9)

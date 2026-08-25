@@ -210,6 +210,15 @@ def test_une_question_candidate_sur_un_noeud_reel_du_document_est_chargee(tmp_pa
     assert d.charge is True and d.corpus_ok is True
 
 
+def test_un_document_absent_explique_que_le_dictionnaire_nest_pas_applicable(
+        tmp_path: Path) -> None:
+    """M2, revue 2.5 : l'absence du document précède le contrôle de ses nœuds candidats."""
+    d = load_dictionary(_ecrire(tmp_path), Corpus(), DOC_ID)
+    assert d.charge is True and d.corpus_ok is False
+    assert f"{DOC_ID!r}, qui n'est pas servi" in d.raison
+    assert "nœud inexistant" not in d.raison
+
+
 def test_les_declencheurs_expliquent_une_intention_sans_jamais_la_decider(tmp_path: Path) -> None:
     d = load_dictionary(
         _ecrire(tmp_path, intents={

@@ -295,28 +295,33 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictio
         return Dictionnaire(doc_id=doc_id,
                             raison=f"{DICTIONARY_FILE} non conforme : {_first_error(exc)}"[:500])
 
-    # Le domaine contrôle la **forme** d'un identifiant sans importer le corpus. Le lecteur, qui
-    # possède les deux, referme l'autre moitié : chaque question candidate doit viser une unité
+    # L'applicabilité au corpus précède les contrôles qui supposent le document servi. Sans cet
+    # ordre, un document absent ou en quarantaine a un ensemble de nœuds vide, et la première clé
+    # candidate produit le faux diagnostic « nœud inexistant » au lieu de nommer l'absence du
+    # document. `_corpus_ok` devient ainsi la cause primaire publiée par `/sante` (AD-7/AD-16).
+    corpus_ok, raison = _corpus_ok(fichier.corpus_source_hashes, corpus, doc_id)
+
+    # Le domaine contrôle la **forme** d'un identifiant sans importer le corpus. Quand le corpus est
+    # applicable, le lecteur referme l'autre moitié : chaque question candidate doit viser une unité
     # répondante (`f…` ou `qN`) du document demandé, et cette unité doit réellement exister. Le
     # champ reste dormant jusqu'à la story 4.2 ; le valider aujourd'hui empêche précisément qu'une
     # donnée générée dérive en silence avant son premier lecteur.
     document = corpus.documents.get(doc_id)
-    noeuds = {node.node_id for node in document.nodes} if document is not None else set()
-    for node_id in sorted(fichier.candidate_questions):
-        document_nomme = node_id.split(":", 1)[0]
-        if document_nomme != doc_id:
-            return Dictionnaire(
-                doc_id=doc_id,
-                raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme {node_id!r}, "
-                        f"qui appartient au document {document_nomme!r} et non au document demandé "
-                        f"{doc_id!r}")[:500])
-        if node_id not in noeuds:
-            return Dictionnaire(
-                doc_id=doc_id,
-                raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme le nœud "
-                        f"inexistant {node_id!r} dans le document {doc_id!r}")[:500])
-
-    corpus_ok, raison = _corpus_ok(fichier.corpus_source_hashes, corpus, doc_id)
+    if corpus_ok and document is not None:
+        noeuds = {node.node_id for node in document.nodes}
+        for node_id in sorted(fichier.candidate_questions):
+            document_nomme = node_id.split(":", 1)[0]
+            if document_nomme != doc_id:
+                return Dictionnaire(
+                    doc_id=doc_id,
+                    raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme "
+                            f"{node_id!r}, qui appartient au document {document_nomme!r} et non "
+                            f"au document demandé {doc_id!r}")[:500])
+            if node_id not in noeuds:
+                return Dictionnaire(
+                    doc_id=doc_id,
+                    raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme le nœud "
+                            f"inexistant {node_id!r} dans le document {doc_id!r}")[:500])
     groupes: dict[str, list[str]] = {}
     canoniques: dict[str, list[str]] = {}
     for canonique, variantes in fichier.corpus.items():

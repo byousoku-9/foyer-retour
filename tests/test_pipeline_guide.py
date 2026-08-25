@@ -38,7 +38,8 @@ from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
-from server.app.pipelines.commun import domine
+from server.app.corpus.dictionary import Dictionnaire
+from server.app.pipelines.commun import dictionnaire_de, domine
 from server.app.pipelines.guide import repondre_guide
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS
 from tests.llm_fake import FakeAnthropic, fake_message
@@ -85,6 +86,13 @@ def _settings(**kw) -> Settings:
 
 def _budget(deadline_s: float = 30.0) -> RequestBudget:
     return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.10)
+
+
+def test_la_trace_desarme_un_dictionnaire_signe_applique_a_un_autre_document() -> None:
+    """M1, revue 2.5 : `dictionnaire_de` porte l'activation au document de la requête."""
+    dico = Dictionnaire(charge=True, doc_id=DOC_ID, validated=True, corpus_ok=True)
+    trace_dico = dictionnaire_de(dico, "autre-document")
+    assert trace_dico is not None and trace_dico.court_circuit_actif is False
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,

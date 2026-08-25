@@ -138,9 +138,9 @@ class DictionnaireTrace(DomainModel):
             raise ValueError(
                 "un dictionnaire non chargé ne peut être ni validé ni conforme au corpus")
         attendu = self.charge and self.validated and self.corpus_ok
-        if self.court_circuit_actif != attendu:
+        if self.court_circuit_actif and not attendu:
             raise ValueError(
-                "court_circuit_actif doit être exactement charge ∧ validated ∧ corpus_ok")
+                "court_circuit_actif implique charge ∧ validated ∧ corpus_ok")
         return self
 
 
