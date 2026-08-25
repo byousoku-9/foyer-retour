@@ -62,11 +62,16 @@
 
   // ---------- nœuds : la description de ce qu'il faut peindre ----------
 
-  function noeud(tag, cls, texte, enfants) {
+  // `attrs` (story 2.5) : un objet **plat** de chaînes, posé tel quel par `materialiser()` avec
+  // `setAttribute`. Le matérialiseur le lisait déjà ; `noeud()` ne savait pas le produire, si bien
+  // que la branche était inatteignable. Elle sert désormais à l'`aria-hidden` du pictogramme d'un
+  // contrôle, dont l'état est déjà écrit en toutes lettres à côté.
+  function noeud(tag, cls, texte, enfants, attrs) {
     var n = { tag: tag };
     if (cls) n.cls = cls;
     if (texte !== undefined && texte !== null) n.texte = String(texte);
     if (enfants && enfants.length) n.enfants = enfants;
+    if (attrs) n.attrs = attrs;
     return n;
   }
 
@@ -200,6 +205,135 @@
     var k = String(kind || "");
     return Object.prototype.hasOwnProperty.call(REJETS, k) ? REJETS[k] : "écartée par la vérification";
   }
+
+  // ---------- ce que le guide et cette page disent de la même façon (story 2.5) ----------
+  //
+  // D8 : les deux pages sont **autonomes** — celle-ci n'importe rien de `web/app/`, et c'est ce qui
+  // lui permet de vivre sans la feuille de 1 300 lignes du site. Le prix en est la duplication de
+  // trois tables. Elles ne sont donc pas laissées libres : `tests/test_tables_partagees.py` monte
+  // les deux fichiers côte à côte et exige que ces phrases soient **identiques mot pour mot** à
+  // celles de `web/app/chat.js`. Une reprise différée de 2.3 disait précisément cela : « la même
+  // donnée est rendue avec deux niveaux d'explicitation selon la page ».
+  //
+  // Les cinq phrases d'état ont d'ailleurs été écrites en 2.3 **sans jamais nommer le document**,
+  // exactement pour pouvoir servir ici, sur un contrat, aussi bien que là, sur le guide.
+
+  function pluriel(n, mot) { return n + " " + mot + (n > 1 ? "s" : ""); }
+
+  function entier(v) {
+    return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.floor(v) : 0;
+  }
+
+  // AD-4 : la preuve chiffrée d'une absence — termes **canoniques**, nombre de variantes, passages
+  // parcourus. Jamais la liste des variantes ni des déclencheurs : le contrat ne les transporte pas.
+  // Les compteurs s'affichent **même à zéro** : « rien trouvé sur 1 457 passages » et « rien n'a été
+  // cherché » sont deux refus différents, que l'omission rendait indiscernables (reprise 1.9).
+  function preuveAbsence(reason) {
+    if (!reason) return "";
+    if (reason.kind === "clarification_requise") return "";
+    var termes = tableau(reason.terms_searched).filter(function (t) { return String(t || "").trim(); });
+    var variantes = entier(reason.variants_count);
+    var blocs = entier(reason.blocks_scanned);
+    var chiffres = [
+      pluriel(variantes, "variante") + (variantes > 1 ? " essayées" : " essayée"),
+      pluriel(blocs, "passage") + (blocs > 1 ? " parcourus" : " parcouru")
+    ];
+    var debut = termes.length
+      ? "Termes cherchés : " + termes.join(", ")
+      : "Aucun terme du guide n'a été retenu";
+    return debut + " — " + chiffres.join(", ");
+  }
+
+  // FR5 : les trois états, lus sur les deux booléens que *vérifier* calcule (AD-4).
+  function etatReponse(answer) {
+    var a = answer || {};
+    if (!a.found) return { cle: "inconnu", texte: "inconnu" };
+    if (!a.complete) return { cle: "partiel", texte: "partiel" };
+    return { cle: "sur", texte: "sûr" };
+  }
+
+  // La phrase qui rend l'état explicite. Elle ne décrit que ce que la vue contient **réellement** :
+  // `contexte` est renseigné par `vueVerdict()` à partir des blocs qu'elle vient de poser.
+  function phraseEtat(etat, contexte) {
+    var cle = (etat && etat.cle) || "inconnu";
+    var c = contexte || {};
+    if (cle === "sur") {
+      return "tout ce qui est affirmé ci-dessus est appuyé par un passage cité, " +
+        "et la question est couverte";
+    }
+    if (cle === "partiel") {
+      return c.liste
+        ? "il manque des éléments : ils sont listés sous « Ce que je ne sais pas »"
+        : "il manque des éléments, et rien n'indique lesquels";
+    }
+    return c.preuve
+      ? "rien n'a été retenu : la preuve de cette absence est ci-dessus"
+      : "rien n'a été cherché : la question doit d'abord être précisée";
+  }
+
+  // Les `CheckResult.name` du serveur, en français — **la même table** que `web/app/chat.js`. Un nom
+  // inconnu n'est jamais masqué : il s'affiche tel quel.
+  var CONTROLES = {
+    applicabilite_contradictoire: "deux jeux de champs d'applicabilité pour une même affirmation",
+    applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
+    applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",
+    citations: "citations relues dans le corpus",
+    claims_non_citees: "affirmations vérifiées qu'aucune phrase affichée ne reprend",
+    clarification_langue_non_affirmee: "clarification retirée : sa langue n'est pas affirmable",
+    cout_eleve: "coût de la requête au-dessus du seuil",
+    dictionnaire: "variantes du dictionnaire ajoutées aux termes cherchés",
+    facettes_non_couvertes: "des sous-questions posées ne sont pas couvertes",
+    fait_cite_hors_sujet: "un fragment cité pour une qualité n'en emploie aucun mot",
+    fait_cite_introuvable: "une qualité dite établie ne cite aucun fragment des faits déclarés",
+    faits_compris_hors_borne: "des faits compris dépassent leur borne",
+    hors_perimetre_desarme: "refus hors périmètre désarmé : la liste des rubriques était tronquée",
+    intention_expliquee: "intention rendue par le modèle, et déclencheurs qui la confirment",
+    libelles_hors_borne: "des libellés de portée dépassent leur borne",
+    lignes_incompletes: "un bloc cité n'est pas la concaténation de ses lignes",
+    limites_non_affichees: "des phrases de limite n'ont pas été affichées",
+    noeuds_du_profil: "fiches désignées par le profil déclaré",
+    parse_retry: "réponse du modèle relancée après un parse invalide",
+    pertinence_incomplete: "des affirmations sont restées sans verdict de pertinence",
+    qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
+    qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
+    qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
+    refus: "refus composé, avec sa preuve d'absence",
+    relance_abandonnee: "relance de la rédaction abandonnée faute de budget",
+    relance_moins_bonne: "relance rendue moins bonne que le premier essai : écartée",
+    relance_sans_effet: "relance sans effet sur la réponse",
+    segment_contradictoire: "deux verdicts opposés pour une même phrase",
+    segments_non_soutenus: "des phrases avancent plus que les passages joints",
+    segments_retires: "des phrases ont été retirées de la réponse",
+    verdict: "verdict rendu sur les affirmations affichées",
+    verdict_contradictoire: "deux verdicts opposés pour une même affirmation"
+  };
+
+  function libelleControle(nom) {
+    var n = String(nom || "");
+    return Object.prototype.hasOwnProperty.call(CONTROLES, n) ? CONTROLES[n] : n;
+  }
+
+  // Les alertes du serveur, en français — **la même table** que `web/app/chat.js` et
+  // `tools/accueil/accueil.js`. Une alerte inconnue n'est pas traduite : elle se dit telle quelle.
+  var ALERTES = {
+    sans_gate: "aucune question-témoin ne valide ce document",
+    gate_perime: "le gate a été obtenu avec un autre code, d'autres prompts ou d'autres modèles",
+    source_absente: "le fichier source n'est pas présent à côté des artefacts",
+    rapport_illisible: "le rapport d'ingestion est présent mais illisible",
+    rapport_etranger: "le rapport d'ingestion décrit un autre document",
+    quarantaine: "document écarté au chargement",
+    perimetre_tronque:
+      "la liste des rubriques annoncée au modèle a été tronquée : des sujets traités par ce " +
+      "document seraient jugés hors périmètre",
+    ungated_refuse_en_production:
+      "ALLOW_UNGATED a été posé en production : la dérogation a été refusée",
+    dictionnaire_non_valide:
+      "le dictionnaire des variantes n'a été validé par personne : le refus « zéro hit » est " +
+      "désactivé",
+    dictionnaire_corpus_perime:
+      "le dictionnaire des variantes décrit un autre corpus que celui qui est servi"
+  };
 
   // NFR4 : le coût **réel**, rendu par l'usage de l'API (`trace.total_cost_eur`), jamais estimé ici.
   function coutTexte(trace) {
@@ -480,29 +614,171 @@
     return section("paquet", "Ce qui manque au dossier", enfants);
   }
 
-  function traceVue(trace) {
-    if (!trace) return null;
-    var t = trace;
-    var lignes = [
-      "référence de requête : " + String(t.request_id || ""),
-      "pipeline : " + String(t.pipeline || "") + (t.variant ? " · variante " + t.variant : "")
-    ];
-    tableau(t.steps).forEach(function (s) {
-      s = s || {};
-      var checks = tableau(s.checks).map(function (c) { return String((c || {}).name || ""); })
-        .filter(function (n) { return n; });
-      lignes.push("étape " + String(s.name || "") +
-        (s.tier ? " · " + s.tier : " · aucun appel") +
-        (typeof s.ms === "number" ? " · " + s.ms + " ms" : "") +
-        (checks.length ? " · contrôles : " + checks.join(", ") : ""));
-    });
-    var cout = coutTexte(t);
-    if (cout) lignes.push(cout);
-    // `<details>` natif : la trace est dépliable sans une ligne de JavaScript, donc sans état.
-    return noeud("details", "trace", null, [
-      noeud("summary", null, "Comment cette réponse a été obtenue"),
-      liste("trace-lignes", lignes)
+  function estObjetPlat(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+
+  function entierOuNull(v) {
+    return (typeof v === "number" && isFinite(v) && Math.floor(v) === v) ? v : null;
+  }
+
+  /** Une ligne de trace, avec ou sans pictogramme d'état (le mot le dit déjà, lui ne fait que le répéter). */
+  function ligneTrace(texte, etat) {
+    if (!etat) return noeud("li", "pq-ligne", String(texte));
+    return noeud("li", "pq-ligne", null, [
+      noeud("span", etat === "ok" ? "pq-ok" : "pq-ko", etat === "ok" ? "✓" : "✗", null,
+            { "aria-hidden": "true" }),
+      noeud("span", "pq-txt", String(texte))
     ]);
+  }
+
+  function rubriqueTrace(titre, lignes) {
+    if (!lignes.length) return null;
+    return noeud("div", "pq-bloc", null, [
+      noeud("strong", "pq-titre", titre),
+      noeud("ul", "pq-liste", null, lignes)
+    ]);
+  }
+
+  /**
+   * Les blocs que les étapes nomment, résolus par `trace.blocs` (story 2.5).
+   *
+   * Un identifiant que `trace.blocs` ne résout pas s'affiche **seul** : la page n'a aucun moyen de
+   * retrouver le titre d'une clause, et en deviner un sous un verdict serait pire que l'absence.
+   */
+  function lignesDeBlocs(steps, blocs, champ) {
+    var titres = Object.create(null);
+    blocs.forEach(function (b) {
+      if (estObjetPlat(b) && typeof b.block_id === "string" && typeof b.titre === "string") {
+        titres[b.block_id] = b.titre;
+      }
+    });
+    var vus = Object.create(null);
+    var out = [];
+    steps.forEach(function (s) {
+      tableau(s[champ]).forEach(function (id) {
+        if (typeof id !== "string" || vus[id]) return;
+        vus[id] = 1;
+        out.push(ligneTrace(titres[id] ? id + " — " + titres[id] : id));
+      });
+    });
+    return out;
+  }
+
+  /** Le gate du contrat interrogé, et les alertes que le serveur pose sur lui. */
+  function lignesGate(g) {
+    if (!estObjetPlat(g)) return [];
+    var out = [];
+    if (typeof g.profile === "string" && g.profile) {
+      var cases = entierOuNull(g.cases);
+      out.push(ligneTrace("profil de validation : " + g.profile +
+                          (cases !== null ? " (" + cases + " cas)" : "")));
+    } else if (g.profile === null) {
+      out.push(ligneTrace("aucune question-témoin ne valide ce document", "ko"));
+    }
+    if (typeof g.countersigned === "boolean") {
+      out.push(ligneTrace(g.countersigned
+        ? "relecture des cas contresignée à la main"
+        : "relecture des cas non contresignée : elle est celle de la boucle autonome",
+        g.countersigned ? "ok" : "ko"));
+    }
+    tableau(g.alerts).forEach(function (a) {
+      if (typeof a !== "string" || !a) return;
+      var connue = Object.prototype.hasOwnProperty.call(ALERTES, a);
+      out.push(ligneTrace(connue ? ALERTES[a] + " (" + a + ")" : a, "ko"));
+    });
+    return out;
+  }
+
+  /** Les seuils actifs, repliés : ils sont nombreux et rarement lus. */
+  function vueSeuils(thresholds) {
+    if (!estObjetPlat(thresholds)) return null;
+    var lignes = [];
+    Object.keys(thresholds).sort().forEach(function (nom) {
+      var v = thresholds[nom];
+      if (typeof v !== "number" || !isFinite(v)) return;
+      lignes.push(ligneTrace(nom + " : " + String(v)));
+    });
+    if (!lignes.length) return null;
+    return noeud("details", "pq-seuils", null, [
+      noeud("summary", null, "Seuils actifs (" + lignes.length + ")"),
+      noeud("ul", "pq-liste", null, lignes)
+    ]);
+  }
+
+  /**
+   * « Comment cette réponse a été obtenue » — le même contenu que le panneau du guide (story 2.5).
+   *
+   * La trace ne portait ici que trois lignes plates : la référence, le pipeline, une ligne par
+   * étape avec les **noms bruts** de ses contrôles (« applicabilite_incomplete »), et le coût. Tout
+   * le reste voyageait sans être montré : les clauses ouvertes et écartées, l'issue de chaque
+   * contrôle, les relances, les seuils actifs, le gate du contrat.
+   *
+   * **Ce que la trace ne dit pas, l'écran ne le dit pas** (AD-16) : chaque rubrique naît de la
+   * présence de son champ, et une trace pauvre affiche moins de rubriques, jamais des rubriques
+   * vides ou remplies d'un défaut.
+   */
+  function traceVue(trace) {
+    if (!estObjetPlat(trace)) return null;
+    var t = trace;
+    var steps = tableau(t.steps).filter(estObjetPlat);
+    var enfants = [noeud("summary", null, "Comment cette réponse a été obtenue")];
+
+    var etapes = rubriqueTrace("Étapes", steps.map(function (s) {
+      var parts = [String(s.name || "")];
+      parts.push(typeof s.tier === "string" && s.tier ? s.tier : "aucun appel");
+      var ms = entierOuNull(s.ms);
+      if (ms !== null) parts.push(ms + " ms");
+      return ligneTrace(parts.join(" · "));
+    }));
+    if (etapes) enfants.push(etapes);
+
+    var ouverts = rubriqueTrace("Clauses ouvertes",
+                                lignesDeBlocs(steps, tableau(t.blocs), "opened_block_ids"));
+    if (ouverts) enfants.push(ouverts);
+    var ecartes = rubriqueTrace("Clauses écartées, non lues par le modèle",
+                                lignesDeBlocs(steps, tableau(t.blocs), "discarded_block_ids"));
+    if (ecartes) enfants.push(ecartes);
+
+    var controles = [];
+    steps.forEach(function (s) {
+      tableau(s.checks).forEach(function (c) {
+        if (!estObjetPlat(c) || typeof c.name !== "string") return;
+        var detail = typeof c.detail === "string" && c.detail ? " — " + c.detail : "";
+        controles.push(ligneTrace(libelleControle(c.name) + detail, c.ok === true ? "ok" : "ko"));
+      });
+    });
+    var vueControles = rubriqueTrace("Contrôles", controles);
+    if (vueControles) enfants.push(vueControles);
+
+    var compteurs = [];
+    var retries = entierOuNull(t.retries);
+    if (retries !== null) compteurs.push(ligneTrace(pluriel(retries, "relance")));
+    var troncatures = entierOuNull(t.truncations);
+    if (troncatures !== null) compteurs.push(ligneTrace(pluriel(troncatures, "troncature")));
+    var cout = coutTexte(t);
+    if (cout) compteurs.push(ligneTrace(cout));
+    var vueCompteurs = rubriqueTrace("Ce que l'analyse a coûté", compteurs);
+    if (vueCompteurs) enfants.push(vueCompteurs);
+
+    var seuils = vueSeuils(t.thresholds);
+    if (seuils) enfants.push(seuils);
+
+    var gate = rubriqueTrace("Validation du contrat interrogé", lignesGate(t.gate));
+    if (gate) enfants.push(gate);
+
+    var identite = [];
+    if (typeof t.pipeline === "string" && t.pipeline) {
+      identite.push(ligneTrace("pipeline : " + t.pipeline +
+                               (t.variant ? " · variante " + t.variant : "")));
+    }
+    if (typeof t.request_id === "string" && t.request_id) {
+      identite.push(ligneTrace("référence de requête : " + t.request_id));
+    }
+    var vueIdentite = rubriqueTrace("Cette requête", identite);
+    if (vueIdentite) enfants.push(vueIdentite);
+
+    if (enfants.length === 1) return null;
+    // `<details>` natif : la trace est dépliable sans une ligne de JavaScript, donc sans état.
+    return noeud("details", "trace", null, enfants);
   }
 
   function vueVerdict(reponse) {
@@ -614,6 +890,14 @@
       ]));
     }
 
+    // M15 / reprise différée de 1.9 : la **preuve chiffrée** de l'absence. Le contrat la transporte
+    // depuis toujours (`answer.reason` est publié entier) et le guide l'affiche depuis 1.7 ; ici,
+    // seule la phrase composée par le serveur était rendue. « Rien trouvé sur 1 457 passages » et
+    // « rien n'a été cherché » sont deux refus différents, et l'omission les rendait
+    // indiscernables. `reason` absent ⇒ aucune preuve : rien n'est fabriqué (AD-16).
+    var preuve = preuveAbsence(a.reason);
+    if (preuve) enfants.push(noeud("p", "preuve", preuve));
+
     var inconnus = tableau(a.unknown).filter(function (x) { return String(x || "").trim(); });
     if (inconnus.length) {
       enfants.push(section("inconnu", "Ce que je ne sais pas", [liste("inconnu-liste", inconnus)]));
@@ -622,6 +906,25 @@
     if (a.clarification) {
       enfants.push(section("clarif", "Une précision, pour chercher au bon endroit", [
         noeud("p", "clarif-q", String(a.clarification))
+      ]));
+    }
+
+    // FR5 / reprise différée de 2.3 : le cadre des **trois états**, celui-là même que le chat pose
+    // depuis 2.3. La page rendait déjà les phrases de lacune composées par le code, mais sans le
+    // badge ni la phrase qui les encadrent : la même donnée était rendue avec deux niveaux
+    // d'explicitation selon la page. Le badge d'état n'est pas le badge de **verdict** — l'un dit
+    // ce que le contrat prévoit, l'autre ce que la vérification a pu établir — et les deux se
+    // lisent : un « sous conditions » sur une réponse *partielle* est une réserve de plus.
+    //
+    // Il n'apparaît que si `answer.reason` est là ou si la réponse est trouvée, c'est-à-dire quand
+    // `found`/`complete` ont un sens complet : un corps sans `reason` sur un `found=false` n'a pas
+    // été écrit par la route, et le badge dirait « inconnu » sur rien (M15).
+    if (a.found === true || a.reason) {
+      var etat = etatReponse(a);
+      enfants.push(noeud("div", "pied", null, [
+        noeud("span", "etat etat-" + etat.cle, etat.texte),
+        noeud("span", "etat-phrase",
+              phraseEtat(etat, { liste: inconnus.length > 0, preuve: !!preuve }))
       ]));
     }
 
@@ -735,6 +1038,13 @@
     return function (v) { return v === null || predicat(v); };
   }
 
+  // Les quatre natures de preuve d'absence d'AD-4, et la forme de ses deux compteurs affichés.
+  var KINDS_ABSENCE = ["hors_perimetre", "zero_hit", "claims_rejetes", "clarification_requise"];
+
+  function estCompteur(v) {
+    return typeof v === "number" && isFinite(v) && Math.floor(v) === v && v >= 0;
+  }
+
   function exiger(ok, champ) { if (!ok) throw illisible(champ); }
 
   function exigerListe(v, predicat, champ) {
@@ -797,12 +1107,51 @@
     exiger(estObjet(e), champ);
     exiger(estChaine(e.name), champ + ".name");
     exiger(ouNul(estChaine)(e.tier), champ + ".tier");
-    exiger(estNombre(e.ms), champ + ".ms");
+    exiger(estCompteur(e.ms), champ + ".ms");
+    if (e.opened_block_ids !== undefined) {
+      exigerListe(e.opened_block_ids, estChaine, champ + ".opened_block_ids");
+    }
+    if (e.discarded_block_ids !== undefined) {
+      exigerListe(e.discarded_block_ids, estChaine, champ + ".discarded_block_ids");
+    }
     exiger(Array.isArray(e.checks), champ + ".checks");
     for (var i = 0; i < e.checks.length; i++) {
       exiger(estObjet(e.checks[i]), champ + ".checks[" + i + "]");
       exiger(estChaine(e.checks[i].name), champ + ".checks[" + i + "].name");
+      exiger(estBooleen(e.checks[i].ok), champ + ".checks[" + i + "].ok");
+      if (e.checks[i].detail !== undefined) {
+        exiger(estChaine(e.checks[i].detail), champ + ".checks[" + i + "].detail");
+      }
     }
+  }
+
+  function lireBlocTrace(b, champ) {
+    exiger(estObjet(b), champ);
+    exiger(estChaine(b.block_id), champ + ".block_id");
+    exiger(estChaine(b.doc_id), champ + ".doc_id");
+    exiger(estChaine(b.node_id), champ + ".node_id");
+    exiger(ouNul(estChaine)(b.fiche_id), champ + ".fiche_id");
+    exiger(estChaine(b.titre), champ + ".titre");
+  }
+
+  function lireGateTrace(g, champ) {
+    exiger(g === null || estObjet(g), champ);
+    if (g === null) return;
+    exiger(ouNul(estChaine)(g.profile), champ + ".profile");
+    exiger(g.cases === null || estCompteur(g.cases), champ + ".cases");
+    exiger(g.countersigned === null || estBooleen(g.countersigned), champ + ".countersigned");
+    exigerListe(g.alerts, estChaine, champ + ".alerts");
+  }
+
+  function lireReason(reason, champ) {
+    // `Answer.reason` a une valeur par défaut `None` : absent et `null` signifient pareil ici.
+    if (reason === undefined || reason === null) return;
+    exiger(estObjet(reason), champ);
+    exiger(KINDS_ABSENCE.indexOf(reason.kind) !== -1, champ + ".kind");
+    exigerListe(reason.terms_searched, estChaine, champ + ".terms_searched");
+    exiger(estCompteur(reason.variants_count), champ + ".variants_count");
+    exiger(estCompteur(reason.blocks_scanned), champ + ".blocks_scanned");
+    exigerListe(reason.documents, estChaine, champ + ".documents");
   }
 
   // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme — et **récursive** depuis la
@@ -865,6 +1214,7 @@
     }
     exigerListe(o.answer.unknown, estChaine, "answer.unknown");
     exiger(ouNul(estChaine)(o.answer.clarification), "answer.clarification");
+    lireReason(o.answer.reason, "answer.reason");
     // `faits_compris` est le seul objet vraiment facultatif de la réponse (`QuestionScope | None` :
     // le guide n'en a pas, et AD-5 n'en publie pas sur une clarification). Présent, il est descendu
     // comme le reste — c'est l'endroit où l'utilisateur vérifie qu'il a été compris, et un
@@ -903,6 +1253,23 @@
     for (var t = 0; t < o.trace.steps.length; t++) {
       lireEtape(o.trace.steps[t], "trace.steps[" + t + "]");
     }
+    if (o.trace.blocs !== undefined) {
+      exiger(Array.isArray(o.trace.blocs), "trace.blocs");
+      for (var b = 0; b < o.trace.blocs.length; b++) {
+        lireBlocTrace(o.trace.blocs[b], "trace.blocs[" + b + "]");
+      }
+    }
+    if (o.trace.retries !== undefined) exiger(estCompteur(o.trace.retries), "trace.retries");
+    if (o.trace.truncations !== undefined) {
+      exiger(estCompteur(o.trace.truncations), "trace.truncations");
+    }
+    if (o.trace.thresholds !== undefined) {
+      exiger(estObjet(o.trace.thresholds), "trace.thresholds");
+      Object.keys(o.trace.thresholds).forEach(function (nom) {
+        exiger(estNombre(o.trace.thresholds[nom]), "trace.thresholds." + nom);
+      });
+    }
+    if (o.trace.gate !== undefined) lireGateTrace(o.trace.gate, "trace.gate");
     return {
       answer: o.answer,
       sources: o.sources,
@@ -1147,6 +1514,12 @@
     libelleKind: libelleKind,
     libelleVerdict: libelleVerdict,
     motifRejet: motifRejet,
+    preuveAbsence: preuveAbsence,
+    etatReponse: etatReponse,
+    phraseEtat: phraseEtat,
+    traceVue: traceVue,
+    ALERTES: ALERTES,
+    CONTROLES: CONTROLES,
     coutTexte: coutTexte,
     messageErreur: messageErreur,
     vueAttente: vueAttente,
@@ -1174,6 +1547,7 @@
     statutDeBloc: statutDeBloc,
     statutAmbigu: statutAmbigu,
     vueSource: vueSource,
+    libelleControle: libelleControle,
     PORTEE: PORTEE
   };
 

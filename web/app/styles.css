@@ -13,7 +13,7 @@
   --border-fort: #ccd4de;
   --text: #0b0f16;
   --text-2: #38424f;
-  --muted: #6a7583;
+  --muted: #5f6976;
   --accent: #0a4fa8;
   --accent-2: #00b3c8;
   --accent-3: #6b4df6;
@@ -21,12 +21,15 @@
   --warn: #96570a;
   --warn-soft: #fdf5e8;
   --ok: #0c6b3e;
-  /* foyer-retour : couleur d'erreur des blocs de l'assistant (story 1.7). `--ok` et `--warn` ont
-     leur variante sombre, il n'existait rien d'équivalent pour l'erreur. Les huit déclarations
-     `ko` du comparateur et de la page de recommandation gardent volontairement leur littéral :
-     elles sont hors du périmètre de cette story, et les basculer changerait leur rendu en thème
-     sombre sans qu'aucune AC ne le demande. Leur lisibilité est une reprise différée. */
-  --ko: #be123c;
+  /* foyer-retour : couleur d'erreur (story 1.7). `--ok` et `--warn` ont leur variante sombre, il
+     n'existait rien d'équivalent pour l'erreur. Story 2.5 : les huit déclarations `ko` du
+     comparateur et de la page de recommandation, qui gardaient le littéral `#be123c`, l'emploient
+     désormais. Le littéral n'avait **aucune** variante sombre — sur `--surface` en thème sombre,
+     `.sm-retirer:hover` tombait à 2,88:1, sous le seuil AA — et une couleur écrite en dur échappe
+     par construction au contrôle de contraste (`tests/test_styles.py`), qui ne sait résoudre que
+     les variables des trois portées de thème. Plus aucune déclaration de ce fichier ne porte ce
+     littéral, et un test l'exige. */
+  --ko: #b20c3b;
   --ombre-s: 0 1px 2px rgba(11,18,32,.05), 0 2px 6px rgba(11,18,32,.05);
   --ombre-m: 0 6px 14px -4px rgba(11,18,32,.10), 0 18px 34px -10px rgba(11,18,32,.10);
   --ombre-l: 0 16px 28px -12px rgba(11,18,32,.16), 0 40px 70px -20px rgba(11,18,32,.22);
@@ -541,9 +544,17 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
   font-size: var(--micro); color: var(--muted);
 }
 .msg .etat { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: .8px; font-weight: 620; }
-.msg .etat-sur { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
-.msg .etat-partiel { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
-.msg .etat-inconnu { background: var(--surface-2); }
+/* La teinte de fond est à 10 % et non 14 % (story 2.5) : elle rapproche le fond de la couleur du
+   texte, donc elle **mange** le contraste. Mesuré en thème clair : « partiel » (var(--warn) sur son
+   propre fond à 14 %) tombait à 4,42:1, sous les 4,5:1 d'AA, et rien ne le voyait — aucun test du
+   dépôt ne chargeait cette feuille. À 10 % la pastille reste teintée et passe à 4,67:1.
+   `tests/test_styles.py` calcule les trois portées de thème. */
+.msg .etat-sur { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
+.msg .etat-partiel { background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
+/* « inconnu » et « recherche simple » n'ont pas de couleur propre ; sans `color`, ils héritaient du
+   `--muted` du pied, c'est-à-dire 4,36:1 en thème clair pour une étiquette de 11 px en capitales.
+   `--text-2` est la teinte du corps de la bulle : neutre, et lisible dans les trois portées. */
+.msg .etat-inconnu { background: var(--surface-2); color: var(--text-2); }
 /* La phrase qui rend l'etat explicite : meme ton discret que le cout (elle herite du `.pied`), elle
    prend la place restante et passe a la ligne plutot que de comprimer le badge ou le cout. */
 .msg .etat-phrase { flex: 1 1 22ch; min-width: 0; }
@@ -556,7 +567,7 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 .msg .langue-repli { color: var(--warn); }
 /* La recherche simple n'a ni état vérifié ni coût : son pied le dit, sans emprunter les couleurs
    d'une réponse sourcée. */
-.msg .etat-local { background: var(--surface-2); color: var(--muted); }
+.msg .etat-local { background: var(--surface-2); color: var(--text-2); }
 .msg .sans-verif { font-style: italic; }
 /* Appariement citation ↔ phrase abandonné : la dégradation se voit, elle ne se devine pas. */
 .msg .degrade { margin: 10px 0 0; font-size: 12.5px; color: var(--warn); }
@@ -577,6 +588,45 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 .msg .alerte-txt { margin: 0; }
 .msg .alerte-note { margin: 7px 0 0; font-size: 12.5px; color: var(--muted); }
 .msg .ref { margin: 7px 0 0; font-size: var(--micro); color: var(--muted); }
+
+/* ---------- « Pourquoi cette réponse » (story 2.5) ---------- */
+/* Un `<details>` natif : le panneau se déplie sans une ligne de JavaScript, donc sans état à tenir,
+   et il est replié par défaut — la trace explique la réponse, elle ne la précède pas. Les modèles
+   sont ceux qui existent déjà dans ce fichier (`.vcard summary`, `.sm-det`, et le `summary
+   { min-height: 44px }` de la requête tactile) ; les couleurs viennent **toutes** des variables de
+   thème, sans quoi elles n'auraient de variante ni sombre ni sombre forcée. */
+.msg .pourquoi {
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12.5px;
+}
+.msg .pourquoi > summary {
+  cursor: pointer; color: var(--accent); list-style: none;
+}
+.msg .pourquoi > summary::-webkit-details-marker { display: none; }
+.msg .pourquoi > summary::before { content: "▸ "; }
+.msg .pourquoi[open] > summary::before { content: "▾ "; }
+.msg .pq-bloc { margin-top: 11px; }
+.msg .pq-titre {
+  display: block; color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+  font-size: var(--micro); margin-bottom: 4px;
+}
+.msg .pq-note { margin: 0 0 5px; color: var(--text-2); }
+.msg .pq-liste { margin: 0; padding-left: 16px; }
+.msg .pq-ligne { margin: 3px 0; color: var(--text-2); overflow-wrap: anywhere; }
+/* Le pictogramme est décoratif (`aria-hidden`) : l'état est écrit en toutes lettres à côté. Sa
+   couleur ne porte donc aucune information à elle seule — elle ne fait que la répéter. */
+.msg .pq-ok { color: var(--ok); margin-right: 6px; font-weight: 700; }
+.msg .pq-ko { color: var(--ko); margin-right: 6px; font-weight: 700; }
+.msg .pq-rejetee { display: block; }
+.msg .pq-rej-txt { display: block; }
+.msg .pq-rej-motif { display: block; color: var(--muted); }
+.msg .pq-seuils { margin-top: 11px; }
+.msg .pq-seuils > summary { cursor: pointer; color: var(--accent); list-style: none; }
+.msg .pq-seuils > summary::-webkit-details-marker { display: none; }
+.msg .pq-seuils > summary::before { content: "▸ "; }
+.msg .pq-seuils[open] > summary::before { content: "▾ "; }
+/* La phrase du retrait d'un tour sans réponse (M9) : elle explique une modification de l'historique
+   de page, pas une erreur de plus — même ton discret que la note du bandeau. */
+.msg .retrait { margin: 7px 0 0; font-size: 12.5px; color: var(--text-2); }
 
 /* La mention de confidentialite (AD-15) se lit sous la saisie, y compris dans le panneau. */
 .hint.confid { margin-top: 7px; font-size: 12.5px; }
@@ -716,9 +766,9 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 }
 .vstatut.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
 .vstatut.cond { color: var(--warn); background: var(--warn-soft); }
-.vstatut.ko { color: #be123c; background: color-mix(in srgb, #be123c 11%, transparent); }
+.vstatut.ko { color: var(--ko); background: color-mix(in srgb, var(--ko) 11%, transparent); }
 .vstatut.nf { color: var(--muted); background: var(--surface-2); }
-.vcard.ko { border-color: color-mix(in srgb, #be123c 30%, var(--border)); }
+.vcard.ko { border-color: color-mix(in srgb, var(--ko) 30%, var(--border)); }
 .vcard.ok { border-color: color-mix(in srgb, var(--ok) 30%, var(--border)); }
 .vcle { margin: 0 0 6px; color: var(--text-2); }
 .vinfo { margin: 0 0 4px; color: var(--muted); font-size: 12.5px; }
@@ -916,17 +966,17 @@ h2.faq-groupe:first-child { margin-top: 24px; }
 .reco-rang { font-weight: 700; color: var(--muted); font-size: 14px; }
 .reco-nom { font-weight: 650; font-size: 16px; flex: 1; }
 .reco-pct { font-weight: 700; font-size: 20px; }
-.reco-pct.ok { color: var(--ok); } .reco-pct.part { color: var(--warn); } .reco-pct.ko { color: #be123c; }
+.reco-pct.ok { color: var(--ok); } .reco-pct.part { color: var(--warn); } .reco-pct.ko { color: var(--ko); }
 .reco-barre { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
 .reco-barre i { display: block; height: 100%; border-radius: 99px; }
 .reco-barre i.ok { background: linear-gradient(90deg, var(--ok), color-mix(in srgb, var(--ok) 60%, var(--accent-2))); }
 .reco-barre i.part { background: var(--warn); }
-.reco-barre i.ko { background: #be123c; }
+.reco-barre i.ko { background: var(--ko); }
 .reco-ok { margin: 0; font-size: 13.5px; color: var(--ok); }
 .reco-lacunes summary { cursor: pointer; font-size: 13.5px; color: var(--accent); }
 .lacune { margin: 9px 0 0; padding: 10px 12px; border-radius: var(--r-s); background: var(--surface-2); }
 .lacune-t { margin: 0; font-size: 13.5px; color: var(--text-2); }
-.lacune-s { color: #be123c; font-weight: 600; }
+.lacune-s { color: var(--ko); font-weight: 600; }
 .lacune-c { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); font-style: italic; line-height: 1.55; }
 
 table.mrh-table { width: 100%; }
@@ -934,7 +984,7 @@ table.mrh-table td.num { text-align: center; font-size: 13px; }
 .cell-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); font-weight: 600; }
 .cell-cond { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); font-weight: 600; }
 .cell-part { color: var(--warn); background: var(--warn-soft); font-weight: 600; }
-.cell-ko { color: #be123c; background: color-mix(in srgb, #be123c 8%, transparent); font-weight: 600; }
+.cell-ko { color: var(--ko); background: color-mix(in srgb, var(--ko) 8%, transparent); font-weight: 600; }
 .cell-nf { color: var(--muted); }
 .mat-hits { display: block; font-weight: 600; }
 .mat-page { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
@@ -1051,7 +1101,7 @@ table.sm-table thead th {
   border: 1px solid var(--border); background: var(--surface); color: var(--muted);
   width: 26px; height: 26px; border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1;
 }
-.sm-retirer:hover { color: #be123c; border-color: #be123c; }
+.sm-retirer:hover { color: var(--ko); border-color: var(--ko); }
 tr.sm-score td { background: var(--surface-2); border-top: 2px solid var(--border-fort); }
 .sm-pct { font-size: 19px; font-family: var(--serif); font-weight: 400; }
 .sm-pct.sm-top { color: var(--ok); }
@@ -1078,13 +1128,19 @@ tr.sm-score td { background: var(--surface-2); border-top: 2px solid var(--borde
 .sin-item summary::-webkit-details-marker { display: none; }
 .sin-titre { flex: 1; font-size: 14.5px; font-weight: 500; min-width: 200px; }
 .sin-pastilles { display: flex; gap: 5px; }
+/* La lettre de la pastille suit le **thème**, pas le blanc (story 2.5). Un fond plein en variable
+   de thème s'éclaircit en mode sombre — `--ok` passe de #0c6b3e à #5ccb90 — et une lettre blanche
+   posée dessus tombait à 2,02:1. `--surface` est la couleur du fond de page : blanche en clair,
+   presque noire en sombre, donc elle contraste avec les quatre teintes dans les deux cas (au pire
+   5,57:1). Sans cette ligne, basculer `.pastille.ko` du littéral vers `var(--ko)` aurait remplacé
+   une dette (le rouge sans variante sombre) par une autre (une lettre illisible). */
 .pastille {
   width: 24px; height: 24px; border-radius: 7px; font-size: 11.5px; font-weight: 700;
-  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--surface);
 }
 .pastille.ok { background: var(--ok); }
 .pastille.cond { background: var(--warn); }
-.pastille.ko { background: #be123c; }
+.pastille.ko { background: var(--ko); }
 .pastille.nf { background: var(--muted); }
 .sin-item[open] summary { border-bottom: 1px solid var(--border); }
 .sin-corps { padding: 14px 16px 16px; }

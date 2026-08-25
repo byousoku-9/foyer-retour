@@ -548,6 +548,23 @@ CONTRATS_INCOMPLETS = [
     ("segment_sans_kind", "segments[0].kind"), ("source_sans_quote", "sources[0].quote"),
     ("claim_sans_quote", "answer.claims[0].quotes"),
     ("claim_sans_status", "answer.claims[0].status"),
+    # Story 2.5 : ce que le panneau « Pourquoi cette réponse » consomme est **strict sur le type**.
+    # Tolérant à l'absence (les deux lots sont écrits en parallèle), mais un champ présent et mal
+    # typé peindrait un compteur que rien n'a calculé sous le panneau qui répond de l'honnêteté du
+    # reste. Chacun est aussi refusé par `ChatResponse.model_validate()` (test suivant).
+    ("trace_blocs_non_liste", "trace.blocs"),
+    ("trace_bloc_titre_nombre", "trace.blocs[0].titre"),
+    ("trace_gate_nombre", "trace.gate"),
+    ("trace_gate_alerts_non_liste", "trace.gate.alerts"),
+    ("trace_dictionnaire_non_booleen", "trace.dictionnaire.charge"),
+    ("trace_retries_objet", "trace.retries"),
+    ("trace_steps_non_liste", "trace.steps"),
+    ("trace_step_check_ok_chaine", "trace.steps[0].checks[0].ok"),
+    ("trace_thresholds_non_objet", "trace.thresholds"),
+    ("trace_cout_negatif", "trace.total_cost_eur"),
+    ("trace_cout_infini", "trace.total_cost_eur"),
+    ("trace_seuil_chaine", "trace.thresholds.max_opens"),
+    ("trace_seuil_booleen", "trace.thresholds.max_opens"),
 ]
 
 
@@ -928,7 +945,8 @@ def test_les_codes_traduits_sont_ceux_de_lenum_dad16(code: str) -> None:
 
 def test_chaque_segment_factuel_est_suivi_de_ses_citations(cas: dict[str, Any]) -> None:
     vue = cas["vue_nominale"]
-    assert vue["ordre_des_blocs"] == ["seg seg-factuel", "seg seg-factuel", "pied", "chips"]
+    assert vue["ordre_des_blocs"] == ["seg seg-factuel", "seg seg-factuel", "pied", "pourquoi",
+                                     "chips"]
     segments = vue["segments"]
     assert [s["texte"] for s in segments] == [
         "Vous avez huit jours pour déclarer votre arrivée, au Biergercenter de votre commune.",
@@ -950,7 +968,10 @@ def test_le_pied_porte_letat_et_le_cout(cas: dict[str, Any]) -> None:
     vue = cas["vue_nominale"]
     assert vue["etat"] == "etat etat-sur" and vue["etat_texte"] == "sûr"
     assert vue["cout"] == "cette réponse a coûté 0,0278 €"
-    assert vue["ordre_des_blocs"][-2] == "pied"  # en pied de réponse, avant les puces
+    # Le pied vient après le corps, et le panneau « Pourquoi cette réponse » après le pied : il
+    # n'explique rien qui ne soit déjà écrit.
+    assert vue["ordre_des_blocs"][-3] == "pied"
+    assert vue["ordre_des_blocs"][-2] == "pourquoi"
 
 
 def test_une_reponse_incomplete_montre_ce_quelle_ne_sait_pas(cas: dict[str, Any]) -> None:
@@ -1175,8 +1196,311 @@ def test_aucune_vue_ne_pose_de_html(cas: dict[str, Any]) -> None:
             continue
         assert "<" not in json.dumps(vue["segments"], ensure_ascii=False)
         assert set(vue["tags_porteurs_de_texte"]) <= {"a", "blockquote", "button", "div", "li",
-                                                      "p", "span", "strong", "ul"}
+                                                      "p", "span", "strong", "summary", "ul"}
 
+
+
+# --- Story 2.5 : « Pourquoi cette réponse » --------------------------------
+#
+# AD-10 pose que la trace est « consultable » ; jusqu'ici le front n'en lisait que `total_cost_eur`.
+# L'AC est une **liste de rubriques** : elle se vérifie sur l'arbre composé, rubrique par rubrique.
+# La règle qui gouverne tout ce bloc est celle d'AD-16 : **ce que la trace ne dit pas, l'écran ne le
+# dit pas** — un champ absent fait disparaître sa rubrique, aucune valeur n'est devinée, aucun
+# défaut n'est présenté comme une mesure.
+
+
+def _rubriques(vue: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    return {r["titre"]: r["lignes"] for r in vue["pourquoi"]["rubriques"]}
+
+
+def test_le_panneau_est_replie_et_porte_le_titre_de_lac(cas: dict[str, Any]) -> None:
+    panneau = cas["vue_pourquoi_complet"]["pourquoi"]
+    # Un `<details>` natif : dépliable sans une ligne de JavaScript, donc sans état à tenir, et
+    # replié par défaut (aucun `open` n'est décrit).
+    assert panneau["tag"] == "details"
+    assert panneau["summary"] == "Pourquoi cette réponse"
+
+
+def test_le_panneau_affiche_les_etapes_avec_leur_tier_et_leur_duree(cas: dict[str, Any]) -> None:
+    lignes = [ligne["texte"] for ligne in _rubriques(cas["vue_pourquoi_complet"])["Étapes"]]
+    assert lignes == ["comprendre · micro · 912 ms", "retrouver · reason · 3480 ms",
+                      "rediger · reason · 12800 ms", "verifier · micro · 1450 ms",
+                      "restituer · aucun appel · 2 ms"]
+    # `restituer` n'appelle aucun modèle : `tier` est `null`, et cela se **dit** plutôt que de
+    # laisser une place vide qu'on lirait comme une donnée manquante.
+    assert lignes[-1].endswith("aucun appel · 2 ms")
+
+
+def test_le_panneau_distingue_les_blocs_ouverts_de_ceux_qui_ont_ete_ecartes(
+        cas: dict[str, Any]) -> None:
+    """AD-10 : « blocs effectivement passés au modèle » d'un côté, « candidats de `chercher` non
+    ouverts » de l'autre. Les confondre ferait croire que le modèle a lu ce qu'il n'a pas lu."""
+    rubriques = _rubriques(cas["vue_pourquoi_complet"])
+    assert [ligne["texte"] for ligne in rubriques["Passages ouverts"]] == [
+        "lux-guide:farrivee:2 — Les huit premiers jours",
+        "lux-guide:farrivee:3 — Les huit premiers jours"]
+    assert [ligne["texte"] for ligne in rubriques["Passages écartés, non lus par le modèle"]] == [
+        "lux-guide:fbanque:1 — Ouvrir un compte"]
+
+
+def test_un_bloc_que_la_trace_ne_resout_pas_porte_son_id_seul(cas: dict[str, Any]) -> None:
+    """M3 : jamais de titre deviné. Le front n'a aucun moyen de retrouver le titre d'une fiche du
+    corpus servi — `kb.js` peut en diverger —, et en inventer un sous une réponse sourcée serait
+    exactement l'invention que la story combat."""
+    rubriques = _rubriques(cas["vue_pourquoi_bloc_non_resolu"])
+    assert [ligne["texte"] for ligne in rubriques["Passages ouverts"]] == [
+        "lux-guide:farrivee:2 — Les huit premiers jours", "lux-guide:farrivee:3"]
+    assert [ligne["texte"] for ligne in rubriques["Passages écartés, non lus par le modèle"]] == [
+        "lux-guide:fbanque:1"]
+
+
+def test_le_panneau_dit_les_controles_passes_et_echoues(cas: dict[str, Any]) -> None:
+    lignes = _rubriques(cas["vue_pourquoi_complet"])["Contrôles"]
+    assert [ligne["etat"] for ligne in lignes] == ["ok", "ok", "ok", "ok", "ko"]
+    # Le libellé français, puis le détail composé par le serveur — jamais le seul `name` brut.
+    assert lignes[0]["texte"].startswith("intention rendue par le modèle")
+    assert "3 déclencheur(s) du dictionnaire sur 30" in lignes[0]["texte"]
+    assert lignes[-1]["texte"].startswith("des sous-questions posées ne sont pas couvertes")
+
+
+def test_un_controle_inconnu_du_front_saffiche_tel_quel(cas: dict[str, Any]) -> None:
+    """Un `CheckResult.name` ajouté demain ne doit pas **disparaître** de l'écran : le panneau
+    répond de l'honnêteté du reste, il serait le pire endroit où taire un contrôle."""
+    lignes = _rubriques(cas["vue_pourquoi_controle_inconnu"])["Contrôles"]
+    assert [ligne["texte"] for ligne in lignes] == ["controle_de_demain — détail"]
+    assert cas["tables"]["controle_inconnu"] == "controle_de_demain"
+    assert cas["tables"]["controle_connu"] == "refus composé, avec sa preuve d'absence"
+
+
+def test_le_pictogramme_dun_controle_ne_porte_pas_seul_son_sens(cas: dict[str, Any]) -> None:
+    """Une information portée par la seule couleur (ou le seul glyphe) est invisible pour qui ne la
+    distingue pas. Le pictogramme est donc `aria-hidden`, et il ne fait que répéter ce que le
+    libellé écrit déjà — c'est aussi le seul usage d'`attrs` dans tout ce que `chat.js` compose."""
+    lignes = _rubriques(cas["vue_pourquoi_complet"])["Contrôles"]
+    for ligne in lignes:
+        assert ligne["picto"] == {"aria-hidden": "true"}
+    assert all(a == {"aria-hidden": "true"} for a in cas["vue_pourquoi_complet"]["pourquoi"]["attrs"])
+
+
+def test_le_panneau_ne_pose_aucun_id_car_il_est_peint_deux_fois(cas: dict[str, Any]) -> None:
+    """L'arbre est matérialisé **une fois par journal** (l'onglet Assistant et le widget flottant) :
+    un `id` unique s'y trouverait deux fois dans le même document."""
+    for nom, vue in cas.items():
+        if nom.startswith("vue_") and vue.get("pourquoi"):
+            assert vue["pourquoi"]["ids"] == 0, nom
+
+
+def test_le_panneau_montre_les_affirmations_ecartees_sans_leur_citation(cas: dict[str, Any]) -> None:
+    """Reprise différée de 1.7 : `answer.rejected_claims` n'était peint nulle part côté guide.
+
+    AD-3 les conserve « affichables par le front » et AD-11 s'appuie sur cette publication pour
+    justifier qu'elles n'entrent pas dans `sources[]`. Ce qui n'est **jamais** affiché, c'est leur
+    citation : une claim `non_retrouvee` ou `ambigue` porte la chaîne du modèle, qu'aucun corpus n'a
+    confirmée (la page sinistre a tranché ainsi en 1.9, le guide s'aligne).
+    """
+    rejetees = cas["vue_pourquoi_complet"]["pourquoi"]["rejetees"]
+    assert [r["texte"] for r in rejetees] == ["Le certificat coûte dix euros."]
+    assert rejetees[0]["motif"] == "citation introuvable dans les passages relus (non_retrouvee)"
+    # La quote de la claim rejetée n'apparaît nulle part dans l'arbre entier.
+    assert "CETTE QUOTE NE DOIT JAMAIS S'AFFICHER" not in cas["pourquoi_texte_entier"]
+    assert cas["tables"]["motif_inconnu"] == "écartée par la vérification"
+
+
+def test_le_panneau_dit_les_relances_les_troncatures_et_le_cout(cas: dict[str, Any]) -> None:
+    lignes = [ligne["texte"] for ligne in
+              _rubriques(cas["vue_pourquoi_complet"])["Ce que la requête a coûté"]]
+    # Zéro se **dit** : « 0 troncature » est une mesure, l'omission serait une absence de mesure.
+    assert lignes == ["1 relance", "0 troncature", "délai restant : 36,3 s",
+                      "cette réponse a coûté 0,0278 €"]
+
+
+def test_les_seuils_actifs_sont_dans_un_sous_panneau_replie(cas: dict[str, Any]) -> None:
+    """Convention Seuils du spine : « exposés dans `Trace.thresholds` ». Ils sont nombreux et
+    rarement lus : un second `<details>`, replié, les met à portée sans encombrer le panneau."""
+    seuils = cas["vue_pourquoi_complet"]["pourquoi"]["seuils"]
+    assert seuils["tag"] == "details"
+    assert seuils["summary"] == "Seuils actifs (3)"
+    # Triés : deux requêtes portant les mêmes seuils écrivent la même liste.
+    assert seuils["lignes"] == ["max_opens : 8", "quote_min_chars : 24", "search_limit : 40"]
+
+
+def test_le_panneau_dit_le_profil_de_gate_et_les_alertes_du_document(cas: dict[str, Any]) -> None:
+    """AD-7 / AD-14 : le niveau affiché s'accompagne du nombre de cas **réellement exécutés** et de
+    la contresignature humaine de leur relecture. Sans elle, l'écran n'écrit pas « relus à la
+    main » — et l'alerte du serveur voyage dans le même objet, donc elle se lit avec."""
+    lignes = _rubriques(cas["vue_pourquoi_complet"])["Validation du document interrogé"]
+    assert lignes[0]["texte"] == "profil de validation : vertical (2 cas)"
+    assert lignes[1] == {"etat": "ko", "picto": {"aria-hidden": "true"},
+                         "texte": "relecture des cas non contresignée : elle est celle de la "
+                                  "boucle autonome"}
+    assert lignes[2]["etat"] == "ko"
+    assert lignes[2]["texte"].endswith("(gate_perime)")
+
+
+def test_labsence_de_gate_nest_dite_quune_fois(cas: dict[str, Any]) -> None:
+    lignes = _rubriques(cas["vue_pourquoi_sans_gate"])["Validation du document interrogé"]
+    assert [ligne["texte"] for ligne in lignes] == [
+        "aucune question-témoin ne valide ce document (sans_gate)"]
+
+
+def test_une_alerte_de_gate_inconnue_se_dit_telle_quelle(cas: dict[str, Any]) -> None:
+    lignes = _rubriques(cas["vue_pourquoi_alerte_inconnue"])["Validation du document interrogé"]
+    assert [ligne["texte"] for ligne in lignes] == [
+        "aucune question-témoin ne valide ce document", "alerte_de_demain"]
+
+
+def test_lecran_ecrit_que_le_refus_zero_hit_est_desarme(cas: dict[str, Any]) -> None:
+    """M12 / AC : « given un dictionnaire non signé, then l'écran écrit que le refus « zéro hit »
+    est désarmé ». C'est un état **publié par le serveur** (`court_circuit_actif`), jamais recalculé
+    par la page à partir des trois autres booléens."""
+    desarme = _rubriques(cas["vue_pourquoi_complet"])["Dictionnaire des variantes"]
+    assert [ligne["etat"] for ligne in desarme] == ["ok", "ko", "ok", "ko"]
+    assert desarme[1]["texte"] == "signé par personne"
+    assert desarme[-1]["texte"].startswith("le refus « zéro hit » est désarmé")
+
+    arme = _rubriques(cas["vue_pourquoi_dictionnaire_arme"])["Dictionnaire des variantes"]
+    assert [ligne["etat"] for ligne in arme] == ["ok", "ok", "ok", "ok"]
+    assert arme[-1]["texte"].startswith("le refus « zéro hit » est armé")
+
+
+def test_le_motif_du_desarment_du_dictionnaire_suit_les_drapeaux_reels(
+        cas: dict[str, Any]) -> None:
+    attendus = {
+        "absent": "aucun dictionnaire n'est chargé",
+        "perime": "le dictionnaire ne décrit pas le corpus servi",
+        "non_signe": "le dictionnaire n'a pas de validation humaine",
+    }
+    for nom, motif in attendus.items():
+        lignes = _rubriques(cas["pourquoi_dictionnaires_desarmes"][nom])[
+            "Dictionnaire des variantes"]
+        assert motif in lignes[-1]["texte"], nom
+
+
+def test_une_deadline_negative_est_affichee_comme_depassee(cas: dict[str, Any]) -> None:
+    lignes = _rubriques(cas["vue_pourquoi_deadline_depassee"])["Ce que la requête a coûté"]
+    delai = [ligne["texte"] for ligne in lignes if "délai" in ligne["texte"]]
+    assert delai == ["délai dépassé de 2,3 s"]
+    assert "restant : -" not in delai[0]
+
+
+def test_le_panneau_relie_lecran_a_la_ligne_de_log(cas: dict[str, Any]) -> None:
+    lignes = [ligne["texte"] for ligne in _rubriques(cas["vue_pourquoi_complet"])["Cette requête"]]
+    assert lignes == ["pipeline : guide · variante deterministe", "intention : question",
+                      "référence de requête : r-trace"]
+
+
+def test_une_trace_pauvre_ne_fait_apparaitre_aucune_rubrique_inventee(cas: dict[str, Any]) -> None:
+    """M2 / AC : « given une trace privée d'un champ, then la rubrique correspondante est absente et
+    aucune valeur n'est inventée ». Absence ≠ valeur : pas d'« inconnu », pas de ligne vide."""
+    panneau = cas["vue_pourquoi_pauvre"]["pourquoi"]
+    titres = [r["titre"] for r in panneau["rubriques"]]
+    assert titres == ["Ce que la requête a coûté", "Cette requête"]
+    for absent in ("Étapes", "Passages ouverts", "Passages écartés, non lus par le modèle",
+                   "Contrôles", "Validation du document interrogé", "Dictionnaire des variantes"):
+        assert absent not in titres
+    assert panneau["seuils"] is None and panneau["rejetees"] == []
+    # Aucune ligne vide, nulle part.
+    for rubrique in panneau["rubriques"]:
+        for ligne in rubrique["lignes"]:
+            assert ligne["texte"].strip(), rubrique["titre"]
+
+
+def test_un_gate_et_un_dictionnaire_nuls_ne_sont_pas_une_mesure(cas: dict[str, Any]) -> None:
+    """`Trace.gate` et `Trace.dictionnaire` sont `… | None` : `null` veut dire « pas de mesure »
+    (document hors manifest, pipeline sans dictionnaire), pas « mesure à zéro »."""
+    titres = [r["titre"] for r in cas["vue_pourquoi_champs_nuls"]["pourquoi"]["rubriques"]]
+    assert "Validation du document interrogé" not in titres
+    assert "Dictionnaire des variantes" not in titres
+    # `blocs: []` en revanche **ne fait pas** disparaître les passages : ce sont les étapes qui les
+    # nomment, et `trace.blocs` ne fait que les résoudre. Ils s'affichent donc par leur seul
+    # identifiant — dire moins reviendrait à cacher ce que le modèle a lu.
+    rubriques = _rubriques(cas["vue_pourquoi_champs_nuls"])
+    assert [ligne["texte"] for ligne in rubriques["Passages ouverts"]] == [
+        "lux-guide:farrivee:2", "lux-guide:farrivee:3"]
+
+
+def test_une_trace_qui_na_rien_a_dire_nouvre_pas_un_panneau_vide(cas: dict[str, Any]) -> None:
+    """Un `<details>` qui n'a que son `<summary>` promet une explication qu'il ne donne pas."""
+    assert cas["vue_pourquoi_muette"]["pourquoi"] is None
+
+
+# --- M10 : une erreur tracée porte aussi le panneau ------------------------
+
+def test_une_enveloppe_derreur_qui_porte_une_trace_porte_le_panneau(cas: dict[str, Any]) -> None:
+    """AD-10 : « une erreur porte `trace` si le pipeline a commencé ». C'est l'écran qui a le plus
+    besoin d'être expliqué — l'utilisateur n'a pas de réponse, il a le droit de savoir jusqu'où on
+    est allé."""
+    vu = cas["erreur_avec_trace"]
+    assert (vu["kind"], vu["code"]) == ("indisponible", "llm_unavailable")
+    assert vu["a_une_trace"] is True
+    panneau = vu["vue"]["pourquoi"]
+    assert panneau["summary"] == "Pourquoi cette réponse"
+    assert [r["titre"] for r in panneau["rubriques"]][0] == "Étapes"
+    # Le bandeau garde par ailleurs son bouton unique : le panneau n'ajoute aucune action.
+    assert [a["nom"] for a in vu["vue"]["actions"]] == ["recherche_simple"]
+
+
+def test_une_trace_derreur_qui_ne_tient_pas_le_contrat_ne_devient_pas_un_panneau(
+        cas: dict[str, Any]) -> None:
+    """Elle n'a pas franchi `lireReponse` : elle est relue par la même lecture stricte, et écartée
+    si elle ne tient pas. L'échec reste celui du serveur (503) — il perd seulement son panneau."""
+    vu = cas["erreur_trace_cassee"]
+    assert vu["kind"] == "indisponible" and vu["code"] == "llm_unavailable"
+    assert vu["a_une_trace"] is False
+    assert vu["vue"]["pourquoi"] is None
+
+
+def test_une_erreur_sans_trace_naffiche_aucun_panneau(cas: dict[str, Any]) -> None:
+    assert cas["erreur_sans_trace"]["a_une_trace"] is False
+    assert cas["erreur_sans_trace"]["vue"]["pourquoi"] is None
+
+
+# --- M6 / M7 : le message, zéro action, le badge conservé ------------------
+
+def test_un_429_dit_le_delai_et_ne_propose_rien(cas: dict[str, Any]) -> None:
+    """M6 : « 429 + `Retry-After: 30` ⇒ message « réessayez dans 30 secondes », **zéro** action,
+    badge `mode api` conservé »."""
+    vu = cas["limite_de_debit"]
+    assert vu["retry_after"] == 30
+    assert vu["message"] == "Trop de questions en peu de temps : réessayez dans 30 secondes."
+    assert vu["vue"]["actions"] == []
+    # `modeApresErreur` rend `null` : le badge existant n'est pas touché — le serveur a répondu.
+    assert vu["mode_apres"] is None
+
+
+def test_retry_after_naccepte_que_les_secondes_entieres_ou_une_http_date_valide(
+        cas: dict[str, Any]) -> None:
+    assert cas["retry_after_strict"] == {
+        "secondes": 30,
+        "date": 30,
+        "date_passee": 0,
+        "suffixe": None,
+        "decimal": None,
+        "signe": None,
+        "date_impossible": None,
+    }
+
+
+def test_un_4xx_affiche_un_message_lisible_et_zero_action(cas: dict[str, Any]) -> None:
+    """M7 : le `message` du serveur est produit par pydantic, en anglais, avec le chemin du champ.
+    Il n'est jamais affiché : la phrase se compose sur le `code` d'AD-16."""
+    vu = cas["requete_refusee"]
+    assert vu["message_du_serveur_affiche"] is False
+    assert vu["message"].startswith("Le serveur a refusé la question")
+    assert vu["vue"]["actions"] == []
+    assert vu["mode_apres"] is None
+
+
+# --- M9 : la phrase du retrait -------------------------------------------
+
+def test_le_retrait_dun_tour_sans_reponse_est_dit_a_lecran(cas: dict[str, Any]) -> None:
+    """« retrait jamais silencieux ». La phrase est composée par `chat.js` — comme tout ce qui
+    s'affiche — et `ui.js` ne fait que dire ce qu'il a fait."""
+    avec = cas["vue_erreur_avec_retrait"]
+    assert avec["retrait"] == ("Cette question n'a pas reçu de réponse : elle est retirée de la "
+                               "conversation, et ne repartira pas au serveur avec la suivante.")
+    # Sans retrait, rien n'est écrit : la page n'annonce pas une modification qu'elle n'a pas faite.
+    assert cas["vue_erreur_sans_retrait"]["retrait"] is None
 
 # --- une requête qui pend, une page hors ligne ---------------------------
 
@@ -1319,15 +1643,60 @@ def test_le_badge_dit_la_peremption_que_le_serveur_signale(cas: dict[str, Any]) 
     v = cas["validation"]
     assert v["gate_perime"]["badge"]["texte"] == \
         "mode api · vertical (2 cas, périmé, non contresigné)"
-    # La péremption se trouve où qu'elle soit dans la liste…
+    # La péremption se trouve où qu'elle soit dans la liste — et depuis la story 2.5 elle n'est
+    # plus la seule réserve lue : `source_absente` porte sur le même corpus servi (M14).
     assert v["perime_et_autres_alertes"]["badge"]["texte"] == \
-        "mode api · vertical (2 cas, périmé, non contresigné)"
+        "mode api · vertical (2 cas, source absente, périmé, non contresigné)"
     # …et seule, sur un gate contresigné, elle s'écrit seule.
     assert v["perime_et_contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas, périmé)"
-    # …et une alerte qui n'est pas une péremption ne la déclenche pas.
-    assert v["alertes_sans_peremption"]["badge"]["texte"] == \
-        "mode api · vertical (2 cas, non contresigné)"
     assert v["contresigne"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+
+
+# --- story 2.5 (M14) : le badge porte les réserves que le serveur publie ---
+
+def test_le_badge_porte_la_quarantaine_et_la_source_absente(cas: dict[str, Any]) -> None:
+    """Reprise différée de 1.10 : « le badge ne dit pas ce qu'il a lu des alertes ».
+
+    `testerApi()` retenait `alerts` depuis 1.10 et le badge n'en disait qu'une, la péremption du
+    gate. Or un document **en quarantaine** (il n'est plus servi) et un **fichier source absent**
+    (l'édition annoncée n'est vérifiable nulle part) sont des faits publiés sur ce à quoi les
+    réponses s'adossent, dans le seul écran où l'on pose une question. L'accueil les montre toutes ;
+    le badge en porte désormais la réserve.
+    """
+    v = cas["validation"]
+    assert v["quarantaine"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, document écarté, non contresigné)"
+    assert v["source_absente"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, source absente, non contresigné)"
+    # Deux réserves cohabitent, et aucune n'en efface une autre.
+    assert v["quarantaine_et_source_absente"]["badge"]["texte"] == \
+        "mode api · vertical (2 cas, document écarté, source absente)"
+
+
+def test_lordre_des_reserves_ne_depend_pas_de_lordre_du_serveur(cas: dict[str, Any]) -> None:
+    """Deux corps qui portent les mêmes alertes dans un ordre différent écrivent le même badge :
+    sinon la phrase affichée dépendrait de l'ordre d'itération d'un dictionnaire côté serveur."""
+    v = cas["validation"]
+    assert v["alertes_dans_lautre_ordre"]["badge"]["texte"] == \
+        v["quarantaine_et_source_absente"]["badge"]["texte"]
+
+
+def test_une_alerte_inconnue_du_badge_ninvente_aucune_reserve(cas: dict[str, Any]) -> None:
+    """AD-16 : ce que le serveur n'a pas dit, l'écran ne le dit pas. Une alerte hors table est lue
+    (l'accueil la montre en clair) mais ne produit **aucune** réserve dans le badge, qui n'a que
+    trois mots pour le dire."""
+    v = cas["validation"]
+    assert v["alerte_inconnue"]["badge"]["texte"] == "mode api · vertical (2 cas)"
+    assert [a["alerte"] for a in v["alerte_inconnue"]["lue"]["alerts"]] == ["alerte_de_demain"]
+
+
+def test_sans_gate_les_reserves_restent_dues(cas: dict[str, Any]) -> None:
+    """« non validé » dit qu'aucun document n'est mesuré ; il ne dit pas qu'un document a été
+    écarté au chargement. Les deux faits sont indépendants, et le second reste dû."""
+    v = cas["validation"]
+    assert v["sans_gate_mais_quarantaine"]["badge"]["texte"] == \
+        "mode api · non validé (document écarté)"
+    assert cas["validation"]["sans_gate"]["badge"]["texte"] == "mode api · non validé"
 
 
 def test_le_badge_dit_non_valide_quand_aucun_document_nest_gate(cas: dict[str, Any]) -> None:
@@ -1505,6 +1874,125 @@ def test_le_demarrage_du_site_est_le_seul_a_etre_saute_par_le_harnais() -> None:
     demarrage = ui.index("  chargerKB();")
     assert export < garde < demarrage, "la garde n'encadre pas le seul démarrage"
 
+
+
+# --- Story 2.5 (M9) : la question sans réponse quitte l'historique ---------
+
+def test_une_question_restee_sans_reponse_quitte_lhistorique(dom: dict[str, Any]) -> None:
+    """Reprise différée de 2.2. `envoyer()` pousse le tour `user` **avant** l'appel et
+    `afficherErreur()` ne poussait rien : après un 503, la question suivante partait avec deux tours
+    `user` à la file, dont l'un n'avait jamais reçu de réponse — une conversation que *comprendre*
+    devait interpréter alors qu'elle n'a pas eu lieu. `ChatRequest` ne valide que le **nombre** de
+    tours, pas leur alternance : rien côté serveur ne pouvait rattraper cela.
+
+    On exerce ici le chemin entier : une question qui échoue, puis une seconde qui aboutit.
+    """
+    vu = dom["tour_sans_reponse"]
+    assert vu["apres_echec"]["historique"] == [], "le tour sans réponse est resté dans le fil"
+    # Et la requête suivante ne porte pas deux tours `user` à la file.
+    _, seconde = vu["corps_postes"]
+    assert seconde["question"] == "Et pour l'école ?"
+    roles = [t["role"] for t in seconde["historique"]]
+    assert not any(roles[i] == roles[i + 1] == "user" for i in range(len(roles) - 1)), roles
+    assert "Quel délai pour déclarer mon arrivée ?" not in [t["texte"] for t in seconde["historique"]]
+    # Le fil repart proprement : la question suivante et sa réponse, et rien d'autre.
+    assert vu["historique_final"] == [
+        {"role": "user", "content": "Et pour l'école ?"},
+        {"role": "assistant", "content": "Vous avez huit jours."}]
+
+
+def test_le_retrait_du_tour_est_dit_dans_le_bandeau(dom: dict[str, Any]) -> None:
+    """« retrait jamais silencieux » : la page a modifié la conversation, elle le dit."""
+    apres = dom["tour_sans_reponse"]["apres_echec"]
+    assert apres["retrait_peint"] == (
+        "Cette question n'a pas reçu de réponse : elle est retirée de la conversation, et ne "
+        "repartira pas au serveur avec la suivante.")
+    assert apres["retrait_peint"] in apres["bandeau"]
+    # Le bandeau reste celui de l'indisponibilité, avec son bouton unique — un par journal.
+    assert apres["boutons_de_repli"] == 2
+    assert apres["badges"]["onglet"]["texte"] == "mode indisponible"
+    assert apres["badges"]["widget"]["texte"] == "mode indisponible"
+
+
+def test_une_panne_reseau_retire_le_tour_comme_un_503(dom: dict[str, Any]) -> None:
+    """M5 : « même bandeau, même bouton unique » — et le même retrait."""
+    vu = dom["panne_reseau"]
+    assert vu["bandeaux"] == 2 and vu["boutons_de_repli"] == 2
+    assert vu["retrait_peint"] is not None
+    assert vu["historique"] == []
+
+
+# --- Story 2.5 (M4 / M8) : le repli, par le vrai chemin de la page ---------
+
+def test_le_bandeau_dun_503_porte_un_bouton_par_journal_et_le_clic_seul_ouvre_le_local(
+        dom: dict[str, Any]) -> None:
+    """M4 puis M8, à travers `envoyer()` : le chemin que la page emprunte vraiment."""
+    vu = dom["repli_par_envoyer"]
+    assert vu["avant"]["bandeaux"] == 2
+    assert vu["avant"]["boutons_de_repli"] == 2  # un par journal, et un seul dans chacun
+    assert vu["avant"]["locales"] == 0, "le moteur lexical a produit une bulle sans qu'on clique"
+    assert vu["avant"]["historique"] == 0, "le tour sans réponse est resté dans le fil"
+    # Le clic, et lui seul.
+    assert vu["apres"]["locales"] == 2
+    assert vu["apres"]["boutons_de_repli_restants"] == 0, "la puce cliquée disparaît des deux côtés"
+    assert vu["apres"]["badges"]["onglet"]["texte"] == "mode local"
+    assert vu["apres"]["badges"]["widget"]["texte"] == "mode local"
+    # Le tour local est marqué : il ne repartira pas au serveur comme la parole de l'assistant.
+    assert vu["apres"]["historique"] == [{"role": "assistant", "local": True}]
+    assert "aucune vérification" in vu["apres"]["texte_local"]
+
+
+@pytest.mark.parametrize("nom", ["erreur_limite", "erreur_refusee"])
+def test_un_429_ou_un_4xx_conserve_le_badge_et_nouvre_aucune_porte(dom: dict[str, Any],
+                                                                   nom: str) -> None:
+    """M6 / M7 : « badge `mode api` conservé », « zéro action ». Le serveur a répondu — il a refusé
+    la requête —, et le mode n'est donc pas devenu indisponible."""
+    vu = dom[nom]
+    assert vu["badge_avant"]["onglet"]["texte"].startswith("mode api")
+    assert vu["badge_apres"] == vu["badge_avant"], "le badge a changé alors que le serveur a répondu"
+    assert vu["boutons_de_repli"] == 0
+    assert vu["boutons_dans_les_journaux"] == 0
+    assert vu["texte"], "le message d'erreur n'est pas peint"
+    # Là aussi, la question sans réponse quitte le fil : un 4xx n'a pas eu de réponse non plus.
+    assert vu["historique"] == []
+
+
+def test_le_429_affiche_le_delai_de_retry_after(dom: dict[str, Any]) -> None:
+    assert "réessayez dans 30 secondes" in dom["erreur_limite"]["texte"]
+
+
+# --- Story 2.5 (M1) : le panneau est matérialisé dans les deux journaux ----
+
+def test_le_panneau_pourquoi_est_peint_dans_les_deux_journaux(dom: dict[str, Any]) -> None:
+    """Le défaut de 1.7 (B6) était un badge composé et jamais posé dans le widget flottant : le
+    panneau ne doit pas le rejouer. Un `<details>` par journal, replié, sans `id`."""
+    vu = dom["panneau"]
+    assert vu["panneaux"] == 2
+    assert vu["summary"] == "Pourquoi cette réponse"
+    # Replié par défaut : la trace explique la réponse, elle ne la précède pas.
+    assert vu["attribut_open"] == [None, None]
+    # Deux `<details>` dans une bulle : le panneau et son sous-panneau de seuils.
+    assert vu["details_dans_la_bulle"] == 2
+    assert vu["ids"] == 0, "un `id` dans un arbre peint deux fois rend le document invalide"
+
+
+def test_le_pictogramme_dun_controle_est_pose_par_setattribute(dom: dict[str, Any]) -> None:
+    """`materialiser()` pose `vue.attrs` par `setAttribute` : c'est la seule voie, et le DOM minimal
+    ne modélise rien d'autre. Sans elle, la branche décrite par `chat.js` serait inatteignable."""
+    pictos = dom["panneau"]["pictos"]
+    assert pictos, "aucun pictogramme de contrôle matérialisé"
+    for picto in pictos:
+        assert picto["aria"] == "true"
+        assert picto["texte"] in ("✓", "✗")
+
+
+def test_le_panneau_materialise_porte_bien_ce_que_la_trace_disait(dom: dict[str, Any]) -> None:
+    texte = dom["panneau"]["texte"]
+    for attendu in ("Pourquoi cette réponse", "retrouver · reason · 3480 ms",
+                    "b1 — Les huit premiers jours", "citations relues dans le corpus",
+                    "profil de validation : vertical (2 cas)",
+                    "le refus « zéro hit » est désarmé", "Seuils actifs (1)"):
+        assert attendu in texte, attendu
 
 # --- AD-15 : ce que le navigateur garde, et ce qu'il ne garde plus --------
 

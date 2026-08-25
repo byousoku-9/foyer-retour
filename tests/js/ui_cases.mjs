@@ -434,6 +434,187 @@ async function main() {
     };
   }
 
+  // --- story 2.5 (M9) : une question sans réponse quitte l'historique ------
+  //
+  // `envoyer()` pousse le tour `user` **avant** l'appel, et `afficherErreur()` ne poussait rien :
+  // après un 503, la question suivante partait avec deux tours `user` à la file, dont l'un n'avait
+  // jamais reçu de réponse. On exerce donc le chemin **entier** — `envoyer()` puis l'échec, puis
+  // une seconde question qui réussit — et on relève ce que le serveur aurait reçu, corps par corps.
+  {
+    const sante = { ok: true, version: "abc1234", documents_servis: ["lux-guide"],
+                    gate_profile: null, gate_cases: null, gate_countersigned: null,
+                    alerts: [], thresholds: {} };
+    const postes = [];
+    let rang = 0;
+    const { window, document, elements } = monter((url, options) => {
+      if (String(url).endsWith("/sante")) {
+        return Promise.resolve({ ok: true, status: 200, headers: { get: () => null },
+                                 json: () => Promise.resolve(sante) });
+      }
+      postes.push(JSON.parse(options.body));
+      rang += 1;
+      if (rang === 1) {
+        return Promise.resolve({
+          ok: false, status: 503, headers: { get: () => null },
+          json: () => Promise.resolve({ error: { code: "llm_unavailable", message: "down",
+                                                 request_id: "req-503" } }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, headers: { get: () => null },
+                               json: () => Promise.resolve(reponseAvecBalisage()) });
+    });
+
+    window.UI.envoyer("Quel délai pour déclarer mon arrivée ?");
+    await respirer();
+    const apresEchec = {
+      historique: window.UI.historique().map((t) => ({ role: t.role, content: t.content })),
+      // Le retrait est **dit** : la phrase est composée par `chat.js`, posée par le matérialiseur.
+      retrait_peint: (document.querySelector(".retrait") || {}).textContent || null,
+      bandeau: (document.querySelector(".msg.bot.indispo") || {}).textContent || null,
+      boutons_de_repli: repliDans(document),
+      badges: badges(elements),
+    };
+    window.UI.envoyer("Et pour l'école ?");
+    await respirer();
+    cas.tour_sans_reponse = {
+      apres_echec: apresEchec,
+      corps_postes: postes.map((c) => ({ question: c.question, historique: c.historique })),
+      historique_final: window.UI.historique().map((t) => ({ role: t.role, content: t.content })),
+    };
+  }
+
+  // --- story 2.5 (M4 / M8) : le bouton unique, et le clic qui ouvre le local ---
+  //
+  // Le cas `indisponible` plus haut peint `vueErreur` à la main ; celui-ci passe par `envoyer()`,
+  // donc par le vrai chemin de la page : la question est poussée, l'appel échoue, le bandeau est
+  // peint dans les **deux** journaux, et le clic — le seul — fait tourner le moteur lexical.
+  {
+    const sante = { ok: true, version: "abc1234", documents_servis: ["lux-guide"],
+                    gate_profile: null, gate_cases: null, gate_countersigned: null,
+                    alerts: [], thresholds: {} };
+    const { window, document, elements } = monter((url) => {
+      if (String(url).endsWith("/sante")) {
+        return Promise.resolve({ ok: true, status: 200, headers: { get: () => null },
+                                 json: () => Promise.resolve(sante) });
+      }
+      return Promise.resolve({
+        ok: false, status: 503, headers: { get: () => null },
+        json: () => Promise.resolve({ error: { code: "llm_unavailable", message: "down",
+                                               request_id: "req-503" } }),
+      });
+    });
+    window.UI.envoyer("Quel délai pour déclarer mon arrivée ?");
+    await respirer();
+    const avant = {
+      bandeaux: document.querySelectorAll(".indispo").length,
+      boutons_de_repli: repliDans(document),
+      locales: document.querySelectorAll(".locale").length,
+      badges: badges(elements),
+      historique: window.UI.historique().length,
+    };
+    document.querySelectorAll("button")
+      .filter((b) => b.textContent === "Consulter le guide en recherche simple")[0]
+      .declencher("click");
+    cas.repli_par_envoyer = {
+      avant,
+      apres: {
+        locales: document.querySelectorAll(".locale").length,
+        boutons_de_repli_restants: repliDans(document),
+        badges: badges(elements),
+        historique: window.UI.historique().map((t) => ({ role: t.role, local: !!t.local })),
+        // `via: "local"` est visible : le badge le dit, dans les deux surfaces.
+        texte_local: (document.querySelector(".locale") || { textContent: "" }).textContent,
+      },
+    };
+  }
+
+  // --- story 2.5 (M5) : une panne réseau ouvre la même porte, et pas une autre ---
+  {
+    // `fetch` **rejette** sur une panne réseau, il ne lève pas : un double qui lèverait
+    // synchroniquement testerait un chemin que le navigateur n'emprunte jamais.
+    const { window, document } = monter(() => Promise.reject(new TypeError("Failed to fetch")));
+    window.UI.envoyer("Quel délai pour déclarer mon arrivée ?");
+    await respirer();
+    cas.panne_reseau = {
+      bandeaux: document.querySelectorAll(".indispo").length,
+      boutons_de_repli: repliDans(document),
+      retrait_peint: (document.querySelector(".retrait") || {}).textContent || null,
+      historique: window.UI.historique().map((t) => ({ role: t.role, content: t.content })),
+    };
+  }
+
+  // --- story 2.5 (M6 / M7) : un 429 et un 400 ne retirent rien de plus, et n'ouvrent rien ---
+  {
+    const sante = { ok: true, version: "abc1234", documents_servis: ["lux-guide"],
+                    gate_profile: "vertical", gate_cases: 2, gate_countersigned: true,
+                    alerts: [], thresholds: {} };
+    for (const [nom, statut, code, entete] of [["limite", 429, "rate_limited", "30"],
+                                               ["refusee", 400, "invalid_request", null]]) {
+      const { window, document, elements } = monter((url) => {
+        if (String(url).endsWith("/sante")) {
+          return Promise.resolve({ ok: true, status: 200, headers: { get: () => null },
+                                   json: () => Promise.resolve(sante) });
+        }
+        return Promise.resolve({
+          ok: false, status: statut,
+          headers: { get: (n) => (n.toLowerCase() === "retry-after" ? entete : null) },
+          json: () => Promise.resolve({ error: { code, message: "peu importe",
+                                                 request_id: "req-" + statut } }),
+        });
+      });
+      await window.CHAT.testerApi();
+      window.UI.badgeMode("api/v1");
+      const badgeAvant = badges(elements);
+      window.UI.envoyer("Quel délai pour déclarer mon arrivée ?");
+      await respirer();
+      cas["erreur_" + nom] = {
+        badge_avant: badgeAvant,
+        // Le badge `mode api` est **conservé** : le serveur a répondu, il a refusé la requête.
+        badge_apres: badges(elements),
+        boutons_de_repli: repliDans(document),
+        boutons_dans_les_journaux: ["chat-log", "widget-log"].reduce(
+          (n, id) => n + document.querySelector("#" + id).querySelectorAll("button").length, 0),
+        texte: (document.querySelector(".msg.bot.err") || { textContent: "" }).textContent,
+        historique: window.UI.historique().map((t) => ({ role: t.role, content: t.content })),
+      };
+    }
+  }
+
+  // --- story 2.5 (M1) : le panneau est peint dans les **deux** journaux -----
+  {
+    const { window, document } = monter();
+    const r = reponseAvecBalisage();
+    r.trace = {
+      request_id: "r-1", pipeline: "guide", variant: "deterministe", total_cost_eur: 0.0278,
+      retries: 0, truncations: 0, thresholds: { max_opens: 8 },
+      steps: [{ name: "retrouver", tier: "reason", ms: 3480,
+                opened_block_ids: ["b1"], discarded_block_ids: [],
+                checks: [{ name: "citations", ok: true, detail: "1 affirmation(s) retenue(s)" }] }],
+      blocs: [{ block_id: "b1", doc_id: "lux-guide", node_id: "lux-guide:farrivee",
+                fiche_id: "arrivee", titre: "Les huit premiers jours" }],
+      gate: { profile: "vertical", cases: 2, countersigned: false, alerts: [] },
+      dictionnaire: { charge: true, validated: false, corpus_ok: true, court_circuit_actif: false },
+    };
+    const bulles = window.UI.peindre(window.CHAT.vueReponse(r, QUESTION));
+    const panneaux = document.querySelectorAll(".pourquoi");
+    cas.panneau = {
+      // Un `<details>` par journal : la conversation est la même des deux côtés.
+      panneaux: panneaux.length,
+      details_dans_la_bulle: bulles[0].querySelectorAll("details").length,
+      summary: (bulles[0].querySelector("summary") || {}).textContent,
+      // Replié par défaut : aucun `open` n'est posé.
+      attribut_open: panneaux.map((p) => p.getAttribute("open")),
+      // `aria-hidden` est posé par `setAttribute` depuis la description : c'est la seule voie.
+      pictos: bulles[0].querySelectorAll(".pq-ok").concat(bulles[0].querySelectorAll(".pq-ko"))
+        .map((n) => ({ texte: n.textContent, aria: n.getAttribute("aria-hidden") })),
+      // Aucun `id` dans un arbre peint deux fois.
+      ids: document.querySelectorAll(".pourquoi")
+        .flatMap((p) => p.querySelectorAll("li").concat(p.querySelectorAll("span")))
+        .filter((n) => n.getAttribute("id")).length,
+      texte: bulles[0].querySelector(".pourquoi").textContent,
+    };
+  }
+
   // --- rien de la conversation n'atteint le navigateur --------------------
   {
     const { window, localStorage } = monter();

@@ -1,0 +1,296 @@
+{
+  "_pourquoi": [
+    "Story 2.5 — la table de cas partagée entre `web/app/ui.js::etapeConcerne` (ce que le SITE garde",
+    "à l'écran) et `server/app/domain/profil.py::noeuds_du_profil` (ce que le SERVEUR promeut dans",
+    "la recherche). Les deux lisent le MÊME `si` de la même source (`data/lux-guide/document.json`,",
+    "`parcours`), dans deux langages, sans qu'aucun test ne les ait jamais confrontées.",
+    "",
+    "Leur divergence d'économie est VOULUE et documentée : le site CACHE des étapes, donc dans le",
+    "doute il montre (clé absente ⇒ l'étape reste) ; le serveur PROMEUT des fiches, donc dans le",
+    "doute il ne promeut pas (clé absente ⇒ le nœud n'est pas désigné). Sans cette inversion, un",
+    "profil vide désignerait les neuf fiches conditionnées, c'est-à-dire aucune.",
+    "",
+    "Chaque cas déclare donc les DEUX colonnes. `divergence_voulue` marque celles qui sont un choix",
+    "assumé ; toute autre divergence, et toute dérive de l'une des deux règles, rougit."
+  ],
+  "conditions_du_parcours_livre": [
+    { "node_id": "lux-guide:fecole", "si": { "enfants": true } },
+    { "node_id": "lux-guide:fgarde", "si": { "enfants": true } },
+    { "node_id": "lux-guide:frecherche_logement", "si": { "logement": "Louer" } },
+    { "node_id": "lux-guide:fachat", "si": { "logement": "Acheter" } },
+    { "node_id": "lux-guide:fassurance_auto", "si": { "vehicule": true } },
+    { "node_id": "lux-guide:fallocations", "si": { "enfants": true } },
+    { "node_id": "lux-guide:findependant", "si": { "statut": "Independant" } },
+    { "node_id": "lux-guide:fvehicule", "si": { "vehicule": true } },
+    { "node_id": "lux-guide:fpermis", "si": { "vehicule": true } }
+  ],
+  "cas": [
+    {
+      "nom": "enfants_deux",
+      "si": { "enfants": true },
+      "profil": { "enfants": "2" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "enfants_trois_ou_plus",
+      "si": { "enfants": true },
+      "profil": { "enfants": "3 ou plus" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "enfants_aucun",
+      "si": { "enfants": true },
+      "profil": { "enfants": "Aucun" },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "enfants_zero",
+      "si": { "enfants": true },
+      "profil": { "enfants": "0" },
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "Le questionnaire du site n'offre que « Aucun / 1 / 2 / 3 ou plus » : « 0 » vient d'un profil bricolé ou recopié. Le site le compare littéralement à « Aucun » et garde l'étape ; le serveur le reconnaît comme une absence d'enfants et ne promeut pas. Aucun des deux ne ment : le site montre plus, le serveur promeut moins."
+    },
+    {
+      "nom": "enfants_vide",
+      "si": { "enfants": true },
+      "profil": { "enfants": "" },
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "Champ laissé vide par un profil bricolé. Même partage que « 0 »."
+    },
+    {
+      "nom": "enfants_non",
+      "si": { "enfants": true },
+      "profil": { "enfants": "Non" },
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "Même partage que « 0 » : « Non » n'est pas une valeur du questionnaire."
+    },
+    {
+      "nom": "enfants_absent",
+      "si": { "enfants": true },
+      "profil": {},
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "L'inversion d'économie elle-même : dans le doute, le site montre, le serveur ne promeut pas."
+    },
+    {
+      "nom": "enfants_nul",
+      "si": { "enfants": true },
+      "profil": { "enfants": null },
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "`null` envoyé par la page vaut « pas renseigné » : le serveur le traite comme une clé absente. Le site, lui, ne teste que `undefined` et retombe sur la comparaison à « Aucun »."
+    },
+    {
+      "nom": "vehicule_oui",
+      "si": { "vehicule": true },
+      "profil": { "vehicule": "Oui" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "vehicule_non",
+      "si": { "vehicule": true },
+      "profil": { "vehicule": "Non" },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "vehicule_absent",
+      "si": { "vehicule": true },
+      "profil": {},
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "L'inversion d'économie."
+    },
+    {
+      "nom": "vehicule_booleen_vrai",
+      "si": { "vehicule": true },
+      "profil": { "vehicule": true },
+      "site_garde": false,
+      "serveur_promeut": true,
+      "divergence_voulue": true,
+      "pourquoi": "Un booléen est ce que la condition de la source écrit, et un appelant du domaine (tests, évals) peut poser `Profil(vehicule=True)` sans passer par le formulaire : le serveur l'honore. Le site compare à la chaîne « Oui » du questionnaire et ne reconnaît rien d'autre. Le formulaire, lui, ne produit jamais de booléen."
+    },
+    {
+      "nom": "vehicule_booleen_faux",
+      "si": { "vehicule": true },
+      "profil": { "vehicule": false },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "vehicule_condition_negative",
+      "si": { "vehicule": false },
+      "profil": { "vehicule": "Non" },
+      "site_garde": false,
+      "serveur_promeut": true,
+      "divergence_voulue": true,
+      "pourquoi": "« Cette fiche concerne qui n'a PAS de voiture » : le type `dict[str, str | bool]` l'autorise et l'ingestion l'accepterait. Le serveur honore la valeur écrite (revue coordonnée 2.3, A10) ; `etapeConcerne` ignore la valeur de `si` pour `vehicule` et ne teste que « le profil a-t-il une voiture », si bien qu'il cacherait l'étape exactement à qui elle s'adresse. Aucune condition du parcours livré n'est négative : c'est une divergence sur un chemin que la source n'emprunte pas encore, déclarée pour qu'elle cesse d'être invisible."
+    },
+    {
+      "nom": "vehicule_condition_negative_avec_voiture",
+      "si": { "vehicule": false },
+      "profil": { "vehicule": "Oui" },
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "Symétrique du cas précédent, sur le même chemin non emprunté."
+    },
+    {
+      "nom": "logement_louer_sur_louer",
+      "si": { "logement": "Louer" },
+      "profil": { "logement": "Louer" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "logement_acheter_sur_louer",
+      "si": { "logement": "Louer" },
+      "profil": { "logement": "Acheter" },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "logement_indecis_sur_louer",
+      "si": { "logement": "Louer" },
+      "profil": { "logement": "Pas encore decide" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "logement_indecis_sur_acheter",
+      "si": { "logement": "Acheter" },
+      "profil": { "logement": "Pas encore decide" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "logement_indecis_accentue",
+      "si": { "logement": "Louer" },
+      "profil": { "logement": "Pas encore décidé" },
+      "site_garde": false,
+      "serveur_promeut": true,
+      "divergence_voulue": true,
+      "pourquoi": "Les valeurs du questionnaire sont écrites sans accent PARCE QUE ce sont des identifiants. Le serveur neutralise casse et accents (revue coordonnée 2.3, A12) ; le site compare littéralement. Un profil recopié à la main avec ses accents ne correspond donc à rien côté site — un défaut réel, mais qui CACHE une étape au lieu d'en promouvoir une à tort."
+    },
+    {
+      "nom": "logement_absent",
+      "si": { "logement": "Louer" },
+      "profil": {},
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "L'inversion d'économie."
+    },
+    {
+      "nom": "statut_independant",
+      "si": { "statut": "Independant" },
+      "profil": { "statut": "Independant" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "statut_salarie",
+      "si": { "statut": "Independant" },
+      "profil": { "statut": "Salarie" },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "statut_les_deux",
+      "si": { "statut": "Independant" },
+      "profil": { "statut": "Les deux" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "statut_pas_encore_demploi",
+      "si": { "statut": "Independant" },
+      "profil": { "statut": "Pas encore d'emploi" },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "statut_accentue",
+      "si": { "statut": "Independant" },
+      "profil": { "statut": "Indépendant" },
+      "site_garde": false,
+      "serveur_promeut": true,
+      "divergence_voulue": true,
+      "pourquoi": "Même partage que « Pas encore décidé » : le serveur neutralise les accents, le site compare l'identifiant littéralement."
+    },
+    {
+      "nom": "statut_absent",
+      "si": { "statut": "Independant" },
+      "profil": {},
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "L'inversion d'économie."
+    },
+    {
+      "nom": "deux_cles_satisfaites",
+      "si": { "enfants": true, "vehicule": true },
+      "profil": { "enfants": "1", "vehicule": "Oui" },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "deux_cles_une_contredite",
+      "si": { "enfants": true, "vehicule": true },
+      "profil": { "enfants": "1", "vehicule": "Non" },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "deux_cles_une_absente",
+      "si": { "enfants": true, "vehicule": true },
+      "profil": { "enfants": "1" },
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "L'inversion d'économie, sur une condition à deux clés."
+    },
+    {
+      "nom": "profil_complet_du_questionnaire",
+      "si": { "enfants": true },
+      "profil": {
+        "situation": "En famille", "enfants": "2", "statut": "Salarie",
+        "logement": "Louer", "vehicule": "Oui", "horizon": "Je viens d'arriver"
+      },
+      "site_garde": true,
+      "serveur_promeut": true
+    },
+    {
+      "nom": "profil_complet_sans_enfant_ni_voiture",
+      "si": { "vehicule": true },
+      "profil": {
+        "situation": "Seul", "enfants": "Aucun", "statut": "Independant",
+        "logement": "Pas encore decide", "vehicule": "Non", "horizon": "Je prepare mon depart"
+      },
+      "site_garde": false,
+      "serveur_promeut": false
+    },
+    {
+      "nom": "profil_entierement_vide",
+      "si": { "enfants": true },
+      "profil": {},
+      "site_garde": true,
+      "serveur_promeut": false,
+      "divergence_voulue": true,
+      "pourquoi": "Le cas qui fonde l'inversion : sans elle, un profil vide satisferait les neuf conditions et désignerait toutes les fiches conditionnées, c'est-à-dire aucune."
+    }
+  ]
+}

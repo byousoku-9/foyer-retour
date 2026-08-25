@@ -206,11 +206,59 @@ function texteDe(vue, cls) {
 }
 
 /**
+ * Résumé assertable du panneau « Pourquoi cette réponse » (story 2.5), ou `null` s'il n'est pas là.
+ *
+ * L'AC de la story est une **liste de rubriques** : elle se vérifie sur l'arbre composé, rubrique
+ * par rubrique et ligne par ligne. Ce relevé garde donc la structure (un titre, ses lignes, l'état
+ * ✓/✗ de chacune) au lieu d'aplatir en une chaîne, pour qu'une rubrique absente se distingue d'une
+ * rubrique vide et qu'un contrôle échoué se distingue d'un contrôle passé.
+ */
+function resumerPourquoi(vue) {
+  const panneau = parClasse(vue, "pourquoi")[0];
+  if (!panneau) return null;
+  const lignesDe = (bloc) => parClasse(bloc, "pq-ligne").map((l) => {
+    const ok = parClasse(l, "pq-ok")[0];
+    const ko = parClasse(l, "pq-ko")[0];
+    return {
+      etat: ok ? "ok" : (ko ? "ko" : null),
+      texte: l.texte !== undefined ? l.texte
+        : noeuds(l).filter((n) => n !== l && n.texte !== undefined && !(n.cls || "").match(/pq-(ok|ko)/))
+            .map((n) => n.texte).join(" | "),
+      // Le pictogramme est décoratif : sa valeur n'a de sens que masquée aux lecteurs d'écran.
+      picto: (ok || ko || {}).attrs || null,
+    };
+  });
+  const seuils = parClasse(panneau, "pq-seuils")[0] || null;
+  return {
+    tag: panneau.tag,
+    summary: texteDe(panneau, "pq-sum"),
+    rubriques: parClasse(panneau, "pq-bloc").map((b) => ({
+      titre: texteDe(b, "pq-titre"),
+      note: texteDe(b, "pq-note"),
+      lignes: lignesDe(b),
+    })),
+    seuils: seuils ? {
+      tag: seuils.tag,
+      summary: (seuils.enfants || []).filter((n) => n.tag === "summary").map((n) => n.texte)[0],
+      lignes: lignesDe(seuils).map((l) => l.texte),
+    } : null,
+    rejetees: parClasse(panneau, "pq-rejetee").map((r) => ({
+      texte: texteDe(r, "pq-rej-txt"), motif: texteDe(r, "pq-rej-motif"),
+    })),
+    // Aucun `id` : l'arbre est peint **deux fois** dans le même document.
+    attrs: noeuds(panneau).filter((n) => n.attrs).map((n) => n.attrs),
+    ids: noeuds(panneau).filter((n) => n.attrs && n.attrs.id).length,
+  };
+}
+
+/**
  * Résumé assertable d'une vue de réponse : ce que l'AC promet, et rien d'autre.
  * Chaque segment avec ses citations placées, la preuve, les inconnus, l'état, le coût, les actions.
  */
 function resumerVue(vue) {
   return {
+    pourquoi: resumerPourquoi(vue),
+    retrait: texteDe(vue, "retrait"),
     cls_racine: vue.cls,
     clarification: texteDe(vue, "clarif-q"),
     ordre_des_blocs: (vue.enfants || []).map((n) => n.cls),
@@ -698,6 +746,50 @@ async function main() {
                                 answer: { found: false, complete: false,
                                           reason: { kind: "zero_hit", terms_searched: [], documents: [],
                                                     variants_count: 3, blocks_scanned: "12" } } },
+      // --- story 2.5 : ce que le panneau consomme est **strict sur le type** ---
+      // Tolérant à l'absence (les deux lots sont écrits en parallèle, le front n'exige aucun de ces
+      // champs), mais un champ **présent et mal typé** est un serveur cassé : l'afficher peindrait
+      // « 0 relance » sur un compteur que rien n'a calculé, ou une ligne d'étape sans nom, sous le
+      // panneau qui répond justement de l'honnêteté du reste. Chacun de ces corps est aussi refusé
+      // par `ChatResponse.model_validate()` — le test Python le vérifie corps par corps.
+      trace_blocs_non_liste: { texte: "x", answer: ANSWER_OK,
+                               trace: { request_id: "r-x", pipeline: "guide", blocs: {} } },
+      trace_bloc_titre_nombre: { texte: "x", answer: ANSWER_OK,
+                                 trace: { request_id: "r-x", pipeline: "guide",
+                                          blocs: [{ block_id: "b1", doc_id: "mini",
+                                                    node_id: "mini:f1", fiche_id: "f1",
+                                                    titre: 42 }] } },
+      trace_gate_nombre: { texte: "x", answer: ANSWER_OK,
+                           trace: { request_id: "r-x", pipeline: "guide", gate: 42 } },
+      trace_gate_alerts_non_liste: { texte: "x", answer: ANSWER_OK,
+                                     trace: { request_id: "r-x", pipeline: "guide",
+                                              gate: { profile: "vertical", alerts: {} } } },
+      trace_dictionnaire_non_booleen: { texte: "x", answer: ANSWER_OK,
+                                        trace: { request_id: "r-x", pipeline: "guide",
+                                                 dictionnaire: { charge: 5 } } },
+      trace_retries_objet: { texte: "x", answer: ANSWER_OK,
+                             trace: { request_id: "r-x", pipeline: "guide", retries: {} } },
+      trace_steps_non_liste: { texte: "x", answer: ANSWER_OK,
+                               trace: { request_id: "r-x", pipeline: "guide", steps: {} } },
+      trace_step_check_ok_chaine: {
+        texte: "x", answer: ANSWER_OK,
+        trace: { request_id: "r-x", pipeline: "guide",
+                 steps: [{ name: "verifier", checks: [{ name: "citations", ok: "peut-être" }] }] } },
+      trace_thresholds_non_objet: { texte: "x", answer: ANSWER_OK,
+                                    trace: { request_id: "r-x", pipeline: "guide",
+                                             thresholds: [] } },
+      trace_cout_negatif: { texte: "x", answer: ANSWER_OK,
+                            trace: { request_id: "r-x", pipeline: "guide",
+                                     total_cost_eur: -0.01 } },
+      trace_cout_infini: { texte: "x", answer: ANSWER_OK,
+                           trace: { request_id: "r-x", pipeline: "guide",
+                                    total_cost_eur: Infinity } },
+      trace_seuil_chaine: { texte: "x", answer: ANSWER_OK,
+                            trace: { request_id: "r-x", pipeline: "guide",
+                                     thresholds: { max_opens: "8" } } },
+      trace_seuil_booleen: { texte: "x", answer: ANSWER_OK,
+                             trace: { request_id: "r-x", pipeline: "guide",
+                                      thresholds: { max_opens: true } } },
     };
     cas.contrat_incomplet = {};
     for (const [nom, c] of Object.entries(corps)) {
@@ -1077,6 +1169,236 @@ async function main() {
     });
   }
 
+  // --- story 2.5 : une trace complète, telle que le Lot A la publie -------
+  //
+  // Écrite **à la main**, contre le contrat décrit par la spec (`BlocTrace`, `GateTrace`,
+  // `DictionnaireTrace` et les trois champs de `Trace`) : les deux lots sont implémentés en
+  // parallèle, et le harnais du front ne peut pas attendre que le serveur pose ses champs pour
+  // exister. `tests/test_api.py` (Lot A) vérifie l'autre bord — que la route écrit bien ce contrat.
+  function traceRiche(surcharge) {
+    return Object.assign({
+      request_id: "r-trace", pipeline: "guide", variant: "deterministe", intent: "question",
+      steps: [
+        { name: "comprendre", tier: "micro", ms: 912,
+          opened_block_ids: [], discarded_block_ids: [],
+          checks: [{ name: "intention_expliquee", ok: true,
+                     detail: "intention « question » — 3 déclencheur(s) du dictionnaire sur 30 la confirment" }] },
+        { name: "retrouver", tier: "reason", ms: 3480,
+          opened_block_ids: ["lux-guide:farrivee:2", "lux-guide:farrivee:3"],
+          discarded_block_ids: ["lux-guide:fbanque:1"],
+          checks: [{ name: "noeuds_du_profil", ok: true, detail: "2 fiche(s) désignée(s)" },
+                   { name: "dictionnaire", ok: true, detail: "7 variante(s) ajoutée(s) à 3 terme(s)" }] },
+        { name: "rediger", tier: "reason", ms: 12800, opened_block_ids: [], discarded_block_ids: [],
+          checks: [] },
+        { name: "verifier", tier: "micro", ms: 1450, opened_block_ids: [], discarded_block_ids: [],
+          checks: [{ name: "citations", ok: true, detail: "3 affirmation(s) retenue(s), 1 rejetée(s) sur 4" },
+                   { name: "facettes_non_couvertes", ok: false,
+                     detail: "1 facette(s) couverte(s) sur 2 posée(s)" }] },
+        { name: "restituer", tier: null, ms: 2, opened_block_ids: [], discarded_block_ids: [],
+          checks: [] },
+      ],
+      total_cost_eur: 0.0278,
+      thresholds: { max_opens: 8, search_limit: 40, quote_min_chars: 24 },
+      retries: 1,
+      truncations: 0,
+      deadline_remaining_s: 36.25,
+      blocs: [
+        { block_id: "lux-guide:farrivee:2", doc_id: "lux-guide", node_id: "lux-guide:farrivee",
+          fiche_id: "arrivee", titre: "Les huit premiers jours" },
+        { block_id: "lux-guide:farrivee:3", doc_id: "lux-guide", node_id: "lux-guide:farrivee",
+          fiche_id: "arrivee", titre: "Les huit premiers jours" },
+        { block_id: "lux-guide:fbanque:1", doc_id: "lux-guide", node_id: "lux-guide:fbanque",
+          fiche_id: "banque", titre: "Ouvrir un compte" },
+      ],
+      gate: { profile: "vertical", cases: 2, countersigned: false, alerts: ["gate_perime"] },
+      dictionnaire: { charge: true, validated: false, corpus_ok: true, court_circuit_actif: false },
+    }, surcharge || {});
+  }
+
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+    const Q = QUESTION;
+
+    // M1 — le panneau complet : toutes les rubriques que l'AC énumère.
+    const complete = reponseSourcee();
+    complete.trace = traceRiche();
+    complete.answer.rejected_claims = [
+      { claim_id: "c9", text: "Le certificat coûte dix euros.",
+        quotes: [{ block_id: "lux-guide:fautre:1", quote: "CETTE QUOTE NE DOIT JAMAIS S'AFFICHER" }],
+        status: { retrouvee: false, pertinente: null, applicable: null, edition: "git:a8e8593" },
+        rejection_kind: "non_retrouvee", motif: "citation introuvable" },
+    ];
+    cas.vue_pourquoi_complet = resumerVue(CHAT.vueReponse(complete, Q));
+    cas.pourquoi_texte_entier = noeuds(CHAT.vueReponse(complete, Q))
+      .filter((n) => n.texte !== undefined).map((n) => n.texte).join(" ");
+
+    // M2 — trace pauvre : les trois champs de la story sont **absents**, pas nuls. Aucune rubrique
+    // inventée, aucun « inconnu », aucune ligne vide.
+    const pauvre = reponseSourcee();
+    pauvre.trace = { request_id: "r-pauvre", pipeline: "guide", total_cost_eur: 0.004 };
+    cas.vue_pourquoi_pauvre = resumerVue(CHAT.vueReponse(pauvre, Q));
+
+    // Et le cas où `gate` et `dictionnaire` sont **présents et nuls** (ce que `Trace` déclare) :
+    // `null` n'est pas une mesure non plus.
+    const nuls = reponseSourcee();
+    nuls.trace = traceRiche({ gate: null, dictionnaire: null, blocs: [] });
+    cas.vue_pourquoi_champs_nuls = resumerVue(CHAT.vueReponse(nuls, Q));
+
+    // M3 — un `block_id` que `trace.blocs` ne résout pas : la ligne porte l'id **seul**.
+    const nonResolu = reponseSourcee();
+    nonResolu.trace = traceRiche({
+      blocs: [{ block_id: "lux-guide:farrivee:2", doc_id: "lux-guide", node_id: "lux-guide:farrivee",
+                fiche_id: "arrivee", titre: "Les huit premiers jours" }],
+    });
+    cas.vue_pourquoi_bloc_non_resolu = resumerVue(CHAT.vueReponse(nonResolu, Q));
+
+    // M12 — dictionnaire signé : la phrase du refus « zéro hit » bascule, elle n'est pas recalculée.
+    const arme = reponseSourcee();
+    arme.trace = traceRiche({
+      dictionnaire: { charge: true, validated: true, corpus_ok: true, court_circuit_actif: true },
+    });
+    cas.vue_pourquoi_dictionnaire_arme = resumerVue(CHAT.vueReponse(arme, Q));
+
+    // Le motif du désarmement suit les faits publiés : absence, corpus périmé, puis signature.
+    cas.pourquoi_dictionnaires_desarmes = {};
+    for (const [nom, dictionnaire] of Object.entries({
+      absent: { charge: false, validated: false, corpus_ok: false, court_circuit_actif: false },
+      perime: { charge: true, validated: true, corpus_ok: false, court_circuit_actif: false },
+      non_signe: { charge: true, validated: false, corpus_ok: true, court_circuit_actif: false },
+    })) {
+      const r = reponseSourcee();
+      r.trace = traceRiche({ dictionnaire });
+      cas.pourquoi_dictionnaires_desarmes[nom] = resumerVue(CHAT.vueReponse(r, Q));
+    }
+
+    // Un délai négatif est un dépassement mesuré, jamais une « durée restante » négative.
+    const depassee = reponseSourcee();
+    depassee.trace = traceRiche({ deadline_remaining_s: -2.25 });
+    cas.vue_pourquoi_deadline_depassee = resumerVue(CHAT.vueReponse(depassee, Q));
+
+    // `profile=null` et l'alerte `sans_gate` décrivent le même fait : une seule ligne suffit.
+    const sansGate = reponseSourcee();
+    sansGate.trace = traceRiche({
+      gate: { profile: null, cases: null, countersigned: null, alerts: ["sans_gate"] },
+    });
+    cas.vue_pourquoi_sans_gate = resumerVue(CHAT.vueReponse(sansGate, Q));
+
+    // Une trace qui ne porte **que** ses deux champs obligatoires n'a rien à expliquer : pas de
+    // panneau plutôt qu'un `<details>` vide.
+    const muette = reponseSourcee();
+    muette.trace = { request_id: "", pipeline: "" };
+    cas.vue_pourquoi_muette = resumerVue(CHAT.vueReponse(muette, Q));
+
+    // Un contrôle dont le `name` n'est pas dans la table : affiché **tel quel**, jamais masqué.
+    const inconnu = reponseSourcee();
+    inconnu.trace = traceRiche({
+      steps: [{ name: "verifier", tier: "micro", ms: 10, opened_block_ids: [],
+                discarded_block_ids: [],
+                checks: [{ name: "controle_de_demain", ok: false, detail: "détail" }] }],
+    });
+    cas.vue_pourquoi_controle_inconnu = resumerVue(CHAT.vueReponse(inconnu, Q));
+
+    // Une alerte de gate que la table ne connaît pas : dite telle quelle, sans phrase inventée.
+    const alerteInconnue = reponseSourcee();
+    alerteInconnue.trace = traceRiche({
+      gate: { profile: null, cases: null, countersigned: null, alerts: ["alerte_de_demain"] },
+    });
+    cas.vue_pourquoi_alerte_inconnue = resumerVue(CHAT.vueReponse(alerteInconnue, Q));
+
+    // Les tables, relevées telles quelles : `tests/test_tables_partagees.py` les confronte à celles
+    // de l'accueil et du sinistre, et `tests/test_web_chat.py` à celles du serveur.
+    cas.tables = {
+      alertes: CHAT.ALERTES, controles: CHAT.CONTROLES, rejets: CHAT.REJETS, reserves: CHAT.RESERVES,
+      controle_inconnu: CHAT.libelleControle("controle_de_demain"),
+      controle_connu: CHAT.libelleControle("refus"),
+      motif_inconnu: CHAT.motifRejet("kind_de_demain"),
+    };
+  }
+
+  // --- M10 : une enveloppe d'erreur qui porte une trace ------------------
+  {
+    const enveloppe = (trace) => ({
+      error: { code: "llm_unavailable", message: "provider down", request_id: "req-503" },
+      trace: trace,
+    });
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ status: 503, corps: enveloppe(traceRiche({
+      steps: [{ name: "comprendre", tier: "micro", ms: 900, opened_block_ids: [],
+                discarded_block_ids: [], checks: [] }],
+    })) }));
+    let erreur = null;
+    try { await CHAT.repondre(QUESTION, PROFIL, []); } catch (e) { erreur = e; }
+    cas.erreur_avec_trace = {
+      kind: erreur && erreur.kind, code: erreur && erreur.code,
+      a_une_trace: !!(erreur && erreur.trace),
+      vue: resumerVue(CHAT.vueErreur(erreur, QUESTION)),
+    };
+
+    // Une trace qui ne tient pas le contrat ne devient pas un panneau : l'échec reste celui du
+    // serveur (503), il perd seulement son panneau.
+    const { CHAT: c2 } = chargerChat(PAGE, () => reponseHttp({
+      status: 503, corps: enveloppe({ request_id: 42, pipeline: "guide" }) }));
+    let e2 = null;
+    try { await c2.repondre(QUESTION, PROFIL, []); } catch (e) { e2 = e; }
+    cas.erreur_trace_cassee = {
+      kind: e2 && e2.kind, code: e2 && e2.code, a_une_trace: !!(e2 && e2.trace),
+      vue: resumerVue(c2.vueErreur(e2, QUESTION)),
+    };
+
+    // Et sans trace du tout : pas de panneau (« trace absente ⇒ pas de panneau »).
+    const { CHAT: c3 } = chargerChat(PAGE, () => reponseHttp({
+      status: 503, corps: { error: { code: "llm_unavailable", message: "", request_id: "req-x" } } }));
+    let e3 = null;
+    try { await c3.repondre(QUESTION, PROFIL, []); } catch (e) { e3 = e; }
+    cas.erreur_sans_trace = {
+      a_une_trace: !!(e3 && e3.trace), vue: resumerVue(c3.vueErreur(e3, QUESTION)),
+    };
+  }
+
+  // --- M6 / M7 : le message, zéro action, le badge conservé ---------------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({
+      status: 429, entetes: { "Retry-After": "30" },
+      corps: { error: { code: "rate_limited", message: "slow down", request_id: "req-429" } },
+    }));
+    let erreur = null;
+    try { await CHAT.repondre(QUESTION, PROFIL, []); } catch (e) { erreur = e; }
+    cas.limite_de_debit = {
+      retry_after: erreur && erreur.retry_after,
+      message: CHAT.messageErreur(erreur),
+      mode_apres: CHAT.modeApresErreur(erreur),
+      vue: resumerVue(CHAT.vueErreur(erreur, QUESTION)),
+    };
+    const maintenant = Date.parse("Tue, 25 Aug 2026 10:00:00 GMT");
+    cas.retry_after_strict = {
+      secondes: CHAT.retryApres("30", maintenant),
+      date: CHAT.retryApres("Tue, 25 Aug 2026 10:00:30 GMT", maintenant),
+      date_passee: CHAT.retryApres("Tue, 25 Aug 2026 09:59:30 GMT", maintenant),
+      suffixe: CHAT.retryApres("30 secondes", maintenant),
+      decimal: CHAT.retryApres("1.5", maintenant),
+      signe: CHAT.retryApres("+30", maintenant),
+      date_impossible: CHAT.retryApres("Tue, 32 Aug 2026 10:00:30 GMT", maintenant),
+    };
+    const { CHAT: c2 } = chargerChat(PAGE, () => reponseHttp({
+      status: 400, corps: { error: { code: "invalid_request", message: "body.historique: …",
+                                     request_id: "req-400" } } }));
+    let e2 = null;
+    try { await c2.repondre(QUESTION, PROFIL, []); } catch (e) { e2 = e; }
+    cas.requete_refusee = {
+      message: c2.messageErreur(e2), mode_apres: c2.modeApresErreur(e2),
+      message_du_serveur_affiche: c2.messageErreur(e2).indexOf("body.historique") !== -1,
+      vue: resumerVue(c2.vueErreur(e2, QUESTION)),
+    };
+  }
+
+  // --- M9 : la phrase du retrait, composée par `chat.js` ------------------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+    cas.vue_erreur_avec_retrait = resumerVue(
+      CHAT.vueErreur({ kind: "indisponible", code: "reseau" }, QUESTION, { tour_retire: true }));
+    cas.vue_erreur_sans_retrait = resumerVue(
+      CHAT.vueErreur({ kind: "indisponible", code: "reseau" }, QUESTION, { tour_retire: false }));
+  }
+
   // --- les bornes viennent du serveur, pas d'une copie ------------------
   {
     const { CHAT } = chargerChat(PAGE, (url) => (String(url).endsWith("/sante")
@@ -1278,6 +1600,28 @@ async function main() {
         { doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
       alertes_sans_peremption: sante({ alerts: [
         { doc_id: "lux-guide", alerte: "source_absente", detail: "" }] }),
+      // Story 2.5 (M14) : les deux réserves que le badge taisait encore. Ce sont des **faits
+      // publiés** par le serveur sur ce à quoi les réponses s'adossent, dans le seul écran où l'on
+      // pose une question ; l'accueil les montre depuis 1.10, le badge non.
+      quarantaine: sante({ alerts: [
+        { doc_id: "axa-lu-optihome-2017", alerte: "quarantaine", detail: "gate_echoue" }] }),
+      source_absente: sante({ alerts: [
+        { doc_id: "lux-guide", alerte: "source_absente", detail: "" }] }),
+      quarantaine_et_source_absente: sante({ gate_countersigned: true, alerts: [
+        { doc_id: "lux-guide", alerte: "source_absente", detail: "" },
+        { doc_id: "axa-lu-optihome-2017", alerte: "quarantaine", detail: "gate_echoue" }] }),
+      // L'ordre du serveur ne change pas le badge : deux corps qui portent les mêmes alertes dans
+      // un ordre différent écrivent la même phrase.
+      alertes_dans_lautre_ordre: sante({ gate_countersigned: true, alerts: [
+        { doc_id: "axa-lu-optihome-2017", alerte: "quarantaine", detail: "" },
+        { doc_id: "lux-guide", alerte: "source_absente", detail: "" }] }),
+      // Une alerte que le badge ne connaît pas n'invente **aucune** réserve (M14).
+      alerte_inconnue: sante({ gate_countersigned: true, alerts: [
+        { doc_id: "lux-guide", alerte: "alerte_de_demain", detail: "" }] }),
+      // Sans gate, les réserves restent dues : « non validé » seul tairait une quarantaine.
+      sans_gate_mais_quarantaine: sante({
+        gate_profile: null, gate_cases: null, gate_countersigned: null,
+        alerts: [{ doc_id: "axa-lu-optihome-2017", alerte: "quarantaine", detail: "" }] }),
       gate_cases_zero: sante({ gate_cases: 0 }),
       gate_cases_negatif: sante({ gate_cases: -3 }),
     };

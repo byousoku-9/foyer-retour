@@ -2200,3 +2200,58 @@ Suite complète après le tour 2 : `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv r
   story 2.5 qui reprend ce front.
 - **Le rendu visuel réel** (tailles, débordements, lecteur d'écran) : un pilote headless relève des
   nœuds et des couleurs calculées, il ne voit pas une page.
+
+## Story 2.5 — « Pourquoi cette réponse » et mode dégradé honnête
+
+Vérifications effectuées le 25/08/2026 sur le serveur local en `ENV=dev`, avec la clé chargée depuis
+`.env` sans jamais l'afficher. Les erreurs front ont été injectées au niveau réseau dans un vrai Chrome
+headless piloté par CDP ; elles n'ont déclenché aucun appel fournisseur.
+
+### Gates et suite hors ligne
+
+- `uv run python -m server.evals run --gate lux-guide` : `bonne_reponse`, `evals_ok=true`, gate
+  `vertical`, 1 cas, `countersigned=false`, coût 0,0290 € ; réécrit après les correctifs de revue à
+  `2026-08-25T10:32:45Z`.
+- `uv run python -m server.evals run --gate axa-lu-optihome-2017` : `bonne_reponse`,
+  `evals_ok=true`, gate `vertical`, 1 cas, `countersigned=false`, coût 0,0430 € ; réécrit après les
+  correctifs de revue à `2026-08-25T10:33:12Z`.
+- `tests/test_digests.py` : 10 passés ; les deux gates portent le `pipeline_digest` courant
+  `e61c43115314aac4c661bed1288cc0a3f6d79fffd064f7080c10d3afcde88c16`.
+- `ANTHROPIC_API_KEY= uv run pytest -q` : **2 065 passés** après les correctifs de revue.
+- `FRONT_TESTS_REQUIS=1 uv run pytest -q tests/test_web_chat.py tests/test_web_sinistre.py
+  tests/test_tables_partagees.py tests/test_styles.py` : **613 passés** après les correctifs de revue.
+- `uv run ruff check .` et `git diff --check` : verts.
+
+### Réponse réelle par HTTP
+
+`POST /api/v1/chat` avec la question anglaise « How long do I have to declare my arrival? » : HTTP
+200 en 10,9 s, `via="api/v1"`, `answer.lang="en"`, `found=true`, coût 0,0276 €. La trace porte les
+étapes `comprendre → retrouver → rediger → verifier → restituer`, les passages résolus avec leur
+`block_id` et leur titre de fiche, le gate `vertical` (1 cas, non contresigné), et le dictionnaire
+chargé mais non validé (`court_circuit_actif=false`). Les contrôles de vérification rejetés sont
+publiés sans texte de bloc dans la trace.
+
+### Parcours Chrome headless
+
+- Réponse normale réelle : le panneau replié porte exactement le résumé « Pourquoi cette réponse ».
+  Rubriques constatées : étapes, passages ouverts, passages écartés, contrôles, affirmations écartées,
+  coût, validation du document, dictionnaire et identifiant de requête. Les noms d'étapes, le profil
+  `vertical` et le refus « zéro hit » désarmé sont visibles. L'appel réel a coûté 0,0200 €.
+- 503 simulé : bandeau « Assistant indisponible », exactement une action « Consulter le guide en
+  recherche simple », référence de requête visible et phrase explicite indiquant que la question sans
+  réponse est retirée de la conversation. Avant le clic, aucun résultat local n'est peint. Après le
+  clic, un nouveau message affiche des résultats « recherche simple » et « aucune vérification » : le
+  repli est donc explicite et porte bien le mode local.
+- 429 simulé avec `Retry-After: 30` : « réessayez dans 30 secondes », référence de requête visible,
+  aucune action de recherche simple, et retrait explicite du tour sans réponse.
+- Le contrôle automatique de `web/app/styles.css` charge les trois portées de thème et exige un
+  contraste WCAG ≥ 4,5:1 ; aucun littéral `#be123c` ne subsiste.
+
+### Ce qui n'a pas été vérifié
+
+- Pas de lecture humaine des tailles, débordements, contrastes perçus, ni de test avec lecteur d'écran,
+  Firefox ou Safari. Chrome headless vérifie le DOM, les interactions et les couleurs calculées, pas la
+  perception d'une personne devant l'écran.
+- La validation du dictionnaire, la contresignature des deux gates et la signature des six
+  retraductions de la story 2.4 restent dues : ce sont des signatures humaines, non inventées par la
+  boucle. Les écrans affichent donc volontairement leur absence.

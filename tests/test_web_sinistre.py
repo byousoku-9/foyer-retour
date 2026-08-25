@@ -390,15 +390,181 @@ def test_ce_que_je_ne_sais_pas_est_affiche(cas: dict[str, Any]) -> None:
 def test_la_trace_est_depliable_et_porte_la_reference_les_etapes_et_le_cout(cas: dict[str, Any]) -> None:
     """AD-10 : « la trace est consultable ». `<details>` natif : dépliable sans une ligne de JS."""
     assert cas["verdict"]["trace_tags"] == ["details"]
-    lignes = cas["verdict"]["trace_lignes"]
-    assert lignes[0] == "référence de requête : r-1"
-    assert "pipeline : sinistre" in lignes[1] and "deterministe" in lignes[1]
-    assert any("étape comprendre" in l and "micro" in l for l in lignes)
-    assert any("applicabilite_incomplete" in l for l in lignes)
-    assert lignes[-1] == "cette analyse a coûté 0,0336 €"
+    panneau = cas["verdict"]["trace"]
+    rubriques = {r["titre"]: r["lignes"] for r in panneau["rubriques"]}
+    assert panneau["summary"] == "Comment cette réponse a été obtenue"
+    assert [l["texte"] for l in rubriques["Cette requête"]] == [
+        "pipeline : sinistre · variante deterministe", "référence de requête : r-1"]
+    assert any("comprendre · micro" in l["texte"] for l in rubriques["Étapes"])
+    assert any("applicabilité non rendue" in l["texte"] for l in rubriques["Contrôles"])
+    assert rubriques["Ce que l'analyse a coûté"][-1]["texte"] == (
+        "cette analyse a coûté 0,0336 €")
     # AD-10 : la trace ne porte jamais le texte des blocs — le harnais n'en fournit pas, et rien
     # dans ce qu'on relève ne pourrait en faire apparaître.
-    assert not any("bougie" in l for l in lignes)
+    assert "bougie" not in json.dumps(panneau, ensure_ascii=False)
+
+
+
+# --- Story 2.5 : la trace enrichie ---------------------------------------
+#
+# Elle ne portait que trois lignes plates : la référence, le pipeline, une ligne par étape avec les
+# **noms bruts** de ses contrôles, et le coût. Tout le reste voyageait sans être montré — les
+# clauses ouvertes et écartées, l'issue de chaque contrôle, les relances, les seuils, le gate.
+
+def _rubriques(trace: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    return {r["titre"]: r["lignes"] for r in trace["rubriques"]}
+
+
+def test_la_trace_dit_les_clauses_ouvertes_et_celles_qui_ont_ete_ecartees(
+        cas: dict[str, Any]) -> None:
+    """AD-10 distingue « blocs effectivement passés au modèle » et « candidats non ouverts ». Sur un
+    contrat, c'est la différence entre une clause lue et une clause que la recherche a proposée."""
+    rubriques = _rubriques(cas["trace_riche"])
+    assert [ligne["texte"] for ligne in rubriques["Clauses ouvertes"]] == [
+        "cg-mini:p9:2 — Les garanties incendie", "cg-mini:p12:3"]
+    assert [ligne["texte"] for ligne in
+            rubriques["Clauses écartées, non lues par le modèle"]] == [
+        "cg-mini:p46:1 — Les exclusions"]
+
+
+def test_une_clause_que_la_trace_ne_resout_pas_porte_son_id_seul(cas: dict[str, Any]) -> None:
+    """Jamais un titre deviné sous un verdict : la page n'a aucun moyen de retrouver le titre d'une
+    clause, et en inventer un serait pire que l'absence."""
+    rubriques = _rubriques(cas["trace_bloc_non_resolu"])
+    assert [ligne["texte"] for ligne in rubriques["Clauses ouvertes"]] == [
+        "cg-mini:p9:2", "cg-mini:p12:3"]
+
+
+def test_la_trace_dit_lissue_de_chaque_controle_avec_son_libelle(cas: dict[str, Any]) -> None:
+    """« applicabilite_incomplete » n'apprenait rien à personne, et la ligne plate ne disait pas si
+    le contrôle avait **échoué**. Le libellé français, le détail composé par le serveur, l'issue."""
+    lignes = _rubriques(cas["trace_riche"])["Contrôles"]
+    assert [ligne["etat"] for ligne in lignes] == ["ko", "ok"]
+    assert lignes[0]["texte"] == ("applicabilité non rendue pour une clause décisionnelle — "
+                                  "1 affirmation(s) sans champs typés")
+    assert lignes[1]["texte"].startswith("verdict rendu sur les affirmations affichées")
+    # Le pictogramme est décoratif : l'état est écrit à côté, en toutes lettres.
+    for ligne in lignes:
+        assert ligne["picto"] == {"aria-hidden": "true"}
+
+
+def test_un_controle_inconnu_de_la_page_saffiche_tel_quel(cas: dict[str, Any]) -> None:
+    lignes = _rubriques(cas["trace_controle_inconnu"])["Contrôles"]
+    assert [ligne["texte"] for ligne in lignes] == ["controle_de_demain — détail"]
+
+
+def test_la_trace_dit_les_relances_et_les_seuils_actifs(cas: dict[str, Any]) -> None:
+    """Convention Seuils du spine : « exposés dans `Trace.thresholds` ». Repliés, parce qu'ils sont
+    nombreux et rarement lus — mais à portée."""
+    lignes = [ligne["texte"] for ligne in _rubriques(cas["trace_riche"])["Ce que l'analyse a coûté"]]
+    assert lignes == ["1 relance", "0 troncature", "cette analyse a coûté 0,0336 €"]
+    seuils = cas["trace_riche"]["seuils"]
+    assert seuils["tag"] == "details" and seuils["summary"] == "Seuils actifs (2)"
+    assert seuils["lignes"] == ["max_opens : 8", "quote_min_chars : 24"]
+
+
+def test_la_trace_dit_le_gate_du_contrat_et_ses_alertes(cas: dict[str, Any]) -> None:
+    """AD-7 / AD-14 : le profil, le nombre de cas réellement exécutés, la contresignature humaine —
+    et l'alerte que le serveur pose sur ce document, dans le même objet."""
+    lignes = _rubriques(cas["trace_riche"])["Validation du contrat interrogé"]
+    assert lignes[0]["texte"] == "profil de validation : vertical (1 cas)"
+    assert lignes[1]["etat"] == "ko"
+    assert "non contresignée" in lignes[1]["texte"]
+    assert lignes[2]["texte"] == ("le fichier source n'est pas présent à côté des artefacts "
+                                  "(source_absente)")
+
+
+def test_une_trace_pauvre_ne_fait_apparaitre_aucune_rubrique_inventee(cas: dict[str, Any]) -> None:
+    """AD-16 : ce que la trace ne dit pas, l'écran ne le dit pas. Les deux lots de cette story sont
+    écrits en parallèle : la page doit se lire aussi bien avant qu'après que le serveur ait posé
+    ses champs, sans rien remplir entre-temps."""
+    titres = [r["titre"] for r in cas["trace_pauvre"]["rubriques"]]
+    assert titres == ["Ce que l'analyse a coûté", "Cette requête"]
+    assert cas["trace_pauvre"]["seuils"] is None
+    for rubrique in cas["trace_pauvre"]["rubriques"]:
+        for ligne in rubrique["lignes"]:
+            assert ligne["texte"].strip()
+
+
+def test_une_trace_qui_na_rien_a_dire_nouvre_pas_un_panneau_vide(cas: dict[str, Any]) -> None:
+    """Un `<details>` qui n'a que son `<summary>` promet une explication qu'il ne donne pas."""
+    assert cas["trace_muette"] is None
+    assert cas["trace_absente"] is None
+    # Un coût **nul** n'est pas un silence : aucun appel n'a été facturé, et c'est une mesure.
+    assert [r["titre"] for r in cas["trace_cout_nul"]["rubriques"]] == ["Ce que l'analyse a coûté"]
+    assert cas["trace_cout_nul"]["rubriques"][0]["lignes"][0]["texte"] == (
+        "cette analyse n'a rien coûté (aucun appel facturé)")
+
+
+# --- Story 2.5 (M15) : la preuve d'absence et les trois états -------------
+
+def test_un_refus_porte_sa_preuve_chiffree(cas: dict[str, Any]) -> None:
+    """Reprise différée de 1.9. Le contrat transporte `answer.reason` depuis toujours et le guide
+    l'affiche depuis 1.7 ; ici, seule la phrase composée par le serveur était rendue. « Rien trouvé
+    sur 1 457 passages » et « rien n'a été cherché » sont deux refus différents."""
+    assert cas["refus_preuve"]["preuve"] == [
+        "Termes cherchés : mobilier — 0 variante essayée, 3 passages parcourus"]
+    # La preuve est peinte **avant** le pied qui la commente, et le pied avant la trace.
+    ordre = cas["refus_preuve"]["ordre"]
+    assert ordre.index("preuve") < ordre.index("pied") < ordre.index("trace")
+
+
+def test_un_refus_porte_un_badge_detat_et_sa_phrase(cas: dict[str, Any]) -> None:
+    """Reprise différée de 2.3 : la page rendait les phrases de lacune sans le cadre des trois
+    états. Le badge d'état n'est pas le badge de **verdict** — l'un dit ce que le contrat prévoit,
+    l'autre ce que la vérification a pu établir — et les deux se lisent."""
+    assert cas["refus_preuve"]["etat"] == [{"cls": "etat etat-inconnu", "texte": "inconnu"}]
+    assert cas["refus_preuve"]["phrase"] == [
+        "rien n'a été retenu : la preuve de cette absence est ci-dessus"]
+
+
+def test_les_trois_etats_sont_dits_sur_la_page_sinistre(cas: dict[str, Any]) -> None:
+    assert cas["etat_partiel"]["etat"] == [{"cls": "etat etat-partiel", "texte": "partiel"}]
+    assert cas["etat_partiel"]["phrase"] == [
+        "il manque des éléments : ils sont listés sous « Ce que je ne sais pas »"]
+    assert cas["etat_partiel"]["preuve"] == [], "une réponse trouvée n'a pas de preuve d'absence"
+    assert cas["etat_sur"]["etat"] == ["sûr"]
+    assert cas["etat_sur"]["phrase"] == [
+        "tout ce qui est affirmé ci-dessus est appuyé par un passage cité, "
+        "et la question est couverte"]
+
+
+def test_une_clarification_na_rien_cherche_donc_rien_a_prouver(cas: dict[str, Any]) -> None:
+    """AD-4 : « `terms_searched` est alors vide et `blocks_scanned` nul : rien n'a été cherché ».
+    Lui accrocher « 0 variante essayée » répondrait à une question que personne ne pose."""
+    assert cas["clarification_preuve"]["preuve"] == []
+    assert cas["clarification_preuve"]["etat"] == ["inconnu"]
+    assert cas["clarification_preuve"]["phrase"] == [
+        "rien n'a été cherché : la question doit d'abord être précisée"]
+
+
+def test_sans_reason_ni_preuve_ni_badge_ne_sont_fabriques(cas: dict[str, Any]) -> None:
+    """M15 : « `reason` absent ⇒ ni preuve ni badge ». Un corps sans `reason` sous `found=false`
+    n'a pas été écrit par la route, et le badge dirait « inconnu » sur rien."""
+    assert cas["sans_reason"]["preuve"] == []
+    assert cas["sans_reason"]["etat"] == []
+
+
+@pytest.mark.parametrize(("nom", "champ"), [
+    ("reason_vide", "answer.reason.kind"),
+    ("reason_kind_inconnu", "answer.reason.kind"),
+    ("reason_termes_nuls", "answer.reason.terms_searched"),
+    ("reason_compteur_chaine", "answer.reason.blocks_scanned"),
+    ("reason_non_objet", "answer.reason"),
+])
+def test_la_preuve_dabsence_est_lue_strictement(cas: dict[str, Any], nom: str, champ: str) -> None:
+    """Un `reason: {}` passait pour un refus muni d'une preuve « 0 variante essayée, 0 passage
+    parcouru » que rien n'avait calculée, et les compteurs sont **affichés** : un objet ou une
+    chaîne à leur place arriveraient jusqu'au rendu. Même défaut, même remède que côté guide."""
+    vu = cas["reason_illisible"][nom]
+    assert vu["a_repondu"] is False
+    assert (vu["code"], vu["champ"]) == ("reponse_illisible", champ)
+
+
+def test_un_reason_nul_reste_une_valeur_du_contrat(cas: dict[str, Any]) -> None:
+    """`reason` est `AbsenceProof | None` : `null` est une **valeur**, celle d'une réponse trouvée.
+    Le refuser transformerait chaque verdict rendu en « réponse illisible »."""
+    assert cas["reason_nul_est_lisible"] is True
 
 
 def test_le_cout_vient_de_lusage_rendu_par_lapi(cas: dict[str, Any]) -> None:
@@ -621,9 +787,16 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("trace_etape_nom_objet", "trace.steps[0].name"),
     ("trace_etape_tier_objet", "trace.steps[0].tier"),
     ("trace_etape_ms_en_chaine", "trace.steps[1].ms"),
+    ("trace_etape_ms_negatif", "trace.steps[1].ms"),
+    ("trace_etape_ms_fractionnaire", "trace.steps[1].ms"),
     ("trace_etape_sans_controles", "trace.steps[0].checks"),
     ("trace_controle_en_chaine", "trace.steps[1].checks[0]"),
     ("trace_controle_sans_nom", "trace.steps[1].checks[0].name"),
+    ("trace_controle_sans_ok", "trace.steps[1].checks[0].ok"),
+    ("trace_bloc_titre_nombre", "trace.blocs[0].titre"),
+    ("trace_seuil_chaine", "trace.thresholds.max_opens"),
+    ("trace_seuil_booleen", "trace.thresholds.max_opens"),
+    ("trace_seuil_infini", "trace.thresholds.max_opens"),
 ])
 def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
     """AD-16 : « réponse vide présentée comme réponse ». Un corps qu'aucune route ne peut écrire.
@@ -921,6 +1094,73 @@ def test_les_identifiants_de_la_page_sont_ceux_que_le_script_cherche(page: str) 
     for identifiant in ("formulaire", "contrat", "contrats-message", "contrat-source", "question",
                         "date", "lieu", "montant", "description", "analyser", "resultat"):
         assert f'id="{identifiant}"' in page, identifiant
+
+
+def test_toute_classe_composee_par_le_script_est_stylee_dans_la_page(page: str) -> None:
+    """La page est **autonome** (D8) : ce que le script compose, elle seule peut le styler.
+
+    Une classe posée par `sinistre.js` sans règle dans le `<style>` inline ne se voit pas — c'est
+    précisément ce qui rend la duplication dangereuse, et ce que la story 2.5 amarre. Les classes
+    purement structurelles (celles qui n'existent que pour être relevées par le harnais) sont
+    déclarées ici : elles doivent l'être une par une, jamais par une exception large.
+    """
+    source = SCRIPT.read_text(encoding="utf-8")
+    # Les classes littérales que `noeud()` reçoit — deuxième argument, toujours une chaîne.
+    composees = set()
+    for brut in re.findall(r'noeud\(\s*"[a-z0-9]+"\s*,\s*"([^"]+)"', source):
+        composees |= {c for c in brut.split() if not c.startswith("verdict-")}
+    for brut in re.findall(r'(?:section|liste)\(\s*"([a-z0-9-]+)"', source):
+        composees.add(brut)
+    # Structurelles : relevées par le harnais, sans rendu propre (leur parent les porte).
+    # Sans rendu propre : ce sont des repères de structure (une `<section>`, un `<ul>`, un `<p>`
+    # dont la mise en forme vient de son conteneur ou du style par défaut du navigateur), relevés
+    # par le harnais et par rien d'autre. La liste est **explicite** : une classe nouvelle doit y
+    # être ajoutée à la main, jamais couverte par une exception large.
+    structurelles = {
+        "resultat", "attente", "carte", "trace", "fc",
+        # conteneurs de section, stylés par la règle `section { … }`
+        "analyse", "ask", "clarif", "clauses", "escalate", "faits-compris", "inconnu", "paquet",
+        "rejetees",
+        # listes, stylées par `ul { … }` et `li { … }`
+        "ask-liste", "escalate-liste", "inconnu-liste", "paquet-faits", "rejetees-liste",
+        # paragraphes et fragments dont la mise en forme vient de leur conteneur
+        "analyse-txt", "clarif-q", "cl-page", "cl-statut", "err-txt", "fc-val", "pq-txt",
+        "source-lien",
+    }
+    for classe in sorted(composees - structurelles):
+        assert re.search(rf"[.#][\w -]*\b{re.escape(classe)}\b[^{{]*\{{", page), (
+            f"la classe « {classe} » est composée par le script et n'est stylée nulle part")
+
+
+def test_les_couleurs_de_la_page_ont_toutes_leur_variante_sombre(page: str) -> None:
+    """La dette de contraste du rouge en dur (`#be123c`, aucune variante sombre, 2,88:1 sur fond
+    sombre) ne doit pas rouvrir par une autre porte : toute couleur littérale posée en thème clair
+    a sa contrepartie dans un bloc `prefers-color-scheme: dark`."""
+    style = page[page.index("<style>"):page.index("</style>")]
+    # Les blocs sombres, quel que soit leur formatage (sur une ligne ou sur dix) : on suit les
+    # accolades plutôt que de deviner l'indentation.
+    sombres = []
+    for depart in [m.end() for m in re.finditer(r"@media \(prefers-color-scheme: dark\)\s*\{",
+                                                style)]:
+        profondeur, i = 1, depart
+        while profondeur:
+            profondeur += {"{": 1, "}": -1}.get(style[i], 0)
+            i += 1
+        sombres.append(style[depart:i - 1])
+    sombres = "\n".join(sombres)
+    assert sombres, "aucun bloc de thème sombre dans la page"
+    # Les sélecteurs qui posent une couleur littérale en clair.
+    for regle in re.findall(r"^  ([.#][^\n{]+)\{([^}]*)\}", style, flags=re.M):
+        selecteur, corps = regle[0].strip(), regle[1]
+        if not re.search(r"(?:^|[^-\w])color\s*:\s*#", corps) and "border-color: #" not in corps:
+            continue
+        classe = selecteur.split()[-1]
+        assert classe in sombres, (
+            f"{selecteur} pose une couleur en dur sans variante sombre : c'est exactement la dette "
+            "que la story 2.5 referme")
+    # Le rouge du site copié (`#be123c`) vit aussi ici, sur `.verdict-non_couvert` et `.erreur` —
+    # mais **avec** sa variante sombre depuis la 1.9, ce qui est justement la règle ci-dessus. Ce
+    # qui n'a pas de variante n'a pas le droit de rester, quelle que soit sa valeur.
 
 
 def test_le_script_ne_pose_jamais_de_html(cas: dict[str, Any]) -> None:

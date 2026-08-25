@@ -138,6 +138,44 @@ function texteEntier(vue) {
   return aplatirVue(vue).map((n) => (n.texte === undefined ? "" : n.texte)).join(" ");
 }
 
+/**
+ * Résumé assertable du panneau « Comment cette réponse a été obtenue » (story 2.5).
+ *
+ * L'AC est une liste de rubriques : elle se vérifie rubrique par rubrique et ligne par ligne, pour
+ * qu'une rubrique **absente** se distingue d'une rubrique vide et un contrôle échoué d'un contrôle
+ * passé. Le relevé plat de la 1.9 ne pouvait dire ni l'un ni l'autre.
+ */
+function resumerTrace(vue) {
+  const panneau = aplatirVue(vue).filter((n) => n.cls === "trace")[0];
+  if (!panneau) return null;
+  const lignesDe = (bloc) => aplatirVue(bloc).filter((n) => (n.cls || "").split(" ")[0] === "pq-ligne")
+    .map((l) => {
+      const plat = aplatirVue(l);
+      const ok = plat.filter((n) => n.cls === "pq-ok")[0];
+      const ko = plat.filter((n) => n.cls === "pq-ko")[0];
+      return {
+        etat: ok ? "ok" : (ko ? "ko" : null),
+        texte: l.texte !== undefined ? l.texte
+          : plat.filter((n) => n.cls === "pq-txt").map((n) => n.texte).join(" "),
+        picto: (ok || ko || {}).attrs || null,
+      };
+    });
+  const seuils = aplatirVue(panneau).filter((n) => n.cls === "pq-seuils")[0] || null;
+  return {
+    tag: panneau.tag,
+    summary: (panneau.enfants || []).filter((n) => n.tag === "summary").map((n) => n.texte)[0],
+    rubriques: aplatirVue(panneau).filter((n) => n.cls === "pq-bloc").map((b) => ({
+      titre: aplatirVue(b).filter((n) => n.cls === "pq-titre").map((n) => n.texte)[0],
+      lignes: lignesDe(b),
+    })),
+    seuils: seuils ? {
+      tag: seuils.tag,
+      summary: (seuils.enfants || []).filter((n) => n.tag === "summary").map((n) => n.texte)[0],
+      lignes: lignesDe(seuils).map((l) => l.texte),
+    } : null,
+  };
+}
+
 // ---------- les données ----------
 
 const DOC_ID = "cg-mini";
@@ -434,8 +472,11 @@ async function main() {
         .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
       degrade: textesDe(vue, "degrade"),
       trace_tags: plat.filter((n) => n.cls === "trace").map((n) => n.tag),
-      trace_lignes: plat.filter((n) => n.cls === "trace-lignes")
-        .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      trace: resumerTrace(vue),
+      preuve: textesDe(vue, "preuve"),
+      etat: plat.filter((n) => (n.cls || "").split(" ")[0] === "etat").map((n) => n.cls),
+      etat_texte: plat.filter((n) => (n.cls || "").split(" ")[0] === "etat").map((n) => n.texte),
+      etat_phrase: textesDe(vue, "etat-phrase"),
       // La quote d'une claim rejetée ne doit **jamais** apparaître, nulle part dans l'arbre.
       texte_entier: texteEntier(vue),
     };
@@ -504,6 +545,186 @@ async function main() {
     cas.verdict_inconnu = aplatirVue(SINISTRE.vueVerdict(inconnu))
       .filter((n) => n.cls && n.cls.indexOf("badge") === 0)
       .map((n) => ({ cls: n.cls, texte: n.texte }));
+  }
+
+  // --- story 2.5 : la trace enrichie, la preuve d'absence, les trois états --
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+
+    // Une trace complète, telle que le Lot A la publie pour le pipeline sinistre : `blocs` et
+    // `gate` renseignés, `dictionnaire` absent (l'outil sinistre n'en a pas). Écrite à la main
+    // contre le contrat de la spec — les deux lots sont implémentés en parallèle.
+    const traceRiche = {
+      request_id: "r-riche", pipeline: "sinistre", variant: "deterministe",
+      total_cost_eur: 0.0336, retries: 1, truncations: 0,
+      thresholds: { max_opens: 8, quote_min_chars: 24 },
+      steps: [
+        { name: "comprendre", tier: "micro", ms: 900, opened_block_ids: [],
+          discarded_block_ids: [], checks: [] },
+        { name: "retrouver", tier: "reason", ms: 4200,
+          opened_block_ids: ["cg-mini:p9:2", "cg-mini:p12:3"],
+          discarded_block_ids: ["cg-mini:p46:1"], checks: [] },
+        { name: "verifier", tier: "micro", ms: 1200, opened_block_ids: [], discarded_block_ids: [],
+          checks: [{ name: "applicabilite_incomplete", ok: false,
+                     detail: "1 affirmation(s) sans champs typés" },
+                   { name: "verdict", ok: true, detail: "sous_conditions sur 2 affirmation(s)" }] },
+        { name: "restituer", tier: null, ms: 1, opened_block_ids: [], discarded_block_ids: [],
+          checks: [] },
+      ],
+      blocs: [
+        { block_id: "cg-mini:p9:2", doc_id: "cg-mini", node_id: "cg-mini:garanties",
+          fiche_id: null, titre: "Les garanties incendie" },
+        { block_id: "cg-mini:p46:1", doc_id: "cg-mini", node_id: "cg-mini:exclusions",
+          fiche_id: null, titre: "Les exclusions" },
+      ],
+      gate: { profile: "vertical", cases: 1, countersigned: false, alerts: ["source_absente"] },
+    };
+    const riche = reponseVerdict({ trace: traceRiche });
+    cas.trace_riche = resumerTrace(SINISTRE.vueVerdict(riche));
+
+    // Trace pauvre : les champs de la story sont **absents**. Les rubriques disparaissent, rien
+    // n'est inventé, aucune ligne vide.
+    const pauvre = reponseVerdict({
+      trace: { request_id: "r-pauvre", pipeline: "sinistre", variant: "deterministe",
+               total_cost_eur: 0.004, steps: [] } });
+    cas.trace_pauvre = resumerTrace(SINISTRE.vueVerdict(pauvre));
+
+    // Un `block_id` que `trace.blocs` ne résout pas : la ligne porte l'identifiant **seul**.
+    const nonResolu = reponseVerdict({
+      trace: Object.assign({}, traceRiche, { blocs: [] }) });
+    cas.trace_bloc_non_resolu = resumerTrace(SINISTRE.vueVerdict(nonResolu));
+
+    // Un contrôle dont le `name` n'est pas dans la table : affiché tel quel, jamais masqué.
+    cas.trace_controle_inconnu = resumerTrace(SINISTRE.vueVerdict(reponseVerdict({
+      trace: Object.assign({}, traceRiche, {
+        steps: [{ name: "verifier", tier: "micro", ms: 3, opened_block_ids: [],
+                  discarded_block_ids: [],
+                  checks: [{ name: "controle_de_demain", ok: false, detail: "détail" }] }] }) })));
+
+    // Une trace qui n'a rien à dire n'ouvre pas un `<details>` vide.
+    // Une trace dont **rien** n'est lisible : pas d'identité, pas d'étape, pas même un coût (un
+    // total non numérique n'est pas « gratuit », c'est un total qu'on n'a pas su lire).
+    cas.trace_muette = resumerTrace(SINISTRE.vueVerdict(reponseVerdict({
+      trace: { request_id: "", pipeline: "", variant: "", total_cost_eur: null, steps: [] } })));
+    // Un coût **nul**, lui, est une mesure : aucun appel n'a été facturé, et cela se dit.
+    cas.trace_cout_nul = resumerTrace(SINISTRE.vueVerdict(reponseVerdict({
+      trace: { request_id: "", pipeline: "", variant: "", total_cost_eur: 0, steps: [] } })));
+    cas.trace_absente = resumerTrace(SINISTRE.vueVerdict(reponseVerdict({ trace: null })));
+
+    // M15 — le refus porte sa **preuve chiffrée** et son badge d'état.
+    const vueRefus = SINISTRE.vueVerdict(reponseRefus());
+    cas.refus_preuve = {
+      preuve: textesDe(vueRefus, "preuve"),
+      etat: aplatirVue(vueRefus).filter((n) => (n.cls || "").split(" ")[0] === "etat")
+        .map((n) => ({ cls: n.cls, texte: n.texte })),
+      phrase: textesDe(vueRefus, "etat-phrase"),
+      // L'ordre de lecture : la preuve avant le pied, le pied avant la trace.
+      ordre: (SINISTRE.vueVerdict(reponseRefus()).enfants || []).map((n) => n.cls),
+    };
+
+    // Une clarification : `AD-4` pose que « rien n'a été cherché ». Aucune preuve chiffrée, et la
+    // phrase d'état le dit — lui accrocher « 0 variante essayée » répondrait à une question que
+    // personne ne pose.
+    const vueClar = SINISTRE.vueVerdict(reponseClarification());
+    cas.clarification_preuve = {
+      preuve: textesDe(vueClar, "preuve"),
+      etat: aplatirVue(vueClar).filter((n) => (n.cls || "").split(" ")[0] === "etat")
+        .map((n) => n.texte),
+      phrase: textesDe(vueClar, "etat-phrase"),
+    };
+
+    // Un verdict trouvé mais incomplet : « partiel », et la phrase renvoie à la liste peinte.
+    const vuePartielle = SINISTRE.vueVerdict(reponseVerdict());
+    cas.etat_partiel = {
+      etat: aplatirVue(vuePartielle).filter((n) => (n.cls || "").split(" ")[0] === "etat")
+        .map((n) => ({ cls: n.cls, texte: n.texte })),
+      phrase: textesDe(vuePartielle, "etat-phrase"),
+      preuve: textesDe(vuePartielle, "preuve"),
+    };
+
+    // Et une réponse complète : « sûr ».
+    const sure = reponseVerdict();
+    sure.answer.complete = true;
+    sure.answer.unknown = [];
+    cas.etat_sur = {
+      etat: aplatirVue(SINISTRE.vueVerdict(sure))
+        .filter((n) => (n.cls || "").split(" ")[0] === "etat").map((n) => n.texte),
+      phrase: textesDe(SINISTRE.vueVerdict(sure), "etat-phrase"),
+    };
+
+    // `reason` **absent** (une réponse trouvée) : ni preuve, ni badge inventé sur du vide.
+    const sansReason = reponseVerdict();
+    delete sansReason.answer.reason;
+    sansReason.answer.found = false;
+    sansReason.answer.claims = [];
+    sansReason.sources = [];
+    cas.sans_reason = {
+      preuve: textesDe(SINISTRE.vueVerdict(sansReason), "preuve"),
+      etat: aplatirVue(SINISTRE.vueVerdict(sansReason))
+        .filter((n) => (n.cls || "").split(" ")[0] === "etat").map((n) => n.texte),
+    };
+
+    // Les fonctions pures, appelées directement : c'est elles que `test_tables_partagees.py`
+    // confronte à celles du guide.
+    cas.preuves = {
+      zero_hit: SINISTRE.preuveAbsence({ kind: "zero_hit", terms_searched: ["mobilier"],
+                                         variants_count: 0, blocks_scanned: 1457 }),
+      singuliers: SINISTRE.preuveAbsence({ kind: "zero_hit", terms_searched: ["bail"],
+                                           variants_count: 1, blocks_scanned: 1 }),
+      sans_terme: SINISTRE.preuveAbsence({ kind: "hors_perimetre", terms_searched: [],
+                                           variants_count: 0, blocks_scanned: 0 }),
+      clarification: SINISTRE.preuveAbsence({ kind: "clarification_requise", terms_searched: [],
+                                              variants_count: 0, blocks_scanned: 0 }),
+      absente: SINISTRE.preuveAbsence(null),
+    };
+    cas.etats = {
+      sur: SINISTRE.etatReponse({ found: true, complete: true }),
+      partiel: SINISTRE.etatReponse({ found: true, complete: false }),
+      inconnu: SINISTRE.etatReponse({ found: false, complete: false }),
+      absent: SINISTRE.etatReponse(null),
+    };
+    cas.phrases_etat = {
+      sur: SINISTRE.phraseEtat({ cle: "sur" }, { liste: false, preuve: false }),
+      partiel_avec_liste: SINISTRE.phraseEtat({ cle: "partiel" }, { liste: true, preuve: false }),
+      partiel_sans_liste: SINISTRE.phraseEtat({ cle: "partiel" }, { liste: false, preuve: false }),
+      inconnu_avec_preuve: SINISTRE.phraseEtat({ cle: "inconnu" }, { liste: false, preuve: true }),
+      inconnu_sans_preuve: SINISTRE.phraseEtat({ cle: "inconnu" }, { liste: false, preuve: false }),
+      sans_contexte: SINISTRE.phraseEtat({ cle: "partiel" }, null),
+      sans_etat: SINISTRE.phraseEtat(null, null),
+      etat_inconnu: SINISTRE.phraseEtat({ cle: "farfelu" }, { liste: false, preuve: true }),
+    };
+    cas.tables = { controles: SINISTRE.CONTROLES, alertes: SINISTRE.ALERTES,
+                   controle_inconnu: SINISTRE.libelleControle("controle_de_demain") };
+  }
+
+  // --- story 2.5 : `answer.reason` est lu **strictement** ------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const corps = {
+      reason_vide: (() => { const r = reponseRefus(); r.answer.reason = {}; return r; })(),
+      reason_kind_inconnu: (() => { const r = reponseRefus();
+                                    r.answer.reason.kind = "autre"; return r; })(),
+      reason_termes_nuls: (() => { const r = reponseRefus();
+                                   r.answer.reason.terms_searched = null; return r; })(),
+      reason_compteur_chaine: (() => { const r = reponseRefus();
+                                       r.answer.reason.blocks_scanned = "3"; return r; })(),
+      reason_non_objet: (() => { const r = reponseRefus(); r.answer.reason = "zero_hit"; return r; })(),
+    };
+    cas.reason_illisible = {};
+    for (const [nom, c] of Object.entries(corps)) {
+      const { SINISTRE: s } = charger(PAGE, () => reponseHttp({ corps: c }));
+      let erreur = null;
+      let reponse = null;
+      try { reponse = await s.soumettre(SAISIE); } catch (e) { erreur = e; }
+      cas.reason_illisible[nom] = { a_repondu: reponse !== null, code: erreur && erreur.code,
+                                    champ: erreur && erreur.champ };
+    }
+    // Et le contraire : `reason: null` est une **valeur** du contrat (une réponse trouvée).
+    const trouvee = reponseVerdict();
+    const { SINISTRE: s2 } = charger(PAGE, () => reponseHttp({ corps: trouvee }));
+    const lue = await s2.soumettre(SAISIE);
+    cas.reason_nul_est_lisible = lue.answer.reason === null;
+    cas.reason_lisible_bornes = SINISTRE.bornes().question_max > 0;
   }
 
   // --- les erreurs : aucun repli, aucun verdict de remplacement ------------
@@ -955,6 +1176,12 @@ async function main() {
       trace_etape_ms_en_chaine: (() => {
         const r = reponseVerdict(); r.trace.steps[1].ms = "1200"; return r;
       })(),
+      trace_etape_ms_negatif: (() => {
+        const r = reponseVerdict(); r.trace.steps[1].ms = -1; return r;
+      })(),
+      trace_etape_ms_fractionnaire: (() => {
+        const r = reponseVerdict(); r.trace.steps[1].ms = 1.5; return r;
+      })(),
       trace_etape_sans_controles: (() => {
         const r = reponseVerdict(); delete r.trace.steps[0].checks; return r;
       })(),
@@ -963,6 +1190,24 @@ async function main() {
       })(),
       trace_controle_sans_nom: (() => {
         const r = reponseVerdict(); delete r.trace.steps[1].checks[0].name; return r;
+      })(),
+      trace_controle_sans_ok: (() => {
+        const r = reponseVerdict(); delete r.trace.steps[1].checks[0].ok; return r;
+      })(),
+      trace_bloc_titre_nombre: (() => {
+        const r = reponseVerdict();
+        r.trace.blocs = [{ block_id: "cg:p1:2", doc_id: "cg", node_id: "cg:socle",
+                           fiche_id: null, titre: 42 }];
+        return r;
+      })(),
+      trace_seuil_chaine: (() => {
+        const r = reponseVerdict(); r.trace.thresholds = { max_opens: "8" }; return r;
+      })(),
+      trace_seuil_booleen: (() => {
+        const r = reponseVerdict(); r.trace.thresholds = { max_opens: true }; return r;
+      })(),
+      trace_seuil_infini: (() => {
+        const r = reponseVerdict(); r.trace.thresholds = { max_opens: Infinity }; return r;
       })(),
     };
     cas.illisibles = {};

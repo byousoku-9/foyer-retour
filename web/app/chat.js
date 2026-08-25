@@ -514,7 +514,7 @@ window.CHAT = (function () {
   // (`trace.total_cost_eur`), jamais d'une estimation du front.
   function coutTexte(trace) {
     var c = trace && typeof trace.total_cost_eur === "number" ? trace.total_cost_eur : null;
-    if (c === null || isNaN(c)) return "";
+    if (c === null || !isFinite(c) || c < 0) return "";
     // Un total nul veut dire qu'aucun appel n'a ete facture (court-circuit avant tout appel, ou
     // reponse entierement servie du cache) : « 0,0000 € » ferait croire a un arrondi.
     if (c === 0) return "cette réponse n'a rien coûté (aucun appel facturé)";
@@ -613,11 +613,18 @@ window.CHAT = (function () {
   // Une `action` est **decrite** (`{nom: "recherche_simple", question}`), jamais une fermeture :
   // c'est ce qui permet d'affirmer « ce bandeau porte exactement une action de recherche simple, et
   // ce message zero » — la regle d'AD-16 qu'aucun test ne voyait auparavant.
-  function noeud(tag, cls, texte, enfants) {
+  // `attrs` (story 2.5) est un objet **plat** de chaines, pose tel quel par `ui.js::materialiser`
+  // avec `setAttribute`. Il n'existe que pour ce que le texte ne peut pas dire : un `aria-hidden`
+  // sur le pictogramme d'un controle, dont la valeur est deja ecrite en toutes lettres a cote —
+  // sans quoi un lecteur d'ecran annoncerait « coche » puis « reussi ». Aucun `id` n'y entre :
+  // l'arbre est peint **deux fois** (l'onglet Assistant et le widget), et un `id` unique en double
+  // est un document invalide (`materialiser` l'ecarte, et un test l'exige des vues).
+  function noeud(tag, cls, texte, enfants, attrs) {
     var n = { tag: tag };
     if (cls) n.cls = cls;
     if (texte !== undefined && texte !== null) n.texte = String(texte);
     if (enfants && enfants.length) n.enfants = enfants;
+    if (attrs) n.attrs = attrs;
     return n;
   }
 
@@ -702,6 +709,334 @@ window.CHAT = (function () {
       boutons.push(comp);
     }
     return boutons.length ? noeud("div", "chips", null, boutons) : null;
+  }
+
+  // ---------- « Pourquoi cette réponse » (story 2.5) ----------
+  //
+  // AD-10 pose que la trace est « consultable » ; jusqu'ici le front n'en lisait que
+  // `total_cost_eur`. Tout le reste — étapes, tiers, durées, blocs ouverts et écartés, contrôles
+  // passés et échoués, relances, troncatures, seuils actifs, gate du document, état du dictionnaire
+  // — voyageait sur le fil sans qu'aucun écran ne le montre.
+  //
+  // **Ce que la trace ne dit pas, le panneau ne le dit pas** (AD-16). Chaque rubrique naît de la
+  // présence de son champ : une trace sans `gate` n'affiche pas « gate : inconnu », elle n'affiche
+  // pas la rubrique. Aucun défaut n'est présenté comme une mesure, aucun titre de fiche n'est
+  // deviné — un `block_id` que `trace.blocs` ne résout pas s'affiche **seul**.
+
+  // Les alertes du serveur, en français. Cette table est **la même**, mot pour mot, que celle de
+  // `tools/accueil/accueil.js` : les deux pages sont autonomes par décision (D8), elles ne peuvent
+  // pas partager un module, et `tests/test_tables_partagees.py` les rejoue côte à côte pour qu'une
+  // dérive rougisse. Une alerte inconnue n'est **pas** traduite : elle se dit telle quelle (M14).
+  var ALERTES = {
+    sans_gate: "aucune question-témoin ne valide ce document",
+    gate_perime: "le gate a été obtenu avec un autre code, d'autres prompts ou d'autres modèles",
+    source_absente: "le fichier source n'est pas présent à côté des artefacts",
+    rapport_illisible: "le rapport d'ingestion est présent mais illisible",
+    rapport_etranger: "le rapport d'ingestion décrit un autre document",
+    quarantaine: "document écarté au chargement",
+    perimetre_tronque:
+      "la liste des rubriques annoncée au modèle a été tronquée : des sujets traités par ce " +
+      "document seraient jugés hors périmètre",
+    ungated_refuse_en_production:
+      "ALLOW_UNGATED a été posé en production : la dérogation a été refusée",
+    dictionnaire_non_valide:
+      "le dictionnaire des variantes n'a été validé par personne : le refus « zéro hit » est " +
+      "désactivé",
+    dictionnaire_corpus_perime:
+      "le dictionnaire des variantes décrit un autre corpus que celui qui est servi"
+  };
+
+  // Les `CheckResult.name` du serveur, en français. Un nom **inconnu** n'est jamais masqué : il
+  // s'affiche tel quel — le panneau répond de l'honnêteté du reste, il serait le pire endroit où
+  // taire un contrôle parce que le front ne le connaît pas encore.
+  var CONTROLES = {
+    applicabilite_contradictoire: "deux jeux de champs d'applicabilité pour une même affirmation",
+    applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
+    applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",
+    citations: "citations relues dans le corpus",
+    claims_non_citees: "affirmations vérifiées qu'aucune phrase affichée ne reprend",
+    clarification_langue_non_affirmee: "clarification retirée : sa langue n'est pas affirmable",
+    cout_eleve: "coût de la requête au-dessus du seuil",
+    dictionnaire: "variantes du dictionnaire ajoutées aux termes cherchés",
+    facettes_non_couvertes: "des sous-questions posées ne sont pas couvertes",
+    fait_cite_hors_sujet: "un fragment cité pour une qualité n'en emploie aucun mot",
+    fait_cite_introuvable: "une qualité dite établie ne cite aucun fragment des faits déclarés",
+    faits_compris_hors_borne: "des faits compris dépassent leur borne",
+    hors_perimetre_desarme: "refus hors périmètre désarmé : la liste des rubriques était tronquée",
+    intention_expliquee: "intention rendue par le modèle, et déclencheurs qui la confirment",
+    libelles_hors_borne: "des libellés de portée dépassent leur borne",
+    lignes_incompletes: "un bloc cité n'est pas la concaténation de ses lignes",
+    limites_non_affichees: "des phrases de limite n'ont pas été affichées",
+    noeuds_du_profil: "fiches désignées par le profil déclaré",
+    parse_retry: "réponse du modèle relancée après un parse invalide",
+    pertinence_incomplete: "des affirmations sont restées sans verdict de pertinence",
+    qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
+    qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
+    qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
+    refus: "refus composé, avec sa preuve d'absence",
+    relance_abandonnee: "relance de la rédaction abandonnée faute de budget",
+    relance_moins_bonne: "relance rendue moins bonne que le premier essai : écartée",
+    relance_sans_effet: "relance sans effet sur la réponse",
+    segment_contradictoire: "deux verdicts opposés pour une même phrase",
+    segments_non_soutenus: "des phrases avancent plus que les passages joints",
+    segments_retires: "des phrases ont été retirées de la réponse",
+    verdict: "verdict rendu sur les affirmations affichées",
+    verdict_contradictoire: "deux verdicts opposés pour une même affirmation"
+  };
+
+  function libelleControle(nom) {
+    var n = String(nom || "");
+    return Object.prototype.hasOwnProperty.call(CONTROLES, n) ? CONTROLES[n] : n;
+  }
+
+  // Les quatre `rejection_kind` d'AD-4, en français. La **citation** d'une affirmation écartée n'est
+  // jamais affichée : une claim `non_retrouvee` ou `ambigue` porte la chaîne du modèle, qu'aucun
+  // corpus n'a confirmée (AD-3, AD-11). Le motif, lui, est dû.
+  var REJETS = {
+    non_retrouvee: "citation introuvable dans les passages relus",
+    non_pertinente: "passage réel, mais jugé étranger à la question",
+    ambigue: "citation présente à plusieurs endroits, ou impossible à situer",
+    non_citee: "affirmation vérifiée qu'aucune phrase affichée ne reprend"
+  };
+
+  function motifRejet(kind) {
+    var k = String(kind || "");
+    return Object.prototype.hasOwnProperty.call(REJETS, k) ? REJETS[k] : "écartée par la vérification";
+  }
+
+  function tableau(v) { return Array.isArray(v) ? v : []; }
+
+  function entierOuNull(v) {
+    return (typeof v === "number" && isFinite(v) && Math.floor(v) === v) ? v : null;
+  }
+
+  /** Une ligne du panneau : un texte, éventuellement précédé d'un pictogramme d'état. */
+  function ligne(texte, etat) {
+    if (!etat) return noeud("li", "pq-ligne", String(texte));
+    // Le pictogramme est **décoratif** : l'état est déjà écrit en toutes lettres dans le texte de la
+    // ligne. `aria-hidden` évite qu'un lecteur d'écran annonce « coche » avant de le relire.
+    return noeud("li", "pq-ligne", null, [
+      noeud("span", etat === "ok" ? "pq-ok" : "pq-ko", etat === "ok" ? "✓" : "✗", null,
+            { "aria-hidden": "true" }),
+      noeud("span", "pq-txt", String(texte))
+    ]);
+  }
+
+  function rubrique(titre, lignes) {
+    if (!lignes.length) return null;
+    return noeud("div", "pq-bloc", null, [
+      noeud("strong", "pq-titre", titre),
+      noeud("ul", "pq-liste", null, lignes)
+    ]);
+  }
+
+  /** « comprendre · micro · 900 ms » — le tier absent se dit « aucun appel », il ne se devine pas. */
+  function ligneEtape(s) {
+    var parts = [String(s.name || "")];
+    parts.push(typeof s.tier === "string" && s.tier ? s.tier : "aucun appel");
+    var ms = entierOuNull(s.ms);
+    if (ms !== null) parts.push(ms + " ms");
+    return ligne(parts.join(" · "));
+  }
+
+  /**
+   * Les blocs ouverts et les blocs écartés, dans l'ordre où les étapes les nomment.
+   *
+   * `trace.blocs` **résout** ce que les étapes nomment déjà (`{block_id, doc_id, node_id, fiche_id,
+   * titre}`) ; un identifiant qu'elle ne résout pas s'affiche **seul** (M3). Rien n'est deviné : le
+   * front n'a aucun moyen de retrouver le titre d'une fiche du corpus servi, et `kb.js` peut en
+   * diverger.
+   */
+  function lignesDeBlocs(steps, blocs, champ) {
+    var titres = Object.create(null);
+    blocs.forEach(function (b) {
+      if (estObjet(b) && typeof b.block_id === "string" && typeof b.titre === "string") {
+        titres[b.block_id] = b.titre;
+      }
+    });
+    var vus = Object.create(null);
+    var out = [];
+    steps.forEach(function (s) {
+      tableau(s[champ]).forEach(function (id) {
+        if (typeof id !== "string" || vus[id]) return;
+        vus[id] = 1;
+        out.push(ligne(titres[id] ? id + " — " + titres[id] : id));
+      });
+    });
+    return out;
+  }
+
+  /** L'état du dictionnaire des variantes, et le sort du refus « zéro hit » (M12). */
+  function lignesDictionnaire(d) {
+    if (!estObjet(d)) return [];
+    var out = [];
+    if (typeof d.charge === "boolean") {
+      out.push(ligne(d.charge ? "dictionnaire des variantes : chargé"
+                              : "dictionnaire des variantes : aucun dictionnaire n'est chargé",
+                     d.charge ? "ok" : "ko"));
+    }
+    if (typeof d.validated === "boolean") {
+      out.push(ligne(d.validated ? "signé par un humain" : "signé par personne",
+                     d.validated ? "ok" : "ko"));
+    }
+    if (typeof d.corpus_ok === "boolean") {
+      out.push(ligne(d.corpus_ok ? "ses empreintes décrivent le corpus servi"
+                                 : "ses empreintes ne décrivent pas le corpus servi",
+                     d.corpus_ok ? "ok" : "ko"));
+    }
+    if (typeof d.court_circuit_actif === "boolean") {
+      var raisonDesarmement = "l'état publié ne permet pas de l'armer";
+      if (d.charge === false) {
+        raisonDesarmement = "aucun dictionnaire n'est chargé";
+      } else if (d.corpus_ok === false) {
+        raisonDesarmement = "le dictionnaire ne décrit pas le corpus servi";
+      } else if (d.validated === false) {
+        raisonDesarmement = "le dictionnaire n'a pas de validation humaine";
+      }
+      out.push(ligne(d.court_circuit_actif
+        ? "le refus « zéro hit » est armé : une question dont aucun terme ni aucune variante n'a " +
+          "de passage est refusée avec sa preuve"
+        : "le refus « zéro hit » est désarmé : une question sans aucun passage poursuit quand même " +
+          "la recherche — " + raisonDesarmement,
+        d.court_circuit_actif ? "ok" : "ko"));
+    }
+    return out;
+  }
+
+  /** Le gate du document interrogé, et les alertes que le serveur pose sur lui. */
+  function lignesGate(g) {
+    if (!estObjet(g)) return [];
+    var out = [];
+    if (typeof g.profile === "string" && g.profile) {
+      var cases = entierOuNull(g.cases);
+      out.push(ligne("profil de validation : " + g.profile +
+                     (cases !== null ? " (" + cases + " cas)" : "")));
+    } else if (g.profile === null && tableau(g.alerts).indexOf("sans_gate") === -1) {
+      out.push(ligne("aucune question-témoin ne valide ce document", "ko"));
+    }
+    if (typeof g.countersigned === "boolean") {
+      out.push(ligne(g.countersigned
+        ? "relecture des cas contresignée à la main"
+        : "relecture des cas non contresignée : elle est celle de la boucle autonome",
+        g.countersigned ? "ok" : "ko"));
+    }
+    tableau(g.alerts).forEach(function (a) {
+      if (typeof a !== "string" || !a) return;
+      var connue = Object.prototype.hasOwnProperty.call(ALERTES, a);
+      out.push(ligne(connue ? ALERTES[a] + " (" + a + ")" : a, "ko"));
+    });
+    return out;
+  }
+
+  /** Les seuils actifs, repliés dans un sous-panneau : ils sont nombreux et rarement lus. */
+  function vueSeuils(thresholds) {
+    if (!estObjet(thresholds)) return null;
+    var noms = Object.keys(thresholds).sort();
+    var lignes = [];
+    noms.forEach(function (nom) {
+      var v = thresholds[nom];
+      if (typeof v !== "number" || !isFinite(v)) return;
+      lignes.push(ligne(nom + " : " + String(v)));
+    });
+    if (!lignes.length) return null;
+    return noeud("details", "pq-seuils", null, [
+      noeud("summary", null, "Seuils actifs (" + lignes.length + ")"),
+      noeud("ul", "pq-liste", null, lignes)
+    ]);
+  }
+
+  /**
+   * Le panneau replié « Pourquoi cette réponse », ou `null` si la réponse ne porte pas de trace.
+   *
+   * Il lit `r.trace` et `r.answer` — jamais le corpus, jamais `kb.js`, jamais un défaut. Le même
+   * arbre est peint dans les deux journaux : aucun `id` n'y est posé.
+   */
+  function vuePourquoi(r) {
+    var reponse = r || {};
+    var t = reponse.trace;
+    if (!estObjet(t)) return null;
+    var a = reponse.answer || {};
+    var steps = tableau(t.steps).filter(estObjet);
+    var enfants = [noeud("summary", "pq-sum", "Pourquoi cette réponse")];
+
+    var etapes = rubrique("Étapes", steps.map(ligneEtape));
+    if (etapes) enfants.push(etapes);
+
+    var ouverts = rubrique("Passages ouverts", lignesDeBlocs(steps, tableau(t.blocs), "opened_block_ids"));
+    if (ouverts) enfants.push(ouverts);
+    var ecartes = rubrique("Passages écartés, non lus par le modèle",
+                           lignesDeBlocs(steps, tableau(t.blocs), "discarded_block_ids"));
+    if (ecartes) enfants.push(ecartes);
+
+    var controles = [];
+    steps.forEach(function (s) {
+      tableau(s.checks).forEach(function (c) {
+        if (!estObjet(c) || typeof c.name !== "string") return;
+        var detail = typeof c.detail === "string" && c.detail ? " — " + c.detail : "";
+        controles.push(ligne(libelleControle(c.name) + detail, c.ok === true ? "ok" : "ko"));
+      });
+    });
+    var vueControles = rubrique("Contrôles", controles);
+    if (vueControles) enfants.push(vueControles);
+
+    var rejetees = tableau(a.rejected_claims).filter(estObjet);
+    if (rejetees.length) {
+      // AD-3/AD-11 : le **texte** de l'affirmation et le motif, jamais sa citation — la quote d'une
+      // claim écartée est restée une chaîne du modèle, qu'aucun corpus n'a confirmée.
+      enfants.push(noeud("div", "pq-bloc", null, [
+        noeud("strong", "pq-titre", "Affirmations écartées par la vérification"),
+        noeud("p", "pq-note",
+          "Le modèle a avancé ces affirmations ; les contrôles les ont écartées. Aucune de leurs " +
+          "citations n'est affichée."),
+        noeud("ul", "pq-liste", null, rejetees.map(function (c) {
+          var kind = typeof c.rejection_kind === "string" ? c.rejection_kind : "";
+          return noeud("li", "pq-ligne pq-rejetee", null, [
+            noeud("span", "pq-rej-txt", String(c.text || "")),
+            noeud("span", "pq-rej-motif", motifRejet(kind) + (kind ? " (" + kind + ")" : ""))
+          ]);
+        }))
+      ]));
+    }
+
+    var compteurs = [];
+    var retries = entierOuNull(t.retries);
+    if (retries !== null) compteurs.push(ligne(pluriel(retries, "relance")));
+    var troncatures = entierOuNull(t.truncations);
+    if (troncatures !== null) compteurs.push(ligne(pluriel(troncatures, "troncature")));
+    if (typeof t.deadline_remaining_s === "number" && isFinite(t.deadline_remaining_s)) {
+      var delai = Math.abs(t.deadline_remaining_s).toFixed(1).replace(".", ",");
+      compteurs.push(ligne(t.deadline_remaining_s < 0
+        ? "délai dépassé de " + delai + " s"
+        : "délai restant : " + delai + " s"));
+    }
+    var cout = coutTexte(t);
+    if (cout) compteurs.push(ligne(cout));
+    var vueCompteurs = rubrique("Ce que la requête a coûté", compteurs);
+    if (vueCompteurs) enfants.push(vueCompteurs);
+
+    var seuils = vueSeuils(t.thresholds);
+    if (seuils) enfants.push(seuils);
+
+    var gate = rubrique("Validation du document interrogé", lignesGate(t.gate));
+    if (gate) enfants.push(gate);
+    var dico = rubrique("Dictionnaire des variantes", lignesDictionnaire(t.dictionnaire));
+    if (dico) enfants.push(dico);
+
+    var identite = [];
+    var pipeline = typeof t.pipeline === "string" && t.pipeline ? t.pipeline : "";
+    var variante = typeof t.variant === "string" && t.variant ? t.variant : "";
+    if (pipeline) identite.push(ligne("pipeline : " + pipeline + (variante ? " · variante " + variante : "")));
+    if (typeof t.intent === "string" && t.intent) identite.push(ligne("intention : " + t.intent));
+    if (typeof t.request_id === "string" && t.request_id) {
+      identite.push(ligne("référence de requête : " + t.request_id));
+    }
+    var vueIdentite = rubrique("Cette requête", identite);
+    if (vueIdentite) enfants.push(vueIdentite);
+
+    // Un `<details>` qui n'a que son `<summary>` n'apprendrait rien : la trace n'a rien dit.
+    if (enfants.length === 1) return null;
+    return noeud("details", "pourquoi", null, enfants);
   }
 
   function vueAttente() {
@@ -791,6 +1126,11 @@ window.CHAT = (function () {
     if (cout) pied.push(noeud("span", "cout", cout));
     enfants.push(noeud("div", "pied", null, pied));
 
+    // AD-10 : la trace est consultable. Le panneau vient **après** le pied — il explique ce qui
+    // précède — et il n'existe que si la trace existe.
+    var pourquoi = vuePourquoi(r);
+    if (pourquoi) enfants.push(pourquoi);
+
     var chips = chipsVue(r, question);
     if (chips) enfants.push(chips);
     return noeud("div", "msg bot", null, enfants);
@@ -822,8 +1162,12 @@ window.CHAT = (function () {
 
   // FR11 / AD-11 / AD-16 : l'action de recherche simple n'est portee que par une indisponibilite.
   // C'est ici, et nulle part ailleurs, que la regle « pas de repli sur un 4xx » se decide.
-  function vueErreur(erreur, question) {
+  // `contexte.tour_retire` (story 2.5, M9) : `ui.js` a retiré de l'historique de page la question
+  // restée sans réponse. Le retrait n'est **jamais silencieux** — la phrase est composée ici, comme
+  // tout ce qui s'affiche, et `ui.js` ne fait que dire ce qu'il a fait.
+  function vueErreur(erreur, question, contexte) {
     var indispo = !!(erreur && erreur.kind === "indisponible");
+    var c = contexte || {};
     var enfants = [
       noeud("strong", "alerte-titre", indispo ? "Assistant indisponible" : "Question non traitée"),
       noeud("p", "alerte-txt", messageErreur(erreur))
@@ -833,6 +1177,11 @@ window.CHAT = (function () {
         "Rien n'a été cherché : la recherche simple du guide compare des mots-clés, elle ne " +
         "vérifie rien. À vous de décider si elle vous suffit."));
     }
+    if (c.tour_retire) {
+      enfants.push(noeud("p", "retrait",
+        "Cette question n'a pas reçu de réponse : elle est retirée de la conversation, et ne " +
+        "repartira pas au serveur avec la suivante."));
+    }
     if (erreur && erreur.request_id) {
       enfants.push(noeud("p", "ref", "référence : " + erreur.request_id));
     }
@@ -841,6 +1190,11 @@ window.CHAT = (function () {
       bouton.action = { nom: "recherche_simple", question: String(question || "") };
       enfants.push(noeud("div", "chips", null, [bouton]));
     }
+    // AD-10 : « une erreur porte `trace` si le pipeline a commencé ». Quand l'enveloppe d'AD-16 en
+    // porte une (et qu'elle tient le contrat, voir `erreurHttp`), le bandeau porte aussi le panneau
+    // — c'est l'écran d'un échec qui a le plus besoin d'être expliqué.
+    var pourquoi = vuePourquoi({ trace: erreur && erreur.trace, answer: null });
+    if (pourquoi) enfants.push(pourquoi);
     return noeud("div", "msg bot " + (indispo ? "indispo" : "err"), null, enfants);
   }
 
@@ -872,11 +1226,39 @@ window.CHAT = (function () {
   // page d'accueil pose deja sa reserve dans ce cas ; le badge est le seul ecran ou l'on pose
   // reellement une question, et c'est celui qui l'affirmait a jour.
   function estPerime(validation) {
+    return reserves(validation).indexOf("périmé") !== -1;
+  }
+
+  // Les réserves que le badge porte, dans l'ordre où le serveur les rend graves (story 2.5, M14).
+  //
+  // Reprise différée de 1.10 : `testerApi()` retenait `alerts` et le badge n'en disait qu'une, la
+  // péremption du gate. Or **la quarantaine d'un document** (il n'est plus servi du tout) et
+  // **l'absence de son fichier source** (l'édition annoncée n'est vérifiable nulle part) sont des
+  // faits publiés par le serveur, qui portent sur ce à quoi les réponses s'adossent, dans le seul
+  // écran où l'on pose une question. Elles ne sont pas déduites : `/sante` les nomme, le badge les
+  // relaie. Une alerte que cette table ne connaît pas n'invente **aucune** réserve — c'est le sens
+  // d'AD-16 : ce que le serveur n'a pas dit, l'écran ne le dit pas.
+  var RESERVES = {
+    quarantaine: "document écarté",
+    source_absente: "source absente",
+    gate_perime: "périmé"
+  };
+
+  function reserves(validation) {
     var alerts = (validation && Array.isArray(validation.alerts)) ? validation.alerts : [];
-    for (var i = 0; i < alerts.length; i++) {
-      if (alerts[i] && alerts[i].alerte === "gate_perime") return true;
-    }
-    return false;
+    var vues = {};
+    var out = [];
+    // L'ordre est celui de `RESERVES`, pas celui du serveur : deux corps qui portent les mêmes
+    // alertes dans un ordre différent doivent écrire le même badge.
+    Object.keys(RESERVES).forEach(function (nom) {
+      for (var i = 0; i < alerts.length; i++) {
+        if (alerts[i] && alerts[i].alerte === nom && !vues[nom]) {
+          vues[nom] = 1;
+          out.push(RESERVES[nom]);
+        }
+      }
+    });
+    return out;
   }
 
   // La **contresignature** entre dans le suffixe pour la meme raison que la peremption (revue Codex
@@ -886,12 +1268,15 @@ window.CHAT = (function () {
   // badge est court : il pose la reserve, l'accueil la dit en toutes lettres.
   function suffixeValidation(validation) {
     if (!validation) return "";
-    if (validation.gate_profile === null) return " · non validé";
-    var reserves = [];
-    if (estPerime(validation)) reserves.push("périmé");
-    if (validation.gate_countersigned === false) reserves.push("non contresigné");
+    var reservees = reserves(validation);
+    // Sans gate, il n'y a pas de niveau à suffixer — mais les réserves du serveur, elles, portent
+    // sur le corpus servi et restent dues : « non validé » seul tairait une quarantaine.
+    if (validation.gate_profile === null) {
+      return " · non validé" + (reservees.length ? " (" + reservees.join(", ") + ")" : "");
+    }
+    if (validation.gate_countersigned === false) reservees.push("non contresigné");
     return " · " + validation.gate_profile + " (" + validation.gate_cases + " cas" +
-      (reserves.length ? ", " + reserves.join(", ") : "") + ")";
+      (reservees.length ? ", " + reservees.join(", ") : "") + ")";
   }
 
   function libelleMode(via, validation) {
@@ -919,22 +1304,56 @@ window.CHAT = (function () {
     e.kind = d.kind;
     e.code = d.code || "";
     e.statut = d.statut || 0;
-    e.retry_after = (typeof d.retry_after === "number" && !isNaN(d.retry_after)) ? d.retry_after : null;
+    e.retry_after = (typeof d.retry_after === "number" && isFinite(d.retry_after) &&
+                     d.retry_after >= 0) ? d.retry_after : null;
     e.request_id = d.request_id || "";
+    // AD-10 : l'enveloppe d'erreur d'AD-16 porte `trace` quand le pipeline a commencé. Elle voyage
+    // avec l'erreur pour que `vueErreur` puisse déplier « Pourquoi cette réponse » (M10).
+    e.trace = d.trace || null;
     return e;
+  }
+
+  // La trace d'une **enveloppe d'erreur** n'a pas franchi `lireReponse` : elle est donc relue ici,
+  // par la même lecture stricte, et écartée si elle ne tient pas le contrat. Un 503 ne devient pas
+  // `reponse_illisible` pour autant — l'échec reste celui du serveur, il perd seulement son
+  // panneau : « ce que la trace ne dit pas, l'écran ne le dit pas » (AD-16).
+  function traceDErreur(corps) {
+    var t = corps && corps.trace;
+    if (!estObjet(t)) return null;
+    try { verifierTrace(t); } catch (e) { return null; }
+    return t;
+  }
+
+  function retryApres(valeur, maintenantMs) {
+    if (typeof valeur !== "string") return null;
+    var brut = valeur.trim();
+    // RFC 9110 : `delay-seconds` vaut uniquement 1*DIGIT. `parseInt("30 secondes")` rendait 30
+    // et transformait donc un en-tête invalide en mesure affichée.
+    if (/^\d+$/.test(brut)) {
+      var secondes = Number(brut);
+      return isFinite(secondes) && Math.floor(secondes) === secondes ? secondes : null;
+    }
+    // La forme HTTP-date émise aujourd'hui est IMF-fixdate. La regex écarte les chaînes que
+    // `Date.parse` devine avec complaisance ; la reconstruction élimine les dates impossibles.
+    if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(brut)) return null;
+    var date = Date.parse(brut);
+    if (!isFinite(date) || new Date(date).toUTCString() !== brut) return null;
+    var maintenant = typeof maintenantMs === "number" ? maintenantMs : Date.now();
+    return Math.max(0, Math.ceil((date - maintenant) / 1000));
   }
 
   function erreurHttp(statut, entetes, corps) {
     var err = (corps && corps.error) || {};
-    var retry = parseInt(entetes && entetes.get ? entetes.get("Retry-After") : null, 10);
+    var retry = retryApres(entetes && entetes.get ? entetes.get("Retry-After") : null);
     return erreurChat({
       // Seul un 503 ouvre la porte du mode local (AD-11/AD-16). Un 500 n'est pas une
       // indisponibilite passagere que la recherche simple contournerait.
       kind: statut === 503 ? "indisponible" : "requete",
       code: typeof err.code === "string" ? err.code : "",
       statut: statut,
-      retry_after: isFinite(retry) ? retry : null,
-      request_id: typeof err.request_id === "string" ? err.request_id : ""
+      retry_after: retry,
+      request_id: typeof err.request_id === "string" ? err.request_id : "",
+      trace: traceDErreur(corps)
     });
   }
 
@@ -1127,11 +1546,113 @@ window.CHAT = (function () {
 
   // `Trace` : deux champs sans valeur par defaut, `request_id` et `pipeline` — les deux qui relient
   // l'ecran a la ligne de log (AD-10). `total_cost_eur` porte le cout affiche en pied (NFR4).
+  //
+  // Story 2.5 : tout ce que le panneau « Pourquoi cette réponse » consomme est descendu, avec la
+  // règle **tolérante à l'absence, stricte sur le type**. Elle n'est pas la même que celle des
+  // champs à valeur par défaut du contrat HTTP, et c'est délibéré : les deux lots de cette story
+  // sont écrits **en parallèle**, et le front ne peut pas exiger un champ que le serveur n'a pas
+  // encore posé. Un champ absent fait donc disparaître sa rubrique (M2) ; un champ **présent et mal
+  // typé**, lui, est un serveur cassé — l'afficher, ce serait peindre « 0 relance » sur un compteur
+  // que rien n'a calculé, ou « étape [object Object] » sous le panneau qui répond de l'honnêteté du
+  // reste. `null` n'est jamais accepté non plus : aucun de ces champs n'est nullable côté serveur,
+  // sauf `gate` et `dictionnaire`, que `Trace` déclare `… | None`.
+  function objetNullable(v, nom) {
+    if (v === undefined || v === null) return;
+    exigerObjet(v, nom);
+  }
+
+  function listeDObjets(v, nom) {
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) throw illisible(nom);
+    for (var i = 0; i < v.length; i++) exigerObjet(v[i], nom + "[" + i + "]");
+    return v;
+  }
+
+  function verifierEtape(s, nom) {
+    exigerChaine(s.name, nom + ".name");
+    if (s.tier !== undefined && s.tier !== null) exigerChaine(s.tier, nom + ".tier");
+    if (s.ms !== undefined) entierDefaut(s.ms, nom + ".ms");
+    if (s.opened_block_ids !== undefined) {
+      listeDeChaines(s.opened_block_ids, nom + ".opened_block_ids");
+    }
+    if (s.discarded_block_ids !== undefined) {
+      listeDeChaines(s.discarded_block_ids, nom + ".discarded_block_ids");
+    }
+    var checks = listeDObjets(s.checks, nom + ".checks");
+    for (var i = 0; i < checks.length; i++) {
+      var ou = nom + ".checks[" + i + "]";
+      exigerChaine(checks[i].name, ou + ".name");
+      if (typeof checks[i].ok !== "boolean") throw illisible(ou + ".ok");
+      if (checks[i].detail !== undefined) exigerChaine(checks[i].detail, ou + ".detail");
+    }
+  }
+
+  function verifierBloc(b, nom) {
+    exigerChaine(b.block_id, nom + ".block_id");
+    exigerChaine(b.doc_id, nom + ".doc_id");
+    exigerChaine(b.node_id, nom + ".node_id");
+    // `titre` est ce que la ligne affiche à côté de l'identifiant ; `fiche_id` est nullable.
+    exigerChaine(b.titre, nom + ".titre");
+    chaineNullable(b.fiche_id, nom + ".fiche_id");
+  }
+
+  function verifierGate(g) {
+    objetNullable(g, "trace.gate");
+    if (!estObjet(g)) return;
+    chaineNullable(g.profile, "trace.gate.profile");
+    if (g.cases !== null) entierDefaut(g.cases, "trace.gate.cases");
+    if (g.countersigned !== undefined && g.countersigned !== null &&
+        typeof g.countersigned !== "boolean") {
+      throw illisible("trace.gate.countersigned");
+    }
+    if (!Array.isArray(g.alerts)) throw illisible("trace.gate.alerts");
+    listeDeChaines(g.alerts, "trace.gate.alerts");
+  }
+
+  function verifierDictionnaire(d) {
+    objetNullable(d, "trace.dictionnaire");
+    if (!estObjet(d)) return;
+    ["charge", "validated", "corpus_ok", "court_circuit_actif"].forEach(function (cle) {
+      if (typeof d[cle] !== "boolean") {
+        throw illisible("trace.dictionnaire." + cle);
+      }
+    });
+  }
+
   function verifierTrace(t) {
     exigerObjet(t, "trace");
     exigerChaine(t.request_id, "trace.request_id");
     exigerChaine(t.pipeline, "trace.pipeline");
-    defaut(t.total_cost_eur, "trace.total_cost_eur");
+    var cout = defaut(t.total_cost_eur, "trace.total_cost_eur");
+    if (cout !== undefined &&
+        (typeof cout !== "number" || !isFinite(cout) || cout < 0)) {
+      throw illisible("trace.total_cost_eur");
+    }
+    if (t.variant !== undefined) exigerChaine(t.variant, "trace.variant");
+    if (t.intent !== undefined && t.intent !== null) exigerChaine(t.intent, "trace.intent");
+    var steps = listeDObjets(t.steps, "trace.steps");
+    for (var i = 0; i < steps.length; i++) verifierEtape(steps[i], "trace.steps[" + i + "]");
+    var blocs = listeDObjets(t.blocs, "trace.blocs");
+    for (var b = 0; b < blocs.length; b++) verifierBloc(blocs[b], "trace.blocs[" + b + "]");
+    verifierGate(t.gate);
+    verifierDictionnaire(t.dictionnaire);
+    if (t.retries !== undefined) entierDefaut(t.retries, "trace.retries");
+    if (t.truncations !== undefined) entierDefaut(t.truncations, "trace.truncations");
+    if (t.deadline_remaining_s !== undefined && t.deadline_remaining_s !== null &&
+        (typeof t.deadline_remaining_s !== "number" || !isFinite(t.deadline_remaining_s))) {
+      throw illisible("trace.deadline_remaining_s");
+    }
+    // `thresholds` est un `dict` sans `| None` : présent, c'est un objet ; `null` est un corps que
+    // personne n'a écrit.
+    if (t.thresholds !== undefined) {
+      exigerObjet(t.thresholds, "trace.thresholds");
+      Object.keys(t.thresholds).forEach(function (nom) {
+        var v = t.thresholds[nom];
+        if (typeof v !== "number" || !isFinite(v)) {
+          throw illisible("trace.thresholds." + nom);
+        }
+      });
+    }
   }
 
   // Lecture **stricte** du contrat d'AD-11. Plus jamais `j.reponse` (le serveur rend `texte`), et
@@ -1387,6 +1908,16 @@ window.CHAT = (function () {
     vueReponse: vueReponse,
     vueReponseLocale: vueReponseLocale,
     vueErreur: vueErreur,
+    // Story 2.5 : le panneau « Pourquoi cette réponse », et les tables qu'il consomme. L'AC est une
+    // liste de rubriques : elle se vérifie sur l'arbre composé, pas sur du DOM.
+    vuePourquoi: vuePourquoi,
+    libelleControle: libelleControle,
+    motifRejet: motifRejet,
+    reserves: reserves,
+    ALERTES: ALERTES,
+    CONTROLES: CONTROLES,
+    REJETS: REJETS,
+    RESERVES: RESERVES,
     modeApresErreur: modeApresErreur,
     libelleMode: libelleMode,
     suffixeValidation: suffixeValidation,
@@ -1395,6 +1926,8 @@ window.CHAT = (function () {
     // au moment de poser le badge, il ne le retient pas.
     validation: function () { return validationServeur; },
     lireValidation: lireValidation,
+    // Parseur pur du champ HTTP `Retry-After`, exposé pour tester secondes et HTTP-date sans réseau.
+    retryApres: retryApres,
     setApiBase: function (u) { API_BASE = u; apiDisponible = null; validationServeur = null; },
     apiBase: function () { return API_BASE; },
     // Pour les tests : ce que le front croit des bornes du serveur, et d'ou il le tient.

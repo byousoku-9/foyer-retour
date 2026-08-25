@@ -1177,6 +1177,16 @@
     if (vue.tag === "button") e.type = "button";
     if (vue.href) { e.href = vue.href; e.target = "_blank"; e.rel = "noopener noreferrer"; }
     if (vue.texte !== undefined) e.textContent = vue.texte;
+    // Story 2.5 : les attributs **décrits** par `chat.js`, posés tels quels — aucune decision ici
+    // non plus, pas meme un filtrage. La regle « aucun `id` » se tient donc la ou elle se decide,
+    // c'est-a-dire dans la composition : la bulle est materialisee **une fois par journal**
+    // (l'onglet Assistant et le widget flottant), donc deux fois dans le meme document, et un `id`
+    // en double rend le document invalide. `tests/test_web_chat.py` l'exige des vues composees.
+    if (vue.attrs) {
+      Object.keys(vue.attrs).forEach(function (nom) {
+        e.setAttribute(nom, String(vue.attrs[nom]));
+      });
+    }
     if (vue.cls && vue.cls.split(" ").indexOf("chips") !== -1) e.setAttribute("data-grp", String(grp));
     if (vue.action) {
       var action = vue.action;
@@ -1272,8 +1282,24 @@
     if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
   }
 
+  // Story 2.5 (reprise differee de 2.2) : **une question restee sans reponse quitte l'historique**.
+  //
+  // `envoyer()` pousse le tour `user` avant l'appel, et `afficherErreur` ne poussait rien : apres un
+  // 503 ou une panne reseau, la question suivante partait avec **deux tours `user` a la file**,
+  // dont l'un n'avait jamais recu de reponse. `ChatRequest` ne valide que le nombre de tours, pas
+  // leur alternance : *comprendre* recevait donc une conversation qui n'a pas eu lieu et devait
+  // resoudre l'anaphore de la seconde question contre la premiere.
+  //
+  // Le retrait est **cible** : le dernier tour, s'il est bien celui que `envoyer()` vient de
+  // pousser (`role: "user"`, meme texte). Une reinitialisation, un `afficherErreur` appele
+  // directement, ou un fil deja vide ne perdent rien. Et il n'est **jamais silencieux** : la phrase
+  // est composee par `chat.js` (`vueErreur`, contexte `tour_retire`) et peinte dans le bandeau —
+  // `ui.js` dit ce qu'il a fait, il ne decide pas de la phrase.
   function afficherErreur(q, erreur) {
-    peindre(window.CHAT.vueErreur(erreur, q));
+    var dernier = historique.length ? historique[historique.length - 1] : null;
+    var retire = !!(dernier && dernier.role === "user" && dernier.content === q);
+    if (retire) historique.pop();
+    peindre(window.CHAT.vueErreur(erreur, q, { tour_retire: retire }));
     var mode = window.CHAT.modeApresErreur(erreur);
     if (mode) badgeMode(mode);
   }
@@ -3635,7 +3661,12 @@
     badgeMode: badgeMode,
     executer: executer,
     verrouillerSaisie: verrouillerSaisie,
-    historique: function () { return historique; }
+    historique: function () { return historique; },
+    // Story 2.5 : la regle de profil du site, exportee pour etre **rejouee** cote a cote avec celle
+    // du serveur (`server/app/domain/profil.py`) sur la table de cas `tests/data/profil_cas.json`.
+    // Les deux ne peuvent pas etre factorisees — le site n'appelle pas le serveur pour filtrer son
+    // parcours — mais rien n'obligeait a les laisser diverger sans qu'aucun test ne le voie.
+    etapeConcerne: etapeConcerne
   };
   if (window.__UI_SANS_DEMARRAGE) return;
 
