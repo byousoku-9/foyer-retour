@@ -1420,11 +1420,15 @@ AD-5 / FR29 (« le modèle d'ingestion ne renvoie jamais de texte de bloc ») : 
 deuxième est exactement ce que le contrôle existe pour attraper : une « question candidate » qui
 était une phrase du guide recopiée. Écartée, jamais tronquée.
 
-Le fichier a été relu à la main sur un échantillon : les variantes sont bien FR/EN/DE/PT
+Le fichier a été **inspecté par la boucle**, sur un échantillon : les variantes sont bien FR/EN/DE/PT
 (`CNS` → *Caisse nationale de santé, Krankenkasse, caisse de maladie, caixa de saúde, health
 insurance fund*), les canoniques sont des termes du domaine et non des passages, et
 `corpus_source_hashes` ne nomme que `lux-guide` (`abe65f06…`), le seul document que ce dictionnaire
-décrive.
+décrive. **La relecture humaine, elle, reste due** : elle appartient à Lancelot, c'est elle qu'AD-5
+exige avant `validated: true`, et le fichier livré porte `validated: false`, `validated_by: null`,
+`validated_at: null`. Écrire ici « relu à la main » (rédaction du 2026-08-25, corrigée en revue
+Codex 2.1, B1) affirmait un geste que personne n'avait fait et que l'artefact publié dément —
+exactement la valeur inventée qu'AD-16 interdit.
 
 ### Le faux refus de *comprendre* (reprise différée de 1.10, mesurée le 2026-08-24)
 
