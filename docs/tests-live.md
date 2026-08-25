@@ -1980,3 +1980,5 @@ exercée par un appel réel (reprise différée, `target_story: 4.2`) ; « parti
 quasi nominal (même reprise) ; la règle de profil reste écrite deux fois sans garde-fou croisé
 (`target_story: 2.5`) ; les deux `countersigned` restent `false` et le dictionnaire non validé — deux
 mains humaines, qu'aucune boucle ne peut remplacer.
+
+Revue Codex : 3 bloquants / 1 importants, convergé en 1 tour(s) (boucle autonome).
