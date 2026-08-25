@@ -271,6 +271,34 @@ async def test_le_code_tronque_terms_et_themes_aux_seuils_de_config() -> None:
     assert fake.remaining_script == 0
 
 
+async def test_un_libelle_hors_borne_est_ecarte_jamais_coupe() -> None:
+    """Revue Codex 2.1 (M3) : `Field(max_length=…)` sur une liste ne compte que ses **éléments**.
+
+    Le commentaire promettait qu'il bordait « au passage la longueur d'un libellé » ; il n'en bordait
+    aucune, et un « terme » de dix mille caractères traversait l'étape puis partait dans
+    `terms_searched`. La borne est appliquée par le code, qui **écarte** le libellé — le couper
+    ferait chercher autre chose, et publierait une forme que personne n'a écrite.
+    """
+    from server.app.steps.comprendre import LIBELLE_MAX
+
+    deverse = "x" * (LIBELLE_MAX + 1)
+    client, fake = _client([fake_message(
+        text=_sortie(terms=["matricule", deverse], themes=[deverse, "école"],
+                     facettes=[deverse, "délai"]), model=HAIKU)])
+    parsed, _step = await comprendre("q", [], Profil(), client=client, budget=_budget(),
+                                     settings=_settings())
+
+    assert parsed.terms == ["matricule"]
+    assert parsed.scope.themes == ["école"]
+    assert parsed.facettes == ["délai"]
+    assert "xxxx" not in parsed.model_dump_json()  # aucun préfixe ne subsiste : écarté, pas tronqué
+    assert fake.remaining_script == 0
+    # La borne reste **au-dessus** des bornes d'affichage, plus fines et, elles, tracées
+    # (`QuestionScope.borner` / `faits_compris_hors_borne`) : les rabattre ferait disparaître le
+    # libellé plus tôt et sans un mot, ce qu'AD-16 appelle un dégradé silencieux.
+    assert LIBELLE_MAX > _settings().fait_manquant_max_chars
+
+
 async def test_le_schema_de_sortie_interdit_un_champ_surnumeraire_et_borne_les_listes() -> None:
     """Reprise différée `target_story: 2.1` : `SortieComprendre` héritait de `BaseModel`.
 
