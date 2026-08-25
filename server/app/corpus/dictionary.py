@@ -22,6 +22,13 @@
   `corpus_source_hashes` ne correspond pas au corpus chargé, le court-circuit « zéro hit » est
   **désactivé** … et la requête poursuit vers *retrouver* »).
 
+**Un troisième contenu, qui n'arme rien** (story 2.5) : `intents` — les déclencheurs de chacune des
+trois intentions refusées. Ils ne sont commandés par aucun des deux verrous, parce qu'ils ne
+commandent rien : AD-5 interdit qu'une présence lexicale tranche (« la présence d'un mot n'est jamais
+une preuve de pertinence »), et `confirme()` ne rend qu'un **compte**, celui des déclencheurs qui
+corroborent l'intention déjà rendue par *comprendre*. C'est ce qui fait passer ce champ de « donnée
+générée que rien ne lit » à « explication publiée », sans lui donner le moindre pouvoir de décision.
+
 **Rien ici ne lève jamais.** AD-7 : « un fichier absent, illisible ou non conforme désactive une
 optimisation, il n'empêche jamais de servir et ne lève jamais au démarrage. » Toute erreur devient une
 `raison`, que `/api/v1/sante` publie en alerte et que la page d'accueil affiche — dite, jamais tue
@@ -80,6 +87,16 @@ class Dictionnaire:
     # « toujours en français » que le guide peut ne pas employer — c'est en les reconnaissant comme
     # variantes qu'on retrouve la fiche du canonique.
     _groupes: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
+    # `intent` → ses déclencheurs, dans l'ordre du fichier, dédupliqués par forme normalisée
+    # (story 2.5). **Ils n'ont aucun pouvoir de décision** : AD-5 est explicite — « les déclencheurs
+    # d'intention sont distincts des mots du corpus — la présence d'un mot n'est jamais une preuve de
+    # pertinence ». Le refus par intent reste celui de *comprendre*, qui a lu la question entière ;
+    # ce que le pipeline en tire est un **compte**, pour dire d'où vient un refus (`CheckResult`
+    # `intention_expliquee`), jamais pour en prononcer un.
+    #
+    # Dédupliqués à la lecture pour que `confirme()` rende deux nombres qui parlent du même ensemble :
+    # « 2 sur 30 » n'a de sens que si les 30 sont 30 formes distinctes.
+    _intents: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
     # forme normalisée → les **canoniques** (texte du fichier, non normalisé) dont elle relève.
     # AD-4 veut `terms_searched[] (canoniques)` : c'est cette table qui le rend possible, et c'est la
     # seule chose du dictionnaire qui ait le droit de sortir dans une `AbsenceProof` — jamais les
@@ -179,6 +196,53 @@ class Dictionnaire:
         return sortie
 
 
+    def declencheurs(self, intent: str) -> tuple[str, ...]:
+        """Les déclencheurs que le fichier associe à cette intention, tels qu'il les écrit.
+
+        Rendus dès que le fichier est **chargé**, sans attendre `corpus_ok` ni `validated`, et c'est
+        délibéré : les deux verrous d'AD-5 gardent l'un les **variantes du corpus** (qui ouvrent des
+        fiches), l'autre le **refus** (que l'utilisateur reçoit). Un déclencheur d'intention ne fait
+        ni l'un ni l'autre — il ne décide rien, il compte —, et il ne décrit pas un corpus mais une
+        façon de poser une question. Le désarmer au motif que le dictionnaire décrit un autre
+        document reviendrait à cacher une explication sans rien protéger.
+
+        Intention inconnue du fichier ⇒ tuple vide : le compte vaudra « 0 sur 0 », ce qui est vrai.
+        """
+        return self._intents.get(intent, ())
+
+    def confirme(self, intent: str, texte: str) -> tuple[int, int]:
+        """`(déclencheurs reconnus dans le texte, déclencheurs connus)` — un compte, jamais les mots.
+
+        La reconnaissance est **exactement** celle d'`Index.chercher` : `normalize()` puis `words()`
+        des deux côtés, et correspondance en **mots entiers** (`_hit`) — « météorologie » ne contient
+        pas le déclencheur « météo », et « la Météo demain ? » contient « météo demain ». Deux règles
+        de comparaison différentes dans le même serveur feraient annoncer un compte que rien d'autre
+        ne saurait reproduire.
+
+        Les accents et la casse sont neutralisés par `normalize()` (convention Texte du spine) : c'est
+        ce qui permet à un déclencheur « météo » d'être reconnu dans « METEO » comme dans « meteo ».
+
+        Ce que la fonction ne fait pas : elle ne rend jamais **quels** déclencheurs ont été reconnus.
+        Un déclencheur reconnu dans une question est un fragment de cette question, et AD-4 interdit
+        déjà de publier la liste des déclencheurs dans une preuve d'absence ; le seul chiffre suffit
+        à dire si le refus est corroboré (AD-10 : le fait, jamais le texte).
+        """
+        declencheurs = self.declencheurs(intent)
+        if not declencheurs:
+            return 0, 0
+        mots = words(normalize(texte))
+        tokens = frozenset(mots)
+        rembourre = f" {' '.join(mots)} "
+        reconnus = 0
+        for declencheur in declencheurs:
+            f = forme(declencheur)
+            if not f:
+                continue
+            if (f in tokens) if " " not in f else (f" {f} " in rembourre):
+                reconnus += 1
+        return reconnus, len(declencheurs)
+
+
 def _corpus_ok(hashes: dict[str, str], corpus: Corpus, doc_id: str) -> tuple[bool, str]:
     """Les empreintes du dictionnaire décrivent-elles le document `doc_id` **tel qu'il est servi** ?
 
@@ -231,6 +295,27 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictio
         return Dictionnaire(doc_id=doc_id,
                             raison=f"{DICTIONARY_FILE} non conforme : {_first_error(exc)}"[:500])
 
+    # Le domaine contrôle la **forme** d'un identifiant sans importer le corpus. Le lecteur, qui
+    # possède les deux, referme l'autre moitié : chaque question candidate doit viser une unité
+    # répondante (`f…` ou `qN`) du document demandé, et cette unité doit réellement exister. Le
+    # champ reste dormant jusqu'à la story 4.2 ; le valider aujourd'hui empêche précisément qu'une
+    # donnée générée dérive en silence avant son premier lecteur.
+    document = corpus.documents.get(doc_id)
+    noeuds = {node.node_id for node in document.nodes} if document is not None else set()
+    for node_id in sorted(fichier.candidate_questions):
+        document_nomme = node_id.split(":", 1)[0]
+        if document_nomme != doc_id:
+            return Dictionnaire(
+                doc_id=doc_id,
+                raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme {node_id!r}, "
+                        f"qui appartient au document {document_nomme!r} et non au document demandé "
+                        f"{doc_id!r}")[:500])
+        if node_id not in noeuds:
+            return Dictionnaire(
+                doc_id=doc_id,
+                raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme le nœud "
+                        f"inexistant {node_id!r} dans le document {doc_id!r}")[:500])
+
     corpus_ok, raison = _corpus_ok(fichier.corpus_source_hashes, corpus, doc_id)
     groupes: dict[str, list[str]] = {}
     canoniques: dict[str, list[str]] = {}
@@ -257,9 +342,25 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictio
             canons = canoniques.setdefault(f, [])
             if canonique not in canons:
                 canons.append(canonique)
+    # Story 2.5 : les déclencheurs d'intention, dédupliqués par forme normalisée et dans l'ordre du
+    # fichier. Un doublon d'orthographe (« Météo » et « météo ») compterait deux fois dans le total
+    # annoncé à l'utilisateur, et une seule dans les reconnus : le compte se contredirait lui-même.
+    intents: dict[str, tuple[str, ...]] = {}
+    for intent, mots in fichier.intents.items():
+        gardes: list[str] = []
+        formes_vues: set[str] = set()
+        for mot in mots:
+            f = forme(mot)
+            if not f or f in formes_vues:
+                continue
+            formes_vues.add(f)
+            gardes.append(mot)
+        if gardes:
+            intents[intent] = tuple(gardes)
     return Dictionnaire(
         charge=True, doc_id=doc_id, validated=fichier.validated,
         validated_by=(fichier.validated_by or ""), validated_at=(fichier.validated_at or ""),
         corpus_ok=corpus_ok, raison=raison if not corpus_ok else "", canoniques=len(fichier.corpus),
         _groupes={f: tuple(g) for f, g in groupes.items()},
+        _intents=intents,
         _canoniques={f: tuple(c) for f, c in canoniques.items()})

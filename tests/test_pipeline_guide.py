@@ -34,6 +34,7 @@ from server.app.domain.errors import (
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Turn
+from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -157,7 +158,8 @@ async def _run(index: Index, script: list, *, historique: list[Turn] | None = No
 
 
 def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *, validated: bool,
-                  source_hash: str = "sha-source", doc_id: str = DOC_ID):
+                  source_hash: str = "sha-source", doc_id: str = DOC_ID,
+                  intents: dict[str, list[str]] | None = None):
     """Un `Dictionnaire` **chargé depuis un fichier**, comme le serveur le fait au démarrage."""
     import json
 
@@ -165,7 +167,8 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
 
     # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
     # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
-    dossier = tmp_path / f"dico-{len(termes)}-{validated}-{abs(hash((source_hash, tuple(sorted(termes)))))}"
+    dossier = tmp_path / (f"dico-{len(termes)}-{validated}-"
+                          f"{abs(hash((source_hash, tuple(sorted(termes)), tuple(sorted(intents or {})))))}")
     dossier.mkdir(parents=True, exist_ok=True)
     signature = ({"validated": True, "validated_by": "Lancelot Oudin",
                   "validated_at": "2026-08-25T10:00:00Z"} if validated else
@@ -176,7 +179,9 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
         {"schema_version": "1",
          "corpus_source_hashes": {d: source_hash for d in index.corpus.served},
          "corpus": termes,
-         "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
+         # Story 2.5 : les déclencheurs d'intention. Ils ne décident rien (AD-5) — ils permettent
+         # au pipeline de **compter** ce qui corrobore l'intention rendue par *comprendre*.
+         "intents": intents or {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
     return load_dictionary(dossier, index.corpus, doc_id)
 
 
@@ -1384,3 +1389,318 @@ async def test_le_profil_ne_voyage_pas_dans_la_trace(index_parcours: Index) -> N
     peint = json.dumps([s.model_dump(mode="json") for s in trace.steps], ensure_ascii=False)
     assert "enfants" not in peint
     assert trace.thresholds["profil_max_opens"] == 1  # le seuil actif, lui, est publié (AD-10)
+
+
+# --- story 2.5 : « pourquoi cette réponse » et mode dégradé honnête -----------
+#
+# Trois faits qui voyageaient déjà sans être lisibles (blocs, gate, dictionnaire), et deux règles que
+# le mode dégradé devait à la trace : d'où vient un refus par intent (M11), et ce qu'un périmètre
+# tronqué interdit d'affirmer (M13).
+
+@pytest.fixture
+def gate_du_mini_guide(index: Index):
+    """Pose un gate `vertical` sur l'entrée de manifest du mini-guide, et le retire après.
+
+    Le corpus de ce module est construit une fois (`scope="module"`) : un test qui le modifierait
+    sans le rendre créerait une dépendance à l'ordre d'exécution — le défaut que la fixture
+    `_etat_propre` de `tests/test_api.py` corrige côté HTTP.
+    """
+    from server.app.domain.ingest import Gate
+
+    entree = index.corpus.manifest[DOC_ID]
+    entree.gate = Gate(profile="vertical", source_hash=entree.source_hash,
+                       ingest_fingerprint=entree.ingest_fingerprint, cases_hash="c",
+                       pipeline_digest="p", prompts_digest="q", evals_ok=True,
+                       date="2026-08-25", cases=2, countersigned=False)
+    yield entree.gate
+    entree.gate = None
+
+
+@pytest.fixture
+def perimetre_tronque(index: Index):
+    """`corpus.alerts[doc_id]` porte `perimetre_tronque`, comme après le palier 3 du loader."""
+    index.corpus.alerts[DOC_ID] = ["perimetre_tronque"]
+    yield
+    index.corpus.alerts.pop(DOC_ID, None)
+
+
+DECLENCHEURS_METEO = ["météo", "pluie", "il fera beau", "weather"]
+
+
+async def test_la_trace_resout_les_blocs_quelle_nomme_en_titres_de_fiches(index: Index) -> None:
+    """AC 2.5 : « les blocs ouverts **et** écartés avec le titre de leur fiche ».
+
+    `StepTrace.opened_block_ids` ne porte que des identifiants : à l'écran, « mini:f1:2 » ne dit pas
+    à l'utilisateur ce qui a été lu. `Trace.blocs` les résout — sans jamais ajouter le **texte** d'un
+    bloc (AD-10), et en suivant la règle de `fiche_id` d'`api/presenter._source_item`, pour que le
+    panneau et `sources[]` ne puissent pas nommer la même fiche de deux façons.
+    """
+    _answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, BONNE_2),
+                                              _verdicts(("c1", True), ("c2", True))])
+    assert fake.remaining_script == 0
+
+    nommes = [b for s in trace.steps for b in (*s.opened_block_ids, *s.discarded_block_ids)]
+    assert nommes, "le chemin nominal ouvre des blocs : sans quoi ce test ne vérifie rien"
+    # Tout ce que la trace nomme est résolu, une seule fois, et rien de plus n'est inventé.
+    assert [b.block_id for b in trace.blocs] == list(dict.fromkeys(nommes))
+    par_id = {b.block_id: b for b in trace.blocs}
+    assert par_id[f"{DOC_ID}:f1:2"].node_id == f"{DOC_ID}:f1"
+    assert par_id[f"{DOC_ID}:f1:2"].fiche_id == "1"  # `{doc_id}:f` retiré, comme dans `sources[]`
+    assert par_id[f"{DOC_ID}:f1:2"].titre == "Arrivée"
+    assert par_id[f"{DOC_ID}:f1:2"].doc_id == DOC_ID
+
+    # AD-10 : le titre d'un **nœud**, jamais le texte d'un bloc.
+    peint = json.dumps([b.model_dump() for b in trace.blocs], ensure_ascii=False)
+    for bloc in index.corpus.documents[DOC_ID].blocks:
+        if bloc.kind != "heading":
+            assert bloc.text not in peint
+
+
+async def test_un_bloc_dun_autre_document_est_omis_jamais_devine(index: Index) -> None:
+    """M3 : « un id non résolu est **omis**, jamais inventé ».
+
+    Le front a l'identifiant par `StepTrace` et affichera la ligne sans titre ; ce qu'il ne fera
+    jamais, c'est deviner à quelle fiche il appartient (AD-16).
+    """
+    from server.app.pipelines.commun import libelles_de_blocs
+
+    etape = StepTrace(name="retrouver", opened_block_ids=[f"{DOC_ID}:f1:2", "autre:f9:1"],
+                      discarded_block_ids=[f"{DOC_ID}:f1:2", f"{DOC_ID}:f2:1"])
+    blocs = libelles_de_blocs(index.corpus, DOC_ID, [etape])
+
+    assert [b.block_id for b in blocs] == [f"{DOC_ID}:f1:2", f"{DOC_ID}:f2:1"]  # dédupliqué, ordonné
+    assert libelles_de_blocs(index.corpus, "document-absent", [etape]) == []
+
+
+async def test_la_trace_porte_le_gate_du_document_interroge(index: Index,
+                                                             gate_du_mini_guide) -> None:
+    """AC 2.5 : « le profil de gate ». AD-14 : le compte de cas et la contresignature l'accompagnent.
+
+    `EtatApp.gate_profile` **résume** les documents servis en un scalaire ; la trace, elle, ne parle
+    que du document qui a répondu à *cette* question.
+    """
+    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+                                               _verdicts(("c1", True))])
+    assert trace.gate is not None
+    assert trace.gate.profile == "vertical" and trace.gate.cases == 2
+    # La contresignature humaine reste due (AD-7/AD-14) : le code l'affiche telle qu'elle est.
+    assert trace.gate.countersigned is False
+    assert trace.gate.alerts == []
+
+
+async def test_sans_gate_la_trace_le_dit_au_lieu_den_inventer_un(index: Index) -> None:
+    """AD-16 : « absence ≠ valeur ». Le mini-guide n'a pas de gate : les trois champs sont `None`.
+
+    L'objet existe quand même — c'est le manifest qui existe — et il porte les alertes du document :
+    c'est ce qui distingue « ce document n'est validé par rien » de « on ne sait rien de lui ».
+    """
+    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+                                               _verdicts(("c1", True))])
+    assert trace.gate is not None
+    assert (trace.gate.profile, trace.gate.cases, trace.gate.countersigned) == (None, None, None)
+
+
+async def test_la_trace_dit_que_le_refus_zero_hit_est_desarme(index: Index, tmp_path: Path) -> None:
+    """M12 : « `data/dictionary.json` non signé ⇒ `trace.dictionnaire.court_circuit_actif = false` ».
+
+    AD-5 désarme le court-circuit « zéro hit » tant qu'aucune main n'a signé. C'était déjà publié par
+    `/api/v1/sante` — donc par la page d'accueil — mais nulle part sur l'écran où la question se pose.
+    Tant que ce booléen est faux, un refus « zéro hit » est **impossible** : l'écran peut le dire au
+    lieu de laisser croire que l'absence de refus prouve quelque chose.
+    """
+    non_signe = _dictionnaire(tmp_path, index, {"arrivée": ["déclaration"]}, validated=False)
+    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+                                               _verdicts(("c1", True))], dictionnaire=non_signe)
+    assert trace.dictionnaire is not None
+    assert trace.dictionnaire.charge is True and trace.dictionnaire.corpus_ok is True
+    assert trace.dictionnaire.validated is False
+    assert trace.dictionnaire.court_circuit_actif is False
+
+    signe = _dictionnaire(tmp_path, index, {"arrivée": ["déclaration"]}, validated=True)
+    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+                                               _verdicts(("c1", True))], dictionnaire=signe)
+    assert trace.dictionnaire is not None and trace.dictionnaire.court_circuit_actif is True
+
+
+async def test_sans_dictionnaire_la_rubrique_disparait_au_lieu_de_mentir(index: Index) -> None:
+    """Un pipeline sans dictionnaire (le sinistre) n'en publie pas un inerte : `None`, et l'écran
+    n'affiche rien — annoncer « non chargé » laisserait croire qu'on a regardé."""
+    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+                                               _verdicts(("c1", True))])
+    assert trace.dictionnaire is None
+
+
+async def test_un_refus_par_intent_porte_aussi_ses_blocs_son_gate_et_son_dictionnaire(
+        index: Index, tmp_path: Path, gate_du_mini_guide) -> None:
+    """Le panneau doit exister **aussi** sur un refus : c'est là qu'on cherche pourquoi.
+
+    Un refus par intent n'ouvre aucun bloc (le court-circuit d'AD-5 précède *retrouver*) : `blocs`
+    est donc vide, et c'est un fait, pas une rubrique manquante.
+    """
+    dico = _dictionnaire(tmp_path, index, {"arrivée": []}, validated=False,
+                         intents={"meteo": DECLENCHEURS_METEO})
+    _answer, trace, fake = await _run(index, [_comprendre("meteo")],
+                                      question="Quel temps fera-t-il demain ?", dictionnaire=dico)
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert trace.blocs == []
+    assert trace.gate is not None and trace.gate.profile == "vertical"
+    assert trace.dictionnaire is not None and trace.dictionnaire.court_circuit_actif is False
+
+
+# --- M11 : le refus dit d'où il vient ---------------------------------------
+
+@pytest.mark.parametrize("intent", ["meteo", "bavardage", "hors_perimetre"])
+async def test_un_refus_par_intent_compte_les_declencheurs_qui_le_confirment(
+        index: Index, tmp_path: Path, intent: str) -> None:
+    """M11 : « la trace porte un contrôle qui nomme l'intention et **compte** les déclencheurs ».
+
+    AD-5 : « les déclencheurs d'intention sont distincts des mots du corpus — la présence d'un mot
+    n'est jamais une preuve de pertinence ». Le refus reste celui de *comprendre* ; le contrôle
+    **explique**, il ne décide pas. Et il ne rend que des **comptes** : un déclencheur reconnu dans
+    une question est un fragment de cette question (AD-10).
+    """
+    dico = _dictionnaire(tmp_path, index, {"arrivée": []}, validated=False,
+                         intents={i: DECLENCHEURS_METEO for i in ("meteo", "bavardage",
+                                                                  "hors_perimetre")})
+    _answer, trace, _fake = await _run(index, [_comprendre(intent, question_resolue="Y aura-t-il de la PLUIE demain ?")],
+                                       question="Y aura-t-il de la pluie demain ?", dictionnaire=dico)
+
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    (check,) = [c for c in comprendre.checks if c.name == "intention_expliquee"]
+    assert check.ok is True
+    libelle = {"meteo": "météo", "bavardage": "bavardage",
+               "hors_perimetre": "hors périmètre"}[intent]
+    assert check.detail == f"intention « {libelle} » — 1 déclencheur(s) du dictionnaire sur 4 la confirment"
+    # Jamais les mots eux-mêmes. « météo » est aussi le **libellé public de l'intention** exigé par
+    # la spec ; sa présence ne révèle donc pas le déclencheur homonyme. Les trois autres, eux, ne
+    # doivent apparaître nulle part, et aucune liste de déclencheurs ne voyage.
+    peint = json.dumps([s.model_dump() for s in trace.steps], ensure_ascii=False)
+    for mot in DECLENCHEURS_METEO[1:]:
+        assert mot not in peint
+
+
+async def test_un_refus_que_zero_declencheur_ne_confirme_est_un_controle_en_echec(
+        index: Index, tmp_path: Path) -> None:
+    """M11 : « zéro déclencheur ⇒ contrôle en échec (« aucun déclencheur ne la confirme ») ».
+
+    Le refus tient quand même — c'est *comprendre* qui l'a prononcé, après avoir lu la question
+    entière. Ce que le contrôle rouge dit, c'est qu'aucune corroboration lexicale ne l'accompagne :
+    un fait sur lequel l'utilisateur peut se faire une opinion, pas une faute du pipeline.
+    """
+    dico = _dictionnaire(tmp_path, index, {"arrivée": []}, validated=False,
+                         intents={"meteo": DECLENCHEURS_METEO})
+    _answer, trace, _fake = await _run(
+        index, [_comprendre("meteo", question_resolue="Quel est le programme de la fête ?")],
+        question="Quel est le programme de la fête ?", dictionnaire=dico)
+
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    (check,) = [c for c in comprendre.checks if c.name == "intention_expliquee"]
+    assert check.ok is False
+    assert check.detail == ("intention « météo » — aucun déclencheur ne la confirme (4 connu(s)) : "
+                            "le refus tient au seul jugement du modèle")
+
+
+async def test_sans_dictionnaire_lintention_reste_expliquee_par_un_zero_honnete(index: Index) -> None:
+    """Aucun dictionnaire (ou aucun déclencheur pour cette intention) : « 0 connu(s) », et le contrôle
+    échoue. C'est vrai — rien ne corrobore — et rien n'est deviné (AD-16)."""
+    _answer, trace, _fake = await _run(index, [_comprendre("bavardage")])
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    (check,) = [c for c in comprendre.checks if c.name == "intention_expliquee"]
+    assert check.ok is False and "(0 connu(s))" in check.detail
+
+
+async def test_le_compte_des_declencheurs_porte_sur_la_question_resolue(index: Index,
+                                                                        tmp_path: Path) -> None:
+    """AD-5 : « le court-circuit s'applique sur `question_resolue`, jamais sur la question brute ».
+
+    Le contrôle qui l'explique doit porter sur le **même** texte, sans quoi il commenterait une autre
+    question que celle qui a été refusée.
+    """
+    dico = _dictionnaire(tmp_path, index, {"arrivée": []}, validated=False,
+                         intents={"meteo": DECLENCHEURS_METEO})
+    _answer, trace, _fake = await _run(
+        index, [_comprendre("meteo", question_resolue="Et la météo, alors ?")],
+        question="Et ça, alors ?", dictionnaire=dico)  # la question brute ne porte aucun déclencheur
+
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    (check,) = [c for c in comprendre.checks if c.name == "intention_expliquee"]
+    assert check.ok is True and "1 déclencheur(s)" in check.detail
+
+
+# --- M13 : le périmètre tronqué désarme le refus qu'il ne peut plus fonder ----
+
+async def test_un_perimetre_tronque_desarme_le_refus_hors_perimetre(index: Index,
+                                                                     perimetre_tronque) -> None:
+    """M13 + AC : « la question poursuit vers *retrouver* et la trace porte `hors_perimetre_desarme` ».
+
+    `hors_perimetre` est la seule des trois intentions que le modèle rende *en lisant une liste que
+    nous lui donnons* — la projection des titres du document, dont le prompt affirme qu'« elle fait
+    foi, aucune autre ». Amputée d'une catégorie entière (alerte `perimetre_tronque`), cette
+    affirmation est fausse, et le refus porterait sur des sujets que le guide traite. Poursuivre
+    laisse une chance de réponse ; s'il n'y a rien, le refus rendu portera une **preuve** au lieu
+    d'un jugement sur une liste incomplète.
+    """
+    answer, trace, fake = await _run(index, [_comprendre("hors_perimetre"), _rediger(BONNE),
+                                             _verdicts(("c1", True))])
+    assert fake.remaining_script == 0
+    # La chaîne complète a tourné : le court-circuit d'AD-5 n'a pas eu lieu.
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    assert answer.found is True and answer.reason is None
+    assert trace.intent == "hors_perimetre"  # ce que le modèle a rendu n'est pas réécrit
+
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    (check,) = [c for c in comprendre.checks if c.name == "hors_perimetre_desarme"]
+    assert check.ok is False and "perimetre_tronque" in check.detail
+    # Désarmé, donc jamais expliqué comme un refus : il n'y a pas eu de refus.
+    assert [c.name for c in comprendre.checks if c.name == "intention_expliquee"] == []
+
+
+async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(
+        index: Index, perimetre_tronque, tmp_path: Path) -> None:
+    """M13 dit que la chaîne poursuit **vers retrouver** : un dictionnaire signé ne doit pas
+    réintroduire, quelques lignes plus bas, le refus que le périmètre tronqué vient de désarmer.
+
+    Les termes ne touchent volontairement aucun bloc. La réponse reste un refus `zero_hit`, mais
+    seulement **après** l'étape retrouver, avec une preuve issue de la recherche effectivement
+    menée — jamais par le pré-contrôle fondé sur le même périmètre incomplet.
+    """
+    dico = _dictionnaire(tmp_path, index, {"hippopotame": []}, validated=True)
+    answer, trace, fake = await _run(
+        index, [_comprendre("hors_perimetre", terms=["hippopotame"])], dictionnaire=dico)
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "zero_hit"
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    assert [c.name for c in comprendre.checks] == ["hors_perimetre_desarme"]
+
+
+@pytest.mark.parametrize("intent", ["meteo", "bavardage"])
+async def test_meteo_et_bavardage_restent_refuses_sous_un_perimetre_tronque(
+        index: Index, perimetre_tronque, intent: str) -> None:
+    """M13 : « `meteo` / `bavardage` restent refusés ». Ni l'un ni l'autre ne se décide sur le
+    périmètre annoncé — une question sur la pluie de demain reste hors du guide quelle que soit la
+    liste de ses catégories."""
+    answer, trace, fake = await _run(index, [_comprendre(intent)])
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "hors_perimetre"
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    assert [c.name for c in comprendre.checks if c.name == "hors_perimetre_desarme"] == []
+    assert [c.name for c in comprendre.checks if c.name == "intention_expliquee"] != []
+
+
+async def test_sans_alerte_le_refus_hors_perimetre_reste_actif(index: Index) -> None:
+    """Le pendant du désarmement : sur un périmètre entier, `hors_perimetre` refuse comme avant.
+
+    Sur le corpus livré la liste tient (3 004 caractères sur 4 000) : c'est ce chemin-ci que la
+    production emprunte, et c'est celui qu'il faut le plus verrouiller.
+    """
+    answer, trace, fake = await _run(index, [_comprendre("hors_perimetre")])
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "hors_perimetre"

@@ -81,7 +81,8 @@ def test_kind_source_and_confirmation() -> None:
 
 
 @pytest.mark.parametrize("model", [document.Block, document.Node, document.Document, answer.Answer, answer.Claim,
-                                   verdict.Verdict, trace.Trace, question.ParsedQuestion, retrieval.RetrievalResult,
+                                   verdict.Verdict, trace.Trace, trace.BlocTrace, trace.GateTrace,
+                                   trace.DictionnaireTrace, question.ParsedQuestion, retrieval.RetrievalResult,
                                    errors.ErrorEnvelope])
 def test_domain_models_forbid_unknown_fields(model: type[BaseModel]) -> None:
     assert model.model_config.get("extra") == "forbid"
@@ -401,6 +402,105 @@ def test_trace_models() -> None:
     assert fields(trace.Usage) == {"input", "cached", "output", "cost_eur", "cached_response", "cost_eur_original"}
     assert {"name", "ok", "detail"} == fields(trace.CheckResult)
     assert {"model", "ms", "usage", "cache_read", "cache_write", "tools"} == fields(trace.LLMCall)
+
+
+# AD-10 (story 2.5) — les trois résolutions de la trace
+def test_les_trois_resolutions_de_la_trace_ne_portent_que_des_identifiants_et_des_comptes() -> None:
+    """AD-10 : la trace « ne contient jamais le texte des blocs ni de données personnelles ».
+
+    Les trois modèles ajoutés par la story 2.5 sont donc énumérés ici champ par champ : le jour où
+    l'un d'eux gagnerait une `quote`, un `text` ou un `profil`, ce test rougit avant que le champ
+    n'atteigne une réponse. Le seul « texte » admis est un **titre de nœud**, écrit par l'ingestion,
+    que `sources[].titre` publie déjà au premier niveau du contrat (AD-11).
+    """
+    assert fields(trace.BlocTrace) == {"block_id", "doc_id", "node_id", "fiche_id", "titre"}
+    assert fields(trace.GateTrace) == {"profile", "cases", "countersigned", "alerts"}
+    assert fields(trace.DictionnaireTrace) == {"charge", "validated", "corpus_ok",
+                                               "court_circuit_actif"}
+
+
+def test_les_trois_resolutions_ont_les_defauts_dune_trace_qui_na_rien_a_en_dire() -> None:
+    """AD-16 : « aucune valeur n'est devinée, aucun défaut n'est présenté comme une mesure ».
+
+    Une `Trace` neuve ne porte donc **ni** gate **ni** dictionnaire (`None`, la rubrique disparaît de
+    l'écran) et une liste de blocs vide — jamais un profil inventé, jamais un `court_circuit_actif`
+    optimiste. `fiche_id` est `None` par défaut parce qu'un nœud de FAQ n'en a pas : il y a un titre
+    à afficher, aucune fiche à ouvrir.
+    """
+    t = trace.Trace(request_id="r", pipeline="guide")
+    assert t.blocs == [] and t.gate is None and t.dictionnaire is None
+
+    bloc = trace.BlocTrace(block_id="d:q1:2", doc_id="d", node_id="d:q1")
+    assert bloc.fiche_id is None and bloc.titre == ""
+
+    gate = trace.GateTrace()
+    assert (gate.profile, gate.cases, gate.countersigned, gate.alerts) == (None, None, None, [])
+
+    dico = trace.DictionnaireTrace()
+    assert not (dico.charge or dico.validated or dico.corpus_ok or dico.court_circuit_actif)
+
+
+@pytest.mark.parametrize("valeurs", [
+    {"profile": "vertical"},
+    {"profile": "vertical", "cases": 1},
+    {"cases": 1, "countersigned": False},
+    {"profile": None, "cases": 1, "countersigned": False},
+    {"profile": "vertical", "cases": 0, "countersigned": False},
+])
+def test_gate_trace_refuse_les_mesures_partielles_ou_sans_cas(valeurs: dict) -> None:
+    with pytest.raises(ValidationError, match="tous absents|cases >= 1"):
+        trace.GateTrace(**valeurs)
+
+
+def test_gate_trace_accepte_les_deux_seuls_etats_coherents() -> None:
+    assert trace.GateTrace(alerts=["sans_gate"]).profile is None
+    gate = trace.GateTrace(profile="vertical", cases=1, countersigned=False)
+    assert (gate.profile, gate.cases, gate.countersigned) == ("vertical", 1, False)
+
+
+@pytest.mark.parametrize("valeurs", [
+    {"charge": False, "validated": True},
+    {"charge": False, "corpus_ok": True},
+    {"charge": True, "validated": True, "corpus_ok": True, "court_circuit_actif": False},
+    {"charge": True, "validated": False, "corpus_ok": True, "court_circuit_actif": True},
+    {"charge": True, "validated": True, "corpus_ok": False, "court_circuit_actif": True},
+])
+def test_dictionnaire_trace_refuse_les_etats_impossibles(valeurs: dict) -> None:
+    with pytest.raises(ValidationError, match="non chargé|court_circuit_actif"):
+        trace.DictionnaireTrace(**valeurs)
+
+
+def test_dictionnaire_trace_accepte_les_etats_reels_du_loader() -> None:
+    for valeurs in (
+        {},
+        {"charge": True},
+        {"charge": True, "corpus_ok": True},
+        {"charge": True, "validated": True},
+        {"charge": True, "validated": True, "corpus_ok": True,
+         "court_circuit_actif": True},
+    ):
+        trace.DictionnaireTrace(**valeurs)
+
+
+def test_les_trois_resolutions_voyagent_dans_la_trace_et_pas_ailleurs() -> None:
+    """Design Notes 2.5 : l'ajout vit **dans `Trace`**, déjà publiée entière par les deux routes.
+
+    Sérialisées telles quelles, sans champ de premier niveau supplémentaire à négocier avec le
+    contrat HTTP — c'est ce qui rend les deux lots de la story indépendants.
+    """
+    t = trace.Trace(request_id="r", pipeline="guide",
+                    blocs=[trace.BlocTrace(block_id="d:farrivee:2", doc_id="d",
+                                           node_id="d:farrivee", fiche_id="arrivee",
+                                           titre="Déclarer son arrivée")],
+                    gate=trace.GateTrace(profile="vertical", cases=2, countersigned=False,
+                                         alerts=["gate_perime"]),
+                    dictionnaire=trace.DictionnaireTrace(charge=True, corpus_ok=True))
+    publie = t.model_dump()
+    assert publie["blocs"] == [{"block_id": "d:farrivee:2", "doc_id": "d", "node_id": "d:farrivee",
+                                "fiche_id": "arrivee", "titre": "Déclarer son arrivée"}]
+    assert publie["gate"] == {"profile": "vertical", "cases": 2, "countersigned": False,
+                              "alerts": ["gate_perime"]}
+    assert publie["dictionnaire"]["court_circuit_actif"] is False
 
 
 # AD-16

@@ -7,12 +7,20 @@ l'acquis que si elle le domine sur tous les axes », « une relance coûte deux 
 « les motifs de relance d'AD-3 sont des défauts de citation » — et deux copies de ces règles auraient
 divergé au premier amendement. Elles vivent donc ici, testées une fois.
 
-Ce module reste dans la couche `pipelines` : il n'importe ni `corpus`, ni `llm`, ni le SDK.
+S'y ajoutent, depuis la story 2.5, les trois **résolutions de trace** d'AD-10 : les libellés des blocs
+qu'une trace nomme, le gate du document interrogé, l'état du dictionnaire. Les deux pipelines
+publient la même `Trace` et la même page la lit ; deux copies auraient divergé pour la même raison
+que ci-dessus, et le sinistre n'a de toute façon pas de dictionnaire à décrire.
+
+Ce module reste dans la couche `pipelines` : il n'importe ni `corpus`, ni `llm`, ni le SDK. Le
+corpus et le dictionnaire lui arrivent **en paramètres** annotés `Any`, exactement comme aux deux
+pipelines qui les reçoivent de l'API (table des couches du spine).
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from server.app.config import Settings
 from server.app.digests import pipeline_digest, prompts_digest
@@ -20,6 +28,7 @@ from server.app.domain.answer import Lacune, Verification
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.retrieval import RetrievalBudget
+from server.app.domain.trace import BlocTrace, DictionnaireTrace, GateTrace, StepTrace
 
 # AD-5 : les intents qui se tranchent sur la seule sortie de *comprendre*, avant tout appel `reason`.
 INTENTS_REFUSES = frozenset({"meteo", "bavardage", "hors_perimetre"})
@@ -64,6 +73,97 @@ def retrieval_budget(settings: Settings) -> RetrievalBudget:
                            max_blocks=settings.retrieval_max_blocks,
                            max_tokens=settings.retrieval_max_tokens,
                            profil_max_opens=settings.profil_max_opens)
+
+
+def libelles_de_blocs(corpus: Any, doc_id: str, steps: list[StepTrace]) -> list[BlocTrace]:
+    """Les blocs qu'une trace nomme, résolus jusqu'au titre de leur fiche (AD-10, story 2.5).
+
+    **Union ordonnée et dédupliquée** des `opened_block_ids` puis des `discarded_block_ids` de
+    **toutes** les étapes : l'AC réclame « les blocs ouverts **et** écartés », et un bloc qu'une étape
+    ouvre après qu'une autre l'a écarté ne doit paraître qu'une fois. L'ordre est celui de la trace,
+    donc celui de la chaîne : il est déterministe et se relit à côté des étapes.
+
+    **La règle de `fiche_id` est celle d'`api/presenter._source_item`, pas une seconde** : le nœud
+    parent privé du préfixe `{doc_id}:f`, `None` s'il ne commence pas par là. Deux règles pour un même
+    identifiant, c'est un jour où le panneau nomme une fiche que `sources[]` nomme autrement.
+
+    **Un id non résolu est omis, jamais inventé** (M3) : bloc d'un autre document, bloc absent du
+    corpus servi, document hors du corpus. Le front affiche alors l'identifiant seul — il l'a par
+    `StepTrace` — et n'a aucun titre à deviner (AD-16).
+
+    Le rattachement passe par `Document.node_of()`, qui **est** la table qu'`Index.parent_node()`
+    publie (l'index la construit depuis les mêmes `Node.items`) : la prendre sur le document évite de
+    faire voyager l'index jusqu'ici pour lire deux fois le même fait, et referme le cas « le bloc
+    appartient à un autre document que celui qu'on interroge » sans le tester à part.
+    """
+    document = corpus.documents.get(doc_id)
+    if document is None:
+        return []
+    noeuds = {n.node_id: n for n in document.nodes}
+    prefixe = f"{doc_id}:f"
+    vus: set[str] = set()
+    sortie: list[BlocTrace] = []
+    for step in steps:
+        for block_id in (*step.opened_block_ids, *step.discarded_block_ids):
+            if block_id in vus:
+                continue
+            vus.add(block_id)
+            try:
+                node_id = document.node_of(block_id)
+            except KeyError:
+                continue  # pas un bloc de ce document : rien à en dire, donc rien n'est dit
+            node = noeuds.get(node_id)
+            if node is None:
+                continue
+            sortie.append(BlocTrace(
+                block_id=block_id, doc_id=doc_id, node_id=node_id,
+                fiche_id=node_id[len(prefixe):] if node_id.startswith(prefixe) else None,
+                titre=node.title))
+    return sortie
+
+
+def gate_de(corpus: Any, doc_id: str) -> GateTrace | None:
+    """AD-7 / AD-14 — Ce qui valide le document interrogé, tel que le manifest chargé le porte.
+
+    Trois états, et aucun repli entre eux : pas d'entrée de manifest ⇒ `None` (on ne sait rien, la
+    rubrique disparaît de l'écran) ; entrée sans gate ⇒ un `GateTrace` dont les trois champs sont
+    `None` mais dont les `alerts` sont dites (c'est là que `sans_gate` s'écrit) ; entrée gatée ⇒ le
+    profil, le nombre de cas et la contresignature **écrits par le run qui les a constatés**.
+
+    **Le profil est celui du manifest, même quand le loader a neutralisé le gate localement**
+    (`sans_gate`, empreintes du gate différentes de l'entrée). C'est un choix, et il tient à ce que
+    les alertes voyagent dans le même objet : `EtatApp.gate_profile` doit rendre `null` parce qu'il
+    **résume** les documents servis en un scalaire que la page d'accueil affiche seul — ici, profil et
+    alertes sont lus ensemble, et « vertical, sans_gate » dit strictement plus que « rien ». Rien
+    n'est tu, ce qui est la seule chose qu'AD-11 exige.
+    """
+    entry = corpus.manifest.get(doc_id)
+    if entry is None:
+        return None
+    alerts = list(corpus.alerts.get(doc_id, []))
+    gate = entry.gate
+    if gate is None:
+        return GateTrace(alerts=alerts)
+    return GateTrace(profile=gate.profile, cases=gate.cases, countersigned=gate.countersigned,
+                     alerts=alerts)
+
+
+def dictionnaire_de(dictionnaire: Any, doc_id: str) -> DictionnaireTrace | None:
+    """AD-5 — L'état du dictionnaire **pour ce document**, donc l'état du refus « zéro hit ».
+
+    `None` quand le pipeline n'en a pas (le sinistre) : la rubrique disparaît au lieu d'annoncer un
+    dictionnaire inerte qui n'a jamais été consulté. Le pipeline du guide en reçoit toujours un —
+    un fichier absent est un `Dictionnaire` inerte, pas un `None` (`api/etat`).
+
+    `court_circuit_actif` est pris par `court_circuit_pour(doc_id)` et non par la propriété du même
+    nom : c'est la décision **de cette requête**, et un dictionnaire qui décrit un autre document
+    n'arme rien ici, quoi qu'il arme ailleurs (revue Codex 2.1, B3).
+    """
+    if dictionnaire is None:
+        return None
+    return DictionnaireTrace(charge=dictionnaire.charge, validated=dictionnaire.validated,
+                             corpus_ok=dictionnaire.corpus_ok,
+                             court_circuit_actif=dictionnaire.court_circuit_pour(doc_id))
 
 
 def blocs_cites(verification: Verification) -> set[str]:

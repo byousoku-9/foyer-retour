@@ -140,6 +140,41 @@ def test_les_intents_sont_bornes_aux_trois_que_le_pipeline_refuse() -> None:
         DictionaryFile.model_validate(_fichier(intents={"question": ["école"]}))
 
 
+@pytest.mark.parametrize("cle", [
+    f"{DOC_ID}:p1",       # une page de contrat n'a pas de questions candidates
+    f"{DOC_ID}:f1:1",     # un `block_id` (trois segments) n'est pas un nœud
+    "f1",                 # pas de document nommé
+    DOC_ID,               # le document entier n'est pas une fiche
+    f"{DOC_ID}:f fiche",  # un libellé, pas un identifiant
+    f"{DOC_ID}:f1\n",     # `$` acceptait une nouvelle ligne finale ; `fullmatch` ne le fait pas
+    "Logement",
+])
+def test_candidate_questions_ne_peut_nommer_quun_node_id_de_fiche(cle: str) -> None:
+    """Story 2.5 : « refuser une clé qui ne serait pas un `node_id` de fiche ».
+
+    De la donnée générée que rien ne lit doit au moins ne pas pouvoir mentir sur ce qu'elle décrit :
+    une clé « Logement » ou « lux-guide:f1:1 » traverserait le schéma, se chargerait, et le jour où
+    une page proposerait ces questions elle les rattacherait à une fiche qui n'existe pas.
+    """
+    with pytest.raises(ValueError, match="node_id de fiche"):
+        DictionaryFile.model_validate(_fichier(candidate_questions={cle: ["Question ?"]}))
+
+
+@pytest.mark.parametrize("cle", [f"{DOC_ID}:farrivee", f"{DOC_ID}:q1", f"{DOC_ID}:q41"])
+def test_les_deux_sortes_dunites_repondantes_du_guide_sont_des_cles_valides(cle: str) -> None:
+    """La fiche **et** l'entrée de FAQ : ce sont les deux seules sortes de nœuds qu'`enrich_dictionary`
+    puisse écrire ici (il n'énumère que les enfants directs des catégories de niveau 1), et le fichier
+    livré porte 77 clés de la première sorte et 41 de la seconde.
+
+    Refuser les secondes rendrait le dictionnaire **livré** inerte — donc plus de variantes
+    multilingues (AC 2.4), plus de court-circuit, `/api/v1/sante` en alerte — pour une clé qui décrit
+    pourtant un nœud parfaitement réel du guide. Le contrôle garde ce qu'il doit garder : une clé qui
+    ne désigne aucune unité répondante.
+    """
+    valide = DictionaryFile.model_validate(_fichier(candidate_questions={cle: ["Question ?"]}))
+    assert list(valide.candidate_questions) == [cle]
+
+
 # --- le chargement (corpus) ------------------------------------------------
 
 def test_le_chargement_nominal_arme_les_variantes_mais_pas_le_refus(tmp_path: Path) -> None:
@@ -148,6 +183,48 @@ def test_le_chargement_nominal_arme_les_variantes_mais_pas_le_refus(tmp_path: Pa
     assert d.utilisable is True          # les variantes servent : élargir n'affirme rien (AD-3)
     assert d.court_circuit_actif is False  # le **refus**, lui, attend une signature (AD-5)
     assert d.canoniques == 2
+
+
+@pytest.mark.parametrize(("cle", "raison"), [
+    ("autre:f1", "appartient au document 'autre'"),
+    (f"{DOC_ID}:f999", "nœud inexistant"),
+])
+def test_une_question_candidate_doit_nommer_un_noeud_reel_du_document_demande(
+        tmp_path: Path, cle: str, raison: str) -> None:
+    """Le schéma garde la forme ; le loader possède le corpus et garde l'existence/la propriété.
+
+    Dans les deux cas le dictionnaire devient inerte avec une raison exploitable par `/sante`, sans
+    empêcher le serveur de démarrer ni inventer du contenu pour ce champ encore dormant.
+    """
+    d = load_dictionary(
+        _ecrire(tmp_path, candidate_questions={cle: ["Question ?"]}), _corpus(), DOC_ID)
+    assert (d.charge, d.validated, d.corpus_ok, d.court_circuit_actif) == (
+        False, False, False, False)
+    assert raison in d.raison and cle in d.raison and DOC_ID in d.raison
+
+
+def test_une_question_candidate_sur_un_noeud_reel_du_document_est_chargee(tmp_path: Path) -> None:
+    d = load_dictionary(
+        _ecrire(tmp_path, candidate_questions={f"{DOC_ID}:f1": ["Question ?"]}),
+        _corpus(), DOC_ID)
+    assert d.charge is True and d.corpus_ok is True
+
+
+def test_les_declencheurs_expliquent_une_intention_sans_jamais_la_decider(tmp_path: Path) -> None:
+    d = load_dictionary(
+        _ecrire(tmp_path, intents={
+            "meteo": ["météo", "il fera beau", "weather"],
+            "bavardage": ["bonjour"],
+        }),
+        _corpus(), DOC_ID,
+    )
+
+    assert d.declencheurs("meteo") == ("météo", "il fera beau", "weather")
+    assert d.declencheurs("hors_perimetre") == ()
+    # `normalize()` neutralise accents et casse ; les expressions restent des mots entiers.
+    assert d.confirme("meteo", "METEO demain : il fera beau ?") == (2, 3)
+    assert d.confirme("meteo", "La météorologie est une science.") == (0, 3)
+    assert d.confirme("inconnu", "météo") == (0, 0)
 
 
 def test_le_court_circuit_exige_la_signature_et_le_bon_corpus(tmp_path: Path) -> None:
@@ -283,7 +360,8 @@ def test_le_verrou_de_corpus_nomme_le_document_quon_va_servir(tmp_path: Path) ->
 
     signe = {"validated": True, "validated_by": "Lancelot Oudin",
              "validated_at": "2026-08-25T10:00:00Z"}
-    dossier = _ecrire(tmp_path, corpus_source_hashes={"autre": "sha-autre"}, **signe)
+    dossier = _ecrire(tmp_path, corpus_source_hashes={"autre": "sha-autre"},
+                      candidate_questions={}, **signe)
     d = load_dictionary(dossier, corpus, DOC_ID)
     assert d.charge is True and d.corpus_ok is False
     assert d.utilisable is False and d.court_circuit_actif is False
@@ -369,6 +447,11 @@ def test_le_dictionnaire_du_depot_decrit_le_corpus_du_depot() -> None:
 
     Il est du même genre que `test_les_seuils_cites_en_commentaire_valent_les_defauts_de_settings` :
     deux textes du dépôt font autorité sur le même fait, et rien ne les tenait ensemble.
+
+    **Story 2.5 :** c'est aussi lui qui a mesuré ce que le validateur de `candidate_questions` peut
+    exiger. Écrit d'abord « `{doc_id}:f…` seul », il rendait le fichier livré inerte — 41 de ses
+    118 clés sont des entrées de FAQ — et éteignait les variantes multilingues de l'AC 2.4 sans que
+    le contrat de la story ne demande rien de tel.
     """
     from server.app.config import REPO_ROOT, Settings
     from server.app.corpus.loader import load_corpus
@@ -390,3 +473,113 @@ def test_le_dictionnaire_du_depot_decrit_le_corpus_du_depot() -> None:
     # La signature humaine, elle, reste due — c'est un input attendu **après** la story (AD-5), et
     # ce test ne doit pas se mettre à l'exiger : il vérifie l'accord des artefacts, pas le geste.
     assert d.court_circuit_actif is d.validated
+
+
+def test_le_dictionnaire_du_depot_porte_les_declencheurs_que_la_trace_compte() -> None:
+    """Story 2.5 : `intents` cesse d'être de la donnée générée que rien ne lit.
+
+    Le fichier livré porte 30 déclencheurs par intention refusée ; c'est ce total que le contrôle
+    `intention_expliquee` annonce (« … sur 30 la confirment »). Sans ce test, le champ pourrait
+    disparaître de l'artefact sans qu'aucune suite ne rougisse — la situation même dont la reprise
+    différée de 2.1 disait qu'elle « finit par mentir en silence ».
+    """
+    from server.app.config import REPO_ROOT, Settings
+    from server.app.corpus.loader import load_corpus
+
+    reglages = Settings(_env_file=None)
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True,
+                         perimetre_max_chars=reglages.perimetre_max_chars)
+    d = load_dictionary(REPO_ROOT / "data", corpus, reglages.guide_doc_id)
+
+    for intent in sorted(INTENTS_DU_DICTIONNAIRE):
+        assert d.declencheurs(intent), f"aucun déclencheur pour {intent} dans le fichier livré"
+    reconnus, total = d.confirme("meteo", "Quel temps fera-t-il demain ? Y aura-t-il de la MÉTÉO ?")
+    assert total == len(d.declencheurs("meteo")) and reconnus >= 1
+
+
+# --- story 2.5 : les déclencheurs expliquent, ils ne décident jamais --------
+
+def _avec_intents(tmp_path: Path, declencheurs: dict[str, list[str]]) -> Dictionnaire:
+    return load_dictionary(_ecrire(tmp_path, intents=declencheurs), _corpus(), DOC_ID)
+
+
+def test_declencheurs_rend_ce_que_le_fichier_ecrit_et_rien_dautre(tmp_path: Path) -> None:
+    """AD-5 : le champ `intents` cesse d'être illisible, sans devenir décisionnaire.
+
+    Une intention absente du fichier rend un tuple vide — le compte vaudra « 0 sur 0 », ce qui est
+    vrai, plutôt qu'une valeur devinée (AD-16).
+    """
+    d = _avec_intents(tmp_path, {"meteo": ["météo", "weather"], "bavardage": ["bonjour"]})
+    assert d.declencheurs("meteo") == ("météo", "weather")
+    assert d.declencheurs("bavardage") == ("bonjour",)
+    assert d.declencheurs("hors_perimetre") == ()
+    assert Dictionnaire().declencheurs("meteo") == ()  # le dictionnaire inerte n'explique rien
+
+
+def test_confirme_compte_les_declencheurs_reconnus_dans_la_question(tmp_path: Path) -> None:
+    """Le contrat de `confirme()` : deux nombres, jamais les mots (AD-4, AD-10).
+
+    C'est ce couple que le pipeline transforme en `CheckResult(intention_expliquee)` : « 2
+    déclencheur(s) du dictionnaire sur 30 la confirment ». Le second terme est le total connu, pas le
+    nombre de formes distinctes essayées — les deux doivent parler du même ensemble.
+    """
+    d = _avec_intents(tmp_path, {"meteo": ["météo", "pluie", "il fera beau", "weather"]})
+    assert d.confirme("meteo", "Quelle météo demain, et de la pluie ?") == (2, 4)
+    assert d.confirme("meteo", "Il fera beau ce week-end ?") == (1, 4)
+    assert d.confirme("meteo", "Quel délai pour déclarer mon arrivée ?") == (0, 4)
+    assert d.confirme("hors_perimetre", "n'importe quoi") == (0, 0)
+
+
+def test_confirme_neutralise_les_accents_et_la_casse(tmp_path: Path) -> None:
+    """Convention Texte du spine : `normalize()` fait le travail, ici comme dans l'index.
+
+    Une seule règle de comparaison dans tout le serveur, sans quoi le compte annoncé à l'utilisateur
+    serait un chiffre que rien d'autre ne saurait reproduire.
+    """
+    d = _avec_intents(tmp_path, {"meteo": ["météo"]})
+    for question in ("METEO ?", "Météo ?", "meteo ?", "Quelle  MÉTÉO   demain"):
+        assert d.confirme("meteo", question) == (1, 1), question
+
+
+def test_confirme_exige_le_mot_entier_comme_lindex(tmp_path: Path) -> None:
+    """`Index._hit` : correspondance en **mots entiers**, jamais en sous-chaîne.
+
+    Sans cette règle, « météorologie » compterait pour « météo » et le refus paraîtrait corroboré par
+    un mot que la recherche du corpus, elle, n'aurait pas reconnu.
+    """
+    d = _avec_intents(tmp_path, {"meteo": ["météo", "il fera beau"]})
+    assert d.confirme("meteo", "Un cours de météorologie ?") == (0, 2)
+    assert d.confirme("meteo", "Il fera beau demain") == (1, 2)
+    assert d.confirme("meteo", "Beau il fera") == (0, 2)  # les mots, mais pas la suite
+
+
+def test_deux_orthographes_dun_meme_declencheur_ne_comptent_quune_fois(tmp_path: Path) -> None:
+    """Un doublon de forme compterait deux fois dans le total annoncé et une seule dans les reconnus :
+    le compte se contredirait lui-même. La déduplication a lieu **au chargement**, sur la forme
+    normalisée, et l'ordre du fichier est conservé."""
+    d = _avec_intents(tmp_path, {"meteo": ["Météo", "météo", "  MÉTÉO  ", "pluie"]})
+    assert d.declencheurs("meteo") == ("Météo", "pluie")
+    assert d.confirme("meteo", "la météo") == (1, 2)
+
+
+def test_les_declencheurs_ne_dependent_daucun_des_deux_verrous_dad5(tmp_path: Path) -> None:
+    """Ils n'ouvrent aucune fiche et ne prononcent aucun refus : rien à garder.
+
+    Les deux verrous d'AD-5 protègent l'un les **variantes du corpus**, l'autre le **refus**. Un
+    déclencheur d'intention ne fait ni l'un ni l'autre — il ne décrit d'ailleurs pas un corpus mais
+    une façon de poser une question. Le désarmer au motif que le fichier décrit un autre document
+    cacherait une explication sans rien protéger.
+    """
+    d = load_dictionary(_ecrire(tmp_path, intents={"meteo": ["météo"]},
+                                corpus_source_hashes={DOC_ID: "empreinte-perimee"}),
+                        _corpus(), DOC_ID)
+    assert d.charge is True and d.utilisable is False and d.court_circuit_actif is False
+    assert d.declencheurs("meteo") == ("météo",)   # l'explication reste lisible
+    assert d.expand(["matricule"]) == {"matricule": []}  # les variantes, elles, sont bien désarmées
+
+
+def test_un_dictionnaire_absent_nexplique_rien_et_ne_leve_jamais(tmp_path: Path) -> None:
+    """AD-7 : « un fichier absent … désactive une optimisation, il n'empêche jamais de servir »."""
+    d = load_dictionary(tmp_path, _corpus(), DOC_ID)
+    assert d.charge is False
+    assert d.declencheurs("meteo") == () and d.confirme("meteo", "météo") == (0, 0)

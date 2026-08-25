@@ -42,8 +42,11 @@ from server.app.pipelines.commun import (
     APPELS_DE_LA_RELANCE,
     INTENTS_REFUSES,
     blocs_cites,
+    dictionnaire_de,
     digests,
     domine,
+    gate_de,
+    libelles_de_blocs,
     normaliser_langue_pipeline,
     relance_abandonnee,
     relance_utile,
@@ -57,6 +60,44 @@ from server.app.steps.verifier import verifier
 
 PIPELINE = "guide"
 VARIANT = "deterministe"
+# L'alerte du loader qui dit que le périmètre annoncé à *comprendre* n'est plus exhaustif
+# (`corpus/loader._perimetre`, palier 3). Nommée ici parce que c'est ici qu'elle **désarme** un refus.
+PERIMETRE_TRONQUE = "perimetre_tronque"
+LIBELLES_INTENT = {
+    "meteo": "météo",
+    "bavardage": "bavardage",
+    "hors_perimetre": "hors périmètre",
+}
+
+
+def _intention_expliquee(intent: str, question_resolue: str, dictionnaire: Any) -> CheckResult:
+    """AD-5 — Les déclencheurs du dictionnaire **expliquent** le refus par intent ; ils ne le décident pas.
+
+    AD-5, dernière phrase : « les déclencheurs d'intention sont distincts des mots du corpus — la
+    présence d'un mot n'est jamais une preuve de pertinence ». Le refus reste celui de *comprendre*,
+    qui a lu la question entière ; ce contrôle ne fait que **compter** combien de déclencheurs de
+    l'intention rendue se retrouvent dans la question résolue, et rien d'autre. Zéro déclencheur
+    n'annule rien : le contrôle passe en échec, et l'écran montre alors un refus fondé sur le seul
+    jugement du modèle — ce qui est un fait, pas une faute.
+
+    **Des comptes, jamais les mots** (AD-10, AD-4) : un déclencheur reconnu dans une question est un
+    fragment de cette question, et `AbsenceProof` interdit déjà de publier la liste des déclencheurs.
+    Le libellé nomme l'`intent` tel que le domaine l'écrit (`meteo`, `bavardage`, `hors_perimetre`) :
+    c'est un identifiant, pas une phrase, et rien n'a à le traduire ici.
+
+    Le compte porte sur `question_resolue` — jamais sur la question brute —, comme les deux
+    court-circuits d'AD-5.
+    """
+    reconnus, total = (dictionnaire.confirme(intent, question_resolue)
+                       if dictionnaire is not None else (0, 0))
+    libelle = LIBELLES_INTENT.get(intent, intent)
+    if reconnus:
+        detail = (f"intention « {libelle} » — {reconnus} déclencheur(s) du dictionnaire "
+                  f"sur {total} la confirment")
+    else:
+        detail = (f"intention « {libelle} » — aucun déclencheur ne la confirme "
+                  f"({total} connu(s)) : le refus tient au seul jugement du modèle")
+    return CheckResult(name="intention_expliquee", ok=bool(reconnus), detail=detail)
 
 
 def _absence(kind: str, parsed: ParsedQuestion | None, *, doc_id: str, corpus: Any,
@@ -154,6 +195,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
             thresholds=settings.thresholds(), retries=retries, truncations=int(truncated),
             deadline_remaining_s=round(budget.remaining(), 3),
+            # Story 2.5 : ce que la trace nommait déjà, résolu. Les trois helpers sont partagés avec
+            # le pipeline sinistre (`pipelines/commun`) et ne lisent que le corpus déjà chargé —
+            # aucun appel, aucune lecture de `data/`, aucun texte de bloc (AD-10).
+            blocs=libelles_de_blocs(corpus, doc_id, steps),
+            gate=gate_de(corpus, doc_id),
+            dictionnaire=dictionnaire_de(dictionnaire, doc_id),
         )
 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
@@ -202,12 +249,44 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             return refuser("clarification_requise", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback,
                            clarification=parsed.clarification)
+        hors_perimetre_desarme = False
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
             # Il reste actif **dans tous les cas**, dictionnaire validé ou non : c'est le seul des
             # deux court-circuits d'AD-5 qui ne dépende de rien d'autre que de l'`intent`.
-            return refuser("hors_perimetre", None, language=parsed.language,
-                           lang_fallback=parsed.lang_fallback)
+            #
+            # **Une exception, et une seule : le périmètre tronqué désarme le refus qu'il ne peut
+            # plus fonder** (story 2.5 ; reprise différée de la revue Codex 2.1, I2). `hors_perimetre`
+            # est la seule des trois intentions que le modèle rende *en lisant une liste que nous lui
+            # donnons* — la projection des titres du document (`Corpus.perimetres`), dont le prompt
+            # affirme qu'« elle fait foi, aucune autre ». Quand le loader a dû en retirer des
+            # catégories entières (alerte `perimetre_tronque`), cette affirmation est fausse : le
+            # modèle a classé hors périmètre sur une liste incomplète, et le refus porterait sur des
+            # sujets que le document traite.
+            #
+            # Des deux remèdes que la reprise proposait — « soit le refus se désactive, soit la
+            # réponse le dit » —, le premier est strictement meilleur : dire à l'utilisateur « ce
+            # refus est peut-être faux » lui laisse un refus ; poursuivre vers *retrouver* lui laisse
+            # une chance de réponse, et si le corpus n'a rien, le refus rendu porte alors une
+            # **preuve** (`AbsenceProof`) au lieu d'un jugement sur une liste amputée. Le désarmement
+            # est tracé, donc il n'est pas silencieux (AD-16).
+            #
+            # `meteo` et `bavardage` restent refusés dans tous les cas : ni l'un ni l'autre ne se
+            # décide sur le périmètre annoncé — une question sur la pluie de demain reste hors du
+            # guide quelle que soit la liste de ses catégories.
+            if (parsed.intent == "hors_perimetre"
+                    and PERIMETRE_TRONQUE in corpus.alerts.get(doc_id, [])):
+                hors_perimetre_desarme = True
+                step_comprendre.checks.append(CheckResult(
+                    name="hors_perimetre_desarme", ok=False,
+                    detail=f"le périmètre annoncé au modèle est tronqué ({PERIMETRE_TRONQUE}) : "
+                           "le refus « hors périmètre » ne peut pas se fonder sur une liste "
+                           "incomplète — la question poursuit vers retrouver"))
+            else:
+                step_comprendre.checks.append(
+                    _intention_expliquee(parsed.intent, parsed.question_resolue, dictionnaire))
+                return refuser("hors_perimetre", None, language=parsed.language,
+                               lang_fallback=parsed.lang_fallback)
 
         # --- court-circuit « zéro hit » d'AD-5, **avant** *retrouver* -------
         # AD-5, mot pour mot : « court-circuit vers *restituer* … si aucun terme canonique (ni ses
@@ -251,7 +330,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         termes = parsed.termes_de_recherche()
         # `court_circuit_pour(doc_id)` et non `court_circuit_actif` (revue Codex 2.1, B3) : le
         # dictionnaire n'arme un refus que sur le document dont il porte l'empreinte.
-        if termes and dictionnaire is not None and dictionnaire.court_circuit_pour(doc_id):
+        if (not hors_perimetre_desarme and termes and dictionnaire is not None
+                and dictionnaire.court_circuit_pour(doc_id)):
             echeance("court-circuit zéro hit")  # comme avant chaque étape (AD-1/AD-9)
             if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id) \
                     and not index.definitions(termes, doc_id=doc_id):

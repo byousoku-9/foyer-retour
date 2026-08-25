@@ -1072,7 +1072,10 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                         non_etablies.append(libelle)
                         step.checks.append(CheckResult(
                             name="qualite_de_la_clause_non_enumeree", ok=False,
-                            detail=f"{libelle} : la clause l'écrit, le modèle ne l'a pas énumérée "
+                            # Le libellé est dérivé du texte de la clause. Il appartient au verdict
+                            # et aux questions bornées adressées au client, pas à la trace technique
+                            # consultable : celle-ci ne publie qu'un compte et le statut appliqué.
+                            detail="1 qualité exigée par la clause citée n'a pas été énumérée "
                                    "(l'affirmation est traitée comme `humain`)"))
             applicabilites[a.claim_id] = ChampsApplicabilite(
                 fait_requis_present=a.fait_requis_present, option_requise=a.option_requise,

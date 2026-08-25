@@ -18,7 +18,7 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, InvalidRequest
-from server.app.domain.ingest import ManifestEntry
+from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.question import Faits
 from server.app.domain.verdict import (
     ChampsApplicabilite,
@@ -95,6 +95,20 @@ def index() -> Index:
                                       document_hash="sha-doc", edition="juin 2017")}
     return Index(Corpus(documents={DOC_ID: doc}, manifest=manifest,
                         summaries={DOC_ID: "# Mini contrat\n- socle Socle commun\n- ext Extensions"}))
+
+
+@pytest.fixture
+def gate_du_mini_contrat(index: Index):
+    """Gate du document interrogé, restauré après le cas nominal partagé par le module."""
+    entree = index.corpus.manifest[DOC_ID]
+    entree.gate = Gate(
+        profile="vertical", source_hash=entree.source_hash,
+        ingest_fingerprint=entree.ingest_fingerprint, cases_hash="cas-bougie",
+        pipeline_digest="pipeline", prompts_digest="prompts", evals_ok=True,
+        date="2026-08-25", cases=1, countersigned=False,
+    )
+    yield entree.gate
+    entree.gate = None
 
 
 def _settings(**kw) -> Settings:
@@ -220,7 +234,8 @@ async def test_une_langue_forcee_non_servie_est_refusee_avant_tout_appel(index: 
 
 
 # --- nominal : le cas bougie -------------------------------------------------
-async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(index: Index) -> None:
+async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
+        index: Index, gate_du_mini_contrat) -> None:
     """AC : cinq étapes, `pipeline="sinistre"`, un seul appel `micro` dans *vérifier*, verdict complet."""
     answer, trace, fake = await _run(index, [
         _comprendre(),
@@ -232,6 +247,15 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(index
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
     assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
     assert len(next(s for s in trace.steps if s.name == "verifier").calls) == 1
+    # Story 2.5 : la même trace que le guide sait nommer les clauses du contrat et son gate ; le
+    # pipeline sinistre n'a pas de dictionnaire et ne prétend donc pas en avoir consulté un.
+    assert trace.gate is not None and trace.gate.profile == "vertical"
+    assert trace.gate.cases == 1 and trace.gate.countersigned is False
+    assert trace.dictionnaire is None
+    par_id = {bloc.block_id: bloc for bloc in trace.blocs}
+    assert par_id[f"{DOC_ID}:p1:2"].node_id == f"{DOC_ID}:socle"
+    assert par_id[f"{DOC_ID}:p1:2"].fiche_id is None
+    assert par_id[f"{DOC_ID}:p1:2"].titre == "Socle commun"
 
     assert answer.found is True
     verdict = answer.verdict
@@ -250,6 +274,46 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(index
     assert verdict.reason and "conditions générales seules" in verdict.reason
     # AD-6 : le paquet manquant est toujours là, et le verdict n'est jamais une décision d'indemnisation
     assert verdict.missing.conditions_particulieres and verdict.missing.options_souscrites
+
+
+def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
+        index: Index, gate_du_mini_contrat) -> None:
+    """Même seam que le guide : pipeline réel scripté → FastAPI → JSON, sans service externe."""
+    from fastapi.testclient import TestClient
+
+    from server.app.api.main import create_app
+
+    script = [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None)),
+    ]
+    fake = FakeAnthropic(script)
+
+    async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
+        settings = kw["settings"]
+        kw["client"] = LlmClient(settings, anthropic_client=fake)
+        return await sinistre.run(doc_id, question, faits, **kw)
+
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        etat = app.state.foyer
+        etat.corpus, etat.index = index.corpus, index
+        etat.pipeline_sinistre = pipeline_http
+        reponse = client.post("/api/v1/sinistre", json={
+            "doc_id": DOC_ID, "question": QUESTION, "faits": FAITS.model_dump(),
+        })
+
+    assert reponse.status_code == 200, reponse.text
+    corps = reponse.json()
+    assert fake.remaining_script == 0
+    assert corps["trace"]["pipeline"] == "sinistre"
+    assert corps["trace"]["gate"] == {
+        "profile": "vertical", "cases": 1, "countersigned": False, "alerts": []}
+    resolus = {bloc["block_id"]: bloc for bloc in corps["trace"]["blocs"]}
+    assert resolus[f"{DOC_ID}:p1:2"] == {
+        "block_id": f"{DOC_ID}:p1:2", "doc_id": DOC_ID, "node_id": f"{DOC_ID}:socle",
+        "fiche_id": None, "titre": "Socle commun"}
+    assert corps["sources"][0]["block_id"] == f"{DOC_ID}:p1:2"
 
 
 async def test_every_displayed_claim_carries_a_typed_applicability(index: Index) -> None:
@@ -365,7 +429,7 @@ async def test_a_guarantee_whose_qualities_are_declared_empty_is_never_covered(i
     de la clause tranche désormais : les deux qualités qu'il écrit deviennent des qualités non
     établies, la garantie vaut `humain` et le verdict ne peut plus être `couvert`.
     """
-    answer, _trace, _fake = await _run(index, [
+    answer, trace, _fake = await _run(index, [
         _comprendre(), _rediger(GAR),
         _verifier(("c1", True, True, False, False, None, [], []))])
     verdict = answer.verdict
@@ -373,6 +437,15 @@ async def test_a_guarantee_whose_qualities_are_declared_empty_is_never_covered(i
     assert [c.status.applicable for c in answer.claims] == ["humain"]
     assert verdict.missing.faits == ["caractère « soudain » exigé par la clause citée",
                                      "caractère « subite » exigé par la clause citée"]
+    controles = [c for etape in trace.steps for c in etape.checks
+                 if c.name == "qualite_de_la_clause_non_enumeree"]
+    assert len(controles) == 2
+    assert all(c.detail.startswith("1 qualité exigée") for c in controles)
+    # La trace est l'objet que les deux interfaces rendent : ni le texte de la clause, ni les
+    # libellés déduits de ses qualificatifs ne doivent y fuir.
+    trace_publiee = json.dumps(trace.model_dump(), ensure_ascii=False)
+    for secret in (GARANTIE, "soudain", "subite"):
+        assert secret not in trace_publiee
 
 
 async def test_facts_that_deny_the_quality_never_yield_a_covered_verdict(index: Index) -> None:

@@ -54,6 +54,8 @@ from server.app.pipelines.commun import (
     blocs_cites,
     digests,
     domine,
+    gate_de,
+    libelles_de_blocs,
     normaliser_langue_pipeline,
     relance_abandonnee,
     relance_utile,
@@ -211,6 +213,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
             thresholds=settings.thresholds(), retries=retries, truncations=int(truncated),
             deadline_remaining_s=round(budget.remaining(), 3),
+            # Story 2.5 : les mêmes résolutions que le guide (`pipelines/commun`) — l'outil sinistre
+            # affiche la même trace, et il doit pouvoir **nommer ses clauses** au lieu d'aligner des
+            # identifiants de blocs. `dictionnaire` reste `None` : ce pipeline n'en a pas, et publier
+            # un dictionnaire inerte laisserait croire qu'il a été consulté (AD-16).
+            blocs=libelles_de_blocs(corpus, doc_id, steps),
+            gate=gate_de(corpus, doc_id),
         )
 
     def absence(kind: str, parsed: ParsedQuestion | None) -> AbsenceProof:

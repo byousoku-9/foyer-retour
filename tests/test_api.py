@@ -46,7 +46,7 @@ from server.app.domain.document import Document, Node, Source
 from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, LlmUnavailable, Timeout
 from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.profil import Profil
-from server.app.domain.trace import StepTrace, Trace
+from server.app.domain.trace import BlocTrace, GateTrace, StepTrace, Trace
 from server.app.llm.budget import RequestBudget
 from server.app.pipelines import guide
 
@@ -192,7 +192,13 @@ def test_reponse_sourcee_rend_200_avec_le_contrat_ad11(prod: TestClient) -> None
                     segments=[AnswerSegment(text="Le délai est de huit jours.", kind="factuel",
                                             claim_ids=["c1"])],
                     claims=[claim])
-    double = _brancher(prod, Double((answer, _trace())), mini=True)
+    trace_http = _trace(
+        blocs=[BlocTrace(block_id=f"{DOC_ID}:farrivee:2", doc_id=DOC_ID,
+                         node_id=f"{DOC_ID}:farrivee", fiche_id="arrivee",
+                         titre="Déclarer son arrivée")],
+        gate=GateTrace(profile="vertical", cases=2, countersigned=False, alerts=[]),
+    )
+    double = _brancher(prod, Double((answer, trace_http)), mini=True)
 
     r = prod.post("/api/v1/chat", json={"question": "Quel délai après mon arrivée ?", "profil": {},
                                         "historique": []}, headers=XFF)
@@ -202,6 +208,15 @@ def test_reponse_sourcee_rend_200_avec_le_contrat_ad11(prod: TestClient) -> None
     assert j["via"] == "api/v1"
     assert j["texte"] == answer.texte
     assert j["trace"]["request_id"] == r.headers["X-Request-Id"]
+    # Story 2.5 : le corps réellement sérialisé par FastAPI publie les résolutions dans `trace`,
+    # sans élargir le contrat HTTP de premier niveau.
+    assert j["trace"]["blocs"] == [{
+        "block_id": f"{DOC_ID}:farrivee:2", "doc_id": DOC_ID,
+        "node_id": f"{DOC_ID}:farrivee", "fiche_id": "arrivee",
+        "titre": "Déclarer son arrivée",
+    }]
+    assert j["trace"]["gate"]["profile"] == "vertical"
+    assert "blocs" not in j and "gate" not in j
     assert [s["text"] for s in j["segments"]] == ["Le délai est de huit jours."]
     assert len(j["sources"]) == 1
     source = j["sources"][0]
@@ -1372,3 +1387,124 @@ def test_le_domaine_refuse_une_reponse_partielle_muette() -> None:
                segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"])],
                claims=[_claim("c1", "Délai.", _citation(_mini_corpus()[0], f"{DOC_ID}:farrivee:2",
                                                         "huit jours"))])
+
+
+# --- story 2.5 : les résolutions de trace, sur une réponse réellement servie ---
+
+def _script_du_mini_guide() -> list[dict]:
+    """Les trois appels de la chaîne, scriptés sur les blocs du mini-corpus.
+
+    Le modèle est **intégralement** scripté (`FakeAnthropic` lève sur tout appel non prévu) : ce qui
+    est vérifié en dessous est donc bien le travail du **pipeline**, pas celui d'un double.
+    """
+    from server.app.llm.models import TIERS
+    from tests.llm_fake import fake_message
+
+    extrait = "huit jours après votre arrivée pour vous déclarer"
+    return [
+        fake_message(model=TIERS["micro"], text=json.dumps({
+            "intent": "question", "question_resolue": "Quel délai après mon arrivée ?",
+            "clarification": None, "language": "fr", "terms": ["arrivée"], "themes": [],
+            "facettes": ["délai de déclaration"], "bien": None, "evenement": None, "lieu": None,
+            "cause": None, "moment": None})),
+        fake_message(model=TIERS["reason"], text=json.dumps({
+            "segments": [{"text": "Le délai est de huit jours.", "kind": "factuel",
+                          "claim_ids": ["c1"]}],
+            "claims": [{"claim_id": "c1", "text": "Le délai est de huit jours.",
+                        "quotes": [{"block_id": f"{DOC_ID}:farrivee:2", "quote": extrait}]}]})),
+        fake_message(model=TIERS["micro"], text=json.dumps({
+            "verdicts": [{"claim_id": "c1", "pertinente": True}],
+            "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
+            "segments": [{"segment": i, "soutenu": True} for i in range(4)]})),
+    ]
+
+
+def _pipeline_reel(script: list[dict]) -> Any:
+    """Le **vrai** `repondre_guide`, avec un modèle scripté à la place du réseau.
+
+    La route ne passe pas de `doc_id` (elle laisse le pipeline prendre `settings.guide_doc_id`, qui
+    vaut `lux-guide` dans l'image) : on le lui donne ici, pour interroger le mini-corpus sans toucher
+    aux réglages de l'application partagée par le module.
+    """
+    from server.app.llm.client import LlmClient
+    from tests.llm_fake import FakeAnthropic
+
+    async def appeler(question: str, historique: list, profil: Any, **kw: Any):
+        settings = kw.pop("settings")
+        kw["client"] = LlmClient(settings, anthropic_client=FakeAnthropic(script))
+        return await guide.repondre_guide(question, historique, profil, settings=settings,
+                                          doc_id=DOC_ID, **kw)
+
+    return appeler
+
+
+def test_une_reponse_servie_porte_ses_blocs_resolus_et_le_profil_de_son_gate(
+        prod: TestClient) -> None:
+    """AC 2.5, sur le corps que **FastAPI écrit**, au bout du **vrai** pipeline.
+
+    Les tests de `tests/test_pipeline_guide.py` vérifient que le pipeline résout ; celui de
+    `test_reponse_sourcee_rend_200_avec_le_contrat_ad11` vérifie qu'une trace donnée traverse
+    l'enveloppe. Ni l'un ni l'autre ne dit que les deux se rejoignent : c'est **ici** que le
+    `block_id` qu'une étape a réellement ouvert ressort du serveur avec le titre de sa fiche.
+
+    Et le contrat de premier niveau n'acquiert rien : tout vit dans `trace` (Design Notes 2.5), ce qui
+    est exactement ce qui rend les deux lots de la story indépendants.
+    """
+    corpus, index = _mini_corpus()
+    _avec_gate(corpus, DOC_ID, "vertical", cases=2, countersigned=False)
+    # Une vraie alerte du corpus chargé doit traverser le pipeline puis le contrat HTTP avec le
+    # gate. Un objet de trace construit à la main ne prouverait pas cette jonction.
+    corpus.alerts[DOC_ID] = ["source_absente"]
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+    etat.pipeline = _pipeline_reel(_script_du_mini_guide())
+
+    r = prod.post("/api/v1/chat", json={"question": "Quel délai après mon arrivée ?",
+                                        "profil": {}, "historique": []}, headers=XFF)
+
+    assert r.status_code == 200
+    trace = r.json()["trace"]
+    # Résolus : l'identifiant **et** le titre de la fiche, avec le `fiche_id` que `sources[]` publie.
+    par_id = {b["block_id"]: b for b in trace["blocs"]}
+    assert par_id[f"{DOC_ID}:farrivee:2"] == {
+        "block_id": f"{DOC_ID}:farrivee:2", "doc_id": DOC_ID, "node_id": f"{DOC_ID}:farrivee",
+        "fiche_id": "arrivee", "titre": "Déclarer son arrivée"}
+    assert par_id[f"{DOC_ID}:farrivee:2"]["fiche_id"] == r.json()["sources"][0]["fiche_id"]
+    assert par_id[f"{DOC_ID}:farrivee:2"]["titre"] == r.json()["sources"][0]["titre"]
+    # Ce que la trace nomme est **ce qui a été ouvert**, pas une liste écrite à la main.
+    ouverts = [b for s in trace["steps"] for b in s["opened_block_ids"]]
+    assert f"{DOC_ID}:farrivee:2" in ouverts
+    assert set(par_id) >= set(ouverts)
+
+    assert trace["gate"] == {"profile": "vertical", "cases": 2, "countersigned": False,
+                             "alerts": ["source_absente"]}
+    # Le dictionnaire de l'image est chargé au démarrage : le pipeline du guide en publie l'état, et
+    # le refus « zéro hit » y est désarmé tant qu'aucune main n'a signé (AD-5, M12).
+    assert trace["dictionnaire"]["court_circuit_actif"] is False
+
+    # AD-11 : `ChatResponse` n'acquiert aucun champ — tout est dans `trace`.
+    assert {"blocs", "gate", "dictionnaire"}.isdisjoint(r.json())
+
+
+async def test_une_trace_partielle_derreur_garde_le_gate_de_son_document() -> None:
+    """M10 : « une enveloppe d'erreur portant `trace` » porte le panneau comme une réponse.
+
+    AD-16 : « 503 avec trace partielle » — et une trace partielle qui perdrait ce qu'elle sait du
+    document serait précisément inutile là où on en a le plus besoin. Rien n'a tourné ici (deadline
+    épuisée avant *comprendre*) : `blocs` est **vide**, ce qui est un fait, et le gate est là, parce
+    qu'il ne dépend d'aucune étape.
+    """
+    corpus, index = _mini_corpus()
+    _avec_gate(corpus, DOC_ID, "vertical", cases=2, countersigned=False)
+    budget = RequestBudget(deadline_s=0.0, max_attempts=6, max_cost_eur=0.10)
+
+    with pytest.raises(Timeout) as exc:
+        await guide.repondre_guide("q", [], Profil(), corpus=corpus, index=index, client=None,
+                                   settings=_settings(guide_doc_id=DOC_ID), request_id="r-1",
+                                   budget=budget, pipeline_digest_hex="p", prompts_digest_hex="q")
+
+    trace = exc.value.trace
+    assert trace is not None
+    assert trace.gate is not None and trace.gate.profile == "vertical"
+    assert trace.blocs == []  # aucune étape n'a ouvert de bloc : vide, jamais deviné (AD-16)
+    assert trace.dictionnaire is None  # aucun dictionnaire ne lui a été passé

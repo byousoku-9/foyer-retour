@@ -1,8 +1,27 @@
-"""AD-10 — La trace est un objet, émise à chaque réponse."""
+"""AD-10 — La trace est un objet, émise à chaque réponse.
+
+**Ce que la story 2.5 ajoute — et ce qu'elle n'ajoute pas.** `BlocTrace`, `GateTrace` et
+`DictionnaireTrace` ne font que **résoudre** ce que la trace nommait déjà : un `block_id` reçoit le
+nœud et le titre de fiche auxquels il appartient, le `doc_id` interrogé reçoit le profil du gate qui
+l'a validé, et le dictionnaire — dont dépend l'un des deux court-circuits d'AD-5 — dit s'il arme ou
+non le refus « zéro hit ». Aucun de ces champs n'est une mesure nouvelle : ils rendent lisible ce que
+le serveur savait déjà et que rien ne publiait.
+
+Ils ne portent, littéralement, que des **identifiants**, des **titres de nœuds du corpus** (écrits par
+l'ingestion, jamais par un modèle), des **comptes** et des **booléens** — jamais le texte d'un bloc,
+jamais une citation, jamais une donnée personnelle au-delà du profil déclaré (AD-10, AD-15). Un titre
+de fiche est le seul « texte » qui entre ici, et c'est le même que `sources[].titre` publie déjà au
+premier niveau du contrat (AD-11).
+
+Ils vivent dans `Trace`, et non dans `ChatResponse`/`SinistreResponse` : la trace est publiée entière
+par les deux routes, l'ajout y est additif, et le contrat de premier niveau n'acquiert aucun champ.
+"""
 
 from __future__ import annotations
 
-from pydantic import Field
+import math
+
+from pydantic import Field, field_validator, model_validator
 
 from .document import DomainModel
 
@@ -44,6 +63,87 @@ class StepTrace(DomainModel):
     calls: list[LLMCall] = Field(default_factory=list)
 
 
+class BlocTrace(DomainModel):
+    """Un `block_id` de la trace, résolu jusqu'à la fiche qui le porte (story 2.5).
+
+    `StepTrace.opened_block_ids` / `discarded_block_ids` sont des identifiants opaques : à l'écran,
+    « lux-guide:farrivee:2 » ne dit pas à l'utilisateur ce qui a été lu. Le nœud parent et son titre
+    le disent, et ce sont exactement ceux que `api/presenter._source_item` publie déjà pour les
+    sources — même règle de `fiche_id` (`{doc_id}:f…` privé de son préfixe, `None` sinon), pour que
+    les deux surfaces ne puissent pas nommer la même fiche de deux façons.
+
+    Jamais le texte du bloc : le titre est celui du **nœud**, écrit par l'ingestion (AD-10).
+    """
+
+    block_id: str
+    doc_id: str
+    node_id: str
+    # `None` quand le nœud parent n'est pas une fiche (une FAQ `{doc}:q…`, une page `{doc}:p…`) :
+    # il y a un titre à afficher, mais aucune fiche à ouvrir.
+    fiche_id: str | None = None
+    titre: str = ""
+
+
+class GateTrace(DomainModel):
+    """AD-7 / AD-14 — Ce qui valide le document interrogé, au moment où la réponse est servie.
+
+    `EtatApp.gate_profile` publie déjà un profil sur `/api/v1/sante`, mais il **résume** les documents
+    servis : il vaut `null` dès que deux d'entre eux divergent, et il ne dit rien du document qui a
+    répondu à *cette* question. La trace, elle, ne parle que d'un document, et c'est ce que le panneau
+    « Pourquoi cette réponse » affiche.
+
+    `alerts` voyage **dans le même objet** que `profile`, et ce n'est pas un ornement : c'est ce qui
+    interdit de lire le profil seul. Un gate que le loader a neutralisé localement (`sans_gate` :
+    empreintes du gate différentes de l'entrée) laisse son `profile` dans le manifest ; le publier
+    sans son alerte serait la « bascule silencieuse » d'AD-11, le publier avec elle est un fait
+    complet. Les trois champs sont `None` quand l'entrée de manifest n'a pas de gate : absence de
+    mesure, jamais une mesure par défaut (AD-16).
+    """
+
+    profile: str | None = None
+    cases: int | None = None
+    countersigned: bool | None = None
+    alerts: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _coherence(self) -> GateTrace:
+        mesures = (self.profile, self.cases, self.countersigned)
+        absentes = tuple(v is None for v in mesures)
+        if not (all(absentes) or not any(absentes)):
+            raise ValueError(
+                "profile, cases et countersigned sont soit tous absents, soit tous présents")
+        if self.cases is not None and self.cases < 1:
+            raise ValueError("un gate présent exige cases >= 1")
+        return self
+
+
+class DictionnaireTrace(DomainModel):
+    """AD-5 — L'état du dictionnaire pour le document interrogé, donc l'état du refus « zéro hit ».
+
+    Les quatre booléens sont ceux de `corpus.dictionary.Dictionnaire`, dans l'ordre où ils se
+    commandent : chargé, signé, décrivant le corpus servi, et — conjonction des trois, appliquée au
+    document de la requête — court-circuit armé ou non. Tant que `court_circuit_actif` est faux, un
+    refus « zéro hit » est **impossible** : l'écran peut le dire au lieu de laisser croire que
+    l'absence de refus prouve quelque chose.
+    """
+
+    charge: bool = False
+    validated: bool = False
+    corpus_ok: bool = False
+    court_circuit_actif: bool = False
+
+    @model_validator(mode="after")
+    def _coherence(self) -> DictionnaireTrace:
+        if not self.charge and (self.validated or self.corpus_ok):
+            raise ValueError(
+                "un dictionnaire non chargé ne peut être ni validé ni conforme au corpus")
+        attendu = self.charge and self.validated and self.corpus_ok
+        if self.court_circuit_actif != attendu:
+            raise ValueError(
+                "court_circuit_actif doit être exactement charge ∧ validated ∧ corpus_ok")
+        return self
+
+
 class Trace(DomainModel):
     request_id: str
     pipeline: str
@@ -65,3 +165,32 @@ class Trace(DomainModel):
     retries: int = 0
     truncations: int = 0
     deadline_remaining_s: float | None = None
+    # Story 2.5 — les trois résolutions décrites en tête de module. Les défauts sont ceux d'une trace
+    # qui n'a rien à en dire (aucun bloc touché, document hors manifest, pipeline sans dictionnaire) :
+    # une liste vide et deux `None`, que le front fait disparaître au lieu de les remplir.
+    blocs: list[BlocTrace] = Field(default_factory=list)
+    gate: GateTrace | None = None
+    dictionnaire: DictionnaireTrace | None = None
+
+    @field_validator("total_cost_eur", mode="before")
+    @classmethod
+    def _cout_reel(cls, valeur: object) -> object:
+        if isinstance(valeur, bool) or not isinstance(valeur, (int, float)):
+            raise ValueError("total_cost_eur doit être un nombre")
+        if not math.isfinite(valeur) or valeur < 0:
+            raise ValueError("total_cost_eur doit être fini et positif ou nul")
+        return valeur
+
+    @field_validator("thresholds", mode="before")
+    @classmethod
+    def _seuils_numeriques(cls, valeur: object) -> object:
+        if not isinstance(valeur, dict):
+            return valeur
+        invalides = sorted(
+            str(nom) for nom, seuil in valeur.items()
+            if isinstance(seuil, bool) or not isinstance(seuil, (int, float))
+            or not math.isfinite(seuil)
+        )
+        if invalides:
+            raise ValueError(f"thresholds doit porter des nombres finis : {invalides}")
+        return valeur
