@@ -70,7 +70,12 @@ def sante_nominale() -> dict[str, Any]:
         "gate_profile": "vertical",
         "gate_cases": 2,
         "gate_countersigned": False,
-        "dictionary": {"validated": False},
+        # État **nominal d'un déploiement** (story 2.1) : le dépôt porte un dictionnaire validé, le
+        # service publie le même fait, et aucune alerte ne pèse. Le cas où la validation est encore
+        # due — celui du dépôt aujourd'hui — a ses propres tests ci-dessous, avec l'attendu explicite
+        # `dictionnaire_validated=False` : c'est un **accord** entre le dépôt et le service, et le
+        # smoke le laisse passer sans faire de `sante_nominale()` un corps à deux lectures.
+        "dictionary": {"validated": True, "corpus_ok": True, "refus_zero_hit_actif": True},
         "alerts": [],
         "thresholds": SEUILS_DU_SERVEUR,
     }
@@ -140,9 +145,9 @@ def sante(**remplacements: Any) -> dict[str, Any]:
     return corps
 
 
-def ecarts_sante(corps: Any) -> list[str]:
+def ecarts_sante(corps: Any, *, dictionnaire_validated: bool = True) -> list[str]:
     return verifier_sante(corps, documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
-                          version=VERSION)
+                          version=VERSION, dictionnaire_validated=dictionnaire_validated)
 
 
 def ecarts_chat(corps: Any) -> list[str]:
@@ -214,11 +219,85 @@ def test_la_derogation_armee_sur_le_service_rougit_le_smoke() -> None:
     assert "ungated_refuse_en_production" in ecarts[0] and "*" in ecarts[0]
 
 
-@pytest.mark.parametrize("alerte", ["sans_gate", "gate_perime", "source_absente", "quarantaine"])
+@pytest.mark.parametrize("alerte", ["sans_gate", "gate_perime", "source_absente", "quarantaine",
+                                    "dictionnaire_corpus_perime"])
 def test_toute_alerte_interdit_la_promotion(alerte: str) -> None:
-    """Le smoke n'a pas de liste d'alertes « acceptables » : une alerte est un écart (AD-16)."""
+    """Une alerte est un écart (AD-16) — `dictionnaire_corpus_perime` comprise, en toutes circonstances.
+
+    Un dictionnaire dont les empreintes ne sont pas celles du corpus servi décrit un **autre** corpus :
+    c'est un défaut de l'image, pas une signature en attente, et aucune tolérance ne le couvre.
+    """
     ecarts = ecarts_sante(sante(alerts=[{"doc_id": "lux-guide", "alerte": alerte, "detail": ""}]))
     assert len(ecarts) == 1 and alerte in ecarts[0]
+
+
+# --- `sante` : l'état du dictionnaire est celui du dépôt (AD-5, story 2.1) -----------------------
+
+def sante_non_validee(**remplacements: Any) -> dict[str, Any]:
+    """Le corps que sert un déploiement dont le `data/dictionary.json` committé n'est pas signé."""
+    return sante(dictionary={"validated": False, "corpus_ok": True, "refus_zero_hit_actif": False},
+                 alerts=[{"doc_id": "*", "alerte": "dictionnaire_non_valide",
+                          "detail": "le refus « zéro hit » est désactivé"}],
+                 **remplacements)
+
+
+def test_un_dictionnaire_non_signe_dans_le_depot_ne_bloque_pas_le_deploiement() -> None:
+    """AD-5 oblige `/sante` à porter l'alerte tant que la validation est due (`epics.md`, input humain).
+
+    La refuser interdirait tout déploiement jusqu'à une signature que rien, dans la chaîne, ne réclame
+    avant la mise en ligne — exactement la raison pour laquelle `gate_countersigned` n'est pas exigé
+    non plus. Ce qui est vérifié n'est pas « pas d'alerte » mais l'**accord** entre le dépôt et le
+    service.
+    """
+    assert ecarts_sante(sante_non_validee(), dictionnaire_validated=False) == []
+
+
+def test_un_service_qui_tait_lalerte_alors_que_le_depot_nest_pas_signe_est_un_ecart() -> None:
+    """La tolérance a deux bords : son absence dit que l'image ne sert pas le `data/` de ce commit."""
+    corps = sante(dictionary={"validated": False, "corpus_ok": True, "refus_zero_hit_actif": False},
+                  alerts=[])
+    ecarts = ecarts_sante(corps, dictionnaire_validated=False)
+    assert len(ecarts) == 1 and "dictionnaire_non_valide" in ecarts[0]
+
+
+def test_lalerte_nest_plus_toleree_le_jour_ou_le_depot_porte_un_dictionnaire_signe() -> None:
+    """La tolérance s'éteint d'elle-même : elle est dérivée du dépôt, jamais écrite en dur."""
+    ecarts = ecarts_sante(sante_non_validee(), dictionnaire_validated=True)
+    noms = " ".join(ecarts)
+    assert len(ecarts) == 2 and "dictionnaire_non_valide" in noms and "divergé" in noms
+
+
+def test_un_dictionnaire_signe_sur_le_service_et_pas_dans_le_depot_est_un_ecart() -> None:
+    """Le sens inverse : la révision sert un `data/` que ce commit ne contient pas."""
+    ecarts = ecarts_sante(sante(), dictionnaire_validated=False)
+    noms = " ".join(ecarts)
+    assert "dictionary.validated" in noms and "divergé" in noms
+
+
+@pytest.mark.parametrize("valeur", ["true", 1, None, {}])
+def test_un_validated_non_booleen_est_un_ecart(valeur: Any) -> None:
+    """`bool("false")` vaut `True` : seul un booléen JSON strict est lu (même règle que le serveur)."""
+    corps = sante(dictionary={"validated": valeur, "corpus_ok": True, "refus_zero_hit_actif": False},
+                  alerts=[{"doc_id": "*", "alerte": "dictionnaire_non_valide", "detail": ""}])
+    ecarts = ecarts_sante(corps, dictionnaire_validated=False)
+    assert any("dictionary.validated" in e for e in ecarts)
+
+
+def test_lattendu_du_dictionnaire_vient_du_depot(tmp_path: Any) -> None:
+    """`charger_attendus` lit `data/dictionary.json` — absent, illisible ou non signé ⇒ `False`."""
+    from scripts.smoke import _dictionnaire_validated
+
+    data = tmp_path / "data"
+    data.mkdir()
+    assert _dictionnaire_validated(tmp_path) is False  # absent
+    (data / "dictionary.json").write_text("{ pas du json", encoding="utf-8")
+    assert _dictionnaire_validated(tmp_path) is False  # illisible
+    (data / "dictionary.json").write_text('{"validated": "true"}', encoding="utf-8")
+    assert _dictionnaire_validated(tmp_path) is False  # chaîne, pas booléen
+    (data / "dictionary.json").write_text('{"validated": false}', encoding="utf-8")
+    assert _dictionnaire_validated(tmp_path) is False
+    (data / "dictionary.json").write_text('{"validated": true}', encoding="utf-8")
+    assert _dictionnaire_validated(tmp_path) is True
 
 
 def test_ok_faux_est_un_ecart() -> None:
@@ -228,13 +307,14 @@ def test_ok_faux_est_un_ecart() -> None:
 def test_un_corps_ampute_ne_passe_pas_par_defaut() -> None:
     """Lecture stricte : une clé absente ne vaut ni `None`, ni `False`, ni `[]`."""
     ecarts = ecarts_sante({})
-    assert len(ecarts) == 7  # ok, documents_servis, gate_profile, gate_cases, version, thresholds, alerts
-    assert sum("absent de la réponse" in e for e in ecarts) == 6
+    # ok, documents_servis, gate_profile, gate_cases, version, thresholds, dictionary.validated, alerts
+    assert len(ecarts) == 8
+    assert sum("absent de la réponse" in e for e in ecarts) == 7
     assert any("thresholds absent ou vide" in e for e in ecarts)
 
 
 def test_un_corps_qui_nest_pas_un_objet_est_un_ecart() -> None:
-    assert len(ecarts_sante("indisponible")) == 7
+    assert len(ecarts_sante("indisponible")) == 8
 
 
 def test_des_seuils_absents_sont_un_ecart_et_non_un_repli_silencieux() -> None:
@@ -520,6 +600,7 @@ def test_les_appels_de_pipeline_nont_droit_a_aucune_reprise(monkeypatch: pytest.
     import scripts.smoke as smoke
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
+                        dictionnaire_validated=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -743,6 +824,7 @@ def test_main_sort_en_0_sur_les_trois_corps_nominaux(monkeypatch: pytest.MonkeyP
     import scripts.smoke as smoke
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
+                        dictionnaire_validated=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -775,6 +857,7 @@ def test_main_sort_en_1_et_nomme_lecart(monkeypatch: pytest.MonkeyPatch,
     import scripts.smoke as smoke
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
+                        dictionnaire_validated=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -804,6 +887,7 @@ def test_main_ne_paie_aucun_appel_de_pipeline_quand_une_surface_est_morte(
     import scripts.smoke as smoke
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
+                        dictionnaire_validated=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -829,6 +913,7 @@ def test_un_ecart_de_sinistre_est_rapporte_apres_les_quatre_verifications(
     import scripts.smoke as smoke
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
+                        dictionnaire_validated=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)

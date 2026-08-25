@@ -4,8 +4,11 @@ Ce que ce module vérifie, sur le service réellement déployé et non sur le d�
 
 1. `GET /api/v1/sante` — les documents attendus sont **servis** (ni moins, ni d'autres), au
    `gate_profile` que le manifest de ce commit annonce, la `version` publiée est le `sha7` du commit
-   qui a déclenché le déploiement, les seuils sont publiés, et **aucune** alerte ne pèse sur le
-   service. C'est là que la reprise différée de la story 1.10 se ferme : `ALLOW_UNGATED=true` posé à
+   qui a déclenché le déploiement, les seuils sont publiés, l'état du dictionnaire est celui que ce
+   commit contient, et **aucune** alerte ne pèse sur le service — hormis `dictionnaire_non_valide`,
+   qu'AD-5 oblige `/sante` à porter tant que la validation humaine est due, et que le smoke attend
+   exactement quand `data/dictionary.json` de ce commit n'est pas validé (son absence est alors un
+   écart, comme sa présence sur un dépôt validé). C'est là que la reprise différée de la story 1.10 se ferme : `ALLOW_UNGATED=true` posé à
    la main sur la configuration du service produit l'alerte `ungated_refuse_en_production`, qu'aucun
    test hors ligne ne pouvait voir — ici elle est rouge.
 2. Les **trois surfaces** d'AD-12 (`/`, `/guide/`, `/sinistre/`) répondent 200 — l'origine unique est
@@ -126,6 +129,11 @@ class Attendus:
     # le smoke sans un mot : le profil restait `vertical`, seul le nombre avait fondu (revue 1.11).
     gate_cases: int
     source_hash: dict[str, str]
+    # AD-5 (story 2.1) : le dictionnaire committé est-il validé par un humain ? Le service publie le
+    # même fait (`dictionary.validated`) et, quand il est faux, l'alerte `dictionnaire_non_valide`.
+    # L'attendu vient donc du dépôt, comme le profil de gate : ce qui est refusé n'est pas « une
+    # alerte » mais un **désaccord** entre ce que ce commit contient et ce que la révision sert.
+    dictionnaire_validated: bool
     cas_guide: CasTemoin
     cas_sinistre: CasTemoin
 
@@ -200,8 +208,26 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
         gate_profile=gate_profile,
         gate_cases=gate_cases,
         source_hash=hashes,
+        dictionnaire_validated=_dictionnaire_validated(racine),
         cas_guide=_lire_cas(cases / "guide", reglages.guide_doc_id),
         cas_sinistre=_lire_cas(cases / "sinistre", reglages.sinistre_doc_id))
+
+
+def _dictionnaire_validated(racine: Path) -> bool:
+    """`data/dictionary.json` de **ce commit** porte-t-il une validation humaine ? (AD-5, story 2.1)
+
+    Absent, illisible, ou `validated` autre que le `true` JSON strict ⇒ `False` — la **même** règle
+    que `corpus/dictionary.load_dictionary`, pour que l'attendu du smoke et l'état publié par le
+    service se lisent de la même façon. Un fichier absent n'est pas un refus de lecture ici : il n'y a
+    pas encore de dictionnaire tant que l'ingestion n'a pas tourné, et c'est un état que le dépôt
+    assume (le refus « zéro hit » dort, `/sante` le dit).
+    """
+    fichier = racine / "data" / "dictionary.json"
+    try:
+        charge = json.loads(fichier.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(charge, dict) and charge.get("validated") is True
 
 
 def _exiger(condition: bool, message: str) -> None:
@@ -300,7 +326,7 @@ SEUILS_EXIGES = ("deadline_s", "client_abort_margin_s")
 
 
 def verifier_sante(corps: Any, *, documents: tuple[str, ...], gate_profile: str,
-                   gate_cases: int, version: str) -> list[str]:
+                   gate_cases: int, version: str, dictionnaire_validated: bool) -> list[str]:
     """`GET /api/v1/sante` : ce que la révision candidate sert, et à quel niveau de validation."""
     ecarts: list[str] = []
 
@@ -373,17 +399,52 @@ def verifier_sante(corps: Any, *, documents: tuple[str, ...], gate_profile: str,
                 ecarts.append(f"thresholds.{nom}={seuils.get(nom)!r} : attendu un nombre — sans lui "
                               f"le smoke couperait la requête avant la deadline du serveur")
 
+    # AD-5 (story 2.1) : l'état du dictionnaire servi doit être **celui que ce commit contient**.
+    # Le comparer plutôt que l'exiger vrai est ce qui distingue « Lancelot n'a pas encore signé » —
+    # un état documenté, que `/` affiche et que le dépôt assume — de « la révision ne sert pas les
+    # données de ce commit », qui est un vrai défaut. Le premier n'empêche pas un déploiement, le
+    # second l'arrête. `refus_zero_hit_actif` n'est pas exigé ici : c'est une conjonction du serveur
+    # (`validated ∧ corpus_ok`), et `corpus_ok` a déjà son alerte, refusée ci-dessous.
+    validee = _lire(corps, "dictionary", "validated")
+    if validee is _ABSENT:
+        ecarts.append(_manquant("dictionary.validated"))
+    elif not isinstance(validee, bool):
+        ecarts.append(f"dictionary.validated={validee!r} n'est pas un booléen")
+    elif validee != dictionnaire_validated:
+        ecarts.append(
+            f"dictionary.validated={validee!r}, attendu {dictionnaire_validated!r} d'après "
+            f"data/dictionary.json de ce commit : l'image et le dépôt ont divergé")
+
     # AD-16 / reprise différée de 1.10 : la dérogation `ALLOW_UNGATED` armée sur la configuration du
     # service, un gate périmé, une source absente — tout cela se lit ici, et rien ne doit être promu
-    # avec. Le smoke n'a pas de liste d'alertes « acceptables » : une alerte est un écart.
+    # avec. Le smoke n'a **qu'une** alerte non bloquante, et elle n'est pas une liste d'exceptions :
+    # `dictionnaire_non_valide` est la publication littérale du fait qu'on vient de comparer, et
+    # AD-5 **oblige** `/sante` à la porter tant que la validation est due. La refuser reviendrait à
+    # interdire tout déploiement jusqu'à une signature humaine que rien, dans la chaîne, ne réclame
+    # avant la mise en ligne — et la tolérance s'éteint d'elle-même le jour où le dépôt porte un
+    # dictionnaire validé : elle est **dérivée** de `dictionnaire_validated`, pas écrite en dur.
+    # Son **absence** est alors, elle aussi, un écart : un service qui ne la porte pas ne sert pas
+    # le `data/` de ce commit. `dictionnaire_corpus_perime` reste un écart en toutes circonstances —
+    # un dictionnaire qui décrit un autre corpus que celui servi est un défaut de l'image.
+    toleree = "" if dictionnaire_validated else "dictionnaire_non_valide"
+    vues: set[str] = set()
     alertes = _lire(corps, "alerts")
     if not isinstance(alertes, list):
         ecarts.append(_manquant("alerts"))
-    elif alertes:
+    else:
         for a in alertes:
             doc = a.get("doc_id", "?") if isinstance(a, dict) else "?"
             nom = a.get("alerte", a) if isinstance(a, dict) else a
+            if nom == toleree:
+                vues.add(nom)
+                print(f"réserve · alerte attendue sur le service : {doc} → {nom} "
+                      f"(data/dictionary.json de ce commit n'est pas validé)")
+                continue
             ecarts.append(f"alerte sur le service : {doc} → {nom}")
+        if toleree and toleree not in vues:
+            ecarts.append(
+                f"alerts ne porte pas {toleree!r} alors que data/dictionary.json de ce commit "
+                f"n'est pas validé : la révision ne sert pas les données de ce commit")
 
     return ecarts
 
@@ -603,7 +664,8 @@ def main(argv: list[str] | None = None) -> int:
         sante = appeler_avec_reprise(f"{base}/api/v1/sante", timeout=TIMEOUT_SANTE_S)
         resultats.append(("sante", verifier_sante(
             sante, documents=attendus.documents, gate_profile=attendus.gate_profile,
-            gate_cases=attendus.gate_cases, version=args.version)))
+            gate_cases=attendus.gate_cases, version=args.version,
+            dictionnaire_validated=attendus.dictionnaire_validated)))
 
         statuts = {chemin: sonder(f"{base}{chemin}", timeout=TIMEOUT_SANTE_S)
                    for chemin in SURFACES}
