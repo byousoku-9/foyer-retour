@@ -1245,7 +1245,13 @@
 
   function afficherReponse(q, r) {
     peindre(window.CHAT.vueReponse(r, q));
-    historique.push({ role: "assistant", content: r.texte });
+    // Story 2.2 : le tour conserve est **ce que l'assistant a dit**, dans l'ordre affiche — la
+    // clarification posee, puis la phrase. Pousser le seul `r.texte` laissait la question hors de
+    // l'historique : au tour suivant, *comprendre* ne voyait pas sa propre question, la reponse
+    // d'un mot de l'arrivant restait irresoluble, et il la reposait. La composition vit dans
+    // `chat.js` (`tourAssistant`, pure) : `ui.js` peint et conserve, il ne decide pas de ce qui a
+    // ete dit.
+    historique.push({ role: "assistant", content: window.CHAT.tourAssistant(r) });
     badgeMode(r.via);
     // Panneau ancre : la fiche s'ouvre dans la page, passage surligne, sans quitter la conversation.
     if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
@@ -1258,7 +1264,10 @@
     // `local: true` : ce tour a ete dit a l'ecran, il ne repartira pas au serveur comme sa propre
     // parole. Sans cette marque, *comprendre* resoudrait les anaphores de la question suivante
     // contre une comparaison de mots-cles — exactement ce que la story interdit.
-    historique.push({ role: "assistant", content: r.texte, local: true });
+    // Le texte passe par le meme compositeur que la reponse servie (story 2.2) : la recherche
+    // simple ne pose aucune clarification, il rend donc `r.texte` inchange — mais deux facons de
+    // composer « ce que l'assistant a dit » en feraient diverger une le jour ou l'autre bouge.
+    historique.push({ role: "assistant", content: window.CHAT.tourAssistant(r), local: true });
     badgeMode(r.via || "local");
     if (r.fiches && r.fiches.length) guiderVersFiche(r.fiches[0], q);
   }
@@ -3607,9 +3616,22 @@
   // une seule des deux surfaces a passe la revue. `tests/js/ui_cases.mjs` l'execute contre un DOM
   // minimal ; l'export est pose **avant** le demarrage, et le demarrage se saute sur demande : le
   // site entier a besoin d'un `index.html`, le materialiseur n'a besoin de rien.
+  // Story 2.2 : `afficherReponse` et `envoyer` sont exposes pour la meme raison que `materialiser`
+  // l'a ete en 1.7. Le defaut corrige n'etait pas dans la composition mais dans le **tour pousse
+  // ici** ; un test de `chat.js` seul ne l'aurait pas vu, exactement comme le badge du widget de la
+  // revue 1.7. Peindre via `peindre()` puis lire `historique()` ne prouverait rien : c'est
+  // `afficherReponse` qui conserve, et c'est elle qu'il faut executer.
+  //
+  // `envoyer` va plus loin (revue 2.2, P4) : c'est le **seul** chemin par lequel un tour `user`
+  // entre dans l'historique, donc le seul qui produise l'alternance que le serveur recoit
+  // reellement. Appeler `afficherReponse` seule fabriquait un historique commencant par un tour
+  // `assistant`, ce qui n'arrive jamais dans la page — la couture que cette story repare n'etait
+  // alors prouvee de bout en bout par aucun test.
   window.UI = {
     materialiser: materialiser,
     peindre: peindre,
+    afficherReponse: afficherReponse,
+    envoyer: envoyer,
     badgeMode: badgeMode,
     executer: executer,
     verrouillerSaisie: verrouillerSaisie,

@@ -348,6 +348,59 @@ window.CHAT = (function () {
     });
   }
 
+  // Ce que l'assistant **a dit**, tel que l'historique de page doit le conserver (story 2.2).
+  //
+  // Jusqu'ici la page ne poussait que `Answer.texte`. Quand *comprendre* demande une precision
+  // (AD-5 : deux sorties typees exclusives, `ClarificationRequise` n'est jamais une
+  // `question_resolue` reconstituee), `texte` est la phrase generique de refus — « Je n'ai pas pu
+  // determiner a quoi votre question fait reference… » — et **la question posee**
+  // (`Answer.clarification`) n'entrait nulle part. Au tour suivant, *comprendre* recevait donc un
+  // historique ou sa propre question ne figurait pas, la reponse d'un mot de l'arrivant (« du permis
+  // de conduire ») restait irresoluble, et on lui reposait la meme question. C'est le defaut que
+  // cette story corrige, et la mesure du 2026-08-25 (§ Design Notes de la spec 2.2) montre que la
+  // boucle se referme des que l'historique porte la question.
+  //
+  // Le tour conserve est ce que l'assistant a **dit** : sa phrase et, le cas echeant, la question
+  // qu'il a posee — la clarification d'abord, dans l'ordre ou `vueReponse` les peint. Ce n'est pas
+  // l'ecran (revue 2.2, P10) : la page ajoute autour la preuve chiffree d'AD-4 et le bloc « Ce que
+  // je ne sais pas », qui sont des annexes de l'interface, pas des phrases de l'assistant, et qui
+  // n'ont donc rien a faire dans un historique de conversation. La phrase generique, elle, reste :
+  // elle coute 94 caracteres et dit au modele que l'assistant n'a **pas** repondu ; la question
+  // seule laisserait croire a un echange normal. Une reponse ordinaire (`clarification` nulle) rend
+  // `texte` inchange, octet pour octet.
+  //
+  // **La borne d'un tour (`Turn.texte <= 2 000`) se decide ici, pas au moment de l'envoi** (revue
+  // 2.2, P1, mesure a l'appui). Rien ne borne `ClarificationRequise.clarification` cote serveur, et
+  // `comprendre_max_tokens` vaut 1 024 : une clarification de 1 968 caracteres composait un tour de
+  // 2 063 (la phrase generique en ajoute 94, plus l'espace). `historiquePourApi` ecarte alors ce
+  // tour **et tout ce qui le precede** — sa regle « un tour qu'on ne peut pas envoyer casse la
+  // chaine » —, si bien que *comprendre* recevait un historique vide avec « du permis de conduire »
+  // et reposait la meme question : la boucle que cette story referme se rouvrait en silence.
+  //
+  // On compose donc avec les morceaux **entiers** qui tiennent, jamais en coupant un morceau
+  // (regle de la maison, specs 1.8 D8 et 1.9 D4 : hors borne ⇒ ecarte, jamais tronque — couper
+  // changerait ce qui a ete dit). La **clarification** est prioritaire : c'est elle, et elle seule,
+  // qui rend le tour suivant resoluble. Si elle ne tient pas a elle seule, le tour redevient
+  // `texte` : la question est perdue, mais l'echange reste envoyable et le fil ne se coupe pas.
+  //
+  // Fonction pure, sans DOM, donc testable sans navigateur : `ui.js` pose ce tour, il ne decide pas
+  // de ce que l'assistant a dit. Un tour vide n'est pas fabrique (`historiquePourApi` le filtre
+  // deja) et rien ici ne contourne ses regles — la marque `local` d'AD-11/FR11 et la coupe de la
+  // queue restent les siennes ; un `texte` seul plus long que la borne reste rendu tel quel, pour
+  // que ce soit encore elle qui tranche.
+  function tourAssistant(r) {
+    var reponse = r || {};
+    var clarification = String((reponse.answer || {}).clarification || "");
+    var texte = String(reponse.texte || "");
+    var question = clarification.trim() === "" ? "" : clarification;
+    var phrase = texte.trim() === "" ? "" : texte;
+    if (!question) return phrase;
+    if (!phrase) return question;
+    if (question.length + 1 + phrase.length <= TOUR_MAX_CARACTERES) return question + " " + phrase;
+    if (question.length <= TOUR_MAX_CARACTERES) return question;
+    return phrase;
+  }
+
   // Appariement citation ↔ phrase (AD-11, Design Notes de la story 1.7).
   //
   // `sources[]` est une liste **plate**, sans `claim_id`. Mais le serveur la construit par
@@ -1249,6 +1302,8 @@ window.CHAT = (function () {
     testerApi: testerApi,
     // Composition de ce que l'UI peint : pur, sans DOM, donc testable sans navigateur.
     historiquePourApi: historiquePourApi,
+    // Ce que la page conserve de chaque reponse (story 2.2) : compose ici, pose par `ui.js`.
+    tourAssistant: tourAssistant,
     citationsParSegment: citationsParSegment,
     statutTexte: statutTexte,
     preuveAbsence: preuveAbsence,
