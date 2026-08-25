@@ -21,6 +21,7 @@ from server.app.domain.answer import (
 )
 from server.app.domain.question import QuestionScope
 from server.app.domain.verdict import Verdict
+from server.app.steps import restituer as restituer_module
 from server.app.steps.restituer import (
     PHRASES_DE_REFUS,
     PHRASES_DE_REFUS_SINISTRE,
@@ -84,7 +85,7 @@ def test_a_factual_segment_without_a_surviving_claim_is_removed() -> None:
         segments=[AnswerSegment(text="Soutenue.", kind="factuel", claim_ids=["c1"]),
                   AnswerSegment(text="Rejetée.", kind="factuel", claim_ids=["c2"]),
                   AnswerSegment(text="Mixte.", kind="factuel", claim_ids=["c1", "c2"])],
-        claims=[_claim()], rejected_claims=[_rejet()], found=True)
+        claims=[_claim()], rejected_claims=[_rejet()], found=True, complete=True)
     answer, step = restituer(language="fr", verification=verification)
     assert answer.texte == "Soutenue. Mixte."  # « Rejetée. » n'est jamais affichée
     # le segment conservé ne renvoie plus vers une claim absente de `claims[]` (AD-3/AD-4)
@@ -172,7 +173,7 @@ def _verdict(value: str = "sous_conditions") -> Verdict:
 def test_the_verdict_of_the_verification_reaches_the_single_answer() -> None:
     """AD-4 : `Verdict` voyage dans l'unique `Answer` ; AD-6 : il est calculé par *vérifier*."""
     verification = Verification(segments=[AnswerSegment(text="Clause c1.", kind="factuel", claim_ids=["c1"])],
-                                claims=[_claim()], found=True, verdict=_verdict())
+                                claims=[_claim()], found=True, complete=True, verdict=_verdict())
     answer, _step = restituer(language="fr", verification=verification)
     assert answer.verdict is not None and answer.verdict.value == "sous_conditions"
     assert answer.verdict is verification.verdict  # recopié tel quel, jamais recomposé
@@ -198,7 +199,7 @@ def test_a_short_circuited_refusal_receives_its_verdict_from_the_pipeline() -> N
 
 def test_the_guide_never_carries_a_verdict() -> None:
     verification = Verification(segments=[AnswerSegment(text="Clause c1.", kind="factuel", claim_ids=["c1"])],
-                                claims=[_claim()], found=True)
+                                claims=[_claim()], found=True, complete=True)
     answer, _step = restituer(language="fr", verification=verification)
     assert answer.verdict is None
 
@@ -327,3 +328,59 @@ def test_borner_reports_nothing_when_everything_fits() -> None:
     borne, ignores = scope.borner(200, 6)
     assert ignores == []
     assert borne.model_dump() == scope.model_dump()
+
+
+# --- ce que *restituer* constate lui-même (story 2.3, revue coordonnée) -----
+def test_un_segment_retire_empeche_complete_et_dit_ce_qui_manque() -> None:
+    """A2 : une réponse amputée ne peut pas être badgée « sûr ».
+
+    *vérifier* exclut délibérément ce cas de son compte `ecartes` : une phrase dont **toutes** les
+    claims ont été jugées non pertinentes est soutenue au sens du contrôle groupé, et c'est la règle
+    mécanique d'AD-3 qui la retire — ici, et nulle part ailleurs. Elle disparaissait donc du texte
+    servi avec `complete=True` et un simple `CheckResult`, que l'utilisateur ne voit pas.
+    """
+    verification = Verification(
+        segments=[AnswerSegment(text="Soutenue.", kind="factuel", claim_ids=["c1"]),
+                  AnswerSegment(text="Rejetée.", kind="factuel", claim_ids=["c2"])],
+        claims=[_claim()], rejected_claims=[_rejet()], found=True, complete=True)
+    answer, step = restituer(language="fr", verification=verification)
+    assert answer.texte == "Soutenue."
+    assert answer.complete is False
+    assert answer.unknown == [restituer_module.PHRASE_SEGMENTS_RETIRES]
+    assert [c.name for c in step.checks] == ["segments_retires"]
+
+
+def test_une_lacune_du_code_signale_le_repli_de_langue() -> None:
+    """A3 : les phrases du code sont **en français** (leur traduction est l'AC de 2.4), exactement
+    comme `PHRASES_DE_REFUS`. Une réponse anglaise qui en emporte une n'est pas entièrement dans la
+    langue demandée, et le contrat le dit au lieu de le taire.
+
+    Le canal est ce qui rend la distinction possible : `unknown` vient du modèle et suit la langue de
+    la réponse, `lacunes` vient de nous et n'en sort jamais.
+    """
+    base = dict(segments=[AnswerSegment(text="The deadline is eight days.", kind="factuel",
+                                        claim_ids=["c1"])],
+                claims=[_claim()], found=True)
+    du_code = Verification(**base, complete=False, lacunes=["Il me manque des éléments."])
+    answer, _step = restituer(language="en", verification=du_code)
+    assert answer.lang == "en" and answer.lang_fallback is True
+    assert answer.unknown == ["Il me manque des éléments."]
+
+    # Une lacune **du modèle** est rédigée dans la langue de la réponse : aucun repli à signaler.
+    du_modele = Verification(**base, complete=False, unknown=["I could not check the fine print."])
+    anglais, _s = restituer(language="en", verification=du_modele)
+    assert anglais.lang_fallback is False and anglais.unknown == ["I could not check the fine print."]
+
+    # Et en français, une lacune du code ne signale évidemment aucun repli.
+    francais, _s2 = restituer(language="fr", verification=du_code)
+    assert francais.lang_fallback is False
+
+
+def test_les_deux_canaux_sont_affiches_dans_une_seule_liste() -> None:
+    """Le modèle d'abord, le code ensuite, sans doublon : les deux fronts rendent `unknown[]` tel quel."""
+    verification = Verification(
+        segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=False,
+        unknown=["Je ne sais rien des frontaliers.", "Doublon."], lacunes=["Doublon.", "Lecture bornée."])
+    answer, _step = restituer(language="fr", verification=verification)
+    assert answer.unknown == ["Je ne sais rien des frontaliers.", "Doublon.", "Lecture bornée."]

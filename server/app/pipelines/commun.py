@@ -29,6 +29,12 @@ REJETS_DE_CITATION = frozenset({"non_retrouvee", "ambigue"})
 # Ce que coûte la relance d'AD-3 en **appels** : rédiger une seconde fois, puis vérifier ce qu'elle a
 # rendu. Les deux sont indissociables — AD-3 interdit de montrer un draft relancé mais non vérifié.
 APPELS_DE_LA_RELANCE = 2
+# La lacune qu'une relance non démarrée laisse dans la réponse (story 2.3). Elle vit à côté des
+# autres phrases de lacune de `steps/verifier.py` par la forme — première personne, neutre quant au
+# document, puisque la page sinistre rend la même section « Ce que je ne sais pas » — mais elle est
+# **ici** parce que la cause l'est : seul le pipeline sait qu'une relance a été empêchée.
+PHRASE_RELANCE_ABANDONNEE = ("Je n'ai pas pu reprendre ma réponse pour l'améliorer : je la donne "
+                             "telle que je l'avais vérifiée du premier coup.")
 
 
 @lru_cache(maxsize=1)
@@ -48,7 +54,8 @@ def retrieval_budget(settings: Settings) -> RetrievalBudget:
     return RetrievalBudget(max_opens=settings.max_opens, node_window=settings.node_window,
                            search_limit=settings.search_limit, max_llm_turns=settings.max_llm_turns,
                            max_blocks=settings.retrieval_max_blocks,
-                           max_tokens=settings.retrieval_max_tokens)
+                           max_tokens=settings.retrieval_max_tokens,
+                           profil_max_opens=settings.profil_max_opens)
 
 
 def blocs_cites(verification: Verification) -> set[str]:
@@ -72,7 +79,8 @@ def domine(seconde: Verification, acquise: Verification) -> bool:
     une facette *différente* ont le même compte, et prendre la seconde échangerait une sous-question
     contre une autre (tour 3, I2). Sont donc exigés : trouver au moins autant, garder au moins autant
     d'affirmations, couvrir **au moins les mêmes facettes**, s'appuyer sur **au moins les mêmes
-    blocs**, ne pas déclarer moins complet, ne pas déclarer plus d'inconnu. À égalité non dominante,
+    blocs**, ne pas déclarer moins complet, ne pas laisser plus de **manques** (déclarés par le
+    modèle ou constatés par le code). À égalité non dominante,
     l'acquis fait foi.
 
     Les rangs de facettes sont stables entre les deux ébauches : le découpage vient de *comprendre*,
@@ -91,7 +99,34 @@ def domine(seconde: Verification, acquise: Verification) -> bool:
             and set(seconde.facettes_couvertes) >= set(acquise.facettes_couvertes)
             and blocs_cites(seconde) >= blocs_cites(acquise)
             and seconde.complete >= acquise.complete
-            and len(seconde.unknown) <= len(acquise.unknown))
+            # `manques` et non `unknown` (story 2.3) : ce qui manque à une réponse se dit maintenant
+            # dans deux canaux — ce que le modèle a déclaré, ce que le code a constaté —, et ne
+            # comparer que le premier laisserait passer une relance qui a lu moins, couvert moins ou
+            # perdu plus de phrases, pourvu qu'elle se taise autant.
+            and len(seconde.manques) <= len(acquise.manques))
+
+
+def relance_abandonnee(verification: Verification) -> Verification:
+    """La relance d'AD-3 n'a pas démarré : la réponse acquise est servie, mais pas donnée pour complète.
+
+    AD-4 : « `complete=True` exige aucune troncature de budget » — un plafond d'appels ou une
+    deadline qui empêchent la relance en est une. Story 2.3 : `complete=False` ne suffit plus, parce
+    que le domaine fait désormais de `complete ⟺ found ∧ rien qui manque` un invariant — une réponse
+    déclarée incomplète dont la section « Ce que je ne sais pas » est vide est un « PARTIEL » que
+    l'utilisateur lit sans savoir ce qui manque, et c'est exactement ce que l'AC de la story corrige.
+    La phrase est composée **par le code** (AD-16), à la première personne comme les autres lacunes,
+    et ne nomme ni budget ni code d'erreur : le chiffre est dans `Trace` et le motif dans le
+    `CheckResult` de l'appelant. Elle rejoint `Verification.lacunes` et non `unknown` (revue
+    coordonnée 2.3, A3) : c'est une phrase française quelle que soit la langue de la réponse, et
+    c'est *restituer* qui en tire `Answer.lang_fallback`.
+
+    Aucune lacune sur un refus : `found=False` porte déjà son `AbsenceProof`, qui dit tout.
+    Les deux pipelines passent par ici — deux copies auraient divergé au premier amendement.
+    """
+    lacunes = list(verification.lacunes)
+    if verification.found and PHRASE_RELANCE_ABANDONNEE not in lacunes:
+        lacunes.append(PHRASE_RELANCE_ABANDONNEE)
+    return verification.model_copy(update={"complete": False, "lacunes": lacunes})
 
 
 def relance_utile(verification: Verification, settings: Settings) -> bool:

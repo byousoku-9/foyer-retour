@@ -538,7 +538,7 @@ def test_un_typage_non_confirme_ressort_du_serveur(prod: TestClient) -> None:
                           quotes=[quote],
                           status=ClaimStatus(retrouvee=True, pertinente=True, applicable="humain",
                                              edition="juin 2017"))
-    answer = Answer(found=True, complete=False, texte=claim.text,
+    answer = Answer(found=True, complete=True, texte=claim.text,
                     segments=[AnswerSegment(text=claim.text, kind="factuel", claim_ids=["c1"])],
                     claims=[claim], verdict=_verdict("ne_tranche_pas"))
     _brancher(prod, Double((answer, _trace())))
@@ -584,7 +584,7 @@ def test_lordre_de_sources_est_celui_de_lenumeration_des_claims(prod: TestClient
                       status=ClaimStatus(retrouvee=True, pertinente=True, applicable="humain",
                                          edition="juin 2017")),
     ]
-    answer = Answer(found=True, complete=False, texte="Première. Seconde.",
+    answer = Answer(found=True, complete=True, texte="Première. Seconde.",
                     segments=[AnswerSegment(text="Première.", kind="factuel", claim_ids=["c1"]),
                               AnswerSegment(text="Seconde.", kind="factuel", claim_ids=["c2"])],
                     claims=claims, verdict=_verdict())
@@ -866,7 +866,7 @@ def test_une_citation_que_le_corpus_ne_confirme_pas_est_un_500(prod: TestClient)
                           start=0, end=10, text_start=0, text_end=10)
     claim = VerifiedClaim(claim_id="c1", text="Affirmation.", quotes=[quote],
                           status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
-    answer = Answer(found=True, complete=False, texte="Affirmation.",
+    answer = Answer(found=True, complete=True, texte="Affirmation.",
                     segments=[AnswerSegment(text="Affirmation.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim], verdict=_verdict())
     _brancher(prod, Double((answer, _trace())))
@@ -887,7 +887,7 @@ def test_des_offsets_hors_du_bloc_sont_un_500(prod: TestClient) -> None:
                           text_start=0, text_end=99999)
     claim = VerifiedClaim(claim_id="c1", text="Affirmation.", quotes=[quote],
                           status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
-    answer = Answer(found=True, complete=False, texte="Affirmation.",
+    answer = Answer(found=True, complete=True, texte="Affirmation.",
                     segments=[AnswerSegment(text="Affirmation.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim], verdict=_verdict())
     _brancher(prod, Double((answer, _trace())))
@@ -915,3 +915,24 @@ def test_la_ligne_de_log_porte_des_champs_jamais_du_texte(prod: TestClient,
     assert QUESTION not in brut
     assert "bougie" not in brut
     assert "mobilier" not in brut
+
+
+# --- l'état « partiel » traverse l'enveloppe (story 2.3, revue coordonnée A8) ---
+def test_une_reponse_partielle_traverse_lenveloppe_avec_ce_qui_lui_manque(prod: TestClient) -> None:
+    """Le contrat sinistre ne publie pas de champ plat `unknown` : c'est l'`Answer` entier qui le
+    porte (AD-4, « un seul objet de réponse »), et `tools/sinistre/sinistre.js` y lit sa section
+    « Ce que je ne sais pas ». Rien ne le vérifiait au niveau HTTP.
+
+    Le cas est celui du dossier réel : une clause retenue, un verdict `sous_conditions`, et une
+    franchise que la réponse ne sait pas dire — servie en 200, badgée partielle, avec sa lacune.
+    """
+    _brancher(prod, Double((_reponse(_mini_corpus()[0]), _trace())))
+
+    r = _poster(prod)
+    j = r.json()
+
+    assert r.status_code == 200
+    assert j["answer"]["found"] is True and j["answer"]["complete"] is False
+    assert j["answer"]["unknown"] == ["La franchise applicable n'est pas dite."]
+    # Partielle ne veut pas dire non sourcée : la clause retenue est publiée, et le verdict avec elle.
+    assert j["sources"] and j["answer"]["verdict"] is not None

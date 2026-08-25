@@ -180,7 +180,18 @@ class Verification(DomainModel):
     rejected_claims: list[RejectedClaim] = Field(default_factory=list)
     found: bool = False
     complete: bool = False
+    # Ce que **le modèle** a déclaré hors de sa portée : le texte des segments `limite` de l'ébauche,
+    # rédigé dans la langue de la réponse.
     unknown: list[str] = Field(default_factory=list)
+    # Ce que **le code** constate qu'il manque (story 2.3, revue coordonnée A3) : lecture bornée,
+    # découpage non établi, sous-questions sans réponse, renvoi non résolu, phrases écartées, relance
+    # empêchée. Les deux listes sont affichées ensemble — l'utilisateur lit une seule section « Ce
+    # que je ne sais pas » —, mais elles ne sont pas de même nature et ne peuvent pas partager un
+    # champ : les phrases du code sont **en français** quelle que soit `ParsedQuestion.language`
+    # (leur traduction est l'AC de la story 2.4), exactement comme `restituer.PHRASES_DE_REFUS`, et
+    # c'est ce qui doit lever `Answer.lang_fallback`. Fondues dans `unknown`, elles faisaient passer
+    # une réponse partiellement française pour une réponse rédigée dans la langue demandée.
+    lacunes: list[str] = Field(default_factory=list)
     # **Quelles** facettes de la question une affirmation affichée couvre — leurs rangs dans
     # `ParsedQuestion.facettes`, triés (AD-4, revue Codex 1.5, tours 2 et 3, I2). `complete` n'en est
     # que le cas « toutes » ; la relance, elle, a besoin de l'ensemble et pas de son cardinal : deux
@@ -195,6 +206,13 @@ class Verification(DomainModel):
     # réponse, et une question du guide n'a pas de verdict à porter.
     verdict: Verdict | None = None
     motif: str | None = None
+
+    @property
+    def manques(self) -> list[str]:
+        """Tout ce qui manque, dans l'ordre d'affichage : ce que le modèle a déclaré, puis ce que le
+        code a constaté, sans doublon. C'est cette liste — et elle seule — que `complete` nie, et
+        c'est elle que *restituer* recopie dans `Answer.unknown`."""
+        return self.unknown + [t for t in self.lacunes if t not in self.unknown]
 
 
 class AbsenceProof(DomainModel):
@@ -246,4 +264,13 @@ class Answer(DomainModel):
             raise ValueError("claims[] ne contient que des claims retrouvee ∧ pertinente")
         if self.complete and (not self.found or self.unknown):
             raise ValueError("complete=True exige found=True et unknown=[]")
+        if self.found and not self.complete and not self.unknown:
+            # Story 2.3, l'autre moitié de l'équivalence. AD-4 faisait déjà de `unknown=[]` une
+            # condition de `complete` ; l'AC exige « partiel **avec `unknown[]` listé** », et *vérifier*
+            # nomme désormais **chaque** cause d'incomplétude. `complete ⟺ found ∧ unknown = []`
+            # devient donc un invariant du domaine, et non plus une propriété qu'un seul producteur
+            # respecterait : sans lui, un appelant peut encore fabriquer un « PARTIEL » que
+            # l'utilisateur lit sans savoir ce qui manque — le défaut même que la story corrige.
+            raise ValueError("found=True et complete=False exigent au moins une lacune dans unknown[] "
+                             "(une réponse partielle dit ce qui lui manque)")
         return self

@@ -31,6 +31,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
+from server.app.pipelines.commun import PHRASE_RELANCE_ABANDONNEE
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DOC_ID = "cg"
@@ -737,3 +738,24 @@ async def test_facts_that_fit_leave_no_check_behind(index: Index) -> None:
         _verifier(("c1", True, False, False, False, None))])
     restituer_step = next(s for s in trace.steps if s.name == "restituer")
     assert [c.name for c in restituer_step.checks if c.name == "faits_compris_hors_borne"] == []
+
+
+async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index: Index) -> None:
+    """Story 2.3 : les **deux** pipelines passent par `relance_abandonnee`, et la lacune qu'elle
+    dépose est neutre quant au document — la page sinistre rend la même section « Ce que je ne sais
+    pas » que celle du guide, et une phrase qui dirait « le guide » y serait fausse.
+
+    Trois appels au plafond : la relance qu'une claim rejetée rendrait utile n'a pas de quoi démarrer
+    (AD-1, « aucun retry ne démarre sans marge »), la réponse vérifiée est servie, et elle n'est pas
+    donnée pour complète — avec une phrase qui dit pourquoi.
+    """
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(GAR, MAUVAISE),
+        _verifier(("c1", True, False, False, False, None))], budget=budget)
+    assert fake.remaining_script == 0 and trace.retries == 0
+    assert answer.found is True and answer.complete is False
+    assert PHRASE_RELANCE_ABANDONNEE in answer.unknown
+    assert "guide" not in " ".join(answer.unknown)
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]

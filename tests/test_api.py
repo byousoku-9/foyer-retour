@@ -16,6 +16,7 @@ import sys
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 from fastapi.testclient import TestClient
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
@@ -221,7 +222,7 @@ def test_les_fiches_sont_distinctes_et_dans_lordre_de_citation(prod: TestClient)
     c1 = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
     c2 = _claim("c2", "Inscription.", _citation(corpus, f"{DOC_ID}:q1:2", "auprès de la commune"))
     c3 = _claim("c3", "Encore le délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "Biergercenter"))
-    answer = Answer(found=True, complete=False, texte="A B C",
+    answer = Answer(found=True, complete=True, texte="A B C",
                     segments=[AnswerSegment(text="A B C", kind="factuel", claim_ids=["c1", "c2", "c3"])],
                     claims=[c1, c2, c3])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -255,7 +256,7 @@ def test_sources_enumere_les_claims_puis_leurs_quotes_dans_cet_ordre(prod: TestC
     c1 = VerifiedClaim(claim_id="c1", text="Délai et lieu.", quotes=[q11, q12],
                        status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
     c2 = _claim("c2", "Le guichet.", q21)
-    answer = Answer(found=True, complete=False, texte="A B",
+    answer = Answer(found=True, complete=True, texte="A B",
                     segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"]),
                               AnswerSegment(text="B", kind="factuel", claim_ids=["c2"])],
                     claims=[c1, c2])
@@ -283,7 +284,7 @@ def test_une_citation_jamais_retrouvee_nentre_pas_dans_sources(prod: TestClient)
         quotes=[_citation(corpus, f"{DOC_ID}:q1:2", "certificat de résidence")],
         status=ClaimStatus(retrouvee=True, pertinente=False, edition="git:test"),
         rejection_kind="non_pertinente")
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[verifiee], rejected_claims=[echo, retrouvee_mais_ecartee])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -318,7 +319,7 @@ def test_une_claim_retrouvee_que_nul_segment_ne_cite_nentre_pas_dans_sources(pro
         quotes=[_citation(corpus, f"{DOC_ID}:q1:2", "certificat de résidence")],
         status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"),
         rejection_kind="non_citee")
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[affichee], rejected_claims=[orpheline])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -345,7 +346,7 @@ def test_la_citation_publiee_est_relue_du_bloc_et_non_la_chaine_recue(prod: Test
                              text_start=debut, text_end=debut + len("huit jours après votre arrivée"))
     claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[menteuse],
                           status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -369,7 +370,7 @@ def test_une_citation_dont_les_offsets_sortent_du_bloc_est_un_echec_terminal(pro
                               text_start=len(bloc.text) - 2, text_end=len(bloc.text) + 500)
     claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[hors_bloc],
                           status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -393,7 +394,7 @@ def test_une_citation_dont_le_bloc_a_disparu_du_corpus_est_un_echec_terminal(pro
                             text_start=0, text_end=5)
     claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[fantome],
                           status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -419,7 +420,7 @@ def test_le_diagnostic_dun_500_reste_dans_le_log_et_ne_part_pas_dans_lenveloppe(
                             text_start=0, text_end=5)
     claim = VerifiedClaim(claim_id="c1", text="Délai.", quotes=[fantome],
                           status=ClaimStatus(retrouvee=True, pertinente=True, edition="git:test"))
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -453,7 +454,7 @@ def test_le_statut_structure_de_la_claim_reste_publie_par_answer(prod: TestClien
     """
     corpus, _ = _mini_corpus()
     claim = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
-    answer = Answer(found=True, complete=False, texte="Délai.",
+    answer = Answer(found=True, complete=True, texte="Délai.",
                     segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
                     claims=[claim])
     _brancher(prod, Double((answer, _trace())), mini=True)
@@ -1322,3 +1323,42 @@ def test_le_comparateur_est_publie_dans_la_reponse(prod: TestClient) -> None:
     j = prod.post("/api/v1/chat", json={"question": "Mon contrat couvre-t-il le vol ?", "profil": {}},
                   headers=XFF).json()
     assert j["comparateur"] is True
+
+
+# --- l'état « partiel » traverse l'enveloppe (story 2.3, revue coordonnée A8) ---
+def test_une_reponse_partielle_traverse_lenveloppe_avec_ce_qui_lui_manque(prod: TestClient) -> None:
+    """AD-11 : le contrat publie `unknown[]` **et** l'`Answer` entier — c'est de là que le front tire
+    ses trois états (sûr / partiel / inconnu) et la section « Ce que je ne sais pas ».
+
+    Aucun test d'API ne le vérifiait : tous les cas servis étaient complets, si bien que la moitié
+    « partiel » de l'AC n'était couverte qu'en amont de la couche HTTP. Le champ plat et le champ
+    structuré doivent dire la même chose — le front lit `j["unknown"]`, le panneau de trace lit
+    `j["answer"]["unknown"]`, et deux listes qui divergeraient donneraient deux écrans contradictoires.
+    """
+    corpus, _ = _mini_corpus()
+    manques = ["Il reste 1 sous-question sans réponse dans ce que vous m'avez demandé.",
+               "Un passage que je cite renvoie à un autre passage que je n'ai pas pu retrouver."]
+    c1 = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    answer = Answer(found=True, complete=False, texte="A",
+                    segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"])],
+                    claims=[c1], unknown=manques)
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+    j = r.json()
+
+    assert r.status_code == 200  # AD-11 : toute sortie du pipeline est un 200
+    assert j["unknown"] == manques
+    assert j["answer"]["complete"] is False and j["answer"]["found"] is True
+    assert j["answer"]["unknown"] == manques  # le champ plat et le structuré ne divergent pas
+    assert j["sources"], "une réponse partielle reste sourcée : elle est amputée, pas inventée"
+
+
+def test_le_domaine_refuse_une_reponse_partielle_muette() -> None:
+    """L'invariant d'AD-4 tel que la story 2.3 le complète, vérifié au bord du contrat HTTP : rien
+    ne peut publier un « partiel » sans dire ce qui manque."""
+    with pytest.raises(ValidationError, match="au moins une lacune"):
+        Answer(found=True, complete=False, texte="A",
+               segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"])],
+               claims=[_claim("c1", "Délai.", _citation(_mini_corpus()[0], f"{DOC_ID}:farrivee:2",
+                                                        "huit jours"))])

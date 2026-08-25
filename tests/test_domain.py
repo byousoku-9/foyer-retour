@@ -24,7 +24,9 @@ def literal_values(model: type[BaseModel], field: str) -> set[str]:
 
 # AD-2
 def test_document_fields() -> None:
-    assert fields(document.Document) == {"doc_id", "kind", "title", "edition", "lang", "nodes", "blocks", "source_url", "source_hash", "ingest_fingerprint"}
+    assert fields(document.Document) == {"doc_id", "kind", "title", "edition", "lang", "nodes", "blocks", "parcours",
+                                        "source_url", "source_hash", "ingest_fingerprint"}
+    assert fields(document.ParcoursCondition) == {"node_id", "si"}
     assert literal_values(document.Document, "kind") == {"guide", "contrat"}
     assert fields(document.Node) == {"node_id", "level", "title", "items", "scope", "sources"}
     assert literal_values(document.Scope, "kind") == {"commun", "special", "extension"}
@@ -224,9 +226,15 @@ def test_verified_quote_carries_the_occurrence() -> None:
 
 def test_verification_fields() -> None:
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
-                                           "unknown", "facettes_couvertes", "verdict", "motif"}
+                                           "unknown", "lacunes", "facettes_couvertes", "verdict", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None
+    # Story 2.3 : deux canaux de lacune, une seule liste affichée. `unknown` est ce que le **modèle**
+    # a déclaré hors de sa portée (dans la langue de la réponse) ; `lacunes` est ce que le **code**
+    # constate (toujours en français, d'où `Answer.lang_fallback`). `manques` les fond, sans doublon.
+    assert v.lacunes == [] and v.manques == []
+    deux = answer.Verification(unknown=["a", "b"], lacunes=["b", "c"])
+    assert deux.manques == ["a", "b", "c"]
     assert v.facettes_couvertes == []  # rien de mesuré ne vaut jamais une facette couverte
     # AD-4/AD-6 (story 1.8) : *vérifier* calcule le verdict, *restituer* le recopie. `None` en guide —
     # une question du guide n'a pas de verdict, et `Answer` n'a pas de second objet de réponse.
@@ -341,6 +349,12 @@ def test_answer_found_coherence() -> None:
         answer.Answer(found=False, complete=True, reason={"kind": "zero_hit"})
     with pytest.raises(ValidationError, match="complete=True"):
         answer.Answer(found=True, complete=True, claims=[claim()], unknown=["reste"])
+    # Story 2.3, l'autre moitié de l'équivalence : « partiel » sans rien dans `unknown[]` est refusé
+    # par le domaine — c'est le « PARTIEL » que l'utilisateur lisait sans savoir ce qui manquait.
+    with pytest.raises(ValidationError, match="au moins une lacune"):
+        answer.Answer(found=True, complete=False, claims=[claim()])
+    # `found=False` en est exempt : la preuve d'absence dit déjà tout, et aucune lacune n'y est due.
+    assert answer.Answer(found=False, complete=False, reason={"kind": "zero_hit"}).unknown == []
 
 
 # AD-6

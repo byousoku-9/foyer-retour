@@ -54,6 +54,7 @@ from server.app.pipelines.commun import (
     blocs_cites,
     digests,
     domine,
+    relance_abandonnee,
     relance_utile,
     retrieval_budget,
 )
@@ -353,7 +354,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                    f"{len(blocs_cites(seconde))} bloc(s) cité(s) contre "
                                    f"{len(blocs_cites(acquise))}, "
                                    f"complete={seconde.complete} contre {acquise.complete}, "
-                                   f"unknown={len(seconde.unknown)} contre {len(acquise.unknown)}) : "
+                                   f"manques={len(seconde.manques)} contre {len(acquise.manques)}) : "
                                    f"la première fait foi"))
             except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                 # Même partage qu'au guide (AD-16, revue Codex 1.5, B5) : un appel **commencé** qui
@@ -364,7 +365,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                         steps.append(exc.step)
                     exc.trace = tracer()
                     raise
-                verification = acquise.model_copy(update={"complete": False})
+                verification = relance_abandonnee(acquise)
                 step_verifier.checks.append(CheckResult(
                     name="relance_abandonnee", ok=False,
                     detail=f"relance de rédiger non démarrée ({exc.code.value}) : "

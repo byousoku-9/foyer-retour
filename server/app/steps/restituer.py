@@ -70,6 +70,15 @@ PHRASES_DE_REFUS_SINISTRE: dict[str, str] = {
         "contrat.",
 }
 
+# Story 2.3 (revue coordonnée, A2). *vérifier* exclut délibérément ce cas de son compte `ecartes` :
+# une phrase dont **toutes** les claims ont été jugées non pertinentes est soutenue au sens du
+# contrôle groupé, et c'est la règle mécanique d'AD-3 qui la retire, ici et nulle part ailleurs. Elle
+# n'en était pas moins une part de la réponse que l'ébauche voulait donner et que l'utilisateur ne
+# voit pas : la servir sous un badge « sûr » est exactement le défaut que la story corrige. Composée
+# par le code, en français, comme les autres lacunes — elle voyage donc dans le canal `lacunes`.
+PHRASE_SEGMENTS_RETIRES = ("J'ai retiré de ma réponse ce que je ne pouvais pas sourcer : les "
+                           "affirmations qui la portaient n'ont pas passé la vérification.")
+
 REGISTRE_GUIDE = "guide"
 REGISTRE_SINISTRE = "sinistre"
 # Le registre choisit **le vocabulaire du refus**, jamais sa logique : mêmes kinds, mêmes règles, même
@@ -145,7 +154,11 @@ def restituer(*, language: str, verification: Verification | None = None,
             segments=[AnswerSegment(text=phrase, kind="limite")],
             rejected_claims=list(verification.rejected_claims) if verification is not None else [],
             reason=reason, verdict=verdict, faits_compris=faits_compris,
-            unknown=list(verification.unknown) if verification is not None else [],
+            # `manques` et non `unknown` (story 2.3) : un refus ne reçoit aucune lacune du code —
+            # l'`AbsenceProof` dit déjà tout — mais un appelant autre que nos deux pipelines peut en
+            # avoir posé une, et la perdre serait un dégradé silencieux. Le refus est de toute façon
+            # déjà en français, `lang_fallback` est déjà levé.
+            unknown=verification.manques if verification is not None else [],
             clarification=clarification,
         )
         step.checks.append(CheckResult(name="refus", ok=True, detail=reason.kind))
@@ -192,12 +205,28 @@ def restituer(*, language: str, verification: Verification | None = None,
     if retires:
         step.checks.append(CheckResult(name="segments_retires", ok=False,
                                        detail=f"{retires} segment(s) factuel(s) sans claim survivante retiré(s)"))
+    # Ce que le code constate qu'il manque, à cet étage : les lacunes que *vérifier* a déjà nommées,
+    # plus celle des segments retirés ici (A2). Un `CheckResult` ne suffisait pas — il n'atteint ni
+    # l'utilisateur ni `complete`, et une réponse amputée sortait badgée « sûr ».
+    lacunes = list(verification.lacunes)
+    if retires and PHRASE_SEGMENTS_RETIRES not in lacunes:
+        lacunes.append(PHRASE_SEGMENTS_RETIRES)
+    # Ce que le modèle a déclaré, puis ce que le code constate : une seule liste affichée, dans cet
+    # ordre — les deux fronts rendent `unknown[]` sans une ligne de changement.
+    declare = list(verification.unknown) + [t for t in limites if t not in verification.unknown]
+    unknown = declare + [t for t in lacunes if t not in declare]
     answer = Answer(
-        found=True, complete=verification.complete, lang=language, lang_fallback=False,
+        found=True, complete=verification.complete and not retires and not limites,
+        lang=language,
+        # AD-16 / convention Langue : les phrases du code sont composées **en français** (leur
+        # traduction est l'AC de 2.4), exactement comme les phrases de refus ci-dessus. Une réponse
+        # rédigée en anglais qui emporte une lacune française n'est pas entièrement dans la langue
+        # demandée, et le contrat le dit plutôt que de le taire (revue coordonnée 2.3, A3).
+        lang_fallback=bool(lacunes) and language != "fr",
         texte=texte, segments=segments, claims=list(verification.claims),
         rejected_claims=list(verification.rejected_claims), reason=None, verdict=verdict,
         faits_compris=faits_compris,
-        unknown=list(verification.unknown) + [t for t in limites if t not in verification.unknown],
+        unknown=unknown,
         clarification=clarification,
     )
     step.ms = int((time.monotonic() - t0) * 1000)
