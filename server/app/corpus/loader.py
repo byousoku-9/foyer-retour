@@ -190,6 +190,12 @@ def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
     au milieu d'un titre de fiche ferait croire au modèle que la fiche s'appelle autrement. Les
     dernières catégories tombent d'abord — elles sont les moins prioritaires par construction, l'ordre
     est celui du document.
+
+    **La première ligne ne tombe jamais** (revue coordonnée 2.1) : un `max_chars` très bas rendait la
+    chaîne vide, et le prompt affirme juste après « c'est la liste qui fait foi, aucune autre » — une
+    liste vide fait alors de *tout* un hors-périmètre, ce qui est le pire état possible et le
+    contraire exact de ce que la story corrige. Un périmètre plus court que sa borne est un réglage
+    trop serré, qu'un test de dépôt signale bien avant ce point ; un périmètre vide est une panne.
     """
     par_id = {n.node_id: n for n in doc.nodes}
     lignes: list[str] = []
@@ -202,7 +208,7 @@ def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
         if enfants:
             ligne += " : " + ", ".join(enfants)
         lignes.append(ligne)
-    while lignes and len("\n".join(lignes)) > max_chars:
+    while len(lignes) > 1 and len("\n".join(lignes)) > max_chars:
         lignes.pop()
     return "\n".join(lignes)
 

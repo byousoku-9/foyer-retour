@@ -941,6 +941,12 @@ def test_sante_publie_les_trois_booleens_du_dictionnaire_et_son_alerte(prod: Tes
 
     assert set(j["dictionary"]) == {"validated", "corpus_ok", "refus_zero_hit_actif"}
     assert j["dictionary"]["validated"] is False
+    # Le second verrou, sur le corps **réel** : le dictionnaire est livré depuis la story 2.1 et ses
+    # empreintes décrivent le corpus servi, donc les variantes sont armées — c'est ce qui distingue
+    # « la signature est due » de « il n'y a pas de dictionnaire dans cette image ». Sans cette
+    # assertion, les deux états passaient pour le même (revue coordonnée 2.1).
+    assert j["dictionary"]["corpus_ok"] is True
+    # `validated ∧ corpus_ok` : le refus reste désarmé tant que personne n'a signé.
     assert j["dictionary"]["refus_zero_hit_actif"] is False
     alertes = {a["alerte"]: a for a in j["alerts"]}
     assert "dictionnaire_non_valide" in alertes
@@ -1026,10 +1032,18 @@ def test_la_route_passe_le_dictionnaire_charge_au_pipeline(prod: TestClient) -> 
     assert double.appels[0]["dictionnaire"] is prod.app.state.foyer.dictionnaire
 
 
-def test_letat_expose_la_validation_comme_propriete_derivee(prod: TestClient) -> None:
-    """Un seul fait, une seule autorité : `dictionary_validated` **dérive** de l'objet chargé."""
+def test_letat_na_quun_seul_porteur_de_letat_du_dictionnaire(prod: TestClient) -> None:
+    """Un seul fait, une seule autorité : l'objet chargé, et rien à côté de lui.
+
+    `EtatApp` a porté un `dictionary_validated` — d'abord un champ (1.6), puis une propriété dérivée
+    (2.1). La propriété se justifiait par « plusieurs lecteurs s'y adossent » ; il n'en restait plus
+    aucun, `routes/sante.py` lisant `etat.dictionnaire.validated` en direct. Un accesseur que seul
+    son test appelle n'est pas une compatibilité, c'est un second nom pour le même fait — et deux
+    noms finissent par diverger (revue coordonnée 2.1).
+    """
     etat = prod.app.state.foyer
-    assert etat.dictionary_validated is etat.dictionnaire.validated
+    assert not hasattr(etat, "dictionary_validated")
+    assert etat.dictionnaire.validated is False
 
 
 def test_lalias_sante_rend_exactement_la_meme_chose(prod: TestClient) -> None:

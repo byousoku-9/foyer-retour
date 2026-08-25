@@ -21,6 +21,7 @@ from server.app.api.limiter import RateLimiter
 from server.app.api.schemas import Alerte
 from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
+from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
@@ -36,7 +37,6 @@ from server.app.pipelines.sinistre import run as executer_sinistre
 LOG = logging.getLogger("foyer.etat")
 
 DATA_DIR = REPO_ROOT / "data"
-DICTIONARY = "dictionary.json"
 RAPPORT = "report.json"
 SOURCE_URL = "source.url"
 # AD-7 : `source.url` peut porter l'URL publique **ou** l'URL `gs://` de la copie privée de
@@ -119,16 +119,6 @@ class EtatApp:
     @property
     def documents_servis(self) -> list[str]:
         return self.corpus.served
-
-    @property
-    def dictionary_validated(self) -> bool:
-        """Conservée comme **propriété dérivée** : un seul fait, une seule autorité (l'objet chargé).
-
-        Le champ existait depuis 1.6 et plusieurs lecteurs s'y adossent. Le garder en tant que
-        donnée à côté de `dictionnaire` aurait fait deux copies du même fait, susceptibles de
-        diverger ; en propriété, il n'y a qu'un endroit où la vérité est écrite.
-        """
-        return self.dictionnaire.validated
 
     @property
     def gate_profile(self) -> str | None:
@@ -244,20 +234,30 @@ def _alertes_dictionnaire(dictionnaire: Dictionnaire) -> list[Alerte]:
 
     Les deux peuvent tomber ensemble : un dictionnaire d'un autre corpus n'est pas validé pour
     celui-ci, et taire l'une des deux raisons laisserait chercher la mauvaise.
+
+    **Chaque alerte dit donc sa propre raison** (revue coordonnée 2.1). `Dictionnaire.raison` est,
+    pour un fichier **chargé**, renseignée par le seul échec de `_corpus_ok` : la composer dans le
+    détail de la première faisait dire à `dictionnaire_non_valide`, sur un fichier lisible, périmé et
+    non signé, « aucune validation humaine … — source_hash différent du manifest » — la raison de
+    l'autre alerte —, et le correctif `--valider "Nom"` disparaissait au profit d'un diagnostic qui
+    n'était pas le sien. La `raison` n'entre donc dans la première que lorsqu'elle **est** la sienne :
+    quand le fichier n'a pas pu être chargé du tout.
     """
     alertes: list[Alerte] = []
     if not dictionnaire.validated:
         detail = ("aucune validation humaine : le refus « zéro hit » d'AD-5 est désactivé "
                   "(la recherche se poursuit vers *retrouver*)")
-        if dictionnaire.raison:
-            detail += f" — {dictionnaire.raison}"
-        elif dictionnaire.charge:
+        if dictionnaire.charge:
+            # Le fichier est là et se lit : ce qui manque est une signature, et rien d'autre.
             detail += " — lancer `python -m server.ingest.enrich_dictionary --valider \"Nom\"`"
+        else:
+            # Absent, illisible ou non conforme : `raison` décrit **cet** échec-là, c'est bien le sien.
+            detail += f" — {dictionnaire.raison or 'dictionnaire non chargé'}"
         alertes.append(Alerte(doc_id="*", alerte="dictionnaire_non_valide", detail=detail))
     if dictionnaire.charge and not dictionnaire.corpus_ok:
         alertes.append(Alerte(
             doc_id="*", alerte="dictionnaire_corpus_perime",
-            detail=f"{DICTIONARY} décrit un autre corpus que celui qui est servi : ni variantes, ni "
+            detail=f"{DICTIONARY_FILE} décrit un autre corpus que celui qui est servi : ni variantes, ni "
                    f"court-circuit — {dictionnaire.raison or 'empreintes différentes du manifest'}. "
                    "Relancer `python -m server.ingest.enrich_dictionary`."))
     return alertes

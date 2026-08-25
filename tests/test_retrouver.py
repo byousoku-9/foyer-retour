@@ -300,19 +300,21 @@ def test_decisional_kinds_are_a_tie_break_never_a_filter() -> None:
 
 # --- story 2.1 : l'élargissement par le dictionnaire (AD-5) ------------------
 
-def _dictionnaire(corpus: Corpus, termes: dict[str, list[str]], *, validated: bool = False,
-                  source_hash: str | None = None):
+def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], *,
+                  validated: bool = False, source_hash: str | None = None):
     """Un `Dictionnaire` chargé depuis un fichier réel : jamais un objet fabriqué à la main.
 
     C'est ce que le serveur fait au démarrage, et c'est le seul chemin qui exerce à la fois le schéma
     du fichier, la comparaison des empreintes et l'indexation des formes.
     """
     import json
-    import tempfile
 
     from server.app.corpus.dictionary import load_dictionary
 
-    dossier = Path(tempfile.mkdtemp())
+    # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
+    # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
+    dossier = tmp_path / f"dico-{len(termes)}-{validated}-{abs(hash((source_hash, tuple(sorted(termes)))))}"
+    dossier.mkdir(parents=True, exist_ok=True)
     hashes = {d: (source_hash if source_hash is not None else corpus.manifest[d].source_hash)
               for d in corpus.served}
     signature = ({"validated": True, "validated_by": "Lancelot Oudin",
@@ -334,11 +336,11 @@ def _corpus_avec_manifest() -> Corpus:
     return corpus
 
 
-def test_une_variante_ouvre_la_fiche_du_canonique() -> None:
+def test_une_variante_ouvre_la_fiche_du_canonique(tmp_path: Path) -> None:
     """AC 2.1 : « une question dont un terme français est une variante d'un canonique du guide ⇒ la
     fiche du canonique figure dans `RetrievalResult.opened_block_ids` »."""
     corpus = _corpus_avec_manifest()
-    dico = _dictionnaire(corpus, {"matricule": ["numéro de sécurité sociale"]})
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["numéro de sécurité sociale"]})
     assert dico.utilisable is True
 
     # Sans dictionnaire, ce terme ne touche rien : c'est exactement le faux refus qu'AD-5 vise.
@@ -353,14 +355,14 @@ def test_une_variante_ouvre_la_fiche_du_canonique() -> None:
     assert check.ok is True and check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
 
 
-def test_la_trace_dit_le_nombre_de_variantes_jamais_lesquelles() -> None:
+def test_la_trace_dit_le_nombre_de_variantes_jamais_lesquelles(tmp_path: Path) -> None:
     """AD-4 : `AbsenceProof` ne porte jamais la liste des variantes ; AD-10 : la trace non plus.
 
     Publier les formes ajoutées ferait fuir le dictionnaire terme par terme, dans un canal que le
     front « pourquoi cette réponse » affiche.
     """
     corpus = _corpus_avec_manifest()
-    dico = _dictionnaire(corpus, {"matricule": ["numero national", "social security number"]})
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["numero national", "social security number"]})
     _result, step = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=Index(corpus),
                                            budget=_budget(), settings=_s(), dictionnaire=dico)
     detail = next(c.detail for c in step.checks if c.name == "dictionnaire")
@@ -369,11 +371,11 @@ def test_la_trace_dit_le_nombre_de_variantes_jamais_lesquelles() -> None:
         assert variante not in step.model_dump_json()
 
 
-def test_un_dictionnaire_inutilisable_ne_change_rien_du_tout() -> None:
+def test_un_dictionnaire_inutilisable_ne_change_rien_du_tout(tmp_path: Path) -> None:
     """`corpus_ok` commande les variantes : un dictionnaire d'un **autre** corpus ne dit rien de
     celui-ci, et *retrouver* fait exactement ce qu'il faisait avant cette story — sans check."""
     corpus = _corpus_avec_manifest()
-    perime = _dictionnaire(corpus, {"matricule": ["numéro de sécurité sociale"]},
+    perime = _dictionnaire(tmp_path, corpus, {"matricule": ["numéro de sécurité sociale"]},
                            source_hash="empreinte-dun-autre-corpus")
     assert perime.charge is True and perime.utilisable is False
 
@@ -385,14 +387,14 @@ def test_un_dictionnaire_inutilisable_ne_change_rien_du_tout() -> None:
     assert [c.name for c in step.checks] == []
 
 
-def test_les_variantes_servent_sans_validation_humaine() -> None:
+def test_les_variantes_servent_sans_validation_humaine(tmp_path: Path) -> None:
     """Design Note 2.1 : `validated` ne commande **que** le court-circuit d'AD-5, pas l'élargissement.
 
     Élargir n'affirme rien — chaque phrase affichée reste vérifiée contre le corpus (AD-3) ; refuser
     est une affirmation négative, et c'est elle que la signature humaine garde.
     """
     corpus = _corpus_avec_manifest()
-    dico = _dictionnaire(corpus, {"matricule": ["numéro de sécurité sociale"]}, validated=False)
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["numéro de sécurité sociale"]}, validated=False)
     assert (dico.utilisable, dico.court_circuit_actif) == (True, False)
     result, _step = retrouver_deterministe(
         _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
@@ -400,7 +402,7 @@ def test_les_variantes_servent_sans_validation_humaine() -> None:
     assert "d:p1:1" in result.opened_block_ids
 
 
-def test_les_definitions_continuent_de_recevoir_les_termes_seuls() -> None:
+def test_les_definitions_continuent_de_recevoir_les_termes_seuls(tmp_path: Path) -> None:
     """Reprise différée `target_story: 4.2` : `definitions()` apparie `defines` et les termes dans
     les **deux sens**, et lui passer les variantes multiplierait un faux positif connu et non
     corrigé. Le spec le dit littéralement : « `index.definitions()` continue de recevoir `terms` ».
@@ -415,7 +417,53 @@ def test_les_definitions_continuent_de_recevoir_les_termes_seuls() -> None:
         return reel(termes, **kw)
 
     index.definitions = espion  # type: ignore[method-assign]
-    dico = _dictionnaire(corpus, {"matricule": ["contenu"]})
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["contenu"]})
     retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
                            settings=_s(), dictionnaire=dico)
     assert vus == [["matricule"]]  # une liste de termes, jamais le dict élargi
+
+
+def test_un_terme_anglais_ouvre_la_fiche_francaise(tmp_path: Path) -> None:
+    """L'AC nommait le cas anglais ; les tests l'exerçaient en français et en allemand.
+
+    Ici le terme cherché n'existe **nulle part** dans le corpus français, et c'est bien la fiche du
+    canonique qui s'ouvre — la propriété que la story promet à un arrivant anglophone.
+    """
+    corpus = _corpus_avec_manifest()
+    index = Index(corpus)
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["social security number"]})
+
+    nu, _ = _run(_parsed(["social security number"]), corpus, index)
+    assert nu.opened_block_ids == []  # sans dictionnaire, l'anglophone ne trouve rien
+
+    result, step = retrouver_deterministe(_parsed(["social security number"]), corpus=corpus,
+                                          index=index, budget=_budget(), settings=_s(),
+                                          dictionnaire=dico)
+    assert "d:p1:1" in result.opened_block_ids
+    assert next(c.detail for c in step.checks if c.name == "dictionnaire") == \
+        "1 variante(s) ajoutée(s) à 1 terme(s)"
+
+
+def test_les_deux_nombres_du_check_se_comptent_avec_la_meme_regle(tmp_path: Path) -> None:
+    """Le détail annonçait « 0 variante(s) ajoutée(s) à 2 terme(s) » — une contradiction lisible.
+
+    `variants_count` exclut les formes déjà présentes parmi les termes cherchés (une variante qui
+    *est* l'un des termes de la question n'ajoute rien à la recherche) ; le compte de termes touchés,
+    lui, ne les excluait pas. Deux règles pour une même phrase (revue coordonnée 2.1).
+    """
+    corpus = _corpus_avec_manifest()
+    index = Index(corpus)
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["numero national"]})
+
+    # La question cherche **déjà** la variante : rien n'est ajouté, donc aucun terme n'est « touché ».
+    _r, step = retrouver_deterministe(_parsed(["matricule", "numero national"]), corpus=corpus,
+                                      index=index, budget=_budget(), settings=_s(),
+                                      dictionnaire=dico)
+    assert next(c.detail for c in step.checks if c.name == "dictionnaire") == \
+        "0 variante(s) ajoutée(s) à 0 terme(s)"
+
+    # Et le cas où elle ne la cherche pas : un terme touché, une forme ajoutée.
+    _r2, step2 = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
+                                        budget=_budget(), settings=_s(), dictionnaire=dico)
+    assert next(c.detail for c in step2.checks if c.name == "dictionnaire") == \
+        "1 variante(s) ajoutée(s) à 1 terme(s)"

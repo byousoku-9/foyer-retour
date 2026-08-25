@@ -29,7 +29,7 @@ import time
 from collections.abc import Iterable
 
 from server.app.config import Settings
-from server.app.corpus.dictionary import Dictionnaire
+from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.domain import Block, RetrievalBudget, RetrievalResult
@@ -64,6 +64,16 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     `index.definitions()` continue de recevoir `terms` **seuls** : son appariement `defines`/terme se
     fait déjà dans les deux sens, et lui donner les variantes multiplierait un faux positif connu et
     non corrigé (reprise différée `target_story: 4.2`, à border avec une mesure).
+
+    **Le pipeline sinistre ne passe rien ici, et c'est un choix de périmètre, pas un oubli** (revue
+    coordonnée 2.1). L'AC de la story 2.1 nomme littéralement le corpus `lux-guide` : le dictionnaire
+    livré ne décrit que le guide, et `pipelines/sinistre.py` appelle donc cette étape sans
+    `dictionnaire` — élargir la recherche d'un contrat avec le vocabulaire d'un guide d'installation
+    n'aurait aucun sens. Le schéma, lui, est **déjà** multi-documents (`corpus_source_hashes` est une
+    table, et `corpus/dictionary._corpus_ok` valide chaque entrée contre le manifest) : un
+    dictionnaire décrivant un contrat serait chargé, déclaré `corpus_ok`, publié armé par `/sante` —
+    et inutilisé. Le jour où un contrat en aura un, c'est ici et dans `pipelines/sinistre.py` que le
+    passage se pose, pas dans le chargement.
     """
     t0 = time.monotonic()
     # Source unique des termes cherchés (story 1.5) : l'`AbsenceProof` d'un refus « zéro hit » doit
@@ -161,8 +171,17 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # jamais lesquelles. AD-4 interdit de publier la liste des variantes, et la trace est lue par
         # le front « pourquoi cette réponse » : un compte se recoupe avec `variants_count` de
         # l'`AbsenceProof`, une liste ferait fuir le dictionnaire terme par terme.
+        #
+        # **Les deux nombres se comptent avec la même règle** (revue coordonnée 2.1). `variants_count`
+        # exclut les formes déjà présentes parmi les termes cherchés — une variante qui *est* l'un
+        # des termes de la question n'ajoute rien à la recherche ; un `touches` qui ne les excluait
+        # pas produisait des détails comme « 0 variante(s) ajoutée(s) à 2 terme(s) », qui se lit
+        # comme une contradiction. Un terme est « touché » s'il apporte au moins une forme que la
+        # question ne cherchait pas déjà.
+        base = {forme(t) for t in terms} - {""}
         ajoutees = dictionnaire.variants_count(terms)
-        touches = sum(1 for v in cherches.values() if v)
+        touches = sum(1 for variantes in cherches.values()
+                      if any(v and v not in base for v in variantes))
         step.checks.append(CheckResult(
             name="dictionnaire", ok=True,
             detail=f"{ajoutees} variante(s) ajoutée(s) à {touches} terme(s)"))

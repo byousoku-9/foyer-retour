@@ -200,9 +200,33 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # termes **toujours en français** (invariant de `ParsedQuestion.terms`), et n'est jamais
         # atteint après un appel `reason` : *comprendre* est un appel `micro`, et rien d'autre n'a
         # tourné à ce point de la chaîne.
+        #
+        # **Il doit être au moins aussi large que ce que *retrouver* trouve** (revue coordonnée
+        # 2.1). *retrouver* peuple `retrieval.blocs` avec **deux** outils — `index.chercher()` et
+        # `index.definitions()`, dont les résultats sont hors des hits de `chercher` — et conclure
+        # sur le premier seul refusait d'avance une question sans hit mais couverte par un bloc
+        # `defines`, à laquelle la chaîne complète répondait. Inatteignable sur le corpus servi
+        # aujourd'hui (zéro bloc du guide ne porte de `defines`), armé par le typage automatique de
+        # la story 3.2 : ce n'est pas un correctif spéculatif, c'est la règle d'AD-5 (« aucun terme
+        # canonique **ni ses variantes** n'a de hit dans l'index ») appliquée à l'index entier.
+        #
+        # **Ce que le pré-contrôle coûte, écrit plutôt que laissé à deviner** (revue coordonnée 2.1).
+        # Il balaye les entrées de l'index (506 pour le guide) deux fois — `chercher` puis
+        # `definitions` — et *retrouver* les rebalaye quelques lignes plus bas sur le chemin nominal ;
+        # `expand()` est par ailleurs recalculé par `variants_count` dans `_absence`, puis par
+        # *retrouver*, soit deux à trois fois les mêmes formes pour ≤ `question_max_terms` termes.
+        # Rien de tout cela n'est mémoïsé, et c'est un choix : ce sont des comparaisons de chaînes
+        # déjà normalisées, sans appel ni allocation notable, et le seul chemin où le travail est
+        # perdu est celui du **refus** — où il évite un appel `reason` à ≈ 0,03 € (NFR4), quatre
+        # ordres de grandeur au-dessus. Le rendre unique demanderait de faire voyager l'expansion à
+        # travers `refuser`, `_absence` et `retrouver_deterministe` : trois signatures élargies pour
+        # un gain non mesurable, et un état de plus à tenir cohérent. À reprendre si, et seulement
+        # si, une mesure le montre (4.2). Le pré-contrôle n'a lieu que dictionnaire **signé**.
         termes = parsed.termes_de_recherche()
         if termes and dictionnaire is not None and dictionnaire.court_circuit_actif:
-            if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id):
+            echeance("court-circuit zéro hit")  # comme avant chaque étape (AD-1/AD-9)
+            if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id) \
+                    and not index.definitions(termes, doc_id=doc_id):
                 return refuser("zero_hit", parsed, language=parsed.language)
         # Aucun terme extrait : rien n'a été cherché, donc rien ne prouve une absence (AD-1). La
         # question poursuit vers *retrouver*, et c'est le garde-fou « zéro bloc » qui tranchera.

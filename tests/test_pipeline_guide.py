@@ -139,20 +139,26 @@ async def _run(index: Index, script: list, *, historique: list[Turn] | None = No
     return answer, trace, fake
 
 
-def _dictionnaire(index: Index, termes: dict[str, list[str]], *, validated: bool,
+def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *, validated: bool,
                   source_hash: str = "sha-source"):
     """Un `Dictionnaire` **chargé depuis un fichier**, comme le serveur le fait au démarrage."""
     import json
-    import tempfile
 
     from server.app.corpus.dictionary import load_dictionary
 
-    dossier = Path(tempfile.mkdtemp())
+    # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
+    # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
+    dossier = tmp_path / f"dico-{len(termes)}-{validated}-{abs(hash((source_hash, tuple(sorted(termes)))))}"
+    dossier.mkdir(parents=True, exist_ok=True)
     signature = ({"validated": True, "validated_by": "Lancelot Oudin",
                   "validated_at": "2026-08-25T10:00:00Z"} if validated else
                  {"validated": False, "validated_by": None, "validated_at": None})
     (dossier / "dictionary.json").write_text(json.dumps(
-        {"schema_version": "1", "corpus_source_hashes": {DOC_ID: source_hash}, "corpus": termes,
+        # Les empreintes suivent le corpus **réellement** passé, jamais `DOC_ID` en dur : un test
+        # qui monte son propre document se retrouvait sinon avec un dictionnaire déclaré périmé.
+        {"schema_version": "1",
+         "corpus_source_hashes": {d: source_hash for d in index.corpus.served},
+         "corpus": termes,
          "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
     return load_dictionary(dossier, index.corpus)
 
@@ -750,10 +756,10 @@ async def test_a_retry_that_drops_a_cited_block_never_replaces_the_answer(index:
 HIPPO = {"matricule": ["numéro national"]}
 
 
-async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index) -> None:
+async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index, tmp_path: Path) -> None:
     """AC 2.1, mot pour mot : `found=False`, `reason.kind == "zero_hit"`, `variants_count > 0`,
     aucun appel au tier `reason`, et `Trace.steps` **ne contient pas** l'étape `retrouver`."""
-    dico = _dictionnaire(index, HIPPO, validated=True)
+    dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
     assert dico.court_circuit_actif is True
 
     answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"])],
@@ -770,13 +776,13 @@ async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index)
     assert answer.reason.blocks_scanned == 4 and answer.reason.documents == [DOC_ID]
 
 
-async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index) -> None:
+async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index, tmp_path: Path) -> None:
     """AC 2.1 : « le même dictionnaire avec `validated: false` ⇒ `Trace.steps` contient `retrouver` ».
 
     Le refus vient alors du garde-fou « zéro bloc » de 1.5, avec la **même** preuve : c'est le même
     fait pour l'utilisateur, et ce qui distingue les deux court-circuits est observable dans la trace.
     """
-    dico = _dictionnaire(index, HIPPO, validated=False)
+    dico = _dictionnaire(tmp_path, index, HIPPO, validated=False)
     assert dico.utilisable is True and dico.court_circuit_actif is False
 
     answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"])],
@@ -788,20 +794,20 @@ async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index
     assert answer.reason.variants_count == 1  # les variantes **ont** servi, elles n'ont rien trouvé
 
 
-async def test_le_refus_par_intent_reste_actif_dictionnaire_ou_pas(index: Index) -> None:
+async def test_le_refus_par_intent_reste_actif_dictionnaire_ou_pas(index: Index, tmp_path: Path) -> None:
     """AD-5 : « le refus par intent reste actif dans tous les cas ». C'est le seul des deux
     court-circuits qui ne dépende que de l'`intent`."""
-    for dico in (None, _dictionnaire(index, HIPPO, validated=False),
-                 _dictionnaire(index, HIPPO, validated=True)):
+    for dico in (None, _dictionnaire(tmp_path, index, HIPPO, validated=False),
+                 _dictionnaire(tmp_path, index, HIPPO, validated=True)):
         answer, trace, fake = await _run(index, [_comprendre("meteo")], dictionnaire=dico)
         assert fake.remaining_script == 0 and [s.name for s in trace.steps] == ["comprendre", "restituer"]
         assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
 
 
-async def test_un_dictionnaire_dun_autre_corpus_ne_court_circuite_pas(index: Index) -> None:
+async def test_un_dictionnaire_dun_autre_corpus_ne_court_circuite_pas(index: Index, tmp_path: Path) -> None:
     """AD-5 : « `validated=false` **ou** `corpus_source_hashes` ≠ corpus chargé ⇒ court-circuit
     désactivé, la requête poursuit vers *retrouver* ». Signé, mais sur un autre corpus."""
-    perime = _dictionnaire(index, HIPPO, validated=True, source_hash="empreinte-dun-autre-corpus")
+    perime = _dictionnaire(tmp_path, index, HIPPO, validated=True, source_hash="empreinte-dun-autre-corpus")
     assert perime.validated is True and perime.court_circuit_actif is False
 
     answer, trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])],
@@ -811,10 +817,10 @@ async def test_un_dictionnaire_dun_autre_corpus_ne_court_circuite_pas(index: Ind
     assert answer.reason is not None and answer.reason.variants_count == 0
 
 
-async def test_un_hit_par_variante_ne_court_circuite_pas_et_repond(index: Index) -> None:
+async def test_un_hit_par_variante_ne_court_circuite_pas_et_repond(index: Index, tmp_path: Path) -> None:
     """Le court-circuit porte sur « aucun terme **ni aucune variante** n'a de hit » (AD-5) : une
     question qui ne touche le guide que par une variante doit être **répondue**, pas refusée."""
-    dico = _dictionnaire(index, {"arrivée": ["Anmeldung"]}, validated=True)
+    dico = _dictionnaire(tmp_path, index, {"arrivée": ["Anmeldung"]}, validated=True)
 
     answer, trace, fake = await _run(
         index, [_comprendre(terms=["Anmeldung"]), _rediger(BONNE), _verdicts(("c1", True))],
@@ -828,22 +834,22 @@ async def test_un_hit_par_variante_ne_court_circuite_pas_et_repond(index: Index)
     assert check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
 
 
-async def test_sans_terme_extrait_rien_nest_court_circuite(index: Index) -> None:
+async def test_sans_terme_extrait_rien_nest_court_circuite(index: Index, tmp_path: Path) -> None:
     """AD-1 : « aucune absence du corpus n'est affirmée » sans recherche. Zéro terme, c'est zéro
     recherche : le court-circuit d'AD-5 ne peut pas conclure, et le garde-fou de 1.5 tranche après."""
-    dico = _dictionnaire(index, HIPPO, validated=True)
+    dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
     answer, trace, _fake = await _run(index, [_comprendre(terms=[])], dictionnaire=dico)
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.terms_searched == []
 
 
-async def test_labsence_serialisee_ne_porte_jamais_une_variante_ni_un_declencheur(index: Index) -> None:
+async def test_labsence_serialisee_ne_porte_jamais_une_variante_ni_un_declencheur(index: Index, tmp_path: Path) -> None:
     """AD-4 : `AbsenceProof` ne porte **jamais** la liste des variantes ni des déclencheurs.
 
     Le contrôle est fait sur l'objet **sérialisé** : c'est ce qui part au front, et c'est là que la
     fuite se produirait — terme par terme, dans une réponse publique.
     """
-    dico = _dictionnaire(index, {"matricule": ["numéro national", "Sozialversicherungsnummer"]},
+    dico = _dictionnaire(tmp_path, index, {"matricule": ["numéro national", "Sozialversicherungsnummer"]},
                          validated=True)
     answer, _trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])], dictionnaire=dico)
     assert answer.reason is not None
@@ -853,10 +859,10 @@ async def test_labsence_serialisee_ne_porte_jamais_une_variante_ni_un_declencheu
     assert "hippopotame" in serialise  # ce que *comprendre* a produit, lui, y est
 
 
-async def test_le_variants_count_dun_refus_de_claims_est_reel_aussi(index: Index) -> None:
+async def test_le_variants_count_dun_refus_de_claims_est_reel_aussi(index: Index, tmp_path: Path) -> None:
     """`variants_count` décrit la recherche, pas le kind du refus : un `claims_rejetes` l'annonce
     comme un `zero_hit`, sinon deux refus de la même requête donneraient deux comptes différents."""
-    dico = _dictionnaire(index, {"arrivée": ["Anmeldung"]}, validated=True)
+    dico = _dictionnaire(tmp_path, index, {"arrivée": ["Anmeldung"]}, validated=True)
     answer, _trace, fake = await _run(
         index, [_comprendre(terms=["arrivée"]), _rediger(MAUVAISE), _rediger(MAUVAISE)],
         dictionnaire=dico)
@@ -874,3 +880,109 @@ async def test_le_perimetre_du_corpus_part_a_comprendre(index: Index) -> None:
     finally:  # l'index est partagé par le module : rien ne fuit vers le test suivant
         index.corpus.perimetres.pop(DOC_ID, None)
     assert "- Arrivée : Déclarer son arrivée" in fake.requests[0]["system"][0]["text"]
+
+
+async def test_une_variante_anglaise_ouvre_la_fiche_francaise(index: Index, tmp_path: Path) -> None:
+    """L'AC, **littéralement** : « quelqu'un qui écrit en anglais tombe sur la bonne fiche ».
+
+    Les autres cas de variante l'exerçaient en français (une paraphrase) et en allemand
+    (« Anmeldung ») : ni l'un ni l'autre ne montre le chemin que la story promet — un terme
+    **anglais** rendu par *comprendre*, absent mot pour mot du guide français, qui ouvre malgré tout
+    la fiche du canonique et donne une réponse sourcée (revue coordonnée 2.1).
+
+    *comprendre* rend des termes « toujours en français » (AD-5), mais rien ne garantit qu'ils
+    existent dans le guide : c'est précisément le cas que le dictionnaire rattrape, et il se produit
+    dès qu'un terme du domaine n'a pas d'équivalent français employé par les fiches.
+    """
+    dico = _dictionnaire(tmp_path, index, {"arrivée": ["residence registration"]}, validated=True)
+
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["residence registration"]), _rediger(BONNE),
+                _verdicts(("c1", True))], dictionnaire=dico)
+
+    assert fake.remaining_script == 0
+    # Le court-circuit n'a pas mordu : la variante a un hit, donc la chaîne complète a tourné.
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    assert answer.found is True
+    # La fiche du canonique **français** est ouverte à partir du seul terme anglais.
+    assert f"{DOC_ID}:f1:2" in trace.steps[1].opened_block_ids
+    assert [c.claim_id for c in answer.claims] == ["c1"]
+
+
+async def test_le_pre_controle_ne_refuse_pas_ce_quune_definition_couvre(tmp_path: Path) -> None:
+    """Le court-circuit doit être **au moins aussi large** que ce que *retrouver* trouve.
+
+    *retrouver* peuple `retrieval.blocs` avec **deux** outils : `index.chercher()` et
+    `index.definitions()`, dont les résultats sont hors des hits du premier. Conclure sur `chercher`
+    seul refusait d'avance une question sans hit mais couverte par un bloc `defines` — alors que la
+    chaîne complète y répondait. Inatteignable sur le corpus servi aujourd'hui (aucun bloc du guide
+    ne porte de `defines`), armé par le typage automatique de la story 3.2 : c'est la règle d'AD-5
+    (« aucun terme canonique **ni ses variantes** n'a de hit dans l'index ») appliquée à l'index
+    entier, pas un correctif spéculatif (revue coordonnée 2.1).
+    """
+    # Un corpus où « contenu » n'apparaît dans **aucun** texte de bloc, mais où un bloc le *définit*.
+    blocs = [
+        {"block_id": "def:f1:1", "loc": "f1", "seq": 1, "kind": "para",
+         "text": "Le mobilier de jardin voyage avec le logement assuré."},
+        {"block_id": "def:f1:2", "loc": "f1", "seq": 2, "kind": "definition", "defines": "contenu",
+         "text": "Ce bloc explique ce que recouvre le mot défini, sans jamais l'employer."},
+    ]
+    doc = Document(doc_id="def", kind="guide", title="Def", edition="git:test",
+                   nodes=[Node(node_id="def:f1", title="Définitions",
+                               items=[{"block_id": "def:f1:1"}, {"block_id": "def:f1:2"}])],
+                   blocks=blocs)
+    for b in doc.blocks:
+        b.text_norm = normalize(b.text)
+    manifest = {"def": ManifestEntry(status="servi", source_hash="sha-source",
+                                     ingest_fingerprint="fp-1", document_hash="sha-doc",
+                                     edition="git:test")}
+    idx = Index(Corpus(documents={"def": doc}, manifest=manifest, summaries={"def": "# Def"}))
+    reglages = _settings(guide_doc_id="def")
+
+    dico = _dictionnaire(tmp_path, idx, {"contenu": []}, validated=True)
+    assert dico.court_circuit_actif is True
+    # `chercher` seul ne trouve rien : c'est ce qui faisait refuser d'avance.
+    assert idx.chercher(["contenu"], limit=1, doc_id="def") == []
+    assert idx.definitions(["contenu"], doc_id="def") != []
+
+    answer, trace, fake = await _run(
+        idx, [_comprendre(terms=["contenu"]), _rediger(("c1", "Le contenu est défini.",
+                                                        [("def:f1:2",
+                                                          "explique ce que recouvre le mot défini")])),
+              _verdicts(("c1", True))],
+        settings=reglages, dictionnaire=dico,
+        question="Qu'est-ce que le contenu ?")
+
+    assert fake.remaining_script == 0
+    assert "retrouver" in [s.name for s in trace.steps]   # la question n'a pas été refusée d'avance
+    assert answer.found is True
+
+
+async def test_le_pre_controle_verifie_la_deadline_comme_les_etapes(index: Index,
+                                                                    tmp_path: Path) -> None:
+    """Le pipeline vérifie la deadline **avant chaque étape** ; le pré-contrôle balaye l'index et
+    n'en était pas précédé (revue coordonnée 2.1). Deadline épuisée ⇒ `Timeout`, pas un refus."""
+    dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
+    budget = _budget(deadline_s=30.0)
+    fake = FakeAnthropic([_comprendre(terms=["hippopotame"])])
+    client = LlmClient(_settings(), anthropic_client=fake)
+
+    from server.app.pipelines import guide as module_guide
+
+    vrai = module_guide.comprendre
+
+    async def epuiser(*a, **kw):
+        resultat = await vrai(*a, **kw)
+        budget.deadline_s = 0.0      # la deadline tombe **pendant** *comprendre*
+        return resultat
+
+    module_guide.comprendre = epuiser
+    try:
+        with pytest.raises(Timeout, match="court-circuit zéro hit"):
+            await repondre_guide("q", [], Profil(), corpus=index.corpus, index=index, client=client,
+                                 settings=_settings(), request_id="r", budget=budget,
+                                 dictionnaire=dico)
+    finally:
+        module_guide.comprendre = vrai
+    assert fake.remaining_script == 0  # *comprendre* a bien tourné : c'est bien le pré-contrôle qui coupe

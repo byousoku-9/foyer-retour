@@ -28,13 +28,11 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from server.app.domain.dictionary import DictionaryFile
+from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile
 
 from .index import words
 from .loader import Corpus, _first_error
 from .text import normalize
-
-DICTIONARY_FILE = "dictionary.json"
 
 
 def forme(texte: str) -> str:

@@ -15,6 +15,13 @@ from server.app.domain import GateContext
 from server.ingest import kb_to_blocks as k
 
 ROOT = Path(__file__).resolve().parents[1]
+# Marge minimale exigée entre le périmètre réel du guide et `perimetre_max_chars` (story 2.1, revue
+# coordonnée). Mesure du jour : 3 004 caractères sur 4 000, soit **996 de libres** — 25 % du plafond.
+# L'alarme est à 15 % (3 400 caractères) : elle laisse ~400 caractères de croissance avant de sonner,
+# donc six à huit titres de fiche, et il reste encore 600 caractères de vrai répit après. Plus haut,
+# elle rougirait à chaque fiche ajoutée ; plus bas, elle sonnerait trop près de la coupure pour
+# qu'on ait le temps de faire autre chose que relever le seuil dans l'urgence.
+PERIMETRE_MARGE_MIN = 0.15
 MINI = Path(__file__).parent / "data" / "mini_kb.js"
 
 
@@ -494,11 +501,18 @@ def test_le_perimetre_est_borne_en_retirant_des_lignes_entieres(data: Path) -> N
     s'appelle autrement : on retire des lignes, on n'en coupe aucune."""
     entier = load_corpus(data, allow_ungated=True).perimetres["lux-guide"]
     court = load_corpus(data, allow_ungated=True, perimetre_max_chars=40).perimetres["lux-guide"]
-    assert len(court) <= 40
-    assert court == "" or court in entier
+    assert court and court in entier
     for ligne in court.splitlines():
         assert ligne in entier.splitlines()
-    assert load_corpus(data, allow_ungated=True, perimetre_max_chars=1).perimetres["lux-guide"] == ""
+    # **La première ligne ne tombe jamais** (revue coordonnée 2.1). Elle peut donc dépasser la borne :
+    # c'est assumé, et c'est le moindre mal. Le prompt de *comprendre* affirme juste après cette
+    # liste « c'est la liste qui fait foi, aucune autre » — un périmètre **vide** ferait alors de
+    # tout un hors-périmètre, c'est-à-dire le faux refus que la story vient de corriger, en pire et
+    # sur toutes les questions. Un périmètre trop court est un réglage à revoir, qu'un test de dépôt
+    # signale bien avant ; un périmètre vide est une panne.
+    minuscule = load_corpus(data, allow_ungated=True, perimetre_max_chars=1).perimetres["lux-guide"]
+    assert minuscule == entier.splitlines()[0]
+    assert "\n" not in minuscule  # une seule ligne, jamais coupée en son milieu
 
 
 def test_le_defaut_du_loader_est_celui_de_settings() -> None:
@@ -518,3 +532,40 @@ def test_un_document_en_quarantaine_na_pas_de_perimetre(data: Path) -> None:
     _write_manifest(data, m)
     corpus = load_corpus(data, allow_ungated=True)
     assert corpus.perimetres == {} and corpus.documents == {}
+
+
+def test_le_perimetre_reel_du_guide_garde_une_marge_sous_son_seuil() -> None:
+    """Le périmètre **livré** doit rester loin de `perimetre_max_chars`, et le dire avant la coupure.
+
+    Mesuré (revue coordonnée 2.1) : le guide rend **3 004 caractères sur les 4 000** du seuil, pour
+    10 catégories et 77 enfants directs — les 39 fiches plus les 38 entrées de « Questions
+    fréquentes ». Le commentaire de `config.py` annonçait « 39 fiches, facteur trois de marge » ;
+    il reste en réalité 996 caractères. La marge se dit ici **en fraction du plafond** (25 %) et non
+    de la taille courante (33 %) : c'est le plafond qui coupe, c'est donc lui le dénominateur.
+
+    Pourquoi une fraction plutôt que l'égalité stricte à la borne : quand le périmètre atteint le
+    seuil, ce sont des **catégories entières** qui disparaissent d'une liste dont le prompt dit
+    qu'elle « fait foi, aucune autre » — donc le faux `hors_perimetre` que cette story corrige,
+    réintroduit par une borne trop serrée, et invisible (aucun test ne lit le prompt rendu). Le seuil
+    d'alerte est posé à `PERIMETRE_MARGE_MIN` de marge : assez tôt pour qu'on ait le temps de relever
+    `perimetre_max_chars` ou de compacter la projection, assez tard pour ne pas rougir à chaque fiche
+    ajoutée. Ce que ce test demande, quand il rougit, n'est **pas** de retirer des fiches.
+    """
+    from server.app.config import REPO_ROOT, Settings
+
+    reglages = Settings(_env_file=None)
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True,
+                         perimetre_max_chars=10 ** 9)  # non borné : on mesure la taille **réelle**
+    reel = corpus.perimetres[reglages.guide_doc_id]
+    marge = 1 - len(reel) / reglages.perimetre_max_chars
+    assert marge >= PERIMETRE_MARGE_MIN, (
+        f"le périmètre du guide fait {len(reel)} caractères pour un seuil de "
+        f"{reglages.perimetre_max_chars} : il ne reste que {marge:.0%} de marge, sous les "
+        f"{PERIMETRE_MARGE_MIN:.0%} exigés. Quelques fiches de plus feront tomber des catégories "
+        f"entières du prompt de *comprendre*, qui affirme « c'est la liste qui fait foi, aucune "
+        f"autre » — c'est le faux hors_perimetre de la story 2.1, réintroduit par la borne. "
+        f"Relever PERIMETRE_MAX_CHARS, ou compacter `corpus/loader.perimetre()`.")
+    # …et le périmètre réellement servi n'est pas tronqué : la borne ne mord pas aujourd'hui.
+    assert corpus.perimetres[reglages.guide_doc_id] == load_corpus(
+        REPO_ROOT / "data", allow_ungated=True,
+        perimetre_max_chars=reglages.perimetre_max_chars).perimetres[reglages.guide_doc_id]
