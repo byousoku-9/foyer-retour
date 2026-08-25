@@ -47,6 +47,7 @@ Ce sont les deux commandes de l'intégration continue (`.github/workflows/ci.yml
 - Les seuils numériques vivent dans `server/app/config.py` et se surchargent par variable d'environnement.
 - Ré-enregistrer une fixture LLM : supprimer `tests/llm_fixtures/{module}.{test}.json` puis relancer ce test avec `ANTHROPIC_API_KEY` renseignée (réseau, coût) ; committer le JSON avec le pourquoi.
 - Les vérifications qui touchent le réseau (GCP, API) sont consignées dans `docs/tests-live.md`.
+- **Un commit, une raison.** Avant de pousser, relire `git log --oneline` de la story : un commit dont le titre dit « et au passage » en porte deux, et la convention Git du spine n'en veut qu'une. Le cas s'est produit en 1.11 — `0c1ff74` changeait le mécanisme de version Cloud Run *et* corrigeait un seuil périmé dans `.env.example` —, et il n'était plus réparable : ce commit précédait celui qui a été déployé et que `docs/tests-live.md` cite, réécrire l'historique aurait rendu le relevé live impossible à recouper. La règle se tient **avant** le commit, jamais après (reprise différée 1.11).
 
 ## Questions-témoins et gate de service
 
@@ -103,6 +104,25 @@ uv run python -m server.ingest.kb_to_blocks        # data/lux-guide/source.js �
 - Exit 1 et `status: quarantaine` dans `manifest.json` si un check bloquant (invariant d'arbre) est levé ; `ids_disparus` est une alerte calculée contre le `document.json` précédent.
 - `manifest.gate` reste `null` jusqu'au premier gate des questions-témoins (story 1.10) ; en dev, `ALLOW_UNGATED` sert le document avec l'alerte `sans_gate`.
 - Le serveur lit `data/` par `server/app/corpus/loader.py` (hashes recalculés, quarantaine par document) et l'indexe par `server/app/corpus/index.py` ; les seuils (`search_limit`, `node_window`) viennent de `server/app/config.py`.
+
+## Dictionnaire enrichi
+
+`data/dictionary.json` donne à *retrouver* les **variantes** d'un terme (français familier, anglais, allemand, portugais) et arme, une fois validé à la main, le refus « zéro hit » d'AD-5. Il est écrit par l'ingestion, lu par le serveur au démarrage, et committé (AD-7).
+
+```bash
+uv run python -m server.ingest.enrich_dictionary --dry-run        # le plan des requêtes et le majorant de coût, rien d'écrit
+uv run python -m server.ingest.enrich_dictionary                  # écrit data/dictionary.json, validated: false
+uv run python -m server.ingest.enrich_dictionary --valider "Nom"  # la signature humaine, et la seule chose qui arme le refus
+```
+
+- **Une requête de batch par catégorie du guide**, plus une pour les déclencheurs d'intention (tier `ingest`, Batch API, sortie structurée). Une requête par fiche multiplierait par quatre le majorant de sortie sans rien apporter. Le **majorant du run entier** est calculé avant toute soumission et comparé à `dictionary_max_cost_eur` : au-delà, aucun batch n'est soumis (exit 3) — le run refuse de démarrer plutôt que de découvrir la facture après coup. Les résultats sont agrégés par `custom_id`, jamais par position.
+- **Le code ne fait pas confiance au modèle** (AD-5 / AD-7 / FR29 : il ne renvoie jamais de texte de bloc). Chaque chaîne rendue passe les bornes de `config.py` (`dictionary_term_max_chars`, `dictionary_term_max_words`, `dictionary_question_max_chars`, …) et le contrôle « chaîne recopiée d'un bloc » ; hors borne, elle est **écartée, jamais tronquée**, et le compte des écarts est affiché en fin de run. Un `fiche_id` que la catégorie ne contient pas est écarté de même.
+- **Deux verrous distincts, publiés par `/api/v1/sante` et affichés sur `/`** : `corpus_ok` (les `corpus_source_hashes` du fichier décrivent le corpus servi) commande l'emploi des **variantes** par *retrouver* ; `validated ∧ corpus_ok` — c'est `refus_zero_hit_actif` — commande le **court-circuit** d'AD-5. Élargir la recherche n'affirme rien et chaque phrase affichée reste vérifiée contre le corpus (AD-3) ; **refuser** est une affirmation négative, visible et irréversible pour celui qui la reçoit : c'est elle que la signature humaine garde.
+- **Ce que la non-validation désarme, et rien d'autre** : le court-circuit « zéro hit » **avant** *retrouver*. Le refus par intent reste actif, les variantes servent, et une question sans aucun hit est refusée quand même — par le garde-fou « zéro bloc » de la story 1.5, avec la même preuve. Ce qui distingue les deux est observable : la présence de l'étape `retrouver` dans la trace.
+- **`--valider "Nom"` écrit trois champs et ne touche à aucun autre** (`validated`, `validated_by`, `validated_at` en UTC ISO 8601), et refuse (exit 5) si le fichier ne décrit plus le corpus livré. C'est un commit `data` dédié. Rien dans l'ingestion n'écrit jamais `validated: true`.
+- Un dictionnaire absent, illisible, non conforme ou d'un autre corpus **désactive une optimisation, il n'empêche jamais de servir** et ne lève jamais au démarrage (AD-7) ; il est **dit** — alertes `dictionnaire_non_valide` / `dictionnaire_corpus_perime` sur `/api/v1/sante`, ligne « dictionnaire des variantes » sur l'accueil, `CheckResult(dictionnaire)` dans la trace de *retrouver* (AD-16 : aucun dégradé silencieux).
+- Les consignes d'ingestion vivent sous `server/ingest/prompts/` et **non** sous `server/app/llm/prompts/` : y entrer les mettrait dans `prompts_digest`, et modifier une consigne d'ingestion rendrait les deux gates `gate_perime` pour un prompt que le serveur n'exécute jamais.
+- Le périmètre annoncé à *comprendre* (`Corpus.perimetres`) est une projection des titres du corpus, calculée au chargement et bornée par `perimetre_max_chars` : une fiche ajoutée entre dans le périmètre sans qu'on réécrive une phrase de prompt.
 
 ## Ingestion du contrat AXA
 
