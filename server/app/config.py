@@ -268,8 +268,14 @@ class Settings(BaseSettings):
     # Sortie maximale d'une requête de batch. Elle n'est **pas** bornée par `llm_max_output_tokens` :
     # celui-ci borne les appels du **serveur**, qui vivent sous la deadline et le plafond par requête
     # (AD-9) ; l'ingestion est hors ligne, en Batch API, et son majorant est le plafond de coût
-    # ci-dessous. Une catégorie du guide porte jusqu'à sept fiches : 16 000 tokens tiennent leurs
-    # termes, leurs variantes en quatre langues et leurs questions candidates.
+    # ci-dessous.
+    # **Mesuré, et non supposé** (revue coordonnée 2.1) : les catégories du guide portent de 2 à
+    # **41** fiches — « Questions fréquentes » les regroupe toutes —, pas « jusqu'à sept » comme
+    # l'écrivait ce commentaire. C'est cette catégorie qui dimensionne le seuil, et c'est elle qui
+    # sera coupée la première. La borne n'est donc plus le seul garde-fou : une réponse dont le
+    # `stop_reason` vaut `max_tokens` est traitée par `ingest/enrich_dictionary.executer` comme une
+    # **requête en échec**, nommée dans la sortie — une catégorie écartée et dite vaut mieux qu'une
+    # catégorie disparue en silence avec un code de sortie 0.
     dictionary_max_output_tokens: int = Field(16000, ge=1)
     # Majorant du run entier, vérifié **avant** toute soumission (le run refuse de démarrer plutôt
     # que de découvrir la facture après coup). 3 € laissent la marge d'un guide qui doublerait de
@@ -280,9 +286,18 @@ class Settings(BaseSettings):
     # Longueur maximale du périmètre dérivé du corpus et rendu dans le préfixe de *comprendre*
     # (`Corpus.perimetres`). Le préfixe est cacheable (AD-9) et facturé : une projection qui
     # grossirait avec le corpus sans borne ferait grossir chaque appel `micro`. Au-delà, les
-    # dernières catégories sont **retirées** (jamais une ligne coupée en deux), et le périmètre reste
-    # une liste lisible. 4 000 caractères tiennent les dix catégories du guide et leurs 39 fiches
-    # avec un facteur trois de marge.
+    # dernières catégories sont **retirées** (jamais une ligne coupée en deux, et jamais la
+    # première : un périmètre vide serait pire que court).
+    # **Mesuré (revue coordonnée 2.1), et la marge est plus mince qu'annoncé** : le guide livré rend
+    # **3 004 caractères sur les 4 000** du seuil, pour 10 catégories et **77** enfants directs — les
+    # 39 fiches plus les 38 entrées de « Questions fréquentes ». Il reste donc **996 caractères**,
+    # soit 25 % du plafond (ou 33 % de la taille actuelle, selon le dénominateur qu'on prend — d'où
+    # le chiffre en caractères, qui, lui, ne se lit que d'une façon). Pas d'« un facteur trois ».
+    # C'est étroit, et l'étroitesse est dangereuse ici : le prompt affirme « c'est la liste qui fait
+    # foi, aucune autre », si bien qu'une catégorie retirée par la borne réintroduit exactement le
+    # faux `hors_perimetre` que cette story vient de corriger. `tests/test_loader.py` rougit donc
+    # bien avant la coupure, à `PERIMETRE_MARGE_MIN` de marge — c'est ce test, et non ce
+    # commentaire, qui préviendra le jour où quelques fiches de plus seront ajoutées.
     perimetre_max_chars: int = Field(4000, ge=1)
 
     # Ingestion PDF (story 1.2) : bandes d'en-tête/pied en points, récurrence minimale d'un en-tête,

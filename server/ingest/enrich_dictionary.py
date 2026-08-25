@@ -52,13 +52,17 @@ from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.corpus.index import words
 from server.app.corpus.loader import Corpus, load_corpus, perimetre
 from server.app.corpus.text import normalize
-from server.app.domain.dictionary import INTENTS_DU_DICTIONNAIRE, SCHEMA_VERSION, DictionaryFile
+from server.app.domain.dictionary import (
+    DICTIONARY_FILE,
+    INTENTS_DU_DICTIONNAIRE,
+    SCHEMA_VERSION,
+    DictionaryFile,
+)
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 
 from .artifacts import write_atomic
 
-DICTIONARY_FILE = "dictionary.json"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
 MODEL = TIERS[TIER]
@@ -172,7 +176,13 @@ class Controles:
         self._blocs = list(formes_blocs)
         self.ecarts: dict[str, int] = {}
 
-    def _ecart(self, motif: str) -> None:
+    def ecart(self, motif: str) -> None:
+        """Compte un écart. **Publique** : `agreger` en constate aussi (intent inconnu, doublon).
+
+        Le total affiché en fin de run est ce que `docs/tests-live.md` consigne comme preuve que les
+        contrôles ont écarté quelque chose : un rejet qui n'y entre pas rend cette preuve fausse par
+        omission.
+        """
         self.ecarts[motif] = self.ecarts.get(motif, 0) + 1
 
     def recopie(self, texte: str) -> bool:
@@ -195,16 +205,16 @@ class Controles:
         if not t:
             return ""
         if len(t) > self.s.dictionary_term_max_chars:
-            self._ecart("terme_trop_long")
+            self.ecart("terme_trop_long")
             return ""
         if len(words(normalize(t))) > self.s.dictionary_term_max_words:
-            self._ecart("terme_trop_de_mots")
+            self.ecart("terme_trop_de_mots")
             return ""
         if not words(normalize(t)):
-            self._ecart("terme_vide_apres_normalisation")
+            self.ecart("terme_vide_apres_normalisation")
             return ""
         if self.recopie(t):
-            self._ecart("terme_recopie_dun_bloc")
+            self.ecart("terme_recopie_dun_bloc")
             return ""
         return t
 
@@ -213,17 +223,17 @@ class Controles:
         if not q:
             return ""
         if len(q) > self.s.dictionary_question_max_chars:
-            self._ecart("question_trop_longue")
+            self.ecart("question_trop_longue")
             return ""
         if self.recopie(q):
-            self._ecart("question_recopiee_dun_bloc")
+            self.ecart("question_recopiee_dun_bloc")
             return ""
         return q
 
     def fiche(self, fiche_id: str, connues: set[str]) -> bool:
         if fiche_id in connues:
             return True
-        self._ecart("fiche_inconnue")
+        self.ecart("fiche_inconnue")
         return False
 
 
@@ -324,6 +334,21 @@ class EchecDeBatch(RuntimeError):
     pass
 
 
+# Les `stop_reason` qui disent « le modèle a fini de parler ». Tout le reste — `max_tokens` en
+# premier — signale une sortie **coupée**, donc un JSON qu'aucun schéma ne validera.
+FINS_NORMALES = frozenset({"end_turn", "stop_sequence", "tool_use"})
+
+
+def _annuler(client: Any, batch_id: str) -> str:
+    """Annule un lot abandonné, et dit ce qu'il en est. Best-effort : l'échec n'écrase pas la cause."""
+    try:
+        client.messages.batches.cancel(batch_id)
+    except Exception as exc:  # noqa: BLE001 — l'annulation est un secours, jamais la raison de l'échec
+        return (f"son annulation a échoué ({type(exc).__name__}) : l'annuler à la main "
+                f"(`client.messages.batches.cancel(\"{batch_id}\")`), il est encore facturé")
+    return "il a été annulé"
+
+
 def _attr(obj: Any, nom: str, defaut: Any = None) -> Any:
     """Lecture tolérante : le SDK rend des objets, un double de test peut rendre des dicts."""
     if isinstance(obj, dict):
@@ -342,6 +367,15 @@ def executer(client: Any, reqs: list[dict[str, Any]], settings: Settings,
 
     Une requête `errored` / `expired` / `canceled` n'annule pas les autres : ce qui est revenu est
     conservé, et l'échec est **affiché** (AD-16 — dit, jamais tu).
+
+    **Une réponse tronquée est un échec, pas un résultat** (revue coordonnée 2.1). Le lot rend un
+    `stop_reason` ; une sortie coupée à `max_tokens` rend du JSON invalide, et sans ce contrôle
+    `agreger` s'en tirait par une plainte sur stderr pendant qu'une catégorie entière disparaissait
+    du dictionnaire — avec un code de sortie 0. Le cas n'est pas théorique : la catégorie « Questions
+    fréquentes » du guide porte 41 fiches. Tout `stop_reason` qui n'est pas une fin normale est donc
+    nommé dans `echecs`, comme une requête `errored` — la matrice d'E/S y répond déjà (« les autres
+    sont conservés ; l'échec est affiché »), et le coût de l'appel tronqué reste compté : il a été
+    facturé.
     """
     lot = client.messages.batches.create(requests=reqs)
     batch_id = _attr(lot, "id")
@@ -352,9 +386,16 @@ def executer(client: Any, reqs: list[dict[str, Any]], settings: Settings,
         if _attr(etat, "processing_status") == "ended":
             break
         if maintenant() - debut > settings.dictionary_batch_timeout_s:
+            # Un lot abandonné continue de tourner **et d'être facturé** : partir sans l'annuler
+            # laissait la dépense courir après une commande qui vient de déclarer forfait.
+            # L'annulation est best-effort — si elle échoue, la seule chose utile est de dire quel
+            # lot reste en vol, avec de quoi le rattraper à la main.
+            annulation = _annuler(client, batch_id)
             raise EchecDeBatch(
                 f"le lot {batch_id} n'a pas terminé en {settings.dictionary_batch_timeout_s:.0f} s "
-                f"(dernier état : {_attr(etat, 'processing_status')!r}) — rien n'a été écrit")
+                f"(dernier état : {_attr(etat, 'processing_status')!r}) — rien n'a été écrit ; "
+                f"{annulation}. Ses résultats restent récupérables tant que le lot n'a pas expiré : "
+                f"`client.messages.batches.results(\"{batch_id}\")`.")
         dormir(settings.dictionary_batch_poll_s)
 
     textes: dict[str, Any] = {}
@@ -371,6 +412,11 @@ def executer(client: Any, reqs: list[dict[str, Any]], settings: Settings,
         usage = _attr(message, "usage")
         if usage is not None:
             cout += cost_from_usage(MODEL, usage, settings.usd_eur, batch=True).cost_eur
+        arret = _attr(message, "stop_reason")
+        if arret is not None and arret not in FINS_NORMALES:
+            echecs.append(f"{cle} : réponse interrompue (stop_reason={arret!r}) — sortie "
+                          f"incomplète, la catégorie est écartée plutôt que tronquée")
+            continue
         textes[cle] = "".join(
             _attr(bloc, "text", "") for bloc in (_attr(message, "content") or [])
             if _attr(bloc, "type") == "text")
@@ -411,7 +457,7 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
                 continue
             for entree in sortie.intents:
                 if entree.intent not in INTENTS_DU_DICTIONNAIRE:
-                    controles._ecart("intent_inconnu")
+                    controles.ecart("intent_inconnu")
                     continue
                 retenus = intents.setdefault(entree.intent, [])
                 for brut in entree.declencheurs:
@@ -435,7 +481,14 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
             if par_fiche.get(entree.fiche_id, 0) >= settings.dictionary_max_terms_per_fiche:
                 continue
             canonique = controles.terme(entree.canonique)
-            if not canonique or canonique in termes:
+            if not canonique:
+                continue  # l'écart est déjà compté par `Controles.terme`
+            if canonique in termes:
+                # Deux catégories qui proposent le même canonique : la première le garde (l'ordre
+                # des `custom_id` est trié, donc déterministe). Le compter est ce qui rend le total
+                # honnête — sans quoi un modèle qui rendrait dix fois « commune » ferait un run
+                # « aucun écart » sur neuf rejets.
+                controles.ecart("canonique_duplique")
                 continue
             variantes: list[str] = []
             for brut in entree.variantes:
@@ -479,9 +532,21 @@ def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, *, sortie: Any = s
     C'est la seule chose qui arme le refus « zéro hit », et c'est un acte humain : le run refuse si le
     fichier ne décrit plus le corpus livré (code 5), parce que signer un dictionnaire périmé
     armerait un refus sur un vocabulaire qui ne décrit pas ce qui est servi.
+
+    **Rien d'invalide n'atteint le disque** (revue coordonnée 2.1). `model_copy(update=…)` ne rejoue
+    **aucun** validateur pydantic : `--valider ""` écrivait `validated: true, validated_by: ""`, que
+    `DictionaryFile` interdit et que `load_dictionary` refusait ensuite en bloc — le dépôt se
+    retrouvait avec un dictionnaire signé, illisible, et un serveur qui n'élargissait plus rien.
+    Le nom vide est donc refusé en amont (un « validé par personne » est la contradiction que le
+    schéma nomme), et la copie signée est **revalidée** avant l'écriture atomique : le schéma est la
+    seule autorité, y compris pour le code qui l'écrit.
     """
     if not chemin.is_file():
         print(f"{chemin} absent : lancer l'enrichissement avant de valider", file=sys.stderr)
+        return 5
+    if not nom.strip():
+        print("--valider exige un nom : un dictionnaire « validé par personne » n'arme aucun refus "
+              "(AD-5) — rien n'a été écrit", file=sys.stderr)
         return 5
     try:
         fichier = DictionaryFile.model_validate_json(chemin.read_bytes())
@@ -496,12 +561,17 @@ def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, *, sortie: Any = s
               f"({sorted(fichier.corpus_source_hashes)}) : rien n'a été écrit — relancer "
               "l'enrichissement avant de valider", file=sys.stderr)
         return 5
-    signe = fichier.model_copy(update={
-        "validated": True, "validated_by": nom,
-        "validated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")})
+    try:
+        signe = DictionaryFile.model_validate(fichier.model_dump() | {
+            "validated": True, "validated_by": nom.strip(),
+            "validated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")})
+    except ValueError as exc:
+        print(f"la signature ne produirait pas un dictionnaire conforme, rien n'a été écrit : "
+              f"{type(exc).__name__}", file=sys.stderr)
+        return 5
     write_atomic(chemin, _serialiser(signe))
-    print(f"{chemin} : validated=true par {nom} le {signe.validated_at} — le refus « zéro hit » "
-          "d'AD-5 est armé", file=sortie)
+    print(f"{chemin} : validated=true par {signe.validated_by} le {signe.validated_at} — le refus "
+          "« zéro hit » d'AD-5 est armé", file=sortie)
     return 0
 
 
@@ -523,7 +593,11 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                         help="surcharge dictionary_max_cost_eur pour ce run")
     parser.add_argument("--dry-run", action="store_true",
                         help="affiche le plan et le majorant, ne soumet rien et n'écrit rien")
-    parser.add_argument("--limit", type=int, default=None, help="n'enrichit que les N premières catégories")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="n'enrichit que les N premières catégories — le fichier produit est "
+                             "alors **inerte** (corpus_source_hashes vide) : ni variantes, ni "
+                             "court-circuit, et --valider le refuse. Pour une mise au point, jamais "
+                             "pour un dictionnaire servi.")
     parser.add_argument("--valider", metavar="NOM", default=None,
                         help="signe le dictionnaire existant (la seule chose qui arme le refus AD-5)")
     args = parser.parse_args(argv)
@@ -587,9 +661,16 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         print("aucun terme n'a passé les contrôles : rien n'a été écrit", file=sys.stderr)
         return 4
 
+    # **Un run partiel ne se déclare pas complet** (revue coordonnée 2.1). `corpus_source_hashes`
+    # est l'affirmation « ce fichier décrit ce corpus » : l'écrire en entier après un `--limit`
+    # produisait un dictionnaire de deux catégories sur dix qui passait `_corpus_ok`, passait
+    # `--valider`, et armait le refus « zéro hit » sur les huit autres — un faux refus par
+    # construction. Vide, le fichier est inerte : `_corpus_ok` le refuse déjà (« ne dit pas quel
+    # corpus il décrit »), donc ni variantes ni court-circuit, et `--valider` sort en 5.
+    partiel = args.limit is not None
     fichier = _trier(DictionaryFile(
         schema_version=SCHEMA_VERSION,
-        corpus_source_hashes={doc_id: corpus.manifest[doc_id].source_hash},
+        corpus_source_hashes={} if partiel else {doc_id: corpus.manifest[doc_id].source_hash},
         corpus=termes, intents=intents, candidate_questions=questions,
         # **Jamais** `validated: true` ici, sous aucune forme : AD-5 réserve la signature à un
         # humain, et c'est elle — et elle seule — qui arme le refus « zéro hit ».
@@ -602,6 +683,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
           f"{sum(len(d) for d in fichier.intents.values())} déclencheur(s) — validated=false",
           file=sortie)
     print(f"coût réel : {cout:.4f} € (majorant {majorant:.4f} €)", file=sortie)
+    if partiel:
+        print(f"--limit {args.limit} : run **partiel**, corpus_source_hashes laissé vide — ce "
+              "dictionnaire est inerte (ni variantes, ni court-circuit) et `--valider` le refusera. "
+              "Relancer sans --limit pour un fichier servi.", file=sortie)
     if controles.ecarts:
         print("écarts rejetés par les contrôles : "
               + ", ".join(f"{k}={v}" for k, v in sorted(controles.ecarts.items())), file=sortie)

@@ -110,8 +110,8 @@ class _Lot:
     processing_status: str = "ended"
 
 
-def _message(charge: dict, *, output_tokens: int = 500) -> Any:
-    """Assez d'un `Message` pour ce que le module en lit : `content[].text` et `usage`."""
+def _message(charge: dict, *, output_tokens: int = 500, stop_reason: str = "end_turn") -> Any:
+    """Assez d'un `Message` pour ce que le module en lit : `content[].text`, `usage`, `stop_reason`."""
     @dataclass
     class _Bloc:
         type: str
@@ -121,20 +121,27 @@ def _message(charge: dict, *, output_tokens: int = 500) -> Any:
     class _Message:
         content: list
         usage: dict
+        stop_reason: str
 
     return _Message(content=[_Bloc("text", json.dumps(charge, ensure_ascii=False))],
                     usage={"input_tokens": 2000, "output_tokens": output_tokens,
-                           "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0})
+                           "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+                    stop_reason=stop_reason)
 
 
 @dataclass
 class FauxBatches:
-    """`create` / `retrieve` / `results` — la seule surface du SDK que le module touche."""
+    """`create` / `retrieve` / `results` / `cancel` — la seule surface du SDK que le module touche."""
 
     reponses: dict[str, Any]
     etats: list[str] = field(default_factory=lambda: ["ended"])
     requetes: list[Any] = field(default_factory=list)
     retrieves: int = 0
+    # Les `custom_id` dont la réponse est **coupée** (`stop_reason="max_tokens"`) : le modèle a
+    # répondu, l'appel est facturé, et le JSON est inutilisable.
+    tronquees: set[str] = field(default_factory=set)
+    annulations: list[str] = field(default_factory=list)
+    annulation_leve: bool = False
 
     def create(self, *, requests: list) -> _Lot:
         self.requetes = list(requests)
@@ -145,13 +152,20 @@ class FauxBatches:
         etat = self.etats[min(self.retrieves - 1, len(self.etats) - 1)]
         return _Lot(id=batch_id, processing_status=etat)
 
+    def cancel(self, batch_id: str) -> None:
+        if self.annulation_leve:
+            raise RuntimeError("annulation refusée par l'API")
+        self.annulations.append(batch_id)
+
     def results(self, batch_id: str) -> list[_Entree]:
         out = []
         for custom_id, valeur in self.reponses.items():
             if isinstance(valeur, str):  # un statut d'échec
                 out.append(_Entree(custom_id, _Resultat(valeur)))
             else:
-                out.append(_Entree(custom_id, _Resultat("succeeded", _message(valeur))))
+                arret = "max_tokens" if custom_id in self.tronquees else "end_turn"
+                out.append(_Entree(custom_id,
+                                   _Resultat("succeeded", _message(valeur, stop_reason=arret))))
         return out
 
 
@@ -504,16 +518,36 @@ def test_un_document_non_servi_refuse_avant_toute_soumission(tmp_path: Path, cap
     assert "non servi" in capsys.readouterr().err
 
 
-def test_les_prompts_dingestion_vivent_hors_de_prompts_digest() -> None:
+def test_les_prompts_dingestion_vivent_hors_de_prompts_digest(tmp_path: Path) -> None:
     """Design Note 2.1 : les mettre sous `server/app/llm/prompts/` les ferait entrer dans
     `prompts_digest`, et modifier une consigne d'ingestion rendrait les **deux** gates `gate_perime`
-    pour un prompt que le serveur n'exécute jamais."""
+    pour un prompt que le serveur n'exécute jamais.
+
+    La preuve se fait sur une arborescence **jetable** : la version précédente faisait un `.touch()`
+    sur un fichier source suivi par git, ce qui modifie son `mtime` dans l'arbre de travail — un test
+    n'a rien à écrire dans le dépôt, fût-ce une date (revue coordonnée 2.1). Ce qui compte n'est de
+    toute façon pas le fichier réel mais la **règle** : `prompts_digest` ne couvre que
+    `llm/prompts/`, et les consignes d'ingestion sont ailleurs. Les deux moitiés sont vérifiées —
+    que le dossier réel est bien hors périmètre, et que le périmètre est bien ce qu'on croit.
+    """
     from server.app.digests import PROMPTS_DIR, prompts_digest
 
+    # 1. Le dossier réel des consignes d'ingestion n'est pas sous celui des prompts du serveur.
     assert ed.PROMPTS_DIR.is_dir() and not ed.PROMPTS_DIR.is_relative_to(PROMPTS_DIR)
-    avant = prompts_digest()
-    (ed.PROMPTS_DIR / "enrich_dictionary.md").touch()
-    assert prompts_digest() == avant
+    assert list(ed.PROMPTS_DIR.glob("*.md"))  # …et il porte bien les consignes
+
+    # 2. `prompts_digest` ne regarde que son propre dossier : un `.md` ajouté **à côté** ne le change
+    #    pas, un `.md` modifié **dedans** le change. Joué sur `tmp_path`, jamais sur le dépôt.
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "commun.md").write_text("consigne du serveur\n", encoding="utf-8")
+    avant = prompts_digest(prompts)
+    voisin = tmp_path / "ingest_prompts"
+    voisin.mkdir()
+    (voisin / "enrich_dictionary.md").write_text("consigne d'ingestion\n", encoding="utf-8")
+    assert prompts_digest(prompts) == avant
+    (prompts / "commun.md").write_text("consigne du serveur, modifiée\n", encoding="utf-8")
+    assert prompts_digest(prompts) != avant
 
 
 # --- ce que l'API exige, et que seul un appel réel avait dit ----------------
@@ -559,3 +593,145 @@ def test_une_variable_posee_mais_vide_empeche_toute_soumission(tmp_path: Path,
                    sortie=io.StringIO())
     assert code == 2 and not (tmp_path / "dictionary.json").exists()
     assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
+# --- revue coordonnée 2.1 : ce que le premier tour laissait passer ----------
+
+@pytest.mark.parametrize("nom", ["", "   ", "\t"])
+def test_valider_refuse_un_nom_vide_et_necrit_rien(tmp_path: Path, nom: str, capsys: Any) -> None:
+    """`model_copy(update=…)` **ne rejoue aucun validateur** : `--valider ""` écrivait
+    `validated: true, validated_by: ""` — que `DictionaryFile` interdit et que `load_dictionary`
+    refusait ensuite en bloc. Le dépôt se retrouvait avec un dictionnaire signé et illisible, donc un
+    serveur qui n'élargissait plus rien, pour un espace de trop dans une commande."""
+    _dictionnaire_ecrit(tmp_path)
+    avant = (tmp_path / "dictionary.json").read_text("utf-8")
+
+    code = ed.main(["--data", str(tmp_path), "--valider", nom], client=None,
+                   settings=_settings(), sortie=io.StringIO())
+
+    assert code == 5
+    assert (tmp_path / "dictionary.json").read_text("utf-8") == avant
+    assert "validé par personne" in capsys.readouterr().err
+
+
+def test_ce_que_valider_ecrit_est_relisible_par_le_serveur(tmp_path: Path) -> None:
+    """Rien d'invalide n'atteint le disque : la copie signée est revalidée avant l'écriture."""
+    _dictionnaire_ecrit(tmp_path)
+    code = ed.main(["--data", str(tmp_path), "--valider", "  Lancelot Oudin  "], client=None,
+                   settings=_settings(), sortie=io.StringIO())
+    assert code == 0
+    fichier = _lu(tmp_path)                       # `DictionaryFile` relit ce qui a été écrit
+    assert fichier.validated_by == "Lancelot Oudin"  # le nom est nettoyé, pas recopié tel quel
+    # …et le serveur le lit comme un dictionnaire armé, sur le corpus de ce dossier.
+    from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.loader import load_corpus
+
+    corpus = load_corpus(tmp_path, allow_ungated=True)
+    assert load_dictionary(tmp_path, corpus).court_circuit_actif is True
+
+
+def test_une_reponse_tronquee_est_une_requete_en_echec(tmp_path: Path, capsys: Any) -> None:
+    """`stop_reason == "max_tokens"` : la sortie est **coupée**, donc le JSON est invalide.
+
+    Sans ce contrôle, `agreger` se contentait d'une plainte sur stderr et une catégorie entière
+    disparaissait du dictionnaire avec un code de sortie 0. Le cas n'est pas théorique : la
+    catégorie « Questions fréquentes » du guide porte 41 fiches.
+    """
+    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie(), "intents": SORTIE_INTENTS})
+    batches.tronquees = {"intents"}
+    data = _ecrire_data(tmp_path)
+    code = ed.main(["--data", str(data)], client=FauxClient(batches), settings=_settings(),
+                   sortie=io.StringIO())
+
+    assert code == 0                              # les autres sont conservées (matrice d'E/S)
+    assert _lu(tmp_path).intents == {}
+    erreur = capsys.readouterr().err
+    assert "intents" in erreur and "stop_reason" in erreur and "max_tokens" in erreur
+
+
+def test_toutes_les_requetes_tronquees_ne_laissent_rien_a_ecrire(tmp_path: Path) -> None:
+    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie()})
+    batches.tronquees = {ed.custom_id(CAT)}
+    data = _ecrire_data(tmp_path)
+    code = ed.main(["--data", str(data)], client=FauxClient(batches), settings=_settings(),
+                   sortie=io.StringIO())
+    assert code == 4 and not (tmp_path / "dictionary.json").exists()
+
+
+def test_un_lot_abandonne_est_annule(tmp_path: Path, capsys: Any) -> None:
+    """Un lot qu'on cesse d'attendre continue de tourner **et d'être facturé**."""
+    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie()}, etats=["in_progress"])
+    data = _ecrire_data(tmp_path)
+    code = ed.main(["--data", str(data)], client=FauxClient(batches),
+                   settings=_settings(dictionary_batch_timeout_s=60.0), sortie=io.StringIO(),
+                   dormir=lambda s: None, maintenant=iter(range(0, 100000, 30)).__next__)
+
+    assert code == 4 and batches.annulations == ["batch_test"]
+    erreur = capsys.readouterr().err
+    assert "annulé" in erreur and "results(" in erreur   # …et de quoi rattraper ce qui existe
+
+
+def test_une_annulation_qui_echoue_nefface_pas_la_cause(tmp_path: Path, capsys: Any) -> None:
+    """L'annulation est un secours : son échec se dit, il ne remplace pas la raison de l'abandon."""
+    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie()}, etats=["in_progress"])
+    batches.annulation_leve = True
+    data = _ecrire_data(tmp_path)
+    code = ed.main(["--data", str(data)], client=FauxClient(batches),
+                   settings=_settings(dictionary_batch_timeout_s=60.0), sortie=io.StringIO(),
+                   dormir=lambda s: None, maintenant=iter(range(0, 100000, 30)).__next__)
+
+    assert code == 4
+    erreur = capsys.readouterr().err
+    assert "n'a pas terminé" in erreur and "annulation a échoué" in erreur
+    assert "il est encore facturé" in erreur
+
+
+def test_un_run_limit_produit_un_dictionnaire_inerte(tmp_path: Path) -> None:
+    """**Un run partiel ne se déclare pas complet.** `corpus_source_hashes` écrit en entier après un
+    `--limit` produisait un dictionnaire de deux catégories sur dix qui passait `_corpus_ok`, passait
+    `--valider`, et armait le refus « zéro hit » sur les huit autres — un faux refus par
+    construction, sur un fichier que rien ne distinguait d'un dictionnaire complet."""
+    code, texte, _ = _lancer(tmp_path, {ed.custom_id(CAT): _sortie_categorie()},
+                             args=["--limit", "1"])
+
+    assert code == 0
+    fichier = _lu(tmp_path)
+    assert fichier.corpus_source_hashes == {}
+    assert fichier.corpus  # les termes sont bien là : le fichier est utilisable pour une mise au point
+    assert "run **partiel**" in texte and "inerte" in texte
+
+    # Inerte pour le serveur…
+    from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.loader import load_corpus
+
+    corpus = load_corpus(tmp_path, allow_ungated=True)
+    d = load_dictionary(tmp_path, corpus)
+    assert d.charge is True and d.corpus_ok is False and d.utilisable is False
+    # …et `--valider` le refuse, donc il ne peut pas armer un refus par mégarde.
+    assert ed.main(["--data", str(tmp_path), "--valider", "Nom"], client=None,
+                   settings=_settings(), sortie=io.StringIO()) == 5
+
+
+def test_laide_de_limit_dit_que_le_fichier_est_inerte(capsys: Any) -> None:
+    """Le comportement se lit dans `--help` : personne ne devrait le découvrir sur un run servi."""
+    with pytest.raises(SystemExit):
+        ed.main(["--help"], client=None, settings=_settings(), sortie=io.StringIO())
+    assert "inerte" in capsys.readouterr().out
+
+
+def test_un_canonique_duplique_est_compte_comme_un_ecart(tmp_path: Path) -> None:
+    """Le total des écarts est ce que `docs/tests-live.md` consigne comme preuve que les contrôles
+    ont écarté quelque chose : un rejet qui n'y entre pas rend cette preuve fausse par omission."""
+    code, texte, _ = _lancer(tmp_path, {ed.custom_id(CAT): _sortie_categorie(termes=[
+        {"fiche_id": FICHE, "canonique": "matricule", "variantes": ["a"]},
+        {"fiche_id": FICHE, "canonique": "matricule", "variantes": ["b"]}])},
+        settings=_settings(dictionary_max_terms_per_fiche=5))
+    assert code == 0
+    assert _lu(tmp_path).corpus == {"matricule": ["a"]}   # le premier gagne, l'ordre est déterministe
+    assert "canonique_duplique=1" in texte
+
+
+def test_un_intent_inconnu_est_compte_comme_un_ecart(tmp_path: Path) -> None:
+    code, texte, _ = _lancer(tmp_path, {ed.custom_id(CAT): _sortie_categorie(),
+                                        "intents": SORTIE_INTENTS})
+    assert code == 0 and "intent_inconnu=1" in texte

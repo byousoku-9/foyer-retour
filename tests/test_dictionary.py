@@ -104,6 +104,30 @@ def test_un_valide_par_personne_est_une_contradiction() -> None:
     assert signe.validated is True
 
 
+@pytest.mark.parametrize("valeur", ["hier", "2026-08-25", "25/08/2026", "2026-08-25T10:00:00",
+                                    "2026-08-25T10:00:00+02:00", "maintenant"])
+def test_validated_at_doit_etre_une_vraie_date_utc(valeur: str) -> None:
+    """AD-5 nomme une date **UTC ISO 8601** ; « non vide » n'en fait pas une date.
+
+    Sans ce contrôle, `validated_at: "hier"` traversait le schéma, le serveur et le smoke : la
+    signature humaine aurait porté une date que rien ne sait relire, donc rien ne sait recouper —
+    alors que c'est le rôle des trois champs de rendre le geste vérifiable. Une heure **locale**
+    (`+02:00`) est refusée pour la même raison : elle ne se compare à rien sans savoir d'où elle
+    vient (revue coordonnée 2.1).
+    """
+    with pytest.raises(ValueError, match="validated_at"):
+        DictionaryFile.model_validate(_fichier(validated=True, validated_by="Nom",
+                                               validated_at=valeur))
+
+
+@pytest.mark.parametrize("valeur", ["2026-08-25T10:00:00Z", "2026-08-25T10:00:00+00:00",
+                                    "2026-08-25T10:00:00.123456Z"])
+def test_les_formes_utc_iso_8601_sont_acceptees(valeur: str) -> None:
+    signe = DictionaryFile.model_validate(_fichier(validated=True, validated_by="Nom",
+                                                   validated_at=valeur))
+    assert signe.validated_at == valeur
+
+
 def test_les_intents_sont_bornes_aux_trois_que_le_pipeline_refuse() -> None:
     """AD-5 : `question` et `suivi` ne se refusent pas — leur donner des déclencheurs n'a aucun sens.
 
@@ -166,12 +190,21 @@ def test_expand_garde_les_termes_de_la_question_comme_cles(tmp_path: Path) -> No
 
 
 def test_une_variante_retrouve_le_canonique_et_ses_soeurs(tmp_path: Path) -> None:
-    """Le cas « variante EN » de l'AC : le terme de la question est une variante, pas le canonique."""
+    """Le terme de la question est une variante, pas le canonique — dans les quatre langues.
+
+    Le cas **anglais** est écrit à part et en toutes lettres : c'est celui que l'AC nomme, et les
+    trois autres pourraient passer sans lui (revue coordonnée 2.1).
+    """
     d = load_dictionary(_ecrire(tmp_path), _corpus())
-    ajoutees = d.expand(["Anmeldung"])["Anmeldung"]
-    assert forme("déclaration d'arrivée") in ajoutees
-    assert forme("residence registration") in ajoutees
-    assert forme("Anmeldung") not in ajoutees  # le terme cherché n'est pas sa propre variante
+    for depart in ("Anmeldung", "residence registration", "déclarer arrivée"):
+        ajoutees = d.expand([depart])[depart]
+        assert forme("déclaration d'arrivée") in ajoutees, depart
+        assert forme(depart) not in ajoutees, depart  # le terme cherché n'est pas sa propre variante
+    # Le chemin de l'AC, littéralement : une forme **anglaise** ramène le canonique français et ses
+    # sœurs des autres langues, donc tout ce qui permet d'ouvrir la fiche.
+    anglais = d.expand(["residence registration"])["residence registration"]
+    assert set(anglais) == {forme("déclaration d'arrivée"), forme("Anmeldung"),
+                            forme("déclarer arrivée")}
 
 
 def test_variants_count_compte_des_formes_ajoutees_distinctes(tmp_path: Path) -> None:
@@ -229,3 +262,40 @@ def test_forme_est_exactement_celle_que_lindex_compare() -> None:
 
     for texte in ("Déclaration d'ARRIVÉE", "  numéro   national ", "L'Anmeldung !"):
         assert forme(texte) == " ".join(words(normalize(texte)))
+
+
+# --- le dictionnaire **livré**, confronté au corpus **livré** ----------------
+
+def test_le_dictionnaire_du_depot_decrit_le_corpus_du_depot() -> None:
+    """Le seul test qui regarde `data/dictionary.json` et `data/manifest.json` tels qu'ils sont commités.
+
+    **Ce qu'il attrape, et que rien d'autre ne voyait** (revue coordonnée 2.1) : tous les autres cas
+    de `corpus_ok` fabriquent leur fichier dans un `tmp_path`. Vérifié en remplaçant les
+    `corpus_source_hashes` du fichier livré par une empreinte bidon : la suite restait entièrement
+    verte. C'est exactement ce que produit une réingestion du guide sans relance de l'enrichissement
+    — et l'élargissement d'AD-5 s'éteindrait alors sans laisser de trace, puisque le
+    `CheckResult(dictionnaire)` de *retrouver* n'est posé **que** si le dictionnaire est utilisable.
+
+    Il est du même genre que `test_les_seuils_cites_en_commentaire_valent_les_defauts_de_settings` :
+    deux textes du dépôt font autorité sur le même fait, et rien ne les tenait ensemble.
+    """
+    from server.app.config import REPO_ROOT, Settings
+    from server.app.corpus.loader import load_corpus
+
+    reglages = Settings(_env_file=None)
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True,
+                         perimetre_max_chars=reglages.perimetre_max_chars)
+    d = load_dictionary(REPO_ROOT / "data", corpus)
+
+    assert d.charge is True, (
+        f"data/dictionary.json ne se charge pas : {d.raison} — relancer "
+        "`uv run python -m server.ingest.enrich_dictionary`")
+    assert d.corpus_ok is True, (
+        f"data/dictionary.json décrit un autre corpus que celui qui est livré : {d.raison} — "
+        "relancer `uv run python -m server.ingest.enrich_dictionary` (le guide a été réingéré sans "
+        "que l'enrichissement le suive : les variantes s'éteindraient en silence)")
+    assert d.utilisable is True
+    assert d.canoniques > 0
+    # La signature humaine, elle, reste due — c'est un input attendu **après** la story (AD-5), et
+    # ce test ne doit pas se mettre à l'exiger : il vérifie l'accord des artefacts, pas le geste.
+    assert d.court_circuit_actif is d.validated
