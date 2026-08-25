@@ -519,6 +519,16 @@ def test_question_trop_longue_est_refusee(prod: TestClient) -> None:
     assert double.appels == []
 
 
+@pytest.mark.parametrize("lang", ["es", "eng", "XX"])
+def test_une_langue_non_servie_est_un_400_avant_le_pipeline(prod: TestClient, lang: str) -> None:
+    double = _brancher(prod, Double((_refus("zero_hit"), _trace())))
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "lang": lang}, headers=XFF)
+    assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
+    message = r.json()["error"]["message"]
+    assert all(nom in message for nom in ("français", "anglais", "allemand", "portugais"))
+    assert double.appels == []
+
+
 def test_mille_caracteres_pile_passent(prod: TestClient) -> None:
     _brancher(prod, Double((_refus("zero_hit"), _trace())))
     r = prod.post("/api/v1/chat", json={"question": "a" * 1000, "profil": {}}, headers=XFF)

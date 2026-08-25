@@ -182,6 +182,15 @@ async def test_quote_absent_from_the_cited_block(mini: Index) -> None:
     assert rejet.status.retrouvee is False and rejet.status.pertinente is None
 
 
+async def test_une_traduction_anglaise_de_la_quote_est_rejetee(mini: Index) -> None:
+    """AD-3 : une traduction fidèle n'est pas une citation ; seul le texte brut du bloc fait foi."""
+    draft = _draft(("c1", "The deadline is eight days.",
+                    [("mini:p1:2", "eight days to declare your arrival")]))
+    v, _step, fake = await _verifier(mini, draft, [])
+    assert fake.requests == []
+    assert v.claims == [] and v.rejected_claims[0].rejection_kind == "non_retrouvee"
+
+
 async def test_short_quote_is_rejected_unless_it_covers_the_ratio_of_its_block(mini: Index) -> None:
     court = _draft(("c1", "t", [("mini:p1:2", "huit jours")]))  # 10 car. dans un bloc de 85
     v, _step, _fake = await _verifier(mini, court, [])
@@ -303,10 +312,12 @@ async def test_complete_requires_every_facet_of_the_question_to_be_covered(mini:
     # unknown = []`). Avant, la cause vivait dans la formule de `complete` et nulle part ailleurs :
     # l'utilisateur lisait « PARTIEL » sans savoir ce qui manquait.
     assert v.found is True and v.complete is False
-    # `lacunes` et non `unknown` : c'est le **code** qui constate, et sa phrase est en français quelle
-    # que soit la langue de la question (A3). `manques` est ce que l'utilisateur lira.
-    assert v.lacunes == ["Il reste 1 sous-question sans réponse dans ce que vous m'avez demandé."]
-    assert v.unknown == [] and v.manques == v.lacunes
+    # `lacunes` et non `unknown` : c'est le **code** qui constate ; *restituer* choisira seulement
+    # ensuite la phrase dans la langue de la réponse.
+    assert [lacune.model_dump() for lacune in v.lacunes] == [
+        {"kind": "facettes_sans_reponse", "n": 1},
+    ]
+    assert v.unknown == [] and v.nb_manques == 1
     assert "facettes_non_couvertes" in [c.name for c in step.checks]
 
     # les deux facettes couvertes : rien ne manque, la réponse est donnée pour complète
@@ -322,7 +333,9 @@ async def test_complete_requires_every_facet_of_the_question_to_be_covered(mini:
                                                           facettes=[["c1"]])],
                                   blocs=blocs, nb_facettes=2)
     assert v3.found is True and v3.complete is False
-    assert v3.lacunes == ["Il reste 1 sous-question sans réponse dans ce que vous m'avez demandé."]
+    assert [lacune.model_dump() for lacune in v3.lacunes] == [
+        {"kind": "facettes_sans_reponse", "n": 1},
+    ]
     assert "1 facette(s) couverte(s)" in [c.detail for c in s3.checks
                                           if c.name == "facettes_non_couvertes"][0]
 
@@ -330,7 +343,9 @@ async def test_complete_requires_every_facet_of_the_question_to_be_covered(mini:
     v4, _s4, _f4 = await _verifier(mini, draft, [_verdicts(("c1", True), ("c2", True), facettes=[])],
                                    blocs=blocs, nb_facettes=2)
     assert v4.found is True and v4.complete is False
-    assert v4.lacunes == ["Il reste 2 sous-questions sans réponse dans ce que vous m'avez demandé."]
+    assert [lacune.model_dump() for lacune in v4.lacunes] == [
+        {"kind": "facettes_sans_reponse", "n": 2},
+    ]
 
     # une couverture rendue sur un rang **jamais envoyé** ne couvre rien
     v5, _s5, _f5 = await _verifier(mini, draft, [fake_message(text=json.dumps({
@@ -586,8 +601,10 @@ async def test_a_transition_that_states_a_fact_is_never_displayed(mini: Index) -
     # de la réponse) ; la phrase de la transition écartée est une constatation du **code**, donc une
     # `lacune`. Les deux se lisent ensemble dans `manques` — une seule section « Ce que je ne sais pas ».
     assert v.unknown == ["Le guide ne dit rien des frontaliers."]
-    assert v.lacunes == ["J'ai retiré 1 phrase de ma réponse : les passages joints ne la soutenaient pas."]
-    assert v.manques == v.unknown + v.lacunes
+    assert [lacune.model_dump() for lacune in v.lacunes] == [
+        {"kind": "phrases_ecartees", "n": 1},
+    ]
+    assert v.nb_manques == len(v.unknown) + len(v.lacunes)
 
 
 async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> None:
@@ -1262,11 +1279,9 @@ async def test_le_seuil_applique_est_bien_celui_de_config(mini: Index) -> None:
 
 # --- « partiel » dit toujours ce qui manque (story 2.3) ---------------------
 QUOTE_ARRIVEE = "huit jours pour déclarer votre arrivée"
-LACUNE_LECTURE = ("Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a "
-                  "été bornée, et des passages sont restés fermés.")
-LACUNE_DECOUPAGE = ("Je n'ai pas pu découper votre question en sous-questions : je ne peux donc pas "
-                    "garantir de l'avoir traitée en entier.")
-LACUNE_RENVOI = "Un passage que je cite renvoie à un autre passage que je n'ai pas pu retrouver."
+LACUNE_LECTURE = {"kind": "lecture_bornee", "n": 0}
+LACUNE_DECOUPAGE = {"kind": "sans_decoupage", "n": 0}
+LACUNE_RENVOI = {"kind": "renvoi_non_resolu", "n": 0}
 
 
 def _draft_simple(block_id: str = "mini:p1:2", quote: str = QUOTE_ARRIVEE) -> AnswerDraft:
@@ -1276,7 +1291,7 @@ def _draft_simple(block_id: str = "mini:p1:2", quote: str = QUOTE_ARRIVEE) -> An
 async def test_une_reponse_complete_na_aucune_lacune(mini: Index) -> None:
     """Le témoin de l'invariant : `complete ⟺ found ∧ unknown = []`, dans le sens facile."""
     v, _s, _f = await _verifier(mini, _draft_simple(), [_verdicts(("c1", True))])
-    assert v.found is True and v.complete is True and v.manques == []
+    assert v.found is True and v.complete is True and v.nb_manques == 0
 
 
 async def test_une_lecture_bornee_est_nommee_et_nempeche_pas_la_reponse(mini: Index) -> None:
@@ -1284,7 +1299,8 @@ async def test_une_lecture_bornee_est_nommee_et_nempeche_pas_la_reponse(mini: In
     et la phrase de lecture bornée dit pourquoi elle n'est pas donnée pour complète."""
     v, _s, _f = await _verifier(mini, _draft_simple(), [_verdicts(("c1", True))], truncated=True)
     assert v.found is True and v.complete is False
-    assert v.lacunes == [LACUNE_LECTURE] and v.unknown == []
+    assert [lacune.model_dump() for lacune in v.lacunes] == [LACUNE_LECTURE]
+    assert v.unknown == []
 
 
 async def test_une_question_sans_decoupage_dit_quelle_na_pas_pu_etre_decoupee(mini: Index) -> None:
@@ -1292,7 +1308,8 @@ async def test_une_question_sans_decoupage_dit_quelle_na_pas_pu_etre_decoupee(mi
     mesure est elle-même une lacune, et elle se dit — sinon « partiel » resterait nu."""
     v, _s, _f = await _verifier(mini, _draft_simple(), [_verdicts(("c1", True), facettes=[])],
                                 nb_facettes=0)
-    assert v.found is True and v.complete is False and v.lacunes == [LACUNE_DECOUPAGE]
+    assert v.found is True and v.complete is False
+    assert [lacune.model_dump() for lacune in v.lacunes] == [LACUNE_DECOUPAGE]
 
 
 async def test_un_renvoi_non_resolu_est_nomme(mini: Index) -> None:
@@ -1300,8 +1317,10 @@ async def test_un_renvoi_non_resolu_est_nomme(mini: Index) -> None:
     autre, introuvable. La phrase ne nomme ni le bloc ni la référence (AD-10, AD-15)."""
     draft = _draft(("c1", "Un renvoi non résolu.", [("mini:p1:7", "Un renvoi non résolu.")]))
     v, _s, _f = await _verifier(mini, draft, [_verdicts(("c1", True))], blocs=["mini:p1:7"])
-    assert v.found is True and v.complete is False and v.lacunes == [LACUNE_RENVOI]
-    assert "article 12" not in " ".join(v.manques) and "mini:p1:7" not in " ".join(v.manques)
+    assert v.found is True and v.complete is False
+    assert [lacune.model_dump() for lacune in v.lacunes] == [LACUNE_RENVOI]
+    lacunes_json = "".join(lacune.model_dump_json() for lacune in v.lacunes)
+    assert "article 12" not in lacunes_json and "mini:p1:7" not in lacunes_json
 
 
 async def test_plusieurs_causes_donnent_plusieurs_phrases_dans_lordre_de_la_chaine(mini: Index) -> None:
@@ -1311,7 +1330,9 @@ async def test_plusieurs_causes_donnent_plusieurs_phrases_dans_lordre_de_la_chai
     draft = _draft(("c1", "Un renvoi non résolu.", [("mini:p1:7", "Un renvoi non résolu.")]))
     v, _s, _f = await _verifier(mini, draft, [_verdicts(("c1", True), facettes=[])],
                                 blocs=["mini:p1:7"], truncated=True, nb_facettes=0)
-    assert v.lacunes == [LACUNE_LECTURE, LACUNE_DECOUPAGE, LACUNE_RENVOI]
+    assert [lacune.model_dump() for lacune in v.lacunes] == [
+        LACUNE_LECTURE, LACUNE_DECOUPAGE, LACUNE_RENVOI,
+    ]
     assert v.complete is False
 
 
@@ -1320,20 +1341,24 @@ async def test_aucune_lacune_nest_ajoutee_a_un_refus(mini: Index) -> None:
     en ajouter une ferait deux comptes rendus du même fait."""
     draft = _draft_simple("mini:p1:2", "citation que le modèle a inventée")
     v, _s, _f = await _verifier(mini, draft, [], truncated=True)
-    assert v.found is False and v.complete is False and v.lacunes == [] and v.manques == []
+    assert v.found is False and v.complete is False and v.lacunes == [] and v.nb_manques == 0
 
 
 async def test_les_lacunes_ne_sont_jamais_dupliquees(mini: Index) -> None:
     """Une limite du modèle qui répéterait mot pour mot une phrase du code n'est comptée qu'une fois :
     l'utilisateur lit une liste, pas deux fois la même ligne."""
+    phrase = ("Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a "
+              "été bornée, et des passages sont restés fermés.")
     draft = _draft_libre(
         ("Le délai est de huit jours.", "factuel", ["c1"]),
-        (LACUNE_LECTURE, "limite", []),
+        (phrase, "limite", []),
         claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_ARRIVEE)])])
     v, _s, _f = await _verifier(mini, draft, [_verdicts(("c1", True))], truncated=True)
-    # Le modèle a écrit la phrase, le code la constate aussi : `manques` ne la montre qu'une fois.
-    assert v.unknown == [LACUNE_LECTURE] and v.lacunes == [LACUNE_LECTURE]
-    assert v.manques == [LACUNE_LECTURE]
+    # Le modèle a écrit une phrase, le code conserve séparément la cause typée ; *restituer* déduplique
+    # seulement après l'avoir projetée dans la langue de la réponse.
+    assert v.unknown == [phrase]
+    assert [lacune.model_dump() for lacune in v.lacunes] == [LACUNE_LECTURE]
+    assert v.nb_manques == 2
 
 
 async def test_complete_se_reduit_a_found_et_manques_vides(mini: Index) -> None:
@@ -1348,4 +1373,4 @@ async def test_complete_se_reduit_a_found_et_manques_vides(mini: Index) -> None:
         script = [_verdicts(("c1", True), facettes=[] if kwargs.get("nb_facettes") == 0 else None)]
         v, _s, _f = await _verifier(mini, _draft_simple(), script, **kwargs)
         assert v.complete is attendu
-        assert v.complete == (v.found and not v.manques)
+        assert v.complete == (v.found and v.nb_manques == 0)

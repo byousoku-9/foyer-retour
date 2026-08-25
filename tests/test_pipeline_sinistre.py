@@ -31,7 +31,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
-from server.app.pipelines.commun import PHRASE_RELANCE_ABANDONNEE
+from server.app.steps.restituer import PHRASES_DE_LACUNE
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DOC_ID = "cg"
@@ -179,13 +179,15 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True) -> di
 
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
-               variant: str = "deterministe", dossier: MissingPackage | None = None):
+               variant: str = "deterministe", dossier: MissingPackage | None = None,
+               lang: str | None = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await sinistre.run(doc_id, QUESTION, faits, corpus=index.corpus, index=index,
                                        client=client, settings=settings, request_id="req-sinistre",
-                                       variant=variant, budget=budget or _budget(), dossier=dossier)
+                                       variant=variant, budget=budget or _budget(), dossier=dossier,
+                                       lang=lang)
     return answer, trace, fake
 
 
@@ -207,6 +209,13 @@ EXC_EXT = ("c3", "Les extensions excluent les dégâts au bâtiment.", [(f"{DOC_
 EXC_SOCLE = ("c4", "Le dommage de brûlure est exclu.", [(f"{DOC_ID}:p1:5", Q_EXCLUSION_SOCLE)])
 COND = ("c5", "Le bien doit être occupé de manière permanente.", [(f"{DOC_ID}:p1:3", Q_CONDITION)])
 MAUVAISE = ("c9", "Le sinistre est couvert à 100 %.", [(f"{DOC_ID}:p1:2", "couvert à cent pour cent")])
+
+
+@pytest.mark.parametrize("lang", ["es", "eng", "XX"])
+async def test_une_langue_forcee_non_servie_est_refusee_avant_tout_appel(index: Index,
+                                                                         lang: str) -> None:
+    with pytest.raises(InvalidRequest, match="français.*anglais.*allemand.*portugais"):
+        await _run(index, [], lang=lang)
 
 
 # --- nominal : le cas bougie -------------------------------------------------
@@ -775,7 +784,7 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
         _verifier(("c1", True, False, False, False, None))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0
     assert answer.found is True and answer.complete is False
-    assert PHRASE_RELANCE_ABANDONNEE in answer.unknown
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
     assert "guide" not in " ".join(answer.unknown)
     verifier = next(s for s in trace.steps if s.name == "verifier")
     assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]

@@ -26,6 +26,7 @@ from server.app.config import Settings
 from server.app.domain.answer import Answer, AnswerSegment
 from server.app.domain.document import Bbox
 from server.app.domain.errors import InvalidRequest
+from server.app.domain.langue import est_langue_servie, langues_servies_texte, normaliser_langue
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
@@ -61,6 +62,15 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("question vide")
         return v
+
+    @field_validator("lang")
+    @classmethod
+    def _langue_servie(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not est_langue_servie(v):
+            raise ValueError(f"langue non servie : choisissez {langues_servies_texte()}")
+        return normaliser_langue(v)[0]
 
     def borner(self, settings: Settings) -> None:
         """Borne d'AD-11 qui vit dans `config.py` : le nombre de tours d'historique."""
@@ -202,6 +212,15 @@ class SinistreRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     faits: Faits
     lang: str | None = None
+
+    @field_validator("lang")
+    @classmethod
+    def _langue_servie(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not est_langue_servie(v):
+            raise ValueError(f"langue non servie : choisissez {langues_servies_texte()}")
+        return normaliser_langue(v)[0]
     # **Pas de `variant`** (revue Codex 1.9, tour 1, I3). Le champ existait pour AD-1 (« un
     # `pipeline.variant` inconnu ⇒ 400 »), mais AD-11 ne l'énumère pas dans le corps de cette route,
     # et la story a refusé `dossier` **en invoquant cette énumération** : le garder revenait à

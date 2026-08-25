@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, model_validator
 
 from .document import DomainModel
+from .langue import normaliser_langue
 
 Intent = Literal["question", "suivi", "meteo", "bavardage", "hors_perimetre"]
 Role = Literal["user", "assistant"]
@@ -115,24 +115,6 @@ class QuestionScope(DomainModel):
         return self.model_copy(update=remplacements), ignores
 
 
-# Convention « Données & formats » du spine : langues **ISO 639-1**, donc exactement deux lettres
-# (revue Codex 1.4, I2 — `^[a-z]{2,3}$` laissait passer `eng`/`fra` jusque dans la consigne de rédaction).
-_LANG = re.compile(r"^[a-z]{2}$")
-
-
-def _lang_or_fr(value: str) -> str:
-    """Code ISO 639-1 en minuscules (deux lettres) ; tout le reste retombe sur `fr` (convention Langue).
-
-    La normalisation vit ici, pas dans les étapes : *comprendre* et *rédiger* ne peuvent pas
-    s'importer l'une l'autre (AD-9) et la dupliquaient avec deux sémantiques légèrement différentes —
-    un `ParsedQuestion(language="EN")` construit ailleurs (pipeline 1.5, reprise) retombait alors
-    silencieusement sur `fr` à la rédaction seulement (revue 1.4). Les deux issues de *comprendre*
-    (question résolue ou clarification) partagent la même règle.
-    """
-    v = (value or "").strip().lower()
-    return v if _LANG.match(v) else "fr"
-
-
 class ParsedQuestion(DomainModel):
     """Question **autonome** : toutes les anaphores sont résolues (AD-5).
 
@@ -143,6 +125,7 @@ class ParsedQuestion(DomainModel):
     question_resolue: str
     intent: Intent
     language: str = "fr"
+    lang_fallback: bool = False
     terms: list[str] = Field(default_factory=list)  # toujours en français
     scope: QuestionScope = Field(default_factory=QuestionScope)
     # Les sous-questions distinctes que la question pose, dans l'ordre où elle les pose (AD-4,
@@ -155,10 +138,12 @@ class ParsedQuestion(DomainModel):
     # `complete=False`, jamais l'inverse.
     facettes: list[str] = Field(default_factory=list)
 
-    @field_validator("language")
-    @classmethod
-    def _normalise_language(cls, value: str) -> str:
-        return _lang_or_fr(value)
+    @model_validator(mode="after")
+    def _normalise_language(self) -> ParsedQuestion:
+        language, repli = normaliser_langue(self.language)
+        self.language = language
+        self.lang_fallback = self.lang_fallback or repli
+        return self
 
     def termes_de_recherche(self) -> list[str]:
         """Termes réellement cherchés : `terms` puis `scope.themes`, dédupliqués, ordre conservé.
@@ -194,8 +179,11 @@ class ClarificationRequise(DomainModel):
     clarification: str = Field(max_length=CLARIFICATION_MAX_CHARS)  # la question courte à poser, dans sa langue
     intent: Intent
     language: str = "fr"
+    lang_fallback: bool = False
 
-    @field_validator("language")
-    @classmethod
-    def _normalise_language(cls, value: str) -> str:
-        return _lang_or_fr(value)
+    @model_validator(mode="after")
+    def _normalise_language(self) -> ClarificationRequise:
+        language, repli = normaliser_langue(self.language)
+        self.language = language
+        self.lang_fallback = self.lang_fallback or repli
+        return self

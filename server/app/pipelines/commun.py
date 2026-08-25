@@ -16,7 +16,7 @@ from functools import lru_cache
 
 from server.app.config import Settings
 from server.app.digests import pipeline_digest, prompts_digest
-from server.app.domain.answer import Verification
+from server.app.domain.answer import Lacune, Verification
 from server.app.domain.retrieval import RetrievalBudget
 
 # AD-5 : les intents qui se tranchent sur la seule sortie de *comprendre*, avant tout appel `reason`.
@@ -33,8 +33,7 @@ APPELS_DE_LA_RELANCE = 2
 # autres phrases de lacune de `steps/verifier.py` par la forme — première personne, neutre quant au
 # document, puisque la page sinistre rend la même section « Ce que je ne sais pas » — mais elle est
 # **ici** parce que la cause l'est : seul le pipeline sait qu'une relance a été empêchée.
-PHRASE_RELANCE_ABANDONNEE = ("Je n'ai pas pu reprendre ma réponse pour l'améliorer : je la donne "
-                             "telle que je l'avais vérifiée du premier coup.")
+LACUNE_RELANCE_ABANDONNEE = Lacune(kind="relance_abandonnee")
 
 
 @lru_cache(maxsize=1)
@@ -103,7 +102,7 @@ def domine(seconde: Verification, acquise: Verification) -> bool:
             # dans deux canaux — ce que le modèle a déclaré, ce que le code a constaté —, et ne
             # comparer que le premier laisserait passer une relance qui a lu moins, couvert moins ou
             # perdu plus de phrases, pourvu qu'elle se taise autant.
-            and len(seconde.manques) <= len(acquise.manques))
+            and seconde.nb_manques <= acquise.nb_manques)
 
 
 def relance_abandonnee(verification: Verification) -> Verification:
@@ -124,8 +123,8 @@ def relance_abandonnee(verification: Verification) -> Verification:
     Les deux pipelines passent par ici — deux copies auraient divergé au premier amendement.
     """
     lacunes = list(verification.lacunes)
-    if verification.found and PHRASE_RELANCE_ABANDONNEE not in lacunes:
-        lacunes.append(PHRASE_RELANCE_ABANDONNEE)
+    if verification.found and LACUNE_RELANCE_ABANDONNEE not in lacunes:
+        lacunes.append(LACUNE_RELANCE_ABANDONNEE)
     return verification.model_copy(update={"complete": False, "lacunes": lacunes})
 
 

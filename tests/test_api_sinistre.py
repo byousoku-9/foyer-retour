@@ -637,6 +637,16 @@ def test_un_doc_id_de_guide_est_refuse_avant_tout_appel(prod: TestClient) -> Non
     assert double.appels == []
 
 
+@pytest.mark.parametrize("lang", ["es", "eng", "XX"])
+def test_une_langue_non_servie_est_un_400_avant_le_pipeline(prod: TestClient, lang: str) -> None:
+    double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
+    r = _poster(prod, _corps(lang=lang))
+    assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
+    message = r.json()["error"]["message"]
+    assert all(nom in message for nom in ("français", "anglais", "allemand", "portugais"))
+    assert double.appels == []
+
+
 # --- ligne « Description hors bornes » -----------------------------------
 
 def test_une_description_hors_bornes_est_rejetee_jamais_tronquee(prod: TestClient) -> None:

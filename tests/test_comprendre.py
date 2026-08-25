@@ -138,16 +138,16 @@ async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_ques
 async def test_forced_lang_wins_over_detection() -> None:
     client, _ = _client([fake_message(text=_sortie(language="fr"), model=HAIKU)])
     parsed, _step = await _comprendre(client, lang="en")
-    assert parsed.language == "en"
+    assert parsed.language == "en" and parsed.lang_fallback is False
 
 
-@pytest.mark.parametrize("forced, expected", [("EN", "en"), ("fr-LU", "fr"), ("anglais", "fr")])
+@pytest.mark.parametrize("forced, expected", [("EN", "en"), (" PT ", "pt"), ("de", "de")])
 async def test_a_forced_lang_is_normalized_like_a_detected_one(forced: str, expected: str) -> None:
-    # La normalisation vit sur `ParsedQuestion` : `lang` forcé et langue détectée passent par la même
-    # règle, et un `lang` mal formé retombe sur `fr` au lieu de partir tel quel (revue 1.4).
+    # Seules les formes de codes servis atteignent l'étape : les pipelines et l'API refusent les
+    # autres avant tout appel. Casse et espaces restent une normalisation de forme, pas un repli.
     client, _ = _client([fake_message(text=_sortie(language="de"), model=HAIKU)])
     parsed, _step = await _comprendre(client, lang=forced)
-    assert parsed.language == expected
+    assert parsed.language == expected and parsed.lang_fallback is False
 
 
 @pytest.mark.parametrize("detected, expected", [("EN", "en"), ("", "fr"), ("anglais", "fr"), ("fr-LU", "fr")])
@@ -155,6 +155,7 @@ async def test_detected_language_is_normalized_with_fr_fallback(detected: str, e
     client, _ = _client([fake_message(text=_sortie(language=detected), model=HAIKU)])
     parsed, _step = await _comprendre(client)
     assert parsed.language == expected
+    assert parsed.lang_fallback is (expected == "fr" and detected.strip().lower() != "fr")
 
 
 async def test_scope_fields_and_term_cleanup_are_converted() -> None:

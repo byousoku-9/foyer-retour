@@ -125,7 +125,8 @@ async def test_request_shape_cacheable_prefix_with_summary_then_delimited_conten
         [{"role": "user", "texte": "on vient d'arriver"}, {"role": "assistant", "texte": "bienvenue"}]
     # aucun texte utilisateur ni documentaire hors balises ; seule la consigne de langue reste
     outside = UNTRUSTED.sub("", msg["content"])
-    assert outside.strip() == "Langue de rédaction : fr."
+    assert outside.strip() == ("Langue de rédaction : français (fr). Les citations restent "
+                               "recopiées mot pour mot dans la langue du bloc source.")
     for fragment in ("huit jours", "on vient d'arriver", "bienvenue", "déclarer l'arrivée ?"):
         assert fragment not in outside
 
@@ -156,7 +157,8 @@ async def test_a_motif_cannot_close_its_own_delimiter(mini_index: Index) -> None
 async def test_language_of_the_parsed_question_drives_the_writing_language(mini_index: Index) -> None:
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
     await _rediger(client, mini_index, parsed=_parsed(language="en"))
-    assert "Langue de rédaction : en." in fake.requests[0]["messages"][0]["content"]
+    assert "Langue de rédaction : anglais (en)." in fake.requests[0]["messages"][0]["content"]
+    assert "citations restent recopiées mot pour mot" in fake.requests[0]["messages"][0]["content"]
 
 
 async def test_incoherent_draft_triggers_one_motivated_retry_then_parses(mini_index: Index) -> None:

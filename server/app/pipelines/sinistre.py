@@ -38,6 +38,7 @@ from server.app.domain.errors import (
     PipelineError,
     Timeout,
 )
+from server.app.domain.langue import est_langue_servie, langues_servies_texte, normaliser_langue
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion, QuestionScope
 from server.app.domain.trace import CheckResult, StepTrace, Trace
@@ -169,6 +170,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # Avant tout appel facturé : une variante inconnue est une faute d'appel, pas un cas à traiter.
         raise InvalidRequest(f"variante de recherche inconnue : {variant!r} "
                              f"(connues : {', '.join(sorted(VARIANTES))})")
+    if lang is not None and not est_langue_servie(lang):
+        raise InvalidRequest(f"langue non servie : choisissez {langues_servies_texte()}")
+    if lang is not None:
+        lang = normaliser_langue(lang)[0]
     if budget is not None and deadline_s is not None:
         # Le budget **porte** sa deadline, et elle court déjà (horloge monotone armée à sa création).
         # Accepter les deux laissait `deadline_s` sans effet, en silence : l'appelant croyait borner la
@@ -242,11 +247,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                        f"(jamais tronqués) : {', '.join(ignores)}"))
 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
+                lang_fallback: bool = False,
                 scope: QuestionScope | None = None,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
         echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
         compris, ignores = faits_compris(scope)
-        answer, step = restituer(language=language, reason=absence(kind, parsed),
+        answer, step = restituer(language=language, lang_fallback=lang_fallback,
+                                 reason=absence(kind, parsed),
                                  clarification=clarification,
                                  verdict=_verdict_de_refus(kind, dossier),
                                  faits_compris=compris,
@@ -277,12 +284,14 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # n'a rien « compris » du sinistre qu'on puisse afficher sans l'inventer. La question
             # posée à l'utilisateur (`answer.clarification`) est ce que cet écran a à montrer.
             return refuser("clarification_requise", None, language=parsed.language,
+                           lang_fallback=parsed.lang_fallback,
                            clarification=parsed.clarification)
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus. Les faits
             # compris, eux, existent déjà — *comprendre* a tourné —, et c'est justement sur un refus
             # « hors périmètre » qu'ils comptent le plus : ils disent ce que le système a cru lire.
-            return refuser("hors_perimetre", None, language=parsed.language, scope=parsed.scope)
+            return refuser("hors_perimetre", None, language=parsed.language,
+                           lang_fallback=parsed.lang_fallback, scope=parsed.scope)
 
         # --- retrouver (code pur) -------------------------------------------
         echeance("retrouver")
@@ -298,7 +307,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 f"le budget de retrieval n'a laissé passer aucun bloc ({settings.retrieval_max_blocks} blocs, "
                 f"{settings.retrieval_max_tokens} tokens) : aucune absence du contrat n'est affirmée")
         if not retrieval.blocs:
-            return refuser("zero_hit", parsed, language=parsed.language, scope=parsed.scope)
+            return refuser("zero_hit", parsed, language=parsed.language,
+                           lang_fallback=parsed.lang_fallback, scope=parsed.scope)
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
@@ -354,7 +364,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                    f"{len(blocs_cites(seconde))} bloc(s) cité(s) contre "
                                    f"{len(blocs_cites(acquise))}, "
                                    f"complete={seconde.complete} contre {acquise.complete}, "
-                                   f"manques={len(seconde.manques)} contre {len(acquise.manques)}) : "
+                                   f"manques={seconde.nb_manques} contre {acquise.nb_manques}) : "
                                    f"la première fait foi"))
             except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                 # Même partage qu'au guide (AD-16, revue Codex 1.5, B5) : un appel **commencé** qui
@@ -391,12 +401,16 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # calculé par *vérifier* sur zéro clause affichée : c'est un `ne_tranche_pas` gagné, et
             # *restituer* le recopie tel quel (AD-16 : jamais un refus sinistre sans verdict).
             verification = _verdict_par_defaut(verification, dossier)
-            answer, step_restituer = restituer(language=parsed.language, verification=verification,
+            answer, step_restituer = restituer(language=parsed.language,
+                                               lang_fallback=parsed.lang_fallback,
+                                               verification=verification,
                                                reason=absence("claims_rejetes", parsed),
                                                faits_compris=compris,
                                                registre=REGISTRE_SINISTRE)
         else:
-            answer, step_restituer = restituer(language=parsed.language, verification=verification,
+            answer, step_restituer = restituer(language=parsed.language,
+                                               lang_fallback=parsed.lang_fallback,
+                                               verification=verification,
                                                faits_compris=compris,
                                                registre=REGISTRE_SINISTRE)
         noter_hors_borne(step_restituer, ignores)

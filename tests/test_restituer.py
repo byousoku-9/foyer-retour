@@ -14,6 +14,7 @@ from server.app.domain.answer import (
     AbsenceProof,
     AnswerSegment,
     ClaimStatus,
+    Lacune,
     RejectedClaim,
     Verification,
     VerifiedClaim,
@@ -21,10 +22,10 @@ from server.app.domain.answer import (
 )
 from server.app.domain.question import QuestionScope
 from server.app.domain.verdict import Verdict
-from server.app.steps import restituer as restituer_module
 from server.app.steps.restituer import (
     PHRASES_DE_REFUS,
     PHRASES_DE_REFUS_SINISTRE,
+    PHRASES_DE_LACUNE,
     REGISTRE_SINISTRE,
     REGISTRES,
     restituer,
@@ -102,22 +103,28 @@ def test_every_absence_kind_has_its_own_sentence(kind: str) -> None:
     reason = AbsenceProof(kind=kind, terms_searched=["école"], blocks_scanned=506, documents=["lux-guide"])
     answer, step = restituer(language="fr", reason=reason)
     assert answer.found is False and answer.complete is False
-    assert answer.texte == PHRASES_DE_REFUS[kind] and answer.claims == []
+    assert answer.texte == PHRASES_DE_REFUS["fr"][kind] and answer.claims == []
     # un refus rend **un** segment `limite` : l'UI n'a qu'une chose à afficher
-    assert [(s.kind, s.text) for s in answer.segments] == [("limite", PHRASES_DE_REFUS[kind])]
+    assert [(s.kind, s.text) for s in answer.segments] == [
+        ("limite", PHRASES_DE_REFUS["fr"][kind]),
+    ]
     assert answer.reason is reason and step.checks[0].detail == kind
     # une phrase distincte par kind : « hors périmètre » ne se confond pas avec « rien trouvé ».
     # Dérivé du Literal du domaine : un cinquième kind sans phrase serait un KeyError en production.
-    assert set(PHRASES_DE_REFUS) == set(ABSENCE_KINDS)
-    assert len(set(PHRASES_DE_REFUS.values())) == len(ABSENCE_KINDS)
+    assert set(PHRASES_DE_REFUS["fr"]) == set(ABSENCE_KINDS)
+    assert len(set(PHRASES_DE_REFUS["fr"].values())) == len(ABSENCE_KINDS)
 
 
-def test_a_refusal_in_another_language_says_it_falls_back_to_french() -> None:
+def test_a_refusal_is_rendered_in_the_selected_language_without_inventing_a_fallback() -> None:
     answer, _step = restituer(language="en", reason=AbsenceProof(kind="hors_perimetre"))
-    # la traduction du refus est l'AC de 2.4 : d'ici là, le repli est déclaré, jamais masqué
-    assert answer.lang == "fr" and answer.lang_fallback is True
+    assert answer.lang == "en" and answer.lang_fallback is False
+    assert answer.texte == PHRASES_DE_REFUS["en"]["hors_perimetre"]
     fr, _ = restituer(language="fr", reason=AbsenceProof(kind="hors_perimetre"))
     assert fr.lang_fallback is False
+
+    repli, _ = restituer(language="fr", lang_fallback=True,
+                         reason=AbsenceProof(kind="hors_perimetre"))
+    assert repli.lang == "fr" and repli.lang_fallback is True
 
 
 def test_a_refusal_keeps_the_rejected_claims_and_the_clarification() -> None:
@@ -213,7 +220,7 @@ def test_two_verdicts_for_one_answer_is_an_incoherent_call() -> None:
 
 
 # --- le registre du refus (story 1.8, revue) : le sinistre ne parle pas du guide ------
-@pytest.mark.parametrize("kind", sorted(PHRASES_DE_REFUS))
+@pytest.mark.parametrize("kind", sorted(PHRASES_DE_REFUS["fr"]))
 def test_a_sinistre_refusal_never_serves_the_guide_sentences(kind: str) -> None:
     """Le **texte servi** est celui du registre demandé, et il ne nomme pas le mauvais document.
 
@@ -223,21 +230,34 @@ def test_a_sinistre_refusal_never_serves_the_guide_sentences(kind: str) -> None:
     """
     answer, _step = restituer(language="fr", reason=AbsenceProof(kind=kind),
                               registre=REGISTRE_SINISTRE)
-    assert answer.texte == PHRASES_DE_REFUS_SINISTRE[kind]
+    assert answer.texte == PHRASES_DE_REFUS_SINISTRE["fr"][kind]
     assert answer.segments == [AnswerSegment(text=answer.texte, kind="limite")]
     assert "guide" not in answer.texte
-    assert answer.texte != PHRASES_DE_REFUS[kind]
+    assert answer.texte != PHRASES_DE_REFUS["fr"][kind]
     # et le guide, lui, ne bouge pas d'un octet
     guide, _s = restituer(language="fr", reason=AbsenceProof(kind=kind))
-    assert guide.texte == PHRASES_DE_REFUS[kind]
+    assert guide.texte == PHRASES_DE_REFUS["fr"][kind]
 
 
 def test_every_registry_covers_exactly_the_absence_kinds_of_ad4() -> None:
     """Un registre traduit les mêmes situations ; il n'en ajoute ni n'en retire aucune."""
     kinds = set(get_args(AbsenceProof.model_fields["kind"].annotation))
-    for nom, phrases in REGISTRES.items():
-        assert set(phrases) == kinds, nom
-        assert all(p.strip() for p in phrases.values()), nom
+    assert set(PHRASES_DE_REFUS) == set(PHRASES_DE_REFUS_SINISTRE) == {"fr", "en", "de", "pt"}
+    for nom, langues in REGISTRES.items():
+        for langue, phrases in langues.items():
+            assert set(phrases) == kinds, (nom, langue)
+            assert all(p.strip() for p in phrases.values()), (nom, langue)
+
+
+@pytest.mark.parametrize("kind", ABSENCE_KINDS)
+def test_les_refus_portugais_du_guide_et_anglais_du_sinistre_sont_servis_tels_quels(
+        kind: str) -> None:
+    guide, _ = restituer(language="pt", reason=AbsenceProof(kind=kind))
+    sinistre, _ = restituer(language="en", reason=AbsenceProof(kind="zero_hit"),
+                            registre=REGISTRE_SINISTRE)
+    assert guide.lang == "pt" and guide.texte == PHRASES_DE_REFUS["pt"][kind]
+    assert sinistre.lang == "en"
+    assert sinistre.texte == PHRASES_DE_REFUS_SINISTRE["en"]["zero_hit"]
 
 
 def test_an_unknown_registry_is_an_incoherent_call() -> None:
@@ -346,25 +366,18 @@ def test_un_segment_retire_empeche_complete_et_dit_ce_qui_manque() -> None:
     answer, step = restituer(language="fr", verification=verification)
     assert answer.texte == "Soutenue."
     assert answer.complete is False
-    assert answer.unknown == [restituer_module.PHRASE_SEGMENTS_RETIRES]
+    assert answer.unknown == [PHRASES_DE_LACUNE["fr"]["segments_retires"]]
     assert [c.name for c in step.checks] == ["segments_retires"]
 
 
-def test_une_lacune_du_code_signale_le_repli_de_langue() -> None:
-    """A3 : les phrases du code sont **en français** (leur traduction est l'AC de 2.4), exactement
-    comme `PHRASES_DE_REFUS`. Une réponse anglaise qui en emporte une n'est pas entièrement dans la
-    langue demandée, et le contrat le dit au lieu de le taire.
-
-    Le canal est ce qui rend la distinction possible : `unknown` vient du modèle et suit la langue de
-    la réponse, `lacunes` vient de nous et n'en sort jamais.
-    """
+def test_une_lacune_du_code_est_rendue_dans_la_langue_de_la_reponse() -> None:
     base = dict(segments=[AnswerSegment(text="The deadline is eight days.", kind="factuel",
                                         claim_ids=["c1"])],
                 claims=[_claim()], found=True)
-    du_code = Verification(**base, complete=False, lacunes=["Il me manque des éléments."])
+    du_code = Verification(**base, complete=False, lacunes=[Lacune(kind="lecture_bornee")])
     answer, _step = restituer(language="en", verification=du_code)
-    assert answer.lang == "en" and answer.lang_fallback is True
-    assert answer.unknown == ["Il me manque des éléments."]
+    assert answer.lang == "en" and answer.lang_fallback is False
+    assert answer.unknown == [PHRASES_DE_LACUNE["en"]["lecture_bornee"]]
 
     # Une lacune **du modèle** est rédigée dans la langue de la réponse : aucun repli à signaler.
     du_modele = Verification(**base, complete=False, unknown=["I could not check the fine print."])
@@ -376,11 +389,29 @@ def test_une_lacune_du_code_signale_le_repli_de_langue() -> None:
     assert francais.lang_fallback is False
 
 
+def test_une_reponse_partielle_anglaise_rend_les_causes_dans_leur_ordre() -> None:
+    verification = Verification(
+        segments=[AnswerSegment(text="The answer is partial.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=False,
+        lacunes=[Lacune(kind="lecture_bornee"),
+                 Lacune(kind="facettes_sans_reponse", n=2)])
+    answer, _ = restituer(language="en", verification=verification)
+    assert answer.unknown == [
+        PHRASES_DE_LACUNE["en"]["lecture_bornee"],
+        PHRASES_DE_LACUNE["en"]["facettes_sans_reponse"][1].format(n=2),
+    ]
+
+
 def test_les_deux_canaux_sont_affiches_dans_une_seule_liste() -> None:
     """Le modèle d'abord, le code ensuite, sans doublon : les deux fronts rendent `unknown[]` tel quel."""
     verification = Verification(
         segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"])],
         claims=[_claim()], found=True, complete=False,
-        unknown=["Je ne sais rien des frontaliers.", "Doublon."], lacunes=["Doublon.", "Lecture bornée."])
+        unknown=["Je ne sais rien des frontaliers."],
+        lacunes=[Lacune(kind="lecture_bornee"), Lacune(kind="renvoi_non_resolu")])
     answer, _step = restituer(language="fr", verification=verification)
-    assert answer.unknown == ["Je ne sais rien des frontaliers.", "Doublon.", "Lecture bornée."]
+    assert answer.unknown == [
+        "Je ne sais rien des frontaliers.",
+        PHRASES_DE_LACUNE["fr"]["lecture_bornee"],
+        PHRASES_DE_LACUNE["fr"]["renvoi_non_resolu"],
+    ]

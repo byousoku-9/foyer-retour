@@ -1,0 +1,129 @@
+{
+  "claude-haiku-4-5-20251001:82f4278f6b27fb05": {
+    "request": "claude-haiku-4-5-20251001:82f4278f6b27fb05",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\":\"en\",\"fidele\":true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2y5RpLHKmkZki9oBY9",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 712,
+        "output_tokens": 16,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:954619d6d5d269cc": {
+    "request": "claude-haiku-4-5-20251001:954619d6d5d269cc",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2xp9JnVwR5cCozNhNm",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3621,
+        "output_tokens": 157,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:b3673602cc0d662f": {
+    "request": "claude-haiku-4-5-20251001:b3673602cc0d662f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Combien de jours ai-je pour me déclarer à la commune à mon arrivée ?\", \"clarification\": null, \"language\": \"en\", \"terms\": [\"déclaration d'arrivée\", \"commune\", \"délai\"], \"themes\": [], \"facettes\": [\"délai de déclaration à la commune\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2x5E8oArGpLZZ26bdD",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4286
+        },
+        "cache_creation_input_tokens": 4286,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 70,
+        "output_tokens": 117,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:33fa8e699154e3c6": {
+    "request": "claude-sonnet-5:33fa8e699154e3c6",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"You must declare your arrival to the commune within eight days of moving in.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"This deadline runs from the date you move into your home, not from the date you sign the lease.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Since most communes work by appointment only, and slots fill up fast during peak periods, it is wise to book your appointment online before you even have the keys.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"This declaration is the foundation of your whole administrative setup: it produces the residence certificate and the national identification number, without which social security, banking, and school enrolment steps cannot proceed.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"You have eight days after moving in to declare your arrival at the commune.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"The eight-day deadline is counted from the move-in date, not from the lease signature.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c3\",\"text\":\"You should book the commune appointment online before receiving the keys, since slots fill up quickly, especially at the start of the school year.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]},{\"claim_id\":\"c4\",\"text\":\"Without this declaration to the commune, neither the identification number nor social security, banking, or school access are possible.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2xFHcjNxj6j6YcG6Jb",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2964,
+        "output_tokens": 745,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}

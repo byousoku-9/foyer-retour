@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from server.app.domain import answer, document, errors, question, retrieval, trace, verdict
+from server.app.domain.langue import LANGUES_SERVIES, est_langue_servie, normaliser_langue
 
 
 def fields(model: type[BaseModel]) -> set[str]:
@@ -20,6 +21,14 @@ def literal_values(model: type[BaseModel], field: str) -> set[str]:
         if get_origin(arg) is Literal:
             return set(get_args(arg))
     raise AssertionError(f"{model.__name__}.{field} n'est pas un Literal")
+
+
+def test_les_quatre_langues_servies_ont_une_seule_autorite() -> None:
+    assert LANGUES_SERVIES == {"fr": "français", "en": "anglais", "de": "allemand", "pt": "portugais"}
+    assert all(est_langue_servie(code.upper()) for code in LANGUES_SERVIES)
+    assert normaliser_langue(" PT ") == ("pt", False)
+    assert normaliser_langue("es") == ("fr", True)
+    assert normaliser_langue("") == ("fr", True)
 
 
 # AD-2
@@ -231,10 +240,13 @@ def test_verification_fields() -> None:
     assert v.found is False and v.complete is False and v.motif is None
     # Story 2.3 : deux canaux de lacune, une seule liste affichée. `unknown` est ce que le **modèle**
     # a déclaré hors de sa portée (dans la langue de la réponse) ; `lacunes` est ce que le **code**
-    # constate (toujours en français, d'où `Answer.lang_fallback`). `manques` les fond, sans doublon.
-    assert v.lacunes == [] and v.manques == []
-    deux = answer.Verification(unknown=["a", "b"], lacunes=["b", "c"])
-    assert deux.manques == ["a", "b", "c"]
+    # constate sous forme de faits typés. Leur cardinal est indépendant de leur projection.
+    assert v.lacunes == [] and v.nb_manques == 0
+    deux = answer.Verification(
+        unknown=["a", "b"],
+        lacunes=[answer.Lacune(kind="lecture_bornee"), answer.Lacune(kind="renvoi_non_resolu")],
+    )
+    assert deux.nb_manques == 4
     assert v.facettes_couvertes == []  # rien de mesuré ne vaut jamais une facette couverte
     # AD-4/AD-6 (story 1.8) : *vérifier* calcule le verdict, *restituer* le recopie. `None` en guide —
     # une question du guide n'a pas de verdict, et `Answer` n'a pas de second objet de réponse.
@@ -323,6 +335,7 @@ def test_parsed_question_normalizes_its_language() -> None:
                             ("eng", "fr"), ("fra", "fr"), ("de", "de"), ("pt", "pt")):
         q = question.ParsedQuestion(question_resolue="q", intent="question", language=value)
         assert q.language == expected
+        assert q.lang_fallback is (expected == "fr" and value.strip().lower() != "fr")
 
 
 def test_answer_found_coherence() -> None:
@@ -400,13 +413,17 @@ def test_question_and_retrieval() -> None:
     assert literal_values(question.Turn, "role") == {"user", "assistant"}
     # AD-5 : les deux issues de *comprendre* sont deux types distincts — une `ParsedQuestion` est
     # toujours autonome, la clarification ne s'y cache pas dans un champ (revue Codex 1.4, B4, tour 3).
-    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language", "terms",
-                                               "scope", "facettes"}
+    assert fields(question.ParsedQuestion) == {"question_resolue", "intent", "language",
+                                               "lang_fallback", "terms", "scope", "facettes"}
     # AD-4 : les facettes sont celles de `ParsedQuestion`, arrêtées par *comprendre* — pas un
     # découpage rendu par le contrôle qui juge ensuite sa propre couverture (revue Codex 1.5, tour 3)
     assert question.ParsedQuestion(question_resolue="q", intent="question").facettes == []
-    assert fields(question.ClarificationRequise) == {"clarification", "intent", "language"}
-    assert question.ClarificationRequise(clarification="qui ?", intent="suivi", language="fr-LU").language == "fr"
+    assert fields(question.ClarificationRequise) == {
+        "clarification", "intent", "language", "lang_fallback",
+    }
+    clarification = question.ClarificationRequise(
+        clarification="qui ?", intent="suivi", language="fr-LU")
+    assert clarification.language == "fr" and clarification.lang_fallback is True
     assert {"meteo", "bavardage", "hors_perimetre"} <= literal_values(question.ParsedQuestion, "intent")
     assert fields(question.Faits) == {"date", "lieu", "montant_eur", "description"}
     assert fields(retrieval.RetrievalResult) == {"blocs", "opened_block_ids", "discarded_block_ids", "truncated"}

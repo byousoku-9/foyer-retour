@@ -17,6 +17,7 @@ import time
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.domain.answer import AnswerDraft
+from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
@@ -54,7 +55,8 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                                                 ensure_ascii=False))]
     parts += [untrusted("document", f"{b.block_id}\n{b.text}") for b in retrieval.blocs]
     parts.append(untrusted("question", parsed.question_resolue))
-    tail = f"Langue de rédaction : {parsed.language}."  # normalisée par le domaine
+    tail = (f"Langue de rédaction : {LANGUES_SERVIES[parsed.language]} ({parsed.language}). "
+            "Les citations restent recopiées mot pour mot dans la langue du bloc source.")
     if motif is not None:
         # AD-15 : le motif vient de *vérifier* (1.5), qui le compose à partir de la sortie du modèle et
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.

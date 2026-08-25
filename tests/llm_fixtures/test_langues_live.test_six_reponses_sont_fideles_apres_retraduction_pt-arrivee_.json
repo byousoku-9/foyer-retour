@@ -1,0 +1,129 @@
+{
+  "claude-haiku-4-5-20251001:22d8340e59ee363d": {
+    "request": "claude-haiku-4-5-20251001:22d8340e59ee363d",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP34vCbxmEqJ641KqHBc",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3467,
+        "output_tokens": 132,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:2b84fc05f848794c": {
+    "request": "claude-haiku-4-5-20251001:2b84fc05f848794c",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP3531sofrXKdJTD2F9P",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 663,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:7d59a2b4dd0baad5": {
+    "request": "claude-haiku-4-5-20251001:7d59a2b4dd0baad5",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Quanto tempo tenho para declarar a minha chegada à comuna?\", \"clarification\": null, \"language\": \"pt\", \"terms\": [\"déclaration d'arrivée\", \"commune\", \"délai\"], \"themes\": [], \"facettes\": [\"délai de déclaration d'arrivée à la commune\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP34FKX8Tpk8aopKDWSR",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4286,
+        "inference_geo": "not_available",
+        "input_tokens": 72,
+        "output_tokens": 115,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:bd905c635c0dc646": {
+    "request": "claude-sonnet-5:bd905c635c0dc646",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Tem oito dias após a mudança para efetuar a declaração de chegada na comuna.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Esse prazo conta a partir da mudança, e não a partir da assinatura do contrato de arrendamento.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"É aconselhável marcar a consulta online antes mesmo de ter as chaves, pois nos períodos de maior procura os horários esgotam-se rapidamente.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"O prazo para declarar a chegada na comuna é de oito dias após o emmenagement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"Le délai court à partir de l'emménagement, pas de la signature du bail.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut réserver le rendez-vous en ligne avant même d'avoir les clés, car les créneaux partent vite en période de rentrée.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP34NSPpLJAyvwASTj8h",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2960,
+        "output_tokens": 587,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}

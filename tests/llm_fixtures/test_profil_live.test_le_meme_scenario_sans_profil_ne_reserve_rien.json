@@ -1,35 +1,4 @@
 {
-  "claude-haiku-4-5-20251001:02add3fd2a6455c9": {
-    "request": "claude-haiku-4-5-20251001:02add3fd2a6455c9",
-    "response": {
-      "content": [
-        {
-          "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeNs2SnNXfLZczJWs89ty",
-      "model": "claude-haiku-4-5-20251001",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "inference_geo": "not_available",
-        "input_tokens": 3715,
-        "output_tokens": 158,
-        "service_tier": "standard"
-      }
-    }
-  },
   "claude-haiku-4-5-20251001:0c2696868cc79c3c": {
     "request": "claude-haiku-4-5-20251001:0c2696868cc79c3c",
     "response": {
@@ -40,7 +9,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeNyVWMsj3egQ421hN4aR",
+      "id": "msg_011CeP3yhg1tYnNWADEXjXaT",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -61,48 +30,17 @@
       }
     }
   },
-  "claude-haiku-4-5-20251001:47ad6919a9068a23": {
-    "request": "claude-haiku-4-5-20251001:47ad6919a9068a23",
+  "claude-haiku-4-5-20251001:9987740abaa8e633": {
+    "request": "claude-haiku-4-5-20251001:9987740abaa8e633",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Quelles démarches dois-je faire avant la rentrée scolaire pour mes enfants ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"rentrée scolaire\", \"scolarisation\", \"enfants\"], \"themes\": [], \"facettes\": [\"démarches avant la rentrée scolaire\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeNs1WQ8EQxT5yfTLBL9h",
-      "model": "claude-haiku-4-5-20251001",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 4282,
-        "inference_geo": "not_available",
-        "input_tokens": 76,
-        "output_tokens": 125,
-        "service_tier": "standard"
-      }
-    }
-  },
-  "claude-haiku-4-5-20251001:e3b43dbf750ecb9b": {
-    "request": "claude-haiku-4-5-20251001:e3b43dbf750ecb9b",
-    "response": {
-      "content": [
-        {
-          "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeNyWZJG6KsMV22Mqgowh",
+      "id": "msg_011CeP3zpng5GHTtuvf2Zc5T",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -117,28 +55,28 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 3470,
-        "output_tokens": 112,
+        "input_tokens": 3700,
+        "output_tokens": 158,
         "service_tier": "standard"
       }
     }
   },
-  "claude-sonnet-5:a6c1bb578f2fb153": {
-    "request": "claude-sonnet-5:a6c1bb578f2fb153",
+  "claude-sonnet-5:db0dbff037cabaf2": {
+    "request": "claude-sonnet-5:db0dbff037cabaf2",
     "response": {
       "content": [
         {
-          "signature": "EoILCpABCBEYAipAy4A9VjWaAwpejYUPXZw0ux3VjMcYKtAvtqaMsgMG+zB9ud8+KuNJWFDGY2zwKoFfvikySj3NdqDbalDctr+6iDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAb/ltNQGEgxpw7PMhKOjzLVIZosaDMf5CdEvViLZA4ROqSIw/6LoHQgJnQKwqA+4iDfiUGeNIiavszg1tsNMy2j9+FvekN/jKkR5dmJYFkrQAqnqKp4JCPYCV7crO4+Bw2JKelomFbG5RBZIAEml2cASn7DbuVuv9hw01Rrt9+ptVn/xZG/VzlgMzAu4U8+pkReDFjzMRkXOr1iSHJHGCyEfZR9M4gHhUX1NOl1zGy0FZ6Lq8XBpCIupk0kolm4aJGe3o2480yLXhDnCgERsix4T1wkFcg892EISbzg8kaXD26CC92FmWGFfqbuTKSMMD8Zur72SGHS+kDHA2tACMABUtlzxdSPjZMAphGf8R73RNdn0bK2j3IuzuoJDDkMKAwtj5vluA+g/yq21PS5CIiKYQ01usafTImF8Si9SmBibdxdJijmEjFeGK/UKV1qBE0hcnTUiPQ1KAKFEy8aEqd+l2yK28dyIgEqJPcptEFhFE0EWYJIpPhP2M4v11DhW57BVGWNOKq+THMV8/dKj9xilC99wmLoRDb3B7yQ9Ks1n6CrZIPHIl58c7hXf534SfOnTNqz3R8NhjYcxq6gL3T4c/h2ovqT0hTNmsOlX9RkQ1F4PvEeGkrLW9i0plB0KQQwZ7kQi/GL/M9YZEPtc/pGIjMd23BuOXmBqTg4OEieEGzfkR31XM/U6vuMGMyJ3+5rV5dXN9nKpiQ9lUexI0piRjxn7znjF3UELJ25Kdj/cdysRAgJcbULXm5YPZpk+d5XqwCkAf0X1qxlB23u8Zj25976kONW5vPtLU/UI685uAKKuLrR72m5thdU00sHXoAIi5UjXd8f1GtfsQ+XscbGOY+ZYQ9bsm3Q6ui6yKl+nm0xMVuhtC7hKKDN8qYR49jxXMJfPLGo0lZIctpzAcJPZUqejY2yFJOq3FBmwxzQicCHA1n4PJ8hkB3k+zmUJmu5lqgMLIwn/37t0z4nx/YcrVajFYwZITWekuxUo0XUSxKQiUfhjC0MPMuHHWXHXvzzzP2muCd4hc5JrTi1iKJ0m37NscKUe/f4KU55/8IcUQ1EjkJN+Bvsyj/QB0tF+FIdeh76/gtEX4YIlYT8j8RYapkp+Zrbr8H6s92i0x410V0Rb7LQNGlMyi1tCb7Qo4w+dYW1SDdBtjIGYBoIxtmorLZjrUud0Hyu9xqHqB//+XDo9xa+DBfB5CR/efIvDuFu1f6TrOzdiV28NKljxiSD/tAK1YAJdhHCdDa+rbxG/is0lA3tuxmoFRysVyHwuBjqhGAEXGVk2ZOf10Kgzqr/pIdpyi3VLtI4F575P/oYgy2cjJtxUiBB4G//ZLskVu75NDMj30WHBjfOGSYzrkn4B1ga7K6DLo9wMdzYr28rrldBDJ0KWzl2jWRxKkpn+BwDELD56oRbs4vrChw5GUU6NZTSiIYJkFjGV8pTjf9UH5aWKpseegh+n/KfUgZD0zYO3i0JBgfSOAshDb04v+9UXgx+o90DbPGS0nGRvLeAhD7ZzTA2hTCTGQkuij0juVo/21Rji92qvR2m026TZ3KUHmL5Qm4XF40MqQTCgDZ9JbkyUDBuRQFTa1Yl/UbcvshZjy+0VbfoEzpimENCMZGXofzbYDWPtSJr0+K79D+khOlVV7Ubz5f6BV6FtBYC1ETPEVMl5pM8iNCOeH2zEFEYkKcbHGAE=",
+          "signature": "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",
           "thinking": "",
           "type": "thinking"
         },
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Avant la rentrée scolaire, la démarche de base à ne pas négliger est la déclaration à la commune : elle conditionne l'obtention du certificat de résidence, sans lequel l'inscription scolaire (comme le chèque-service) n'est pas possible.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il est donc utile d'anticiper les rendez-vous administratifs, car la période de rentrée est justement celle où les créneaux se remplissent le plus vite.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Les blocs fournis ne détaillent pas les démarches propres à l'inscription scolaire elle-même (choix de la voie, documents demandés par l'école) : je ne peux pas l'affirmer à partir de ce qui est disponible ici.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Sans déclaration à la commune, il n'y a pas de certificat de résidence, donc pas d'inscription scolaire possible.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut prendre rendez-vous en ligne dès que possible, en particulier en période de rentrée, où les créneaux se remplissent plusieurs semaines à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"Prenez rendez-vous en ligne dès que c'est possible, en particulier en période de rentrée, où les créneaux se remplissent plusieurs semaines à l'avance\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Avant la rentrée scolaire, la priorité est de sécuriser la chaîne administrative qui conditionne l'inscription de vos enfants.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Sans déclaration à la commune, vous n'obtenez pas de certificat de résidence, et sans ce certificat, pas d'inscription scolaire possible.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il faut donc prendre rendez-vous en ligne le plus tôt possible, car en période de rentrée les créneaux se remplissent plusieurs semaines à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Vérifiez également la liste des pièces à fournir directement sur le site de votre commune, car elle varie d'une commune à l'autre pour une même démarche.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les blocs fournis ne détaillent pas les démarches propres à l'inscription scolaire elle-même (voies possibles, dossier à constituer auprès de l'école) : cette information n'est pas couverte ici.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Sans déclaration à la commune, il n'y a pas de certificat de résidence, donc pas d'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut prendre rendez-vous tôt, surtout en période de rentrée où les créneaux se remplissent vite.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"en particulier en période de rentrée, où les créneaux se remplissent plusieurs semaines à l'avance\"}]},{\"claim_id\":\"c3\",\"text\":\"La liste des pièces à fournir varie d'une commune à l'autre et doit être vérifiée sur le site de la commune.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"Vérifiez la liste des pièces sur le site de votre commune, car elle varie d'une commune à l'autre pour une même démarche\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeNyVdffgkrKuVqrvkHiM",
+      "id": "msg_011CeP3yqFBHH6hKGJ2FvupR",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -153,49 +91,10 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
-        "input_tokens": 2993,
-        "output_tokens": 1045,
+        "input_tokens": 3022,
+        "output_tokens": 1405,
         "output_tokens_details": {
-          "thinking_tokens": 424
-        },
-        "service_tier": "standard"
-      }
-    }
-  },
-  "claude-sonnet-5:f615403d753add86": {
-    "request": "claude-sonnet-5:f615403d753add86",
-    "response": {
-      "content": [
-        {
-          "signature": "Eo4GCpABCBEYAipAPaDCxCqHnLwnjExQp1lL5/Ke/gaJXduKqtaSKsx8ztHoy3PM8tYQdZIa0vbNQfRzi4Vuzs8eoYef44fcfx+KpjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAc+9tNQGEgy4tYHz55ncD4I9H/UaDPOPcnX9V4dU9ZfyziIwkTouW1VGBRr1RijIaU3MWiisRI/Pk4WLT7GLdvgmgL4O4fqXAYOJ2CefL42RLvDPKqoELWaTpo90ufj9KnM//PHKWPX6b3Av4E8kO65HyXTXOFD7ETpsOaz4ROHQNDm1ROrh6v13pvjj95v9rEAK+fAze7q2JyQyPNz0zni1ncNxuPZ2y/4WC1uuRWscwxSO5aRJx3AyWfRQ2bAnpsyL2aPj10C5FUwNBLr67T0KfSr+/G8eqwkyVNK3O4AZVmAzlOmv4lLt6MCFytFaRqbbZBVkqu6KKBZgiqm/E6D42tbZiblOH1TdbhCUuj9YeTlDgI9Sko0L0zs58rSFjDz1Sza2HF7+yGoNzOJocMs7FpkZYin3sRHbA5hKXTy3+A+c329L1+Hdo4TfDS1jF+SmkSkd6hU93eqsdOnom4A2ltVApCxY9duSVByE2gv5wxgUsWBcbvQS/ACAUIF1X07kLOX7et7olnGzDFYD0IaxRMMVF5DMpCkcoiMCNvIgFdIUeuONu4OH2k24DEZFESDonHq7X/+EdTP8jqifSMkzf4aolpOwKON/ZdDkuU7h9vh4NfWdobWg5CWXHJVZ0/1XyZy8CutED/Pk62rYWNHRUXvbUkl/H5ZNMrg2Qmhddef1TfE9T9cT0R4T6OpceHV0nM+i6jyoH9XIMPQdpIFLXmbDtlu2C+bYqVq13793oNn/JHqoVC5lwjwvXJJlYd6MKREfAqfaI5diE6BQh/gr1sf2B1MhfSO1Rxrqe+bgY+ieaVrlniTE6L4VTGWcYBoqZ6scYFV8Tjz1oWIToQ0YAQ==",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
-          "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Les blocs fournis ne traitent pas directement de la scolarisation des enfants, mais deux points administratifs concernent la préparation d'une rentrée scolaire.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Sans déclaration à la commune, il n'est pas possible d'obtenir de certificat de résidence, et donc pas d'inscription scolaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne dès que possible, en particulier en période de rentrée, car les créneaux se remplissent plusieurs semaines à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Pensez aussi à vérifier la liste des pièces demandées sur le site de votre commune, car elle varie d'une commune à l'autre pour une même démarche.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les documents fournis ne détaillent pas les voies de scolarisation (école publique, européenne, internationale) ni les délais d'inscription propres aux établissements scolaires : ces informations ne figurent pas dans les blocs disponibles ici.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Sans déclaration à la commune, il n'y a pas de certificat de résidence, donc pas d'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut prendre rendez-vous en ligne dès que possible, surtout en période de rentrée où les créneaux se remplissent vite.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"Prenez rendez-vous en ligne dès que c'est possible, en particulier en période de rentrée, où les créneaux se remplissent plusieurs semaines à l'avance\"}]},{\"claim_id\":\"c3\",\"text\":\"La liste des pièces demandées varie d'une commune à l'autre pour une même démarche.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"Vérifiez la liste des pièces sur le site de votre commune, car elle varie d'une commune à l'autre pour une même démarche\"}]}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeNs1duZwj8pMrLdfFwSB",
-      "model": "claude-sonnet-5",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 6811,
-        "inference_geo": "global",
-        "input_tokens": 3092,
-        "output_tokens": 1034,
-        "output_tokens_details": {
-          "thinking_tokens": 176
+          "thinking_tokens": 583
         },
         "service_tier": "standard"
       }

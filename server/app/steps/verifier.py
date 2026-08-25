@@ -56,6 +56,7 @@ from server.app.domain.answer import (
     AnswerSegment,
     Claim,
     ClaimStatus,
+    Lacune,
     Quote,
     RejectedClaim,
     Verification,
@@ -806,8 +807,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
 
 def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_couvertes: list[int],
-             renvois_ouverts: bool, ecartes: int) -> list[str]:
-    """Les phrases de lacune d'une réponse trouvée mais incomplète (story 2.3), composées par le code.
+             renvois_ouverts: bool, ecartes: int) -> list[Lacune]:
+    """Les causes typées d'une réponse trouvée mais incomplète, dans l'ordre du pipeline.
 
     Une phrase par cause, dans l'ordre où elles se produisent le long de la chaîne : ce qui n'a pas
     été lu, puis ce qui n'a pas été mesuré, puis ce qui n'a pas été couvert, puis ce qui n'a pas été
@@ -819,27 +820,23 @@ def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_cou
     Aucune ne nomme un `block_id`, un terme cherché ni un extrait (AD-10, AD-15) : les chiffres
     qu'elles portent sont les nôtres, comptés ici.
     """
-    lacunes: list[str] = []
+    lacunes: list[Lacune] = []
     if retrieval.truncated:
         # NFR2 : budget de retrieval épuisé ou troncature ⇒ jamais d'`AbsenceProof`, et jamais
         # `complete`. La phrase dit la borne, pas ce qu'elle a coupé — nous ne le savons pas.
-        lacunes.append("Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture "
-                       "a été bornée, et des passages sont restés fermés.")
+        lacunes.append(Lacune(kind="lecture_bornee"))
     if not parsed.facettes:
         # AD-4 (tour 3) : aucune facette au barème ⇒ aucune preuve de couverture ⇒ jamais complet.
         # L'absence de mesure est une lacune en soi, et elle se dit — sinon « partiel » resterait nu
         # sur la seule question qui n'a pas pu être découpée.
-        lacunes.append("Je n'ai pas pu découper votre question en sous-questions : je ne peux donc pas "
-                       "garantir de l'avoir traitée en entier.")
+        lacunes.append(Lacune(kind="sans_decoupage"))
     elif len(facettes_couvertes) < len(parsed.facettes):
         manquantes = len(parsed.facettes) - len(facettes_couvertes)
-        lacunes.append(f"Il reste {manquantes} sous-question{'s' if manquantes > 1 else ''} sans réponse "
-                       f"dans ce que vous m'avez demandé.")
+        lacunes.append(Lacune(kind="facettes_sans_reponse", n=manquantes))
     if renvois_ouverts:
-        lacunes.append("Un passage que je cite renvoie à un autre passage que je n'ai pas pu retrouver.")
+        lacunes.append(Lacune(kind="renvoi_non_resolu"))
     if ecartes:
-        lacunes.append(f"J'ai retiré {ecartes} phrase{'s' if ecartes > 1 else ''} de ma réponse : les "
-                       f"passages joints ne {'les' if ecartes > 1 else 'la'} soutenaient pas.")
+        lacunes.append(Lacune(kind="phrases_ecartees", n=ecartes))
     return lacunes
 
 

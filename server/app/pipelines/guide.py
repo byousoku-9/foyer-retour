@@ -35,6 +35,7 @@ from server.app.domain.errors import (
     PipelineError,
     Timeout,
 )
+from server.app.domain.langue import est_langue_servie, langues_servies_texte, normaliser_langue
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
 from server.app.domain.trace import CheckResult, StepTrace, Trace
@@ -102,6 +103,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`, `LlmUnavailable`) remontent.
     """
     doc_id = doc_id or settings.guide_doc_id
+    if lang is not None and not est_langue_servie(lang):
+        raise InvalidRequest(f"langue non servie : choisissez {langues_servies_texte()}")
+    if lang is not None:
+        lang = normaliser_langue(lang)[0]
     if doc_id not in corpus.documents:
         # Document en quarantaine, absent ou mal nommé : `retrouver` lèverait un `KeyError` nu **après**
         # *comprendre*, donc après un appel facturé, et l'API en ferait un 500 (revue 1.5). AD-16 a un
@@ -155,9 +160,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         )
 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
+                lang_fallback: bool = False,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
         echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
-        answer, step = restituer(language=language,
+        answer, step = restituer(language=language, lang_fallback=lang_fallback,
                                  reason=_absence(kind, parsed, doc_id=doc_id, corpus=corpus,
                                                  dictionnaire=dictionnaire),
                                  clarification=clarification)
@@ -191,12 +197,14 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
         if isinstance(parsed, ClarificationRequise):
             return refuser("clarification_requise", None, language=parsed.language,
+                           lang_fallback=parsed.lang_fallback,
                            clarification=parsed.clarification)
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
             # Il reste actif **dans tous les cas**, dictionnaire validé ou non : c'est le seul des
             # deux court-circuits d'AD-5 qui ne dépende de rien d'autre que de l'`intent`.
-            return refuser("hors_perimetre", None, language=parsed.language)
+            return refuser("hors_perimetre", None, language=parsed.language,
+                           lang_fallback=parsed.lang_fallback)
 
         # --- court-circuit « zéro hit » d'AD-5, **avant** *retrouver* -------
         # AD-5, mot pour mot : « court-circuit vers *restituer* … si aucun terme canonique (ni ses
@@ -244,7 +252,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             echeance("court-circuit zéro hit")  # comme avant chaque étape (AD-1/AD-9)
             if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id) \
                     and not index.definitions(termes, doc_id=doc_id):
-                return refuser("zero_hit", parsed, language=parsed.language)
+                return refuser("zero_hit", parsed, language=parsed.language,
+                               lang_fallback=parsed.lang_fallback)
         # Aucun terme extrait : rien n'a été cherché, donc rien ne prouve une absence (AD-1). La
         # question poursuit vers *retrouver*, et c'est le garde-fou « zéro bloc » qui tranchera.
 
@@ -274,7 +283,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             # `reason` sans un seul bloc citable ne peut produire que des claims sans source — et coûte
             # le prix plein. L'`AbsenceProof` dit ce qui a été cherché, jamais que l'information n'existe
             # pas (AD-1).
-            return refuser("zero_hit", parsed, language=parsed.language)
+            return refuser("zero_hit", parsed, language=parsed.language,
+                           lang_fallback=parsed.lang_fallback)
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
@@ -344,7 +354,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                                    f"{len(blocs_cites(seconde))} bloc(s) cité(s) contre "
                                    f"{len(blocs_cites(acquise))}, "
                                    f"complete={seconde.complete} contre {acquise.complete}, "
-                                   f"manques={len(seconde.manques)} contre {len(acquise.manques)}) : "
+                                   f"manques={seconde.nb_manques} contre {acquise.nb_manques}) : "
                                    f"la première fait foi"))
             except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                 # Deux situations qu'AD-16 sépare, et qu'il ne faut surtout pas confondre (revue Codex
@@ -407,11 +417,14 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     f"{settings.retrieval_max_tokens} tokens) : aucune absence du corpus n'est affirmée")
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé, jamais un dégradé silencieux.
             answer, step_restituer = restituer(
-                language=parsed.language, verification=verification,
+                language=parsed.language, lang_fallback=parsed.lang_fallback,
+                verification=verification,
                 reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus,
                                 dictionnaire=dictionnaire))
         else:
-            answer, step_restituer = restituer(language=parsed.language, verification=verification)
+            answer, step_restituer = restituer(
+                language=parsed.language, lang_fallback=parsed.lang_fallback,
+                verification=verification)
         steps.append(step_restituer)
         return answer, tracer()
 

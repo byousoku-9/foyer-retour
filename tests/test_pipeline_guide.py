@@ -36,8 +36,8 @@ from server.app.domain.question import Turn
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
-from server.app.pipelines.commun import PHRASE_RELANCE_ABANDONNEE
 from server.app.pipelines.guide import repondre_guide
+from server.app.steps.restituer import PHRASES_DE_LACUNE
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DOC_ID = "mini"
@@ -377,6 +377,26 @@ async def test_the_forced_language_travels_to_the_answer(index: Index) -> None:
     assert answer.lang == "en" and answer.lang_fallback is False
 
 
+async def test_a_supported_detection_drives_the_answer_without_fallback(index: Index) -> None:
+    answer, _trace, _fake = await _run(
+        index, [_comprendre(language="en", terms=["arrivée"]), _rediger(BONNE),
+                _verdicts(("c1", True))])
+    assert answer.lang == "en" and answer.lang_fallback is False
+
+
+async def test_an_unsupported_detection_falls_back_to_a_french_refusal(index: Index) -> None:
+    answer, _trace, fake = await _run(index, [_comprendre("meteo", language="es")])
+    assert fake.remaining_script == 0
+    assert answer.lang == "fr" and answer.lang_fallback is True
+
+
+@pytest.mark.parametrize("lang", ["es", "eng", "XX"])
+async def test_an_unsupported_forced_language_is_rejected_before_any_call(index: Index,
+                                                                          lang: str) -> None:
+    with pytest.raises(InvalidRequest, match="français.*anglais.*allemand.*portugais"):
+        await _run(index, [], lang=lang)
+
+
 # --- quand la relance n'a pas lieu (AD-3 lu, NFR4 tenu) ----------------------
 async def test_a_standing_answer_never_pays_a_second_reason_call_for_a_relevance_rejection(
         index: Index) -> None:
@@ -437,7 +457,7 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
     assert answer.complete is False  # AD-4 : une relance empêchée est une troncature
     # Story 2.3 : et la troncature **se dit**. `complete=False` seul redonnerait un « PARTIEL » nu,
     # que le domaine refuse désormais (`complete ⟺ found ∧ unknown = []`).
-    assert PHRASE_RELANCE_ABANDONNEE in answer.unknown
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
     verifier = next(s for s in trace.steps if s.name == "verifier")
     (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
     assert "budget_exceeded" in check.detail and "2 requis" in check.detail

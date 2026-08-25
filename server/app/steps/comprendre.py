@@ -31,6 +31,7 @@ from pydantic import Field, model_validator
 from server.app.config import LISTE_MAX_ITEMS, Settings
 from server.app.domain.document import DomainModel, ParcoursCondition
 from server.app.domain.errors import PipelineError
+from server.app.domain.langue import normaliser_langue
 from server.app.domain.profil import Profil, noeuds_du_profil
 from server.app.domain.question import (
     CLARIFICATION_MAX_CHARS,
@@ -207,11 +208,18 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         exc.step = step
         raise
     out = result.parsed
-    language = lang if lang is not None else out.language  # normalisé par le modèle du domaine
+    # Une langue explicitement demandée a déjà été validée par le pipeline : elle ne constitue
+    # jamais un repli. Une détection peut en revanche tomber hors des quatre langues servies.
+    if lang is not None:
+        language, lang_fallback = normaliser_langue(lang)
+        lang_fallback = False
+    else:
+        language, lang_fallback = normaliser_langue(out.language)
     clarification = (out.clarification or "").strip()
     if clarification:  # AD-5 : aucune `question_resolue` n'est construite dans ce cas
         sortie: ParsedQuestion | ClarificationRequise = ClarificationRequise(
-            clarification=clarification, intent=out.intent, language=language)
+            clarification=clarification, intent=out.intent, language=language,
+            lang_fallback=lang_fallback)
     else:
         # `terms`, `themes` et `facettes` sont ramenés **par le code** à leurs seuils de travail
         # (reprise différée de la revue 1.4), et ce qui tombe est désormais **dit** (revue Codex 2.1,
@@ -244,6 +252,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
             question_resolue=(out.question_resolue or "").strip(),
             intent=out.intent,
             language=language,
+            lang_fallback=lang_fallback,
             terms=terms,
             facettes=facettes,
             scope=QuestionScope(themes=themes,

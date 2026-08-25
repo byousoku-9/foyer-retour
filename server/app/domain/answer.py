@@ -27,6 +27,15 @@ RejectionKind = Literal["non_retrouvee", "non_pertinente", "ambigue", "non_citee
 # sorties exclusives de *comprendre*). Répondre `hors_perimetre` à une anaphore irrésoluble serait un
 # mensonge : la question relève peut-être du périmètre, on ne le sait pas encore.
 AbsenceKind = Literal["hors_perimetre", "zero_hit", "claims_rejetes", "clarification_requise"]
+LacuneKind = Literal[
+    "lecture_bornee",
+    "sans_decoupage",
+    "facettes_sans_reponse",
+    "renvoi_non_resolu",
+    "phrases_ecartees",
+    "segments_retires",
+    "relance_abandonnee",
+]
 
 
 class Quote(DomainModel):
@@ -165,6 +174,13 @@ class RejectedClaim(VerifiedClaim):
     quotes: list[VerifiedQuote | Quote] = Field(min_length=1)
 
 
+class Lacune(DomainModel):
+    """Cause typée d'une réponse incomplète ; sa phrase est rendue par *restituer*."""
+
+    kind: LacuneKind
+    n: int = Field(default=0, ge=0)
+
+
 class Verification(DomainModel):
     """Sortie de *vérifier* (AD-3/AD-4) : ce qui survit, ce qui est rejeté, et pourquoi.
 
@@ -183,15 +199,9 @@ class Verification(DomainModel):
     # Ce que **le modèle** a déclaré hors de sa portée : le texte des segments `limite` de l'ébauche,
     # rédigé dans la langue de la réponse.
     unknown: list[str] = Field(default_factory=list)
-    # Ce que **le code** constate qu'il manque (story 2.3, revue coordonnée A3) : lecture bornée,
-    # découpage non établi, sous-questions sans réponse, renvoi non résolu, phrases écartées, relance
-    # empêchée. Les deux listes sont affichées ensemble — l'utilisateur lit une seule section « Ce
-    # que je ne sais pas » —, mais elles ne sont pas de même nature et ne peuvent pas partager un
-    # champ : les phrases du code sont **en français** quelle que soit `ParsedQuestion.language`
-    # (leur traduction est l'AC de la story 2.4), exactement comme `restituer.PHRASES_DE_REFUS`, et
-    # c'est ce qui doit lever `Answer.lang_fallback`. Fondues dans `unknown`, elles faisaient passer
-    # une réponse partiellement française pour une réponse rédigée dans la langue demandée.
-    lacunes: list[str] = Field(default_factory=list)
+    # Ce que **le code** constate qu'il manque. Une lacune est un fait typé ; sa phrase dépend de la
+    # langue et n'est projetée que dans *restituer*, seul endroit où un `Answer` se fabrique.
+    lacunes: list[Lacune] = Field(default_factory=list)
     # **Quelles** facettes de la question une affirmation affichée couvre — leurs rangs dans
     # `ParsedQuestion.facettes`, triés (AD-4, revue Codex 1.5, tours 2 et 3, I2). `complete` n'en est
     # que le cas « toutes » ; la relance, elle, a besoin de l'ensemble et pas de son cardinal : deux
@@ -208,11 +218,9 @@ class Verification(DomainModel):
     motif: str | None = None
 
     @property
-    def manques(self) -> list[str]:
-        """Tout ce qui manque, dans l'ordre d'affichage : ce que le modèle a déclaré, puis ce que le
-        code a constaté, sans doublon. C'est cette liste — et elle seule — que `complete` nie, et
-        c'est elle que *restituer* recopie dans `Answer.unknown`."""
-        return self.unknown + [t for t in self.lacunes if t not in self.unknown]
+    def nb_manques(self) -> int:
+        """Cardinal comparé par la relance, indépendamment de la langue de projection."""
+        return len(self.unknown) + len(self.lacunes)
 
 
 class AbsenceProof(DomainModel):

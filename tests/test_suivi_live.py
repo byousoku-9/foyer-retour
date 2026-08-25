@@ -68,7 +68,7 @@ CLARIFICATION_POSEE = "De quel document ou démarche parlez-vous ?"
 # Exactement ce que `web/app/chat.js::tourAssistant` compose et que la page conserve : la question
 # posée, puis la phrase de refus, dans l'ordre où `vueReponse` les peint. C'est « ce que l'assistant
 # a dit », et c'est la seule définition non arbitraire du tour assistant.
-TOUR_ASSISTANT = CLARIFICATION_POSEE + " " + PHRASES_DE_REFUS["clarification_requise"]
+TOUR_ASSISTANT = CLARIFICATION_POSEE + " " + PHRASES_DE_REFUS["fr"]["clarification_requise"]
 REPONSE_COURTE = "du permis de conduire"
 
 

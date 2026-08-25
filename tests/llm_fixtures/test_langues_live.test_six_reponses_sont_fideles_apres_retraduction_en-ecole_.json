@@ -1,0 +1,134 @@
+{
+  "claude-haiku-4-5-20251001:68505e8028ad07b2": {
+    "request": "claude-haiku-4-5-20251001:68505e8028ad07b2",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": false}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2z8Z7bSoo2ynm2fYHF",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3898,
+        "output_tokens": 183,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:83d3240acc4cb1fe": {
+    "request": "claude-haiku-4-5-20251001:83d3240acc4cb1fe",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Où inscrire mes enfants à l'école au Luxembourg ?\", \"clarification\": null, \"language\": \"en\", \"terms\": [\"inscription scolaire\", \"école\", \"enfants\"], \"themes\": [], \"facettes\": [\"où inscrire les enfants à l'école\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2yAbsGJspByErDVZ6M",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4286,
+        "inference_geo": "not_available",
+        "input_tokens": 67,
+        "output_tokens": 107,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:e1460a02e2654df0": {
+    "request": "claude-haiku-4-5-20251001:e1460a02e2654df0",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2zHkG1MwbQLvvimUCk",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 551,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:e185ddf6b8d54ae8": {
+    "request": "claude-sonnet-5:e185ddf6b8d54ae8",
+    "response": {
+      "content": [
+        {
+          "signature": "EqQDCpABCBEYAipAFDPWlCuWHLn8i8uZmzTSjdclNwzyt5qFT51D/LaboE6y5jsvynEyddTSWnxfYL1x5b7fiPbw32ZM7pXFf/yvejIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAer6tNQGEgzLJ1QPMtPai0HhDdkaDLbwkbJNC6rMgH4n2SIwgVl/VNJTqifYROMKfaW7VobQzRIgVMo1aoW4ch+SB4drntsWg+Oicq6vz76nBstaKsAB7WDh+eR+jHifws/R7O6GkQmgoP9jyvQUSzgiw/CwwDwLr+TGGd4pU8sfcpcXmpyMmRCDCH5aKyt1hXidv0ppA7HRefu8w4o8PQRJaumfgznP53j/Y0+eWVNgKlstnpJoHpQxMDQbB74Ecc+L/eAibWsngG3K1lZPGMsaPJ8Pw9yvokKI6MNoBRef3cPnzloO+RxqV03IkSBv73pmGzA09gX2X152DEMGGxrWrqn+OTQGPldTy3R8DmDochJ0wtQXGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Before looking for housing, you should first settle on how your children will be schooled, since this is the longest and most constrained step of the whole move.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Three main routes coexist in Luxembourg.\",\"kind\":\"transition\"},{\"text\":\"Public schools are free and multilingual, alphabetising in Luxembourgish before introducing German and then French; they integrate young children very well, though late arrivals may face a real language barrier.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"European schools follow a curriculum organised by language section leading to the European Baccalaureate, with priority given to children of EU staff and a fee for other families; there are also free public international schools with English, French or German sections that are highly sought after, plus private schools offering the IB or foreign curricula at significant cost.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Registering with the commune usually comes before school enrolment, and popular sections can fill up up to a year ahead, so check the availability of the specific linguistic section rather than just the school, and get your child's certificate of deregistration and recent report cards from their current school before leaving.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"The documents provided do not specify online enrolment procedures or exact application deadlines beyond the general timing described.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"School enrolment is the longest and most constrained step of the installation and should be started before the housing search.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Public school is free, multilingual, teaches Luxembourgish then German then French, integrates young arrivals well but poses a language barrier for late arrivals.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"European schools lead to the European Baccalaureate with priority for EU staff children and fees for others; free public international schools also exist alongside fee-paying private schools.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen.\"}]},{\"claim_id\":\"c4\",\"text\":\"Commune registration generally precedes school enrolment, popular sections can fill a year ahead, and departure documents like the deregistration certificate and report cards should be collected in advance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeP2yHZZnA6JqaM5hQLML",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 3012,
+        "output_tokens": 1076,
+        "output_tokens_details": {
+          "thinking_tokens": 49
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}
