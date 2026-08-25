@@ -29,7 +29,8 @@ from typing import Any
 import pytest
 
 from server.app.config import REPO_ROOT, Settings
-from server.app.domain.question import Turn
+from server.app.domain.answer import AbsenceProof, Answer
+from server.app.domain.question import CLARIFICATION_MAX_CHARS, Turn
 
 HARNAIS = REPO_ROOT / "tests" / "js" / "chat_cases.mjs"
 HARNAIS_UI = REPO_ROOT / "tests" / "js" / "ui_cases.mjs"
@@ -315,14 +316,51 @@ def test_un_tour_compose_ne_depasse_jamais_la_borne_dun_tour(cas: dict[str, Any]
 
 def test_une_clarification_qui_ne_tient_pas_seule_laisse_le_tour_au_texte(
         cas: dict[str, Any]) -> None:
-    """Le dernier repli : la question est perdue (aucune façon de l'envoyer sans la couper), mais
-    l'échange reste envoyable et le fil ne se coupe pas. Un tour vide, lui, serait pire — il serait
-    filtré sans casser la chaîne, et laisserait un **trou** entre deux tours `user`."""
+    """Le dernier repli du front, désormais **hors du contrat** (revue Codex 2.2, B1).
+
+    Ce repli perd la question posée : le tour redevient la phrase générique, l'assistant ne revoit
+    plus sa propre question et la repose — la boucle que la story referme se rouvrait, en silence,
+    ce qu'AD-16 interdit. Le front seul ne pouvait pas mieux faire (couper la question changerait ce
+    qui a été dit) ; c'est donc le **serveur** qui a été corrigé : `Answer.clarification` est bornée
+    par la même valeur que `Turn.texte`, si bien qu'aucune réponse conforme ne peut plus emprunter
+    cette branche. Elle reste écrite, et testée, comme défense contre un serveur non conforme : sans
+    elle, un tour hors borne couperait tout l'historique au lieu d'en perdre une ligne.
+    """
     releve = cas["tour_assistant_clarification_enorme"]
     assert releve["tour_est_le_texte"] is True
     envoye = releve["envoye"]
     assert [t["role"] for t in envoye] == ["user", "assistant"]
     assert envoye[0]["texte"] == "Et celui-là, il faut le faire quand ?"
+    # Ce que le contrat, lui, ne laisse plus passer : la clarification de ce cas est inatteignable.
+    assert releve["clarification"] > CLARIFICATION_MAX_CHARS
+    with pytest.raises(Exception, match="string_too_long|at most"):
+        Answer(found=False, complete=False, reason=AbsenceProof(kind="clarification_requise"),
+               clarification="y" * releve["clarification"])
+
+
+def test_la_borne_de_la_clarification_est_celle_dun_tour_de_page(cas: dict[str, Any]) -> None:
+    """Trois nombres, un seul invariant (revue Codex 2.2, B1).
+
+    La question posée par l'assistant ne referme la boucle que si elle **tient** dans le tour
+    d'historique que la page reconduit. Le serveur borne la clarification, le domaine borne le tour,
+    le front porte `TOUR_MAX_CARACTERES` : si les trois divergent, la clarification recommence à
+    disparaître sans qu'aucun test ne rougisse. Ce test les amarre les uns aux autres.
+    """
+    from annotated_types import MaxLen
+
+    maxlen = next(m.max_length for m in Turn.model_fields["texte"].metadata
+                  if isinstance(m, MaxLen))
+    assert cas["bornes_avant_sonde"]["tour_max_caracteres"] == maxlen == CLARIFICATION_MAX_CHARS
+    # Et la conséquence, sur le cas mesuré en revue : une clarification à la borne exacte, suivie de
+    # la phrase générique, laisse le tour composé **égal à la clarification entière** — donc
+    # envoyable, donc résoluble au tour suivant.
+    releve = cas["tour_assistant_clarification_a_la_borne"]
+    assert releve["clarification"] == CLARIFICATION_MAX_CHARS
+    assert releve["compose_sans_borne"] > maxlen, "le cas ne mesure plus rien"
+    assert releve["tour_est_la_clarification_entiere"] is True
+    assert [t["texte"] for t in releve["envoye"]][-1] == releve["clarification_texte"]
+    for tour in releve["envoye"]:
+        Turn(**tour)
 
 
 def test_la_question_posee_repart_au_serveur_au_tour_suivant(cas: dict[str, Any]) -> None:

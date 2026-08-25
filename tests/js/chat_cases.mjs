@@ -983,11 +983,36 @@ async function main() {
     enorme.answer.clarification = "y".repeat(2400);
     const tourEnorme = CHAT.tourAssistant(enorme);
     cas.tour_assistant_clarification_enorme = {
+      clarification: enorme.answer.clarification.length,
       tour: tourEnorme.length,
       tour_est_le_texte: tourEnorme === enorme.texte,
       envoye: CHAT.historiquePourApi([
         { role: "user", content: "Et celui-là, il faut le faire quand ?" },
         { role: "assistant", content: tourEnorme },
+        { role: "user", content: "du permis de conduire" },
+      ], "du permis de conduire"),
+    };
+
+    // Le cas que le contrat autorise **au plus** (revue Codex 2.2, B1) : depuis que le serveur borne
+    // `Answer.clarification` par la valeur de `Turn.texte`, une clarification a la borne exacte est
+    // le pire que la page puisse recevoir. Elle ne tient pas avec la phrase generique — le tour vaut
+    // alors la clarification **entiere**, donc la question posee repart quand meme au serveur.
+    const aLaBorne = refus();
+    aLaBorne.answer.reason.kind = "clarification_requise";
+    aLaBorne.answer.texte = clar.answer.texte;
+    aLaBorne.texte = clar.texte;
+    aLaBorne.answer.clarification = "De quel document parlez-vous ? " +
+      "z".repeat(2000 - "De quel document parlez-vous ? ".length);
+    const tourBorne = CHAT.tourAssistant(aLaBorne);
+    cas.tour_assistant_clarification_a_la_borne = {
+      clarification: aLaBorne.answer.clarification.length,
+      clarification_texte: aLaBorne.answer.clarification,
+      compose_sans_borne: aLaBorne.answer.clarification.length + 1 + aLaBorne.texte.length,
+      tour: tourBorne.length,
+      tour_est_la_clarification_entiere: tourBorne === aLaBorne.answer.clarification,
+      envoye: CHAT.historiquePourApi([
+        { role: "user", content: "Et celui-là, il faut le faire quand ?" },
+        { role: "assistant", content: tourBorne },
         { role: "user", content: "du permis de conduire" },
       ], "du permis de conduire"),
     };
