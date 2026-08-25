@@ -2139,6 +2139,45 @@ signatures humaines, qu'aucune boucle ne remplace.
 Suite complète après la revue : `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` →
 **1 776 passés** ; `uv run ruff check server tests scripts` → vert.
 
+### Revue Codex 2.4, tour 2 : la clarification est rendue, et les gates repartent une quatrième fois
+
+Le tour 1 avait **retiré** la clarification quand la détection retombe sur `fr`. Le tour 2 (NB1) a
+montré que c'était une régression d'AD-5 (« une anaphore non résoluble … produit
+`Answer.clarification: str` ») et de l'AC 2.2 (la page reconduit cette question en tour
+d'historique). Elle est désormais servie dans tous les cas ; la divergence de langue est publiée par
+`Answer.lang_fallback` et tracée par `clarification_langue_non_affirmee`.
+
+Mesuré sur un serveur local avec la clé (`POST /api/v1/chat`, sans historique) :
+
+| Requête | HTTP | `answer.lang` | `lang_fallback` | `answer.clarification` | check de trace |
+|---|---:|---|---|---|---|
+| `{"question":"¿Y para ellos, es lo mismo?"}` | 200 | `fr` | `true` | « De quelles personnes parlez-vous ? » | `clarification_langue_non_affirmee` (ok=false) |
+| `{"question":"How long do I have to declare my arrival?"}` | 200 | `en` | `false` | `null` | — |
+| la même avec `"lang":"es"` | 400 | — | — | — | aucun appel facturé |
+
+Deux faits à retenir du premier essai. La question **est** posée — c'était l'objet du finding. Et le
+modèle l'a écrite **en français**, alors que le prompt lui demande « la langue de la question » et
+que la question était espagnole : le chemin où la clarification contredit vraiment `Answer.lang` est
+donc plus rare encore que la borne théorique. Un seul essai ne fait pas une fréquence ; c'est la
+suite de cas témoins (4.2) qui la mesurera, et la reprise différée le dit.
+
+`domain/`, `steps/` et `pipelines/` ayant changé, `pipeline_digest` bouge encore et les deux gates
+repartent :
+
+| Gate | Cas | Résultat | Coût | Durée |
+|---|---|---|---:|---:|
+| `lux-guide`, profil `vertical` | `g-luxtrust-prix` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0265 € | 24,6 s |
+| `axa-lu-optihome-2017`, profil `vertical` | `s-bougie-canape` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0404 € | 18,0 s |
+
+Le contrôle des `terms[]` de *comprendre* (I2) a été resserré **sans** appel réel : le message de
+l'étape n'a pas bougé sur le chemin sans `lang` forcé, donc les six fixtures de
+`tests/test_langues_live.py` se rejouent à l'identique. Ce qui change est le barème — chaque mot de
+chaque terme cherché (`terms[]` **et** `scope.themes[]`) doit appartenir au vocabulaire français
+explicite du cas, au lieu qu'une seule forme française suffise pour toute la liste.
+
+Suite complète après le tour 2 : `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` →
+**1 781 passés** ; `uv run ruff check server tests scripts` → vert.
+
 ### Ce qui n'a pas été mesuré
 
 - **La fidélité des traductions au-delà de l'échantillon** : six réponses, deux par langue, jugées
