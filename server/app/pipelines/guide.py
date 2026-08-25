@@ -193,12 +193,15 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
         if isinstance(parsed, ClarificationRequise):
-            # `clarification_affichable`, et non `clarification` (revue Codex 2.4, B1) : une
-            # question écrite dans une langue que le repli de détection n'a pas pu affirmer n'est
-            # pas affichée sous une réponse annoncée française.
+            # AD-5, mot pour mot : « une anaphore non résoluble avec l'historique produit
+            # `Answer.clarification: str` (question à l'utilisateur) ». Elle est servie **dans tous
+            # les cas**, y compris sous un repli de détection (revue Codex 2.4, tour 2, NB1) : le
+            # tour 1 la retirait alors, ce qui privait l'AC 2.2 du tour d'historique qu'elle
+            # reconduit. La divergence de langue n'est pas tue pour autant — `lang_fallback` la
+            # publie et le front l'affiche (voir `ClarificationRequise.langue_affirmee`).
             return refuser("clarification_requise", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback,
-                           clarification=parsed.clarification_affichable)
+                           clarification=parsed.clarification)
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
             # Il reste actif **dans tous les cas**, dictionnaire validé ou non : c'est le seul des

@@ -179,7 +179,7 @@ async def test_sans_langue_forcee_la_requete_reste_celle_des_stories_precedentes
     """Aucune consigne de langue n'est ajoutée quand la détection décide : la langue n'est connue
     qu'**après** la réponse, et une consigne ajoutée à *chaque* requête déplace la sortie du modèle
     sur des chemins étrangers à la langue (mesuré le 2026-08-25 : AC 2.2 et AC 2.3 en direct). Le
-    repli se règle par du code, après l'appel (`ClarificationRequise.clarification_affichable`)."""
+    repli est publié après l'appel, par du code (`ClarificationRequise.langue_affirmee`)."""
     client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
     await _comprendre(client)
     contenu = fake.requests[0]["messages"][0]["content"]
@@ -187,31 +187,34 @@ async def test_sans_langue_forcee_la_requete_reste_celle_des_stories_precedentes
     assert UNTRUSTED.sub("", contenu).strip() == ""
 
 
-async def test_une_clarification_dont_la_langue_nest_pas_affirmable_nest_pas_affichee() -> None:
-    """Revue Codex 2.4, B1, second cas : la détection hors des langues servies ramène `language` à
-    `fr` **après** la réponse, quand la clarification est déjà écrite. Elle n'est pas affichée sous
-    une réponse annoncée française, et le retrait est tracé — jamais silencieux (AD-16)."""
+async def test_une_clarification_dont_la_langue_nest_pas_affirmable_reste_posee() -> None:
+    """Revue Codex 2.4, tour 2, NB1 : la détection hors des langues servies ramène `language` à `fr`
+    **après** la réponse, quand la clarification est déjà écrite. Le tour 1 la retirait ; AD-5 écrit
+    sans réserve « une anaphore non résoluble … produit `Answer.clarification: str` », et l'AC 2.2
+    reconduit cette question dans un tour d'historique. Elle est donc posée, dans la langue de
+    l'utilisateur, et la divergence est publiée : `lang_fallback` plus un check (AD-16)."""
     client, _ = _client([fake_message(text=_sortie(question_resolue=None, language="es",
                                                    clarification="¿De qué personas habla?"),
                                       model=HAIKU)])
     sortie, step = await _comprendre(client)
     assert isinstance(sortie, ClarificationRequise)
     assert sortie.language == "fr" and sortie.lang_fallback is True
-    assert sortie.clarification == "¿De qué personas habla?"  # la donnée reste, pour la trace et le domaine
-    assert sortie.clarification_affichable is None
-    (check,) = [c for c in step.checks if c.name == "clarification_non_affichable"]
-    assert check.ok is False and "n'est pas affichée" in check.detail
+    assert sortie.clarification == "¿De qué personas habla?"
+    assert sortie.langue_affirmee is False
+    (check,) = [c for c in step.checks if c.name == "clarification_langue_non_affirmee"]
+    assert check.ok is False and "reste posée dans la langue de la question" in check.detail
     assert "¿De qué personas habla?" not in check.detail  # AD-10 : jamais le texte
 
 
-async def test_une_clarification_dans_une_langue_servie_reste_affichee() -> None:
+async def test_une_clarification_dans_une_langue_servie_affirme_sa_langue() -> None:
     client, _ = _client([fake_message(text=_sortie(question_resolue=None, language="pt",
                                                    clarification="De que pessoas está a falar?"),
                                       model=HAIKU)])
     sortie, step = await _comprendre(client)
     assert isinstance(sortie, ClarificationRequise) and sortie.lang_fallback is False
-    assert sortie.clarification_affichable == "De que pessoas está a falar?"
-    assert [c.name for c in step.checks if c.name == "clarification_non_affichable"] == []
+    assert sortie.clarification == "De que pessoas está a falar?"
+    assert sortie.langue_affirmee is True
+    assert [c.name for c in step.checks if c.name == "clarification_langue_non_affirmee"] == []
 
 
 @pytest.mark.parametrize("detected, expected", [("EN", "en"), ("", "fr"), ("anglais", "fr"), ("fr-LU", "fr")])

@@ -8,7 +8,9 @@ rejouées depuis `tests/llm_fixtures/`, sans réseau.
 
 from __future__ import annotations
 
+import re
 import unicodedata
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -31,40 +33,58 @@ from tests.llm_fake import RecordedAnthropic
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# `attendus` : au moins un des termes rendus par *comprendre* doit porter l'une de ces formes
-# **françaises**. C'est l'AC « `terms[]` en français avant le court-circuit » rendue mesurable sur
-# des questions réellement écrites en anglais, en allemand et en portugais (revue Codex 2.4, I2) :
-# sans elle, le pipeline restait vert avec des termes anglais, que les variantes du dictionnaire
-# rattrapent — et la régression de traduction des termes passait inaperçue.
+# `attendus` : le **vocabulaire français** admis pour ce cas — la liste **entière** des termes
+# rendus par *comprendre* y est comparée, terme par terme et mot par mot. C'est l'AC « `terms[]`
+# toujours en français avant le court-circuit » (AD-5) rendue mesurable sur des questions réellement
+# écrites en anglais, en allemand et en portugais.
+#
+# Revue Codex 2.4, tour 2 (I2) : la première rédaction n'exigeait qu'une forme française dans **au
+# moins un** terme et n'excluait qu'une liste finie de mots étrangers — `["école", "Schulbesuch"]`
+# la satisfaisait. Une liste blanche par cas est la seule forme qui juge chaque terme : tout mot
+# hors du vocabulaire attendu (donc tout mot non traduit, quelle que soit sa langue et qu'on l'ait
+# prévu ou non) fait échouer le cas. Le prix est assumé : ré-enregistrer les six fixtures peut
+# demander d'étendre un vocabulaire — c'est justement la relecture que l'AC réclame.
+MOTS_OUTILS = frozenset("a au aux d de des du en et l la le les pour sur un une".split())
+
 CAS = [
     ("en-arrivee", "en", "How many days do I have to register my arrival with the commune?",
-     ("arrivee", "commune", "declaration", "domicile", "residence")),
+     "arrivee commune declaration delai demarche domicile enregistrement inscription "
+     "jours residence communale"),
     ("en-ecole", "en", "Where do I register my children for school in Luxembourg?",
-     ("ecole", "scolaire", "scolarisation", "inscription")),
+     "ecole ecoles enfants enseignement etablissement fondamentale inscription primaire "
+     "scolaire scolarisation scolarite luxembourg"),
     ("de-arrivee", "de", "Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?",
-     ("arrivee", "commune", "declaration", "domicile", "residence")),
+     "arrivee commune declaration delai demarche domicile enregistrement inscription "
+     "jours residence communale"),
     ("de-adem", "de", "Welche Vorteile bietet die Anmeldung bei der ADEM?",
-     ("adem", "emploi", "chomage", "inscription")),
+     "adem agence avantages chomage demandeur developpement emploi inscription recherche"),
     ("pt-arrivee", "pt", "Quanto tempo tenho para declarar a minha chegada à comuna?",
-     ("arrivee", "commune", "declaration", "domicile", "residence")),
+     "arrivee commune declaration delai demarche domicile enregistrement inscription "
+     "jours residence communale"),
     ("pt-ecole", "pt", "Onde devo matricular os meus filhos na escola no Luxemburgo?",
-     ("ecole", "scolaire", "scolarisation", "inscription")),
+     "ecole ecoles enfants enseignement etablissement fondamentale inscription primaire "
+     "scolaire scolarisation scolarite luxembourg"),
 ]
-
-# Formes qui n'existent que dans les trois langues de départ : aucun terme de recherche ne doit en
-# porter une. Aucune n'est le préfixe d'un mot français (« ecole » ≠ « escola », « arrivee » ≠
-# « arrival », « commune » ≠ « comuna »).
-MOTS_ETRANGERS = (
-    "register", "registration", "arrival", "school", "children", "employment", "benefits",
-    "anmeldung", "ankunft", "gemeinde", "schule", "kinder", "vorteile", "arbeitsamt",
-    "chegada", "comuna", "matricula", "escola", "filhos", "declarar",
-)
 
 
 def _sans_accent(texte: str) -> str:
     """Comparaison de formes, pas de sens : « école » et « ecole » sont le même terme ici."""
     decompose = unicodedata.normalize("NFD", texte.lower())
     return "".join(c for c in decompose if unicodedata.category(c) != "Mn")
+
+
+def _mots(terme: str) -> list[str]:
+    """Les mots d'un terme, sans accent ni ponctuation : « déclaration d'arrivée » → 3 mots."""
+    return [m for m in re.split(r"[^0-9a-z]+", _sans_accent(terme)) if m]
+
+
+def _mots_hors_vocabulaire(termes: Sequence[str], attendus: str) -> list[str]:
+    """Les mots des `termes` que le vocabulaire français du cas n'admet pas — vide si tout va bien.
+
+    Juge **chaque** terme de la liste, pas un échantillon : c'est la correction du tour 2 (I2).
+    """
+    admis = frozenset(attendus.split()) | MOTS_OUTILS
+    return [mot for terme in termes for mot in _mots(terme) if mot not in admis]
 
 
 class JugementRetraduction(BaseModel):
@@ -111,9 +131,25 @@ def _prefix() -> str:
     )
 
 
+# Le contrôle de langue des termes se prouve **hors ligne**, sur le contre-exemple même que la
+# revue Codex 2.4 (tour 2, I2) opposait à la première rédaction : une liste dont un seul terme est
+# resté dans la langue de départ. Sans lui, la seule preuve que le contrôle mord serait une mutation
+# faite à la main sur six fixtures — c'est-à-dire aucune preuve rejouée par la CI.
+@pytest.mark.parametrize(("termes", "fautifs"), [
+    (["école", "Schulbesuch"], ["schulbesuch"]),                 # le contre-exemple de la revue
+    (["inscription scolaire", "école", "scolarité"], []),        # les termes réellement enregistrés
+    (["school registration"], ["school", "registration"]),       # aucun mot traduit
+    (["inscription à l'escola"], ["escola"]),                    # un mot portugais dans un terme français
+    (["inscription scolaire", ""], []),                          # un terme vide n'invente pas de faute
+])
+def test_le_controle_des_termes_juge_chaque_terme(termes: list[str], fautifs: list[str]) -> None:
+    attendus = next(c[3] for c in CAS if c[0] == "en-ecole")
+    assert _mots_hors_vocabulaire(termes, attendus) == fautifs
+
+
 @pytest.mark.parametrize(("cas", "langue", "question", "attendus"), CAS, ids=[c[0] for c in CAS])
 async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: str, question: str,
-                                                             attendus: tuple[str, ...], index: Index,
+                                                             attendus: str, index: Index,
                                                              monkeypatch: pytest.MonkeyPatch,
                                                              llm_recorder: LLMRecorder) -> None:
     settings = _settings()
@@ -138,12 +174,13 @@ async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: st
 
     (parsed,) = vues
     assert isinstance(parsed, ParsedQuestion), "la question devait être autonome"
-    termes = [_sans_accent(terme) for terme in parsed.terms]
-    assert termes, "aucun terme cherché : l'AC ne serait pas exercée"
-    assert any(any(forme in terme for forme in attendus) for terme in termes), parsed.terms
-    for terme in termes:
-        for etranger in MOTS_ETRANGERS:
-            assert etranger not in terme, f"terme non traduit : {parsed.terms}"
+    assert parsed.terms, "aucun terme cherché : l'AC ne serait pas exercée"
+    # `termes_de_recherche()` et non `terms` seul : c'est ce que *retrouver* cherche réellement et ce
+    # que l'`AbsenceProof` publie (`terms_searched`), donc `terms[]` **et** `scope.themes[]` — le
+    # prompt exige le français des deux, et un thème non traduit relèverait de la même régression.
+    cherches = parsed.termes_de_recherche()
+    assert _mots_hors_vocabulaire(cherches, attendus) == [], (
+        f"termes non traduits ou hors du vocabulaire attendu : {cherches}")
 
     assert answer.lang == langue and answer.lang_fallback is False
     assert answer.found is True and answer.claims

@@ -743,13 +743,14 @@ async def test_une_langue_forcee_est_demandee_pour_la_clarification_du_sinistre(
     assert answer.clarification == "Von welchem Gut sprechen Sie?"
 
 
-async def test_une_detection_non_servie_naffiche_pas_la_clarification_du_sinistre(index: Index) -> None:
-    """Second cas de B1, registre sinistre : même règle, même preuve (revue Codex 2.4)."""
+async def test_une_detection_non_servie_pose_quand_meme_la_clarification_du_sinistre(index: Index) -> None:
+    """NB1, registre sinistre : même règle, même preuve (revue Codex 2.4, tour 2)."""
     answer, trace, _fake = await _run(
         index, [_comprendre(clarification="¿De qué bien habla?", language="es")])
-    assert answer.lang == "fr" and answer.lang_fallback is True and answer.clarification is None
+    assert answer.lang == "fr" and answer.lang_fallback is True
+    assert answer.clarification == "¿De qué bien habla?"
     comprendre_step = next(s for s in trace.steps if s.name == "comprendre")
-    assert [c.name for c in comprendre_step.checks] == ["clarification_non_affichable"]
+    assert [c.name for c in comprendre_step.checks] == ["clarification_langue_non_affirmee"]
 
 
 async def test_a_clarification_publishes_no_understood_facts(index: Index) -> None:

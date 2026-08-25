@@ -221,7 +221,8 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     # de `test_suivi_live::test_la_boucle_refermee_rend_la_question_autonome` (AC 2.2) revenait en
     # clarification au lieu d'être résolue, et les `themes` du profil `Independant`
     # (`test_profil_live`, AC 2.3) retombaient sur la valeur déclarée. La langue d'une détection non
-    # servie se règle donc **après** l'appel, par du code (voir `clarification_affichable`).
+    # servie n'est donc pas rattrapable après l'appel : la question est servie telle quelle et la
+    # divergence est publiée (voir `ClarificationRequise.langue_affirmee`).
     try:
         result = await client.parse(tier=STEP_TIERS["comprendre"], system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
@@ -246,14 +247,16 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     clarification = (out.clarification or "").strip()
     if clarification:  # AD-5 : aucune `question_resolue` n'est construite dans ce cas
         if lang_fallback:
-            # AD-10/AD-16 (revue Codex 2.4, B1) : la question posée est écrite dans la langue de la
-            # question, que le repli vient de déclarer non servie ou illisible — elle ne sera pas
-            # affichée (`ClarificationRequise.clarification_affichable`). Le dire est ce qui sépare
-            # ce retrait d'un dégradé silencieux. Le check nomme le fait, jamais le texte (AD-10).
+            # AD-10/AD-16 (revue Codex 2.4, tour 2, NB1) : la question posée est écrite dans la
+            # langue de l'utilisateur, que le repli vient de déclarer non servie ou illisible. Elle
+            # est **servie** — AD-5 l'exige — mais la réponse qui l'entoure est en français : le
+            # fait est nommé ici, en plus de `Answer.lang_fallback` que le front affiche, pour que
+            # la divergence ne tienne pas qu'à un booléen. Le check nomme le fait, jamais le
+            # texte (AD-10).
             step.checks.append(CheckResult(
-                name="clarification_non_affichable", ok=False,
-                detail="la langue détectée n'est pas servie : la question de clarification n'est "
-                       "pas affichée, seule la phrase de refus française l'est"))
+                name="clarification_langue_non_affirmee", ok=False,
+                detail="la langue détectée n'est pas servie : la question de clarification reste "
+                       "posée dans la langue de la question, la réponse est en français"))
         sortie: ParsedQuestion | ClarificationRequise = ClarificationRequise(
             clarification=clarification, intent=out.intent, language=language,
             lang_fallback=lang_fallback)

@@ -189,25 +189,32 @@ class ClarificationRequise(DomainModel):
         return self
 
     @property
-    def clarification_affichable(self) -> str | None:
-        """La question à poser — ou `None` quand sa langue ne peut pas être affirmée.
+    def langue_affirmee(self) -> bool:
+        """La langue de `clarification` est-elle celle qu'`Answer.lang` annoncera ?
 
-        Revue Codex 2.4 (B1). La clarification est la **seule** phrase affichée que le modèle écrit
-        (tout le reste — refus, lacunes — est composé par le code et traduit par *restituer*), et le
-        prompt la lui demande « dans la langue de la question ». Quand la langue est **forcée**, le
-        message de l'étape l'impose et la clarification suit `Answer.lang`. Quand la **détection**
-        tombe hors des quatre langues servies ou reste illisible, `language` retombe sur `fr`
-        **après** la réponse : la clarification est déjà écrite, dans une langue que rien ne permet
-        d'affirmer, et aucun code ne peut la traduire sans un second appel facturé.
+        Revue Codex 2.4, tour 2 (NB1). La clarification est la **seule** phrase affichée que le
+        modèle écrit (tout le reste — refus, lacunes — est composé par le code et traduit par
+        *restituer*), et le prompt la lui demande « dans la langue de la question ». Quand la langue
+        est **forcée**, le message de l'étape l'impose et la clarification suit `Answer.lang`. Quand
+        la **détection** tombe hors des quatre langues servies ou reste illisible, `language`
+        retombe sur `fr` **après** la réponse : la question est déjà écrite, dans la langue de
+        l'utilisateur, et rien ne peut plus la traduire — un second appel `micro` est exclu par le
+        titre même d'AD-5 (« après un **seul** appel `micro` », « c'est le seul appel modèle avant
+        le court-circuit »), et une consigne ajoutée à *chaque* requête a été mesurée le 2026-08-25
+        comme faisant basculer deux ACs livrées (2.2 et 2.3 en direct, cinq variantes,
+        `docs/tests-live.md` § 2.4).
 
-        L'afficher sous une réponse annoncée française serait le mélange qu'AD-16 interdit. Elle
-        n'est donc pas affichée dans ce cas — et le refus composé par *restituer* dit déjà, en
-        français, qu'il faut préciser la question, tandis que `lang_fallback` dit pourquoi la
-        réponse est en français. Le retrait est **tracé** par *comprendre* (`CheckResult`), jamais
-        silencieux.
+        Le tour 1 de cette revue en avait conclu qu'il fallait **retirer** la question ; c'était une
+        régression d'AD-5, qui écrit sans réserve « une anaphore non résoluble avec l'historique
+        produit `Answer.clarification: str` (question à l'utilisateur) », et de l'AC 2.2, qui refait
+        de cette question un tour d'historique. La question est donc servie — dans la langue où
+        l'utilisateur a écrit, qui est la seule où elle lui est utile — et la divergence est
+        **publiée**, jamais tue : `Answer.lang_fallback` porte exactement ce fait (convention
+        Langue : « `Answer.lang_fallback` signale un repli »), le front l'affiche, et *comprendre*
+        le trace (AD-10, AD-16).
 
-        Volontairement conservateur : `lang_fallback` couvre aussi la détection *illisible*
-        (`language=""`), où la clarification était peut-être française. C'est exactement l'ensemble
-        des cas où le système ne peut **pas** affirmer la langue de cette phrase.
+        Vrai aussi pour une détection *illisible* (`language=""`) où la clarification était
+        peut-être française : `False` marque exactement l'ensemble des cas où le système ne peut
+        **pas** affirmer la langue de cette phrase, pas ceux où elle est certainement autre.
         """
-        return None if self.lang_fallback else self.clarification
+        return not self.lang_fallback

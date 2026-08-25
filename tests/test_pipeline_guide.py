@@ -311,21 +311,22 @@ async def test_une_langue_forcee_est_demandee_pour_la_clarification_elle_meme(in
     assert answer.clarification == "Von welchen Personen sprechen Sie?"
 
 
-async def test_une_detection_non_servie_naffiche_pas_la_question_de_clarification(index: Index) -> None:
-    """Second cas de B1 : la détection n'est connue qu'**après** la réponse — la clarification est
-    déjà écrite, dans une langue que rien ne permet d'affirmer, et aucun code ne peut la traduire
-    sans un second appel facturé. Elle n'est donc pas affichée sous une réponse annoncée française ;
-    le refus composé par *restituer* dit déjà, en français, qu'il faut préciser la question, et
-    `lang_fallback` dit pourquoi la réponse est en français. Le retrait est tracé (AD-16)."""
+async def test_une_detection_non_servie_pose_quand_meme_la_question_de_clarification(index: Index) -> None:
+    """Revue Codex 2.4, tour 2 (NB1) : la détection n'est connue qu'**après** la réponse — la
+    clarification est déjà écrite, dans la langue de l'utilisateur, et rien ne peut plus la traduire
+    (AD-5 : « un **seul** appel `micro` » avant le court-circuit). AD-5 exige néanmoins
+    `Answer.clarification` sur ce chemin, et l'AC 2.2 la reconduit en tour d'historique : elle est
+    servie. Ce qui n'est pas tu, c'est la divergence — `lang_fallback` la publie, le refus français
+    de *restituer* entoure la question, et *comprendre* la trace (AD-16)."""
     answer, trace, _fake = await _run(
         index, [_comprendre(clarification="¿De qué personas habla?", language="es")],
         question="¿Y para ellos, es lo mismo?")
     assert answer.lang == "fr" and answer.lang_fallback is True
-    assert answer.clarification is None
+    assert answer.clarification == "¿De qué personas habla?"
     assert answer.reason is not None and answer.reason.kind == "clarification_requise"
     assert "précisez-la" in answer.texte  # la phrase française de *restituer* reste servie
     comprendre_step = next(s for s in trace.steps if s.name == "comprendre")
-    (check,) = [c for c in comprendre_step.checks if c.name == "clarification_non_affichable"]
+    (check,) = [c for c in comprendre_step.checks if c.name == "clarification_langue_non_affirmee"]
     assert check.ok is False
 
 async def test_an_empty_retrieval_never_pays_for_a_reason_call(index: Index) -> None:
