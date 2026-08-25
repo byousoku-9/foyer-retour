@@ -145,9 +145,11 @@ def sante(**remplacements: Any) -> dict[str, Any]:
     return corps
 
 
-def ecarts_sante(corps: Any, *, dictionnaire_validated: bool = True) -> list[str]:
+def ecarts_sante(corps: Any, *, dictionnaire_validated: bool = True,
+                 dictionnaire_corpus_ok: bool = True) -> list[str]:
     return verifier_sante(corps, documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
-                          version=VERSION, dictionnaire_validated=dictionnaire_validated)
+                          version=VERSION, dictionnaire_validated=dictionnaire_validated,
+                          dictionnaire_corpus_ok=dictionnaire_corpus_ok)
 
 
 def ecarts_chat(corps: Any) -> list[str]:
@@ -283,21 +285,140 @@ def test_un_validated_non_booleen_est_un_ecart(valeur: Any) -> None:
     assert any("dictionary.validated" in e for e in ecarts)
 
 
-def test_lattendu_du_dictionnaire_vient_du_depot(tmp_path: Any) -> None:
-    """`charger_attendus` lit `data/dictionary.json` — absent, illisible ou non signé ⇒ `False`."""
+# --- l'attendu du dépôt : la règle du serveur, pas une approximation --------
+
+DICO_SOURCE_HASH = "sha-source-du-guide"
+
+
+def _dico(**over: Any) -> str:
+    base: dict[str, Any] = {"schema_version": "1",
+                            "corpus_source_hashes": {"lux-guide": DICO_SOURCE_HASH},
+                            "corpus": {"matricule": ["numéro national"]}, "intents": {},
+                            "candidate_questions": {}, "validated": False,
+                            "validated_by": None, "validated_at": None}
+    return json.dumps(base | over, ensure_ascii=False)
+
+
+def _signe() -> dict[str, Any]:
+    return {"validated": True, "validated_by": "Lancelot Oudin",
+            "validated_at": "2026-08-25T10:00:00Z"}
+
+
+def _ecrire_depot(tmp_path: Any, contenu: str | None, *, source_hash: str = DICO_SOURCE_HASH) -> Any:
+    """Un dépôt minimal : `data/dictionary.json` (optionnel) et le `data/manifest.json` qui va avec."""
+    data = tmp_path / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    if contenu is not None:
+        (data / "dictionary.json").write_text(contenu, encoding="utf-8")
+    (data / "manifest.json").write_text(json.dumps(
+        {"lux-guide": {"status": "servi", "source_hash": source_hash}}), encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize("contenu, attendu", [
+    (None, False),                                          # absent
+    ("{ pas du json", False),                               # illisible
+    (_dico(validated="true"), False),                       # chaîne, pas booléen (StrictBool)
+    (_dico(validated=False), False),
+    (_dico(**_signe()), True),
+    # **Ce que l'ancienne version figeait** : `{"validated": true}` seul n'est pas un dictionnaire.
+    # Il n'a ni `schema_version`, ni signataire, ni date — `DictionaryFile` le refuse, donc le
+    # serveur le refuse, donc l'attendu du dépôt doit le refuser aussi. Le tenir pour `True` faisait
+    # arrêter le déploiement avec le diagnostic **faux** « l'image et le dépôt ont divergé ».
+    ('{"validated": true}', False),
+    # Un « validé par personne » : la contradiction que le schéma nomme.
+    (_dico(validated=True), False),
+    # Un champ de plus qu'AD-5 n'énumère pas.
+    (_dico(gate="oui", **_signe()), False),
+    # Une date que rien ne sait relire.
+    (_dico(validated=True, validated_by="Nom", validated_at="hier"), False),
+])
+def test_lattendu_du_dictionnaire_vient_du_depot(tmp_path: Any, contenu: str | None,
+                                                 attendu: bool) -> None:
+    """`charger_attendus` lit `data/dictionary.json` **par la règle du serveur** (`DictionaryFile`)."""
     from scripts.smoke import _dictionnaire_validated
 
-    data = tmp_path / "data"
-    data.mkdir()
-    assert _dictionnaire_validated(tmp_path) is False  # absent
-    (data / "dictionary.json").write_text("{ pas du json", encoding="utf-8")
-    assert _dictionnaire_validated(tmp_path) is False  # illisible
-    (data / "dictionary.json").write_text('{"validated": "true"}', encoding="utf-8")
-    assert _dictionnaire_validated(tmp_path) is False  # chaîne, pas booléen
-    (data / "dictionary.json").write_text('{"validated": false}', encoding="utf-8")
-    assert _dictionnaire_validated(tmp_path) is False
-    (data / "dictionary.json").write_text('{"validated": true}', encoding="utf-8")
-    assert _dictionnaire_validated(tmp_path) is True
+    racine = _ecrire_depot(tmp_path, contenu)
+    assert _dictionnaire_validated(racine) is attendu
+
+
+def test_le_depot_et_le_serveur_lisent_le_dictionnaire_de_la_meme_facon(tmp_path: Any) -> None:
+    """Sur le modèle de `test_les_deux_commandes_qui_exigent_la_cle_appliquent_la_meme_regle`.
+
+    Le smoke compare deux lectures du **même** fait : celle du dépôt et celle publiée par le service.
+    Si elles ne suivent pas la même règle, tout désaccord qu'il rapporte peut n'être qu'un désaccord
+    entre ses deux lecteurs — et son diagnostic (« l'image et le dépôt ont divergé ») devient faux.
+    """
+    from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.loader import Corpus
+    from server.app.domain.ingest import ManifestEntry
+    from scripts.smoke import _dictionnaire_validated
+
+    corpus = Corpus(documents={"lux-guide": None},  # type: ignore[dict-item]
+                    manifest={"lux-guide": ManifestEntry(
+                        status="servi", source_hash=DICO_SOURCE_HASH, ingest_fingerprint="fp",
+                        document_hash="d", edition="git:test")})
+    contenus = [None, "{ pas du json", '{"validated": true}', _dico(), _dico(**_signe()),
+                _dico(validated="true"), _dico(validated=True),
+                _dico(gate="oui", **_signe()),
+                _dico(validated=True, validated_by="Nom", validated_at="hier")]
+    for i, contenu in enumerate(contenus):
+        racine = _ecrire_depot(tmp_path / f"c{i}", contenu)
+        cote_serveur = load_dictionary(racine / "data", corpus).validated
+        assert _dictionnaire_validated(racine) is cote_serveur, contenu
+
+
+def test_des_octets_non_utf8_sont_un_attendu_faux_et_non_un_traceback(tmp_path: Any) -> None:
+    """`read_text("utf-8")` levait `UnicodeDecodeError`, non attrapée : le smoke sortait en traceback
+    au lieu de rapporter un écart, sur un dépôt dont le fichier est simplement illisible."""
+    from scripts.smoke import _dictionnaire_validated
+
+    racine = _ecrire_depot(tmp_path, None)
+    (racine / "data" / "dictionary.json").write_bytes(b"\xff\xfe\x00binaire")
+    assert _dictionnaire_validated(racine) is False
+
+
+@pytest.mark.parametrize("contenu, source_hash, attendu", [
+    (_dico(), DICO_SOURCE_HASH, True),
+    (None, DICO_SOURCE_HASH, False),                        # aucun dictionnaire dans le dépôt
+    (_dico(), "empreinte-dun-autre-corpus", False),         # le corpus a bougé sous le dictionnaire
+    (_dico(corpus_source_hashes={}), DICO_SOURCE_HASH, False),
+    (_dico(corpus_source_hashes={"inconnu": DICO_SOURCE_HASH}), DICO_SOURCE_HASH, False),
+])
+def test_lattendu_de_corpus_ok_vient_du_depot(tmp_path: Any, contenu: str | None,
+                                              source_hash: str, attendu: bool) -> None:
+    """Même règle que `corpus/dictionary._corpus_ok`, appliquée au manifest de ce commit."""
+    import json as _json
+
+    from scripts.smoke import _dictionnaire_corpus_ok
+
+    racine = _ecrire_depot(tmp_path, contenu, source_hash=source_hash)
+    manifest = _json.loads((racine / "data" / "manifest.json").read_text("utf-8"))
+    assert _dictionnaire_corpus_ok(racine, manifest) is attendu
+
+
+def test_une_image_sans_dictionnaire_ne_passe_pas_pour_un_depot_qui_en_porte_un() -> None:
+    """**Le trou que `corpus_ok` ferme.** Une image construite sans `data/dictionary.json` publie
+    `validated: false` et l'alerte `dictionnaire_non_valide` — exactement ce que le dépôt attend
+    tant que la signature est due. Elle aurait donc été promue en silence, l'élargissement d'AD-5
+    éteint sur toute la démonstration, sans une ligne pour le dire."""
+    corps = sante(dictionary={"validated": False, "corpus_ok": False, "refus_zero_hit_actif": False},
+                  alerts=[{"doc_id": "*", "alerte": "dictionnaire_non_valide", "detail": ""}])
+    # Sans l'attendu `corpus_ok`, ce corps est indiscernable du cas nominal « signature due ».
+    assert ecarts_sante(corps, dictionnaire_validated=False, dictionnaire_corpus_ok=False) == []
+    ecarts = ecarts_sante(corps, dictionnaire_validated=False, dictionnaire_corpus_ok=True)
+    assert len(ecarts) == 1 and "dictionary.corpus_ok" in ecarts[0]
+
+
+@pytest.mark.parametrize("valeur", ["true", 1, None, {}])
+def test_un_corpus_ok_non_booleen_est_un_ecart(valeur: Any) -> None:
+    corps = sante(dictionary={"validated": True, "corpus_ok": valeur, "refus_zero_hit_actif": True})
+    assert any("dictionary.corpus_ok" in e for e in ecarts_sante(corps))
+
+
+def test_un_corpus_ok_absent_est_nomme() -> None:
+    corps = sante(dictionary={"validated": True, "refus_zero_hit_actif": True})
+    assert any("dictionary.corpus_ok" in e for e in ecarts_sante(corps))
 
 
 def test_ok_faux_est_un_ecart() -> None:
@@ -307,14 +428,15 @@ def test_ok_faux_est_un_ecart() -> None:
 def test_un_corps_ampute_ne_passe_pas_par_defaut() -> None:
     """Lecture stricte : une clé absente ne vaut ni `None`, ni `False`, ni `[]`."""
     ecarts = ecarts_sante({})
-    # ok, documents_servis, gate_profile, gate_cases, version, thresholds, dictionary.validated, alerts
-    assert len(ecarts) == 8
-    assert sum("absent de la réponse" in e for e in ecarts) == 7
+    # ok, documents_servis, gate_profile, gate_cases, version, thresholds,
+    # dictionary.validated, dictionary.corpus_ok, alerts
+    assert len(ecarts) == 9
+    assert sum("absent de la réponse" in e for e in ecarts) == 8
     assert any("thresholds absent ou vide" in e for e in ecarts)
 
 
 def test_un_corps_qui_nest_pas_un_objet_est_un_ecart() -> None:
-    assert len(ecarts_sante("indisponible")) == 8
+    assert len(ecarts_sante("indisponible")) == 9
 
 
 def test_des_seuils_absents_sont_un_ecart_et_non_un_repli_silencieux() -> None:
@@ -601,6 +723,7 @@ def test_les_appels_de_pipeline_nont_droit_a_aucune_reprise(monkeypatch: pytest.
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
                         dictionnaire_validated=True,
+                        dictionnaire_corpus_ok=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -825,6 +948,7 @@ def test_main_sort_en_0_sur_les_trois_corps_nominaux(monkeypatch: pytest.MonkeyP
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
                         dictionnaire_validated=True,
+                        dictionnaire_corpus_ok=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -858,6 +982,7 @@ def test_main_sort_en_1_et_nomme_lecart(monkeypatch: pytest.MonkeyPatch,
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
                         dictionnaire_validated=True,
+                        dictionnaire_corpus_ok=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -888,6 +1013,7 @@ def test_main_ne_paie_aucun_appel_de_pipeline_quand_une_surface_est_morte(
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
                         dictionnaire_validated=True,
+                        dictionnaire_corpus_ok=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)
@@ -914,6 +1040,7 @@ def test_un_ecart_de_sinistre_est_rapporte_apres_les_quatre_verifications(
 
     attendus = Attendus(documents=DOCUMENTS, gate_profile=PROFIL, gate_cases=CASES,
                         dictionnaire_validated=True,
+                        dictionnaire_corpus_ok=True,
                         source_hash={"lux-guide": HASH_GUIDE, "axa-lu-optihome-2017": HASH_AXA},
                         cas_guide=CAS_GUIDE, cas_sinistre=CAS_SINISTRE)
     monkeypatch.setattr(smoke, "charger_attendus", lambda **_: attendus)

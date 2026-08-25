@@ -5,7 +5,9 @@ Ce que ce module vérifie, sur le service réellement déployé et non sur le d�
 1. `GET /api/v1/sante` — les documents attendus sont **servis** (ni moins, ni d'autres), au
    `gate_profile` que le manifest de ce commit annonce, la `version` publiée est le `sha7` du commit
    qui a déclenché le déploiement, les seuils sont publiés, l'état du dictionnaire est celui que ce
-   commit contient, et **aucune** alerte ne pèse sur le service — hormis `dictionnaire_non_valide`,
+   commit contient — **ses deux verrous**, `validated` et `corpus_ok` : le premier seul ne distingue
+   pas une image qui sert le `data/dictionary.json` de ce commit d'une image qui n'en a aucun —, et
+   **aucune** alerte ne pèse sur le service — hormis `dictionnaire_non_valide`,
    qu'AD-5 oblige `/sante` à porter tant que la validation humaine est due, et que le smoke attend
    exactement quand `data/dictionary.json` de ce commit n'est pas validé (son absence est alors un
    écart, comme sa présence sur un dépôt validé). C'est là que la reprise différée de la story 1.10 se ferme : `ALLOW_UNGATED=true` posé à
@@ -74,6 +76,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
+from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
 
 VIA_ATTENDU = "api/v1"
 
@@ -134,6 +137,11 @@ class Attendus:
     # L'attendu vient donc du dépôt, comme le profil de gate : ce qui est refusé n'est pas « une
     # alerte » mais un **désaccord** entre ce que ce commit contient et ce que la révision sert.
     dictionnaire_validated: bool
+    # AD-5 : le second verrou. `validated` seul ne distingue **pas** une image qui sert le
+    # `data/dictionary.json` de ce commit d'une image qui n'en a aucun : les deux publient
+    # `validated: false` et la même alerte tolérée, et la révision aurait été promue avec
+    # l'élargissement d'AD-5 éteint, en silence. `corpus_ok` est le seul champ qui les sépare.
+    dictionnaire_corpus_ok: bool
     cas_guide: CasTemoin
     cas_sinistre: CasTemoin
 
@@ -209,25 +217,64 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
         gate_cases=gate_cases,
         source_hash=hashes,
         dictionnaire_validated=_dictionnaire_validated(racine),
+        dictionnaire_corpus_ok=_dictionnaire_corpus_ok(racine, manifest),
         cas_guide=_lire_cas(cases / "guide", reglages.guide_doc_id),
         cas_sinistre=_lire_cas(cases / "sinistre", reglages.sinistre_doc_id))
 
 
-def _dictionnaire_validated(racine: Path) -> bool:
-    """`data/dictionary.json` de **ce commit** porte-t-il une validation humaine ? (AD-5, story 2.1)
+def _dictionnaire_du_depot(racine: Path) -> DictionaryFile | None:
+    """`data/dictionary.json` de **ce commit**, lu par la règle du serveur — ou `None`.
 
-    Absent, illisible, ou `validated` autre que le `true` JSON strict ⇒ `False` — la **même** règle
-    que `corpus/dictionary.load_dictionary`, pour que l'attendu du smoke et l'état publié par le
-    service se lisent de la même façon. Un fichier absent n'est pas un refus de lecture ici : il n'y a
-    pas encore de dictionnaire tant que l'ingestion n'a pas tourné, et c'est un état que le dépôt
-    assume (le refus « zéro hit » dort, `/sante` le dit).
+    **La règle, et non une approximation** (revue coordonnée 2.1). Cette fonction se réduisait à
+    `charge.get("validated") is True` sur du JSON brut : ni schéma, ni `extra="forbid"`, ni
+    l'exigence `validated_by`/`validated_at`. Un fichier signé mais hors schéma donnait donc
+    `attendu=True` côté dépôt et `false` côté service — et le smoke arrêtait le déploiement avec le
+    diagnostic **faux** « l'image et le dépôt ont divergé », alors que l'image servait exactement ce
+    commit. Le passage par `DictionaryFile` est le seul moyen que les deux lectures soient la même :
+    c'est le modèle que `corpus/dictionary.load_dictionary` emploie, et il est dans `domain`
+    précisément pour être partagé (AD-7).
+
+    Absent, illisible (`UnicodeDecodeError` compris — des octets non UTF-8 faisaient sortir le smoke
+    en traceback au lieu d'un écart) ou non conforme ⇒ `None` : il n'y a pas encore de dictionnaire
+    tant que l'ingestion n'a pas tourné, et c'est un état que le dépôt assume (le refus « zéro hit »
+    dort, `/sante` le dit).
     """
-    fichier = racine / "data" / "dictionary.json"
+    fichier = racine / "data" / DICTIONARY_FILE
     try:
-        charge = json.loads(fichier.read_text("utf-8"))
-    except (OSError, json.JSONDecodeError):
+        return DictionaryFile.model_validate_json(fichier.read_bytes())
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _dictionnaire_validated(racine: Path) -> bool:
+    """Le dictionnaire de ce commit porte-t-il une validation humaine ? (AD-5, story 2.1)"""
+    fichier = _dictionnaire_du_depot(racine)
+    return fichier is not None and fichier.validated
+
+
+def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any]) -> bool:
+    """Les `corpus_source_hashes` du dictionnaire committé décrivent-elles le corpus de ce commit ?
+
+    **Ce que ce contrôle attrape, et que rien d'autre ne voyait** (revue coordonnée 2.1) : une image
+    servie **sans** `data/dictionary.json` alors que le dépôt en porte un publie exactement les mêmes
+    booléens (`validated: false`) et exactement la même alerte tolérée. La révision aurait donc été
+    promue en silence, avec les variantes muettes — l'élargissement d'AD-5 éteint sur toute la
+    démonstration, sans une ligne pour le dire. `corpus_ok` est le seul champ qui distingue les deux
+    états, et c'est pour cela qu'il est publié.
+
+    La règle est celle de `corpus/dictionary._corpus_ok`, appliquée au manifest de ce commit : au
+    moins une empreinte, et chacune égale au `source_hash` d'un document **servi**.
+    """
+    fichier = _dictionnaire_du_depot(racine)
+    if fichier is None or not fichier.corpus_source_hashes:
         return False
-    return isinstance(charge, dict) and charge.get("validated") is True
+    for doc_id, empreinte in fichier.corpus_source_hashes.items():
+        entree = manifest.get(doc_id)
+        if not isinstance(entree, dict) or entree.get("status") != "servi":
+            return False
+        if entree.get("source_hash") != empreinte:
+            return False
+    return True
 
 
 def _exiger(condition: bool, message: str) -> None:
@@ -326,7 +373,8 @@ SEUILS_EXIGES = ("deadline_s", "client_abort_margin_s")
 
 
 def verifier_sante(corps: Any, *, documents: tuple[str, ...], gate_profile: str,
-                   gate_cases: int, version: str, dictionnaire_validated: bool) -> list[str]:
+                   gate_cases: int, version: str, dictionnaire_validated: bool,
+                   dictionnaire_corpus_ok: bool) -> list[str]:
     """`GET /api/v1/sante` : ce que la révision candidate sert, et à quel niveau de validation."""
     ecarts: list[str] = []
 
@@ -414,6 +462,21 @@ def verifier_sante(corps: Any, *, documents: tuple[str, ...], gate_profile: str,
         ecarts.append(
             f"dictionary.validated={validee!r}, attendu {dictionnaire_validated!r} d'après "
             f"data/dictionary.json de ce commit : l'image et le dépôt ont divergé")
+
+    # Le **second** verrou, et le seul qui distingue « le dictionnaire de ce commit est servi » de
+    # « il n'y en a aucun dans l'image ». Sans lui, une image construite sans `data/dictionary.json`
+    # publiait `validated: false` + `dictionnaire_non_valide` — exactement ce que le dépôt attend
+    # quand la signature est due — et passait le smoke, variantes muettes, refus jamais armable.
+    corpus_ok = _lire(corps, "dictionary", "corpus_ok")
+    if corpus_ok is _ABSENT:
+        ecarts.append(_manquant("dictionary.corpus_ok"))
+    elif not isinstance(corpus_ok, bool):
+        ecarts.append(f"dictionary.corpus_ok={corpus_ok!r} n'est pas un booléen")
+    elif corpus_ok != dictionnaire_corpus_ok:
+        ecarts.append(
+            f"dictionary.corpus_ok={corpus_ok!r}, attendu {dictionnaire_corpus_ok!r} d'après "
+            f"data/dictionary.json et data/manifest.json de ce commit : la révision ne sert pas le "
+            f"dictionnaire de ce commit (variantes muettes), ou le sert contre un autre corpus")
 
     # AD-16 / reprise différée de 1.10 : la dérogation `ALLOW_UNGATED` armée sur la configuration du
     # service, un gate périmé, une source absente — tout cela se lit ici, et rien ne doit être promu
@@ -665,7 +728,8 @@ def main(argv: list[str] | None = None) -> int:
         resultats.append(("sante", verifier_sante(
             sante, documents=attendus.documents, gate_profile=attendus.gate_profile,
             gate_cases=attendus.gate_cases, version=args.version,
-            dictionnaire_validated=attendus.dictionnaire_validated)))
+            dictionnaire_validated=attendus.dictionnaire_validated,
+            dictionnaire_corpus_ok=attendus.dictionnaire_corpus_ok)))
 
         statuts = {chemin: sonder(f"{base}{chemin}", timeout=TIMEOUT_SANTE_S)
                    for chemin in SURFACES}
