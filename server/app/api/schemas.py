@@ -2,7 +2,8 @@
 
 Entrée (`ChatRequest`) : les bornes d'AD-11 sont portées par le schéma, donc refusées par pydantic
 avant d'atteindre la route — `question ≤ 1 000`, `Turn.texte ≤ 2 000` (déjà dans le domaine),
-`variant` dans la liste des variantes existantes. Le nombre de tours d'historique, lui, est un seuil
+`variant` dans la liste des variantes existantes (`null` garde le défaut outils). Le nombre de
+tours d'historique, lui, est un seuil
 de `config.py` : il ne peut pas vivre dans une annotation de classe, et `borner()` l'applique à
 l'entrée de la route — **jamais** en tronquant (AD-11 : « 400 au-delà, jamais tronqué côté serveur »
 — tronquer perdrait précisément le tour qui porte l'anaphore).
@@ -30,7 +31,7 @@ from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
-from server.app.pipelines.guide import VARIANT
+from server.app.pipelines.guide import VARIANT, VARIANTS
 
 VIA = "api/v1"
 
@@ -61,10 +62,15 @@ class ChatRequest(RequeteAvecLangue):
     question: str = Field(min_length=1, max_length=1000)
     profil: Profil = Field(default_factory=Profil)
     historique: list[Turn] = Field(default_factory=list)
-    # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». La seule variante existante en J+1 est celle du
-    # pipeline du guide ; le littéral est importé de lui pour qu'ajouter une variante (baseline « tout
-    # en contexte ») se fasse à un seul endroit.
-    variant: str | None = Field(default=None, pattern=f"^{VARIANT}$")
+    # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». La liste est importée du pipeline pour que les
+    # implémentations de *retrouver* et le contrat HTTP ne puissent pas diverger.
+    variant: str | None = Field(default=VARIANT, pattern=f"^({'|'.join(sorted(VARIANTS))})$")
+
+    @field_validator("variant")
+    @classmethod
+    def _variante_par_defaut(cls, v: str | None) -> str:
+        """Le client historique envoyait `null` : il reste l'alias explicite du défaut outils."""
+        return VARIANT if v is None else v
 
     @field_validator("question")
     @classmethod

@@ -1,0 +1,421 @@
+{
+  "claude-haiku-4-5-20251001:263dd94a65959563": {
+    "request": "claude-haiku-4-5-20251001:263dd94a65959563",
+    "response": {
+      "content": [
+        {
+          "text": "Maintenant je vais ouvrir les nœuds les plus pertinents : d'abord `lux-guide:farrivee` qui traite spécifiquement des huit premiers jours et de la déclaration à la commune, et `lux-guide:q12` qui est une question fréquente sur le délai de déclaration.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01Peyh3kxNL8ArbKGtKq5Z7s",
+          "input": {
+            "focus_block_id": "lux-guide:farrivee:2",
+            "node_id": "lux-guide:farrivee"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01WRFhUNsH9frqEWV63GRQ7Z",
+          "input": {
+            "node_id": "lux-guide:q12"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeQJ6LPBPZQ42NHaQUBxK",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4762,
+        "inference_geo": "not_available",
+        "input_tokens": 1291,
+        "output_tokens": 229,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:32ba165224d95350": {
+    "request": "claude-haiku-4-5-20251001:32ba165224d95350",
+    "response": {
+      "content": [
+        {
+          "text": "Je vais rechercher les passages pertinents concernant la déclaration d'arrivée et les délais à la commune.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01DaQ3kMfJHkVGdn8cx7r7ef",
+          "input": {
+            "termes": [
+              "déclaration d'arrivée",
+              "délai",
+              "commune"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeQJYLPQEuzkZxwBAxYyQ",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4778
+        },
+        "cache_creation_input_tokens": 4778,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 427,
+        "output_tokens": 99,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:586f7d701c73d631": {
+    "request": "claude-haiku-4-5-20251001:586f7d701c73d631",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQJ71zR75kbhU6PYutF4",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3602,
+        "output_tokens": 157,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:68506f1f340a5ba2": {
+    "request": "claude-haiku-4-5-20251001:68506f1f340a5ba2",
+    "response": {
+      "content": [
+        {
+          "text": "Je vais rechercher les passages pertinents concernant la déclaration d'arrivée et les délais à la commune.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01DaMX7nSy3ZG5wztCN19CNk",
+          "input": {
+            "termes": [
+              "déclaration d'arrivée",
+              "délai",
+              "commune"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeQJ6Db9R7yhBDHYpWuX1",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4762
+        },
+        "cache_creation_input_tokens": 4762,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 427,
+        "output_tokens": 99,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:754dc43291d5dcc1": {
+    "request": "claude-haiku-4-5-20251001:754dc43291d5dcc1",
+    "response": {
+      "content": [
+        {
+          "text": "Maintenant je vais ouvrir les nœuds les plus pertinents : d'abord `lux-guide:farrivee` qui traite directement des premiers jours et de la déclaration, et `lux-guide:q12` qui est une question fréquente sur le délai de déclaration.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_012zFvdGKASDcjPt2yyxA5cf",
+          "input": {
+            "node_id": "lux-guide:farrivee"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01Jki64Z9AkZ4d1jypiWp7Ke",
+          "input": {
+            "node_id": "lux-guide:q12"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeQJYSr5xP11caWQB6hYZ",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4778,
+        "inference_geo": "not_available",
+        "input_tokens": 1291,
+        "output_tokens": 192,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:b24c01020705a5ae": {
+    "request": "claude-haiku-4-5-20251001:b24c01020705a5ae",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Quel délai ai-je pour déclarer mon arrivée au Luxembourg ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"déclaration d'arrivée\", \"délai\", \"commune\"], \"themes\": [], \"facettes\": [\"délai de déclaration d'arrivée\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQJYCEGKjfxCZomkq1SY",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4286,
+        "inference_geo": "not_available",
+        "input_tokens": 75,
+        "output_tokens": 115,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:b7caaadf65c8889f": {
+    "request": "claude-haiku-4-5-20251001:b7caaadf65c8889f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQJZFhtheCwz34XZuevS",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3761,
+        "output_tokens": 153,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:34ee9aea01247fec": {
+    "request": "claude-sonnet-5:34ee9aea01247fec",
+    "response": {
+      "content": [
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_017wt8wiccZgUJ4b6fkuHo3r",
+          "input": {
+            "focus_block_id": "lux-guide:q12:1",
+            "node_id": "lux-guide:q12"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_013UmXW881FaqSSNeMkShdpr",
+          "input": {
+            "focus_block_id": "lux-guide:farrivee:2",
+            "node_id": "lux-guide:farrivee"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CePWDa8kY89SiSFA4etP6",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5986,
+        "inference_geo": "global",
+        "input_tokens": 1178,
+        "output_tokens": 195,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:ccfd759ff32314b5": {
+    "request": "claude-sonnet-5:ccfd759ff32314b5",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Vous disposez de huit jours après votre emménagement pour déclarer votre arrivée à la commune, au bureau de la population (Biergercenter).\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration est essentielle : sans elle, ni matricule, ni sécurité sociale, ni banque, ni école ne sont possibles.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Elle produit deux documents clés : le certificat de résidence, qui porte votre matricule (numéro d'identification national), et l'attestation d'enregistrement pour les ressortissants de l'UE restant plus de trois mois.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Comme la plupart des communes fonctionnent sur rendez-vous en ligne et que les créneaux se raréfient en période de rentrée, il est conseillé de réserver avant même d'avoir les clés du logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le délai de déclaration à la commune est de huit jours après l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"},{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c2\",\"text\":\"Sans cette déclaration, aucune autre démarche (matricule, sécurité sociale, banque, école) n'est possible.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]},{\"claim_id\":\"c3\",\"text\":\"La déclaration produit le certificat de résidence portant le matricule, et l'attestation d'enregistrement pour les ressortissants UE au-delà de trois mois.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:4\",\"quote\":\"le certificat de résidence et, pour les ressortissants de l'Union restant plus de trois mois, l'attestation d'enregistrement\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut réserver un rendez-vous en ligne avant même d'avoir les clés du logement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"Réservez avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQJYe1JauvLsZ9KG1sQG",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 1377,
+        "output_tokens": 903,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:fa93231378d649ec": {
+    "request": "claude-sonnet-5:fa93231378d649ec",
+    "response": {
+      "content": [
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01MTDDtcvcKmbAz69HQzWgTN",
+          "input": {
+            "termes": [
+              "déclaration d'arrivée",
+              "délai",
+              "commune"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CePWDToFqYNCKEZYFZxfk",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 5986,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 5986,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 213,
+        "output_tokens": 68,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}

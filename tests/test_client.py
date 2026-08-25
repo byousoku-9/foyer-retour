@@ -497,6 +497,54 @@ async def test_tools_are_passed_through_and_traced() -> None:
     assert result.call.tools == ["chercher"]
 
 
+async def test_raw_tool_turn_preserves_tool_use_and_pause_turn() -> None:
+    tools = [{"name": "chercher", "description": "d", "input_schema": {"type": "object"}}]
+    raw = fake_message(
+        model=SONNET, stop_reason="pause_turn",
+        content=[{"type": "tool_use", "id": "toolu_1", "name": "chercher",
+                  "input": {"termes": ["arrivée"]}}])
+    client, fake = _client([raw])
+    budget, step = _budget(), StepTrace(name="retrouver")
+    result = await client.tool_turn(
+        tier="reason", system_prefix="préfixe stable",
+        messages=[{"role": "user", "content": "q"}], tools=tools,
+        budget=budget, step=step, max_tokens=300)
+    assert result.message.stop_reason == "pause_turn"
+    assert result.message.content[0].type == "tool_use"
+    assert result.message.content[0].input == {"termes": ["arrivée"]}
+    assert budget.attempts == 1 and budget.cost_eur == result.usage.cost_eur > 0
+    assert result.call.tools == ["chercher"] and step.calls == [result.call]
+    request = fake.requests[0]
+    assert request["tools"] == tools and request["output_config"] == {"effort": "medium"}
+    assert "format" not in request["output_config"]
+
+
+async def test_raw_tool_turn_cache_deadline_and_provider_error_use_common_guards() -> None:
+    tools = [{"name": "chercher", "input_schema": {"type": "object"}}]
+    cache = MemoryResponseCache()
+    client, fake = _client([fake_message(model=SONNET, stop_reason="end_turn")], cache=cache)
+    await client.tool_turn(tier="reason", system_prefix="p", messages=[{"role": "user", "content": "q"}],
+                           tools=tools, budget=_budget(), step=StepTrace(name="retrouver"), max_tokens=20)
+    hit = await client.tool_turn(tier="reason", system_prefix="p", messages=[{"role": "user", "content": "q"}],
+                                 tools=tools, budget=_budget(), step=StepTrace(name="retrouver"), max_tokens=20)
+    assert len(fake.requests) == 1 and hit.usage.cached_response and hit.usage.cost_eur == 0
+
+    timeout_client, timeout_fake = _client([])
+    with pytest.raises(Timeout):
+        await timeout_client.tool_turn(
+            tier="reason", system_prefix="p", messages=[], tools=tools,
+            budget=_budget(deadline_s=0), step=StepTrace(name="retrouver"), max_tokens=20)
+    assert timeout_fake.requests == []
+
+    error_client, _ = _client([provider_exception(anthropic.RateLimitError)])
+    error_step = StepTrace(name="retrouver")
+    with pytest.raises(LlmUnavailable):
+        await error_client.tool_turn(
+            tier="reason", system_prefix="p", messages=[], tools=tools,
+            budget=_budget(), step=error_step, max_tokens=20)
+    assert len(error_step.calls) == 1 and error_step.calls[0].usage.cost_eur == 0
+
+
 async def test_estimate_counts_tools_and_non_text_blocks() -> None:
     # revue P11 : les définitions d'outils et les blocs non-texte (tool_result) entrent dans l'estimation.
     from server.app.llm.pricing import estimate_cost

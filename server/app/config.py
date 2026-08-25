@@ -170,8 +170,14 @@ class Settings(BaseSettings):
     # relance d'AD-3 ressortait en 503 au lieu de sa réponse vérifiée — mesuré en live, revue Codex
     # 1.5, tour 3. Ce plafond est une ceinture contre l'emballement ; le garde-fou du coût, lui, est
     # `max_cost_eur_per_request`, qui s'applique **avant** qu'un appel démarre (AD-1).
-    max_llm_attempts: int = Field(6, ge=1)
-    max_llm_turns: int = Field(2, ge=1)
+    # Story 2.6 : pire chemin = deux tours de navigation, comprendre, rédiger, vérifier,
+    # relance rédiger+vérifier et un retry de parse. Le plafond de coût reste inchangé.
+    max_llm_attempts: int = Field(8, ge=1)
+    max_llm_turns: int = Field(2, ge=1, le=2)
+    # Décision 2.6 mesurée : Haiku garde le chemin froid sous 0,10 € sans toucher à *rédiger*
+    # ni *vérifier*. `reason` reste autorisé pour rejouer l'arbitrage, mais n'est plus le défaut.
+    retrouver_outils_tier: Literal["micro", "reason"] = "micro"
+    retrouver_outils_max_tokens: int = Field(1024, ge=1)
     # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
     # sortie à `rediger_max_tokens` en consomment déjà ≈ 0,080 € des 0,10 € par requête ; 6 fiches entières
@@ -375,6 +381,7 @@ class Settings(BaseSettings):
             raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
                              f"< title_min_size_pt ({self.title_min_size_pt})")
         for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
+                            ("retrouver_outils_max_tokens", self.retrouver_outils_max_tokens),
                             ("rediger_max_tokens", self.rediger_max_tokens),
                             ("verifier_max_tokens", self.verifier_max_tokens),
                             ("verifier_sinistre_max_tokens", self.verifier_sinistre_max_tokens)):
@@ -423,6 +430,7 @@ class Settings(BaseSettings):
             "search_limit": self.search_limit,
             "max_llm_attempts": self.max_llm_attempts,
             "max_llm_turns": self.max_llm_turns,
+            "retrouver_outils_max_tokens": self.retrouver_outils_max_tokens,
             "retrieval_max_blocks": self.retrieval_max_blocks,
             "retrieval_max_tokens": self.retrieval_max_tokens,
             "max_cost_eur_per_request": self.max_cost_eur_per_request,

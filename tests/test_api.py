@@ -618,12 +618,19 @@ def test_une_question_faite_despaces_est_refusee(prod: TestClient) -> None:
 
 
 def test_variante_inconnue_est_refusee(prod: TestClient) -> None:
-    _brancher(prod, Double((_refus("zero_hit"), _trace())))
-    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "outils"}, headers=XFF)
+    double = _brancher(prod, Double((_refus("zero_hit"), _trace())))
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "inconnue"}, headers=XFF)
     assert r.status_code == 400
+    assert double.appels == []  # refus HTTP avant le pipeline, donc avant tout appel facturé
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "deterministe"},
                   headers=XFF)
     assert r.status_code == 200
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "outils"}, headers=XFF)
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": None}, headers=XFF)
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
 
 
 def test_le_champ_contexte_de_lancien_contrat_est_ignore(prod: TestClient) -> None:
@@ -1460,7 +1467,8 @@ def test_une_reponse_servie_porte_ses_blocs_resolus_et_le_profil_de_son_gate(
     etat.pipeline = _pipeline_reel(_script_du_mini_guide())
 
     r = prod.post("/api/v1/chat", json={"question": "Quel délai après mon arrivée ?",
-                                        "profil": {}, "historique": []}, headers=XFF)
+                                        "profil": {}, "historique": [],
+                                        "variant": "deterministe"}, headers=XFF)
 
     assert r.status_code == 200
     trace = r.json()["trace"]

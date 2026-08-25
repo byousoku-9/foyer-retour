@@ -23,6 +23,7 @@ from tests.fixtures import LLMRecorder, request_key
 def fake_message(
     text: str = '{"mot": "bonjour"}',
     *,
+    content: list[dict[str, Any]] | None = None,
     model: str = "claude-sonnet-5",
     stop_reason: str = "end_turn",
     input_tokens: int = 1000,
@@ -37,7 +38,7 @@ def fake_message(
         "type": "message",
         "role": "assistant",
         "model": model,
-        "content": [{"type": "text", "text": text}],
+        "content": content if content is not None else [{"type": "text", "text": text}],
         "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
@@ -87,6 +88,9 @@ class _FakeMessages:
             raise item
         return Message.model_validate(item)
 
+    async def create(self, **kwargs: Any) -> Message:
+        return await self.parse(**kwargs)
+
     async def count_tokens(self, **kwargs: Any) -> MessageTokensCount:
         self.count_requests.append(kwargs)
         if not self._token_counts:
@@ -131,6 +135,15 @@ class _RecordedMessages:
             # `output_format` volontairement absent : le corps est déjà complet (`output_config.format`)
             # et le SDK ne doit pas valider avant de rendre la réponse (voir client.py).
             message = await self._real_client().messages.parse(**kwargs)
+            return message.to_dict()
+
+        return Message.model_validate(await self._recorder.call(key, fn))
+
+    async def create(self, **kwargs: Any) -> Message:
+        key = request_key(kwargs["model"], kwargs["messages"], **_key_params(kwargs))
+
+        async def fn() -> dict[str, Any]:
+            message = await self._real_client().messages.create(**kwargs)
             return message.to_dict()
 
         return Message.model_validate(await self._recorder.call(key, fn))

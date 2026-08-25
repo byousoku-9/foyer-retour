@@ -76,6 +76,18 @@ def test_ouvrir_noeud_window_focus_and_cursor() -> None:
         ix.ouvrir_noeud("inconnu", node_window=0)
 
 
+def test_ouvrir_noeud_exposes_category_title_and_titled_children() -> None:
+    block = Block(block_id="d:p1:1", text="Bloc", loc="p1", seq=1)
+    doc = Document(
+        doc_id="d", kind="guide", title="Guide", edition="e", blocks=[block],
+        nodes=[Node(node_id="root", title="Catégorie", items=[NodeRef(node_id="child")]),
+               Node(node_id="child", title="Fiche enfant", items=[BlockRef(block_id=block.block_id)])])
+    window = Index(Corpus(documents={"d": doc})).ouvrir_noeud("root", node_window=3)
+    assert window.title == "Catégorie"
+    assert [(c.node_id, c.title) for c in window.children] == [("child", "Fiche enfant")]
+    assert window.blocks == [] and not window.truncated
+
+
 def test_index_computes_missing_text_norm_and_refuses_id_collisions() -> None:
     ix = Index(Corpus(documents={"d": _doc(2)}))
     assert ix.chercher(["bloc"], limit=5) == [("d:p1:1", "n"), ("d:p1:2", "n")]

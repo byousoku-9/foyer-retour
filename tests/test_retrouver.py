@@ -1,7 +1,4 @@
-"""Matrice I/O de *retrouver* déterministe (spec 1.4) : code pur, zéro appel modèle — ouverture groupée
-bornée par `RetrievalBudget` (nœuds, blocs **et** tokens), suivi d'un niveau des renvois et des
-définitions hors quota, `truncated`, hits non transmis en `discarded_block_ids`, blocs relus du
-corpus, aucune absence affirmée."""
+"""Matrice I/O des variantes déterministe et outils de *retrouver* (specs 1.4 et 2.6)."""
 
 from __future__ import annotations
 
@@ -15,9 +12,12 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
 from server.app.domain.question import ParsedQuestion, QuestionScope
-from server.app.llm.models import STEP_TIERS
+from server.app.llm.models import STEP_TIERS, TIERS
+from server.app.llm.client import LlmClient
+from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import estimate_tokens
-from server.app.steps.retrouver import retrouver_deterministe
+from server.app.steps.retrouver import OUTILS_RECHERCHE, retrouver_deterministe, retrouver_outils
+from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -55,12 +55,217 @@ def _corpus() -> Corpus:
               kind="definition", defines="contenu"),
         Block(block_id="d:p1:5", text="Cible du renvoi, sans aucun terme cherché.", loc="p1", seq=5),
     ]
-    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2"), NodeRef(node_id="n3")]),
-             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1"), BlockRef(block_id="d:p1:2")]),
-             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")]),
-             Node(node_id="n3", items=[BlockRef(block_id="d:p3:1"), BlockRef(block_id="d:p1:5")])]
+    nodes = [Node(node_id="root", title="Sommaire", items=[
+                 NodeRef(node_id="n1"), NodeRef(node_id="n2"), NodeRef(node_id="n3")]),
+             Node(node_id="n1", title="Arrivée", items=[
+                 BlockRef(block_id="d:p1:1"), BlockRef(block_id="d:p1:2")]),
+             Node(node_id="n2", title="Démarches", items=[BlockRef(block_id="d:p2:1")]),
+             Node(node_id="n3", title="Définitions", items=[
+                 BlockRef(block_id="d:p3:1"), BlockRef(block_id="d:p1:5")])]
     doc = Document(doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)
-    return Corpus(documents={"d": doc})
+    return Corpus(documents={"d": doc}, summaries={"d": "root\n  n1\n  n2\n  n3"})
+
+
+def _linear_doc(n_blocks: int, doc_id: str = "d", prefix: str = "") -> Document:
+    blocks = [Block(block_id=f"{doc_id}:p1:{i}", text=f"Bloc {i}", loc="p1", seq=i)
+              for i in range(1, n_blocks + 1)]
+    nodes = [Node(node_id=f"{prefix}root", items=[NodeRef(node_id=f"{prefix}n")]),
+             Node(node_id=f"{prefix}n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    return Document(doc_id=doc_id, kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)
+
+
+def _tool(name: str, tool_id: str, **args: object) -> dict[str, object]:
+    return {"type": "tool_use", "id": tool_id, "name": name, "input": args}
+
+
+def _tool_message(*uses: dict[str, object], stop_reason: str = "tool_use") -> dict[str, object]:
+    return fake_message(model="claude-sonnet-5", stop_reason=stop_reason, content=list(uses))
+
+
+async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None = None,
+                       parsed: ParsedQuestion | None = None, budget: RetrievalBudget | None = None,
+                       settings: Settings | None = None, dictionnaire=None):
+    corpus = corpus or _corpus()
+    settings = settings or _s(max_cost_eur_per_request=1.0)
+    fake = FakeAnthropic(script)
+    client = LlmClient(settings, anthropic_client=fake)
+    request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
+    result, step = await retrouver_outils(
+        parsed or _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+        budget=budget or _budget(max_blocks=30, max_tokens=6000), settings=settings,
+        client=client, request_budget=request_budget, doc_id="d", dictionnaire=dictionnaire)
+    return result, step, fake, request_budget
+
+
+async def test_outils_nominal_exposes_four_tools_and_stops_after_one_useful_turn() -> None:
+    result, step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1")),
+    ])
+    assert [t["name"] for t in OUTILS_RECHERCHE] == [
+        "sommaire", "ouvrir_noeud", "chercher", "definitions"]
+    assert len(fake.requests) == request_budget.attempts == 1
+    assert all([t["name"] for t in request["tools"]] == [
+        "sommaire", "ouvrir_noeud", "chercher", "definitions"] for request in fake.requests)
+    assert "root" in fake.requests[0]["system"][0]["text"]
+    assert '<untrusted kind="sommaire">' in fake.requests[0]["system"][0]["text"]
+    assert fake.requests[0]["max_tokens"] == _s().retrouver_outils_max_tokens
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p1:5"]
+    assert not result.truncated and step.calls and step.tier == "micro"
+    assert fake.requests[0]["model"] == TIERS["micro"]
+    assert len(step.calls) == 1 and step.usage.cost_eur == request_budget.cost_eur > 0
+    assert step.opened_block_ids == result.opened_block_ids
+
+
+async def test_outils_category_without_blocks_returns_title_and_titled_children() -> None:
+    _result, _step, fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="root")),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ])
+    second_messages = fake.requests[1]["messages"]
+    tool_result = second_messages[-1]["content"][0]["content"]
+    assert '"title": "Sommaire"' in tool_result
+    assert '"node_id": "n1"' in tool_result and '"title": "Arrivée"' in tool_result
+    assert '"blocks": []' in tool_result
+
+
+async def test_outils_pagination_counts_each_open_and_can_be_completed() -> None:
+    corpus = Corpus(documents={"d": _linear_doc(5)}, summaries={"d": "root > n"})
+    result, _step, fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="n")),
+        _tool_message(_tool("ouvrir_noeud", "t2", node_id="n", cursor=3)),
+    ], corpus=corpus, parsed=_parsed(["bloc"]),
+        budget=_budget(node_window=3, max_opens=2, max_blocks=10, max_tokens=6000))
+    assert result.opened_block_ids == [f"d:p1:{i}" for i in range(1, 6)]
+    assert result.truncated is False
+    serialized = fake.requests[1]["messages"][-1]["content"][0]["content"]
+    assert '"next_cursor": 3' in serialized
+    assert '"block_id": "d:p1:1"' in serialized and '"text": "Bloc 1"' in serialized
+    assert '"loc"' not in serialized and '"seq"' not in serialized and '"refs"' not in serialized
+
+    limited, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="n")),
+        _tool_message(_tool("ouvrir_noeud", "t2", node_id="n", cursor=3)),
+    ], corpus=corpus, parsed=_parsed(["bloc"]),
+        budget=_budget(node_window=3, max_opens=1, max_blocks=10, max_tokens=6000))
+    assert limited.truncated and limited.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p1:3"]
+
+
+async def test_outils_budget_is_atomic_and_first_turn_without_tool_is_incomplete() -> None:
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="n1")),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], budget=_budget(max_blocks=1, max_tokens=6000))
+    # Le premier bloc tient ; l'unité suivante (bloc + cible du renvoi) est sautée entière.
+    assert result.opened_block_ids == ["d:p1:1"] and result.truncated
+    assert "d:p1:5" not in result.opened_block_ids
+
+    empty, step, _fake, _ = await _run_outils([
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ])
+    assert empty.blocs == [] and empty.truncated and step.discarded_block_ids == []
+
+    summary_only, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("sommaire", "t1", doc_id="d")),
+        _tool_message(_tool("sommaire", "t2", doc_id="d")),
+    ])
+    assert summary_only.blocs == [] and summary_only.truncated
+
+
+async def test_outils_invalid_open_still_consumes_the_global_open_quota() -> None:
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="inconnu")),
+        _tool_message(_tool("ouvrir_noeud", "t2", node_id="n1")),
+    ], budget=_budget(max_opens=1, max_blocks=30, max_tokens=6000))
+    assert result.opened_block_ids == [] and result.truncated
+
+
+async def test_outils_multiple_searches_union_candidates_and_discard_only_unopened_hits() -> None:
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"])),
+        _tool_message(_tool("chercher", "t2", termes=["contenu"]),
+                      _tool("ouvrir_noeud", "t3", node_id="n1")),
+    ])
+    assert result.discarded_block_ids == ["d:p2:1", "d:p3:1"]
+    # La cible voisine du renvoi est transmise mais n'était pas un hit : jamais "écartée".
+    assert "d:p1:5" in result.opened_block_ids and "d:p1:5" not in result.discarded_block_ids
+
+
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "refusal", "pause_turn"])
+async def test_outils_abnormal_tool_turn_end_is_always_truncated(stop_reason: str) -> None:
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1"), stop_reason=stop_reason),
+    ])
+    assert result.opened_block_ids and result.truncated
+
+
+@pytest.mark.parametrize(
+    ("searched", "truncated"),
+    [([], True), (["zorbule"], True), (["zorbule", "quuxite"], False)],
+)
+async def test_outils_zero_hit_requires_all_canonical_terms_to_have_been_searched(
+        searched: list[str], truncated: bool) -> None:
+    actual = [f"{term}-absent" for term in searched]
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=actual)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], parsed=_parsed(["zorbule-absent", "quuxite-absent"]))
+    assert result.blocs == [] and result.truncated is truncated
+
+
+async def test_outils_rejects_focus_that_was_not_a_search_candidate() -> None:
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n3", focus_block_id="d:p3:1")),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ])
+    assert result.opened_block_ids == [] and result.truncated
+
+
+async def test_outils_deduplicates_repeated_windows_and_dependencies() -> None:
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n1")),
+    ])
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p1:5"]
+
+
+async def test_outils_refuses_foreign_document_without_leaking_it() -> None:
+    other = _linear_doc(1, doc_id="e", prefix="e-")
+    base = _corpus()
+    corpus = Corpus(documents={"d": base.documents["d"], "e": other},
+                    summaries={"d": "root", "e": "secret other document"})
+    result, _step, fake, _ = await _run_outils([
+        _tool_message(_tool("ouvrir_noeud", "t1", node_id="e-n")),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus)
+    assert result.blocs == [] and result.truncated
+    sent = str(fake.requests[1]["messages"])
+    assert "secret other document" not in sent and "e:p1:1" not in sent
+
+
+async def test_outils_never_follows_a_reference_chain_beyond_one_level() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Départ", loc="p1", seq=1, refs=["d:p2:1"]),
+        Block(block_id="d:p2:1", text="Premier renvoi", loc="p2", seq=1, refs=["d:p3:1"]),
+        Block(block_id="d:p3:1", text="Second renvoi interdit", loc="p3", seq=1),
+    ]
+    nodes = [Node(node_id="root", title="Sommaire", items=[
+                 NodeRef(node_id="n"), NodeRef(node_id="n2"), NodeRef(node_id="n3")]),
+             Node(node_id="n", title="Départ", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", title="Renvoi 1", items=[BlockRef(block_id="d:p2:1")]),
+             Node(node_id="n3", title="Renvoi 2", items=[BlockRef(block_id="d:p3:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["départ"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n")),
+    ], corpus=corpus, parsed=_parsed(["départ"]))
+    assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]
+    assert "d:p3:1" not in result.opened_block_ids and not result.truncated
 
 
 def test_nominal_opens_candidate_nodes_follows_refs_and_reads_blocks_from_the_corpus() -> None:
@@ -367,6 +572,17 @@ def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], 
         {"schema_version": "1", "corpus_source_hashes": hashes, "corpus": termes,
          "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
     return load_dictionary(dossier, corpus, DICO_DOC)
+
+
+async def test_outils_traces_dictionary_expansion_for_terms_actually_searched(tmp_path: Path) -> None:
+    corpus = _corpus_avec_manifest()
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["social security number"]})
+    _result, step, _fake, _budget_used = await _run_outils(
+        [_tool_message(_tool("chercher", "t1", termes=["contenu"])),
+         fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])], corpus=corpus,
+        parsed=_parsed(["social security number"]), dictionnaire=dico)
+    check = next(c for c in step.checks if c.name == "dictionnaire")
+    assert check.detail == "0 variante(s) ajoutée(s) à 0 terme(s)"
 
 
 def _corpus_avec_manifest() -> Corpus:

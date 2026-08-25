@@ -41,10 +41,19 @@ class RetrievalResult(DomainModel):
     truncated: bool = False
 
 
+class NodeChild(DomainModel):
+    """Un enfant directement navigable d'un nœud, sans contenu documentaire."""
+
+    node_id: str
+    title: str = ""
+
+
 class NodeWindow(DomainModel):
     """Résultat d'`ouvrir_noeud` (AD-1) : fenêtre de blocs du nœud, `truncated` si le nœud dépasse `node_window`."""
 
     node_id: str
+    title: str = ""
+    children: list[NodeChild] = Field(default_factory=list)
     blocks: list[Block] = Field(default_factory=list)
     truncated: bool = False
     next_cursor: int | None = None

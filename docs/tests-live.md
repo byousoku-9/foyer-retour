@@ -2687,3 +2687,30 @@ révélé aucun défaut supplémentaire. La campagne complète A ne contient auc
 
 Revue croisée Codex/Claude : 12 findings initiaux, puis N1/M3 et le gate périmé N2 tous clos ;
 recheck final `peut_etre_done=true`, 2 108 tests et 10 contrôles de digest verts (boucle autonome).
+
+## Story 2.6 — navigation par outils, diagnostic fournisseur du 26/08/2026
+
+La navigation par outils est désormais le défaut du guide. Son arbitrage de coût conserve deux tours
+possibles mais exécute cette seule étape sur le tier `micro`, avec une sortie bornée à 1 024 tokens ;
+*rédiger* reste sur `reason` et *vérifier* sur `micro`. La question enregistrée est « Quel délai ai-je
+pour déclarer mon arrivée au Luxembourg ? » sur le sommaire réel `lux-guide`.
+
+| Variante | Appels de navigation | Blocs transmis | Coût total réel | Résultat |
+|---|---:|---:|---:|---|
+| `outils` | 2, quatre schémas à chaque tour | 14 | 0,0321 € | réponse 200 sourcée, `found=true`, `complete=false` |
+| `deterministe` | 0 | 26 | 0,0259 € | réponse 200 sourcée, `found=true`, `complete=false` |
+
+Les deux diagnostics ont été enregistrés avec la clé locale ; après délimitation explicite du sommaire
+non fiable, la fixture outils finale a été réenregistrée en 17,42 s puis rejouée clé vide. Le chemin
+outils compte cinq appels sur toute la chaîne et reste sous le plafond de
+0,10 € ; le précédent chemin Sonnet froid s'arrêtait avant *rédiger* après environ 0,0477 € engagés.
+Le tier `micro` ferme ce dépassement sans relever le plafond ni modifier la vérification aval.
+
+Ce tableau est un **smoke diagnostique**, pas une baseline : il ne porte que sur une question, sans
+profil `full`, cache de réponses ni `cases_hash` commun. La comparaison officielle recall/coût/latence
+p50 entre variantes reste réservée à la story 4.1.
+
+Après stabilisation des digests, les deux gates verticaux ont été rejoués par leur commande officielle :
+`lux-guide` est vert 1/1 à 0,0248 € en 13,468 s et `axa-lu-optihome-2017` vert 1/1 à 0,0221 € en
+10,624 s. Tous deux restent honnêtement `countersigned=false`. Le rejeu hermétique final compte 2 134
+tests passés ; les 10 contrôles de digest, Ruff et `git diff --check` sont verts.

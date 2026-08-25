@@ -24,6 +24,8 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.deadline_s == 55 and s.llm_timeout_s == 40  # 40 s : AD-16 amendé en 1.9, sur mesure
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
+    assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
+    assert s.retrouver_outils_tier == "micro"
     assert s.max_cost_eur_per_request == 0.10 and s.cost_alert_eur == 0.05
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
@@ -64,7 +66,8 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.quote_min_chars == 30 and s.allow_ungated is False
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
-    assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_cost_eur_per_request",
+    assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
+            "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
             # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
             "comprendre_max_tokens", "rediger_max_tokens", "retrieval_max_blocks",
@@ -112,6 +115,12 @@ def test_bounds_and_coherence() -> None:
         Settings(_env_file=None, comprendre_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="verifier_max_tokens"):
         Settings(_env_file=None, verifier_max_tokens=8192, llm_max_output_tokens=4096)
+    with pytest.raises(ValidationError, match="retrouver_outils_max_tokens"):
+        Settings(_env_file=None, retrouver_outils_max_tokens=8192, llm_max_output_tokens=4096)
+    with pytest.raises(ValidationError, match="retrouver_outils_tier"):
+        Settings(_env_file=None, retrouver_outils_tier="ingest")
+    with pytest.raises(ValidationError, match="max_llm_turns"):
+        Settings(_env_file=None, max_llm_turns=3)
     # story 1.5 : *vérifier* doit pouvoir juger tout ce que *rédiger* peut produire, sinon des claims
     # retrouvées seraient rejetées « non évaluées » par pure configuration (dégradé silencieux).
     with pytest.raises(ValidationError, match="verifier_max_claims"):

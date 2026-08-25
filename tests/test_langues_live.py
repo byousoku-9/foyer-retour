@@ -170,7 +170,7 @@ async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: st
 
     answer, trace = await repondre_guide(
         question, [], Profil(), corpus=index.corpus, index=index, client=client, settings=settings,
-        request_id=f"live-langue-{cas}", budget=_budget())
+        request_id=f"live-langue-{cas}", budget=_budget(), variant="deterministe")
 
     (parsed,) = vues
     assert isinstance(parsed, ParsedQuestion), "la question devait être autonome"

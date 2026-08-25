@@ -154,14 +154,14 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
                settings: Settings | None = None, budget: RequestBudget | None = None,
                question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None,
-               dictionnaire: Any = None):
+               dictionnaire: Any = None, variant: str = "deterministe"):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await repondre_guide(question, historique or [], Profil(), corpus=index.corpus,
                                          index=index, client=client, settings=settings,
                                          request_id="req-test", lang=lang, budget=budget or _budget(),
-                                         dictionnaire=dictionnaire)
+                                         dictionnaire=dictionnaire, variant=variant)
     return answer, trace, fake
 
 
@@ -227,6 +227,63 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     assert trace.pipeline_digest and trace.prompts_digest
     assert trace.thresholds["quote_min_chars"] == 25 and trace.retries == 0
     assert trace.total_cost_eur > 0 and trace.deadline_remaining_s is not None
+
+
+async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_chain(index: Index) -> None:
+    tool_call = fake_message(
+        model=TIERS["micro"], stop_reason="tool_use",
+        content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
+                  "input": {"termes": ["arrivée"]}},
+                 {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
+                  "input": {"node_id": f"{DOC_ID}:f1", "focus_block_id": f"{DOC_ID}:f1:2"}}])
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), tool_call,
+                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
+    assert answer.found and trace.variant == "outils"
+    assert [s.name for s in trace.steps] == [
+        "comprendre", "retrouver", "rediger", "verifier", "restituer"]
+    retrouver = trace.steps[1]
+    assert len(retrouver.calls) == 1 and retrouver.tier == "micro"
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
+    assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
+               for call in retrouver.calls)
+    assert len(fake.requests) == 4
+
+
+async def test_outils_without_a_useful_tool_falls_back_to_deterministic_retrieval(index: Index) -> None:
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]),
+                fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
+                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
+    assert answer.found and trace.variant == "outils"
+    retrouver = trace.steps[1]
+    assert retrouver.tier == "micro" and len(retrouver.calls) == 1
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
+    assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
+    assert [request["model"] for request in fake.requests] == [
+        TIERS["micro"], TIERS["micro"], TIERS["reason"], TIERS["micro"]]
+
+
+async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) -> None:
+    fake = FakeAnthropic([])
+    client = LlmClient(_settings(), anthropic_client=fake)
+    budget = _budget()
+    with pytest.raises(InvalidRequest, match="variant inconnu"):
+        await repondre_guide(
+            "q", [], Profil(), corpus=index.corpus, index=index, client=client,
+            settings=_settings(), request_id="req-test", budget=budget, variant="inconnue")
+    assert fake.requests == [] and budget.attempts == 0 and budget.cost_eur == 0
+
+
+async def test_variante_outils_keeps_its_failed_call_in_the_partial_trace(index: Index) -> None:
+    panne = anthropic.APIStatusError("529", response=httpx.Response(
+        529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
+    with pytest.raises(LlmUnavailable) as capture:
+        await _run(index, [_comprendre(terms=["arrivée"]), panne], variant="outils")
+    trace = capture.value.trace
+    assert trace is not None and trace.variant == "outils"
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
+    assert len(trace.steps[-1].calls) == 1
 
 
 async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None:
@@ -664,7 +721,8 @@ async def test_without_a_budget_the_pipeline_asks_the_client_for_one(index: Inde
     fake = FakeAnthropic([_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await repondre_guide("Quel délai ?", [], Profil(), corpus=index.corpus, index=index,
-                                         client=client, settings=settings, request_id="sans-budget")
+                                         client=client, settings=settings, request_id="sans-budget",
+                                         variant="deterministe")
     assert answer.found is True and trace.deadline_remaining_s is not None
     # le budget vient des seuils actifs : la deadline restante ne dépasse jamais `deadline_s`
     assert 0 < trace.deadline_remaining_s <= settings.deadline_s
@@ -683,7 +741,8 @@ async def test_the_trace_digests_are_the_real_ones_and_can_be_supplied(index: In
     _a, fournis = await repondre_guide(
         "Quel délai ?", [], Profil(), corpus=index.corpus, index=index,
         client=LlmClient(settings, anthropic_client=fake), settings=settings, request_id="digests",
-        budget=_budget(), pipeline_digest_hex="pipe-de-l-image", prompts_digest_hex="prompts-de-l-image")
+        budget=_budget(), pipeline_digest_hex="pipe-de-l-image", prompts_digest_hex="prompts-de-l-image",
+        variant="deterministe")
     # story 1.6 : l'API les calcule au démarrage et les passe ; ils sont repris tels quels
     assert (fournis.pipeline_digest, fournis.prompts_digest) == ("pipe-de-l-image", "prompts-de-l-image")
 
@@ -1375,7 +1434,7 @@ async def _run_profil(index: Index, profil: Profil, script: list, **kw):
     answer, trace = await repondre_guide(
         "Où inscrire mon enfant ?", [], profil, corpus=index.corpus, index=index,
         client=LlmClient(settings, anthropic_client=fake), settings=settings, request_id="req-profil",
-        budget=_budget())
+        budget=_budget(), variant="deterministe")
     return answer, trace, fake
 
 

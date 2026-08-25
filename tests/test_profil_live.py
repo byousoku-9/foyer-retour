@@ -116,7 +116,8 @@ async def test_le_profil_fait_ouvrir_la_fiche_ecole_par_le_pipeline(index: Index
     budget = _budget()
     answer, trace = await repondre_guide(SCOLAIRE, [], PROFIL_ENFANTS, corpus=index.corpus, index=index,
                                          client=_client(llm_recorder), settings=_settings(),
-                                         request_id="live-profil", budget=budget)
+                                         request_id="live-profil", budget=budget,
+                                         variant="deterministe")
     document = index.corpus.documents[DOC_ID]
     retrouver = next(s for s in trace.steps if s.name == "retrouver")
     ouverts = {document.node_of(b) for b in retrouver.opened_block_ids}
@@ -149,7 +150,8 @@ async def test_le_meme_scenario_sans_profil_ne_reserve_rien(index: Index,
     """
     answer, trace = await repondre_guide(SCOLAIRE, [], Profil(), corpus=index.corpus, index=index,
                                          client=_client(llm_recorder), settings=_settings(),
-                                         request_id="live-profil-vide", budget=_budget())
+                                         request_id="live-profil-vide", budget=_budget(),
+                                         variant="deterministe")
     retrouver = next(s for s in trace.steps if s.name == "retrouver")
     assert [c.name for c in retrouver.checks if c.name == "noeuds_du_profil"] == []
     assert noeuds_du_profil(index.corpus.documents[DOC_ID].parcours, Profil()) == []
