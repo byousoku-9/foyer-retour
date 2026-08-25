@@ -12,4 +12,12 @@ Régénérer (déterministe, sans Node) : `uv run python -m server.ingest.kb_to_
 `source_hash` et `ingest_fingerprint` sont écrits dans `document.json` et repris dans `../manifest.json` avec
 `document_hash` ; le serveur recalcule les hashes au démarrage, compare les empreintes et met ce document en
 quarantaine à la moindre différence (AD-7).
-La `timeline` de `kb.js` n'est pas ingérée (comptée dans `report.json`).
+De la `timeline` de `kb.js`, seules les **conditions** sont ingérées (story 2.3) : `Document.parcours`
+porte, pour chaque fiche que le parcours conditionne, le couple `(node_id, si)` — 9 fiches pour les 38
+étapes du guide, les 29 autres n'en portant aucune. Le **texte** des étapes n'est jamais ingéré : il
+n'appartient à aucune fiche, et un bloc citable qui ne serait dans aucune fiche n'aurait pas de source
+à afficher (spec 1.1). `server/app/domain/profil.py::noeuds_du_profil` lit ces conditions pour désigner
+les fiches qu'un profil rend pertinentes ; *retrouver* leur réserve des places parmi `max_opens`, sans
+jamais ouvrir une fiche qui n'était pas déjà candidate. Le check `parcours_ingere` de `report.json`
+donne les deux comptes ; une fiche inconnue, un `si` non conforme ou une clé hors `PROFIL_KEYS` lèvent
+l'alerte `parcours_condition_ignoree` — jamais un bloquant.

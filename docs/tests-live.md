@@ -1706,3 +1706,213 @@ est toujours due.
 | Lint | `uv run ruff check .` | *All checks passed!* |
 
 Revue Codex : 1 bloquants / 2 importants, convergé en 1 tour(s) (boucle autonome).
+
+## Story 2.3 — Le profil exploité, et « partiel » qui dit ce qui manque (2026-08-25)
+
+**Sur quel arbre.** Base de la story : `9b5d3aa48809365baabea0508b081066a28aa782` (le
+`baseline_revision` de `spec-2-3-profil-et-trois-etats.md`). Les relevés ci-dessous ont été pris sur
+l'**arbre de travail** de la story, avant commit.
+
+### Ce que la story déplace, et ce que cela coûte en artefacts
+
+Deux empreintes bougent, et il faut les distinguer :
+
+- **`ingest_fingerprint`** — `SCHEMA_VERSION` passe de `"2"` à `"3"` (AD-7 : « `SCHEMA_VERSION`
+  s'incrémente à tout changement de sérialisation », et `Document.parcours` en est un). Elle entre
+  dans les **deux** `ingest_fingerprint`, guide et contrat : les deux documents sont donc ré-ingérés,
+  même si seul le guide porte un parcours.
+- **`pipeline_digest`** — `steps/retrouver.py`, `steps/verifier.py`, `pipelines/*` et `config.py`
+  bougent tous. Les deux gates sont donc à rejouer, comme à chaque story qui touche la chaîne.
+
+**Conséquence non prévue par la spec, et mesurée ici.** La spec annonçait que « les fixtures
+enregistrées se rejouent inchangées (aucun prompt ni schéma de sortie n'a bougé) ». C'est faux, et il
+vaut mieux l'écrire que le découvrir : `build_summary` inscrit `ingest_fingerprint` dans l'**en-tête**
+de `summary.md`, et `summary.md` est le sommaire versionné qui compose le préfixe cacheable de
+*rédiger* (AD-9). Une empreinte d'ingestion différente donne donc un préfixe différent, donc une clé
+de requête différente pour **tout appel du tier `reason`**. Les trois modules live qui appellent
+*rédiger* — `tests/test_pipeline_live.py`, `tests/test_steps_live.py`, `tests/test_sinistre_live.py` —
+doivent être ré-enregistrés avec la clé. Les fixtures de *comprendre* seul
+(`tests/test_suivi_live.py`) ne bougent pas : leur préfixe est le périmètre, pas le sommaire.
+
+### Ré-ingestion des deux documents
+
+| Document | Commande | `ids_disparus` | `ids_nouveaux` | Résultat |
+|---|---|---|---|---|
+| `lux-guide` | `uv run python -m server.ingest.kb_to_blocks` | **0** | **0** | `servi` — `document.json` gagne `parcours` (9 entrées) |
+| `axa-lu-optihome-2017` | `uv run python -m server.ingest.pdf_to_blocks` | **0** | **0** | `servi` — aucun `parcours` (défaut vide, `exclude_defaults`) |
+
+Aucun `block_id` ne disparaît nulle part : le schéma change, la segmentation non. Le seul écart du
+`document.json` du contrat est son `ingest_fingerprint` ; celui du guide y ajoute le tableau
+`parcours`.
+
+**Ce que la `timeline` a donné.** `report.json` du guide, check `parcours_ingere` (info) :
+
+> 5 phases, 38 étapes : 9 fiche(s) conditionnée(s) par le profil, 29 étape(s) ignorée(s) (texte des
+> étapes jamais ingéré)
+
+Les neuf fiches, dans l'ordre du parcours : `ecole`, `garde`, `recherche_logement`, `achat`,
+`assurance_auto`, `allocations`, `independant`, `vehicule`, `permis`. Douze étapes portent un `si` ;
+trois d'entre elles conditionnent une fiche déjà vue (`ecole` l'est trois fois), et la déduplication
+les ramène à neuf — ce qui est désigné est une **fiche**, pas une étape. Aucune alerte
+`parcours_condition_ignoree` : toutes les fiches visées existent, toutes les conditions sont
+conformes.
+
+### Vérifications hors ligne, **avant** les appels réels
+
+Ce tableau est un état intermédiaire, daté : il dit ce que la suite valait une fois le code écrit mais
+avant que les fixtures live et les gates soient rejoués. L'état final est plus bas (« La suite, une
+fois tout rejoué ») — les deux nombres ne se contredisent pas, ils se suivent.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète, hors ligne | `ANTHROPIC_API_KEY= uv run pytest -q` | **1669 passed, 6 failed** — les six échecs sont les modules live à ré-enregistrer (ci-dessus) ; relevé avec les deux gates simulés à jour |
+| Lint | `uv run ruff check .` | *All checks passed!* |
+
+Le relevé « 1669 passed » a été obtenu en simulant localement le re-gate (empreintes du manifest
+alignées sur les artefacts ré-ingérés), puis le manifest réel a été restauré : sans re-gate, les deux
+documents partent en `sans_gate`, donc en quarantaine, et sept tests de plus rougissent
+(`test_api` ×3, `test_digests`, `test_kb_to_blocks`, `test_loader`, `test_parsing_axa`). C'est le
+comportement attendu d'AD-7, pas un défaut.
+
+### Les appels réels (2026-08-25, boucle autonome)
+
+**Les fixtures live, ré-enregistrées puis rejouées.** Les trois modules du tier `reason` ont été
+ré-enregistrés (`uv run pytest -q tests/test_pipeline_live.py tests/test_steps_live.py
+tests/test_sinistre_live.py` → **6 passed en 60,8 s**), et le module de la story enregistré
+(`uv run pytest -q tests/test_profil_live.py` → **3 passed en 33,2 s**). Rejoués hors ligne ensuite,
+ils passent tous : le préfixe est de nouveau stable.
+
+**Ce que le module live de la story mesure — et c'est l'AC, pas une propriété de forme.** Même
+question, deux profils, deux appels enregistrés, comparés hors ligne :
+
+| Profil | Nœuds ouverts par *retrouver* | Ce que la réponse dit ne pas savoir |
+|---|---|---|
+| `{situation: "En famille", enfants: "2", statut: "Salarie", logement: "Louer", vehicule: "Non", horizon: "…"}` | `fadministration`, `farrivee`, **`fecole`** | lecture bornée ; 3 phrases retirées ; une limite du modèle sur le calendrier par enfant |
+| `{}` (vide) | `fadministration`, `fassurance_sante`, `fnationalite` | « les documents fournis **ne détaillent pas les voies de scolarisation** ni les délais d'inscription » ; lecture bornée |
+
+Sans profil, la fiche `ecole` n'est **pas ouverte du tout**, et la réponse le dit elle-même. C'est le
+témoin négatif qui donne sa valeur au premier relevé : la fiche est ouverte *à cause du profil*, pas
+par chance de classement. Les deux appels sont enregistrés, donc la comparaison est rejouée à
+l'identique hors ligne — `tests/test_profil_live.py` l'asserte dans les deux sens.
+
+**Par quel chemin, exactement.** Le `CheckResult(noeuds_du_profil)` du relevé avec profil dit
+« aucune place réservée : les nœuds désignés par le profil sont déjà retenus, ou sans hit pour les
+termes cherchés » : sur cette question, ce sont les `scope.themes` de *comprendre* (« école »,
+« scolarité ») qui ont fait de la fiche une candidate, et son rang la plaçait déjà dans les
+`max_opens`. Les deux moitiés du profil se complètent bien comme la spec le dit — les **thèmes**
+cherchent, le **parcours** classe —, mais **la réserve elle-même n'a pas été exercée en live** : elle
+ne l'est que par les tests unitaires de `tests/test_retrouver.py`. C'est une limite de ce relevé, pas
+une réussite déguisée : il faudrait une question dont la fiche du profil sorte au-delà du sixième
+nœud candidat, et les questions-témoins de 4.2 sont le bon endroit pour la chercher.
+
+### Le tour navigateur (Chrome headless, CDP, `/tmp/cdp-2-3.mjs`)
+
+Serveur nominal sur `:8787` (`ENV=dev`, clé réelle), profil du questionnaire posé dans
+`localStorage` avant la navigation, `/guide/#assistant`, question « Quelles démarches dois-je faire
+avant la rentrée pour mes enfants ? ».
+
+| Ce qui est relevé | Résultat |
+|---|---|
+| Corps posté | `{question, profil (objet, six champs), historique: []}` — le profil part **brut** (AD-11), aucun `contexte` |
+| Réponse | 200 en **16,9 à 26,0 s** selon le tour, 4 segments dont **3 factuels portant 3 citations** (passage relu, lien « source officielle », « retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée ») |
+| Pied | `[etat, etat-phrase, cout]` — **« partiel »** puis « il manque des éléments : ils sont listés sous « Ce que je ne sais pas » » puis « cette réponse a coûté **0,0590 €** » |
+| « Ce que je ne sais pas » | deux entrées : la limite du modèle (documents par école, démarches par commune) **et** la phrase composée par le code « Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a été bornée, et des passages sont restés fermés. » |
+| Sûreté | **0** pose d'`innerHTML` non vide, **0** exception console, `localStorage` réduit à `luxguide.chat.v1` (le profil seul) |
+
+C'est la moitié « trois états » de l'AC, vue de l'écran : l'état n'est plus un mot en capitales, il
+porte la phrase qui dit quoi en faire, et « partiel » est toujours accompagné de la liste qui le
+justifie — ici l'une des deux entrées vient du modèle, l'autre du code.
+
+### Les deux gates, rejoués sur des appels réels
+
+| Gate | Cas | Label | `evals_ok` | `countersigned` | Coût | Durée |
+|---|---|---|---|---|---|---|
+| `--gate lux-guide --profile vertical` | `g-luxtrust-prix` | `bonne_reponse` | **true** | **false** | 0,0219 € | 9,9 s |
+| `--gate axa-lu-optihome-2017 --profile vertical` | `s-bougie-canape` | `bonne_reponse` | **true** | **false** | 0,0413 € | 24,5 s |
+
+Coût des deux gates : **0,0632 €**. Les deux runs ont réaffiché l'avertissement attendu — « gate
+`vertical` écrit sur des cas non contresignés » — et `countersigned` reste `false` : la relecture
+humaine des deux cas est toujours due (tableau « Ce qui incombe à Lancelot », story 1.10), et `/`
+continue d'écrire « relus par la boucle, contresignature humaine en attente ».
+
+### La suite, une fois tout rejoué
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète, hors ligne | `ANTHROPIC_API_KEY= uv run pytest -q` | **1682 passed** en 23,4 s |
+| Lint | `uv run ruff check .` | *All checks passed!* |
+| `/api/v1/sante` du serveur local | `curl -s :8787/api/v1/sante` | `gate_profile: vertical`, `gate_cases: 2`, `gate_countersigned: false`, `profil_max_opens: 2` publié dans `thresholds` |
+
+### Revue coordonnée 2.3 : la trace disait vrai à moitié, et les gates repartent une troisième fois
+
+Quatre relecteurs indépendants ont relu le diff ; douze points appliqués. Trois touchent au fond de
+la story, et méritent d'être écrits ici parce qu'ils changent ce que l'utilisateur lit :
+
+- **Une place réservée n'est pas une place occupée (A1).** Le `CheckResult(noeuds_du_profil)` était
+  composé juste après la réserve, donc **avant** l'admission au budget de blocs. Reproduit : 8 nœuds
+  candidats, `max_opens=6`, `profil_max_opens=2`, `max_blocks=4` — les deux promus perdent leur
+  fenêtre au budget, `opened_block_ids` est identique au témoin sans profil, et la trace annonçait
+  pourtant « 2 place(s) réservée(s) ». L'AC dit « la trace le dit » : elle doit dire vrai. Le check
+  se lit désormais sur `opened_block_ids`, et un promu qui n'a rien ouvert sort en **échec** — le
+  profil a coûté une place à la question sans rien rendre, et c'est ce que le détail dit.
+- **Une réponse amputée pouvait être badgée « sûr » (A2).** Un segment factuel dont *toutes* les
+  claims sont rejetées est retiré par *restituer*, et par lui seul — *vérifier* l'exclut
+  délibérément de son compte `ecartes`. Il ne produisait qu'un `CheckResult`, que personne ne voit :
+  la phrase disparaissait du texte servi avec `complete=True`. Elle force maintenant `complete=False`
+  et dépose sa lacune.
+- **Les phrases du code sont en français, et rien ne le signalait (A3).** `Verification` a désormais
+  **deux** canaux : `unknown` (ce que le modèle a déclaré, dans la langue de la réponse) et `lacunes`
+  (ce que le code constate, toujours en français — leur traduction est l'AC de 2.4). *restituer* les
+  fond en une seule liste affichée, et lève `lang_fallback` dès qu'une lacune française voyage avec
+  une réponse non française — exactement ce que `PHRASES_DE_REFUS` fait depuis 1.5. `complete` se lit
+  sur `Verification.manques`, la réunion des deux.
+
+Les neuf autres points sont de l'hygiène : `profil_max_opens` entre dans le `RetrievalBudget` avec le
+quota qu'il borne (A4), les comptes du rapport de parcours deviennent obligatoires (A5), la `timeline`
+n'est projetée qu'**une** fois (A6), les trois branches d'alerte de l'ingestion sont enfin exercées
+(A7), un cas partiel repasse par chaque module d'API (A8), une condition portant une clé hors
+`PROFIL_KEYS` lève une alerte au lieu de gonfler le compte (A9), une condition booléenne **négative**
+est honorée au lieu d'être silencieusement inversée (A10), la documentation est remise d'accord avec
+le code (A11), et un profil accentué désigne comme celui du questionnaire (A12).
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète, hors ligne | `ANTHROPIC_API_KEY= uv run pytest -q` | **1698 passed, 1 failed** — le seul échec est `test_digests`, qui demande le rejeu des gates ci-dessous |
+| Lint | `uv run ruff check .` | *All checks passed!* |
+| Ré-ingestion | `kb_to_blocks` puis `pdf_to_blocks` | `data/` **byte-identique** : les correctifs ne changent ni `FLAGS`, ni `SCHEMA_VERSION`, ni ce que la source réelle produit |
+| Fixtures live | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_*_live.py` | **rejouées inchangées** — `summary.md` n'ayant pas bougé, le préfixe cacheable de *rédiger* est le même, donc les clés de requête aussi |
+
+**Les deux gates, rejoués une troisième fois.** Les correctifs touchent `steps/` et `pipelines/`,
+donc `pipeline_digest` bouge encore ; aucune fixture live n'était à ré-enregistrer, et aucune
+ré-ingestion n'était due.
+
+| Gate | Cas | Label | `evals_ok` | `countersigned` | Coût | Durée |
+|---|---|---|---|---|---|---|
+| `--gate lux-guide --profile vertical` | `g-luxtrust-prix` | `bonne_reponse` | **true** | **false** | 0,0290 € | 13,3 s |
+| `--gate axa-lu-optihome-2017 --profile vertical` | `s-bougie-canape` | `bonne_reponse` | **true** | **false** | 0,0510 € | 24,4 s |
+
+**Le tour navigateur, rejoué après les correctifs du front** (les cinq phrases d'état ont changé) —
+Chrome headless, serveur nominal sur `:8788`, même profil et même question :
+
+| Ce qui est relevé | Résultat |
+|---|---|
+| Réponse | 200 en **19,4 s**, 3 segments, pied `[etat, etat-phrase, cout]` |
+| État | « **partiel** — il manque des éléments : ils sont listés sous « Ce que je ne sais pas » » ; « cette réponse a coûté **0,0308 €** » |
+| « Ce que je ne sais pas » | **trois** entrées : une limite du modèle, puis les deux phrases du code — « ma lecture a été bornée » et « **J'ai retiré 1 phrase de ma réponse** : les passages joints ne la soutenaient pas » |
+| Sûreté | 0 exception console, `localStorage` réduit au profil |
+
+La troisième entrée est le correctif A2 vu de l'écran : avant lui, cette phrase disparaissait du
+texte servi sans que rien ne le dise.
+
+### État final de la story
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite complète, hors ligne | `ANTHROPIC_API_KEY= uv run pytest -q` | **1699 passed** en 22,6 s |
+| Lint | `uv run ruff check .` | *All checks passed!* |
+| Santé du serveur local | `curl -s :8788/api/v1/sante` | `gate_profile: vertical`, `gate_cases: 2`, `gate_countersigned: false`, `profil_max_opens: 2` sous `max_opens: 6` |
+
+**Coût total des appels réels de la story : ≈ 0,42 €** — ré-enregistrement des fixtures live des
+trois modules du tier `reason`, enregistrement des trois fixtures de `test_profil_live`, trois tours
+navigateur et **trois** rejeux de gate (0,0632 € + 0,0800 €). Les deux `countersigned` restent
+`false` : la relecture humaine des deux cas témoins est toujours due (story 1.10).
