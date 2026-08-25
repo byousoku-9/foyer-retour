@@ -170,6 +170,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     # (`ParsedQuestion` ou `ClarificationRequise` : les deux portent un `intent`), et reste `None` si
     # l'étape n'a pas abouti.
     intent: str | None = None
+    # Politique par requête, publiée par `DictionnaireTrace` autant qu'appliquée au pré-contrôle.
+    # Initialisée avant `tracer()` pour que les traces partielles précédant *comprendre* restent sûres.
+    hors_perimetre_desarme = False
 
     def echeance(avant: str) -> None:
         """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup."""
@@ -200,7 +203,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             # aucun appel, aucune lecture de `data/`, aucun texte de bloc (AD-10).
             blocs=libelles_de_blocs(corpus, doc_id, steps),
             gate=gate_de(corpus, doc_id),
-            dictionnaire=dictionnaire_de(dictionnaire, doc_id),
+            dictionnaire=dictionnaire_de(
+                dictionnaire, doc_id,
+                court_circuit_autorise=not hors_perimetre_desarme),
         )
 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
@@ -216,7 +221,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
     async def chaine() -> tuple[Answer, Trace]:
         """Les cinq étapes. Sortie normale : un `Answer` et sa `Trace`. Échec terminal : `PipelineError`."""
-        nonlocal relances, truncated, intent
+        nonlocal relances, truncated, intent, hors_perimetre_desarme
         # --- comprendre -----------------------------------------------------
         echeance("comprendre")
         # Le périmètre annoncé à *comprendre* vient du **corpus** (story 2.1) : `Corpus.perimetres`
@@ -249,7 +254,6 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             return refuser("clarification_requise", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback,
                            clarification=parsed.clarification)
-        hors_perimetre_desarme = False
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
             # Il reste actif **dans tous les cas**, dictionnaire validé ou non : c'est le seul des

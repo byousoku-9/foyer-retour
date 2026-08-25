@@ -148,7 +148,8 @@ def gate_de(corpus: Any, doc_id: str) -> GateTrace | None:
                      alerts=alerts)
 
 
-def dictionnaire_de(dictionnaire: Any, doc_id: str) -> DictionnaireTrace | None:
+def dictionnaire_de(dictionnaire: Any, doc_id: str, *,
+                    court_circuit_autorise: bool = True) -> DictionnaireTrace | None:
     """AD-5 — L'état du dictionnaire **pour ce document**, donc l'état du refus « zéro hit ».
 
     `None` quand le pipeline n'en a pas (le sinistre) : la rubrique disparaît au lieu d'annoncer un
@@ -157,13 +158,15 @@ def dictionnaire_de(dictionnaire: Any, doc_id: str) -> DictionnaireTrace | None:
 
     `court_circuit_actif` est pris par `court_circuit_pour(doc_id)` et non par la propriété du même
     nom : c'est la décision **de cette requête**, et un dictionnaire qui décrit un autre document
-    n'arme rien ici, quoi qu'il arme ailleurs (revue Codex 2.1, B3).
+    n'arme rien ici, quoi qu'il arme ailleurs (revue Codex 2.1, B3). La politique de la requête peut
+    en outre le désarmer, notamment sous `perimetre_tronque` (amendement AD-5, story 2.5).
     """
     if dictionnaire is None:
         return None
     return DictionnaireTrace(charge=dictionnaire.charge, validated=dictionnaire.validated,
                              corpus_ok=dictionnaire.corpus_ok,
-                             court_circuit_actif=dictionnaire.court_circuit_pour(doc_id))
+                             court_circuit_actif=(court_circuit_autorise
+                                                  and dictionnaire.court_circuit_pour(doc_id)))
 
 
 def blocs_cites(verification: Verification) -> set[str]:

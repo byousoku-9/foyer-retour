@@ -120,11 +120,11 @@ class GateTrace(DomainModel):
 class DictionnaireTrace(DomainModel):
     """AD-5 — L'état du dictionnaire pour le document interrogé, donc l'état du refus « zéro hit ».
 
-    Les quatre booléens sont ceux de `corpus.dictionary.Dictionnaire`, dans l'ordre où ils se
-    commandent : chargé, signé, décrivant le corpus servi, et — conjonction des trois, appliquée au
-    document de la requête — court-circuit armé ou non. Tant que `court_circuit_actif` est faux, un
-    refus « zéro hit » est **impossible** : l'écran peut le dire au lieu de laisser croire que
-    l'absence de refus prouve quelque chose.
+    Les trois premiers booléens décrivent l'artefact : chargé, signé et conforme au corpus. Le
+    quatrième décrit le **pré-contrôle** de cette requête : leur conjonction est nécessaire, puis le
+    document interrogé et la politique `perimetre_tronque` peuvent encore le désarmer. Faux signifie
+    donc que la requête poursuit vers *retrouver* ; cette recherche peut légitimement conclure ensuite
+    à une absence `zero_hit`.
     """
 
     charge: bool = False

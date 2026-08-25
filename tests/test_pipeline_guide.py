@@ -1681,6 +1681,8 @@ async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit"
+    assert trace.dictionnaire is not None
+    assert trace.dictionnaire.court_circuit_actif is False
     comprendre = next(s for s in trace.steps if s.name == "comprendre")
     assert [c.name for c in comprendre.checks] == ["hors_perimetre_desarme"]
 
