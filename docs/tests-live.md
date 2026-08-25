@@ -2209,11 +2209,11 @@ headless piloté par CDP ; elles n'ont déclenché aucun appel fournisseur.
 
 ### Gates et suite hors ligne
 
-- `uv run python -m server.evals run --gate lux-guide` : `bonne_reponse`, `evals_ok=true`, gate
+- `uv run python -m server.evals.run --gate lux-guide` : `bonne_reponse`, `evals_ok=true`, gate
   `vertical`, 1 cas, `countersigned=false`, coût 0,0278 € ; un premier passage n'a conservé aucune
   affirmation après une lecture tronquée et n'a pas modifié le manifeste, puis la relance a réécrit
   le gate à `2026-08-25T11:25:11Z`.
-- `uv run python -m server.evals run --gate axa-lu-optihome-2017` : `bonne_reponse`,
+- `uv run python -m server.evals.run --gate axa-lu-optihome-2017` : `bonne_reponse`,
   `evals_ok=true`, gate `vertical`, 1 cas, `countersigned=false`, coût 0,0480 € ; réécrit après les
   correctifs de revue à `2026-08-25T11:25:40Z`.
 - `tests/test_digests.py` : 10 passés ; les deux gates portent le `pipeline_digest` courant
