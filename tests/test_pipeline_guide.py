@@ -226,16 +226,40 @@ async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None
 
 
 async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: Index) -> None:
-    """Reprise 1.4 : `max_blocks`/`max_tokens` existaient sans que personne ne les renseigne."""
+    """Reprise 1.4 : `max_blocks`/`max_tokens` existaient sans que personne ne les renseigne.
+
+    **Revue Codex 2.3 (B3) : ce test verrouillait la contradiction que l'AC 2.3 nomme.** La borne
+    mord au point que le bloc cité par BONNE n'est plus transmis, la claim est rejetée (« bloc non
+    fourni »), la relance rejoue la même ébauche — et le pipeline publiait alors un `AbsenceProof`
+    (`claims_rejetes`) au terme d'une lecture qu'il avait lui-même tronquée. Une preuve d'absence
+    annonce des termes cherchés et un compte de blocs parcourus : elle affirme l'exhaustivité que la
+    troncature dément. « Budget de retrieval épuisé ou troncature non résolue ⇒ `complete=False` et
+    **jamais** d'`AbsenceProof` » (AC 2.3, NFR2, AD-1) — c'est un échec terminal, avec son code.
+    """
     settings = _settings(retrieval_max_blocks=1)
-    # La borne mord au point que le bloc cité par BONNE n'est plus transmis : la claim est donc
-    # rejetée (« bloc non fourni »), la relance rejoue la même ébauche et le refus est motivé.
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE), _rediger(BONNE)],
-                                     settings=settings)
-    assert fake.remaining_script == 0
+    with pytest.raises(BudgetExceeded, match="aucune absence du corpus n'est affirmée") as capture:
+        await _run(index, [_comprendre(), _rediger(BONNE), _rediger(BONNE)], settings=settings)
+    trace = capture.value.trace  # AD-16 : la trace partielle voyage avec l'erreur
+    assert trace is not None
     retrouver = trace.steps[1]
+    assert retrouver.name == "retrouver"
     assert len(retrouver.opened_block_ids) == 1  # sans la borne, plusieurs blocs partaient
     assert trace.truncations == 1
+    # toute la chaîne a bien tourné, relance comprise (la seconde ébauche est identique, donc pas
+    # de seconde vérification) : ce n'est pas un court-circuit de retrieval, et *restituer* n'a
+    # jamais été atteint — donc aucun `Answer`, donc aucune preuve d'absence n'a pu être publiée.
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "rediger"]
+
+
+async def test_a_refusal_without_truncation_stays_a_served_answer(index: Index) -> None:
+    """Le pendant du précédent (revue Codex 2.3, B3) : la garde ne mange pas le refus honnête.
+
+    Lecture **non** tronquée et zéro claim survivante : rien n'a borné ce que nous avons lu, donc la
+    preuve d'absence dit vrai et l'utilisateur reçoit un `Answer` complet (200), jamais une 503.
+    """
+    answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE), _rediger(MAUVAISE)])
+    assert fake.remaining_script == 0 and trace.truncations == 0
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "claims_rejetes"
 

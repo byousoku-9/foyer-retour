@@ -15,6 +15,7 @@ from server.app.corpus.loader import Corpus, load_corpus
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
 from server.app.domain.question import ParsedQuestion, QuestionScope
 from server.app.llm.models import STEP_TIERS
+from server.app.llm.pricing import estimate_tokens
 from server.app.steps.retrouver import retrouver_deterministe
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,9 +30,10 @@ def _budget(**kw) -> RetrievalBudget:
     return RetrievalBudget(**(base | kw))
 
 
-def _parsed(terms: list[str], themes: list[str] | None = None) -> ParsedQuestion:
+def _parsed(terms: list[str], themes: list[str] | None = None,
+            noeuds: list[str] | None = None) -> ParsedQuestion:
     return ParsedQuestion(question_resolue="q", intent="question", terms=terms,
-                          scope=QuestionScope(themes=themes or []))
+                          scope=QuestionScope(themes=themes or [], noeuds=noeuds or []))
 
 
 def _run(parsed: ParsedQuestion, corpus: Corpus, index: Index, budget: RetrievalBudget | None = None,
@@ -229,7 +231,6 @@ def test_max_tokens_bounds_the_step_where_the_block_count_does_not() -> None:
     borne, _ = _run(_parsed(["matricule"]), corpus, index, _budget(max_blocks=10, max_tokens=7000))
     assert len(borne.blocs) == 2 and borne.truncated is True
     s = _s()
-    from server.app.llm.pricing import estimate_tokens
     total = sum(estimate_tokens(f"{b.block_id}\n{b.text}", s) for b in borne.blocs)
     assert total <= 7000
 
@@ -517,11 +518,16 @@ def _corpus_range(n: int) -> Corpus:
 
 def _run_profil(corpus: Corpus, noeuds: list[str] | None, *, max_opens: int = 6,
                 profil_max_opens: int = 2, terms: list[str] | None = None, **budget_kw):
-    """La réserve se règle **dans le budget**, avec le quota qu'elle borne (revue coordonnée, A4)."""
-    return retrouver_deterministe(_parsed(terms or ["matricule"]), corpus=corpus, index=Index(corpus),
+    """La réserve se règle **dans le budget**, avec le quota qu'elle borne (revue coordonnée, A4).
+
+    Les nœuds désignés arrivent **dans `ParsedQuestion.scope`** et non par un paramètre parallèle
+    (revue Codex 2.3, B1) : c'est le seul laissez-passer vers l'étape (AD-1).
+    """
+    return retrouver_deterministe(_parsed(terms or ["matricule"], noeuds=noeuds), corpus=corpus,
+                                  index=Index(corpus),
                                   budget=_budget(max_opens=max_opens,
                                                  profil_max_opens=profil_max_opens, **budget_kw),
-                                  settings=_s(), noeuds_prioritaires=noeuds)
+                                  settings=_s())
 
 
 def test_un_noeud_designe_hors_quota_prend_la_place_du_moins_bien_classe() -> None:
@@ -623,14 +629,15 @@ def test_la_reserve_ne_change_pas_le_nombre_de_noeuds_ouverts_ni_truncated() -> 
     assert result.truncated is temoin.truncated is True
 
 
-def test_une_place_reservee_nest_pas_une_place_occupee_quand_le_budget_ecarte_la_fenetre() -> None:
-    """Le trou de la matrice (revue coordonnée 2.3, A1) : réserver n'est pas occuper.
+def test_une_place_reservee_pour_rien_est_rendue_au_noeud_qui_lavait_cedee() -> None:
+    """Le trou de la matrice (revue coordonnée 2.3, A1 ; revue Codex 2.3, I1) : réserver n'est pas
+    occuper, et une place réservée pour rien doit être **rendue**.
 
     Huit nœuds candidats, `max_opens=6`, deux désignés hors quota, mais `max_blocks=4` : l'unité de
-    dépendance des deux promus est écartée comme n'importe quelle autre, et le résultat est
-    **identique** au témoin sans profil. La trace disait pourtant « 2 place(s) réservée(s) » — elle
-    affirmait une réservation qui n'a rien ouvert. Elle dit maintenant la perte, et en échec : le
-    profil a coûté deux places à la question sans rien rendre.
+    dépendance des deux promus est écartée comme n'importe quelle autre. Avant le correctif, `n5` et
+    `n6` avaient cédé leur place pour rien — le profil **retirait** deux nœuds à la question sans lui
+    rendre un seul bloc. Ils sont maintenant restitués, la lecture est refaite, et le résultat est
+    celui d'un profil vide : le profil n'ajoute rien, mais il ne retire rien non plus.
 
     Les huit autres tests de la réserve tournent sur un budget sans `max_blocks`/`max_tokens` : c'est
     précisément ce que celui-ci ajoute (patron de
@@ -641,20 +648,42 @@ def test_une_place_reservee_nest_pas_une_place_occupee_quand_le_budget_ecarte_la
     result, step = _run_profil(corpus, ["n7", "n8"], max_blocks=4)
     assert result.opened_block_ids == temoin.opened_block_ids == [f"d:p{i}:1" for i in range(1, 5)]
     (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    # Rien n'est perdu, mais rien n'est gagné : le seuil est mal réglé pour ce budget, et `ok=False`
+    # le dit plutôt que de laisser croire à une promotion réussie.
     assert check.ok is False
-    assert check.detail == ("0 place(s) réservée(s) sur 2 (aucune) ; 2 nœud(s) cédé(s) (n6, n5) ; "
-                            "2 promu(s) sans bloc retenu (n7, n8) : le budget de blocs a écarté leur fenêtre")
+    assert check.detail == ("0 place(s) réservée(s) sur 2 (aucune) ; 0 nœud(s) cédé(s) (aucun) ; "
+                            "2 promu(s) sans bloc retenu (n7, n8) : le budget de blocs a écarté "
+                            "leur fenêtre, leur place a été rendue (n6, n5)")
 
 
-def test_une_place_partiellement_occupee_se_dit_pour_ce_quelle_est() -> None:
-    """`max_blocks=5` : le premier promu passe, le second non — un succès et une perte, dits tous deux."""
-    corpus = _corpus_range(8)
-    result, step = _run_profil(corpus, ["n7", "n8"], max_blocks=5)
-    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 7)]
+def test_la_restitution_dune_place_ne_coute_pas_la_promotion_qui_avait_reussi() -> None:
+    """Fenêtres de tailles différentes, budget de blocs serré (revue Codex 2.3, I1) : un promu tient,
+    l'autre non — celui qui tient garde sa place, celui qui échoue rend la sienne.
+
+    Le bloc de `n8` est long, tous les autres sont courts, et le budget de tokens vaut exactement six
+    blocs courts. Avec la réserve, `n5` et `n6` cèdent leur place à `n7` et `n8` : `n7` entre, la
+    fenêtre de `n8` ne tient pas. Avant le correctif, `n5` restait évincé pour cette promotion ratée
+    et le retrieval rendait cinq blocs là où le budget en autorisait six. `n5` reprend sa place, et
+    `n7` — qui, lui, a bien apporté un bloc — garde la sienne.
+    """
+    doc = _corpus_range(8).documents["d"]
+    court = f"d:p1:1\n{doc.block('d:p1:1').text}"
+    blocks = [b if b.block_id != "d:p8:1" else
+              Block(block_id="d:p8:1", text="Le matricule, " + "encore et encore, " * 200, loc="p8", seq=1)
+              for b in doc.blocks]
+    corpus = Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                             nodes=list(doc.nodes), blocks=blocks)})
+    tokens = 6 * estimate_tokens(court, _s())
+
+    avant, _ = _run_profil(corpus, None, max_tokens=tokens)
+    assert avant.opened_block_ids == [f"d:p{i}:1" for i in range(1, 7)]
+    result, step = _run_profil(corpus, ["n7", "n8"], max_tokens=tokens)
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 5, 7)]
     (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
-    assert check.ok is False
-    assert check.detail.startswith("1 place(s) réservée(s) sur 2 (n7) ; 2 nœud(s) cédé(s) (n6, n5)")
-    assert "1 promu(s) sans bloc retenu (n8)" in check.detail
+    assert check.ok is False  # une promotion sur deux a échoué : le réglage se dit
+    assert check.detail == ("1 place(s) réservée(s) sur 2 (n7) ; 1 nœud(s) cédé(s) (n6) ; "
+                            "1 promu(s) sans bloc retenu (n8) : le budget de blocs a écarté leur "
+                            "fenêtre, leur place a été rendue (n5)")
 
 
 def test_une_reserve_qui_mangerait_le_quota_est_refusee_a_la_construction() -> None:

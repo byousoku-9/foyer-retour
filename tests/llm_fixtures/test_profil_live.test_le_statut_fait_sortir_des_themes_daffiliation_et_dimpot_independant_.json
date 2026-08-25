@@ -1,0 +1,33 @@
+{
+  "claude-haiku-4-5-20251001:8e5ede0ebed7c74a": {
+    "request": "claude-haiku-4-5-20251001:8e5ede0ebed7c74a",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"installation\", \"première année\", \"démarches administratives\", \"arrivée\"], \"themes\": [\"affiliation\", \"impôt\", \"indépendant\"], \"facettes\": [\"Que dois-je prévoir pour ma première année au Luxembourg ?\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNyWgX69MTRxqVRvLaxd",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4286,
+        "inference_geo": "not_available",
+        "input_tokens": 130,
+        "output_tokens": 136,
+        "service_tier": "standard"
+      }
+    }
+  }
+}

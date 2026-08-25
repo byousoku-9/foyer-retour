@@ -48,7 +48,7 @@ l'une des deux, jamais les deux, jamais aucune.
   l'intent ne relève pas du périmètre.
 - `themes` : ce que le **profil déclaré** ajoute à la recherche, et rien d'autre — jamais un thème
   tiré de la question elle-même (ses mots sont déjà dans `terms`) : `enfants` → école, scolarité,
-  allocations ; `vehicule` → auto, immatriculation ; `statut` → affiliation, sécurité sociale.
+  allocations ; `vehicule` → auto, immatriculation ; `statut` → affiliation, sécurité sociale, impôt.
   N'ajoute que ce que le profil rend réellement pertinent **pour cette question**, en français ;
   liste vide si le profil est absent ou sans rapport. N'écris jamais la clé du profil elle-même
   (`enfants`, `vehicule`, `statut`) : elle ne se cherche pas dans le guide — écris ce qu'elle rend

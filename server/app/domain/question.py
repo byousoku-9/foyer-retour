@@ -63,6 +63,17 @@ class QuestionScope(DomainModel):
     """Portée dérivée du profil ou des faits du sinistre."""
 
     themes: list[str] = Field(default_factory=list)  # école, allocations, auto…
+    # Les nœuds que le **profil déclaré** désigne (story 2.3, revue Codex 2.3 B1) : des `node_id` de
+    # notre ingestion, calculés **par le code** (`domain/profil.py::noeuds_du_profil` sur
+    # `Document.parcours`), jamais rendus par le modèle. Ils vivent ici — et non dans un paramètre de
+    # *retrouver* — parce que l'AC de la story 2.3 dit littéralement « *comprendre* construit
+    # `ParsedQuestion.scope` … et *retrouver* priorise **ces** nœuds », et parce qu'AD-1 écrit
+    # « *retrouver* ne voit que `ParsedQuestion` » : le laissez-passer vers l'étape est ce type, en
+    # entier, et rien d'autre. Vide pour le sinistre — un dossier n'a ni profil ni parcours.
+    #
+    # Ce ne sont ni des libellés du modèle ni du contenu de bloc : `borner()` ne les touche donc pas
+    # (il ne borne que ce que le modèle écrit) et AD-10 les autorise dans la trace.
+    noeuds: list[str] = Field(default_factory=list)
     bien: str | None = None
     evenement: str | None = None
     lieu: str | None = None

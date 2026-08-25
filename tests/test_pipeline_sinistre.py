@@ -17,7 +17,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
-from server.app.domain.errors import CorpusUnavailable, InvalidRequest
+from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, InvalidRequest
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.question import Faits
 from server.app.domain.verdict import (
@@ -496,6 +496,26 @@ async def test_a_rejected_claim_triggers_one_retry_then_refuses_with_a_verdict(i
     assert answer.faits_compris is not None
     assert answer.faits_compris.bien == "mobilier de salon"
     assert answer.faits_compris.cause == "bougie"
+
+
+async def test_a_truncated_read_with_no_surviving_clause_never_proves_an_absence(index: Index) -> None:
+    """La même garde que le guide, sur le pipeline qui en a le plus besoin (revue Codex 2.3, B3).
+
+    « Aucune clause du contrat n'a été retrouvée » lu au terme d'une lecture **bornée** est une
+    affirmation d'assureur que rien n'appuie : NFR2 et AD-1 l'interdisent (« budget épuisé ou
+    troncature non résolue ⇒ jamais d'`AbsenceProof` »). Échec terminal avec sa trace partielle
+    (AD-16), et le verdict `ne_tranche_pas` ne sert pas de couverture à une preuve fabriquée.
+    """
+    settings = _settings(retrieval_max_blocks=1)
+    with pytest.raises(BudgetExceeded, match="aucune absence du contrat n'est affirmée") as capture:
+        await _run(index, [_comprendre(), _rediger(MAUVAISE),
+                           _rediger(("c9", "Autre tentative, aussi fausse.",
+                                     [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")]))],
+                   settings=settings)
+    trace = capture.value.trace
+    assert trace is not None and trace.truncations == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "rediger", "verifier"]
 
 
 async def test_the_rejected_claims_branch_bounds_the_understood_facts_too(index: Index) -> None:

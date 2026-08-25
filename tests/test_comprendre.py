@@ -10,6 +10,7 @@ import re
 import pytest
 
 from server.app.config import Settings
+from server.app.domain.document import ParcoursCondition
 from server.app.domain.errors import LlmParse, Timeout
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
@@ -394,3 +395,42 @@ async def test_la_borne_de_clarification_nentre_pas_dans_le_schema_envoye() -> N
     schema = fake.requests[0]["output_config"]["format"]["schema"]
     assert "maxLength" not in json.dumps(schema)
     assert "maxLength" not in (schema["properties"]["clarification"].get("description") or "")
+
+
+# --- `scope.noeuds` : le profil devient une liste de fiches, ici et nulle part ailleurs ---------
+# Revue Codex 2.3 (B1). L'AC 2.3 dit « **when** *comprendre* construit `ParsedQuestion.scope`,
+# **then** `scope` dérive du profil … et *retrouver* priorise **ces** nœuds », et AD-1 dit
+# « *retrouver* ne voit que `ParsedQuestion` » : le canal est le `scope`, pas un paramètre parallèle.
+PARCOURS = [ParcoursCondition(node_id="g:fecole", si={"enfants": True}),
+            ParcoursCondition(node_id="g:fachat", si={"logement": "Acheter"})]
+
+
+async def test_le_scope_porte_les_noeuds_que_le_profil_designe() -> None:
+    client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    parsed, _step = await _comprendre(client, profil=Profil(enfants="2", logement="Acheter"),
+                                      parcours=PARCOURS)
+    assert isinstance(parsed, ParsedQuestion)
+    assert parsed.scope.noeuds == ["g:fecole", "g:fachat"]
+    # Le calcul est du **code pur** sur une donnée de la source : il ne consomme pas un mot du
+    # modèle, et la requête envoyée est byte-identique à celle d'un appel sans parcours — c'est ce
+    # qui garantit que les neuf fixtures live enregistrées se rejouent sans réseau.
+    sans_client, sans_fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    parsed_sans, _ = await _comprendre(sans_client, profil=Profil(enfants="2", logement="Acheter"))
+    assert parsed_sans.scope.noeuds == []
+    assert fake.requests[0]["system"] == sans_fake.requests[0]["system"]
+    assert fake.requests[0]["messages"] == sans_fake.requests[0]["messages"]
+
+
+async def test_un_profil_qui_ne_satisfait_aucune_condition_ne_designe_rien() -> None:
+    """Inversion assumée par rapport au site : dans le doute, on ne promeut pas."""
+    client, _ = _client([fake_message(text=_sortie(), model=HAIKU)])
+    parsed, _step = await _comprendre(client, profil=Profil(enfants="Aucun"), parcours=PARCOURS)
+    assert parsed.scope.noeuds == []
+
+
+async def test_le_sinistre_ne_recoit_aucun_parcours_donc_aucun_noeud() -> None:
+    """Un dossier de sinistre n'a ni profil ni parcours : `scope.noeuds` reste vide, et la page
+    sinistre — qui publie `faits_compris` — n'affiche donc jamais d'identifiant de nœud."""
+    client, _ = _client([fake_message(text=_sortie(), model=HAIKU)])
+    parsed, _step = await _comprendre(client, profil=Profil(enfants="2"))
+    assert parsed.scope.noeuds == []

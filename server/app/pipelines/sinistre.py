@@ -376,6 +376,16 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # --- restituer ------------------------------------------------------
         echeance("restituer")
         compris, ignores = faits_compris(parsed.scope)
+        if not verification.found and retrieval.truncated:
+            # NFR2 / AD-1, la même règle que dans le pipeline guide (revue Codex 2.3, B3) : une
+            # lecture **bornée** dont rien n'a survécu ne prouve aucune absence, et un contrat est
+            # l'endroit où l'affirmer à tort coûte le plus cher — « aucune clause n'a été retrouvée »
+            # lu sur un contrat que nous n'avons pas fini de lire est une réponse d'assureur. Échec
+            # terminal avec sa trace partielle (AD-16), jamais un `AbsenceProof`.
+            raise BudgetExceeded(
+                "aucune clause n'a survécu à la vérification, et la lecture du contrat avait été "
+                f"tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
+                f"{settings.retrieval_max_tokens} tokens) : aucune absence du contrat n'est affirmée")
         if not verification.found:
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé. Le verdict, lui, a bien été
             # calculé par *vérifier* sur zéro clause affichée : c'est un `ne_tranche_pas` gagné, et

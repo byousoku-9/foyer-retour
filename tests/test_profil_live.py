@@ -89,10 +89,14 @@ async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
     budget = _budget()
     parsed, step = await comprendre(SCOLAIRE, [], PROFIL_ENFANTS, client=_client(llm_recorder),
                                     budget=budget, settings=_settings(),
-                                    perimetre=index.corpus.perimetres.get(DOC_ID, ""))
+                                    perimetre=index.corpus.perimetres.get(DOC_ID, ""),
+                                    parcours=index.corpus.documents[DOC_ID].parcours)
     assert isinstance(parsed, ParsedQuestion), getattr(parsed, "clarification", None)
     assert parsed.intent in ("question", "suivi") and parsed.language == "fr"
     assert _evoque(parsed.scope.themes, "ecole", "scolar", "enseign"), parsed.scope.themes
+    # Et la seconde moitié, dans le **même** `scope` (revue Codex 2.3, B1) : les nœuds désignés sont
+    # construits ici, par du code pur sur `Document.parcours`, et c'est ce que *retrouver* lit.
+    assert ECOLE in parsed.scope.noeuds, parsed.scope.noeuds
     # AD-9 : un seul appel `micro` — l'étage `reason` n'est jamais atteint par *comprendre*.
     assert step.tier == "micro" and len(step.calls) == 1 and budget.attempts == 1
     assert step.calls[0].model.startswith("claude-haiku")
@@ -156,3 +160,50 @@ async def test_le_meme_scenario_sans_profil_ne_reserve_rien(index: Index,
     # hors ligne, elle ne dépend pas d'un tirage.
     ouverts = {index.corpus.documents[DOC_ID].node_of(b) for b in retrouver.opened_block_ids}
     assert ECOLE not in ouverts, sorted(ouverts)
+
+
+# --- « statut → affiliation, impôts », le troisième terme de l'AC (revue Codex 2.3, B2) ----------
+# Les deux premiers termes de l'AC (`enfants` → école/garde/allocations, `vehicule` →
+# permis/assurance auto) sont tenus **exactement** par le parcours ingéré. Le troisième ne l'est pas :
+# aucune étape de la `timeline` n'attache une fiche fiscale au statut, et le canal ne peut donc être
+# que celui des thèmes. La table du prompt écrivait « affiliation, sécurité sociale » et s'arrêtait
+# là ; « impôts » n'avait aucun chemin, ni par le parcours ni par le prompt.
+#
+# Le mot ajouté à la table est **`impôt`**, au singulier, et ce n'est pas une paraphrase de l'AC : la
+# recherche est littérale sur des formes normalisées, et `impots` ne touche qu'une seule FAQ du guide
+# quand `impot` atteint les fiches `impots_classes`, `deductions`, `conseil_fiscal` et `fachat`. Le
+# singulier est strictement plus large que le pluriel qu'il contient.
+PROFILS_STATUT = {
+    "salarie": Profil(situation="Seul", enfants="Aucun", statut="Salarie", logement="Louer",
+                      vehicule="Non", horizon="Je viens d arriver"),
+    "independant": Profil(situation="Seul", enfants="Aucun", statut="Independant", logement="Louer",
+                          vehicule="Non", horizon="Je viens d arriver"),
+}
+# Une question qui ne nomme ni l'affiliation ni l'impôt : tout ce qui en sort vient du profil.
+PREMIERE_ANNEE = "Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?"
+FISCALES = {f"{DOC_ID}:fimpots_classes", f"{DOC_ID}:fdeductions", f"{DOC_ID}:fconseil_fiscal",
+            f"{DOC_ID}:fimpatries", f"{DOC_ID}:finterets"}
+
+
+@pytest.mark.parametrize("statut", sorted(PROFILS_STATUT))
+async def test_le_statut_fait_sortir_des_themes_daffiliation_et_dimpot(
+        index: Index, llm_recorder: LLMRecorder, statut: str) -> None:
+    """AC 2.3, premier **Then**, troisième terme : « statut → affiliation, impôts ».
+
+    Salarié comme indépendant : la clé `statut` doit ouvrir les deux axes. L'assertion ne s'arrête
+    pas au libellé rendu — un thème qui ne trouve rien ne « priorise » aucun nœud —, elle vérifie que
+    les termes réellement cherchés (`ParsedQuestion.termes_de_recherche()`, la source unique de
+    *retrouver* et de l'`AbsenceProof`) atteignent au moins une fiche fiscale du guide.
+    """
+    profil = PROFILS_STATUT[statut]
+    parsed, step = await comprendre(PREMIERE_ANNEE, [], profil, client=_client(llm_recorder),
+                                    budget=_budget(), settings=_settings(),
+                                    perimetre=index.corpus.perimetres.get(DOC_ID, ""),
+                                    parcours=index.corpus.documents[DOC_ID].parcours)
+    assert isinstance(parsed, ParsedQuestion), getattr(parsed, "clarification", None)
+    assert _evoque(parsed.scope.themes, "affiliation", "securite sociale"), parsed.scope.themes
+    assert _evoque(parsed.scope.themes, "impot", "fiscal"), parsed.scope.themes
+    touches = {node_id for _b, node_id in index.chercher(parsed.termes_de_recherche(),
+                                                         limit=_settings().search_limit, doc_id=DOC_ID)}
+    assert touches & FISCALES, sorted(touches)
+    assert step.tier == "micro" and len(step.calls) == 1

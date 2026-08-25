@@ -35,7 +35,7 @@ from server.app.domain.errors import (
     PipelineError,
     Timeout,
 )
-from server.app.domain.profil import Profil, noeuds_du_profil
+from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
 from server.app.domain.trace import CheckResult, StepTrace, Trace
 from server.app.pipelines.commun import (
@@ -175,9 +175,16 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # « Comment obtenir LuxTrust au meilleur prix ? » ressortait `hors_perimetre` alors que le
         # guide a une fiche entière dessus (faux refus mesuré le 2026-08-24). Le préfixe reste
         # déterministe — donc cacheable (AD-9) — mais il devient vrai.
+        #
+        # `parcours` (story 2.3, revue Codex 2.3 B1) suit le même chemin que `perimetre` : c'est une
+        # donnée du **corpus** (`Document.parcours`, projetée de la `timeline` de la source à
+        # l'ingestion), et l'étape ne voit pas le corpus. C'est elle qui en dérive `scope.noeuds`,
+        # par du code pur — l'AC place la construction du `scope` dans *comprendre*, et AD-1 ne
+        # laisse passer vers *retrouver* que `ParsedQuestion`.
         parsed, step_comprendre = await comprendre(question, historique, profil, client=client, budget=budget,
                                                    settings=settings, lang=lang,
-                                                   perimetre=corpus.perimetres.get(doc_id, ""))
+                                                   perimetre=corpus.perimetres.get(doc_id, ""),
+                                                   parcours=corpus.documents[doc_id].parcours)
         steps.append(step_comprendre)
         intent = parsed.intent  # AD-10 : les deux sorties de *comprendre* en portent un
 
@@ -243,16 +250,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # --- retrouver (code pur) -------------------------------------------
         echeance("retrouver")
-        # AD-1 : *retrouver* ne reçoit que `ParsedQuestion` et des paramètres de recherche — les
-        # nœuds que le profil désigne sont donc résolus **ici**, par le seul étage qui voie à la fois
-        # le profil et le corpus, et passés comme un paramètre nommé (story 2.3, précédent exact de
-        # `kinds_prioritaires` en 1.8). Le calcul est du code pur sur une donnée de la source
-        # (`Document.parcours`) : aucun appel, aucun jugement de modèle.
+        # AD-1 : *retrouver* ne voit que `ParsedQuestion`. Les nœuds que le profil désigne y sont
+        # déjà — `parsed.scope.noeuds`, construits par *comprendre* (story 2.3, canal corrigé par la
+        # revue Codex 2.3, B1) —, et le pipeline n'a rien à leur ajouter ici.
         retrieval, step_retrouver = retrouver_deterministe(parsed, corpus=corpus, index=index,
                                                            budget=retrieval_budget(settings),
                                                            settings=settings, doc_id=doc_id,
-                                                           noeuds_prioritaires=noeuds_du_profil(
-                                                               corpus.documents[doc_id].parcours, profil),
                                                            dictionnaire=dictionnaire)
         steps.append(step_retrouver)
         truncated = retrieval.truncated
@@ -387,6 +390,21 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # --- restituer ------------------------------------------------------
         echeance("restituer")
         if not verification.found:
+            if retrieval.truncated:
+                # **NFR2, AD-1 et l'AC 2.3 mot pour mot** : « budget de retrieval épuisé ou
+                # troncature non résolue ⇒ `complete=False` et **jamais** d'`AbsenceProof` » (revue
+                # Codex 2.3, B3). Le garde-fou du retrieval vide couvrait déjà le cas où le budget
+                # n'avait rien laissé passer ; celui-ci couvre le cas symétrique et jusque-là ouvert
+                # — des blocs sont bien partis au modèle, mais la lecture était **bornée** et aucune
+                # affirmation n'a survécu à la vérification. Publier un `AbsenceProof` reviendrait
+                # alors à opposer à l'utilisateur ce que nous n'avons pas lu : la preuve annonce des
+                # termes cherchés et un compte de blocs parcourus, c'est-à-dire l'exhaustivité que la
+                # troncature dément. Il n'y a pas d'`Answer` honnête à rendre — c'est une erreur
+                # terminale, avec son code (AD-16), et le front a son mode dégradé (UX-DR4).
+                raise BudgetExceeded(
+                    "aucune affirmation n'a survécu à la vérification, et la lecture du corpus avait "
+                    f"été tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
+                    f"{settings.retrieval_max_tokens} tokens) : aucune absence du corpus n'est affirmée")
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé, jamais un dégradé silencieux.
             answer, step_restituer = restituer(
                 language=parsed.language, verification=verification,

@@ -3,7 +3,9 @@
 Le modèle de sortie LLM est dédié et plat, tous champs requis (un schéma sans défauts force le modèle à
 tout remplir), puis converti en un type du domaine. `language` = `lang` si fourni, sinon la
 détection du modèle, repli `fr` ; `terms` toujours en français ; `scope.themes` dérivé du profil
-(enfants → école/allocations, véhicule → auto, statut → affiliation) ; `facettes` = les sous-questions
+(enfants → école/allocations, véhicule → auto, statut → affiliation, impôts) et `scope.noeuds` — les
+fiches que le parcours de la source attache au profil déclaré, calculées **par le code** (story 2.3,
+revue Codex 2.3 B1) ; `facettes` = les sous-questions
 distinctes que la question pose, arrêtées **ici** parce qu'AD-4 les nomme « facettes de
 `ParsedQuestion` » et qu'une facette omise ne serait pas détectable si celui qui répond était aussi
 celui qui dit ce qu'il fallait couvrir (revue Codex 1.5, tour 3, B3). Le court-circuit
@@ -22,13 +24,14 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 
 from pydantic import Field, model_validator
 
 from server.app.config import LISTE_MAX_ITEMS, Settings
-from server.app.domain.document import DomainModel
+from server.app.domain.document import DomainModel, ParcoursCondition
 from server.app.domain.errors import PipelineError
-from server.app.domain.profil import Profil
+from server.app.domain.profil import Profil, noeuds_du_profil
 from server.app.domain.question import (
     CLARIFICATION_MAX_CHARS,
     ClarificationRequise,
@@ -150,8 +153,18 @@ def _libelles(bruts: list[str], *, max_chars: int, garder: int) -> tuple[list[st
 async def comprendre(question: str, historique: list[Turn], profil: Profil, *, client: LlmClient,
                      budget: RequestBudget, settings: Settings, lang: str | None = None,
                      prompt: str = "comprendre", perimetre: str = "",
+                     parcours: Sequence[ParcoursCondition] = (),
                      faits: Faits | None = None) -> tuple[ParsedQuestion | ClarificationRequise, StepTrace]:
     """`prompt` nomme le fichier de `llm/prompts/` qui suit `commun.md` ; `faits` sont ceux du sinistre.
+
+    `parcours` (story 2.3, revue Codex 2.3 B1) : les conditions de parcours du document servi
+    (`Document.parcours`), passées par le pipeline — l'étape ne voit pas le corpus, exactement comme
+    pour `perimetre`. C'est ici, et nulle part ailleurs, que le profil devient une liste de nœuds :
+    l'AC dit « **quand** *comprendre* construit `ParsedQuestion.scope`, **alors** `scope` dérive du
+    profil … et *retrouver* priorise **ces** nœuds », et AD-1 dit « *retrouver* ne voit que
+    `ParsedQuestion` ». Le calcul est du **code pur** sur une donnée de la source
+    (`domain/profil.py::noeuds_du_profil`) : il ne consomme pas un mot du modèle, ne dépend pas de sa
+    sortie, et n'a donc aucun effet sur la requête envoyée ni sur sa clé de cache.
 
     `perimetre` (story 2.1) est la projection des titres du document servi (`Corpus.perimetres`),
     rendue dans `$perimetre_guide`. L'étape ne la calcule pas : elle ne voit pas le corpus, et c'est
@@ -234,6 +247,12 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
             terms=terms,
             facettes=facettes,
             scope=QuestionScope(themes=themes,
+                                # Les deux canaux du profil, côte à côte dans le même `scope` : les
+                                # `themes` **cherchent** (jugement du modèle sur les clés déclarées),
+                                # les `noeuds` **classent** (donnée de la source, code pur). Aucun des
+                                # deux n'ajoute une fiche : *retrouver* ne promeut qu'un nœud déjà
+                                # candidat pour les termes cherchés.
+                                noeuds=noeuds_du_profil(parcours, profil),
                                 bien=out.bien or None, evenement=out.evenement or None, lieu=out.lieu or None,
                                 cause=out.cause or None, moment=out.moment or None),
         )
