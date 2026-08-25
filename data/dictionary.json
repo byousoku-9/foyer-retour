@@ -732,6 +732,14 @@
       "escolher o município",
       "où habiter"
     ],
+    "choix commune": [
+      "choisir sa commune",
+      "choix de commune",
+      "choix de la commune",
+      "commune Luxembourg",
+      "communes Luxembourg",
+      "quelle commune"
+    ],
     "choix de la commune": [
       "Gemeinde auswählen",
       "choisir sa commune",
@@ -1773,6 +1781,15 @@
       "house hunting",
       "procura de casa",
       "trouver un logement"
+    ],
+    "recherche logement": [
+      "annonces immobilières",
+      "appartement",
+      "chercher un appart",
+      "marché immobilier",
+      "où loger",
+      "recherche de logement",
+      "trouver logement"
     ],
     "relevé d'informations": [
       "Schadenfreiheitsbescheinigung",
