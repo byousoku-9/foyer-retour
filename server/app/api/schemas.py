@@ -103,9 +103,19 @@ class Alerte(BaseModel):
 
 
 class EtatDictionnaire(BaseModel):
-    """AD-5 : tant que `validated=false`, le court-circuit « zéro hit » reste désactivé."""
+    """AD-5 : les deux verrous du dictionnaire, et la règle qu'ils décident — publiés, jamais recalculés.
+
+    `validated` (une main a signé) et `corpus_ok` (les empreintes décrivent le corpus servi) sont deux
+    faits ; `refus_zero_hit_actif` est la **règle** qui les combine (`validated ∧ corpus_ok`). Les
+    trois sont publiés parce que la règle n'a qu'une autorité — le serveur : la page d'accueil lit
+    `refus_zero_hit_actif` au lieu de refaire la conjonction, sans quoi une évolution de la règle
+    devrait être répercutée dans chaque lecteur, et un lecteur oublié afficherait un refus armé qui
+    ne l'est pas (AD-16 : aucun dégradé silencieux, et rien d'affirmé qui ne soit vérifié).
+    """
 
     validated: bool = False
+    corpus_ok: bool = False
+    refus_zero_hit_actif: bool = False
 
 
 class SanteResponse(BaseModel):

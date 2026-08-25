@@ -26,6 +26,7 @@ from server.app.api.main import create_app
 from server.app.api.request_id import CHAMPS_DE_LOG, RequestIdMiddleware
 from server.app.api.routes.chat import comparateur_de
 from server.app.config import REPO_ROOT, Settings
+from server.app.corpus.dictionary import load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
@@ -139,7 +140,12 @@ def _serveur(settings: Settings) -> Any:
     app = create_app(settings)
     with TestClient(app) as client:
         etat = app.state.foyer
-        client.origine = (etat.corpus, etat.index, etat.pipeline)  # type: ignore[attr-defined]
+        # `alerts` en fait partie depuis la story 2.1 : un test qui les remplace (quarantaine)
+        # laissait sinon l'application sans les alertes du démarrage pour tous les suivants —
+        # une dépendance à l'ordre d'exécution, invisible jusqu'à ce qu'une alerte nouvelle
+        # soit attendue par un test placé après lui.
+        client.origine = (etat.corpus, etat.index, etat.pipeline,  # type: ignore[attr-defined]
+                          list(etat.alerts))
         yield client
 
 
@@ -162,7 +168,8 @@ def _etat_propre(request: pytest.FixtureRequest) -> Any:
         if client is None:
             continue
         etat = client.app.state.foyer
-        etat.corpus, etat.index, etat.pipeline = client.origine
+        etat.corpus, etat.index, etat.pipeline, alertes = client.origine
+        etat.alerts = list(alertes)
         etat.limiter.reset()
 
 
@@ -922,27 +929,107 @@ def test_sante_dit_ok_false_et_publie_la_quarantaine_quand_le_guide_nest_pas_ser
     assert quarantaine == [{"doc_id": "lux-guide", "alerte": "quarantaine", "detail": "sans_gate"}]
 
 
-@pytest.mark.parametrize("contenu, attendu", [
-    (b'{"validated": true}', True),
-    (b'{"validated": false}', False),
-    (b'{}', False),
-    (b'pas du json', False),
-    # Revue Codex 1.6, M1 : `bool("false")` vaut `True`. Un `validated` rendu en **chaîne** par le
-    # générateur du dictionnaire (story 2.1) aurait fait annoncer à `/sante` un dictionnaire validé
-    # et ré-armé le court-circuit « zéro hit » qu'AD-5 tient désactivé sans signature humaine.
-    (b'{"validated": "false"}', False),
-    (b'{"validated": "true"}', False),
-    (b'{"validated": 1}', False),
-    (b'[]', False),
+def test_sante_publie_les_trois_booleens_du_dictionnaire_et_son_alerte(prod: TestClient) -> None:
+    """AD-5 : les deux faits, la règle qu'ils décident, et l'alerte qui dit que le refus dort.
+
+    `data/dictionary.json` n'est pas encore validé à la main : les trois booléens sont donc faux et
+    `dictionnaire_non_valide` est publiée avec `doc_id: "*"` — c'est une propriété du **service**,
+    pas d'un document. La page d'accueil lit `refus_zero_hit_actif` au lieu de refaire la
+    conjonction : la règle n'a qu'une autorité.
+    """
+    j = prod.get("/api/v1/sante", headers=XFF).json()
+
+    assert set(j["dictionary"]) == {"validated", "corpus_ok", "refus_zero_hit_actif"}
+    assert j["dictionary"]["validated"] is False
+    assert j["dictionary"]["refus_zero_hit_actif"] is False
+    alertes = {a["alerte"]: a for a in j["alerts"]}
+    assert "dictionnaire_non_valide" in alertes
+    assert alertes["dictionnaire_non_valide"]["doc_id"] == "*"
+    # Le refus « zéro hit » est nommé dans le détail : l'alerte dit ce qui est **désarmé**, pas
+    # seulement ce qui manque (AD-16 — dit, jamais tu).
+    assert "zéro hit" in alertes["dictionnaire_non_valide"]["detail"]
+
+
+def _ecrire_dictionnaire(tmp_path: Any, corpus: Corpus, **over: Any) -> Any:
+    """Un `dictionary.json` cohérent avec le corpus donné, sur lequel `over` prend le dessus."""
+    hashes = {d: corpus.manifest[d].source_hash for d in corpus.served}
+    base: dict[str, Any] = {"schema_version": "1", "corpus_source_hashes": hashes,
+                            "corpus": {"matricule": ["numero national"]}, "intents": {},
+                            "candidate_questions": {}, "validated": False,
+                            "validated_by": None, "validated_at": None}
+    (tmp_path / "dictionary.json").write_text(
+        json.dumps(base | over, ensure_ascii=False), encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize("over, attendus", [
+    ({}, (False, True, False)),
+    # AD-5 : `validated ∧ corpus_ok` — et rien d'autre — arme le refus.
+    ({"validated": True, "validated_by": "Lancelot Oudin", "validated_at": "2026-08-25T10:00:00Z"},
+     (True, True, True)),
+    # Un dictionnaire d'un **autre** corpus ne dit rien de celui-ci : ni variantes, ni court-circuit.
+    ({"corpus_source_hashes": {"lux-guide": "autre"}}, (False, False, False)),
+    ({"corpus_source_hashes": {}}, (False, False, False)),
+    # Revue Codex 1.6, M1 : `bool("false")` vaut `True`, et pydantic convertirait `"true"` en `True`
+    # sans `StrictBool`. Un `validated` rendu en **chaîne** — fichier bricolé à la main — aurait
+    # ré-armé le court-circuit « zéro hit » qu'AD-5 tient désactivé sans signature humaine.
+    ({"validated": "true"}, (False, False, False)),
+    ({"validated": "false"}, (False, False, False)),
+    ({"validated": 1}, (False, False, False)),
+    # Un « validé par personne » est une contradiction : le fichier entier est refusé.
+    ({"validated": True}, (False, False, False)),
+    # Un champ de plus qu'AD-5 n'énumère pas : ce n'est pas un dictionnaire enrichi, c'est un
+    # fichier qu'on ne sait pas lire.
+    ({"inconnu": 1}, (False, False, False)),
 ])
-def test_letat_du_dictionnaire_se_lit_ou_reste_faux(tmp_path: Any, contenu: bytes, attendu: bool) -> None:
-    # AD-5 : un dictionnaire absent ou illisible désactive une optimisation, il n'empêche pas de servir.
+def test_les_deux_verrous_du_dictionnaire_se_lisent_ou_restent_faux(
+        tmp_path: Any, over: dict, attendus: tuple) -> None:
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
+    _ecrire_dictionnaire(tmp_path, corpus, **over)
+    d = load_dictionary(tmp_path, corpus)
+    assert (d.validated, d.corpus_ok, d.court_circuit_actif) == attendus
+
+
+@pytest.mark.parametrize("contenu", [b"pas du json", b"[]", b"{}"])
+def test_un_dictionnaire_illisible_ou_non_conforme_nempeche_jamais_de_servir(
+        tmp_path: Any, contenu: bytes) -> None:
+    """AD-7 : « un fichier absent, illisible ou non conforme désactive une optimisation, il
+    n'empêche jamais de servir et ne lève jamais au démarrage »."""
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
     (tmp_path / "dictionary.json").write_bytes(contenu)
-    assert etat_module._dictionnaire_valide(tmp_path) is attendu
+    d = load_dictionary(tmp_path, corpus)
+    assert d.court_circuit_actif is False and d.utilisable is False and d.raison
 
 
-def test_letat_du_dictionnaire_est_faux_quand_le_fichier_manque(tmp_path: Any) -> None:
-    assert etat_module._dictionnaire_valide(tmp_path) is False
+def test_les_deux_alertes_du_dictionnaire_disent_deux_causes_distinctes(tmp_path: Any) -> None:
+    """AD-16 : deux causes, deux correctifs — un dictionnaire d'un autre corpus n'est pas seulement
+    « non validé », et taire l'une des deux raisons ferait chercher la mauvaise."""
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
+    _ecrire_dictionnaire(tmp_path, corpus, corpus_source_hashes={"lux-guide": "autre"})
+    alertes = etat_module._alertes_dictionnaire(load_dictionary(tmp_path, corpus))
+    noms = [a.alerte for a in alertes]
+    assert noms == ["dictionnaire_non_valide", "dictionnaire_corpus_perime"]
+    assert all(a.doc_id == "*" for a in alertes)
+    # Le dictionnaire **absent** ne porte que la première : rien n'est périmé, rien n'est là.
+    absent = etat_module._alertes_dictionnaire(load_dictionary(tmp_path / "vide", corpus))
+    assert [a.alerte for a in absent] == ["dictionnaire_non_valide"]
+
+
+def test_la_route_passe_le_dictionnaire_charge_au_pipeline(prod: TestClient) -> None:
+    """AD-5/AD-7 : chargé une fois au démarrage, il voyage comme `corpus`, `index` et `client`.
+
+    Le pipeline ne voit pas `corpus` (table des couches) : il ne peut pas le charger lui-même, et
+    sans ce passage le court-circuit d'AD-5 n'aurait aucune chance d'être armé un jour.
+    """
+    double = _brancher(prod, Double((_refus("zero_hit"), _trace())))
+    prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+    assert double.appels[0]["dictionnaire"] is prod.app.state.foyer.dictionnaire
+
+
+def test_letat_expose_la_validation_comme_propriete_derivee(prod: TestClient) -> None:
+    """Un seul fait, une seule autorité : `dictionary_validated` **dérive** de l'objet chargé."""
+    etat = prod.app.state.foyer
+    assert etat.dictionary_validated is etat.dictionnaire.validated
 
 
 def test_lalias_sante_rend_exactement_la_meme_chose(prod: TestClient) -> None:

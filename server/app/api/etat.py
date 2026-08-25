@@ -12,7 +12,6 @@ mémoire de process). Le seul objet vivant est le limiteur, dont c'est la raison
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +20,7 @@ from typing import Any
 from server.app.api.limiter import RateLimiter
 from server.app.api.schemas import Alerte
 from server.app.config import REPO_ROOT, Settings
+from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
@@ -95,7 +95,11 @@ class EtatApp:
     limiter: RateLimiter
     pipeline_digest_hex: str
     prompts_digest_hex: str
-    dictionary_validated: bool = False
+    # AD-5 / AD-7 (story 2.1) : l'objet chargé une fois au démarrage, en lecture seule. Le champ
+    # porte l'**objet** et non plus un booléen, parce que trois lecteurs en ont besoin — `/sante`
+    # (trois booléens), le pipeline du guide (le court-circuit et le compte de variantes) et
+    # *retrouver* (l'élargissement) — et qu'un booléen ne dit ni pourquoi, ni sur quel corpus.
+    dictionnaire: Dictionnaire = field(default_factory=Dictionnaire)
     # Le pipeline est un attribut, et non un import direct dans la route : c'est ce qui rend
     # explicite que l'API n'appelle **qu'un** pipeline (AD-1 : jamais de dispatch), et ce que les
     # tests remplacent par un double pour couvrir la matrice d'E/S sans réseau.
@@ -115,6 +119,16 @@ class EtatApp:
     @property
     def documents_servis(self) -> list[str]:
         return self.corpus.served
+
+    @property
+    def dictionary_validated(self) -> bool:
+        """Conservée comme **propriété dérivée** : un seul fait, une seule autorité (l'objet chargé).
+
+        Le champ existait depuis 1.6 et plusieurs lecteurs s'y adossent. Le garder en tant que
+        donnée à côté de `dictionnaire` aurait fait deux copies du même fait, susceptibles de
+        diverger ; en propriété, il n'y a qu'un endroit où la vérité est écrite.
+        """
+        return self.dictionnaire.validated
 
     @property
     def gate_profile(self) -> str | None:
@@ -216,25 +230,37 @@ def _alerte_ungated(settings: Settings) -> list[Alerte]:
                           "en quarantaine. Retirer la variable de la configuration du service.")]
 
 
-def _dictionnaire_valide(data_dir: Path) -> bool:
-    """AD-5 : tant qu'aucun humain n'a validé le dictionnaire, le court-circuit « zéro hit » dort.
+def _alertes_dictionnaire(dictionnaire: Dictionnaire) -> list[Alerte]:
+    """AD-5 / AD-16 : un dictionnaire inutilisable est **dit**, jamais tu.
 
-    Absent (c'est le cas jusqu'à la story 2.1) ou illisible ⇒ `false`. Jamais une exception au
-    démarrage : un dictionnaire manquant désactive une optimisation, il n'empêche pas de servir.
+    Deux alertes, parce que deux causes et deux correctifs (`doc_id="*"` : ce sont des propriétés du
+    **service**, comme `ungated_refuse_en_production`, et `Alerte` n'a pas d'autre place pour le dire) :
 
-    Le `is True` n'est pas de la coquetterie (revue Codex 1.6, M1) : `bool("false")` vaut `True`, et
-    `validated` est écrit par un générateur (`enrich_dictionary`, story 2.1) puis relu ici. Un champ
-    rendu en chaîne au lieu d'un booléen aurait fait annoncer à `/sante` un dictionnaire validé, et
-    ré-armé le court-circuit « zéro hit » qu'AD-5 tient désactivé tant qu'un humain n'a pas signé.
-    Le seul `true` JSON strict compte.
+    - `dictionnaire_non_valide` — aucune main n'a signé (ou le fichier est absent, illisible, non
+      conforme : dans tous ces cas `validated` est faux). Le refus « zéro hit » d'AD-5 dort ; le
+      correctif est `--valider "Nom"`, ou une réingestion si le fichier ne se lit pas.
+    - `dictionnaire_corpus_perime` — le fichier se lit, mais ses `corpus_source_hashes` décrivent un
+      autre corpus. Ni variantes, ni court-circuit ; le correctif est de relancer l'enrichissement.
+
+    Les deux peuvent tomber ensemble : un dictionnaire d'un autre corpus n'est pas validé pour
+    celui-ci, et taire l'une des deux raisons laisserait chercher la mauvaise.
     """
-    chemin = data_dir / DICTIONARY
-    if not chemin.is_file():
-        return False
-    try:
-        return json.loads(chemin.read_bytes()).get("validated", False) is True
-    except (OSError, UnicodeDecodeError, ValueError, AttributeError):
-        return False
+    alertes: list[Alerte] = []
+    if not dictionnaire.validated:
+        detail = ("aucune validation humaine : le refus « zéro hit » d'AD-5 est désactivé "
+                  "(la recherche se poursuit vers *retrouver*)")
+        if dictionnaire.raison:
+            detail += f" — {dictionnaire.raison}"
+        elif dictionnaire.charge:
+            detail += " — lancer `python -m server.ingest.enrich_dictionary --valider \"Nom\"`"
+        alertes.append(Alerte(doc_id="*", alerte="dictionnaire_non_valide", detail=detail))
+    if dictionnaire.charge and not dictionnaire.corpus_ok:
+        alertes.append(Alerte(
+            doc_id="*", alerte="dictionnaire_corpus_perime",
+            detail=f"{DICTIONARY} décrit un autre corpus que celui qui est servi : ni variantes, ni "
+                   f"court-circuit — {dictionnaire.raison or 'empreintes différentes du manifest'}. "
+                   "Relancer `python -m server.ingest.enrich_dictionary`."))
+    return alertes
 
 
 def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], list[Alerte]]:
@@ -319,7 +345,9 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
                            model_ids=dict(TIERS))
-    corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte)
+    corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte,
+                         perimetre_max_chars=settings.perimetre_max_chars)
+    dictionnaire = load_dictionary(data_dir, corpus)
     rapports, alertes_rapports = _rapports(data_dir, corpus.served)
     sources = _sources(data_dir, corpus.served)
     alertes_ungated = _alerte_ungated(settings)
@@ -330,9 +358,15 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         LOG.warning(
             "ungated_refuse_en_production : ALLOW_UNGATED=true posé avec ENV=prod — la dérogation "
             "est refusée (AC 1.10) ; un document sans gate valide reste en quarantaine")
+    if not dictionnaire.validated:
+        # Même raison que l'avertissement d'`ungated` : celui qui regarde le journal de démarrage est
+        # celui qui vient de déployer. La ligne dit ce qui est **désarmé**, pas seulement ce qui manque.
+        LOG.warning("dictionnaire_non_valide : le refus « zéro hit » d'AD-5 est désactivé — %s",
+                    dictionnaire.raison or "aucune validation humaine")
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
-        prompts_digest_hex=digest_prompts, dictionary_validated=_dictionnaire_valide(data_dir),
+        prompts_digest_hex=digest_prompts, dictionnaire=dictionnaire,
         reports=rapports, source_urls=sources,
-        alerts=_alertes(corpus) + alertes_rapports + alertes_ungated)
+        alerts=_alertes(corpus) + alertes_rapports + alertes_ungated
+        + _alertes_dictionnaire(dictionnaire))

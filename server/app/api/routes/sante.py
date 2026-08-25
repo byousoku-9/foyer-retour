@@ -8,9 +8,11 @@ Ce qu'elle dit de plus que « ok » est ce qui rend le système relisible : quel
 réellement servis, à quel niveau de validation (`gate_profile` et `gate_cases`, `null` tant qu'un
 document servi n'a pas de gate — AD-11 interdit d'annoncer un profil qu'aucun document ne porte),
 quelles alertes pèsent sur eux (`sans_gate`, `gate_perime`, `source_absente`, `bloquant_statique`,
-quarantaine, `ungated_refuse_en_production`), si le dictionnaire est validé
-(AD-5 : sinon le court-circuit « zéro hit » dort), et les seuils actifs — les mêmes que ceux de
-`Trace.thresholds`, pour qu'une réponse et l'état du serveur se lisent avec la même règle.
+quarantaine, `ungated_refuse_en_production`, `dictionnaire_non_valide`, `dictionnaire_corpus_perime`),
+où en est le dictionnaire des variantes — validé, décrivant bien le corpus servi, et **le refus
+« zéro hit » d'AD-5 est-il armé** (la règle est calculée ici, jamais par un front) —, et les seuils
+actifs, les mêmes que ceux de `Trace.thresholds`, pour qu'une réponse et l'état du serveur se lisent
+avec la même règle.
 """
 
 from __future__ import annotations
@@ -34,6 +36,11 @@ async def sante(request: Request) -> SanteResponse:
         gate_profile=etat.gate_profile,
         gate_cases=etat.gate_cases,
         gate_countersigned=etat.gate_countersigned,
-        dictionary=EtatDictionnaire(validated=etat.dictionary_validated),
+        # AD-5 : les deux faits (une main a signé ; les empreintes décrivent le corpus servi) **et**
+        # la règle qu'ils décident. `refus_zero_hit_actif` est publié par le serveur parce que la
+        # règle n'a qu'une autorité : la page d'accueil l'affiche au lieu de refaire la conjonction.
+        dictionary=EtatDictionnaire(validated=etat.dictionnaire.validated,
+                                    corpus_ok=etat.dictionnaire.corpus_ok,
+                                    refus_zero_hit_actif=etat.dictionnaire.court_circuit_actif),
         alerts=etat.alerts,
         thresholds=etat.settings.thresholds())

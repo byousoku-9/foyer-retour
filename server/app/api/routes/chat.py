@@ -71,7 +71,12 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
         demande.question, demande.historique, demande.profil,
         corpus=etat.corpus, index=etat.index, client=etat.client, settings=etat.settings,
         request_id=request.state.request_id, lang=demande.lang, budget=budget,
-        pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex)
+        pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex,
+        # AD-5 / AD-7 (story 2.1) : le dictionnaire est chargé **une fois** au démarrage, en lecture
+        # seule, et voyage comme `corpus`, `index` et `client` — le pipeline ne voit pas `corpus`
+        # (table des couches) et ne peut donc pas le charger lui-même. Toujours un objet, jamais
+        # `None` : un dictionnaire absent est un `Dictionnaire` inerte, qui n'arme rien.
+        dictionnaire=etat.dictionnaire)
 
     try:
         sources = sources_de(answer, etat.index, etat.corpus)
