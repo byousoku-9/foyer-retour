@@ -19,7 +19,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-25T15:56:03Z",
+      "date": "2026-08-25T16:27:39Z",
       "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
       "cases": 1,
       "countersigned": false
@@ -45,7 +45,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-25T15:55:26Z",
+      "date": "2026-08-25T16:27:09Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false
