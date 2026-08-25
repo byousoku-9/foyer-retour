@@ -2260,3 +2260,92 @@ publiés sans texte de bloc dans la trace.
   boucle. Les écrans affichent donc volontairement leur absence.
 
 Revue Codex : 0 bloquants / 2 importants, convergé en 1 tour(s) (boucle autonome).
+
+## Story 2.7 — Rappel par couverture de mots et formulations usuelles
+
+Vérifications effectuées le 25/08/2026 contre un serveur local réel (`ENV=dev`) avec la clé chargée
+depuis `.env`, sans l'afficher. Le serveur a été redémarré après chaque correction de dictionnaire.
+
+### Guide — les sujets traités sont retrouvés
+
+| Question | Résultat en une ligne | Coût |
+|---|---|---:|
+| « Comment choisir ma commune ? » | 200, `found=true`, fiche `choisir_commune`; conseils sourcés sur trajets et desserte | 0,0317 € |
+| « Comment trouver un logement au Luxembourg ? » | 200, fiche `recherche_logement` (et `choisir_commune`) | 0,0310 € |
+| « Dans quel délai dois-je me déclarer à la commune ? » | 200, fiche `arrivee`, huit jours | 0,0257 € |
+| « On me facture des frais d'absence alors que j'étais là » | 200, réponse exacte et sourcée; projection sur `reclamation` plutôt que `rdv_technique` | 0,0307 € |
+| « C'est quoi le matricule ? » | 200, fiche `arrivee` | 0,0256 € |
+| « Mon employeur voit-il le salaire de ma femme ? » | 200, fiche `impots_classes` | 0,0305 € |
+| « J'ai besoin d'une mutuelle ? » | 200, fiche `assurance_sante` | 0,0332 € |
+| « trouver un logement » | 200, fiche `recherche_logement` | 0,0307 € |
+| « chercher un appart » | premier run 503 après une relance rejetée; après correction, 200, fiche `recherche_logement` | 0,0790 € puis 0,0315 € |
+| « où loger ? » | 200, fiches `choisir_commune` et `recherche_logement` | 0,0299 € |
+
+Le premier run de « Comment choisir ma commune ? » n'ouvrait pas la fiche attendue, car *comprendre*
+rend réellement `choix de commune` et `commune(s) Luxembourg`. « chercher un appart » plaçait de
+même `rdv_technique` et `logement_abordable` devant la fiche cible avec `appartement` et `annonces
+immobilières`. Le dictionnaire non signé a donc été complété par ces formes usuelles, reliées aux deux
+groupes de la story. Après redémarrage, les deux fiches cibles sont ouvertes sous `search_limit=20`, et
+les trois formulations logement atteignent toutes `recherche_logement`.
+
+### Guide — refus, bornes et langues
+
+| Épreuve | Résultat en une ligne | Coût |
+|---|---|---:|
+| météo / meilleur restaurant / « Bonjour » / « ? » | quatre 200, aucun retrieval, refus `hors_perimetre` ou `bavardage` | 0,0008 € chacune |
+| question vide | 400 `invalid_request`, sans plantage ni appel facturé | 0 € |
+| un mot « logement » | 200 sourcé, fiches `recherche_logement` et `choisir_commune` | 0,0306 € |
+| question de 900 caractères | 200 sourcé, fiche logement | 0,0314 € |
+| arrivée en anglais / allemand / portugais | trois 200 dans la langue attendue, `lang_fallback=false`, citations françaises, fiche `arrivee` | 0,0249 / 0,0223 / 0,0231 € |
+| « Et pour eux ? » sans historique | 200, `clarification_requise`, « De quelles personnes parlez-vous ? », aucune étape `reason` | 0,0008 € |
+
+### Sinistre — six cas tordus
+
+| Cas | Résultat réel | Coût |
+|---|---|---:|
+| Absurde — « mon chat a mangé la Lune » | 200, `clarification_requise`, `ne_tranche_pas`, aucune clause forcée | 0,0033 € |
+| Multiple — fuite de machine et table mâchonnée | 503 `budget_exceeded`; second run également 503, aucune absence affirmée; essai diagnostique avec `RETRIEVAL_MAX_BLOCKS=30` également 503 | 0,0769 / 0,0809 / 0,0703 € |
+| Hors habitation — accident de voiture | 200, `hors_perimetre`, `ne_tranche_pas`, aucune clause | 0,0032 € |
+| Contradictoire — « pas de feu, tout a brûlé » | 200, `sous_conditions`, clauses chaleur p. 34 et p. 46; la contradiction n'est pas nommée explicitement | 0,0449 € |
+| Vide / un mot — faits « Feu » | 200, `ne_tranche_pas`, mais aucune clarification | 0,0435 € |
+| Description de 2 000 caractères | 200 borné, `ne_tranche_pas`, aucune erreur | 0,0464 € |
+
+Le socle chien d'`automation/epreuves.md` a été rejoué une fois de plus après le diagnostic du cas
+multiple : « Mon chien a mâchonné une table de valeur » rend 200, cite deux fois l'exclusion p. 35
+sur les dégâts causés par un animal appartenant à l'assuré, et coûte 0,0781 €. Le verdict reste
+`ne_tranche_pas` parce que le bloc n'a pas de `kind` confirmé ; la clause attendue est néanmoins bien
+retrouvée et affichée, ce que demande le socle.
+
+Une correction de portée a été essayée puis retirée : garder le score fractionnaire pour le guide et
+revenir à la suite exacte pour le contrat faisait sortir cette exclusion du `search_limit` (rang 22),
+et les deux appels live du chien finissaient en 503 sans clause survivante. Le score fractionnaire
+commun est donc nécessaire au socle chien, tandis qu'il provoque la troncature du cas multiple décrite
+ci-dessous. Ce n'est pas une réserve théorique : les deux branches ont été exercées sur le service réel.
+
+**Correction après cadrage.** Le double run initial du cas multiple est resté en 503 : *comprendre*
+rendait surtout `mobilier`, `table` et `mâchonnement`, sans nommer l'agent `animal`; l'index lexical ne
+pouvait pas inventer cette cause. La consigne sinistre réserve désormais un terme composé à chaque
+dommage distinct (`dégâts des eaux`, `dégâts causés par un animal`). Le classement compte d'abord
+les canoniques composés pleinement couverts, puis les pleins simples; les partiels pondérés par
+fréquence documentaire ne servent plus qu'au filet de rappel lorsqu'aucun plein n'existe.
+
+Après redémarrage, le même appel rend 200 à 0,0410 €. Le contexte contient l'exclusion animale
+`p35:2` et le nœud de la garantie dégâts des eaux (`p37:10` à `p38:2`); trois claims survivent,
+sur `p37:14`, `p38:2` et `p35:2`. Le verdict reste honnêtement `ne_tranche_pas`, `complete=false`,
+mais les deux dommages sont lus et aucun 503 ni faux refus n'est produit. Le cas portugais « école »,
+dont le contexte changeait aussi, a produit une réponse tronquée au premier réenregistrement puis a
+réussi au second; les sept autres scénarios langues/profil affectés ont réussi au premier passage.
+
+Les deux autres écarts tordus historiques (contradiction non dite, un mot non clarifié) relèvent de
+la qualification des faits et du contrat de clarification, pas du rappel lexical de 2.7.
+
+### Gates et contrôles
+
+- Gate `lux-guide`, profil `vertical` : `bonne_reponse`, 1/1, `evals_ok=true`,
+  `countersigned=false`, 0,0261 €.
+- Gate `axa-lu-optihome-2017`, profil `vertical` : `bonne_reponse`, 1/1, `evals_ok=true`,
+  `countersigned=false`, 0,0444 €.
+- `tests/test_digests.py` : 10 passés après réécriture des deux gates.
+- `ANTHROPIC_API_KEY= uv run pytest -q` : 2 080 passés sur l'état final.
+- `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` : 10 passés ; `uv run ruff check .`
+  et `git diff --check` : verts.

@@ -32,7 +32,15 @@ l'une des deux, jamais les deux, jamais aucune.
   les mots du contrat qui ont une chance d'apparaître dans les clauses : le bien touché
   (« mobilier de jardin », « contenu », « bâtiment »), l'événement (« incendie », « dégât des eaux »,
   « vol »), la cause (« chaleur », « foudre », « gel »). Jamais de phrase entière, jamais un mot de
-  procédure (« indemnisation », « déclaration ») qui ne cible aucune clause.
+  procédure (« indemnisation », « déclaration ») qui ne cible aucune clause. Quand les faits
+  décrivent **plusieurs dommages distincts**, réserve au moins un terme d'événement ou de cause à
+  chacun : ne consomme pas toute la liste sur le premier dommage ni sur les seuls objets touchés.
+  Nomme l'agent causal déclaré et la formulation contractuelle générique qui permet de trouver sa
+  clause. Préfère alors les formulations **composées et discriminantes** aux noms génériques isolés :
+  une fuite de machine appelle « dégâts des eaux » ; un meuble mâchonné par un chien appelle
+  « dégâts causés par un animal ». Quand cette formulation précise est disponible, ne la remplace
+  pas **et ne la double pas** par les seuls « mobilier », « table », « animal » ou
+  « mâchonnement » : un mot isolé fréquent remplit la liste de clauses sans cibler le dommage.
 - `themes` : liste **vide** — un dossier de sinistre n'a pas de profil d'utilisateur ; tout ce qui
   est cherchable vient de la question et des faits, donc de `terms`.
 - `facettes` : les **sous-questions distinctes** que la demande pose, 1 à $question_max_facettes,

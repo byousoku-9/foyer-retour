@@ -1,4 +1,35 @@
 {
+  "claude-haiku-4-5-20251001:3fd81815d9b2fe2e": {
+    "request": "claude-haiku-4-5-20251001:3fd81815d9b2fe2e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePc1vUyTKfbernZpe2Gu",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4089,
+        "output_tokens": 191,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:7be5f4dc7c805217": {
     "request": "claude-haiku-4-5-20251001:7be5f4dc7c805217",
     "response": {
@@ -9,7 +40,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeP3xm39JZb3JiB7gw2Nd",
+      "id": "msg_011CePjjFszdqwW9niVp2nMi",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -57,6 +88,170 @@
         "inference_geo": "not_available",
         "input_tokens": 3874,
         "output_tokens": 178,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:9a873941b754436f": {
+    "request": "claude-haiku-4-5-20251001:9a873941b754436f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePjk7bwmFnLCSbZkVqTF",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3944,
+        "output_tokens": 178,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:a468befd10c02fb7": {
+    "request": "claude-haiku-4-5-20251001:a468befd10c02fb7",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": true}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePiXEsXNG8j75FWL9p6V",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4016,
+        "output_tokens": 187,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:2e946c3211caa9cc": {
+    "request": "claude-sonnet-5:2e946c3211caa9cc",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Pour inscrire vos enfants avant la rentrée, la scolarisation est la démarche la plus longue et la plus contrainte de toute l'installation : elle doit être engagée en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il faut choisir entre trois voies très différentes : l'école publique luxembourgeoise, les écoles européennes ou internationales, et les établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée, car les places dans les sections les plus recherchées peuvent partir un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école d'origine les documents nécessaires, presque toujours exigés à l'inscription.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Notez que sans la déclaration à la commune, il n'est pas possible d'obtenir le certificat de résidence nécessaire à certaines démarches, dont l'inscription scolaire, ce qui souligne l'importance de respecter l'ordre des démarches administratives.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La scolarisation des enfants est la démarche la plus longue et contrainte, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies de scolarisation coexistent : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription communale précède l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique, les places pouvant se remplir un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePjjPZN5fHEHg5n4PVjb",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2688,
+        "output_tokens": 1073,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:46116e439539dcf0": {
+    "request": "claude-sonnet-5:46116e439539dcf0",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de toute l'installation : il faut l'engager en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique luxembourgeoise, gratuite et multilingue, les écoles européennes et internationales, ou des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée, pas seulement celle de l'établissement, car les places les plus recherchées partent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école d'origine les documents nécessaires, presque toujours exigés et bien plus difficiles à obtenir une fois parti.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Enfin, si vous cherchez un logement, il est conseillé de le choisir en fonction de l'école retenue plutôt qu'en fonction du lieu de travail, car le trajet scolaire et la garde structurent le quotidien familial deux fois par jour.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les blocs fournis ne précisent pas de démarche différenciée pour un second enfant ni de calendrier détaillé jour par jour ; ils ne permettent pas d'affirmer davantage sur ce point.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire doit être engagée en premier, avant la recherche de logement, car c'est la démarche la plus longue et contrainte.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires coexistent : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription communale précède l'inscription scolaire et il faut vérifier la section linguistique, pas seulement l'établissement ; le logement se choisit autour de l'école.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"},{\"block_id\":\"lux-guide:fchoisir_commune:8\",\"quote\":\"cherchez le logement autour de cette école, pas autour du bureau\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePbzvmoyzp3iCQ3YoQdC",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2895,
+        "output_tokens": 1227,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b5bb0e4b1f32a2b2": {
+    "request": "claude-sonnet-5:b5bb0e4b1f32a2b2",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Scolariser vos enfants au Luxembourg est la démarche la plus longue et la plus contrainte de l'installation : il est conseillé de l'engager avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique multilingue, les écoles européennes ou internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Concrètement, plusieurs étapes sont à anticiper avant la rentrée.\",\"kind\":\"transition\"},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée, pas seulement celle de l'établissement, car les places les plus recherchées partent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, demandez à l'école un certificat de radiation et les bulletins des dernières années, presque toujours exigés et bien plus difficiles à obtenir une fois parti ; la rentrée se situe début septembre.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas de démarche spécifique liée au fait d'avoir deux enfants (par exemple pour des inscriptions dans des établissements différents) : ils traitent la scolarisation de façon générale.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Scolariser ses enfants est la démarche la plus longue et contrainte de l'installation, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires coexistent : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Il existe par ailleurs des écoles internationales publiques, gratuites, avec des sections anglophone, francophone ou germanophone, très demandées.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire et les places les plus recherchées partent un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander certificat de radiation et bulletins avant de partir ; la rentrée est en septembre.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePiWUZkzJ9eMHPWo1QCd",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2888,
+        "output_tokens": 1149,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }

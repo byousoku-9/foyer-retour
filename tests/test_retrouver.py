@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from server.app.config import Settings
+from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
@@ -37,9 +38,11 @@ def _parsed(terms: list[str], themes: list[str] | None = None,
 
 
 def _run(parsed: ParsedQuestion, corpus: Corpus, index: Index, budget: RetrievalBudget | None = None,
-         *, settings: Settings | None = None, doc_id: str | None = None):
+         *, settings: Settings | None = None, doc_id: str | None = None,
+         dictionnaire: Dictionnaire | None = None):
     return retrouver_deterministe(parsed, corpus=corpus, index=index, budget=budget or _budget(),
-                                  settings=settings or _s(), doc_id=doc_id)
+                                  settings=settings or _s(), doc_id=doc_id,
+                                  dictionnaire=dictionnaire)
 
 
 def _corpus() -> Corpus:
@@ -150,6 +153,41 @@ def test_scope_themes_enrich_the_search() -> None:
     by_terms, _ = _run(_parsed(["matricule"]), corpus, index)
     by_themes, _ = _run(_parsed([], themes=["matricule"]), corpus, index)
     assert by_themes.opened_block_ids == by_terms.opened_block_ids
+
+
+def test_un_seul_mot_dun_terme_compose_ouvre_deja_les_blocs_pertinents() -> None:
+    """Story 2.7 / R2 : une couverture partielle atteint la chaîne fixe de retrieval."""
+    corpus = _corpus()
+    result, step = _run(_parsed(["matricule national"]), corpus, Index(corpus))
+
+    assert result.opened_block_ids[:3] == ["d:p1:1", "d:p1:2", "d:p2:1"]
+    assert result.blocs and step.name == "retrouver"
+
+
+def test_les_formulations_livrees_ouvrent_les_deux_fiches_du_corpus_reel() -> None:
+    s = _s()
+    corpus = load_corpus(ROOT / "data", allow_ungated=True,
+                         perimetre_max_chars=s.perimetre_max_chars)
+    index = Index(corpus)
+    dictionnaire = load_dictionary(ROOT / "data", corpus, s.guide_doc_id)
+    budget = RetrievalBudget(max_opens=s.max_opens, node_window=s.node_window,
+                             search_limit=s.search_limit, max_llm_turns=s.max_llm_turns,
+                             max_blocks=s.retrieval_max_blocks, max_tokens=s.retrieval_max_tokens)
+    attendus = {
+        "choix commune": "lux-guide:fchoisir_commune",
+        "quelle commune": "lux-guide:fchoisir_commune",
+        "trouver logement": "lux-guide:frecherche_logement",
+        "recherche logement": "lux-guide:frecherche_logement",
+        "chercher un appart": "lux-guide:frecherche_logement",
+        "où loger": "lux-guide:frecherche_logement",
+        "marché immobilier": "lux-guide:frecherche_logement",
+    }
+
+    assert dictionnaire.utilisable_pour(s.guide_doc_id)
+    for terme, fiche in attendus.items():
+        result, _step = _run(_parsed([terme]), corpus, index, budget, settings=s,
+                             doc_id=s.guide_doc_id, dictionnaire=dictionnaire)
+        assert any(block_id.startswith(f"{fiche}:") for block_id in result.opened_block_ids), terme
 
 
 def test_max_blocks_skips_whole_units_and_keeps_the_budget_busy() -> None:

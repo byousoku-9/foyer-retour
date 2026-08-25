@@ -484,6 +484,53 @@ def test_le_dictionnaire_du_depot_decrit_le_corpus_du_depot() -> None:
     assert d.court_circuit_actif is d.validated
 
 
+def test_le_dictionnaire_livre_relies_les_formulations_commune_et_logement_sans_signature() -> None:
+    """Story 2.7 / R6 : les formes usuelles ouvrent les deux fiches sous `search_limit`.
+
+    Les groupes supplémentaires restent sous la borne de génération et partagent une forme avec les
+    groupes acquis en 2.1. Le dictionnaire est enrichi, jamais signé au nom d'une personne.
+    """
+    from server.app.config import REPO_ROOT, Settings
+    from server.app.corpus.index import Index
+    from server.app.corpus.loader import load_corpus
+
+    reglages = Settings(_env_file=None)
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True,
+                         perimetre_max_chars=reglages.perimetre_max_chars)
+    d = load_dictionary(REPO_ROOT / "data", corpus, reglages.guide_doc_id)
+    brut = DictionaryFile.model_validate_json((REPO_ROOT / "data" / "dictionary.json").read_bytes())
+
+    groupes = {
+        "choix commune": (
+            "lux-guide:fchoisir_commune",
+            {"choix commune", "choix de commune", "commune Luxembourg", "communes Luxembourg",
+             "quelle commune"},
+        ),
+        "recherche logement": (
+            "lux-guide:frecherche_logement",
+            {"trouver logement", "recherche logement", "appartement", "annonces immobilières",
+             "chercher un appart", "où loger", "marché immobilier"},
+        ),
+    }
+    index = Index(corpus)
+    for canonique, (fiche, formes_attendues) in groupes.items():
+        formes_du_fichier = {canonique, *brut.corpus[canonique]}
+        assert formes_attendues <= formes_du_fichier
+        assert len(brut.corpus[canonique]) <= reglages.dictionary_max_variants_per_term
+        for forme_usuelle in sorted(formes_attendues):
+            hits = index.chercher(d.expand([forme_usuelle]), limit=reglages.search_limit,
+                                  doc_id=reglages.guide_doc_id)
+            assert any(node_id == fiche for _block_id, node_id in hits), forme_usuelle
+            assert len(hits) <= reglages.search_limit
+
+    # Les formes partagées réunissent bien les groupes existants et les nouveaux.
+    assert {forme("choix commune"), forme("quelle commune")} <= \
+        set(d.expand(["choix de la commune"])["choix de la commune"])
+    assert {forme("recherche logement"), forme("marché immobilier")} <= \
+        set(d.expand(["recherche de logement"])["recherche de logement"])
+    assert brut.validated is False and brut.validated_by is None and brut.validated_at is None
+
+
 def test_le_dictionnaire_du_depot_porte_les_declencheurs_que_la_trace_compte() -> None:
     """Story 2.5 : `intents` cesse d'être de la donnée générée que rien ne lit.
 

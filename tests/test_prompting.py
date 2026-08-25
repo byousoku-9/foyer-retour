@@ -55,6 +55,14 @@ def test_load_prompt_commun_has_the_distrust_rules() -> None:
     assert "instruction" in text.lower()
 
 
+def test_comprendre_sinistre_reserve_des_termes_a_chaque_dommage() -> None:
+    """Story 2.7 : le modèle nomme les causes ; l'index n'invente pas de sémantique."""
+    text = prompting.load_prompt("comprendre_sinistre")
+    assert "plusieurs dommages distincts" in text
+    assert "dégâts des eaux" in text
+    assert "dégâts causés par un animal" in text
+
+
 def test_load_prompt_missing_or_invalid_name() -> None:
     with pytest.raises(FileNotFoundError, match="absent"):
         prompting.load_prompt("nexiste-pas")

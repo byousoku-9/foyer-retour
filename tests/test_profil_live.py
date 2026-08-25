@@ -12,8 +12,10 @@ Deux moitiés, qu'aucun mock ne peut tenir ensemble :
 Les deux se complètent, et il fallait un appel réel pour le montrer : dans les tests mockés, les
 thèmes sont posés par le script, et le rang de la fiche `ecole` parmi les candidats dépend du
 vocabulaire que le modèle a réellement choisi. Le témoin négatif — la même question avec un profil
-vide — tourne dans le **même** test, sur la même question et sans appel supplémentaire : c'est lui
-qui dit que la promotion vient du profil et non du hasard du classement.
+vide — vérifie que le pipeline ne réserve aucune place et ne trace aucune désignation de profil.
+Depuis la story 2.7, les mots d'une forme composée contribuent chacun au rappel : la question
+scolaire peut donc retrouver `ecole` sans profil, ce qui reste distinct de la réservation pilotée
+par le parcours.
 
 Les assertions tolèrent que le modèle choisisse ses mots (`_evoque`, patron de
 `tests/test_suivi_live.py`) : un test live qui asserte une chaîne exacte rendue par le modèle rougit
@@ -142,8 +144,8 @@ async def test_le_meme_scenario_sans_profil_ne_reserve_rien(index: Index,
                                                             llm_recorder: LLMRecorder) -> None:
     """Le témoin négatif : même question, profil vide ⇒ aucune place réservée, aucune trace ajoutée.
 
-    Sans lui, le test précédent ne prouverait rien — la fiche `ecole` pourrait être ouverte par le
-    seul classement des termes. Ici, la chaîne est celle d'avant la story, à l'octet près.
+    Le rappel lexical reste libre de retrouver `ecole` par les termes de la question ; ce test isole
+    l'effet propre du profil, qui est l'ajout d'une désignation et d'une place réservée.
     """
     answer, trace = await repondre_guide(SCOLAIRE, [], Profil(), corpus=index.corpus, index=index,
                                          client=_client(llm_recorder), settings=_settings(),
@@ -152,14 +154,10 @@ async def test_le_meme_scenario_sans_profil_ne_reserve_rien(index: Index,
     assert [c.name for c in retrouver.checks if c.name == "noeuds_du_profil"] == []
     assert noeuds_du_profil(index.corpus.documents[DOC_ID].parcours, Profil()) == []
     assert answer.complete == (answer.found and not answer.unknown)
-    # **La mesure de l'AC**, et non une propriété de forme : sur la même question, sans profil, la
-    # fiche `ecole` n'est pas ouverte du tout — le pipeline part sur `assurance_sante` et
-    # `nationalite`, et la réponse dit elle-même que « les voies de scolarisation ne figurent pas
-    # dans les blocs disponibles ». C'est donc bien le profil, et lui seul, qui ouvre la fiche dans
-    # le test précédent. Les deux appels sont enregistrés : la comparaison est rejouée à l'identique
-    # hors ligne, elle ne dépend pas d'un tirage.
+    # Story 2.7 : « inscription scolaire » touche désormais un bloc qui contient seulement
+    # « scolaire ». C'est un rappel lexical normal, pas une réservation cachée du profil.
     ouverts = {index.corpus.documents[DOC_ID].node_of(b) for b in retrouver.opened_block_ids}
-    assert ECOLE not in ouverts, sorted(ouverts)
+    assert ECOLE in ouverts, sorted(ouverts)
 
 
 # --- « statut → affiliation, impôts », le troisième terme de l'AC (revue Codex 2.3, B2) ----------

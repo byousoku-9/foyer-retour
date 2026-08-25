@@ -139,8 +139,89 @@ def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
         mini_index.chercher("commune", limit=5)
     # deux clés de même forme normalisée ne comptent qu'une fois : « Commune » + « commune » ≠ score 2
     assert mini_index.chercher({"Commune": [], "commune": [], "matricule": []}, limit=20) == hits
-    # seule une variante multi-mots touche : la clé canonique « delai legal » n'apparaît nulle part
-    assert mini_index.chercher({"delai legal": ["huit jours"]}, limit=5)[0] == ("lux-guide:farrivee:3", "lux-guide:farrivee")
+    # La variante « huit jours » est pleinement couverte dès le titre « Les huit premiers jours » :
+    # l'ordre et la contiguïté ne sont plus exigés (story 2.7 / R1).
+    assert mini_index.chercher({"delai legal": ["huit jours"]}, limit=5)[0] == ("lux-guide:farrivee:1", "lux-guide:farrivee")
+
+
+def test_chercher_score_la_couverture_complete_puis_partielle_sans_exiger_la_suite() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="La commune idéale dépend de votre choix quotidien.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Le choix dépend de vos trajets.", loc="p1", seq=2),
+        Block(block_id="d:p1:3", text="Le relogement temporaire est organisé.", loc="p1", seq=3),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+
+    # R1 : les deux mots, dans n'importe quel ordre et non contigus, valent une couverture pleine.
+    # R2 : un seul mot reste un hit positif, mais vient après la couverture pleine.
+    assert ix.chercher(["choix commune"], limit=20) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+    # R3 : le mot entier reste l'unité ; « logement » n'existe pas dans « relogement ».
+    assert ix.chercher(["logement"], limit=20) == []
+
+
+def test_chercher_retient_la_meilleure_forme_par_canonique_et_somme_les_groupes() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Choix commune et logement.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Trouver le bon logement après le choix de la commune.", loc="p1", seq=2),
+        Block(block_id="d:p1:3", text="Choix commune : quelle commune retenir ?", loc="p1", seq=3),
+        Block(block_id="d:p1:4", text="Choix commune.", loc="p1", seq=4,
+              kind="garantie", kind_source="manual"),
+        Block(block_id="d:p1:5", text="Choix commune.", loc="p1", seq=5),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+    termes = {"choix commune": ["quelle commune"], "recherche logement": ["trouver logement"]}
+
+    # R4 : p1:2 couvre les deux canoniques. Les deux formes complètes du premier canonique dans
+    # p1:3 ne le comptent jamais deux fois. Dès qu'un plein existe, les fragments des autres groupes
+    # ne bonifient plus le rang : le kind puis l'ordre de lecture départagent les blocs à un plein.
+    hits = ix.chercher(termes, limit=4, kinds_prioritaires={"garantie"})
+    assert hits == [("d:p1:2", "n"), ("d:p1:4", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
+    # À score égal, la priorité de kind précède l'ordre de lecture ; la limite reste stricte.
+    assert len(hits) == 4 and ("d:p1:5", "n") not in hits
+
+
+def test_chercher_un_plein_ne_peut_pas_etre_evince_par_une_somme_de_partiels() -> None:
+    """Cadrage 2.7 : le rappel partiel reste un filet, jamais une priorité supérieure au plein."""
+    blocks = [
+        Block(block_id="d:p1:1", text="La garantie couvre les dégâts des eaux.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Animal, mobilier et fuite.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+    termes = {
+        "dégâts eaux": [],
+        "animal domestique": [],
+        "mobilier précieux": [],
+        "fuite canalisation": [],
+    }
+
+    # p1:2 cumule trois couvertures partielles ; p1:1 satisfait un canonique en entier et reste devant.
+    assert ix.chercher(termes, limit=2) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+
+
+def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Le mot commun apparaît ici.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Le mot rare apparaît ici.", loc="p1", seq=2),
+        Block(block_id="d:p1:3", text="Encore le mot commun.", loc="p1", seq=3),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+
+    # Les deux blocs ne couvrent qu'un mot sur deux. `rare` n'apparaît que dans un bloc, `commun`
+    # dans deux : sa contribution est donc supérieure malgré son ordre de lecture plus tardif.
+    assert ix.chercher(["commun rare"], limit=3) == [
+        ("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
 
 
 def _def_doc() -> Document:
@@ -278,3 +359,19 @@ def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     assert all(b in both for b, _ in hits[: len(both)])
     w = ix.ouvrir_noeud("lux-guide:farrivee", node_window=s.node_window)
     assert w.blocks[0].block_id == "lux-guide:farrivee:1"
+
+
+def test_chercher_garde_la_garantie_et_lexclusion_du_cas_multiple_dans_les_cinq_premiers() -> None:
+    """Cadrage 2.7 : les partiels fréquents ne noient plus les deux clauses décisionnelles."""
+    s = Settings(_env_file=None)
+    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    hits = [block_id for block_id, _node_id in ix.chercher(
+        {"dégâts des eaux": [], "fuite de machine": [], "mobilier": [],
+         "dégâts causés par un animal": [], "mâchonnement": []},
+        limit=s.search_limit,
+        doc_id="axa-lu-optihome-2017",
+        kinds_prioritaires={"garantie", "exclusion", "condition", "franchise"},
+    )]
+
+    assert hits.index("axa-lu-optihome-2017:p37:13") < 5
+    assert hits.index("axa-lu-optihome-2017:p35:2") < 5

@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from fractions import Fraction
 
 from server.app.domain import Block, BlockRef, Document, NodeRef, NodeWindow
 
@@ -56,6 +57,7 @@ class Index:
         self.corpus = corpus
         self._entries: list[_Entry] = []
         self._by_block: dict[str, _Entry] = {}
+        self._block_frequencies: dict[str, dict[str, int]] = {}
         self._nodes: dict[str, tuple[str, list[str]]] = {}  # node_id → (doc_id, block_ids directs)
         self._levels: dict[str, int] = {}  # node_id → profondeur déclarée (AD-2), pour « la plus proche »
         for doc_id, doc in sorted(corpus.documents.items()):
@@ -75,6 +77,9 @@ class Index:
                            tokens=frozenset(ws), padded=f" {' '.join(ws)} ")
                 self._entries.append(e)
                 self._by_block[block_id] = e
+                frequencies = self._block_frequencies.setdefault(doc_id, {})
+                for token in e.tokens:
+                    frequencies[token] = frequencies.get(token, 0) + 1
 
     # --- accès ---------------------------------------------------------
     def parent_node(self, block_id: str) -> str:
@@ -116,7 +121,21 @@ class Index:
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,
                  kinds_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
-        """Correspondance mot entier sur `text_norm` ; tri par nb de termes canoniques distincts touchés, puis lecture.
+        """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
+
+        Le classement compte d'abord les canoniques dont une forme **composée** est entièrement
+        couverte, puis tous les canoniques dont au moins une forme est entièrement couverte. Un mot
+        isolé générique ne se retrouve ainsi pas au même rang qu'un sujet composé précis.
+        Tant qu'aucun canonique n'est pleinement couvert, les couvertures partielles départagent les
+        blocs de rappel ; dès qu'un bloc porte un plein, ses autres fragments ne bonifient plus son
+        rang. Ils ne peuvent donc ni évincer une correspondance pleine, ni favoriser une clause par
+        accumulation de mots-outils autour d'un plein. Pour une forme partielle, chaque mot est
+        pondé par l'inverse du nombre de blocs du document qui le portent ;
+        un mot fréquent contribue ainsi moins qu'un mot rare. Le mot présent le plus discriminant
+        donne la contribution de la forme : accumuler des mots-outils fréquents dans le même bloc ne
+        suffit donc pas à reléguer la clause qui porte le mot utile. Le meilleur score des formes d'un
+        canonique est retenu, puis les scores partiels des canoniques sont additionnés. Les fractions
+        exactes gardent les égalités de tri déterministes.
 
         `kinds_prioritaires` (story 1.8) n'écarte aucun bloc **par son kind** : à score égal, un bloc
         dont le `Block.kind` y figure passe devant les autres, et c'est tout ce que le tri fait. Il
@@ -125,8 +144,9 @@ class Index:
         résultat alors qu'il y figurait sans priorité. C'est l'effet recherché — les clauses passent
         devant — mais ce n'est pas « rien ne change au-delà de l'ordre ».
 
-        Le départage vit ici et non dans *retrouver* parce que le score — le nombre de termes
-        canoniques distincts touchés — n'existe qu'ici : rendu au seul ordre des hits, il serait
+        Le départage vit ici et non dans *retrouver* parce que le score — nombre de canoniques
+        pleinement couverts puis somme des meilleures couvertures partielles — n'existe qu'ici :
+        rendu au seul ordre des hits, il serait
         indevinable, et un tri par kind seul remonterait un bloc décisionnel anecdotique devant le
         paragraphe qui répond vraiment. Le pipeline sinistre y passe les quatre kinds décisionnels
         d'AD-6 ; le guide ne passe rien et son ordre de recherche est inchangé.
@@ -138,32 +158,52 @@ class Index:
         if doc_id is not None and doc_id not in self.corpus.documents:
             raise KeyError(doc_id)
         mapping = termes if isinstance(termes, dict) else {t: [] for t in termes}
-        groups: list[list[str]] = []
+        groups: list[list[frozenset[str]]] = []
         seen_canon: set[str] = set()  # deux clés de même forme normalisée ne comptent qu'une fois
         for canon, variants in mapping.items():
-            forms = {" ".join(words(normalize(v))) for v in (canon, *variants)} - {""}
+            forms = {frozenset(words(normalize(v))) for v in (canon, *variants)} - {frozenset()}
             canon_form = " ".join(words(normalize(canon)))
             if not forms or canon_form in seen_canon:
                 continue
             seen_canon.add(canon_form)
-            groups.append(sorted(forms))
+            groups.append(sorted(forms, key=lambda form: tuple(sorted(form))))
         if not groups:
             return []
         prioritaires = frozenset(kinds_prioritaires or ())
-        scored: list[tuple[int, int, int, str, str]] = []
+        scored: list[tuple[int, int, Fraction, int, int, str, str]] = []
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
                 continue
-            score = sum(1 for forms in groups if any(self._hit(e, f) for f in forms))
-            if score:
+            pleins = 0
+            pleins_composes = 0
+            partiels = Fraction()
+            frequencies = self._block_frequencies[e.doc_id]
+            for forms in groups:
+                formes_pleines = [form for form in forms if form <= e.tokens]
+                if formes_pleines:
+                    pleins += 1
+                    if any(len(form) > 1 for form in formes_pleines):
+                        pleins_composes += 1
+                    continue
+                partiels += max(self._hit(e, form, frequencies) for form in forms)
+            if pleins or partiels:
                 rang_kind = 0 if e.block.kind in prioritaires else 1
-                scored.append((-score, rang_kind, e.rank, e.block.block_id, e.node_id))
+                rappel = partiels if pleins == 0 else Fraction()
+                scored.append((-pleins_composes, -pleins, -rappel, rang_kind, e.rank,
+                               e.block.block_id, e.node_id))
         scored.sort()
-        return [(b, n) for _, _, _, b, n in scored[:limit]]
+        return [(b, n) for _, _, _, _, _, b, n in scored[:limit]]
 
     @staticmethod
-    def _hit(e: _Entry, form: str) -> bool:
-        return form in e.tokens if " " not in form else f" {form} " in e.padded
+    def _hit(e: _Entry, form: frozenset[str], frequencies: dict[str, int]) -> Fraction:
+        """Couverture partielle pondérée ; zéro seulement quand aucun mot n'existe."""
+        presents = e.tokens & form
+        if not presents:
+            return Fraction()
+        # Un mot absent du document garde le poids maximal d'un mot rare dans le dénominateur.
+        poids_forme = sum((Fraction(1, frequencies.get(token, 1)) for token in form), Fraction())
+        poids_le_plus_discriminant = max(Fraction(1, frequencies[token]) for token in presents)
+        return poids_le_plus_discriminant / poids_forme
 
     def definitions(self, termes: dict[str, list[str]] | Iterable[str], *, doc_id: str | None = None,
                     blocs_ouverts: Iterable[str] | None = None) -> list[tuple[str, str]]:

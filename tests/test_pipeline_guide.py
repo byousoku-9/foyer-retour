@@ -905,6 +905,39 @@ async def test_a_retry_that_drops_a_cited_block_never_replaces_the_answer(index:
 HIPPO = {"matricule": ["numéro national"]}
 
 
+async def test_un_hit_partiel_dune_forme_composee_atteint_retrouver_et_la_chaine_fixe(
+        index: Index, tmp_path: Path) -> None:
+    """Story 2.7 / R2 : un seul mot présent interdit le pré-refus `zero_hit`."""
+    dico = _dictionnaire(tmp_path, index, {"choix commune": ["quelle commune"]},
+                         validated=True)
+
+    answer, trace, fake = await _run(
+        index,
+        [_comprendre(terms=["choix commune"]), _rediger(BONNE), _verdicts(("c1", True))],
+        dictionnaire=dico,
+    )
+
+    assert fake.remaining_script == 0
+    assert [step.name for step in trace.steps] == [
+        "comprendre", "retrouver", "rediger", "verifier", "restituer"]
+    assert answer.found is True and answer.reason is None
+
+
+async def test_aucun_mot_daucune_forme_composee_refuse_avant_reason_avec_le_canonique(
+        index: Index, tmp_path: Path) -> None:
+    """Story 2.7 / R5 : l'absence réelle garde une preuve canonique et zéro appel `reason`."""
+    dico = _dictionnaire(tmp_path, index, {"océan profond": ["mer immense"]}, validated=True)
+
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["mer immense"])], dictionnaire=dico)
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
+    assert answer.reason is not None and answer.reason.kind == "zero_hit"
+    assert answer.reason.terms_searched == ["océan profond"]
+    assert "mer immense" not in answer.reason.model_dump_json()
+
+
 async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index, tmp_path: Path) -> None:
     """AC 2.1, mot pour mot : `found=False`, `reason.kind == "zero_hit"`, `variants_count > 0`,
     aucun appel au tier `reason`, et `Trace.steps` **ne contient pas** l'étape `retrouver`."""

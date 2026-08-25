@@ -103,9 +103,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     autres — ils gagnent une place, pas la priorité de lecture.
 
     `dictionnaire` (story 2.1, AD-5) : le **seul** point d'entrée élargi. `chercher` accepte déjà
-    `{canonique: [variantes]}` — formes normalisées par groupe, score = nombre de groupes touchés —
-    donc l'élargissement ne change ni le classement ni la déduplication, il ajoute des formes à
-    chercher pour les mêmes termes. Il n'est employé que si le dictionnaire est
+    `{canonique: [variantes]}` — formes normalisées par groupe, meilleure couverture par canonique —
+    donc l'élargissement conserve la déduplication par groupe et ajoute des formes à chercher pour
+    les mêmes termes. Il n'est employé que si le dictionnaire est
     `utilisable_pour(doc_id)` (chargé, décrivant le corpus servi, **et** portant l'empreinte du
     document interrogé — revue Codex 2.1, B3) : `validated` ne commande que le court-circuit du
     pipeline, pas l'élargissement — élargir n'affirme rien, chaque phrase affichée reste vérifiée

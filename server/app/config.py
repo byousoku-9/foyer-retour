@@ -176,8 +176,13 @@ class Settings(BaseSettings):
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
     # sortie à `rediger_max_tokens` en consomment déjà ≈ 0,080 € des 0,10 € par requête ; 6 fiches entières
     # (65 blocs) portaient l'estimation à 0,108 € et faisaient échouer l'appel à tort (`BudgetExceeded`).
+    # Story 2.7 : la couverture partielle fait entrer davantage de nœuds à égalité utile. Mesuré sur
+    # la question réelle du délai d'arrivée, 30 blocs portaient le majorant froid de *rédiger* à
+    # 0,1006 € après *comprendre*, donc au-dessus du plafond immuable de 0,10 € ; 28 blocs gardent la
+    # FAQ et la fiche d'arrivée complètes et remettent l'appel sous le plafond. `search_limit` reste
+    # 20 : la coupe porte sur le contexte transmis au modèle, jamais sur les candidats rappelés.
     # À recalibrer avec les questions-témoins, quand elles existeront (impact sur le rappel).
-    retrieval_max_blocks: int = Field(30, ge=1)
+    retrieval_max_blocks: int = Field(28, ge=1)
     # Story 1.4 (revue Codex 1.4, B1) : AD-1 borne l'étape « appels modèle, nœuds, blocs, tokens,
     # définitions et renvois inclus ». Un compte de blocs ne borne pas les tokens — un tableau de fiche
     # pèse dix paragraphes. Faute de tokenizer en code pur, *retrouver* majore avec l'heuristique
