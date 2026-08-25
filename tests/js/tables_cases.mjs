@@ -141,6 +141,25 @@ cas.preuves = PREUVES.map((r) => ({
   sinistre: sinistre.SINISTRE.preuveAbsence(r),
 }));
 
+// I1, revue 2.5 : l'absence de gate et l'alerte `sans_gate` décrivent le **même** fait. Les
+// deux panneaux autonomes doivent rendre une seule ligne, mot pour mot, et non une ligne générique
+// suivie de la même phrase assortie du nom de l'alerte.
+function textes(vue) {
+  if (!vue || typeof vue !== "object") return [];
+  var out = typeof vue.texte === "string" && vue.texte ? [vue.texte] : [];
+  (Array.isArray(vue.enfants) ? vue.enfants : []).forEach(function (enfant) {
+    out = out.concat(textes(enfant));
+  });
+  return out;
+}
+const gateSansGate = { profile: null, cases: null, countersigned: null, alerts: ["sans_gate"] };
+cas.gate_sans_gate = {
+  chat: textes(guide.CHAT.vuePourquoi({ trace: { gate: gateSansGate }, answer: {} }))
+    .filter((t) => t.indexOf("question-témoin") !== -1),
+  sinistre: textes(sinistre.SINISTRE.traceVue({ gate: gateSansGate }))
+    .filter((t) => t.indexOf("question-témoin") !== -1),
+};
+
 // Un nom de contrôle inconnu se dit tel quel des deux côtés : jamais masqué, jamais traduit.
 cas.controle_inconnu = {
   chat: guide.CHAT.libelleControle("controle_de_demain"),

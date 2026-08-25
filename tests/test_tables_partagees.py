@@ -152,6 +152,13 @@ def test_la_preuve_dabsence_est_chiffree_pareil_des_deux_cotes(cas: dict[str, An
     assert par_kind[None] == ""
 
 
+def test_sans_gate_nest_dit_quune_fois_et_pareil_des_deux_cotes(cas: dict[str, Any]) -> None:
+    """I1, revue 2.5 : mesure absente et alerte `sans_gate` ne sont pas deux faits."""
+    attendu = ["aucune question-témoin ne valide ce document (sans_gate)"]
+    assert cas["gate_sans_gate"]["chat"] == attendu
+    assert cas["gate_sans_gate"]["sinistre"] == attendu
+
+
 def test_les_libelles_de_controle_sont_les_memes_des_deux_cotes(cas: dict[str, Any]) -> None:
     chat = cas["controles"]["chat"]
     sinistre = cas["controles"]["sinistre"]

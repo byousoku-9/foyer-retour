@@ -13,6 +13,9 @@
   --border-fort: #ccd4de;
   --text: #0b0f16;
   --text-2: #38424f;
+  /* Story 2.5 : `--muted` passe de #6a7583 (4,36:1) à #5f6976 (5,19:1) sur `--surface-2`.
+     Le pied `.msg .pied`, la preuve chiffrée et les titres du panneau l'emploient en petit texte ;
+     `tests/test_styles.py` tient ce ratio dans les trois portées de thème. */
   --muted: #5f6976;
   --accent: #0a4fa8;
   --accent-2: #00b3c8;

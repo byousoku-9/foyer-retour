@@ -2210,22 +2210,22 @@ headless piloté par CDP ; elles n'ont déclenché aucun appel fournisseur.
 ### Gates et suite hors ligne
 
 - `uv run python -m server.evals run --gate lux-guide` : `bonne_reponse`, `evals_ok=true`, gate
-  `vertical`, 1 cas, `countersigned=false`, coût 0,0290 € ; réécrit après les correctifs de revue à
-  `2026-08-25T10:32:45Z`.
+  `vertical`, 1 cas, `countersigned=false`, coût 0,0217 € ; un premier appel a expiré sans modifier
+  le manifeste, puis la relance a réécrit le gate à `2026-08-25T11:06:25Z`.
 - `uv run python -m server.evals run --gate axa-lu-optihome-2017` : `bonne_reponse`,
-  `evals_ok=true`, gate `vertical`, 1 cas, `countersigned=false`, coût 0,0430 € ; réécrit après les
-  correctifs de revue à `2026-08-25T10:33:12Z`.
+  `evals_ok=true`, gate `vertical`, 1 cas, `countersigned=false`, coût 0,0803 € ; réécrit après les
+  correctifs de revue à `2026-08-25T11:07:04Z`.
 - `tests/test_digests.py` : 10 passés ; les deux gates portent le `pipeline_digest` courant
-  `e61c43115314aac4c661bed1288cc0a3f6d79fffd064f7080c10d3afcde88c16`.
-- `ANTHROPIC_API_KEY= uv run pytest -q` : **2 065 passés** après les correctifs de revue.
+  `349d2dbc975fe8f723f47dc0f8a0df4ec47c99dd39c5f2228f92697e1a51e567`.
+- `ANTHROPIC_API_KEY= uv run pytest -q` : **2 069 passés** après les correctifs de revue.
 - `FRONT_TESTS_REQUIS=1 uv run pytest -q tests/test_web_chat.py tests/test_web_sinistre.py
-  tests/test_tables_partagees.py tests/test_styles.py` : **613 passés** après les correctifs de revue.
+  tests/test_tables_partagees.py tests/test_styles.py` : **615 passés** après les correctifs de revue.
 - `uv run ruff check .` et `git diff --check` : verts.
 
 ### Réponse réelle par HTTP
 
 `POST /api/v1/chat` avec la question anglaise « How long do I have to declare my arrival? » : HTTP
-200 en 10,9 s, `via="api/v1"`, `answer.lang="en"`, `found=true`, coût 0,0276 €. La trace porte les
+200 en 11,9 s, `via="api/v1"`, `answer.lang="en"`, `found=true`, coût 0,0272 €. La trace porte les
 étapes `comprendre → retrouver → rediger → verifier → restituer`, les passages résolus avec leur
 `block_id` et leur titre de fiche, le gate `vertical` (1 cas, non contresigné), et le dictionnaire
 chargé mais non validé (`court_circuit_actif=false`). Les contrôles de vérification rejetés sont
@@ -2251,7 +2251,9 @@ publiés sans texte de bloc dans la trace.
 
 - Pas de lecture humaine des tailles, débordements, contrastes perçus, ni de test avec lecteur d'écran,
   Firefox ou Safari. Chrome headless vérifie le DOM, les interactions et les couleurs calculées, pas la
-  perception d'une personne devant l'écran.
+  perception d'une personne devant l'écran. En particulier, les pages du comparateur et de la
+  recommandation n'ont pas été regardées après le changement des jetons globaux `--muted`, `--ko` et
+  de la couleur de texte des `.pastille` ; seul leur contraste calculé est couvert par la suite.
 - La validation du dictionnaire, la contresignature des deux gates et la signature des six
   retraductions de la story 2.4 restent dues : ce sont des signatures humaines, non inventées par la
   boucle. Les écrans affichent donc volontairement leur absence.

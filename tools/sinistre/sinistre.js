@@ -671,7 +671,7 @@
       var cases = entierOuNull(g.cases);
       out.push(ligneTrace("profil de validation : " + g.profile +
                           (cases !== null ? " (" + cases + " cas)" : "")));
-    } else if (g.profile === null) {
+    } else if (g.profile === null && tableau(g.alerts).indexOf("sans_gate") === -1) {
       out.push(ligneTrace("aucune question-témoin ne valide ce document", "ko"));
     }
     if (typeof g.countersigned === "boolean") {

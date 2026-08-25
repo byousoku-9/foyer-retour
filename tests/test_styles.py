@@ -308,6 +308,14 @@ def test_les_teintes_de_texte_du_theme_tiennent_le_seuil_sur_la_bulle(
     _exiger_aa(mesure, f"{nom} en thème {portee}")
 
 
+def test_la_nouvelle_teinte_muted_est_justifiee_au_point_de_declaration(feuille: str) -> None:
+    """M3, revue 2.5 : le changement global de thème dit sa mesure, sa classe et son test."""
+    declaration_muted = feuille.index("--muted: #5f6976;")
+    commentaire = feuille[max(0, declaration_muted - 500):declaration_muted]
+    for preuve in ("4,36:1", "5,19:1", ".msg .pied", "tests/test_styles.py"):
+        assert preuve in commentaire, preuve
+
+
 def test_les_badges_neutres_du_chat_ne_dependent_plus_du_gris_dappoint(feuille: str) -> None:
     """Là où `--muted` portait un **état** — les badges « inconnu » et « recherche simple », qui
     n'ont pas de couleur propre —, il est remplacé par `--text-2`, la teinte du corps de la bulle :

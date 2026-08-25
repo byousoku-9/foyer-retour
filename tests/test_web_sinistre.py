@@ -1076,7 +1076,7 @@ def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) ->
 def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
     """D8 : sans framework, sans requête tierce, et **sans** dépendance à `web/app/styles.css`."""
     scripts = re.findall(r'<script[^>]*src="([^"]+)"', page)
-    assert scripts == ["sinistre.js"]
+    assert scripts == ["sinistre.js?v=1"]
     # Aucune feuille de style externe : les styles sont dans la page, et surtout pas ceux du guide
     # (`web/app/styles.css`, 1 328 lignes taillées pour un autre DOM — une classe renommée là-bas
     # casserait celui-ci). Le commentaire d'en-tête l'explique ; ce qu'on vérifie, ce sont les

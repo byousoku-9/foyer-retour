@@ -706,7 +706,7 @@ def test_les_identifiants_du_harnais_sont_ceux_de_la_page(page: str) -> None:
 
 
 def test_le_script_est_charge_par_la_page(page: str) -> None:
-    assert '<script src="accueil.js"></script>' in page
+    assert '<script src="accueil.js?v=1"></script>' in page
 
 
 # --- Convention Seuils ----------------------------------------------------
