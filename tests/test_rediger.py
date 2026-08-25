@@ -23,7 +23,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
-from server.app.steps.rediger import rediger
+from server.app.steps.rediger import _inclure_clause_decisionnelle_de_tete, rediger
 from server.ingest import kb_to_blocks as k
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -130,6 +130,46 @@ async def test_sinistre_rattache_deterministement_toute_claim_a_un_segment_factu
         ("Les dégâts causés par un animal sont exceptés.", "factuel", ["c2"]),
     ]
     assert step.checks == []
+
+
+def test_sinistre_inclut_la_clause_decisionnelle_confirmee_classee_en_tete() -> None:
+    """A6 : p34 ne peut plus disparaître du brouillon au profit de la seule exclusion p46."""
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    p34 = doc.block("axa-lu-optihome-2017:p34:12")
+    p46 = doc.block("axa-lu-optihome-2017:p46:1")
+    retrieval = RetrievalResult(blocs=[p34, p46], opened_block_ids=[p34.block_id, p46.block_id])
+    draft = AnswerDraft(
+        segments=[{"text": "L'exclusion vise certaines extensions.", "kind": "factuel",
+                   "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": "L'exclusion vise certaines extensions.",
+                 "quotes": [{"block_id": p46.block_id, "quote": p46.text}]}])
+
+    complete = _inclure_clause_decisionnelle_de_tete(draft, retrieval, _settings())
+
+    assert [(claim.claim_id, claim.text, claim.quotes[0].block_id) for claim in complete.claims] == [
+        ("c1", "L'exclusion vise certaines extensions.", p46.block_id),
+        ("c2", p34.text, p34.block_id),
+    ]
+
+
+def test_sinistre_ne_force_ni_bloc_non_type_ni_clause_au_dela_de_la_borne() -> None:
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    p35 = doc.block("axa-lu-optihome-2017:p35:2")
+    p34 = doc.block("axa-lu-optihome-2017:p34:12")
+    draft = AnswerDraft(
+        segments=[{"text": "Texte.", "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": "Texte.",
+                 "quotes": [{"block_id": p35.block_id, "quote": p35.text}]}])
+
+    non_type = _inclure_clause_decisionnelle_de_tete(
+        draft, RetrievalResult(blocs=[p35, p34]), _settings())
+    borne = _inclure_clause_decisionnelle_de_tete(
+        draft, RetrievalResult(blocs=[p34]), _settings(draft_max_claims=1, verifier_max_claims=1))
+
+    assert non_type == draft
+    assert borne == draft
 
 
 async def test_request_shape_cacheable_prefix_with_summary_then_delimited_content(mini_index: Index) -> None:
