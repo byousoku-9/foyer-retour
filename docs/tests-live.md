@@ -2684,3 +2684,6 @@ réponse et propose exactement un bouton visible « Consulter le guide en recher
 
 Les corrections B6–B10 sont désormais les cas A9–A13 d'`automation/epreuves.md`. B1–B5 n'ont
 révélé aucun défaut supplémentaire. La campagne complète A ne contient aucun échec sur l'arbre final.
+
+Revue croisée Codex/Claude : 12 findings initiaux, puis N1/M3 et le gate périmé N2 tous clos ;
+recheck final `peut_etre_done=true`, 2 108 tests et 10 contrôles de digest verts (boucle autonome).
