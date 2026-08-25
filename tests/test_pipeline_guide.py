@@ -154,14 +154,14 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
                settings: Settings | None = None, budget: RequestBudget | None = None,
                question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None,
-               dictionnaire: Any = None, variant: str = "deterministe"):
+               dictionnaire: Any = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await repondre_guide(question, historique or [], Profil(), corpus=index.corpus,
                                          index=index, client=client, settings=settings,
                                          request_id="req-test", lang=lang, budget=budget or _budget(),
-                                         dictionnaire=dictionnaire, variant=variant)
+                                         dictionnaire=dictionnaire)
     return answer, trace, fake
 
 
@@ -227,48 +227,6 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     assert trace.pipeline_digest and trace.prompts_digest
     assert trace.thresholds["quote_min_chars"] == 25 and trace.retries == 0
     assert trace.total_cost_eur > 0 and trace.deadline_remaining_s is not None
-
-
-async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_chain(index: Index) -> None:
-    tool_call = fake_message(
-        model=TIERS["reason"], stop_reason="tool_use",
-        content=[{"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
-                  "input": {"node_id": f"{DOC_ID}:f1", "focus_block_id": f"{DOC_ID}:f1:2"}}])
-    done = fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[])
-    answer, trace, fake = await _run(
-        index, [_comprendre(terms=["arrivée"]), tool_call, done,
-                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
-    assert answer.found and trace.variant == "outils"
-    assert [s.name for s in trace.steps] == [
-        "comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    retrouver = trace.steps[1]
-    assert len(retrouver.calls) == 2
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
-    assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
-               for call in retrouver.calls)
-    assert len(fake.requests) == 5
-
-
-async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) -> None:
-    fake = FakeAnthropic([])
-    client = LlmClient(_settings(), anthropic_client=fake)
-    budget = _budget()
-    with pytest.raises(InvalidRequest, match="variant inconnu"):
-        await repondre_guide(
-            "q", [], Profil(), corpus=index.corpus, index=index, client=client,
-            settings=_settings(), request_id="req-test", budget=budget, variant="inconnue")
-    assert fake.requests == [] and budget.attempts == 0 and budget.cost_eur == 0
-
-
-async def test_variante_outils_keeps_its_failed_call_in_the_partial_trace(index: Index) -> None:
-    panne = anthropic.APIStatusError("529", response=httpx.Response(
-        529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
-    with pytest.raises(LlmUnavailable) as capture:
-        await _run(index, [_comprendre(terms=["arrivée"]), panne], variant="outils")
-    trace = capture.value.trace
-    assert trace is not None and trace.variant == "outils"
-    assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
-    assert len(trace.steps[-1].calls) == 1
 
 
 async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None:

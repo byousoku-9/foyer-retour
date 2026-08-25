@@ -618,14 +618,12 @@ def test_une_question_faite_despaces_est_refusee(prod: TestClient) -> None:
 
 
 def test_variante_inconnue_est_refusee(prod: TestClient) -> None:
-    double = _brancher(prod, Double((_refus("zero_hit"), _trace())))
-    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "inconnue"}, headers=XFF)
+    _brancher(prod, Double((_refus("zero_hit"), _trace())))
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "outils"}, headers=XFF)
     assert r.status_code == 400
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "deterministe"},
                   headers=XFF)
     assert r.status_code == 200
-    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "outils"}, headers=XFF)
-    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
 
 
 def test_le_champ_contexte_de_lancien_contrat_est_ignore(prod: TestClient) -> None:

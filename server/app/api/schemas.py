@@ -30,7 +30,7 @@ from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
-from server.app.pipelines.guide import VARIANT, VARIANTS
+from server.app.pipelines.guide import VARIANT
 
 VIA = "api/v1"
 
@@ -64,7 +64,7 @@ class ChatRequest(RequeteAvecLangue):
     # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». La seule variante existante en J+1 est celle du
     # pipeline du guide ; le littéral est importé de lui pour qu'ajouter une variante (baseline « tout
     # en contexte ») se fasse à un seul endroit.
-    variant: str = Field(default=VARIANT, pattern=f"^({'|'.join(sorted(VARIANTS))})$")
+    variant: str | None = Field(default=None, pattern=f"^{VARIANT}$")
 
     @field_validator("question")
     @classmethod

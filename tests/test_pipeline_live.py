@@ -31,7 +31,6 @@ from tests.llm_fake import RecordedAnthropic
 ROOT = Path(__file__).resolve().parents[1]
 DEUX_SUJETS = "Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?"
 METEO = "quel temps fera-t-il demain à Luxembourg-Ville ?"
-OUTILS_QUESTION = "Quel délai ai-je pour déclarer mon arrivée au Luxembourg ?"
 
 
 @pytest.fixture(scope="module")
@@ -113,37 +112,3 @@ async def test_a_weather_question_is_refused_before_the_reason_tier(index: Index
     assert answer.texte and answer.segments[0].kind == "limite"  # le refus explique pourquoi
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert budget.attempts == 1 and all(c.model.startswith("claude-haiku") for c in trace.steps[0].calls)
-
-
-async def test_deterministe_diagnostic_for_outils_question(
-        index: Index, llm_recorder: LLMRecorder) -> None:
-    """Même question, témoin diagnostique seulement — jamais une baseline de la story 4.1."""
-    settings, budget = _settings(), _budget()
-    answer, trace = await repondre_guide(
-        OUTILS_QUESTION, [], Profil(), corpus=index.corpus, index=index,
-        client=_client(llm_recorder), settings=settings, request_id="live-deterministe-diagnostic",
-        budget=budget, variant="deterministe")
-    assert trace.variant == "deterministe" and trace.steps[1].calls == []
-    assert answer.found and answer.claims
-    assert budget.cost_eur <= settings.max_cost_eur_per_request
-
-
-async def test_outils_navigates_the_real_summary_and_returns_a_sourced_answer(
-        index: Index, llm_recorder: LLMRecorder) -> None:
-    """Story 2.6 : preuve fournisseur enregistrable puis rejouable sans clé."""
-    settings, budget = _settings(), _budget()
-    answer, trace = await repondre_guide(
-        OUTILS_QUESTION, [], Profil(), corpus=index.corpus, index=index,
-        client=_client(llm_recorder), settings=settings, request_id="live-outils",
-        budget=budget, variant="outils")
-    assert trace.variant == "outils"
-    assert [s.name for s in trace.steps] == [
-        "comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    retrieval = trace.steps[1]
-    assert 1 <= len(retrieval.calls) <= settings.max_llm_turns
-    assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
-               for call in retrieval.calls)
-    assert retrieval.opened_block_ids and answer.found and answer.claims
-    assert all(claim.status.retrouvee and claim.status.pertinente for claim in answer.claims)
-    assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)
-    assert budget.cost_eur <= settings.max_cost_eur_per_request

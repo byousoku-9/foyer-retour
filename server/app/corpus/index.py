@@ -8,7 +8,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from server.app.domain import Block, BlockRef, Document, NodeChild, NodeRef, NodeWindow
+from server.app.domain import Block, BlockRef, Document, NodeRef, NodeWindow
 
 from .loader import Corpus
 from .text import normalize
@@ -57,16 +57,12 @@ class Index:
         self._entries: list[_Entry] = []
         self._by_block: dict[str, _Entry] = {}
         self._nodes: dict[str, tuple[str, list[str]]] = {}  # node_id → (doc_id, block_ids directs)
-        self._node_titles: dict[str, str] = {}
-        self._node_children: dict[str, list[str]] = {}
         self._levels: dict[str, int] = {}  # node_id → profondeur déclarée (AD-2), pour « la plus proche »
         for doc_id, doc in sorted(corpus.documents.items()):
             for n in doc.nodes:
                 if n.node_id in self._nodes:
                     raise ValueError(f"node_id {n.node_id!r} présent dans {self._nodes[n.node_id][0]!r} et {doc_id!r}")
                 self._nodes[n.node_id] = (doc_id, n.blocks)
-                self._node_titles[n.node_id] = n.title
-                self._node_children[n.node_id] = n.children
                 self._levels[n.node_id] = n.level
             for block_id, node_id in reading_order(doc):
                 if block_id in self._by_block:
@@ -86,10 +82,6 @@ class Index:
 
     def doc_of(self, block_id: str) -> str:
         return self._by_block[block_id].doc_id
-
-    def doc_of_node(self, node_id: str) -> str:
-        """Document propriétaire d'un nœud ; sert au verrou inter-document des outils."""
-        return self._nodes[node_id][0]
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -117,10 +109,7 @@ class Index:
             start = (cursor // node_window) * node_window
         end = start + node_window
         doc = self.corpus.documents[doc_id]
-        return NodeWindow(node_id=node_id, title=self._node_titles[node_id],
-                          children=[NodeChild(node_id=child, title=self._node_titles[child])
-                                    for child in self._node_children[node_id]],
-                          blocks=[doc.block(b) for b in block_ids[start:end]],
+        return NodeWindow(node_id=node_id, blocks=[doc.block(b) for b in block_ids[start:end]],
                           truncated=len(block_ids) > node_window,
                           next_cursor=end if end < len(block_ids) else None)
 
