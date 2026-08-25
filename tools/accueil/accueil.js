@@ -22,6 +22,12 @@
 // Le troisième n'affiche jamais le dernier profil connu ni un défaut optimiste : c'est le même
 // interdit qu'AD-16 pose au front du sinistre. Aucun compte de cas n'est écrit dans ce fichier :
 // `gate_cases` vient du serveur, qui le tient du run qui l'a constaté (AD-7).
+//
+// AD-5 (story 2.1) : la page dit aussi où en est le **dictionnaire des variantes**, en trois
+// formulations — armé, non validé, d'un autre corpus. Ce qu'elle en annonce, c'est le sort du refus
+// « zéro hit », et elle le lit sur `dictionary.refus_zero_hit_actif` : la règle qui combine les deux
+// verrous n'a qu'une autorité, le serveur (`api/schemas.EtatDictionnaire`). Aucun nombre, aucune
+// conjonction refaite ici.
 
 (function () {
   "use strict";
@@ -52,7 +58,14 @@
     rapport_etranger: "le rapport d'ingestion décrit un autre document",
     quarantaine: "document écarté au chargement",
     ungated_refuse_en_production:
-      "ALLOW_UNGATED a été posé en production : la dérogation a été refusée"
+      "ALLOW_UNGATED a été posé en production : la dérogation a été refusée",
+    // AD-5 (story 2.1) : les deux verrous du dictionnaire des variantes. Deux noms parce que deux
+    // causes et deux correctifs — signer le fichier, ou le régénérer sur le corpus servi.
+    dictionnaire_non_valide:
+      "le dictionnaire des variantes n'a été validé par personne : le refus « zéro hit » est " +
+      "désactivé",
+    dictionnaire_corpus_perime:
+      "le dictionnaire des variantes décrit un autre corpus que celui qui est servi"
   };
 
   // Les **raisons de quarantaine** ne sont pas des noms d'alerte : `corpus/loader.py` les calcule et
@@ -125,6 +138,27 @@
       ((p === null) === (n === null)) && ((p === null) === (c === null));
   }
 
+  // `dictionary` de `/api/v1/sante` (AD-5, story 2.1) : **trois booléens**, descendus jusqu'à la
+  // feuille comme le reste de ce lecteur. Deux faits publiés par le serveur — `validated` (une main
+  // a signé) et `corpus_ok` (les empreintes décrivent le corpus servi) — et la **règle** qu'ils
+  // décident, `refus_zero_hit_actif`. La page ne refait pas la conjonction : `schemas.py` dit que la
+  // règle n'a qu'une autorité, le serveur, et un lecteur qui la recopierait afficherait un jour un
+  // refus armé qui ne l'est pas.
+  //
+  // Un `dictionary` absent, non objet, ou dont l'un des trois champs n'est pas un booléen est une
+  // **sonde illisible** (état 3), au même titre qu'un `gate_profile` absent : `routes/sante.py`
+  // sérialise toujours l'objet complet (`EtatDictionnaire` a trois champs, tous avec un défaut), si
+  // bien qu'un corps amputé n'a été écrit par aucune route — et peindre « le refus est désactivé »
+  // à partir d'une clé manquante dirait sur le système quelque chose que le serveur n'a pas dit.
+  function lireDictionnaire(d) {
+    if (!d || typeof d !== "object" || Array.isArray(d)) return null;
+    if (typeof d.validated !== "boolean") return null;
+    if (typeof d.corpus_ok !== "boolean") return null;
+    if (typeof d.refus_zero_hit_actif !== "boolean") return null;
+    return { validated: d.validated, corpus_ok: d.corpus_ok,
+             refus_zero_hit_actif: d.refus_zero_hit_actif };
+  }
+
   function lireAlerte(a) {
     if (!a || typeof a !== "object" || Array.isArray(a)) return null;
     if (!estChaine(a.doc_id) || !estChaine(a.alerte) || !estChaine(a.detail)) return null;
@@ -137,6 +171,8 @@
     if (typeof o.ok !== "boolean" || !estChaine(o.version)) return null;
     if (!Array.isArray(o.documents_servis) || !o.documents_servis.every(estChaine)) return null;
     if (!coupleLisible(o.gate_profile, o.gate_cases, o.gate_countersigned)) return null;
+    var dictionnaire = lireDictionnaire(o.dictionary);
+    if (dictionnaire === null) return null;
     if (!Array.isArray(o.alerts)) return null;
     var alertes = [];
     for (var i = 0; i < o.alerts.length; i++) {
@@ -147,7 +183,7 @@
     return {
       ok: o.ok, version: o.version, documents_servis: o.documents_servis,
       gate_profile: o.gate_profile, gate_cases: o.gate_cases,
-      gate_countersigned: o.gate_countersigned, alerts: alertes
+      gate_countersigned: o.gate_countersigned, dictionary: dictionnaire, alerts: alertes
     };
   }
 
@@ -196,6 +232,53 @@
   /** Le serveur signale-t-il que le gate ne correspond plus à l'image qui tourne ? */
   function perime(sante) {
     return tableau(sante && sante.alerts).some(function (a) { return a.alerte === "gate_perime"; });
+  }
+
+  /** Le serveur signale-t-il que le dictionnaire chargé décrit un **autre** corpus ? */
+  function dictionnairePerime(sante) {
+    return tableau(sante && sante.alerts).some(function (a) {
+      return a.alerte === "dictionnaire_corpus_perime";
+    });
+  }
+
+  /** La phrase du dictionnaire des variantes — trois formulations, aucune règle recalculée.
+   *
+   * AD-5 / AD-16 : un dictionnaire inutilisable est **dit**. Ce que la ligne annonce est le sort du
+   * refus « zéro hit » — la seule chose que la validation humaine arme —, et il est lu tel quel sur
+   * `refus_zero_hit_actif`, jamais recomposé à partir des deux faits.
+   *
+   * Ce qui distingue les deux formulations désarmées est l'**alerte du serveur**, pas un calcul de
+   * la page (même patron que `perime()` pour le gate). `corpus_ok` vaut `false` aussi bien quand le
+   * fichier est absent que quand il décrit un autre corpus : les deux cas ont le même booléen et
+   * n'ont pas le même correctif, et le serveur seul sait les séparer — il le dit en publiant
+   * `dictionnaire_corpus_perime` exactement quand le fichier se lit sans décrire le corpus servi
+   * (`api/etat._alertes_dictionnaire`). Écrire « périmé » sur la seule foi de `corpus_ok` ferait
+   * annoncer un fichier périmé là où il n'y a aucun fichier.
+   */
+  function libelleDictionnaire(sante) {
+    var d = sante && sante.dictionary;
+    if (!d) return null;
+    if (d.refus_zero_hit_actif) {
+      return {
+        etat: "arme",
+        texte: "dictionnaire des variantes : validé, et ses empreintes décrivent le corpus servi " +
+               "— le refus « zéro hit » est armé : une question dont aucun terme ni aucune variante " +
+               "n'a de passage est refusée avec sa preuve, sans appel de raisonnement."
+      };
+    }
+    if (dictionnairePerime(sante)) {
+      return {
+        etat: "corpus_perime",
+        texte: "dictionnaire des variantes : il décrit un autre corpus que celui qui est servi — " +
+               "le refus « zéro hit » est désactivé et ses variantes ne sont pas employées."
+      };
+    }
+    return {
+      etat: "non_valide",
+      texte: "dictionnaire des variantes : aucune validation humaine — le refus « zéro hit » est " +
+             "désactivé ; une question sans aucun passage trouvé poursuit vers la recherche au lieu " +
+             "d'être refusée d'avance."
+    };
   }
 
   /** Les alertes du serveur, en français, sans jamais rien en déduire de plus. */
@@ -257,6 +340,12 @@
       "documents servis : " + (sante.documents_servis.length
         ? sante.documents_servis.join(", ") : "aucun")));
     enfants.push(noeud("p", "detail", "version servie : " + sante.version));
+    // AD-5 : le second verrou du système, à côté du gate. Il ne conditionne pas le niveau de
+    // validation — un corpus gaté répond parfaitement sans dictionnaire —, il dit si le **refus**
+    // est armé, c'est-à-dire si une question hors du guide ressort avec sa preuve d'absence ou
+    // continue vers la recherche. Le taire laisserait lire « vertical » comme si tout était armé.
+    var dictionnaire = libelleDictionnaire(sante);
+    if (dictionnaire) enfants.push(noeud("p", "detail", dictionnaire.texte));
     if (sante.ok !== true) {
       // `ok` est ce que le front du guide lit pour décider s'il peut poser une question : le taire
       // ici afficherait un état normal alors que le guide n'est pas servi.
@@ -385,8 +474,11 @@
     // Composition pure : testable sans navigateur (`tests/js/accueil_cases.mjs`).
     lireSante: lireSante,
     coupleLisible: coupleLisible,
+    lireDictionnaire: lireDictionnaire,
     libelleValidation: libelleValidation,
+    libelleDictionnaire: libelleDictionnaire,
     perime: perime,
+    dictionnairePerime: dictionnairePerime,
     vueEtat: vueEtat,
     vueAlertes: vueAlertes,
     vueSondeEchouee: vueSondeEchouee,

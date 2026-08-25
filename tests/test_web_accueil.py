@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from server.app.api.schemas import SanteResponse
+from server.app.api.schemas import EtatDictionnaire, SanteResponse
 from server.app.config import REPO_ROOT, Settings
 
 HARNAIS = REPO_ROOT / "tests" / "js" / "accueil_cases.mjs"
@@ -289,6 +289,124 @@ def test_aucun_document_servi_est_dit_pour_ce_quil_est(cas: dict[str, Any]) -> N
     assert any("documents servis : aucun" == t for t in textes)
 
 
+# --- AD-5 : le dictionnaire des variantes ---------------------------------
+
+def _ligne_dictionnaire(textes: list[str]) -> str:
+    lignes = [t for t in textes if t.startswith("dictionnaire des variantes :")]
+    assert len(lignes) == 1, f"une ligne et une seule est attendue, trouvé {lignes}"
+    return lignes[0]
+
+
+def test_la_page_dit_ou_en_est_le_dictionnaire_des_variantes(cas: dict[str, Any]) -> None:
+    """AD-5 / AD-16 : un dictionnaire inutilisable est **dit**, jamais tu.
+
+    Trois formulations, une par état que le serveur peut publier, et chacune annonce la seule chose
+    qui change pour celui qui pose une question : le refus « zéro hit » est-il armé ? Le taire
+    laisserait lire « niveau de validation : vertical » comme si tout l'était.
+    """
+    arme = _ligne_dictionnaire(cas["dictionnaire"]["arme"]["textes"])
+    assert "le refus « zéro hit » est armé" in arme
+    assert "validé" in arme and "corpus servi" in arme
+
+    non_valide = _ligne_dictionnaire(cas["dictionnaire"]["non_valide"]["textes"])
+    assert "aucune validation humaine" in non_valide
+    assert "le refus « zéro hit » est désactivé" in non_valide
+
+    perime = _ligne_dictionnaire(cas["dictionnaire"]["corpus_perime"]["textes"])
+    assert "autre corpus" in perime
+    assert "le refus « zéro hit » est désactivé" in perime
+
+    # …et la ligne est bien **peinte**, pas seulement décidée.
+    for nom in ("arme", "non_valide", "corpus_perime", "absent"):
+        assert _ligne_dictionnaire(_textes(cas["dictionnaire"][nom]["dom"])) == \
+            _ligne_dictionnaire(cas["dictionnaire"][nom]["textes"]), nom
+
+
+def test_le_refus_nest_annonce_arme_que_quand_le_serveur_le_dit(cas: dict[str, Any],
+                                                                code: str) -> None:
+    """AC : « la page n'écrit “le refus est armé” que quand le serveur le dit ».
+
+    `refus_zero_hit_actif` est la **règle** (`validated ∧ corpus_ok`), et elle n'a qu'une autorité —
+    le serveur (`api/schemas.EtatDictionnaire`). Une page qui referait la conjonction afficherait un
+    jour un refus armé qui ne l'est pas, le jour où la règle bougerait d'un côté seulement.
+    """
+    for nom in ("non_valide", "absent", "corpus_perime"):
+        ligne = _ligne_dictionnaire(cas["dictionnaire"][nom]["textes"])
+        assert "armé" not in ligne, f"{nom} : le refus est annoncé armé alors qu'il ne l'est pas"
+        assert cas["dictionnaire"][nom]["lu"]["refus_zero_hit_actif"] is False, nom
+    assert cas["dictionnaire"]["arme"]["lu"]["refus_zero_hit_actif"] is True
+    # La bascule est lue sur le champ du serveur, et la conjonction n'est refaite nulle part.
+    assert "refus_zero_hit_actif" in code
+    assert not re.search(r"validated\s*&&\s*\w*corpus_ok", code), \
+        "la page recalcule la règle au lieu de la lire"
+
+
+def test_un_dictionnaire_absent_nest_pas_annonce_perime(cas: dict[str, Any]) -> None:
+    """`corpus_ok: false` recouvre deux situations que seul le serveur sépare.
+
+    Un fichier absent et un fichier d'un **autre** corpus publient les mêmes trois booléens ; ce qui
+    les distingue est l'alerte `dictionnaire_corpus_perime`, qu'`api/etat._alertes_dictionnaire`
+    n'émet que lorsque le fichier se lit sans décrire le corpus servi. Écrire « périmé » sur la
+    seule foi de `corpus_ok` ferait annoncer un fichier périmé là où il n'y a aucun fichier — et
+    enverrait chercher le mauvais correctif (réingérer, au lieu de signer).
+    """
+    assert cas["dictionnaire"]["absent"]["perime"] is False
+    assert cas["dictionnaire"]["corpus_perime"]["perime"] is True
+    absent = _ligne_dictionnaire(cas["dictionnaire"]["absent"]["textes"])
+    assert "autre corpus" not in absent
+    assert cas["dictionnaire"]["absent"]["libelle"]["etat"] == "non_valide"
+    assert cas["dictionnaire"]["corpus_perime"]["libelle"]["etat"] == "corpus_perime"
+
+
+def test_les_deux_alertes_du_dictionnaire_sont_traduites(cas: dict[str, Any]) -> None:
+    """Les deux causes tombent ensemble sur un dictionnaire d'un autre corpus : les deux se lisent."""
+    textes = cas["dictionnaire"]["corpus_perime"]["textes"]
+    assert any("n'a été validé par personne" in t and "dictionnaire_non_valide" in t
+               for t in textes)
+    assert any("décrit un autre corpus" in t and "dictionnaire_corpus_perime" in t for t in textes)
+    # `doc_id="*"` : une propriété du service, pas d'un document — pas de préfixe « * : ».
+    for t in textes:
+        assert not t.startswith("* :"), t
+
+
+def test_un_corps_sans_dictionnaire_lisible_est_une_sonde_illisible(cas: dict[str, Any]) -> None:
+    """Matrice d'E/S : « la page peint l'état 3, jamais un état partiel ».
+
+    `routes/sante.py` sérialise toujours les trois champs d'`EtatDictionnaire` (tous ont un défaut) :
+    un corps qui en ampute un, ou qui rend `dictionary` autre chose qu'un objet, n'a été écrit par
+    aucune route. Le peindre « refus désactivé » dirait sur le système quelque chose que le serveur
+    n'a pas dit — le même interdit qu'une clé `gate_profile` manquante.
+    """
+    refuses = [nom for nom in cas["corps_refuses"] if nom.startswith("dictionary_")]
+    assert len(refuses) >= 9, refuses
+    for nom in refuses:
+        assert cas["corps_refuses"][nom]["motif"] == "reponse_illisible", nom
+        assert cas["corps_refuses"][nom]["lu"] is None, nom
+
+    # La table de `tests/js/sante_corpus.mjs`, rejouée : les deux côtés de la règle sont exercés.
+    table = cas["corpus_dictionnaire"]
+    faux = {nom: v["lisible"] for nom, v in table.items() if v["lisible"] != v["attendu"]}
+    assert not faux, f"verdict contraire à la table du dictionnaire : {faux}"
+    assert sum(1 for v in table.values() if v["attendu"]) >= 4
+    assert sum(1 for v in table.values() if not v["attendu"]) >= 10
+    # Un dictionnaire signé mais d'un autre corpus reste un corps **lisible** : c'est un état que le
+    # serveur publie (`validated` et `corpus_ok` sont deux faits distincts), pas une sonde en panne.
+    assert table["dictionnaire_signe_hors_corpus"]["dictionary"] == {
+        "validated": True, "corpus_ok": False, "refus_zero_hit_actif": False}
+
+
+def test_le_serveur_publie_les_trois_booleens_que_la_page_lit() -> None:
+    """Test croisé : les champs que `lireDictionnaire()` exige existent dans `EtatDictionnaire`.
+
+    Le harnais fabrique ses corps, il ne les demande pas au serveur : sans ce croisement, les deux
+    moitiés du contrat dériveraient chacune de son côté — et un champ renommé côté serveur ferait
+    peindre l'état 3 à toutes les sondes, en production, suite verte.
+    """
+    champs = set(EtatDictionnaire.model_fields)
+    assert champs == {"validated", "corpus_ok", "refus_zero_hit_actif"}, champs
+    assert "dictionary" in set(SanteResponse.model_fields)
+
+
 # --- D8, état 3 : la sonde échoue -----------------------------------------
 
 @pytest.mark.parametrize("situation", ["reseau", "http_500", "http_503", "corps_non_json"])
@@ -298,7 +416,11 @@ def test_sonde_en_panne_le_niveau_est_inconnu_et_rien_nest_invente(cas: dict[str
     releve = cas["sonde_echouee"][situation]
     textes = releve["textes"]
     assert "niveau de validation : inconnu (le serveur n'a pas répondu)" in textes
-    for interdit in ("vertical", "full", "aucun gate", "documents servis"):
+    # `dictionnaire des variantes` s'ajoute à la liste depuis la story 2.1 : l'état 3 ne peint aucun
+    # état **partiel**, et annoncer « le refus est désactivé » sur une sonde morte serait affirmer
+    # sur le système ce que personne n'a lu.
+    for interdit in ("vertical", "full", "aucun gate", "documents servis",
+                     "dictionnaire des variantes"):
         assert not any(interdit in t for t in textes), f"{interdit!r} affiché sur une sonde morte"
     assert any("ne s'invente pas" in t for t in textes)
     # et le DOM peint ne dit rien de plus que l'arbre décidé

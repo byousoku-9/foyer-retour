@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 import { Document, stockage } from "./dom_minimal.mjs";
-import { CORPS_PARTAGES } from "./sante_corpus.mjs";
+import { CORPS_DICTIONNAIRE, CORPS_PARTAGES } from "./sante_corpus.mjs";
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 const RACINE = path.resolve(ICI, "..", "..");
@@ -37,10 +37,18 @@ function sante(extra) {
     // humaine reste due (revue Codex 1.10 tour 2, B2). Le cas `contresigne` ci-dessous est celui
     // que l'AC décrit — c'est lui qui doit rendre « 2 cas relus à la main ».
     gate_countersigned: false,
-    dictionary: { validated: false },
+    // AD-5 (story 2.1) : les trois booléens d'`EtatDictionnaire`, tels que `routes/sante.py` les
+    // sérialise. L'état du dépôt aujourd'hui : aucun `data/dictionary.json` livré, donc rien de
+    // signé, rien qui décrive le corpus servi, et le refus « zéro hit » désarmé.
+    dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false },
     alerts: [],
     thresholds: { deadline_s: 55.0 },
   }, extra || {});
+}
+
+/** Une alerte de service, telle qu'`api/etat._alertes_dictionnaire` l'écrit (`doc_id: "*"`). */
+function alerteDico(alerte, detail) {
+  return { doc_id: "*", alerte: alerte, detail: detail };
 }
 
 function reponseHttp({ status = 200, corps = {}, corpsIllisible = false } = {}) {
@@ -254,6 +262,62 @@ async function main() {
     cas.aucun_document = { textes: textesDe(ctx.ACCUEIL.vueEtat(lu)) };
   }
 
+  // --- AD-5 : le dictionnaire des variantes, en trois formulations -----------
+  //
+  // Ce que la ligne annonce est le sort du **refus** « zéro hit », lu tel quel sur
+  // `dictionary.refus_zero_hit_actif`. Les deux formulations désarmées se distinguent par l'alerte
+  // que le serveur publie, jamais par un calcul de la page : `corpus_ok` vaut `false` aussi bien
+  // pour un fichier absent que pour un fichier d'un autre corpus, et seul le serveur les sépare.
+  {
+    const situations = {
+      // Le dictionnaire est signé et décrit le corpus servi : le refus est armé, et c'est le seul
+      // état où la page l'écrit.
+      arme: {
+        dictionary: { validated: true, corpus_ok: true, refus_zero_hit_actif: true },
+        alerts: [],
+      },
+      // Le fichier se lit et décrit bien le corpus, mais personne ne l'a signé.
+      non_valide: {
+        dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false },
+        alerts: [alerteDico("dictionnaire_non_valide",
+                            "aucune validation humaine : le refus « zéro hit » d'AD-5 est " +
+                            "désactivé (la recherche se poursuit vers *retrouver*)")],
+      },
+      // Aucun fichier : `corpus_ok` est faux lui aussi, et la page ne doit pas pour autant annoncer
+      // un dictionnaire « périmé » là où il n'y en a aucun.
+      absent: {
+        dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false },
+        alerts: [alerteDico("dictionnaire_non_valide",
+                            "aucune validation humaine : le refus « zéro hit » d'AD-5 est " +
+                            "désactivé — dictionary.json absent")],
+      },
+      // Le fichier se lit, mais ses empreintes décrivent un autre corpus : les deux alertes
+      // tombent ensemble, comme `api/etat._alertes_dictionnaire` les écrit.
+      corpus_perime: {
+        dictionary: { validated: false, corpus_ok: false, refus_zero_hit_actif: false },
+        alerts: [
+          alerteDico("dictionnaire_non_valide", "aucune validation humaine"),
+          alerteDico("dictionnaire_corpus_perime",
+                     "dictionary.json décrit un autre corpus que celui qui est servi : ni " +
+                     "variantes, ni court-circuit"),
+        ],
+      },
+    };
+    cas.dictionnaire = {};
+    for (const [nom, extra] of Object.entries(situations)) {
+      const ctx = charger(PAGE, () => reponseHttp({ corps: sante(extra) }));
+      const lu = await ctx.ACCUEIL.sonder();
+      const vue = ctx.ACCUEIL.vueEtat(lu);
+      cas.dictionnaire[nom] = {
+        lu: lu && lu.dictionary,
+        libelle: ctx.ACCUEIL.libelleDictionnaire(lu),
+        perime: ctx.ACCUEIL.dictionnairePerime(lu),
+        textes: textesDe(vue),
+        dom: peindreEtRelever(ctx, vue),
+      };
+    }
+  }
+
   // --- état 3 : la sonde échoue ---------------------------------------------
   {
     cas.sonde_echouee = {};
@@ -328,6 +392,19 @@ async function main() {
       alerte_sans_nom: (c) => { c.alerts = [{ doc_id: "x", detail: "" }]; },
       alerte_sans_detail: (c) => { c.alerts = [{ doc_id: "x", alerte: "sans_gate" }]; },
       alerte_non_objet: (c) => { c.alerts = ["sans_gate"]; },
+      // AD-5 : `EtatDictionnaire` a trois champs, tous sérialisés. Un corps qui en ampute un n'a
+      // été écrit par aucune route — et « le refus est désactivé » lu sur une clé manquante serait
+      // une affirmation sur le système que le serveur n'a pas faite.
+      dictionary_absent: (c) => { delete c.dictionary; },
+      dictionary_nul: (c) => { c.dictionary = null; },
+      dictionary_non_objet: (c) => { c.dictionary = "non validé"; },
+      dictionary_tableau: (c) => { c.dictionary = []; },
+      dictionary_validated_absent: (c) => { delete c.dictionary.validated; },
+      dictionary_validated_chaine: (c) => { c.dictionary.validated = "true"; },
+      dictionary_corpus_ok_absent: (c) => { delete c.dictionary.corpus_ok; },
+      dictionary_corpus_ok_numerique: (c) => { c.dictionary.corpus_ok = 1; },
+      dictionary_refus_absent: (c) => { delete c.dictionary.refus_zero_hit_actif; },
+      dictionary_refus_chaine: (c) => { c.dictionary.refus_zero_hit_actif = "oui"; },
       corps_tableau: () => null,
     };
     cas.corps_refuses = {};
@@ -356,6 +433,10 @@ async function main() {
                               gate_countersigned: null }),
       alerte_sans_detail_vide: sante({ alerts: [{ doc_id: "lux-guide", alerte: "gate_perime", detail: "" }] }),
       version_vide: sante({ version: "" }),
+      // Les trois booléens du dictionnaire valent `true` de plein droit : un lecteur trop strict
+      // n'afficherait plus jamais l'état armé, c'est-à-dire précisément celui que la story vise.
+      dictionnaire_arme: sante({
+        dictionary: { validated: true, corpus_ok: true, refus_zero_hit_actif: true } }),
     };
     cas.corps_conformes = {};
     for (const [nom, corps] of Object.entries(conformes)) {
@@ -402,6 +483,20 @@ async function main() {
     for (const [nom, entree] of Object.entries(CORPS_PARTAGES)) {
       cas.corpus_partage[nom] = { lisible: ACCUEIL.lireSante(entree.corps) !== null,
                                   attendu: entree.lisible };
+    }
+  }
+
+  // --- la table du dictionnaire, rejouée par l'accueil seul -------------------
+  //
+  // `web/app/chat.js` ne lit pas `dictionary` : cette table n'est donc pas confrontée à un second
+  // lecteur, elle amarre le contrat de celui-ci (voir l'en-tête de `sante_corpus.mjs`).
+  {
+    const { ACCUEIL } = charger(PAGE, () => reponseHttp({ corps: sante() }));
+    cas.corpus_dictionnaire = {};
+    for (const [nom, entree] of Object.entries(CORPS_DICTIONNAIRE)) {
+      const lu = ACCUEIL.lireSante(entree.corps);
+      cas.corpus_dictionnaire[nom] = { lisible: lu !== null, attendu: entree.lisible,
+                                       dictionary: lu && lu.dictionary };
     }
   }
 
