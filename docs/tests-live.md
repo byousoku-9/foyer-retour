@@ -2506,3 +2506,37 @@ digests, Ruff et `git diff --check` passent. Les deux gates `vertical` finaux pa
 `lux-guide` à 0,0219 € et `axa-lu-optihome-2017` à 0,0313 €, toujours `countersigned=false`. Ils
 portent `pipeline_digest=dc1359d04ba5f4105a67345f5974d117d46704c263553c6cdcadb26d3a73cef2`
 et `prompts_digest=20c7e254a7f6f82f9516bf84dc8f391de9391b389188fedc93c31a1a60a2feb8`.
+
+### Clôture du socle A — la garantie chaleur p34 précède l'exclusion d'extensions
+
+Le cas exact « Une bougie a brûlé le canapé sans embrasement. », envoyé à la fois comme question et
+comme faits, a produit sur le build précédent un 200 en 18,672 s à 0,0346 €, verdict
+`ne_tranche_pas`, mais seule l'exclusion `p46:1` figurait dans `sources[]`. La réponse parlait bien
+des dégâts de chaleur sans embrasement, mais omettait la garantie `p34:12` que le socle A exige sous
+le canapé.
+
+Le diagnostic live avant correction a d'abord rencontré un 503 `budget_exceeded` en 29,444 s à
+0,0575 €, puis un 200 en 20,154 s à 0,0350 €. Sur le 200, *retrouver* ouvrait `p34:12` au rang 1,
+puis `p46:1` au rang 4 après ses deux titres ; les trois claims `p34:12`, `p34:12` et `p46:1`
+étaient retenues, sans rejet. Le rappel et AD-6 savaient donc traiter p34 : l'écart non déterministe
+se produisait avant vérification, lorsque *rédiger* pouvait choisir la seule p46 et ne créer aucune
+claim p34 à juger.
+
+La ceinture ajoutée ne recherche rien de plus : si le **premier** bloc déjà classé et ouvert est une
+clause décisionnelle au typage confirmé, que le brouillon l'a omise et qu'une place reste sous
+`draft_max_claims`, elle est ajoutée comme claim et quote exactes relues du corpus. *Vérifier* garde
+ensuite ses contrôles ordinaires de citation, pertinence, applicabilité et la table AD-6. Un titre,
+une définition, un bloc non typé, une clause déjà citée ou une borne pleine ne déclenche rien ; ni
+l'intent, ni le rappel 2.6, ni aucun seuil ne changent.
+
+| Run exact consécutif | HTTP / durée | Blocs ouverts | Sources affichées | Claims / rejets | Coût |
+|---|---:|---|---|---|---:|
+| 1 | 200 / 20,073 s | `p34:12` rang 1, `p46:1` rang 4 | `p34:12`, `p9:3` | p34 et définition retenues ; p46 `non_pertinente` | 0,0371 € |
+| 2 | 200 / 17,915 s | `p34:12` rang 1, `p46:1` rang 4 | `p34:12` | p34 retenue ; 0 rejet | 0,0312 € |
+
+Sur l'arbre final, 207 tests ciblés puis les 2 092 tests hermétiques passent ; les 10 tests de
+digests, Ruff et `git diff --check` passent. Les deux gates `vertical` finaux passent 1/1 : guide à
+0,0240 € et contrat à 0,0353 €, toujours `countersigned=false`. Ils portent
+`pipeline_digest=fdca336f861cf61626c7bb86a6ce36ea734d85d8e87f230f4afe57265fb5575d`
+et le `prompts_digest` inchangé
+`20c7e254a7f6f82f9516bf84dc8f391de9391b389188fedc93c31a1a60a2feb8`.
