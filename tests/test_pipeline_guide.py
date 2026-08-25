@@ -264,7 +264,7 @@ async def test_outils_without_a_useful_tool_falls_back_to_deterministic_retrieva
         TIERS["micro"], TIERS["micro"], TIERS["reason"], TIERS["micro"]]
 
 
-async def test_outils_partial_result_is_replaced_and_merges_fallback_trace(
+async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
         index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
     from server.app.pipelines import guide as guide_module
 
@@ -279,13 +279,12 @@ async def test_outils_partial_result_is_replaced_and_merges_fallback_trace(
     tool_candidates = [b for b, _ in index.chercher(["école"], limit=_settings().search_limit,
                                                      doc_id=DOC_ID)]
     tool_call = fake_message(
-        model=TIERS["micro"], stop_reason="max_tokens",
+        model=TIERS["micro"], stop_reason="tool_use",
         content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
-                  "input": {"termes": ["école"]}},
-                 {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
-                  "input": {"node_id": f"{DOC_ID}:f2"}}])
+                  "input": {"termes": ["école"]}}])
     answer, trace, _fake = await _run(
         index, [_comprendre(terms=["arrivée"]), tool_call,
+                fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
                 _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
 
     assert answer.found
@@ -295,6 +294,29 @@ async def test_outils_partial_result_is_replaced_and_merges_fallback_trace(
     assert [check.name for check in retrouver.checks] == [
         "repli_deterministe", "controle_deterministe"]
     assert retrouver.calls and retrouver.usage.cost_eur > 0
+
+
+async def test_outils_partial_truncated_result_keeps_its_useful_blocks_without_fallback(
+        index: Index) -> None:
+    tool_candidates = [b for b, _ in index.chercher(["école"], limit=_settings().search_limit,
+                                                     doc_id=DOC_ID)]
+    tool_call = fake_message(
+        model=TIERS["micro"], stop_reason="max_tokens",
+        content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
+                  "input": {"termes": ["école"]}},
+                 {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
+                  "input": {"node_id": f"{DOC_ID}:f2"}}])
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), tool_call,
+                _rediger(BONNE_2), _verdicts(("c2", True))], variant="outils")
+
+    retrouver = trace.steps[1]
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f2:1"]
+    assert retrouver.discarded_block_ids == [
+        block_id for block_id in tool_candidates if block_id != f"{DOC_ID}:f2:1"]
+    assert not any(check.name == "repli_deterministe" for check in retrouver.checks)
+    assert answer.found and not answer.complete and answer.reason is None
+    assert trace.truncations == 1 and len(fake.requests) == 4
 
 
 async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) -> None:

@@ -374,10 +374,11 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             retrieval, step_retrouver = retrouver_deterministe(
                 parsed, corpus=corpus, index=index, budget=borne_retrieval,
                 settings=settings, doc_id=doc_id, dictionnaire=dictionnaire)
-        if variant == "outils" and retrieval.truncated:
-            # Une navigation partielle n'est pas un contexte final : même lorsqu'elle a admis un
-            # bloc, la baseline déterministe bornée remplace entièrement son résultat. Les appels et
-            # coûts outils restent toutefois dans la trace de cette même étape.
+        if variant == "outils" and retrieval.truncated and not retrieval.blocs:
+            # O9 : le repli protège uniquement une navigation épuisée sans bloc utile. Des blocs
+            # outils partiels restent un contexte honnête : *vérifier* publiera `lecture_bornee` et
+            # `complete=False`, sans les remplacer par une sélection déterministe potentiellement
+            # moins pertinente et plus coûteuse.
             candidats_deterministes: list[str] = []
             fallback, fallback_step = retrouver_deterministe(
                 parsed, corpus=corpus, index=index, budget=borne_retrieval,
@@ -385,7 +386,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 candidats_out=candidats_deterministes)
             step_retrouver.checks.append(CheckResult(
                 name="repli_deterministe", ok=False,
-                detail="navigation par outils tronquée ; repli déterministe borné transmis"))
+                detail="navigation par outils tronquée sans bloc ; repli déterministe borné transmis"))
             step_retrouver.checks.extend(fallback_step.checks)
             step_retrouver.ms += fallback_step.ms
             step_retrouver.opened_block_ids = list(fallback.opened_block_ids)
