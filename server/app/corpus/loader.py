@@ -178,6 +178,42 @@ def _apply_overlay(raw_doc: dict, overlay: object) -> str:
     return ""
 
 
+def _perimetre(doc: Document, max_chars: int) -> tuple[str, bool]:
+    """`(projection, catégorie(s) perdue(s) ?)` — voir `perimetre()`.
+
+    **Trois paliers, du plus informatif au plus sûr** (revue Codex 2.1, I2). Le prompt de *comprendre*
+    affirme de cette liste qu'« elle fait foi, aucune autre » : une catégorie qui en disparaît fait
+    refuser `hors_perimetre` une question que le guide traite — le faux refus même que la story 2.1
+    corrige. La borne ne peut donc pas commencer par retirer des catégories :
+
+    1. catégories **et** fiches, ce que le corpus livré rend aujourd'hui (3 004 caractères sur 4 000) ;
+    2. si c'est trop long, les **catégories seules** (« - Logement ») : la liste reste *exhaustive*,
+       elle perd son détail. C'est le degré qui préserve exactement ce dont le prompt fait autorité ;
+    3. si même cela dépasse — un `perimetre_max_chars` absurdement bas —, les dernières catégories
+       tombent, la première jamais (une liste vide ferait de *tout* un hors-périmètre), et le second
+       membre du couple vaut `True` : `load_corpus` en fait l'alerte `perimetre_tronque`, que
+       `/api/v1/sante` publie et que la page d'accueil écrit. Dit, jamais tu (AD-16).
+    """
+    par_id = {n.node_id: n for n in doc.nodes}
+    titres: list[tuple[str, list[str]]] = []
+    for node in doc.nodes:
+        if node.level != 1 or not node.title.strip():
+            continue
+        enfants = [par_id[c].title.strip() for c in node.children
+                   if c in par_id and par_id[c].title.strip()]
+        titres.append((node.title.strip(), enfants))
+
+    detaillees = [f"- {t}" + (" : " + ", ".join(e) if e else "") for t, e in titres]
+    if len("\n".join(detaillees)) <= max_chars:
+        return "\n".join(detaillees), False
+    lignes = [f"- {t}" for t, _ in titres]  # exhaustive, sans le détail des fiches
+    perdues = False
+    while len(lignes) > 1 and len("\n".join(lignes)) > max_chars:
+        lignes.pop()
+        perdues = True
+    return "\n".join(lignes), perdues
+
+
 def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
     """Périmètre d'un document : ses nœuds de **niveau 1** et leurs enfants directs, une ligne chacun.
 
@@ -187,30 +223,11 @@ def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
     par un modèle, et aucun texte de bloc n'y entre (AD-10).
 
     **Borné en retirant des lignes entières, jamais en coupant une ligne** : une catégorie tronquée
-    au milieu d'un titre de fiche ferait croire au modèle que la fiche s'appelle autrement. Les
-    dernières catégories tombent d'abord — elles sont les moins prioritaires par construction, l'ordre
-    est celui du document.
-
-    **La première ligne ne tombe jamais** (revue coordonnée 2.1) : un `max_chars` très bas rendait la
-    chaîne vide, et le prompt affirme juste après « c'est la liste qui fait foi, aucune autre » — une
-    liste vide fait alors de *tout* un hors-périmètre, ce qui est le pire état possible et le
-    contraire exact de ce que la story corrige. Un périmètre plus court que sa borne est un réglage
-    trop serré, qu'un test de dépôt signale bien avant ce point ; un périmètre vide est une panne.
+    au milieu d'un titre de fiche ferait croire au modèle que la fiche s'appelle autrement. Le détail
+    des fiches tombe **avant** toute catégorie (voir `_perimetre`), et la première ligne ne tombe
+    jamais.
     """
-    par_id = {n.node_id: n for n in doc.nodes}
-    lignes: list[str] = []
-    for node in doc.nodes:
-        if node.level != 1 or not node.title.strip():
-            continue
-        enfants = [par_id[c].title.strip() for c in node.children
-                   if c in par_id and par_id[c].title.strip()]
-        ligne = f"- {node.title.strip()}"
-        if enfants:
-            ligne += " : " + ", ".join(enfants)
-        lignes.append(ligne)
-    while len(lignes) > 1 and len("\n".join(lignes)) > max_chars:
-        lignes.pop()
-    return "\n".join(lignes)
+    return _perimetre(doc, max_chars)[0]
 
 
 def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated: bool,
@@ -318,6 +335,11 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             continue
         corpus.documents[doc_id] = doc
         corpus.summaries[doc_id] = summary
+        corpus.perimetres[doc_id], tronque = _perimetre(doc, perimetre_max_chars)
+        if tronque:
+            # AD-16 / revue Codex 2.1 (I2) : le prompt de *comprendre* dit de cette liste qu'elle
+            # « fait foi » ; amputée d'une catégorie entière, elle fait refuser des questions que le
+            # document traite. Un réglage qui en arrive là est un écart, et il se voit.
+            alerts.append("perimetre_tronque")
         corpus.alerts[doc_id] = alerts
-        corpus.perimetres[doc_id] = perimetre(doc, perimetre_max_chars)
     return corpus

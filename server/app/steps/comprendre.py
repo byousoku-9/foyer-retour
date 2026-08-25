@@ -50,8 +50,25 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 # vraies bornes de travail, elles, sont `question_max_terms`, `scope_max_themes` et
 # `question_max_facettes`, appliquées plus bas — généreuses ici pour qu'un modèle un peu bavard soit
 # **tronqué par notre code** (perte bornée et lisible) plutôt que rejeté en `LlmParse` (échec
-# terminal). Un `max_length` par élément borde au passage la longueur d'un libellé.
+# terminal).
+#
+# **Deux bornes, parce que `Field(max_length=…)` sur une liste ne compte que ses éléments** (revue
+# Codex 2.1, M3) : le commentaire promettait qu'elle bordait « au passage la longueur d'un libellé »,
+# ce qu'elle ne faisait pas — trente-deux termes de dix mille caractères passaient. `LIBELLE_MAX`
+# borde chaque chaîne, `LISTE_MAX` leur nombre.
 LISTE_MAX = 32
+# Longueur d'**un** libellé, même esprit que `LISTE_MAX` : au-delà, ce n'est plus un terme, c'est un
+# déversement. Elle n'entre pas dans le schéma JSON de l'appel, et c'est délibéré — le schéma est la
+# clé du préfixe caché (AD-9) et celle des fixtures enregistrées ; une borne de forme ne vaut pas de
+# les réécrire. Elle est appliquée par le code, plus bas, à la façon de `QuestionScope.borner`
+# (story 1.9) : le libellé hors borne est **écarté**, jamais coupé — un terme tronqué se chercherait,
+# et se publierait dans `terms_searched`, sous une forme que personne n'a écrite.
+#
+# Elle est **volontairement plus haute que les bornes d'affichage** (`fait_manquant_max_chars` = 200,
+# qu'applique `QuestionScope.borner`) : celles-là sont plus fines et, elles, se **disent** en trace
+# (`faits_compris_hors_borne`). Rabattre celle-ci à leur niveau ferait disparaître le libellé plus
+# tôt et sans un mot, ce qu'AD-16 appelle un dégradé silencieux.
+LIBELLE_MAX = 500
 
 
 class SortieComprendre(DomainModel):
@@ -91,6 +108,11 @@ class SortieComprendre(DomainModel):
             raise ValueError("renseigne soit question_resolue (question autonome), soit clarification "
                              "(anaphore irrésoluble), jamais les deux ni aucune des deux")
         return self
+
+
+def _libelles(bruts: list[str]) -> list[str]:
+    """Les libellés d'une liste rendue par le modèle : nettoyés, vides et hors-borne **écartés**."""
+    return [t for t in (s.strip() for s in bruts) if t and len(t) <= LIBELLE_MAX]
 
 
 async def comprendre(question: str, historique: list[Turn], profil: Profil, *, client: LlmClient,
@@ -154,13 +176,16 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
             # `facettes` l'était déjà (reprise différée de la revue 1.4). Le prompt demande
             # `question_max_terms` termes : quand le modèle en rend plus, ce sont les derniers —
             # les moins prioritaires selon lui — qui tombent, et la recherche reste bornée à ce que
-            # `search_limit` peut classer. Écarter par la fin, jamais couper un libellé.
-            terms=[t for t in (s.strip() for s in out.terms) if t][: settings.question_max_terms],
+            # `search_limit` peut classer. Écarter par la fin, jamais couper un libellé — et écarter
+            # aussi le libellé plus long que `LIBELLE_MAX` (revue Codex 2.1, M3 : `Field(max_length=…)`
+            # sur une liste ne compte que ses éléments, si bien qu'un « terme » de dix mille
+            # caractères passait et partait dans `terms_searched`).
+            terms=_libelles(out.terms)[: settings.question_max_terms],
             # Le découpage en facettes est arrêté ici, avant *retrouver* et *rédiger* (AD-4, revue
             # Codex 1.5, tour 3, B3) : borné par `question_max_facettes`, et jamais deviné — un
             # modèle muet laisse la liste vide, et `complete` restera `False` faute de preuve.
-            facettes=[f for f in (s.strip() for s in out.facettes) if f][: settings.question_max_facettes],
-            scope=QuestionScope(themes=[t for t in (s.strip() for s in out.themes) if t][: settings.scope_max_themes],
+            facettes=_libelles(out.facettes)[: settings.question_max_facettes],
+            scope=QuestionScope(themes=_libelles(out.themes)[: settings.scope_max_themes],
                                 bien=out.bien or None, evenement=out.evenement or None, lieu=out.lieu or None,
                                 cause=out.cause or None, moment=out.moment or None),
         )

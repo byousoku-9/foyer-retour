@@ -496,23 +496,47 @@ def test_le_perimetre_projette_les_titres_de_niveau_1_et_leurs_enfants(data: Pat
             assert bloc.text not in corpus.perimetres["lux-guide"]
 
 
-def test_le_perimetre_est_borne_en_retirant_des_lignes_entieres(data: Path) -> None:
-    """Une catégorie tronquée au milieu d'un titre de fiche ferait croire au modèle que la fiche
-    s'appelle autrement : on retire des lignes, on n'en coupe aucune."""
-    entier = load_corpus(data, allow_ungated=True).perimetres["lux-guide"]
-    court = load_corpus(data, allow_ungated=True, perimetre_max_chars=40).perimetres["lux-guide"]
-    assert court and court in entier
-    for ligne in court.splitlines():
-        assert ligne in entier.splitlines()
+def test_le_perimetre_borne_perd_le_detail_avant_de_perdre_une_categorie(data: Path) -> None:
+    """Revue Codex 2.1 (I2) : la borne retirait des **catégories entières**, en silence.
+
+    Le prompt de *comprendre* dit de cette liste qu'« elle fait foi, aucune autre » : une catégorie
+    qui en disparaît fait refuser `hors_perimetre` une question que le guide traite — le faux refus
+    même que la story 2.1 corrige, réintroduit par un réglage. La borne perd donc d'abord le
+    **détail** (les fiches), ce qui garde la liste *exhaustive*, et ne perd une catégorie qu'en
+    dernier ressort — où elle le **dit** (`perimetre_tronque`).
+    """
+    corpus_entier = load_corpus(data, allow_ungated=True)
+    entier = corpus_entier.perimetres["lux-guide"]
+    categories = [n for n in corpus_entier.documents["lux-guide"].nodes
+                  if n.level == 1 and n.title.strip()]
+    assert "perimetre_tronque" not in corpus_entier.alerts["lux-guide"]
+
+    # Palier 2 : trop court d'un seul caractère pour le détail, assez pour toutes les catégories.
+    serre = load_corpus(data, allow_ungated=True, perimetre_max_chars=len(entier) - 1)
+    court = serre.perimetres["lux-guide"]
+    assert court.splitlines() == [f"- {n.title.strip()}" for n in categories]
+    assert len(court.splitlines()) == len(entier.splitlines())  # aucune catégorie perdue
+    assert "perimetre_tronque" not in serre.alerts["lux-guide"]  # rien à dire : rien n'a disparu
+
+    # Palier 3 : même les titres seuls ne tiennent pas. Des catégories tombent — et l'alerte le dit.
+    absurde = load_corpus(data, allow_ungated=True, perimetre_max_chars=len(court) - 1)
+    reste = absurde.perimetres["lux-guide"]
+    assert 0 < len(reste.splitlines()) < len(categories)
+    assert "perimetre_tronque" in absurde.alerts["lux-guide"]
+    for ligne in reste.splitlines():
+        assert ligne in court.splitlines()  # on retire des lignes, on n'en coupe aucune
+
     # **La première ligne ne tombe jamais** (revue coordonnée 2.1). Elle peut donc dépasser la borne :
     # c'est assumé, et c'est le moindre mal. Le prompt de *comprendre* affirme juste après cette
     # liste « c'est la liste qui fait foi, aucune autre » — un périmètre **vide** ferait alors de
     # tout un hors-périmètre, c'est-à-dire le faux refus que la story vient de corriger, en pire et
     # sur toutes les questions. Un périmètre trop court est un réglage à revoir, qu'un test de dépôt
     # signale bien avant ; un périmètre vide est une panne.
-    minuscule = load_corpus(data, allow_ungated=True, perimetre_max_chars=1).perimetres["lux-guide"]
-    assert minuscule == entier.splitlines()[0]
+    minimal = load_corpus(data, allow_ungated=True, perimetre_max_chars=1)
+    minuscule = minimal.perimetres["lux-guide"]
+    assert minuscule == f"- {categories[0].title.strip()}"
     assert "\n" not in minuscule  # une seule ligne, jamais coupée en son milieu
+    assert "perimetre_tronque" in minimal.alerts["lux-guide"]
 
 
 def test_le_defaut_du_loader_est_celui_de_settings() -> None:
