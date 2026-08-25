@@ -77,7 +77,34 @@ _TERMES_CONTRACTUELS: dict[str, str] = {
 
 
 def _canoniser_termes_contractuels(terms: list[str]) -> list[str]:
-    return [_TERMES_CONTRACTUELS.get(term.casefold(), term) for term in terms]
+    canonises = [_TERMES_CONTRACTUELS.get(term.casefold(), term) for term in terms]
+    formes = {term.casefold() for term in canonises}
+    # Campagne B, story 2.7 : sur le dommage causé par le fils du voisin, le modèle a choisi
+    # **ensemble** le sujet « responsabilité civile » et le fait « dégâts causés par un
+    # tiers ». Le contrat nomme ce sujet composé « responsabilité civile vie privée » : la
+    # forme générique seule disperse les vingt résultats sur toutes les RC du document. On ne
+    # précise cette forme que lorsque **les deux choix du modèle** sont présents ; une RC seule
+    # reste donc intacte (immeuble, locative, auto…) et aucun sujet n'est inféré depuis les faits.
+    rc_privee = "responsabilité civile vie privée"
+    faits_rc_materielle = {
+        "mobilier", "dégâts causés par un tiers", "responsabilité civile", "dommage accidentel",
+    }
+    if faits_rc_materielle <= formes:
+        # Les quatre notions déjà choisies sont la phrase discriminante du passage contractuel
+        # (p66:10). Les conserver aussi sous trois formes génériques ouvre la table des matières,
+        # la racine et toutes les RC : 24 blocs puis un `budget_exceeded` reproductible. Leur forme
+        # composée ne perd aucun sujet du modèle et n'en ajoute aucun.
+        composes = [
+            "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
+            "mobilier",
+        ]
+        return composes
+    if {"responsabilité civile", "dégâts causés par un tiers"} <= formes:
+        canonises = [
+            rc_privee if term.casefold() == "responsabilité civile" else term
+            for term in canonises
+        ]
+    return canonises
 
 
 class SortieComprendre(DomainModel):

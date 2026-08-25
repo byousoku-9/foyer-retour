@@ -641,6 +641,22 @@ async def test_a_claim_mixing_two_clauses_is_sent_back_to_the_writer(index: Inde
     assert answer.rejected_claims == []  # la seconde ébauche, éclatée, ne rejette rien
 
 
+async def test_a_retry_finding_an_untyped_passage_replaces_an_empty_first_draft(index: Index) -> None:
+    """Campagne B 2.7 : le paquet manquant ne doit pas faire préférer zéro preuve à une preuve.
+
+    Une claim non typée ne fonde aucun verdict AD-6 et porte donc le paquet contractuel manquant ;
+    cela ne la rend pas moins bonne que la première ébauche, dont rien n'avait survécu.
+    """
+    answer, _trace, fake = await _run(index, [
+        _comprendre(), _rediger(MAUVAISE), _rediger(DEF),
+        _verifier(("c2", True, False, False, False, None))])
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c2"]
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert "passages ont été retrouvés et affichés" in answer.verdict.reason
+
+
 # --- bornes d'entrée : rien de facturé -----------------------------------------
 async def test_an_unknown_document_is_refused_before_any_billed_call(index: Index) -> None:
     with pytest.raises(CorpusUnavailable):

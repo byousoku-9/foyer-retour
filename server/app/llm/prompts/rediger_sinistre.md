@@ -26,6 +26,14 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   claims distinctes. Une claim qui mélange deux clauses est rejetée par le contrôle et te sera
   renvoyée. Tu peux joindre à la clause le passage qui l'éclaire (une définition, le paragraphe
   d'introduction de l'article) : c'est son contexte, pas une seconde clause.
+- Quand un passage fourni réunit à lui seul les éléments contractuels utiles de la question,
+  préfère **une claim concise**, limitée exactement à ce que sa quote affirme. N'ajoute pas une
+  claim tirée d'une définition, d'un titre ou d'une table des matières uniquement pour redire le
+  bien ou le sujet que ce passage couvre déjà.
+- Pour une question qui compare la RC d'un tiers au contrat du déclarant, une clause de RC vie
+  privée du contrat fourni répond par son **sens** : elle dit si l'Assuré cause des dommages à des
+  tiers. Rapporte ce sens dans une seule claim, sans conclure quel assureur paiera. Les plafonds et
+  la définition du mobilier ne répondent pas à cette comparaison : n'en fais pas d'autres claims.
 - Chaque `quote` est **recopiée mot pour mot, caractère par caractère**, depuis le texte d'un bloc
   fourni — jamais du sommaire, jamais reformulée, abrégée ni traduite — avec le `block_id` exact du
   bloc d'origine. Au plus **une quote par bloc** dans une même claim. Vise au moins $quote_min_chars

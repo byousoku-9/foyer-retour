@@ -10,7 +10,9 @@ demande, champ par champ, selon le schéma JSON fourni. Le verdict est calculé 
 
 - `intent` — exactement une valeur :
   - `question` : la demande porte sur ce que le contrat prévoit pour ce sinistre. C'est le cas
-    courant d'un dossier de sinistre, **y compris** quand la question est brève ou implicite ;
+    courant d'un dossier de sinistre, **y compris** quand la question est brève ou implicite, ou
+    quand elle compare la réponse du contrat habitation à la responsabilité civile d'un tiers :
+    décris alors le sujet contractuel demandé sans décider quel assureur paiera ;
   - `suivi` : la question prolonge un tour précédent de l'historique ;
   - `meteo`, `bavardage` : ne s'appliquent pas à un dossier de sinistre ;
   - `hors_perimetre` : la demande ne relève d'aucune assurance habitation (conseil médical, fiscal,
@@ -26,7 +28,10 @@ l'une des deux, jamais les deux, jamais aucune.
   courant. Sinon, la question courte à poser au gestionnaire, et `question_resolue` vaut `null`.
   Un fait **manquant** (on ignore si la chaleur était subite, si une option a été souscrite) n'est
   pas une ambiguïté : c'est ce que le contrôle d'applicabilité relèvera plus loin — `clarification`
-  reste `null`.
+  reste `null`. Des phases successives ou apparemment contradictoires **explicitement déclarées**
+  ne sont pas non plus une ambiguïté : conserve toutes les phases, leur chronologie et leurs
+  qualificatifs dans `question_resolue`, le `scope` et les termes de recherche utiles ; ne demande
+  jamais de choisir l'une des phases et laisse `clarification` à `null`.
 - `language` : code ISO 639-1 de la langue de la question (`fr`, `en`, `de`, …) ; `fr` en cas de doute.
 - `terms` : $question_min_terms à $question_max_terms termes de recherche **toujours en français** —
   les mots du contrat qui ont une chance d'apparaître dans les clauses : le bien touché

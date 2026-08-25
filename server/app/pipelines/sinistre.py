@@ -359,7 +359,16 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                               budget=budget, settings=settings,
                                                               faits=faits, dossier=dossier)
                     steps.append(step_verifier_2)
-                    if domine(seconde, acquise):
+                    # Campagne B 2.7 : une première rédaction dont **aucune** claim n'a survécu
+                    # peut être suivie d'une clause exacte et pertinente, mais le verdict prudent de
+                    # cette seconde version porte le paquet contractuel manquant. Le compteur de
+                    # manques est alors plus grand et la dominance générale conservait le vide ;
+                    # sur une lecture tronquée, ce vide devenait un 503. Une clause effectivement
+                    # vérifiée est une amélioration stricte sur zéro clause : elle ne préfère aucun
+                    # verdict et ne change aucun seuil, elle empêche seulement le paquet manquant
+                    # d'annuler la preuve retrouvée par la relance.
+                    relance_trouve_clause = seconde.found and not acquise.found
+                    if relance_trouve_clause or domine(seconde, acquise):
                         verification = seconde
                     else:
                         step_verifier_2.checks.append(CheckResult(

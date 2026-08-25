@@ -249,6 +249,46 @@ async def test_le_sinistre_canonise_le_synonyme_contractuel_sans_inventer_le_suj
     assert parsed.terms == ["dégâts des eaux", "dommages causés par un animal", "mobilier"]
 
 
+async def test_le_sinistre_precise_la_rc_seulement_quand_le_modele_a_choisi_le_tiers() -> None:
+    """Campagne B 2.7 : la forme du contrat est ajoutée, jamais le sujet RC lui-même."""
+    sortie = _sortie(terms=["mobilier", "dégâts causés par un tiers", "responsabilité civile",
+                              "dommage accidentel"], themes=[])
+    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
+    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
+    assert parsed.terms == [
+        "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
+        "mobilier",
+    ]
+
+    # Une RC générique sans le sujet « tiers » choisi peut viser une autre section du contrat.
+    sortie = _sortie(terms=["bâtiment", "responsabilité civile"], themes=[])
+    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
+    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
+    assert parsed.terms == ["bâtiment", "responsabilité civile"]
+
+    # Le sujet tiers choisi sans les autres attributs reste précisé, mais le code n'invente pas
+    # la matérialité ni le caractère accidentel absents de la sortie du modèle.
+    sortie = _sortie(terms=["dégâts causés par un tiers", "responsabilité civile"], themes=[])
+    client, _ = _client([fake_message(text=sortie, model=HAIKU)])
+    parsed, _step = await _comprendre(client, prompt="comprendre_sinistre")
+    assert parsed.terms == ["dégâts causés par un tiers", "responsabilité civile vie privée"]
+
+
+async def test_le_prompt_sinistre_preserve_les_phases_declarees_sans_clarification() -> None:
+    prefixe = render_prompt("comprendre_sinistre", question_min_terms=2, question_max_terms=6,
+                            question_max_facettes=4, perimetre_guide="")
+    assert "phases successives ou apparemment contradictoires" in prefixe
+    assert "conserve toutes les phases, leur chronologie" in prefixe
+    assert "ne demande\n  jamais de choisir l'une des phases" in prefixe
+
+
+async def test_le_prompt_sinistre_garde_la_comparaison_rc_dans_le_dossier_contractuel() -> None:
+    prefixe = render_prompt("comprendre_sinistre", question_min_terms=2, question_max_terms=6,
+                            question_max_facettes=4, perimetre_guide="")
+    assert "responsabilité civile d'un tiers" in prefixe
+    assert "sans décider quel assureur paiera" in prefixe
+
+
 async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -> None:
     client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
     historique = [Turn(role="user", texte="on arrive en mars"), Turn(role="assistant", texte="bien noté")]

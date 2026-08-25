@@ -290,13 +290,15 @@ def test_an_unresolved_reference_on_a_non_decisional_claim_is_not_a_blocker() ->
 def test_without_a_guarantee_or_an_exclusion_nothing_is_settled() -> None:
     """Règle (0bis) : une condition seule n'est pas une clause fondatrice."""
     v = decider([_claim("c1", "condition", _champs(True))], ask_client_max=ASK_MAX)
-    assert v.value == "ne_tranche_pas" and "Aucune garantie ni exclusion" in v.reason
+    assert v.value == "ne_tranche_pas"
+    assert "passages ont été retrouvés et affichés" in v.reason
+    assert "aucun n'est confirmé comme garantie ou exclusion fondatrice" in v.reason
 
 
 def test_no_claim_at_all_settles_nothing() -> None:
     """Le refus d'AD-3 (« zéro claim survivante ») donne bien `ne_tranche_pas`, jamais rien."""
     v = decider([], ask_client_max=ASK_MAX)
-    assert v.value == "ne_tranche_pas" and v.reason
+    assert v.value == "ne_tranche_pas" and "Aucun passage n'a été retenu et affiché" in v.reason
 
 
 def test_only_displayed_claims_enter_the_table() -> None:

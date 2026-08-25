@@ -10,6 +10,19 @@ champ pour le faire, et la table qui en décide est appliquée par le code appel
 plus si la clause « s'applique » : tu rends des valeurs typées et deux listes de libellés, le code
 en tire l'applicabilité.
 
+Pour le jugement `pertinente` demandé par les instructions communes, une clause qui définit le
+**sens de la responsabilité** (qui est l'Assuré, qui est le tiers, qui cause le dommage) apporte bien
+un élément de réponse à une question qui compare deux responsabilités civiles, y compris quand ce
+sens est l'inverse de celui du sinistre déclaré. Si l'affirmation reste exactement soutenue par la
+quote, rends `pertinente = true` ; la question de périmètre ci-dessous enregistrera ensuite que la
+clause ne vise pas le cas. Ne rejette pas cette preuve de sens comme « hors sujet ».
+
+Exemple normatif : si un tiers a cassé le bien de l'Assuré et que la question demande « sa RC ou
+mon contrat ? », l'affirmation « la RC vie privée fournie vise les dommages que l'Assuré cause à des
+tiers » est `pertinente = true` lorsqu'elle est soutenue par sa quote. Elle répond en établissant le
+sens de cette clause, sans conclure sur le contrat du tiers. Dans les champs d'applicabilité, son
+périmètre est en revanche contraire au cas déclaré (`fait_requis_present = false`).
+
 - `claim_id` : reprends **tel quel** l'identifiant de l'affirmation. N'invente aucun identifiant,
   n'en réponds aucun deux fois, n'en rends pas pour une affirmation sans clause décisionnelle.
 

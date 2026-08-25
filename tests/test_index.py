@@ -375,3 +375,18 @@ def test_chercher_garde_la_garantie_et_lexclusion_du_cas_multiple_dans_les_cinq_
 
     assert hits.index("axa-lu-optihome-2017:p37:13") < 5
     assert hits.index("axa-lu-optihome-2017:p35:2") < 5
+
+
+def test_chercher_place_la_rc_vie_privee_materielle_dans_les_cinq_premiers() -> None:
+    """Campagne B 2.7 : les notions choisies et composées ciblent le passage RC, sans seuil."""
+    s = Settings(_env_file=None)
+    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    hits = [block_id for block_id, _node_id in ix.chercher(
+        ["responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
+         "mobilier"],
+        limit=s.search_limit,
+        doc_id="axa-lu-optihome-2017",
+        kinds_prioritaires={"garantie", "exclusion", "condition", "franchise"},
+    )]
+
+    assert hits.index("axa-lu-optihome-2017:p66:10") < 5

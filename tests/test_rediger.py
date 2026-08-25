@@ -32,6 +32,16 @@ MINI = Path(__file__).parent / "data" / "mini_kb.js"
 UNTRUSTED = re.compile(r'<untrusted kind="([a-z0-9_]+)">\n(.*?)\n</untrusted>', re.DOTALL)
 
 
+def test_le_prompt_sinistre_prefere_le_passage_complet_sans_claim_de_remplissage() -> None:
+    prompt = render_prompt("rediger_sinistre", quote_min_chars=20, quote_max_chars=250,
+                           draft_max_segments=8, draft_max_claims=6)
+    assert "réunit à lui seul les éléments contractuels utiles" in prompt
+    assert "une claim concise" in prompt
+    assert "d'une définition, d'un titre ou d'une table des matières" in prompt
+    assert "compare la RC d'un tiers au contrat du déclarant" in prompt
+    assert "Les plafonds et\n  la définition du mobilier ne répondent pas" in prompt
+
+
 @pytest.fixture(scope="module")
 def mini_index(tmp_path_factory: pytest.TempPathFactory) -> Index:
     d = tmp_path_factory.mktemp("data") / "lux-guide"

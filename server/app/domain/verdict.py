@@ -408,7 +408,11 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
 
     fondatrices = [c for c in retenues if c.kind in KINDS_FONDATEURS]
     if not fondatrices:
-        return verdict("ne_tranche_pas", "Aucune garantie ni exclusion n'a été retrouvée et affichée")
+        if retenues:
+            return verdict("ne_tranche_pas", "Des passages ont été retrouvés et affichés, mais "
+                                             "aucun n'est confirmé comme garantie ou exclusion "
+                                             "fondatrice")
+        return verdict("ne_tranche_pas", "Aucun passage n'a été retenu et affiché")
 
     exclusions = [c for c in retenues if c.kind == "exclusion"]
     garanties = [c for c in retenues if c.kind == "garantie"]

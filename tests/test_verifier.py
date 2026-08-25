@@ -21,7 +21,7 @@ from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
-from server.app.llm.prompting import load_prompt
+from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.verifier import (
     BLOC_INCONNU,
     ChampsApplicabiliteRendus,
@@ -33,6 +33,16 @@ from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
 HAIKU = TIERS["micro"]
+
+
+def test_le_prompt_sinistre_garde_une_clause_qui_prouve_le_sens_de_la_rc() -> None:
+    prompt = render_prompt("verifier_sinistre", fait_manquant_max_chars=160,
+                           qualites_exigees_max=8)
+    assert "sens de la responsabilité" in prompt
+    assert "y compris quand ce\nsens est l'inverse" in prompt
+    assert "Ne rejette pas cette preuve de sens comme « hors sujet »" in prompt
+    assert "Exemple normatif : si un tiers a cassé le bien de l'Assuré" in prompt
+    assert "est `pertinente = true`" in prompt
 UNTRUSTED = re.compile(r'<untrusted kind="([a-z0-9_]+)">\n(.*?)\n</untrusted>', re.DOTALL)
 
 ARRIVEE = "Vous disposez de huit jours pour déclarer votre arrivée au Biergercenter de la commune."
