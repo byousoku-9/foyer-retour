@@ -525,6 +525,43 @@ window.CHAT = (function () {
     return { cle: "sur", texte: "sûr" };
   }
 
+  // FR5 / UX-DR : l'etat ne peut pas rester un mot nu. « PARTIEL » seul est un badge orange qui ne
+  // dit ni ce qui manque ni ou le lire ; « INCONNU » seul ressemble a une panne. La phrase qui suit
+  // le badge nomme ce que l'etat engage, et **renvoie a ce qui est deja peint** — la liste « Ce que
+  // je ne sais pas » quand elle est la, la preuve d'absence quand elle l'est.
+  //
+  // Elle est composee **ici**, par le code, jamais par le modele (AD-16 / NFR2) ; et elle ne decrit
+  // que ce que la vue contient reellement : `contexte` est renseigne par `vueReponse()` a partir des
+  // blocs qu'elle vient de poser. Une clarification, par exemple, n'a pas de preuve chiffree
+  // (AD-4) — lui promettre « la preuve est ci-dessus » designerait un bloc absent.
+  //
+  // Deux prudences, l'une et l'autre exigees par la revue de la story 2.3 :
+  //
+  // 1. **Aucune phrase ne nomme le document.** C'est la meme regle que *verifier* s'impose pour les
+  //    phrases de lacune qu'il depose dans `unknown[]` : la page sinistre rend le meme pied et la
+  //    meme section, sur un contrat et non sur le guide. Un « du guide » ecrit ici obligerait a
+  //    reecrire la phrase la-bas, et les deux jeux divergeraient au premier changement.
+  // 2. **Le repli du « partiel » n'affirme aucune cause.** L'incompletude nait de six causes
+  //    (facettes non couvertes, lecture bornee, renvoi non resolu, phrases ecartees, relance
+  //    abandonnee, limite declaree) ; sans la liste, la page ne sait pas laquelle. Elle dit donc ce
+  //    qu'elle sait — il manque quelque chose, et rien n'indique quoi — et rien de plus.
+  function phraseEtat(etat, contexte) {
+    var cle = (etat && etat.cle) || "inconnu";
+    var c = contexte || {};
+    if (cle === "sur") {
+      return "tout ce qui est affirmé ci-dessus est appuyé par un passage cité, " +
+        "et la question est couverte";
+    }
+    if (cle === "partiel") {
+      return c.liste
+        ? "il manque des éléments : ils sont listés sous « Ce que je ne sais pas »"
+        : "il manque des éléments, et rien n'indique lesquels";
+    }
+    return c.preuve
+      ? "rien n'a été retenu : la preuve de cette absence est ci-dessus"
+      : "rien n'a été cherché : la question doit d'abord être précisée";
+  }
+
   // FR11 : un message **lisible**, compose a partir du `code` d'AD-16. Le `message` du serveur est
   // produit par pydantic, en anglais, avec le chemin du champ (`body.historique: List should have at
   // most 6 items`) : utile a un developpeur, pas a un arrivant. Il n'est jamais affiche.
@@ -729,7 +766,13 @@ window.CHAT = (function () {
     }
 
     var etat = etatReponse(a);
-    var pied = [noeud("span", "etat etat-" + etat.cle, etat.texte)];
+    // Le badge, puis la phrase qui le rend explicite : elle se compose sur ce que cette vue vient de
+    // poser (la liste des inconnues, la preuve d'absence), jamais sur ce que le corps promettait.
+    var pied = [
+      noeud("span", "etat etat-" + etat.cle, etat.texte),
+      noeud("span", "etat-phrase",
+        phraseEtat(etat, { liste: inconnus.length > 0, preuve: !!preuve }))
+    ];
     var cout = coutTexte(r && r.trace);
     if (cout) pied.push(noeud("span", "cout", cout));
     enfants.push(noeud("div", "pied", null, pied));
@@ -1309,6 +1352,7 @@ window.CHAT = (function () {
     preuveAbsence: preuveAbsence,
     coutTexte: coutTexte,
     etatReponse: etatReponse,
+    phraseEtat: phraseEtat,
     messageErreur: messageErreur,
     // Les vues : l'arbre de ce qui doit etre peint. `ui.js` ne fait plus que le materialiser.
     vueAttente: vueAttente,

@@ -544,6 +544,9 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 .msg .etat-sur { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
 .msg .etat-partiel { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 42%, transparent); }
 .msg .etat-inconnu { background: var(--surface-2); }
+/* La phrase qui rend l'etat explicite : meme ton discret que le cout (elle herite du `.pied`), elle
+   prend la place restante et passe a la ligne plutot que de comprimer le badge ou le cout. */
+.msg .etat-phrase { flex: 1 1 22ch; min-width: 0; }
 /* La recherche simple n'a ni état vérifié ni coût : son pied le dit, sans emprunter les couleurs
    d'une réponse sourcée. */
 .msg .etat-local { background: var(--surface-2); color: var(--muted); }

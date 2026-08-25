@@ -236,6 +236,8 @@ function resumerVue(vue) {
       (b) => noeuds(b).filter((n) => n.tag === "li").map((n) => n.texte)),
     etat: (parClasse(vue, "etat")[0] || {}).cls || null,
     etat_texte: texteDe(vue, "etat"),
+    etat_phrase: texteDe(vue, "etat-phrase"),
+    pied: parClasse(vue, "pied").flatMap((p) => (p.enfants || []).map((n) => n.cls)),
     cout: texteDe(vue, "cout"),
     sans_verification: texteDe(vue, "sans-verif"),
     attente: texteDe(vue, "attente-txt"),
@@ -766,6 +768,19 @@ async function main() {
       inconnu: CHAT.etatReponse({ found: false, complete: false }),
       absent: CHAT.etatReponse(null),
     };
+    // Story 2.3 : la phrase qui accompagne le badge. Elle se compose sur ce que la vue a **peint**
+    // (la liste des inconnues, la preuve d'absence), pas sur ce que le corps annonçait.
+    cas.phrases_etat = {
+      sur: CHAT.phraseEtat({ cle: "sur" }, { liste: false, preuve: false }),
+      partiel_avec_liste: CHAT.phraseEtat({ cle: "partiel" }, { liste: true, preuve: false }),
+      partiel_sans_liste: CHAT.phraseEtat({ cle: "partiel" }, { liste: false, preuve: false }),
+      inconnu_avec_preuve: CHAT.phraseEtat({ cle: "inconnu" }, { liste: false, preuve: true }),
+      inconnu_sans_preuve: CHAT.phraseEtat({ cle: "inconnu" }, { liste: false, preuve: false }),
+      // Les bords : ni état ni contexte ne sont fabriqués, et rien ne lève.
+      sans_contexte: CHAT.phraseEtat({ cle: "partiel" }, null),
+      sans_etat: CHAT.phraseEtat(null, null),
+      etat_inconnu_du_front: CHAT.phraseEtat({ cle: "farfelu" }, { liste: false, preuve: true }),
+    };
     cas.exporte = Object.keys(CHAT).sort();
   }
 
@@ -784,6 +799,15 @@ async function main() {
     partielle.answer.unknown = ["montant exact", "délai de recours"];
     partielle.unknown = partielle.answer.unknown;
     cas.vue_partielle = resumerVue(CHAT.vueReponse(partielle, Q));
+
+    // Story 2.3 : « partiel » sans liste. Le domaine l'interdit désormais (`found ∧ ¬complete ⇒
+    // unknown ≠ []`), donc le serveur ne peut plus le servir — mais la page ne **refuse** pas une
+    // réponse qu'il a jugée servable : elle dit ce qu'elle a, sans renvoyer à une liste absente.
+    const partielleSansListe = reponseSourcee();
+    partielleSansListe.answer.complete = false;
+    partielleSansListe.answer.unknown = [];
+    partielleSansListe.unknown = [];
+    cas.vue_partielle_sans_liste = resumerVue(CHAT.vueReponse(partielleSansListe, Q));
 
     cas.vue_refus = resumerVue(CHAT.vueReponse(refus(), "Quel temps fera-t-il ?"));
 

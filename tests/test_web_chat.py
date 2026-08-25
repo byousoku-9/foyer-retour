@@ -929,6 +929,101 @@ def test_une_reponse_incomplete_montre_ce_quelle_ne_sait_pas(cas: dict[str, Any]
     assert vue["ordre_des_blocs"].index("inconnu") < vue["ordre_des_blocs"].index("pied")
 
 
+# --- Story 2.3 : les trois états sont dits en clair, pas seulement peints -
+#
+# L'AC de la story 2.3 demande que la réponse « distingue sûr / partiel / inconnu ». Le badge d'un
+# mot ne distingue rien à lui seul : « PARTIEL » ne dit ni ce qui manque ni où le lire. La phrase du
+# pied nomme ce que l'état engage — et elle ne décrit que ce que la vue a **réellement** posé.
+
+@pytest.mark.parametrize(("nom", "cle", "attendue"), [
+    ("vue_nominale", "sur", "tout ce qui est affirmé ci-dessus est appuyé par un passage cité, "
+                            "et la question est couverte"),
+    ("vue_partielle", "partiel", "il manque des éléments : ils sont listés sous "
+                                 "« Ce que je ne sais pas »"),
+    ("vue_refus", "inconnu", "rien n'a été retenu : la preuve de cette absence est ci-dessus"),
+])
+def test_chaque_etat_est_suivi_de_la_phrase_qui_le_rend_explicite(
+        cas: dict[str, Any], nom: str, cle: str, attendue: str) -> None:
+    vue = cas[nom]
+    assert vue["etat"] == "etat etat-" + cle
+    # Le badge d'abord, sa phrase juste après, le coût ensuite : l'ordre du pied est celui de la
+    # lecture, et la phrase ne s'intercale pas entre le coût et rien.
+    assert vue["pied"][:2] == ["etat etat-" + cle, "etat-phrase"]
+    assert vue["etat_phrase"] == attendue
+
+
+def test_la_phrase_du_partiel_renvoie_a_la_liste_seulement_quand_elle_est_la(
+        cas: dict[str, Any]) -> None:
+    """Renvoyer à « Ce que je ne sais pas » quand la section n'est pas peinte désignerait un bloc
+    absent. Le domaine interdit désormais ce corps (`found ∧ ¬complete ⇒ unknown ≠ []`), mais la
+    page ne refuse pas une réponse que le serveur a jugée servable : elle dit ce qu'elle a."""
+    avec = cas["vue_partielle"]
+    assert avec["inconnus"] and "Ce que je ne sais pas" in avec["etat_phrase"]
+
+    sans = cas["vue_partielle_sans_liste"]
+    assert sans["etat_texte"] == "partiel" and sans["inconnus"] == []
+    assert "inconnu" not in sans["ordre_des_blocs"]
+    # Sans la liste, la page ne sait pas **quelle** cause a empêché `complete` — facette omise,
+    # lecture bornée, renvoi non résolu, relance abandonnée… Elle dit donc ce qu'elle sait, et rien
+    # de plus : aucune de ces causes n'est un défaut de couverture, et l'affirmer serait faux.
+    assert sans["etat_phrase"] == "il manque des éléments, et rien n'indique lesquels"
+    assert "Ce que je ne sais pas" not in sans["etat_phrase"]
+    assert "couvre" not in sans["etat_phrase"]
+
+
+def test_la_phrase_de_linconnu_ne_promet_une_preuve_que_si_elle_est_peinte(
+        cas: dict[str, Any]) -> None:
+    """Une clarification est un `found=False` **sans** preuve chiffrée (AD-4 : « rien n'a été
+    cherché ») : lui accrocher « la preuve est ci-dessus » désignerait le vide."""
+    refus = cas["vue_refus"]
+    assert refus["preuve"] and "la preuve de cette absence est ci-dessus" in refus["etat_phrase"]
+
+    clar = cas["vue_clarification"]
+    assert clar["etat_texte"] == "inconnu" and clar["preuve"] is None
+    assert clar["etat_phrase"] == "rien n'a été cherché : la question doit d'abord être précisée"
+
+
+def test_la_phrase_detat_est_composee_par_le_code_et_ne_leve_sur_aucun_bord(
+        cas: dict[str, Any]) -> None:
+    """AD-16 / NFR2 : ces phrases sont du code, pas du modèle. Un état ou un contexte absent doit
+    donc rendre une phrase — la plus prudente — plutôt que `undefined` ou une exception."""
+    phrases = cas["phrases_etat"]
+    assert phrases["partiel_avec_liste"] != phrases["partiel_sans_liste"]
+    assert phrases["inconnu_avec_preuve"] != phrases["inconnu_sans_preuve"]
+    # Sans contexte, on ne renvoie à rien ; sans état, on ne présume pas d'une réponse trouvée.
+    assert phrases["sans_contexte"] == phrases["partiel_sans_liste"]
+    assert phrases["sans_etat"] == phrases["inconnu_sans_preuve"]
+    assert phrases["etat_inconnu_du_front"] == phrases["inconnu_avec_preuve"]
+    for valeur in phrases.values():
+        assert isinstance(valeur, str) and valeur and "undefined" not in valeur
+
+
+def test_aucune_phrase_detat_ne_nomme_le_document(cas: dict[str, Any]) -> None:
+    """Revue 2.3, B1. `server/app/steps/verifier.py` compose ses phrases de lacune sans nommer aucun
+    document, et le justifie par le fait que la page sinistre rend la même section « Ce que je ne
+    sais pas ». Le pied qui les surmonte est soumis à la même contrainte, sans quoi les deux
+    raisonnements se contredisent : « rien n'a été retenu du guide » sous une réponse portant sur des
+    conditions générales serait faux, et obligerait à un second jeu de phrases pour l'autre front.
+    """
+    interdits = ("guide", "contrat", "conditions générales", "fiche", "police", "assureur")
+    phrases = list(cas["phrases_etat"].values())
+    phrases += [v["etat_phrase"] for nom, v in cas.items()
+                if nom.startswith("vue_") and v.get("etat_phrase")]
+    assert phrases
+    for phrase in phrases:
+        minuscule = phrase.lower()
+        assert not any(mot in minuscule for mot in interdits), phrase
+
+
+def test_la_recherche_simple_nemprunte_pas_la_phrase_dune_reponse_verifiee(
+        cas: dict[str, Any]) -> None:
+    """Le pied local dit déjà « aucune vérification » : lui ajouter la phrase d'un état vérifié lui
+    donnerait la forme qu'AD-16 lui refuse."""
+    vue = cas["vue_locale"]
+    assert vue["etat_phrase"] is None
+    assert vue["pied"] == ["etat etat-local", "sans-verif"]
+
+
 def test_un_refus_montre_la_phrase_du_serveur_puis_la_preuve(cas: dict[str, Any]) -> None:
     from server.app.steps.restituer import PHRASES_DE_REFUS
 
@@ -1613,7 +1708,7 @@ def test_un_200_dont_le_corps_ne_vient_jamais_est_abandonne(cas: dict[str, Any])
 
 def test_toutes_les_fonctions_pures_de_la_story_sont_exportees(cas: dict[str, Any]) -> None:
     attendues = {"historiquePourApi", "citationsParSegment", "statutTexte", "preuveAbsence",
-                 "coutTexte", "etatReponse", "messageErreur", "rechercheSimple"}
+                 "coutTexte", "etatReponse", "phraseEtat", "messageErreur", "rechercheSimple"}
     assert attendues <= set(cas["exporte"])
 
 
