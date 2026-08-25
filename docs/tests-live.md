@@ -2426,3 +2426,53 @@ Deux runs HTTP complets consécutifs confirment ensuite le critère : 200 à 0,0
 aussi citée dans les deux réponses ; la garantie est citée via `p37:14`. Après le correctif, les gates
 `vertical` sont réécrits sur le pipeline courant : guide 1/1 à 0,0252 €, contrat 1/1 à 0,0739 €,
 toujours `countersigned=false`.
+
+### Reprise de la campagne B — B6 à B10 corrigés et rejoués
+
+La campagne B réelle du 25/08/2026 a ensuite produit trois défauts bloquants, conservés ici avec
+leurs sorties antérieures. B6 rendait 200 mais demandait de choisir entre fuite progressive et chute
+soudaine, alors que les deux phases étaient déjà déclarées. B7, B8 et B10 affichaient des passages
+non typés tout en affirmant « Aucune garantie ni exclusion n'a été retrouvée et affichée ». B9
+s'arrêtait en 503 `budget_exceeded` après 38,4 s et 0,0652 €.
+
+**Diagnostics avant appel aval.** Sur B6, deux appels réels de *comprendre* à 0,0040 € chacun
+rendent une `ParsedQuestion`, jamais une clarification. La cause conserve exactement les deux temps
+(« fuite progressive ayant entraîné un effondrement soudain »), avec `dégâts des eaux`,
+`effondrement`, `plafond`, `fuite`, `soudaineté` ; `p37:10`, `p37:11` et `p37:13` sont rangs 2, 3 et
+4. Le prompt nomme désormais explicitement que des phases successives ou contradictoires déclarées
+ne sont pas une ambiguïté et interdit de demander d'en choisir une.
+
+Sur B9, deux sorties **brutes** réelles de *comprendre* à 0,0039 € chacune sont identiques :
+`intent=question`, aucune clarification, et les termes `mobilier`, `dégâts causés par un tiers`,
+`responsabilité civile`, `dommage accidentel`. Le modèle a donc bien choisi la RC et le tiers ; le
+code n'infère jamais ce sujet depuis « fils du voisin ». Sous ces formes brutes, `p65:7` et `p66:10`
+sont hors du top 20. La seule précision « responsabilité civile vie privée » remonte le titre et la
+condition aux rangs 4 et 5, et `p66:10` au rang 6, mais ouvre encore 24 blocs. La composition des
+**quatre notions déjà choisies** dans la forme du passage contractuel place finalement `p66:10` au
+rang 1 et ramène le contexte à 15 blocs, sans seuil nouveau ni changement de l'index 2.6.
+
+Le dernier 503 n'était plus un défaut de rappel : *vérifier* rejetait parfois comme hors sujet la
+clause qui prouve le sens de la RC (l'Assuré cause un dommage à un tiers, alors que B9 décrit
+l'inverse), puis la dominance préférait zéro claim à une relance portant une claim vérifiée parce
+que cette dernière publiait le paquet contractuel manquant. La rédaction ne produit désormais qu'une
+claim de sens, la vérification la tient pour pertinente mais hors périmètre, et une relance qui passe
+de zéro preuve à une preuve vérifiée fait foi. La table AD-6 et ses verdicts sont inchangés.
+
+| # | Cas mot pour mot | Réponse finale en une ligne (deux runs consécutifs) | Jugement d'expérience | Correction |
+|---|---|---|---|---|
+| B6 | « Ça fuyait un peu depuis des mois, mais le plafond est tombé d'un coup hier : on retient lent ou soudain ? » | 200, aucune clarification ; passages dégâts des eaux cités (`p37:13`/`p37:14` puis `p37:14`/`p38:4`) ; 15,392 s / 0,0328 € puis 19,345 s / 0,0416 €. | Bon : les deux phases restent visibles, aucune fausse alternative n'est imposée. | Règle explicite de conservation des phases et de leur chronologie dans *comprendre*. |
+| B7 | « La porte était fermée, enfin je crois, mais aucune trace d'effraction et l'ordinateur a disparu. Couvert ? » | 200 avec passages affichés ; raison « passages retrouvés et affichés, aucun typage fondateur confirmé » ; 23,318 s / 0,0453 € puis 23,266 s / 0,0669 €. | Bon et honnête : le texte n'affirme plus simultanément avoir affiché et n'avoir rien retrouvé. | Branche de verdict distincte pour passages affichés sans garantie/exclusion fondatrice confirmée. |
+| B8 | « L'orage a grillé la télé et le congélateur ; la nourriture perdue compte aussi ou seulement les appareils ? » | 200, `p34:15` cité dans les deux runs, même raison de typage précise ; 18,971 s / 0,0320 € puis 17,390 s / 0,0301 €. | Bon : la nourriture perdue est traitée et la limite du typage est dite sans nier le passage. | Même correction de raison, table AD-6 préservée. |
+| B9 | « Le fils du voisin a cassé ma table en jouant chez moi, c'est leur RC ou mon contrat habitation qui répond ? » | 200, `p66:10` cité dans les deux runs, verdict prudent et typage non confirmé explicite ; 11,718 s / 0,0233 € puis 14,215 s / 0,0255 €. | Bon : la direction de la RC est montrée sans inventer le contrat du voisin ni choisir l'assureur. | Forme composée conditionnée aux quatre sujets du modèle, claim de sens, pertinence du sens inverse, relance zéro→preuve. |
+| B10 | « J'ai renversé exprès le radiateur parce qu'il fuyait, mais les dégâts d'eau derrière sont accidentels : je déclare quoi ? » | 200, passages dégâts des eaux `p37:14` puis `p37:11`, même raison de typage précise ; 17,918 s / 0,0413 € puis 17,061 s / 0,0389 €. | Bon : la réponse conserve la causalité déclarée sans fabriquer un typage de clause. | Même correction de raison, aucune modification de la matrice AD-6. |
+
+Les essais intermédiaires B7 (0,0746 € et 0,0767 €) et B9 (notamment 0,0743 €, 0,0779 €,
+0,0748 €) qui se terminaient encore en 503 sont conservés dans ce relevé : ils ont permis de
+séparer le rappel, la pertinence du sens de la RC et le choix de la relance. Ils ne sont pas présentés
+comme des succès. Les lignes finales ci-dessus sont les deux runs consécutifs du build corrigé.
+
+Vérification finale du même build : la suite affectée passe 301/301 en rejeu sans clé (la fixture
+sinistre a d'abord été réenregistrée en direct), puis la suite complète passe 2 088/2 088 ; les 10
+tests de digests, Ruff et `git diff --check` passent. Les deux gates `vertical` sont réécrits sur les
+digests finaux : `lux-guide` 1/1 à 0,0241 € et `axa-lu-optihome-2017` 1/1 à 0,0422 €, toujours
+`countersigned=false` et sans prétendre à une contresignature humaine.
