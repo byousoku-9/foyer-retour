@@ -1982,3 +1982,37 @@ quasi nominal (même reprise) ; la règle de profil reste écrite deux fois sans
 mains humaines, qu'aucune boucle ne peut remplacer.
 
 Revue Codex : 3 bloquants / 1 importants, convergé en 1 tour(s) (boucle autonome).
+
+## Story 2.4 — Réponses multilingues, citations françaises (2026-08-25)
+
+`tests/test_langues_live.py` a passé six questions réelles par le pipeline du guide, sans `lang`
+forcé. Pour chaque réponse, un appel `micro` distinct a identifié sa langue, l'a retraduite en
+français pour l'analyse et l'a comparée aux passages français effectivement cités. Les quotes ont
+en parallèle été relues aux offsets du bloc et sont restées byte-identiques au corpus.
+
+| Cas | Question résumée | Langue détectée / servie | Jugement | Coût pipeline + contrôle |
+|---|---|---|---|---:|
+| `en-arrivee` | délai de déclaration à la commune | `en` / `en` | fidèle, aucun écart | 0,0306 € |
+| `en-ecole` | inscription des enfants à l'école | `en` / `en` | fidèle, aucun écart | 0,0309 € |
+| `de-arrivee` | délai de déclaration à la commune | `de` / `de` | fidèle, aucun écart | 0,0295 € |
+| `de-adem` | avantages de l'inscription à l'ADEM | `de` / `de` | fidèle, aucun écart | 0,0265 € |
+| `pt-arrivee` | délai de déclaration à la commune | `pt` / `pt` | fidèle, aucun écart | 0,0237 € |
+| `pt-ecole` | inscription des enfants à l'école | `pt` / `pt` | fidèle, aucun écart | 0,0664 € |
+
+Coût du contrôle : **0,2076 €**. Le premier témoin allemand sur l'école a été écarté parce que le
+contrôle a fait son travail : une claim regroupait des conseils plus larges que la seule quote qui
+lui avait survécu. Le témoin ADEM, plus borné, l'a remplacé ; aucune réponse jugée non fidèle n'est
+présentée comme une réussite. Les six fixtures finales et les cinq anciennes fixtures qui passent
+par *rédiger* ont ensuite été rejouées avec `ANTHROPIC_API_KEY=`.
+
+### Gates rejoués sur le pipeline multilingue
+
+| Gate | Cas | Résultat | Coût | Durée |
+|---|---|---|---:|---:|
+| `lux-guide`, profil `vertical` | `g-luxtrust-prix` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0219 € | 11,8 s |
+| `axa-lu-optihome-2017`, profil `vertical` | `s-bougie-canape` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0343 € | 19,8 s |
+
+Signature de fidélité des six retraductions attendue de **Lancelot : en attente** (input humain non
+bloquant). La validation humaine de `data/dictionary.json` reste elle aussi due ; tant que
+`validated=false`, les variantes multilingues sont utilisées mais le refus « zéro hit » reste
+désarmé. Les deux cas de gate restent non contresignés, indépendamment de cette signature.
