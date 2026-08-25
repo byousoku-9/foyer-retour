@@ -2210,13 +2210,14 @@ headless piloté par CDP ; elles n'ont déclenché aucun appel fournisseur.
 ### Gates et suite hors ligne
 
 - `uv run python -m server.evals run --gate lux-guide` : `bonne_reponse`, `evals_ok=true`, gate
-  `vertical`, 1 cas, `countersigned=false`, coût 0,0217 € ; un premier appel a expiré sans modifier
-  le manifeste, puis la relance a réécrit le gate à `2026-08-25T11:06:25Z`.
+  `vertical`, 1 cas, `countersigned=false`, coût 0,0278 € ; un premier passage n'a conservé aucune
+  affirmation après une lecture tronquée et n'a pas modifié le manifeste, puis la relance a réécrit
+  le gate à `2026-08-25T11:25:11Z`.
 - `uv run python -m server.evals run --gate axa-lu-optihome-2017` : `bonne_reponse`,
-  `evals_ok=true`, gate `vertical`, 1 cas, `countersigned=false`, coût 0,0803 € ; réécrit après les
-  correctifs de revue à `2026-08-25T11:07:04Z`.
+  `evals_ok=true`, gate `vertical`, 1 cas, `countersigned=false`, coût 0,0480 € ; réécrit après les
+  correctifs de revue à `2026-08-25T11:25:40Z`.
 - `tests/test_digests.py` : 10 passés ; les deux gates portent le `pipeline_digest` courant
-  `349d2dbc975fe8f723f47dc0f8a0df4ec47c99dd39c5f2228f92697e1a51e567`.
+  `b974b176b57d3ec23ab8313c93da5404ffb64e7a183403c8f60cc2da51acabc6`.
 - `ANTHROPIC_API_KEY= uv run pytest -q` : **2 069 passés** après les correctifs de revue.
 - `FRONT_TESTS_REQUIS=1 uv run pytest -q tests/test_web_chat.py tests/test_web_sinistre.py
   tests/test_tables_partagees.py tests/test_styles.py` : **615 passés** après les correctifs de revue.
@@ -2225,7 +2226,7 @@ headless piloté par CDP ; elles n'ont déclenché aucun appel fournisseur.
 ### Réponse réelle par HTTP
 
 `POST /api/v1/chat` avec la question anglaise « How long do I have to declare my arrival? » : HTTP
-200 en 11,9 s, `via="api/v1"`, `answer.lang="en"`, `found=true`, coût 0,0272 €. La trace porte les
+200 en 9,4 s, `via="api/v1"`, `answer.lang="en"`, `found=true`, coût 0,0220 €. La trace porte les
 étapes `comprendre → retrouver → rediger → verifier → restituer`, les passages résolus avec leur
 `block_id` et leur titre de fiche, le gate `vertical` (1 cas, non contresigné), et le dictionnaire
 chargé mais non validé (`court_circuit_actif=false`). Les contrôles de vérification rejetés sont
