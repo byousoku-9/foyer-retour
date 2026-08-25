@@ -876,6 +876,132 @@ async function main() {
       [1, 2, 3, 4, 5].map((i) => ({ role: "user", content: "t" + i })), "q", 2);
   }
 
+  // --- story 2.2 : le tour assistant conservé, et la boucle refermée -------
+  //
+  // `tourAssistant` compose **ce que l'assistant a dit**, dans l'ordre affiché. C'est la seule
+  // pièce nouvelle de l'ensemble A ; ce qui suit la relève sur les trois formes qu'une réponse
+  // prend, puis rejoue le tour suivant de bout en bout : la clarification entre dans l'historique
+  // de page, l'utilisateur répond en trois mots, et l'on regarde ce qui part au serveur.
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: reponseSourcee() }));
+
+    // (a) réponse ordinaire : le tour est `texte`, octet pour octet.
+    const nominale = reponseSourcee();
+    cas.tour_assistant_ordinaire = {
+      tour: CHAT.tourAssistant(nominale),
+      texte: nominale.texte,
+      clarification: nominale.answer.clarification,
+    };
+
+    // (b) clarification : la question posée, puis la phrase générique du serveur.
+    const clar = refus();
+    clar.answer.reason.kind = "clarification_requise";
+    clar.answer.reason.terms_searched = [];
+    clar.answer.reason.variants_count = 0;
+    clar.answer.reason.blocks_scanned = 0;
+    clar.answer.clarification = "De quel document ou démarche parlez-vous ?";
+    clar.answer.texte = "Je n'ai pas pu déterminer à quoi votre question fait référence ; " +
+      "précisez-la et je chercherai.";
+    clar.answer.segments = [{ text: clar.answer.texte, kind: "limite", claim_ids: [] }];
+    clar.texte = clar.answer.texte;
+    clar.segments = clar.answer.segments;
+    cas.tour_assistant_clarification = {
+      tour: CHAT.tourAssistant(clar),
+      clarification: clar.answer.clarification,
+      texte: clar.texte,
+    };
+
+    // (c) les formes vides et absentes : rien n'est fabriqué, et rien ne lève.
+    cas.tour_assistant_bords = {
+      vide: CHAT.tourAssistant({ texte: "", answer: { clarification: null } }),
+      sans_answer: CHAT.tourAssistant({ texte: "Réponse lexicale du guide, non vérifiée." }),
+      absent: CHAT.tourAssistant(null),
+      clarification_seule: CHAT.tourAssistant({ texte: "", answer: { clarification: "Lequel ?" } }),
+    };
+
+    // (d) la boucle complète : le tour composé est poussé dans l'historique de page — comme
+    // `ui.js` le fait —, puis l'utilisateur répond « du permis de conduire ».
+    const historique = [
+      { role: "user", content: "Et celui-là, il faut le faire quand ?" },
+      { role: "assistant", content: CHAT.tourAssistant(clar) },
+      { role: "user", content: "du permis de conduire" },
+    ];
+    cas.boucle_refermee = CHAT.historiquePourApi(historique, "du permis de conduire");
+
+    // (e) la recherche simple, composée par la **même** fonction, reste marquée `local` : son tour
+    // ne repart pas, et il coupe ce qui le précède (règle 1.7, inchangée).
+    const locale = CHAT.rechercheSimple("Quel délai pour déclarer mon arrivée ?", PROFIL);
+    cas.tour_assistant_local = {
+      tour_egale_texte: CHAT.tourAssistant(locale) === locale.texte,
+      texte_non_vide: typeof locale.texte === "string" && locale.texte.length > 0,
+      envoye: CHAT.historiquePourApi([
+        { role: "user", content: "Quel délai pour déclarer mon arrivée ?" },
+        { role: "assistant", content: CHAT.tourAssistant(locale), local: true },
+        { role: "user", content: "Et celui-là, il faut le faire quand ?" },
+        { role: "assistant", content: CHAT.tourAssistant(clar) },
+      ], "Et ensuite ?"),
+    };
+
+    // (f) une clarification trop longue pour tenir dans un tour (revue 2.2, P1). Rien ne borne
+    // `ClarificationRequise.clarification` côté serveur et `comprendre_max_tokens` vaut 1 024 : le
+    // cas est atteignable. Composé sans borne, le tour dépassait `Turn.texte` et
+    // `historiquePourApi` l'écartait **avec tout ce qui le précédait** — la question de
+    // l'utilisateur comprise —, si bien que *comprendre* recevait un historique vide et reposait la
+    // même question. On relève ici les longueurs et ce qui part vraiment au serveur.
+    const longue = refus();
+    longue.answer.reason.kind = "clarification_requise";
+    longue.answer.reason.terms_searched = [];
+    longue.answer.reason.variants_count = 0;
+    longue.answer.reason.blocks_scanned = 0;
+    longue.answer.texte = clar.answer.texte;
+    longue.texte = clar.texte;
+    // 1 968 caractères : la mesure de la revue. Avec la phrase générique (94) et l'espace, le tour
+    // composé sans borne faisait 2 063 — au-delà des 2 000 de `Turn.texte`.
+    longue.answer.clarification = "De quel document parlez-vous ? " + "x".repeat(1937);
+    const tourLong = CHAT.tourAssistant(longue);
+    cas.tour_assistant_clarification_longue = {
+      clarification: longue.answer.clarification.length,
+      texte: longue.texte.length,
+      compose_sans_borne: longue.answer.clarification.length + 1 + longue.texte.length,
+      tour: tourLong.length,
+      // Le morceau gardé l'est **entier** : jamais un préfixe de la clarification.
+      tour_est_la_clarification_entiere: tourLong === longue.answer.clarification,
+      tour_ne_coupe_rien: tourLong === longue.answer.clarification || tourLong === longue.texte,
+      envoye: CHAT.historiquePourApi([
+        { role: "user", content: "Et celui-là, il faut le faire quand ?" },
+        { role: "assistant", content: tourLong },
+        { role: "user", content: "du permis de conduire" },
+      ], "du permis de conduire"),
+    };
+
+    // Et le cas où même la clarification seule ne tient pas : le tour redevient `texte`, l'échange
+    // reste envoyable, et le fil ne se coupe pas — la question est perdue, pas la conversation.
+    const enorme = refus();
+    enorme.answer.reason.kind = "clarification_requise";
+    enorme.answer.texte = clar.answer.texte;
+    enorme.texte = clar.texte;
+    enorme.answer.clarification = "y".repeat(2400);
+    const tourEnorme = CHAT.tourAssistant(enorme);
+    cas.tour_assistant_clarification_enorme = {
+      tour: tourEnorme.length,
+      tour_est_le_texte: tourEnorme === enorme.texte,
+      envoye: CHAT.historiquePourApi([
+        { role: "user", content: "Et celui-là, il faut le faire quand ?" },
+        { role: "assistant", content: tourEnorme },
+        { role: "user", content: "du permis de conduire" },
+      ], "du permis de conduire"),
+    };
+
+    // (g) la composition que `tests/test_suivi_live.py` écrit en Python (revue 2.2, P5). Deux
+    // implémentations d'une même règle qu'aucune assertion ne relierait divergeraient un jour :
+    // c'est `tourAssistant` qui fait autorité, et le test Python compare les deux chaînes.
+    cas.tour_assistant_du_live = CHAT.tourAssistant({
+      texte: "Je n'ai pas pu déterminer à quoi votre question fait référence ; précisez-la et " +
+        "je chercherai.",
+      answer: { clarification: "De quel document ou démarche parlez-vous ?" },
+    });
+  }
+
   // --- les bornes viennent du serveur, pas d'une copie ------------------
   {
     const { CHAT } = chargerChat(PAGE, (url) => (String(url).endsWith("/sante")

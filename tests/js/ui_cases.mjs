@@ -125,6 +125,16 @@ function badges(elements) {
   };
 }
 
+/**
+ * Laisse se régler les promesses du bac à sable. `envoyer()` ne rend rien : il enchaîne la sonde,
+ * la requête, la lecture du corps puis l'affichage, tous en microtâches. Le `setTimeout` du bac est
+ * un bouchon (les minuteurs d'abandon ne doivent pas tourner ici) : on rend donc la main à la
+ * boucle d'événements **de l'hôte**, ce qui draine la file de microtâches du même isolat.
+ */
+async function respirer(tours = 8) {
+  for (let i = 0; i < tours; i++) await new Promise((r) => setImmediate(r));
+}
+
 // ---------- les données ----------
 
 const QUESTION = "Quel délai ai-je pour déclarer mon arrivée à la commune ?";
@@ -147,7 +157,33 @@ function reponseAvecBalisage() {
                 url: "https://guichet.public.lu/arrivee",
                 quote: "<script>alert(1)</script> huit jours", status: "verifiee" }],
     fiches: [], unknown: [], comparateur: false, answer, via: "api/v1",
-    trace: { request_id: "r-1", total_cost_eur: 0.0278 },
+    // `pipeline` est obligatoire au sens de la lecture stricte d'AD-11 (`chat.js::verifierTrace`) :
+    // le cas `boucle_complete` fait passer ce corps par `lireReponse`, pas seulement par `vueReponse`.
+    trace: { request_id: "r-1", pipeline: "guide", total_cost_eur: 0.0278 },
+  };
+}
+
+/**
+ * Une réponse dont *comprendre* a demandé une précision (AD-5 : `ClarificationRequise`, `found`
+ * faux, rien de cherché). `texte` est la phrase générique de `restituer`, `clarification` la
+ * question réellement posée à l'utilisateur — celle qui n'entrait nulle part avant la story 2.2.
+ */
+function reponseAvecClarification() {
+  const phrase = "Je n'ai pas pu déterminer à quoi votre question fait référence ; précisez-la " +
+    "et je chercherai.";
+  const answer = {
+    found: false, complete: false, lang: "fr", lang_fallback: false, texte: phrase,
+    segments: [{ text: phrase, kind: "limite", claim_ids: [] }],
+    claims: [], rejected_claims: [],
+    reason: { kind: "clarification_requise", terms_searched: [], variants_count: 0,
+              blocks_scanned: 0, documents: [] },
+    verdict: null, unknown: [],
+    clarification: "De quel document ou démarche parlez-vous ?",
+  };
+  return {
+    texte: phrase, segments: answer.segments, sources: [], fiches: [], unknown: [],
+    comparateur: false, answer, via: "api/v1",
+    trace: { request_id: "r-2", pipeline: "guide", total_cost_eur: 0.0009 },
   };
 }
 
@@ -320,6 +356,81 @@ async function main() {
         busy: ["chat-log", "widget-log"].map((id) => elements[id].getAttribute("aria-busy")),
       },
       texte: elements["chat-log"].textContent,
+    };
+  }
+
+  // --- story 2.2 : le tour conservé porte la question posée ---------------
+  //
+  // Le défaut corrigé vit **ici**, dans le matérialiseur : `chat.js` composait déjà la vue avec sa
+  // clarification, mais `afficherReponse` ne poussait que `r.texte` dans l'historique de page. Un
+  // test de `chat.js` seul ne l'aurait pas vu — c'est la leçon de la revue 1.7. On exécute donc le
+  // vrai `afficherReponse`, puis on relève ce que la page a retenu et ce qui repartirait au serveur.
+  {
+    const { window, document, elements } = monter();
+    const r = reponseAvecClarification();
+    const question = "Et celui-là, il faut le faire quand ?";
+    window.UI.afficherReponse(question, r);
+    const bulle = document.querySelectorAll(".msg.bot")[0];
+    cas.tour_clarification = {
+      historique: window.UI.historique().map((t) => ({ role: t.role, content: t.content,
+                                                       local: !!t.local })),
+      // Ce que `chat.js` compose et ce que `ui.js` conserve sont la même chaîne : `ui.js` ne
+      // décide pas de ce que l'assistant a dit.
+      compose: window.CHAT.tourAssistant(r),
+      // La question est bien peinte comme une question, avant la phrase (règle 1.7).
+      clarification_peinte: bulle.querySelector(".clarif-q").textContent,
+      texte_peint: bulle.querySelector(".seg-txt").textContent,
+      badges: badges(elements),
+      // Et le tour suivant : l'arrivant répond en trois mots, la question posée part au serveur.
+      envoye: window.CHAT.historiquePourApi(
+        window.UI.historique().concat([{ role: "user", content: "du permis de conduire" }]),
+        "du permis de conduire"),
+    };
+  }
+
+  // --- story 2.2 : une réponse ordinaire conserve son texte, inchangé -----
+  {
+    const { window } = monter();
+    const r = reponseAvecBalisage();
+    window.UI.afficherReponse(QUESTION, r);
+    cas.tour_ordinaire = {
+      historique: window.UI.historique().map((t) => t.content),
+      texte: r.texte,
+    };
+  }
+
+  // --- story 2.2 : la boucle entière, par `envoyer()` (revue P4) ----------
+  //
+  // Les deux cas ci-dessus appellent `afficherReponse` en direct : leur historique commence donc
+  // par un tour `assistant`, ce qui n'arrive jamais dans la page — c'est `envoyer()` qui pousse
+  // d'abord le tour `user`. On exerce ici le chemin **entier**, deux tours d'affilée, avec un
+  // double de `fetch` : la clarification d'abord, une réponse ordinaire ensuite. Ce qui est relevé
+  // est ce que le serveur aurait reçu, corps par corps.
+  {
+    const corps = [reponseAvecClarification(), reponseAvecBalisage()];
+    const postes = [];
+    let rang = 0;
+    const sante = { ok: true, version: "abc1234", documents_servis: ["lux-guide"],
+                    gate_profile: null, gate_cases: null, gate_countersigned: null,
+                    alerts: [], thresholds: {} };
+    const repondre = (charge) => Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null }, json: () => Promise.resolve(charge) });
+    const { window, elements } = monter((url, options) => {
+      if (String(url).endsWith("/sante")) return repondre(sante);
+      postes.push(JSON.parse(options.body));
+      return repondre(corps[Math.min(rang++, corps.length - 1)]);
+    });
+
+    window.UI.envoyer("Et celui-là, il faut le faire quand ?");
+    await respirer();
+    window.UI.envoyer("du permis de conduire");
+    await respirer();
+
+    cas.boucle_complete = {
+      corps_postes: postes.map((c) => ({ question: c.question, historique: c.historique })),
+      historique_final: window.UI.historique().map((t) => ({ role: t.role, content: t.content,
+                                                             local: !!t.local })),
+      badges: badges(elements),
     };
   }
 

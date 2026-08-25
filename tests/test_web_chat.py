@@ -5,10 +5,15 @@ avec `window`, `location` et `fetch` **doublés**, exécute les cas et écrit du
 tout ce qui est affirmé l'est ici. Aucun navigateur, aucun réseau, aucune dépendance ajoutée à
 `pyproject.toml` — le harnais n'utilise que la bibliothèque standard de Node.
 
-`ui.js` n'est pas couvert : depuis la story 1.7 il ne fait plus que peindre ce que `chat.js`
-compose, et la peinture se vérifie dans un Chrome headless (`docs/tests-live.md`). Ce qui est
-vérifié ici est tout ce qui décide : le corps de la requête, le mapping de l'historique, la lecture
-du contrat, la classification des erreurs, l'appariement des citations et les textes composés.
+`ui.js` **est** couvert, par un second harnais (`tests/js/ui_cases.mjs`) qui l'exécute contre le DOM
+minimal de `tests/js/dom_minimal.mjs`. La story 1.7 l'avait réduit à peindre, et cette docstring en
+concluait qu'il n'y avait rien à y vérifier ; la story 2.2 a montré le contraire (revue 2.2, P9) —
+c'est `afficherReponse` qui décidait de **ce que la page conserve** de chaque réponse, et elle n'en
+gardait pas la question posée. Sont donc vérifiés ici : ce que `chat.js` décide (corps de la requête,
+mapping de l'historique, lecture du contrat, classification des erreurs, appariement des citations,
+textes composés) **et** ce que `ui.js` en fait (matérialisation, badges, tours conservés, et la
+boucle entière par `envoyer()`). Ce qui reste au Chrome headless de `docs/tests-live.md` est le
+rendu visuel, que ni l'un ni l'autre harnais ne juge.
 """
 
 from __future__ import annotations
@@ -236,6 +241,195 @@ def test_la_reponse_de_la_recherche_simple_ne_repart_pas_au_serveur(cas: dict[st
 
 def test_un_historique_absent_ne_casse_rien(cas: dict[str, Any]) -> None:
     assert cas["historique_vide"] == []
+
+
+# --- story 2.2 : le tour conservé est ce que l'assistant a dit -------------
+#
+# Le signal de clarification existe depuis la 1.4 (AD-5 : *comprendre* a deux sorties typées
+# exclusives), le court-circuit depuis la 1.5, et la page peint la clarification comme une question
+# depuis la 1.7 — mais la boucle ne se refermait jamais : `ui.js` ne poussait dans l'historique de
+# page que `Answer.texte`, c'est-à-dire la phrase générique de refus. La question réellement posée
+# (`Answer.clarification`) n'entrait nulle part ; au tour suivant *comprendre* recevait un historique
+# où sa propre question ne figurait pas, la réponse d'un mot de l'arrivant restait irrésoluble, et il
+# reposait la même question. Ce qui suit asserte les deux moitiés du correctif : la composition
+# (`chat.js::tourAssistant`, pure) et le tour effectivement conservé par `ui.js`.
+
+def test_le_tour_dune_reponse_ordinaire_est_exactement_le_texte(cas: dict[str, Any]) -> None:
+    """Sans clarification, rien n'est ajouté : le tour vaut `texte`, octet pour octet. Une réponse
+    servie n'a aucune raison de changer de forme dans l'historique."""
+    releve = cas["tour_assistant_ordinaire"]
+    assert releve["clarification"] is None
+    assert releve["tour"] == releve["texte"]
+    # Les bords ne fabriquent rien et ne lèvent pas : le tour vide est déjà filtré par
+    # `historiquePourApi`, et une réponse sans `answer` (la recherche simple) rend son seul texte.
+    bords = cas["tour_assistant_bords"]
+    assert bords["vide"] == ""
+    assert bords["absent"] == ""
+    assert bords["sans_answer"] == "Réponse lexicale du guide, non vérifiée."
+    assert bords["clarification_seule"] == "Lequel ?", "aucune espace ajoutée à une phrase absente"
+
+
+def test_le_tour_dune_clarification_porte_la_question_posee(cas: dict[str, Any]) -> None:
+    """La clarification **précède** la phrase, dans l'ordre exact où `vueReponse` les peint : le tour
+    conservé reproduit l'écran, seule définition non arbitraire de « ce que l'assistant a dit ».
+    La phrase générique reste — elle dit au modèle que l'assistant n'a **pas** répondu, là où la
+    question seule laisserait croire à un échange normal."""
+    from server.app.steps.restituer import PHRASES_DE_REFUS
+
+    releve = cas["tour_assistant_clarification"]
+    assert releve["texte"] == PHRASES_DE_REFUS["clarification_requise"]
+    assert releve["clarification"].endswith("?")
+    assert releve["tour"] == releve["clarification"] + " " + releve["texte"]
+    assert releve["tour"].index(releve["clarification"]) < releve["tour"].index(releve["texte"])
+
+
+def test_un_tour_compose_ne_depasse_jamais_la_borne_dun_tour(cas: dict[str, Any]) -> None:
+    """Revue 2.2, P1 — la borne se décide à la **composition**, pas à l'envoi.
+
+    Rien ne borne `ClarificationRequise.clarification` côté serveur et `comprendre_max_tokens` vaut
+    1 024 : une clarification de 1 968 caractères composait un tour de 2 063, au-delà de
+    `Turn.texte`. `historiquePourApi` écartait alors ce tour **et tout ce qui le précédait** — sa
+    règle « un tour qu'on ne peut pas envoyer casse la chaîne » —, si bien que *comprendre* recevait
+    un historique vide avec « du permis de conduire » et reposait la même question : la boucle que
+    cette story referme se rouvrait en silence.
+    """
+    from annotated_types import MaxLen
+
+    maxlen = next(m.max_length for m in Turn.model_fields["texte"].metadata
+                  if isinstance(m, MaxLen))
+    releve = cas["tour_assistant_clarification_longue"]
+    assert releve["compose_sans_borne"] > maxlen, "le cas ne mesure plus rien"
+    assert releve["tour"] <= maxlen
+    # Le morceau gardé l'est **entier** : hors borne ⇒ écarté, jamais tronqué (specs 1.8 D8, 1.9 D4).
+    assert releve["tour_ne_coupe_rien"] is True
+    # Priorité à la clarification : c'est elle, et elle seule, qui rend le tour suivant résoluble.
+    assert releve["tour_est_la_clarification_entiere"] is True
+    # Et l'essentiel : l'historique envoyé au tour suivant porte **encore** la question de
+    # l'utilisateur — la chaîne n'est pas coupée.
+    envoye = releve["envoye"]
+    assert [t["role"] for t in envoye] == ["user", "assistant"]
+    assert envoye[0]["texte"] == "Et celui-là, il faut le faire quand ?"
+    for tour in envoye:
+        Turn(**tour)
+
+
+def test_une_clarification_qui_ne_tient_pas_seule_laisse_le_tour_au_texte(
+        cas: dict[str, Any]) -> None:
+    """Le dernier repli : la question est perdue (aucune façon de l'envoyer sans la couper), mais
+    l'échange reste envoyable et le fil ne se coupe pas. Un tour vide, lui, serait pire — il serait
+    filtré sans casser la chaîne, et laisserait un **trou** entre deux tours `user`."""
+    releve = cas["tour_assistant_clarification_enorme"]
+    assert releve["tour_est_le_texte"] is True
+    envoye = releve["envoye"]
+    assert [t["role"] for t in envoye] == ["user", "assistant"]
+    assert envoye[0]["texte"] == "Et celui-là, il faut le faire quand ?"
+
+
+def test_la_question_posee_repart_au_serveur_au_tour_suivant(cas: dict[str, Any]) -> None:
+    """La boucle refermée : le tour composé est poussé dans l'historique de page, l'arrivant répond
+    « du permis de conduire », et c'est bien la question de l'assistant qui part — sous `{role,
+    texte}`, la seule forme qu'AD-11 accepte."""
+    envoye = cas["boucle_refermee"]
+    assert [t["role"] for t in envoye] == ["user", "assistant"]
+    assert envoye[-1]["texte"].startswith("De quel document ou démarche parlez-vous ?")
+    for tour in envoye:
+        assert set(tour) == {"role", "texte"}
+        Turn(**tour)  # le contrat du serveur l'accepte tel quel
+
+
+def test_le_tour_de_la_recherche_simple_reste_local_et_ne_repart_pas(
+        cas: dict[str, Any], dom: dict[str, Any]) -> None:
+    """Le même compositeur sert les deux `push`, et la règle de 1.7 ne bouge pas : la recherche
+    simple ne pose aucune clarification (son tour vaut son texte), elle reste marquée `local`, elle
+    ne repart pas au serveur et elle casse la chaîne — seule la queue contiguë qui la suit part."""
+    releve = cas["tour_assistant_local"]
+    assert releve["tour_egale_texte"] is True
+    assert releve["texte_non_vide"] is True, "un tour vide passerait le test sans rien prouver"
+    assert [t["role"] for t in releve["envoye"]] == ["user", "assistant"]
+    assert releve["envoye"][0]["texte"] == "Et celui-là, il faut le faire quand ?"
+    # Et le clic **réel** sur le bouton de repli, côté `ui.js`, marque toujours le tour.
+    assert dom["indisponible"]["apres"]["historique"] == [{"role": "assistant", "local": True}]
+
+
+def test_lhistorique_pousse_par_ui_porte_la_question_posee(dom: dict[str, Any]) -> None:
+    """Le défaut corrigé vit dans le matérialiseur, pas dans la composition : c'est `afficherReponse`
+    qui conserve. Le harnais l'exécute pour de bon, contre le DOM minimal — un test de `chat.js`
+    seul ne l'aurait pas vu (leçon de la revue 1.7)."""
+    releve = dom["tour_clarification"]
+    assert [t["role"] for t in releve["historique"]] == ["assistant"]
+    tour = releve["historique"][0]
+    assert tour["local"] is False
+    assert releve["clarification_peinte"] in tour["content"]
+    assert releve["texte_peint"] in tour["content"]
+    # `ui.js` pose ce que `chat.js` compose, il n'ajoute aucun mot de son cru.
+    assert tour["content"] == releve["compose"]
+    # Et ce tour repart tel quel au serveur quand l'arrivant répond en trois mots.
+    assert releve["envoye"] == [{"role": "assistant", "texte": tour["content"]}]
+    for envoye in releve["envoye"]:
+        Turn(**envoye)
+
+
+def test_le_tour_pousse_par_ui_pour_une_reponse_ordinaire_est_inchange(dom: dict[str, Any]) -> None:
+    """L'autre moitié de la propriété : une réponse sans clarification garde exactement son texte."""
+    releve = dom["tour_ordinaire"]
+    assert releve["historique"] == [releve["texte"]]
+
+
+def test_la_boucle_entiere_passe_par_envoyer_et_porte_la_question_posee(
+        dom: dict[str, Any]) -> None:
+    """Revue 2.2, P4 — le seul test du dépôt qui traverse la couture réparée de bout en bout.
+
+    `afficherReponse` appelée seule fabrique un historique commençant par un tour `assistant`, ce
+    qui n'arrive jamais dans la page : c'est `envoyer()` qui pousse d'abord le tour `user`. Ici, deux
+    tours d'affilée dans le DOM minimal, avec un double de `fetch` — la clarification, puis une
+    réponse ordinaire —, et l'on relève les **corps postés**.
+    """
+    releve = dom["boucle_complete"]
+    postes = releve["corps_postes"]
+    assert [c["question"] for c in postes] == ["Et celui-là, il faut le faire quand ?",
+                                               "du permis de conduire"]
+    # Premier tour : rien à envoyer, la conversation commence (l'écho de la question est exclu).
+    assert postes[0]["historique"] == []
+    # Second tour : la question posée par l'assistant est là, après le tour de l'utilisateur.
+    second = postes[1]["historique"]
+    assert [t["role"] for t in second] == ["user", "assistant"]
+    assert second[1]["texte"].startswith("De quel document ou démarche parlez-vous ?")
+    for tour in second:
+        assert set(tour) == {"role", "texte"}
+        Turn(**tour)
+    # Et l'historique de page alterne, sans trou ni tour local.
+    final = releve["historique_final"]
+    assert [t["role"] for t in final] == ["user", "assistant", "user", "assistant"]
+    assert all(t["local"] is False for t in final)
+    assert final[3]["content"] == "Vous avez huit jours."  # une réponse ordinaire, texte inchangé
+    assert releve["badges"]["onglet"]["texte"].startswith("mode api")
+
+
+def test_la_composition_du_tour_est_la_meme_de_part_et_dautre(cas: dict[str, Any]) -> None:
+    """Revue 2.2, P5 — `tests/test_suivi_live.py` écrit en Python le tour que la page compose en
+    JavaScript, pour construire l'historique de son troisième scénario. Deux implémentations d'une
+    même règle qu'aucune assertion ne relie divergent un jour ; c'est `chat.js::tourAssistant` qui
+    fait autorité, et ce test compare les deux chaînes."""
+    from tests.test_suivi_live import TOUR_ASSISTANT
+
+    assert cas["tour_assistant_du_live"] == TOUR_ASSISTANT
+
+
+def test_ui_ne_pousse_jamais_le_seul_texte_dans_lhistorique() -> None:
+    """La propriété, pas la ligne : les **deux** `push` d'un tour assistant passent par le
+    compositeur de `chat.js`. Un `content: r.texte` réintroduit ici perdrait de nouveau la question
+    posée, sans qu'aucune vue ne change — c'est exactement ainsi que le défaut a duré cinq stories."""
+    ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
+    pousses = re.findall(r'historique\.push\(\{\s*role:\s*"assistant"[^}]*\}\)', ui)
+    assert len(pousses) == 2, pousses
+    for pousse in pousses:
+        assert "window.CHAT.tourAssistant(r)" in pousse, pousse
+
+
+def test_le_compositeur_du_tour_assistant_est_exporte(cas: dict[str, Any]) -> None:
+    """Il est pur et sans DOM : `ui.js` ne peut le poser que s'il est exporté, et les tests ne
+    peuvent l'exercer que par là."""
+    assert "tourAssistant" in cas["exporte"]
 
 
 # --- AD-11 (e) et (f) : la lecture du contrat -----------------------------
