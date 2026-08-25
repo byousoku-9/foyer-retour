@@ -548,6 +548,24 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             clauses_par_claim[claim.claim_id] = clauses
         retrouvees.append((claim, quotes, edition))
 
+    # `quote_max_chars` était annoncé au modèle dans `prompts/rediger.md`, publié dans `thresholds()`
+    # — et appliqué par personne (reprise différée `target_story: 2.1`). Il l'est ici, et **jamais**
+    # comme un rejet : la citation a passé tous les contrôles d'AD-3, elle est exacte au caractère
+    # près et relue depuis le corpus ; elle est seulement bavarde. La rejeter transformerait une
+    # réponse correcte en refus `claims_rejetes` — un dégradé bien pire que le défaut qu'on corrige.
+    # Le constat va donc dans la trace, là où il sert à régler le prompt et le seuil (4.2) : la
+    # promesse du README (« régler un seuil ne peut plus désynchroniser ce que le modèle produit et
+    # ce que le code accepte ») vaut désormais aussi pour le maximum, et pas seulement pour le
+    # minimum. Le détail ne porte que des **comptes** : AD-10 interdit le texte d'un bloc dans la trace.
+    trop_longues = sum(1 for _, quotes, _ in retrouvees for q in quotes
+                       if len(q.quote) > settings.quote_max_chars)
+    if trop_longues:
+        step.checks.append(CheckResult(
+            name="quote_trop_longue", ok=False,
+            detail=f"{trop_longues} citation(s) vérifiée(s) dépassent quote_max_chars "
+                   f"({settings.quote_max_chars} caractères) : exactes, seulement bavardes — "
+                   "affichées telles quelles, jamais tronquées ni rejetées"))
+
     # AD-4 : **un seul** appel `micro` groupé, borné par `verifier_max_claims`. Au-delà, les claims
     # excédentaires ne sont pas évaluées — jamais devinées (`draft_max_claims` fait que le cas ne se
     # produit pas sur le corpus servi, la borne est une ceinture).

@@ -1200,3 +1200,46 @@ async def test_an_unresolved_reference_read_from_the_corpus_settles_nothing(cont
     assert "renvoie" in v.verdict.reason
     assert any("renvoi" in e for e in v.verdict.escalate)
     assert v.complete is False  # AD-4 : un renvoi non résolu interdit déjà `complete`
+
+
+# --- story 2.1 : `quote_max_chars` est enfin appliqué, et jamais comme un rejet ---
+
+async def test_une_citation_trop_longue_est_dite_dans_la_trace_jamais_rejetee(mini: Index) -> None:
+    """Reprise différée `target_story: 2.1` : le seuil était annoncé au modèle (`prompts/rediger.md`),
+    publié dans `thresholds()`, et appliqué par **personne**.
+
+    Il l'est désormais, et **jamais** comme un rejet : la citation a passé tous les contrôles d'AD-3,
+    elle est exacte au caractère près et relue depuis le corpus. La rejeter transformerait une
+    réponse correcte en refus `claims_rejetes` — un dégradé bien pire que le défaut qu'on corrige.
+    """
+    quote = "huit jours pour déclarer votre arrivée"
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", quote)]))
+    settings = _settings(quote_min_chars=5, quote_max_chars=10)
+
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))], settings=settings)
+
+    assert v.found is True and v.rejected_claims == []  # la réponse est servie, entière
+    (check,) = [c for c in step.checks if c.name == "quote_trop_longue"]
+    assert check.ok is False and "10 caractères" in check.detail
+    assert "1 citation(s)" in check.detail
+    # AD-10 : la trace ne porte jamais le texte d'un bloc — un compte, pas un extrait.
+    assert quote not in step.model_dump_json()
+
+
+async def test_une_citation_dans_la_borne_ne_produit_aucun_check(mini: Index) -> None:
+    draft = _draft(("c1", "Le délai est de huit jours.",
+                    [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+    _v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    assert [c for c in step.checks if c.name == "quote_trop_longue"] == []
+
+
+async def test_le_seuil_applique_est_bien_celui_de_config(mini: Index) -> None:
+    """La promesse du README — « régler un seuil ne peut plus désynchroniser ce que le modèle produit
+    et ce que le code accepte » — ne valait jusqu'ici que pour le **minimum**."""
+    quote = "huit jours pour déclarer votre arrivée"
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", quote)]))
+    prompt = load_prompt("rediger")
+    assert "$quote_max_chars" in prompt  # annoncé au modèle depuis `config.py` (revue 1.4, I1)
+    _v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))],
+                                      settings=_settings(quote_max_chars=len(quote)))
+    assert [c for c in step.checks if c.name == "quote_trop_longue"] == []
