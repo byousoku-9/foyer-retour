@@ -332,12 +332,22 @@ class LlmClient:
             # (chemins pydantic, messages de validateurs) — il est donc délimité comme tout contenu non
             # fiable, jamais concaténé en clair dans une consigne. Seule la consigne est du texte de
             # confiance ; `untrusted()` neutralise en outre toute balise portée par le motif.
+            # Une sortie arrêtée par `max_tokens` est incomplète par définition. La réinjecter en
+            # entier dans la relance ne fournit donc aucune vérité utile, mais refacture son texte en
+            # entrée et incite le modèle à prolonger la même réponse trop longue. On conserve le tour
+            # assistant pour l'alternance du dialogue, avec un marqueur constant, puis on demande une
+            # régénération concise. Les erreurs de schéma gardent au contraire la réponse reçue : elle
+            # permet au modèle de corriger précisément le champ signalé par le motif.
+            tronquee = message.stop_reason == "max_tokens"
+            reponse_precedente = "(réponse tronquée omise)" if tronquee else (text or "(réponse vide)")
+            correction = ("Repars de zéro et formule chaque champ au plus concis, sans rien ajouter. "
+                          if tronquee else "Corrige exactement ce qu'il décrit. ")
             msgs = [*msgs,
-                    {"role": "assistant", "content": text or "(réponse vide)"},
+                    {"role": "assistant", "content": reponse_precedente},
                     {"role": "user", "content": "Ta réponse précédente était invalide. Le contrôle a relevé :\n"
                                                 + untrusted("motif", problem)
-                                                + "\nCorrige exactement ce qu'il décrit et réponds à nouveau, "
-                                                  "uniquement avec le JSON conforme au schéma."}]
+                                                + f"\n{correction}Réponds à nouveau, uniquement avec le JSON "
+                                                  "conforme au schéma."}]
 
     async def count_tokens(self, model: str, system: str | None, messages: list[dict[str, Any]]) -> int:
         """Tokens réels d'une requête au tokenizer du modèle (`/v1/messages/count_tokens`)."""

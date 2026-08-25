@@ -134,6 +134,16 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     parts.append(untrusted("question", parsed.question_resolue))
     tail = (f"Langue de rédaction : {LANGUES_SERVIES[parsed.language]} ({parsed.language}). "
             "Les citations restent recopiées mot pour mot dans la langue du bloc source.")
+    if prompt == "rediger_sinistre":
+        # A11 : avec deux facettes déjà arrêtées par *comprendre*, le modèle pouvait développer
+        # quatre claims et plusieurs transitions jusqu'à `max_tokens`, puis recommencer. Le nombre
+        # ci-dessous vient du contrat `ParsedQuestion` de la requête — ce n'est ni un nouveau seuil,
+        # ni une déduction depuis le texte. La consigne vit dans le message dynamique pour garder le
+        # préfixe cacheable byte-identique, et demande seulement d'éviter les redites entre facettes.
+        tail += (f"\nPlan de sortie concis : {len(parsed.facettes)} facette(s) ont déjà été extraites. "
+                 "Traite chacune au plus une fois, dès les premiers segments, avec seulement les "
+                 "claims directement nécessaires ; n'ajoute ni transition ni reformulation de "
+                 "contexte si une claim factuelle suffit.")
     if motif is not None:
         # AD-15 : le motif vient de *vérifier* (1.5), qui le compose à partir de la sortie du modèle et
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.

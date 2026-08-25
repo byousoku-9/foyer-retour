@@ -209,6 +209,28 @@ async def test_request_shape_cacheable_prefix_with_summary_then_delimited_conten
         assert fragment not in outside
 
 
+async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(
+        mini_index: Index) -> None:
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+    parsed = _parsed(facettes=["les appareils", "les denrées"])
+
+    await _rediger(client, mini_index, parsed=parsed, prompt="rediger_sinistre")
+
+    (req,) = fake.requests
+    content = req["messages"][0]["content"]
+    outside = UNTRUSTED.sub("", content)
+    assert "Plan de sortie concis : 2 facette(s)" in outside
+    assert "Traite chacune au plus une fois" in outside
+    assert "les appareils" not in outside and "les denrées" not in outside
+    expected_prefix = load_prompt("commun") + "\n\n" + render_prompt(
+        "rediger_sinistre", quote_min_chars=_settings().quote_min_chars,
+        quote_max_chars=_settings().quote_max_chars,
+        draft_max_segments=_settings().draft_max_segments,
+        draft_max_claims=_settings().draft_max_claims,
+    ) + "\n\n" + mini_index.sommaire("lux-guide")
+    assert req["system"][0]["text"] == expected_prefix
+
+
 async def test_motif_is_appended_to_the_last_user_message_only_when_present(mini_index: Index) -> None:
     client, fake = _client([fake_message(text=_draft(), model=SONNET),
                             fake_message(text=_draft(), model=SONNET)])

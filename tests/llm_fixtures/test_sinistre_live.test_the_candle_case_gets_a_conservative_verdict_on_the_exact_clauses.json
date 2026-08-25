@@ -1,4 +1,66 @@
 {
+  "claude-haiku-4-5-20251001:2715e87662e72631": {
+    "request": "claude-haiku-4-5-20251001:2715e87662e72631",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\", \"contact direct et immédiat avec une substance incandescente\"], \"qualites_etablies\": [{\"qualite\": \"contact direct et immédiat avec une substance incandescente\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePwWLf2BbbA3rV82GyW6",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7419,
+        "inference_geo": "not_available",
+        "input_tokens": 638,
+        "output_tokens": 230,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:743afa2ad26704ec": {
+    "request": "claude-haiku-4-5-20251001:743afa2ad26704ec",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"événement soudain\"], \"qualites_etablies\": [{\"qualite\": \"événement soudain\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}, {\"claim_id\": \"c2\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"action subite de la chaleur\", \"contact direct et immédiat avec une substance incandescente\"], \"qualites_etablies\": [{\"qualite\": \"action subite de la chaleur\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"contact direct et immédiat avec une substance incandescente\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePvcBvTZ9VsgpiiGnHyd",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7419,
+        "inference_geo": "not_available",
+        "input_tokens": 871,
+        "output_tokens": 401,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:7c4404508695bae3": {
     "request": "claude-haiku-4-5-20251001:7c4404508695bae3",
     "response": {
@@ -88,6 +150,37 @@
         "inference_geo": "not_available",
         "input_tokens": 1056,
         "output_tokens": 372,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:8fa141571681ef83": {
+    "request": "claude-haiku-4-5-20251001:8fa141571681ef83",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": []}], \"segments\": [{\"segment\": 0, \"soutenu\": false}, {\"segment\": 1, \"soutenu\": false}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": \"action subite de la chaleur\", \"qualites_exigees\": [\"événement soudain\", \"action subite de la chaleur\", \"contact direct et immédiat avec un foyer ou une substance incandescente\"], \"qualites_etablies\": []}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePwVekv7YmxWP13HdKPb",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7419,
+        "inference_geo": "not_available",
+        "input_tokens": 717,
+        "output_tokens": 186,
         "service_tier": "standard"
       }
     }
@@ -195,7 +288,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CePtiNRv7yvRdGxSHBMqx",
+      "id": "msg_011CePwUzgCmEnuB487nBxhe",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -354,6 +447,79 @@
       }
     }
   },
+  "claude-sonnet-5:78988bb218db31ed": {
+    "request": "claude-sonnet-5:78988bb218db31ed",
+    "response": {
+      "content": [
+        {
+          "signature": "EsEDCpABCBEYAipAuXqQY8QUxsQYA6GZ8xMsDYTTG+7KzHIrvCiCfOa7Ell74gnKEbyuzp9WnUBgpX22J6A+3qcCh7nWodUve0Y/qzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAdy9t9QGEgzE3tj7hCKLE3GBR1QaDJ8f+MK4AGSBXQjUJiIwW3wn3FUm64qi/f7P4Wm53ZKnid8PSMD04GW9YgHQytMjy+vGJ5X/XbTkHsfNOD7fKt0BWe5hwo/e0MWP9X/l02ukfYUPvTzJO8aa11RLvGGQdvOucDoXmXMzTYvAUaOClsVwG5qSbXGtZ+odl4QzofVHpBGnkDB3+GtGSYjs6l6ggAi2QarUgqxgCpoj7RR2XRj67+E+21pCqzJynNentLUNoPenD2bm04Y5pT1Dnc1D8kn0pv+CTInDtHlGEEV4JsYtpgJjs6xOd/JJQb5RsT0nVN2PfxljusY7tFS9ykk0cSr7nIdF1J+pdzzrPqgMteMCSCIZUOlzU6157neGEy3sxYpq5A8IgQuIBHclhPsYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat traite le cas des dégâts causés au mobilier par le contact direct avec une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Les blocs fournis ne précisent pas si cette clause s'applique différemment selon la pièce du logement concernée ou la date de l'événement.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat traite le cas des dégâts causés au mobilier par le contact direct avec une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePwVpkSHa3RxjGKuzzZt",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7109,
+        "inference_geo": "global",
+        "input_tokens": 4257,
+        "output_tokens": 462,
+        "output_tokens_details": {
+          "thinking_tokens": 71
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:7b58ad00793139c4": {
+    "request": "claude-sonnet-5:7b58ad00793139c4",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La clause relative aux garanties de base précise que les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec une substance incandescente sont visés, même en l'absence d'embrasement ou de commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Les exclusions générales du contrat, applicables à toutes les garanties, ne mentionnent pas ce type de dommage par brûlure localisée sans propagation de flammes.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La clause relative aux garanties de base précise que les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec une substance incandescente sont visés, même en l'absence d'embrasement ou de commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePwVDda3eWiQdunYNyba",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7109,
+        "inference_geo": "global",
+        "input_tokens": 4119,
+        "output_tokens": 480,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:813783c6d155dbfc": {
     "request": "claude-sonnet-5:813783c6d155dbfc",
     "response": {
@@ -420,6 +586,40 @@
         "inference_geo": "global",
         "input_tokens": 4019,
         "output_tokens": 999,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:e97ed20e1af73c5d": {
+    "request": "claude-sonnet-5:e97ed20e1af73c5d",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La clause consacrée aux dégâts par contact incandescent s'applique explicitement au mobilier assuré.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette clause vise précisément les dégâts occasionnés par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Les blocs fournis ne précisent pas si cette clause figure parmi les garanties de base incendie ou dans une extension distincte, ni les conditions ou limites qui pourraient s'y attacher au-delà du texte cité.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La clause consacrée aux dégâts par contact incandescent s'applique explicitement au mobilier assuré.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette clause vise précisément les dégâts occasionnés par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou\\nune substance incandescente, même lorsqu'il n'y a pas eu embrasement, ni commencement\\nd'incendie.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePvbbUGvWSjEhfcnX68J",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7294,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 7294,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 4019,
+        "output_tokens": 628,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

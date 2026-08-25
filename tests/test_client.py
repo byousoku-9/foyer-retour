@@ -164,13 +164,20 @@ async def test_the_retry_motive_names_the_offending_field_and_hides_the_value() 
     assert step.checks[0].detail in motive  # la trace porte le même motif que la relance
 
 
-async def test_max_tokens_stop_reason_triggers_the_same_retry() -> None:
+async def test_max_tokens_retry_omits_the_truncated_answer_and_requests_concision() -> None:
     client, fake = _client([fake_message(text='{"mot": "tronq', model=HAIKU, stop_reason="max_tokens"),
                             fake_message(model=HAIKU)])
     step = StepTrace(name="comprendre")
     result = await _call(client, step=step)
     assert result.parsed == Mot(mot="bonjour")
     assert "max_tokens" in step.checks[0].detail
+    first, second = fake.requests
+    assert second["system"] == first["system"]
+    assert second["messages"][:1] == first["messages"]
+    assert second["messages"][1] == {"role": "assistant", "content": "(réponse tronquée omise)"}
+    assert '"mot": "tronq' not in str(second["messages"])
+    assert "Repars de zéro" in second["messages"][2]["content"]
+    assert "au plus concis" in second["messages"][2]["content"]
 
 
 async def test_invalid_parse_without_margin_fails_after_one_call() -> None:
