@@ -2053,6 +2053,92 @@ posée visait `var(--warning, …)`, une variable qui n'existe pas dans ce fichi
 ajoutée à côté ne rattrapait que la préférence du système. `--warn`, elle, est redéfinie par les
 trois portées, et c'est celle qu'emploie déjà le badge « partiel » du même pied.
 
+### Revue Codex 2.4, tour 1 : la clarification cesse de contredire `Answer.lang`
+
+**Le défaut (B1).** Tout ce que le code compose suivait `language` — refus, lacunes — mais
+`ClarificationRequise.clarification` est écrite **par le modèle**, et `prompts/comprendre.md` la lui
+demande « dans la langue de la question ». Deux sorties contredisaient donc `Answer.lang` :
+`lang="de"` sur une question française rendait un refus allemand accompagné d'une question française
+sans qu'aucun champ ne le signale (`lang_fallback` est faux sur un forçage) ; une détection non
+servie ramenait `language` à `fr` alors que la question posée restait, elle, dans la langue détectée.
+
+**Ce qui a été fait.** La langue **forcée** est nommée dans le *message* de l'étape (« Écris
+`clarification` en de (allemand), quelle que soit la langue de la question »), sur le patron du
+`tail` de *rédiger* — jamais dans le préfixe, qui est le seul segment caché (AD-9) et reste
+byte-identique. La langue **détectée**, elle, n'est connue qu'après la réponse : la clarification est
+alors déjà écrite, et `ClarificationRequise.clarification_affichable` rend `None`. La question n'est
+pas affichée, le refus français de *restituer* dit toujours qu'il faut préciser, `lang_fallback` dit
+pourquoi la réponse est en français, et le retrait est **tracé**
+(`CheckResult(name="clarification_non_affichable")`, le fait, jamais le texte — AD-10).
+
+### Ce qu'une consigne ajoutée à *comprendre* déplace (mesuré le 2026-08-25)
+
+La correction évidente — demander la langue de la clarification à **chaque** requête — a été
+essayée, mesurée, puis écartée. Cinq variantes ont été enregistrées en réel (fixtures live
+ré-enregistrées à chaque essai, ≈ 0,45 € au total) :
+
+| Où la consigne était posée | Ce qui a basculé, sans rapport avec la langue |
+|---|---|
+| bullet `clarification` du préfixe (4 lignes) | `test_profil_live::…[independant]` → `themes=['indépendant', 'location']` ; `test_profil_live::…_fiche_ecole_par_le_pipeline` → check `noeuds_du_profil` à `ok=False` |
+| fin du fichier de prompt (3 lignes) | `test_profil_live::…[independant]`, même bascule |
+| préfixe + règle `themes` renforcée (« ni la valeur déclarée », « uniquement des mots de la table ») | `test_profil_live::…[independant]`, même bascule — la consigne renforcée n'y change rien |
+| message, à chaque requête, forme longue | `test_profil_live::…_sans_profil_ne_reserve_rien` → la fiche `ecole` s'ouvre **sans** profil, ce qui désarme le témoin négatif de l'AC 2.3 |
+| message, à chaque requête, forme courte | `test_suivi_live::test_la_boucle_refermee_rend_la_question_autonome` → le modèle repose une clarification au lieu de résoudre l'anaphore (AC 2.2) |
+| message, **seulement quand `lang` est forcé** (retenu) | rien : la requête sans `lang` reste byte-identique, les 20 fixtures live du dépôt rejouent inchangées |
+
+Deux enseignements, tous deux déposés en reprise (`target_story: 4.2`). Le premier : la langue d'une
+détection non servie **ne peut pas** se régler dans l'appel sans payer ce déplacement — elle se règle
+donc après, par du code. Le second, plus gênant : deux ACs de stories précédentes (2.2 et 2.3) sont
+tenues par un équilibre du prompt et non par une consigne robuste — la mention de `clarification`
+dans le message suffit à faire produire une clarification, et la valeur déclarée du profil ressort en
+`themes` que le prompt l'interdise ou non. Toute story qui touchera ce prompt les cassera ; le remède
+est plusieurs cas par AC, jugés sur la propriété, c'est-à-dire la suite de cas témoins.
+
+### Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)
+
+`answer.unknown[]` — les réserves affichées sous la réponse — n'était pas envoyé au juge : une
+réserve mal traduite laissait les six cas verts. Elle entre désormais dans un bloc `untrusted`
+distinct, jugé sur deux points seulement (même langue que la réponse ; n'affirme rien que les
+passages contredisent — une limite n'a pas à être *soutenue* par un passage). Les six fixtures ont
+été ré-enregistrées. Au premier enregistrement, `en-ecole` est revenu **non fidèle** : la consigne
+demandait alors aux réserves d'être soutenues par les passages, ce qu'une absence ne peut pas être.
+Consigne corrigée, les six sont fidèles.
+
+Le second appel de chaque cas ne mesurait par ailleurs jamais l'AC « `terms[]` en français **avant**
+le court-circuit » : le pipeline restait vert avec des termes anglais, que les variantes du
+dictionnaire rattrapent. La sortie réelle de *comprendre* est maintenant relevée au passage (sans
+appel supplémentaire) et ses termes comparés à des formes françaises attendues, plus une liste de
+formes qui n'existent qu'en anglais, allemand ou portugais.
+
+| Cas | Termes rendus par *comprendre* | Jugement | Coût pipeline + contrôle |
+|---|---|---|---:|
+| `en-arrivee` | français, forme attendue trouvée | fidèle, aucun écart | 0,0233 € |
+| `en-ecole` | français, forme attendue trouvée | fidèle, aucun écart | 0,0320 € |
+| `de-arrivee` | français, forme attendue trouvée | fidèle, aucun écart | 0,0246 € |
+| `de-adem` | français, forme attendue trouvée | fidèle, aucun écart | 0,0238 € |
+| `pt-arrivee` | français, forme attendue trouvée | fidèle, aucun écart | 0,0238 € |
+| `pt-ecole` | français, forme attendue trouvée | fidèle, aucun écart | 0,0376 € |
+
+Le garde a été vérifié par mutation : en déclarant « ecole » et « arrivee » comme formes étrangères,
+**cinq des six cas** rougissent hors ligne. Signature humaine des six jugements : toujours **due**
+(M1, input non bloquant).
+
+### Les deux gates, rejoués une troisième fois (revue Codex 2.4)
+
+`steps/` et `pipelines/` ayant changé, `pipeline_digest` bouge et les deux gates étaient périmés.
+
+| Gate | Cas | Résultat | Coût | Durée |
+|---|---|---|---:|---:|
+| `lux-guide`, profil `vertical` | `g-luxtrust-prix` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0184 € | 7,4 s |
+| `axa-lu-optihome-2017`, profil `vertical` | `s-bougie-canape` | `bonne_reponse`, `evals_ok=true`, `countersigned=false` | 0,0398 € | 17,7 s |
+
+Ce sont ces gates que `data/manifest.json` porte ; `tests/test_digests.py` est vert. Les deux
+`countersigned` restent `false` (M2) et `data/dictionary.json` reste `validated=false` (M3) : deux
+signatures humaines, qu'aucune boucle ne remplace.
+
+Suite complète après la revue : `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` →
+**1 776 passés** ; `uv run ruff check server tests scripts` → vert.
+
 ### Ce qui n'a pas été mesuré
 
 - **La fidélité des traductions au-delà de l'échantillon** : six réponses, deux par langue, jugées
