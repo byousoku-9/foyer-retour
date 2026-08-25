@@ -680,8 +680,11 @@
         : "relecture des cas non contresignée : elle est celle de la boucle autonome",
         g.countersigned ? "ok" : "ko"));
     }
+    var alertesVues = {};
     tableau(g.alerts).forEach(function (a) {
       if (typeof a !== "string" || !a) return;
+      if (Object.prototype.hasOwnProperty.call(alertesVues, a)) return;
+      alertesVues[a] = true;
       var connue = Object.prototype.hasOwnProperty.call(ALERTES, a);
       out.push(ligneTrace(connue ? ALERTES[a] + " (" + a + ")" : a, "ko"));
     });

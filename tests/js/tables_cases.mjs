@@ -152,7 +152,13 @@ function textes(vue) {
   });
   return out;
 }
-const gateSansGate = { profile: null, cases: null, countersigned: null, alerts: ["sans_gate"] };
+const gateSansGate = {
+  profile: null,
+  cases: null,
+  countersigned: null,
+  // Le transport est tolérant : même une alerte répétée ne doit pas répéter le fait à l'écran.
+  alerts: ["sans_gate", "sans_gate"],
+};
 cas.gate_sans_gate = {
   chat: textes(guide.CHAT.vuePourquoi({ trace: { gate: gateSansGate }, answer: {} }))
     .filter((t) => t.indexOf("question-témoin") !== -1),
