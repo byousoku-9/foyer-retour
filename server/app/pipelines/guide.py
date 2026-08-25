@@ -55,11 +55,12 @@ from server.app.pipelines.commun import (
 from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import restituer
-from server.app.steps.retrouver import retrouver_deterministe
+from server.app.steps.retrouver import retrouver_deterministe, retrouver_outils
 from server.app.steps.verifier import verifier
 
 PIPELINE = "guide"
 VARIANT = "deterministe"
+VARIANTS = frozenset({VARIANT, "outils"})
 # L'alerte du loader qui dit que le périmètre annoncé à *comprendre* n'est plus exhaustif
 # (`corpus/loader._perimetre`, palier 3). Nommée ici parce que c'est ici qu'elle **désarme** un refus.
 PERIMETRE_TRONQUE = "perimetre_tronque"
@@ -136,13 +137,17 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                          lang: str | None = None, doc_id: str | None = None, budget: Any = None,
                          pipeline_digest_hex: str | None = None,
                          prompts_digest_hex: str | None = None,
-                         dictionnaire: Any = None) -> tuple[Answer, Trace]:
+                         dictionnaire: Any = None,
+                         variant: str = VARIANT) -> tuple[Answer, Trace]:
     """Une question du guide → l'unique `Answer` d'AD-4 et sa `Trace`.
 
     Toute sortie normale — réponse, refus, clarification, claims toutes rejetées — est un `Answer`
     (l'API en fera un 200, AD-11). Seules les entrées hors bornes (`InvalidRequest`) et les échecs
     terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`, `LlmUnavailable`) remontent.
     """
+    if variant not in VARIANTS:
+        # Avant le budget et surtout avant *comprendre* : une faute de variante ne coûte rien.
+        raise InvalidRequest(f"variant inconnu : {variant!r}")
     doc_id = doc_id or settings.guide_doc_id
     lang = normaliser_langue_pipeline(lang)
     if doc_id not in corpus.documents:
@@ -191,7 +196,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # *rédiger* décidées par AD-3 ; `truncations` = le retrieval coupé (0 ou 1 par requête).
         retries = sum(1 for s in steps for c in s.checks if c.name == "parse_retry") + relances
         return Trace(
-            request_id=request_id, pipeline=PIPELINE, variant=VARIANT, intent=intent, steps=steps,
+            request_id=request_id, pipeline=PIPELINE, variant=variant, intent=intent, steps=steps,
             total_cost_eur=round(budget.cost_eur, 4),
             source_hash={doc_id: entry.source_hash} if entry is not None else {},
             ingest_fingerprint={doc_id: entry.ingest_fingerprint} if entry is not None else {},
@@ -351,10 +356,21 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # AD-1 : *retrouver* ne voit que `ParsedQuestion`. Les nœuds que le profil désigne y sont
         # déjà — `parsed.scope.noeuds`, construits par *comprendre* (story 2.3, canal corrigé par la
         # revue Codex 2.3, B1) —, et le pipeline n'a rien à leur ajouter ici.
-        retrieval, step_retrouver = retrouver_deterministe(parsed, corpus=corpus, index=index,
-                                                           budget=retrieval_budget(settings),
-                                                           settings=settings, doc_id=doc_id,
-                                                           dictionnaire=dictionnaire)
+        borne_retrieval = retrieval_budget(settings)
+        if variant == "outils":
+            try:
+                retrieval, step_retrouver = await retrouver_outils(
+                    parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
+                    client=client, request_budget=budget, doc_id=doc_id, dictionnaire=dictionnaire)
+            except PipelineError as exc:
+                if exc.step is not None:
+                    steps.append(exc.step)
+                exc.trace = tracer()
+                raise
+        else:
+            retrieval, step_retrouver = retrouver_deterministe(
+                parsed, corpus=corpus, index=index, budget=borne_retrieval,
+                settings=settings, doc_id=doc_id, dictionnaire=dictionnaire)
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:

@@ -30,18 +30,316 @@ Faute de tokenizer en code pur, les tokens sont majorés par l'heuristique d'`es
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Iterable
+from typing import Any
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.domain import Block, RetrievalBudget, RetrievalResult
+from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.models import STEP_TIERS
 from server.app.llm.pricing import estimate_tokens
+from server.app.llm.prompting import render_prompt, untrusted
+
+
+OUTILS_RECHERCHE: list[dict[str, Any]] = [
+    {
+        "name": "sommaire",
+        "description": "Relire le sommaire compact versionné du document courant.",
+        "input_schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"doc_id": {"type": "string"}}, "required": ["doc_id"],
+        },
+    },
+    {
+        "name": "ouvrir_noeud",
+        "description": "Ouvrir une fenêtre d'un nœud, éventuellement centrée ou paginée.",
+        "input_schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "node_id": {"type": "string"},
+                "focus_block_id": {"type": "string"},
+                "cursor": {"type": "integer", "minimum": 0},
+            },
+            "required": ["node_id"],
+        },
+    },
+    {
+        "name": "chercher",
+        "description": "Chercher des candidats sans recevoir leur texte.",
+        "input_schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"termes": {"type": "array", "items": {"type": "string"}}},
+            "required": ["termes"],
+        },
+    },
+    {
+        "name": "definitions",
+        "description": "Obtenir les définitions applicables et les cibles des renvois ouverts.",
+        "input_schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "termes": {"type": "array", "items": {"type": "string"}},
+                "blocs_ouverts": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["termes"],
+        },
+    },
+]
+
+
+def _strings(value: object) -> list[str] | None:
+    if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+        return None
+    return [v.strip() for v in value if v.strip()]
+
+
+def _content_json(message: Any) -> list[dict[str, Any]]:
+    """Blocs bruts du SDK, réinjectables comme tour assistant sans texte parallèle."""
+    return [block.model_dump(mode="json") if hasattr(block, "model_dump") else dict(block)
+            for block in message.content]
+
+
+async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
+                            budget: RetrievalBudget, settings: Settings, client: Any,
+                            request_budget: Any, doc_id: str,
+                            dictionnaire: Dictionnaire | None = None
+                            ) -> tuple[RetrievalResult, StepTrace]:
+    """Variante bornée de navigation par les quatre outils d'AD-1, sur deux tours au plus."""
+    t0 = time.monotonic()
+    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"])
+    if doc_id not in corpus.documents:
+        raise KeyError(doc_id)
+    document = corpus.documents[doc_id]
+    terms = parsed.termes_de_recherche()
+    elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
+    cherches = dictionnaire.expand(terms) if elargi else terms
+    prompt = render_prompt(
+        "retrouver", doc_id=doc_id, max_llm_turns=budget.max_llm_turns,
+        max_opens=budget.max_opens, sommaire=index.sommaire(doc_id))
+    question = {
+        "question_resolue": parsed.question_resolue,
+        "termes": terms,
+        "scope": parsed.scope.model_dump(mode="json"),
+    }
+    messages: list[dict[str, Any]] = [{
+        "role": "user",
+        "content": untrusted("question_resolue", json.dumps(question, ensure_ascii=False)),
+    }]
+
+    admitted: list[str] = []
+    admitted_set: set[str] = set()
+    window_opened: list[str] = []
+    search_candidates: list[str] = []
+    blocks_used = 0
+    tokens_used = 0
+    opens = 0
+    searched = False
+    truncated = False
+    pagination_expected: dict[str, int] = {}
+
+    def block(block_id: str) -> Block:
+        if index.doc_of(block_id) != doc_id:
+            raise KeyError(block_id)
+        return document.block(block_id)
+
+    def admit(unit: list[str]) -> list[str]:
+        """Admet une unité atomique sous les deux budgets ; rend ses nouveaux blocs."""
+        nonlocal blocks_used, tokens_used, truncated
+        new = [b for b in unit if b not in admitted_set]
+        try:
+            token_cost = sum(estimate_tokens(f"{b}\n{block(b).text}", settings) for b in new)
+        except KeyError:
+            truncated = True
+            return []
+        if budget.max_blocks is not None and blocks_used + len(new) > budget.max_blocks:
+            truncated = True
+            return []
+        if budget.max_tokens is not None and tokens_used + token_cost > budget.max_tokens:
+            truncated = True
+            return []
+        blocks_used += len(new)
+        tokens_used += token_cost
+        for b in new:
+            admitted_set.add(b)
+            admitted.append(b)
+        return new
+
+    def rendered(block_ids: Iterable[str]) -> list[dict[str, Any]]:
+        return [block(b).model_dump(mode="json") for b in block_ids]
+
+    def invalid() -> tuple[dict[str, Any], bool]:
+        nonlocal truncated
+        truncated = True
+        return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
+
+    def execute(name: str, args: object) -> tuple[dict[str, Any], bool]:
+        nonlocal opens, searched, truncated
+        if not isinstance(args, dict):
+            return invalid()
+        if name == "sommaire":
+            if set(args) != {"doc_id"} or args.get("doc_id") != doc_id:
+                return invalid()
+            return {"doc_id": doc_id, "sommaire": index.sommaire(doc_id)}, False
+        if name == "chercher":
+            termes = _strings(args.get("termes"))
+            if set(args) != {"termes"} or termes is None:
+                return invalid()
+            mapping: dict[str, list[str]] | list[str] = termes
+            if elargi:
+                mapping = dictionnaire.expand(termes)
+            searched = True
+            hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id)
+            search_truncated = len(hits) > budget.search_limit
+            if search_truncated:
+                truncated = True
+                hits = hits[:budget.search_limit]
+            for block_id, _node_id in hits:
+                if block_id not in search_candidates:
+                    search_candidates.append(block_id)
+            return {"candidats": [{"block_id": b, "node_id": n} for b, n in hits],
+                    "truncated": search_truncated}, False
+        if name == "ouvrir_noeud":
+            # Le quota porte sur les appels, pas sur les seules ouvertures valides : une rafale
+            # d'identifiants faux ne doit pas contourner la borne globale.
+            if opens >= budget.max_opens:
+                truncated = True
+                return {"error": "quota d'ouvertures épuisé", "truncated": True}, True
+            opens += 1
+            allowed = {"node_id", "focus_block_id", "cursor"}
+            node_id, focus, cursor = args.get("node_id"), args.get("focus_block_id"), args.get("cursor")
+            if (not set(args) <= allowed or not isinstance(node_id, str)
+                    or (focus is not None and not isinstance(focus, str))
+                    or isinstance(cursor, bool) or (cursor is not None and not isinstance(cursor, int))
+                    or (focus is not None and cursor is not None)):
+                return invalid()
+            try:
+                if index.doc_of_node(node_id) != doc_id:
+                    return invalid()
+                if focus is not None and index.doc_of(focus) != doc_id:
+                    return invalid()
+            except KeyError:
+                return invalid()
+            try:
+                window = index.ouvrir_noeud(node_id, focus_block_id=focus, cursor=cursor,
+                                            node_window=budget.node_window)
+            except (KeyError, ValueError):
+                return invalid()
+            # Une pagination n'est résolue que si elle part du début puis suit chaque curseur.
+            expected = pagination_expected.get(node_id, 0)
+            follows = focus is None and (cursor or 0) == expected
+            if window.next_cursor is not None:
+                pagination_expected[node_id] = window.next_cursor if follows else -1
+            elif follows:
+                pagination_expected.pop(node_id, None)
+            elif window.truncated:
+                pagination_expected[node_id] = -1
+
+            primary: list[str] = []
+            newly: list[str] = []
+            for item in window.blocks:
+                unit = [item.block_id, *[r for r in item.refs if r != item.block_id]]
+                got = admit(unit)
+                if item.block_id in admitted_set:
+                    primary.append(item.block_id)
+                    if item.block_id not in window_opened:
+                        window_opened.append(item.block_id)
+                newly.extend(got)
+            definitions = [b for b, _ in index.definitions(
+                terms, doc_id=doc_id, blocs_ouverts=window_opened) if b not in admitted_set]
+            dependencies: list[str] = [b for b in newly if b not in primary]
+            for definition in definitions:
+                dependencies.extend(admit([definition]))
+            return {
+                "node_id": window.node_id, "title": window.title,
+                "children": [c.model_dump(mode="json") for c in window.children],
+                "blocks": rendered(primary), "dependencies": rendered(dependencies),
+                "truncated": window.truncated or any(b.block_id not in admitted_set for b in window.blocks),
+                "next_cursor": window.next_cursor,
+            }, False
+        if name == "definitions":
+            allowed = {"termes", "blocs_ouverts"}
+            termes = _strings(args.get("termes"))
+            ouverts = _strings(args.get("blocs_ouverts", list(window_opened)))
+            if not set(args) <= allowed or termes is None or ouverts is None:
+                return invalid()
+            # Uniquement les blocs primaires d'une fenêtre : accepter une cible déjà admise ici
+            # permettrait au modèle de suivre ses propres renvois au tour suivant, donc de créer
+            # silencieusement une chaîne de profondeur > 1.
+            if any(b not in window_opened for b in ouverts):
+                return invalid()
+            try:
+                refs = [r for b in ouverts for r in block(b).refs]
+            except KeyError:
+                return invalid()
+            ids: list[str] = []
+            for candidate in (*refs, *(b for b, _ in index.definitions(
+                    termes, doc_id=doc_id, blocs_ouverts=ouverts))):
+                if candidate not in ids:
+                    ids.append(candidate)
+            kept: list[str] = []
+            for candidate in ids:
+                kept.extend(admit([candidate]))
+            return {"blocks": rendered(kept), "truncated": any(b not in admitted_set for b in ids)}, False
+        return invalid()
+
+    used_tools = False
+    for turn in range(budget.max_llm_turns):
+        try:
+            result = await client.tool_turn(
+                tier="reason", system_prefix=prompt, messages=messages, tools=OUTILS_RECHERCHE,
+                budget=request_budget, step=step, max_tokens=settings.retrouver_outils_max_tokens)
+        except PipelineError as exc:
+            # Comme les autres étapes LLM : l'appel éventuellement commencé et son coût doivent
+            # survivre dans la trace partielle de l'erreur terminale.
+            step.ms = int((time.monotonic() - t0) * 1000)
+            exc.step = step
+            raise
+        tool_uses = [b for b in result.message.content if getattr(b, "type", None) == "tool_use"]
+        if not tool_uses:
+            if turn == 0 or not admitted:
+                truncated = True
+            break
+        used_tools = True
+        tool_results: list[dict[str, Any]] = []
+        for use in tool_uses:
+            payload, is_error = execute(str(use.name), use.input)
+            content = untrusted("resultat_outil", json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            item: dict[str, Any] = {"type": "tool_result", "tool_use_id": str(use.id), "content": content}
+            if is_error:
+                item["is_error"] = True
+            tool_results.append(item)
+        if turn + 1 < budget.max_llm_turns:
+            messages.extend([
+                {"role": "assistant", "content": _content_json(result.message)},
+                {"role": "user", "content": tool_results},
+            ])
+    if not used_tools or (not admitted and (search_candidates or not searched)):
+        truncated = True
+    if pagination_expected:
+        truncated = True
+
+    discarded = [b for b in search_candidates if b not in admitted_set]
+    result = RetrievalResult(
+        blocs=[block(b) for b in admitted], opened_block_ids=list(admitted),
+        discarded_block_ids=discarded, truncated=truncated)
+    step.ms = int((time.monotonic() - t0) * 1000)
+    step.opened_block_ids = list(admitted)
+    step.discarded_block_ids = list(discarded)
+    if elargi:
+        base = {forme(t) for t in terms} - {""}
+        touches = sum(1 for variantes in cherches.values()
+                      if any(v and v not in base for v in variantes))
+        step.checks.append(CheckResult(
+            name="dictionnaire", ok=True,
+            detail=f"{dictionnaire.variants_count(terms)} variante(s) ajoutée(s) à {touches} terme(s)"))
+    return result, step
 
 
 def _reserver(nodes: list[str], noeuds_prioritaires: Iterable[str] | None, max_opens: int,

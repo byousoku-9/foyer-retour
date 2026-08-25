@@ -2260,3 +2260,43 @@ publiés sans texte de bloc dans la trace.
   boucle. Les écrans affichent donc volontairement leur absence.
 
 Revue Codex : 0 bloquants / 2 importants, convergé en 1 tour(s) (boucle autonome).
+
+## Story 2.6 — Navigation par outils sur le sommaire
+
+Vérifications effectuées le 25/08/2026 avec la chaîne aval commune aux variantes : seule l'étape
+*retrouver* est dispatchée. Le même préfixe et le même appel de *rédiger* sont donc employés pour
+`deterministe` et `outils`.
+
+### Smoke fournisseur et rejeu hermétique
+
+- La question guide retenue a d'abord été exécutée avec `variant="deterministe"`. Ce passage est un
+  diagnostic de non-régression sur la même question, **pas** la baseline comparative de la story 4.1 :
+  le dépôt ne possède encore ni profil `full`, ni cache de campagne, ni agrégation à `cases_hash` égal.
+- Lors du premier passage `outils` à cache froid, les deux tours de navigation ont abouti et avaient
+  consommé **0,0469 €**. Le garde-fou commun a ensuite refusé *avant rédiger* : le prochain appel était
+  majoré à **0,0875 €**, soit une projection supérieure au plafond inchangé de **0,10 €**. Ce chemin
+  froid nominal ne produit donc pas de 200 et **O1 n'est pas pleinement vérifié**.
+- Une passe chaude ultérieure a produit une réponse sourcée avec `trace.variant="outils"`, exactement
+  **2 appels** de navigation, **14 blocs ouverts** et un coût total réel de **0,0297 €**. Elle prouve le
+  transport, la navigation et la chaîne aval, mais ne remplace pas la preuve cold path manquante.
+- `ANTHROPIC_API_KEY= uv run pytest -q tests/test_pipeline_live.py -k
+  'diagnostic_for_outils or outils_navigates'` rejoue les deux fixtures sans réseau : **2 passés**.
+  La même sélection avec la clé de `.env` a aussi donné **2 passés**, après réchauffement des préfixes.
+
+Le plafond n'a pas été relevé et *rédiger* n'a reçu aucun traitement spécifique à la variante. Le
+majorant minimal de son appel à froid, préfixe et schéma communs compris, est d'environ **0,0534 €**
+même sans sortie ni bloc documentaire ; ajouté aux 0,0469 € déjà consommés par la navigation, il
+dépasse à lui seul le plafond. Réduire seulement le plafond de sortie outils ne suffit donc pas. La
+comparaison officielle recall/coût/latence p50 reste explicitement différée à 4.1.
+
+### Gates et suite hors ligne
+
+- `uv run python -m server.evals.run --gate lux-guide --profile vertical` :
+  `bonne_reponse`, `evals_ok=true`, 1 cas, `countersigned=false`, coût **0,0308 €** lors du rejeu
+  indépendant final (**0,0260 €** lors du premier passage d'implémentation).
+- `uv run python -m server.evals.run --gate axa-lu-optihome-2017 --profile vertical` :
+  `bonne_reponse`, `evals_ok=true`, 1 cas, `countersigned=false`, coût **0,0358 €** lors du rejeu
+  indépendant final (**0,0415 €** lors du premier passage d'implémentation).
+- `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` : **2 085 passés** ;
+  `tests/test_digests.py` : **10 passés** ; `uv run ruff check .` et `git diff --check` : verts.
+- Les contresignatures restent humaines et dues ; aucun cas n'a été signé par la boucle.

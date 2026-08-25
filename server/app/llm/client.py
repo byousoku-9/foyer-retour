@@ -104,6 +104,15 @@ class LlmResult(Generic[T]):
     call: LLMCall
 
 
+@dataclass
+class ToolTurnResult:
+    """Réponse brute d'un tour d'outils, conservant tous les blocs `tool_use`."""
+
+    message: Any
+    usage: Usage
+    call: LLMCall
+
+
 def _cache_key(body: dict[str, Any]) -> str:
     payload = json.dumps(body, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -338,6 +347,95 @@ class LlmClient:
                                                 + untrusted("motif", problem)
                                                 + "\nCorrige exactement ce qu'il décrit et réponds à nouveau, "
                                                   "uniquement avec le JSON conforme au schéma."}]
+
+    async def tool_turn(
+        self,
+        *,
+        tier: Tier,
+        system_prefix: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        budget: RequestBudget,
+        step: StepTrace,
+        max_tokens: int,
+    ) -> ToolTurnResult:
+        """Un tour brut d'outils, avec les mêmes bornes, prix, cache et traces que `parse()`.
+
+        Contrairement à `parse()`, cette couture n'impose aucun schéma de sortie et ne transforme
+        jamais `tool_use` ou `pause_turn` en erreur : l'étape appelante doit exécuter les outils et
+        borner le dialogue. Il n'existe donc aucun retry de parse caché.
+        """
+        settings = self._settings
+        model = model_for(tier)
+        caps = MODEL_CAPS[model]
+        cache_control: dict[str, Any] = {"type": "ephemeral"}
+        if caps["cache_ttl"] == "1h":
+            cache_control["ttl"] = "1h"
+        system = [{"type": "text", "text": system_prefix, "cache_control": cache_control}]
+        output_config = {"effort": EFFORT[tier]} if caps["effort"] else None
+        extra_body = {"temperature": 0} if caps["temperature"] else None
+        prefix_digest = _cache_key({"model": model, "system": system, "tools": tools})
+        body = {"model": model, "max_tokens": max_tokens, "system": system,
+                "messages": messages, "tools": tools, "output_config": output_config,
+                "extra_body": extra_body}
+        key = _cache_key(body)
+        if self._cache is not None and (hit := self._cache.get(key)) is not None:
+            try:
+                message = anthropic.types.Message.model_validate(hit["response"])
+            except (pydantic.ValidationError, KeyError, TypeError) as exc:
+                raise LlmParse(f"entrée de cache d'évals invalide : {type(exc).__name__}") from exc
+            usage = Usage(cached_response=True, cost_eur=0.0, cost_eur_original=hit["cost_eur"])
+            call = LLMCall(model=message.model, ms=0, usage=usage,
+                           tools=[str(t.get("name", "")) for t in tools])
+            self._note_call(step, call)
+            return ToolTurnResult(message=message, usage=usage, call=call)
+
+        if budget.remaining() <= 0:
+            raise Timeout(f"deadline épuisée avant l'appel ({budget.remaining():.1f} s restantes)")
+        if budget.attempts >= budget.max_attempts:
+            raise BudgetExceeded(f"plafond d'appels atteint ({budget.attempts}/{budget.max_attempts})")
+        estimate = estimate_cost(model, system, messages, max_tokens, settings, tools=tools,
+                                 prefix_cached=budget.prefix_seen(prefix_digest))
+        if budget.cost_eur + estimate > budget.max_cost_eur:
+            raise BudgetExceeded(
+                f"plafond de coût par requête : {budget.cost_eur:.4f} € déjà engagés "
+                f"+ {estimate:.4f} € estimés > {budget.max_cost_eur:.4f} €")
+
+        timeout = budget.timeout_for_call(settings.llm_timeout_s)
+        kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
+                                  "messages": messages, "tools": tools, "timeout": timeout}
+        if output_config is not None:
+            kwargs["output_config"] = output_config
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        tool_names = [str(t.get("name", "")) for t in tools]
+        budget.attempts += 1
+        t0 = time.monotonic()
+        try:
+            message = await self._anthropic.messages.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 — même mapping total que `parse`
+            ms = int((time.monotonic() - t0) * 1000)
+            self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names))
+            raise map_provider_error(exc) from exc
+        ms = int((time.monotonic() - t0) * 1000)
+        usage = cost_from_usage(model, message.usage, settings.usd_eur)
+        budget.note_call(usage)
+        cache_write = self._cache_write_tokens(message.usage)
+        if cache_write or usage.cached:
+            budget.note_prefix(prefix_digest)
+        call = LLMCall(model=message.model, ms=ms, usage=usage,
+                       cache_read=usage.cached, cache_write=cache_write, tools=tool_names)
+        self._note_call(step, call)
+        if budget.cost_eur > settings.cost_alert_eur and not budget.cost_alerted:
+            budget.cost_alerted = True
+            step.checks.append(CheckResult(
+                name="cout_eleve", ok=False,
+                detail=f"coût cumulé de la requête {budget.cost_eur:.4f} € > "
+                       f"cost_alert_eur {settings.cost_alert_eur:.4f} € "
+                       f"(dernier appel : {usage.cost_eur:.4f} €)"))
+        if self._cache is not None:
+            self._cache.set(key, {"response": message.to_dict(), "cost_eur": usage.cost_eur})
+        return ToolTurnResult(message=message, usage=usage, call=call)
 
     async def count_tokens(self, model: str, system: str | None, messages: list[dict[str, Any]]) -> int:
         """Tokens réels d'une requête au tokenizer du modèle (`/v1/messages/count_tokens`)."""

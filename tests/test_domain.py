@@ -598,7 +598,9 @@ def test_ingest_models() -> None:
     assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
                                             "overlay_hash", "gate"}
     assert literal_values(ingest.ManifestEntry, "status") == {"servi", "quarantaine"}
-    assert fields(retrieval.NodeWindow) == {"node_id", "blocks", "truncated", "next_cursor"}
+    assert fields(retrieval.NodeChild) == {"node_id", "title"}
+    assert fields(retrieval.NodeWindow) == {
+        "node_id", "title", "children", "blocks", "truncated", "next_cursor"}
     r = ingest.Report(doc_id="d", checks=[{"name": "a", "level": "bloquant"}, {"name": "b", "level": "alerte"}])
     assert [c.name for c in r.blocking] == ["a"] and [c.name for c in r.alerts] == ["b"]
 
