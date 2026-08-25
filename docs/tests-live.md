@@ -2634,3 +2634,53 @@ Sur l'arbre final, 266 tests ciblés puis 2 096 tests hermétiques passent ; les
 Ruff et `git diff --check` passent. Les gates verticaux finaux sont verts 1/1 du premier passage sur
 ce code : guide en 10,854 s à 0,0277 €, contrat en 13,234 s à 0,0280 €, toujours
 `countersigned=false`.
+
+### Campagnes A et B — relevé consolidé sur le build final
+
+Ce relevé remplace, pour la décision de clôture, les arrêts sur crédit et les sorties intermédiaires
+conservés plus haut. Les appels ci-dessous ont tous visé le service HTTP réel, avec la clé chargée
+depuis `.env`, jamais les fixtures. Les cas A1–A5 et A7–A8/A10/A12–A13 ont été rejoués après les
+commits `0c3edc7` et `fadf030`; A6, A9 et A11 ont été rejoués sur le même arbre juste avant ces
+commits, sans changement exécutable ensuite.
+
+| Socle A | Résultat final réel | Jugement |
+|---|---|---|
+| A1 « Comment choisir ma commune ? » | 200 en 13,457 s / 0,0340 € ; `choisir_commune`; trois sources. | Réponse utile immédiatement, fiche attendue. |
+| A2 « Comment trouver un logement au Luxembourg ? » | 200 en 15,895 s / 0,0326 € ; `recherche_logement` puis `choisir_commune`. | Le canal de recherche vient avant le complément de localisation. |
+| A3 « Dans quel délai dois-je me déclarer à la commune ? » | 200 en 10,218 s / 0,0250 € ; `arrivee`, « huit jours », deux sources. | Le délai est en tête et sans détour. |
+| A4 « Il fait quel temps aujourd'hui ? » | 200 en 1,232 s / 0,0008 € ; `intent=meteo`, aucune source. | Refus court, aucun corpus forcé. |
+| A5 vide / « ? » | 400 `invalid_request`, puis 200 `bavardage` / 0,0008 € ; aucune source. | Aucun plantage ni appel documentaire indu. |
+| A6 bougie sans embrasement | 200 en 23,244 s / 0,0487 € ; `p34:12` affichée. | Conservateur et décisionnel ; la ceinture pleine est confirmée. |
+| A7 « Mon chien a mâchonné une table de valeur, je suis couvert ? » | 200 en 17,887 s / 0,0326 € ; `p35:2` citée. | L'exclusion animale est visible et la limite de typage est honnête. |
+| A8 « Mon chat a mangé la Lune. » | 200 en 2,230 s / 0,0036 € ; clarification, aucune source. | Aucun verdict ni passage inventé. |
+| A9 fuite lente puis plafond soudain | deux 200 en 13,512/20,355 s, 0,0306/0,0394 € ; chronologie exacte, aucun retry. | Les deux phases sont en tête, sans fausse alternative. |
+| A10 porte sans trace d'effraction | 200 en 15,735 s / 0,0352 € ; quatre passages, typage fondateur explicitement non confirmé. | Lisible et non contradictoire. |
+| A11 orage, appareils et nourriture | 200 en 23,632 s / 0,0424 € ; `p34:15` affichée, rédaction unique. | Les deux volets sont traités ; le risque de retry non déterministe reste consigné plus haut. |
+| A12 fils du voisin et RC | 200 en 9,714 s / 0,0232 € ; `p66:10`. | Le sens de la RC est expliqué sans choisir un assureur. |
+| A13 radiateur volontaire, eau accidentelle | 200 en 24,986 s / 0,0628 € ; `p37:14`, limite de typage exacte. | La causalité est conservée sans verdict fabriqué. |
+
+Le tour Chrome headless final, viewport 390 px, rend `/`, `/guide/` et `/sinistre/` sans
+débordement du document ni ressource déclarée en erreur. Les onglets du guide dépassent leur boîte
+individuelle uniquement dans leur rail horizontal prévu; `documentElement.scrollWidth` reste 390 px.
+Une première simulation d'arrêt gracieux a été rejetée comme preuve : Uvicorn a laissé finir la
+requête en vol. Avec le processus serveur réellement coupé avant l'envoi, l'écran montre un unique
+bandeau **Assistant indisponible** visible, explique que rien n'a été cherché, retire le tour sans
+réponse et propose exactement un bouton visible « Consulter le guide en recherche simple ».
+
+#### Campagne B — dix cas nouveaux, mot pour mot
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d'expérience | Ce qui a été corrigé |
+|---|---|---|---|---|
+| B1 | « J'débarque à Esch, la mairie c'est avant ou après le matricule, et je prends quoi comme papiers ? » | 200 : déclaration communale, matricule, délai de huit jours et pièces utiles. | Bon : la démarche à faire vient avant le détail administratif. | Le rappel par couverture et la forme usuelle `déclarer arrivée` ramènent la bonne fiche. |
+| B2 | « Le matricule, c'est mon IBAN luxembourgeois ou un numéro à demander quelque part ? » | 200 : ce n'est pas l'IBAN mais le numéro national à treize chiffres, obtenu via la commune. | Excellent : le présupposé faux est corrigé dès la première phrase. | Aucun correctif supplémentaire. |
+| B3 | « On n'a pas encore choisi de commune mais je dois déjà inscrire ma fille à l'école : je commence où ? » | 200 : préparer les pièces maintenant, choisir la commune avant l'inscription effective. | Bon : donne une action possible sans inventer une commune. | Aucun correctif supplémentaire. |
+| B4 | « J'ai pas de bagnole : vaut mieux vivre loin avec un train ou près du boulot avec deux bus ? » | 200 : comparer temps porte-à-porte, fréquence, correspondances et horaires soir/week-end. | Bon : comparaison concrète, vocabulaire familier compris. | Aucun correctif supplémentaire. |
+| B5 | « Mon proprio veut trois mois cash et dit que la garantie bancaire n'existe pas ici, c'est vrai ? » | 200 : présupposé réfuté, plafond de deux mois depuis août 2024 et garantie bancaire possible. | Excellent : le point décisif est en tête. | Aucun correctif supplémentaire. |
+| B6 | « Ça fuyait un peu depuis des mois, mais le plafond est tombé d'un coup hier : on retient lent ou soudain ? » | Deux 200 : aucune clarification, phases lentes et soudaines affichées, passages dégâts des eaux cités. | Bon : aucune fausse alternative; chronologie lisible en trois secondes. | Conservation des phases dans *comprendre*, puis préfixe déterministe des faits déclarés. |
+| B7 | « La porte était fermée, enfin je crois, mais aucune trace d'effraction et l'ordinateur a disparu. Couvert ? » | Deux 200 : passages affichés, aucun typage fondateur confirmé. | Bon et honnête : ne nie plus les passages visibles. | Branche de raison distincte pour passages non typés affichés. |
+| B8 | « L'orage a grillé la télé et le congélateur ; la nourriture perdue compte aussi ou seulement les appareils ? » | Deux 200 : `p34:15` citée et limite de typage précise. | Bon : la nourriture n'est pas noyée derrière les appareils. | Rédaction bornée par le nombre de facettes et retry tronqué non réinjecté. |
+| B9 | « Le fils du voisin a cassé ma table en jouant chez moi, c'est leur RC ou mon contrat habitation qui répond ? » | Deux 200 : `p66:10`, sens de la RC expliqué, aucun assureur choisi. | Bon : aide à décider sans surpromesse. | Forme composée RC conditionnée aux notions déjà extraites et claim de sens vérifiable. |
+| B10 | « J'ai renversé exprès le radiateur parce qu'il fuyait, mais les dégâts d'eau derrière sont accidentels : je déclare quoi ? » | Deux 200 : passages dégâts des eaux, causalité déclarée, typage non confirmé. | Bon : la distinction volontaire/accidentelle reste visible. | Même raison honnête pour passages affichés; matrice AD-6 inchangée. |
+
+Les corrections B6–B10 sont désormais les cas A9–A13 d'`automation/epreuves.md`. B1–B5 n'ont
+révélé aucun défaut supplémentaire. La campagne complète A ne contient aucun échec sur l'arbre final.
