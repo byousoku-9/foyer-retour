@@ -365,17 +365,19 @@ def executer(client: Any, reqs: list[dict[str, Any]], settings: Settings,
     apparier des résultats à des requêtes par leur rang ferait attribuer les termes d'une catégorie
     à une autre — une erreur silencieuse et indétectable dans le fichier produit.
 
-    Une requête `errored` / `expired` / `canceled` n'annule pas les autres : ce qui est revenu est
-    conservé, et l'échec est **affiché** (AD-16 — dit, jamais tu).
+    Une requête `errored` / `expired` / `canceled` n'annule pas les **autres** : ce qui est revenu
+    est conservé et l'échec est **affiché** (AD-16 — dit, jamais tu). Ce qui est refusé, plus haut
+    dans `main`, c'est d'**écrire** un dictionnaire amputé en le déclarant complet (revue Codex 2.1,
+    B2) : la fonction rend les résultats et les échecs, la décision d'écrire se prend là où l'on sait
+    ce qui était attendu.
 
     **Une réponse tronquée est un échec, pas un résultat** (revue coordonnée 2.1). Le lot rend un
     `stop_reason` ; une sortie coupée à `max_tokens` rend du JSON invalide, et sans ce contrôle
     `agreger` s'en tirait par une plainte sur stderr pendant qu'une catégorie entière disparaissait
     du dictionnaire — avec un code de sortie 0. Le cas n'est pas théorique : la catégorie « Questions
     fréquentes » du guide porte 41 fiches. Tout `stop_reason` qui n'est pas une fin normale est donc
-    nommé dans `echecs`, comme une requête `errored` — la matrice d'E/S y répond déjà (« les autres
-    sont conservés ; l'échec est affiché »), et le coût de l'appel tronqué reste compté : il a été
-    facturé.
+    nommé dans `echecs`, comme une requête `errored`, et le coût de l'appel tronqué reste compté :
+    il a été facturé.
     """
     lot = client.messages.batches.create(requests=reqs)
     batch_id = _attr(lot, "id")
@@ -434,13 +436,22 @@ def _valider(texte: str, model: type[BaseModel]) -> BaseModel | None:
 
 def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Controles,
             settings: Settings) -> tuple[dict[str, list[str]], dict[str, list[str]],
-                                         dict[str, list[str]], list[str]]:
-    """`(corpus_termes, intents, candidate_questions, plaintes)` — tout ce qui passe les contrôles.
+                                         dict[str, list[str]], list[str], set[str]]:
+    """`(corpus_termes, intents, candidate_questions, plaintes, traites)` — ce qui passe les contrôles.
 
     Rien n'est rendu tel quel : chaque chaîne repasse par `Controles`, chaque `fiche_id` est confronté
     aux nœuds réels du document, et les bornes de nombre (`max_variants`, `max_terms_per_fiche`,
     `max_questions_per_fiche`, `max_intent_triggers`) sont appliquées **ici**, après filtrage — sans
     quoi une entrée écartée aurait consommé un rang.
+
+    **`traites` est ce qui rend l'incomplétude détectable** (revue Codex 2.1, B2) : les `custom_id`
+    dont la requête a réellement produit quelque chose. Une catégorie y entre quand elle a livré **au
+    moins un canonique** — c'est le mot de l'AC (« au moins un canonique par catégorie du guide ») —
+    et non quand son JSON s'est laissé lire : une catégorie dont tous les termes sont écartés par les
+    contrôles ne donne aucun vocabulaire aux fiches qu'elle couvre, et le fichier ne peut pas
+    prétendre décrire le corpus. La requête des intentions, elle, y entre dès que sa sortie est
+    conforme : `intents` n'est lu par personne (`target_story: 2.5`), un déclencheur écarté ne
+    change rien à ce que le serveur trouve ou refuse.
     """
     cats = {custom_id(c.node_id): c for c in categories(corpus, doc_id)}
     plaintes: list[str] = []
@@ -448,6 +459,7 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
     questions: dict[str, list[str]] = {}
     intents: dict[str, list[str]] = {}
     par_fiche: dict[str, int] = {}
+    traites: set[str] = set()
 
     for cle, texte in sorted(textes.items()):
         if cle == CUSTOM_ID_INTENTS:
@@ -464,6 +476,7 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
                     d = controles.terme(brut)
                     if d and d not in retenus and len(retenus) < settings.dictionary_max_intent_triggers:
                         retenus.append(d)
+            traites.add(cle)
             continue
 
         cat = cats.get(cle)
@@ -497,6 +510,7 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
                         and len(variantes) < settings.dictionary_max_variants_per_term:
                     variantes.append(v)
             termes[canonique] = variantes
+            traites.add(cle)  # la catégorie a livré au moins un canonique
             par_fiche[entree.fiche_id] = par_fiche.get(entree.fiche_id, 0) + 1
         for entree in sortie.questions:
             if not controles.fiche(entree.fiche_id, connues):
@@ -507,7 +521,7 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
             retenues = questions.setdefault(entree.fiche_id, [])
             if q not in retenues and len(retenues) < settings.dictionary_max_questions_per_fiche:
                 retenues.append(q)
-    return termes, intents, questions, plaintes
+    return termes, intents, questions, plaintes, traites
 
 
 # --- écriture --------------------------------------------------------------
@@ -526,7 +540,8 @@ def _trier(fichier: DictionaryFile) -> DictionaryFile:
     })
 
 
-def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, *, sortie: Any = sys.stdout) -> int:
+def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
+                      *, sortie: Any = sys.stdout) -> int:
     """`--valider "Nom"` : trois champs, et **rien d'autre** (AD-5).
 
     C'est la seule chose qui arme le refus « zéro hit », et c'est un acte humain : le run refuse si le
@@ -554,10 +569,13 @@ def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, *, sortie: Any = s
         print(f"{chemin} illisible ou non conforme, rien n'a été écrit : {type(exc).__name__}",
               file=sys.stderr)
         return 5
-    attendu = {doc_id: corpus.manifest[doc_id].source_hash for doc_id in corpus.served
-               if doc_id in fichier.corpus_source_hashes}
-    if not fichier.corpus_source_hashes or attendu != fichier.corpus_source_hashes:
-        print(f"{chemin} décrit un autre corpus que celui qui est servi "
+    attendu = {declare: corpus.manifest[declare].source_hash for declare in corpus.served
+               if declare in fichier.corpus_source_hashes}
+    # `doc_id` — le document que le pipeline appliquera — doit être **nommé** (revue Codex 2.1, B3) :
+    # sans cette ligne, signer un dictionnaire ne décrivant que le contrat AXA sortait en code 0 avec
+    # « le refus « zéro hit » est armé », alors que le serveur, lui, le refuse (`corpus_ok`).
+    if doc_id not in fichier.corpus_source_hashes or attendu != fichier.corpus_source_hashes:
+        print(f"{chemin} ne décrit pas le corpus servi pour {doc_id!r} "
               f"({sorted(fichier.corpus_source_hashes)}) : rien n'a été écrit — relancer "
               "l'enrichissement avant de valider", file=sys.stderr)
         return 5
@@ -614,7 +632,7 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     chemin = data_dir / DICTIONARY_FILE
 
     if args.valider is not None:
-        return valider_a_la_main(chemin, corpus, args.valider.strip(), sortie=sortie)
+        return valider_a_la_main(chemin, corpus, args.valider.strip(), doc_id, sortie=sortie)
 
     reqs = requetes(corpus, doc_id, settings, limit=args.limit)
     plafond = settings.dictionary_max_cost_eur if args.max_cost is None else args.max_cost
@@ -654,11 +672,28 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         return 4
 
     controles = Controles(settings, formes_des_blocs(corpus, doc_id))
-    termes, intents, questions, plaintes = agreger(textes, corpus, doc_id, controles, settings)
+    termes, intents, questions, plaintes, traites = agreger(textes, corpus, doc_id, controles,
+                                                            settings)
     for plainte in plaintes:
         print(f"avertissement : {plainte}", file=sys.stderr)
     if not termes:
         print("aucun terme n'a passé les contrôles : rien n'a été écrit", file=sys.stderr)
+        return 4
+
+    # **Un lot incomplet ne produit pas un dictionnaire complet** (revue Codex 2.1, B2). Le seul
+    # garde-fou était `--limit` : une requête `errored`, `expired`, tronquée à `max_tokens`, hors
+    # schéma, ou dont tous les termes tombaient sous les contrôles, disparaissait avec un simple
+    # message sur stderr — et le fichier recevait quand même l'empreinte **entière** du corpus. Il
+    # était donc signable, et armait le refus « zéro hit » sur les catégories absentes : un faux
+    # refus par construction, exactement ce que l'écriture inerte d'un run `--limit` évite.
+    # Rien n'est écrit dans ce cas : le dictionnaire déjà commité — éventuellement signé — reste en
+    # place, et relancer est la seule suite. Le code 4 est celui des autres échecs de lot.
+    manquants = sorted({r["custom_id"] for r in reqs} - traites)
+    if manquants:
+        print(f"lot incomplet : {len(manquants)} requête(s) sur {len(reqs)} n'ont rien donné "
+              f"({', '.join(manquants)}) — un dictionnaire amputé de ces catégories armerait un "
+              "faux refus sur les fiches qu'elles couvrent. Rien n'a été écrit : relancer "
+              "`python -m server.ingest.enrich_dictionary`.", file=sys.stderr)
         return 4
 
     # **Un run partiel ne se déclare pas complet** (revue coordonnée 2.1). `corpus_source_hashes`

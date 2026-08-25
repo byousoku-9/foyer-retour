@@ -32,29 +32,39 @@ DOC_ID = "mini"
 SOURCE_HASH = "sha-source"
 FICHE = f"{DOC_ID}:farrivee"
 CAT = f"{DOC_ID}:cat:administratif"
+FICHE2 = f"{DOC_ID}:fbail"
+CAT2 = f"{DOC_ID}:cat:logement"
 PASSAGE = "Vous disposez de huit jours après votre arrivée pour vous déclarer au Biergercenter."
 
 
 # --- corpus miniature écrit sur disque (le CLI charge `data/` lui-même) ----
 
-def _document(source_hash: str = SOURCE_HASH) -> Document:
+def _document(source_hash: str = SOURCE_HASH, *, deux_categories: bool = False) -> Document:
+    """Le corpus miniature. `deux_categories` ajoute « Logement » : c'est ce qui permet d'exercer un
+    lot **partiellement** perdu (revue Codex 2.1, B2) — une catégorie tombe, l'autre revient."""
     blocks = [Block(block_id=f"{DOC_ID}:farrivee:1", text=PASSAGE, loc="farrivee", seq=1)]
+    nodes = [Node(node_id=f"{DOC_ID}:root", title="Mini", items=[NodeRef(node_id=CAT)]),
+             Node(node_id=CAT, level=1, title="Administratif", items=[NodeRef(node_id=FICHE)]),
+             Node(node_id=FICHE, level=2, title="Les huit premiers jours",
+                  items=[BlockRef(block_id=f"{DOC_ID}:farrivee:1")])]
+    if deux_categories:
+        blocks.append(Block(block_id=f"{DOC_ID}:fbail:1", text="Le bail se signe pour trois ans.",
+                            loc="fbail", seq=1))
+        nodes[0].items.append(NodeRef(node_id=CAT2))
+        nodes += [Node(node_id=CAT2, level=1, title="Logement", items=[NodeRef(node_id=FICHE2)]),
+                  Node(node_id=FICHE2, level=2, title="Signer un bail",
+                       items=[BlockRef(block_id=f"{DOC_ID}:fbail:1")])]
     return Document(doc_id=DOC_ID, kind="guide", title="Mini", edition="git:test",
-                    source_hash=source_hash, ingest_fingerprint="fp", nodes=[
-                        Node(node_id=f"{DOC_ID}:root", title="Mini",
-                             items=[NodeRef(node_id=CAT)]),
-                        Node(node_id=CAT, level=1, title="Administratif",
-                             items=[NodeRef(node_id=FICHE)]),
-                        Node(node_id=FICHE, level=2, title="Les huit premiers jours",
-                             items=[BlockRef(block_id=f"{DOC_ID}:farrivee:1")]),
-                    ], blocks=blocks)
+                    source_hash=source_hash, ingest_fingerprint="fp", nodes=nodes, blocks=blocks)
 
 
 SUMMARY = (f"# Mini\n\n## Administratif\n\n- `{FICHE}` · Les huit premiers jours · "
            "Tout part de la commune. · tags : arrivée, commune\n")
+SUMMARY_2 = (f"\n## Logement\n\n- `{FICHE2}` · Signer un bail · "
+             "Trois ans, résiliation annuelle. · tags : bail, logement\n")
 
 
-def _ecrire_data(tmp_path: Path) -> Path:
+def _ecrire_data(tmp_path: Path, *, deux_categories: bool = False) -> Path:
     """Un `data/` minimal que `load_corpus` sert (hashes cohérents, gate absent + `allow_ungated`)."""
     import hashlib
 
@@ -62,10 +72,11 @@ def _ecrire_data(tmp_path: Path) -> Path:
 
     doc_dir = tmp_path / DOC_ID
     doc_dir.mkdir(parents=True, exist_ok=True)
-    (doc_dir / "summary.md").write_text(SUMMARY, "utf-8")
+    (doc_dir / "summary.md").write_text(
+        SUMMARY + (SUMMARY_2 if deux_categories else ""), "utf-8")
     (doc_dir / "source.js").write_text("kb = {}\n", "utf-8")
     source_hash = hashlib.sha256((doc_dir / "source.js").read_bytes()).hexdigest()
-    texte = document_json(_document(source_hash))
+    texte = document_json(_document(source_hash, deux_categories=deux_categories))
     (doc_dir / "document.json").write_text(texte, "utf-8")
     entree = ManifestEntry(
         status="servi", source_hash=source_hash, ingest_fingerprint="fp",
@@ -195,8 +206,17 @@ def _settings(**kw: Any) -> Settings:
 
 def _lancer(tmp_path: Path, reponses: dict, *, args: list[str] | None = None,
             settings: Settings | None = None, etats: list[str] | None = None,
-            dors: list[float] | None = None) -> tuple[int, str, FauxBatches]:
-    data = _ecrire_data(tmp_path)
+            dors: list[float] | None = None,
+            deux_categories: bool = False) -> tuple[int, str, FauxBatches]:
+    """`reponses` = `{custom_id: sortie | statut d'échec}`.
+
+    La requête des intentions répond **par défaut** : depuis la revue Codex 2.1 (B2), un lot dont une
+    requête n'a rien donné n'écrit plus rien, et la plupart des cas d'ici portent sur autre chose.
+    Pour l'omettre exprès — c'est un cas à part entière —, passer `{"intents": None}`.
+    """
+    reponses = {ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS} | reponses
+    reponses = {k: v for k, v in reponses.items() if v is not None}
+    data = _ecrire_data(tmp_path, deux_categories=deux_categories)
     batches = FauxBatches(reponses, etats=etats or ["ended"])
     flux = io.StringIO()
     horloge = iter(range(0, 100000, 30))
@@ -333,11 +353,55 @@ def test_une_sortie_hors_schema_est_ignoree_et_dite(tmp_path: Path, capsys: Any)
 
 @pytest.mark.parametrize("statut", ["errored", "expired", "canceled"])
 def test_une_requete_en_echec_nannule_pas_les_autres(tmp_path: Path, capsys: Any, statut: str) -> None:
+    """L'échec est **dit** (AD-16) et n'annule pas les résultats des autres requêtes…
+
+    …mais le fichier, lui, n'est **pas** écrit : voir
+    `test_un_lot_incomplet_nest_jamais_ecrit_comme_un_dictionnaire_complet`. Ce cas garde la moitié
+    « les autres sont conservées » : l'agrégation a bien tourné sur ce qui est revenu.
+    """
     code, _texte, _ = _lancer(tmp_path, {ed.custom_id(CAT): _sortie_categorie(), "intents": statut})
-    assert code == 0
-    assert _lu(tmp_path).intents == {}          # la requête perdue n'a rien apporté
-    assert "déclaration d'arrivée" in _lu(tmp_path).corpus  # les autres sont conservées
-    assert f"intents : {statut}" in capsys.readouterr().err
+    assert code == 4
+    erreur = capsys.readouterr().err
+    assert f"intents : {statut}" in erreur
+    assert "lot incomplet" in erreur and ed.CUSTOM_ID_INTENTS in erreur
+
+
+@pytest.mark.parametrize("panne", [
+    "errored",                                  # la requête a échoué côté API
+    None,                                       # aucun résultat pour ce `custom_id`
+    {"pas": "le schéma"},                       # sortie non conforme
+    {"termes": [], "questions": []},            # conforme, mais aucun canonique pour la catégorie
+])
+def test_un_lot_incomplet_nest_jamais_ecrit_comme_un_dictionnaire_complet(
+        tmp_path: Path, capsys: Any, panne: Any) -> None:
+    """Revue Codex 2.1 (B2) : le seul garde-fou était `--limit`.
+
+    Une catégorie perdue — requête `errored`/`expired`, réponse absente, tronquée, hors schéma, ou
+    dont aucun terme ne passe les contrôles — laissait écrire un dictionnaire portant l'empreinte
+    **entière** du corpus, avec un code 0. Ce fichier était signable, et armait alors le refus
+    « zéro hit » sur les fiches des catégories absentes : un faux refus par construction, et
+    exactement ce que l'écriture inerte d'un run `--limit` évite depuis la revue coordonnée.
+
+    Rien n'est écrit : le dictionnaire déjà commité — éventuellement signé par une main — reste en
+    place, et relancer est la seule suite. Le cas est ici exercé **sur une catégorie**, pas seulement
+    sur la requête des intentions.
+    """
+    data = _ecrire_data(tmp_path, deux_categories=True)
+    (data / "dictionary.json").write_text("dictionnaire précédent", "utf-8")
+
+    # « Logement » revient normalement ; « Administratif » tombe. Sans le contrôle, le fichier
+    # s'écrivait avec l'empreinte entière du corpus et un code 0.
+    code, _texte, _ = _lancer(tmp_path, {
+        ed.custom_id(CAT): panne,
+        ed.custom_id(CAT2): _sortie_categorie(
+            termes=[{"fiche_id": FICHE2, "canonique": "bail", "variantes": ["lease"]}],
+            questions=[])}, deux_categories=True)
+
+    assert code == 4
+    assert (data / "dictionary.json").read_text("utf-8") == "dictionnaire précédent"
+    erreur = capsys.readouterr().err
+    assert "lot incomplet" in erreur and ed.custom_id(CAT) in erreur
+    assert ed.custom_id(CAT2) not in erreur  # celle qui a répondu n'est pas mise en cause
 
 
 def test_aucun_resultat_exploitable_sort_en_code_4_sans_rien_ecrire(tmp_path: Path) -> None:
@@ -492,6 +556,35 @@ def test_valider_sur_un_corpus_perime_necrit_rien(tmp_path: Path, hashes: dict) 
     assert (tmp_path / "dictionary.json").read_text("utf-8") == avant
 
 
+def test_valider_refuse_un_dictionnaire_qui_decrit_un_autre_document_servi(tmp_path: Path,
+                                                                           capsys: Any) -> None:
+    """Revue Codex 2.1 (B3), versant CLI : « les empreintes sont valides » n'est pas « la bonne ».
+
+    Le contrôle comparait les empreintes déclarées à celles des documents servis **qu'elles
+    nomment** : un dictionnaire ne décrivant que le contrat AXA passait donc, et `--valider` sortait
+    en code 0 avec « le refus « zéro hit » est armé » — alors que le serveur, lui, le refuse
+    (`corpus_ok`). Deux lecteurs, deux réponses, et la CLI affirmait la fausse.
+    """
+    corpus = _corpus_en_memoire()
+    corpus.documents["axa"] = corpus.documents[DOC_ID]
+    corpus.manifest["axa"] = ManifestEntry(status="servi", source_hash="sha-du-contrat",
+                                           ingest_fingerprint="fp", document_hash="d",
+                                           edition="git:test")
+    chemin = tmp_path / "dictionary.json"
+    fichier = {"schema_version": "1", "corpus_source_hashes": {"axa": "sha-du-contrat"},
+               "corpus": {"franchise": ["deductible"]}, "intents": {}, "candidate_questions": {},
+               "validated": False, "validated_by": None, "validated_at": None}
+    avant = json.dumps(fichier, ensure_ascii=False)
+    chemin.write_text(avant, "utf-8")
+
+    code = ed.valider_a_la_main(chemin, corpus, "Lancelot Oudin", DOC_ID, sortie=io.StringIO())
+
+    assert code == 5 and chemin.read_text("utf-8") == avant
+    assert "ne décrit pas le corpus servi" in capsys.readouterr().err
+    # …et sur le document qu'il décrit vraiment, la signature est due et acceptée.
+    assert ed.valider_a_la_main(chemin, corpus, "Lancelot Oudin", "axa", sortie=io.StringIO()) == 0
+
+
 def test_valider_sans_dictionnaire_sort_en_code_5(tmp_path: Path) -> None:
     data = _ecrire_data(tmp_path)
     code = ed.main(["--data", str(data), "--valider", "Nom"], client=None, settings=_settings(),
@@ -627,7 +720,7 @@ def test_ce_que_valider_ecrit_est_relisible_par_le_serveur(tmp_path: Path) -> No
     from server.app.corpus.loader import load_corpus
 
     corpus = load_corpus(tmp_path, allow_ungated=True)
-    assert load_dictionary(tmp_path, corpus).court_circuit_actif is True
+    assert load_dictionary(tmp_path, corpus, DOC_ID).court_circuit_actif is True
 
 
 def test_une_reponse_tronquee_est_une_requete_en_echec(tmp_path: Path, capsys: Any) -> None:
@@ -635,18 +728,24 @@ def test_une_reponse_tronquee_est_une_requete_en_echec(tmp_path: Path, capsys: A
 
     Sans ce contrôle, `agreger` se contentait d'une plainte sur stderr et une catégorie entière
     disparaissait du dictionnaire avec un code de sortie 0. Le cas n'est pas théorique : la
-    catégorie « Questions fréquentes » du guide porte 41 fiches.
+    catégorie « Questions fréquentes » du guide porte 41 fiches. Depuis la revue Codex 2.1 (B2), la
+    catégorie tronquée manque au lot, donc **rien n'est écrit** : c'est la seconde moitié du même
+    défaut — nommer l'échec ne suffisait pas si le fichier partait quand même.
     """
-    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie(), "intents": SORTIE_INTENTS})
-    batches.tronquees = {"intents"}
-    data = _ecrire_data(tmp_path)
+    data = _ecrire_data(tmp_path, deux_categories=True)
+    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie(),
+                           ed.custom_id(CAT2): _sortie_categorie(
+                               termes=[{"fiche_id": FICHE2, "canonique": "bail", "variantes": []}],
+                               questions=[]),
+                           "intents": SORTIE_INTENTS})
+    batches.tronquees = {ed.custom_id(CAT)}
     code = ed.main(["--data", str(data)], client=FauxClient(batches), settings=_settings(),
                    sortie=io.StringIO())
 
-    assert code == 0                              # les autres sont conservées (matrice d'E/S)
-    assert _lu(tmp_path).intents == {}
+    assert code == 4 and not (data / "dictionary.json").exists()
     erreur = capsys.readouterr().err
-    assert "intents" in erreur and "stop_reason" in erreur and "max_tokens" in erreur
+    assert "stop_reason" in erreur and "max_tokens" in erreur
+    assert "lot incomplet" in erreur and ed.custom_id(CAT) in erreur
 
 
 def test_toutes_les_requetes_tronquees_ne_laissent_rien_a_ecrire(tmp_path: Path) -> None:
@@ -705,7 +804,7 @@ def test_un_run_limit_produit_un_dictionnaire_inerte(tmp_path: Path) -> None:
     from server.app.corpus.loader import load_corpus
 
     corpus = load_corpus(tmp_path, allow_ungated=True)
-    d = load_dictionary(tmp_path, corpus)
+    d = load_dictionary(tmp_path, corpus, DOC_ID)
     assert d.charge is True and d.corpus_ok is False and d.utilisable is False
     # …et `--valider` le refuse, donc il ne peut pas armer un refus par mégarde.
     assert ed.main(["--data", str(tmp_path), "--valider", "Nom"], client=None,
