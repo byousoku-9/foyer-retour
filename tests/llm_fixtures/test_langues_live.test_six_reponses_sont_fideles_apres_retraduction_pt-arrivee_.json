@@ -30,6 +30,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:02bc20c84437096f": {
+    "request": "claude-haiku-4-5-20251001:02bc20c84437096f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQEUPv9iRkt9ypcupKQv",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3403,
+        "output_tokens": 124,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:0ce8086b8a39e99e": {
     "request": "claude-haiku-4-5-20251001:0ce8086b8a39e99e",
     "response": {
@@ -211,6 +242,37 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 827,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:656097f461ee959a": {
+    "request": "claude-haiku-4-5-20251001:656097f461ee959a",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQEUWZFc4UreDwEGyeke",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 764,
         "output_tokens": 18,
         "service_tier": "standard"
       }
@@ -565,6 +627,40 @@
         "inference_geo": "global",
         "input_tokens": 2867,
         "output_tokens": 679,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:cab4796966601889": {
+    "request": "claude-sonnet-5:cab4796966601889",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Você deve fazer a declaração de chegada na comuna dentro de oito dias após a mudança.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Essa declaração é essencial, pois é a partir dela que são gerados o certificado de residência e o matrícula, necessários para as etapas seguintes.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"É recomendável marcar a hora online mesmo antes de ter as chaves do imóvel.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"O prazo para declarar a chegada à comuna é de oito dias após a mudança.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette déclaration produit le certificat de résidence et le matricule.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQETzcCA6R7fuqG7Tp8L",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2854,
+        "output_tokens": 506,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

@@ -185,6 +185,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:feb22f05e556bebc": {
+    "request": "claude-haiku-4-5-20251001:feb22f05e556bebc",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQEVNqSaDD6A3692UUTH",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3936,
+        "output_tokens": 178,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:125f5785612fc0e9": {
     "request": "claude-sonnet-5:125f5785612fc0e9",
     "response": {
@@ -212,6 +243,40 @@
         "inference_geo": "global",
         "input_tokens": 2803,
         "output_tokens": 1045,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:4c319c9fd1bff26b": {
+    "request": "claude-sonnet-5:4c319c9fd1bff26b",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La scolarisation est la démarche la plus longue et la plus contrainte de toute l'installation : il faut l'engager avant même de chercher un logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Concrètement, l'inscription à la commune précède l'inscription scolaire, et les places dans les sections linguistiques les plus demandées peuvent être prises un an à l'avance : il faut donc vérifier la disponibilité de la section visée, pas seulement celle de l'établissement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école un certificat de radiation ainsi que les bulletins des dernières années, car ces documents sont presque toujours exigés et bien plus difficiles à obtenir une fois parti.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Sachez aussi que la rentrée scolaire se situe au début du mois de septembre, ce qui donne un repère pour planifier ces démarches en amont.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne détaillent pas de calendrier précis (semaines ou mois exacts) pour chaque étape ni les modalités spécifiques d'inscription selon la voie choisie (publique, européenne ou internationale).\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La scolarisation est la démarche la plus longue et contrainte de l'installation, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'inscription à la commune précède l'inscription scolaire, et les places dans les sections recherchées partent parfois un an à l'avance ; il faut vérifier la disponibilité de la section, pas seulement de l'établissement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance. Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut demander avant le départ un certificat de radiation et les bulletins des dernières années, presque toujours exigés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"La rentrée se situe au début du mois de septembre.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"La rentrée se situe au début du mois de septembre.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQEUcM1kwkAJWNCGHEfQ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2890,
+        "output_tokens": 1076,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

@@ -179,11 +179,11 @@ def test_chercher_retient_la_meilleure_forme_par_canonique_et_somme_les_groupes(
     termes = {"choix commune": ["quelle commune"], "recherche logement": ["trouver logement"]}
 
     # R4 : p1:2 couvre les deux canoniques. Les deux formes complètes du premier canonique dans
-    # p1:3 ne le comptent jamais deux fois. À nombre de pleins égal, p1:1 porte en plus le rappel
-    # partiel de « recherche logement » ; ensuite une forme composée concise précède sa présence
-    # dispersée, puis kind et ordre départagent une même densité.
+    # p1:3 ne le comptent jamais deux fois. À nombre de pleins égal, les fragments des autres groupes
+    # sont ignorés : une forme composée concise précède sa présence dispersée, puis kind et ordre
+    # départagent une même densité.
     hits = ix.chercher(termes, limit=4, kinds_prioritaires={"garantie"})
-    assert hits == [("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:4", "n"), ("d:p1:5", "n")]
+    assert hits == [("d:p1:2", "n"), ("d:p1:4", "n"), ("d:p1:5", "n"), ("d:p1:1", "n")]
     # À score égal, la priorité de kind précède l'ordre de lecture ; la limite reste stricte.
     assert len(hits) == 4 and ("d:p1:3", "n") not in hits
 
@@ -209,8 +209,8 @@ def test_chercher_un_plein_ne_peut_pas_etre_evince_par_une_somme_de_partiels() -
     assert ix.chercher(termes, limit=2) == [("d:p1:1", "n"), ("d:p1:2", "n")]
 
 
-def test_a_egalite_de_pleins_le_rappel_partiel_precede_la_densite() -> None:
-    """Cadrage 2.7 : la densité ne masque pas une preuve lexicale supplémentaire."""
+def test_a_egalite_de_pleins_les_partiels_ne_departagent_pas() -> None:
+    """Cadrage 2.7 : dès qu'un bloc porte un plein, ses fragments ne bonifient plus son rang."""
     blocks = [
         Block(block_id="d:p1:1", text="Responsabilité civile.", loc="p1", seq=1),
         Block(block_id="d:p1:2", text="Responsabilité civile et dommage déclaré.", loc="p1", seq=2),
@@ -221,7 +221,7 @@ def test_a_egalite_de_pleins_le_rappel_partiel_precede_la_densite() -> None:
                                                 nodes=nodes, blocks=blocks)}))
 
     assert ix.chercher(["responsabilité civile", "dommage accidentel"], limit=2) == [
-        ("d:p1:2", "n"), ("d:p1:1", "n")]
+        ("d:p1:1", "n"), ("d:p1:2", "n")]
 
 
 def test_chercher_classe_dabord_le_nombre_total_de_canoniques_pleins() -> None:
@@ -246,6 +246,22 @@ def test_un_titre_plein_departage_un_paragraphe_long_plein_sur_le_corpus_reel() 
     dictionnaire = load_dictionary(ROOT / "data", corpus, "lux-guide")
     hits = ix.chercher(dictionnaire.expand(["choix de la commune"]), limit=20, doc_id="lux-guide")
     assert hits[0][0] == "lux-guide:fchoisir_commune:1"
+
+
+def test_chercher_garde_la_garantie_et_lexclusion_du_cas_multiple_dans_les_cinq_premiers() -> None:
+    """Cadrage 2.7 : les partiels fréquents ne noient plus les deux clauses décisionnelles."""
+    s = Settings(_env_file=None)
+    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    hits = [block_id for block_id, _node_id in ix.chercher(
+        {"dégâts des eaux": [], "fuite de machine": [], "mobilier": [],
+         "dégâts causés par un animal": [], "mâchonnement": []},
+        limit=s.search_limit,
+        doc_id="axa-lu-optihome-2017",
+        kinds_prioritaires={"garantie", "exclusion", "condition", "franchise"},
+    )]
+
+    assert hits.index("axa-lu-optihome-2017:p37:13") < 5
+    assert hits.index("axa-lu-optihome-2017:p35:2") < 5
 
 
 def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> None:

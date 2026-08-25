@@ -42,6 +42,13 @@ EFFORT: dict[Tier, str] = {
     "reason": "medium",
 }
 
+# Dérogations explicites par prompt (Convention Seuils, revue 2.7 M3). La rédaction sinistre
+# transcrit des clauses déjà retrouvées : son raisonnement de couverture appartient à *vérifier*.
+# La valeur reste distincte du défaut du tier `reason` et versionnée au même endroit que celui-ci.
+EFFORT_PAR_PROMPT: dict[str, str] = {
+    "rediger_sinistre": "low",
+}
+
 
 def model_for(tier: Tier) -> str:
     """ID de modèle du tier ; tier inconnu ⇒ ValueError (jamais de modèle par défaut)."""

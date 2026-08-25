@@ -14,6 +14,10 @@ def test_tiers_and_step_assignment() -> None:
                                  "verifier": "micro", "restituer": None, "ingest": "ingest"}
 
 
+def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:
+    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low"}
+
+
 def _settings(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
     from server.app import config
 

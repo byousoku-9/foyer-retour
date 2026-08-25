@@ -126,12 +126,11 @@ class Index:
         Le classement compte d'abord tous les canoniques dont au moins une forme est entièrement
         couverte, conformément à l'AC 2.7. Une forme composée pleine vaut donc un canonique plein,
         jamais davantage qu'un canonique simple plein.
-        À nombre de canoniques pleins égal, les couvertures partielles départagent — jamais avant le
-        nombre de pleins — puis la densité de la meilleure forme pleine préfère un titre ou une
-        clause concise à un long paragraphe où les mêmes mots sont dispersés. Les partiels ne peuvent
-        donc pas évincer une correspondance pleine, mais une preuve lexicale supplémentaire n'est pas
-        masquée par le seul raccourci de densité. Pour une forme partielle, chaque mot est
-        pondé par l'inverse du nombre de blocs du document qui le portent ;
+        Les couvertures partielles départagent seulement les blocs qui ne satisfont aucun canonique
+        pleinement. Dès qu'un bloc porte un plein, les fragments de ses autres groupes ne bonifient
+        plus son rang ; la densité de la meilleure forme pleine préfère alors un titre ou une clause
+        concise à un long paragraphe où les mêmes mots sont dispersés. Pour une forme partielle,
+        chaque mot est pondé par l'inverse du nombre de blocs du document qui le portent ;
         un mot fréquent contribue ainsi moins qu'un mot rare. Le mot présent le plus discriminant
         donne la contribution de la forme : accumuler des mots-outils fréquents dans le même bloc ne
         suffit donc pas à reléguer la clause qui porte le mot utile. Le meilleur score des formes d'un
@@ -195,7 +194,8 @@ class Index:
                 partiels += max(self._hit(e, form, frequencies) for form in forms)
             if pleins or partiels:
                 rang_kind = 0 if e.block.kind in prioritaires else 1
-                scored.append((-pleins, -partiels, -precision_plein, rang_kind, e.rank,
+                rappel = partiels if pleins == 0 else Fraction()
+                scored.append((-pleins, -rappel, -precision_plein, rang_kind, e.rank,
                                e.block.block_id, e.node_id))
         scored.sort()
         return [(b, n) for _, _, _, _, _, b, n in scored[:limit]]

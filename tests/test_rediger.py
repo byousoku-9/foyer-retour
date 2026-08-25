@@ -21,7 +21,7 @@ from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import TIERS
+from server.app.llm.models import EFFORT_PAR_PROMPT, TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.rediger import _rattacher_claims_sinistre, rediger
 from server.ingest import kb_to_blocks as k
@@ -130,6 +130,16 @@ async def test_sinistre_rattache_deterministement_toute_claim_a_un_segment_factu
         ("La suite dépend du contrat.", "limite", []),
     ]
     assert step.checks == []
+
+
+async def test_rediger_sinistre_applique_leffort_nomme_du_prompt(
+        mini_index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(EFFORT_PAR_PROMPT, "rediger_sinistre", "high")
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+
+    await _rediger(client, mini_index, prompt="rediger_sinistre")
+
+    assert fake.requests[0]["output_config"]["effort"] == "high"
 
 
 def test_sinistre_projette_chaque_claim_une_fois_sous_la_borne_de_segments() -> None:
