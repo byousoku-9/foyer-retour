@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from server.app.config import Settings
-from server.app.corpus.index import Index
+from server.app.corpus.index import Index, words
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
@@ -85,10 +85,24 @@ def _budget(deadline_s: float = 30.0) -> RequestBudget:
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
                 clarification: str | None = None, language: str = "fr",
-                facettes: list[str] | None = None) -> dict:
+                facettes: list[str] | None = None, question_resolue: str | None = None) -> dict:
     """*comprendre* arrête aussi le découpage de la question en facettes (AD-4, revue Codex 1.5,
-    tour 3) : c'est lui le barème de `complete`, et il est fixé avant toute rédaction."""
-    resolue = None if clarification else "Quel délai pour déclarer mon arrivée ?"
+    tour 3) : c'est lui le barème de `complete`, et il est fixé avant toute rédaction.
+
+    `question_resolue` (story 2.2) rend explicite ce que le mock résout : sans lui, la question
+    brute et la question résolue se confondaient dans tous les tests, et rien ne pouvait montrer sur
+    **laquelle des deux** le court-circuit d'AD-5 porte. Défaut inchangé — les tests écrits avant
+    2.2 gardent leur script byte-identique.
+
+    Les deux champs sont **exclusifs** (AD-5 : « exactement l'un des deux renseigné, sinon relance
+    motivée »), et le helper le fait respecter au lieu d'en ignorer un (revue 2.2, P12) : un helper
+    de test qui ignore silencieusement ce qu'on lui demande fait passer des tests qui ne testent
+    rien — ici, une clarification scriptée avec une `question_resolue` aurait laissé croire que le
+    pipeline arbitre, alors que c'est le schéma de sortie qui tranche.
+    """
+    if clarification is not None and question_resolue is not None:
+        raise ValueError("AD-5 : `clarification` et `question_resolue` sont exclusifs — pas les deux")
+    resolue = None if clarification else (question_resolue or "Quel délai pour déclarer mon arrivée ?")
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "intent": intent, "question_resolue": resolue, "clarification": clarification,
         "language": language, "terms": terms if terms is not None else ["arrivée", "école"],
@@ -236,10 +250,23 @@ async def test_an_out_of_scope_intent_never_reaches_the_reason_tier(index: Index
 
 
 async def test_a_clarification_short_circuits_and_is_carried_by_the_answer(index: Index) -> None:
-    answer, trace, fake = await _run(index, [_comprendre(clarification="De quelles personnes parlez-vous ?")])
+    """AD-5 + AD-4 (assertions complétées en story 2.2) : la clarification est une **absence
+    intégrale**, pas un refus de recherche.
+
+    *retrouver* n'a pas tourné — la question n'était pas autonome, donc rien n'a été cherché — et la
+    preuve d'absence doit le dire : `terms_searched == []` et `blocks_scanned == 0` (AD-4). Annoncer
+    des termes cherchés ou des blocs parcourus ici affirmerait une recherche qui n'a pas eu lieu, et
+    *comprendre* n'a de toute façon construit aucune `question_resolue` d'où les tirer.
+    """
+    answer, trace, fake = await _run(index, [_comprendre(clarification="De quelles personnes parlez-vous ?")],
+                                     question="Et pour eux, c'est pareil ?")
     assert fake.remaining_script == 0 and [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert "retrouver" not in [s.name for s in trace.steps]
+    assert len(fake.requests) == 1  # le seul appel est `micro` : aucun appel `reason` n'est facturé
     assert answer.found is False and answer.clarification == "De quelles personnes parlez-vous ?"
     assert answer.reason is not None and answer.reason.kind == "clarification_requise"
+    assert answer.reason.terms_searched == [] and answer.reason.blocks_scanned == 0
+    assert answer.reason.variants_count == 0 and answer.reason.documents == []
 
 
 async def test_an_empty_retrieval_never_pays_for_a_reason_call(index: Index) -> None:
@@ -1013,3 +1040,139 @@ async def test_le_pre_controle_verifie_la_deadline_comme_les_etapes(index: Index
     finally:
         module_guide.comprendre = vrai
     assert fake.remaining_script == 0  # *comprendre* a bien tourné : c'est bien le pré-contrôle qui coupe
+
+
+# --- story 2.2 : le suivi, et la question **résolue** comme seule base du refus ---
+LOGEMENT = "Quelles démarches pour mon logement en arrivant ?"
+REPONSE_LOGEMENT = ("Vous disposez de huit jours après votre arrivée pour vous déclarer au "
+                    "Biergercenter de votre commune de résidence.")
+VOITURE = "Quelles démarches dois-je faire pour ma voiture en arrivant au Luxembourg ?"
+
+
+def _texte_envoye(requete: dict) -> str:
+    """Tout ce qu'une requête porte de texte : le préfixe système **et** les messages.
+
+    Chercher l'historique dans le seul `messages[0]["content"]` prouverait trop peu : une étape
+    pourrait le faire voyager par le préfixe (qui est, lui, censé rester déterministe et cacheable —
+    AD-9) sans que l'assertion s'en aperçoive.
+    """
+    systeme = "".join(bloc.get("text", "") for bloc in requete.get("system") or [])
+    messages = "".join(str(m.get("content", "")) for m in requete.get("messages") or [])
+    return systeme + "\n" + messages
+
+
+def _aurait_un_hit(index: Index, dico, termes: list[str]) -> bool:
+    """Le prédicat **exact** que `pipelines/guide.py` évalue avant de refuser d'avance (AD-5).
+
+    Deux bras, pas un : `index.chercher(dictionnaire.expand(termes))` **et**
+    `index.definitions(termes)`. Une précondition qui n'appellerait que `chercher`, sans expansion,
+    ne dirait pas ce que le pré-contrôle aurait décidé sur ces mots-là — or c'est tout l'argument
+    des deux tests ci-dessous : montrer que lus sur la question **brute**, ces mots auraient (ou
+    n'auraient pas) fait refuser la requête (revue 2.2, P7).
+    """
+    return bool(index.chercher(dico.expand(termes), limit=1, doc_id=DOC_ID)) \
+        or bool(index.definitions(termes, doc_id=DOC_ID))
+
+
+async def test_un_suivi_resolu_traverse_la_chaine_et_lhistorique_ne_va_qua_deux_etapes(index: Index) -> None:
+    """AC 2.2 + AD-1 : « seules *comprendre* et *rédiger* reçoivent l'historique ».
+
+    Le contrat statique de `tests/test_layers.py` interdit qu'une autre étape le *déclare* ; ce
+    test-ci dit ce qui s'est réellement passé sur le fil — l'historique est dans les deux requêtes
+    qui y ont droit, dans aucune autre, et la question **brute** (« Et pour la voiture ? », non
+    autonome) ne quitte jamais *comprendre* : c'est `question_resolue` que *rédiger* et *vérifier*
+    reçoivent. Une chaîne qui repasserait la brute plus bas chercherait puis rédigerait sur une
+    anaphore, exactement ce qu'AD-5 a fermé en story 1.4.
+    """
+    historique = [Turn(role="user", texte=LOGEMENT), Turn(role="assistant", texte=REPONSE_LOGEMENT)]
+    answer, trace, fake = await _run(
+        index, [_comprendre("suivi", question_resolue=VOITURE, terms=["arrivée"],
+                            facettes=["démarches pour le véhicule"]),
+                _rediger(BONNE), _verdicts(("c1", True))],
+        question="Et pour la voiture ?", historique=historique)
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    assert answer.found is True and trace.intent == "suivi"
+
+    comprendre_req, rediger_req, verifier_req = (_texte_envoye(r) for r in fake.requests)
+    # AD-15 : l'historique voyage délimité, jamais concaténé en clair — c'est la balise qu'on relève.
+    assert '<untrusted kind="historique">' in comprendre_req
+    assert '<untrusted kind="historique">' in rediger_req
+    assert '<untrusted kind="historique">' not in verifier_req
+    for tour in (LOGEMENT, REPONSE_LOGEMENT):
+        assert tour in comprendre_req and tour in rediger_req
+        assert tour not in verifier_req
+    # La question brute reste à *comprendre* ; en dessous, seule la résolue circule (AD-5).
+    assert "Et pour la voiture ?" in comprendre_req
+    assert "Et pour la voiture ?" not in rediger_req and "Et pour la voiture ?" not in verifier_req
+    assert VOITURE in rediger_req and VOITURE in verifier_req
+
+
+async def test_le_court_circuit_zero_hit_porte_sur_la_question_resolue_pas_sur_la_brute(
+        index: Index, tmp_path: Path) -> None:
+    """AD-5, mot pour mot : « le court-circuit s'applique sur `question_resolue`, jamais sur la
+    question brute ».
+
+    L'invariant n'est démontrable qu'en faisant **diverger** les deux (AC 2.2). Une question de suivi
+    n'a par construction aucun mot du guide — c'est la résolution qui lui en donne —, et un
+    court-circuit qui la lirait refuserait d'avance tous les suivis.
+
+    **Ce que ce test prouve exactement** (revue 2.2, P8) : le refus lit les termes de
+    `ParsedQuestion`, jamais la chaîne postée par la page. Il ne prouve pas que ces termes *dérivent*
+    de la question résolue — le mock les pose côte à côte, et il passerait à l'identique avec une
+    `question_resolue` vide. Cette autre moitié n'est tenable que sur un appel réel : c'est
+    `tests/test_suivi_live.py::test_un_suivi_est_resolu_par_lhistorique` qui la tient, en montrant
+    qu'une question autonome et des `terms` visant le véhicule sortent du **même** appel `micro`.
+    """
+    dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
+    # Le prédicat que le pipeline exécute est `court_circuit_pour(doc_id)`, pas `court_circuit_actif`
+    # (revue Codex 2.1, B3 : un dictionnaire n'arme un refus que sur le document dont il porte
+    # l'empreinte). Le test étant **négatif** — aucun refus attendu —, un dictionnaire non armé pour
+    # ce document-ci le ferait passer sans rien prouver (revue 2.2, P6).
+    assert dico.court_circuit_pour(DOC_ID) is True
+    brute = "Et celui-ci, quand faut-il s'en occuper ?"
+    # Lue sur la question brute — découpée par le **tokenizer de l'index**, pas par un `split()`
+    # approximatif —, la requête n'a aucun hit : le refus d'avance serait certain.
+    assert not _aurait_un_hit(index, dico, words(normalize(brute)))
+
+    answer, trace, fake = await _run(
+        index, [_comprendre("suivi", question_resolue=VOITURE, terms=["arrivée"]),
+                _rediger(BONNE), _verdicts(("c1", True))],
+        question=brute, historique=[Turn(role="user", texte=LOGEMENT),
+                                    Turn(role="assistant", texte=REPONSE_LOGEMENT)],
+        dictionnaire=dico)
+
+    assert fake.remaining_script == 0
+    assert "retrouver" in [s.name for s in trace.steps]  # la question n'a pas été refusée d'avance
+    assert answer.found is True and answer.reason is None
+
+
+async def test_le_miroir_une_brute_pleine_de_mots_du_guide_ne_sauve_pas_des_termes_sans_hit(
+        index: Index, tmp_path: Path) -> None:
+    """Le même invariant vu de l'autre côté : la brute ne peut pas non plus **empêcher** le refus.
+
+    Sans ce miroir, un court-circuit qui lirait les deux questions (« l'une ou l'autre a un hit »)
+    passerait le test précédent tout en laissant filer vers l'étage `reason` une question dont rien,
+    dans ce qui sera réellement cherché, ne touche le corpus.
+
+    Même portée qu'au-dessus (revue 2.2, P8) : ce qui est épinglé est `ParsedQuestion.terms`, la
+    seule entrée que le refus consulte. Que ces termes soient *ceux de la question résolue* est
+    mesuré en live, pas ici.
+    """
+    dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
+    assert dico.court_circuit_pour(DOC_ID) is True
+    brute = "Quel délai pour déclarer mon arrivée à la commune et inscrire mes enfants à l'école ?"
+    # Le miroir exact de la précondition précédente, même prédicat : lue sur la brute, la requête
+    # aurait des hits en pagaille — et pourtant le refus tombe, parce qu'il lit les termes résolus.
+    assert _aurait_un_hit(index, dico, words(normalize(brute)))
+
+    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame"],
+                                                         question_resolue="Où déclarer un hippopotame ?")],
+                                     question=brute, dictionnaire=dico)
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1  # aucun appel `reason` facturé
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "zero_hit" and answer.reason.terms_searched == ["hippopotame"]
