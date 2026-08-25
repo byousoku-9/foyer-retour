@@ -6,6 +6,7 @@ ils sont exposés dans `Trace.thresholds` via `Settings.thresholds()` et se règ
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -250,6 +251,40 @@ class Settings(BaseSettings):
     coverage_threshold: float = Field(0.8, ge=0, le=1)
     kind_confidence_min: float = Field(0.7, ge=0, le=1)
 
+    # Dictionnaire enrichi (story 2.1, AD-5 / AD-7). Toutes ces bornes s'appliquent **par le code**
+    # à ce que le modèle d'ingestion rend : AD-5 et AD-7 disent qu'il ne renvoie jamais de texte de
+    # bloc, et le code le vérifie plutôt que de le croire. Une chaîne hors borne est **écartée**,
+    # jamais tronquée — un terme amputé chercherait autre chose que ce que le modèle a voulu dire.
+    # `dictionary_term_max_words` sert deux fois : il borne la longueur d'un terme **et** il est la
+    # ligne de partage du contrôle « chaîne recopiée d'un bloc » — au-delà de quatre mots, une chaîne
+    # qui figure telle quelle dans un bloc est un passage du guide, pas un terme du domaine.
+    dictionary_term_max_chars: int = Field(60, ge=1)
+    dictionary_term_max_words: int = Field(4, ge=1)
+    dictionary_max_variants_per_term: int = Field(8, ge=1)
+    dictionary_max_terms_per_fiche: int = Field(20, ge=1)
+    dictionary_question_max_chars: int = Field(160, ge=1)
+    dictionary_max_questions_per_fiche: int = Field(5, ge=1)
+    dictionary_max_intent_triggers: int = Field(30, ge=1)
+    # Sortie maximale d'une requête de batch. Elle n'est **pas** bornée par `llm_max_output_tokens` :
+    # celui-ci borne les appels du **serveur**, qui vivent sous la deadline et le plafond par requête
+    # (AD-9) ; l'ingestion est hors ligne, en Batch API, et son majorant est le plafond de coût
+    # ci-dessous. Une catégorie du guide porte jusqu'à sept fiches : 16 000 tokens tiennent leurs
+    # termes, leurs variantes en quatre langues et leurs questions candidates.
+    dictionary_max_output_tokens: int = Field(16000, ge=1)
+    # Majorant du run entier, vérifié **avant** toute soumission (le run refuse de démarrer plutôt
+    # que de découvrir la facture après coup). 3 € laissent la marge d'un guide qui doublerait de
+    # taille : le majorant mesuré du guide livré est très en dessous (voir `--dry-run`).
+    dictionary_max_cost_eur: float = Field(3.0, gt=0)
+    dictionary_batch_poll_s: float = Field(20.0, gt=0)
+    dictionary_batch_timeout_s: float = Field(3600.0, gt=0)
+    # Longueur maximale du périmètre dérivé du corpus et rendu dans le préfixe de *comprendre*
+    # (`Corpus.perimetres`). Le préfixe est cacheable (AD-9) et facturé : une projection qui
+    # grossirait avec le corpus sans borne ferait grossir chaque appel `micro`. Au-delà, les
+    # dernières catégories sont **retirées** (jamais une ligne coupée en deux), et le périmètre reste
+    # une liste lisible. 4 000 caractères tiennent les dix catégories du guide et leurs 39 fiches
+    # avec un facteur trois de marge.
+    perimetre_max_chars: int = Field(4000, ge=1)
+
     # Ingestion PDF (story 1.2) : bandes d'en-tête/pied en points, récurrence minimale d'un en-tête,
     # écart vertical (en hauteurs de ligne) qui sépare deux paragraphes, abscisse maximale d'un numéro d'article.
     header_band_pt: float = Field(40.0, ge=0)
@@ -363,6 +398,22 @@ class Settings(BaseSettings):
             "cloud_trace_max_chars": self.cloud_trace_max_chars,
             "coverage_threshold": self.coverage_threshold,
             "kind_confidence_min": self.kind_confidence_min,
+            # Story 2.1 : les bornes du dictionnaire enrichi et celle du périmètre dérivé du corpus.
+            # Elles sont publiées comme les autres (convention Seuils) — `/api/v1/sante` et
+            # `Trace.thresholds` se lisent avec la même règle, y compris pour ce que l'ingestion a
+            # appliqué au fichier que le serveur relit.
+            "dictionary_term_max_chars": self.dictionary_term_max_chars,
+            "dictionary_term_max_words": self.dictionary_term_max_words,
+            "dictionary_max_variants_per_term": self.dictionary_max_variants_per_term,
+            "dictionary_max_terms_per_fiche": self.dictionary_max_terms_per_fiche,
+            "dictionary_question_max_chars": self.dictionary_question_max_chars,
+            "dictionary_max_questions_per_fiche": self.dictionary_max_questions_per_fiche,
+            "dictionary_max_intent_triggers": self.dictionary_max_intent_triggers,
+            "dictionary_max_output_tokens": self.dictionary_max_output_tokens,
+            "dictionary_max_cost_eur": self.dictionary_max_cost_eur,
+            "dictionary_batch_poll_s": self.dictionary_batch_poll_s,
+            "dictionary_batch_timeout_s": self.dictionary_batch_timeout_s,
+            "perimetre_max_chars": self.perimetre_max_chars,
             "header_band_pt": self.header_band_pt,
             "footer_band_pt": self.footer_band_pt,
             "header_min_pages_ratio": self.header_min_pages_ratio,
@@ -381,3 +432,22 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def cle_absente(settings: Settings) -> bool:
+    """« Sans `ANTHROPIC_API_KEY`, ça refuse de tourner » — la règle, à un seul endroit.
+
+    La variable d'environnement fait foi **quand elle est posée, vide comprise** : `Settings` la
+    laisse tomber quand elle est vide (`env_ignore_empty=True`) et retombe alors sur le `.env` du
+    poste, si bien que `ANTHROPIC_API_KEY= uv run …` tournerait et facturerait — l'inverse exact de
+    ce que la commande dit vouloir. Non posée du tout, c'est `.env` qui répond, comme pour le serveur.
+
+    Posée en story 1.10 dans `server/evals/run.py`, elle vit ici depuis la 2.1 : l'ingestion du
+    dictionnaire soumet des lots de Batch API, et sa version naïve (`if not
+    settings.anthropic_api_key`) a réellement appelé l'API sous `ANTHROPIC_API_KEY=` — mesuré. Deux
+    commandes qui promettent la même chose ne peuvent pas la tenir par deux codes différents.
+    """
+    brut = os.environ.get("ANTHROPIC_API_KEY")
+    if brut is not None:
+        return not brut.strip()
+    return not settings.anthropic_api_key.strip()
