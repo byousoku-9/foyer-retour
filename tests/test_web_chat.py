@@ -30,6 +30,7 @@ import pytest
 
 from server.app.config import REPO_ROOT, Settings
 from server.app.domain.answer import AbsenceProof, Answer
+from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.question import CLARIFICATION_MAX_CHARS, Turn
 
 HARNAIS = REPO_ROOT / "tests" / "js" / "chat_cases.mjs"
@@ -536,7 +537,9 @@ CONTRATS_INCOMPLETS = [
     ("cout_nul", "trace.total_cost_eur"), ("answer_claims_nulles", "answer.claims"),
     ("answer_unknown_nul", "answer.unknown"),
     ("answer_lang_nombre", "answer.lang"), ("answer_lang_nul", "answer.lang"),
+    ("answer_lang_inconnu", "answer.lang"),
     ("answer_repli_nul", "answer.lang_fallback"),
+    ("vue_traduite_et_repliee", "answer.lang_fallback"),
     # La preuve d'absence est un `AbsenceProof` entier, pas un objet quelconque.
     ("answer_reason_vide", "answer.reason.kind"),
     ("answer_reason_kind_inconnu", "answer.reason.kind"),
@@ -554,7 +557,6 @@ def test_le_pied_dit_la_traduction_et_le_repli_sans_les_confondre(cas: dict[str,
     defauts_absents = cas["vue_langue_absente"]
     traduction = cas["vue_traduite"]
     repli = cas["vue_repliee"]
-    les_deux = cas["vue_traduite_et_repliee"]
 
     assert aucune["mentions_langue"] == [] and aucune["repli_langue"] is None
     assert defauts_absents["mentions_langue"] == [] and defauts_absents["repli_langue"] is None
@@ -565,10 +567,14 @@ def test_le_pied_dit_la_traduction_et_le_repli_sans_les_confondre(cas: dict[str,
     assert repli["mentions_langue"] == [
         "langue non prise en charge ou non détectée : réponse en français"
     ]
-    assert les_deux["mentions_langue"] == [
-        "traduit depuis le guide (français) — les passages cités restent tels qu'ils sont écrits",
-        "langue non prise en charge ou non détectée : réponse en français",
-    ]
+    assert repli["repli_langue"] == repli["mentions_langue"][0]
+    assert traduction["pied"] == ["etat etat-sur", "etat-phrase", "langue-mention", "cout"]
+    assert repli["pied"] == [
+        "etat etat-sur", "etat-phrase", "langue-mention langue-repli", "cout"]
+
+
+def test_les_langues_du_front_sont_amarrees_a_celles_du_serveur(cas: dict[str, Any]) -> None:
+    assert cas["bornes_avant_sonde"]["langues_servies"] == list(LANGUES_SERVIES)
 
 
 @pytest.mark.parametrize(("nom", "champ"), CONTRATS_INCOMPLETS)

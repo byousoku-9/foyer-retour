@@ -30,6 +30,10 @@ window.CHAT = (function () {
   // une contrainte de schema, pas un seuil de configuration. Elle reste donc ecrite ici, et un test
   // l'amarre a `Turn.model_fields["texte"]` pour qu'une divergence soit bruyante.
   var TOUR_MAX_CARACTERES = 2000;
+  // Contrat de `Answer.lang`, amarré à `domain/langue.py` par `tests/test_web_chat.py` comme la
+  // borne d'un tour l'est au modèle `Turn`. Ce n'est pas une liste de détection : ce sont les
+  // seules langues qu'un 200 du serveur peut annoncer comme langue de réponse.
+  var LANGUES_SERVIES = ["fr", "en", "de", "pt"];
   var seuilsServeur = {};
   // Ce que la sonde a dit du **niveau de validation** du corpus servi (story 1.10, reprise de 1.7).
   // `null` tant qu'elle n'a pas repondu, ou quand sa reponse n'etait pas lisible : le badge ne
@@ -1092,9 +1096,17 @@ window.CHAT = (function () {
     verifierSegments(a.segments, "answer.segments");
     if (defaut(a.texte, "answer.texte") !== undefined) exigerChaine(a.texte, "answer.texte");
     var lang = defaut(a.lang, "answer.lang");
-    if (lang !== undefined) exigerChaine(lang, "answer.lang");
+    if (lang !== undefined) {
+      exigerChaine(lang, "answer.lang");
+      if (LANGUES_SERVIES.indexOf(lang) === -1) throw illisible("answer.lang");
+    }
     var langFallback = defaut(a.lang_fallback, "answer.lang_fallback");
     if (langFallback !== undefined && typeof langFallback !== "boolean") {
+      throw illisible("answer.lang_fallback");
+    }
+    // Un repli de détection force `language="fr"` côté serveur. Annoncer simultanément une langue
+    // traduite et un repli français ne tient donc pas le contrat, même si les deux types sont bons.
+    if (langFallback === true && (lang || "fr") !== "fr") {
       throw illisible("answer.lang_fallback");
     }
     chaineNullable(a.clarification, "answer.clarification");
@@ -1390,6 +1402,7 @@ window.CHAT = (function () {
       return {
         historique_max_tours: historiqueMaxTours(),
         tour_max_caracteres: TOUR_MAX_CARACTERES,
+        langues_servies: LANGUES_SERVIES.slice(),
         delai_abandon_ms: delaiAbandonMs(),
         seuils_du_serveur: seuilsServeur,
         validation_du_serveur: validationServeur

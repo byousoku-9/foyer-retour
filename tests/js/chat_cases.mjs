@@ -655,9 +655,14 @@ async function main() {
                             answer: { found: true, complete: true, claims: [CLAIM], lang: 42 } },
       answer_lang_nul: { texte: "x", trace: TRACE,
                          answer: { found: true, complete: true, claims: [CLAIM], lang: null } },
+      answer_lang_inconnu: { texte: "x", trace: TRACE,
+                             answer: { found: true, complete: true, claims: [CLAIM], lang: "xx" } },
       answer_repli_nul: { texte: "x", trace: TRACE,
                           answer: { found: true, complete: true, claims: [CLAIM],
                                     lang_fallback: null } },
+      vue_traduite_et_repliee: { texte: "x", trace: TRACE,
+                                 answer: { found: true, complete: true, claims: [CLAIM], lang: "pt",
+                                           lang_fallback: true } },
       // --- la preuve d'absence est un `AbsenceProof`, pas un objet quelconque ---
       // `reason.kind` est le seul champ obligatoire d'`AbsenceProof`, et celui dont l'ecran depend :
       // `clarification_requise` supprime la preuve chiffree, les trois autres l'affichent. Un
@@ -807,19 +812,14 @@ async function main() {
     delete langueAbsente.answer.lang_fallback;
     cas.vue_langue_absente = resumerVue(CHAT.vueReponse(langueAbsente, Q));
 
-    // Story 2.4 : les quatre combinaisons visibles du pied. Le chrome reste français ; seule la
-    // réponse suit la langue détectée, et le repli est une information indépendante.
+    // Story 2.4 : les trois états cohérents du pied. Un repli avec une langue non française est
+    // couvert plus haut comme contrat cassé : le serveur force toujours `language="fr"` au repli.
     const traduite = reponseSourcee();
     traduite.answer.lang = "de";
     cas.vue_traduite = resumerVue(CHAT.vueReponse(traduite, Q));
     const repliee = reponseSourcee();
     repliee.answer.lang_fallback = true;
     cas.vue_repliee = resumerVue(CHAT.vueReponse(repliee, Q));
-    const traduiteEtRepliee = reponseSourcee();
-    traduiteEtRepliee.answer.lang = "pt";
-    traduiteEtRepliee.answer.lang_fallback = true;
-    cas.vue_traduite_et_repliee = resumerVue(CHAT.vueReponse(traduiteEtRepliee, Q));
-
     const partielle = reponseSourcee();
     partielle.answer.complete = false;
     partielle.answer.unknown = ["montant exact", "délai de recours"];
