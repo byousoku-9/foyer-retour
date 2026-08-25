@@ -539,34 +539,24 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     fenetres.append(b.block_id)
                     noeud_de[b.block_id] = node_id
 
-        # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre voyage avec les cibles
-        # d'un seul niveau de ses renvois et ses définitions applicables. Une unité trop grande est
-        # sautée entière ; ni un primaire privé de sa définition, ni une définition orpheline ne
-        # peut ainsi atteindre la rédaction.
+        # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre et, avec lui, les cibles
+        # d'un seul niveau de ses renvois (les cibles ne sont pas suivies à leur tour — Deferred du
+        # spine « renvois en chaîne »). Une cible déjà présente dans une fenêtre reste à sa place.
         unites: list[list[str]] = []
-        definitions: list[str] = []
-        renvois: list[str] = []
         for block_id in fenetres:
             unite = [block_id]
             for cible in bloc(block_id).refs:
                 if cible not in fenetres and cible not in unite:
                     unite.append(cible)
-                    if cible not in renvois:
-                        renvois.append(cible)
-            for definition, _ in index.definitions(
-                    terms, doc_id=doc_id, blocs_ouverts=[block_id]):
-                if definition not in unite:
-                    unite.append(definition)
-                if definition not in fenetres and definition not in definitions:
-                    definitions.append(definition)
             unites.append(unite)
-        # Sans hit textuel, une définition directement demandée est elle-même le résultat primaire
-        # (elle n'est la dépendance d'aucun autre bloc). Ce chemin préserve les questions du type
-        # « qu'est-ce que X ? » dont `defines` est la seule occurrence indexée de X.
-        if not fenetres:
-            definitions = [b for b, _ in index.definitions(terms, doc_id=doc_id,
-                                                           blocs_ouverts=[])]
-            unites = [[definition] for definition in definitions]
+
+        # Définitions (hors quota `max_opens`) : des termes de la question et de ceux rencontrés dans
+        # les blocs ouverts, résolues dans leur portée par l'index (AD-1, AD-2). Elles se suffisent à
+        # elles-mêmes — aucun référent à conserver — et passent donc en premier dans le budget.
+        definitions = [b for b, _ in index.definitions(terms, doc_id=doc_id,
+                                                       blocs_ouverts=fenetres)
+                       if b not in fenetres]
+        unites = [[d] for d in definitions] + unites
 
         seen: set[str] = set()
         blocs_utilises, tokens_utilises = 0, 0
@@ -586,7 +576,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis les cibles de renvoi,
         # puis les définitions — l'ordre d'admission dans le budget n'est pas l'ordre de lecture.
         ordre: list[str] = []
-        for b in (*fenetres, *renvois, *definitions):
+        for b in (*fenetres, *(c for u in unites for c in u[1:]), *definitions):
             if b in seen and b not in ordre:
                 ordre.append(b)
         return ordre, noeud_de, tronque

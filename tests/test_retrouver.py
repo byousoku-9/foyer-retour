@@ -13,10 +13,12 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
 from server.app.domain.question import ParsedQuestion, QuestionScope
+from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.llm.models import STEP_TIERS, TIERS
 from server.app.llm.client import LlmClient
 from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import estimate_tokens
+from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.retrouver import OUTILS_RECHERCHE, retrouver_deterministe, retrouver_outils
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -408,7 +410,7 @@ def test_definitions_of_terms_met_in_the_opened_blocks_are_followed_too() -> Non
     assert result.discarded_block_ids == []  # la définition n'est pas un candidat de `chercher`
 
 
-def test_deterministic_primary_and_automatic_definition_are_one_atomic_unit() -> None:
+def test_deterministic_definitions_keep_their_historical_independent_priority() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Le premier cas emploie Alpha.", loc="p1", seq=1),
         Block(block_id="d:p1:2", text="Le second cas reste autonome.", loc="p1", seq=2),
@@ -422,9 +424,32 @@ def test_deterministic_primary_and_automatic_definition_are_one_atomic_unit() ->
         doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)})
     result, _step = _run(_parsed(["cas"]), corpus, Index(corpus),
                          _budget(max_blocks=1, max_tokens=6000))
-    assert result.opened_block_ids == ["d:p1:2"]
-    assert "d:p1:1" not in result.opened_block_ids and "d:p9:1" not in result.opened_block_ids
+    assert result.opened_block_ids == ["d:p9:1"]
+    assert "d:p1:1" not in result.opened_block_ids and "d:p1:2" not in result.opened_block_ids
     assert result.truncated
+
+
+def test_a12_keeps_the_rc_clause_in_the_real_deterministic_claim_retrieval() -> None:
+    settings = _s()
+    corpus = load_corpus(ROOT / "data", allow_ungated=True)
+    doc_id = settings.sinistre_doc_id
+    question = ("Le fils du voisin a cassé ma table en jouant chez moi, c'est leur RC ou mon "
+                "contrat habitation qui répond ?")
+    parsed = ParsedQuestion(
+        question_resolue=question,
+        intent="question",
+        terms=[
+            "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
+            "mobilier",
+        ],
+    )
+
+    result, _step = retrouver_deterministe(
+        parsed, corpus=corpus, index=Index(corpus), budget=retrieval_budget(settings),
+        settings=settings, doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
+    )
+
+    assert f"{doc_id}:p66:10" in result.opened_block_ids
 
 
 def test_truncated_window_marks_the_result() -> None:
@@ -777,7 +802,7 @@ def test_les_definitions_continuent_de_recevoir_les_termes_seuls(tmp_path: Path)
     dico = _dictionnaire(tmp_path, corpus, {"matricule": ["contenu"]})
     retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
                            settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
-    assert vus and all(item == ["matricule"] for item in vus)  # jamais le dict élargi
+    assert vus == [["matricule"]]  # jamais le dict élargi
 
 
 def test_un_dictionnaire_nelargit_que_le_document_dont_il_porte_lempreinte(tmp_path: Path) -> None:
