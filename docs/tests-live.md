@@ -2579,3 +2579,58 @@ suite complète passe 2 093/2 093. Les 10 tests de digests, Ruff et `git diff --
 premier gate contrat a honnêtement échoué pendant l'essai de ceinture trop restrictive ; après son
 retrait, les gates finaux passent 1/1 : contrat à 0,0269 € en 13,028 s et guide à 0,0195 € en
 10,102 s, toujours `countersigned=false`.
+
+### Clôture du socle A — la concision ne gomme plus la chronologie déclarée
+
+Sur le build `ba48f6a`, le cas exact « Ça fuyait un peu depuis des mois, mais le plafond est tombé
+d'un coup hier : on retient lent ou soudain ? », avec les mêmes faits sans la question finale,
+rendait 200 en 14,169 s à 0,0338 €. Il ne demandait plus de clarification et citait `p37:14` et
+`p37:11`, mais son texte ne disait plus que la garantie générique et une condition particulière :
+la fuite lente, la chute soudaine et leur ordre avaient disparu.
+
+Le diagnostic isolé de *comprendre* coûtait 0,0041 € et conservait pourtant la structure entière :
+question autonome « fuite progressive depuis des mois » puis « effondrement soudain hier », termes
+`dégâts des eaux`, `fuite`, `effondrement`, `plafond`, `progressif`, `soudain`, et `scope` avec cause,
+événement et moment. Le rappel n'était pas fautif. La perte venait de la rédaction contractuelle,
+que la consigne A11 avait rendue volontairement concise.
+
+Une première correction a demandé au modèle de ne jamais fusionner ces repères. Elle est retirée :
+elle a fait retomber A11 dans un retry `max_tokens` (200 en 34,144 s à 0,0701 €) et A6 en 503
+`budget_exceeded` (23,584 s à 0,0504 €). Le modèle n'a plus cette charge. Quand le champ structurel
+`QuestionScope.moment` indique une chronologie, *restituer* préfixe désormais les clauses par un
+segment `transition` « Faits déclarés » qui recopie **exactement** `Faits.description`, déjà borné
+par le contrat HTTP. Aucun mot de ce cas n'est recherché, aucune interprétation ni claim n'est
+ajoutée, et le guide reste inchangé.
+
+| Cas final, même processus | HTTP / durée | Résultat exigé | Coût |
+|---|---:|---|---:|
+| A9 run 1 | 200 / 13,512 s | phrase exacte « fuyait un peu depuis des mois » puis « plafond est tombé d'un coup hier » ; `p37:14`, `p38:1` ; aucun retry | 0,0306 € |
+| A9 run 2 | 200 / 20,355 s | mêmes deux phases et chronologie exactes ; `p37:14` ; aucun retry | 0,0394 € |
+| A11 orage, confirmation | 200 / 23,632 s | `p34:15`, `p26:1`, `p37:9` affichées ; rédaction unique, aucun retry | 0,0424 € |
+| A6 bougie | 200 / 23,244 s | `p34:12` affichée malgré une relance utile du pipeline | 0,0487 € |
+| A7 chien | 200 / 19,606 s | `p35:1` rang 1, `p35:2` rang 2 et affichée ; 1 claim retenue, 0 rejet, aucun retry | 0,0345 € |
+
+Un passage A7 intermédiaire est conservé comme preuve de non-déterminisme : `p35:2` était bien
+affichée, mais la première rédaction n'avait laissé aucune claim et la relance utile a porté la
+durée à 37,824 s et le coût à 0,0655 €. La confirmation immédiate ci-dessus est revenue à un appel
+de rédaction. A11 a lui aussi connu un passage intermédiaire à 34,884 s / 0,0656 € avec retry
+`max_tokens`, non présenté comme preuve ; la confirmation de la table est le run suivant sans retry.
+Ce contre-exemple montre que la concision actuelle réduit fortement le défaut sans rendre le premier
+appel déterministe. Une consigne plus stricte, « une claim par facette puis arrêt », a été testée sur
+l'énoncé exact avant clôture : elle a au contraire produit un 503 en 15,005 s / 0,0244 €, puis un
+200 lent en 30,593 s / 0,0620 €. Elle est donc retirée : conserver
+une règle qui aggrave l'expérience aurait transformé une variabilité connue en régression certaine.
+Le retry `max_tokens` occasionnel d'A11 reste un risque explicite à reprendre par une évolution
+maîtrisée de la stratégie de génération, pas par un nouveau seuil ni par une consigne chanceuse.
+
+Le gate bougie a ensuite reproduit trois fois un incident sans clause survivante, bien que le
+diagnostic réel ouvrît `p34:12` rang 1 et `p46:1` rang 4. Cause : une rédaction pleine sous
+`draft_max_claims` faisait sortir la ceinture avant qu'elle puisse ajouter p34. La borne n'est pas
+relevée : si elle est pleine, p34 remplace maintenant la dernière claim non décisionnelle en
+réutilisant son `claim_id`, puis l'alignement des segments et toute la vérification ordinaire
+s'appliquent. Aucun cas dont le bloc de tête n'est pas une clause confirmée ne déclenche cette règle.
+
+Sur l'arbre final, 266 tests ciblés puis 2 096 tests hermétiques passent ; les 10 tests de digests,
+Ruff et `git diff --check` passent. Les gates verticaux finaux sont verts 1/1 du premier passage sur
+ce code : guide en 10,854 s à 0,0277 €, contrat en 13,234 s à 0,0280 €, toujours
+`countersigned=false`.
