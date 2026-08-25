@@ -2390,3 +2390,24 @@ réelle de réponse, et non une fixture.
 Conclusion : campagne A interrompue après un défaut corrigé mais non revalidé en direct ; campagne B
 préparée mais non exécutée. Reprise exacte après recharge : redémarrer le serveur, confirmer d'abord le
 cas « huit jours », rejouer A en entier, puis exécuter B1–B10 sans remplacer aucun énoncé.
+
+### Reprise après recharge — le rappel guide est confirmé, le cas multiple reste bloquant
+
+La clé réelle répond de nouveau le 25/08/2026. Les deux gates `vertical` ont été rejoués sur les
+digests courants : `lux-guide` passe 1/1 à 0,0236 € et `axa-lu-optihome-2017` passe 1/1 à 0,0506 € ;
+ils restent honnêtement `countersigned=false`.
+
+Le socle guide final passe contre le serveur local réel : « Comment choisir ma commune ? » rend
+`choisir_commune` à 0,0327 €, « Comment trouver un logement au Luxembourg ? » rend
+`recherche_logement` à 0,0572 €, et le défaut corrigé « Dans quel délai dois-je me déclarer à la
+commune ? » rend `arrivee`, « huit jours » et les deux citations attendues à 0,0245 € (un premier
+appel de contrôle, dont la projection locale a échoué après réception, avait coûté 0,0256 €). La
+météo et « ? » refusent sans *retrouver* à 0,0008 € chacun ; l'entrée vide rend 400 sans appel.
+
+Le cas chien rend 200 à 0,0373 €, retrouve et cite l'exclusion `p35:2`. Le cas « mon chat a mangé la
+Lune » rend 200 à 0,0033 €, `hors_perimetre`, sans clause ni verdict inventé. En revanche, le cas à
+deux dommages ne satisfait pas le critère de cadrage sur cette reprise : le premier run rend 200 à
+0,0480 € et retrouve la garantie dégâts des eaux, mais l'exclusion animale n'entre pas dans le
+contexte ; le second run s'arrête en 503 `budget_exceeded` après 0,0796 €. Conformément au `Block If`
+de la story, la campagne s'arrête là : poursuivre B1–B10 ou déclarer la story livrée fabriquerait une
+preuve alors qu'un cas explicitement bloquant reste rouge.
