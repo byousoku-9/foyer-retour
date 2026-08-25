@@ -1704,3 +1704,5 @@ est toujours due.
 | Gates du dépôt | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` | **10 passed** — les deux gates portent le `pipeline_digest` courant |
 | Les trois fixtures live, rejouées | `ANTHROPIC_API_KEY= uv run pytest -q tests/test_suivi_live.py` | **3 passed** — inchangées : le validateur n'entre pas dans le schéma, donc pas dans la clé de requête |
 | Lint | `uv run ruff check .` | *All checks passed!* |
+
+Revue Codex : 1 bloquants / 2 importants, convergé en 1 tour(s) (boucle autonome).
