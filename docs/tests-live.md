@@ -2016,3 +2016,50 @@ Signature de fidélité des six retraductions attendue de **Lancelot : en attent
 bloquant). La validation humaine de `data/dictionary.json` reste elle aussi due ; tant que
 `validated=false`, les variantes multilingues sont utilisées mais le refus « zéro hit » reste
 désarmé. Les deux cas de gate restent non contresignés, indépendamment de cette signature.
+
+### Le contrat HTTP et le tour navigateur (Chrome headless, CDP, `/tmp/cdp-2-4.mjs`)
+
+Serveur nominal sur `:8099` (`ENV=dev`, clé réelle), profil du questionnaire posé dans
+`localStorage` avant la navigation, `/guide/#assistant`.
+
+| Ce qui est exercé | Entrée | Résultat |
+|---|---|---|
+| `lang` non servi, en `curl` | `{"lang":"es"}`, puis `{"lang":"eng"}` | **400** `invalid_request` les deux fois, message « langue non servie : choisissez fr (français), en (anglais), de (allemand), pt (portugais) » ; aucun appel facturé |
+| Détection anglaise, en `curl` | « How long do I have to declare my arrival at the commune? » | 200, `lang=en`, `lang_fallback=false` ; texte anglais, quotes **françaises** (`Dans les huit jours suivant l'emménagement.`) ; `unknown[]` en anglais ; 0,0265 € |
+| `lang` forcé, en `curl` | question **française**, `{"lang":"de"}` | 200, `lang=de`, `lang_fallback=false` ; réponse allemande, quotes françaises ; `unknown[]` en allemand ; 0,0263 € |
+| Détection non servie, en `curl` | question **espagnole**, sans `lang` | 200, `lang=fr`, `lang_fallback=**true**` ; réponse et lacunes françaises ; 0,0262 € |
+| Le tour navigateur, question anglaise | même question qu'au deuxième cas | 200 en 10,9 s ; pied `[etat, etat-phrase, **langue-mention**, cout]`, « partiel », « traduit depuis le guide (français) — les passages cités restent tels qu'ils sont écrits » ; 2 segments anglais, **3 citations françaises** portant « retrouvée · pertinente · édition git:a8e8593 » ; « Ce que je ne sais pas » en anglais ; **0** exception console, `localStorage` réduit à `luxguide.chat.v1` ; 0,0202 € |
+| Le tour navigateur, question espagnole | « Cuanto tiempo tengo para declarar mi llegada al ayuntamiento? » | pied `[etat, etat-phrase, **langue-repli**, cout]` : « langue non prise en charge ou non détectée : réponse en français » ; réponse et lacunes françaises, citations françaises ; aucune mention de traduction — les deux faits ne se confondent pas |
+
+### Le contraste du repli, dans les trois portées de thème
+
+Relevé sans aucun appel modèle (`/tmp/cdp-2-4-theme.mjs` : le nœud est injecté dans un `.msg.bot`,
+`getComputedStyle` fait foi), parce que `styles.css` a trois portées et que la première écriture n'en
+couvrait qu'une.
+
+| Portée | Texte / fond | Contraste |
+|---|---|---:|
+| clair (`:root`) | `#96570a` sur `#f5f7fa` | **5,34:1** |
+| sombre, préférence système (`@media`) | `#e7b165` sur `#1a1f29` | **8,55:1** |
+| sombre, bouton de thème (`:root[data-theme="dark"]`) | `#e7b165` sur `#1a1f29` | **8,55:1** |
+
+Avant le correctif `8b0cea2`, la troisième ligne valait **2,79:1** — sous le seuil AA : la règle
+posée visait `var(--warning, …)`, une variable qui n'existe pas dans ce fichier, et la requête media
+ajoutée à côté ne rattrapait que la préférence du système. `--warn`, elle, est redéfinie par les
+trois portées, et c'est celle qu'emploie déjà le badge « partiel » du même pied.
+
+### Ce qui n'a pas été mesuré
+
+- **La fidélité des traductions au-delà de l'échantillon** : six réponses, deux par langue, jugées
+  par un appel `micro` de retraduction. C'est un contrôle, pas une mesure — la campagne de langues
+  du parcours complet est la story 5.5, et les cas témoins multilingues la story 4.2.
+- **Le refus traduit servi en live** : les quatre phrases de refus des quatre langues sont couvertes
+  hors ligne (`tests/test_restituer.py`), et un refus par intention a été observé en français ; aucun
+  refus **anglais, allemand ou portugais** n'a été servi par un vrai serveur — la question espagnole
+  ci-dessus a trouvé des passages, et provoquer un refus dans une langue servie demande une question
+  hors périmètre écrite exprès, c'est-à-dire un cas de suite (4.2).
+- **La page sinistre** (`tools/sinistre/sinistre.js`) n'a pas été touchée : elle reçoit désormais des
+  refus et des lacunes traduits, mais n'affiche ni la mention de traduction ni le repli. C'est la
+  story 2.5 qui reprend ce front.
+- **Le rendu visuel réel** (tailles, débordements, lecteur d'écran) : un pilote headless relève des
+  nœuds et des couleurs calculées, il ne voit pas une page.
