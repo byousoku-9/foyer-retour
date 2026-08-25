@@ -25,11 +25,12 @@ import time
 
 from pydantic import Field, model_validator
 
-from server.app.config import Settings
+from server.app.config import LISTE_MAX_ITEMS, Settings
 from server.app.domain.document import DomainModel
 from server.app.domain.errors import PipelineError
 from server.app.domain.profil import Profil
 from server.app.domain.question import (
+    CLARIFICATION_MAX_CHARS,
     ClarificationRequise,
     Faits,
     Intent,
@@ -51,13 +52,14 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 # `question_max_facettes`, perte bornée et dite en trace) plutôt que rejeté en `LlmParse`, qui est un
 # échec terminal.
 #
-# Elle reste un **littéral de l'étape**, et la Convention Seuils le veut ainsi (revue Codex 2.1, M3,
-# reprise en story 2.2) : cette borne-ci entre dans le schéma JSON envoyé au modèle, donc dans la clé
-# de requête et dans le préfixe caché (AD-9). La rendre réglable par `.env` laisserait un poste de
-# travail déplacer en silence ce qui est facturé et invalider toutes les fixtures enregistrées. Sa
-# jumelle de longueur, elle, est appliquée par le code : elle a rejoint `config.py` sous le nom
-# `libelle_max_chars`, et elle est publiée dans `Trace.thresholds`.
-LISTE_MAX = 32
+# Revue Codex 2.2 (I2) : elle vit désormais dans `config.py`, comme la Convention Seuils l'exige sans
+# exception, et elle est publiée dans `Trace.thresholds`. L'étape n'en garde qu'un alias de lecture.
+# Elle y est une **constante de module** et non un champ de `Settings`, parce qu'elle entre dans le
+# schéma JSON envoyé au modèle, donc dans le préfixe caché et la clé de requête (AD-9) : la rendre
+# réglable par `.env` ferait dépendre du poste de travail ce qui est facturé et invaliderait les
+# fixtures enregistrées. Sa jumelle de longueur, elle, est appliquée par le code, se règle sur les
+# évals, et est bien un champ de `Settings` (`libelle_max_chars`).
+LISTE_MAX = LISTE_MAX_ITEMS
 
 
 class SortieComprendre(DomainModel):
@@ -96,6 +98,34 @@ class SortieComprendre(DomainModel):
         if resolue == clarif:
             raise ValueError("renseigne soit question_resolue (question autonome), soit clarification "
                              "(anaphore irrésoluble), jamais les deux ni aucune des deux")
+        return self
+
+    @model_validator(mode="after")
+    def _clarification_envoyable(self) -> SortieComprendre:
+        """La question posée doit tenir dans un tour de conversation (revue Codex 2.2, B1).
+
+        `comprendre_max_tokens = 1024` rend atteignable une clarification de plusieurs milliers de
+        caractères. La page conserve ce que l'assistant a dit dans un tour d'historique borné par
+        `Turn.texte` ; au-delà, `chat.js::historiquePourApi` écarte le tour, l'assistant ne revoit
+        plus sa propre question et il la repose — la boucle que la story 2.2 referme se rouvrait en
+        silence, ce qu'AD-16 interdit.
+
+        Le contrôle vit **ici**, sur la sortie de l'appel, et non dans le code de l'étape, pour la
+        même raison que l'exclusivité des deux issues : sa violation emprunte alors la relance
+        motivée du client (AD-9, « 1 retry sur parse invalide »), qui nomme le champ fautif, puis
+        échoue en `LlmParse` — un échec typé. L'écarter comme un libellé hors borne (règle 1.9, D4)
+        n'était pas possible : AD-5 fait de la clarification la **seule** issue de ce chemin, un
+        `ClarificationRequise` sans clarification n'existe pas.
+
+        C'est un validateur `mode="after"` et non un `Field(max_length=…)` : les contraintes de
+        champ entrent dans le schéma JSON envoyé au modèle, donc dans le préfixe caché et la clé de
+        requête (AD-9), et l'auraient fait ré-enregistrer les neuf fixtures live du dépôt pour un
+        rejet identique. `tests/test_comprendre.py` amarre ce choix.
+        """
+        clarif = (self.clarification or "").strip()
+        if len(clarif) > CLARIFICATION_MAX_CHARS:
+            raise ValueError(f"clarification trop longue ({len(clarif)} caractères) : pose une "
+                             f"question courte, d'au plus {CLARIFICATION_MAX_CHARS} caractères")
         return self
 
 

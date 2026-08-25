@@ -345,3 +345,52 @@ async def test_le_schema_de_sortie_interdit_un_champ_surnumeraire_et_borne_les_l
     schema = fake.requests[0]["output_config"]["format"]["schema"]
     assert schema["additionalProperties"] is False
     assert f"maxItems: {LISTE_MAX}" in schema["properties"]["terms"]["description"]
+
+
+async def test_une_clarification_hors_borne_emprunte_la_relance_puis_echoue_typee() -> None:
+    """Revue Codex 2.2, B1 : une clarification qu'aucun tour de page ne peut porter est un défaut.
+
+    `comprendre_max_tokens = 1024` rend atteignable une clarification de plusieurs milliers de
+    caractères. Sans borne, elle était publiée telle quelle, le tour composé par `chat.js` ne
+    tenait plus dans `Turn.texte ≤ 2 000`, et la page retombait sur la phrase générique : la
+    question posée disparaissait de l'historique et l'assistant la reposait indéfiniment — la
+    boucle même que la story 2.2 doit refermer.
+
+    La borne vit sur la sortie de l'appel, comme l'exclusivité des deux issues, pour emprunter la
+    **relance motivée** du client (AD-9) plutôt que d'écarter en silence une issue qu'AD-5 rend
+    obligatoire : un `ClarificationRequise` sans clarification n'existe pas. Elle est portée par un
+    validateur (`mode="after"`), donc **absente du schéma JSON** envoyé au modèle : la clé de
+    requête ne bouge pas et aucune fixture live n'est à ré-enregistrer.
+    """
+    from server.app.domain.question import CLARIFICATION_MAX_CHARS
+
+    trop = "De quel document parlez-vous ? " + "x" * CLARIFICATION_MAX_CHARS
+    invalide = fake_message(text=_sortie(question_resolue=None, clarification=trop,
+                                         terms=[], themes=[]), model=HAIKU)
+    bonne = fake_message(text=_sortie(question_resolue=None, terms=[], themes=[],
+                                      clarification="De quel document parlez-vous ?"), model=HAIKU)
+    client, _ = _client([invalide, bonne])
+    sortie, step = await _comprendre(client, question="et celui-là, il faut le faire quand ?")
+    assert isinstance(sortie, ClarificationRequise) and len(step.calls) == 2
+    assert any("clarification" in (c.detail or "") for c in step.checks), step.checks
+
+    # Sans seconde chance, l'étape échoue **typée** plutôt que de publier une question inenvoyable.
+    client, _ = _client([invalide, invalide])
+    with pytest.raises(LlmParse):
+        await _comprendre(client, question="et celui-là, il faut le faire quand ?")
+
+
+async def test_la_borne_de_clarification_nentre_pas_dans_le_schema_envoye() -> None:
+    """Le corollaire du choix ci-dessus, et la raison pour laquelle aucune fixture n'a bougé.
+
+    Un `Field(max_length=…)` aurait ajouté `maxLength` au schéma JSON — donc au préfixe caché et à
+    la clé de requête (AD-9) — et aurait invalidé les neuf fixtures live du dépôt. Un validateur
+    `mode="after"` produit exactement le même rejet et la même relance motivée sans toucher au
+    schéma. Ce test l'amarre : si un jour la borne redescend dans le schéma, il rougit **avant** que
+    les rejeus hors ligne ne se mettent à appeler le réseau.
+    """
+    client, fake = _client([fake_message(text=_sortie(), model=HAIKU)])
+    await _comprendre(client)
+    schema = fake.requests[0]["output_config"]["format"]["schema"]
+    assert "maxLength" not in json.dumps(schema)
+    assert "maxLength" not in (schema["properties"]["clarification"].get("description") or "")

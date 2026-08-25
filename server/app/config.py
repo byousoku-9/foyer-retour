@@ -16,6 +16,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Nombre maximal d'éléments des trois listes que *comprendre* fait rendre au modèle (`terms`,
+# `themes`, `facettes`). Revue Codex 2.1 (M3), puis 2.2 (I2) : la valeur vivait en dur dans
+# `steps/comprendre.py`, ce que la Convention Seuils interdit sans exception — « les seuils
+# numériques vivent dans `server/app/config.py`, jamais en dur ». Elle agit sur le coût d'un appel
+# et sur ce qui part en `LlmParse` : elle se règle, donc elle se publie (`Trace.thresholds`).
+#
+# C'est une **constante de module** et non un champ de `Settings`, et c'est la seule chose que
+# l'étape avait raison de vouloir : cette borne-ci entre dans le schéma JSON envoyé au modèle, donc
+# dans le préfixe caché et dans la clé de requête (AD-9). Un champ `.env` la ferait dépendre du poste
+# de travail — ce qui est facturé changerait avec un fichier local, et les fixtures enregistrées
+# cesseraient de se rejouer. `comprendre_max_tokens`, lui, entre aussi dans la requête **et** reste
+# un champ : la différence est qu'il ne décrit pas le contrat de sortie, il plafonne une dépense, et
+# c'est précisément ce qu'une éval doit pouvoir déplacer.
+LISTE_MAX_ITEMS = 32
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", env_file_encoding="utf-8",
@@ -212,11 +227,9 @@ class Settings(BaseSettings):
     # 2.1 (M3), reprise en story 2.2 : la valeur vivait en dur dans `steps/comprendre.py`, ce que la
     # Convention Seuils interdit. Elle en est bien un — c'est le **code** qui l'applique, elle se
     # règle sur ce qu'on observe des termes utiles, et elle est publiée dans `Trace.thresholds`. Sa
-    # jumelle `LISTE_MAX`, elle, reste un littéral de l'étape, et c'est la même convention qui le
-    # veut : cette borne-là entre dans le **schéma JSON** envoyé au modèle, donc dans la clé de
-    # requête et dans le préfixe caché (AD-9) — la rendre réglable par `.env` laisserait un poste de
-    # travail déplacer en silence ce qui est facturé et invalider toutes les fixtures enregistrées.
-    # Un nombre se règle avec les évals, une forme de contrat non.
+    # jumelle de **nombre** est `LISTE_MAX_ITEMS`, en tête de ce fichier depuis la revue Codex 2.2
+    # (I2) : elle aussi se règle et se publie, mais en constante de module, parce qu'elle entre dans
+    # le schéma JSON envoyé au modèle (AD-9) et qu'un `.env` la ferait varier d'un poste à l'autre.
     #
     # Volontairement plus haute que les bornes d'affichage (`fait_manquant_max_chars`) : celles-là
     # sont plus fines et se disent en trace. Au-delà d'ici, ce n'est plus un terme, c'est un
@@ -415,6 +428,9 @@ class Settings(BaseSettings):
             "question_max_facettes": self.question_max_facettes,
             "scope_max_themes": self.scope_max_themes,
             "libelle_max_chars": self.libelle_max_chars,
+            # Constante de module, pas un champ : cf. `LISTE_MAX_ITEMS`. Publiée quand même —
+            # un seuil actif que la trace tait est un seuil qu'aucune éval ne peut discuter.
+            "liste_max_items": LISTE_MAX_ITEMS,
             "estimate_chars_per_token": self.estimate_chars_per_token,
             "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
             "count_tokens_timeout_s": self.count_tokens_timeout_s,

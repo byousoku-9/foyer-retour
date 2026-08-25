@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -266,3 +267,29 @@ def test_les_deux_commandes_qui_exigent_la_cle_appliquent_la_meme_regle() -> Non
 
     s = Settings(_env_file=None, anthropic_api_key="")
     assert evals_cle_absente(s) is cle_absente(s)
+
+
+def test_la_borne_de_nombre_des_listes_de_comprendre_vit_ici_et_se_publie() -> None:
+    """Revue Codex 2.2 (I2) : la Convention Seuils ne souffre pas d'exception de domicile.
+
+    `LISTE_MAX = 32` vivait en dur dans `steps/comprendre.py`, au motif qu'elle entre dans le schéma
+    JSON envoyé au modèle et qu'un `.env` la ferait varier d'un poste à l'autre. Le motif est bon,
+    la conclusion ne l'était pas : `comprendre_max_tokens` entre lui aussi dans la requête — donc
+    dans la clé des fixtures — et il est un champ de `Settings` depuis la story 1.4. Ce qui protège
+    le schéma n'est pas le fichier, c'est de ne pas être un champ `.env`. La borne est donc une
+    **constante de module** de `config.py`, publiée dans `Trace.thresholds` comme tout seuil actif,
+    et l'étape n'en garde qu'un alias de lecture.
+    """
+    from server.app.config import LISTE_MAX_ITEMS
+    from server.app.steps import comprendre as etape
+
+    assert LISTE_MAX_ITEMS == 32
+    assert etape.LISTE_MAX is LISTE_MAX_ITEMS  # l'étape lit, elle ne décide plus
+    assert Settings(_env_file=None).thresholds()["liste_max_items"] == LISTE_MAX_ITEMS
+    # Pas un champ `.env` : le schéma de sortie de *comprendre* ne doit pas dépendre du poste.
+    assert "liste_max_items" not in Settings.model_fields
+    # Et plus aucun littéral de borne dans le corps de l'étape (Convention Seuils, lettre exacte).
+    source = (REPO_ROOT / "server" / "app" / "steps" / "comprendre.py").read_text("utf-8")
+    corps = [ligne for ligne in source.splitlines()
+             if not ligne.lstrip().startswith("#") and "= LISTE_MAX_ITEMS" not in ligne]
+    assert not [ligne for ligne in corps if re.search(r"=\s*\d{2,}\s*$", ligne)], corps

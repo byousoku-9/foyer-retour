@@ -13,9 +13,29 @@ Intent = Literal["question", "suivi", "meteo", "bavardage", "hors_perimetre"]
 Role = Literal["user", "assistant"]
 
 
+# Longueur d'**un** tour de conversation, et donc de tout ce que l'assistant peut avoir « dit »
+# (AD-11 : « bornes d'entrée strictes ; rejet plutôt que troncature »). Ce n'est pas un seuil de
+# `config.py` mais une **forme de contrat** — comme les bornes de `Faits` — et le front la porte
+# sous le nom `TOUR_MAX_CARACTERES` ; `tests/test_web_chat.py` amarre les deux.
+TOUR_MAX_CHARS = 2000
+
+# Revue Codex 2.2 (B1) : la clarification est bornée **par la même valeur**, et ce n'est pas une
+# coïncidence — c'est l'invariant qui referme la boucle de la story 2.2. La page conserve ce que
+# l'assistant a dit dans un tour d'historique ; un tour hors borne est écarté par
+# `chat.js::historiquePourApi`, si bien qu'une clarification plus longue que `Turn.texte`
+# disparaissait de l'historique, l'assistant ne voyait plus sa propre question, et il la reposait
+# indéfiniment. Avec `comprendre_max_tokens = 1024`, le cas était atteignable. Borner ici garantit
+# que la question posée **tient toujours** dans le tour suivant : la boucle ne peut plus se rouvrir.
+#
+# Le rejet a lieu bien plus haut, sur la sortie de l'appel (`steps/comprendre.py`), pour emprunter la
+# relance motivée du client ; cette borne-ci est la ceinture du domaine, celle qui vaut pour les deux
+# pipelines et pour tout producteur futur.
+CLARIFICATION_MAX_CHARS = TOUR_MAX_CHARS
+
+
 class Turn(DomainModel):
     role: Role
-    texte: str = Field(max_length=2000)
+    texte: str = Field(max_length=TOUR_MAX_CHARS)
 
 
 class Faits(DomainModel):
@@ -158,7 +178,9 @@ class ClarificationRequise(DomainModel):
     `Answer.clarification` existe déjà pour la porter, `found=False`.
     """
 
-    clarification: str  # la question courte à poser à l'utilisateur, dans sa langue
+    # Bornée : la page doit pouvoir la reconduire dans un tour d'historique, sinon l'assistant
+    # ne revoit pas sa propre question et la repose (revue Codex 2.2, B1).
+    clarification: str = Field(max_length=CLARIFICATION_MAX_CHARS)  # la question courte à poser, dans sa langue
     intent: Intent
     language: str = "fr"
 

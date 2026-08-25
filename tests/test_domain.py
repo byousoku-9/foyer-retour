@@ -449,3 +449,27 @@ def test_ingest_models() -> None:
     assert fields(retrieval.NodeWindow) == {"node_id", "blocks", "truncated", "next_cursor"}
     r = ingest.Report(doc_id="d", checks=[{"name": "a", "level": "bloquant"}, {"name": "b", "level": "alerte"}])
     assert [c.name for c in r.blocking] == ["a"] and [c.name for c in r.alerts] == ["b"]
+
+
+def test_la_clarification_tient_dans_un_tour_de_conversation() -> None:
+    """Revue Codex 2.2 (B1) : la seule sortie du modèle qui atteignait un écran sans borne.
+
+    Ce que l'assistant a dit est reconduit par la page dans un tour d'historique, et un tour hors
+    borne est **écarté** (`chat.js::historiquePourApi`, règle 1.7). Une clarification plus longue que
+    `Turn.texte` disparaissait donc de l'historique : l'assistant ne revoyait plus sa propre
+    question et la reposait indéfiniment. Les deux types qui la portent — celui de *comprendre* et
+    celui du contrat HTTP — sont bornés par la **même** valeur que le tour, et ce test l'amarre :
+    trois nombres qui divergeraient rouvriraient la boucle sans qu'aucun test ne rougisse.
+    """
+    assert question.CLARIFICATION_MAX_CHARS == question.TOUR_MAX_CHARS
+    maxi = question.CLARIFICATION_MAX_CHARS
+    question.ClarificationRequise(clarification="q" * maxi, intent="suivi")  # pile, admis
+    with pytest.raises(ValidationError, match="string_too_long|at most"):
+        question.ClarificationRequise(clarification="q" * (maxi + 1), intent="suivi")
+    # Le contrat HTTP porte la même borne : les deux pipelines recopient ici la clarification, mais
+    # rien d'autre que ce champ ne la garantirait à un producteur futur.
+    refus = {"found": False, "complete": False,
+             "reason": answer.AbsenceProof(kind="clarification_requise")}
+    answer.Answer(**refus, clarification="q" * maxi)
+    with pytest.raises(ValidationError, match="string_too_long|at most"):
+        answer.Answer(**refus, clarification="q" * (maxi + 1))

@@ -12,7 +12,7 @@ from .document import DomainModel
 
 # `Applicable` vit dans `verdict.py` (story 1.8) : c'est AD-6 qui en fixe les trois valeurs et le
 # code qui les dérive. Deux littéraux identiques dans deux modules auraient pu diverger en silence.
-from .question import QuestionScope
+from .question import CLARIFICATION_MAX_CHARS, QuestionScope
 from .verdict import Applicable, Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
@@ -227,7 +227,12 @@ class Answer(DomainModel):
     # n'est pas « ce qui a été compris d'un sinistre », et rien ne l'affiche.
     faits_compris: QuestionScope | None = None
     unknown: list[str] = Field(default_factory=list)
-    clarification: str | None = None
+    # Même borne que `ClarificationRequise.clarification`, et pour la même raison (revue Codex
+    # 2.2, B1) : c'est ce champ que la page conserve dans son historique, et un tour hors borne
+    # y est écarté — la question posée disparaîtrait, et l'assistant la reposerait indéfiniment.
+    # La ceinture vaut pour les deux pipelines : tous deux recopient ici la clarification de
+    # *comprendre*, mais rien d'autre que ce champ ne le garantirait à un producteur futur.
+    clarification: str | None = Field(None, max_length=CLARIFICATION_MAX_CHARS)
 
     @model_validator(mode="after")
     def _found_coherence(self) -> Answer:
