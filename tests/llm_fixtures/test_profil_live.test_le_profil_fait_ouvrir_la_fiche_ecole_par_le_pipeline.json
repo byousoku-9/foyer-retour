@@ -1,0 +1,98 @@
+{
+  "claude-haiku-4-5-20251001:6140e5259e5b42f0": {
+    "request": "claude-haiku-4-5-20251001:6140e5259e5b42f0",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Quelles démarches dois-je faire avant la rentrée scolaire pour mes deux enfants ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"rentrée scolaire\", \"scolarisation\", \"documents scolaires\"], \"themes\": [\"école\", \"scolarité\"], \"facettes\": [\"démarches avant la rentrée scolaire\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNrzPJTeeakuw9k29csb",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4282,
+        "inference_geo": "not_available",
+        "input_tokens": 124,
+        "output_tokens": 135,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:982bc15dac1cb28e": {
+    "request": "claude-haiku-4-5-20251001:982bc15dac1cb28e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNs1M9m7kXEb1nHoSv1X",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4020,
+        "output_tokens": 191,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a15f88bdbb322d6b": {
+    "request": "claude-sonnet-5:a15f88bdbb322d6b",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de toute l'installation : elle doit être engagée en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent pour scolariser vos enfants : l'école publique luxembourgeoise (gratuite, multilingue), les écoles européennes et internationales, ou des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant la rentrée, plusieurs points sont à anticiper.\",\"kind\":\"transition\"},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections linguistiques les plus recherchées peuvent partir un an à l'avance : il faut vérifier la disponibilité de la section visée, pas seulement de l'établissement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, demandez à l'école de vos enfants un certificat de radiation ainsi que les bulletins des dernières années, car ces documents sont presque toujours exigés et bien plus difficiles à obtenir une fois parti. La rentrée se situe début septembre.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas de calendrier détaillé propre à un cas avec deux enfants (âges différents, sections différentes) : chaque enfant devra être évalué individuellement selon son âge et son parcours, notamment pour la barrière linguistique en cas d'arrivée tardive dans le public.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et contrainte, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies de scolarisation coexistent : publique luxembourgeoise, européenne/internationale, privée.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription communale précède l'inscription scolaire et les places dans les sections recherchées partent parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander certificat de radiation et bulletins avant de partir ; la rentrée est début septembre.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNrzWcW1sRBVJPd7cuDf",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2890,
+        "output_tokens": 1162,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}

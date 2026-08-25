@@ -1,0 +1,103 @@
+{
+  "claude-haiku-4-5-20251001:02add3fd2a6455c9": {
+    "request": "claude-haiku-4-5-20251001:02add3fd2a6455c9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNs2SnNXfLZczJWs89ty",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3715,
+        "output_tokens": 158,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:47ad6919a9068a23": {
+    "request": "claude-haiku-4-5-20251001:47ad6919a9068a23",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Quelles démarches dois-je faire avant la rentrée scolaire pour mes enfants ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"inscription scolaire\", \"rentrée scolaire\", \"scolarisation\", \"enfants\"], \"themes\": [], \"facettes\": [\"démarches avant la rentrée scolaire\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNs1WQ8EQxT5yfTLBL9h",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4282,
+        "inference_geo": "not_available",
+        "input_tokens": 76,
+        "output_tokens": 125,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:f615403d753add86": {
+    "request": "claude-sonnet-5:f615403d753add86",
+    "response": {
+      "content": [
+        {
+          "signature": "Eo4GCpABCBEYAipAPaDCxCqHnLwnjExQp1lL5/Ke/gaJXduKqtaSKsx8ztHoy3PM8tYQdZIa0vbNQfRzi4Vuzs8eoYef44fcfx+KpjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAc+9tNQGEgy4tYHz55ncD4I9H/UaDPOPcnX9V4dU9ZfyziIwkTouW1VGBRr1RijIaU3MWiisRI/Pk4WLT7GLdvgmgL4O4fqXAYOJ2CefL42RLvDPKqoELWaTpo90ufj9KnM//PHKWPX6b3Av4E8kO65HyXTXOFD7ETpsOaz4ROHQNDm1ROrh6v13pvjj95v9rEAK+fAze7q2JyQyPNz0zni1ncNxuPZ2y/4WC1uuRWscwxSO5aRJx3AyWfRQ2bAnpsyL2aPj10C5FUwNBLr67T0KfSr+/G8eqwkyVNK3O4AZVmAzlOmv4lLt6MCFytFaRqbbZBVkqu6KKBZgiqm/E6D42tbZiblOH1TdbhCUuj9YeTlDgI9Sko0L0zs58rSFjDz1Sza2HF7+yGoNzOJocMs7FpkZYin3sRHbA5hKXTy3+A+c329L1+Hdo4TfDS1jF+SmkSkd6hU93eqsdOnom4A2ltVApCxY9duSVByE2gv5wxgUsWBcbvQS/ACAUIF1X07kLOX7et7olnGzDFYD0IaxRMMVF5DMpCkcoiMCNvIgFdIUeuONu4OH2k24DEZFESDonHq7X/+EdTP8jqifSMkzf4aolpOwKON/ZdDkuU7h9vh4NfWdobWg5CWXHJVZ0/1XyZy8CutED/Pk62rYWNHRUXvbUkl/H5ZNMrg2Qmhddef1TfE9T9cT0R4T6OpceHV0nM+i6jyoH9XIMPQdpIFLXmbDtlu2C+bYqVq13793oNn/JHqoVC5lwjwvXJJlYd6MKREfAqfaI5diE6BQh/gr1sf2B1MhfSO1Rxrqe+bgY+ieaVrlniTE6L4VTGWcYBoqZ6scYFV8Tjz1oWIToQ0YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Les blocs fournis ne traitent pas directement de la scolarisation des enfants, mais deux points administratifs concernent la préparation d'une rentrée scolaire.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Sans déclaration à la commune, il n'est pas possible d'obtenir de certificat de résidence, et donc pas d'inscription scolaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne dès que possible, en particulier en période de rentrée, car les créneaux se remplissent plusieurs semaines à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Pensez aussi à vérifier la liste des pièces demandées sur le site de votre commune, car elle varie d'une commune à l'autre pour une même démarche.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les documents fournis ne détaillent pas les voies de scolarisation (école publique, européenne, internationale) ni les délais d'inscription propres aux établissements scolaires : ces informations ne figurent pas dans les blocs disponibles ici.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Sans déclaration à la commune, il n'y a pas de certificat de résidence, donc pas d'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut prendre rendez-vous en ligne dès que possible, surtout en période de rentrée où les créneaux se remplissent vite.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"Prenez rendez-vous en ligne dès que c'est possible, en particulier en période de rentrée, où les créneaux se remplissent plusieurs semaines à l'avance\"}]},{\"claim_id\":\"c3\",\"text\":\"La liste des pièces demandées varie d'une commune à l'autre pour une même démarche.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:11\",\"quote\":\"Vérifiez la liste des pièces sur le site de votre commune, car elle varie d'une commune à l'autre pour une même démarche\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNs1duZwj8pMrLdfFwSB",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 3092,
+        "output_tokens": 1034,
+        "output_tokens_details": {
+          "thinking_tokens": 176
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}

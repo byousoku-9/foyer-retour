@@ -36,6 +36,7 @@ from server.app.domain.question import Turn
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
+from server.app.pipelines.commun import PHRASE_RELANCE_ABANDONNEE
 from server.app.pipelines.guide import repondre_guide
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -410,6 +411,9 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
     assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
     assert answer.complete is False  # AD-4 : une relance empêchée est une troncature
+    # Story 2.3 : et la troncature **se dit**. `complete=False` seul redonnerait un « PARTIEL » nu,
+    # que le domaine refuse désormais (`complete ⟺ found ∧ unknown = []`).
+    assert PHRASE_RELANCE_ABANDONNEE in answer.unknown
     verifier = next(s for s in trace.steps if s.name == "verifier")
     (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
     assert "budget_exceeded" in check.detail and "2 requis" in check.detail
@@ -704,7 +708,11 @@ async def test_a_facet_of_the_question_the_answer_never_covers_forbids_complete(
         _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE),
         _verdicts(("c1", True), facettes=[["c1"], []])])
     assert fake.remaining_script == 0
-    assert answer.found is True and answer.unknown == [] and answer.complete is False
+    # Story 2.3 : la sous-question omise est **nommée** dans `unknown[]` — le front l'affiche sous
+    # « Ce que je ne sais pas », et l'état « partiel » cesse d'être un mot nu. La phrase est composée
+    # par le code : ni le libellé de la facette ni un `block_id` n'y entrent (AD-10, AD-16).
+    assert answer.found is True and answer.complete is False
+    assert answer.unknown == ["Il reste 1 sous-question sans réponse dans ce que vous m'avez demandé."]
     verifier = [s for s in trace.steps if s.name == "verifier"][-1]
     (check,) = [c for c in verifier.checks if c.name == "facettes_non_couvertes"]
     assert "1 facette(s) couverte(s) par une affirmation affichée sur 2 posée(s)" in check.detail
@@ -1176,3 +1184,102 @@ async def test_le_miroir_une_brute_pleine_de_mots_du_guide_ne_sauve_pas_des_term
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit" and answer.reason.terms_searched == ["hippopotame"]
+
+
+# --- le profil désigne, le pipeline réserve (story 2.3) ---------------------
+PARCOURS_TEXTES = {
+    "f1": "Vous vous déclarez à la commune dans les huit jours qui suivent votre arrivée.",
+    "f2": "La commune tient la liste des crèches conventionnées.",
+    "f3": "L'inscription scolaire se fait auprès de la commune avant le 1er septembre.",
+}
+
+
+@pytest.fixture(scope="module")
+def index_parcours() -> Index:
+    """Trois fiches également candidates sur « commune », et un parcours qui conditionne la dernière.
+
+    Les trois portent le même terme, donc le même score : l'ordre des candidats est l'ordre de
+    lecture, `f3` est troisième, et c'est ce qui rend la promotion observable avec `max_opens=2`.
+    """
+    blocs = [{"block_id": f"{DOC_ID}:{loc}:1", "loc": loc, "seq": 1, "kind": "para", "text": texte}
+             for loc, texte in PARCOURS_TEXTES.items()]
+    doc = Document(
+        doc_id=DOC_ID, kind="guide", title="Mini guide", edition="git:test",
+        nodes=[*(Node(node_id=f"{DOC_ID}:{loc}", title=loc, items=[{"block_id": f"{DOC_ID}:{loc}:1"}])
+                 for loc in PARCOURS_TEXTES),
+               Node(node_id=f"{DOC_ID}:root", title="Mini",
+                    items=[{"node_id": f"{DOC_ID}:{loc}"} for loc in PARCOURS_TEXTES])],
+        blocks=blocs,
+        # La donnée de la source : « cette fiche concerne un profil qui a des enfants ».
+        parcours=[{"node_id": f"{DOC_ID}:f3", "si": {"enfants": True}}])
+    for b in doc.blocks:
+        b.text_norm = normalize(b.text)
+    manifest = {DOC_ID: ManifestEntry(status="servi", source_hash="sha-source", ingest_fingerprint="fp-1",
+                                      document_hash="sha-doc", edition="git:test")}
+    return Index(Corpus(documents={DOC_ID: doc}, manifest=manifest, summaries={DOC_ID: "# Mini guide"}))
+
+
+async def _run_profil(index: Index, profil: Profil, script: list, **kw):
+    # `max_opens=2` avec une réserve de 1 : la réserve reste **strictement** inférieure au quota,
+    # sans quoi le profil remplacerait la question au lieu de l'ordonner (revue coordonnée, A4).
+    kw.setdefault("profil_max_opens", 1)
+    settings = _settings(max_opens=2, **kw)
+    fake = FakeAnthropic(script)
+    answer, trace = await repondre_guide(
+        "Où inscrire mon enfant ?", [], profil, corpus=index.corpus, index=index,
+        client=LlmClient(settings, anthropic_client=fake), settings=settings, request_id="req-profil",
+        budget=_budget())
+    return answer, trace, fake
+
+
+def _script_commune() -> list:
+    claim = ("c1", "La commune tient le registre.",
+             [(f"{DOC_ID}:f1:1", "vous déclarez à la commune dans les huit jours")])
+    return [_comprendre(terms=["commune"]), _rediger(claim), _verdicts(("c1", True))]
+
+
+async def test_le_profil_fait_ouvrir_la_fiche_qui_le_concerne_et_la_trace_le_dit(
+        index_parcours: Index) -> None:
+    """AC : « profil `enfants`, question scolaire ⇒ la fiche est ouverte même si son meilleur hit la
+    classait hors de `max_opens`, et la trace le dit »."""
+    _answer, trace, fake = await _run_profil(index_parcours, Profil(enfants="2"), _script_commune())
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f3:1"]
+    (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is True
+    assert check.detail == f"1 place(s) réservée(s) sur 1 ({DOC_ID}:f3) ; 1 nœud(s) cédé(s) ({DOC_ID}:f2)"
+
+
+async def test_un_profil_vide_laisse_le_pipeline_identique_a_lavant_story(index_parcours: Index) -> None:
+    """AC : profil vide ⇒ résultat de *retrouver* identique — le parcours du document n'y change rien
+    tant qu'aucune condition n'est satisfaite (inversion assumée : dans le doute, on ne promeut pas)."""
+    _answer, trace, fake = await _run_profil(index_parcours, Profil(), _script_commune())
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f2:1"]
+    assert [c.name for c in retrouver.checks] == []
+
+
+async def test_le_profil_najoute_jamais_une_fiche_que_la_question_ne_touche_pas(
+        index_parcours: Index) -> None:
+    """**Le profil ordonne, il n'ajoute jamais** : sur des termes que `f3` ne porte pas, la fiche
+    désignée n'est pas candidate — et rien n'entre dans le contexte du modèle du fait du profil."""
+    claim = ("c1", "Les crèches sont conventionnées.",
+             [(f"{DOC_ID}:f2:1", "La commune tient la liste des crèches conventionnées.")])
+    script = [_comprendre(terms=["crèches"]), _rediger(claim), _verdicts(("c1", True))]
+    _answer, trace, fake = await _run_profil(index_parcours, Profil(enfants="2"), script)
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f2:1"]  # le seul hit, et rien de plus
+    (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
+    assert check.detail.startswith("aucune place réservée")
+
+
+async def test_le_profil_ne_voyage_pas_dans_la_trace(index_parcours: Index) -> None:
+    """AD-10 : la trace ne porte pas de données personnelles au-delà du profil déclaré, et rien n'a
+    besoin d'y écrire ses **clés** — le `CheckResult` ne dit que des `node_id`, produits par nous."""
+    _answer, trace, _fake = await _run_profil(index_parcours, Profil(enfants="2"), _script_commune())
+    peint = json.dumps([s.model_dump(mode="json") for s in trace.steps], ensure_ascii=False)
+    assert "enfants" not in peint
+    assert trace.thresholds["profil_max_opens"] == 1  # le seuil actif, lui, est publié (AD-10)

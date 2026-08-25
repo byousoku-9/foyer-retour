@@ -497,3 +497,168 @@ def test_les_deux_nombres_du_check_se_comptent_avec_la_meme_regle(tmp_path: Path
                                         budget=_budget(), settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
     assert next(c.detail for c in step2.checks if c.name == "dictionnaire") == \
         "1 variante(s) ajoutée(s) à 1 terme(s)"
+
+
+# --- la réserve du profil (story 2.3) ---------------------------------------
+def _corpus_range(n: int) -> Corpus:
+    """`n` nœuds, un bloc chacun, tous porteurs du terme cherché — donc tous candidats.
+
+    Le score de `chercher` est le nombre de groupes de termes touchés : ils sont tous à égalité, et
+    l'ordre des candidats est l'ordre de lecture. C'est ce qui rend le rang de chaque nœud
+    prévisible, et donc la réserve observable.
+    """
+    blocks = [Block(block_id=f"d:p{i}:1", text=f"Le matricule, cas {i}.", loc=f"p{i}", seq=1)
+              for i in range(1, n + 1)]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, n + 1)])]
+    nodes += [Node(node_id=f"n{i}", items=[BlockRef(block_id=f"d:p{i}:1")]) for i in range(1, n + 1)]
+    doc = Document(doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)
+    return Corpus(documents={"d": doc})
+
+
+def _run_profil(corpus: Corpus, noeuds: list[str] | None, *, max_opens: int = 6,
+                profil_max_opens: int = 2, terms: list[str] | None = None, **budget_kw):
+    """La réserve se règle **dans le budget**, avec le quota qu'elle borne (revue coordonnée, A4)."""
+    return retrouver_deterministe(_parsed(terms or ["matricule"]), corpus=corpus, index=Index(corpus),
+                                  budget=_budget(max_opens=max_opens,
+                                                 profil_max_opens=profil_max_opens, **budget_kw),
+                                  settings=_s(), noeuds_prioritaires=noeuds)
+
+
+def test_un_noeud_designe_hors_quota_prend_la_place_du_moins_bien_classe() -> None:
+    """AC : la fiche désignée est ouverte même si son meilleur hit la classait hors de `max_opens`,
+    et la trace le dit. Elle est ouverte **après** les nœuds de la question : l'ordre des nœuds est
+    aussi l'ordre d'admission au budget de blocs, et le profil gagne une place, pas la priorité."""
+    corpus = _corpus_range(8)  # n1…n8 candidats, `max_opens=6` : n7 et n8 sont hors quota
+    result, step = _run_profil(corpus, ["n7"])
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 5, 7)]
+    assert result.opened_block_ids[-1] == "d:p7:1"  # ouvert après les nœuds de la question
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is True
+    assert check.detail == "1 place(s) réservée(s) sur 2 (n7) ; 1 nœud(s) cédé(s) (n6)"
+    # le nœud cédé n'est pas perdu pour la trace : c'est un candidat de `chercher` non ouvert (AD-10)
+    assert "d:p6:1" in result.discarded_block_ids
+
+
+def test_la_reserve_est_bornee_par_profil_max_opens() -> None:
+    """Trois nœuds désignés hors quota, deux places : les **mieux classés** entrent, le troisième non.
+
+    Sans cette borne, un profil complet évincerait la moitié des nœuds que la question a classés en
+    tête — ce que « le profil ordonne, il n'ajoute jamais » interdit.
+    """
+    corpus = _corpus_range(10)
+    result, step = _run_profil(corpus, ["n9", "n7", "n10"])
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 7, 9)]
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.detail == "2 place(s) réservée(s) sur 2 (n7, n9) ; 2 nœud(s) cédé(s) (n6, n5)"
+
+
+def test_une_fiche_designee_deja_ouverte_ne_change_rien() -> None:
+    """Matrice : `ecole` candidate au rang 2 — ni l'ordre, ni le nombre de nœuds ouverts ne bougent."""
+    corpus = _corpus_range(8)
+    temoin, _ = _run_profil(corpus, None)
+    result, step = _run_profil(corpus, ["n2"])
+    assert result.opened_block_ids == temoin.opened_block_ids
+    assert result.truncated == temoin.truncated
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.detail.startswith("aucune place réservée")
+
+
+def test_une_fiche_designee_sans_hit_nest_jamais_ouverte() -> None:
+    """**Le profil ordonne, il n'ajoute jamais** : un nœud sans hit n'est pas candidat, donc rien.
+
+    C'est l'invariant qui empêche le profil de faire entrer une fiche dans le contexte du modèle —
+    et donc de faire dire à la réponse ce que la question n'a pas demandé.
+    """
+    corpus = _corpus_range(3)
+    temoin, _ = _run_profil(corpus, None)
+    result, step = _run_profil(corpus, ["n404"])
+    assert result.opened_block_ids == temoin.opened_block_ids
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.detail.startswith("aucune place réservée")
+
+
+def test_un_profil_vide_laisse_retrouver_identique_a_lavant_story() -> None:
+    """AC : profil vide ⇒ résultat identique, **et** aucune trace ajoutée — le `CheckResult` lui-même
+    ne paraît pas, sans quoi « à l'octet près » serait faux pour un lecteur de trace."""
+    corpus = _corpus_range(8)
+    for noeuds in (None, []):
+        result, step = _run_profil(corpus, noeuds)
+        assert result.opened_block_ids == [f"d:p{i}:1" for i in range(1, 7)]
+        assert [c.name for c in step.checks] == []
+
+
+def test_profil_max_opens_a_zero_desarme_la_reserve() -> None:
+    """Convention Seuils : le seuil se règle, et sa valeur nulle rend le comportement d'avant.
+
+    La trace se tait alors — pas par omission : `Trace.thresholds` publie `profil_max_opens`, et un
+    `CheckResult` disant « aucune place réservée » laisserait croire que les nœuds désignés n'étaient
+    pas candidats, alors que la réserve est simplement désarmée.
+    """
+    corpus = _corpus_range(8)
+    result, step = _run_profil(corpus, ["n7"], profil_max_opens=0)
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in range(1, 7)]
+    assert [c.name for c in step.checks] == []
+
+
+def test_un_noeud_designe_ne_cede_jamais_sa_place_a_un_autre_designe() -> None:
+    """`n6` est désigné **et** retenu : le céder pour promouvoir `n7` serait un échange nul, et ferait
+    perdre au profil ce que la réserve vient de lui donner. C'est `n5` qui cède."""
+    corpus = _corpus_range(8)
+    result, step = _run_profil(corpus, ["n6", "n7"], profil_max_opens=1)
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 6, 7)]
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.detail == "1 place(s) réservée(s) sur 1 (n7) ; 1 nœud(s) cédé(s) (n5)"
+
+
+def test_la_reserve_ne_change_pas_le_nombre_de_noeuds_ouverts_ni_truncated() -> None:
+    """`max_opens` reste le nombre de nœuds ouverts : la réserve prend une place, elle n'en ajoute pas.
+
+    `truncated` ne bouge pas non plus — il dit que des candidats sont restés hors quota, et c'est
+    toujours le cas : la promotion en échange un contre un.
+    """
+    corpus = _corpus_range(8)
+    temoin, _ = _run_profil(corpus, None)
+    result, _step = _run_profil(corpus, ["n7", "n8"])
+    assert len(result.opened_block_ids) == len(temoin.opened_block_ids) == 6
+    assert result.truncated is temoin.truncated is True
+
+
+def test_une_place_reservee_nest_pas_une_place_occupee_quand_le_budget_ecarte_la_fenetre() -> None:
+    """Le trou de la matrice (revue coordonnée 2.3, A1) : réserver n'est pas occuper.
+
+    Huit nœuds candidats, `max_opens=6`, deux désignés hors quota, mais `max_blocks=4` : l'unité de
+    dépendance des deux promus est écartée comme n'importe quelle autre, et le résultat est
+    **identique** au témoin sans profil. La trace disait pourtant « 2 place(s) réservée(s) » — elle
+    affirmait une réservation qui n'a rien ouvert. Elle dit maintenant la perte, et en échec : le
+    profil a coûté deux places à la question sans rien rendre.
+
+    Les huit autres tests de la réserve tournent sur un budget sans `max_blocks`/`max_tokens` : c'est
+    précisément ce que celui-ci ajoute (patron de
+    `test_max_blocks_skips_whole_units_and_keeps_the_budget_busy`).
+    """
+    corpus = _corpus_range(8)
+    temoin, _ = _run_profil(corpus, None, max_blocks=4)
+    result, step = _run_profil(corpus, ["n7", "n8"], max_blocks=4)
+    assert result.opened_block_ids == temoin.opened_block_ids == [f"d:p{i}:1" for i in range(1, 5)]
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is False
+    assert check.detail == ("0 place(s) réservée(s) sur 2 (aucune) ; 2 nœud(s) cédé(s) (n6, n5) ; "
+                            "2 promu(s) sans bloc retenu (n7, n8) : le budget de blocs a écarté leur fenêtre")
+
+
+def test_une_place_partiellement_occupee_se_dit_pour_ce_quelle_est() -> None:
+    """`max_blocks=5` : le premier promu passe, le second non — un succès et une perte, dits tous deux."""
+    corpus = _corpus_range(8)
+    result, step = _run_profil(corpus, ["n7", "n8"], max_blocks=5)
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 7)]
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is False
+    assert check.detail.startswith("1 place(s) réservée(s) sur 2 (n7) ; 2 nœud(s) cédé(s) (n6, n5)")
+    assert "1 promu(s) sans bloc retenu (n8)" in check.detail
+
+
+def test_une_reserve_qui_mangerait_le_quota_est_refusee_a_la_construction() -> None:
+    """A4 : `max_opens` et la réserve se lisent au même endroit, et ne peuvent plus se contredire."""
+    with pytest.raises(ValueError, match="strictement inférieur"):
+        _budget(max_opens=2, profil_max_opens=2)
+    assert _budget(max_opens=2, profil_max_opens=1).profil_max_opens == 1

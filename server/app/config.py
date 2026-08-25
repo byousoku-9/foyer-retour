@@ -151,6 +151,15 @@ class Settings(BaseSettings):
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
+    # Story 2.3 : le nombre de places **réservées**, parmi `max_opens`, aux nœuds que le profil
+    # désigne (`domain/profil.py::noeuds_du_profil`). Ce n'est ni un quota de plus ni un filtre :
+    # `max_opens` reste le nombre de nœuds ouverts, et les places réservées sont prises aux
+    # **derniers** nœuds retenus, ceux que la question classait le moins bien. À 0, le profil
+    # n'ordonne plus rien et *retrouver* se comporte comme avant la story ; à `max_opens`, il
+    # pourrait évincer la fiche qui répond. 2 sur 6 est le compromis que l'AC demande — une place,
+    # pas la priorité de lecture — et c'est une valeur `[HYPOTHÈSE]`, à régler avec les
+    # questions-témoins (4.2) comme `max_opens` lui-même.
+    profil_max_opens: int = Field(2, ge=0)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
     # Global à la requête. La chaîne du guide fait **cinq** appels dans son pire cas nominal —
@@ -352,6 +361,12 @@ class Settings(BaseSettings):
             raise ValueError(f"llm_timeout_s ({self.llm_timeout_s}) doit être < deadline_s ({self.deadline_s})")
         if self.llm_retry_margin_s >= self.deadline_s:
             raise ValueError(f"llm_retry_margin_s ({self.llm_retry_margin_s}) doit être < deadline_s ({self.deadline_s})")
+        if self.profil_max_opens >= self.max_opens:
+            # Le même invariant que `RetrievalBudget`, vérifié **au démarrage** : une configuration
+            # contradictoire (`MAX_OPENS=2` dans un `.env`) doit refuser de booter, pas produire un
+            # `RetrievalBudget` invalide à la première question (revue coordonnée 2.3, A4).
+            raise ValueError(f"profil_max_opens ({self.profil_max_opens}) doit être < max_opens "
+                             f"({self.max_opens}) : le profil ordonne, il ne remplace pas la question")
         if self.header_caps_max_size_pt >= self.title_min_size_pt:
             raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
                              f"< title_min_size_pt ({self.title_min_size_pt})")
@@ -395,6 +410,7 @@ class Settings(BaseSettings):
             "quote_min_chars": self.quote_min_chars,
             "quote_min_ratio": self.quote_min_ratio,
             "max_opens": self.max_opens,
+            "profil_max_opens": self.profil_max_opens,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
             "max_llm_attempts": self.max_llm_attempts,

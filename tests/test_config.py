@@ -70,7 +70,9 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             # story 1.8 : les deux bornes posées sur ce que le modèle fait afficher au sinistre
             "fait_manquant_max_chars", "ask_client_max",
             # story 1.10 : le plafond de coût d'un run d'évals (AD-9, AD-14)
-            "evals_max_cost_eur"} <= set(t.thresholds)
+            "evals_max_cost_eur",
+            # story 2.3 : les places réservées, parmi `max_opens`, aux nœuds que le profil désigne
+            "profil_max_opens"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
     # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
     # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).

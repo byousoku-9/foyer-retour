@@ -35,7 +35,7 @@ from server.app.domain.errors import (
     PipelineError,
     Timeout,
 )
-from server.app.domain.profil import Profil
+from server.app.domain.profil import Profil, noeuds_du_profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
 from server.app.domain.trace import CheckResult, StepTrace, Trace
 from server.app.pipelines.commun import (
@@ -44,6 +44,7 @@ from server.app.pipelines.commun import (
     blocs_cites,
     digests,
     domine,
+    relance_abandonnee,
     relance_utile,
     retrieval_budget,
 )
@@ -242,9 +243,16 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # --- retrouver (code pur) -------------------------------------------
         echeance("retrouver")
+        # AD-1 : *retrouver* ne reçoit que `ParsedQuestion` et des paramètres de recherche — les
+        # nœuds que le profil désigne sont donc résolus **ici**, par le seul étage qui voie à la fois
+        # le profil et le corpus, et passés comme un paramètre nommé (story 2.3, précédent exact de
+        # `kinds_prioritaires` en 1.8). Le calcul est du code pur sur une donnée de la source
+        # (`Document.parcours`) : aucun appel, aucun jugement de modèle.
         retrieval, step_retrouver = retrouver_deterministe(parsed, corpus=corpus, index=index,
                                                            budget=retrieval_budget(settings),
                                                            settings=settings, doc_id=doc_id,
+                                                           noeuds_prioritaires=noeuds_du_profil(
+                                                               corpus.documents[doc_id].parcours, profil),
                                                            dictionnaire=dictionnaire)
         steps.append(step_retrouver)
         truncated = retrieval.truncated
@@ -333,7 +341,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                                    f"{len(blocs_cites(seconde))} bloc(s) cité(s) contre "
                                    f"{len(blocs_cites(acquise))}, "
                                    f"complete={seconde.complete} contre {acquise.complete}, "
-                                   f"unknown={len(seconde.unknown)} contre {len(acquise.unknown)}) : "
+                                   f"manques={len(seconde.manques)} contre {len(acquise.manques)}) : "
                                    f"la première fait foi"))
             except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                 # Deux situations qu'AD-16 sépare, et qu'il ne faut surtout pas confondre (revue Codex
@@ -366,7 +374,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 # plafond ou la deadline ont empêchée en est une : la réponse est servie, mais elle n'est
                 # pas donnée pour complète. Un draft relancé mais **non vérifié** n'est jamais montré
                 # (AD-3) : on repart de la vérification acquise.
-                verification = acquise.model_copy(update={"complete": False})
+                verification = relance_abandonnee(acquise)
                 step_verifier.checks.append(CheckResult(
                     name="relance_abandonnee", ok=False,
                     detail=f"relance de rédiger non démarrée ({exc.code.value}) : "

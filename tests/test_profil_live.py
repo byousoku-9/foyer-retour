@@ -1,0 +1,158 @@
+"""Le profil, mesuré de bout en bout sur le corpus réel (story 2.3), enregistré avec la clé, rejoué sans.
+
+Deux moitiés, qu'aucun mock ne peut tenir ensemble :
+
+1. **Les thèmes** — un profil `enfants` fait sortir de *comprendre* des thèmes scolaires. C'est le
+   jugement du modèle sur trois clés du questionnaire, et c'est ce qui **cherche** : les thèmes sont
+   fondus dans les termes de recherche (`ParsedQuestion.termes_de_recherche()`).
+2. **Le parcours** — le même profil fait ouvrir la fiche `ecole` par le pipeline entier. C'est la
+   donnée de la source (`Document.parcours`, écrite par l'auteur du guide), et c'est ce qui
+   **classe** : la fiche est promue parmi les `max_opens` nœuds ouverts, et la trace le dit.
+
+Les deux se complètent, et il fallait un appel réel pour le montrer : dans les tests mockés, les
+thèmes sont posés par le script, et le rang de la fiche `ecole` parmi les candidats dépend du
+vocabulaire que le modèle a réellement choisi. Le témoin négatif — la même question avec un profil
+vide — tourne dans le **même** test, sur la même question et sans appel supplémentaire : c'est lui
+qui dit que la promotion vient du profil et non du hasard du classement.
+
+Les assertions tolèrent que le modèle choisisse ses mots (`_evoque`, patron de
+`tests/test_suivi_live.py`) : un test live qui asserte une chaîne exacte rendue par le modèle rougit
+au premier synonyme et cesse de mesurer quoi que ce soit.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from server.app.config import Settings
+from server.app.corpus.index import Index
+from server.app.corpus.loader import load_corpus
+from server.app.corpus.text import normalize
+from server.app.domain.profil import Profil, noeuds_du_profil
+from server.app.domain.question import ParsedQuestion
+from server.app.llm.budget import RequestBudget
+from server.app.llm.client import LlmClient
+from server.app.pipelines.guide import repondre_guide
+from server.app.steps.comprendre import comprendre
+from tests.fixtures import LLMRecorder
+from tests.llm_fake import RecordedAnthropic
+
+ROOT = Path(__file__).resolve().parents[1]
+DOC_ID = "lux-guide"
+ECOLE = f"{DOC_ID}:fecole"
+
+# Une question scolaire posée **sans** nommer la fiche : c'est le profil qui doit faire le reste.
+SCOLAIRE = "Quelles démarches dois-je faire avant la rentrée pour mes enfants ?"
+# Le profil du questionnaire du site, avec ses valeurs exactes (`web/app/chat.js::CHAMPS`).
+PROFIL_ENFANTS = Profil(situation="En famille", enfants="2", statut="Salarie", logement="Louer",
+                        vehicule="Non", horizon="Je prepare mon depart")
+
+
+@pytest.fixture(scope="module")
+def index() -> Index:
+    return Index(load_corpus(ROOT / "data", allow_ungated=True))
+
+
+def _settings() -> Settings:
+    # Seuils par défaut de `config.py`, jamais ceux du `.env` du poste : ils décident des blocs
+    # envoyés à *rédiger*, donc de la clé de requête — un `.env` local qui les surcharge rendrait le
+    # rejeu hors ligne impossible (revue 1.4).
+    return Settings(_env_file=None, anthropic_api_key="")
+
+
+def _client(llm_recorder: LLMRecorder) -> LlmClient:
+    return LlmClient(_settings(), anthropic_client=RecordedAnthropic(llm_recorder))
+
+
+def _budget() -> RequestBudget:
+    s = _settings()
+    return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
+                         max_cost_eur=s.max_cost_eur_per_request)
+
+
+def _evoque(libelles: list[str], *attendus: str) -> bool:
+    """L'un des libellés (normalisé) contient l'un des mots attendus — le modèle choisit les siens."""
+    normalises = [normalize(t) for t in libelles]
+    return any(attendu in n for n in normalises for attendu in attendus)
+
+
+async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
+                                                                  llm_recorder: LLMRecorder) -> None:
+    """AD-5 : « `scope` dérivé du profil : enfants → école/allocations ». La moitié « thèmes » de l'AC.
+
+    Le profil est envoyé **brut** (AD-11) et filtré par `PROFIL_KEYS` ; *comprendre* le voit dans son
+    unique appel `micro` et en tire des axes de recherche. C'est ce qui **cherche** — le parcours,
+    lui, ne fait que classer ce que la recherche a trouvé.
+    """
+    budget = _budget()
+    parsed, step = await comprendre(SCOLAIRE, [], PROFIL_ENFANTS, client=_client(llm_recorder),
+                                    budget=budget, settings=_settings(),
+                                    perimetre=index.corpus.perimetres.get(DOC_ID, ""))
+    assert isinstance(parsed, ParsedQuestion), getattr(parsed, "clarification", None)
+    assert parsed.intent in ("question", "suivi") and parsed.language == "fr"
+    assert _evoque(parsed.scope.themes, "ecole", "scolar", "enseign"), parsed.scope.themes
+    # AD-9 : un seul appel `micro` — l'étage `reason` n'est jamais atteint par *comprendre*.
+    assert step.tier == "micro" and len(step.calls) == 1 and budget.attempts == 1
+    assert step.calls[0].model.startswith("claude-haiku")
+
+
+async def test_le_profil_fait_ouvrir_la_fiche_ecole_par_le_pipeline(index: Index,
+                                                                    llm_recorder: LLMRecorder) -> None:
+    """L'AC entière, sur le corpus réel : le pipeline ouvre `lux-guide:fecole` grâce au profil.
+
+    Le parcours du guide conditionne cette fiche sur `{enfants: true}` (donnée de la source), le
+    pipeline la résout par code et *retrouver* lui réserve une place parmi `max_opens`. La trace le
+    dit — c'est littéralement ce que l'AC exige — et le `CheckResult` ne nomme que des `node_id`,
+    produits par l'ingestion : ni clé de profil, ni terme cherché, ni contenu de bloc (AD-10, AD-15).
+    """
+    budget = _budget()
+    answer, trace = await repondre_guide(SCOLAIRE, [], PROFIL_ENFANTS, corpus=index.corpus, index=index,
+                                         client=_client(llm_recorder), settings=_settings(),
+                                         request_id="live-profil", budget=budget)
+    document = index.corpus.documents[DOC_ID]
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    ouverts = {document.node_of(b) for b in retrouver.opened_block_ids}
+    assert ECOLE in ouverts, sorted(ouverts)
+
+    # Le profil a bien désigné la fiche : c'est une donnée de la source, pas un jugement du modèle.
+    assert ECOLE in noeuds_du_profil(document.parcours, PROFIL_ENFANTS)
+    # La trace dit ce que le profil a fait — soit il a réservé une place à la fiche, soit la question
+    # la classait déjà dans le quota. L'assertion porte sur les deux issues, parce que le rang de
+    # `ecole` parmi les candidats dépend du vocabulaire que le modèle a réellement choisi : forcer
+    # l'une des deux ferait rougir le test au premier synonyme, sans qu'aucune règle ait bougé.
+    (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is True
+    assert ECOLE in check.detail or check.detail.startswith("aucune place réservée"), check.detail
+    # AD-10 / AD-15 : aucune clé de profil, aucun terme cherché, aucun contenu de bloc dans la trace.
+    assert "enfants" not in check.detail
+
+    # AD-4 : `found`/`complete` restent calculés par le code, et la réponse tient sous le plafond.
+    assert answer.complete == (answer.found and not answer.unknown)
+    assert budget.cost_eur < _settings().max_cost_eur_per_request
+    assert trace.thresholds["profil_max_opens"] == _settings().profil_max_opens
+
+
+async def test_le_meme_scenario_sans_profil_ne_reserve_rien(index: Index,
+                                                            llm_recorder: LLMRecorder) -> None:
+    """Le témoin négatif : même question, profil vide ⇒ aucune place réservée, aucune trace ajoutée.
+
+    Sans lui, le test précédent ne prouverait rien — la fiche `ecole` pourrait être ouverte par le
+    seul classement des termes. Ici, la chaîne est celle d'avant la story, à l'octet près.
+    """
+    answer, trace = await repondre_guide(SCOLAIRE, [], Profil(), corpus=index.corpus, index=index,
+                                         client=_client(llm_recorder), settings=_settings(),
+                                         request_id="live-profil-vide", budget=_budget())
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert [c.name for c in retrouver.checks if c.name == "noeuds_du_profil"] == []
+    assert noeuds_du_profil(index.corpus.documents[DOC_ID].parcours, Profil()) == []
+    assert answer.complete == (answer.found and not answer.unknown)
+    # **La mesure de l'AC**, et non une propriété de forme : sur la même question, sans profil, la
+    # fiche `ecole` n'est pas ouverte du tout — le pipeline part sur `assurance_sante` et
+    # `nationalite`, et la réponse dit elle-même que « les voies de scolarisation ne figurent pas
+    # dans les blocs disponibles ». C'est donc bien le profil, et lui seul, qui ouvre la fiche dans
+    # le test précédent. Les deux appels sont enregistrés : la comparaison est rejouée à l'identique
+    # hors ligne, elle ne dépend pas d'un tirage.
+    ouverts = {index.corpus.documents[DOC_ID].node_of(b) for b in retrouver.opened_block_ids}
+    assert ECOLE not in ouverts, sorted(ouverts)

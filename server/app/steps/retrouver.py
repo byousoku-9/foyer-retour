@@ -4,6 +4,9 @@
 score (≤ `max_opens` nœuds, fenêtre `node_window` contenant le meilleur hit du nœud), puis suivi
 **automatique** d'un niveau des renvois (`Block.refs`) des blocs ouverts et des `definitions()` des
 termes — de la question **et** de ceux rencontrés dans les blocs ouverts —, hors quota `max_opens`.
+Story 2.3 : parmi ces `max_opens` nœuds, `profil_max_opens` places sont **réservées** aux nœuds que
+le profil désigne (`noeuds_prioritaires`, calculés par l'appelant) quand ils sont candidats mais hors
+quota ; elles sont prises aux derniers nœuds retenus, et les promus sont ouverts après eux.
 `truncated=True` si une fenêtre reste coupée (pas de pagination en déterministe), si des nœuds
 candidats dépassent `max_opens`, ou si le budget de blocs/tokens a écarté quelque chose. Les blocs
 sont relus depuis le corpus (objets `Document.block`), jamais modifiés ; l'étape n'affirme aucune
@@ -39,9 +42,32 @@ from server.app.llm.models import STEP_TIERS
 from server.app.llm.pricing import estimate_tokens
 
 
+def _reserver(nodes: list[str], noeuds_prioritaires: Iterable[str] | None, max_opens: int,
+              profil_max_opens: int) -> tuple[list[str], tuple[list[str], list[str]]]:
+    """Réserve au plus `profil_max_opens` places aux nœuds désignés (story 2.3).
+
+    Rend `(nœuds ouverts, (promus, cédés))`. Les promus sont les mieux classés des désignés restés
+    hors quota ; ils prennent la place des **derniers** nœuds retenus et sont ouverts après eux. Un
+    nœud lui-même désigné ne cède jamais sa place à un autre désigné : l'échange serait nul, et il
+    ferait perdre au profil ce que la réserve vient de lui donner.
+    """
+    ouverts = nodes[:max_opens]
+    designes = set(noeuds_prioritaires or ())
+    if not designes or profil_max_opens <= 0:
+        return ouverts, ([], [])
+    hors_quota = [n for n in nodes[max_opens:] if n in designes]
+    cessibles = [n for n in reversed(ouverts) if n not in designes]
+    places = min(profil_max_opens, len(hors_quota), len(cessibles))
+    if not places:
+        return ouverts, ([], [])
+    promus, cedes = hors_quota[:places], cessibles[:places]
+    return [n for n in ouverts if n not in set(cedes)] + promus, (promus, cedes)
+
+
 def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                            budget: RetrievalBudget, settings: Settings, doc_id: str | None = None,
                            kinds_prioritaires: Iterable[str] | None = None,
+                           noeuds_prioritaires: Iterable[str] | None = None,
                            dictionnaire: Dictionnaire | None = None
                            ) -> tuple[RetrievalResult, StepTrace]:
     """`kinds_prioritaires` (story 1.8) : à score égal, les blocs de ces `Block.kind` passent devant.
@@ -51,6 +77,24 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     quatre blocs du contrat, le rappel du sinistre repose encore surtout sur les termes ; c'est le
     typage automatique (story 3.2) qui donnera son plein effet à ce départage. `None` (le guide) laisse
     l'ordre de recherche exactement tel qu'il était.
+
+    `noeuds_prioritaires` (story 2.3) : les nœuds que le **profil** désigne, calculés par l'appelant
+    (`domain/profil.py::noeuds_du_profil` sur `Document.parcours`) et passés comme un paramètre
+    nommé — AD-1 : *retrouver* ne reçoit que `ParsedQuestion` et des paramètres de recherche, jamais
+    le profil ni l'historique. Ils se voient **réserver** au plus `settings.profil_max_opens` places
+    parmi les `max_opens` nœuds ouverts, prises aux derniers nœuds retenus.
+
+    **Le profil ordonne, il n'ajoute jamais.** Un nœud désigné n'est promu que s'il est déjà
+    *candidat*, c'est-à-dire s'il a un hit pour les termes cherchés : aucune fiche n'entre dans le
+    contexte du modèle du seul fait du profil, et rien n'est jamais écarté parce que le profil ne le
+    désigne pas. Liste vide ou désignés tous déjà retenus ⇒ résultat identique à celui d'avant la
+    story, à l'octet près.
+
+    **Une réserve, et non un tri.** Mettre les nœuds du profil en tête serait plus littéral, mais
+    l'ordre des nœuds est aussi l'ordre d'admission au budget de blocs (`retrieval_max_blocks`,
+    `node_window`) : une fiche du profil ouverte en premier peut consommer tout le budget et faire
+    disparaître la fiche qui répond à la question. Les nœuds promus sont donc ouverts **après** les
+    autres — ils gagnent une place, pas la priorité de lecture.
 
     `dictionnaire` (story 2.1, AD-5) : le **seul** point d'entrée élargi. `chercher` accepte déjà
     `{canonique: [variantes]}` — formes normalisées par groupe, score = nombre de groupes touchés —
@@ -77,6 +121,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     passage se pose, pas dans le chargement.
     """
     t0 = time.monotonic()
+    # Matérialisé une fois : la liste est lue deux fois (la réserve, puis la trace), et un itérateur
+    # consommé la première fois rendrait la seconde muette sans rien signaler.
+    designes = list(noeuds_prioritaires or ())
     # Source unique des termes cherchés (story 1.5) : l'`AbsenceProof` d'un refus « zéro hit » doit
     # nommer exactement ce que cette étape a cherché (AD-4 `terms_searched`).
     terms = parsed.termes_de_recherche()
@@ -108,14 +155,19 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             nodes.append(node_id)
     if len(nodes) > budget.max_opens:
         truncated = True  # des nœuds candidats avaient des hits au-delà du quota
+    ouverts, (promus, cedes) = _reserver(nodes, designes, budget.max_opens, budget.profil_max_opens)
     fenetres: list[str] = []
-    for node_id in nodes[: budget.max_opens]:
+    # De quel nœud vient chaque bloc de fenêtre : c'est ce qui permet de dire, **après** le budget,
+    # quels nœuds ont réellement contribué aux blocs transmis au modèle (revue coordonnée 2.3, A1).
+    noeud_de: dict[str, str] = {}
+    for node_id in ouverts:
         window = index.ouvrir_noeud(node_id, focus_block_id=best_hit[node_id], node_window=budget.node_window)
         if window.truncated:
             truncated = True  # pas de pagination en déterministe : la fenêtre reste coupée
         for b in window.blocks:
             if b.block_id not in fenetres:
                 fenetres.append(b.block_id)
+                noeud_de[b.block_id] = node_id
 
     # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre et, avec lui, les cibles d'un
     # seul niveau de ses renvois (les cibles ne sont pas suivies à leur tour — Deferred du spine
@@ -170,6 +222,35 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                              truncated=truncated)
     step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"], ms=int((time.monotonic() - t0) * 1000),
                      opened_block_ids=list(opened), discarded_block_ids=list(discarded))
+    if designes and budget.profil_max_opens > 0:
+        # AD-10 : la trace dit ce que le profil a **fait**, pas ce qu'il déclare. Les `node_id` du
+        # guide sont nos propres identifiants, produits par l'ingestion (AD-2) — ils ne sont ni du
+        # contenu de bloc ni une donnée personnelle, et sans eux la première AC (« la trace le dit »)
+        # ne serait pas vérifiable. Les clés du profil, elles, n'apparaissent nulle part ici.
+        #
+        # **Composé après le budget, et non après la réserve** (revue coordonnée 2.3, A1). Réserver
+        # une place n'est pas l'occuper : l'unité de dépendance d'un nœud promu peut être écartée par
+        # `max_blocks`/`max_tokens` comme n'importe quelle autre, et le résultat est alors identique
+        # au témoin sans profil — pendant que la trace annonçait « 2 places réservées ». L'AC dit
+        # « la trace le dit » : elle doit dire vrai, donc elle se lit sur `opened_block_ids`.
+        contributeurs = {noeud_de[b] for b in opened if b in noeud_de}
+        occupees = [n for n in promus if n in contributeurs]
+        perdus = [n for n in promus if n not in contributeurs]
+        if not promus:
+            detail, ok = ("aucune place réservée : les nœuds désignés par le profil sont déjà "
+                          "retenus, ou sans hit pour les termes cherchés"), True
+        else:
+            detail = (f"{len(occupees)} place(s) réservée(s) sur {budget.profil_max_opens} "
+                      f"({', '.join(occupees) or 'aucune'}) ; "
+                      f"{len(cedes)} nœud(s) cédé(s) ({', '.join(cedes)})")
+            ok = not perdus
+            if perdus:
+                # Le nœud a bien pris la place d'un autre, puis a tout perdu au budget de blocs : le
+                # profil a coûté une place à la question **sans rien rendre**. C'est un échec, et il
+                # se dit comme tel — un `ok=True` ferait passer une perte nette pour un succès.
+                detail += (f" ; {len(perdus)} promu(s) sans bloc retenu ({', '.join(perdus)}) : le "
+                           f"budget de blocs a écarté leur fenêtre")
+        step.checks.append(CheckResult(name="noeuds_du_profil", ok=ok, detail=detail))
     if elargi:
         # AD-10 / AD-16 : la trace dit **combien** de formes ont été ajoutées et à combien de termes,
         # jamais lesquelles. AD-4 interdit de publier la liste des variantes, et la trace est lue par
