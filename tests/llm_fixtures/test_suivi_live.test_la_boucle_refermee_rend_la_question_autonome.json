@@ -1,0 +1,33 @@
+{
+  "claude-haiku-4-5-20251001:1fbb15df62ec0bcf": {
+    "request": "claude-haiku-4-5-20251001:1fbb15df62ec0bcf",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"suivi\", \"question_resolue\": \"Quand faut-il faire la demande de permis de conduire ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"permis de conduire\", \"demande\", \"délai\"], \"themes\": [], \"facettes\": [\"quand faire la demande de permis de conduire\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNikuDxycwApXsEZhK3N",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4282,
+        "inference_geo": "not_available",
+        "input_tokens": 146,
+        "output_tokens": 114,
+        "service_tier": "standard"
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "claude-haiku-4-5-20251001:eb68c7cfcf8b08a1": {
+    "request": "claude-haiku-4-5-20251001:eb68c7cfcf8b08a1",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"suivi\", \"question_resolue\": \"Quelles démarches pour ma voiture en arrivant au Luxembourg ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"immatriculation\", \"véhicule\", \"arrivée\"], \"themes\": [], \"facettes\": [\"démarches voiture à l'arrivée\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNikNWmA24rpYwApTwU1",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4282
+        },
+        "cache_creation_input_tokens": 4282,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 161,
+        "output_tokens": 114,
+        "service_tier": "standard"
+      }
+    }
+  }
+}

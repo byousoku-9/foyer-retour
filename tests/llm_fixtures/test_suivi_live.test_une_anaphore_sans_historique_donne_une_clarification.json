@@ -1,0 +1,33 @@
+{
+  "claude-haiku-4-5-20251001:a48c67f9a15753e9": {
+    "request": "claude-haiku-4-5-20251001:a48c67f9a15753e9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"suivi\", \"question_resolue\": null, \"clarification\": \"De quel document ou démarche parlez-vous ?\", \"language\": \"fr\", \"terms\": [], \"themes\": [], \"facettes\": [], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeNikamDFNkEH3d7jpf1W",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4282,
+        "inference_geo": "not_available",
+        "input_tokens": 69,
+        "output_tokens": 82,
+        "service_tier": "standard"
+      }
+    }
+  }
+}
