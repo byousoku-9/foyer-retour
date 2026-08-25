@@ -207,3 +207,159 @@ def test_lapplication_nimporte_jamais_les_evals() -> None:
                 if mod.startswith("server.evals"):
                     violations.append(f"{f.relative_to(APP)}:{line} importe {mod}")
     assert not violations, "\n".join(violations)
+
+
+# --- AD-1 : qui voit l'historique (story 2.2) --------------------------------
+# AD-1 : « seules *comprendre* et *rédiger* reçoivent l'historique ; *retrouver* ne voit que
+# `ParsedQuestion` ». L'invariant est une **absence**, et une absence ne se prouve pas en exerçant le
+# pipeline : un test d'exécution ne rougirait que le jour où quelqu'un ferait *voyager* l'historique
+# jusqu'à *vérifier*, pas le jour où il l'y déclarerait. Seul un contrôle statique qui échoue dès que
+# le paramètre **apparaît** protège la règle. Contrôle AST, aucun import exécuté, comme le reste.
+#
+# **C'est le répertoire qui fait foi, pas cette table** (revue 2.2, P2) : `check_historique` balaye
+# `steps/*.py` comme `_layer_files` le fait partout ailleurs dans ce fichier, et un module d'étape
+# absent de la table **est** une violation. Une table seule ne dit rien d'un `steps/comparer.py`
+# ajouté demain avec un paramètre `historique` : le contrôle ne l'ouvrirait pas, rendrait `[]`, et
+# resterait vert — exactement le mode de défaillance qu'il existe pour empêcher. Ajouter une étape
+# oblige donc à dire, ici, si l'historique lui est dû.
+#
+# Module d'étape → (fonction d'entrée, l'historique lui est-il dû ?).
+ETAPES_HISTORIQUE: dict[str, tuple[str, bool]] = {
+    "comprendre": ("comprendre", True),
+    "rediger": ("rediger", True),
+    "retrouver": ("retrouver_deterministe", False),
+    "verifier": ("verifier", False),
+    "restituer": ("restituer", False),
+}
+HISTORIQUE = "historique"
+
+
+def _modules_detape(app: Path) -> dict[str, Path]:
+    """Les modules de `steps/`, `__init__.py` exclu : le marqueur de paquet n'est pas une étape."""
+    dossier = app / "steps"
+    if not dossier.is_dir():
+        return {}
+    return {f.stem: f for f in sorted(dossier.glob("*.py")) if f.stem != "__init__"}
+
+
+def _fonction(tree: ast.Module, nom: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """La fonction de premier niveau nommée `nom` dans le module, `None` si elle a disparu."""
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == nom:
+            return node
+    return None
+
+
+def _parametres(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """Tous les noms de paramètres, positionnels, nommés, `*args` et `**kwargs` compris."""
+    a = fn.args
+    noms = {arg.arg for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs)}
+    return noms | {v.arg for v in (a.vararg, a.kwarg) if v is not None}
+
+
+def _identifiants(node: ast.AST) -> dict[str, int]:
+    """Les **identifiants** du sous-arbre → la première ligne où chacun paraît.
+
+    Jamais le contenu des chaînes : une docstring qui écrit « ne voit que `ParsedQuestion` — jamais
+    l'historique » (c'est le cas de `steps/retrouver.py`, l. 10) énonce l'invariant, et la compter
+    comme une violation ferait échouer le contrôle sur le texte même qui le justifie. Ce qui est
+    interdit, c'est de *nommer* la variable.
+    """
+    lignes: dict[str, int] = {}
+
+    def noter(nom: str, ligne: int) -> None:
+        if nom not in lignes or ligne < lignes[nom]:
+            lignes[nom] = ligne
+
+    for sous in ast.walk(node):
+        ligne = getattr(sous, "lineno", 0)
+        if isinstance(sous, ast.Name):
+            noter(sous.id, ligne)
+        elif isinstance(sous, ast.arg):
+            noter(sous.arg, ligne)
+        elif isinstance(sous, ast.Attribute):
+            noter(sous.attr, ligne)
+        elif isinstance(sous, ast.keyword) and sous.arg is not None:
+            noter(sous.arg, ligne)
+        elif isinstance(sous, ast.alias):
+            # `from x import historique as h` : le nom lié dans le module compte comme les autres.
+            noter(sous.asname or sous.name.split(".")[-1], ligne)
+    return lignes
+
+
+def check_historique(app: Path = APP) -> list[str]:
+    violations = []
+    modules = _modules_detape(app)
+    for module in sorted(set(modules) | set(ETAPES_HISTORIQUE)):
+        f = modules.get(module)
+        if f is None:
+            violations.append(f"steps/{module}.py absent")
+            continue
+        if module not in ETAPES_HISTORIQUE:
+            violations.append(f"steps/{module}.py : étape absente de ETAPES_HISTORIQUE "
+                              f"(AD-1 : dire qui voit `{HISTORIQUE}` est dû pour chaque étape)")
+            continue
+        nom, du = ETAPES_HISTORIQUE[module]
+        tree = ast.parse(f.read_text("utf-8"), filename=str(f))
+        fn = _fonction(tree, nom)
+        if fn is None:
+            violations.append(f"steps/{module}.py : fonction {nom} introuvable")
+            continue
+        parametres = _parametres(fn)
+        if du:
+            if HISTORIQUE not in parametres:
+                # L'autre moitié du contrat : une étape qui *doit* le recevoir et ne le déclare plus
+                # a cassé la résolution des anaphores (story 2.2) sans qu'aucun type ne s'en aperçoive.
+                violations.append(f"steps/{module}.py:{fn.lineno} {nom} ne déclare plus `{HISTORIQUE}`")
+            continue
+        if HISTORIQUE in parametres:
+            violations.append(f"steps/{module}.py:{fn.lineno} {nom} déclare `{HISTORIQUE}` (AD-1 l'interdit)")
+            continue
+        # Le **module entier**, pas la seule fonction d'entrée (revue 2.2, P3) : un helper privé qui
+        # reçoit l'historique et le nomme passerait sinon sans bruit, alors qu'il fait entrer la
+        # conversation dans une étape à qui AD-1 la refuse.
+        ligne = _identifiants(tree).get(HISTORIQUE)
+        if ligne is not None:
+            violations.append(f"steps/{module}.py:{ligne} nomme `{HISTORIQUE}` (AD-1 l'interdit)")
+    return violations
+
+
+def test_seules_comprendre_et_rediger_voient_lhistorique() -> None:
+    """AD-1, mot pour mot : *retrouver* « ne voit que `ParsedQuestion` », jamais l'historique.
+
+    La règle vaut au-delà de *retrouver* : *vérifier* et *restituer* ne le reçoivent pas davantage —
+    l'un juge une ébauche contre des blocs, l'autre met en forme. Faire entrer la conversation dans
+    l'un des trois rouvrirait la porte qu'AD-5 a fermée en story 1.4 : une question non autonome
+    cherchée telle quelle, ou une réponse influencée par un tour précédent qu'aucune citation ne
+    soutient.
+    """
+    violations = check_historique()
+    assert not violations, "\n".join(violations)
+
+
+def test_une_etape_qui_declare_lhistorique_est_detectee(tmp_path: Path) -> None:
+    """Un contrôle d'absence qui ne rougit jamais ne protège rien : on le fait rougir ici.
+
+    Les six cas que le contrat distingue : le paramètre interdit, le nommage interdit **hors** de la
+    fonction d'entrée (le helper privé de P3), le paramètre dû qui disparaît, la fonction d'entrée
+    introuvable (renommée ou supprimée), l'étape neuve que personne n'a inscrite dans la table (P2),
+    et le module de la table qui a disparu du répertoire. `__init__.py` reste ignoré : c'est le
+    marqueur du paquet, pas une étape.
+    """
+    app = _fake_app(tmp_path, {
+        "steps/__init__.py": "historique = 1\n",
+        "steps/comparer.py": "def comparer(parsed, historique):\n    return historique\n",
+        "steps/comprendre.py": "async def comprendre(question, profil):\n    return question\n",
+        "steps/rediger.py": "async def rediger(parsed, retrieval, historique):\n    return historique\n",
+        "steps/retrouver.py": "def retrouver_deterministe(parsed, *, historique=None):\n    return parsed\n",
+        "steps/verifier.py": ("def _juger(historique):\n    return historique\n\n\n"
+                              "async def verifier(draft, *, parsed):\n    return _juger(parsed)\n"),
+    })
+    assert check_historique(app) == [
+        "steps/comparer.py : étape absente de ETAPES_HISTORIQUE "
+        "(AD-1 : dire qui voit `historique` est dû pour chaque étape)",
+        "steps/comprendre.py:1 comprendre ne déclare plus `historique`",
+        "steps/restituer.py absent",
+        "steps/retrouver.py:1 retrouver_deterministe déclare `historique` (AD-1 l'interdit)",
+        "steps/verifier.py:1 nomme `historique` (AD-1 l'interdit)",
+    ]
