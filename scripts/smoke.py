@@ -217,7 +217,7 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
         gate_cases=gate_cases,
         source_hash=hashes,
         dictionnaire_validated=_dictionnaire_validated(racine),
-        dictionnaire_corpus_ok=_dictionnaire_corpus_ok(racine, manifest),
+        dictionnaire_corpus_ok=_dictionnaire_corpus_ok(racine, manifest, reglages.guide_doc_id),
         cas_guide=_lire_cas(cases / "guide", reglages.guide_doc_id),
         cas_sinistre=_lire_cas(cases / "sinistre", reglages.sinistre_doc_id))
 
@@ -252,7 +252,7 @@ def _dictionnaire_validated(racine: Path) -> bool:
     return fichier is not None and fichier.validated
 
 
-def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any]) -> bool:
+def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any], doc_id: str) -> bool:
     """Les `corpus_source_hashes` du dictionnaire committé décrivent-elles le corpus de ce commit ?
 
     **Ce que ce contrôle attrape, et que rien d'autre ne voyait** (revue coordonnée 2.1) : une image
@@ -262,14 +262,18 @@ def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any]) -> bool:
     démonstration, sans une ligne pour le dire. `corpus_ok` est le seul champ qui distingue les deux
     états, et c'est pour cela qu'il est publié.
 
-    La règle est celle de `corpus/dictionary._corpus_ok`, appliquée au manifest de ce commit : au
-    moins une empreinte, et chacune égale au `source_hash` d'un document **servi**.
+    La règle est celle de `corpus/dictionary._corpus_ok`, appliquée au manifest de ce commit :
+    l'empreinte du document **auquel le pipeline l'appliquera** (`doc_id`) doit y être, et chaque
+    empreinte déclarée doit valoir le `source_hash` d'un document **servi**. La première condition
+    vient de la revue Codex 2.1 (B3) : sans elle, un dictionnaire ne décrivant qu'un autre document
+    du corpus passait ici et côté serveur, et le smoke aurait promu une révision où les variantes du
+    guide viennent d'ailleurs.
     """
     fichier = _dictionnaire_du_depot(racine)
-    if fichier is None or not fichier.corpus_source_hashes:
+    if fichier is None or doc_id not in fichier.corpus_source_hashes:
         return False
-    for doc_id, empreinte in fichier.corpus_source_hashes.items():
-        entree = manifest.get(doc_id)
+    for declare, empreinte in fichier.corpus_source_hashes.items():
+        entree = manifest.get(declare)
         if not isinstance(entree, dict) or entree.get("status") != "servi":
             return False
         if entree.get("source_hash") != empreinte:

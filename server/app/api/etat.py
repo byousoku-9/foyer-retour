@@ -347,7 +347,9 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
                            model_ids=dict(TIERS))
     corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte,
                          perimetre_max_chars=settings.perimetre_max_chars)
-    dictionnaire = load_dictionary(data_dir, corpus)
+    # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
+    # `corpus_ok` exige l'empreinte de **ce** document, pas celle d'un document quelconque du corpus.
+    dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
     rapports, alertes_rapports = _rapports(data_dir, corpus.served)
     sources = _sources(data_dir, corpus.served)
     alertes_ungated = _alerte_ungated(settings)

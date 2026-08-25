@@ -143,7 +143,7 @@ def test_les_intents_sont_bornes_aux_trois_que_le_pipeline_refuse() -> None:
 # --- le chargement (corpus) ------------------------------------------------
 
 def test_le_chargement_nominal_arme_les_variantes_mais_pas_le_refus(tmp_path: Path) -> None:
-    d = load_dictionary(_ecrire(tmp_path), _corpus())
+    d = load_dictionary(_ecrire(tmp_path), _corpus(), DOC_ID)
     assert (d.charge, d.corpus_ok, d.validated) == (True, True, False)
     assert d.utilisable is True          # les variantes servent : élargir n'affirme rien (AD-3)
     assert d.court_circuit_actif is False  # le **refus**, lui, attend une signature (AD-5)
@@ -153,12 +153,12 @@ def test_le_chargement_nominal_arme_les_variantes_mais_pas_le_refus(tmp_path: Pa
 def test_le_court_circuit_exige_la_signature_et_le_bon_corpus(tmp_path: Path) -> None:
     signe = {"validated": True, "validated_by": "Lancelot Oudin",
              "validated_at": "2026-08-25T10:00:00Z"}
-    d = load_dictionary(_ecrire(tmp_path, **signe), _corpus())
+    d = load_dictionary(_ecrire(tmp_path, **signe), _corpus(), DOC_ID)
     assert d.court_circuit_actif is True
 
     # Même signature, autre corpus : ni variantes, ni court-circuit. Un dictionnaire qui décrit un
     # autre corpus ne dit rien de celui-ci.
-    perime = load_dictionary(_ecrire(tmp_path, **signe), _corpus(source_hash="autre"))
+    perime = load_dictionary(_ecrire(tmp_path, **signe), _corpus(source_hash="autre"), DOC_ID)
     assert (perime.charge, perime.corpus_ok, perime.utilisable, perime.court_circuit_actif) == (
         True, False, False, False)
     assert "source_hash" in perime.raison
@@ -166,11 +166,12 @@ def test_le_court_circuit_exige_la_signature_et_le_bon_corpus(tmp_path: Path) ->
 
 @pytest.mark.parametrize("hashes, raison", [
     ({}, "vide"),
-    ({"inconnu": SOURCE_HASH}, "n'est pas servi"),
+    ({"inconnu": SOURCE_HASH}, "ne décrit pas"),
+    ({DOC_ID: SOURCE_HASH, "inconnu": SOURCE_HASH}, "n'est pas servi"),
     ({DOC_ID: "autre"}, "source_hash"),
 ])
 def test_corpus_ok_dit_pourquoi_il_est_faux(tmp_path: Path, hashes: dict, raison: str) -> None:
-    d = load_dictionary(_ecrire(tmp_path, corpus_source_hashes=hashes), _corpus())
+    d = load_dictionary(_ecrire(tmp_path, corpus_source_hashes=hashes), _corpus(), DOC_ID)
     assert d.corpus_ok is False and raison in d.raison
 
 
@@ -180,7 +181,7 @@ def test_expand_garde_les_termes_de_la_question_comme_cles(tmp_path: Path) -> No
     Publier les clés du dictionnaire ferait fuir, terme par terme, une partie de ce qu'AD-4 interdit
     d'exposer, et dirait à l'utilisateur des mots qu'il n'a pas employés.
     """
-    d = load_dictionary(_ecrire(tmp_path), _corpus())
+    d = load_dictionary(_ecrire(tmp_path), _corpus(), DOC_ID)
     expansion = d.expand(["matricule", "inconnu"])
     assert list(expansion) == ["matricule", "inconnu"]
     assert expansion["inconnu"] == []
@@ -195,7 +196,7 @@ def test_une_variante_retrouve_le_canonique_et_ses_soeurs(tmp_path: Path) -> Non
     Le cas **anglais** est écrit à part et en toutes lettres : c'est celui que l'AC nomme, et les
     trois autres pourraient passer sans lui (revue coordonnée 2.1).
     """
-    d = load_dictionary(_ecrire(tmp_path), _corpus())
+    d = load_dictionary(_ecrire(tmp_path), _corpus(), DOC_ID)
     for depart in ("Anmeldung", "residence registration", "déclarer arrivée"):
         ajoutees = d.expand([depart])[depart]
         assert forme("déclaration d'arrivée") in ajoutees, depart
@@ -208,7 +209,7 @@ def test_une_variante_retrouve_le_canonique_et_ses_soeurs(tmp_path: Path) -> Non
 
 
 def test_variants_count_compte_des_formes_ajoutees_distinctes(tmp_path: Path) -> None:
-    d = load_dictionary(_ecrire(tmp_path), _corpus())
+    d = load_dictionary(_ecrire(tmp_path), _corpus(), DOC_ID)
     assert d.variants_count(["matricule"]) == 2
     assert d.variants_count(["inconnu"]) == 0
     # Une variante qui est déjà l'un des termes cherchés n'ajoute rien : elle serait cherchée de
@@ -233,7 +234,7 @@ def test_un_dictionnaire_inutilisable_nelargit_rien_et_ne_leve_jamais(tmp_path: 
         dossier.mkdir()
         if contenu is not None:
             (dossier / "dictionary.json").write_bytes(contenu)
-        d = load_dictionary(dossier, _corpus())
+        d = load_dictionary(dossier, _corpus(), DOC_ID)
         assert d.utilisable is False and d.court_circuit_actif is False, nom
         assert d.raison, nom
         assert d.expand(["matricule"]) == {"matricule": []}, nom
@@ -247,11 +248,101 @@ def test_le_dictionnaire_inerte_est_le_defaut(tmp_path: Path) -> None:
     assert inerte.expand(["x"]) == {"x": []} and inerte.variants_count(["x"]) == 0
 
 
-def test_une_forme_partagee_par_deux_canoniques_garde_le_premier_groupe(tmp_path: Path) -> None:
-    """Élargir vers les deux mêlerait deux sens et ferait ouvrir des fiches que la question ne vise
-    pas. L'ordre est celui du fichier, que l'ingestion écrit trié : la décision est déterministe."""
-    d = load_dictionary(_ecrire(tmp_path, corpus={"a": ["partagee"], "b": ["partagee"]}), _corpus())
-    assert d.expand(["partagee"])["partagee"] == ["a"]
+def test_une_forme_partagee_par_deux_canoniques_elargit_vers_les_deux(tmp_path: Path) -> None:
+    """Revue Codex 2.1 (I1) : garder le premier groupe rendait le second **inatteignable**.
+
+    L'artefact livré porte 62 formes ambiguës. Sous l'ancienne règle, une question employant l'une
+    d'elles n'ouvrait jamais la fiche du second canonique — et, dictionnaire signé, ressortait en
+    refus « zéro hit » sur un sujet que le guide traite : le « faux refus » qu'AD-5 dit prévenir.
+    Élargir vers les deux n'affirme rien (AD-3 vérifie chaque phrase affichée contre le corpus) ;
+    l'ordre reste celui du fichier, que l'ingestion écrit trié, donc la réunion est déterministe.
+    """
+    d = load_dictionary(_ecrire(tmp_path, corpus={"a": ["partagee", "sœur-a"],
+                                                  "b": ["partagee", "sœur-b"]}),
+                        _corpus(), DOC_ID)
+    assert d.expand(["partagee"])["partagee"] == ["a", forme("sœur-a"), "b", forme("sœur-b")]
+    # Une forme **non** ambiguë ne gagne rien au passage : seule celle qui relève des deux groupes
+    # les réunit.
+    assert d.expand(["sœur-a"])["sœur-a"] == ["a", "partagee"]  # non ambiguë : son groupe, seul
+    # AD-4 : la preuve d'absence nomme alors les **deux** canoniques, et jamais une variante.
+    assert d.canoniser(["partagee"]) == ["a", "b"]
+
+
+def test_le_verrou_de_corpus_nomme_le_document_quon_va_servir(tmp_path: Path) -> None:
+    """Revue Codex 2.1 (B3) : « au moins une empreinte valide » n'est pas « la bonne empreinte ».
+
+    Le corpus sert deux documents ; le dictionnaire ne décrit que le **second**. Sous l'ancienne
+    règle il était `corpus_ok`, publié armé par `/sante`, et ses variantes élargissaient la recherche
+    du **premier** — un vocabulaire qui ne le décrit pas, et, signé, un refus « zéro hit » armé
+    dessus.
+    """
+    corpus = _corpus()
+    autre = _corpus(source_hash="sha-autre")
+    corpus.documents["autre"] = autre.documents[DOC_ID].model_copy(update={"doc_id": "autre"})
+    corpus.manifest["autre"] = autre.manifest[DOC_ID]
+
+    signe = {"validated": True, "validated_by": "Lancelot Oudin",
+             "validated_at": "2026-08-25T10:00:00Z"}
+    dossier = _ecrire(tmp_path, corpus_source_hashes={"autre": "sha-autre"}, **signe)
+    d = load_dictionary(dossier, corpus, DOC_ID)
+    assert d.charge is True and d.corpus_ok is False
+    assert d.utilisable is False and d.court_circuit_actif is False
+    assert "ne décrit pas" in d.raison and DOC_ID in d.raison
+
+    # Le même fichier, appliqué au document qu'il décrit **vraiment**, se charge et arme.
+    sien = load_dictionary(dossier, corpus, "autre")
+    assert sien.corpus_ok is True and sien.court_circuit_actif is True
+    # …et il ne vaut que pour celui-là : un pipeline qui interrogerait un autre document, ou tout le
+    # corpus (`doc_id=None`), n'élargit rien et n'arme rien.
+    assert sien.utilisable_pour("autre") is True and sien.court_circuit_pour("autre") is True
+    for ailleurs in (DOC_ID, None, ""):
+        assert sien.utilisable_pour(ailleurs) is False, ailleurs
+        assert sien.court_circuit_pour(ailleurs) is False, ailleurs
+
+
+def test_canoniser_rend_les_canoniques_jamais_la_variante_employee(tmp_path: Path) -> None:
+    """AD-4, mot pour mot : `terms_searched[] (canoniques)`.
+
+    Revue Codex 2.1 (B5) : `terms_searched` recopiait les termes de *comprendre*, si bien qu'un terme
+    reconnu comme **variante** était publié tel quel — mesuré sur l'artefact livré avec
+    « Arbeitsamt », du groupe « ADEM ».
+    """
+    d = load_dictionary(_ecrire(tmp_path), _corpus(), DOC_ID)
+    # Une variante sort sous son canonique…
+    assert d.canoniser(["Anmeldung"]) == ["déclaration d'arrivée"]
+    # …le canonique reste lui-même, et un terme inconnu du dictionnaire est son propre canonique.
+    assert d.canoniser(["matricule", "hippopotame"]) == ["matricule", "hippopotame"]
+    # Deux termes du même groupe ne nomment le canonique qu'une fois : la preuve ne bégaie pas.
+    assert d.canoniser(["Anmeldung", "residence registration"]) == ["déclaration d'arrivée"]
+    # Aucune **variante** ne sort jamais, quel que soit le terme d'entrée.
+    variantes = {v for vs in _fichier()["corpus"].values() for v in vs}
+    for depart in ("Anmeldung", "residence registration", "numéro national", "hippopotame"):
+        assert not (set(d.canoniser([depart])) & variantes), depart
+
+
+def test_un_dictionnaire_inutilisable_ne_canonise_rien(tmp_path: Path) -> None:
+    """Le terme sort inchangé : sans dictionnaire, il **est** le canonique (AD-4)."""
+    inerte = Dictionnaire()
+    assert inerte.canoniser(["Anmeldung"]) == ["Anmeldung"]
+    perime = load_dictionary(_ecrire(tmp_path), _corpus(source_hash="autre"), DOC_ID)
+    assert perime.canoniser(["Anmeldung"]) == ["Anmeldung"]
+
+
+def test_une_version_de_schema_inconnue_rend_le_dictionnaire_inerte(tmp_path: Path) -> None:
+    """Revue Codex 2.1 (B4) : `schema_version` était une chaîne libre.
+
+    Un fichier de version 999 — écrit par un outil dont le format aurait changé de sens — se
+    chargeait, élargissait la recherche et, signé, armait le refus, interprété avec les règles
+    d'aujourd'hui. Une version qu'on ne sait pas lire est un fichier qu'on ne sait pas lire.
+    """
+    with pytest.raises(ValueError, match="schema_version"):
+        DictionaryFile.model_validate(_fichier(schema_version="999"))
+
+    signe = {"validated": True, "validated_by": "Lancelot Oudin",
+             "validated_at": "2026-08-25T10:00:00Z"}
+    d = load_dictionary(_ecrire(tmp_path, schema_version="999", **signe), _corpus(), DOC_ID)
+    assert d.charge is False and d.utilisable is False and d.court_circuit_actif is False
+    assert "schema_version" in d.raison  # dit, jamais tu (AD-16) : `/sante` en fait une alerte
 
 
 def test_forme_est_exactement_celle_que_lindex_compare() -> None:
@@ -285,7 +376,7 @@ def test_le_dictionnaire_du_depot_decrit_le_corpus_du_depot() -> None:
     reglages = Settings(_env_file=None)
     corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True,
                          perimetre_max_chars=reglages.perimetre_max_chars)
-    d = load_dictionary(REPO_ROOT / "data", corpus)
+    d = load_dictionary(REPO_ROOT / "data", corpus, reglages.guide_doc_id)
 
     assert d.charge is True, (
         f"data/dictionary.json ne se charge pas : {d.raison} — relancer "

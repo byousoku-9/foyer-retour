@@ -21,6 +21,13 @@ les deux lecteurs à la fois).
 **Un « validé par personne » est une contradiction** : `validated=true` exige `validated_by` et
 `validated_at` non vides. AD-5 fait de la validation humaine la seule chose qui arme le refus ; un
 booléen sans signataire ni date ne prouve rien et ne se recoupe avec rien.
+
+**`schema_version` est une valeur, pas un commentaire** (revue Codex 2.1, B4). Le champ était une
+chaîne libre : un fichier `schema_version: "999"` — écrit par un outil futur dont le format aurait
+changé de sens — traversait le schéma, se chargeait, élargissait la recherche et, signé, armait le
+refus, en interprétant ses champs avec les règles d'aujourd'hui. Une version qu'on ne sait pas lire
+est un fichier qu'on ne sait pas lire (même raison qu'`extra="forbid"` juste au-dessus) : seule
+`SCHEMA_VERSION` est acceptée, tout le reste rend le dictionnaire inerte et le dit en alerte.
 """
 
 from __future__ import annotations
@@ -73,6 +80,21 @@ class DictionaryFile(DomainModel):
     validated: StrictBool = False
     validated_by: str | None = None
     validated_at: str | None = None  # UTC ISO 8601
+
+    @field_validator("schema_version")
+    @classmethod
+    def _version_supportee(cls, valeur: str) -> str:
+        """AD-7 : une version inconnue ne se lit pas « au mieux », elle ne se lit pas du tout.
+
+        Le lecteur (`corpus/dictionary.load_dictionary`) en fait un `Dictionnaire` inerte avec sa
+        `raison`, `/api/v1/sante` porte l'alerte `dictionnaire_non_valide`, et la page d'accueil
+        l'écrit — le chemin exact d'un fichier illisible, parce que c'en est un.
+        """
+        if valeur != SCHEMA_VERSION:
+            raise ValueError(
+                f"schema_version {valeur!r} inconnue : ce code ne sait lire que {SCHEMA_VERSION!r} — "
+                "régénérer le fichier avec `python -m server.ingest.enrich_dictionary`")
+        return valeur
 
     @field_validator("validated_at")
     @classmethod

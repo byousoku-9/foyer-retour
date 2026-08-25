@@ -61,22 +61,29 @@ def _absence(kind: str, parsed: ParsedQuestion | None, *, doc_id: str, corpus: A
              dictionnaire: Any = None) -> AbsenceProof:
     """Preuve d'absence (AD-4) : ce qui a été cherché, jamais les variantes ni les déclencheurs.
 
-    `terms_searched` reste ce que *comprendre* a produit — les termes de la question, « canoniques »
-    au sens d'AD-4 (par opposition aux variantes) — et jamais les clés du dictionnaire : les publier
-    ferait fuir, terme par terme, une partie de ce qu'AD-4 interdit d'exposer, et dirait à
-    l'utilisateur des mots qu'il n'a pas employés.
+    `terms_searched` porte les **canoniques**, littéralement comme AD-4 les nomme
+    (`terms_searched[] (canoniques)`, « jamais la liste des variantes ni des déclencheurs
+    d'intention »). Un terme que le dictionnaire reconnaît comme variante sort donc sous le canonique
+    de son groupe (`Dictionnaire.canoniser`) : la preuve dit les **notions** cherchées, pas
+    l'orthographe employée. Il recopiait les termes de *comprendre* tels quels (revue Codex 2.1,
+    B5) — mesuré sur l'artefact livré : « Arbeitsamt », reconnu dans le groupe « ADEM », ressortait
+    dans `terms_searched`, c'est-à-dire une variante publiée. Un terme inconnu du dictionnaire est
+    son propre canonique et sort inchangé ; dictionnaire inutilisable pour ce document ⇒ tous les
+    termes sortent inchangés.
 
     `variants_count` est le nombre de formes **ajoutées** effectivement cherchées. Il vaut `0` quand
-    le dictionnaire n'est pas utilisable (absent, illisible, d'un autre corpus) : aucune variante n'a
-    été essayée, et l'annoncer autrement serait faux — c'est la seule chose que ce chiffre promet.
+    le dictionnaire n'est pas utilisable pour ce document (absent, illisible, d'un autre corpus) :
+    aucune variante n'a été essayée, et l'annoncer autrement serait faux — c'est la seule chose que
+    ce chiffre promet.
     """
     if parsed is None:  # rien n'a été cherché : ni termes, ni passages parcourus
         return AbsenceProof(kind=kind)
     document = corpus.documents.get(doc_id)
     termes = parsed.termes_de_recherche()
-    variants = (dictionnaire.variants_count(termes)
-                if dictionnaire is not None and dictionnaire.utilisable else 0)
-    return AbsenceProof(kind=kind, terms_searched=termes, variants_count=variants,
+    elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
+    return AbsenceProof(kind=kind,
+                        terms_searched=dictionnaire.canoniser(termes) if elargi else termes,
+                        variants_count=dictionnaire.variants_count(termes) if elargi else 0,
                         blocks_scanned=len(document.blocks) if document is not None else 0,
                         documents=[doc_id] if document is not None else [])
 
@@ -223,7 +230,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # un gain non mesurable, et un état de plus à tenir cohérent. À reprendre si, et seulement
         # si, une mesure le montre (4.2). Le pré-contrôle n'a lieu que dictionnaire **signé**.
         termes = parsed.termes_de_recherche()
-        if termes and dictionnaire is not None and dictionnaire.court_circuit_actif:
+        # `court_circuit_pour(doc_id)` et non `court_circuit_actif` (revue Codex 2.1, B3) : le
+        # dictionnaire n'arme un refus que sur le document dont il porte l'empreinte.
+        if termes and dictionnaire is not None and dictionnaire.court_circuit_pour(doc_id):
             echeance("court-circuit zéro hit")  # comme avant chaque étape (AD-1/AD-9)
             if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id) \
                     and not index.definitions(termes, doc_id=doc_id):

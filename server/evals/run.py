@@ -733,7 +733,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                     prompts_digest_hex=contexte_gate.prompts_digest,
                     # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
                     # le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
-                    dictionnaire=load_dictionary(data_dir, corpus))
+                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id))
 
 
 async def _fermer(client: Any) -> None:

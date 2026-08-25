@@ -140,7 +140,7 @@ async def _run(index: Index, script: list, *, historique: list[Turn] | None = No
 
 
 def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *, validated: bool,
-                  source_hash: str = "sha-source"):
+                  source_hash: str = "sha-source", doc_id: str = DOC_ID):
     """Un `Dictionnaire` **chargé depuis un fichier**, comme le serveur le fait au démarrage."""
     import json
 
@@ -160,7 +160,7 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
          "corpus_source_hashes": {d: source_hash for d in index.corpus.served},
          "corpus": termes,
          "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
-    return load_dictionary(dossier, index.corpus)
+    return load_dictionary(dossier, index.corpus, doc_id)
 
 
 BONNE = ("c1", "Le délai est de huit jours.", [(f"{DOC_ID}:f1:2", Q_ARRIVEE)])
@@ -771,9 +771,32 @@ async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index,
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit"
     assert answer.reason.variants_count == 1
-    # `terms_searched` reste ce que *comprendre* a produit, jamais les canoniques du dictionnaire.
+    # AD-4 : `terms_searched[] (canoniques)`. Ici les deux termes **sont** leurs propres canoniques
+    # (« matricule » est une clé du dictionnaire, « hippopotame » lui est inconnu) : la preuve les
+    # rend inchangés. Le cas où l'un est une variante est exercé juste en dessous.
     assert answer.reason.terms_searched == ["hippopotame", "matricule"]
     assert answer.reason.blocks_scanned == 4 and answer.reason.documents == [DOC_ID]
+
+
+async def test_la_preuve_dabsence_nomme_le_canonique_pas_la_variante(index: Index,
+                                                                     tmp_path: Path) -> None:
+    """AD-4, mot pour mot : `AbsenceProof(…, terms_searched[] (canoniques), …)`.
+
+    Revue Codex 2.1 (B5) : `terms_searched` recopiait les termes de *comprendre*, si bien qu'un terme
+    reconnu comme **variante** était publié tel quel — reproduit sur l'artefact livré avec
+    « Arbeitsamt », du groupe canonique « ADEM ». La preuve dit désormais les notions cherchées ;
+    aucune variante n'y paraît, et un terme inconnu du dictionnaire reste lui-même.
+    """
+    dico = _dictionnaire(tmp_path, index, {"matricule": ["Sozialversicherungsnummer"]},
+                         validated=True)
+
+    answer, _trace, fake = await _run(
+        index, [_comprendre(terms=["Sozialversicherungsnummer", "hippopotame"])], dictionnaire=dico)
+
+    assert fake.remaining_script == 0 and answer.reason is not None
+    assert answer.reason.kind == "zero_hit"
+    assert answer.reason.terms_searched == ["matricule", "hippopotame"]
+    assert "Sozialversicherungsnummer" not in answer.model_dump_json()
 
 
 async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index, tmp_path: Path) -> None:
@@ -848,6 +871,10 @@ async def test_labsence_serialisee_ne_porte_jamais_une_variante_ni_un_declencheu
 
     Le contrôle est fait sur l'objet **sérialisé** : c'est ce qui part au front, et c'est là que la
     fuite se produirait — terme par terme, dans une réponse publique.
+
+    Le terme cherché est **inconnu** du dictionnaire : aucun groupe n'est touché, donc aucun
+    canonique ne sort non plus. C'est la portée exacte de la règle depuis la revue Codex 2.1 (B5) —
+    `terms_searched` nomme le canonique d'un groupe que la question a fait chercher, et rien d'autre.
     """
     dico = _dictionnaire(tmp_path, index, {"matricule": ["numéro national", "Sozialversicherungsnummer"]},
                          validated=True)
@@ -940,7 +967,7 @@ async def test_le_pre_controle_ne_refuse_pas_ce_quune_definition_couvre(tmp_path
     idx = Index(Corpus(documents={"def": doc}, manifest=manifest, summaries={"def": "# Def"}))
     reglages = _settings(guide_doc_id="def")
 
-    dico = _dictionnaire(tmp_path, idx, {"contenu": []}, validated=True)
+    dico = _dictionnaire(tmp_path, idx, {"contenu": []}, validated=True, doc_id="def")
     assert dico.court_circuit_actif is True
     # `chercher` seul ne trouve rien : c'est ce qui faisait refuser d'avance.
     assert idx.chercher(["contenu"], limit=1, doc_id="def") == []

@@ -300,6 +300,10 @@ def test_decisional_kinds_are_a_tie_break_never_a_filter() -> None:
 
 # --- story 2.1 : l'élargissement par le dictionnaire (AD-5) ------------------
 
+# Le document du corpus miniature de cette section, et celui auquel le dictionnaire est lié
+# (revue Codex 2.1, B3 : un dictionnaire ne vaut que pour le document dont il porte l'empreinte).
+DICO_DOC = "d"
+
 def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], *,
                   validated: bool = False, source_hash: str | None = None):
     """Un `Dictionnaire` chargé depuis un fichier réel : jamais un objet fabriqué à la main.
@@ -323,7 +327,7 @@ def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], 
     (dossier / "dictionary.json").write_text(json.dumps(
         {"schema_version": "1", "corpus_source_hashes": hashes, "corpus": termes,
          "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
-    return load_dictionary(dossier, corpus)
+    return load_dictionary(dossier, corpus, DICO_DOC)
 
 
 def _corpus_avec_manifest() -> Corpus:
@@ -349,7 +353,7 @@ def test_une_variante_ouvre_la_fiche_du_canonique(tmp_path: Path) -> None:
 
     result, step = retrouver_deterministe(
         _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
-        budget=_budget(), settings=_s(), dictionnaire=dico)
+        budget=_budget(), settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
     assert "d:p1:1" in result.opened_block_ids  # la fiche du canonique « matricule »
     (check,) = [c for c in step.checks if c.name == "dictionnaire"]
     assert check.ok is True and check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
@@ -364,7 +368,7 @@ def test_la_trace_dit_le_nombre_de_variantes_jamais_lesquelles(tmp_path: Path) -
     corpus = _corpus_avec_manifest()
     dico = _dictionnaire(tmp_path, corpus, {"matricule": ["numero national", "social security number"]})
     _result, step = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=Index(corpus),
-                                           budget=_budget(), settings=_s(), dictionnaire=dico)
+                                           budget=_budget(), settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
     detail = next(c.detail for c in step.checks if c.name == "dictionnaire")
     assert detail == "2 variante(s) ajoutée(s) à 1 terme(s)"
     for variante in ("numero national", "social security number"):
@@ -382,7 +386,7 @@ def test_un_dictionnaire_inutilisable_ne_change_rien_du_tout(tmp_path: Path) -> 
     attendu, _ = _run(_parsed(["numéro de sécurité sociale"]), corpus, Index(corpus))
     result, step = retrouver_deterministe(
         _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
-        budget=_budget(), settings=_s(), dictionnaire=perime)
+        budget=_budget(), settings=_s(), doc_id=DICO_DOC, dictionnaire=perime)
     assert result.opened_block_ids == attendu.opened_block_ids == []
     assert [c.name for c in step.checks] == []
 
@@ -398,7 +402,7 @@ def test_les_variantes_servent_sans_validation_humaine(tmp_path: Path) -> None:
     assert (dico.utilisable, dico.court_circuit_actif) == (True, False)
     result, _step = retrouver_deterministe(
         _parsed(["numéro de sécurité sociale"]), corpus=corpus, index=Index(corpus),
-        budget=_budget(), settings=_s(), dictionnaire=dico)
+        budget=_budget(), settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
     assert "d:p1:1" in result.opened_block_ids
 
 
@@ -419,8 +423,34 @@ def test_les_definitions_continuent_de_recevoir_les_termes_seuls(tmp_path: Path)
     index.definitions = espion  # type: ignore[method-assign]
     dico = _dictionnaire(tmp_path, corpus, {"matricule": ["contenu"]})
     retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
-                           settings=_s(), dictionnaire=dico)
+                           settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
     assert vus == [["matricule"]]  # une liste de termes, jamais le dict élargi
+
+
+def test_un_dictionnaire_nelargit_que_le_document_dont_il_porte_lempreinte(tmp_path: Path) -> None:
+    """Revue Codex 2.1 (B3) : `utilisable` ne suffisait pas — c'est `utilisable_pour(doc_id)` qui décide.
+
+    Le même dictionnaire, la même question : il élargit la recherche du document qu'il décrit, et
+    **rien** ailleurs. Une recherche sans `doc_id` — sur tout le corpus — n'est reconnue par aucun
+    dictionnaire : rien ne dit que les autres documents sont ceux qu'il décrit, et le vocabulaire
+    d'un guide d'installation ouvrirait des blocs de contrat au hasard.
+    """
+    corpus = _corpus_avec_manifest()
+    index = Index(corpus)
+    dico = _dictionnaire(tmp_path, corpus, {"matricule": ["social security number"]})
+    assert dico.utilisable is True and dico.utilisable_pour(DICO_DOC) is True
+
+    ouvert, step = retrouver_deterministe(_parsed(["social security number"]), corpus=corpus,
+                                          index=index, budget=_budget(), settings=_s(),
+                                          doc_id=DICO_DOC, dictionnaire=dico)
+    assert "d:p1:1" in ouvert.opened_block_ids and [c.name for c in step.checks] == ["dictionnaire"]
+
+    # Sans `doc_id` : ni élargissement, ni `CheckResult` — exactement l'avant-2.1 (AD-16 : rien
+    # n'est annoncé qui n'ait été fait).
+    tout, step_tout = retrouver_deterministe(_parsed(["social security number"]), corpus=corpus,
+                                             index=index, budget=_budget(), settings=_s(),
+                                             dictionnaire=dico)
+    assert tout.opened_block_ids == [] and [c.name for c in step_tout.checks] == []
 
 
 def test_un_terme_anglais_ouvre_la_fiche_francaise(tmp_path: Path) -> None:
@@ -438,7 +468,7 @@ def test_un_terme_anglais_ouvre_la_fiche_francaise(tmp_path: Path) -> None:
 
     result, step = retrouver_deterministe(_parsed(["social security number"]), corpus=corpus,
                                           index=index, budget=_budget(), settings=_s(),
-                                          dictionnaire=dico)
+                                          doc_id=DICO_DOC, dictionnaire=dico)
     assert "d:p1:1" in result.opened_block_ids
     assert next(c.detail for c in step.checks if c.name == "dictionnaire") == \
         "1 variante(s) ajoutée(s) à 1 terme(s)"
@@ -458,12 +488,12 @@ def test_les_deux_nombres_du_check_se_comptent_avec_la_meme_regle(tmp_path: Path
     # La question cherche **déjà** la variante : rien n'est ajouté, donc aucun terme n'est « touché ».
     _r, step = retrouver_deterministe(_parsed(["matricule", "numero national"]), corpus=corpus,
                                       index=index, budget=_budget(), settings=_s(),
-                                      dictionnaire=dico)
+                                      doc_id=DICO_DOC, dictionnaire=dico)
     assert next(c.detail for c in step.checks if c.name == "dictionnaire") == \
         "0 variante(s) ajoutée(s) à 0 terme(s)"
 
     # Et le cas où elle ne la cherche pas : un terme touché, une forme ajoutée.
     _r2, step2 = retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index,
-                                        budget=_budget(), settings=_s(), dictionnaire=dico)
+                                        budget=_budget(), settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
     assert next(c.detail for c in step2.checks if c.name == "dictionnaire") == \
         "1 variante(s) ajoutée(s) à 1 terme(s)"

@@ -55,8 +55,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     `dictionnaire` (story 2.1, AD-5) : le **seul** point d'entrée élargi. `chercher` accepte déjà
     `{canonique: [variantes]}` — formes normalisées par groupe, score = nombre de groupes touchés —
     donc l'élargissement ne change ni le classement ni la déduplication, il ajoute des formes à
-    chercher pour les mêmes termes. Il n'est employé que si le dictionnaire est `utilisable`
-    (chargé **et** décrivant le corpus servi) : `validated` ne commande que le court-circuit du
+    chercher pour les mêmes termes. Il n'est employé que si le dictionnaire est
+    `utilisable_pour(doc_id)` (chargé, décrivant le corpus servi, **et** portant l'empreinte du
+    document interrogé — revue Codex 2.1, B3) : `validated` ne commande que le court-circuit du
     pipeline, pas l'élargissement — élargir n'affirme rien, chaque phrase affichée reste vérifiée
     contre le corpus (AD-3), tandis que refuser est une affirmation négative qui, elle, demande une
     signature humaine.
@@ -70,9 +71,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     livré ne décrit que le guide, et `pipelines/sinistre.py` appelle donc cette étape sans
     `dictionnaire` — élargir la recherche d'un contrat avec le vocabulaire d'un guide d'installation
     n'aurait aucun sens. Le schéma, lui, est **déjà** multi-documents (`corpus_source_hashes` est une
-    table, et `corpus/dictionary._corpus_ok` valide chaque entrée contre le manifest) : un
-    dictionnaire décrivant un contrat serait chargé, déclaré `corpus_ok`, publié armé par `/sante` —
-    et inutilisé. Le jour où un contrat en aura un, c'est ici et dans `pipelines/sinistre.py` que le
+    table, et `corpus/dictionary._corpus_ok` valide chaque entrée contre le manifest) ; mais l'objet
+    chargé est lié à **un** document — celui que `load_dictionary` a reçu — et `utilisable_pour` le
+    vérifie ici, si bien qu'un dictionnaire de contrat ne peut pas élargir la recherche du guide. Le jour où un contrat en aura un, c'est ici et dans `pipelines/sinistre.py` que le
     passage se pose, pas dans le chargement.
     """
     t0 = time.monotonic()
@@ -89,7 +90,10 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return corpus.documents[index.doc_of(block_id)].block(block_id)
 
     truncated = False
-    elargi = dictionnaire is not None and dictionnaire.utilisable
+    # `utilisable_pour(doc_id)` et non `utilisable` (revue Codex 2.1, B3) : le dictionnaire ne vaut
+    # que pour le document dont il porte l'empreinte. Une recherche sans `doc_id` — sur tout le
+    # corpus — n'élargit donc rien, et le vocabulaire du guide ne peut pas ouvrir des blocs de contrat.
+    elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
     cherches = dictionnaire.expand(terms) if elargi else terms
     hits = (index.chercher(cherches, limit=budget.search_limit, doc_id=doc_id,
                            kinds_prioritaires=kinds_prioritaires) if terms else [])

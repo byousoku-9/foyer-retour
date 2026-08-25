@@ -2,10 +2,20 @@
 
 **Deux verrous distincts, parce que deux risques distincts.**
 
-- `corpus_ok` — les `corpus_source_hashes` du fichier décrivent-ils le corpus **servi** ? — commande
-  l'emploi des **variantes** par *retrouver*. Élargir la recherche ne fait qu'ajouter des candidats,
-  et chaque phrase affichée reste vérifiée contre le corpus (AD-3) ; mais un dictionnaire qui décrit
-  un *autre* corpus ne dit rien de celui-ci, et ses variantes ouvriraient des fiches au hasard.
+- `corpus_ok` — les `corpus_source_hashes` du fichier décrivent-ils le document **auquel il sera
+  appliqué** ? — commande l'emploi des **variantes** par *retrouver*. Élargir la recherche ne fait
+  qu'ajouter des candidats, et chaque phrase affichée reste vérifiée contre le corpus (AD-3) ; mais
+  un dictionnaire qui décrit un *autre* corpus ne dit rien de celui-ci, et ses variantes ouvriraient
+  des fiches au hasard.
+
+  **Le verrou nomme le document, il ne se contente pas d'en trouver un** (revue Codex 2.1, B3). La
+  règle était « chaque empreinte déclarée correspond à un document servi, et au moins une » : un
+  fichier ne déclarant que l'empreinte du **contrat AXA** passait donc `corpus_ok`, était publié
+  armé par `/sante`, élargissait la recherche du **guide** et — signé — y armait le refus « zéro
+  hit », sur un vocabulaire qui ne décrit pas le guide. `load_dictionary` reçoit désormais le
+  `doc_id` que le pipeline lui appliquera (`settings.guide_doc_id`), l'exige parmi les empreintes,
+  et le porte : `utilisable_pour(doc_id)` / `court_circuit_pour(doc_id)` refusent tout autre
+  document — le jour où un contrat aura son dictionnaire, ce sera un autre objet, pas celui-ci.
 - `validated ∧ corpus_ok` — `court_circuit_actif` — commande le **court-circuit** d'AD-5. Ce que la
   signature humaine garde, c'est le *refus* : une affirmation négative, visible, irréversible pour
   celui qui la reçoit. AD-5 ne désarme littéralement que celui-là (« si `validated=false` ou
@@ -56,6 +66,9 @@ class Dictionnaire:
     """
 
     charge: bool = False
+    # Le document auquel ce dictionnaire s'applique — celui que l'appelant a exigé au chargement, et
+    # le seul que `utilisable_pour` reconnaisse. Vide pour le dictionnaire inerte.
+    doc_id: str = ""
     validated: bool = False
     validated_by: str = ""
     validated_at: str = ""
@@ -67,6 +80,11 @@ class Dictionnaire:
     # « toujours en français » que le guide peut ne pas employer — c'est en les reconnaissant comme
     # variantes qu'on retrouve la fiche du canonique.
     _groupes: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
+    # forme normalisée → les **canoniques** (texte du fichier, non normalisé) dont elle relève.
+    # AD-4 veut `terms_searched[] (canoniques)` : c'est cette table qui le rend possible, et c'est la
+    # seule chose du dictionnaire qui ait le droit de sortir dans une `AbsenceProof` — jamais les
+    # variantes, jamais les déclencheurs.
+    _canoniques: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
 
     @property
     def utilisable(self) -> bool:
@@ -75,8 +93,26 @@ class Dictionnaire:
 
     @property
     def court_circuit_actif(self) -> bool:
-        """AD-5 : le refus « zéro hit » n'est armé que par une signature humaine sur le bon corpus."""
+        """AD-5 : le refus « zéro hit » n'est armé que par une signature humaine sur le bon corpus.
+
+        C'est le booléen **d'état**, celui que `/api/v1/sante` publie et que la page d'accueil
+        écrit : il parle du document que ce dictionnaire décrit. La décision par requête passe par
+        `court_circuit_pour(doc_id)`, qui ajoute « et c'est bien ce document-là qu'on interroge ».
+        """
         return self.utilisable and self.validated
+
+    def utilisable_pour(self, doc_id: str | None) -> bool:
+        """Les variantes valent-elles quelque chose **pour ce document-ci** ? (revue Codex 2.1, B3)
+
+        `doc_id=None` — une recherche sur tout le corpus — ne reconnaît aucun dictionnaire : rien ne
+        dit que les autres documents sont ceux qu'il décrit, et élargir la recherche d'un contrat
+        avec le vocabulaire d'un guide d'installation ouvrirait des fiches au hasard.
+        """
+        return self.utilisable and doc_id is not None and doc_id == self.doc_id
+
+    def court_circuit_pour(self, doc_id: str | None) -> bool:
+        """AD-5, par requête : signé, décrivant le corpus servi, **et** appliqué à son document."""
+        return self.utilisable_pour(doc_id) and self.validated
 
     def expand(self, termes: list[str]) -> dict[str, list[str]]:
         """`{terme de la question: [variantes ajoutées]}` — la forme qu'`Index.chercher` accepte.
@@ -89,6 +125,9 @@ class Dictionnaire:
         elle ne changerait rien à la recherche et gonflerait le compte annoncé à l'utilisateur.
         Dictionnaire inutilisable ⇒ chaque terme sort seul : `chercher` fait alors exactement ce
         qu'il faisait avant cette story.
+
+        Une forme partagée par deux canoniques élargit vers **les deux** (revue Codex 2.1, I1) —
+        voir `load_dictionary`.
         """
         sortie: dict[str, list[str]] = {}
         for terme in termes:
@@ -110,42 +149,91 @@ class Dictionnaire:
         return len(ajoutees)
 
 
-def _corpus_ok(hashes: dict[str, str], corpus: Corpus) -> tuple[bool, str]:
-    """Les empreintes du dictionnaire décrivent-elles les documents **servis** ? (AD-5, AD-7)
+    def canoniser(self, termes: list[str]) -> list[str]:
+        """Les termes cherchés, rendus **canoniques** — ce qu'AD-4 nomme `terms_searched[] (canoniques)`.
+
+        AD-4, mot pour mot : `AbsenceProof(…, terms_searched[] (canoniques), variants_count, …)` —
+        « jamais la liste des variantes ni des déclencheurs d'intention ». Un terme que le
+        dictionnaire reconnaît comme **variante** sort donc sous le canonique de son groupe : la
+        preuve d'absence dit « voici les notions cherchées », pas « voici l'orthographe que vous avez
+        employée ». Publier la variante telle quelle (revue Codex 2.1, B5) contredisait la
+        parenthèse d'AD-4 — mesuré sur l'artefact livré : « Arbeitsamt », reconnu dans le groupe
+        « ADEM », ressortait dans `terms_searched`.
+
+        Ce qui ne fuit pas pour autant : les **variantes** restent invisibles (seul le canonique du
+        groupe touché sort, et seulement pour un terme que l'utilisateur a effectivement fait
+        chercher), et les déclencheurs d'intention ne sont lus par personne. Un terme inconnu du
+        dictionnaire est son propre canonique et sort inchangé ; dictionnaire inutilisable ⇒ tous les
+        termes sortent inchangés, comme avant cette story.
+
+        Une forme ambiguë relève de plusieurs canoniques : ils sortent tous, dans l'ordre du fichier
+        — c'est exactement l'ensemble des groupes que `expand` a fait chercher.
+        """
+        sortie: list[str] = []
+        for terme in termes:
+            cle = forme(terme)
+            canons = self._canoniques.get(cle, ()) if self.utilisable else ()
+            for candidat in (canons or (terme,)):
+                if candidat not in sortie:
+                    sortie.append(candidat)
+        return sortie
+
+
+def _corpus_ok(hashes: dict[str, str], corpus: Corpus, doc_id: str) -> tuple[bool, str]:
+    """Les empreintes du dictionnaire décrivent-elles le document `doc_id` **tel qu'il est servi** ?
+
+    Trois conditions, et la première est celle que la revue Codex 2.1 (B3) a ajoutée :
+
+    1. `doc_id` — le document auquel ce dictionnaire sera appliqué — figure parmi les empreintes.
+       Sans elle, « au moins une empreinte valide » suffisait : un fichier ne décrivant que le
+       contrat AXA était déclaré conforme, puis employé sur le guide.
+    2. chaque empreinte déclarée nomme un document **servi** ;
+    3. chacune vaut le `source_hash` du manifest.
 
     Le dictionnaire ne couvre pas forcément tout le corpus — celui de cette story ne décrit que le
-    guide, et le contrat AXA n'a rien à y faire. La règle est donc « chaque empreinte déclarée
-    correspond à un document servi », plus « au moins une » : un fichier sans empreinte ne décrit
-    aucun corpus, et le croire sur parole reviendrait à supprimer le verrou.
+    guide — mais il doit couvrir celui dont on se sert.
     """
     if not hashes:
         return False, "corpus_source_hashes vide : le dictionnaire ne dit pas quel corpus il décrit"
-    for doc_id, source_hash in sorted(hashes.items()):
-        if doc_id not in corpus.documents:
-            return False, f"corpus_source_hashes nomme {doc_id!r}, qui n'est pas servi"
-        entree = corpus.manifest.get(doc_id)
+    if doc_id not in hashes:
+        return False, (f"corpus_source_hashes ne décrit pas {doc_id!r} (mais {sorted(hashes)}) : "
+                       "ce dictionnaire parle d'un autre document que celui qu'il servirait")
+    for autre, source_hash in sorted(hashes.items()):
+        if autre not in corpus.documents:
+            return False, f"corpus_source_hashes nomme {autre!r}, qui n'est pas servi"
+        entree = corpus.manifest.get(autre)
         if entree is None or entree.source_hash != source_hash:
-            return False, f"source_hash de {doc_id!r} différent de celui du manifest"
+            return False, f"source_hash de {autre!r} différent de celui du manifest"
     return True, ""
 
 
-def load_dictionary(data_dir: Path | str, corpus: Corpus) -> Dictionnaire:
-    """`data/dictionary.json` → `Dictionnaire`. Absent, illisible ou non conforme ⇒ inerte, jamais d'exception."""
+def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictionnaire:
+    """`data/dictionary.json` → `Dictionnaire`. Absent, illisible ou non conforme ⇒ inerte, jamais d'exception.
+
+    `doc_id` est le document auquel ce dictionnaire sera **appliqué** (`settings.guide_doc_id` pour
+    le serveur) : il est exigé parmi les `corpus_source_hashes` et porté par l'objet, de sorte que
+    `utilisable_pour` / `court_circuit_pour` refusent tout autre document (revue Codex 2.1, B3).
+    Le paramètre est obligatoire, et c'est le point : un appelant qui l'oublierait rouvrirait le trou.
+    """
     chemin = Path(data_dir) / DICTIONARY_FILE
     if not chemin.is_file():
-        return Dictionnaire(raison=f"{DICTIONARY_FILE} absent : lancer "
+        return Dictionnaire(doc_id=doc_id,
+                            raison=f"{DICTIONARY_FILE} absent : lancer "
                                    "`python -m server.ingest.enrich_dictionary`")
     try:
         brut = json.loads(chemin.read_bytes())
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        return Dictionnaire(raison=f"{DICTIONARY_FILE} illisible : {_first_error(exc)}"[:500])
+        return Dictionnaire(doc_id=doc_id,
+                            raison=f"{DICTIONARY_FILE} illisible : {_first_error(exc)}"[:500])
     try:
         fichier = DictionaryFile.model_validate(brut)
     except ValueError as exc:  # ValidationError en hérite ; pydantic n'est pas importé ici
-        return Dictionnaire(raison=f"{DICTIONARY_FILE} non conforme : {_first_error(exc)}"[:500])
+        return Dictionnaire(doc_id=doc_id,
+                            raison=f"{DICTIONARY_FILE} non conforme : {_first_error(exc)}"[:500])
 
-    corpus_ok, raison = _corpus_ok(fichier.corpus_source_hashes, corpus)
-    groupes: dict[str, tuple[str, ...]] = {}
+    corpus_ok, raison = _corpus_ok(fichier.corpus_source_hashes, corpus, doc_id)
+    groupes: dict[str, list[str]] = {}
+    canoniques: dict[str, list[str]] = {}
     for canonique, variantes in fichier.corpus.items():
         formes: list[str] = []
         for texte in (canonique, *variantes):
@@ -154,14 +242,24 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus) -> Dictionnaire:
                 formes.append(f)
         if not formes:
             continue
-        groupe = tuple(formes)
         for f in formes:
-            # Une forme partagée par deux canoniques garde le premier groupe rencontré : élargir vers
-            # les deux mêlerait deux sens (« assurance » de l'habitation et du véhicule) et ferait
-            # ouvrir des fiches que la question ne vise pas. L'ordre est celui du fichier, donc
-            # déterministe — l'ingestion l'écrit trié.
-            groupes.setdefault(f, groupe)
+            # **Une forme partagée par deux canoniques élargit vers les deux** (revue Codex 2.1, I1).
+            # Elle gardait le premier groupe rencontré, pour ne pas mêler deux sens (« assurance » de
+            # l'habitation et du véhicule) ; mais l'artefact livré porte 62 formes ambiguës, et les
+            # variantes du second groupe devenaient inatteignables — donc une fiche qui existe restée
+            # fermée, et, dictionnaire signé, un refus « zéro hit » sur une question que le guide
+            # traite. C'est littéralement le « faux refus » qu'AD-5 dit prévenir, et le prix inverse
+            # est nul : élargir n'affirme rien, `chercher` classe par nombre de groupes touchés, et
+            # chaque phrase affichée reste vérifiée contre le corpus (AD-3). L'ordre reste celui du
+            # fichier, que l'ingestion écrit trié : la réunion est déterministe.
+            groupe = groupes.setdefault(f, [])
+            groupe.extend(g for g in formes if g not in groupe)
+            canons = canoniques.setdefault(f, [])
+            if canonique not in canons:
+                canons.append(canonique)
     return Dictionnaire(
-        charge=True, validated=fichier.validated, validated_by=(fichier.validated_by or ""),
-        validated_at=(fichier.validated_at or ""), corpus_ok=corpus_ok,
-        raison=raison if not corpus_ok else "", canoniques=len(fichier.corpus), _groupes=groupes)
+        charge=True, doc_id=doc_id, validated=fichier.validated,
+        validated_by=(fichier.validated_by or ""), validated_at=(fichier.validated_at or ""),
+        corpus_ok=corpus_ok, raison=raison if not corpus_ok else "", canoniques=len(fichier.corpus),
+        _groupes={f: tuple(g) for f, g in groupes.items()},
+        _canoniques={f: tuple(c) for f, c in canoniques.items()})

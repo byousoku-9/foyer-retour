@@ -304,14 +304,21 @@ def _signe() -> dict[str, Any]:
             "validated_at": "2026-08-25T10:00:00Z"}
 
 
-def _ecrire_depot(tmp_path: Any, contenu: str | None, *, source_hash: str = DICO_SOURCE_HASH) -> Any:
-    """Un dépôt minimal : `data/dictionary.json` (optionnel) et le `data/manifest.json` qui va avec."""
+def _ecrire_depot(tmp_path: Any, contenu: str | None, *, source_hash: str = DICO_SOURCE_HASH,
+                  autres: dict[str, str] | None = None) -> Any:
+    """Un dépôt minimal : `data/dictionary.json` (optionnel) et le `data/manifest.json` qui va avec.
+
+    `autres` ajoute des documents **servis** au manifest : c'est ce qui rend visible le trou de la
+    revue Codex 2.1 (B3) — un dictionnaire qui décrit l'un d'eux, et pas le guide.
+    """
     data = tmp_path / "data"
     data.mkdir(parents=True, exist_ok=True)
     if contenu is not None:
         (data / "dictionary.json").write_text(contenu, encoding="utf-8")
-    (data / "manifest.json").write_text(json.dumps(
-        {"lux-guide": {"status": "servi", "source_hash": source_hash}}), encoding="utf-8")
+    entrees = {"lux-guide": {"status": "servi", "source_hash": source_hash}}
+    for doc_id, empreinte in (autres or {}).items():
+        entrees[doc_id] = {"status": "servi", "source_hash": empreinte}
+    (data / "manifest.json").write_text(json.dumps(entrees), encoding="utf-8")
     return tmp_path
 
 
@@ -364,7 +371,7 @@ def test_le_depot_et_le_serveur_lisent_le_dictionnaire_de_la_meme_facon(tmp_path
                 _dico(validated=True, validated_by="Nom", validated_at="hier")]
     for i, contenu in enumerate(contenus):
         racine = _ecrire_depot(tmp_path / f"c{i}", contenu)
-        cote_serveur = load_dictionary(racine / "data", corpus).validated
+        cote_serveur = load_dictionary(racine / "data", corpus, "lux-guide").validated
         assert _dictionnaire_validated(racine) is cote_serveur, contenu
 
 
@@ -384,6 +391,10 @@ def test_des_octets_non_utf8_sont_un_attendu_faux_et_non_un_traceback(tmp_path: 
     (_dico(), "empreinte-dun-autre-corpus", False),         # le corpus a bougé sous le dictionnaire
     (_dico(corpus_source_hashes={}), DICO_SOURCE_HASH, False),
     (_dico(corpus_source_hashes={"inconnu": DICO_SOURCE_HASH}), DICO_SOURCE_HASH, False),
+    # Revue Codex 2.1 (B3) : un dictionnaire qui ne décrit qu'un **autre document servi** — l'AXA,
+    # empreinte juste, statut `servi`. Il passait ici comme côté serveur, et le smoke aurait promu
+    # une image où les variantes du guide viennent d'un contrat d'assurance.
+    (_dico(corpus_source_hashes={"axa-lu-optihome-2017": "sha-du-contrat"}), DICO_SOURCE_HASH, False),
 ])
 def test_lattendu_de_corpus_ok_vient_du_depot(tmp_path: Any, contenu: str | None,
                                               source_hash: str, attendu: bool) -> None:
@@ -392,9 +403,10 @@ def test_lattendu_de_corpus_ok_vient_du_depot(tmp_path: Any, contenu: str | None
 
     from scripts.smoke import _dictionnaire_corpus_ok
 
-    racine = _ecrire_depot(tmp_path, contenu, source_hash=source_hash)
+    racine = _ecrire_depot(tmp_path, contenu, source_hash=source_hash,
+                           autres={"axa-lu-optihome-2017": "sha-du-contrat"})
     manifest = _json.loads((racine / "data" / "manifest.json").read_text("utf-8"))
-    assert _dictionnaire_corpus_ok(racine, manifest) is attendu
+    assert _dictionnaire_corpus_ok(racine, manifest, "lux-guide") is attendu
 
 
 def test_une_image_sans_dictionnaire_ne_passe_pas_pour_un_depot_qui_en_porte_un() -> None:
