@@ -1,35 +1,4 @@
 {
-  "claude-haiku-4-5-20251001:1cad24883b982c13": {
-    "request": "claude-haiku-4-5-20251001:1cad24883b982c13",
-    "response": {
-      "content": [
-        {
-          "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeP368GfZKApWa8vnMDR2",
-      "model": "claude-haiku-4-5-20251001",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "inference_geo": "not_available",
-        "input_tokens": 3737,
-        "output_tokens": 141,
-        "service_tier": "standard"
-      }
-    }
-  },
   "claude-haiku-4-5-20251001:2d9aa4d33cde5733": {
     "request": "claude-haiku-4-5-20251001:2d9aa4d33cde5733",
     "response": {
@@ -40,7 +9,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeP35AHgD2yomnJVQBXvu",
+      "id": "msg_011CePB48GHntaYHojHSqPG8",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -61,17 +30,17 @@
       }
     }
   },
-  "claude-haiku-4-5-20251001:a096cad32e588e45": {
-    "request": "claude-haiku-4-5-20251001:a096cad32e588e45",
+  "claude-haiku-4-5-20251001:4eecfa882afbe758": {
+    "request": "claude-haiku-4-5-20251001:4eecfa882afbe758",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": false}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c2\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": false}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}, {\"claim_id\": \"c5\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\", \"c5\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeP37tSGVbHjn5wtWuPbc",
+      "id": "msg_011CePB5X2Ht3FAC7uy7QLXv",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -86,14 +55,14 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 3927,
-        "output_tokens": 170,
+        "input_tokens": 4057,
+        "output_tokens": 211,
         "service_tier": "standard"
       }
     }
   },
-  "claude-haiku-4-5-20251001:b26dc6c140aa76c6": {
-    "request": "claude-haiku-4-5-20251001:b26dc6c140aa76c6",
+  "claude-haiku-4-5-20251001:df9504f57103ef44": {
+    "request": "claude-haiku-4-5-20251001:df9504f57103ef44",
     "response": {
       "content": [
         {
@@ -102,7 +71,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeP384AATBta5ETE8dcpS",
+      "id": "msg_011CePB5hQ8PRRetzfeSq4sR",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -117,47 +86,8 @@
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
-        "input_tokens": 677,
+        "input_tokens": 902,
         "output_tokens": 16,
-        "service_tier": "standard"
-      }
-    }
-  },
-  "claude-sonnet-5:973d481762d8c521": {
-    "request": "claude-sonnet-5:973d481762d8c521",
-    "response": {
-      "content": [
-        {
-          "signature": "EscJCpABCBEYAipAPeilzLpcv4Mb18Oc/49veRTU2e7klPyJq7qpM21FRBfXtfpsG3bwZaWeFdfylJS2WDr6WocfnIaVSoqPOiby4TIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAc37tNQGEgzvBhiYPYgbkEVX5dkaDLH677b5oGbet33lwiIwZbIZmmE3Vn8/LS1Wk18vUjTNajzT9uBeX7ZuwNmr5Ve7wOn7tlBGqSiJhp/8dFkEKuMHtrk5gl6kd4uC3jZxO/6PiCC3diBhHK6K1TkwYEZc21BxK/B6Cst66R0CewYdZOS7tRYwo1etVHs7GyU6QGkaWHFxrvUdL3yxWG0I4rh7SRCewPe3xaKBJKZLBYw2NWe17Ju/FtrnobqHR5ZNahQ3TYpRy1KF8FmmWVmTv80N6MZ+hZZR02DTh6UCk5Xc8SbdQAcZaqRnYnGA/j7T8emns7jq4XMuvKTs3ZvrwC0W3YHnJwEBqiQMHG9mfNeqFajFgZqbpUbB12O2Q15gGBgyU+fW2g0ck8d2TpIaJXqBbMlxY5K9kt+wZJmd8w3tSBvjAm4UV5nk1YZoPgje/liWTMjhMWod+TZ3KnPNMH8eZOEfptprzSK63vquAWcOuFFwdgiih83Q1hM9sSxaK1ZjMumFFVsB7KCuNIvkY6n2oKPXlDiajYBGr46zT4csj6I3czYl3akJSKGhifUo0NuixOXlUbw5t1beroZvs+109fQcz1+ccuWA35SXpJjk9iy4BwlM1DsZqSSaEBRSOy/igGtqjs4NMu0pQ9y+KijxMyj9xrdEc8Dp48MC37VG8/ZugG7/J4U9CVVYopdpM7tBU2IjGhq8CQ90GqFMBI/rOWfRe5Bdd/wDWQuUykJZB/V/XFBEVLoAZaL5uWGzGCl5HRARm9tXkGd6EXjB/+wUz45a7SQ+idDz+ZH/gkfMlFc8XL+NoTeaGeRRHc8TCSG2DUNd9xftU85+YPsrFS8avRn1VnroqwLuYCd2MdHAJslYZG0RSb+625NAWGytiouGpQIS+NVyGesN4VxcKZnnptnwhMuAy9juD+ZrIonQS1uc80Anil7NhLPZ6obtncMy47LGg5kr9pfjNADmXEgoOMVmWi88CIECHRhRoDGhwVtAZPmwoTu3p+TYZBkl2s6jpHVJUZJf2PCXw/Yi73H/coI5fZh1EUN5DUziJlCwGzAJZ7dzXjYwBFi6nyaniQlC286poL974ZL0GeOwuKbXbWz+g1XiYu7olCef6AJ07Q3t7394nGpj9znWKS2WYAY+yYlE/PQ1uRnb/mCqzEzl2Xsti2miJ1qPzOMZ6IVZb8aRICeSsSdn7Epbu6WVHqZss5NRG7nXaD+O7Criswjy8kcDj1SnfN+3ZHTejXu1E8XDZb8c78DJJD+MdDA696tcrZxXdSxURUBL3HndN7Avy5vAXl4IQ2XoR5ONJkhK8km1tBrDjCi0lkGEgUCBaMh3lVH7SVPu44uZxY6OYTUVf4CPikRLpSYjeet8vZ52ZzOOTEjUhx5UpMNA3qu4sUA+U68lMstj2bFlL2VyImYY0VXmTqsYAQ==",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
-          "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"No Luxemburgo, a escolarização dos filhos deve ser decidida antes mesmo de procurar habitação, pois existem três vias distintas de ensino.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"A via pública é gratuita e multilingue, alfabetizando em luxemburguês antes de introduzir o alemão e depois o francês.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Existem também escolas europeias e internacionais: as europeias dão prioridade a filhos de funcionários das instituições europeias e cobram propinas às demais famílias, enquanto há escolas internacionais públicas e gratuitas com secções anglófona, francófona ou germanófona muito procuradas.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Por isso, o critério para escolher o local de residência deve ser a proximidade da escola escolhida, e não do local de trabalho, e a inscrição na comuna deve preceder a inscrição escolar, já que as secções mais procuradas podem esgotar-se com um ano de antecedência.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Os blocos fornecidos não indicam um endereço ou comuna específica onde inscrever os filhos: a escolha depende da secção linguística e do estabelecimento visado.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Existem três vias de escolarização possíveis no Luxemburgo, e a decisão deve ser preparada antes do deslocamento.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c2\",\"text\":\"O ensino público luxemburguês é gratuito, multilingue, e alfabetiza primeiro em luxemburguês.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"Les écoles européennes et internationales offrent des voies différentes, avec priorité, minerval ou gratuité selon le cas.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"}]},{\"claim_id\":\"c4\",\"text\":\"Convém escolher a habitação perto da escola, e a inscrição na comuna deve preceder a inscrição escolar, sendo as secções mais procuradas preenchidas com até um ano de antecedência.\",\"quotes\":[{\"block_id\":\"lux-guide:fchoisir_commune:8\",\"quote\":\"cherchez le logement autour de cette école, pas autour du bureau.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeP36JNskvVqoZA8ru32q",
-      "model": "claude-sonnet-5",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 6811,
-        "inference_geo": "global",
-        "input_tokens": 3210,
-        "output_tokens": 1448,
-        "output_tokens_details": {
-          "thinking_tokens": 347
-        },
         "service_tier": "standard"
       }
     }
@@ -167,12 +97,17 @@
     "response": {
       "content": [
         {
+          "signature": "Eo8ICpABCBEYAipAFxHwbqQX2OjgWtMmJiZR3l1XfFSgzAfYhTWvq3plJpKAoDBipw7EwOg2bKwcnzDbbEjlxRveNE2Didz2UF7cPzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcistdQGEgwSanKlKZLWBhx8McAaDGGybTlo4CoPabamQSIw7lPIcOaQ0OHz3Ad9ctjtwrbTNgiVikckWyu6BoUr6r2x80sb2MO0yOsF6Q21RrkuKqsGGE8YPanY9iCxFUjrxw01k/YHURwig0ouodn4bCJDjTH3SbqPlYWE9ps59i4F6NXUumBtmhtHCLjGu9t13dKecAJC0U13pnM9NPaJmrzJs2Td4A+vYXr9slSwV1os8ecqU9aZMlYvWz9O2uSXt5rb+IDRkwRRTg+bf8Z5pge4A96zrF75CRYZP20jmuCby/uthwarpQVqD170EYrbVfGedATSOubsyjYu3lsNnShnb3rzCU1GBDSJvz7DqCUW8slVkHmnO38A4dCo4uUGyrzeKr2M74ClBmzNMWVljcLYi4PDyD/QPmcsul2aiM4b5uvmwZDhfkNy4tpgrOx7Xx3X3EH1ExIibe7ptd2Z4DvSB2UYcyayNRjn7B/5RkFcVDBWxOPLpgH9d96YLtznWazkc3q3STgQNpyP9wAZzM83LbPOOKKny3xO4eHkz/4xa+kZJObQx5GzLN02y31jQqXotY9OgGkzapWLIdkvFpFcd7yibXFZ0EhXgj60G8BZ1AEnsvgtCAMDZB7tsBjI0BdnE3yEKx88zI1NXiVlyS7sqsvbi2jm4ccbkvwIWYggUZG6y7CDN1XKvWD6GkGSWSCPuhX9MBfbdi7G7BccwRTAwYTk/F4pJGOWWbX8SHZvoy8E+WyKEN0JYuarTVmKfATjpNUQubDZIBentSDwMQIjMN/g+bQNIA19iFJswRp9NErgE5PFnwiAyU2UizVsWSkKwIwf8XKYIYIqwCj5EwbXZpRnZ9BSk25PkRDFoGoXsltLRfUcHZnU5kQ1pUxiEkG5m4/Z4UnogBpQi5/SenAhtb+6ee8hIVdrUleP5tOsfhJmcBrD5vM2KZme6HGDGy6Wq7kSwdBKmQq1oKkMkVPO0G5M29FtAL6S+wh2ePDrNGbewKMsZuf9VERlJm4jvUbHz8vwqZyfrWrox2joCHjw9xz+xMvWUxmowLNUS2BHNVc5fdRRgAvEbSJM5M7BkKN2ziO23Ox2yGNhqD9VvEkJSsoIncZlK8dFdFmhOSP4yJ0yUBAATZ8qM0dhY+26anLkJuZZYJns5ZnTVJutKWg/+7l+U2qfQAaqVNfxJBgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"No Luxemburgo, a matrícula escolar deve ser iniciada antes mesmo da procura de habitação, pois é o processo mais longo e mais condicionado de toda a instalação.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Existem três vias possíveis: o ensino público luxemburguês, gratuito e multilingue, as escolas europeias e internacionais, e os estabelecimentos privados.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"O ensino público alfabetiza em luxemburguês antes de introduzir o alemão e depois o francês, e integra bem as crianças que chegam jovens, mas a barreira linguística é real numa chegada mais tardia.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"É aconselhável escolher a comuna de residência em função da escola visada, e verificar a disponibilidade da secção linguística pretendida, e não apenas do estabelecimento em si — pois a inscrição na comuna precede geralmente a inscrição escolar.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Antes de partir do país de origem, é preciso pedir à escola de origem um certificado de anulação de matrícula e os boletins dos últimos anos, documentos quase sempre exigidos e difíceis de obter depois da partida.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"A inscrição escolar deve ser iniciada avant même la recherche de logement, car c'est la démarche la plus longue et la plus contrainte de l'installation.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies existent : l'école publique, les écoles européennes et internationales, et le privé.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:6\",\"quote\":\"Les écoles européennes et internationales\"}]},{\"claim_id\":\"c3\",\"text\":\"L'enseignement public alphabétise en luxembourgeois puis introduit l'allemand puis le français, et la barrière linguistique est réelle pour une arrivée tardive.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut chercher le logement autour de l'école et vérifier la disponibilité de la section linguistique, pas seulement de l'établissement.\",\"quotes\":[{\"block_id\":\"lux-guide:fchoisir_commune:15\",\"quote\":\"Chercher autour de l'école, pas autour du bureau.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"No Luxemburgo, a escolha da escola dos filhos deve ser tratada antes mesmo de procurar um alojamento, pois é a etapa mais demorada e condicionada de toda a instalação.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Existem três vias possíveis de escolarização.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"O ensino público luxemburguês alfabetiza primeiro em luxemburguês, introduzindo depois o alemão e por fim o francês, o que integra bem as crianças que chegam jovens, mas representa uma barreira real para chegadas mais tardias.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Se os filhos frequentam um estabelecimento ou secção linguística específicos, o critério para escolher a comuna deve ser a proximidade da escola, e não a proximidade do local de trabalho.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Do ponto de vista prático, a inscrição na comuna geralmente precede a inscrição escolar, e as vagas nas secções mais procuradas podem esgotar-se com um ano de antecedência — por isso convém tratar do certificado de saída e dos boletins escolares ainda no país de origem.\",\"kind\":\"factuel\",\"claim_ids\":[\"c5\"]},{\"text\":\"Os blocos fornecidos não detalham os critérios exatos de admissão em cada estabelecimento nem os prazos administrativos específicos de cada comuna, pelo que esses pontos não podem ser precisados aqui.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"É a démarche mais longa e condicionada de toda a instalação, e deve ser iniciada antes da procura de alojamento.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Três vias coexistem, muito diferentes entre si.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c3\",\"text\":\"O ensino público alfabetiza em luxemburguês, depois introduz o alemão e o francês, com boa integração para crianças jovens mas barreira real para chegadas tardias.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c4\",\"text\":\"É preciso procurar o alojamento em torno da escola escolhida, e não em torno do local de trabalho.\",\"quotes\":[{\"block_id\":\"lux-guide:fchoisir_commune:8\",\"quote\":\"cherchez le logement autour de cette école, pas autour du bureau\"}]},{\"claim_id\":\"c5\",\"text\":\"A inscrição na comuna precede geralmente a inscrição escolar, e as vagas nas secções mais procuradas partem por vezes com um ano de antecedência.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeP35HgBSvG9nAnymuVDN",
+      "id": "msg_011CePB4GQw8HFZGJX4DFfFj",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -188,9 +123,9 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 3017,
-        "output_tokens": 1106,
+        "output_tokens": 1509,
         "output_tokens_details": {
-          "thinking_tokens": 0
+          "thinking_tokens": 298
         },
         "service_tier": "standard"
       }

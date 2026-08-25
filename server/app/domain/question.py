@@ -187,3 +187,27 @@ class ClarificationRequise(DomainModel):
         self.language = language
         self.lang_fallback = self.lang_fallback or repli
         return self
+
+    @property
+    def clarification_affichable(self) -> str | None:
+        """La question à poser — ou `None` quand sa langue ne peut pas être affirmée.
+
+        Revue Codex 2.4 (B1). La clarification est la **seule** phrase affichée que le modèle écrit
+        (tout le reste — refus, lacunes — est composé par le code et traduit par *restituer*), et le
+        prompt la lui demande « dans la langue de la question ». Quand la langue est **forcée**, le
+        message de l'étape l'impose et la clarification suit `Answer.lang`. Quand la **détection**
+        tombe hors des quatre langues servies ou reste illisible, `language` retombe sur `fr`
+        **après** la réponse : la clarification est déjà écrite, dans une langue que rien ne permet
+        d'affirmer, et aucun code ne peut la traduire sans un second appel facturé.
+
+        L'afficher sous une réponse annoncée française serait le mélange qu'AD-16 interdit. Elle
+        n'est donc pas affichée dans ce cas — et le refus composé par *restituer* dit déjà, en
+        français, qu'il faut préciser la question, tandis que `lang_fallback` dit pourquoi la
+        réponse est en français. Le retrait est **tracé** par *comprendre* (`CheckResult`), jamais
+        silencieux.
+
+        Volontairement conservateur : `lang_fallback` couvre aussi la détection *illisible*
+        (`language=""`), où la clarification était peut-être française. C'est exactement l'ensemble
+        des cas où le système ne peut **pas** affirmer la langue de cette phrase.
+        """
+        return None if self.lang_fallback else self.clarification

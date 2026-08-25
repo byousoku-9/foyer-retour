@@ -193,9 +193,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
         if isinstance(parsed, ClarificationRequise):
+            # `clarification_affichable`, et non `clarification` (revue Codex 2.4, B1) : une
+            # question écrite dans une langue que le repli de détection n'a pas pu affirmer n'est
+            # pas affichée sous une réponse annoncée française.
             return refuser("clarification_requise", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback,
-                           clarification=parsed.clarification)
+                           clarification=parsed.clarification_affichable)
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus par intent.
             # Il reste actif **dans tous les cas**, dictionnaire validé ou non : c'est le seul des

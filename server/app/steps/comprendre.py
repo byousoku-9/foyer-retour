@@ -31,7 +31,7 @@ from pydantic import Field, model_validator
 from server.app.config import LISTE_MAX_ITEMS, Settings
 from server.app.domain.document import DomainModel, ParcoursCondition
 from server.app.domain.errors import PipelineError
-from server.app.domain.langue import normaliser_langue
+from server.app.domain.langue import LANGUES_SERVIES, normaliser_langue
 from server.app.domain.profil import Profil, noeuds_du_profil
 from server.app.domain.question import (
     CLARIFICATION_MAX_CHARS,
@@ -195,6 +195,33 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         parts.append(untrusted("faits", json.dumps(faits.model_dump(), ensure_ascii=False, sort_keys=True)))
     parts.append(untrusted("question", question))
     content = "\n\n".join(parts)
+    # Revue Codex 2.4 (B1) — la clarification est une **phrase affichée**, et rien ne la traduit
+    # après coup : c'est la seule sortie de l'étape que le modèle écrit lui-même (AD-5), donc la
+    # seule dont la langue se décide **ici**, dans l'unique appel. Deux cas la faisaient diverger
+    # d'`Answer.lang`, tous deux hors du site (`chat.js` n'envoie jamais `lang`) mais ouverts à
+    # l'API et aux évals :
+    #   - une langue forcée différente de celle de la question (`lang="de"` sur une question
+    #     française) : refus allemand, clarification française, et `lang_fallback` reste faux — un
+    #     mélange que rien ne signale, ce qu'AD-16 interdit ;
+    #   - une détection hors des quatre langues servies : `language` retombe sur `fr` **après** la
+    #     réponse, quand la clarification est déjà écrite — la consigne doit donc porter la règle de
+    #     repli elle-même, puisque le code ne peut plus rien y faire à la réception.
+    # La consigne vit dans le **message**, jamais dans le préfixe : le préfixe est le seul segment
+    # caché (AD-9), il doit rester byte-identique d'une requête à l'autre, et c'est déjà par son
+    # message que *rédiger* décide de sa langue de rédaction (`tail`). `langue.py` reste l'autorité
+    # unique de la liste : elle n'est recopiée dans aucun fichier de `llm/prompts/`.
+    langue_forcee = normaliser_langue(lang)[0] if lang is not None else None
+    if langue_forcee is not None:
+        content += (f"\n\nÉcris `clarification` en {langue_forcee} "
+                    f"({LANGUES_SERVIES[langue_forcee]}), quelle que soit la langue de la question.")
+    # Sans forçage, aucune consigne n'est ajoutée : le message reste byte-identique à celui des
+    # stories précédentes. Ce n'est pas de la prudence de façade — **mesuré** le 2026-08-25 en
+    # ré-enregistrant les fixtures live, une consigne de langue ajoutée à *chaque* requête (ou au
+    # préfixe) change la sortie du modèle sur des chemins qui n'ont rien à voir : la question courte
+    # de `test_suivi_live::test_la_boucle_refermee_rend_la_question_autonome` (AC 2.2) revenait en
+    # clarification au lieu d'être résolue, et les `themes` du profil `Independant`
+    # (`test_profil_live`, AC 2.3) retombaient sur la valeur déclarée. La langue d'une détection non
+    # servie se règle donc **après** l'appel, par du code (voir `clarification_affichable`).
     try:
         result = await client.parse(tier=STEP_TIERS["comprendre"], system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
@@ -210,15 +237,23 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     out = result.parsed
     # Une langue explicitement demandée a déjà été validée par le pipeline : elle ne constitue
     # jamais un repli. Une détection peut en revanche tomber hors des quatre langues servies.
-    if lang is not None:
+    if langue_forcee is not None:
         # Un forçage validé choisit une langue servie ; il ne peut donc jamais être un repli de
         # détection, quel que soit le booléen que renverrait la normalisation défensive.
-        language, _ = normaliser_langue(lang)
-        lang_fallback = False
+        language, lang_fallback = langue_forcee, False
     else:
         language, lang_fallback = normaliser_langue(out.language)
     clarification = (out.clarification or "").strip()
     if clarification:  # AD-5 : aucune `question_resolue` n'est construite dans ce cas
+        if lang_fallback:
+            # AD-10/AD-16 (revue Codex 2.4, B1) : la question posée est écrite dans la langue de la
+            # question, que le repli vient de déclarer non servie ou illisible — elle ne sera pas
+            # affichée (`ClarificationRequise.clarification_affichable`). Le dire est ce qui sépare
+            # ce retrait d'un dégradé silencieux. Le check nomme le fait, jamais le texte (AD-10).
+            step.checks.append(CheckResult(
+                name="clarification_non_affichable", ok=False,
+                detail="la langue détectée n'est pas servie : la question de clarification n'est "
+                       "pas affichée, seule la phrase de refus française l'est"))
         sortie: ParsedQuestion | ClarificationRequise = ClarificationRequise(
             clarification=clarification, intent=out.intent, language=language,
             lang_fallback=lang_fallback)

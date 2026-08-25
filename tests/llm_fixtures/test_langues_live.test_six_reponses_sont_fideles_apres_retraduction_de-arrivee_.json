@@ -1,77 +1,15 @@
 {
-  "claude-haiku-4-5-20251001:2f90e46b6637f3dd": {
-    "request": "claude-haiku-4-5-20251001:2f90e46b6637f3dd",
-    "response": {
-      "content": [
-        {
-          "parsed_output": null,
-          "text": "{\"langue_detectee\":\"de\",\"fidele\":true}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeP32D6GMTdMn1F9dxoty",
-      "model": "claude-haiku-4-5-20251001",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "inference_geo": "not_available",
-        "input_tokens": 736,
-        "output_tokens": 16,
-        "service_tier": "standard"
-      }
-    }
-  },
-  "claude-haiku-4-5-20251001:85f14e29305ea62c": {
-    "request": "claude-haiku-4-5-20251001:85f14e29305ea62c",
-    "response": {
-      "content": [
-        {
-          "parsed_output": null,
-          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}]}",
-          "type": "text"
-        }
-      ],
-      "id": "msg_011CeP31zgPsRkfzKPhxhogM",
-      "model": "claude-haiku-4-5-20251001",
-      "role": "assistant",
-      "stop_details": null,
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "type": "message",
-      "usage": {
-        "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
-        },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "inference_geo": "not_available",
-        "input_tokens": 3779,
-        "output_tokens": 153,
-        "service_tier": "standard"
-      }
-    }
-  },
   "claude-haiku-4-5-20251001:c48ea342984d919c": {
     "request": "claude-haiku-4-5-20251001:c48ea342984d919c",
     "response": {
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Combien de jours ai-je pour déclarer mon arrivée à la commune ?\", \"clarification\": null, \"language\": \"de\", \"terms\": [\"déclaration d'arrivée\", \"commune\", \"délai\"], \"themes\": [], \"facettes\": [\"délai de déclaration d'arrivée\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Combien de jours ai-je pour déclarer mon arrivée à la commune ?\", \"clarification\": null, \"language\": \"de\", \"terms\": [\"déclaration d'arrivée\", \"commune\", \"délai\"], \"themes\": [], \"facettes\": [\"délai de déclaration d'arrivée à la commune\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeP2zNwYtWE6ph4sxJqkf",
+      "id": "msg_011CePB1C2vZDtewKnbdGpW5",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -87,7 +25,69 @@
         "cache_read_input_tokens": 4286,
         "inference_geo": "not_available",
         "input_tokens": 83,
-        "output_tokens": 117,
+        "output_tokens": 120,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:cad4a864d7304e48": {
+    "request": "claude-haiku-4-5-20251001:cad4a864d7304e48",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePB1qaPPM9iW3BWGiEvs",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3507,
+        "output_tokens": 128,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:ec898efc02e6d966": {
+    "request": "claude-haiku-4-5-20251001:ec898efc02e6d966",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\":\"de\",\"fidele\":true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CePB29ux87FgksAUftDaP",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 810,
+        "output_tokens": 16,
         "service_tier": "standard"
       }
     }
@@ -98,11 +98,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Sie haben acht Tage nach dem Einzug Zeit, um Ihre Ankunft bei der Gemeinde anzumelden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Anmeldung erfolgt beim Bürgeramt (Biergercenter) und dauert etwa zwanzig Minuten.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Da die Termine online vereinbart werden müssen und besonders zu Beginn des Schuljahres schnell ausgebucht sind, empfiehlt es sich, den Termin schon vor dem tatsächlichen Einzug zu buchen.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Ohne diese Anmeldung erhalten Sie weder die Wohnsitzbescheinigung noch die Matrikelnummer, die für praktisch alle weiteren Schritte notwendig sind.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Frist zur Anmeldung bei der Gemeinde beträgt acht Tage nach dem Einzug.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"},{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c2\",\"text\":\"Die Anmeldung erfolgt beim Bürgeramt und dauert rund zwanzig Minuten.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter. Cette formalité, qui prend une vingtaine de minutes\"}]},{\"claim_id\":\"c3\",\"text\":\"Es wird empfohlen, den Termin online zu buchen, bevor man überhaupt die Wohnungsschlüssel erhalten hat, da Termine zur Rentrée schnell ausgebucht sind.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]},{\"claim_id\":\"c4\",\"text\":\"Ohne die Anmeldung gibt es weder Matrikelnummer noch Sozialversicherung, Bank oder Schule.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Sie haben acht Tage Zeit, um Ihre Ankunft bei der Gemeinde zu melden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Frist beginnt mit dem Einzug in die Wohnung, nicht mit der Unterzeichnung des Mietvertrags.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Da diese Meldung zwingend vor vielen anderen Schritten erfolgen muss, empfiehlt es sich, den Termin bereits vor dem Einzug online zu buchen.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Der Nutzer hat acht Tage Zeit, um seine Ankunft bei der Gemeinde zu melden.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"},{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population\"}]},{\"claim_id\":\"c2\",\"text\":\"Le délai court à partir de l'emménagement, pas de la signature du bail.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"Réservez avant même d'avoir les clés.\"},{\"block_id\":\"lux-guide:farrivee:12\",\"quote\":\"Prendre rendez-vous en ligne avant l'arrivée.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeP31HG1oXc35hUTUe5hN",
+      "id": "msg_011CePB1K3rEmhGCRfNcNS7p",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -118,7 +118,7 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 2962,
-        "output_tokens": 976,
+        "output_tokens": 646,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

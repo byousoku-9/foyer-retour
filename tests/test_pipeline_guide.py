@@ -296,6 +296,38 @@ async def test_a_clarification_short_circuits_and_is_carried_by_the_answer(index
     assert answer.reason.variants_count == 0 and answer.reason.documents == []
 
 
+async def test_une_langue_forcee_est_demandee_pour_la_clarification_elle_meme(index: Index) -> None:
+    """Revue Codex 2.4, B1 : `lang="de"` sur une question française rendait un refus allemand
+    accompagné d'une clarification française, sans qu'aucun champ ne le signale (`lang_fallback`
+    reste faux sur un forçage). La langue de réponse est désormais transmise à l'unique appel de
+    *comprendre*, le seul endroit où la clarification s'écrit (AD-5, AD-16)."""
+    answer, _trace, fake = await _run(
+        index, [_comprendre(clarification="Von welchen Personen sprechen Sie?", language="fr")],
+        question="Et pour eux, c'est pareil ?", lang="de")
+    (req,) = fake.requests
+    consigne = req["messages"][0]["content"].split("</untrusted>")[-1]
+    assert "Écris `clarification` en de (allemand), quelle que soit la langue de la question." in consigne
+    assert answer.lang == "de" and answer.lang_fallback is False
+    assert answer.clarification == "Von welchen Personen sprechen Sie?"
+
+
+async def test_une_detection_non_servie_naffiche_pas_la_question_de_clarification(index: Index) -> None:
+    """Second cas de B1 : la détection n'est connue qu'**après** la réponse — la clarification est
+    déjà écrite, dans une langue que rien ne permet d'affirmer, et aucun code ne peut la traduire
+    sans un second appel facturé. Elle n'est donc pas affichée sous une réponse annoncée française ;
+    le refus composé par *restituer* dit déjà, en français, qu'il faut préciser la question, et
+    `lang_fallback` dit pourquoi la réponse est en français. Le retrait est tracé (AD-16)."""
+    answer, trace, _fake = await _run(
+        index, [_comprendre(clarification="¿De qué personas habla?", language="es")],
+        question="¿Y para ellos, es lo mismo?")
+    assert answer.lang == "fr" and answer.lang_fallback is True
+    assert answer.clarification is None
+    assert answer.reason is not None and answer.reason.kind == "clarification_requise"
+    assert "précisez-la" in answer.texte  # la phrase française de *restituer* reste servie
+    comprendre_step = next(s for s in trace.steps if s.name == "comprendre")
+    (check,) = [c for c in comprendre_step.checks if c.name == "clarification_non_affichable"]
+    assert check.ok is False
+
 async def test_an_empty_retrieval_never_pays_for_a_reason_call(index: Index) -> None:
     answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame"])])
     assert fake.remaining_script == 0 and len(fake.requests) == 1

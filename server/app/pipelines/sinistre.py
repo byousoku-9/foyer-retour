@@ -282,7 +282,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # posée à l'utilisateur (`answer.clarification`) est ce que cet écran a à montrer.
             return refuser("clarification_requise", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback,
-                           clarification=parsed.clarification)
+                           # `clarification_affichable` (revue Codex 2.4, B1) : voir le guide —
+                           # une question dont la langue n'a pas pu être affirmée n'est pas affichée.
+                           clarification=parsed.clarification_affichable)
         if parsed.intent in INTENTS_REFUSES:
             # Court-circuit d'AD-5 : l'étage `reason` n'est jamais atteint pour un refus. Les faits
             # compris, eux, existent déjà — *comprendre* a tourné —, et c'est justement sur un refus

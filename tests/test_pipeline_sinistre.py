@@ -731,6 +731,27 @@ async def test_a_refusal_still_publishes_the_understood_facts(index: Index, inte
     assert answer.faits_compris is not None and answer.faits_compris.bien == "mobilier de salon"
 
 
+async def test_une_langue_forcee_est_demandee_pour_la_clarification_du_sinistre(index: Index) -> None:
+    """Revue Codex 2.4, B1 : le registre du sinistre a la même faille et le même remède — la
+    clarification est la seule phrase affichée que le modèle écrit (AD-5), et sa langue se décide
+    dans l'unique appel de *comprendre*."""
+    answer, _trace, fake = await _run(
+        index, [_comprendre(clarification="Von welchem Gut sprechen Sie?", language="fr")], lang="de")
+    consigne = fake.requests[0]["messages"][0]["content"].split("</untrusted>")[-1]
+    assert "Écris `clarification` en de (allemand), quelle que soit la langue de la question." in consigne
+    assert answer.lang == "de" and answer.lang_fallback is False
+    assert answer.clarification == "Von welchem Gut sprechen Sie?"
+
+
+async def test_une_detection_non_servie_naffiche_pas_la_clarification_du_sinistre(index: Index) -> None:
+    """Second cas de B1, registre sinistre : même règle, même preuve (revue Codex 2.4)."""
+    answer, trace, _fake = await _run(
+        index, [_comprendre(clarification="¿De qué bien habla?", language="es")])
+    assert answer.lang == "fr" and answer.lang_fallback is True and answer.clarification is None
+    comprendre_step = next(s for s in trace.steps if s.name == "comprendre")
+    assert [c.name for c in comprendre_step.checks] == ["clarification_non_affichable"]
+
+
 async def test_a_clarification_publishes_no_understood_facts(index: Index) -> None:
     """`ClarificationRequise` n'a pas de portée (AD-5 : deux sorties typées exclusives) — rien à publier."""
     answer, _trace, _fake = await _run(index, [
