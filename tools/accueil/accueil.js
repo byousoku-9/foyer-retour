@@ -57,6 +57,11 @@
     rapport_illisible: "le rapport d'ingestion est présent mais illisible",
     rapport_etranger: "le rapport d'ingestion décrit un autre document",
     quarantaine: "document écarté au chargement",
+    // I2 de la revue Codex 2.1 : la projection des titres rendue à *comprendre* a perdu des
+    // catégories entières faute de place — le modèle classerait hors périmètre des sujets traités.
+    perimetre_tronque:
+      "la liste des rubriques annoncée au modèle a été tronquée : des sujets traités par ce " +
+      "document seraient jugés hors périmètre",
     ungated_refuse_en_production:
       "ALLOW_UNGATED a été posé en production : la dérogation a été refusée",
     // AD-5 (story 2.1) : les deux verrous du dictionnaire des variantes. Deux noms parce que deux
