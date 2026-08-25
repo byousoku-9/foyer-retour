@@ -37,38 +37,27 @@ from server.app.domain.question import (
     QuestionScope,
     Turn,
 )
-from server.app.domain.trace import StepTrace
+from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
-# Bornes de **forme** des trois listes rendues par le modèle (reprise différée `target_story: 2.1`).
-# Ce sont des formes de contrat, pas des seuils de `config.py` : elles ne se règlent avec aucune éval,
-# elles disent seulement « au-delà, ce n'est plus une liste de termes, c'est un déversement ». Les
-# vraies bornes de travail, elles, sont `question_max_terms`, `scope_max_themes` et
-# `question_max_facettes`, appliquées plus bas — généreuses ici pour qu'un modèle un peu bavard soit
-# **tronqué par notre code** (perte bornée et lisible) plutôt que rejeté en `LlmParse` (échec
-# terminal).
+# Borne de **forme** du nombre d'éléments des trois listes rendues par le modèle (reprise différée
+# `target_story: 2.1`). Elle ne dit qu'une chose : « au-delà, ce n'est plus une liste de termes,
+# c'est un déversement » — et elle est généreuse pour qu'un modèle un peu bavard soit ramené **par
+# notre code** à ses bornes de travail (`question_max_terms`, `scope_max_themes`,
+# `question_max_facettes`, perte bornée et dite en trace) plutôt que rejeté en `LlmParse`, qui est un
+# échec terminal.
 #
-# **Deux bornes, parce que `Field(max_length=…)` sur une liste ne compte que ses éléments** (revue
-# Codex 2.1, M3) : le commentaire promettait qu'elle bordait « au passage la longueur d'un libellé »,
-# ce qu'elle ne faisait pas — trente-deux termes de dix mille caractères passaient. `LIBELLE_MAX`
-# borde chaque chaîne, `LISTE_MAX` leur nombre.
+# Elle reste un **littéral de l'étape**, et la Convention Seuils le veut ainsi (revue Codex 2.1, M3,
+# reprise en story 2.2) : cette borne-ci entre dans le schéma JSON envoyé au modèle, donc dans la clé
+# de requête et dans le préfixe caché (AD-9). La rendre réglable par `.env` laisserait un poste de
+# travail déplacer en silence ce qui est facturé et invalider toutes les fixtures enregistrées. Sa
+# jumelle de longueur, elle, est appliquée par le code : elle a rejoint `config.py` sous le nom
+# `libelle_max_chars`, et elle est publiée dans `Trace.thresholds`.
 LISTE_MAX = 32
-# Longueur d'**un** libellé, même esprit que `LISTE_MAX` : au-delà, ce n'est plus un terme, c'est un
-# déversement. Elle n'entre pas dans le schéma JSON de l'appel, et c'est délibéré — le schéma est la
-# clé du préfixe caché (AD-9) et celle des fixtures enregistrées ; une borne de forme ne vaut pas de
-# les réécrire. Elle est appliquée par le code, plus bas, à la façon de `QuestionScope.borner`
-# (story 1.9) : le libellé hors borne est **écarté**, jamais coupé — un terme tronqué se chercherait,
-# et se publierait dans `terms_searched`, sous une forme que personne n'a écrite.
-#
-# Elle est **volontairement plus haute que les bornes d'affichage** (`fait_manquant_max_chars` = 200,
-# qu'applique `QuestionScope.borner`) : celles-là sont plus fines et, elles, se **disent** en trace
-# (`faits_compris_hors_borne`). Rabattre celle-ci à leur niveau ferait disparaître le libellé plus
-# tôt et sans un mot, ce qu'AD-16 appelle un dégradé silencieux.
-LIBELLE_MAX = 500
 
 
 class SortieComprendre(DomainModel):
@@ -110,9 +99,22 @@ class SortieComprendre(DomainModel):
         return self
 
 
-def _libelles(bruts: list[str]) -> list[str]:
-    """Les libellés d'une liste rendue par le modèle : nettoyés, vides et hors-borne **écartés**."""
-    return [t for t in (s.strip() for s in bruts) if t and len(t) <= LIBELLE_MAX]
+def _libelles(bruts: list[str], *, max_chars: int, garder: int) -> tuple[list[str], int]:
+    """Les libellés retenus, et **combien** ont été écartés (revue Codex 2.1, M3 ; story 2.2).
+
+    Deux règles, une seule sortie, parce que ce sont deux façons de perdre un libellé et que les
+    taire toutes les deux serait le même silence : la **longueur** (au-delà de `max_chars`, ce n'est
+    plus un terme mais un déversement — écarté, jamais coupé) et le **nombre** (au-delà de `garder`,
+    les derniers tombent : l'ordre du modèle est celui de la priorité qu'il leur prête).
+
+    Le compte rendu suit `QuestionScope.borner` (story 1.9, D4) : le pipeline en fait un
+    `CheckResult` qui nomme les **listes** appauvries, jamais leur contenu (AD-10 interdit le texte
+    dans la trace). Sans lui, une question dont la moitié des termes a disparu produisait la même
+    recherche appauvrie qu'une question pauvre, sans que rien ne les distingue.
+    """
+    propres = [t for t in (s.strip() for s in bruts) if t]
+    tenus = [t for t in propres if len(t) <= max_chars][:garder]
+    return tenus, len(propres) - len(tenus)
 
 
 async def comprendre(question: str, historique: list[Turn], profil: Profil, *, client: LlmClient,
@@ -168,24 +170,40 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         sortie: ParsedQuestion | ClarificationRequise = ClarificationRequise(
             clarification=clarification, intent=out.intent, language=language)
     else:
+        # `terms`, `themes` et `facettes` sont ramenés **par le code** à leurs seuils de travail
+        # (reprise différée de la revue 1.4), et ce qui tombe est désormais **dit** (revue Codex 2.1,
+        # M3, reprise en story 2.2). Le prompt demande `question_max_terms` termes : quand le modèle
+        # en rend plus, ce sont les derniers — les moins prioritaires selon lui — qui tombent, et la
+        # recherche reste bornée à ce que `search_limit` peut classer. Écarter par la fin, jamais
+        # couper un libellé — et écarter aussi celui qui dépasse `libelle_max_chars`
+        # (`Field(max_length=…)` sur une liste ne compte que ses éléments, si bien qu'un « terme » de
+        # dix mille caractères passait et partait dans `terms_searched`).
+        #
+        # Le découpage en facettes, lui, est arrêté ici, avant *retrouver* et *rédiger* (AD-4, revue
+        # Codex 1.5, tour 3, B3) : borné par `question_max_facettes`, et jamais deviné — un modèle
+        # muet laisse la liste vide, et `complete` restera `False` faute de preuve.
+        terms, hors_terms = _libelles(out.terms, max_chars=settings.libelle_max_chars,
+                                      garder=settings.question_max_terms)
+        facettes, hors_facettes = _libelles(out.facettes, max_chars=settings.libelle_max_chars,
+                                            garder=settings.question_max_facettes)
+        themes, hors_themes = _libelles(out.themes, max_chars=settings.libelle_max_chars,
+                                        garder=settings.scope_max_themes)
+        appauvries = [f"{nom} ({n})" for nom, n in
+                      (("terms", hors_terms), ("facettes", hors_facettes), ("themes", hors_themes)) if n]
+        if appauvries:
+            # AD-10 : le check nomme les listes et compte, jamais le texte écarté — ce texte vient du
+            # modèle, et la trace part au client (AD-15).
+            step.checks.append(CheckResult(
+                name="libelles_hors_borne", ok=False,
+                detail=f"libellé(s) écarté(s) par les bornes de l'étape : {', '.join(appauvries)} "
+                       f"(longueur > {settings.libelle_max_chars}, ou au-delà du nombre retenu)"))
         sortie = ParsedQuestion(
             question_resolue=(out.question_resolue or "").strip(),
             intent=out.intent,
             language=language,
-            # `terms` et `themes` sont tronqués **par le code** à leur seuil de travail, comme
-            # `facettes` l'était déjà (reprise différée de la revue 1.4). Le prompt demande
-            # `question_max_terms` termes : quand le modèle en rend plus, ce sont les derniers —
-            # les moins prioritaires selon lui — qui tombent, et la recherche reste bornée à ce que
-            # `search_limit` peut classer. Écarter par la fin, jamais couper un libellé — et écarter
-            # aussi le libellé plus long que `LIBELLE_MAX` (revue Codex 2.1, M3 : `Field(max_length=…)`
-            # sur une liste ne compte que ses éléments, si bien qu'un « terme » de dix mille
-            # caractères passait et partait dans `terms_searched`).
-            terms=_libelles(out.terms)[: settings.question_max_terms],
-            # Le découpage en facettes est arrêté ici, avant *retrouver* et *rédiger* (AD-4, revue
-            # Codex 1.5, tour 3, B3) : borné par `question_max_facettes`, et jamais deviné — un
-            # modèle muet laisse la liste vide, et `complete` restera `False` faute de preuve.
-            facettes=_libelles(out.facettes)[: settings.question_max_facettes],
-            scope=QuestionScope(themes=_libelles(out.themes)[: settings.scope_max_themes],
+            terms=terms,
+            facettes=facettes,
+            scope=QuestionScope(themes=themes,
                                 bien=out.bien or None, evenement=out.evenement or None, lieu=out.lieu or None,
                                 cause=out.cause or None, moment=out.moment or None),
         )

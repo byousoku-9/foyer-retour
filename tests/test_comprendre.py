@@ -271,32 +271,56 @@ async def test_le_code_tronque_terms_et_themes_aux_seuils_de_config() -> None:
     assert fake.remaining_script == 0
 
 
-async def test_un_libelle_hors_borne_est_ecarte_jamais_coupe() -> None:
+async def test_un_libelle_hors_borne_est_ecarte_jamais_coupe_et_le_dit() -> None:
     """Revue Codex 2.1 (M3) : `Field(max_length=…)` sur une liste ne compte que ses **éléments**.
 
     Le commentaire promettait qu'il bordait « au passage la longueur d'un libellé » ; il n'en bordait
     aucune, et un « terme » de dix mille caractères traversait l'étape puis partait dans
     `terms_searched`. La borne est appliquée par le code, qui **écarte** le libellé — le couper
     ferait chercher autre chose, et publierait une forme que personne n'a écrite.
-    """
-    from server.app.steps.comprendre import LIBELLE_MAX
 
-    deverse = "x" * (LIBELLE_MAX + 1)
+    Story 2.2, seconde moitié de la même reprise : la borne est **domiciliée dans `config.py`**
+    (`libelle_max_chars`, Convention Seuils — c'est le code qui l'applique, elle se règle sur ce
+    qu'on observe, et elle est publiée dans `Trace.thresholds`), et ce qu'elle écarte se **dit** dans
+    la trace de l'étape. Un libellé qui disparaît sans un mot est le dégradé silencieux d'AD-16 : la
+    recherche appauvrie était indiscernable d'une question pauvre.
+    """
+    s = _settings()
+    deverse = "x" * (s.libelle_max_chars + 1)
     client, fake = _client([fake_message(
         text=_sortie(terms=["matricule", deverse], themes=[deverse, "école"],
                      facettes=[deverse, "délai"]), model=HAIKU)])
-    parsed, _step = await comprendre("q", [], Profil(), client=client, budget=_budget(),
-                                     settings=_settings())
+    parsed, step = await comprendre("q", [], Profil(), client=client, budget=_budget(),
+                                     settings=s)
 
     assert parsed.terms == ["matricule"]
     assert parsed.scope.themes == ["école"]
     assert parsed.facettes == ["délai"]
     assert "xxxx" not in parsed.model_dump_json()  # aucun préfixe ne subsiste : écarté, pas tronqué
     assert fake.remaining_script == 0
-    # La borne reste **au-dessus** des bornes d'affichage, plus fines et, elles, tracées
+    # AD-10 : le check nomme les listes et compte, jamais le texte écarté.
+    check = [c for c in step.checks if c.name == "libelles_hors_borne"]
+    assert len(check) == 1 and check[0].ok is False
+    assert "terms (1)" in check[0].detail and "facettes (1)" in check[0].detail
+    assert "themes (1)" in check[0].detail and "xxxx" not in check[0].detail
+    # La borne reste **au-dessus** des bornes d'affichage, plus fines et, elles, tracées aussi
     # (`QuestionScope.borner` / `faits_compris_hors_borne`) : les rabattre ferait disparaître le
-    # libellé plus tôt et sans un mot, ce qu'AD-16 appelle un dégradé silencieux.
-    assert LIBELLE_MAX > _settings().fait_manquant_max_chars
+    # libellé plus tôt, pour une raison qui n'est pas la sienne.
+    assert s.libelle_max_chars > s.fait_manquant_max_chars
+    assert "libelle_max_chars" in s.thresholds()  # Convention Seuils : publié, jamais en dur
+
+
+async def test_une_question_sans_libelle_ecarte_ne_porte_aucun_check() -> None:
+    """Le check ne se pose que quand quelque chose est réellement tombé.
+
+    Un check permanent serait du bruit dans la trace publiée à l'utilisateur (AD-10) et ferait passer
+    pour un incident le cas nominal — un modèle qui rend exactement ce qu'on lui demande.
+    """
+    client, _fake = _client([fake_message(text=_sortie(terms=["matricule"], themes=[], facettes=["délai"]),
+                                          model=HAIKU)])
+    _parsed, step = await comprendre("q", [], Profil(), client=client, budget=_budget(),
+                                     settings=_settings())
+    assert [c.name for c in step.checks if c.name == "libelles_hors_borne"] == []
 
 
 async def test_le_schema_de_sortie_interdit_un_champ_surnumeraire_et_borne_les_listes() -> None:

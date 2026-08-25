@@ -208,6 +208,21 @@ class Settings(BaseSettings):
     # une forme de contrat non. Six couvre largement un sinistre d'habitation ; au-delà, le modèle
     # ne classe plus, il énumère.
     scope_max_themes: int = Field(6, ge=1)
+    # Longueur d'**un** libellé rendu par *comprendre* (`terms`, `themes`, `facettes`). Revue Codex
+    # 2.1 (M3), reprise en story 2.2 : la valeur vivait en dur dans `steps/comprendre.py`, ce que la
+    # Convention Seuils interdit. Elle en est bien un — c'est le **code** qui l'applique, elle se
+    # règle sur ce qu'on observe des termes utiles, et elle est publiée dans `Trace.thresholds`. Sa
+    # jumelle `LISTE_MAX`, elle, reste un littéral de l'étape, et c'est la même convention qui le
+    # veut : cette borne-là entre dans le **schéma JSON** envoyé au modèle, donc dans la clé de
+    # requête et dans le préfixe caché (AD-9) — la rendre réglable par `.env` laisserait un poste de
+    # travail déplacer en silence ce qui est facturé et invalider toutes les fixtures enregistrées.
+    # Un nombre se règle avec les évals, une forme de contrat non.
+    #
+    # Volontairement plus haute que les bornes d'affichage (`fait_manquant_max_chars`) : celles-là
+    # sont plus fines et se disent en trace. Au-delà d'ici, ce n'est plus un terme, c'est un
+    # déversement — le libellé est **écarté**, jamais coupé (un terme tronqué se chercherait, et se
+    # publierait dans `terms_searched`, sous une forme que personne n'a écrite).
+    libelle_max_chars: int = Field(500, ge=1)
     estimate_chars_per_token: float = Field(2.0, gt=0)
     estimate_tokenizer_factor: float = Field(1.3, gt=0)
     count_tokens_timeout_s: float = Field(10.0, gt=0)
@@ -399,6 +414,7 @@ class Settings(BaseSettings):
             "question_max_terms": self.question_max_terms,
             "question_max_facettes": self.question_max_facettes,
             "scope_max_themes": self.scope_max_themes,
+            "libelle_max_chars": self.libelle_max_chars,
             "estimate_chars_per_token": self.estimate_chars_per_token,
             "estimate_tokenizer_factor": self.estimate_tokenizer_factor,
             "count_tokens_timeout_s": self.count_tokens_timeout_s,
