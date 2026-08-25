@@ -28,6 +28,7 @@ from server.ingest import kb_to_blocks as k
 from tests.llm_fake import FakeAnthropic, fake_message
 
 SONNET = TIERS["reason"]
+ROOT = Path(__file__).resolve().parents[1]
 MINI = Path(__file__).parent / "data" / "mini_kb.js"
 UNTRUSTED = re.compile(r'<untrusted kind="([a-z0-9_]+)">\n(.*?)\n</untrusted>', re.DOTALL)
 
@@ -232,6 +233,25 @@ async def test_request_shape_cacheable_prefix_with_summary_then_delimited_conten
                                "recopiées mot pour mot dans la langue du bloc source.")
     for fragment in ("huit jours", "on vient d'arriver", "bienvenue", "déclarer l'arrivée ?"):
         assert fragment not in outside
+
+
+async def test_outils_output_ceiling_starts_the_cold_rediger_call_under_ten_cents() -> None:
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    blocks = [*index.ouvrir_noeud("lux-guide:farrivee", node_window=30).blocks,
+              *index.ouvrir_noeud("lux-guide:q12", node_window=30).blocks]
+    retrieval = RetrievalResult(blocs=blocks, opened_block_ids=[block.block_id for block in blocks],
+                                truncated=True)
+    settings = _settings()
+    budget = _budget()
+    budget.cost_eur = 0.0143  # coût froid mesuré de comprendre + deux tours de navigation Haiku
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+
+    await rediger(_parsed(), retrieval, [], client=client, budget=budget, index=index,
+                  doc_id="lux-guide", settings=settings,
+                  max_tokens=settings.outils_rediger_max_tokens)
+
+    assert fake.requests[0]["max_tokens"] == settings.outils_rediger_max_tokens == 1792
+    assert budget.attempts == 1 and budget.cost_eur < settings.max_cost_eur_per_request
 
 
 async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(

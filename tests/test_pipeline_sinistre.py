@@ -245,6 +245,7 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
                   ("c2", True, False, False, False, None),
                   ("c3", True, False, False, False, None))])
     assert fake.remaining_script == 0 and len(fake.requests) == 3  # micro, reason, micro
+    assert fake.requests[1]["max_tokens"] == _settings().rediger_max_tokens == 2048
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
     assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
     assert len(next(s for s in trace.steps if s.name == "verifier").calls) == 1

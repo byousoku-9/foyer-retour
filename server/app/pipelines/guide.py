@@ -417,8 +417,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
+        rediger_max_tokens = (settings.outils_rediger_max_tokens if variant == "outils" else None)
         draft, step_rediger = await rediger(parsed, retrieval, historique, client=client, budget=budget,
-                                            index=index, doc_id=doc_id, settings=settings)
+                                            index=index, doc_id=doc_id, settings=settings,
+                                            max_tokens=rediger_max_tokens)
         steps.append(step_rediger)
 
         # --- vérifier -------------------------------------------------------
@@ -451,7 +453,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
                 draft_2, step_rediger_2 = await rediger(parsed, retrieval, historique, client=client, budget=budget,
                                                         index=index, doc_id=doc_id, settings=settings,
-                                                        motif=verification.motif)
+                                                        motif=verification.motif,
+                                                        max_tokens=rediger_max_tokens)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
                 relances += 1

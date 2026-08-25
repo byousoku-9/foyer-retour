@@ -220,6 +220,7 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     # ne remplit **pas**. Le profil du guide n'est pas « ce qu'on a compris d'un sinistre », et une
     # question du guide n'a pas de verdict à porter (AD-4).
     assert answer.faits_compris is None and answer.verdict is None
+    assert fake.requests[1]["max_tokens"] == _settings().rediger_max_tokens == 2048
     # AD-10 : `intent` est le seul champ de la ligne de log que l'API ne peut pas lire sur l'`Answer` —
     # il n'existe que dans la trace, et seul le pipeline le produit.
     assert trace.intent == "question"
@@ -247,6 +248,8 @@ async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_cha
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
+    assert fake.requests[2]["max_tokens"] == _settings().outils_rediger_max_tokens == 1792
+    assert trace.thresholds["outils_rediger_max_tokens"] == 1792
     assert len(fake.requests) == 4
 
 

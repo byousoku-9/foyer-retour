@@ -26,6 +26,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
     assert s.retrouver_outils_tier == "micro"
+    assert s.outils_rediger_max_tokens == 1792 and s.rediger_max_tokens == 2048
     assert s.max_cost_eur_per_request == 0.10 and s.cost_alert_eur == 0.05
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
@@ -70,7 +71,8 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
             # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
-            "comprendre_max_tokens", "rediger_max_tokens", "retrieval_max_blocks",
+            "comprendre_max_tokens", "rediger_max_tokens", "outils_rediger_max_tokens",
+            "retrieval_max_blocks",
             # story 1.5 : bornes du pipeline et de *vérifier*
             "historique_max_turns", "verifier_max_claims", "verifier_max_tokens",
             # story 1.8 : les deux bornes posées sur ce que le modèle fait afficher au sinistre
@@ -111,6 +113,8 @@ def test_bounds_and_coherence() -> None:
     # tel quel au fournisseur et entre au tarif `output` dans le majorant `estimate_cost`.
     with pytest.raises(ValidationError, match="rediger_max_tokens"):
         Settings(_env_file=None, rediger_max_tokens=8192, llm_max_output_tokens=4096)
+    with pytest.raises(ValidationError, match="outils_rediger_max_tokens"):
+        Settings(_env_file=None, outils_rediger_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="comprendre_max_tokens"):
         Settings(_env_file=None, comprendre_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="verifier_max_tokens"):
