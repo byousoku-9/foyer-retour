@@ -26,7 +26,7 @@ from server.app.config import Settings
 from server.app.domain.answer import Answer, AnswerSegment
 from server.app.domain.document import Bbox
 from server.app.domain.errors import InvalidRequest
-from server.app.domain.langue import est_langue_servie, langues_servies_texte, normaliser_langue
+from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
@@ -41,7 +41,19 @@ DOC_ID_PATTERN = r"^[a-z0-9-]+$"
 DOC_ID_MAX = 64
 
 
-class ChatRequest(BaseModel):
+class RequeteAvecLangue(BaseModel):
+    """Partie commune des corps HTTP qui peuvent forcer une langue de réponse."""
+
+    lang: str | None = None
+
+    @field_validator("lang")
+    @classmethod
+    def _langue_servie(cls, v: str | None) -> str | None:
+        # La `ValueError` est volontaire : pydantic conserve ainsi le chemin exact `body.lang`.
+        return normaliser_langue_forcee(v)
+
+
+class ChatRequest(RequeteAvecLangue):
     """`POST /api/v1/chat` (et son alias `/chat`)."""
 
     model_config = ConfigDict(extra="ignore")  # `contexte` de l'ancien contrat : reçu, jamais lu
@@ -49,7 +61,6 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     profil: Profil = Field(default_factory=Profil)
     historique: list[Turn] = Field(default_factory=list)
-    lang: str | None = None
     # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». La seule variante existante en J+1 est celle du
     # pipeline du guide ; le littéral est importé de lui pour qu'ajouter une variante (baseline « tout
     # en contexte ») se fasse à un seul endroit.
@@ -62,15 +73,6 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("question vide")
         return v
-
-    @field_validator("lang")
-    @classmethod
-    def _langue_servie(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        if not est_langue_servie(v):
-            raise ValueError(f"langue non servie : choisissez {langues_servies_texte()}")
-        return normaliser_langue(v)[0]
 
     def borner(self, settings: Settings) -> None:
         """Borne d'AD-11 qui vit dans `config.py` : le nombre de tours d'historique."""
@@ -175,7 +177,7 @@ class DocumentItem(BaseModel):
     source_url: str | None = None
 
 
-class SinistreRequest(BaseModel):
+class SinistreRequest(RequeteAvecLangue):
     """`POST /api/v1/sinistre` — les quatre champs d'AD-11, et pas un de plus.
 
     **Ce que le corps ne porte pas, et pourquoi (D1).** `pipelines.sinistre.run(..., dossier)` dit ce
@@ -211,16 +213,6 @@ class SinistreRequest(BaseModel):
     doc_id: str = Field(min_length=1, max_length=DOC_ID_MAX, pattern=DOC_ID_PATTERN)
     question: str = Field(min_length=1, max_length=1000)
     faits: Faits
-    lang: str | None = None
-
-    @field_validator("lang")
-    @classmethod
-    def _langue_servie(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        if not est_langue_servie(v):
-            raise ValueError(f"langue non servie : choisissez {langues_servies_texte()}")
-        return normaliser_langue(v)[0]
     # **Pas de `variant`** (revue Codex 1.9, tour 1, I3). Le champ existait pour AD-1 (« un
     # `pipeline.variant` inconnu ⇒ 400 »), mais AD-11 ne l'énumère pas dans le corps de cette route,
     # et la story a refusé `dossier` **en invoquant cette énumération** : le garder revenait à

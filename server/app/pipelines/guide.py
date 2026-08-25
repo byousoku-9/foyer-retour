@@ -35,7 +35,6 @@ from server.app.domain.errors import (
     PipelineError,
     Timeout,
 )
-from server.app.domain.langue import est_langue_servie, langues_servies_texte, normaliser_langue
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, ParsedQuestion, Turn
 from server.app.domain.trace import CheckResult, StepTrace, Trace
@@ -45,6 +44,7 @@ from server.app.pipelines.commun import (
     blocs_cites,
     digests,
     domine,
+    normaliser_langue_pipeline,
     relance_abandonnee,
     relance_utile,
     retrieval_budget,
@@ -103,10 +103,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`, `LlmUnavailable`) remontent.
     """
     doc_id = doc_id or settings.guide_doc_id
-    if lang is not None and not est_langue_servie(lang):
-        raise InvalidRequest(f"langue non servie : choisissez {langues_servies_texte()}")
-    if lang is not None:
-        lang = normaliser_langue(lang)[0]
+    lang = normaliser_langue_pipeline(lang)
     if doc_id not in corpus.documents:
         # Document en quarantaine, absent ou mal nommé : `retrouver` lèverait un `KeyError` nu **après**
         # *comprendre*, donc après un appel facturé, et l'API en ferait un 500 (revue 1.5). AD-16 a un

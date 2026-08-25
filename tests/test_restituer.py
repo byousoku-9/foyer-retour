@@ -11,10 +11,12 @@ from typing import get_args
 import pytest
 
 from server.app.domain.answer import (
+    LACUNES_PLURALISEES,
     AbsenceProof,
     AnswerSegment,
     ClaimStatus,
     Lacune,
+    LacuneKind,
     RejectedClaim,
     Verification,
     VerifiedClaim,
@@ -96,6 +98,7 @@ def test_a_factual_segment_without_a_surviving_claim_is_removed() -> None:
 
 
 ABSENCE_KINDS = sorted(get_args(AbsenceProof.model_fields["kind"].annotation))
+LACUNE_KINDS = sorted(get_args(LacuneKind))
 
 
 @pytest.mark.parametrize("kind", ABSENCE_KINDS)
@@ -115,6 +118,33 @@ def test_every_absence_kind_has_its_own_sentence(kind: str) -> None:
     assert len(set(PHRASES_DE_REFUS["fr"].values())) == len(ABSENCE_KINDS)
 
 
+def test_every_lacune_kind_has_a_non_empty_sentence_in_every_served_language() -> None:
+    """Le registre dérive du `Literal` : un nouveau kind ne peut pas attendre le chemin production."""
+    assert set(PHRASES_DE_LACUNE) == {"fr", "en", "de", "pt"}
+    for langue, phrases in PHRASES_DE_LACUNE.items():
+        assert set(phrases) == set(LACUNE_KINDS), langue
+        for kind, patron in phrases.items():
+            if kind in LACUNES_PLURALISEES:
+                assert isinstance(patron, tuple) and len(patron) == 2
+                assert all(forme.strip() for forme in patron)
+            else:
+                assert isinstance(patron, str) and patron.strip()
+
+
+@pytest.mark.parametrize("language", ["fr", "en", "de", "pt"])
+@pytest.mark.parametrize("kind", sorted(LACUNES_PLURALISEES))
+@pytest.mark.parametrize("n,index", [(1, 0), (2, 1)])
+def test_each_pluralized_lacune_renders_singular_and_plural(
+        language: str, kind: str, n: int, index: int) -> None:
+    verification = Verification(
+        segments=[AnswerSegment(text="Réponse.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=False, lacunes=[Lacune(kind=kind, n=n)])
+    answer, _step = restituer(language=language, verification=verification)
+    patron = PHRASES_DE_LACUNE[language][kind]
+    assert isinstance(patron, tuple)
+    assert answer.unknown == [patron[index].format(n=n)]
+
+
 def test_a_refusal_is_rendered_in_the_selected_language_without_inventing_a_fallback() -> None:
     answer, _step = restituer(language="en", reason=AbsenceProof(kind="hors_perimetre"))
     assert answer.lang == "en" and answer.lang_fallback is False
@@ -129,11 +159,14 @@ def test_a_refusal_is_rendered_in_the_selected_language_without_inventing_a_fall
 
 def test_a_refusal_keeps_the_rejected_claims_and_the_clarification() -> None:
     verification = Verification(segments=[AnswerSegment(text="Rejetée.", kind="factuel", claim_ids=["c2"])],
-                                rejected_claims=[_rejet()], found=False, unknown=["frontaliers"])
+                                rejected_claims=[_rejet()], found=False,
+                                unknown=["frontaliers", PHRASES_DE_LACUNE["fr"]["sans_decoupage"]],
+                                lacunes=[Lacune(kind="sans_decoupage")])
     answer, _step = restituer(language="fr", verification=verification,
                               reason=AbsenceProof(kind="claims_rejetes"))
     # AD-3 : les claims non retrouvées sont **conservées**, jamais silencieusement effacées
-    assert [c.claim_id for c in answer.rejected_claims] == ["c2"] and answer.unknown == ["frontaliers"]
+    assert [c.claim_id for c in answer.rejected_claims] == ["c2"]
+    assert answer.unknown == ["frontaliers", PHRASES_DE_LACUNE["fr"]["sans_decoupage"]]
     clarif, _ = restituer(language="fr", reason=AbsenceProof(kind="clarification_requise"),
                           clarification="De quelles personnes parlez-vous ?")
     assert clarif.clarification == "De quelles personnes parlez-vous ?" and clarif.found is False
@@ -253,16 +286,21 @@ def test_every_registry_covers_exactly_the_absence_kinds_of_ad4() -> None:
 def test_les_refus_portugais_du_guide_et_anglais_du_sinistre_sont_servis_tels_quels(
         kind: str) -> None:
     guide, _ = restituer(language="pt", reason=AbsenceProof(kind=kind))
-    sinistre, _ = restituer(language="en", reason=AbsenceProof(kind="zero_hit"),
+    sinistre, _ = restituer(language="en", reason=AbsenceProof(kind=kind),
                             registre=REGISTRE_SINISTRE)
     assert guide.lang == "pt" and guide.texte == PHRASES_DE_REFUS["pt"][kind]
     assert sinistre.lang == "en"
-    assert sinistre.texte == PHRASES_DE_REFUS_SINISTRE["en"]["zero_hit"]
+    assert sinistre.texte == PHRASES_DE_REFUS_SINISTRE["en"][kind]
 
 
 def test_an_unknown_registry_is_an_incoherent_call() -> None:
     with pytest.raises(ValueError, match="registre de refus inconnu"):
         restituer(language="fr", reason=AbsenceProof(kind="zero_hit"), registre="autre")
+
+
+def test_an_unsupported_restitution_language_is_an_incoherent_call() -> None:
+    with pytest.raises(ValueError, match="langue de restitution inconnue"):
+        restituer(language="es", reason=AbsenceProof(kind="zero_hit"))
 
 
 # --- `faits_compris` (story 1.9, D4) : *restituer* recopie, il ne calcule pas ---------
@@ -407,7 +445,7 @@ def test_les_deux_canaux_sont_affiches_dans_une_seule_liste() -> None:
     verification = Verification(
         segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"])],
         claims=[_claim()], found=True, complete=False,
-        unknown=["Je ne sais rien des frontaliers."],
+        unknown=["Je ne sais rien des frontaliers.", PHRASES_DE_LACUNE["fr"]["lecture_bornee"]],
         lacunes=[Lacune(kind="lecture_bornee"), Lacune(kind="renvoi_non_resolu")])
     answer, _step = restituer(language="fr", verification=verification)
     assert answer.unknown == [

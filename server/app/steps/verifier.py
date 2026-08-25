@@ -23,12 +23,12 @@ Deux moitiés, dans cet ordre, et jamais l'inverse :
 **« Partiel » dit toujours ce qui manque (story 2.3).** `complete=False` naît de six causes — facettes
 non couvertes, découpage non établi, retrieval tronqué, renvoi non résolu, phrases écartées, limite
 déclarée par le modèle — et une seule d'entre elles écrivait quelque chose dans `unknown[]`. Chacune
-est désormais nommée en français par le **code** (`_lacunes`, AD-16 / NFR2) et déposée dans
-`Verification.lacunes` — **distinct** d'`unknown`, qui reste ce que le modèle a déclaré : les phrases
-du code sont en français quelle que soit la langue de la question, et c'est *restituer* qui les fond
-dans l'unique liste affichée en levant `lang_fallback` (revue coordonnée 2.3, A3). `complete` se
-réduit alors à « trouvé, et rien qui manque » — un seul invariant à tenir pour le domaine
-(`Answer._found_coherence`), une seule liste à lire pour l'utilisateur.
+est désormais constatée par le **code** sous forme de `Lacune(kind, n)` (`_lacunes`, AD-16 / NFR2)
+et déposée dans `Verification.lacunes` — **distinct** d'`unknown`, qui reste ce que le modèle a
+déclaré. *Restituer* projette ensuite ces causes dans la langue de la réponse et les fond dans
+l'unique liste affichée (revue coordonnée 2.3, A3). `complete` se réduit alors à « trouvé, et rien
+qui manque » — un seul invariant à tenir pour le domaine (`Answer._found_coherence`), une seule
+liste à lire pour l'utilisateur.
 
 Le texte soumis au modèle est celui du corpus, pas celui du draft : c'est ce qui empêche une citation
 « écho » d'être jugée pertinente sur sa propre invention. Question et passages sont délimités par
@@ -773,13 +773,12 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # AD-4 énumère quatre conditions de `complete`, et l'AC de la story exige « partiel **avec
     # `unknown[]` listé** ». Jusqu'ici, une seule des six causes d'incomplétude écrivait quelque
     # chose : l'utilisateur lisait « PARTIEL » sans savoir de quoi. Chaque cause est donc nommée en
-    # français, **par le code** (AD-16 / NFR2 : jamais par le modèle), et déposée dans `unknown[]` —
-    # après quoi `complete ⟺ found ∧ unknown = []` devient un invariant du domaine, porté par
-    # `Answer._found_coherence`, et les deux fronts affichent la liste sans une ligne de plus.
+    # comme une cause typée, **par le code** (AD-16 / NFR2 : jamais par le modèle), puis projetée
+    # dans `unknown[]` par *restituer* — après quoi `complete ⟺ found ∧ unknown = []` devient un
+    # invariant du domaine, porté par `Answer._found_coherence`.
     #
-    # Les phrases ne nomment ni `block_id`, ni terme cherché, ni contenu de bloc (AD-10, AD-15), et
-    # ne nomment pas non plus le document : la page sinistre rend la même section « Ce que je ne sais
-    # pas », et « le guide » y serait faux.
+    # Les lacunes ne portent ni `block_id`, ni terme cherché, ni contenu de bloc (AD-10, AD-15), ni
+    # document. Leur projection est commune au guide et au sinistre ; « le guide » y serait faux.
     #
     # **Aucune lacune sur un refus.** `found=False` porte son `AbsenceProof`, qui dit déjà ce qui a
     # été cherché et pourquoi rien n'a été retenu ; y ajouter « il me manque des éléments » ferait
@@ -810,15 +809,14 @@ def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_cou
              renvois_ouverts: bool, ecartes: int) -> list[Lacune]:
     """Les causes typées d'une réponse trouvée mais incomplète, dans l'ordre du pipeline.
 
-    Une phrase par cause, dans l'ordre où elles se produisent le long de la chaîne : ce qui n'a pas
+    Une cause par fait, dans l'ordre où ils se produisent le long de la chaîne : ce qui n'a pas
     été lu, puis ce qui n'a pas été mesuré, puis ce qui n'a pas été couvert, puis ce qui n'a pas été
     résolu, puis ce qui n'a pas été affiché. La liste est vide quand la réponse est complète — et
     c'est **la** définition de `complete` depuis cette story.
 
-    Elles sont à la première personne pour tenir sous le titre « Ce que je ne sais pas » que les deux
-    fronts affichent, et neutres quant au document pour valoir aussi bien du guide que d'un contrat.
-    Aucune ne nomme un `block_id`, un terme cherché ni un extrait (AD-10, AD-15) : les chiffres
-    qu'elles portent sont les nôtres, comptés ici.
+    Aucune donnée ne contient un `block_id`, un terme cherché ni un extrait (AD-10, AD-15). Les
+    cardinaux sont les nôtres, comptés ici ; la première personne et la neutralité documentaire
+    appartiennent aux patrons de *restituer*, dans la langue décidée pour la réponse.
     """
     lacunes: list[Lacune] = []
     if retrieval.truncated:

@@ -38,7 +38,6 @@ from server.app.domain.errors import (
     PipelineError,
     Timeout,
 )
-from server.app.domain.langue import est_langue_servie, langues_servies_texte, normaliser_langue
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion, QuestionScope
 from server.app.domain.trace import CheckResult, StepTrace, Trace
@@ -55,6 +54,7 @@ from server.app.pipelines.commun import (
     blocs_cites,
     digests,
     domine,
+    normaliser_langue_pipeline,
     relance_abandonnee,
     relance_utile,
     retrieval_budget,
@@ -170,10 +170,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # Avant tout appel facturé : une variante inconnue est une faute d'appel, pas un cas à traiter.
         raise InvalidRequest(f"variante de recherche inconnue : {variant!r} "
                              f"(connues : {', '.join(sorted(VARIANTES))})")
-    if lang is not None and not est_langue_servie(lang):
-        raise InvalidRequest(f"langue non servie : choisissez {langues_servies_texte()}")
-    if lang is not None:
-        lang = normaliser_langue(lang)[0]
+    lang = normaliser_langue_pipeline(lang)
     if budget is not None and deadline_s is not None:
         # Le budget **porte** sa deadline, et elle court déjà (horloge monotone armée à sa création).
         # Accepter les deux laissait `deadline_s` sans effet, en silence : l'appelant croyait borner la

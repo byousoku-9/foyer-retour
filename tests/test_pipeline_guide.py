@@ -17,6 +17,7 @@ from server.app.config import Settings
 from server.app.corpus.index import Index, words
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
+from server.app.domain.answer import Lacune, Verification
 from server.app.domain.document import Document, Node
 from server.app.digests import pipeline_digest, prompts_digest
 import anthropic
@@ -36,8 +37,9 @@ from server.app.domain.question import Turn
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
+from server.app.pipelines.commun import domine
 from server.app.pipelines.guide import repondre_guide
-from server.app.steps.restituer import PHRASES_DE_LACUNE
+from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DOC_ID = "mini"
@@ -384,6 +386,20 @@ async def test_a_supported_detection_drives_the_answer_without_fallback(index: I
     assert answer.lang == "en" and answer.lang_fallback is False
 
 
+async def test_an_english_refusal_produced_by_the_guide_pipeline_stays_english(index: Index) -> None:
+    answer, _trace, fake = await _run(index, [_comprendre("meteo", language="en")])
+    assert fake.remaining_script == 0
+    assert answer.lang == "en" and answer.lang_fallback is False
+    assert answer.texte == PHRASES_DE_REFUS["en"]["hors_perimetre"]
+
+
+async def test_an_unsupported_detection_falls_back_on_a_found_answer_too(index: Index) -> None:
+    answer, _trace, fake = await _run(
+        index, [_comprendre(language="es"), _rediger(BONNE), _verdicts(("c1", True))])
+    assert fake.remaining_script == 0
+    assert answer.found is True and answer.lang == "fr" and answer.lang_fallback is True
+
+
 async def test_an_unsupported_detection_falls_back_to_a_french_refusal(index: Index) -> None:
     answer, _trace, fake = await _run(index, [_comprendre("meteo", language="es")])
     assert fake.remaining_script == 0
@@ -669,6 +685,14 @@ async def test_a_retry_that_ties_on_claims_but_loses_completeness_never_replaces
     verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
     (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
     assert "ne domine pas" in check.detail
+
+
+def test_domine_compares_the_number_of_typed_lacunes_directly() -> None:
+    acquise = Verification(found=True, complete=False,
+                           lacunes=[Lacune(kind="lecture_bornee")])
+    sans_lacune = Verification(found=True, complete=False)
+    assert domine(sans_lacune, acquise) is True
+    assert domine(acquise, sans_lacune) is False
 
 
 class _BudgetQuiExpire(RequestBudget):

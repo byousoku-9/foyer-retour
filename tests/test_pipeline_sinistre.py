@@ -31,7 +31,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
-from server.app.steps.restituer import PHRASES_DE_LACUNE
+from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DOC_ID = "cg"
@@ -107,7 +107,7 @@ def _budget(deadline_s: float = 30.0) -> RequestBudget:
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
-                clarification: str | None = None, **champs) -> dict:
+                clarification: str | None = None, language: str = "fr", **champs) -> dict:
     """`champs` surcharge la portée rendue (`bien`, `evenement`, `lieu`, `cause`, `moment`, `themes`).
 
     Ce sont des libellés **du modèle**, et la story 1.9 les affiche (`Answer.faits_compris`, D4) :
@@ -116,7 +116,8 @@ def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
     resolue = None if clarification else "Le mobilier de salon brûlé par une bougie est-il couvert ?"
     return fake_message(model=TIERS["micro"], text=json.dumps({
         "intent": intent, "question_resolue": resolue, "clarification": clarification,
-        "language": "fr", "terms": terms if terms is not None else ["mobilier", "chaleur", "contenu"],
+        "language": language,
+        "terms": terms if terms is not None else ["mobilier", "chaleur", "contenu"],
         "themes": [], "facettes": ["couverture du sinistre"], "bien": "mobilier de salon",
         "evenement": "incendie sans embrasement", "lieu": "domicile", "cause": "bougie",
         "moment": "2026-08-01",
@@ -625,6 +626,13 @@ async def test_an_out_of_scope_request_is_refused_after_one_micro_call(index: In
     assert _questions_attendues(answer.verdict)
     # le texte servi parle du **contrat**, pas du guide (revue 1.8)
     assert "assurance habitation" in answer.texte and "guide" not in answer.texte
+
+
+async def test_an_english_refusal_produced_by_the_sinistre_pipeline_stays_english(index: Index) -> None:
+    answer, _trace, fake = await _run(index, [_comprendre("hors_perimetre", language="en")])
+    assert fake.remaining_script == 0
+    assert answer.lang == "en" and answer.lang_fallback is False
+    assert answer.texte == PHRASES_DE_REFUS_SINISTRE["en"]["hors_perimetre"]
 
 
 async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Index) -> None:

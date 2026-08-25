@@ -253,6 +253,21 @@ def test_verification_fields() -> None:
     assert v.verdict is None
 
 
+def test_lacune_enforces_its_cardinal_and_is_immutable() -> None:
+    for kind in answer.LACUNES_PLURALISEES:
+        assert answer.Lacune(kind=kind, n=1).n == 1
+        with pytest.raises(ValidationError, match="n >= 1"):
+            answer.Lacune(kind=kind)
+    for kind in set(get_args(answer.LacuneKind)) - set(answer.LACUNES_PLURALISEES):
+        assert answer.Lacune(kind=kind).n == 0
+        with pytest.raises(ValidationError, match="n == 0"):
+            answer.Lacune(kind=kind, n=42)
+
+    partagee = answer.Lacune(kind="relance_abandonnee")
+    with pytest.raises(ValidationError, match="frozen"):
+        partagee.n = 1
+
+
 def test_draft_digest_is_canonical_and_content_sensitive() -> None:
     """AD-3 : « un draft identique — même hash canonique — arrête la relance »."""
     def draft(text: str = "Vous avez huit jours.", quote: str = "huit jours pour declarer") -> answer.AnswerDraft:

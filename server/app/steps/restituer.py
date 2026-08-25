@@ -25,8 +25,18 @@ langues : il est réservé au repli d'une détection illisible ou non servie.
 from __future__ import annotations
 
 import time
+from typing import get_args
 
-from server.app.domain.answer import AbsenceProof, Answer, AnswerSegment, Lacune, Verification
+from server.app.domain.answer import (
+    LACUNES_PLURALISEES,
+    AbsenceKind,
+    AbsenceProof,
+    Answer,
+    AnswerSegment,
+    Lacune,
+    LacuneKind,
+    Verification,
+)
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.question import QuestionScope
 from server.app.domain.trace import CheckResult, StepTrace
@@ -108,12 +118,9 @@ PHRASES_DE_REFUS_SINISTRE: dict[str, dict[str, str]] = {
     },
 }
 
-# Story 2.3 (revue coordonnée, A2). *vérifier* exclut délibérément ce cas de son compte `ecartes` :
-# une phrase dont **toutes** les claims ont été jugées non pertinentes est soutenue au sens du
-# contrôle groupé, et c'est la règle mécanique d'AD-3 qui la retire, ici et nulle part ailleurs. Elle
-# n'en était pas moins une part de la réponse que l'ébauche voulait donner et que l'utilisateur ne
-# voit pas : la servir sous un badge « sûr » est exactement le défaut que la story corrige. Composée
-# par le code, en français, comme les autres lacunes — elle voyage donc dans le canal `lacunes`.
+# Projection des causes typées que le code peut constater. Les deux patrons pluralisés portent un
+# couple singulier/pluriel ; les autres portent une chaîne unique. Le garde de chargement ci-dessous
+# relie ce registre au `LacuneKind` du domaine et aux quatre langues servies.
 PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
     "fr": {
         "lecture_bornee": "Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a été bornée, et des passages sont restés fermés.",
@@ -178,22 +185,36 @@ REGISTRES: dict[str, dict[str, dict[str, str]]] = {
 _LANGUES_MANQUANTES = {
     nom: set(LANGUES_SERVIES) ^ set(phrases) for nom, phrases in REGISTRES.items()
 }
-_KINDS_REFUS = set(PHRASES_DE_REFUS["fr"])
+_KINDS_REFUS = set(get_args(AbsenceKind))
 _MANQUANTS = {
     f"{nom}.{lang}": _KINDS_REFUS ^ set(phrases[lang])
     for nom, phrases in REGISTRES.items()
-    for lang in LANGUES_SERVIES
+    for lang in set(LANGUES_SERVIES) & set(phrases)
 }
 _LANGUES_LACUNES_MANQUANTES = set(LANGUES_SERVIES) ^ set(PHRASES_DE_LACUNE)
+_KINDS_LACUNE = set(get_args(LacuneKind))
 _LACUNES_MANQUANTES = {
-    lang: set(PHRASES_DE_LACUNE["fr"]) ^ set(PHRASES_DE_LACUNE[lang])
+    lang: _KINDS_LACUNE ^ set(PHRASES_DE_LACUNE[lang])
     for lang in set(LANGUES_SERVIES) & set(PHRASES_DE_LACUNE)
 }
+_FORMES_LACUNES_INVALIDES = {
+    f"lacunes.{lang}.{kind}"
+    for lang in set(LANGUES_SERVIES) & set(PHRASES_DE_LACUNE)
+    for kind, patron in PHRASES_DE_LACUNE[lang].items()
+    if ((kind in LACUNES_PLURALISEES
+         and (not isinstance(patron, tuple) or len(patron) != 2
+              or any(not forme.strip() for forme in patron)))
+        or (kind not in LACUNES_PLURALISEES
+            and (not isinstance(patron, str) or not patron.strip())))
+}
 if (any(_LANGUES_MANQUANTES.values()) or _LANGUES_LACUNES_MANQUANTES
-        or any(_MANQUANTS.values()) or any(_LACUNES_MANQUANTES.values())):
+        or any(_MANQUANTS.values()) or any(_LACUNES_MANQUANTES.values())
+        or _FORMES_LACUNES_INVALIDES):
     differences = {**_LANGUES_MANQUANTES, **_MANQUANTS, **_LACUNES_MANQUANTES}
     if _LANGUES_LACUNES_MANQUANTES:
         differences["lacunes.langues"] = _LANGUES_LACUNES_MANQUANTES
+    if _FORMES_LACUNES_INVALIDES:
+        differences["lacunes.formes"] = _FORMES_LACUNES_INVALIDES
     raise RuntimeError(f"registre(s) de refus incomplet(s) : "
                        f"{ {n: sorted(k) for n, k in differences.items() if k} }")
 
@@ -206,9 +227,22 @@ def _texte(segments: list[AnswerSegment]) -> str:
 def _rendre_lacune(lacune: Lacune, language: str) -> str:
     """Projette une cause typée dans la langue décidée par *comprendre*."""
     patron = PHRASES_DE_LACUNE[language][lacune.kind]
-    if isinstance(patron, tuple):
+    if lacune.kind in LACUNES_PLURALISEES:
+        assert isinstance(patron, tuple)  # garanti par l'invariant de chargement
         patron = patron[0 if lacune.n == 1 else 1]
+    else:
+        assert isinstance(patron, str)  # garanti par l'invariant de chargement
     return patron.format(n=lacune.n)
+
+
+def _fusionner_inconnues(declarees: list[str], lacunes: list[Lacune], language: str) -> list[str]:
+    """Fusionne les deux canaux dans leur ordre, sans perdre ni dupliquer une lacune du code."""
+    inconnues = list(declarees)
+    for lacune in lacunes:
+        rendue = _rendre_lacune(lacune, language)
+        if rendue not in inconnues:
+            inconnues.append(rendue)
+    return inconnues
 
 
 def restituer(*, language: str, lang_fallback: bool = False,
@@ -268,9 +302,10 @@ def restituer(*, language: str, lang_fallback: bool = False,
             segments=[AnswerSegment(text=phrase, kind="limite")],
             rejected_claims=list(verification.rejected_claims) if verification is not None else [],
             reason=reason, verdict=verdict, faits_compris=faits_compris,
-            # Un refus ne reçoit aucune lacune du code : l'`AbsenceProof` dit déjà tout. Une limite
-            # déclarée par le modèle reste en revanche une donnée explicite de la vérification.
-            unknown=list(verification.unknown) if verification is not None else [],
+            # L'`AbsenceProof` explique le refus ; les lacunes constatées sur un chemin producteur
+            # différent restent dues. Les perdre ici serait un dégradé silencieux.
+            unknown=_fusionner_inconnues(list(verification.unknown), list(verification.lacunes),
+                                         language) if verification is not None else [],
             clarification=clarification,
         )
         step.checks.append(CheckResult(name="refus", ok=True, detail=reason.kind))
@@ -327,8 +362,7 @@ def restituer(*, language: str, lang_fallback: bool = False,
     # Ce que le modèle a déclaré, puis ce que le code constate : une seule liste affichée, dans cet
     # ordre — les deux fronts rendent `unknown[]` sans une ligne de changement.
     declare = list(verification.unknown) + [t for t in limites if t not in verification.unknown]
-    rendues = [_rendre_lacune(lacune, language) for lacune in lacunes]
-    unknown = declare + [t for t in rendues if t not in declare]
+    unknown = _fusionner_inconnues(declare, lacunes, language)
     answer = Answer(
         found=True, complete=verification.complete and not retires and not limites,
         lang=language,

@@ -211,7 +211,9 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     # Une langue explicitement demandée a déjà été validée par le pipeline : elle ne constitue
     # jamais un repli. Une détection peut en revanche tomber hors des quatre langues servies.
     if lang is not None:
-        language, lang_fallback = normaliser_langue(lang)
+        # Un forçage validé choisit une langue servie ; il ne peut donc jamais être un repli de
+        # détection, quel que soit le booléen que renverrait la normalisation défensive.
+        language, _ = normaliser_langue(lang)
         lang_fallback = False
     else:
         language, lang_fallback = normaliser_langue(out.language)

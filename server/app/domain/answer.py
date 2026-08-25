@@ -6,9 +6,10 @@ import hashlib
 import json
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .document import DomainModel
+from .langue import LANGUES_SERVIES
 
 # `Applicable` vit dans `verdict.py` (story 1.8) : c'est AD-6 qui en fixe les trois valeurs et le
 # code qui les dérive. Deux littéraux identiques dans deux modules auraient pu diverger en silence.
@@ -36,6 +37,12 @@ LacuneKind = Literal[
     "segments_retires",
     "relance_abandonnee",
 ]
+# Ces deux causes sont les seules dont la phrase porte un cardinal. Cette donnée appartient au
+# domaine : tous les producteurs et toutes les projections doivent partager la même définition.
+LACUNES_PLURALISEES: frozenset[LacuneKind] = frozenset({
+    "facettes_sans_reponse",
+    "phrases_ecartees",
+})
 
 
 class Quote(DomainModel):
@@ -177,8 +184,19 @@ class RejectedClaim(VerifiedClaim):
 class Lacune(DomainModel):
     """Cause typée d'une réponse incomplète ; sa phrase est rendue par *restituer*."""
 
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     kind: LacuneKind
     n: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _cardinal_coherent(self) -> Lacune:
+        if self.kind in LACUNES_PLURALISEES:
+            if self.n < 1:
+                raise ValueError("une lacune pluralisée exige n >= 1")
+        elif self.n != 0:
+            raise ValueError("une lacune non pluralisée exige n == 0")
+        return self
 
 
 class Verification(DomainModel):
@@ -260,8 +278,17 @@ class Answer(DomainModel):
     # *comprendre*, mais rien d'autre que ce champ ne le garantirait à un producteur futur.
     clarification: str | None = Field(None, max_length=CLARIFICATION_MAX_CHARS)
 
+    @field_validator("lang")
+    @classmethod
+    def _langue_servie(cls, lang: str) -> str:
+        if lang not in LANGUES_SERVIES:
+            raise ValueError("lang doit désigner une langue servie")
+        return lang
+
     @model_validator(mode="after")
     def _found_coherence(self) -> Answer:
+        if self.lang_fallback and self.lang != "fr":
+            raise ValueError("lang_fallback=True exige lang='fr'")
         if not self.found and self.reason is None:
             raise ValueError("found=False exige une preuve d'absence (reason)")
         if self.found and not self.claims:

@@ -17,6 +17,8 @@ from functools import lru_cache
 from server.app.config import Settings
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Lacune, Verification
+from server.app.domain.errors import InvalidRequest
+from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.retrieval import RetrievalBudget
 
 # AD-5 : les intents qui se tranchent sur la seule sortie de *comprendre*, avant tout appel `reason`.
@@ -29,11 +31,18 @@ REJETS_DE_CITATION = frozenset({"non_retrouvee", "ambigue"})
 # Ce que coûte la relance d'AD-3 en **appels** : rédiger une seconde fois, puis vérifier ce qu'elle a
 # rendu. Les deux sont indissociables — AD-3 interdit de montrer un draft relancé mais non vérifié.
 APPELS_DE_LA_RELANCE = 2
-# La lacune qu'une relance non démarrée laisse dans la réponse (story 2.3). Elle vit à côté des
-# autres phrases de lacune de `steps/verifier.py` par la forme — première personne, neutre quant au
-# document, puisque la page sinistre rend la même section « Ce que je ne sais pas » — mais elle est
-# **ici** parce que la cause l'est : seul le pipeline sait qu'une relance a été empêchée.
+# La lacune qu'une relance non démarrée laisse dans la réponse (story 2.3). C'est une cause typée,
+# pas une phrase : *restituer* seul la projette dans la langue de la réponse. Elle vit ici parce que
+# seul le pipeline sait qu'une relance a été empêchée.
 LACUNE_RELANCE_ABANDONNEE = Lacune(kind="relance_abandonnee")
+
+
+def normaliser_langue_pipeline(lang: str | None) -> str | None:
+    """Validation commune des langues forcées par les deux pipelines, avant tout appel facturé."""
+    try:
+        return normaliser_langue_forcee(lang)
+    except ValueError as exc:
+        raise InvalidRequest(str(exc)) from exc
 
 
 @lru_cache(maxsize=1)
@@ -113,11 +122,10 @@ def relance_abandonnee(verification: Verification) -> Verification:
     que le domaine fait désormais de `complete ⟺ found ∧ rien qui manque` un invariant — une réponse
     déclarée incomplète dont la section « Ce que je ne sais pas » est vide est un « PARTIEL » que
     l'utilisateur lit sans savoir ce qui manque, et c'est exactement ce que l'AC de la story corrige.
-    La phrase est composée **par le code** (AD-16), à la première personne comme les autres lacunes,
-    et ne nomme ni budget ni code d'erreur : le chiffre est dans `Trace` et le motif dans le
-    `CheckResult` de l'appelant. Elle rejoint `Verification.lacunes` et non `unknown` (revue
-    coordonnée 2.3, A3) : c'est une phrase française quelle que soit la langue de la réponse, et
-    c'est *restituer* qui en tire `Answer.lang_fallback`.
+    La cause typée est composée **par le code** (AD-16) et ne nomme ni budget ni code d'erreur : le
+    chiffre est dans `Trace` et le motif dans le `CheckResult` de l'appelant. Elle rejoint
+    `Verification.lacunes` et non `unknown` (revue coordonnée 2.3, A3) ; *restituer* la projettera
+    dans la langue de la réponse, comme toutes les autres lacunes du code.
 
     Aucune lacune sur un refus : `found=False` porte déjà son `AbsenceProof`, qui dit tout.
     Les deux pipelines passent par ici — deux copies auraient divergé au premier amendement.
