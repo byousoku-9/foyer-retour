@@ -548,11 +548,12 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
    prend la place restante et passe a la ligne plutot que de comprimer le badge ou le cout. */
 .msg .etat-phrase { flex: 1 1 22ch; min-width: 0; }
 .msg .langue-mention { flex: 1 0 100%; color: var(--muted); font-style: italic; }
-.msg .langue-repli { color: var(--warning, #8a5a00); }
-
-@media (prefers-color-scheme: dark) {
-  .msg .langue-repli { color: #e7bd69; }
-}
+/* Le repli emprunte `--warn`, comme le badge « partiel » juste au-dessus : c'est la variable que
+   les **trois** portees de theme du fichier redefinissent (`:root`, la requete media, et le
+   `:root[data-theme="dark"]` du bouton de theme). Une couleur en dur, ou une variable inventee
+   (`--warning` n'existe pas ici), ne suivait que l'une des trois : le bouton de theme laissait un
+   ambre sombre sur un fond sombre. */
+.msg .langue-repli { color: var(--warn); }
 /* La recherche simple n'a ni état vérifié ni coût : son pied le dit, sans emprunter les couleurs
    d'une réponse sourcée. */
 .msg .etat-local { background: var(--surface-2); color: var(--muted); }
