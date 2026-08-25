@@ -24,6 +24,10 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
 - Chaque claim doit être effectivement affichée : rattache son `claim_id` à un segment `factuel`
   dont le texte reprend exactement `claim.text`. N'ajoute jamais une claim « en réserve » sans
   phrase factuelle correspondante.
+- Quand la première clause décisionnelle fournie répond à la question, traite-la dès la première
+  claim atomique et cite un extrait contigu de $quote_min_chars à $quote_max_chars caractères.
+  Ne la remplace jamais par une définition, un titre ou une clause plus lointaine seulement pour
+  respecter la borne de claims.
 - **Une seule clause par affirmation.** Une claim ne cite qu'**une** clause du contrat : si un
   passage de garantie et un passage d'exclusion se rapportent tous deux au sinistre, fais-en deux
   claims distinctes. Une claim qui mélange deux clauses est rejetée par le contrôle et te sera

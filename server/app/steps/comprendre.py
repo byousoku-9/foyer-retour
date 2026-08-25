@@ -65,66 +65,6 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 # évals, et est bien un champ de `Settings` (`libelle_max_chars`).
 LISTE_MAX = LISTE_MAX_ITEMS
 
-# Story 2.7 : le modèle choisit toujours le sujet recherché ; ce petit alias ne l'infère jamais
-# depuis les faits. Il corrige uniquement le synonyme exact observé deux fois en live après que le
-# modèle a déjà choisi la notion contractuelle complète « causés par un animal ». Le contrat écrit
-# « dégâts », pas « dommages » : sans cette canonisation lexicale, les quatre autres mots ne donnent
-# qu'un partiel et l'exclusion sort du `search_limit`. Ce n'est ni un seuil, ni une ontologie, ni un
-# nouveau moteur de recherche — seulement la forme du corpus AXA pour un sujet déjà décidé. Le
-# pipeline fournit le document effectivement servi : *comprendre* ne connaît pas le corpus et ne
-# peut donc pas appliquer cet alias tout seul à tous les contrats.
-_DOC_TERMES_CONTRACTUELS = "axa-lu-optihome-2017"
-_TERMES_CONTRACTUELS: dict[str, str] = {
-    "dommages causés par un animal": "dégâts causés par un animal",
-}
-
-
-def _canoniser_termes_contractuels(terms: list[str], *, doc_id: str) -> list[str]:
-    if doc_id != _DOC_TERMES_CONTRACTUELS:
-        return list(terms)
-    canonises = [_TERMES_CONTRACTUELS.get(term.casefold(), term) for term in terms]
-    formes = {term.casefold() for term in canonises}
-    # Campagne B, story 2.7 : sur le dommage causé par le fils du voisin, le modèle a choisi
-    # **ensemble** le sujet « responsabilité civile » et le fait « dégâts causés par un
-    # tiers ». Le contrat nomme ce sujet composé « responsabilité civile vie privée » : la
-    # forme générique seule disperse les vingt résultats sur toutes les RC du document. On ne
-    # précise cette forme que lorsque **les deux choix du modèle** sont présents ; une RC seule
-    # reste donc intacte (immeuble, locative, auto…) et aucun sujet n'est inféré depuis les faits.
-    rc_privee = "responsabilité civile vie privée"
-    faits_rc_materielle = {
-        "mobilier", "dégâts causés par un tiers", "responsabilité civile", "dommage accidentel",
-    }
-    if faits_rc_materielle <= formes:
-        # Les quatre notions déjà choisies sont la phrase discriminante du passage contractuel
-        # (p66:10). Les conserver aussi sous trois formes génériques ouvre la table des matières,
-        # la racine et toutes les RC : 24 blocs puis un `budget_exceeded` reproductible. Leur forme
-        # composée ne perd aucun sujet du modèle et n'en ajoute aucun.
-        composes = [
-            "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
-            "mobilier",
-        ]
-        # Les autres notions choisies par le modèle restent dans leur ordre. Le quartet est compacté
-        # en deux formes discriminantes, il ne devient jamais un remplacement de toute la question.
-        extras = [term for term in canonises if term.casefold() not in faits_rc_materielle]
-        return [*composes, *extras]
-    if {"responsabilité civile", "dégâts causés par un tiers"} <= formes:
-        canonises = [
-            rc_privee if term.casefold() == "responsabilité civile" else term
-            for term in canonises
-        ]
-    # A11, campagne réelle : le modèle avait bien choisi les deux notions « congélateur » et
-    # « contenu », mais leurs formes isolées classaient d'abord toutes les définitions génériques
-    # du contrat. La clause AXA emploie ces deux mots ensemble. Les composer ne choisit donc ni une
-    # facette ni un dommage à la place du modèle ; cela conserve ses deux choix et leur ordre tout
-    # en les exprimant sous la forme discriminante du document effectivement servi.
-    if {"congélateur", "contenu"} <= formes:
-        canonises = [
-            "contenu congélateur" if term.casefold() == "contenu" else term
-            for term in canonises
-        ]
-    return canonises
-
-
 class SortieComprendre(DomainModel):
     """Sortie structurée de l'appel `micro` : plate, tous champs requis (aucun défaut).
 

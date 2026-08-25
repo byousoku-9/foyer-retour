@@ -23,11 +23,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
-from server.app.steps.rediger import (
-    _inclure_clause_decisionnelle_de_tete,
-    _rattacher_claims_sinistre,
-    rediger,
-)
+from server.app.steps.rediger import _rattacher_claims_sinistre, rediger
 from server.ingest import kb_to_blocks as k
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -166,70 +162,11 @@ def test_sinistre_projette_chaque_claim_une_fois_sous_la_borne_de_segments() -> 
     assert sorted(cid for s in projete.segments for cid in s.claim_ids) == ["c1", "c2", "c3"]
 
 
-def test_sinistre_inclut_la_clause_decisionnelle_confirmee_classee_en_tete() -> None:
-    """A6 : p34 ne peut plus disparaître du brouillon au profit de la seule exclusion p46."""
+async def test_rediger_sinistre_ne_recrit_pas_les_claims_rendues_par_le_modele() -> None:
     index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     p34 = doc.block("axa-lu-optihome-2017:p34:12")
-    p46 = doc.block("axa-lu-optihome-2017:p46:1")
-    retrieval = RetrievalResult(blocs=[p34, p46], opened_block_ids=[p34.block_id, p46.block_id])
-    draft = AnswerDraft(
-        segments=[{"text": "L'exclusion vise certaines extensions.", "kind": "factuel",
-                   "claim_ids": ["c1"]}],
-        claims=[{"claim_id": "c1", "text": "L'exclusion vise certaines extensions.",
-                 "quotes": [{"block_id": p46.block_id, "quote": p46.text}]}])
-
-    complete = _inclure_clause_decisionnelle_de_tete(draft, retrieval, _settings())
-
-    assert [(claim.claim_id, claim.text, claim.quotes[0].block_id) for claim in complete.claims] == [
-        ("c1", "L'exclusion vise certaines extensions.", p46.block_id),
-        ("c2", p34.text, p34.block_id),
-    ]
-
-
-def test_sinistre_ne_force_pas_un_bloc_non_type() -> None:
-    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
-    doc = index.corpus.documents["axa-lu-optihome-2017"]
-    p35 = doc.block("axa-lu-optihome-2017:p35:2")
-    p34 = doc.block("axa-lu-optihome-2017:p34:12")
-    draft = AnswerDraft(
-        segments=[{"text": "Texte.", "kind": "factuel", "claim_ids": ["c1"]}],
-        claims=[{"claim_id": "c1", "text": "Texte.",
-                 "quotes": [{"block_id": p35.block_id, "quote": p35.text}]}])
-
-    non_type = _inclure_clause_decisionnelle_de_tete(
-        draft, RetrievalResult(blocs=[p35, p34]), _settings())
-    assert non_type == draft
-
-
-def test_sinistre_remplace_une_claim_non_decisionnelle_quand_la_borne_est_pleine() -> None:
-    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
-    doc = index.corpus.documents["axa-lu-optihome-2017"]
-    p34 = doc.block("axa-lu-optihome-2017:p34:12")
-    p35 = doc.block("axa-lu-optihome-2017:p35:2")
-    draft = AnswerDraft(
-        segments=[{"text": "Passage voisin.", "kind": "factuel", "claim_ids": ["c1"]}],
-        claims=[{"claim_id": "c1", "text": "Passage voisin.",
-                 "quotes": [{"block_id": p35.block_id, "quote": p35.text}]}])
-
-    borne = _inclure_clause_decisionnelle_de_tete(
-        draft, RetrievalResult(blocs=[p34, p35]),
-        _settings(draft_max_claims=1, verifier_max_claims=1))
-
-    assert len(borne.claims) == 1
-    assert borne.claims[0] == Claim(
-        claim_id="c1", text=p34.text,
-        quotes=[Quote(block_id=p34.block_id, quote=p34.text)])
-
-
-@pytest.mark.parametrize("borne_pleine", [False, True])
-async def test_rediger_sinistre_rattache_atomiquement_la_clause_de_tete_reelle(
-        borne_pleine: bool) -> None:
-    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
-    doc = index.corpus.documents["axa-lu-optihome-2017"]
-    p34 = doc.block("axa-lu-optihome-2017:p34:12")
-    voisin = doc.block("axa-lu-optihome-2017:p35:2" if borne_pleine
-                       else "axa-lu-optihome-2017:p46:1")
+    voisin = doc.block("axa-lu-optihome-2017:p46:1")
     retrieval = RetrievalResult(blocs=[p34, voisin],
                                 opened_block_ids=[p34.block_id, voisin.block_id])
     brut = _draft(
@@ -237,8 +174,8 @@ async def test_rediger_sinistre_rattache_atomiquement_la_clause_de_tete_reelle(
         claims=[{"claim_id": "c1", "text": "Clause voisine.",
                  "quotes": [{"block_id": voisin.block_id, "quote": voisin.text}]}],
     )
-    settings = (_settings(draft_max_segments=1, draft_max_claims=1, verifier_max_claims=1)
-                if borne_pleine else _settings())
+    attendu = AnswerDraft.model_validate_json(brut)
+    settings = _settings()
     fake = FakeAnthropic([fake_message(text=brut, model=SONNET)])
 
     draft, _step = await rediger(
@@ -246,11 +183,8 @@ async def test_rediger_sinistre_rattache_atomiquement_la_clause_de_tete_reelle(
         budget=_budget(), index=index, doc_id=doc.doc_id, settings=settings,
         prompt="rediger_sinistre")
 
-    par_bloc = {quote.block_id: claim.claim_id for claim in draft.claims for quote in claim.quotes}
-    assert p34.block_id in par_bloc
-    segment = next(s for s in draft.segments if s.claim_ids == [par_bloc[p34.block_id]])
-    assert segment.kind == "factuel" and segment.text == p34.text
-    assert "Ancien texte du modèle" not in " ".join(s.text for s in draft.segments)
+    assert [claim.model_dump() for claim in draft.claims] == [claim.model_dump() for claim in attendu.claims]
+    assert [segment.text for segment in draft.segments] == ["Clause voisine."]
 
 
 async def test_request_shape_cacheable_prefix_with_summary_then_delimited_content(mini_index: Index) -> None:

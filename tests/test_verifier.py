@@ -629,9 +629,9 @@ async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> Non
     assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
 
 
-async def test_sinistre_keeps_a_segment_identical_to_its_pertinent_claim_despite_opposite_boolean(
+async def test_sinistre_respecte_un_segment_explicitement_non_soutenu_meme_identique_a_sa_claim(
         contrat: Index) -> None:
-    """2.7 : les deux booléens du même appel ne peuvent plus rendre une clause `non_citee` au hasard."""
+    """AD-3 : `pertinente` ne renverse jamais le contrôle distinct du texte affiché."""
     draft = _draft_libre(
         ("La garantie couvre le mobilier.", "factuel", ["c1"]),
         claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
@@ -639,10 +639,9 @@ async def test_sinistre_keeps_a_segment_identical_to_its_pertinent_claim_despite
         ("c1", True, False, False, None), verdicts=[("c1", True)], segments={0: False})
     v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
 
-    assert [c.claim_id for c in v.claims] == ["c1"]
-    assert v.rejected_claims == []
-    assert [s.text for s in v.segments] == ["La garantie couvre le mobilier."]
-    assert not [c for c in step.checks if not c.ok]
+    assert v.segments == [] and v.claims == [] and v.found is False
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
+    assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
 
 
 async def test_sinistre_ne_devine_pas_un_verdict_de_segment_absent(contrat: Index) -> None:

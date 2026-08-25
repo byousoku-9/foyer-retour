@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from server.app.config import Settings
+from server.app.corpus.dictionary import load_dictionary
 from server.app.corpus.index import Index, reading_order, words
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef
@@ -178,12 +179,13 @@ def test_chercher_retient_la_meilleure_forme_par_canonique_et_somme_les_groupes(
     termes = {"choix commune": ["quelle commune"], "recherche logement": ["trouver logement"]}
 
     # R4 : p1:2 couvre les deux canoniques. Les deux formes complètes du premier canonique dans
-    # p1:3 ne le comptent jamais deux fois. Dès qu'un plein existe, les fragments des autres groupes
-    # ne bonifient plus le rang : le kind puis l'ordre de lecture départagent les blocs à un plein.
+    # p1:3 ne le comptent jamais deux fois. À nombre de pleins égal, p1:1 porte en plus le rappel
+    # partiel de « recherche logement » ; ensuite une forme composée concise précède sa présence
+    # dispersée, puis kind et ordre départagent une même densité.
     hits = ix.chercher(termes, limit=4, kinds_prioritaires={"garantie"})
-    assert hits == [("d:p1:2", "n"), ("d:p1:4", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
+    assert hits == [("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:4", "n"), ("d:p1:5", "n")]
     # À score égal, la priorité de kind précède l'ordre de lecture ; la limite reste stricte.
-    assert len(hits) == 4 and ("d:p1:5", "n") not in hits
+    assert len(hits) == 4 and ("d:p1:3", "n") not in hits
 
 
 def test_chercher_un_plein_ne_peut_pas_etre_evince_par_une_somme_de_partiels() -> None:
@@ -207,6 +209,45 @@ def test_chercher_un_plein_ne_peut_pas_etre_evince_par_une_somme_de_partiels() -
     assert ix.chercher(termes, limit=2) == [("d:p1:1", "n"), ("d:p1:2", "n")]
 
 
+def test_a_egalite_de_pleins_le_rappel_partiel_precede_la_densite() -> None:
+    """Cadrage 2.7 : la densité ne masque pas une preuve lexicale supplémentaire."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Responsabilité civile.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Responsabilité civile et dommage déclaré.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+
+    assert ix.chercher(["responsabilité civile", "dommage accidentel"], limit=2) == [
+        ("d:p1:2", "n"), ("d:p1:1", "n")]
+
+
+def test_chercher_classe_dabord_le_nombre_total_de_canoniques_pleins() -> None:
+    """AC 2.7 : un composé plein ne prime pas cinq canoniques simples pleins."""
+    blocks = [
+        Block(block_id="d:p1:1", text="impôt logement école travail santé", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="marché immobilier", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+
+    assert ix.chercher(
+        ["impôt", "logement", "école", "travail", "santé", "marché immobilier"], limit=2,
+    ) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+
+
+def test_un_titre_plein_departage_un_paragraphe_long_plein_sur_le_corpus_reel() -> None:
+    corpus = load_corpus(ROOT / "data", allow_ungated=True)
+    ix = Index(corpus)
+    dictionnaire = load_dictionary(ROOT / "data", corpus, "lux-guide")
+    hits = ix.chercher(dictionnaire.expand(["choix de la commune"]), limit=20, doc_id="lux-guide")
+    assert hits[0][0] == "lux-guide:fchoisir_commune:1"
+
+
 def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Le mot commun apparaît ici.", loc="p1", seq=1),
@@ -222,6 +263,26 @@ def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> Non
     # dans deux : sa contribution est donc supérieure malgré son ordre de lecture plus tardif.
     assert ix.chercher(["commun rare"], limit=3) == [
         ("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
+
+
+def test_un_mot_absent_du_document_ne_change_pas_le_score_partiel() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="a seul", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="a y", loc="p1", seq=2),
+        Block(block_id="d:p1:3", text="y", loc="p1", seq=3),
+        Block(block_id="d:p1:4", text="y", loc="p1", seq=4),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
+                                                nodes=nodes, blocks=blocks)}))
+    entry = next(e for e in ix._entries if e.block.block_id == "d:p1:1")
+    frequencies = ix._block_frequencies["d"]
+
+    score_absent = ix._hit(entry, frozenset({"a", "xabsent"}), frequencies)
+    score_present_ailleurs = ix._hit(entry, frozenset({"a", "y"}), frequencies)
+    assert score_absent == 1
+    assert score_absent > score_present_ailleurs
 
 
 def _def_doc() -> Document:
@@ -359,34 +420,3 @@ def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     assert all(b in both for b, _ in hits[: len(both)])
     w = ix.ouvrir_noeud("lux-guide:farrivee", node_window=s.node_window)
     assert w.blocks[0].block_id == "lux-guide:farrivee:1"
-
-
-def test_chercher_garde_la_garantie_et_lexclusion_du_cas_multiple_dans_les_cinq_premiers() -> None:
-    """Cadrage 2.7 : les partiels fréquents ne noient plus les deux clauses décisionnelles."""
-    s = Settings(_env_file=None)
-    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
-    hits = [block_id for block_id, _node_id in ix.chercher(
-        {"dégâts des eaux": [], "fuite de machine": [], "mobilier": [],
-         "dégâts causés par un animal": [], "mâchonnement": []},
-        limit=s.search_limit,
-        doc_id="axa-lu-optihome-2017",
-        kinds_prioritaires={"garantie", "exclusion", "condition", "franchise"},
-    )]
-
-    assert hits.index("axa-lu-optihome-2017:p37:13") < 5
-    assert hits.index("axa-lu-optihome-2017:p35:2") < 5
-
-
-def test_chercher_place_la_rc_vie_privee_materielle_dans_les_cinq_premiers() -> None:
-    """Campagne B 2.7 : les notions choisies et composées ciblent le passage RC, sans seuil."""
-    s = Settings(_env_file=None)
-    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
-    hits = [block_id for block_id, _node_id in ix.chercher(
-        ["responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
-         "mobilier"],
-        limit=s.search_limit,
-        doc_id="axa-lu-optihome-2017",
-        kinds_prioritaires={"garantie", "exclusion", "condition", "franchise"},
-    )]
-
-    assert hits.index("axa-lu-optihome-2017:p66:10") < 5

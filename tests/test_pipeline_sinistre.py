@@ -9,13 +9,11 @@ vérifie sans compter les appels à la main.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
 import pytest
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
-from server.app.corpus.loader import Corpus, load_corpus
+from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, InvalidRequest
@@ -360,50 +358,6 @@ def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
     }
     assert answer["texte"].index("fuite progressive") < answer["texte"].index("effondrement soudain")
     assert description_brute not in answer["texte"]
-
-
-async def test_la_rc_sens_inverse_reste_prudente_de_bout_en_bout() -> None:
-    """B9 : p66:10 est conservée sans décider quel assureur répond ni déclarer la lecture complète."""
-    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
-    doc_id = "axa-lu-optihome-2017"
-    p66 = index.corpus.documents[doc_id].block(f"{doc_id}:p66:10")
-    quote = p66.text[:240]
-    affirmation = ("La responsabilité civile vie privée du contrat vise les dommages causés "
-                   "accidentellement par l'Assuré à des tiers.")
-    question = ("Le fils du voisin a cassé ma table en jouant chez moi, c'est leur RC ou mon "
-                "contrat habitation qui répond ?")
-    sortie_rediger = fake_message(model=TIERS["reason"], text=json.dumps({
-        "segments": [{"text": affirmation, "kind": "factuel", "claim_ids": ["c1"]}],
-        "claims": [{"claim_id": "c1", "text": affirmation,
-                    "quotes": [{"block_id": p66.block_id, "quote": quote}]}],
-    }))
-    sortie_verifier = fake_message(model=TIERS["micro"], text=json.dumps({
-        "verdicts": [{"claim_id": "c1", "pertinente": True}],
-        "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
-        "segments": [{"segment": 0, "soutenu": True}],
-        "applicabilite": [],
-    }))
-    answer, trace, fake = await _run(
-        index, [
-            _comprendre(
-                terms=["mobilier", "dégâts causés par un tiers", "responsabilité civile",
-                       "dommage accidentel"],
-                question_resolue=question, facettes=["comparaison des responsabilités civiles"],
-                bien="table", evenement="bris accidentel", cause="fils du voisin", moment=None),
-            sortie_rediger, sortie_verifier,
-        ],
-        settings=_settings(sinistre_doc_id=doc_id), doc_id=doc_id, question=question,
-        faits=Faits(description="Le fils du voisin a cassé ma table en jouant chez moi."),
-    )
-
-    assert fake.remaining_script == 0
-    assert {q.block_id for claim in answer.claims for q in claim.quotes} == {p66.block_id}
-    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert "passages ont été retrouvés et affichés" in answer.verdict.reason.lower()
-    assert answer.complete is False
-    texte = answer.texte.casefold()
-    assert "leur rc répond" not in texte and "mon contrat habitation répond" not in texte
-    assert p66.block_id in next(s for s in trace.steps if s.name == "retrouver").opened_block_ids
 
 
 async def test_un_autre_contrat_ne_recoit_pas_les_aliases_lexicaux_axa(

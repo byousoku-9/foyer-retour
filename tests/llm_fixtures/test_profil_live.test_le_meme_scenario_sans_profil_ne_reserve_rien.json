@@ -92,6 +92,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:2cb6bfd444658e31": {
+    "request": "claude-haiku-4-5-20251001:2cb6bfd444658e31",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQCACX4p4txzkQy8RbmA",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3924,
+        "output_tokens": 191,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:94818010c9721f9c": {
     "request": "claude-haiku-4-5-20251001:94818010c9721f9c",
     "response": {
@@ -150,6 +181,40 @@
         "inference_geo": "not_available",
         "input_tokens": 3700,
         "output_tokens": 158,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:125f5785612fc0e9": {
+    "request": "claude-sonnet-5:125f5785612fc0e9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de toute l'installation : il faut l'engager en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"En pratique, l'inscription à la commune doit précéder l'inscription scolaire, et les places dans les sections linguistiques les plus recherchées peuvent partir un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il faut donc vérifier la disponibilité de la section linguistique visée, pas seulement celle de l'établissement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter le pays d'origine, pensez aussi à demander un certificat de radiation ainsi que les bulletins des dernières années, presque toujours exigés et difficiles à obtenir une fois parti.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"La rentrée se situe au début du mois de septembre.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Les blocs fournis ne précisent pas de date limite chiffrée d'inscription ni de démarches spécifiques selon l'âge exact de l'enfant au-delà de la mention générale sur l'arrivée tardive.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et contrainte de l'installation, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'inscription à la commune précède l'inscription scolaire, et les places dans les sections les plus demandées partent parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut vérifier la disponibilité de la section linguistique visée, pas seulement celle de l'établissement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander avant le départ un certificat de radiation et les bulletins des dernières années.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC9W8CbJmLTJxfEx552",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2803,
+        "output_tokens": 1045,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }

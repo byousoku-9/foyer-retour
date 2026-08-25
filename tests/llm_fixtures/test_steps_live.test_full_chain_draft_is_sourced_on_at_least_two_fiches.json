@@ -64,6 +64,40 @@
       }
     }
   },
+  "claude-sonnet-5:6d6a82c3df9199e0": {
+    "request": "claude-sonnet-5:6d6a82c3df9199e0",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire doit être engagée en priorité, avant même la recherche d'un logement, car trois voies coexistent au Luxembourg.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections linguistiques les plus recherchées peuvent être prises un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à récupérer les documents scolaires nécessaires, car ils sont difficiles à obtenir à distance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, seule la résidence de l'enfant au Luxembourg compte.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Le montant de base et les suppléments selon l'âge, ainsi que l'allocation de rentrée scolaire, sont détaillés ci-dessous, avec les valeurs applicables au 1er juin 2026.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les documents fournis ne précisent pas les délais exacts de traitement d'une demande d'allocations ni les modalités précises de sélection dans les écoles internationales publiques au-delà de la forte demande évoquée.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"C'est la démarche la plus longue et contrainte de l'installation, à engager en premier, avant même la recherche de logement, avec trois voies possibles.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'inscription à la commune précède l'inscription scolaire, et les places des sections les plus recherchées partent parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, avec un montant de base de 315,04 euros par mois et par enfant, majoré selon l'âge, plus une allocation de rentrée scolaire automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQCB3nUWke7VfhV9ALkE",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2787,
+        "output_tokens": 1202,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:70f65e74bfce0eca": {
     "request": "claude-sonnet-5:70f65e74bfce0eca",
     "response": {

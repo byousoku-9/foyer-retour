@@ -61,6 +61,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:181aaa227e3c4e7c": {
+    "request": "claude-haiku-4-5-20251001:181aaa227e3c4e7c",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}, {\"claim_id\": \"c5\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC3DEHJPkVkD6xLgsw7",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3822,
+        "output_tokens": 207,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:2957489bc71e76b9": {
     "request": "claude-haiku-4-5-20251001:2957489bc71e76b9",
     "response": {
@@ -118,6 +149,37 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 952,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:5b7d52f6e379e086": {
+    "request": "claude-haiku-4-5-20251001:5b7d52f6e379e086",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC3NxBBS6sZ1n4mqANC",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 949,
         "output_tokens": 18,
         "service_tier": "standard"
       }
@@ -274,6 +336,45 @@
         "inference_geo": "not_available",
         "input_tokens": 3913,
         "output_tokens": 187,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:10aa4d0681068db0": {
+    "request": "claude-sonnet-5:10aa4d0681068db0",
+    "response": {
+      "content": [
+        {
+          "signature": "EvEDCpABCBEYAipAatYA1dwGH9cbe9G3uMonPT7aYt5eKY7z1lXhacy7/mMzUZTjYja262oRJSz9T9ZOmqRpVZJziCRMjA2yMMJjLDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAYGXuNQGEgybnTDYvuRDfZxhBGsaDNmT1zsVlnWWPpwJ8SIwXIGPrzfz6JdXWxyammqDzuWkzCkraiY8bmFmPnXCHmYKLArJMwWxA+WynRh70O2+Ko0CFZe2pB7Nutvx031bUFiHUeq0eqdfGIxS7XIR9DIC+rJF9U5qosEMQt2rwj7yY4P/OEKzFX4atYBSjQocKzjJyeLPBhBBNBS9/IaOTfLs5wIrGBlk3/cgizYeftAbXGU+UFaxJEh4SHdt8uhFrtLQG2XVz8c9W3rCR98Ss7/hs/AMglS3bnzeBskuSlO9QevMu/uf1s2Y78f/RE1rUBSpnthutijli2PgkZ3v3llxvhFFQapt5m18q7tkOMN3wG5jDe+Mdljm2FPxdIB5M8iFIsJeEcLx3z1etfv1KzCrWOPQRtN3Ij6DFUSZ05QqJtnuGNoWJJMznxCl42pMcfkCdWXY0u4lUVZsB+S6O8IYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"School enrollment planning should start very early, even before you search for housing, since it is described as the longest and most constrained step of settling in.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"In practice, registering with your local commune generally comes before the actual school registration, and it should not be left until the last moment.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"There are three main pathways for schooling — public Luxembourgish schools, European/international schools, and private establishments — each with its own admission process, so where you 'register' depends on which path you choose.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Before leaving your home country, you should also collect a certificate of de-registration and recent school reports, since these are almost always required for enrollment abroad.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"If your children are already assigned to a specific school or linguistic section, it is advisable to choose your housing commune around that school rather than around your workplace.\",\"kind\":\"transition\"},{\"text\":\"The provided material does not give the exact administrative office name, address, or online portal for commune-level school registration beyond noting that it precedes the school registration itself.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Choosing a school is the longest and most constrained step of the whole settling-in process, and should be started before housing search.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Commune registration generally precedes school registration, and popular sections can fill up a year in advance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c3\",\"text\":\"Three schooling paths coexist in Luxembourg: public school, European/international schools, and private schools.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c4\",\"text\":\"You should request a certificate of de-registration and the last years' report cards from the school of origin before leaving, since they are almost always required.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC2A2GqmRd2VcFNG6Ut",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2702,
+        "output_tokens": 995,
+        "output_tokens_details": {
+          "thinking_tokens": 75
+        },
         "service_tier": "standard"
       }
     }

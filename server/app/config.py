@@ -176,20 +176,19 @@ class Settings(BaseSettings):
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
     # sortie à `rediger_max_tokens` en consomment déjà ≈ 0,080 € des 0,10 € par requête ; 6 fiches entières
     # (65 blocs) portaient l'estimation à 0,108 € et faisaient échouer l'appel à tort (`BudgetExceeded`).
-    # Story 2.7 : la couverture partielle fait entrer davantage de nœuds à égalité utile. Mesuré sur
-    # la question réelle du délai d'arrivée, 30 blocs portaient le majorant froid de *rédiger* à
-    # 0,1006 € après *comprendre*, donc au-dessus du plafond immuable de 0,10 € ; 28 blocs gardent la
-    # FAQ et la fiche d'arrivée complètes et remettent l'appel sous le plafond. `search_limit` reste
-    # 20 : la coupe porte sur le contexte transmis au modèle, jamais sur les candidats rappelés.
-    # À recalibrer avec les questions-témoins, quand elles existeront (impact sur le rappel).
-    retrieval_max_blocks: int = Field(28, ge=1)
+    # Revue 2.7 I2 : le compte de blocs n'est pas un budget de coût — deux paragraphes peuvent peser
+    # moins qu'un tableau. Il revient donc à la valeur de rappel antérieure ; la coupe adaptative par
+    # longueur est portée par `retrieval_max_tokens` juste dessous.
+    retrieval_max_blocks: int = Field(30, ge=1)
     # Story 1.4 (revue Codex 1.4, B1) : AD-1 borne l'étape « appels modèle, nœuds, blocs, tokens,
     # définitions et renvois inclus ». Un compte de blocs ne borne pas les tokens — un tableau de fiche
     # pèse dix paragraphes. Faute de tokenizer en code pur, *retrouver* majore avec l'heuristique
     # d'`estimate_cost` (`estimate_chars_per_token`, `estimate_tokenizer_factor`). Valeur : la marge du
     # majorant de *rédiger* (0,10 € − 0,080 € de préfixe et de sortie) au tarif d'entrée `reason`
-    # (3 USD/MTok, USD_EUR 0,92) vaut ≈ 7 200 tokens ; 6 000 laisse la marge d'arrondi.
-    retrieval_max_tokens: int = Field(6000, ge=1)
+    # (3 USD/MTok, USD_EUR 0,92) vaut ≈ 7 200 tokens. Revue 2.7 I2 : 3 500 borne aussi les contextes
+    # faits de blocs longs et laisse une marge mesurée jusque dans l'enveloppe multilingue « arrivée »
+    # aux JSON / identifiants de 30 blocs ; le nombre de blocs ne sert plus de point d'équilibre.
+    retrieval_max_tokens: int = Field(3500, ge=1)
 
     # Coût (AD-9, AD-10)
     max_cost_eur_per_request: float = Field(0.10, ge=0)

@@ -16,64 +16,16 @@ import time
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
-from server.app.domain.answer import AnswerDraft, AnswerSegment, Claim, Quote
+from server.app.domain.answer import AnswerDraft, AnswerSegment
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import StepTrace
-from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
-
-
-def _inclure_clause_decisionnelle_de_tete(
-        draft: AnswerDraft, retrieval: RetrievalResult, settings: Settings) -> AnswerDraft:
-    """Conserve la première clause confirmée que le rappel a classée devant toutes les autres.
-
-    Campagne A6 réelle : `p34:12` était le premier bloc du contexte, mais *rédiger* pouvait ne garder
-    que l'exclusion plus lointaine `p46:1`. La clause de garantie disparaissait alors avant même le
-    contrôle de pertinence. Ce n'est ni une décision de couverture ni un nouveau rappel : le code
-    remet seulement sous forme de claim le premier bloc **déjà choisi et ouvert** par *retrouver*,
-    mot pour mot depuis le corpus. *Vérifier* garde tous ses contrôles de citation, pertinence,
-    applicabilité et AD-6.
-
-    La ceinture ne s'active que pour une clause décisionnelle au typage confirmé. Elle reste sous
-    `draft_max_claims` : s'il reste une place elle l'utilise ; sinon elle remplace la dernière claim
-    qui ne cite aucune clause décisionnelle confirmée, en réutilisant son identifiant. Un titre, une
-    définition, un passage non typé ou une clause déjà citée ne change rien ; le guide n'appelle
-    jamais cette fonction.
-    """
-    if not retrieval.blocs:
-        return draft
-    bloc = retrieval.blocs[0]
-    if bloc.kind not in KINDS_DECISIONNELS or not bloc.kind_confirmed:
-        return draft
-    if any(quote.block_id == bloc.block_id for claim in draft.claims for quote in claim.quotes):
-        return draft
-    if len(draft.claims) >= settings.draft_max_claims:
-        fournis = {b.block_id: b for b in retrieval.blocs}
-        for position in range(len(draft.claims) - 1, -1, -1):
-            actuelle = draft.claims[position]
-            if any((citee := fournis.get(quote.block_id)) is not None
-                   and citee.kind in KINDS_DECISIONNELS and citee.kind_confirmed
-                   for quote in actuelle.quotes):
-                continue
-            claim = Claim(claim_id=actuelle.claim_id, text=bloc.text,
-                          quotes=[Quote(block_id=bloc.block_id, quote=bloc.text)])
-            claims = list(draft.claims)
-            claims[position] = claim
-            return draft.model_copy(update={"claims": claims})
-        return draft
-    ids = {claim.claim_id for claim in draft.claims}
-    rang = 1
-    while f"c{rang}" in ids:
-        rang += 1
-    claim = Claim(claim_id=f"c{rang}", text=bloc.text,
-                  quotes=[Quote(block_id=bloc.block_id, quote=bloc.text)])
-    return draft.model_copy(update={"claims": [*draft.claims, claim]})
 
 
 def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[AnswerDraft, int]:
@@ -189,7 +141,6 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         raise
     draft = result.parsed
     if prompt == "rediger_sinistre":
-        draft = _inclure_clause_decisionnelle_de_tete(draft, retrieval, settings)
         draft, _changements = _rattacher_claims_sinistre(draft, settings)
     step.ms = int((time.monotonic() - t0) * 1000)
     return draft, step

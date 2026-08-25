@@ -5,6 +5,8 @@ historique / profil chacun sous `untrusted()` et aucun texte utilisateur hors ba
 from __future__ import annotations
 
 import json
+import importlib
+import inspect
 import re
 
 import pytest
@@ -18,7 +20,8 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
-from server.app.steps.comprendre import _canoniser_termes_contractuels, comprendre
+from server.app.pipelines import sinistre as pipeline_sinistre
+from server.app.steps.comprendre import comprendre
 from tests.llm_fake import FakeAnthropic, fake_message
 
 HAIKU = TIERS["micro"]
@@ -236,53 +239,11 @@ async def test_scope_fields_and_term_cleanup_are_converted() -> None:
     assert parsed.scope.cause is None and parsed.scope.moment is None
 
 
-def test_le_pipeline_sinistre_canonise_le_synonyme_seulement_pour_le_contrat_axa() -> None:
-    """Story 2.7 : le modèle a choisi l'animal ; le code ne corrige que le mot du contrat."""
-    termes = ["dégâts des eaux", "dommages causés par un animal", "mobilier"]
-    assert _canoniser_termes_contractuels(
-        termes, doc_id="axa-lu-optihome-2017") == [
-            "dégâts des eaux", "dégâts causés par un animal", "mobilier"]
-
-    # Un autre contrat n'hérite pas du vocabulaire AXA seulement parce qu'il passe par le pipeline.
-    assert _canoniser_termes_contractuels(termes, doc_id="autre-contrat") == termes
-
-
-def test_le_sinistre_precise_la_rc_sans_perdre_les_notions_supplementaires() -> None:
-    """Campagne B 2.7 : la forme du contrat est ajoutée, jamais le sujet RC lui-même."""
-    termes = ["mobilier", "dégâts causés par un tiers", "responsabilité civile",
-              "dommage accidentel", "bris de table", "enfant du voisin"]
-    assert _canoniser_termes_contractuels(termes, doc_id="axa-lu-optihome-2017") == [
-        "responsabilité civile vie privée dommages matériels causés accidentellement à des tiers",
-        "mobilier",
-        "bris de table",
-        "enfant du voisin",
-    ]
-
-    # Une RC générique sans le sujet « tiers » choisi peut viser une autre section du contrat.
-    assert _canoniser_termes_contractuels(
-        ["bâtiment", "responsabilité civile"], doc_id="axa-lu-optihome-2017") == [
-            "bâtiment", "responsabilité civile"]
-
-    # Le sujet tiers choisi sans les autres attributs reste précisé, mais le code n'invente pas
-    # la matérialité ni le caractère accidentel absents de la sortie du modèle.
-    assert _canoniser_termes_contractuels(
-        ["dégâts causés par un tiers", "responsabilité civile"],
-        doc_id="axa-lu-optihome-2017") == [
-        "dégâts causés par un tiers", "responsabilité civile vie privée"]
-
-
-def test_le_sinistre_compose_contenu_et_congelateur_seulement_si_deja_choisis() -> None:
-    """A11 : la forme AXA discrimine la clause sans inventer la facette alimentaire."""
-    termes = ["orage", "surtension électrique", "télévision", "congélateur",
-              "dégâts causés par la foudre", "contenu"]
-    assert _canoniser_termes_contractuels(
-        termes, doc_id="axa-lu-optihome-2017") == [
-            "orage", "surtension électrique", "télévision", "congélateur",
-            "dégâts causés par la foudre", "contenu congélateur"]
-
-    assert _canoniser_termes_contractuels(
-        ["orage", "contenu"], doc_id="axa-lu-optihome-2017") == ["orage", "contenu"]
-    assert _canoniser_termes_contractuels(termes, doc_id="autre-contrat") == termes
+def test_le_pipeline_sinistre_ne_recrit_plus_les_termes_selon_un_doc_id() -> None:
+    """B1 : le vocabulaire d'un contrat appartient aux données, jamais à une étape conditionnelle."""
+    module_comprendre = importlib.import_module("server.app.steps.comprendre")
+    assert not hasattr(module_comprendre, "_canoniser_termes_contractuels")
+    assert "_canoniser_termes_contractuels" not in inspect.getsource(pipeline_sinistre)
 
 
 async def test_les_extras_rc_hors_borne_restent_declares_par_comprendre() -> None:

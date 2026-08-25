@@ -123,6 +123,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:59c426cec3152099": {
+    "request": "claude-haiku-4-5-20251001:59c426cec3152099",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\":\"en\",\"fidele\":true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC24ok6vPowxu8yQ1bA",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 773,
+        "output_tokens": 16,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:86fe53c26f4c799f": {
     "request": "claude-haiku-4-5-20251001:86fe53c26f4c799f",
     "response": {
@@ -181,6 +212,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3644,
         "output_tokens": 140,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:9c2e85e5543f9a76": {
+    "request": "claude-haiku-4-5-20251001:9c2e85e5543f9a76",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC1vwy6h4oWhUxLtwBM",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3565,
+        "output_tokens": 157,
         "service_tier": "standard"
       }
     }
@@ -469,6 +531,40 @@
         "inference_geo": "global",
         "input_tokens": 3118,
         "output_tokens": 527,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a118abb8b1d17dde": {
+    "request": "claude-sonnet-5:a118abb8b1d17dde",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"You have eight days after moving in to declare your arrival at the commune.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"This is done at the population office (Biergercenter) and takes about twenty minutes.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Because appointments must often be booked online and slots fill up quickly during peak periods, it is advisable to reserve before even having the keys.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Note that the deadline runs from the date you move in, not from the date you sign the lease.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"You have eight days after moving in to declare your arrival to the commune.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"This formality takes about twenty minutes.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Cette formalité, qui prend une vingtaine de minutes, conditionne littéralement tout le reste de votre installation.\"}]},{\"claim_id\":\"c3\",\"text\":\"It is recommended to book the appointment online before having the keys, as slots fill up fast during rush periods.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours.\"}]},{\"claim_id\":\"c4\",\"text\":\"The eight-day deadline starts from moving in, not from signing the lease.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC1Ph2RNqn6ot9u3VkQ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2871,
+        "output_tokens": 664,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

@@ -63,6 +63,18 @@ def test_comprendre_sinistre_reserve_des_termes_a_chaque_dommage() -> None:
     assert "dégâts causés par un animal" in text
 
 
+def test_rediger_sinistre_demande_la_premiere_clause_decisionnelle_sans_recriture_code() -> None:
+    text = prompting.load_prompt("rediger_sinistre")
+    assert "première clause décisionnelle" in text
+    assert "claim atomique" in text
+
+
+def test_verifier_sinistre_aligne_segment_identique_et_claim_pertinente() -> None:
+    text = prompting.load_prompt("verifier_sinistre")
+    assert "segment factuel reprend exactement `Claim.text`" in text
+    assert "même valeur de vérité" in text
+
+
 def test_load_prompt_missing_or_invalid_name() -> None:
     with pytest.raises(FileNotFoundError, match="absent"):
         prompting.load_prompt("nexiste-pas")

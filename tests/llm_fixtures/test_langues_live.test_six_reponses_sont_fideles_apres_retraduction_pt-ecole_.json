@@ -92,6 +92,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:72ca69c5b10e154a": {
+    "request": "claude-haiku-4-5-20251001:72ca69c5b10e154a",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": false}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": false}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": true}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC6Fz4NznqEvgKQGAFp",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4112,
+        "output_tokens": 187,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:785d4798e04bd722": {
     "request": "claude-haiku-4-5-20251001:785d4798e04bd722",
     "response": {
@@ -243,6 +274,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3873,
         "output_tokens": 166,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:d95a6e8345ae1281": {
+    "request": "claude-haiku-4-5-20251001:d95a6e8345ae1281",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC6PvZ4B6wzKZEDffkp",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1025,
+        "output_tokens": 18,
         "service_tier": "standard"
       }
     }
@@ -481,6 +543,45 @@
         "output_tokens": 1026,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d58cff45eb977ac4": {
+    "request": "claude-sonnet-5:d58cff45eb977ac4",
+    "response": {
+      "content": [
+        {
+          "signature": "Eo0HCpABCBEYAipALfHbUM2hLVJfmrNTIwaBJkAkkHOqqcuQMsDGOZ6inEsmgLloq9/R7HRTJhG4WLhOKG6cJ7LEGf17C2SLt8W3KzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaeXuNQGEgyvx14SyySzL0omykUaDCXOvqUxm6eFgZj/vyIweuSRzssPPpExAvVlpeHuzQGyhTD5feq6s65tUvpCtrpy45kiVmdH0LNwfXRQna2nKqkFdjeze/7yl/HsOIMVWY9POt7RbRX5A4nKBctEsm23Rp+Xgt9SKDgqVottONQNc2DvrSdaa+tvrOVOTSSoIuoGPICxmkk2jxt1hZUaMdygXnij+EKjp2rtM1KHBegseRYs5K0m+J8VHGKrXosL8BwPUziALVJWtrml/g47TL7OO3NVg5qSbFBFEqK3FWzwZxfKRgnIDgoB8awV9nGuDMRAAxw2UMbd8Pkr44HEbxwFKYIqyB8ZKh7KYZoF/eNJFU5mpu4Y/uLlrEW+PQK6zQy8SfD1Pi5aqRPpEfjuB+PrWCOwaOCxmEyxlQGF6wzhOp/JBc0ZMURhqzCm1fma04Wlxcm0PRrxRbQRhJIMAjUM++6I6nvL6p7vK9rJKq+VhhnPeFPsVlLbqcFV/ODEzw5vEWT02NWFTnTdJZNIELbXzp3t+zdF/iCVxdfsI1Gkab+ZyOv+0oOhmmGIy42dJ21Ib+c6hv5m4PI0LlCq0sNZMvbR5qs93weWgMZNZuihZSeOmFjnANVKIR2+SnbwbwsoMjOtPx0dvQw31sVJWY8h/JMqxCId748g6Qt4SkIb/JJ+mzlVqcirK2EvS4gkFo0f6o5+WbHWA7h3B/VgRG+xr+TJpxsXVV5cm+5RIknu/3Iia5wftjPp7wU33SGPARaFad0FkjJzxLonYo9awvqYqm2c29Fx/flaoWto8tRkCRzOP0WrKicC2kM0c9ZygDc4vhT82DUhjAgasBE9qCx0Z47oxr+bN48m91sl3PM/v/hrl7hUMWOUrpsfkOpjDD4ZA4AtLZkuSkFZn05EItFzt72iRIZw4MKBWvUtUdnZh3hkD4NJbe1xErtKoLxyJ3T+P+8CA/yofCBX2GGBCqW8gFv8DgJgFz2E9Noqn8tEBx0LQZ23HQLzm4LIGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"No Luxemburgo, a escolarização dos filhos deve ser planejada logo no início da instalação, antes mesmo da procura por moradia.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Existem três vias possíveis para matricular as crianças.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"A primeira é a escola pública luxemburguesa, gratuita e multilíngue, que alfabetiza em luxemburguês antes de introduzir o alemão e depois o francês; ela integra muito bem crianças que chegam ainda pequenas, mas representa um desafio linguístico real para chegadas mais tardias.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"A segunda via reúne as escolas europeias e internacionais: as escolas europeias seguem um currículo por seção linguística até o bacharelado europeu, com prioridade para filhos de funcionários das instituições europeias e mediante pagamento de mensalidade para as demais famílias; há também escolas internacionais públicas gratuitas, muito procuradas, além de estabelecimentos privados com bacharelado internacional ou currículos estrangeiros e taxas significativas.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"É essencial antecipar a inscrição na comuna, verificar a disponibilidade da seção linguística desejada e obter, antes de partir do país de origem, o certificado de saída escolar e os boletins dos últimos anos, pois esses documentos costumam ser exigidos. Ao escolher a moradia, também vale considerar a localização em relação à escola escolhida, e não apenas ao local de trabalho.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Os blocos fornecidos não detalham os prazos exatos de inscrição, os documentos completos exigidos por cada tipo de estabelecimento nem os valores das mensalidades cobradas pelas escolas europeias, internacionais privadas ou de currículo estrangeiro.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Existem três vias distintas de escolarização e a decisão deve ser tomada bem antes da mudança.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c2\",\"text\":\"A escola pública é gratuita, multilíngue, e favorável às crianças que chegam jovens, mas difícil para chegadas tardias.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"As escolas europeias e internacionais têm regras de acesso, custos e demanda diferentes entre si.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"}]},{\"claim_id\":\"c4\",\"text\":\"É preciso antecipar a inscrição, verificar a seção linguística e reunir os documentos escolares antes de partir; a localização da moradia deve considerar a escola escolhida.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"},{\"block_id\":\"lux-guide:fchoisir_commune:8\",\"quote\":\"cherchez le logement autour de cette école, pas autour du bureau.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC52TSWNCdiZ22pK4d2",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2714,
+        "output_tokens": 1570,
+        "output_tokens_details": {
+          "thinking_tokens": 250
         },
         "service_tier": "standard"
       }

@@ -17,6 +17,11 @@ sens est l'inverse de celui du sinistre déclaré. Si l'affirmation reste exacte
 quote, rends `pertinente = true` ; la question de périmètre ci-dessous enregistrera ensuite que la
 clause ne vise pas le cas. Ne rejette pas cette preuve de sens comme « hors sujet ».
 
+Quand un segment factuel reprend exactement `Claim.text`, ses jugements ne posent pas deux questions
+différentes : si la quote soutient cette claim et qu'elle répond à la question (`pertinente=true`),
+le segment porte la même valeur de vérité (`soutenu=true`). Inversement, une claim non pertinente ne
+rend pas son segment soutenu. Ne produis jamais deux booléens opposés pour le même texte.
+
 Exemple normatif : si un tiers a cassé le bien de l'Assuré et que la question demande « sa RC ou
 mon contrat ? », l'affirmation « la RC vie privée fournie vise les dommages que l'Assuré cause à des
 tiers » est `pertinente = true` lorsqu'elle est soutenue par sa quote. Elle répond en établissant le

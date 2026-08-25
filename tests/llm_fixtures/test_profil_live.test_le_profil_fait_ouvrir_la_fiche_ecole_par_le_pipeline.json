@@ -1,4 +1,35 @@
 {
+  "claude-haiku-4-5-20251001:1f09d24c29e1fdd6": {
+    "request": "claude-haiku-4-5-20251001:1f09d24c29e1fdd6",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC9GFX37Ff8vrVjBmk4",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3977,
+        "output_tokens": 187,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:3fd81815d9b2fe2e": {
     "request": "claude-haiku-4-5-20251001:3fd81815d9b2fe2e",
     "response": {
@@ -150,6 +181,40 @@
         "inference_geo": "not_available",
         "input_tokens": 4016,
         "output_tokens": 187,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:2bc3b3c891b03836": {
+    "request": "claude-sonnet-5:2bc3b3c891b03836",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Avant même la recherche de logement, il faut d'abord traiter la scolarisation : c'est la démarche la plus longue et la plus contrainte de l'installation.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent pour scolariser vos enfants : l'école publique, les écoles européennes et internationales, ou des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée, pas seulement celle de l'établissement, car les places les plus recherchées peuvent partir un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école d'origine les documents nécessaires, presque toujours exigés à l'inscription.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Une fois l'école identifiée, il peut aussi être utile de choisir le logement en fonction de ce trajet scolaire plutôt qu'en fonction du lieu de travail, puisque c'est ce trajet, effectué deux fois par jour, qui structure le plus les journées d'une famille.\",\"kind\":\"transition\"},{\"text\":\"Les blocs fournis ne précisent pas de démarche spécifique propre au fait d'avoir deux enfants (dossiers séparés, fratrie, etc.) : ce point n'est pas détaillé ici.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La scolarisation est la démarche la plus longue et contrainte de l'installation, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies de scolarisation existent : école publique, écoles européennes/internationales, ou établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:2\",\"quote\":\"Trois voies possibles, et un choix qui se prépare bien avant le déménagement.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription communale précède l'inscription scolaire et il faut vérifier la section linguistique, les places pouvant partir un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander avant le départ un certificat de radiation et les bulletins des dernières années.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC8VNn4FEiUfQ7bXZmQ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2719,
+        "output_tokens": 1086,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }

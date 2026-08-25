@@ -123,13 +123,14 @@ class Index:
                  kinds_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
         """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
 
-        Le classement compte d'abord les canoniques dont une forme **composée** est entièrement
-        couverte, puis tous les canoniques dont au moins une forme est entièrement couverte. Un mot
-        isolé générique ne se retrouve ainsi pas au même rang qu'un sujet composé précis.
-        Tant qu'aucun canonique n'est pleinement couvert, les couvertures partielles départagent les
-        blocs de rappel ; dès qu'un bloc porte un plein, ses autres fragments ne bonifient plus son
-        rang. Ils ne peuvent donc ni évincer une correspondance pleine, ni favoriser une clause par
-        accumulation de mots-outils autour d'un plein. Pour une forme partielle, chaque mot est
+        Le classement compte d'abord tous les canoniques dont au moins une forme est entièrement
+        couverte, conformément à l'AC 2.7. Une forme composée pleine vaut donc un canonique plein,
+        jamais davantage qu'un canonique simple plein.
+        À nombre de canoniques pleins égal, les couvertures partielles départagent — jamais avant le
+        nombre de pleins — puis la densité de la meilleure forme pleine préfère un titre ou une
+        clause concise à un long paragraphe où les mêmes mots sont dispersés. Les partiels ne peuvent
+        donc pas évincer une correspondance pleine, mais une preuve lexicale supplémentaire n'est pas
+        masquée par le seul raccourci de densité. Pour une forme partielle, chaque mot est
         pondé par l'inverse du nombre de blocs du document qui le portent ;
         un mot fréquent contribue ainsi moins qu'un mot rare. Le mot présent le plus discriminant
         donne la contribution de la forme : accumuler des mots-outils fréquents dans le même bloc ne
@@ -170,26 +171,31 @@ class Index:
         if not groups:
             return []
         prioritaires = frozenset(kinds_prioritaires or ())
-        scored: list[tuple[int, int, Fraction, int, int, str, str]] = []
+        scored: list[tuple[int, Fraction, Fraction, int, int, str, str]] = []
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
                 continue
             pleins = 0
-            pleins_composes = 0
+            precision_plein = Fraction()
             partiels = Fraction()
             frequencies = self._block_frequencies[e.doc_id]
             for forms in groups:
                 formes_pleines = [form for form in forms if form <= e.tokens]
                 if formes_pleines:
                     pleins += 1
-                    if any(len(form) > 1 for form in formes_pleines):
-                        pleins_composes += 1
+                    # La densité corrige seulement l'ambiguïté nouvelle des composés non contigus.
+                    # Un canonique simple garde le départage historique kind → ordre de lecture.
+                    formes_composees = [form for form in formes_pleines if len(form) > 1]
+                    if formes_composees:
+                        precision_plein = max(
+                            precision_plein,
+                            max(Fraction(len(form), len(e.tokens)) for form in formes_composees),
+                        )
                     continue
                 partiels += max(self._hit(e, form, frequencies) for form in forms)
             if pleins or partiels:
                 rang_kind = 0 if e.block.kind in prioritaires else 1
-                rappel = partiels if pleins == 0 else Fraction()
-                scored.append((-pleins_composes, -pleins, -rappel, rang_kind, e.rank,
+                scored.append((-pleins, -partiels, -precision_plein, rang_kind, e.rank,
                                e.block.block_id, e.node_id))
         scored.sort()
         return [(b, n) for _, _, _, _, _, b, n in scored[:limit]]
@@ -200,8 +206,11 @@ class Index:
         presents = e.tokens & form
         if not presents:
             return Fraction()
-        # Un mot absent du document garde le poids maximal d'un mot rare dans le dénominateur.
-        poids_forme = sum((Fraction(1, frequencies.get(token, 1)) for token in form), Fraction())
+        # Un mot absent du document ne peut jamais être trouvé : il ne pèse pas dans la normalisation
+        # documentaire. Le plein reste décidé séparément par `form <= e.tokens`, donc ce score de
+        # rappel ne transforme jamais une forme incomplète en correspondance pleine.
+        poids_forme = sum((Fraction(1, frequencies[token]) for token in form if token in frequencies),
+                          Fraction())
         poids_le_plus_discriminant = max(Fraction(1, frequencies[token]) for token in presents)
         return poids_le_plus_discriminant / poids_forme
 

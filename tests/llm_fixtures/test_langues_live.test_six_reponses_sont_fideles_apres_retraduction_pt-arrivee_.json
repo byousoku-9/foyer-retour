@@ -30,6 +30,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:0ce8086b8a39e99e": {
+    "request": "claude-haiku-4-5-20251001:0ce8086b8a39e99e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC4wuLzCC9ZEncH5cMu",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 863,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:334915cd70d6ba17": {
     "request": "claude-haiku-4-5-20251001:334915cd70d6ba17",
     "response": {
@@ -243,6 +274,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3473,
         "output_tokens": 132,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:cc3ccaff639debf4": {
+    "request": "claude-haiku-4-5-20251001:cc3ccaff639debf4",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC4qJUEkMJk1xzAdfeg",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3537,
+        "output_tokens": 124,
         "service_tier": "standard"
       }
     }
@@ -469,6 +531,40 @@
         "inference_geo": "global",
         "input_tokens": 2960,
         "output_tokens": 588,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:c7b37cac23208151": {
+    "request": "claude-sonnet-5:c7b37cac23208151",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Deve declarar a sua chegada à comuna no prazo de oito dias após a mudança.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Esta declaração é essencial: sem ela, não é possível obter nem o número de matrícula, nem a segurança social, nem abrir conta bancária, nem inscrever os filhos na escola.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"É aconselhável marcar a consulta online antes mesmo de ter as chaves da habitação, pois nos períodos de maior procura os horários esgotam-se rapidamente.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"O prazo para declarar a chegada à comuna é de oito dias após a mudança.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"},{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c2\",\"text\":\"Sans cette déclaration, aucune démarche essentielle (matricule, sécurité sociale, banque, école) n'est possible.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant d'avoir les clés, car les créneaux partent vite en période de rentrée.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC4H3WKDVDoUErZfFHM",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2867,
+        "output_tokens": 679,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

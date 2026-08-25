@@ -208,9 +208,9 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     citante = next((c for c in answer.claims
                     if any(q.block_id == garantie.block_id for q in c.quotes)), None)
     if citante is not None and citante.status.applicable != "oui":
-        demandes = normalize(" ".join(verdict.missing.faits)).split()
-        assert all(any(mot.startswith(racine) for mot in demandes)
-                   for racine in _mots_qualifiants(garantie.text)), verdict.missing.faits
+        demandes = _mots_qualifiants(" ".join(verdict.missing.faits))
+        assert all(racine in demandes for racine in _mots_qualifiants(garantie.text)), (
+            verdict.missing.faits)
 
     # AD-6 : un verdict autre que `ne_tranche_pas` repose sur une clause fondatrice **affichée**
     if verdict.value != "ne_tranche_pas":

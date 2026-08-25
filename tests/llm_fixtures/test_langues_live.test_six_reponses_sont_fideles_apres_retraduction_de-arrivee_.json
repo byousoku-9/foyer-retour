@@ -30,6 +30,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:11a6781caaea831a": {
+    "request": "claude-haiku-4-5-20251001:11a6781caaea831a",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC43URuVBqJtNNp1MW7",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3549,
+        "output_tokens": 145,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:3f249595baefaa36": {
     "request": "claude-haiku-4-5-20251001:3f249595baefaa36",
     "response": {
@@ -88,6 +119,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3458,
         "output_tokens": 124,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:4f6db290f4c7ec1e": {
+    "request": "claude-haiku-4-5-20251001:4f6db290f4c7ec1e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC4AHwzcbGHDfbzuh4M",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 850,
+        "output_tokens": 18,
         "service_tier": "standard"
       }
     }
@@ -336,6 +398,40 @@
         "inference_geo": "not_available",
         "input_tokens": 810,
         "output_tokens": 16,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:13a64e93684a1683": {
+    "request": "claude-sonnet-5:13a64e93684a1683",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Sie haben acht Tage nach dem Einzug Zeit, um Ihre Ankunft bei der Gemeinde zu melden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Meldung erfolgt beim Bevölkerungsbüro, oft Biergercenter genannt, und dauert etwa zwanzig Minuten.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Es empfiehlt sich, den Termin online zu vereinbaren, bevor Sie überhaupt die Schlüssel erhalten haben, da die Frist sonst leicht überschritten werden kann.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Die Frist beginnt ab dem Einzug, nicht ab der Unterschrift des Mietvertrags.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Frist zur Anmeldung bei der Gemeinde beträgt acht Tage nach dem Einzug.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Die Meldung erfolgt beim Bevölkerungsbüro (Biergercenter) und dauert etwa zwanzig Minuten.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter. Cette formalité, qui prend une vingtaine de minutes\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est recommandé de prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"Réservez avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQC3UscshTxf8ohC2ffv",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2869,
+        "output_tokens": 680,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }
