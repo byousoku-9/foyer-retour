@@ -2349,3 +2349,44 @@ la qualification des faits et du contrat de clarification, pas du rappel lexical
 - `ANTHROPIC_API_KEY= uv run pytest -q` : 2 080 passés sur l'état final.
 - `ANTHROPIC_API_KEY= uv run pytest -q tests/test_digests.py` : 10 passés ; `uv run ruff check .`
   et `git diff --check` : verts.
+
+### Campagnes A/B de clôture — arrêt sur épuisement des crédits
+
+Le parent a relancé le socle A sur le serveur local réel après les deux commits. Les routes `/`,
+`/guide/`, `/sinistre/` et `/guide/app/kb.js` rendent 200. « Comment choisir ma commune ? » rend
+`choisir_commune` (0,0348 €), « Comment trouver un logement au Luxembourg ? » rend
+`recherche_logement` (0,0314 €), la météo et « ? » sont refusés sans retrieval (0,0008 € chacun),
+et les entrées vide ou blanche rendent 400 sans appel facturé.
+
+Le socle a alors trouvé un nouveau défaut bloquant : « Dans quel délai dois-je me déclarer à la
+commune ? » ouvrait `administration`, `garde` et `ecole`, mais laissait `farrivee:3` et `q12:1`
+parmi les candidats écartés. La réponse omettait donc « huit jours » (0,0316 €, puis même défaut à
+0,0258 €). Cause : la forme usuelle `déclarer son arrivée` exigeait le pronom exact ; elle est
+remplacée par `déclarer arrivée`, toujours sous la borne de huit variantes. Le classement hors ligne
+place désormais `farrivee:3` en tête, 212 tests ciblés et les 2 080 tests hermétiques passent.
+
+La relance réelle de confirmation et les trois cas sinistre restants n'ont pas pu démarrer : Anthropic
+répond désormais `400 invalid_request_error` avec le message « credit balance is too low ». L'API HTTP
+projette cet échec fournisseur en 500 `internal`. Cette condition externe est apparue après les appels
+ci-dessus et après les appels/gates du sous-agent ; aucune clé n'a été affichée.
+
+Les dix cas B suivants sont bien nouveaux et figés mot pour mot, mais **non exécutés** : les présenter
+comme une campagne serait fabriquer une preuve. La « réponse en une ligne » consigne donc l'absence
+réelle de réponse, et non une fixture.
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d'expérience | Correction |
+|---|---|---|---|---|
+| B1 | « J'débarque à Esch, la mairie c'est avant ou après le matricule, et je prends quoi comme papiers ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : aucun écran de décision montrable. | Aucune sans réponse réelle. |
+| B2 | « Le matricule, c'est mon IBAN luxembourgeois ou un numéro à demander quelque part ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : le nouvel arrivant ne reçoit aucune désambiguïsation. | Aucune sans réponse réelle. |
+| B3 | « On n'a pas encore choisi de commune mais je dois déjà inscrire ma fille à l'école : je commence où ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : impossible de juger ordre et lisibilité en trois secondes. | Aucune sans réponse réelle. |
+| B4 | « J'ai pas de bagnole : vaut mieux vivre loin avec un train ou près du boulot avec deux bus ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : aucun arbitrage sourcé observable. | Aucune sans réponse réelle. |
+| B5 | « Mon proprio veut trois mois cash et dit que la garantie bancaire n'existe pas ici, c'est vrai ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : le présupposé faux n'est ni confirmé ni corrigé. | Aucune sans réponse réelle. |
+| B6 | « Ça fuyait un peu depuis des mois, mais le plafond est tombé d'un coup hier : on retient lent ou soudain ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : aucun cadrage de la contradiction utile au gestionnaire. | Aucune sans réponse réelle. |
+| B7 | « La porte était fermée, enfin je crois, mais aucune trace d'effraction et l'ordinateur a disparu. Couvert ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : aucune question client priorisée. | Aucune sans réponse réelle. |
+| B8 | « L'orage a grillé la télé et le congélateur ; la nourriture perdue compte aussi ou seulement les appareils ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : les deux volets ne peuvent pas être évalués. | Aucune sans réponse réelle. |
+| B9 | « Le fils du voisin a cassé ma table en jouant chez moi, c'est leur RC ou mon contrat habitation qui répond ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : aucun périmètre contractuel ni escalade observable. | Aucune sans réponse réelle. |
+| B10 | « J'ai renversé exprès le radiateur parce qu'il fuyait, mais les dégâts d'eau derrière sont accidentels : je déclare quoi ? » | Non obtenue : fournisseur 400, API 500 avant *comprendre*. | Bloquant : aucun traitement crédible de l'intention et de la causalité. | Aucune sans réponse réelle. |
+
+Conclusion : campagne A interrompue après un défaut corrigé mais non revalidé en direct ; campagne B
+préparée mais non exécutée. Reprise exacte après recharge : redémarrer le serveur, confirmer d'abord le
+cas « huit jours », rejouer A en entier, puis exécuter B1–B10 sans remplacer aucun énoncé.

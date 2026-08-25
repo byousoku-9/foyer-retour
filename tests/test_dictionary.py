@@ -501,6 +501,10 @@ def test_le_dictionnaire_livre_relies_les_formulations_commune_et_logement_sans_
     brut = DictionaryFile.model_validate_json((REPO_ROOT / "data" / "dictionary.json").read_bytes())
 
     groupes = {
+        "déclaration d'arrivée": (
+            "lux-guide:farrivee",
+            {"déclaration d'arrivée", "déclarer arrivée", "inscription à la commune"},
+        ),
         "choix commune": (
             "lux-guide:fchoisir_commune",
             {"choix commune", "choix de commune", "commune Luxembourg", "communes Luxembourg",
