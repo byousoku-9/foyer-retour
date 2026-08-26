@@ -3140,3 +3140,35 @@ Coût ajouté par cette reprise : **0,1335 EUR** ; cumul global réel **11,5710 
 reliquat **0,4290 EUR**. Aucun Batch ni campagne A+B n'a été relancé. La suite complète hermétique
 sur le HEAD final rend **2305 passés en 58,55 s** ; les onze findings initiaux sont fermés et le
 rejeu hors réseau de la fixture finale est vert.
+
+## Story 3.4 — campagne builder A+B+fronts du 26/08/2026
+
+Le manifeste d'impact a imposé `A`, `B` et `fronts` par balayage complet périodique. Le service local
+réel a été lancé sur le HEAD `e3c019b`, avec la clé du `.env` et sans typage, fixture, Batch ni
+gate écrit. Le socle A a été joué une fois, mot pour mot. A1–A15 satisfont leurs attentes actives :
+les fiches `fchoisir_commune` et `frecherche_logement` sont retrouvées, le délai d'arrivée est
+sourcé, la météo et les entrées minimales sont refusées proprement, et les cas sinistre restent
+prudents avec leurs passages utiles. A16 échoue en revanche : HTTP 200 en 22,3 s / 0,0512 EUR,
+verdict `ne_tranche_pas`, mais seulement `p50:18` et `p11:4` ; la garantie chaleur `p34:12` et sa
+limite active `p46:1` manquent. Ce bloquant de retrieval/rédaction, hors lecteur PDF 3.4, est différé
+avec son repro vers 4.1, sans correctif particulier.
+
+### Campagne B — exactement six cas nouveaux
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d'expérience | Classification et correctif |
+|---|---|---|---|---|
+| B1 | « Je dois remettre mon passeport à l’ambassade pour le renouveler le jour de ma déclaration d’arrivée : une photo sur mon téléphone suffit-elle à la commune ? » | 200 / 0,0254 EUR ; huit jours et originaux des pièces d'identité, `farrivee:3` + `:8`. | Bon : l'exigence utile arrive en tête sans inventer l'acceptation d'une photo. | Aucun défaut ; aucune correction. |
+| B2 | « On habite encore à Arlon mais je travaille au Luxembourg et mes enfants y vont à l’école : je dois déjà me déclarer résident dans une commune luxembourgeoise ? » | 503 `budget_exceeded` en 31,1 s / 0,0614 EUR. | Mauvais : aucun repère n'est rendu sur une question légitime pendant un appel. | Hors 3.4, différé en 4.1 ; aucune correction. |
+| B3 | « Mon employeur m’a créé un LuxTrust professionnel : je peux m’en servir pour mes démarches personnelles ou il m’en faut un autre ? » | 200 / 0,0298 EUR ; rôle et obtention de LuxTrust sourcés par `fluxtrust:3` + `:5`, usage pro/personnel non conclu. | Acceptable : information partielle honnête, mais la question centrale reste ouverte. | Aucun défaut local ; aucune correction. |
+| B4 | « Mon robot aspirateur a renversé l’aquarium ; l’eau a abîmé mon parquet puis le plafond du voisin : j’ouvre dégâts des eaux, responsabilité civile, ou les deux ? » | 200 / 0,0388 EUR ; `sous_conditions`, dégâts des eaux `p37:13` et RC immeuble `p50:2`. | Bon : les deux volets sont visibles et la portée n'est pas tranchée à tort. | Aucun défaut ; aucune correction. |
+| B5 | « Pendant des travaux, l’artisan a laissé la fenêtre ouverte et la pluie a trempé mon canapé : je déclare à mon habitation ou à l’assurance de l’artisan ? » | 200 / 0,0040 EUR ; zéro bloc et clarification générique « précisez-la ». | Mauvais : les faits sont autonomes et la question est renvoyée au gestionnaire sans recherche. | Hors 3.4, différé en 4.2 ; aucune correction. |
+| B6 | « Une coupure de courant annoncée a arrêté le congélateur et toute la nourriture est perdue, mais l’appareil fonctionne encore : les dommages électriques couvrent quoi ? » | 200 / 0,0290 EUR ; seulement la définition générale du contenu `p9:2`, aucun passage sur les denrées. | Mauvais : la réponse ne traite pas la perte explicitement demandée. | Hors 3.4, différé en 4.2 ; aucune correction. |
+
+La campagne B a duré 100,7 s, exactement six cas, et utilisé **0 correctif local sur 3**. Coût
+réel de ce run : socle A **0,4772 EUR**, campagne B **0,1884 EUR**, total **0,6656 EUR**.
+
+Les fronts `/`, `/guide/` et `/sinistre/` répondent 200 ; les 16 assets locaux référencés répondent
+200. Chrome headless à 390 px mesure `scrollWidth = clientWidth = 390` sur les trois pages. Après
+chargement du guide puis arrêt réel du serveur, une soumission affiche `MODE INDISPONIBLE`,
+`ASSISTANT INDISPONIBLE`, « Rien n'a été cherché », zéro `.srcs` et une seule action visible
+« Consulter le guide en recherche simple ».
