@@ -2946,3 +2946,63 @@ mot pour mot dans `deferred-work.md` avec `target_story` :
   absence depuis une clause isolée.
 
 Revue croisée autonome story 3.2 : 1 bloquants / 4 importants, convergé en 2 tour(s) ; convergée et vérifiée avant push.
+
+## Story 3.3 — reprise standard du typage et recertification du 26/08/2026
+
+La dé-indentation générique rattache désormais `p9:6` et `p9:7` à `a1.12`. Cette modification a
+invalidé l'artefact puis déclenché une nouvelle lecture 1 Batch. Le lot
+`msgbatch_01Pt9Y5Fh1JYR5oYWsk2cCGm` s'est terminé avec **130 `succeeded`, 10 `canceled`, 0 erreur**
+et un coût réel de **2,8158 EUR** ; le garde-fou n'a écrit aucun typage partiel.
+
+La décision explicite de reprise emploie le transport CLI `standard-resume`, sans nouvelle
+soumission Batch : les 130 résultats sont récupérés par `custom_id`, les 10 manquants sont complétés
+par la Messages API standard (**0,4282 EUR**), puis les 97 requêtes indépendantes de lecture 2 sont
+entièrement standard (**3,1821 EUR**). Le coût standard est donc **3,6103 EUR** et le cumul certifié
+Batch + standard **6,4261 EUR**, sous le plafond cumulé de 12 EUR. Le rapport généré conserve le
+transport, l'identifiant et l'empreinte du lot repris, 130 résultats réutilisés, 107 appels standard,
+les trois coûts et le plafond. Le SDK standard est créé sans retry implicite ; concurrence, retries
+429/5xx et garde `coût réel + estimation suivante` sont bornés par configuration.
+
+L'artefact final porte **965 blocs typés**, dont **905/957 clauses juridiques confirmées**. Les
+témoins structurels sont conformes : `p34:12` garantie confirmée, `p46:1` exclusion confirmée et
+portée sur `a3.1.8.3` à `.6`, `p47:4` garantie confirmée avec refs résolues et son nœud
+`a3.1.8.7` vaut `extension`. Aucun check n'est bloquant.
+
+Le premier gate contrat a reproduit un défaut local 3.3 : chaque garantie absorbait toutes les
+limitations classées, saturant le budget à 30 blocs. La fermeture conserve désormais uniquement la
+meilleure limitation dans l'ordre de pertinence ; les autres restent leurs propres hits. La
+miniature à deux exclusions prouve le départage, la parité des variantes, l'atomicité et l'absence
+de second niveau. Après correction, les gates officiels finaux sont verts : contrat **1/1**
+`bonne_reponse` à **0,0213 EUR**, guide **1/1** à **0,0714 EUR**, tous deux
+`evals_ok=true`, `countersigned=false` et sur le digest courant.
+
+Contrôles ciblés : transport/config **68 passés** ; retrieval/index **90 passés** ; matrice T1–T6,
+artefact, loader, pipeline et front **711 passés** ; artefact/loader/digests finaux **74 passés** ;
+passe finale combinée **721 passés** ; Ruff et `git diff --check` verts. Aucune campagne A+B n'a
+été lancée avant la revue interne.
+
+### Passe de revue 3.3 et recertification auditée
+
+La revue interne a produit 14 patches acceptés (4 high, 8 medium, 2 low), sans report ni défaut de
+spec. La correction de fin réelle de fratrie conserve le texte, les lignes, coordonnées, ordre et
+IDs des 1 400 blocs, mais corrige les propriétaires de `p66:16`, `p68:3`, `p68:7` et `p93:4–5`.
+L'empreinte d'ingestion et le digest ont donc été invalidés officiellement, sans modification du PDF
+raw ni édition manuelle des JSON.
+
+Avant reprise, un manifeste durable a figé le SHA-256 de chacun des 140 payloads T1 de la campagne
+`f534a1e729f1787749b508dfeb8206bfd3c29e395fd7bd5d3512995a11c3bb91`. La campagne courante vaut
+`4cf39380c20847386c7a82c3babb90881c5b23fc4af21c65dbc1f5af20a42a03`; les certificats payload
+sont respectivement `0b20ac4624a4b98fc5c843d3f6fbe608d12c257b3b1b4b479592d6b6bd4ce61f` et
+`250b426317aa92b642be23520ca705cf5f9a4b274b0dbb04ca0e2b652b9a8c9e`. Trois plans diffèrent :
+deux anciens succès sont refusés puis rejoués en standard, le troisième faisait déjà partie des dix
+annulés. Résultat T1 : 128 succès réutilisés, 12 appels standard, **0,5227 EUR**.
+
+La lecture 2 comporte ensuite 98 appels standard, **3,2043 EUR**. Avec le coût réel antérieur
+**6,5188 EUR**, le garde par requête certifie **7,0415 EUR après T1** et **10,2458 EUR après T2**.
+Les gates finaux directement affectés sont verts : AXA 1/1 à **0,0674 EUR**, guide 1/1 à
+**0,0363 EUR**, `evals_ok=true`, `countersigned=false`, digests courants. Le cumul global réel est
+donc **10,3495 EUR**, sous le plafond de 12 EUR. Aucun nouveau Batch n'a été soumis.
+
+L'artefact final porte 968 blocs typés et 917/960 clauses juridiques confirmées. La commande
+Verification complète rend **735 tests passés**, puis Ruff et `git diff --check` verts. La campagne
+A+B reste non lancée tant que la séquence de revue n'est pas terminée.
