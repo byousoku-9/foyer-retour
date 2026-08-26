@@ -14,21 +14,23 @@ une borne entre requêtes d'un même process.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from server.app.api.limiter import RateLimiter
 from server.app.api.schemas import Alerte, DOC_ID_MAX, DOC_ID_PATTERN
-from server.app.config import REPO_ROOT, Settings
+from server.app.config import RAISON_PUBLIABLE_MAX_DEFAULT, REPO_ROOT, Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
 from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
-from server.app.domain.ingest import GateContext, Report
+from server.app.domain.ingest import Check, GateContext, Report
 from server.app.api.page_renderer import PageRenderer, VerifiedSource
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -43,15 +45,53 @@ LOG = logging.getLogger("foyer.etat")
 DATA_DIR = REPO_ROOT / "data"
 RAPPORT = "report.json"
 SOURCE_URL = "source.url"
-# AD-7 : `source.url` peut porter l'URL publique **ou** l'URL `gs://` de la copie privée de
-# secours. Seule la première se publie : l'autre ne mène nulle part pour un lecteur, et annoncer un
-# bucket privé sur une page publique n'apprendrait rien à personne d'utile.
-SCHEMAS_PUBLIABLES = ("https://", "http://")
 # Une URL de source tient largement là-dedans (celle du contrat AXA fait 170 caractères) ; au-delà,
 # ce n'est plus une URL, c'est un fichier qu'on recopierait dans une réponse publique.
 SOURCE_URL_MAX = 2048
-RAISON_PUBLIABLE_MAX_DEFAULT = int(
-    Settings.model_fields["raison_publiable_max_chars"].default)
+
+
+def _chemin_relatif_probable(match: re.Match[str]) -> str:
+    """Masque un chemin relatif plausible sans prendre une date ou un type MIME pour un secret."""
+    valeur = match.group(0)
+    # Les expressions régulières documentées entre accents graves ne sont pas des chemins, même
+    # lorsqu'elles contiennent plusieurs ``/``.
+    avant, apres = match.string[:match.start()], match.string[match.end():]
+    if avant.count("`") % 2 and apres.count("`") % 2:
+        return valeur
+    morceaux = valeur.split("/")
+    if all(m.isdigit() for m in morceaux):  # date, fraction ou version numérique
+        return valeur
+    if morceaux[0].lower() in {
+        "application", "audio", "font", "image", "message", "model", "multipart", "text", "video",
+    }:
+        return valeur
+    # Deux mots séparés par une barre (``et/ou``) ne suffisent pas à prouver un emplacement. Une
+    # extension de fichier ou au moins trois composantes apporte le signal manquant.
+    repertoires = {"cache", "config", "data", "home", "private", "secret", "secrets", "srv", "tmp", "users"}
+    unicode_present = any(not caractere.isascii() for caractere in valeur)
+    if (len(morceaux) < 3 and "." not in morceaux[-1]
+            and morceaux[0].lower() not in repertoires and not unicode_present):
+        return valeur
+    return "[emplacement masqué]"
+
+
+def _chemin_cite_probable(match: re.Match[str]) -> str:
+    """Masque aussi un emplacement cité contenant des espaces, sans masquer ``'et/ou'``."""
+    quote, valeur = match.group("quote"), match.group("valeur")
+    if (valeur.startswith("/") and valeur.endswith("/")
+            and any(metacaractere in valeur for metacaractere in "^$[]{}+*?")):
+        return match.group(0)
+    if re.match(r"(?i)^[a-z][a-z0-9+.-]*:", valeur):
+        return f"{quote}[emplacement masqué]{quote}"
+    normalise = valeur.replace("\\", "/")
+    morceaux = normalise.split("/")
+    repertoires = {"cache", "config", "data", "home", "private", "secret", "secrets", "srv", "tmp", "users"}
+    unicode_present = any(not caractere.isascii() for caractere in normalise)
+    if (normalise.startswith(("/", "./", "../", "//"))
+            or len(morceaux) >= 3 or (len(morceaux) >= 2 and (
+                "." in morceaux[-1] or morceaux[0].lower() in repertoires or unicode_present))):
+        return f"{quote}[emplacement masqué]{quote}"
+    return match.group(0)
 
 
 def doc_id_auditable(doc_id: str) -> bool:
@@ -70,9 +110,14 @@ def raison_publiable(raison: str | None, *, max_chars: int = RAISON_PUBLIABLE_MA
     if raison is None:
         return None
     propre = re.sub(
-        r"(?i)\b[a-z][a-z0-9+.-]*://[^\n,;)]*",
-        "[emplacement masqué]",
+        r"(?P<quote>['\"])(?P<valeur>[^'\"\n]*[/\\][^'\"\n]*)(?P=quote)",
+        _chemin_cite_probable,
         raison,
+    )
+    propre = re.sub(
+        r"(?i)\b[a-z][a-z0-9+.-]*://[^\n,;)'\"<>]*",
+        "[emplacement masqué]",
+        propre,
     )
     # ``data:`` est un vrai schéma sans ``//``. Le nommer explicitement évite de réintroduire le
     # filtre trop large qui prenait ``Invalid JSON:`` ou ``manifest invalide :`` pour des URI.
@@ -82,20 +127,20 @@ def raison_publiable(raison: str | None, *, max_chars: int = RAISON_PUBLIABLE_MA
         propre,
     )
     propre = re.sub(
-        r"(?<![\w])(?:[a-zA-Z]:[\\/]|\\\\)[^\n,;)]*",
+        r"(?<![\w])(?:[a-zA-Z]:[\\/]|\\\\)[^\n,;)'\"<>]*",
         "[emplacement masqué]",
         propre,
     )
     propre = re.sub(
-        r"(?<![\w.])(?:\.\.?/|/)(?=[a-zA-Z0-9_.-])[^\n,;)]*",
+        r"(?<![\w.])(?:\.\.?/|/)(?=[\w.~\-])[^\n,;)'\"<>]*",
         "[emplacement masqué]",
         propre,
     )
     # Chemin relatif plausible sans préfixe `./` : au moins deux composantes séparées. Les regex
     # usuelles (`^[a-z0-9-]+$`, `/^[a-z]+/`) ne satisfont pas cette forme et restent donc intactes.
     propre = re.sub(
-        r"(?<![\w./])(?:[a-zA-Z0-9_.-]+/)+[a-zA-Z0-9_.-]+(?=$|[\s,;)])",
-        "[emplacement masqué]",
+        r"(?<![\w./])(?:[\w.-]+/)+[\w.-]+(?=$|[\s,;)'\"<>])",
+        _chemin_relatif_probable,
         propre,
     )
     return propre if len(propre) <= max_chars else propre[:max_chars - 1] + "…"
@@ -132,8 +177,39 @@ def url_publiable(brut: str | None) -> str | None:
         url = ligne.strip()
         if not url or len(url) > SOURCE_URL_MAX or any(c.isspace() for c in url):
             continue
-        if url.lower().startswith(SCHEMAS_PUBLIABLES):
-            return url
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port  # force la validation de la borne et de la syntaxe du port
+        except ValueError:
+            continue
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            continue
+        if parsed.username is not None or parsed.password is not None or "\\" in url:
+            continue
+        hostname = parsed.hostname.rstrip(".").lower()
+        if hostname == "localhost" or hostname.endswith(".localhost"):
+            continue
+        try:
+            adresse = ipaddress.ip_address(hostname)
+        except ValueError:
+            # Un nom public doit être un nom DNS, pas un alias local à une seule composante. IDNA
+            # valide aussi les hôtes Unicode sans les réécrire dans la valeur publiée.
+            try:
+                ascii_host = hostname.encode("idna").decode("ascii")
+            except UnicodeError:
+                continue
+            if "." not in ascii_host or any(
+                    not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9-]+", label)
+                    or label.startswith("-") or label.endswith("-")
+                    for label in ascii_host.split(".")):
+                continue
+        else:
+            if (not adresse.is_global or adresse.is_loopback or adresse.is_private
+                    or adresse.is_link_local or adresse.is_unspecified):
+                continue
+        if port is not None and not 1 <= port <= 65535:  # ``urlsplit`` couvre déjà, garde explicite
+            continue
+        return url
     return None
 
 
@@ -322,12 +398,10 @@ def _alertes_dictionnaire(
         else:
             # Absent, illisible ou non conforme : `raison` décrit **cet** échec-là, c'est bien le sien.
             raison = dictionnaire.raison or "dictionnaire non chargé"
-            LOG.warning("dictionnaire_non_valide : %s", raison)
             detail += f" — {raison_publiable(raison, max_chars=raison_max_chars)}"
         alertes.append(Alerte(doc_id="*", alerte="dictionnaire_non_valide", detail=detail))
     if dictionnaire.charge and not dictionnaire.corpus_ok:
         raison = dictionnaire.raison or "empreintes différentes du manifest"
-        LOG.warning("dictionnaire_corpus_perime : %s", raison)
         alertes.append(Alerte(
             doc_id="*", alerte="dictionnaire_corpus_perime",
             detail=f"{DICTIONARY_FILE} décrit un autre corpus que celui qui est servi : ni variantes, ni "
@@ -336,7 +410,35 @@ def _alertes_dictionnaire(
     return alertes
 
 
-def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], list[Alerte]]:
+def _journaliser_dictionnaire(dictionnaire: Dictionnaire) -> None:
+    """Journalise une fois l'état interne complet ; la projection d'alertes reste une fonction pure."""
+    if not dictionnaire.validated:
+        LOG.warning(
+            "dictionnaire_non_valide : le refus « zéro hit » d'AD-5 est désactivé — %s",
+            dictionnaire.raison or "aucune validation humaine")
+    if dictionnaire.charge and not dictionnaire.corpus_ok:
+        LOG.warning(
+            "dictionnaire_corpus_perime : %s",
+            dictionnaire.raison or "empreintes différentes du manifest")
+
+
+def _rapport_publiable(rapport: Report, *, raison_max_chars: int) -> Report:
+    """Projection publique d'un rapport, sans emplacement privé dans ses champs textuels."""
+    checks = [Check(
+        name=check.name,
+        level=check.level,
+        detail=raison_publiable(check.detail, max_chars=raison_max_chars) or "",
+    ) for check in rapport.checks]
+    stats = {
+        cle: (raison_publiable(valeur, max_chars=raison_max_chars) or ""
+              if isinstance(valeur, str) else valeur)
+        for cle, valeur in rapport.stats.items()
+    }
+    return Report(doc_id=rapport.doc_id, checks=checks, stats=stats)
+
+
+def _rapports(data_dir: Path, doc_ids: list[str], *,
+              raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> tuple[dict[str, Report], list[Alerte]]:
     """Les rapports d'ingestion des documents connus, lus au démarrage (AD-7/AD-8).
 
     Comme `dictionary.json`, un rapport **absent** ne fait pas tomber le démarrage : AD-8 fait du
@@ -377,7 +479,7 @@ def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], li
                                   detail=f"{RAPPORT} décrit un autre document que le dossier qui "
                                          f"le porte : il n'est pas publié"))
             continue
-        rapports[doc_id] = rapport
+        rapports[doc_id] = _rapport_publiable(rapport, raison_max_chars=raison_max_chars)
     return rapports, alertes
 
 
@@ -473,7 +575,9 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # Les quarantaines sont connues du loader mais ne sont jamais dans ``documents``. Leurs seuls
     # artefacts d'audit (rapport et URL publique filtrée) peuvent néanmoins être lus ici, une fois.
     doc_ids_audit = _doc_ids_audit(corpus)
-    rapports, alertes_rapports = _rapports(data_dir, doc_ids_audit)
+    rapports, alertes_rapports = _rapports(
+        data_dir, doc_ids_audit,
+        raison_max_chars=settings.raison_publiable_max_chars)
     erreurs_rapports = _erreurs_rapports(doc_ids_audit, rapports, alertes_rapports)
     sources = _sources(data_dir, doc_ids_audit)
     pdf_sources = _pdf_sources(data_dir, corpus)
@@ -493,11 +597,10 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         LOG.warning(
             "ungated_refuse_en_production : ALLOW_UNGATED=true posé avec ENV=prod — la dérogation "
             "est refusée (AC 1.10) ; un document sans gate valide reste en quarantaine")
-    if not dictionnaire.validated:
-        # Même raison que l'avertissement d'`ungated` : celui qui regarde le journal de démarrage est
-        # celui qui vient de déployer. La ligne dit ce qui est **désarmé**, pas seulement ce qui manque.
-        LOG.warning("dictionnaire_non_valide : le refus « zéro hit » d'AD-5 est désactivé — %s",
-                    dictionnaire.raison or "aucune validation humaine")
+    # Même raison que l'avertissement d'`ungated` : celui qui regarde le journal de démarrage est
+    # celui qui vient de déployer. Une seule couture journalise l'état complet ; composer les
+    # alertes HTTP reste pur et ne duplique plus la ligne.
+    _journaliser_dictionnaire(dictionnaire)
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,

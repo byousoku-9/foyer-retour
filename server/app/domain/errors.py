@@ -61,6 +61,9 @@ class PipelineError(Exception):
         self.message = message or code.value
         self.step: Any = None
         self.trace: Trace | None = None
+        # Le runner d'évaluation renseigne cette valeur depuis son RequestBudget même lorsqu'une
+        # trace partielle n'a pas encore pu être assemblée.
+        self.eval_cost_eur: float = 0.0
 
 
 class InvalidRequest(PipelineError):

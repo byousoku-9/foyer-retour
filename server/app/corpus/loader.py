@@ -106,7 +106,7 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
 
 
 def _bloquant_statique(doc_dir: Path) -> str:
-    """Les noms des checks `level: bloquant` de `report.json`, ou "" (D6 de la story 1.10).
+    """Le défaut statique de `report.json`, ou "" lorsqu'il est absent ou valide sans bloquant.
 
     AD-8 énonce la règle du **service** : « un document est `servi` ssi aucun bloquant statique **et**
     `gate.evals_ok` ». La seconde moitié est ici depuis la story 1.1 (`_gate_alerts`) ; la première ne
@@ -116,21 +116,21 @@ def _bloquant_statique(doc_dir: Path) -> str:
     dont le rapport porte « page décisionnelle corrompue », sans que rien ne le voie. Le loader relit
     donc le rapport lui-même : c'est une propriété de ce qui est **chargé**, pas de ce qui a été écrit.
 
-    Ce qu'il ne fait **pas** : traiter un rapport absent, illisible ou étranger comme un bloquant.
-    AD-8 fait du rapport un artefact d'ingestion, et un document peut être servi avant qu'on l'ait
-    écrit (le guide l'a été en 1.1) ; l'illisibilité, elle, est déjà dite par les alertes
-    `rapport_illisible` / `rapport_etranger` d'`api/etat` (D9 de la story 1.9), qui sont des alertes
-    de la couche `api` et n'ont rien à faire dans `corpus` (table des couches du spine). Le rapport
-    est donc lu deux fois au démarrage, pour deux usages disjoints — dix lignes contre une refonte de
-    `Corpus` qui ferait remonter des alertes typées `api` dans `corpus`.
+    L'absence historique reste tolérée : le guide a précédé cet artefact. En revanche, dès qu'un
+    fichier est présent, le loader échoue fermé : une forme JSON ou un schéma invalide ne prouve pas
+    l'absence de bloquant et met donc ce document en quarantaine. `api/etat` conserve en parallèle
+    l'erreur publique précise (`rapport_illisible`) ; les deux lectures ont des usages disjoints.
+
+    Un rapport valide mais étranger reste distinct : ses checks ne décrivent pas ce document et ne
+    peuvent donc lui être appliqués. La couche API le refuse et publie `rapport_etranger`.
     """
     chemin = doc_dir / REPORT_FILE
     if not chemin.is_file():
         return ""
     try:
         rapport = Report.model_validate_json(chemin.read_bytes())
-    except (OSError, UnicodeDecodeError, ValueError):
-        return ""
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        return f"rapport_statique_illisible : {_read_error(exc)}"
     if rapport.doc_id != doc_dir.name:
         # Un rapport **étranger** (copie de dossier, `doc_id` renommé sans réingestion) parle d'un
         # autre document : ses bloquants ne disent rien de celui-ci, et les lui appliquer retirerait
@@ -282,7 +282,9 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
     except (OSError, UnicodeDecodeError) as exc:
         # La raison devient publique dans l'audit (story 3.5). Le type suffit à distinguer l'échec ;
         # ``str(OSError)`` peut contenir le chemin absolu de ``data/`` et ne doit jamais sortir.
-        LOG.warning("document.json illisible pour %s : %s", doc_id, exc)
+        # ``doc_id`` vient de la clé brute du manifest. ``%r`` conserve le détail interne tout en
+        # échappant les retours à la ligne, donc une clé hostile ne forge pas une ligne de log.
+        LOG.warning("document.json illisible pour %r : %s", doc_id, exc)
         return None, f"document.json illisible : {type(exc).__name__}", []
     if doc.doc_id != doc_id:
         return None, f"doc_id {doc.doc_id!r} différent de la clé du manifest", []
@@ -345,7 +347,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         try:
             summary = (data_dir / doc_id / "summary.md").read_text("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            LOG.warning("summary.md illisible pour %s : %s", doc_id, exc)
+            LOG.warning("summary.md illisible pour %r : %s", doc_id, exc)
             corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}"
             continue
         corpus.documents[doc_id] = doc

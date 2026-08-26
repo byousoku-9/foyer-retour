@@ -197,7 +197,13 @@ def _serveur(settings: Settings) -> Any:
     app = create_app(settings)
     with TestClient(app) as client:
         etat = app.state.foyer
-        client.origine = (etat.corpus, etat.index, etat.pipeline_sinistre)  # type: ignore[attr-defined]
+        client.origine = {  # type: ignore[attr-defined]
+            nom: getattr(etat, nom)
+            for nom in (
+                "settings", "corpus", "index", "pipeline_sinistre", "reports", "report_errors",
+                "source_urls", "alerts", "dictionnaire",
+            )
+        }
         yield client
 
 
@@ -217,7 +223,8 @@ def _etat_propre(request: pytest.FixtureRequest) -> Any:
     client = request.node.funcargs.get("prod")
     if client is not None:
         etat = client.app.state.foyer
-        etat.corpus, etat.index, etat.pipeline_sinistre = client.origine
+        for nom, valeur in client.origine.items():
+            setattr(etat, nom, valeur)
         etat.limiter.reset()
 
 
@@ -378,7 +385,7 @@ def _client_sur(racine: Any) -> Any:
 
 
 def test_un_rapport_illisible_remonte_jusqua_sante_et_a_la_route(tmp_path: Any) -> None:
-    """D9/AD-7 : « une incohérence est visible, jamais muette » — sur `/sante`, et 400 sur la route."""
+    """D1/AD-7 : présent mais invalide ⇒ alerte, 400 et quarantaine fail-closed."""
     _corpus_sur_disque(tmp_path, rapport="{pas du JSON", source="https://exemple.invalid/cg.pdf")
     with _client_sur(tmp_path) as client:
         alertes = client.get("/api/v1/sante").json()["alerts"]
@@ -386,9 +393,11 @@ def test_un_rapport_illisible_remonte_jusqua_sante_et_a_la_route(tmp_path: Any) 
         r = client.get("/api/v1/documents/doc-mini/report")
         assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
         assert r.json()["error"]["message"] == "le rapport d'ingestion est illisible"
-        # Le document, lui, **est** servi : un rapport illisible n'empêche pas de servir (D9).
         audit = client.get("/api/v1/documents").json()[0]
         assert audit["doc_id"] == "doc-mini"
+        assert audit["status"] == "quarantaine"
+        assert audit["selectionnable"] is False
+        assert "rapport_statique_illisible" in audit["raison"]
         assert audit["report_status"] == "illisible"
 
 
@@ -441,6 +450,15 @@ def test_une_source_sur_deux_lignes_publie_la_ligne_publiable(tmp_path: Any, fic
     ("HTTPS://Exemple.invalid/CG.pdf", "HTTPS://Exemple.invalid/CG.pdf"),
     ("Http://exemple.invalid/cg.pdf", "Http://exemple.invalid/cg.pdf"),
     ("GS://prive/cg.pdf", None),
+    ("https://localhost/secret.pdf", None),
+    ("https://service.localhost/secret.pdf", None),
+    ("http://127.0.0.1/secret.pdf", None),
+    ("http://10.0.0.8/secret.pdf", None),
+    ("http://169.254.169.254/latest/meta-data", None),
+    ("http://[::1]/secret.pdf", None),
+    ("https:///sans-hote.pdf", None),
+    ("https://exemple.invalid:99999/cg.pdf", None),
+    ("https://user:secret@exemple.invalid/cg.pdf", None),
     # Une ligne hors borne n'empoisonne pas le fichier : elle est sautée, la suivante est lue.
     ("https://exemple.invalid/" + "x" * 3000 + "\nhttps://exemple.invalid/cg.pdf",
      "https://exemple.invalid/cg.pdf"),
@@ -619,7 +637,11 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
     "./data/contrat.pdf",
     "../secret/contrat.pdf",
     "secrets/contrats/contrat.pdf",
+    "secrets/token",
     "config/privee.json",
+    "données/privées",
+    "données/privées/contrat-éxécuté.pdf",
+    "'/srv/données privées/contrat.pdf'",
     r"C:\Users\privé\contrat.pdf",
     r"\\serveur\partage\contrat.pdf",
     "data:text/plain;base64,U0VDUkVU",
@@ -646,6 +668,9 @@ def test_raison_publiable_est_bornee_sans_alterer_un_diagnostic_normal() -> None
         "entrée de manifest invalide : Field required",
         "entrée invalide: String should match pattern '^[a-z0-9-]+$'",
         "regex attendue : `/^[a-z]+/[0-9]+$/`",
+        "regex citée : '/^[a-z]+/[0-9]+$/'",
+        "types acceptés : application/json et text/plain",
+        "date 2026/08/27, fraction 1/2 et choix et/ou",
     )
     assert [raison_publiable(diagnostic) for diagnostic in diagnostics] == list(diagnostics)
     bornee = raison_publiable("diagnostic : " + "x" * 900)
@@ -654,11 +679,15 @@ def test_raison_publiable_est_bornee_sans_alterer_un_diagnostic_normal() -> None
 
 def test_les_deux_surfaces_http_filtrent_un_chemin_relatif_avec_la_borne_configuree(
         prod: TestClient) -> None:
-    from server.app.api.etat import _alertes
+    from server.app.api.etat import _alertes, _alertes_dictionnaire
     from server.app.corpus.loader import Corpus
+    from server.app.corpus.dictionary import Dictionnaire
 
-    raison = "lecture impossible : secrets/contrats/contrat.json"
+    max_chars = 48
+    raison = "lecture impossible : secrets/contrats/contrat.json — " + "x" * 100
     etat = prod.app.state.foyer
+    etat.settings = Settings(_env_file=None, anthropic_api_key="", env="dev", allow_ungated=True,
+                             raison_publiable_max_chars=max_chars)
     etat.corpus = Corpus(quarantine={"doc-prive": raison})
     etat.alerts = _alertes(
         etat.corpus, raison_max_chars=etat.settings.raison_publiable_max_chars)
@@ -667,7 +696,58 @@ def test_les_deux_surfaces_http_filtrent_un_chemin_relatif_avec_la_borne_configu
     assert sante.status_code == documents.status_code == 200
     assert "secrets/contrats" not in sante.text and "[emplacement masqué]" in sante.text
     assert "secrets/contrats" not in documents.text and "[emplacement masqué]" in documents.text
-    assert sante.json()["thresholds"]["raison_publiable_max_chars"] == 500
+    assert len(sante.json()["alerts"][0]["detail"]) == max_chars
+    assert len(documents.json()[0]["raison"]) == max_chars
+    assert sante.json()["thresholds"]["raison_publiable_max_chars"] == max_chars
+
+    dictionnaire = Dictionnaire(
+        charge=False,
+        raison="illisible : données/privées/dictionnaire.json — " + "x" * 100)
+    detail = _alertes_dictionnaire(
+        dictionnaire, raison_max_chars=etat.settings.raison_publiable_max_chars)[0].detail
+    assert "données/privées" not in detail and "[emplacement masqué]" in detail
+    assert detail.endswith("…")
+
+
+def test_un_rapport_publie_masque_les_emplacements_prives_sans_perdre_les_checks(
+        tmp_path: Any) -> None:
+    rapport = json.dumps({
+        "doc_id": "doc-mini",
+        "checks": [
+            {"name": "source_illisible", "level": "bloquant",
+             "detail": "OSError sur /srv/données privées/source.pdf"},
+            {"name": "couverture", "level": "info", "detail": "12 pages vérifiées"},
+        ],
+        "stats": {"pages": 12, "diagnostic": "cache secrets/rapports/run.json"},
+    }, ensure_ascii=False)
+    _corpus_sur_disque(tmp_path, rapport=rapport,
+                       source="https://exemple.invalid/cg.pdf", quarantaine=True)
+    with _client_sur(tmp_path) as client:
+        publie = client.get("/api/v1/documents/doc-mini/report")
+        assert publie.status_code == 200
+        corps = publie.json()
+        assert [(c["name"], c["level"]) for c in corps["checks"]] == [
+            ("source_illisible", "bloquant"), ("couverture", "info")]
+        assert corps["checks"][1]["detail"] == "12 pages vérifiées"
+        assert "[emplacement masqué]" in corps["checks"][0]["detail"]
+        assert "[emplacement masqué]" in corps["stats"]["diagnostic"]
+        assert str(tmp_path) not in publie.text
+
+
+def test_rapport_absent_est_distingue_sur_la_liste(tmp_path: Any) -> None:
+    _corpus_sur_disque(tmp_path, rapport=None, source="https://exemple.invalid/cg.pdf")
+    with _client_sur(tmp_path) as client:
+        audit = client.get("/api/v1/documents").json()[0]
+        assert audit["status"] == "servi"
+        assert audit["report_status"] == "absent"
+
+
+def test_frontieres_http_doc_id_64_accepte_65_refuse_par_le_schema(prod: TestClient) -> None:
+    accepte = prod.get(f"/api/v1/documents/{'a' * 64}/report")
+    refuse = prod.get(f"/api/v1/documents/{'a' * 65}/report")
+    assert accepte.status_code == refuse.status_code == 400
+    assert accepte.json()["error"]["message"] == "aucun rapport d'ingestion n'est publié pour ce document"
+    assert refuse.json()["error"]["message"].startswith("requête invalide — path.doc_id:")
 
 
 # --- ligne « Sinistre nominal (bougie) » ---------------------------------

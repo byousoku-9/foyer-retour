@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from server.app.config import REPO_ROOT, Settings
+from server.app.config import RAISON_PUBLIABLE_MAX_DEFAULT, REPO_ROOT, Settings
 from server.app.domain.trace import Trace
 
 THRESHOLD_VARS = [k.upper() for k in Settings.model_fields] + ["ENV", "ALLOW_UNGATED"]
@@ -22,7 +22,7 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
     assert s.deadline_s == 55 and s.llm_timeout_s == 40  # 40 s : AD-16 amendé en 1.9, sur mesure
-    assert s.raison_publiable_max_chars == 500
+    assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024

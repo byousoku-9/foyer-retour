@@ -305,6 +305,6 @@ class Document(DomainModel):
     @field_validator("doc_id")
     @classmethod
     def _doc_id_slug(cls, v: str) -> str:
-        if not DOC_ID_RE.match(v):
+        if not DOC_ID_RE.fullmatch(v):
             raise ValueError(f"doc_id doit être un slug [a-z0-9-]+ : {v!r}")
         return v

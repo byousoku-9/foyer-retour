@@ -37,7 +37,7 @@ from pydantic import ValidationError
 from server.app.config import get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
-from server.app.domain.document import DOC_ID_RE
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
                                      read_manifest, write_atomic)
 from server.ingest.fetch_source import GS_URL_RE
@@ -953,8 +953,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--title")
     args = parser.parse_args(argv)
     # Résoudre `data/{doc_id}` avant ce contrôle autoriserait séparateurs et `..` à sortir du dépôt.
-    if not DOC_ID_RE.fullmatch(args.doc_id):
-        print(f"doc_id invalide (slug [a-z0-9-]+ attendu) : {args.doc_id!r}", file=sys.stderr)
+    if len(args.doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(args.doc_id):
+        print(f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu) : "
+              f"{args.doc_id!r}", file=sys.stderr)
         return 2
     report, entry = run(args.data / args.doc_id, edition=args.edition, doc_id=args.doc_id, title=args.title)
     for c in report.checks:

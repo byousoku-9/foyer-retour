@@ -30,6 +30,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # un champ : la différence est qu'il ne décrit pas le contrat de sortie, il plafonne une dépense, et
 # c'est précisément ce qu'une éval doit pouvoir déplacer.
 LISTE_MAX_ITEMS = 32
+# Projection HTTP des diagnostics de quarantaine. Le défaut est nommé ici, à côté du champ qui
+# l'emploie, afin que les consommateurs n'aient pas à introspecter ``Settings.model_fields`` à
+# l'import (une couture fragile aux changements de Pydantic).
+RAISON_PUBLIABLE_MAX_DEFAULT = 500
 
 
 class Settings(BaseSettings):
@@ -91,7 +95,7 @@ class Settings(BaseSettings):
     # (`/sante` et `/documents`). Leur borne est un seuil d'exploitation réglable et publié,
     # pas une propriété du schéma de domaine : une raison plus longue reste conservée en mémoire
     # et dans les journaux, seule sa projection HTTP est abrégée.
-    raison_publiable_max_chars: int = Field(500, ge=1)
+    raison_publiable_max_chars: int = Field(RAISON_PUBLIABLE_MAX_DEFAULT, ge=1)
 
     # Vérification des citations (AD-3)
     quote_min_chars: int = Field(25, ge=1)

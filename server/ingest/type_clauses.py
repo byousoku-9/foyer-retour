@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.corpus.text import normalize
 from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, Node, Report, is_citable
-from server.app.domain.document import DOC_ID_RE, Relation
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 from server.ingest.artifacts import document_json, merged_manifest, read_manifest
@@ -1520,8 +1520,9 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         help="migration auditée de deux lots antérieurs; exige leurs deux IDs et l'empreinte courante",
     )
     args = parser.parse_args(argv)
-    if not DOC_ID_RE.fullmatch(args.doc_id):
-        print(f"doc_id invalide (slug [a-z0-9-]+ attendu): {args.doc_id!r}", file=sys.stderr)
+    if len(args.doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(args.doc_id):
+        print(f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu): "
+              f"{args.doc_id!r}", file=sys.stderr)
         return 2
     if args.max_cost is not None and (not math.isfinite(args.max_cost) or args.max_cost <= 0):
         print("--max-cost doit être un nombre fini > 0", file=sys.stderr)

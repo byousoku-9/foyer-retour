@@ -1070,12 +1070,16 @@ def test_alerte_dictionnaire_masque_le_chemin_http_et_le_garde_au_log(
     dictionnaire = Dictionnaire(raison=f"lecture impossible : {secret}")
     with caplog.at_level(logging.WARNING, logger="foyer.etat"):
         alertes = etat_module._alertes_dictionnaire(dictionnaire)
+        assert caplog.records == []  # projection pure : aucun double log
+        etat_module._journaliser_dictionnaire(dictionnaire)
     prod.app.state.foyer.alerts = alertes
 
     reponse = prod.get("/api/v1/sante", headers=XFF)
     assert reponse.status_code == 200
     assert secret not in reponse.text and "[emplacement masqué]" in reponse.text
     assert secret in caplog.text
+    assert len([record for record in caplog.records
+                if record.name == "foyer.etat" and record.levelno == logging.WARNING]) == 1
 
 
 def test_la_route_passe_le_dictionnaire_charge_au_pipeline(prod: TestClient) -> None:

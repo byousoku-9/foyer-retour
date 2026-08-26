@@ -553,6 +553,14 @@ def test_un_incident_conserve_le_cout_deja_engage_dans_le_budget_et_la_trace() -
     assert erreur.trace.total_cost_eur == 0.0372
 
 
+def test_un_incident_sans_trace_conserve_aussi_le_cout_du_budget() -> None:
+    erreur = Timeout("réponse interrompue sans trace assemblée")
+    ctx = _armer(_contexte([erreur], cout=0.0413))
+    with pytest.raises(runner.IncidentTechnique) as exc:
+        _executer(ctx, [_cas(id="g-sans-trace")])
+    assert "coût engagé 0.0413 €" in str(exc.value)
+
+
 def test_le_plafond_atteint_pendant_un_cas_est_dit_pour_ce_quil_est() -> None:
     """Le budget d'un cas est le reste du run (AD-9) : `BudgetExceeded` y veut dire « ce cas
     déborderait le plafond », pas « le fournisseur est en panne ». Même arrêt, une étape plus tard."""
@@ -561,14 +569,25 @@ def test_le_plafond_atteint_pendant_un_cas_est_dit_pour_ce_quil_est() -> None:
         _executer(ctx, [_cas(id="g-luxtrust")], max_cost=0.03)
     message = str(exc.value)
     assert "plafond de run atteint pendant le cas g-luxtrust" in message
-    assert "0.0300" in message
+    assert "0.0200 € engagés sur 0.0300 €" in message
 
 
 def test_un_cas_hors_bornes_du_pipeline_est_un_refus_pas_un_incident() -> None:
-    """`invalid_request` est une faute d'écriture du cas : ni verdict, ni incident (code 2)."""
-    ctx = _armer(_contexte([InvalidRequest("historique de 12 tours")]))
-    with pytest.raises(runner.RefusDeTourner):
+    """`invalid_request` reste un refus, mais un appel déjà facturé n'est pas présenté gratuit."""
+    ctx = _armer(_contexte([InvalidRequest("historique de 12 tours")], cout=0.0187))
+    with pytest.raises(runner.RefusDeTourner) as exc:
         _executer(ctx, [_cas(id="g-luxtrust")])
+    assert "coût engagé 0.0187 €" in str(exc.value)
+
+
+def test_une_exception_inattendue_apres_un_appel_devient_un_incident_facture() -> None:
+    ctx = _armer(_contexte([RuntimeError("secret interne")], cout=0.0291))
+    with pytest.raises(runner.IncidentTechnique) as exc:
+        _executer(ctx, [_cas(id="g-interne")])
+    message = str(exc.value)
+    assert "internal (RuntimeError)" in message
+    assert "coût engagé 0.0291 €" in message
+    assert "secret interne" not in message
 
 
 def test_le_plafond_de_run_arrete_avant_le_cas_suivant() -> None:

@@ -13,7 +13,7 @@ import pytest
 
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
-from server.app.domain import GateContext
+from server.app.domain import Document, GateContext
 from server.ingest import kb_to_blocks as k
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -499,11 +499,14 @@ def test_le_bloquant_statique_suit_exclusivement_le_modele_report(data: Path) ->
     """D1 : une forme que l'ancien parseur manuel acceptait ne décide plus du service.
 
     Le check porte bien `level=bloquant`, mais un champ étranger rend le rapport invalide selon
-    `Report(extra=forbid)`. `_bloquant_statique` ne peut donc plus lire une autre vérité à la main.
+    `Report(extra=forbid)`. Le loader ne lit pas une autre vérité à la main : le rapport entier est
+    invalide et la décision fail-closed le met en quarantaine.
     """
     _report(data, [{"name": "page_sans_texte", "level": "bloquant", "detail": "p. 12",
                     "champ_inattendu": True}])
-    assert load_corpus(data, allow_ungated=True).served == ["lux-guide"]
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.served == []
+    assert "rapport_statique_illisible" in corpus.quarantine["lux-guide"]
 
 
 def test_un_doc_id_trop_long_est_mis_en_quarantaine_par_le_domaine(data: Path) -> None:
@@ -533,25 +536,23 @@ def test_un_bloquant_statique_ne_se_deroge_pas_par_allow_ungated(data: Path) -> 
         assert c.served == [] and c.quarantine["lux-guide"].startswith("bloquant_statique")
 
 
+def test_un_rapport_absent_reste_compatible_avec_le_corpus_historique(data: Path) -> None:
+    (data / "lux-guide" / "report.json").unlink()
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.served == ["lux-guide"] and corpus.quarantine == {}
+
+
 @pytest.mark.parametrize("contenu", [
-    None,                                   # rapport absent : le guide a été servi sans en 1.1
     "{ceci n'est pas du JSON",              # illisible : `api/etat` porte déjà l'alerte (D9 de 1.9)
-    '{"doc_id": "lux-guide"}',              # sans `checks`
     '[{"name": "x", "level": "bloquant"}]',  # forme inattendue : ce n'est pas un rapport
 ])
-def test_un_rapport_absent_ou_illisible_nest_pas_un_bloquant(data: Path, contenu: str | None) -> None:
-    """D6 : « ce qu'il ne fait **pas** : traiter un rapport absent ou illisible comme un bloquant ».
-
-    AD-8 fait du rapport un artefact d'ingestion, et un document peut être servi avant qu'on l'ait
-    écrit. Le rendre bloquant retirerait du service un document sur l'absence d'un fichier.
-    """
-    chemin = data / "lux-guide" / "report.json"
-    if contenu is None:
-        chemin.unlink()
-    else:
-        _report(data, contenu)
-    c = load_corpus(data, allow_ungated=True)
-    assert c.served == ["lux-guide"] and c.quarantine == {}
+def test_un_rapport_present_mais_invalide_met_le_document_en_quarantaine(
+        data: Path, contenu: str) -> None:
+    """D1 : présent mais non prouvé conforme ⇒ fail-closed, indépendamment du manifest."""
+    _report(data, contenu)
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.served == []
+    assert "rapport_statique_illisible" in corpus.quarantine["lux-guide"]
 
 
 def test_une_alerte_du_rapport_ne_retire_pas_le_document(data: Path) -> None:
@@ -575,6 +576,67 @@ def test_un_rapport_etranger_nest_pas_un_bloquant(data: Path) -> None:
         "stats": {}}))
     c = load_corpus(data, allow_ungated=True)
     assert c.served == ["lux-guide"] and c.quarantine == {}
+
+
+@pytest.mark.parametrize("doc_id, valide", [
+    ("a" * 64, True),
+    ("a" * 65, False),
+    ("doc-valide\n", False),
+])
+def test_le_domaine_applique_les_vraies_frontieres_du_doc_id(doc_id: str, valide: bool) -> None:
+    brut = {"doc_id": doc_id, "kind": "contrat", "title": "Test", "edition": "2026"}
+    if valide:
+        assert Document.model_validate(brut).doc_id == doc_id
+    else:
+        with pytest.raises(ValueError, match="doc_id"):
+            Document.model_validate(brut)
+
+
+@pytest.mark.parametrize("module_name, attendu", [
+    ("pdf", 2), ("typing", 2), ("fetch", 4), ("dictionary", 2),
+])
+def test_les_cli_ingestion_refusent_un_doc_id_au_dela_de_la_borne(
+        module_name: str, attendu: int, tmp_path: Path) -> None:
+    """Les entrées utilisateur partagent le contrat de 64 caractères avant toute I/O ou API."""
+    trop_long = "a" * 65
+    if module_name == "pdf":
+        from server.ingest.pdf_to_blocks import main
+        code = main([trop_long, "--data", str(tmp_path)])
+    elif module_name == "typing":
+        from server.ingest.type_clauses import main
+        code = main([trop_long, "--data", str(tmp_path)])
+    elif module_name == "fetch":
+        from server.ingest.fetch_source import main
+        code = main([trop_long, "--data", str(tmp_path)])
+    else:
+        from server.ingest.enrich_dictionary import main
+        code = main(["--doc-id", trop_long, "--data", str(tmp_path)], settings=None)
+    assert code == attendu
+
+
+def test_une_cle_manifest_avec_newline_ne_peut_pas_forger_une_ligne_de_log(
+        data: Path, monkeypatch: Any, caplog: Any) -> None:
+    doc_id = "doc\nforge"
+    dossier = data / doc_id
+    shutil.copytree(data / "lux-guide", dossier)
+    manifest = _manifest(data)
+    manifest[doc_id] = dict(manifest.pop("lux-guide"))
+    _write_manifest(data, manifest)
+    cible = dossier / "document.json"
+    original = Path.read_bytes
+
+    def lire(chemin: Path) -> bytes:
+        if chemin == cible:
+            raise OSError("lecture privée impossible")
+        return original(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", lire)
+    with caplog.at_level(logging.WARNING, logger="foyer.corpus.loader"):
+        corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.quarantine[doc_id] == "document.json illisible : OSError"
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("doc\\nforge" in message for message in messages)
+    assert all("doc\nforge" not in message for message in messages)
 
 
 # --- story 2.1 : le périmètre dérivé du corpus ------------------------------

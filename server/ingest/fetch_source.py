@@ -24,6 +24,7 @@ from pathlib import Path
 import httpx
 
 from server.app.config import get_settings
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 
 SOURCES_BUCKET = "foyer-retour-sources"
 METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
@@ -85,6 +86,11 @@ def _download(client: httpx.Client, url: str, headers: dict[str, str]) -> bytes:
 
 def fetch(doc_id: str, data_dir: Path | str = "data", *, client: httpx.Client | None = None) -> Path:
     """Écrit `data/{doc_id}/source.pdf` (atomique) après vérification du sha256 ; lève `FetchError(code)`."""
+    if len(doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(doc_id):
+        raise FetchError(
+            EXIT_USAGE,
+            f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu) : {doc_id!r}",
+        )
     doc_dir = Path(data_dir) / doc_id
     url, expected = read_reference(doc_dir)
     own = client is None

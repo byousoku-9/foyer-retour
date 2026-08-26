@@ -58,6 +58,7 @@ from server.app.domain.dictionary import (
     SCHEMA_VERSION,
     DictionaryFile,
 )
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 
@@ -622,6 +623,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
 
     settings = settings or get_settings()
     doc_id = args.doc_id or settings.guide_doc_id
+    if len(doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(doc_id):
+        print(f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu) : "
+              f"{doc_id!r}", file=sys.stderr)
+        return 2
     data_dir = Path(args.data)
     corpus = load_corpus(data_dir, allow_ungated=True,
                          perimetre_max_chars=settings.perimetre_max_chars)

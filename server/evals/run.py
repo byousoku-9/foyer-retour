@@ -110,6 +110,15 @@ class IncidentTechnique(Exception):
     """Un incident pendant un cas — code 3, manifest intact : un incident n'est pas un verdict (D4)."""
 
 
+class _ErreurInterneFacturee(Exception):
+    """Exception inattendue après démarrage d'un cas, avec le coût réellement engagé."""
+
+    def __init__(self, type_erreur: str, cout_eur: float) -> None:
+        super().__init__(type_erreur)
+        self.type_erreur = type_erreur
+        self.cout_eur = cout_eur
+
+
 # --- le schéma des cas (AD-14, définition partagée d'`epics.md`) ---------------------------------
 #
 # Les modèles vivent **ici** et non dans `domain/` : ce sont les entrées d'un outil de mesure, pas des
@@ -485,10 +494,15 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
         # attache sa trace partielle à l'erreur ; le budget reste l'autorité de coût même si cette
         # trace n'a pas encore été assemblée. Le runner conserve les deux faits sur l'exception afin
         # que l'incident ne retombe jamais artificiellement à 0,0000 €.
-        exc.eval_cost_eur = round(budget.cost_eur, 4)  # type: ignore[attr-defined]
+        exc.eval_cost_eur = round(budget.cost_eur, 4)
         if exc.trace is not None:
             exc.trace.total_cost_eur = round(budget.cost_eur, 4)
         raise
+    except Exception as exc:
+        # Une faute interne n'a pas la couture ``PipelineError.trace`` mais elle peut survenir après
+        # un appel facturé. Ne pas la laisser sortir brute (ni remettre son coût à zéro) : le runner
+        # la convertira en incident, sans inventer de verdict.
+        raise _ErreurInterneFacturee(type(exc).__name__, round(budget.cost_eur, 4)) from exc
     return answer, trace, round(budget.cost_eur, 4)
 
 
@@ -507,8 +521,12 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
         depart = time.monotonic()
         try:
             answer, _trace, cout = await executer_cas(c, ctx, doc_id=doc_id, budget_restant_eur=restant)
+        except _ErreurInterneFacturee as exc:
+            cout_total = round(cumul + exc.cout_eur, 4)
+            raise IncidentTechnique(
+                f"cas {c.id} : internal ({exc.type_erreur}) — coût engagé {cout_total:.4f} €") from exc
         except PipelineError as exc:
-            cout_engage = float(getattr(exc, "eval_cost_eur", 0.0))
+            cout_engage = exc.eval_cost_eur
             cout_total = round(cumul + cout_engage, 4)
             if exc.code is ErrorCode.budget_exceeded:
                 # Le plafond de run **atteint pendant** un cas, et non avant lui : le budget de la
@@ -525,7 +543,9 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                     f"{cout_total:.4f} €") from exc
             # `invalid_request` : le cas est hors des bornes du pipeline. C'est une faute d'écriture
             # du cas, pas une mesure ; refus, et rien n'est écrit non plus.
-            raise RefusDeTourner(f"cas {c.id} refusé par le pipeline : {exc.message}") from exc
+            raise RefusDeTourner(
+                f"cas {c.id} refusé par le pipeline : {exc.message} — coût engagé "
+                f"{cout_total:.4f} €") from exc
         cumul = round(cumul + cout, 4)
         label, ecarts = juger(c, answer, doc_id=doc_id, index=ctx.index)
         resultat = Resultat(id=c.id, suite=c.suite, label=label, ecarts=ecarts, cost_eur=cout,
