@@ -62,14 +62,22 @@ def read_manifest(manifest_path: Path) -> dict[str, Any]:
     return raw
 
 
-def merge_manifest(manifest_path: Path, raw: dict[str, Any], doc_id: str, entry: ManifestEntry) -> ManifestEntry:
-    """Fusionne l'entrée `doc_id` ; les autres documents sont conservés tels quels, même invalides (avertissement)."""
+def merged_manifest(raw: dict[str, Any], doc_id: str, entry: ManifestEntry) -> tuple[str, ManifestEntry]:
+    """Prépare le manifest fusionné sans écrire.
+
+    Le gate ne couvre pas seulement la source : il certifie le `document.json` et l'overlay qui ont
+    été relus. Il n'est donc conservé que si leurs deux empreintes sont byte-identiques. Le schéma
+    autoritaire du gate reste inchangé ; cette comparaison appartient à l'ingestion.
+    """
     adapter = TypeAdapter(ManifestEntry)
     previous = raw.get(doc_id)
     gate = None
     if previous:
         try:
-            gate = adapter.validate_python(previous).gate  # jamais écrit par l'ingestion (AD-7) : conservé
+            previous_entry = adapter.validate_python(previous)
+            if (previous_entry.document_hash, previous_entry.overlay_hash) == (
+                    entry.document_hash, entry.overlay_hash):
+                gate = previous_entry.gate  # jamais écrit par l'ingestion (AD-7), seulement préservé
         except ValidationError as exc:
             print(f"avertissement : entrée {doc_id} précédente invalide, gate ignoré ({exc.errors()[0].get('msg', '')})",
                   file=sys.stderr)
@@ -82,5 +90,11 @@ def merge_manifest(manifest_path: Path, raw: dict[str, Any], doc_id: str, entry:
             print(f"avertissement : entrée {other!r} du manifest invalide, conservée telle quelle", file=sys.stderr)
     entry = entry.model_copy(update={"gate": gate})
     raw[doc_id] = entry.model_dump()
-    write_atomic(manifest_path, json.dumps(dict(sorted(raw.items())), indent=2, ensure_ascii=False) + "\n")
-    return entry
+    return json.dumps(dict(sorted(raw.items())), indent=2, ensure_ascii=False) + "\n", entry
+
+
+def merge_manifest(manifest_path: Path, raw: dict[str, Any], doc_id: str, entry: ManifestEntry) -> ManifestEntry:
+    """Fusionne l'entrée `doc_id` ; les autres documents sont conservés tels quels, même invalides."""
+    text, merged = merged_manifest(raw, doc_id, entry)
+    write_atomic(manifest_path, text)
+    return merged

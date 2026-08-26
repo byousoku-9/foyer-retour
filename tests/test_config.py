@@ -192,6 +192,32 @@ def test_les_seuils_du_dictionnaire_sont_ceux_de_la_spec() -> None:
         assert t[nom] == getattr(s, nom), nom
 
 
+def test_les_seuils_du_typage_clauses_sont_bornes_publies_et_documentes() -> None:
+    s = Settings(_env_file=None)
+    expected = {
+        "type_clauses_max_blocks_per_request": 10,
+        "type_clauses_max_input_chars": 60000,
+        "type_clauses_max_requests_per_batch": 1000,
+        "type_clauses_max_output_tokens": 2048,
+        "type_clauses_max_cost_eur": 12.0,
+        "type_clauses_batch_poll_s": 20.0,
+        "type_clauses_batch_timeout_s": 7200.0,
+        "type_clauses_max_article_refs": 12,
+        "type_clauses_max_scope_articles": 20,
+        "type_clauses_max_relations": 6,
+        "type_clauses_ref_expansion_max_blocks": 30,
+        "type_clauses_definition_max_chars": 120,
+        "type_clauses_definition_max_words": 12,
+    }
+    thresholds = s.thresholds()
+    for name, value in expected.items():
+        assert getattr(s, name) == value and thresholds[name] == value
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, **{name: 0})
+    cited = set(_seuils_commentes())
+    assert {name.upper() for name in expected} <= cited
+
+
 @pytest.mark.parametrize("bad", [
     {"dictionary_term_max_chars": 0}, {"dictionary_term_max_words": 0},
     {"dictionary_max_variants_per_term": 0}, {"dictionary_max_terms_per_fiche": 0},
@@ -266,7 +292,14 @@ def test_les_seuils_de_la_story_sont_documentes_dans_env_example() -> None:
                 "DICTIONARY_QUESTION_MAX_CHARS", "DICTIONARY_MAX_QUESTIONS_PER_FICHE",
                 "DICTIONARY_MAX_INTENT_TRIGGERS", "DICTIONARY_MAX_OUTPUT_TOKENS",
                 "DICTIONARY_MAX_COST_EUR", "DICTIONARY_BATCH_POLL_S",
-                "DICTIONARY_BATCH_TIMEOUT_S", "PERIMETRE_MAX_CHARS"}
+                "DICTIONARY_BATCH_TIMEOUT_S", "PERIMETRE_MAX_CHARS",
+                "TYPE_CLAUSES_MAX_BLOCKS_PER_REQUEST", "TYPE_CLAUSES_MAX_INPUT_CHARS",
+                "TYPE_CLAUSES_MAX_REQUESTS_PER_BATCH", "TYPE_CLAUSES_MAX_OUTPUT_TOKENS",
+                "TYPE_CLAUSES_MAX_COST_EUR", "TYPE_CLAUSES_BATCH_POLL_S",
+                "TYPE_CLAUSES_BATCH_TIMEOUT_S", "TYPE_CLAUSES_MAX_ARTICLE_REFS",
+                "TYPE_CLAUSES_MAX_SCOPE_ARTICLES", "TYPE_CLAUSES_MAX_RELATIONS",
+                "TYPE_CLAUSES_REF_EXPANSION_MAX_BLOCKS", "TYPE_CLAUSES_DEFINITION_MAX_CHARS",
+                "TYPE_CLAUSES_DEFINITION_MAX_WORDS"}
     assert attendus <= cites, sorted(attendus - cites)
 
 

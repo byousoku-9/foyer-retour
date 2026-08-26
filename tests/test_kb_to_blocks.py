@@ -117,16 +117,37 @@ def test_run_writes_artefacts_and_is_deterministic(data_dir: Path) -> None:
 
 
 def test_manifest_merge_keeps_other_docs_and_existing_gate(data_dir: Path) -> None:
-    gate = {"profile": "vertical", "source_hash": "s", "ingest_fingerprint": "f", "cases_hash": "c", "pipeline_digest": "p",
+    # Le gate ne peut être préservé que sur une reprise byte-identique : on produit d'abord l'entrée
+    # qu'il certifie, puis on rejoue exactement la même ingestion.
+    k.run(data_dir, edition="git:test")
+    current = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"]
+    gate = {"profile": "vertical", "source_hash": current["source_hash"],
+            "ingest_fingerprint": current["ingest_fingerprint"], "cases_hash": "c", "pipeline_digest": "p",
             "prompts_digest": "q", "model_ids": {}, "evals_ok": True, "date": "2026-08-23", "overlay_hash": None,
             "cases": 1, "countersigned": False}
     other = {"status": "servi", "source_hash": "x", "ingest_fingerprint": "y", "document_hash": "z", "edition": "e",
              "overlay_hash": None, "gate": None}
     (data_dir.parent / "manifest.json").write_text(json.dumps({
-        "lux-guide": {**other, "gate": gate}, "autre-doc": other}), "utf-8")
+        "lux-guide": {**current, "gate": gate}, "autre-doc": other}), "utf-8")
     k.run(data_dir, edition="git:test")
     m = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
     assert m["autre-doc"] == other and m["lux-guide"]["gate"] == gate and m["lux-guide"]["status"] == "servi"
+
+
+def test_manifest_merge_invalidates_gate_when_document_changes(data_dir: Path) -> None:
+    k.run(data_dir, edition="git:test")
+    path = data_dir.parent / "manifest.json"
+    raw = json.loads(path.read_text("utf-8"))
+    raw["lux-guide"]["gate"] = {
+        "profile": "vertical", "source_hash": raw["lux-guide"]["source_hash"],
+        "ingest_fingerprint": raw["lux-guide"]["ingest_fingerprint"], "cases_hash": "c",
+        "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {}, "evals_ok": True,
+        "date": "2026-08-23", "overlay_hash": None, "cases": 1, "countersigned": False,
+    }
+    raw["lux-guide"]["document_hash"] = "ancien-document"
+    path.write_text(json.dumps(raw), "utf-8")
+    _, entry = k.run(data_dir, edition="git:test")
+    assert entry.gate is None
 
 
 def test_modified_source_only_shifts_ids_after_insertion(data_dir: Path) -> None:

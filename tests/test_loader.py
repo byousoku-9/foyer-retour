@@ -214,15 +214,22 @@ def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
 
 
 def test_repo_data_loads() -> None:
-    """Le corpus du dépôt, chargé **sans** dérogation : depuis la story 1.10, leur gate suffit.
+    """Le corpus du dépôt suit l'état autoritaire de son manifest, avant ou après re-gate.
 
     `allow_ungated=False` est la configuration de l'image (le `Dockerfile` n'arme plus la variable) :
-    ce test est donc ce qui dit qu'un déploiement sert bien les deux documents, et non un
-    `documents_servis: []` que seule la dérogation masquait.
+    le typage 3.2 doit d'abord mettre AXA en `sans_gate` puisqu'il change son document et retire son
+    overlay ; le runner d'évals est ensuite le seul à pouvoir le rendre de nouveau servi.
     """
+    manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))
     c = load_corpus(ROOT / "data", allow_ungated=False)
     axa = [] if (ROOT / "data" / "axa-lu-optihome-2017" / "source.pdf").is_file() else ["source_absente"]
-    assert c.quarantine == {} and c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": []}
+    if manifest["axa-lu-optihome-2017"]["gate"] is None:
+        assert c.quarantine == {"axa-lu-optihome-2017": "sans_gate"} and c.alerts == {"lux-guide": []}
+        permissive = load_corpus(ROOT / "data", allow_ungated=True)
+        assert permissive.quarantine == {}
+        assert permissive.alerts == {"axa-lu-optihome-2017": ["sans_gate", *axa], "lux-guide": []}
+    else:
+        assert c.quarantine == {} and c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": []}
     doc = c.documents["lux-guide"]
     assert doc.doc_id == "lux-guide" and doc.edition == "git:a8e8593" and len(doc.blocks) > 400
     assert all(b.text_norm == normalize(b.text) for b in doc.blocks)

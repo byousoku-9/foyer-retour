@@ -28,6 +28,12 @@ _LEGAL_WORDS = frozenset({
     "assuré", "assuree", "assureur", "avenant", "clause", "conditions", "contrat", "dommage", "exclusion",
     "franchise", "garantie", "indemnité", "indemnite", "prime", "responsabilité", "responsabilite", "sinistre",
 })
+_LEGAL_KINDS = frozenset({"definition", "garantie", "exclusion", "condition", "franchise"})
+_NEGATIVE_MARKERS = frozenset({"ne", "pas", "exclu", "exclus", "exclue", "exclues", "sauf", "hors", "jamais"})
+_TYPING_CHECKS = frozenset({
+    "corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
+    "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes", "typage_clauses",
+})
 
 
 def _tree_category(message: str) -> str:
@@ -274,6 +280,9 @@ def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[An
         "tdm_pdf_entrees": len(toc),
         "numeros_articles": len(numbers),
         "tables": kinds.get("table", 0),
+        # Donnée structurée consommée par le typage 3.2. Il ne reparcourt ni les pages PDF ni la
+        # prose du check `charabia` pour savoir si une clause décisionnelle est corrompue.
+        "pages_charabia": {str(page): 1 for page in gibberish},
     }
     non_citable = [block for block in doc.blocks if not is_citable(block)]
     non_citable_pages = sorted({block.page for block in non_citable if block.page is not None})
@@ -342,3 +351,85 @@ def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[An
         stats["sommaire_chars"] = len(summary)
     checks += ids_disparus(doc, previous, stats)
     return Report(doc_id=doc.doc_id, checks=checks, stats=stats)
+
+
+def pages_charabia(report: Report) -> set[int]:
+    """Exige la sortie structurée 3.1 ; aucun rapport ancien ne vaut implicitement « zéro page »."""
+    if "pages_charabia" not in report.stats:
+        raise ValueError("report.stats.pages_charabia absent (relancer pdf_to_blocks avant tout Batch)")
+    raw_pages = report.stats["pages_charabia"]
+    if not isinstance(raw_pages, dict) or any(
+        not isinstance(page, str) or not page.isdecimal() or int(page) < 1
+        or isinstance(present, bool) or present != 1
+        for page, present in raw_pages.items()
+    ):
+        raise ValueError(
+            "report.stats.pages_charabia doit être un objet structuré {\"page\": 1} "
+            "(relancer pdf_to_blocks avant tout Batch)"
+        )
+    return {int(page) for page in raw_pages}
+
+
+def enrich_typing_report(report: Report, doc: Document) -> Report:
+    """Ajoute les checks AD-8 du typage sans modifier les checks structurels de 3.1.
+
+    La fonction est idempotente : une reprise remplace ses propres checks, jamais ceux du parsing.
+    La corruption décisionnelle repose exclusivement sur `stats.pages_charabia`, publié par
+    `build_pdf_report`; aucune phrase humaine du rapport n'est parsée.
+    """
+    checks = [check for check in report.checks if check.name not in _TYPING_CHECKS]
+    legal = [block for block in doc.blocks if block.kind in _LEGAL_KINDS]
+    typed = [block for block in doc.blocks if block.kind_source in {"model", "model_verified"}]
+    confirmed = [block for block in legal if block.kind_source == "model_verified"]
+
+    gibberish_pages = pages_charabia(report)
+    corrupted = [block.block_id for block in legal if block.page in gibberish_pages]
+    if corrupted:
+        checks.append(Check(name="corruption_decisionnelle", level="bloquant",
+                            detail="bloc(s) juridique(s) sur une page signalée comme charabia : "
+                                   + ", ".join(corrupted)[:1900]))
+
+    unresolved = [(block.block_id, ref) for block in typed for ref in block.unresolved_refs]
+    if unresolved:
+        checks.append(Check(name="unresolved_refs", level="alerte",
+                            detail=", ".join(f"{block_id} → {ref}" for block_id, ref in unresolved)[:2000]))
+
+    missing_definitions = [block.block_id for block in legal if block.kind == "definition" and not block.defines]
+    if missing_definitions:
+        checks.append(Check(name="definition_introuvable", level="alerte",
+                            detail=", ".join(missing_definitions)[:2000]))
+
+    exclusions_without_marker = []
+    for block in legal:
+        if block.kind != "exclusion":
+            continue
+        tokens = set(normalize(block.text).split())
+        if not tokens & _NEGATIVE_MARKERS:
+            exclusions_without_marker.append(block.block_id)
+    if exclusions_without_marker:
+        checks.append(Check(name="exclusion_sans_marqueur", level="alerte",
+                            detail=", ".join(exclusions_without_marker)[:2000]))
+
+    threshold = get_settings().kind_confidence_min
+    low_confidence = [block.block_id for block in typed
+                      if block.kind_confidence is None or block.kind_confidence < threshold]
+    if low_confidence:
+        checks.append(Check(name="confiance_typage_faible", level="alerte",
+                            detail=f"seuil {threshold:.2f} : " + ", ".join(low_confidence)[:1950]))
+
+    unconfirmed = [block.block_id for block in legal if block.kind_source != "model_verified"]
+    if unconfirmed:
+        checks.append(Check(name="kinds_non_confirmes", level="alerte",
+                            detail=", ".join(unconfirmed)[:2000]))
+
+    stats = dict(report.stats)
+    stats.update({
+        "blocs_types_modele": len(typed),
+        "blocs_juridiques": len(legal),
+        "blocs_juridiques_confirmes": len(confirmed),
+        "references_non_resolues": len(unresolved),
+    })
+    checks.append(Check(name="typage_clauses", level="info",
+                        detail=f"{len(typed)} bloc(s) étiqueté(s), {len(confirmed)}/{len(legal)} "
+                               "kind(s) juridique(s) confirmé(s) par deux lectures"))
+    return Report(doc_id=report.doc_id, checks=checks, stats=stats)

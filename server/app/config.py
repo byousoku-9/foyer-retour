@@ -351,6 +351,27 @@ class Settings(BaseSettings):
     dictionary_max_cost_eur: float = Field(3.0, gt=0)
     dictionary_batch_poll_s: float = Field(20.0, gt=0)
     dictionary_batch_timeout_s: float = Field(3600.0, gt=0)
+
+    # Typage des clauses (story 3.2, AD-2 / AD-7 / AD-8). Une première lecture couvre tous les
+    # blocs citables, puis une seconde relit seulement les kinds juridiques. Le regroupement est
+    # borné à la fois en blocs et en caractères : aucune taille moyenne de paragraphe n'est supposée.
+    type_clauses_max_blocks_per_request: int = Field(10, ge=1)
+    type_clauses_max_input_chars: int = Field(60000, ge=1)
+    type_clauses_max_requests_per_batch: int = Field(1000, ge=1)
+    type_clauses_max_output_tokens: int = Field(2048, ge=1)
+    # Majorant des **deux** lectures, vérifié avant la première soumission avec le pire cas où tous
+    # les blocs seraient juridiques. Le coût publié après exécution vient toujours de l'usage API.
+    type_clauses_max_cost_eur: float = Field(12.0, gt=0)
+    type_clauses_batch_poll_s: float = Field(20.0, gt=0)
+    type_clauses_batch_timeout_s: float = Field(7200.0, gt=0)
+    # Bornes appliquées aux étiquettes : une cible d'article trop large ou une liste partielle ne
+    # produit aucun lien. Le verdict reste alors humain via `unresolved_refs`.
+    type_clauses_max_article_refs: int = Field(12, ge=1)
+    type_clauses_max_scope_articles: int = Field(20, ge=1)
+    type_clauses_max_relations: int = Field(6, ge=1)
+    type_clauses_ref_expansion_max_blocks: int = Field(30, ge=1)
+    type_clauses_definition_max_chars: int = Field(120, ge=1)
+    type_clauses_definition_max_words: int = Field(12, ge=1)
     # Longueur maximale du périmètre dérivé du corpus et rendu dans le préfixe de *comprendre*
     # (`Corpus.perimetres`). Le préfixe est cacheable (AD-9) et facturé : une projection qui
     # grossirait avec le corpus sans borne ferait grossir chaque appel `micro`. Au-delà, les
@@ -527,6 +548,19 @@ class Settings(BaseSettings):
             "dictionary_max_cost_eur": self.dictionary_max_cost_eur,
             "dictionary_batch_poll_s": self.dictionary_batch_poll_s,
             "dictionary_batch_timeout_s": self.dictionary_batch_timeout_s,
+            "type_clauses_max_blocks_per_request": self.type_clauses_max_blocks_per_request,
+            "type_clauses_max_input_chars": self.type_clauses_max_input_chars,
+            "type_clauses_max_requests_per_batch": self.type_clauses_max_requests_per_batch,
+            "type_clauses_max_output_tokens": self.type_clauses_max_output_tokens,
+            "type_clauses_max_cost_eur": self.type_clauses_max_cost_eur,
+            "type_clauses_batch_poll_s": self.type_clauses_batch_poll_s,
+            "type_clauses_batch_timeout_s": self.type_clauses_batch_timeout_s,
+            "type_clauses_max_article_refs": self.type_clauses_max_article_refs,
+            "type_clauses_max_scope_articles": self.type_clauses_max_scope_articles,
+            "type_clauses_max_relations": self.type_clauses_max_relations,
+            "type_clauses_ref_expansion_max_blocks": self.type_clauses_ref_expansion_max_blocks,
+            "type_clauses_definition_max_chars": self.type_clauses_definition_max_chars,
+            "type_clauses_definition_max_words": self.type_clauses_definition_max_words,
             "perimetre_max_chars": self.perimetre_max_chars,
             "header_band_pt": self.header_band_pt,
             "footer_band_pt": self.footer_band_pt,

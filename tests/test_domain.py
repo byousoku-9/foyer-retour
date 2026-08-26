@@ -44,7 +44,7 @@ def test_document_fields() -> None:
 
 def test_block_fields_and_kinds() -> None:
     assert fields(document.Block) == {
-        "block_id", "text", "text_norm", "lang", "loc", "seq", "page", "bbox", "kind", "kind_confidence",
+        "block_id", "text", "text_norm", "lang", "loc", "seq", "page", "bbox", "kind", "structural_kind", "kind_confidence",
         "kind_source", "source_field", "continues", "refs", "unresolved_refs", "defines", "scope_node_id",
         "scope_node_ids", "overrides", "relation", "lines",
     }

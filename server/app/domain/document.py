@@ -17,6 +17,7 @@ BlockKind = Literal[
     "para", "heading", "table", "list", "definition", "garantie",
     "exclusion", "condition", "franchise", "renvoi", "autre",
 ]
+StructuralBlockKind = Literal["para", "heading", "table", "list", "autre"]
 RelationKind = Literal["exception_de", "specialise", "contredit"]
 # Typage des clauses : seul un kind `manual` ou `model_verified` est confirmé (AD-6, AD-8).
 KindSource = Literal["manual", "model", "model_verified"]
@@ -77,7 +78,11 @@ class Block(DomainModel):
     page: int | None = None
     bbox: Bbox | None = None
     kind: BlockKind = "para"
-    kind_confidence: float | None = None
+    # Preuve locale du kind produit par l'ingestion source avant tout enrichissement sémantique.
+    # Elle permet à une nouvelle lecture `autre` de retirer un ancien typage sans deviner si le
+    # bloc était initialement un paragraphe, une liste, un tableau ou un titre.
+    structural_kind: StructuralBlockKind | None = None
+    kind_confidence: float | None = Field(default=None, ge=0, le=1)
     kind_source: KindSource | None = None
     source_field: str | None = None
     continues: str | None = None

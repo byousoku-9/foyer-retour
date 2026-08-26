@@ -44,3 +44,5 @@ _reference/
 # Sources non redistribuées : téléchargées au build (server/ingest/fetch_source.py)
 data/*/source.pdf
 data/*/*.tmp
+# Inode persistant des verrous `flock` de typage ; ne jamais l'unlink pendant qu'un concurrent attend.
+data/*/.type-clauses.lock
