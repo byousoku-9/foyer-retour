@@ -2930,3 +2930,17 @@ run unique était donc infondé. La recertification prouve que l'attente active 
 le corpus corrigé, mais A6 montre simultanément une variance de budget à 50 %. L'entrée D7 est
 réouverte vers 4.1 avec cette mesure ; aucune règle de score, aucun plafond et aucun prompt du
 pipeline en ligne n'ont été modifiés dans 3.2.
+
+Trois défauts d'expérience relevés par le relecteur restent hors surface 3.2 et sont enregistrés
+mot pour mot dans `deferred-work.md` avec `target_story` :
+
+- 4.1 — « La cave a été inondée par la remontée de la nappe phréatique après trois jours de pluie ;
+  je peux annoncer à l'assuré que c'est pris en charge au titre des dégâts des eaux ? » → 503
+  `budget_exceeded` en 19,0 s / 0,0418 €, soit 1 des 3 cas sinistre de sa campagne.
+- 4.2 — « On m'a dit qu'au Luxembourg il faut absolument un compte bancaire luxembourgeois avant
+  de pouvoir signer un bail, sinon le propriétaire refuse : c'est vrai ou pas ? » → sources
+  `lux-guide:q14:2` et `lux-guide:fbail:5` chacune dupliquée.
+- 4.2 — « Mon vélo électrique à 3000 euros a été volé dans le garage fermé de la résidence ; on me
+  parle d'une franchise et d'un plafond, je retiens quoi pour annoncer un montant à l'assuré ? » →
+  segment factuel « Les vélos ne figurent pas dans la liste des exclusions… » déduit à tort une
+  absence depuis une clause isolée.
