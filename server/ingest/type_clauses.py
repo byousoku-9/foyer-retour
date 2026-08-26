@@ -46,7 +46,7 @@ ARTICLE_RE = re.compile(r"^\d+(?:\.\d+)*$")
 ARTICLE_RANGE_RE = re.compile(r"^(\d+(?:\.\d+)*)\s*(?:-|à)\s*(\d+(?:\.\d+)*)$")
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 STRUCTURAL_KINDS = frozenset({"para", "heading", "table", "list", "autre"})
-TYPING_RULES_VERSION = "3.2-review-1"
+TYPING_RULES_VERSION = "3.2-review-2"
 
 
 class StrictModel(BaseModel):
@@ -520,6 +520,27 @@ def _metadata(first: ClauseLabel) -> dict[str, Any]:
     }
 
 
+def _define_is_anchored(doc: Document, block: Block, term: str | None) -> bool:
+    """Le modèle nomme un terme ; le code exige sa présence dans le corpus source."""
+    normalized = normalize(term or "")
+    if not normalized:
+        return False
+    titles = _owner_paths(doc)[block.block_id]
+    needle = f" {normalized} "
+    return any(needle in f" {normalize(text)} " for text in [block.text, *titles])
+
+
+def definition_rejections(doc: Document, first: dict[str, ClauseLabel]) -> dict[str, str]:
+    """Termes libres refusés, conservés seulement pour l'alerte AD-8 du rapport."""
+    rejected: dict[str, str] = {}
+    for block_id, label in first.items():
+        if label.kind != "definition" or label.defines is None:
+            continue
+        if not _define_is_anchored(doc, doc.block(block_id), label.defines):
+            rejected[block_id] = label.defines
+    return rejected
+
+
 def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, ClauseLabel],
              settings: Settings) -> Document:
     """Fusionne les lectures puis résout articles, relations et scopes sans heuristique documentaire."""
@@ -533,7 +554,9 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
     for block in doc.blocks:
         structural_kind = _structural_kind(block)
         label = first.get(block.block_id)
-        if label is None or label.kind == "autre":
+        # AD-2 : un titre structure l'arbre mais n'est jamais citable seul. Même si T1 l'étiquette
+        # juridiquement, le code restaure sa nature structurelle et écarte toutes les métadonnées.
+        if label is None or label.kind == "autre" or structural_kind == "heading":
             blocks.append(block.model_copy(update={
                 "kind": structural_kind, "structural_kind": structural_kind,
                 "kind_source": None, "kind_confidence": None, "refs": [], "unresolved_refs": [],
@@ -570,8 +593,7 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             expanded = _expand_article(article, settings.type_clauses_max_article_refs)
             if expanded is None or len(expanded_refs) + len(expanded) > settings.type_clauses_max_article_refs:
                 unresolved.append(article)
-                expanded_refs = []
-                break
+                continue
             expanded_refs.extend((article, value) for value in expanded)
         for original_article, article in expanded_refs:
             node_id = _target_node(article, article_index)
@@ -615,7 +637,8 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             block.scope_node_ids = list(dict.fromkeys(scope_nodes))
 
         if block.kind == "definition":
-            block.defines = meta["defines"]
+            candidate = meta["defines"]
+            block.defines = candidate if _define_is_anchored(typed, block, candidate) else None
 
         override_articles = meta["overrides_articles"]
         if len(override_articles) == 1:
@@ -667,32 +690,44 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
 
 
 def _apply_node_scopes(doc: Document) -> Document:
+    """Écrit seul la portée sémantique, depuis des liens résolus et jamais depuis un numéro."""
     parent = {child: node.node_id for node in doc.nodes for child in node.children}
     signals: dict[str, str] = {}
+
+    def signal(node_id: str, kind: str) -> None:
+        # Une restriction/exception est plus conservatrice qu'une spécialisation si les deux
+        # signaux convergent sur le même nœud.
+        if signals.get(node_id) != "special":
+            signals[node_id] = kind
+
     for block in doc.blocks:
         source = doc.node_of(block.block_id)
         source_subtree = set(_subtree_items(doc, source)[1])
+        # Une clause restreinte à des racines explicites prouve que ces sous-arbres ne sont pas le
+        # socle. Le signal se propage à tous leurs descendants, y compris aux garanties qu'ils portent.
+        for target_node in block.scope_node_ids:
+            signal(target_node, "special")
         special_targets = [block.overrides, block.relation.exception_de]
         if any(target is not None and doc.node_of(target) not in source_subtree for target in special_targets):
-            signals[source] = "special"
+            signal(source, "special")
             continue
         target = block.relation.specialise
         if target is not None and doc.block(target).kind == "garantie" and doc.node_of(target) not in source_subtree:
-            signals.setdefault(source, "extension")
+            signal(source, "extension")
 
     nodes: list[Node] = []
     for node in doc.nodes:
         current = node.node_id
-        signal = None
+        inherited = None
         while True:
             if current in signals:
-                signal = signals[current]
+                inherited = signals[current]
                 break
             if current not in parent:
                 break
             current = parent[current]
         nodes.append(node.model_copy(
-            update={"scope": node.scope.model_copy(update={"kind": signal or "commun"})}, deep=True,
+            update={"scope": node.scope.model_copy(update={"kind": inherited or "commun"})}, deep=True,
         ))
     return Document.model_validate(doc.model_copy(update={"nodes": nodes}, deep=True).model_dump())
 
@@ -886,6 +921,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     # Une omission de label **dans** une réponse valide est un désaccord T2, pas un lot T4 incomplet.
     try:
         second = parse_reading(second_texts, second_plans, doc, settings, require_all_labels=False)
+        rejected_definitions = definition_rejections(doc, first)
         typed = assemble(doc, first, second, settings)
         _check_migration(typed, migration)
     except ValueError as exc:
@@ -893,7 +929,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"assemblage refusé après les deux lectures (coût réel cumulé {total_cost:.4f} €); "
             f"aucun artefact écrit: {exc}"
         ) from exc
-    typed_report = enrich_typing_report(report, typed)
+    typed_report = enrich_typing_report(report, typed, rejected_definitions=rejected_definitions)
     doc_text = document_json(typed)
     report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
     document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()

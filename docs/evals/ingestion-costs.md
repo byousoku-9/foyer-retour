@@ -38,3 +38,20 @@ uv run python -m server.ingest.type_clauses axa-lu-optihome-2017
 
 Le dry-run final annonce 1 396 blocs / 140 requêtes par lecture au pire et un majorant de
 10,5133 € sous le plafond configuré de 12 €. Ce majorant n'est pas un coût réel.
+
+### Régénération après revue indépendante — 26/08/2026
+
+La correction des portées, de l'ancrage des définitions et des exemples du prompt a invalidé la
+campagne précédente. Deux nouveaux lots complets ont donc régénéré l'artefact, sans reprise de
+résultats produits avec l'ancien prompt.
+
+| Lecture | Lot | Blocs | Requêtes réussies | Tokens d'entrée | Tokens de sortie | Coût Batch |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | `msgbatch_01Phnr1EjzxrvF8L2GpQbvLd` | 1 396 | 140 | 666 786 | 132 380 | 3,0556 € |
+| 2 | `msgbatch_01CoKSYHfwVGLEDMn36dwyxA` | 961 candidats juridiques | 97 | 413 961 | 52 649 | 1,5575 € |
+| **Total de la régénération** | — | — | **237** | **1 080 747** | **185 029** | **4,6131 €** |
+
+Les 237 résultats sont `succeeded`, sans token de cache. Le total est la somme des coûts arrondis
+par requête rendue par le CLI. Le dry-run corrigé annonçait 10,5116 € sous le même plafond de 12 €.
+Le coût cumulé des essais et des deux campagnes utiles de la story atteint donc **11,1703 €** ; seul
+le dernier total de 4,6131 € correspond à l'artefact actuellement servi.

@@ -370,7 +370,12 @@ def pages_charabia(report: Report) -> set[int]:
     return {int(page) for page in raw_pages}
 
 
-def enrich_typing_report(report: Report, doc: Document) -> Report:
+def enrich_typing_report(
+    report: Report,
+    doc: Document,
+    *,
+    rejected_definitions: dict[str, str] | None = None,
+) -> Report:
     """Ajoute les checks AD-8 du typage sans modifier les checks structurels de 3.1.
 
     La fonction est idempotente : une reprise remplace ses propres checks, jamais ceux du parsing.
@@ -394,10 +399,15 @@ def enrich_typing_report(report: Report, doc: Document) -> Report:
         checks.append(Check(name="unresolved_refs", level="alerte",
                             detail=", ".join(f"{block_id} → {ref}" for block_id, ref in unresolved)[:2000]))
 
-    missing_definitions = [block.block_id for block in legal if block.kind == "definition" and not block.defines]
-    if missing_definitions:
+    rejected_definitions = rejected_definitions or {}
+    missing_definitions = [block.block_id for block in legal if block.kind == "definition" and not block.defines
+                           and block.block_id not in rejected_definitions]
+    definition_details = [*missing_definitions, *(
+        f"{block_id} → {term}" for block_id, term in rejected_definitions.items()
+    )]
+    if definition_details:
         checks.append(Check(name="definition_introuvable", level="alerte",
-                            detail=", ".join(missing_definitions)[:2000]))
+                            detail=", ".join(definition_details)[:2000]))
 
     exclusions_without_marker = []
     for block in legal:
@@ -423,6 +433,8 @@ def enrich_typing_report(report: Report, doc: Document) -> Report:
                             detail=", ".join(unconfirmed)[:2000]))
 
     stats = dict(report.stats)
+    # Après typage, `kind` est sémantique ; `structural_kind` reste la source de mise en page.
+    stats["tables"] = sum((block.structural_kind or block.kind) == "table" for block in doc.blocks)
     stats.update({
         "blocs_types_modele": len(typed),
         "blocs_juridiques": len(legal),

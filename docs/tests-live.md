@@ -2904,3 +2904,29 @@ résultat sous budget, surfaces que 3.2 ne possède pas. Les cas reproductibles 
 `deferred-work.md`. A15/A16 restent rouges et rejoués, mais leurs attentes renforcées deviennent
 bloquantes à leurs `target_story` 4.2 et 3.3 ; aucun rejeu complet A+B n'a été fait et aucun résultat
 rouge n'a été effacé par une seconde formulation.
+
+### Revue indépendante — correction et dispersion ciblée
+
+La correction a régénéré le contrat par deux nouveaux lots complets : lecture 1
+`msgbatch_01Phnr1EjzxrvF8L2GpQbvLd` (140/140), lecture 2
+`msgbatch_01CoKSYHfwVGLEDMn36dwyxA` (97/97), coût réel cumulé 4,6131 €. L'artefact final porte 969
+blocs typés, 961 juridiques dont 909 `model_verified`; les quatre goldens restent confirmés. Le gate
+vertical rejoué sur le hash final rend 1/1 `bonne_reponse`, `evals_ok=true`,
+`countersigned=false`, à 0,0292 €.
+
+Les seuls cas live recertifiés sont A6, A12, A13 et A16, directement concernés par le classement
+des kinds. Trois runs contrôlés ont été joués pour A12/A13/A16 ; A6 a eu quatre corps valides, dont
+le gate. Les tentatives 400 sans `faits` et les 429 du limiteur local ont été exclues de la mesure.
+
+| Cas | Runs valides sur l'artefact final | Dispersion observée |
+|---|---:|---|
+| A6 bougie | 4 | 2× 200 `ne_tranche_pas` avec `p34:12` ; 2× 503 `budget_exceeded`. Le gate est l'un des 200. |
+| A12 fils du voisin | 3 | 3× 200 `ne_tranche_pas` ; `p65:5` trois fois, `p13:6` ajouté une fois. |
+| A13 radiateur | 3 | 3× 200 `ne_tranche_pas` avec `p37:14`. |
+| A16 insert sans incendie | 3 | 3× 200 `ne_tranche_pas` avec `p34:12` + `p50:18` ; jamais `p46:1`, toujours attendu en 3.3. |
+
+Le run indépendant antérieur d'A16 n'avait rendu que `p39:9`; conclure à un gain de rappel sur un
+run unique était donc infondé. La recertification prouve que l'attente active `p34:12` tient 3/3 sur
+le corpus corrigé, mais A6 montre simultanément une variance de budget à 50 %. L'entrée D7 est
+réouverte vers 4.1 avec cette mesure ; aucune règle de score, aucun plafond et aucun prompt du
+pipeline en ligne n'ont été modifiés dans 3.2.

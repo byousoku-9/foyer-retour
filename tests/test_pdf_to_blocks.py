@@ -124,8 +124,9 @@ def test_nominal_tree_ids_bbox_scopes_and_continues(data: Path) -> None:
     parent = {c: n.node_id for n in doc.nodes for c in n.children}
     assert parent[f"{DOC}:a3.1.1.1.6"] == f"{DOC}:a3.1.1"  # préfixe le plus long existant (3.1.1.1 absent)
     assert parent[f"{DOC}:a1.1.1"] == f"{DOC}:a1.1" and parent[f"{DOC}:a4"] == DOC
-    assert by[f"{DOC}:a1.1"].scope.kind == "commun" and by[f"{DOC}:a3.1.1"].scope.kind == "commun"
-    assert by[f"{DOC}:a3.1.8.3"].scope.kind == "extension" and by[f"{DOC}:a4"].scope.kind == "special"
+    # Le parseur ne déduit aucune portée sémantique d'un numéro d'article ; `type_clauses` est
+    # l'unique écrivain de `Node.scope.kind` après résolution des signaux structurels.
+    assert {node.scope.kind for node in doc.nodes} == {"commun"}
     assert by[f"{DOC}:a3.1.1.1.6"].level == 5 and by[f"{DOC}:a1.1"].title == "1.1 Contenu"
     for b in doc.blocks:
         assert b.loc == f"p{b.page}" and b.lines and b.block_id == f"{DOC}:{b.loc}:{b.seq}"
@@ -1285,10 +1286,3 @@ def test_fingerprint_depends_on_rules_and_thresholds(
         assert p.ingest_fingerprint() != before
     finally:
         p.get_settings.cache_clear()
-
-
-@pytest.mark.parametrize("numero, kind", [("1", "commun"), ("2.11", "commun"), ("3.1", "commun"), ("3.1.1.1.6", "commun"),
-                                          ("3.1.8", "extension"), ("3.1.8.3", "extension"), ("3.2", "special"),
-                                          ("4.1.2", "special"), ("3", "special")])
-def test_scope_kind(numero: str, kind: str) -> None:
-    assert p.scope_kind(numero) == kind

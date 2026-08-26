@@ -140,8 +140,8 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     assert cites & BLOCS_ATTENDUS, f"aucun des blocs témoins parmi {sorted(cites)}"
 
     # (3) l'exclusion de la page 46 est écartée, jamais opposée en silence. L'AC dit « absente ou
-    # `applicable="non"` », et `non` est bien atteignable : `p46:1` est typée `manual` dans l'overlay
-    # de 1.2 (donc `kind` confirmé) et porte une portée explicite (3.1.8.3 à 3.1.8.6) — les deux
+    # `applicable="non"` », et `non` est bien atteignable : `p46:1` est `model_verified` après les
+    # deux lectures 3.2 et porte `scope_node_ids` = 3.1.8.3–3.1.8.6 — les deux
     # marches qui mèneraient sinon à `humain`. Accepter `humain` ici laisserait passer une régression
     # du typage ou de la portée sans que rien ne le dise.
     affichee = next((c for c in answer.claims

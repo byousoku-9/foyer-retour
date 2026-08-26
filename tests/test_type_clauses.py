@@ -111,6 +111,84 @@ def test_cible_ambigue_ou_trop_large_ne_produit_jamais_de_selection_partielle() 
     assert typed.block("contrat:p1:1").unresolved_refs == ["2"]
 
 
+def test_chaque_renvoi_reste_resolu_ou_signale_quand_une_plage_depasse_la_borne() -> None:
+    doc = miniature()
+    first = {block.block_id: label(block.block_id, "autre") for block in doc.blocks}
+    first["contrat:p1:1"] = label(
+        "contrat:p1:1", "garantie", article_refs=["2", "1-9"],
+    )
+    typed = tc.assemble(
+        doc, first, {"contrat:p1:1": label("contrat:p1:1", "garantie")},
+        settings(type_clauses_max_article_refs=2),
+    )
+    block = typed.block("contrat:p1:1")
+    assert block.refs == ["contrat:p2:1"]
+    assert block.unresolved_refs == ["1-9"]
+
+
+def test_scope_explicite_rend_la_cible_et_ses_descendants_hors_socle() -> None:
+    doc = miniature()
+    child = Node(
+        node_id="contrat:a3.1.1", level=3, title="Sous-cas",
+        items=[BlockRef(block_id="contrat:p4:1")],
+    )
+    a31 = doc.nodes[-1].model_copy(deep=True)
+    a31.items.append(NodeRef(node_id=child.node_id))
+    doc = Document.model_validate(doc.model_copy(update={
+        "nodes": [*doc.nodes[:-1], a31, child],
+        "blocks": [*doc.blocks, Block(
+            block_id="contrat:p4:1", text="Le dommage est garanti.", loc="p4", seq=1, page=4,
+        )],
+    }).model_dump())
+    first = {block.block_id: label(block.block_id, "autre") for block in doc.blocks}
+    first["contrat:p3:1"] = label(
+        "contrat:p3:1", "exclusion", scope_articles=["3.1"],
+    )
+    typed = tc.assemble(
+        doc, first, {"contrat:p3:1": label("contrat:p3:1", "exclusion")}, settings(),
+    )
+    assert typed.node_scope_kind("contrat:a3.1") == "special"
+    assert typed.node_scope_kind("contrat:a3.1.1") == "special"
+    assert typed.node_scope_kind("contrat:a3") == "commun"
+
+
+def test_terme_defini_est_ancre_dans_le_bloc_ou_un_titre_ancetre() -> None:
+    doc = miniature()
+    first = {block.block_id: label(block.block_id, "autre") for block in doc.blocks}
+    first["contrat:p2:1"] = label("contrat:p2:1", "definition", defines="contenu")
+    anchored = tc.assemble(
+        doc, first, {"contrat:p2:1": label("contrat:p2:1", "definition")}, settings(),
+    )
+    assert anchored.block("contrat:p2:1").defines == "contenu"
+
+    first["contrat:p2:1"] = label("contrat:p2:1", "definition", defines="terme inventé")
+    rejected = tc.assemble(
+        doc, first, {"contrat:p2:1": label("contrat:p2:1", "definition")}, settings(),
+    )
+    block = rejected.block("contrat:p2:1")
+    assert block.defines is None
+    report = enrich_typing_report(
+        Report(doc_id="contrat", stats={"pages_charabia": {}}), rejected,
+        rejected_definitions=tc.definition_rejections(doc, first),
+    )
+    check = next(check for check in report.alerts if check.name == "definition_introuvable")
+    assert "contrat:p2:1 → terme inventé" in check.detail
+
+
+def test_un_titre_ne_devient_jamais_une_claim_decisionnelle() -> None:
+    doc = miniature()
+    heading = doc.block("contrat:p1:1").model_copy(update={"kind": "heading"}, deep=True)
+    doc = Document.model_validate(doc.model_copy(
+        update={"blocks": [heading, *doc.blocks[1:]]}, deep=True,
+    ).model_dump())
+    first = {block.block_id: label(block.block_id, "autre") for block in doc.blocks}
+    first[heading.block_id] = label(heading.block_id, "garantie")
+    typed = tc.assemble(doc, first, {heading.block_id: label(heading.block_id, "garantie")}, settings())
+    block = typed.block(heading.block_id)
+    assert block.kind == block.structural_kind == "heading"
+    assert block.kind_source is None and block.scope_node_id is None
+
+
 def test_une_plage_de_scope_decimale_est_developpee_par_le_code() -> None:
     assert tc._expand_article("3.1.8.3 à 3.1.8.6", 20) == [
         "3.1.8.3", "3.1.8.4", "3.1.8.5", "3.1.8.6",
@@ -466,6 +544,24 @@ def test_report_typing_checks_and_structured_corruption() -> None:
     assert names["structure"] == "info" and names["corruption_decisionnelle"] == "bloquant"
     assert names["confiance_typage_faible"] == "alerte" and names["kinds_non_confirmes"] == "alerte"
     assert names["exclusion_sans_marqueur"] == "alerte"  # au moins les blocs sans négation
+
+
+def test_rapport_compte_les_tables_depuis_le_kind_structurel() -> None:
+    doc = miniature()
+    table = doc.block("contrat:p1:1").model_copy(update={
+        "kind": "garantie", "structural_kind": "table", "kind_source": "model_verified",
+        "kind_confidence": 0.9, "scope_node_id": "contrat:a1",
+    }, deep=True)
+    doc = Document.model_validate(doc.model_copy(
+        update={"blocks": [table, *doc.blocks[1:]]}, deep=True,
+    ).model_dump())
+    report = enrich_typing_report(
+        Report(doc_id="contrat", stats={"pages_charabia": {}, "tables": 0}), doc,
+    )
+    assert report.stats["tables"] == 1
+    assert sum(
+        (block.structural_kind or block.kind) == "table" for block in doc.blocks
+    ) == report.stats["tables"]
 
 
 def test_dry_run_plans_two_readings_without_key_or_submission(tmp_path: Path) -> None:

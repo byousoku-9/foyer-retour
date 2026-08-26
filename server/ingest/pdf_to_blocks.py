@@ -434,16 +434,6 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
     return pages, toc
 
 
-def scope_kind(numero: str) -> str:
-    """`1`, `2`, `3.1` et descendants ⇒ commun ; `3.1.8` et descendants ⇒ extension ; le reste ⇒ special."""
-    parts = numero.split(".")
-    if parts[:3] == ["3", "1", "8"]:
-        return "extension"
-    if parts[0] in ("1", "2") or parts[:2] == ["3", "1"]:
-        return "commun"
-    return "special"
-
-
 class _Builder:
     def __init__(self, doc_id: str, title: str) -> None:
         self.doc_id = doc_id
@@ -471,8 +461,9 @@ class _Builder:
             if cand in self.nodes:
                 parent = self.nodes[cand]
                 break
+        # Le parseur ne donne aucun sens juridique au numéro. `type_clauses` est l'unique écrivain
+        # sémantique de `Node.scope.kind`, à partir des relations et portées explicites résolues.
         node = Node(node_id=node_id, level=len(parts), title="")
-        node.scope.kind = scope_kind(numero)  # type: ignore[assignment]
         self.nodes[node_id] = node
         self.order.append(node_id)
         parent.items.append(NodeRef(node_id=node_id))

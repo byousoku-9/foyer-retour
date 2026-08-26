@@ -77,10 +77,10 @@ def test_document_shape(doc: Document) -> None:
     parent = {c: n.node_id for n in doc.nodes for c in n.children}
     assert parent[f"{DOC}:a3.1.1.1.6"] == f"{DOC}:a3.1.1.1"
     assert by[f"{DOC}:a1.12"].scope.kind == "commun" and by[f"{DOC}:a3.1.1"].scope.kind == "commun"
-    # Les portées 3.2 viennent uniquement des relations résolues, jamais des quatre règles AXA
-    # historiques de `pdf_to_blocks.scope_kind()`.
-    assert by[f"{DOC}:a3.1.8.3"].scope.kind == "commun" and by[f"{DOC}:a4.1"].scope.kind == "commun"
-    assert by[f"{DOC}:a2.17.3"].scope.kind == "special"
+    # Le typage est l'unique écrivain sémantique des portées. La cible explicite de p46:1 et son
+    # sous-arbre restent hors socle : aucune garantie de villégiature ne peut ouvrir AD-6 (3).
+    assert by[f"{DOC}:a3.1.8.3"].scope.kind != "commun"
+    assert doc.node_scope_kind(doc.node_of(f"{DOC}:p46:8")) != "commun"
     assert by[DOC].children == [f"{DOC}:tdm", *(f"{DOC}:a{i}" for i in (1, 2, 3, 4))]
     assert all(b.loc == f"p{b.page}" and b.lines and b.bbox for b in doc.blocks)
     assert all("\x07" not in b.text and "Wingdings" not in b.text for b in doc.blocks)
@@ -89,7 +89,6 @@ def test_document_shape(doc: Document) -> None:
         "franchise", "renvoi", "autre",
     }
     assert all(b.structural_kind in {"para", "heading", "table", "list", "autre"} for b in doc.blocks)
-    assert sum(b.kind_source == "model_verified" for b in doc.blocks) == 924
     # scissions de page (AD-2) : p53:8 → p54:1 commence par une majuscule (revue Codex 1.2, B6)
     linked = {b.block_id: b.continues for b in doc.blocks if b.continues}
     assert linked[f"{DOC}:p54:1"] == f"{DOC}:p53:8"
@@ -113,9 +112,38 @@ def test_document_shape(doc: Document) -> None:
     assert "4 bloc(s) sur 4 page(s)" in by_check["blocs_non_citables"].detail
     assert by_check["pages_mixtes"].detail.endswith(": 1")
     assert report.stats["tables"] == 7 and report.stats["couverture"] == 1.0
-    assert report.stats["blocs_types_modele"] == 981
-    assert report.stats["blocs_juridiques_confirmes"] == 924
-    assert report.stats["references_non_resolues"] == 40
+    assert report.stats["tables"] == sum(
+        (block.structural_kind or block.kind) == "table" for block in doc.blocks
+    )
+    owner = {block_id: node.node_id for node in doc.nodes for block_id in node.blocks}
+
+    def definition_anchored(block_id: str) -> bool:
+        block = doc.block(block_id)
+        current = owner[block_id]
+        texts = [block.text]
+        while True:
+            texts.append(by[current].title)
+            if current not in parent:
+                break
+            current = parent[current]
+        term = normalize(block.defines or "")
+        return bool(term) and any(term in normalize(text) for text in texts)
+
+    assert all(
+        definition_anchored(block.block_id)
+        for block in doc.blocks if block.kind == "definition" and block.defines is not None
+    )
+    assert report.stats["blocs_types_modele"] == sum(
+        block.kind_source in {"model", "model_verified"} for block in doc.blocks
+    )
+    assert report.stats["blocs_juridiques_confirmes"] == sum(
+        block.kind in {"definition", "garantie", "exclusion", "condition", "franchise"}
+        and block.kind_source == "model_verified" for block in doc.blocks
+    )
+    assert report.stats["references_non_resolues"] == sum(
+        len(block.unresolved_refs) for block in doc.blocks
+        if block.kind_source in {"model", "model_verified"}
+    )
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     # Le document et l'overlay ont réellement changé : l'ingestion a d'abord invalidé le gate, puis
     # le runner d'évals l'a réécrit après certification de l'artefact final. Le test n'épingle ni la
@@ -137,7 +165,9 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     d = c.documents[DOC]
     confirmed = {b.block_id: b for b in d.blocks if b.kind_confirmed}
     golden_ids = {f"{DOC}:p9:2", f"{DOC}:p11:12", f"{DOC}:p34:12", f"{DOC}:p46:1"}
-    assert len(confirmed) == 924 and golden_ids <= set(confirmed)
+    report = Report.model_validate_json((REAL / "report.json").read_bytes())
+    assert len(confirmed) == report.stats["blocs_juridiques_confirmes"]
+    assert golden_ids <= set(confirmed)
     assert confirmed[f"{DOC}:p9:2"].kind == "definition"
     assert normalize(confirmed[f"{DOC}:p9:2"].defines or "") == "contenu"
     assert confirmed[f"{DOC}:p11:12"].kind == "definition"
