@@ -76,6 +76,24 @@
   .cl-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; opacity: .75; margin-top: 4px; }
   .cl-kind { text-transform: uppercase; letter-spacing: .04em; }
   .cl-doute { font-style: italic; }
+  .cl-ouvrir { margin-top: 8px; padding: 6px 10px; font-size: 13px; }
+  dialog.lecteur-pdf {
+    width: min(94vw, 900px); max-height: 94vh; padding: 18px; color: inherit;
+    background: Canvas; border: 1px solid var(--bord); border-radius: 12px;
+  }
+  dialog.lecteur-pdf::backdrop { background: rgb(0 0 0 / .55); }
+  .lecteur-tete { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+  .lecteur-tete h2 { margin: 0; }
+  .lecteur-fermer { margin: 0; padding: 6px 10px; }
+  .lecteur-statut { margin: 8px 0; font-size: 14px; }
+  .lecteur-image {
+    display: block; max-width: 100%; max-height: 68vh; margin: 8px auto;
+    border: 1px solid var(--bord); background: white;
+  }
+  .lecteur-sans-surlignage { margin: 6px 0; font-size: 13px; opacity: .75; }
+  .lecteur-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .lecteur-actions button { margin-top: 0; padding: 6px 10px; }
+  .lecteur-source { margin-left: auto; font-size: 13px; }
   .rejetee { margin: 0 0 10px; }
   .rej-txt { margin: 0; }
   .rej-motif { margin: 0; font-size: 13px; opacity: .7; }
@@ -217,11 +235,29 @@
 
 <div id="resultat" aria-live="polite" aria-busy="false"></div>
 
+<!-- Story 3.4 : lecteur paresseux. Aucun `src` n'est posé sur l'image avant le clic d'une clause ;
+     le service ne redistribue jamais le PDF brut, seulement la page PNG demandée. Le dialogue natif
+     fournit le confinement du focus ; le script restaure explicitement le focus au bouton appelant. -->
+<dialog class="lecteur-pdf" id="lecteur-pdf" aria-labelledby="lecteur-titre" hidden>
+  <div class="lecteur-tete">
+    <h2 id="lecteur-titre">Passage dans le PDF</h2>
+    <button class="lecteur-fermer" id="lecteur-fermer" type="button" aria-label="Fermer le lecteur PDF">Fermer</button>
+  </div>
+  <p class="lecteur-statut" id="lecteur-statut" role="status" aria-live="polite"></p>
+  <p class="lecteur-sans-surlignage" id="lecteur-sans-surlignage" hidden></p>
+  <img class="lecteur-image" id="lecteur-image" alt="" hidden>
+  <nav class="lecteur-actions" aria-label="Navigation dans le PDF">
+    <button id="lecteur-precedent" type="button" disabled>Page précédente</button>
+    <button id="lecteur-suivant" type="button" disabled>Page suivante</button>
+    <a class="lecteur-source" id="lecteur-source" target="_blank" rel="noopener noreferrer" hidden>Voir le contrat à sa source publique</a>
+  </nav>
+</dialog>
+
 <p class="pied">
   Le verdict porte sur les conditions générales seules : les conditions particulières, les options souscrites, les avenants et la date d'effet n'ont pas été lus, et un « couvert » ne dit jamais qu'un sinistre sera indemnisé. Aucun verdict n'est validé par un expert assurance.
   <a href="/">← retour</a>
 </p>
 
-<script src="sinistre.js?v=1"></script>
+<script src="sinistre.js?v=2"></script>
 </body>
 </html>

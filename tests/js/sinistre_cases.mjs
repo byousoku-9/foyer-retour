@@ -38,6 +38,15 @@ const ELEMENTS = [
   { tag: "textarea", id: "description" },
   { tag: "button", id: "analyser" },
   { tag: "div", id: "resultat" },
+  { tag: "dialog", id: "lecteur-pdf" },
+  { tag: "h2", id: "lecteur-titre" },
+  { tag: "p", id: "lecteur-statut" },
+  { tag: "p", id: "lecteur-sans-surlignage" },
+  { tag: "img", id: "lecteur-image" },
+  { tag: "button", id: "lecteur-precedent" },
+  { tag: "button", id: "lecteur-suivant" },
+  { tag: "a", id: "lecteur-source" },
+  { tag: "button", id: "lecteur-fermer" },
 ];
 
 /** Une `Response` doublée : juste ce que `sinistre.js` en lit. */
@@ -59,6 +68,7 @@ function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = 
     json: () => (corpsIllisible
       ? Promise.reject(new Error("corps non JSON"))
       : Promise.resolve(corps)),
+    blob: () => Promise.resolve({ type: "image/png", size: 12 }),
   };
 }
 
@@ -88,13 +98,17 @@ function charger(href, repondre, { demarrage = false } = {}) {
   // Le JSON du harnais sort sur **stdout** : un `console.log` laissé dans `sinistre.js` le
   // corromprait. Le `console` du bac à sable écrit donc sur stderr.
   const journal = new console.Console(process.stderr, process.stderr);
+  let prochainObjet = 0;
+  function URLDouble(...args) { return new URL(...args); }
+  URLDouble.createObjectURL = () => "blob:lecteur-" + (++prochainObjet);
+  URLDouble.revokeObjectURL = () => {};
   const window = {
     location: new URL(href), document, localStorage, fetch: fetchDouble,
     addEventListener: () => {},
   };
   if (!demarrage) window.__SINISTRE_SANS_DEMARRAGE = true;
   const bac = {
-    window, document, localStorage, fetch: fetchDouble, console: journal, URL,
+    window, document, localStorage, fetch: fetchDouble, console: journal, URL: URLDouble,
     setTimeout, clearTimeout, AbortController,
     JSON, Math, Date, Number, String, Array, Object, isFinite, parseInt, Error, Promise, RegExp,
   };
@@ -815,6 +829,9 @@ async function main() {
       (url) => {
         if (String(url).endsWith("/sante")) return reponseHttp({ corps: reponseSante() });
         if (String(url).endsWith("/documents")) return reponseHttp({ corps: DOCUMENTS });
+        if (String(url).includes("/pages/")) {
+          return reponseHttp({ entetes: { "X-Document-Pages": "12" } });
+        }
         return reponseHttp({ corps: reponseVerdict() });
       },
       { demarrage: true });
@@ -876,6 +893,146 @@ async function main() {
       verrouille_apres: ["question", "description", "analyser"].map((id) => !!elements[id].disabled),
       stockage: localStorage.entrees(),
       cartes: document.querySelectorAll(".carte").length,
+      commandes_pdf: elements.resultat.querySelectorAll(".cl-ouvrir").length,
+    };
+
+    // Le lecteur ne charge rien avant l'activation explicite de la clause. Au clic, l'URL ne
+    // transporte que le document, la page et les identifiants de lignes encodés.
+    const avantLecteur = appels.filter((a) => String(a.url).includes("/pages/")).length;
+    const commande = elements.resultat.querySelector(".cl-ouvrir");
+    commande.focus();
+    commande.declencher("click");
+    await tick();
+    await tick();
+    const apresOuverture = appels.filter((a) => String(a.url).includes("/pages/"));
+    cas.lecteur = {
+      appels_avant_clic: avantLecteur,
+      urls: apresOuverture.map((a) => String(a.url).replace(ORIGINE, "")),
+      statut: elements["lecteur-statut"].textContent,
+      image_src: elements["lecteur-image"].src,
+      image_alt: elements["lecteur-image"].alt,
+      precedent_desactive: !!elements["lecteur-precedent"].disabled,
+      suivant_desactive: !!elements["lecteur-suivant"].disabled,
+      source: {
+        href: elements["lecteur-source"].href,
+        target: elements["lecteur-source"].target,
+        rel: elements["lecteur-source"].rel,
+      },
+      focus_ouverture: document.actif && document.actif.id,
+    };
+    elements["lecteur-suivant"].declencher("click");
+    await tick();
+    await tick();
+    cas.lecteur.navigation_url = appels.filter((a) => String(a.url).includes("/pages/"))
+      .map((a) => String(a.url).replace(ORIGINE, "")).slice(-1)[0];
+    cas.lecteur.sans_surlignage = elements["lecteur-sans-surlignage"].textContent;
+    elements["lecteur-fermer"].declencher("click");
+    cas.lecteur.focus_fermeture = document.actif && document.actif.className;
+    cas.url_page_encodee = SINISTRE.urlPage(
+      DOC_ID, 9, ["cg-mini:p9:2", "cg-mini:p9:3"], ["p9:2:l 1/é", "p9:2:l2"]);
+  }
+
+  // Une citation sans lignes ouvre honnêtement la page sans query de surlignage.
+  {
+    const { SINISTRE, appels, elements } = charger(PAGE, (url) => {
+      if (String(url).includes("/pages/")) {
+        return reponseHttp({ entetes: { "X-Document-Pages": "12" } });
+      }
+      return reponseHttp({ corps: {} });
+    });
+    const r = reponseVerdict();
+    const racine = SINISTRE.peindre(SINISTRE.vueVerdict(r, {
+      doc_id: DOC_ID, source_url: DOCUMENTS[0].source_url
+    }), elements.resultat);
+    SINISTRE.brancherLecteur(racine);
+    const commandes = racine.querySelectorAll(".cl-ouvrir");
+    commandes[1].declencher("click");
+    await tick();
+    await tick();
+    cas.lecteur_sans_lignes = {
+      url: String(appels[0].url).replace(ORIGINE, ""),
+      explication: elements["lecteur-sans-surlignage"].textContent,
+      visible: !elements["lecteur-sans-surlignage"].hidden,
+      suivant_desactive: !!elements["lecteur-suivant"].disabled,
+    };
+  }
+
+  // Une réponse image en échec reste dans le lecteur, sans effacer le verdict ni le lien public.
+  {
+    const { SINISTRE, elements } = charger(PAGE, (url) => {
+      if (String(url).includes("/pages/")) return reponseHttp({ status: 503 });
+      return reponseHttp({ corps: {} });
+    });
+    const r = reponseVerdict();
+    const racine = SINISTRE.peindre(SINISTRE.vueVerdict(r, {
+      doc_id: DOC_ID, source_url: DOCUMENTS[0].source_url
+    }), elements.resultat);
+    SINISTRE.brancherLecteur(racine);
+    racine.querySelector(".cl-ouvrir").declencher("click");
+    await tick();
+    await tick();
+    cas.lecteur_en_echec = {
+      statut: elements["lecteur-statut"].textContent,
+      badge: elements.resultat.querySelector(".badge").textContent,
+      source: elements["lecteur-source"].href,
+      image_cachee: !!elements["lecteur-image"].hidden,
+    };
+  }
+
+  // Navigation rapide : la réponse de la page quittée arrive après la plus récente. Même si le
+  // double ignore l'abort réseau, la génération obsolète ne peut remplacer ni image ni statut.
+  {
+    const attentes = [];
+    const { SINISTRE, elements } = charger(PAGE, (url, options) => new Promise((resolve) => {
+      attentes.push({ url: String(url), options, resolve });
+    }));
+    const premiere = SINISTRE.ouvrirLecteur({
+      doc_id: DOC_ID, page: 9, block_ids: ["cg-mini:p9:2"], line_ids: ["p9:2:l1"],
+      source_url: DOCUMENTS[0].source_url,
+    });
+    const seconde = SINISTRE.naviguerLecteur(1);
+    attentes[1].resolve(reponseHttp({ entetes: { "X-Document-Pages": "12" } }));
+    await seconde;
+    const srcRecent = elements["lecteur-image"].src;
+    attentes[0].resolve(reponseHttp({ entetes: { "X-Document-Pages": "12" } }));
+    await premiere;
+    cas.lecteur_reponses_inversees = {
+      urls: attentes.map((a) => a.url.replace(ORIGINE, "")),
+      premiere_annulee: attentes[0].options.signal.aborted,
+      src_recent: srcRecent,
+      src_final: elements["lecteur-image"].src,
+      statut: elements["lecteur-statut"].textContent,
+    };
+  }
+
+  // Le timeout/abort couvre aussi la consommation du blob, pas seulement l'arrivée des headers.
+  {
+    let blobCommence = false;
+    let blobAnnule = false;
+    let signal = null;
+    const { SINISTRE } = charger(PAGE, (_url, options) => {
+      signal = options.signal;
+      const response = reponseHttp({ entetes: { "X-Document-Pages": "12" } });
+      response.blob = () => new Promise((_resolve, reject) => {
+        blobCommence = true;
+        options.signal.addEventListener("abort", () => {
+          blobAnnule = true;
+          reject(new Error("blob annulé"));
+        });
+      });
+      return response;
+    });
+    const charge = SINISTRE.ouvrirLecteur({
+      doc_id: DOC_ID, page: 9, block_ids: ["cg-mini:p9:2"], line_ids: ["p9:2:l1"],
+      source_url: DOCUMENTS[0].source_url,
+    });
+    await tick();
+    SINISTRE.fermerLecteur();
+    await charge;
+    cas.lecteur_blob_annule = {
+      blob_commence: blobCommence,
+      signal_annule: signal && signal.aborted,
+      blob_annule: blobAnnule,
     };
   }
 
@@ -1095,6 +1252,15 @@ async function main() {
       clause_null: (() => { const r = reponseVerdict(); r.sources[1] = null; return r; })(),
       clause_page_en_chaine: (() => {
         const r = reponseVerdict(); r.sources[0].page = "9"; return r;
+      })(),
+      clause_sans_lignes: (() => {
+        const r = reponseVerdict(); delete r.sources[0].line_ids; return r;
+      })(),
+      clause_lignes_non_liste: (() => {
+        const r = reponseVerdict(); r.sources[0].line_ids = "p9:2:l1"; return r;
+      })(),
+      clause_ligne_nombre: (() => {
+        const r = reponseVerdict(); r.sources[0].line_ids = [4]; return r;
       })(),
       clause_sans_statut: (() => {
         const r = reponseVerdict(); delete r.sources[1].status; return r;

@@ -223,6 +223,84 @@ def test_changer_de_contrat_ne_reinitialise_pas_le_selecteur(cas: dict[str, Any]
     assert cas["changement"]["options"] == ["cg-mini", "cg-second", "cg-privee"]
 
 
+# --- story 3.4 : lecteur PDF paresseux -----------------------------------
+
+def test_les_clauses_ouvrent_le_lecteur_sans_aucune_requete_avant_clic(cas: dict[str, Any]) -> None:
+    lecteur = cas["lecteur"]
+    assert cas["demarrage"]["ordre_des_appels"] == ["/api/v1/sante", "/api/v1/documents"]
+    assert cas["soumission"]["commandes_pdf"] == 2
+    assert lecteur["appels_avant_clic"] == 0
+    assert lecteur["urls"] == [
+        "/api/v1/documents/cg-mini/pages/9.png?blocks=cg-mini%3Ap9%3A2&line_ids=p9%3A2%3Al1"]
+    assert lecteur["statut"] == "Page 9 sur 12 chargée."
+    assert lecteur["image_src"].startswith("blob:lecteur-")
+    assert lecteur["image_alt"] == "Page 9 sur 12 du contrat"
+
+
+def test_le_lecteur_est_accessible_et_restaure_le_focus(cas: dict[str, Any], page: str) -> None:
+    lecteur = cas["lecteur"]
+    assert lecteur["focus_ouverture"] == "lecteur-fermer"
+    assert lecteur["focus_fermeture"] == "cl-ouvrir"
+    assert lecteur["source"] == {
+        "href": "https://example.invalid/cg.pdf",
+        "target": "_blank",
+        "rel": "noopener noreferrer",
+    }
+    assert 'id="lecteur-pdf" aria-labelledby="lecteur-titre"' in page
+    assert 'id="lecteur-statut" role="status" aria-live="polite"' in page
+    assert 'aria-label="Navigation dans le PDF"' in page
+
+
+def test_la_navigation_reste_bornee_et_ne_transporte_pas_un_surlignage_etranger(
+        cas: dict[str, Any]) -> None:
+    lecteur = cas["lecteur"]
+    assert lecteur["precedent_desactive"] is False
+    assert lecteur["suivant_desactive"] is False
+    assert lecteur["navigation_url"] == "/api/v1/documents/cg-mini/pages/10.png"
+    assert "sans surlignage" in lecteur["sans_surlignage"]
+
+
+def test_une_citation_sans_lignes_ouvre_la_page_sans_faux_surlignage(cas: dict[str, Any]) -> None:
+    lecteur = cas["lecteur_sans_lignes"]
+    assert lecteur["url"] == (
+        "/api/v1/documents/cg-mini/pages/12.png?blocks=cg-mini%3Ap12%3A3&line_ids=")
+    assert lecteur["visible"] is True
+    assert lecteur["suivant_desactive"] is True
+    assert "aucune ligne" in lecteur["explication"]
+
+
+def test_les_identifiants_de_lignes_sont_encodes_dans_lurl(cas: dict[str, Any]) -> None:
+    assert cas["url_page_encodee"] == (
+        "/api/v1/documents/cg-mini/pages/9.png?"
+        "blocks=cg-mini%3Ap9%3A2,cg-mini%3Ap9%3A3&"
+        "line_ids=p9%3A2%3Al%201%2F%C3%A9&line_ids=p9%3A2%3Al2")
+
+
+def test_une_image_indisponible_conserve_verdict_et_source_publique(cas: dict[str, Any]) -> None:
+    echec = cas["lecteur_en_echec"]
+    assert "indisponible" in echec["statut"]
+    assert echec["badge"] == "sous conditions"
+    assert echec["source"] == "https://example.invalid/cg.pdf"
+    assert echec["image_cachee"] is True
+
+
+def test_une_navigation_annule_la_page_precedente_et_ignore_sa_reponse_tardive(
+        cas: dict[str, Any]) -> None:
+    inversees = cas["lecteur_reponses_inversees"]
+    assert inversees["premiere_annulee"] is True
+    assert inversees["urls"] == [
+        "/api/v1/documents/cg-mini/pages/9.png?blocks=cg-mini%3Ap9%3A2&line_ids=p9%3A2%3Al1",
+        "/api/v1/documents/cg-mini/pages/10.png",
+    ]
+    assert inversees["src_recent"] == inversees["src_final"]
+    assert inversees["statut"] == "Page 10 sur 12 chargée."
+
+
+def test_fermer_annule_aussi_un_corps_blob_encore_bloque(cas: dict[str, Any]) -> None:
+    annule = cas["lecteur_blob_annule"]
+    assert annule == {"blob_commence": True, "signal_annule": True, "blob_annule": True}
+
+
 # --- D6 : l'appariement clause ↔ affirmation ------------------------------
 
 def test_lappariement_suit_lenumeration_du_serveur(cas: dict[str, Any]) -> None:
@@ -755,6 +833,9 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("rejetee_sans_kind", "answer.rejected_claims[0].rejection_kind"),
     ("clause_null", "sources[1]"),
     ("clause_page_en_chaine", "sources[0].page"),
+    ("clause_sans_lignes", "sources[0].line_ids"),
+    ("clause_lignes_non_liste", "sources[0].line_ids"),
+    ("clause_ligne_nombre", "sources[0].line_ids[0]"),
     ("clause_sans_statut", "sources[1].status"),
     ("clause_typage_non_booleen", "sources[0].kind_confirmed"),
     ("inconnu_objet", "answer.unknown[0]"),
@@ -1082,7 +1163,7 @@ def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) ->
 def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
     """D8 : sans framework, sans requête tierce, et **sans** dépendance à `web/app/styles.css`."""
     scripts = re.findall(r'<script[^>]*src="([^"]+)"', page)
-    assert scripts == ["sinistre.js?v=1"]
+    assert scripts == ["sinistre.js?v=2"]
     # Aucune feuille de style externe : les styles sont dans la page, et surtout pas ceux du guide
     # (`web/app/styles.css`, 1 328 lignes taillées pour un autre DOM — une classe renommée là-bas
     # casserait celui-ci). Le commentaire d'en-tête l'explique ; ce qu'on vérifie, ce sont les
@@ -1098,7 +1179,10 @@ def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
 def test_les_identifiants_de_la_page_sont_ceux_que_le_script_cherche(page: str) -> None:
     """Un renommage dans la page ne doit pas laisser le script piloter un formulaire fantôme."""
     for identifiant in ("formulaire", "contrat", "contrats-message", "contrat-source", "question",
-                        "date", "lieu", "montant", "description", "analyser", "resultat"):
+                        "date", "lieu", "montant", "description", "analyser", "resultat",
+                        "lecteur-pdf", "lecteur-titre", "lecteur-statut", "lecteur-image",
+                        "lecteur-sans-surlignage", "lecteur-precedent", "lecteur-suivant",
+                        "lecteur-source", "lecteur-fermer"):
         assert f'id="{identifiant}"' in page, identifiant
 
 

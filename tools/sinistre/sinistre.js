@@ -544,7 +544,7 @@
     return vue;
   }
 
-  function clauseVue(src, status) {
+  function clauseVue(src, status, contexte) {
     var meta = [noeud("span", "cl-kind", libelleKind(src.kind))];
     if (src.kind_confirmed === false) {
       // AD-6 : un `kind` non confirmé plafonne le verdict. Afficher « garantie » sans le dire
@@ -554,10 +554,25 @@
     if (typeof src.page === "number") meta.push(noeud("span", "cl-page", "page " + src.page));
     var statut = statutTexte(status);
     if (statut) meta.push(noeud("span", "cl-statut", statut));
-    return noeud("div", "clause", null, [
+    var enfants = [
       noeud("blockquote", "cl-q", "« " + String(src.quote || "") + " »"),
       noeud("div", "cl-meta", null, meta)
-    ]);
+    ];
+    var c = contexte || {};
+    if (typeof c.doc_id === "string" && c.doc_id && typeof src.page === "number" &&
+        isFinite(src.page) && Math.floor(src.page) === src.page && src.page > 0) {
+      var attrs = {
+        "data-doc-id": c.doc_id,
+        "data-page": String(src.page),
+        "data-block-ids": JSON.stringify([String(src.block_id)]),
+        "data-line-ids": JSON.stringify(tableau(src.line_ids))
+      };
+      var source = lienHttp(c.source_url);
+      if (source) attrs["data-source-url"] = source;
+      enfants.push(noeud("button", "cl-ouvrir", "Voir la page " + src.page + " dans le PDF",
+                         null, attrs));
+    }
+    return noeud("div", "clause", null, enfants);
   }
 
   // AD-4/D4 : « les faits compris » sont ce que *comprendre* a extrait des faits déclarés, pas la
@@ -794,7 +809,7 @@
     return noeud("details", "trace", null, enfants);
   }
 
-  function vueVerdict(reponse) {
+  function vueVerdict(reponse, contexte) {
     var r = reponse || {};
     var a = r.answer || {};
     var verdict = a.verdict || null;
@@ -848,7 +863,7 @@
           if (!entree.clauses.length) return;
           corps.push(noeud("div", "affirmation", null,
             [noeud("p", "aff-txt", String(entree.text || ""))].concat(
-              entree.clauses.map(function (src) { return clauseVue(src, entree.status); }))));
+              entree.clauses.map(function (src) { return clauseVue(src, entree.status, contexte); }))));
         });
       } else {
         corps.push(noeud("p", "degrade",
@@ -861,7 +876,7 @@
           // Le compte ne porte que sur l'**ambiguïté** : une clause qu'aucune affirmation affichée
           // ne cite n'a pas de statut à taire, elle n'en a pas.
           if (statutAmbigu(a, src.block_id)) ambigus++;
-          corps.push(clauseVue(src, statutDeBloc(a, src.block_id)));
+          corps.push(clauseVue(src, statutDeBloc(a, src.block_id), contexte));
         });
         if (ambigus) {
           corps.push(noeud("p", "degrade",
@@ -1098,8 +1113,9 @@
     exiger(estChaine(c.rejection_kind), champ + ".rejection_kind");
   }
 
-  // Les cinq champs d'AD-11 que la page lit, plus les deux de D5. `page` est `int | None` (le guide
-  // n'en a pas) ; `bbox` et `line_ids` ne sont pas listés : rien ne les affiche ici.
+  // Les cinq champs d'AD-11 que la page lit, plus les deux de D5 et `line_ids` (story 3.4). Le
+  // navigateur ne reçoit jamais de coordonnées à renvoyer : il transporte uniquement ces
+  // identifiants strictement typés, que la route résout contre le corpus.
   function lireClause(s, champ) {
     exiger(estObjet(s), champ);
     exiger(estChaine(s.block_id), champ + ".block_id");
@@ -1107,6 +1123,7 @@
     exiger(estChaine(s.kind), champ + ".kind");
     exiger(estBooleen(s.kind_confirmed), champ + ".kind_confirmed");
     exiger(ouNul(estNombre)(s.page), champ + ".page");
+    exigerListe(s.line_ids, estChaine, champ + ".line_ids");
     exiger(estChaine(s.status), champ + ".status");
   }
 
@@ -1355,6 +1372,239 @@
     }).then(lireReponse);
   }
 
+  // ---------- lecteur PDF paresseux (story 3.4) ----------
+
+  var lecteurEtat = null;
+  var lecteurGeneration = 0;
+  var lecteurUrlObjet = null;
+  var lecteurAbort = null;
+  var lecteurMinuteur = null;
+
+  function urlPage(doc_id, page, block_ids, line_ids) {
+    var chemin = "/api/v1/documents/" + encodeURIComponent(String(doc_id || "")) +
+      "/pages/" + encodeURIComponent(String(page)) + ".png";
+    var blocs = tableau(block_ids);
+    var query = [];
+    if (blocs.length) {
+      query.push("blocks=" + blocs.map(function (block_id) {
+        return encodeURIComponent(String(block_id));
+      }).join(","));
+    }
+    if (Array.isArray(line_ids)) {
+      if (line_ids.length) {
+        line_ids.forEach(function (line_id) {
+          query.push("line_ids=" + encodeURIComponent(String(line_id)));
+        });
+      } else if (blocs.length) {
+        // Différencie la précision explicitement vide d'une absence de précision, laquelle demande
+        // au serveur toutes les lignes des blocs canoniques.
+        query.push("line_ids=");
+      }
+    }
+    return chemin + (query.length ? "?" + query.join("&") : "");
+  }
+
+  function annulerChargementLecteur() {
+    if (lecteurAbort) lecteurAbort.abort();
+    if (lecteurMinuteur !== null) clearTimeout(lecteurMinuteur);
+    lecteurAbort = null;
+    lecteurMinuteur = null;
+  }
+
+  function reglerSourceLecteur(source_url) {
+    var lien = $("lecteur-source");
+    if (!lien) return;
+    var source = lienHttp(source_url);
+    lien.hidden = !source;
+    if (source) {
+      lien.href = source;
+      lien.target = "_blank";
+      lien.rel = "noopener noreferrer";
+    } else {
+      lien.removeAttribute("href");
+    }
+  }
+
+  function reglerNavigationLecteur() {
+    var precedent = $("lecteur-precedent");
+    var suivant = $("lecteur-suivant");
+    if (precedent) precedent.disabled = !lecteurEtat || lecteurEtat.page <= 1;
+    if (suivant) suivant.disabled = !lecteurEtat || lecteurEtat.total_pages === null ||
+      lecteurEtat.page >= lecteurEtat.total_pages;
+  }
+
+  function selectionPageLecteur() {
+    if (!lecteurEtat || lecteurEtat.page !== lecteurEtat.page_citee) {
+      return { block_ids: [], line_ids: null };
+    }
+    return { block_ids: lecteurEtat.block_ids, line_ids: lecteurEtat.line_ids };
+  }
+
+  function chargerPageLecteur() {
+    if (!lecteurEtat) return Promise.resolve(null);
+    annulerChargementLecteur();
+    var generation = ++lecteurGeneration;
+    var pageDemandee = lecteurEtat.page;
+    var docDemande = lecteurEtat.doc_id;
+    var status = $("lecteur-statut");
+    var image = $("lecteur-image");
+    var sans = $("lecteur-sans-surlignage");
+    var selection = selectionPageLecteur();
+    var lignes = selection.line_ids;
+    if (status) status.textContent = "Chargement de la page " + pageDemandee + "…";
+    if (image) {
+      image.hidden = true;
+      image.alt = "Page " + pageDemandee + " du contrat";
+    }
+    if (sans) {
+      sans.hidden = Array.isArray(lignes) && lignes.length !== 0;
+      sans.textContent = !Array.isArray(lignes) || lignes.length === 0
+        ? "Cette page est affichée sans surlignage : aucune ligne de cette page ne fait partie de la citation."
+        : "";
+    }
+    reglerNavigationLecteur();
+
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    var minuteur = ctrl ? setTimeout(function () { ctrl.abort(); }, abandonMs()) : null;
+    lecteurAbort = ctrl;
+    lecteurMinuteur = minuteur;
+    function finir() {
+      if (minuteur !== null) clearTimeout(minuteur);
+      if (lecteurAbort === ctrl) lecteurAbort = null;
+      if (lecteurMinuteur === minuteur) lecteurMinuteur = null;
+    }
+    var chemin = urlPage(docDemande, pageDemandee, selection.block_ids, lignes);
+    return fetch(API_BASE + chemin, ctrl ? { signal: ctrl.signal } : {}).then(function (r) {
+      if (!r.ok || typeof r.blob !== "function") throw new Error("page_indisponible");
+      var total = Number(r.headers && r.headers.get("X-Document-Pages"));
+      if (!isFinite(total) || Math.floor(total) !== total || total < pageDemandee) {
+        throw new Error("metadonnees_page_invalides");
+      }
+      return r.blob().then(function (blob) { return { blob: blob, total: total }; });
+    }).then(function (chargee) {
+      finir();
+      if (!lecteurEtat || generation !== lecteurGeneration) return null;
+      if (typeof URL.createObjectURL !== "function") throw new Error("image_locale_indisponible");
+      if (lecteurUrlObjet && typeof URL.revokeObjectURL === "function") {
+        URL.revokeObjectURL(lecteurUrlObjet);
+      }
+      lecteurUrlObjet = URL.createObjectURL(chargee.blob);
+      lecteurEtat.total_pages = chargee.total;
+      if (image) {
+        image.src = lecteurUrlObjet;
+        image.hidden = false;
+        image.alt = "Page " + lecteurEtat.page + " sur " + chargee.total + " du contrat";
+      }
+      if (status) status.textContent = "Page " + lecteurEtat.page + " sur " + chargee.total + " chargée.";
+      reglerNavigationLecteur();
+      return chargee;
+    }).catch(function () {
+      finir();
+      if (!lecteurEtat || generation !== lecteurGeneration) return null;
+      if (status) status.textContent = "La page du PDF est indisponible. Le verdict reste affiché ci-dessous.";
+      if (image) image.hidden = true;
+      reglerNavigationLecteur();
+      return null;
+    });
+  }
+
+  function ouvrirLecteur(commande, declencheur) {
+    var c = commande || {};
+    var page = Number(c.page);
+    if (!c.doc_id || !isFinite(page) || Math.floor(page) !== page || page < 1 ||
+        !Array.isArray(c.block_ids) || !Array.isArray(c.line_ids)) return Promise.resolve(null);
+    lecteurEtat = {
+      doc_id: String(c.doc_id), page: page, page_citee: page,
+      block_ids: c.block_ids.map(String),
+      line_ids: c.line_ids.map(String), source_url: lienHttp(c.source_url),
+      total_pages: null, declencheur: declencheur || null
+    };
+    var dialogue = $("lecteur-pdf");
+    reglerSourceLecteur(lecteurEtat.source_url);
+    if (dialogue) {
+      dialogue.hidden = false;
+      if (typeof dialogue.showModal === "function") dialogue.showModal();
+      else dialogue.setAttribute("open", "");
+    }
+    var fermer = $("lecteur-fermer");
+    if (fermer) fermer.focus();
+    return chargerPageLecteur();
+  }
+
+  function fermerLecteur() {
+    lecteurGeneration++;
+    annulerChargementLecteur();
+    var ancien = lecteurEtat;
+    lecteurEtat = null;
+    if (lecteurUrlObjet && typeof URL.revokeObjectURL === "function") {
+      URL.revokeObjectURL(lecteurUrlObjet);
+    }
+    lecteurUrlObjet = null;
+    var image = $("lecteur-image");
+    if (image) { image.removeAttribute("src"); image.hidden = true; }
+    var dialogue = $("lecteur-pdf");
+    if (dialogue) {
+      if (typeof dialogue.close === "function" && dialogue.open) dialogue.close();
+      else dialogue.removeAttribute("open");
+      dialogue.hidden = true;
+    }
+    if (ancien && ancien.declencheur && typeof ancien.declencheur.focus === "function") {
+      ancien.declencheur.focus();
+    }
+  }
+
+  function naviguerLecteur(delta) {
+    if (!lecteurEtat) return Promise.resolve(null);
+    var prochaine = lecteurEtat.page + delta;
+    if (prochaine < 1 || (lecteurEtat.total_pages !== null && prochaine > lecteurEtat.total_pages)) {
+      return Promise.resolve(null);
+    }
+    lecteurEtat.page = prochaine;
+    return chargerPageLecteur();
+  }
+
+  function brancherLecteur(racine) {
+    if (!racine) return;
+    racine.querySelectorAll(".cl-ouvrir").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        var block_ids;
+        var line_ids;
+        try { block_ids = JSON.parse(bouton.getAttribute("data-block-ids") || "[]"); }
+        catch (_) { block_ids = []; }
+        try { line_ids = JSON.parse(bouton.getAttribute("data-line-ids") || "[]"); }
+        catch (_) { line_ids = []; }
+        ouvrirLecteur({
+          doc_id: bouton.getAttribute("data-doc-id"),
+          page: Number(bouton.getAttribute("data-page")),
+          block_ids: Array.isArray(block_ids) ? block_ids : [],
+          line_ids: Array.isArray(line_ids) ? line_ids : [],
+          source_url: bouton.getAttribute("data-source-url")
+        }, bouton);
+      });
+    });
+  }
+
+  function preparerLecteur() {
+    var fermer = $("lecteur-fermer");
+    var precedent = $("lecteur-precedent");
+    var suivant = $("lecteur-suivant");
+    var dialogue = $("lecteur-pdf");
+    var image = $("lecteur-image");
+    if (fermer) fermer.addEventListener("click", fermerLecteur);
+    if (precedent) precedent.addEventListener("click", function () { naviguerLecteur(-1); });
+    if (suivant) suivant.addEventListener("click", function () { naviguerLecteur(1); });
+    if (image) image.addEventListener("error", function () {
+      if (!lecteurEtat || image.src !== lecteurUrlObjet) return;
+      image.hidden = true;
+      var status = $("lecteur-statut");
+      if (status) status.textContent = "L'image de la page est illisible. Le verdict reste affiché ci-dessous.";
+    });
+    if (dialogue) dialogue.addEventListener("cancel", function (ev) {
+      ev.preventDefault();
+      fermerLecteur();
+    });
+  }
+
   // ---------- démarrage : le seul endroit qui touche la page ----------
 
   function $(id) { return document.getElementById(id); }
@@ -1464,6 +1714,7 @@
     var bornes = [{ id: "question", max: QUESTION_MAX }, { id: "description", max: DESCRIPTION_MAX },
                   { id: "lieu", max: LIEU_MAX }];
     bornes.forEach(function (b) { var e = $(b.id); if (e) e.maxLength = b.max; });
+    preparerLecteur();
 
     var vueForm = vueFormulaire([]);
     // La sonde d'abord : elle porte `deadline_s` et `client_abort_margin_s`, donc la borne
@@ -1508,7 +1759,14 @@
         soumettre(saisie)
           .then(function (r) {
             verrouiller(false);
-            peindre(vueVerdict(r));
+            var source = tableau(vueForm.sources).filter(function (s) {
+              return s && s.doc_id === saisie.doc_id;
+            })[0];
+            var resultat = peindre(vueVerdict(r, {
+              doc_id: saisie.doc_id,
+              source_url: source && source.url
+            }));
+            brancherLecteur(resultat);
           })
           .catch(function (e) {
             verrouiller(false);
@@ -1560,6 +1818,11 @@
     statutDeBloc: statutDeBloc,
     statutAmbigu: statutAmbigu,
     vueSource: vueSource,
+    urlPage: urlPage,
+    ouvrirLecteur: ouvrirLecteur,
+    fermerLecteur: fermerLecteur,
+    naviguerLecteur: naviguerLecteur,
+    brancherLecteur: brancherLecteur,
     libelleControle: libelleControle,
     PORTEE: PORTEE
   };
