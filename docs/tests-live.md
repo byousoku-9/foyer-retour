@@ -3104,4 +3104,39 @@ une fois chacun, avec `--max-cost 0.15` : AXA `s-bougie-canape` 1/1 `bonne_repon
 `pipeline_digest=2fa2bacb03ea12dbb8c61aca399880e2529408411454920e0e817f71882e1da0`,
 `evals_ok=true` et `countersigned=false`. Coût ajouté : **0,0634 EUR** ; cumul global réel
 **11,4375 EUR / 12 EUR**, reliquat **0,5625 EUR**. Aucun autre live, aucune campagne A+B, aucune
-fixture et aucun Batch n'ont été touchés.
+fixture et aucun Batch n'avaient été touchés à l'issue de cette recertification ; la reprise
+post-suite ci-dessous est postérieure.
+
+### Reprise post-suite de revue 3.3 — règle fondatrice et gates finaux
+
+La suite complète post-patch a révélé qu'une définition auxiliaire pouvait survivre au contrôle de
+pertinence alors que la claim fondatrice (`garantie|exclusion`) était rejetée. Le pipeline considérait
+alors à tort qu'une réponse décisionnelle subsistait et ne relançait pas *rédiger* ; les qualités de
+la clause, notamment son caractère soudain ou subit, disparaissaient des questions à poser au
+client. La correction relit le `kind` dans le corpus et déclenche la relance atomique uniquement
+pour une fondatrice rejetée dans le pipeline sinistre. La politique Guide reste inchangée. Une
+miniature déterministe couvre le cas et les huit témoins Guide qui avaient rougi avec une première
+correction trop large ont tous été rejoués verts hors réseau.
+
+Le seul réenregistrement de fixture est le cas AXA
+`test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses`, exécuté une fois via
+Messages standard. Quatre réponses ont été facturées :
+
+| Étape | Message ID | Coût réel |
+|---|---|---:|
+| comprendre | `msg_011CeRRd4tSttdfFUa1uXug7` | 0,0043 EUR |
+| rédiger | `msg_011CeRRdKv5dQF9Ff5x66oT4` | 0,0190 EUR |
+| vérifier, première lecture | `msg_011CeRR1w8eGiQhGV3pbufxf` | 0,0103 EUR |
+| vérifier, lecture après relance | `msg_011CeRRdui5NESsoSQPUjKM6` | 0,0105 EUR |
+
+Le réenregistrement coûte donc **0,0441 EUR**. Le digest ayant ensuite changé, les deux gates ont
+été rejoués une seule fois avec `--max-cost 0.15` : AXA `s-bougie-canape` 1/1
+`bonne_reponse` à **0,0532 EUR** (`cases_hash=b02293a7fe68…`) ; guide `g-luxtrust-prix` 1/1 à
+**0,0362 EUR** (`cases_hash=9e325311b481…`). Tous deux sont `evals_ok=true`,
+`countersigned=false` et portent le digest réellement servi
+`00bbef5ba2a45bda562b15d1b64fe0df1fe8335291cbd55fb65f58eb15c90e4b`.
+
+Coût ajouté par cette reprise : **0,1335 EUR** ; cumul global réel **11,5710 EUR / 12 EUR**,
+reliquat **0,4290 EUR**. Aucun Batch ni campagne A+B n'a été relancé. La suite complète hermétique
+sur le HEAD final rend **2305 passés en 58,55 s** ; les onze findings initiaux sont fermés et le
+rejeu hors réseau de la fixture finale est vert.
