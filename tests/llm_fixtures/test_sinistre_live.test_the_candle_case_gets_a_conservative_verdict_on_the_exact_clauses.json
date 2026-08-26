@@ -123,6 +123,36 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:36fbe60b84f383bc": {
+    "request": "claude-haiku-4-5-20251001:36fbe60b84f383bc",
+    "response": {
+      "content": [
+        {
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\", \"contact direct et immédiat avec un foyer incandescent\"], \"qualites_etablies\": [{\"qualite\": \"caractère soudain de l'événement\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"action subite de la chaleur\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"contact direct et immédiat avec un foyer incandescent\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRLDPQg61qctsuHjbDe9",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 7534
+        },
+        "cache_creation_input_tokens": 7534,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1202,
+        "output_tokens": 379,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:6268d5a21b341b59": {
     "request": "claude-haiku-4-5-20251001:6268d5a21b341b59",
     "response": {
@@ -739,6 +769,44 @@
         "inference_geo": "not_available",
         "input_tokens": 633,
         "output_tokens": 235,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:0bd8e53f1c1a6bc6": {
+    "request": "claude-sonnet-5:0bd8e53f1c1a6bc6",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "{\"segments\":[{\"text\":\"Les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l’action subite de la chaleur ou du contact direct avec un foyer incandescent, même sans embrasement ni commencement d’incendie, sont visés par le contrat.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le mobilier assuré est défini comme tout bien meuble, y compris agencements fixes ou aménagements apportés par les locataires ou occupants.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Pour certaines extensions de garantie, les dégâts au bâtiment causés par un tel événement soudain sans embrasement ni commencement d'incendie sont exclus.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les blocs fournis ne permettent pas de déterminer si cette exclusion relative au bâtiment s'applique au cas d'un canapé de salon brûlé sans dommage au bâtiment.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l’action subite de la chaleur ou du contact direct avec un foyer incandescent, même sans embrasement ni commencement d’incendie, sont visés par le contrat.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"Le mobilier assuré est défini comme tout bien meuble, y compris agencements fixes ou aménagements apportés par les locataires ou occupants.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p11:9\",\"quote\":\"Tout bien meuble en ce compris tout agencement fixe ou tout aménagement apporté par les locataires ou occupants.\"}]},{\"claim_id\":\"c3\",\"text\":\"Pour certaines extensions de garantie, les dégâts au bâtiment causés par un tel événement soudain sans embrasement ni commencement d'incendie sont exclus.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p46:1\",\"quote\":\"les dégâts occasionnés au bâtiment par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l’absence d’embrasement ou de commencement d’incendie.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRL8KRvVy4W5yVwPXjFT",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7187,
+        "inference_geo": "global",
+        "input_tokens": 3268,
+        "output_tokens": 1556,
+        "output_tokens_details": {
+          "thinking_tokens": 572
+        },
         "service_tier": "standard"
       }
     }

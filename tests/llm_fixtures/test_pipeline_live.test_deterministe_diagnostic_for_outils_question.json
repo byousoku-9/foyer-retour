@@ -154,6 +154,36 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:eae75b67a2fd2e6b": {
+    "request": "claude-haiku-4-5-20251001:eae75b67a2fd2e6b",
+    "response": {
+      "content": [
+        {
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRLDDRu6mimg6A8kix7R",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3462,
+        "output_tokens": 125,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:3055fd35f1d170db": {
     "request": "claude-sonnet-5:3055fd35f1d170db",
     "response": {
@@ -181,6 +211,39 @@
         "inference_geo": "global",
         "input_tokens": 2857,
         "output_tokens": 508,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:3b59c9c77ed77f2c": {
+    "request": "claude-sonnet-5:3b59c9c77ed77f2c",
+    "response": {
+      "content": [
+        {
+          "text": "{\"segments\":[{\"text\":\"Vous devez effectuer votre déclaration d'arrivée à la commune dans les huit jours suivant votre emménagement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette démarche est fondamentale car elle produit deux documents indispensables pour toutes les suites administratives.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne dès que possible, sans attendre d'avoir les clés du logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Les blocs fournis ne précisent pas les conséquences précises d'un dépassement de ce délai.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La déclaration à la commune doit se faire dans les huit jours suivant l'emménagement, et il est conseillé de prendre rendez-vous en ligne avant d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement. Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite. Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]},{\"claim_id\":\"c2\",\"text\":\"La déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite des démarches.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRL7oqSGquF2t3TQnRYL",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2885,
+        "output_tokens": 567,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

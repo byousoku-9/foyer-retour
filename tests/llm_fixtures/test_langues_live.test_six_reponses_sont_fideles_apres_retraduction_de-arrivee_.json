@@ -92,6 +92,36 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:1b41c591f4a12e4a": {
+    "request": "claude-haiku-4-5-20251001:1b41c591f4a12e4a",
+    "response": {
+      "content": [
+        {
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRLCxkbxeLpGSTDkxJTX",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3458,
+        "output_tokens": 124,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:3f249595baefaa36": {
     "request": "claude-haiku-4-5-20251001:3f249595baefaa36",
     "response": {
@@ -336,6 +366,36 @@
         "inference_geo": "not_available",
         "input_tokens": 809,
         "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:ac12f2309c298959": {
+    "request": "claude-haiku-4-5-20251001:ac12f2309c298959",
+    "response": {
+      "content": [
+        {
+          "text": "{\"langue_detectee\":\"de\",\"fidele\":true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRLGAEVpSxqAVfbWXrEF",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 815,
+        "output_tokens": 16,
         "service_tier": "standard"
       }
     }
@@ -691,6 +751,44 @@
         "output_tokens": 591,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:edf48c1f93eda91d": {
+    "request": "claude-sonnet-5:edf48c1f93eda91d",
+    "response": {
+      "content": [
+        {
+          "signature": "EooDCpABCBEYAipA6skzHyui1YAVgc/lnj3RNohnQiHxAAuDsXZBxqBgbqKS9W5d1/r/bAVbUmAi4YeDXNz+jf9s34R3TWwlUIdbiDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZetu9QGEgwGbr2MgdT/4/nkyv4aDAO6TfkYuAcUUgGINyIwpm6nhbghjNcXWoUcnhb4NjPuhJjBp8IyagjBXtdktQGeMY9Zw9w0fksFS0nPKTPgKqYBn5XA0CmJxsAiihffN2kd6F51qYMvJzDF14ccRTZD4ZCy8PBL8PKjm7NgqOJcEKQW4HOUR3geTifrzRcmw6Q+EJIF3kXZipq+1gA6geGpPTDvie8mIFggHaBA5iYLArMcQrNGR54WLUIe64oCO/XRbk/naocYyElkRDtir3LokazXAdHUD3XvcR6rAgoAwqj2nbjQh3OKIE8FQtRvQ+ZQzl9SKLBcRBgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "{\"segments\":[{\"text\":\"Sie müssen sich innerhalb von acht Tagen nach Ihrem Einzug bei der Gemeinde anmelden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Anmeldung ist grundlegend, da sie den Wohnsitznachweis und die Matrikelnummer erzeugt, die für alle weiteren Schritte notwendig sind.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Es empfiehlt sich, den Termin online zu vereinbaren, noch bevor Sie die Wohnungsschlüssel erhalten haben.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung bei der Gemeinde muss innerhalb von acht Tagen nach dem Einzug erfolgen.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Diese Erklärung erzeugt den Wohnsitznachweis und die Matrikelnummer.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Es wird empfohlen, den Termin online zu buchen, bevor man die Schlüssel erhält.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRL6paoZkamdqC8pgMyG",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2884,
+        "output_tokens": 647,
+        "output_tokens_details": {
+          "thinking_tokens": 60
         },
         "service_tier": "standard"
       }

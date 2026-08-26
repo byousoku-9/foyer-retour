@@ -123,6 +123,36 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:411b2be9e302c8e7": {
+    "request": "claude-haiku-4-5-20251001:411b2be9e302c8e7",
+    "response": {
+      "content": [
+        {
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRLGESFyhHVXiMHjo9FD",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 759,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:488361e94814e4a6": {
     "request": "claude-haiku-4-5-20251001:488361e94814e4a6",
     "response": {
@@ -181,6 +211,36 @@
         "inference_geo": "not_available",
         "input_tokens": 3530,
         "output_tokens": 128,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:61c541558fd91117": {
+    "request": "claude-haiku-4-5-20251001:61c541558fd91117",
+    "response": {
+      "content": [
+        {
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRLD5gKt9tEBjG4ZWWqi",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3398,
+        "output_tokens": 124,
         "service_tier": "standard"
       }
     }
@@ -757,6 +817,39 @@
         "inference_geo": "global",
         "input_tokens": 2854,
         "output_tokens": 506,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d5ea81ba7f7cfd52": {
+    "request": "claude-sonnet-5:d5ea81ba7f7cfd52",
+    "response": {
+      "content": [
+        {
+          "text": "{\"segments\":[{\"text\":\"Você deve declarar a sua chegada à comuna dentro de oito dias após a mudança.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Essa declaração é o que gera o certificado de residência e o matrícula, documentos indispensáveis para as etapas seguintes.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"É recomendável marcar o horário online antes mesmo de ter as chaves do imóvel.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"O prazo para se declarar à comuna é de oito dias após o emmagemento.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"La déclaration produit le certificat de résidence et le matricule.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRL7LNSpDeB1ZKir6QSM",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2882,
+        "output_tokens": 493,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
