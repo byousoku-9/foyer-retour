@@ -67,11 +67,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé du salon. Le mobilier de salon a brûlé partiellement sans propagation des flammes ni dommage au bâtiment. Ce sinistre est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"incendie\", \"brûlure\", \"chaleur\", \"feu\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier de salon causé par la chute et la brûlure de la bougie\"], \"bien\": \"mobilier de salon (canapé)\", \"evenement\": \"chute de bougie allumée et brûlure partielle du canapé sans propagation\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"bougie allumée tombée accidentellement\", \"moment\": \"2026-08-01\"}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé du salon. Le mobilier de salon a brûlé partiellement sans propagation des flammes ni dommage au bâtiment. Ce sinistre est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"incendie\", \"brûlure\", \"chaleur\", \"feu\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier de salon causé par la chute et la brûlure de la bougie\"], \"bien\": \"mobilier de salon (canapé)\", \"evenement\": \"chute d'une bougie allumée et brûlure partielle du canapé sans propagation\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute accidentelle d'une bougie allumée\", \"moment\": \"2026-08-01\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeQjcTgiM3UVc628eejHx",
+      "id": "msg_011CeRRd4tSttdfFUa1uXug7",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -87,7 +87,7 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 3432,
-        "output_tokens": 254,
+        "output_tokens": 259,
         "service_tier": "standard"
       }
     }
@@ -401,6 +401,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:82dbcbb6e7935dc1": {
+    "request": "claude-haiku-4-5-20251001:82dbcbb6e7935dc1",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": false}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": false}, {\"segment\": 1, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": \"caractère soudain de l'action de la chaleur\", \"qualites_exigees\": [\"action subite de la chaleur\", \"contact direct et immédiat avec un foyer ou une substance incandescente\"], \"qualites_etablies\": []}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRR1w8eGiQhGV3pbufxf",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 7534
+        },
+        "cache_creation_input_tokens": 7534,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 800,
+        "output_tokens": 204,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:8468bc66df07a958": {
     "request": "claude-haiku-4-5-20251001:8468bc66df07a958",
     "response": {
@@ -552,6 +583,37 @@
         "inference_geo": "not_available",
         "input_tokens": 2918,
         "output_tokens": 242,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:d0f076358b13e572": {
+    "request": "claude-haiku-4-5-20251001:d0f076358b13e572",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\", \"contact direct et immédiat avec un foyer incandescent\"], \"qualites_etablies\": [{\"qualite\": \"action subite de la chaleur\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRRdui5NESsoSQPUjKM6",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 7534
+        },
+        "cache_creation_input_tokens": 7534,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 802,
+        "output_tokens": 244,
         "service_tier": "standard"
       }
     }
@@ -1047,6 +1109,40 @@
         "inference_geo": "global",
         "input_tokens": 4022,
         "output_tokens": 817,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:760169717ca68f7c": {
+    "request": "claude-sonnet-5:760169717ca68f7c",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La clause relative aux dégâts occasionnés au mobilier par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer incandescent, même sans embrasement ni commencement d'incendie, s'applique.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le mobilier assuré est défini comme tout bien meuble, y compris agencements fixes ou aménagements apportés par les locataires ou occupants.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La clause relative aux dégâts occasionnés au mobilier par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer incandescent, même sans embrasement ni commencement d'incendie, s'applique.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie\"}]},{\"claim_id\":\"c2\",\"text\":\"Le mobilier assuré est défini comme tout bien meuble, y compris agencements fixes ou aménagements apportés par les locataires ou occupants.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p11:9\",\"quote\":\"Tout bien meuble en ce compris tout agencement fixe ou tout aménagement apporté par les locataires ou occupants.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeRRdKv5dQF9Ff5x66oT4",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7187,
+        "inference_geo": "global",
+        "input_tokens": 3343,
+        "output_tokens": 561,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
