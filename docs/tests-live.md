@@ -3006,3 +3006,43 @@ donc **10,3495 EUR**, sous le plafond de 12 EUR. Aucun nouveau Batch n'a été s
 L'artefact final porte 968 blocs typés et 917/960 clauses juridiques confirmées. La commande
 Verification complète rend **735 tests passés**, puis Ruff et `git diff --check` verts. La campagne
 A+B reste non lancée tant que la séquence de revue n'est pas terminée.
+
+### Campagne finale A+B — service réel après convergence de revue
+
+Le socle A a été joué une seule fois sur le service local réel, sans fixture ni reformulation. Les
+16 cas numérotés d'`automation/epreuves.md` sont conformes après un correctif local : A1–A15 ont
+satisfait leurs attentes actives dès leur exécution ; A5 a rendu un 400 borné sur la chaîne vide puis
+un refus 200 sur « ? ». Le premier A16 a cité `p34:12` mais pas la limite `p46:1`, désormais active
+en 3.3. La cause était générique : la fermeture prenait une limite classée sur les seuls termes de la
+question et la rédaction pouvait omettre une limite à portée explicite déjà transmise. Le correctif
+1/3 recherche aussi la clause limitative la plus proche de la règle ouverte, dans le même budget,
+et demande au rédacteur de la rendre vérifiable sans décider sa portée. Le rejeu ciblé final d'A16
+rend 200 à **0,0277 EUR**, cite `p34:12` et `p46:1`, et publie pour cette dernière
+`applicable="non"`, `applicable_reason="hors_portee"`; le verdict reste `ne_tranche_pas`.
+
+Les fronts `/`, `/guide/` et `/sinistre/` répondent 200 ; les 16 assets locaux référencés répondent
+sans erreur. Chrome headless à 390 px mesure `scrollWidth = clientWidth = 390` sur les trois pages.
+Après chargement du guide puis arrêt réel du serveur, une soumission affiche « Assistant
+indisponible », le badge « mode indisponible », « Rien n'a été cherché », zéro `.srcs` et une seule
+action explicite de recherche simple.
+
+#### Campagne B — exactement six cas nouveaux
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d'expérience | Classification et correctif |
+|---|---|---|---|---|
+| B1 | « J’débarque mardi avec mes mômes, on dort d’abord chez ma sœur : je fais quoi pour la commune si j’ai pas encore mon bail ? » | 200 / 0,0272 EUR ; huit jours après l'emménagement, rendez-vous conseillé, absence de règle sur l'hébergement chez un tiers dite explicitement. | Acceptable en trois secondes : le délai est en tête et l'inconnu n'est pas inventé ; la démarche sans bail reste logiquement ouverte. | Aucun défaut local ; aucune correction. |
+| B2 | « Ma femme commence son travail un mois avant moi : on doit s’inscrire ensemble à la commune et affilier les enfants tout de suite ? » | 200 / 0,0432 EUR ; délai, pièces du foyer et préalable au chèque-service cités, mais présence conjointe laissée inconnue. | Moyen-faible : exact et sourcé, mais trop long pour trois secondes et ambigu entre affiliation sociale et chèque-service ; je demanderais une réponse plus hiérarchisée avant de la montrer à un nouvel arrivant. | Hors périmètre 3.3 après lecture d'`epics.md` : matrice d'utilité guide, différée en 4.2 avec le repro exact. |
+| B3 | « La grêle a troué mes panneaux solaires, donc c’est forcément la garantie tempête qui paie aussi la perte de production, non ? » | 503 `budget_exceeded` / 0,0339 EUR après 12,8 s. | Mauvais et non crédible pendant un appel : aucune décision ni limite n'est visible. | Architecture/harness 4.1 : résultat utile sous lecture bornée ; aucun seuil ni prompt propre au cas. |
+| B4 | « Le canapé meublant appartient au propriétaire, mais c’est mon invité qui l’a brûlé avec sa cigarette : mon contenu ou ma responsabilité civile ? » | Premier run 200 / 0,0249 EUR avec `p49:11` seul ; rejeu ciblé final 200 / 0,0375 EUR avec `p49:11` et la définition `p11:9`. | L'information de définition est désormais visible, mais la réponse reste insuffisante pour choisir la RC en trois secondes. | Correctif local 2/3 : une définition auto-typée dont le propriétaire est `commun` redevient commune, puis toute définition résolue est demandée comme claim vérifiable. La découverte de la garantie RC `p66:10` reste différée en 3.6 via le dictionnaire contractuel versionné. |
+| B5 | « Il n’y a pas eu d’orage selon l’assuré, mais il dit que la foudre est tombée juste avant la panne du portail : je retiens dommage électrique ou événement météo ? » | 200 / 0,0224 EUR ; `p34:9` foudre et `p37:4` électricité, contradiction conservée, verdict `sous_conditions`. | Bon : les deux voies sont visibles immédiatement, sans choisir arbitrairement à la place du gestionnaire. | Aucun défaut ; aucune correction. |
+| B6 | « D’abord l’eau chez le voisin, ensuite on a découvert que mon lave-linge loué avec l’appartement s’était débranché : j’ouvre dégâts des eaux, RC, ou les deux ? » | 200 / 0,0295 EUR ; `p37:14`, `p65:5` et `p49:11`, deux volets séparés, verdict prudent. | Bon mais dense : les deux ouvertures utiles arrivent dans la première vue et la responsabilité n'est pas inventée. | Aucun défaut local ; aucune correction. |
+
+La campagne B s'arrête exactement à ces six cas et a duré 94,3 s. Deux correctifs génériques locaux
+sur trois autorisés ont été appliqués ; aucun cas, mot, page, ID ou document n'a été codé. Après
+correctifs, seuls A16, B4 et les gates directement invalidés ont été rejoués, jamais toute A+B.
+
+Coûts live nouveaux, séparés du typage : socle A **0,3603 EUR** ; sondes ciblées A16 **0,0760 EUR** ;
+gates après correctif 1 **0,0619 EUR** ; campagne B **0,1811 EUR** ; sondes ciblées B4
+**0,0671 EUR** ; gates après correctif 2 **0,0733 EUR**. Soit **0,8197 EUR** live et un cumul global
+réel de **11,1692 EUR / 12 EUR**. Les gates finaux sont AXA 1/1 `bonne_reponse` à 0,0394 EUR et
+guide 1/1 à 0,0339 EUR, `evals_ok=true`, `countersigned=false`, sur les digests finaux.
