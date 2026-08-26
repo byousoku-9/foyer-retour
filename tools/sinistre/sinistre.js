@@ -506,13 +506,51 @@
     ]);
   }
 
+  function vueAudits(documents, echec) {
+    var connus = tableau(documents).filter(function (d) {
+      return d && typeof d.doc_id === "string" && d.doc_id;
+    });
+    if (echec) {
+      return noeud("p", "audit-erreur",
+        "La liste des rapports d'ingestion n'a pas pu être chargée.");
+    }
+    if (!connus.length) {
+      return noeud("p", "audit-vide", "Aucun document n'est connu du loader.");
+    }
+    return noeud("ul", "audit-liste", null, connus.map(function (d) {
+      var statut = d.status === "quarantaine" ? "quarantaine" : "servi";
+      var meta = "statut effectif : " + statut;
+      if (d.edition) meta += " · édition " + String(d.edition);
+      var enfants = [
+        noeud("span", "audit-titre", String(d.title || d.doc_id)),
+        noeud("span", "audit-meta", meta)
+      ];
+      if (statut === "quarantaine") {
+        enfants.push(noeud("span", "audit-raison",
+          "raison : " + (d.raison ? String(d.raison) : "indisponible")));
+      }
+      var lien = noeud("a", "audit-lien", "rapport d'ingestion");
+      lien.href = "/sinistre/ingestion/" + encodeURIComponent(String(d.doc_id));
+      enfants.push(lien);
+      var entree = noeud("li", "audit-entree", null, enfants);
+      entree.cls += " audit-" + statut;
+      return entree;
+    }));
+  }
+
   // L'état du sélecteur de contrat. Seuls les `kind="contrat"` y entrent : le guide **est** servi et
   // `GET /api/v1/documents` le liste (il ne ment pas sur ce qui est servi), mais lui soumettre un
   // sinistre n'a pas de sens — aucun de ses blocs n'est une garantie ou une exclusion —, et le
   // serveur le refuse aussi (D3). Aucun contrat ⇒ le formulaire est **désactivé** et le dit : c'est
   // le seul écran où « rien à analyser » doit se lire avant qu'on ait écrit une description.
   function vueFormulaire(documents, echec) {
-    var contrats = tableau(documents).filter(function (d) { return d && d.kind === "contrat"; });
+    var contrats = tableau(documents).filter(function (d) {
+      if (!d || d.kind !== "contrat") return false;
+      // ``selectionnable`` vient du statut effectif du loader. Le repli maintient la lecture des
+      // anciennes réponses pendant un déploiement progressif, mais refuse toujours une quarantaine.
+      return d.selectionnable === true ||
+        (d.selectionnable === undefined && d.status === "servi");
+    });
     var options = contrats.map(function (d) {
       var titre = String(d.title || d.doc_id);
       // AD-4 : l'édition s'affiche **avec sa réserve**, jamais comme un statut vert. `edition` est
@@ -530,6 +568,7 @@
       sources: contrats.map(function (d) {
         return { doc_id: String(d.doc_id), url: lienHttp(d.source_url) };
       }),
+      audits: vueAudits(documents, echec),
       // Deux situations, deux phrases (revue 1.9) : « le serveur dit qu'aucun contrat n'est servi »
       // et « le serveur n'a pas répondu » ne se corrigent pas de la même façon, et servir la
       // première pour la seconde ferait affirmer à la page quelque chose qu'elle ne sait pas.
@@ -1669,6 +1708,8 @@
       message.textContent = vue.message || "";
       message.hidden = !vue.message;
     }
+    var audits = $("documents-audit");
+    if (audits && vue.audits) peindre(vue.audits, audits);
     rafraichirSource(vue);
   }
 
@@ -1794,6 +1835,7 @@
     coutTexte: coutTexte,
     messageErreur: messageErreur,
     vueAttente: vueAttente,
+    vueAudits: vueAudits,
     vueFormulaire: vueFormulaire,
     vueVerdict: vueVerdict,
     vueErreur: vueErreur,

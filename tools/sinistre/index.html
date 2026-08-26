@@ -49,6 +49,12 @@
   button[disabled], input[disabled], select[disabled], textarea[disabled] { opacity: .5; cursor: not-allowed; }
   #contrats-message { font-size: 14px; margin: 8px 0 0; }
   #contrat-source { font-size: 13px; opacity: .75; }
+  .audit-liste { list-style: none; padding: 0; display: grid; gap: 10px; }
+  .audit-entree { border-left: 3px solid var(--bord); padding-left: 12px; }
+  .audit-titre { font-weight: 600; }
+  .audit-meta, .audit-raison { display: block; font-size: 13px; opacity: .75; }
+  .audit-lien { display: inline-block; margin-top: 3px; font-size: 14px; }
+  .audit-erreur, .audit-vide { margin: 0; opacity: .75; }
   .verdict-tete { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin-bottom: 10px; }
   .badge {
     border: 1px solid currentColor; border-radius: 999px; padding: 4px 14px;
@@ -192,6 +198,13 @@
   <select id="contrat" disabled></select>
   <p id="contrats-message" hidden></p>
   <p id="contrat-source"></p>
+
+  <section aria-labelledby="audits-titre">
+    <h3 id="audits-titre">Contrats et rapports d'ingestion</h3>
+    <div id="documents-audit" aria-live="polite">
+      <p>Chargement de la liste…</p>
+    </div>
+  </section>
 
   <!-- `maxlength` alignés sur les bornes du serveur (`api/schemas.SinistreRequest.question` et
        `domain/question.Faits.description`) : un rejet en 400 après dix secondes d'attente est une

@@ -31,6 +31,7 @@ const ELEMENTS = [
   { tag: "select", id: "contrat" },
   { tag: "p", id: "contrats-message" },
   { tag: "p", id: "contrat-source" },
+  { tag: "div", id: "documents-audit" },
   { tag: "input", id: "question" },
   { tag: "input", id: "date" },
   { tag: "input", id: "lieu" },
@@ -209,6 +210,10 @@ const DOCUMENTS = [
   // Un contrat dont la source est le bucket **privé** d'AD-7 : `lienHttp()` doit rendre `null`.
   { doc_id: "cg-privee", title: "Conditions à source privée", edition: "2020", kind: "contrat",
     status: "servi", source_url: "gs://foyer-retour-sources/cg-privee.pdf" },
+  { doc_id: "cg-quarantaine", title: "cg-quarantaine", edition: "2024", kind: null,
+    status: "quarantaine", selectionnable: false,
+    raison: "bloquant_statique : <script>page_sans_texte</script>", source_url: null,
+    report_status: "disponible" },
 ];
 
 function clause(block_id, quote, extra) {
@@ -855,6 +860,10 @@ async function main() {
         const a = elements["contrat-source"].querySelector("a");
         return a ? { href: a.href, target: a.target, rel: a.rel, texte: a.textContent } : null;
       })(),
+      audits: elements["documents-audit"].querySelectorAll(".audit-entree").map((e) => ({
+        texte: e.textContent,
+        href: (e.querySelector("a") || {}).href,
+      })),
     };
 
     // Le sélecteur ne se réinitialise pas quand on change de contrat : le choix tient, et seul le

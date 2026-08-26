@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rapport d'ingestion — foyer-retour</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bord: color-mix(in srgb, currentColor 20%, transparent);
+    --doux: color-mix(in srgb, currentColor 6%, transparent);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 40px 20px 72px; max-width: 980px;
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: inherit; overflow-wrap: anywhere; }
+  h1 { margin: 0 0 4px; font-size: 26px; overflow-wrap: anywhere; }
+  h2 { margin: 0 0 14px; font-size: 19px; }
+  .sous { margin: 0 0 26px; opacity: .75; }
+  .carte { border: 1px solid var(--bord); border-radius: 12px; padding: 18px 20px; margin: 0 0 20px; }
+  .statut { display: inline-block; border: 1px solid currentColor; border-radius: 999px;
+            padding: 2px 10px; font-size: 13px; }
+  .quarantaine { color: #be123c; }
+  @media (prefers-color-scheme: dark) { .quarantaine { color: #fda4af; } }
+  dl { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 7px 18px; margin: 0; }
+  dt { opacity: .72; }
+  dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .raison { padding: 10px 12px; background: var(--doux); border-radius: 8px; overflow-wrap: anywhere; }
+  .tableau { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 580px; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--bord); text-align: left; vertical-align: top; }
+  th { font-size: 13px; }
+  td { overflow-wrap: anywhere; word-break: break-word; }
+  .brut { display: inline-block; margin-top: 14px; }
+  .erreur { border-color: #be123c; }
+  .indisponible { font-style: italic; opacity: .72; }
+  .pied { margin-top: 30px; font-size: 14px; }
+  @media (max-width: 620px) {
+    body { padding: 24px 14px 52px; }
+    dl { grid-template-columns: 1fr; gap: 2px; }
+    dd { margin-bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="titre">Rapport d'ingestion</h1>
+  <p class="sous">Faits validés au démarrage du service. Cette page ne charge pas le document et ne redistribue pas son PDF.</p>
+</header>
+
+<noscript>
+  <section class="carte erreur">
+    <h2>JavaScript requis</h2>
+    <p>Ce rapport ne peut pas être chargé sans JavaScript. Revenez à l'outil sinistre ou activez JavaScript puis rechargez la page.</p>
+  </section>
+</noscript>
+
+<main id="rapport" aria-live="polite" aria-busy="true">
+  <section class="carte"><p>Chargement du rapport…</p></section>
+</main>
+
+<p class="pied"><a href="/sinistre/">← retour à l'outil sinistre</a></p>
+<script src="/sinistre/ingestion.js?v=1"></script>
+</body>
+</html>

@@ -29,7 +29,9 @@ from server.app.domain.question import Faits
 from server.app.domain.verdict import PORTEE, VerdictValue
 
 HARNAIS = REPO_ROOT / "tests" / "js" / "sinistre_cases.mjs"
+HARNAIS_INGESTION = REPO_ROOT / "tests" / "js" / "ingestion_cases.mjs"
 PAGE = REPO_ROOT / "tools" / "sinistre" / "index.html"
+PAGE_INGESTION = REPO_ROOT / "tools" / "sinistre" / "ingestion.html"
 SCRIPT = REPO_ROOT / "tools" / "sinistre" / "sinistre.js"
 
 # Comme pour le front du guide : sans `node`, ces cas passent en `skip`, et un `skip` est
@@ -65,6 +67,85 @@ def cas() -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def page() -> str:
     return PAGE.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def cas_ingestion() -> dict[str, Any]:
+    return _lancer(HARNAIS_INGESTION)
+
+
+@pytest.fixture(scope="module")
+def page_ingestion() -> str:
+    return PAGE_INGESTION.read_text(encoding="utf-8")
+
+
+# --- story 3.5 : audit d'ingestion ---------------------------------------
+
+def test_audit_affiche_checks_gate_empreintes_et_json_dans_lordre(
+        cas_ingestion: dict[str, Any]) -> None:
+    audit = cas_ingestion["servi"]
+    assert audit["appels"] == [
+        "/api/v1/documents", "/api/v1/documents/cg-mini/report"]
+    assert audit["lignes"] == [
+        "premierinfo<b>détail littéral</b>", "secondbloquantfin"]
+    for fait in ("source-123", "ingest-456", "doc-789", "vertical", "2026-08-26"):
+        assert fait in audit["texte"]
+    assert audit["brut"] == "/api/v1/documents/cg-mini/report"
+    assert audit["busy"] == "false"
+
+
+def test_audit_rend_les_chaines_hostiles_comme_texte_et_filtre_la_source(
+        cas_ingestion: dict[str, Any]) -> None:
+    servi = cas_ingestion["servi"]
+    assert "<img onerror=alert(1)>" in servi["titre"]
+    assert "<b>détail littéral</b>" in servi["texte"]
+    assert servi["scripts"] == 0
+    assert servi["source"] == {
+        "href": "https://example.invalid/cg.pdf",
+        "target": "_blank",
+        "rel": "noopener noreferrer",
+    }
+    quarantaine = cas_ingestion["quarantaine"]
+    assert "<script>alerte</script>" in quarantaine["texte"]
+    assert all("gs://" not in lien for lien in quarantaine["liens"])
+
+
+def test_audit_distingue_absence_liste_vide_et_valeur_vide(
+        cas_ingestion: dict[str, Any]) -> None:
+    quarantaine = cas_ingestion["quarantaine"]
+    assert quarantaine["appels"] == ["/api/v1/documents"]
+    assert "rapport d'ingestion est absent" in quarantaine["texte"]
+    assert "Aucun contrôle dans ce rapport" in cas_ingestion["rapport_vide"]
+    assert cas_ingestion["valeurs"] == {
+        "absente": "indisponible", "vide": "valeur vide", "faux": "non",
+        "doc_id": "cg-mini", "doc_id_invalide": None,
+    }
+
+
+def test_audit_distingue_rapport_illisible_et_etranger(cas_ingestion: dict[str, Any]) -> None:
+    assert cas_ingestion["illisible"]["appels"] == ["/api/v1/documents"]
+    assert "présent mais illisible" in cas_ingestion["illisible"]["texte"]
+    assert cas_ingestion["etranger"]["appels"] == ["/api/v1/documents"]
+    assert "décrit un autre document" in cas_ingestion["etranger"]["texte"]
+
+
+def test_audit_borne_une_requete_sans_fin_et_quitte_letat_charge(
+        cas_ingestion: dict[str, Any]) -> None:
+    timeout = cas_ingestion["timeout"]
+    assert timeout["borne_ms"] == 0  # injection du harnais : aucune attente réelle
+    assert timeout["appels"] == 1
+    assert timeout["busy"] == "false"
+    assert "n'a pas pu être chargée" in timeout["texte"]
+
+
+def test_page_audit_est_autonome_responsive_et_semantique(page_ingestion: str) -> None:
+    assert '<meta name="viewport"' in page_ingestion
+    assert '<main id="rapport" aria-live="polite"' in page_ingestion
+    assert "<table" in page_ingestion or "table" in page_ingestion  # tableau créé par le script
+    assert 'src="/sinistre/ingestion.js?v=1"' in page_ingestion
+    assert "web/app/" not in page_ingestion
+    assert "<noscript>" in page_ingestion
+    assert "Ce rapport ne peut pas être chargé sans JavaScript" in page_ingestion
 
 
 # --- AD-12 : une seule origine -------------------------------------------
@@ -221,6 +302,28 @@ def test_changer_de_contrat_ne_reinitialise_pas_le_selecteur(cas: dict[str, Any]
     """
     assert cas["changement"]["valeur"] == "cg-second"
     assert cas["changement"]["options"] == ["cg-mini", "cg-second", "cg-privee"]
+
+
+def test_la_liste_daudit_montre_la_quarantaine_sans_la_rendre_soumettable(
+        cas: dict[str, Any]) -> None:
+    audits = cas["demarrage"]["audits"]
+    par_href = {a["href"]: a["texte"] for a in audits}
+    href = "/sinistre/ingestion/cg-quarantaine"
+    assert href in par_href
+    assert "quarantaine" in par_href[href]
+    assert "bloquant_statique : <script>page_sans_texte</script>" in par_href[href]
+    assert "cg-quarantaine" not in cas["changement"]["options"]
+
+
+def test_chaque_contrat_servi_garde_selection_et_lien_de_rapport_exact(
+        cas: dict[str, Any]) -> None:
+    audits = {a["href"]: a["texte"] for a in cas["demarrage"]["audits"]}
+    contrats = ["cg-mini", "cg-second", "cg-privee"]
+    assert cas["changement"]["options"] == contrats
+    for doc_id in contrats:
+        href = "/sinistre/ingestion/" + doc_id
+        assert href in audits
+        assert "statut effectif : servi" in audits[href]
 
 
 # --- story 3.4 : lecteur PDF paresseux -----------------------------------
@@ -1178,7 +1281,8 @@ def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
 
 def test_les_identifiants_de_la_page_sont_ceux_que_le_script_cherche(page: str) -> None:
     """Un renommage dans la page ne doit pas laisser le script piloter un formulaire fantôme."""
-    for identifiant in ("formulaire", "contrat", "contrats-message", "contrat-source", "question",
+    for identifiant in ("formulaire", "contrat", "contrats-message", "contrat-source",
+                        "documents-audit", "question",
                         "date", "lieu", "montant", "description", "analyser", "resultat",
                         "lecteur-pdf", "lecteur-titre", "lecteur-statut", "lecteur-image",
                         "lecteur-sans-surlignage", "lecteur-precedent", "lecteur-suivant",
