@@ -117,9 +117,14 @@ def test_document_shape(doc: Document) -> None:
     assert report.stats["blocs_juridiques_confirmes"] == 924
     assert report.stats["references_non_resolues"] == 40
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
-    # Le document et l'overlay ont réellement changé : l'ingestion invalide le gate, que seul le
-    # runner d'évals pourra réécrire après certification de l'artefact final.
-    assert manifest["status"] == "servi" and manifest["gate"] is None
+    # Le document et l'overlay ont réellement changé : l'ingestion a d'abord invalidé le gate, puis
+    # le runner d'évals l'a réécrit après certification de l'artefact final. Le test n'épingle ni la
+    # date ni le hash des cas : il vérifie que la preuve servie vise bien l'artefact chargé.
+    gate = manifest["gate"]
+    assert manifest["status"] == "servi" and gate is not None
+    assert gate["profile"] == "vertical" and gate["cases"] == 1 and gate["evals_ok"] is True
+    assert gate["ingest_fingerprint"] == manifest["ingest_fingerprint"]
+    assert gate["source_hash"] == manifest["source_hash"] and gate["overlay_hash"] is None
     assert manifest["overlay_hash"] is None
     assert manifest["ingest_fingerprint"] == doc.ingest_fingerprint == p.ingest_fingerprint()
     assert manifest["document_hash"] == hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest()
