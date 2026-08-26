@@ -22,7 +22,9 @@ RelationKind = Literal["exception_de", "specialise", "contredit"]
 # Typage des clauses : seul un kind `manual` ou `model_verified` est confirmé (AD-6, AD-8).
 KindSource = Literal["manual", "model", "model_verified"]
 
-DOC_ID_RE = re.compile(r"^[a-z0-9-]+$")
+DOC_ID_PATTERN = r"^[a-z0-9-]+$"
+DOC_ID_MAX = 64
+DOC_ID_RE = re.compile(DOC_ID_PATTERN)
 BLOCK_ID_RE = re.compile(r"^[a-z0-9-]+:(p\d+|f[^:]+|q\d+):\d+$")
 
 # bbox = [x0, y0, x1, y1] en points PDF, origine haut-gauche.
@@ -162,7 +164,10 @@ class ParcoursCondition(DomainModel):
 
 
 class Document(DomainModel):
-    doc_id: str
+    # Une seule borne pour l'identité du document : ingestion, loader et contrats HTTP relisent
+    # tous ce modèle ou ses constantes. Sans elle, un document valide pour le domaine pouvait être
+    # impossible à adresser par l'API, donc disparaître de l'audit public.
+    doc_id: str = Field(max_length=DOC_ID_MAX)
     kind: DocumentKind
     title: str
     edition: str

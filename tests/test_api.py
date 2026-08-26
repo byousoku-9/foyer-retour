@@ -27,7 +27,7 @@ from server.app.api.main import create_app
 from server.app.api.request_id import CHAMPS_DE_LOG, RequestIdMiddleware
 from server.app.api.routes.chat import comparateur_de
 from server.app.config import REPO_ROOT, Settings
-from server.app.corpus.dictionary import load_dictionary
+from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
@@ -1061,6 +1061,21 @@ def test_les_deux_alertes_du_dictionnaire_disent_deux_causes_distinctes(tmp_path
     # Le dictionnaire **absent** ne porte que la première : rien n'est périmé, rien n'est là.
     absent = etat_module._alertes_dictionnaire(load_dictionary(tmp_path / "vide", corpus, "lux-guide"))
     assert [a.alerte for a in absent] == ["dictionnaire_non_valide"]
+
+
+def test_alerte_dictionnaire_masque_le_chemin_http_et_le_garde_au_log(
+        prod: TestClient, caplog: Any) -> None:
+    """M7 : la cause complète reste exploitable en interne, jamais réfléchie par `/sante`."""
+    secret = "/srv/data/dictionary.json"
+    dictionnaire = Dictionnaire(raison=f"lecture impossible : {secret}")
+    with caplog.at_level(logging.WARNING, logger="foyer.etat"):
+        alertes = etat_module._alertes_dictionnaire(dictionnaire)
+    prod.app.state.foyer.alerts = alertes
+
+    reponse = prod.get("/api/v1/sante", headers=XFF)
+    assert reponse.status_code == 200
+    assert secret not in reponse.text and "[emplacement masqué]" in reponse.text
+    assert secret in caplog.text
 
 
 def test_la_route_passe_le_dictionnaire_charge_au_pipeline(prod: TestClient) -> None:

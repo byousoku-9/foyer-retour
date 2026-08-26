@@ -294,9 +294,6 @@ def test_report_rend_le_rapport_dingestion_tel_quel(prod: TestClient) -> None:
     assert corps["doc_id"] == AXA
     assert corps["checks"] and {"name", "level", "detail"} <= set(corps["checks"][0])
     assert corps["stats"]["pages"] > 0
-    # Le rapport lu au démarrage est **le même objet** que celui du fichier : aucune requête ne
-    # rouvre `data/`.
-    assert prod.app.state.foyer.reports[AXA].doc_id == AXA
 
 
 def test_report_dun_document_inconnu_est_un_400_sans_echo(prod: TestClient) -> None:
@@ -563,6 +560,25 @@ def test_un_manifest_illisible_publie_une_quarantaine_anonyme_sur_sante(
         assert client.get("/api/v1/documents").json() == []
 
 
+def test_un_doc_id_trop_long_est_quarantaine_et_alerte_sans_disparaitre(
+        tmp_path: Any) -> None:
+    _corpus_sur_disque(tmp_path, rapport=None, source=None, quarantaine=True)
+    trop_long = "a" * 65
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[trop_long] = dict(manifest["doc-mini"])
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with _client_sur(tmp_path) as client:
+        etat = client.app.state.foyer
+        assert trop_long in etat.corpus.quarantine
+        alertes = [a for a in client.get("/api/v1/sante").json()["alerts"]
+                   if a["alerte"] == "quarantaine" and a["doc_id"] == "*"]
+        assert len(alertes) == 1
+        assert trop_long not in client.get("/api/v1/sante").text
+        assert trop_long not in [d["doc_id"] for d in client.get("/api/v1/documents").json()]
+
+
 def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None:
     """Story 3.5 : ni la liste ni le JSON d'audit ne relisent ``data/`` par requête."""
     rapport = ('{"doc_id":"doc-mini","checks":['
@@ -602,6 +618,8 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
     "/srv/foyer/contrat.pdf",
     "./data/contrat.pdf",
     "../secret/contrat.pdf",
+    "secrets/contrats/contrat.pdf",
+    "config/privee.json",
     r"C:\Users\privé\contrat.pdf",
     r"\\serveur\partage\contrat.pdf",
     "data:text/plain;base64,U0VDUkVU",
@@ -627,10 +645,29 @@ def test_raison_publiable_est_bornee_sans_alterer_un_diagnostic_normal() -> None
         "Invalid JSON: expected value at line 1 column 1",
         "entrée de manifest invalide : Field required",
         "entrée invalide: String should match pattern '^[a-z0-9-]+$'",
+        "regex attendue : `/^[a-z]+/[0-9]+$/`",
     )
     assert [raison_publiable(diagnostic) for diagnostic in diagnostics] == list(diagnostics)
     bornee = raison_publiable("diagnostic : " + "x" * 900)
     assert bornee is not None and len(bornee) == 500 and bornee.endswith("…")
+
+
+def test_les_deux_surfaces_http_filtrent_un_chemin_relatif_avec_la_borne_configuree(
+        prod: TestClient) -> None:
+    from server.app.api.etat import _alertes
+    from server.app.corpus.loader import Corpus
+
+    raison = "lecture impossible : secrets/contrats/contrat.json"
+    etat = prod.app.state.foyer
+    etat.corpus = Corpus(quarantine={"doc-prive": raison})
+    etat.alerts = _alertes(
+        etat.corpus, raison_max_chars=etat.settings.raison_publiable_max_chars)
+    sante = prod.get("/api/v1/sante")
+    documents = prod.get("/api/v1/documents")
+    assert sante.status_code == documents.status_code == 200
+    assert "secrets/contrats" not in sante.text and "[emplacement masqué]" in sante.text
+    assert "secrets/contrats" not in documents.text and "[emplacement masqué]" in documents.text
+    assert sante.json()["thresholds"]["raison_publiable_max_chars"] == 500
 
 
 # --- ligne « Sinistre nominal (bougie) » ---------------------------------

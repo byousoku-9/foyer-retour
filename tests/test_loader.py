@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Any
@@ -424,6 +425,44 @@ def test_un_oserror_manifest_ne_publie_jamais_son_chemin(data: Path, monkeypatch
     assert str(data) not in raison
 
 
+def test_un_oserror_document_garde_le_detail_au_log_seulement(
+        data: Path, monkeypatch: Any, caplog: Any) -> None:
+    document = data / "lux-guide" / "document.json"
+    original = Path.read_bytes
+    lectures = 0
+
+    def lire(chemin: Path) -> bytes:
+        nonlocal lectures
+        if chemin == document:
+            lectures += 1
+            if lectures == 2:  # hash puis parsing du document
+                raise OSError(f"échec privé sur {chemin}")
+        return original(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", lire)
+    with caplog.at_level(logging.WARNING, logger="foyer.corpus.loader"):
+        raison = load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    assert raison == "document.json illisible : OSError" and str(data) not in raison
+    assert str(document) in caplog.text
+
+
+def test_un_oserror_summary_garde_le_detail_au_log_seulement(
+        data: Path, monkeypatch: Any, caplog: Any) -> None:
+    summary = data / "lux-guide" / "summary.md"
+    original = Path.read_text
+
+    def lire(chemin: Path, *args: Any, **kwargs: Any) -> str:
+        if chemin == summary:
+            raise OSError(f"échec privé sur {chemin}")
+        return original(chemin, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", lire)
+    with caplog.at_level(logging.WARNING, logger="foyer.corpus.loader"):
+        raison = load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    assert raison == "summary.md illisible : OSError" and str(data) not in raison
+    assert str(summary) in caplog.text
+
+
 # --- AD-8 : le bloquant statique est une propriété du **loader** (story 1.10, D6) ---------------
 
 def _report(data: Path, checks: list[dict] | str, doc_id: str = "lux-guide") -> None:
@@ -454,6 +493,33 @@ def test_un_check_bloquant_met_ce_seul_document_en_quarantaine(data: Path) -> No
     assert c.served == []
     assert c.quarantine["lux-guide"].startswith("bloquant_statique")
     assert "page_sans_texte" in c.quarantine["lux-guide"]
+
+
+def test_le_bloquant_statique_suit_exclusivement_le_modele_report(data: Path) -> None:
+    """D1 : une forme que l'ancien parseur manuel acceptait ne décide plus du service.
+
+    Le check porte bien `level=bloquant`, mais un champ étranger rend le rapport invalide selon
+    `Report(extra=forbid)`. `_bloquant_statique` ne peut donc plus lire une autre vérité à la main.
+    """
+    _report(data, [{"name": "page_sans_texte", "level": "bloquant", "detail": "p. 12",
+                    "champ_inattendu": True}])
+    assert load_corpus(data, allow_ungated=True).served == ["lux-guide"]
+
+
+def test_un_doc_id_trop_long_est_mis_en_quarantaine_par_le_domaine(data: Path) -> None:
+    trop_long = "a" * 65
+    dossier = data / trop_long
+    shutil.copytree(data / "lux-guide", dossier)
+    _rename_doc(dossier, trop_long, block_ids=True)
+    manifest = _manifest(data)
+    manifest[trop_long] = dict(manifest.pop("lux-guide"))
+    manifest[trop_long]["document_hash"] = _sha(dossier / "document.json")
+    _write_manifest(data, manifest)
+    shutil.rmtree(data / "lux-guide")
+
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.served == []
+    assert corpus.quarantine[trop_long].startswith("document.json invalide : ")
 
 
 def test_un_bloquant_statique_ne_se_deroge_pas_par_allow_ungated(data: Path) -> None:

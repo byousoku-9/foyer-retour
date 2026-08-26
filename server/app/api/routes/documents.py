@@ -64,7 +64,9 @@ async def documents(request: Request) -> list[DocumentItem]:
             edition=document.edition if document is not None else (entree.edition if entree else None),
             status="servi" if servi else "quarantaine",
             selectionnable=bool(servi and document.kind == "contrat"),
-            raison=None if servi else raison_publiable(etat.corpus.quarantine.get(doc_id)),
+            raison=None if servi else raison_publiable(
+                etat.corpus.quarantine.get(doc_id),
+                max_chars=etat.settings.raison_publiable_max_chars),
             # `Document.source_url` d'abord (l'ingestion l'a validé), puis `data/{doc_id}/source.url`
             # qu'AD-7 rend canonique : l'ingestion PDF laisse le champ vide parce que le PDF n'est
             # pas committé, et le contrat n'aurait alors aucune source affichable. Les **deux**

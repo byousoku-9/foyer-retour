@@ -33,24 +33,22 @@ def test_digest_depends_on_content_and_path(tmp_path: Path) -> None:
     assert len({d1, d2, d3}) == 3
 
 
-def test_pipeline_digest_covers_exactly_the_four_layers(tmp_path: Path) -> None:
-    for layer in ("steps", "pipelines", "corpus", "llm"):
+def test_pipeline_digest_covers_exactly_the_five_layers(tmp_path: Path) -> None:
+    for layer in ("steps", "pipelines", "corpus", "domain", "llm"):
         _write(tmp_path, f"{layer}/m.py", "x = 1\n")
     _write(tmp_path, "config.py", "a = 1\n")
     _write(tmp_path, "digests.py", "a = 1\n")
-    _write(tmp_path, "domain/d.py", "a = 1\n")
     _write(tmp_path, "api/r.py", "a = 1\n")
     _write(tmp_path, "llm/prompts/p.md", "prompt\n")
     _write(tmp_path, "llm/__pycache__/m.cpython-313.py", "junk\n")
     base_p, base_q = pipeline_digest(tmp_path), prompts_digest(tmp_path / "llm" / "prompts")
     _write(tmp_path, "config.py", "a = 2\n")
-    _write(tmp_path, "domain/d.py", "a = 2\n")
     _write(tmp_path, "api/r.py", "a = 2\n")
     assert (pipeline_digest(tmp_path), prompts_digest(tmp_path / "llm" / "prompts")) == (base_p, base_q)
     _write(tmp_path, "llm/prompts/p.md", "prompt 2\n")
     assert pipeline_digest(tmp_path) == base_p
     assert prompts_digest(tmp_path / "llm" / "prompts") != base_q
-    for layer in ("steps", "pipelines", "corpus", "llm"):
+    for layer in ("steps", "pipelines", "corpus", "domain", "llm"):
         before = pipeline_digest(tmp_path)
         _write(tmp_path, f"{layer}/m.py", f"x = '{layer}'\n")
         assert pipeline_digest(tmp_path) != before, layer

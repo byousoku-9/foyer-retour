@@ -50,6 +50,8 @@ SCHEMAS_PUBLIABLES = ("https://", "http://")
 # Une URL de source tient largement là-dedans (celle du contrat AXA fait 170 caractères) ; au-delà,
 # ce n'est plus une URL, c'est un fichier qu'on recopierait dans une réponse publique.
 SOURCE_URL_MAX = 2048
+RAISON_PUBLIABLE_MAX_DEFAULT = int(
+    Settings.model_fields["raison_publiable_max_chars"].default)
 
 
 def doc_id_auditable(doc_id: str) -> bool:
@@ -57,7 +59,7 @@ def doc_id_auditable(doc_id: str) -> bool:
     return len(doc_id) <= DOC_ID_MAX and re.fullmatch(DOC_ID_PATTERN, doc_id) is not None
 
 
-def raison_publiable(raison: str | None) -> str | None:
+def raison_publiable(raison: str | None, *, max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> str | None:
     """Diagnostic public borné, dont seuls les véritables emplacements sont masqués.
 
     Cette décision est commune à ``/sante`` et ``/documents``. Une URI avec ``://`` (ou une URI
@@ -85,11 +87,18 @@ def raison_publiable(raison: str | None) -> str | None:
         propre,
     )
     propre = re.sub(
-        r"(?<![\w.])(?:\.\.?/|/)[^\n,;)]*",
+        r"(?<![\w.])(?:\.\.?/|/)(?=[a-zA-Z0-9_.-])[^\n,;)]*",
         "[emplacement masqué]",
         propre,
     )
-    return propre if len(propre) <= 500 else propre[:499] + "…"
+    # Chemin relatif plausible sans préfixe `./` : au moins deux composantes séparées. Les regex
+    # usuelles (`^[a-z0-9-]+$`, `/^[a-z]+/`) ne satisfont pas cette forme et restent donc intactes.
+    propre = re.sub(
+        r"(?<![\w./])(?:[a-zA-Z0-9_.-]+/)+[a-zA-Z0-9_.-]+(?=$|[\s,;)])",
+        "[emplacement masqué]",
+        propre,
+    )
+    return propre if len(propre) <= max_chars else propre[:max_chars - 1] + "…"
 
 
 def url_publiable(brut: str | None) -> str | None:
@@ -241,7 +250,7 @@ class EtatApp:
         return True
 
 
-def _alertes(corpus: Corpus) -> list[Alerte]:
+def _alertes(corpus: Corpus, *, raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> list[Alerte]:
     """Les alertes des documents servis (AD-7), et les documents que le chargement a écartés."""
     alertes = [Alerte(doc_id=doc_id, alerte=a)
                for doc_id in sorted(corpus.alerts) for a in corpus.alerts[doc_id]]
@@ -250,7 +259,8 @@ def _alertes(corpus: Corpus) -> list[Alerte]:
     # disparaître le défaut de manifest que cette alerte doit signaler.
     alertes += [Alerte(doc_id=doc_id if doc_id_auditable(doc_id) else "*",
                        alerte="quarantaine",
-                       detail=raison_publiable(raison) or "raison indisponible")
+                       detail=raison_publiable(raison, max_chars=raison_max_chars)
+                       or "raison indisponible")
                 for doc_id, raison in sorted(corpus.quarantine.items())]
     return alertes
 
@@ -277,7 +287,9 @@ def _alerte_ungated(settings: Settings) -> list[Alerte]:
                           "en quarantaine. Retirer la variable de la configuration du service.")]
 
 
-def _alertes_dictionnaire(dictionnaire: Dictionnaire) -> list[Alerte]:
+def _alertes_dictionnaire(
+        dictionnaire: Dictionnaire, *,
+        raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> list[Alerte]:
     """AD-5 / AD-16 : un dictionnaire inutilisable est **dit**, jamais tu.
 
     Deux alertes, parce que deux causes et deux correctifs (`doc_id="*"` : ce sont des propriétés du
@@ -309,13 +321,17 @@ def _alertes_dictionnaire(dictionnaire: Dictionnaire) -> list[Alerte]:
             detail += " — lancer `python -m server.ingest.enrich_dictionary --valider \"Nom\"`"
         else:
             # Absent, illisible ou non conforme : `raison` décrit **cet** échec-là, c'est bien le sien.
-            detail += f" — {dictionnaire.raison or 'dictionnaire non chargé'}"
+            raison = dictionnaire.raison or "dictionnaire non chargé"
+            LOG.warning("dictionnaire_non_valide : %s", raison)
+            detail += f" — {raison_publiable(raison, max_chars=raison_max_chars)}"
         alertes.append(Alerte(doc_id="*", alerte="dictionnaire_non_valide", detail=detail))
     if dictionnaire.charge and not dictionnaire.corpus_ok:
+        raison = dictionnaire.raison or "empreintes différentes du manifest"
+        LOG.warning("dictionnaire_corpus_perime : %s", raison)
         alertes.append(Alerte(
             doc_id="*", alerte="dictionnaire_corpus_perime",
             detail=f"{DICTIONARY_FILE} décrit un autre corpus que celui qui est servi : ni variantes, ni "
-                   f"court-circuit — {dictionnaire.raison or 'empreintes différentes du manifest'}. "
+                   f"court-circuit — {raison_publiable(raison, max_chars=raison_max_chars)}. "
                    "Relancer `python -m server.ingest.enrich_dictionary`."))
     return alertes
 
@@ -389,7 +405,7 @@ def _doc_ids_audit(corpus: Corpus) -> list[str]:
 
 
 def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
-    """L'URL publique de chaque document servi, lue **au démarrage** (AD-7).
+    """L'URL publique de chaque document auditable, lue **au démarrage** (AD-7).
 
     Pourquoi ici et pas dans `Document.source_url` : AD-7 fait de `data/{doc_id}/source.url` le
     fichier canonique (« `data/{doc_id}/source.url` + `source_hash` »), et l'ingestion PDF, elle,
@@ -488,5 +504,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         prompts_digest_hex=digest_prompts, dictionnaire=dictionnaire,
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
-        alerts=_alertes(corpus) + alertes_rapports + alertes_ungated
-        + _alertes_dictionnaire(dictionnaire))
+        alerts=_alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)
+        + alertes_rapports + alertes_ungated
+        + _alertes_dictionnaire(
+            dictionnaire, raison_max_chars=settings.raison_publiable_max_chars))

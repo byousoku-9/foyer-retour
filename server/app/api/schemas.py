@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from server.app.config import Settings
 from server.app.domain.answer import Answer, AnswerSegment
-from server.app.domain.document import Bbox
+from server.app.domain.document import Bbox, DOC_ID_MAX, DOC_ID_PATTERN
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.profil import Profil
@@ -38,11 +38,9 @@ from server.app.pipelines.guide import VARIANT, VARIANTS
 
 VIA = "api/v1"
 
-# Convention Nommage du spine : « `doc_id` slug (`axa-lu-optihome-2017`, `lux-guide`) ». Le motif est
-# partagé par le corps de `POST /api/v1/sinistre` et par le paramètre de chemin de
-# `GET /api/v1/documents/{doc_id}/report` — deux portes vers la même clé, une seule forme admise.
-DOC_ID_PATTERN = r"^[a-z0-9-]+$"
-DOC_ID_MAX = 64
+# Convention Nommage du spine : « `doc_id` slug (`axa-lu-optihome-2017`, `lux-guide`) ». Le motif et
+# la borne viennent du domaine `Document`, puis sont réexportés ici pour les contrats HTTP : un
+# document que le domaine accepte doit rester adressable par l'API.
 
 
 class RequeteAvecLangue(BaseModel):

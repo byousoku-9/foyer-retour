@@ -22,6 +22,7 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
     assert s.deadline_s == 55 and s.llm_timeout_s == 40  # 40 s : AD-16 amendé en 1.9, sur mesure
+    assert s.raison_publiable_max_chars == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
@@ -78,6 +79,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.quote_min_chars == 30 and s.allow_ungated is False
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
+    assert t.thresholds["raison_publiable_max_chars"] == 500
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",

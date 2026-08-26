@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # serveur, le navigateur couperait une requête à laquelle il aurait répondu : la marge est donc
     # strictement positive (`gt=0`), et s'ajoute à `deadline_s` au lieu de la remplacer.
     client_abort_margin_s: float = Field(10.0, gt=0)
+    # Story 3.5 : les raisons de quarantaine sont affichées sur deux surfaces publiques
+    # (`/sante` et `/documents`). Leur borne est un seuil d'exploitation réglable et publié,
+    # pas une propriété du schéma de domaine : une raison plus longue reste conservée en mémoire
+    # et dans les journaux, seule sa projection HTTP est abrégée.
+    raison_publiable_max_chars: int = Field(500, ge=1)
 
     # Vérification des citations (AD-3)
     quote_min_chars: int = Field(25, ge=1)
@@ -492,6 +497,7 @@ class Settings(BaseSettings):
             "deadline_s": self.deadline_s,
             "llm_timeout_s": self.llm_timeout_s,
             "client_abort_margin_s": self.client_abort_margin_s,
+            "raison_publiable_max_chars": self.raison_publiable_max_chars,
             "quote_min_chars": self.quote_min_chars,
             "quote_min_ratio": self.quote_min_ratio,
             "max_opens": self.max_opens,

@@ -542,6 +542,17 @@ def test_un_incident_technique_est_un_incident_pas_un_verdict(erreur: Exception)
     assert erreur.code.value in str(exc.value)
 
 
+def test_un_incident_conserve_le_cout_deja_engage_dans_le_budget_et_la_trace() -> None:
+    """B10 : un appel facturé avant `PipelineError` ne redevient jamais artificiellement gratuit."""
+    erreur = Timeout("réponse tronquée")
+    erreur.trace = _trace()
+    ctx = _armer(_contexte([erreur], cout=0.0372))
+    with pytest.raises(runner.IncidentTechnique) as exc:
+        _executer(ctx, [_cas(id="g-luxtrust")])
+    assert "coût engagé 0.0372 €" in str(exc.value)
+    assert erreur.trace.total_cost_eur == 0.0372
+
+
 def test_le_plafond_atteint_pendant_un_cas_est_dit_pour_ce_quil_est() -> None:
     """Le budget d'un cas est le reste du run (AD-9) : `BudgetExceeded` y veut dire « ce cas
     déborderait le plafond », pas « le fournisseur est en panne ». Même arrêt, une étape plus tard."""

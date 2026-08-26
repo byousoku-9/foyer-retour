@@ -457,7 +457,8 @@ def document_de_la_suite(settings: Settings, suite: str) -> str:
     return settings.guide_doc_id if suite == "guide" else settings.sinistre_doc_id
 
 
-async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str, budget_restant_eur: float) -> tuple[Answer, Trace, float]:
+async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
+                       budget_restant_eur: float) -> tuple[Answer, Trace, float]:
     """Un cas par le pipeline réel. Rend (answer, trace, coût du cas).
 
     Le budget de la requête est réglé sur ce qui **reste du plafond de run** : AD-9 dit que « en
@@ -471,13 +472,23 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str, budget_restant_e
                   settings=ctx.settings, request_id=f"eval-{cas.id}", lang=cas.lang, budget=budget,
                   pipeline_digest_hex=ctx.pipeline_digest_hex,
                   prompts_digest_hex=ctx.prompts_digest_hex)
-    if cas.suite == "guide":
-        answer, trace = await repondre_guide(cas.question, list(cas.historique),
-                                             cas.profil or Profil(), doc_id=doc_id,
-                                             dictionnaire=ctx.dictionnaire, **commun)
-    else:
-        assert cas.faits is not None  # garanti par `Cas._coherence`
-        answer, trace = await pipeline_sinistre.run(doc_id, cas.question, cas.faits, **commun)
+    try:
+        if cas.suite == "guide":
+            answer, trace = await repondre_guide(cas.question, list(cas.historique),
+                                                 cas.profil or Profil(), doc_id=doc_id,
+                                                 dictionnaire=ctx.dictionnaire, **commun)
+        else:
+            assert cas.faits is not None  # garanti par `Cas._coherence`
+            answer, trace = await pipeline_sinistre.run(doc_id, cas.question, cas.faits, **commun)
+    except PipelineError as exc:
+        # Une erreur terminale peut survenir après un ou plusieurs appels facturés. Le pipeline
+        # attache sa trace partielle à l'erreur ; le budget reste l'autorité de coût même si cette
+        # trace n'a pas encore été assemblée. Le runner conserve les deux faits sur l'exception afin
+        # que l'incident ne retombe jamais artificiellement à 0,0000 €.
+        exc.eval_cost_eur = round(budget.cost_eur, 4)  # type: ignore[attr-defined]
+        if exc.trace is not None:
+            exc.trace.total_cost_eur = round(budget.cost_eur, 4)
+        raise
     return answer, trace, round(budget.cost_eur, 4)
 
 
@@ -497,17 +508,21 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
         try:
             answer, _trace, cout = await executer_cas(c, ctx, doc_id=doc_id, budget_restant_eur=restant)
         except PipelineError as exc:
+            cout_engage = float(getattr(exc, "eval_cost_eur", 0.0))
+            cout_total = round(cumul + cout_engage, 4)
             if exc.code is ErrorCode.budget_exceeded:
                 # Le plafond de run **atteint pendant** un cas, et non avant lui : le budget de la
                 # requête est réglé sur ce qui reste du run (AD-9), donc `BudgetExceeded` ici veut
                 # dire « ce cas déborderait le plafond », pas « le fournisseur est en panne ». C'est
                 # la même condition prévue que l'arrêt avant le cas suivant, vue une étape plus tard.
                 raise IncidentTechnique(
-                    f"plafond de run atteint pendant le cas {c.id} ({cumul:.4f} € consommés sur "
+                    f"plafond de run atteint pendant le cas {c.id} ({cout_total:.4f} € engagés sur "
                     f"{max_cost_eur:.4f} €) : {exc.message}") from exc
             if exc.code in CODES_INCIDENT:
                 # D4 : un incident ne dit rien du système mesuré. Le manifest n'est pas touché.
-                raise IncidentTechnique(f"cas {c.id} : {exc.code.value} — {exc.message}") from exc
+                raise IncidentTechnique(
+                    f"cas {c.id} : {exc.code.value} — {exc.message} — coût engagé "
+                    f"{cout_total:.4f} €") from exc
             # `invalid_request` : le cas est hors des bornes du pipeline. C'est une faute d'écriture
             # du cas, pas une mesure ; refus, et rien n'est écrit non plus.
             raise RefusDeTourner(f"cas {c.id} refusé par le pipeline : {exc.message}") from exc

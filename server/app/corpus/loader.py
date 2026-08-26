@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from typing import get_args
 
-from server.app.domain import BlockKind, Document, GateContext, Manifest, ManifestEntry
+from server.app.domain import BlockKind, Document, GateContext, Manifest, ManifestEntry, Report
 
 from .text import normalize
 
@@ -33,6 +34,7 @@ OVERLAY_REQUIRED: dict[str, tuple[str, ...]] = {
 # que `corpus` n'importe pas `config` (table des couches du spine) : l'appelant passe la valeur
 # réglée, ce littéral ne sert qu'à ce que `load_corpus` reste appelable seul (tests, `evals`).
 PERIMETRE_MAX_CHARS = 4000
+LOG = logging.getLogger("foyer.corpus.loader")
 
 
 @dataclass
@@ -126,19 +128,16 @@ def _bloquant_statique(doc_dir: Path) -> str:
     if not chemin.is_file():
         return ""
     try:
-        rapport = json.loads(chemin.read_bytes())
+        rapport = Report.model_validate_json(chemin.read_bytes())
     except (OSError, UnicodeDecodeError, ValueError):
         return ""
-    if not isinstance(rapport, dict) or not isinstance(rapport.get("checks"), list):
-        return ""
-    if rapport.get("doc_id") != doc_dir.name:
+    if rapport.doc_id != doc_dir.name:
         # Un rapport **étranger** (copie de dossier, `doc_id` renommé sans réingestion) parle d'un
         # autre document : ses bloquants ne disent rien de celui-ci, et les lui appliquer retirerait
         # du service un document sain sur la foi d'un fichier qui ne le décrit pas. `api/etat` porte
         # déjà l'alerte `rapport_etranger` (revue 1.9) : l'incohérence est dite, elle n'est pas muette.
         return ""
-    noms = [str(c.get("name", "?")) for c in rapport["checks"]
-            if isinstance(c, dict) and c.get("level") == "bloquant"]
+    noms = [check.name for check in rapport.blocking]
     return ", ".join(noms) if noms else ""
 
 
@@ -283,6 +282,7 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
     except (OSError, UnicodeDecodeError) as exc:
         # La raison devient publique dans l'audit (story 3.5). Le type suffit à distinguer l'échec ;
         # ``str(OSError)`` peut contenir le chemin absolu de ``data/`` et ne doit jamais sortir.
+        LOG.warning("document.json illisible pour %s : %s", doc_id, exc)
         return None, f"document.json illisible : {type(exc).__name__}", []
     if doc.doc_id != doc_id:
         return None, f"doc_id {doc.doc_id!r} différent de la clé du manifest", []
@@ -327,6 +327,8 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         if not isinstance(raw, dict):
             raise ValueError("un objet JSON {doc_id: entrée} est attendu")
     except (OSError, UnicodeDecodeError, ValueError) as exc:
+        if isinstance(exc, OSError):
+            LOG.warning("manifest illisible %s : %s", manifest_path, exc)
         return Corpus(quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:500]})
     corpus = Corpus()
     for doc_id in sorted(raw):
@@ -343,6 +345,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         try:
             summary = (data_dir / doc_id / "summary.md").read_text("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
+            LOG.warning("summary.md illisible pour %s : %s", doc_id, exc)
             corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}"
             continue
         corpus.documents[doc_id] = doc
