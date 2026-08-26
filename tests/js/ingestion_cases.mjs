@@ -140,6 +140,23 @@ async function main() {
       texte: h.rapport.textContent,
     };
   }
+  for (const [nom, sante, statut] of [
+    ["sante_echec", {}, 503],
+    ["seuil_absent", { thresholds: {} }, 200],
+    ["seuil_invalide", { thresholds: { client_abort_margin_s: 0 } }, 200],
+  ]) {
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(sante, statut);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse(RAPPORT);
+    });
+    await h.INGESTION.demarrer();
+    cas[nom] = {
+      borne_ms: h.INGESTION.fetchTimeoutMs(),
+      appels: h.appels.map((u) => u.replace(ORIGINE, "")),
+      busy: h.rapport.getAttribute("aria-busy"),
+    };
+  }
   {
     const h = charger("/sinistre/ingestion/cg-mini", (_url, options) =>
       new Promise((_resolve, reject) => {

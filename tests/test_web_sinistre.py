@@ -139,6 +139,17 @@ def test_audit_borne_une_requete_sans_fin_et_quitte_letat_charge(
     assert "n'a pas pu être chargée" in timeout["texte"]
 
 
+def test_audit_replie_sur_la_marge_par_defaut_si_sante_ne_la_fournit_pas(
+        cas_ingestion: dict[str, Any]) -> None:
+    """M2 : sonde en échec, seuil absent ou invalide gardent une borne unique et testée."""
+    attendu = round(Settings.model_fields["client_abort_margin_s"].default * 1000)
+    assert attendu == 10000
+    appels = ["/api/v1/sante", "/api/v1/documents", "/api/v1/documents/cg-mini/report"]
+    for nom in ("sante_echec", "seuil_absent", "seuil_invalide"):
+        cas = cas_ingestion[nom]
+        assert cas == {"borne_ms": attendu, "appels": appels, "busy": "false"}
+
+
 def test_page_audit_est_autonome_responsive_et_semantique(page_ingestion: str) -> None:
     assert '<meta name="viewport"' in page_ingestion
     assert '<main id="rapport" aria-live="polite"' in page_ingestion
