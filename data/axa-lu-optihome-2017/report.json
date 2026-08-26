@@ -39,12 +39,12 @@
     {
       "name": "unresolved_refs",
       "level": "alerte",
-      "detail": "axa-lu-optihome-2017:p6:8 → 1.3, axa-lu-optihome-2017:p26:1 → 2.5.2.1, axa-lu-optihome-2017:p27:2 → 2.14.1, axa-lu-optihome-2017:p27:2 → 2.14.2, axa-lu-optihome-2017:p27:2 → 2.14.3, axa-lu-optihome-2017:p27:2 → 2.14.4, axa-lu-optihome-2017:p27:3 → 2.14.1, axa-lu-optihome-2017:p27:3 → 2.14.2, axa-lu-optihome-2017:p27:3 → 2.14.3, axa-lu-optihome-2017:p27:3 → 2.14.4, axa-lu-optihome-2017:p28:9 → 2.17, axa-lu-optihome-2017:p28:10 → 2.17, axa-lu-optihome-2017:p28:11 → 2.17, axa-lu-optihome-2017:p28:12 → 2.17, axa-lu-optihome-2017:p28:13 → 2.17, axa-lu-optihome-2017:p44:8 → 3.1.7.2.9, axa-lu-optihome-2017:p44:8 → 3.1.7.2.10, axa-lu-optihome-2017:p44:19 → 3.1.7.3.6, axa-lu-optihome-2017:p50:10 → 1.3, axa-lu-optihome-2017:p50:11 → 1.3, axa-lu-optihome-2017:p60:22 → 3.3.1.3.12, axa-lu-optihome-2017:p60:22 → 3.3.1.3.14, axa-lu-optihome-2017:p61:12 → 3.3.1.4.7, axa-lu-optihome-2017:p65:12 → 1.3, axa-lu-optihome-2017:p66:16 → 4.1.1.5.2, axa-lu-optihome-2017:p66:16 → 4.1.1.5.1, axa-lu-optihome-2017:p71:6 → 4.1.2.1, axa-lu-optihome-2017:p75:7 → 4.1.3.1, axa-lu-optihome-2017:p78:7 → 1.3, axa-lu-optihome-2017:p78:8 → 1.3"
+      "detail": "axa-lu-optihome-2017:p6:8 → 1.3, axa-lu-optihome-2017:p27:2 → 2.14.1, axa-lu-optihome-2017:p27:2 → 2.14.2, axa-lu-optihome-2017:p27:2 → 2.14.3, axa-lu-optihome-2017:p27:2 → 2.14.4, axa-lu-optihome-2017:p27:3 → 2.14.1, axa-lu-optihome-2017:p27:3 → 2.14.2, axa-lu-optihome-2017:p27:3 → 2.14.3, axa-lu-optihome-2017:p27:3 → 2.14.4, axa-lu-optihome-2017:p27:4 → 2.14.1, axa-lu-optihome-2017:p27:4 → 2.14.2, axa-lu-optihome-2017:p27:4 → 2.14.3, axa-lu-optihome-2017:p27:4 → 2.14.4, axa-lu-optihome-2017:p28:9 → 2.17, axa-lu-optihome-2017:p28:10 → 2.17, axa-lu-optihome-2017:p28:11 → 2.17, axa-lu-optihome-2017:p28:12 → 2.17, axa-lu-optihome-2017:p28:13 → 2.17, axa-lu-optihome-2017:p44:8 → 3.1.7.2.9, axa-lu-optihome-2017:p44:8 → 3.1.7.2.10, axa-lu-optihome-2017:p44:19 → 3.1.7.3.6, axa-lu-optihome-2017:p50:10 → 1.3, axa-lu-optihome-2017:p50:11 → 1.3, axa-lu-optihome-2017:p60:22 → 3.3.1.3.12, axa-lu-optihome-2017:p60:22 → 3.3.1.3.14, axa-lu-optihome-2017:p61:12 → 3.3.1.4.7, axa-lu-optihome-2017:p65:12 → 1.3, axa-lu-optihome-2017:p66:16 → 4.1.1.5.2, axa-lu-optihome-2017:p66:16 → 4.1.1.5.1, axa-lu-optihome-2017:p74:5 → 4.1.3.1.6.3, axa-lu-optihome-2017:p75:7 → 4.1.3.1, axa-lu-optihome-2017:p78:7 → 1.3"
     },
     {
       "name": "definition_introuvable",
       "level": "alerte",
-      "detail": "axa-lu-optihome-2017:p7:8, axa-lu-optihome-2017:p7:9, axa-lu-optihome-2017:p7:10, axa-lu-optihome-2017:p7:11, axa-lu-optihome-2017:p7:12, axa-lu-optihome-2017:p7:17, axa-lu-optihome-2017:p9:13, axa-lu-optihome-2017:p12:19, axa-lu-optihome-2017:p13:6, axa-lu-optihome-2017:p13:7, axa-lu-optihome-2017:p13:8, axa-lu-optihome-2017:p6:16 → Émeute, axa-lu-optihome-2017:p7:2 → Acte de terrorisme ou de sabotage, axa-lu-optihome-2017:p7:7 → Clôtures et haies, axa-lu-optihome-2017:p10:14 → Affaissement de terrain, axa-lu-optihome-2017:p14:3 → Serrure de sécurité ou de sûreté, axa-lu-optihome-2017:p18:14 → âge du bien, axa-lu-optihome-2017:p44:14 → sinistre total, axa-lu-optihome-2017:p54:5 → Urgent ou urgence, axa-lu-optihome-2017:p61:7 → sinistre total, axa-lu-optihome-2017:p80:3 → Éléments d’identification, axa-lu-optihome-2017:p80:5 → Éléments d’authentification, axa-lu-optihome-2017:p93:1 → maladie grave"
+      "detail": "axa-lu-optihome-2017:p8:5, axa-lu-optihome-2017:p8:7, axa-lu-optihome-2017:p9:3, axa-lu-optihome-2017:p9:4, axa-lu-optihome-2017:p9:5, axa-lu-optihome-2017:p9:7, axa-lu-optihome-2017:p9:13, axa-lu-optihome-2017:p12:7, axa-lu-optihome-2017:p12:8, axa-lu-optihome-2017:p12:19, axa-lu-optihome-2017:p13:2, axa-lu-optihome-2017:p13:3, axa-lu-optihome-2017:p13:6, axa-lu-optihome-2017:p13:7, axa-lu-optihome-2017:p13:8, axa-lu-optihome-2017:p6:15 → Émeute, axa-lu-optihome-2017:p6:16 → émeute, axa-lu-optihome-2017:p7:2 → acte de terrorisme ou de sabotage, axa-lu-optihome-2017:p7:7 → clôtures et haies, axa-lu-optihome-2017:p10:14 → Affaissement de terrain, axa-lu-optihome-2017:p14:3 → Serrure de sécurité ou de sûreté, axa-lu-optihome-2017:p18:14 → Age du bien, axa-lu-optihome-2017:p44:14 → sinistre total, axa-lu-optihome-2017:p54:5 → Urgent ou urgence, axa-lu-optihome-2017:p61:7 → sinistre total, axa-lu-optihome-2017:p80:3 → Éléments d’identification, axa-lu-optihome-2017:p80:5 → Éléments d’authentification, axa-lu-optihome-2017:p93:1 → maladie grave"
     },
     {
       "name": "exclusion_sans_marqueur",
@@ -54,17 +54,22 @@
     {
       "name": "confiance_typage_faible",
       "level": "alerte",
-      "detail": "seuil 0.70 : axa-lu-optihome-2017:p5:3, axa-lu-optihome-2017:p5:5, axa-lu-optihome-2017:p8:5, axa-lu-optihome-2017:p8:7, axa-lu-optihome-2017:p9:7, axa-lu-optihome-2017:p9:13, axa-lu-optihome-2017:p13:1, axa-lu-optihome-2017:p13:2, axa-lu-optihome-2017:p13:3, axa-lu-optihome-2017:p13:7, axa-lu-optihome-2017:p13:8, axa-lu-optihome-2017:p18:6, axa-lu-optihome-2017:p18:8, axa-lu-optihome-2017:p18:11, axa-lu-optihome-2017:p18:12, axa-lu-optihome-2017:p18:13, axa-lu-optihome-2017:p18:14, axa-lu-optihome-2017:p19:3, axa-lu-optihome-2017:p19:6, axa-lu-optihome-2017:p19:10, axa-lu-optihome-2017:p19:12, axa-lu-optihome-2017:p19:16, axa-lu-optihome-2017:p19:18, axa-lu-optihome-2017:p20:11, axa-lu-optihome-2017:p20:12, axa-lu-optihome-2017:p21:1, axa-lu-optihome-2017:p21:3, axa-lu-optihome-2017:p24:5, axa-lu-optihome-2017:p25:2, axa-lu-optihome-2017:p25:3, axa-lu-optihome-2017:p25:6, axa-lu-optihome-2017:p25:7, axa-lu-optihome-2017:p25:8, axa-lu-optihome-2017:p25:9, axa-lu-optihome-2017:p25:12, axa-lu-optihome-2017:p26:1, axa-lu-optihome-2017:p26:3, axa-lu-optihome-2017:p26:5, axa-lu-optihome-2017:p26:6, axa-lu-optihome-2017:p26:7, axa-lu-optihome-2017:p26:8, axa-lu-optihome-2017:p26:9, axa-lu-optihome-2017:p27:4, axa-lu-optihome-2017:p27:6, axa-lu-optihome-2017:p27:9, axa-lu-optihome-2017:p27:10, axa-lu-optihome-2017:p28:4, axa-lu-optihome-2017:p28:5, axa-lu-optihome-2017:p28:6, axa-lu-optihome-2017:p28:7, axa-lu-optihome-2017:p28:8, axa-lu-optihome-2017:p29:2, axa-lu-optihome-2017:p29:3, axa-lu-optihome-2017:p29:4, axa-lu-optihome-2017:p29:5, axa-lu-optihome-2017:p29:7, axa-lu-optihome-2017:p29:8, axa-lu-optihome-2017:p29:10, axa-lu-optihome-2017:p33:12, axa-lu-optihome-2017:p35:8, axa-lu-optihome-2017:p41:16, axa-lu-optihome-2017:p41:17, axa-lu-optihome-2017:p42:1, axa-lu-optihome-2017:p42:10, axa-lu-optihome-2017:p43:5, axa-lu-optihome-2017:p43:6, axa-lu-optihome-2017:p44:13, axa-lu-optihome-2017:p44:14, axa-lu-optihome-2017:p44:19, axa"
+      "detail": "seuil 0.70 : axa-lu-optihome-2017:p5:3, axa-lu-optihome-2017:p5:5, axa-lu-optihome-2017:p8:7, axa-lu-optihome-2017:p9:3, axa-lu-optihome-2017:p9:7, axa-lu-optihome-2017:p9:12, axa-lu-optihome-2017:p9:13, axa-lu-optihome-2017:p12:7, axa-lu-optihome-2017:p13:1, axa-lu-optihome-2017:p13:7, axa-lu-optihome-2017:p13:8, axa-lu-optihome-2017:p18:6, axa-lu-optihome-2017:p18:8, axa-lu-optihome-2017:p18:11, axa-lu-optihome-2017:p18:12, axa-lu-optihome-2017:p18:13, axa-lu-optihome-2017:p18:14, axa-lu-optihome-2017:p18:15, axa-lu-optihome-2017:p18:16, axa-lu-optihome-2017:p19:1, axa-lu-optihome-2017:p19:2, axa-lu-optihome-2017:p19:3, axa-lu-optihome-2017:p19:6, axa-lu-optihome-2017:p19:8, axa-lu-optihome-2017:p19:10, axa-lu-optihome-2017:p19:12, axa-lu-optihome-2017:p19:16, axa-lu-optihome-2017:p19:18, axa-lu-optihome-2017:p20:11, axa-lu-optihome-2017:p20:12, axa-lu-optihome-2017:p21:1, axa-lu-optihome-2017:p21:3, axa-lu-optihome-2017:p24:5, axa-lu-optihome-2017:p25:2, axa-lu-optihome-2017:p25:3, axa-lu-optihome-2017:p25:6, axa-lu-optihome-2017:p25:7, axa-lu-optihome-2017:p25:8, axa-lu-optihome-2017:p25:9, axa-lu-optihome-2017:p25:12, axa-lu-optihome-2017:p26:1, axa-lu-optihome-2017:p27:4, axa-lu-optihome-2017:p27:6, axa-lu-optihome-2017:p27:9, axa-lu-optihome-2017:p27:10, axa-lu-optihome-2017:p28:4, axa-lu-optihome-2017:p28:5, axa-lu-optihome-2017:p28:6, axa-lu-optihome-2017:p28:8, axa-lu-optihome-2017:p28:9, axa-lu-optihome-2017:p28:10, axa-lu-optihome-2017:p28:11, axa-lu-optihome-2017:p28:12, axa-lu-optihome-2017:p28:13, axa-lu-optihome-2017:p29:2, axa-lu-optihome-2017:p29:3, axa-lu-optihome-2017:p29:4, axa-lu-optihome-2017:p29:5, axa-lu-optihome-2017:p29:7, axa-lu-optihome-2017:p29:8, axa-lu-optihome-2017:p29:12, axa-lu-optihome-2017:p33:6, axa-lu-optihome-2017:p33:12, axa-lu-optihome-2017:p41:16, axa-lu-optihome-2017:p41:17, axa-lu-optihome-2017:p42:1, axa-lu-optihome-2017:p42:10, axa-lu-optihome-2017:p43:5, axa-lu-optihome-2017:p44:13,"
     },
     {
       "name": "kinds_non_confirmes",
       "level": "alerte",
-      "detail": "axa-lu-optihome-2017:p9:7, axa-lu-optihome-2017:p13:2, axa-lu-optihome-2017:p13:3, axa-lu-optihome-2017:p17:3, axa-lu-optihome-2017:p20:12, axa-lu-optihome-2017:p21:1, axa-lu-optihome-2017:p22:2, axa-lu-optihome-2017:p24:2, axa-lu-optihome-2017:p35:8, axa-lu-optihome-2017:p41:17, axa-lu-optihome-2017:p42:2, axa-lu-optihome-2017:p42:10, axa-lu-optihome-2017:p43:1, axa-lu-optihome-2017:p47:8, axa-lu-optihome-2017:p48:1, axa-lu-optihome-2017:p48:13, axa-lu-optihome-2017:p51:14, axa-lu-optihome-2017:p53:6, axa-lu-optihome-2017:p55:1, axa-lu-optihome-2017:p56:5, axa-lu-optihome-2017:p59:7, axa-lu-optihome-2017:p59:12, axa-lu-optihome-2017:p61:2, axa-lu-optihome-2017:p61:3, axa-lu-optihome-2017:p61:4, axa-lu-optihome-2017:p61:5, axa-lu-optihome-2017:p61:7, axa-lu-optihome-2017:p61:11, axa-lu-optihome-2017:p61:12, axa-lu-optihome-2017:p63:8, axa-lu-optihome-2017:p64:1, axa-lu-optihome-2017:p71:2, axa-lu-optihome-2017:p72:6, axa-lu-optihome-2017:p72:16, axa-lu-optihome-2017:p76:2, axa-lu-optihome-2017:p77:4, axa-lu-optihome-2017:p82:12, axa-lu-optihome-2017:p84:9, axa-lu-optihome-2017:p88:10, axa-lu-optihome-2017:p88:11, axa-lu-optihome-2017:p89:5, axa-lu-optihome-2017:p89:7, axa-lu-optihome-2017:p89:9, axa-lu-optihome-2017:p91:2, axa-lu-optihome-2017:p91:6, axa-lu-optihome-2017:p91:8, axa-lu-optihome-2017:p95:7, axa-lu-optihome-2017:p96:1, axa-lu-optihome-2017:p98:7, axa-lu-optihome-2017:p98:9, axa-lu-optihome-2017:p103:4, axa-lu-optihome-2017:p107:5"
+      "detail": "axa-lu-optihome-2017:p9:7, axa-lu-optihome-2017:p17:3, axa-lu-optihome-2017:p19:12, axa-lu-optihome-2017:p24:2, axa-lu-optihome-2017:p28:9, axa-lu-optihome-2017:p28:13, axa-lu-optihome-2017:p34:7, axa-lu-optihome-2017:p35:8, axa-lu-optihome-2017:p40:12, axa-lu-optihome-2017:p41:17, axa-lu-optihome-2017:p42:2, axa-lu-optihome-2017:p42:10, axa-lu-optihome-2017:p43:5, axa-lu-optihome-2017:p44:10, axa-lu-optihome-2017:p44:18, axa-lu-optihome-2017:p44:19, axa-lu-optihome-2017:p47:8, axa-lu-optihome-2017:p48:1, axa-lu-optihome-2017:p51:14, axa-lu-optihome-2017:p52:1, axa-lu-optihome-2017:p52:10, axa-lu-optihome-2017:p53:6, axa-lu-optihome-2017:p55:1, axa-lu-optihome-2017:p59:7, axa-lu-optihome-2017:p61:2, axa-lu-optihome-2017:p61:3, axa-lu-optihome-2017:p61:4, axa-lu-optihome-2017:p61:5, axa-lu-optihome-2017:p61:11, axa-lu-optihome-2017:p61:12, axa-lu-optihome-2017:p64:1, axa-lu-optihome-2017:p72:4, axa-lu-optihome-2017:p73:2, axa-lu-optihome-2017:p76:2, axa-lu-optihome-2017:p88:10, axa-lu-optihome-2017:p88:11, axa-lu-optihome-2017:p89:5, axa-lu-optihome-2017:p89:7, axa-lu-optihome-2017:p91:6, axa-lu-optihome-2017:p96:1, axa-lu-optihome-2017:p98:9, axa-lu-optihome-2017:p99:11, axa-lu-optihome-2017:p103:4"
     },
     {
       "name": "typage_clauses",
       "level": "info",
-      "detail": "969 bloc(s) étiqueté(s), 909/961 kind(s) juridique(s) confirmé(s) par deux lectures"
+      "detail": "968 bloc(s) étiqueté(s), 917/960 kind(s) juridique(s) confirmé(s) par deux lectures"
+    },
+    {
+      "name": "typage_transport",
+      "level": "info",
+      "detail": "standard-resume; lot lecture 1=msgbatch_01Pt9Y5Fh1JYR5oYWsk2cCGm; campagne=f534a1e729f1787749b508dfeb8206bfd3c29e395fd7bd5d3512995a11c3bb91; campagne_courante=4cf39380c20847386c7a82c3babb90881c5b23fc4af21c65dbc1f5af20a42a03; payload_lot=0b20ac4624a4b98fc5c843d3f6fbe608d12c257b3b1b4b479592d6b6bd4ce61f; payload_courant=250b426317aa92b642be23520ca705cf5f9a4b274b0dbb04ca0e2b652b9a8c9e; justification=Reprise du lot autorisé : 137 payloads inchangés ; les plans dont P2 corrige le propriétaire sont rejoués en standard, sans appliquer leurs anciens labels.; réutilisés=128; rejoués_payload=2; appels_standard=110; coût_batch=2.8158 EUR; coût_standard=3.7270 EUR; coût_antérieur=6.5188 EUR; coût_cumulé=10.2458 EUR; plafond=12.0000 EUR"
     }
   ],
   "stats": {
@@ -99,9 +104,26 @@
     "sommaire_chars": 6537,
     "ids_disparus": 0,
     "ids_nouveaux": 0,
-    "blocs_types_modele": 969,
-    "blocs_juridiques": 961,
-    "blocs_juridiques_confirmes": 909,
-    "references_non_resolues": 30
+    "blocs_types_modele": 968,
+    "blocs_juridiques": 960,
+    "blocs_juridiques_confirmes": 917,
+    "references_non_resolues": 32,
+    "typage_transport": "standard-resume",
+    "typage_resume_batch_id": "msgbatch_01Pt9Y5Fh1JYR5oYWsk2cCGm",
+    "typage_resume_campaign": "f534a1e729f1787749b508dfeb8206bfd3c29e395fd7bd5d3512995a11c3bb91",
+    "typage_current_campaign": "4cf39380c20847386c7a82c3babb90881c5b23fc4af21c65dbc1f5af20a42a03",
+    "typage_resume_payload_sha256": "0b20ac4624a4b98fc5c843d3f6fbe608d12c257b3b1b4b479592d6b6bd4ce61f",
+    "typage_current_payload_sha256": "250b426317aa92b642be23520ca705cf5f9a4b274b0dbb04ca0e2b652b9a8c9e",
+    "typage_replayed_payload_requests": 2,
+    "typage_replayed_payload_custom_ids": "clauses-r1-0085-f534a1e729f1-4b6f6e02,clauses-r1-0087-f534a1e729f1-ffafd233,clauses-r1-0120-f534a1e729f1-6c9f69a9",
+    "typage_resume_justification": "Reprise du lot autorisé : 137 payloads inchangés ; les plans dont P2 corrige le propriétaire sont rejoués en standard, sans appliquer leurs anciens labels.",
+    "typage_reused_requests": 128,
+    "typage_standard_requests": 110,
+    "typage_batch_cost_eur": 2.8158,
+    "typage_standard_cost_eur": 3.727,
+    "typage_total_cost_eur": 6.5428,
+    "typage_prior_cost_eur": 6.5188,
+    "typage_cumulative_cost_eur": 10.2458,
+    "typage_cost_ceiling_eur": 12.0
   }
 }
