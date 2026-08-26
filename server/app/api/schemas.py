@@ -21,6 +21,8 @@ parce qu'AD-10 veut qu'une réponse soit explicable par celui qui la reçoit.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from server.app.config import Settings
@@ -30,6 +32,7 @@ from server.app.domain.errors import InvalidRequest
 from server.app.domain.langue import normaliser_langue_forcee
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
+from server.app.domain.ingest import Gate
 from server.app.domain.trace import Trace
 from server.app.pipelines.guide import VARIANT, VARIANTS
 
@@ -164,23 +167,35 @@ class SanteResponse(BaseModel):
 # --- Story 1.9 : l'outil sinistre (AD-11) ---------------------------------
 
 class DocumentItem(BaseModel):
-    """Une entrée de `GET /api/v1/documents` : un document **servi**, tel qu'AD-11 l'énumère.
+    """Une entrée de `GET /api/v1/documents` : l'audit d'un document connu du loader.
 
     `source_url` s'ajoute aux cinq champs du contrat pour une raison qu'AD-7 impose : le PDF d'un
     assureur n'est **pas** redistribué par ce service, et la seule chose qu'on puisse offrir au
     lecteur est le lien vers sa source publique. Sans lui, « édition juin 2017 — actualité non
     vérifiée » serait invérifiable par celui à qui on le dit.
 
-    Rien ici n'est calculé par requête : tout vient de `Document` et de `ManifestEntry`, chargés au
-    démarrage (AD-7).
+    Un document en quarantaine reste absent de ``Corpus.documents`` : cette projection ne le rend
+    ni chargeable ni soumettable. Elle expose seulement les faits déjà validés au démarrage. Quand
+    ``document.json`` n'a pas été retenu par le loader, le titre de repli est le ``doc_id`` et le
+    ``kind`` reste indisponible plutôt que d'être relu ou inventé.
     """
 
     doc_id: str
     title: str
-    edition: str
-    kind: str  # `guide` ou `contrat` (AD-2) : le sélecteur de la page ne propose que les contrats
-    status: str  # toujours `servi` ici — un document en quarantaine n'est pas chargé (AD-7)
+    edition: str | None = None
+    kind: str | None = None  # `guide` ou `contrat` seulement quand le document a été validé
+    status: Literal["servi", "quarantaine"]
+    selectionnable: bool = False
+    raison: str | None = None
     source_url: str | None = None
+    source_hash: str | None = None
+    ingest_fingerprint: str | None = None
+    document_hash: str | None = None
+    overlay_hash: str | None = None
+    gate: Gate | None = None
+    # `disponible`, `absent`, `illisible` ou `etranger`. Un rapport absent n'est donc jamais
+    # confondu avec un rapport valide dont la liste de checks est vide.
+    report_status: Literal["disponible", "absent", "illisible", "etranger"] = "absent"
 
 
 class SinistreRequest(RequeteAvecLangue):

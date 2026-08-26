@@ -11,6 +11,7 @@ doit exhiber une clause aux offsets, à la page et à la bbox connus.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -253,7 +254,16 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
     axa = par_id[AXA]
     assert axa["kind"] == "contrat"
     assert axa["status"] == "servi"
+    assert axa["selectionnable"] is True
     assert axa["edition"] == "juin 2017"
+    entree = prod.app.state.foyer.corpus.manifest[AXA]
+    assert axa["source_hash"] == entree.source_hash
+    assert axa["ingest_fingerprint"] == entree.ingest_fingerprint
+    assert axa["document_hash"] == entree.document_hash
+    assert axa["overlay_hash"] == entree.overlay_hash
+    assert entree.gate is not None
+    assert axa["gate"] == entree.gate.model_dump(mode="json")
+    assert axa["report_status"] == "disponible"
     # AD-7 : le PDF n'est pas redistribué ; sa source publique est la seule chose qu'on puisse offrir,
     # et c'est ce qui rend « édition juin 2017 » vérifiable par celui à qui on l'annonce.
     assert axa["source_url"] and axa["source_url"].startswith("https://")
@@ -378,8 +388,11 @@ def test_un_rapport_illisible_remonte_jusqua_sante_et_a_la_route(tmp_path: Any) 
         assert ("doc-mini", "rapport_illisible") in [(a["doc_id"], a["alerte"]) for a in alertes]
         r = client.get("/api/v1/documents/doc-mini/report")
         assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
+        assert r.json()["error"]["message"] == "le rapport d'ingestion est illisible"
         # Le document, lui, **est** servi : un rapport illisible n'empêche pas de servir (D9).
-        assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
+        audit = client.get("/api/v1/documents").json()[0]
+        assert audit["doc_id"] == "doc-mini"
+        assert audit["report_status"] == "illisible"
 
 
 def test_une_source_privee_nest_jamais_publiee(tmp_path: Any) -> None:
@@ -468,20 +481,127 @@ def test_un_rapport_qui_decrit_un_autre_document_nest_pas_publie(tmp_path: Any) 
         # Le nom de l'alerte est distinct de `rapport_illisible` : le fichier n'est pas illisible,
         # il est étranger, et ce n'est pas le même correctif.
         assert ("doc-mini", "rapport_illisible") not in alertes
-        assert client.get("/api/v1/documents/doc-mini/report").status_code == 400
+        erreur = client.get("/api/v1/documents/doc-mini/report")
+        assert erreur.status_code == 400
+        assert erreur.json()["error"]["message"] == (
+            "le rapport d'ingestion décrit un autre document")
         # Le document reste servi : un rapport étranger n'est pas une incohérence du document.
-        assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
+        audit = client.get("/api/v1/documents").json()[0]
+        assert audit["doc_id"] == "doc-mini"
+        assert audit["report_status"] == "etranger"
 
 
-def test_un_document_en_quarantaine_nest_ni_liste_ni_rapporte(tmp_path: Any) -> None:
-    """AD-7 : « un document `quarantaine` n'est pas chargé ». Il n'a donc rien à publier."""
+def test_un_document_en_quarantaine_est_auditable_sans_etre_charge(tmp_path: Any) -> None:
+    """Story 3.5 : l'audit d'une quarantaine ne la remet jamais dans le working set."""
     _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
                        source="https://exemple.invalid/cg.pdf", quarantaine=True)
     with _client_sur(tmp_path) as client:
-        assert client.get("/api/v1/documents").json() == []
-        assert client.get("/api/v1/documents/doc-mini/report").status_code == 400
+        items = client.get("/api/v1/documents").json()
+        assert len(items) == 1
+        assert items[0]["doc_id"] == "doc-mini"
+        assert items[0]["status"] == "quarantaine"
+        assert items[0]["selectionnable"] is False
+        assert items[0]["raison"] == "quarantaine (manifest)"
+        assert items[0]["title"] == "doc-mini"  # aucun document.json quarantiné n'est relu
+        assert client.get("/api/v1/documents/doc-mini/report").json()["checks"] == []
+        assert client.app.state.foyer.corpus.documents == {}
         alertes = client.get("/api/v1/sante").json()["alerts"]
         assert "quarantaine" in [a["alerte"] for a in alertes]
+
+
+def test_ids_quarantaines_invalides_ne_lisent_rien_hors_data_dir(tmp_path: Any) -> None:
+    """Une clé absolue ou traversante est filtrée avant ``_rapports`` et ``_sources``."""
+    _corpus_sur_disque(tmp_path, rapport=None, source=None, quarantaine=True)
+    externe = tmp_path.parent / f"{tmp_path.name}-hors-data"
+    externe.mkdir()
+    (externe / "report.json").write_text("{rapport externe illisible", encoding="utf-8")
+    (externe / "source.url").write_text("https://secret.invalid/contrat.pdf", encoding="utf-8")
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entree = dict(manifest["doc-mini"])
+    entree["status"] = "quarantaine"
+    absolu = str(externe)
+    traversal = "../" + externe.name
+    manifest[absolu] = dict(entree)
+    manifest[traversal] = dict(entree)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with _client_sur(tmp_path) as client:
+        etat = client.app.state.foyer
+        assert absolu in etat.corpus.quarantine and traversal in etat.corpus.quarantine
+        assert set(etat.reports) == set()
+        assert set(etat.source_urls) == set()
+        assert set(etat.report_errors) == {"doc-mini"}
+        assert all(a.doc_id not in {absolu, traversal} for a in etat.alerts)
+        assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
+        absent = client.get("/api/v1/documents/doc-mini/report")
+        assert absent.status_code == 400
+        assert absent.json()["error"]["message"] == "le rapport d'ingestion est absent"
+        corps_sante = client.get("/api/v1/sante").text
+        assert absolu not in corps_sante and traversal not in corps_sante
+        assert "secret.invalid" not in corps_sante
+
+
+def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None:
+    """Story 3.5 : ni la liste ni le JSON d'audit ne relisent ``data/`` par requête."""
+    rapport = ('{"doc_id":"doc-mini","checks":['
+               '{"name":"premier","level":"info","detail":"avant"},'
+               '{"name":"second","level":"alerte","detail":"ordre conserve"}],"stats":{}}')
+    _corpus_sur_disque(tmp_path, rapport=rapport,
+                       source="https://exemple.invalid/cg.pdf", quarantaine=True)
+    with _client_sur(tmp_path) as client:
+        avant = client.get("/api/v1/documents/doc-mini/report").json()
+        (tmp_path / "doc-mini" / "report.json").write_text(
+            '{"doc_id":"doc-mini","checks":[],"stats":{}}', encoding="utf-8")
+        (tmp_path / "doc-mini" / "source.url").write_text(
+            "file:///tmp/secret.pdf", encoding="utf-8")
+        manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+        manifest["doc-mini"]["source_hash"] = "mutation-apres-boot"
+        manifest["doc-mini"]["ingest_fingerprint"] = "mutation-apres-boot"
+        (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        apres = client.get("/api/v1/documents/doc-mini/report").json()
+        audit = client.get("/api/v1/documents").json()[0]
+
+        assert apres == avant
+        assert [c["name"] for c in apres["checks"]] == ["premier", "second"]
+        assert [c["level"] for c in apres["checks"]] == ["info", "alerte"]
+        assert audit["source_url"] == "https://exemple.invalid/cg.pdf"
+        assert audit["source_hash"] == "s"
+        assert audit["ingest_fingerprint"] == "f"
+        assert audit["document_hash"] != "mutation-apres-boot"
+        assert audit["selectionnable"] is False
+
+
+@pytest.mark.parametrize("secret", [
+    "gs://bucket-prive/contrat.pdf",
+    "file:///root/contrat.pdf",
+    "s3://bucket-prive/contrat.pdf",
+    "/root/contrat.pdf",
+    "/opt/dossier avec espaces/contrat.pdf",
+    "/srv/foyer/contrat.pdf",
+    "./data/contrat.pdf",
+    "../secret/contrat.pdf",
+    r"C:\Users\privé\contrat.pdf",
+    r"\\serveur\partage\contrat.pdf",
+])
+def test_raison_publiable_masque_tout_emplacement_et_reste_utile(secret: str) -> None:
+    from server.app.api.routes.documents import _raison_publiable
+
+    raison = _raison_publiable("rapport illisible : " + secret)
+    assert raison is not None
+    assert raison.startswith("rapport illisible : ")
+    assert "[emplacement masqué]" in raison
+    assert secret not in raison
+
+
+def test_raison_publiable_est_bornee_sans_alterer_un_diagnostic_normal() -> None:
+    from server.app.api.routes.documents import _raison_publiable
+
+    assert _raison_publiable("bloquant_statique : page_sans_texte") == (
+        "bloquant_statique : page_sans_texte")
+    bornee = _raison_publiable("diagnostic : " + "x" * 900)
+    assert bornee is not None and len(bornee) == 500 and bornee.endswith("…")
 
 
 # --- ligne « Sinistre nominal (bougie) » ---------------------------------

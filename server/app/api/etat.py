@@ -15,12 +15,13 @@ une borne entre requêtes d'un même process.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from server.app.api.limiter import RateLimiter
-from server.app.api.schemas import Alerte
+from server.app.api.schemas import Alerte, DOC_ID_MAX, DOC_ID_PATTERN
 from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
@@ -49,6 +50,11 @@ SCHEMAS_PUBLIABLES = ("https://", "http://")
 # Une URL de source tient largement là-dedans (celle du contrat AXA fait 170 caractères) ; au-delà,
 # ce n'est plus une URL, c'est un fichier qu'on recopierait dans une réponse publique.
 SOURCE_URL_MAX = 2048
+
+
+def _doc_id_auditable(doc_id: str) -> bool:
+    """Le contrat public du segment ``doc_id``, appliqué avant toute composition de chemin."""
+    return len(doc_id) <= DOC_ID_MAX and re.fullmatch(DOC_ID_PATTERN, doc_id) is not None
 
 
 def url_publiable(brut: str | None) -> str | None:
@@ -114,6 +120,10 @@ class EtatApp:
     # AD-7/AD-8 : `report.json` est écrit par l'ingestion, lu **une fois** au démarrage, et exposé
     # tel quel par `GET /api/v1/documents/{doc_id}/report`. Aucune lecture de `data/` par requête.
     reports: dict[str, Report] = field(default_factory=dict)
+    # État de lecture des rapports qui ne peuvent pas être publiés. La valeur est stable pour toute
+    # la vie du process et distingue un artefact absent, illisible ou étranger d'un rapport valide
+    # dont ``checks`` serait réellement vide.
+    report_errors: dict[str, str] = field(default_factory=dict)
     # `doc_id` → URL publique de la source (AD-7, `data/{doc_id}/source.url`). Lue au démarrage
     # comme tout le reste : `GET /api/v1/documents` ne touche pas `data/`.
     source_urls: dict[str, str] = field(default_factory=dict)
@@ -201,7 +211,8 @@ def _alertes(corpus: Corpus) -> list[Alerte]:
     alertes = [Alerte(doc_id=doc_id, alerte=a)
                for doc_id in sorted(corpus.alerts) for a in corpus.alerts[doc_id]]
     alertes += [Alerte(doc_id=doc_id, alerte="quarantaine", detail=raison)
-                for doc_id, raison in sorted(corpus.quarantine.items())]
+                for doc_id, raison in sorted(corpus.quarantine.items())
+                if _doc_id_auditable(doc_id)]
     return alertes
 
 
@@ -271,7 +282,7 @@ def _alertes_dictionnaire(dictionnaire: Dictionnaire) -> list[Alerte]:
 
 
 def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], list[Alerte]]:
-    """Les rapports d'ingestion des documents **servis**, lus au démarrage (AD-7/AD-8, D9).
+    """Les rapports d'ingestion des documents connus, lus au démarrage (AD-7/AD-8).
 
     Comme `dictionary.json`, un rapport **absent** ne fait pas tomber le démarrage : AD-8 fait du
     rapport un artefact d'ingestion, et un document peut être servi avant qu'on l'ait écrit (le
@@ -280,8 +291,9 @@ def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], li
     muette) et, sur la route, un 400 — la même réponse qu'un document inconnu, puisqu'il n'y a rien
     d'honnête à publier.
 
-    Seuls les documents servis sont lus : un document en quarantaine n'est pas chargé (AD-7), et
-    publier son rapport laisserait croire qu'il l'est.
+    Lire le rapport d'une quarantaine ne charge ni son ``document.json`` ni son sommaire et ne
+    l'ajoute jamais au working set. C'est un artefact d'audit distinct dont la page affiche à côté
+    le statut effectif du loader.
     """
     rapports: dict[str, Report] = {}
     alertes: list[Alerte] = []
@@ -312,6 +324,29 @@ def _rapports(data_dir: Path, doc_ids: list[str]) -> tuple[dict[str, Report], li
             continue
         rapports[doc_id] = rapport
     return rapports, alertes
+
+
+def _erreurs_rapports(doc_ids: list[str], rapports: dict[str, Report],
+                      alertes: list[Alerte]) -> dict[str, str]:
+    """Résume l'issue de lecture, sans détail interne destiné aux journaux ou à ``/sante``."""
+    erreurs = {doc_id: "absent" for doc_id in doc_ids if doc_id not in rapports}
+    for alerte in alertes:
+        if alerte.alerte == "rapport_illisible":
+            erreurs[alerte.doc_id] = "illisible"
+        elif alerte.alerte == "rapport_etranger":
+            erreurs[alerte.doc_id] = "etranger"
+    return erreurs
+
+
+def _doc_ids_audit(corpus: Corpus) -> list[str]:
+    """Clés adressables par l'API, avant toute composition de chemin sous ``data_dir``.
+
+    Le manifest reste une entrée non fiable. Une clé absolue ou avec traversée peut être conservée
+    comme quarantaine interne par le loader, mais elle ne doit jamais atteindre ``_rapports`` ou
+    ``_sources`` : ``Path(data_dir) / doc_id`` sortirait alors potentiellement de ``data_dir``.
+    """
+    connus = set(corpus.served) | set(corpus.quarantine)
+    return sorted(doc_id for doc_id in connus if _doc_id_auditable(doc_id))
 
 
 def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
@@ -380,8 +415,12 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
     # `corpus_ok` exige l'empreinte de **ce** document, pas celle d'un document quelconque du corpus.
     dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
-    rapports, alertes_rapports = _rapports(data_dir, corpus.served)
-    sources = _sources(data_dir, corpus.served)
+    # Les quarantaines sont connues du loader mais ne sont jamais dans ``documents``. Leurs seuls
+    # artefacts d'audit (rapport et URL publique filtrée) peuvent néanmoins être lus ici, une fois.
+    doc_ids_audit = _doc_ids_audit(corpus)
+    rapports, alertes_rapports = _rapports(data_dir, doc_ids_audit)
+    erreurs_rapports = _erreurs_rapports(doc_ids_audit, rapports, alertes_rapports)
+    sources = _sources(data_dir, doc_ids_audit)
     pdf_sources = _pdf_sources(data_dir, corpus)
     page_renderer = PageRenderer(
         max_lines=settings.pdf_highlight_max_lines,
@@ -408,7 +447,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
         prompts_digest_hex=digest_prompts, dictionnaire=dictionnaire,
-        reports=rapports, source_urls=sources,
+        reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
         alerts=_alertes(corpus) + alertes_rapports + alertes_ungated
         + _alertes_dictionnaire(dictionnaire))

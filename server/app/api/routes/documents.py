@@ -18,6 +18,7 @@ une chaîne de l'appelant, et l'enveloppe d'erreur n'est pas un endroit où la l
 
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Request, Response
@@ -30,34 +31,77 @@ from server.app.domain.ingest import Report
 router = APIRouter()
 
 
+def _raison_publiable(raison: str | None) -> str | None:
+    """Garde un diagnostic borné sans publier un emplacement issu des artefacts.
+
+    Les raisons normales du loader restent inchangées. Dès qu'un URI ou un chemin apparaît, seule
+    la partie précédente — le diagnostic utile — demeure, suivie d'un marqueur neutre. Les chemins
+    avec espaces sont volontairement masqués jusqu'à un séparateur de diagnostic sûr.
+    """
+    if raison is None:
+        return None
+    propre = re.sub(
+        r"(?i)\b[a-z][a-z0-9+.-]*:(?://)?[^\n,;)]*",
+        "[emplacement masqué]",
+        raison,
+    )
+    propre = re.sub(
+        r"(?<![\w.])(?:\.\.?/|/|\\\\)[^\n,;)]*",
+        "[emplacement masqué]",
+        propre,
+    )
+    return propre if len(propre) <= 500 else propre[:499] + "…"
+
+
 @router.get("/documents", response_model=list[DocumentItem])
 async def documents(request: Request) -> list[DocumentItem]:
-    """Les documents **servis**, triés par `doc_id` — jamais ceux en quarantaine (AD-7).
+    """Les documents servis et quarantinés, triés par ``doc_id``.
 
-    Le guide y figure comme le contrat : il *est* servi, et taire un document servi ferait de cette
-    route une vue partielle de ce que le service expose. C'est la **page** qui décide de n'offrir au
-    sélecteur que les `kind="contrat"` (soumettre un sinistre au guide n'a pas de sens, et le
-    serveur le refuse aussi — voir `routes/sinistre.py`), et elle peut le décider parce que `kind`
-    est ici.
+    Cette liste est une projection d'audit, pas le working set : ``selectionnable`` n'est vrai que
+    pour un contrat effectivement présent dans ``Corpus.documents``. Une quarantaine reste donc
+    inspectable sans pouvoir atteindre ``POST /sinistre``.
     """
     etat = request.app.state.foyer
     items = []
-    for doc_id in etat.corpus.served:  # `served` est déjà trié (corpus/loader)
-        document = etat.corpus.documents[doc_id]
+    connus = sorted(set(etat.corpus.served) | set(etat.corpus.quarantine))
+    for doc_id in connus:
+        # Une clé de manifest hors convention ne peut pas devenir un segment d'URL public. Le
+        # loader la garde dans ses alertes, mais la surface HTTP ne publie ni chemin ni identifiant
+        # hostile sous prétexte de rendre les quarantaines visibles.
+        if len(doc_id) > DOC_ID_MAX or re.fullmatch(DOC_ID_PATTERN, doc_id) is None:
+            continue
+        document = etat.corpus.documents.get(doc_id)
         entree = etat.corpus.manifest.get(doc_id)
+        servi = document is not None
         items.append(DocumentItem(
-            doc_id=doc_id, title=document.title, kind=document.kind,
+            doc_id=doc_id,
+            title=document.title if document is not None else doc_id,
+            kind=document.kind if document is not None else None,
             # L'édition affichée est celle du **document chargé**, pas celle du manifest : c'est
             # elle que `ClaimStatus.edition` recopie sous chaque citation (AD-4), et deux libellés
-            # différents dans le même écran seraient une incohérence que rien ne signalerait.
-            edition=document.edition,
-            status=entree.status if entree is not None else "servi",
+            # différents dans le même écran seraient une incohérence que rien ne signalerait. Pour
+            # une quarantaine, seul le manifest validé peut encore fournir ce fait.
+            #
+            # Le statut déclaré du manifest ne décide jamais de cette ligne : le statut effectif
+            # vient exclusivement du résultat du loader.
+            edition=document.edition if document is not None else (entree.edition if entree else None),
+            status="servi" if servi else "quarantaine",
+            selectionnable=bool(servi and document.kind == "contrat"),
+            raison=None if servi else _raison_publiable(etat.corpus.quarantine.get(doc_id)),
             # `Document.source_url` d'abord (l'ingestion l'a validé), puis `data/{doc_id}/source.url`
             # qu'AD-7 rend canonique : l'ingestion PDF laisse le champ vide parce que le PDF n'est
             # pas committé, et le contrat n'aurait alors aucune source affichable. Les **deux**
             # passent par `url_publiable` (revue 1.9) : filtrer le fichier et pas le champ laissait
             # une ingestion future publier un `gs://` du bucket privé dans une réponse publique.
-            source_url=url_publiable(document.source_url) or etat.source_urls.get(doc_id)))
+            source_url=(url_publiable(document.source_url) if document is not None else None)
+            or etat.source_urls.get(doc_id),
+            source_hash=entree.source_hash if entree is not None else None,
+            ingest_fingerprint=entree.ingest_fingerprint if entree is not None else None,
+            document_hash=entree.document_hash if entree is not None else None,
+            overlay_hash=entree.overlay_hash if entree is not None else None,
+            gate=entree.gate if entree is not None else None,
+            report_status=("disponible" if doc_id in etat.reports
+                           else etat.report_errors.get(doc_id, "absent"))))
     return items
 
 
@@ -74,9 +118,16 @@ async def report(request: Request, doc_id: DocId) -> Report:
     etat = request.app.state.foyer
     rapport = etat.reports.get(doc_id)
     if rapport is None:
-        raise InvalidRequest(
-            "aucun rapport d'ingestion n'est publié pour ce document : il n'est pas servi, ou son "
-            "rapport est absent ou illisible (voir /api/v1/documents et /api/v1/sante)")
+        etat_rapport = etat.report_errors.get(doc_id)
+        if etat_rapport == "absent":
+            detail = "le rapport d'ingestion est absent"
+        elif etat_rapport == "illisible":
+            detail = "le rapport d'ingestion est illisible"
+        elif etat_rapport == "etranger":
+            detail = "le rapport d'ingestion décrit un autre document"
+        else:
+            detail = "aucun rapport d'ingestion n'est publié pour ce document"
+        raise InvalidRequest(detail)
     return rapport
 
 

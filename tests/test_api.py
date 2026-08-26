@@ -1133,6 +1133,33 @@ def test_les_fichiers_du_site_ne_sont_pas_renommes(prod: TestClient) -> None:
     assert "window.KB" in prod.get("/guide/app/kb.js").text
 
 
+def test_la_page_daudit_dynamique_passe_avant_le_montage_statique(prod: TestClient) -> None:
+    """Story 3.5 : le segment ``doc_id`` sert l'hôte HTML, pas un faux chemin de fichier."""
+    r = prod.get("/sinistre/ingestion/axa-lu-optihome-2017")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert 'id="rapport"' in r.text
+    assert 'src="/sinistre/ingestion.js?v=1"' in r.text
+
+    invalide = prod.get("/sinistre/ingestion/doc_id-invalide")
+    assert invalide.status_code == 400
+    assert invalide.json()["error"]["code"] == "invalid_request"
+
+
+def test_un_identifiant_quarantine_invalide_nentre_jamais_dans_la_liste_publique(
+        prod: TestClient) -> None:
+    etat = prod.app.state.foyer
+    invalides = ("../secret", "/root/secret", "doc_id-invalide")
+    try:
+        for doc_id in invalides:
+            etat.corpus.quarantine[doc_id] = "quarantaine de test"
+        publies = {item["doc_id"] for item in prod.get("/api/v1/documents").json()}
+        assert publies.isdisjoint(invalides)
+    finally:
+        for doc_id in invalides:
+            etat.corpus.quarantine.pop(doc_id, None)
+
+
 def test_laccueil_provisoire_donne_les_trois_entrees(prod: TestClient) -> None:
     page = prod.get("/").text
     assert '"/guide/"' in page and '"/sinistre/"' in page and "github.com/byousoku-9/foyer-retour" in page

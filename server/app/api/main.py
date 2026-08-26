@@ -25,6 +25,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 from server.app.api.body_limit import LimiteDeCorps
@@ -112,6 +113,16 @@ def create_app(settings: Settings | None = None, *, data_dir: Path | None = None
     # statique de la page du même nom.
     for routeur in (route_documents.router, route_sinistre.router):
         app.include_router(routeur, prefix=API_V1)
+
+    # La page d'audit porte le ``doc_id`` dans une URL lisible et partage exactement la validation
+    # du paramètre de la route JSON. Elle doit être enregistrée avant le montage statique
+    # ``/sinistre`` : sinon StaticFiles traite ``ingestion/{doc_id}`` comme un chemin de fichier et
+    # rend un 404 avant que l'application ne puisse servir l'hôte autonome.
+    @app.get("/sinistre/ingestion/{doc_id}", include_in_schema=False,
+             response_class=FileResponse)
+    async def page_ingestion(doc_id: route_documents.DocId) -> FileResponse:
+        del doc_id  # validé par FastAPI ; le script lit le segment depuis ``location.pathname``
+        return FileResponse(SINISTRE_DIR / "ingestion.html", media_type="text/html")
 
     _monter(app, "/guide", WEB_DIR, "guide")
     _monter(app, "/sinistre", SINISTRE_DIR, "sinistre")

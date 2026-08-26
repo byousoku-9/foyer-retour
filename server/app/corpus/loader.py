@@ -271,7 +271,9 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
     except ValueError as exc:  # ValidationError et JSONDecodeError en héritent
         return None, f"document.json invalide : {_first_error(exc)}", []
     except (OSError, UnicodeDecodeError) as exc:
-        return None, f"document.json illisible : {type(exc).__name__}: {exc}"[:500], []
+        # La raison devient publique dans l'audit (story 3.5). Le type suffit à distinguer l'échec ;
+        # ``str(OSError)`` peut contenir le chemin absolu de ``data/`` et ne doit jamais sortir.
+        return None, f"document.json illisible : {type(exc).__name__}", []
     if doc.doc_id != doc_id:
         return None, f"doc_id {doc.doc_id!r} différent de la clé du manifest", []
     if doc.source_hash != entry.source_hash:
@@ -331,7 +333,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         try:
             summary = (data_dir / doc_id / "summary.md").read_text("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}: {exc}"[:500]
+            corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}"
             continue
         corpus.documents[doc_id] = doc
         corpus.summaries[doc_id] = summary
