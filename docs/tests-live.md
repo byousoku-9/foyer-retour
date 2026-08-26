@@ -2714,3 +2714,32 @@ Après stabilisation des digests, les deux gates verticaux ont été rejoués pa
 `lux-guide` est vert 1/1 à 0,0248 € en 13,468 s et `axa-lu-optihome-2017` vert 1/1 à 0,0221 € en
 10,624 s. Tous deux restent honnêtement `countersigned=false`. Le rejeu hermétique final compte 2 134
 tests passés ; les 10 contrôles de digest, Ruff et `git diff --check` sont verts.
+
+### Story 2.6 — campagnes réelles finales du 26/08/2026
+
+Le service local a reçu la clé depuis `.env` et tous les appels ci-dessous ont visé l’API HTTP réelle,
+jamais les fixtures. Le socle A a été rejoué mot pour mot. A1–A11 et A13 sont conformes : fiches
+`choisir_commune`, `recherche_logement` et `arrivee`, refus météo/vide, clauses `p34:12`, `p35:2`,
+`p37:14`, `p40:10`, `p34:15`, puis causalité du radiateur. A12 est le seul échec : la question du fils
+du voisin ouvre `p65:5` et `p51:9`, mais pas la RC vie privée `p66:10`. Deux runs réels rendent 200 à
+0,0270 € puis 0,0185 €. Le défaut est préexistant, reproduit en déterministe et déjà attribué à 3.6 :
+le correctif retiré en 2.7 codait en dur quatre notions et un vocabulaire propre à AXA, ce que la règle
+de généricité interdit. **Classement : correctif hors périmètre, bloquant pour la livraison.**
+
+#### Campagne B — six cas nouveaux, mot pour mot
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d’expérience | Classement et correction |
+|---|---|---|---|---|
+| B1 | « J’viens d’arriver, c’est quoi les papiers à ramener pour m’enregistrer à la mairie ? » | 200 en 16,621 s / 0,0365 € : Biergercenter, pièces d’identité, bail ou acte, actes familiaux et vérification communale ; fiche `arrivee`. | Bon : le langage familier est compris et la liste utile arrive sans détour. | Aucun défaut ; aucune correction. |
+| B2 | « Mon épouse bosse en Belgique et moi au Luxembourg : où s’inscrire pour la sécu et pour les allocs ? » | 200 / 0,0342 € : employeur luxembourgeois → CCSS, demande d’allocations → CAE ; coordination transfrontalière explicitement inconnue. | Bon : les deux volets sont séparés, la limite Belgique–Luxembourg n’est pas inventée. | Aucun défaut ; aucune correction. |
+| B3 | « On m’a dit qu’un bail oral suffit et qu’il n’y a jamais de caution au Luxembourg, vrai ? » | 200 / 0,0253 € : caution réelle plafonnée à deux mois ; validité du bail oral absente du corpus. | Très bon : le présupposé faux est corrigé dès la première phrase, sans surpromesse sur le bail oral. | Aucun défaut ; aucune correction. |
+| B4 | « Pour la petite, je cherche une nounou après l’école — je tape quoi et je contacte qui ? » | 503 `budget_exceeded` / 0,0570 € malgré les huit blocs `garde` ouverts ; la relance obtient deux affirmations mais la dominance conserve la première version vide. | Mauvais : un nouvel arrivant voit une panne alors que le bon contenu a été lu ; inutilisable au téléphone. | **Correctif hors périmètre** : reproduit en déterministe ; différé à 4.2 avec le cas exact. Aucun prompt ni politique commune modifié ici. |
+| B5 | « Je n’ai pas encore d’adresse mais j’ai déjà emménagé chez un ami : je peux déclarer mon arrivée où ? » | 200 / 0,0245 € : commune/Biergercenter sous huit jours ; preuve d’adresse chez un tiers explicitement inconnue. | Bon : l’action certaine est en tête et la situation particulière n’est pas inventée. | Aucun défaut ; aucune correction. |
+| B6 | « J’ai perdu mon boulot pendant ma période d’essai : je dois prévenir qui et mon titre de séjour saute tout de suite ? » | 503 `budget_exceeded` / 0,0628 € ; même résultat déterministe à 0,0516 €. | Mauvais : les deux décisions urgentes restent sans réponse ; écran non montrable à un directeur. | **Correctif hors périmètre** : pipeline commun, différé à 4.2 avec le cas exact. |
+
+La campagne est bornée à ces six cas. Deux défauts ont été consignés, zéro correctif local a été
+appliqué : les deux échecs se reproduisent avec la baseline déterministe et ne sont donc pas causés par
+2.6. Aucune rustine lexicale, aucun identifiant de document et aucune formulation spéciale n’ont été
+ajoutés. Le contrôle Chrome headless final à 390 px rend `/`, `/guide/` et `/sinistre/` avec
+`documentElement.scrollWidth = clientWidth = 390` et aucune ressource HTTP en erreur ; les routes et
+leurs actifs principaux répondent 200.
