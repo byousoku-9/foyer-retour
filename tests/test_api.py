@@ -786,6 +786,15 @@ def test_sante_publie_les_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
     assert seuils["retry_after_s"] == reglages.retry_after_s
     # Revue Codex 1.6, M2 : la borne du `cloud_trace` est un seuil comme les autres.
     assert seuils["cloud_trace_max_chars"] == reglages.cloud_trace_max_chars
+    assert {
+        "mixed_page_image_density": reglages.mixed_page_image_density,
+        "ocr_dpi": reglages.ocr_dpi,
+        "quality_min_words": reglages.quality_min_words,
+        "foreign_signal_min": reglages.foreign_signal_min,
+        "french_signal_ratio_min": reglages.french_signal_ratio_min,
+        "gibberish_ratio_max": reglages.gibberish_ratio_max,
+        "residual_header_min_pages_ratio": reglages.residual_header_min_pages_ratio,
+    }.items() <= seuils.items()
 
 
 def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = True,

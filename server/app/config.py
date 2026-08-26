@@ -299,9 +299,18 @@ class Settings(BaseSettings):
     # opérationnel comme les autres (revue Codex 1.6, M2) — pas une constante de protocole.
     cloud_trace_max_chars: int = Field(128, ge=1)
 
-    # Ingestion (AD-8)
+    # Ingestion (AD-8 / story 3.1). Ces valeurs sont des hypothèses de détection, pas des
+    # vérités métier : elles sont exposées dans `thresholds()` et les valeurs qui modifient
+    # l'extraction ou la segmentation entrent aussi dans `ingest_fingerprint`.
     coverage_threshold: float = Field(0.8, ge=0, le=1)
     kind_confidence_min: float = Field(0.7, ge=0, le=1)
+    mixed_page_image_density: float = Field(0.2, ge=0, le=1)
+    ocr_dpi: int = Field(300, ge=72, le=600)
+    quality_min_words: int = Field(12, ge=1)
+    foreign_signal_min: int = Field(3, ge=1)
+    french_signal_ratio_min: float = Field(0.08, ge=0, le=1)
+    gibberish_ratio_max: float = Field(0.35, ge=0, le=1)
+    residual_header_min_pages_ratio: float = Field(0.3, ge=0, le=1)
 
     # Dictionnaire enrichi (story 2.1, AD-5 / AD-7). Toutes ces bornes s'appliquent **par le code**
     # à ce que le modèle d'ingestion rend : AD-5 et AD-7 disent qu'il ne renvoie jamais de texte de
@@ -484,6 +493,13 @@ class Settings(BaseSettings):
             "cloud_trace_max_chars": self.cloud_trace_max_chars,
             "coverage_threshold": self.coverage_threshold,
             "kind_confidence_min": self.kind_confidence_min,
+            "mixed_page_image_density": self.mixed_page_image_density,
+            "ocr_dpi": self.ocr_dpi,
+            "quality_min_words": self.quality_min_words,
+            "foreign_signal_min": self.foreign_signal_min,
+            "french_signal_ratio_min": self.french_signal_ratio_min,
+            "gibberish_ratio_max": self.gibberish_ratio_max,
+            "residual_header_min_pages_ratio": self.residual_header_min_pages_ratio,
             # Story 2.1 : les bornes du dictionnaire enrichi et celle du périmètre dérivé du corpus.
             # Elles sont publiées comme les autres (convention Seuils) — `/api/v1/sante` et
             # `Trace.thresholds` se lisent avec la même règle, y compris pour ce que l'ingestion a

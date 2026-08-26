@@ -15,6 +15,12 @@ from .loader import Corpus
 from .text import normalize
 
 _WORD = re.compile(r"[a-z0-9]+")
+_NON_CITABLE_SOURCE_FIELDS = frozenset({"preliminaire", "tdm"})
+
+
+def _citable(block: Block) -> bool:
+    """Les préliminaires restent auditables dans le document, jamais dans le contexte de réponse."""
+    return block.kind != "autre" and block.source_field not in _NON_CITABLE_SOURCE_FIELDS
 
 
 def words(text_norm: str) -> list[str]:
@@ -66,7 +72,10 @@ class Index:
             for n in doc.nodes:
                 if n.node_id in self._nodes:
                     raise ValueError(f"node_id {n.node_id!r} présent dans {self._nodes[n.node_id][0]!r} et {doc_id!r}")
-                self._nodes[n.node_id] = (doc_id, n.blocks)
+                # `autre` et les tables explicitement marquées préliminaire/TdM restent auditables
+                # dans `Document.blocks`, mais ne consomment jamais une fenêtre ni le budget de rappel.
+                self._nodes[n.node_id] = (doc_id, [block_id for block_id in n.blocks
+                                                   if _citable(doc.block(block_id))])
                 self._node_titles[n.node_id] = n.title
                 self._node_children[n.node_id] = n.children
                 self._levels[n.node_id] = n.level
@@ -81,9 +90,10 @@ class Index:
                            tokens=frozenset(ws), padded=f" {' '.join(ws)} ")
                 self._entries.append(e)
                 self._by_block[block_id] = e
-                frequencies = self._block_frequencies.setdefault(doc_id, {})
-                for token in e.tokens:
-                    frequencies[token] = frequencies.get(token, 0) + 1
+                if _citable(b):
+                    frequencies = self._block_frequencies.setdefault(doc_id, {})
+                    for token in e.tokens:
+                        frequencies[token] = frequencies.get(token, 0) + 1
 
     # --- accès ---------------------------------------------------------
     def parent_node(self, block_id: str) -> str:
@@ -187,6 +197,8 @@ class Index:
         scored: list[tuple[int, Fraction, Fraction, int, int, str, str]] = []
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
+                continue
+            if not _citable(e.block):
                 continue
             pleins = 0
             precision_plein = Fraction()

@@ -65,6 +65,7 @@ def test_p46_exclusion_is_first_block_of_page_under_a318(doc: Document) -> None:
 
 def test_document_shape(doc: Document) -> None:
     assert doc.kind == "contrat" and doc.edition == "juin 2017" and doc.doc_id == DOC
+    assert doc.source_url == (REAL / "source.url").read_text("utf-8").strip()
     pages = {b.page for b in doc.blocks}
     assert len(pages) == 108 and min(pages) == 1 and max(pages) == 109 and 108 not in pages  # p. 108 blanche
     by = {n.node_id: n for n in doc.nodes}
@@ -75,10 +76,14 @@ def test_document_shape(doc: Document) -> None:
     assert by[DOC].children == [f"{DOC}:tdm", *(f"{DOC}:a{i}" for i in (1, 2, 3, 4))]
     assert all(b.loc == f"p{b.page}" and b.lines and b.bbox for b in doc.blocks)
     assert all("\x07" not in b.text and "Wingdings" not in b.text for b in doc.blocks)
-    assert {b.kind for b in doc.blocks} <= {"para", "heading", "list", "autre"}  # le typage vient de l'overlay
+    assert {b.kind for b in doc.blocks} <= {"para", "heading", "list", "table", "autre"}  # typage 3.1 structurel
+    assert sum(b.kind == "table" for b in doc.blocks) == 7
     # scissions de page (AD-2) : p53:8 → p54:1 commence par une majuscule (revue Codex 1.2, B6)
     linked = {b.block_id: b.continues for b in doc.blocks if b.continues}
-    assert linked[f"{DOC}:p54:1"] == f"{DOC}:p53:8" and linked[f"{DOC}:p31:1"] == f"{DOC}:p30:20"
+    assert linked[f"{DOC}:p54:1"] == f"{DOC}:p53:8"
+    # Une table est atomique **par page** : la grille de résiliation est scindée en deux blocs,
+    # jamais reliée comme un paragraphe continu.
+    assert doc.block(f"{DOC}:p30:4").kind == "table" and doc.block(f"{DOC}:p31:1").kind == "table"
     assert linked[f"{DOC}:p82:1"] == f"{DOC}:p81:16" and doc.block(f"{DOC}:p82:1").kind == "list"
     assert doc.block(f"{DOC}:p46:1").continues is None  # l'alinéa suit « … particulières. »
     # continuations de liste alignées (revue Codex 1.2, I5) : p54 « … et » puis « immeubles … » = même item
@@ -86,7 +91,11 @@ def test_document_shape(doc: Document) -> None:
     assert p54.kind == "list" and p54.lines[2].text.startswith("immeubles qu") and p54.lines[4].text.startswith("de vol")
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert not report.blocking and report.stats["pages"] == 109 and report.stats["tdm_pdf_entrees"] == 0
-    assert [c.name for c in report.alerts] == ["pages_mixtes"] and "1" in report.alerts[0].detail  # couverture
+    assert [c.name for c in report.alerts] == ["pages_mixtes"]
+    printed_toc = next(c for c in report.checks if c.name == "tdm_imprimee")
+    assert printed_toc.level == "info" and "4 titre(s)" in printed_toc.detail
+    assert report.alerts[0].detail.endswith(": 1")
+    assert report.stats["tables"] == 7 and report.stats["couverture"] == 1.0
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     # Story 1.10 : le gate `vertical` est désormais écrit — par `evals run --gate`, jamais par
     # l'ingestion (AD-7). C'est ce que ce test contrôle ici : le gate existe, il porte les empreintes
@@ -121,7 +130,7 @@ def test_overlay_confirms_four_blocks() -> None:
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     assert manifest["overlay_hash"] == hashlib.sha256((REAL / "typing.manual.json").read_bytes()).hexdigest()
     raw = json.loads((REAL / "document.json").read_text("utf-8"))
-    assert all("kind" not in b or b["kind"] in ("heading", "list", "autre") for b in raw["blocks"])  # document.json intact
+    assert all("kind" not in b or b["kind"] in ("heading", "list", "table", "autre") for b in raw["blocks"])
 
 
 @pytest.mark.skipif(not (REAL / "source.pdf").is_file(), reason="source.pdf absent (non committé)")
@@ -130,10 +139,11 @@ def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
     assert source_hash == (REAL / "source.sha256").read_text("utf-8").strip()
     pages, toc = p.extract_pages(pdf)
-    built, meta = p.build_document(pages, edition=p.DEFAULT_EDITION, source_hash=source_hash, toc=toc)
+    built, meta = p.build_document(pages, edition=p.DEFAULT_EDITION, source_hash=source_hash, toc=toc,
+                                   source_url=(REAL / "source.url").read_text("utf-8").strip())
     assert p.document_json(built) == (REAL / "document.json").read_text("utf-8")
     assert p.build_summary(built) == (REAL / "summary.md").read_text("utf-8")
     report = build_pdf_report(built, doc, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
                               continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
-                              summary=p.build_summary(built))
+                              printed_toc=meta["printed_toc"], summary=p.build_summary(built))
     assert report == Report.model_validate_json((REAL / "report.json").read_bytes())

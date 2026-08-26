@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+from pydantic import ValidationError
 
-from server.app.domain import Document
+from server.app.domain import Block, BlockRef, Document, Node
 from server.ingest import pdf_to_blocks as p
 from server.ingest.artifacts import document_json
+from server.ingest.report import _printed_toc_check, _quality, _tree_category, report_from_validation_error
 
 DOC = "doc-a"
 FONT_BODY, FONT_TITLE = "helv", "hebo"
@@ -101,18 +103,23 @@ def data(tmp_path: Path) -> Path:
     d = tmp_path / "data" / DOC
     d.mkdir(parents=True)
     build_pdf(d / "source.pdf", pages=nominal_pages())
+    (d / "source.url").write_text("https://example.test/contrat.pdf\n", "utf-8")
     return d
 
 
 def _run(d: Path):
-    return p.run(d, edition="test 2026", doc_id=DOC)
+    source_url = d / "source.url"
+    if not source_url.exists():
+        source_url.write_text("https://example.test/contrat.pdf\n", "utf-8")
+    return p.run(d, edition="test 2026", doc_id=DOC, title="Contrat synthétique")
 
 
 def test_nominal_tree_ids_bbox_scopes_and_continues(data: Path) -> None:
     report, entry = _run(data)
     assert not report.blocking and entry.status == "servi" and entry.gate is None
     doc = Document.model_validate_json((data / "document.json").read_bytes())
-    assert doc.kind == "contrat" and doc.edition == "test 2026" and doc.ingest_fingerprint == p.ingest_fingerprint()
+    assert doc.kind == "contrat" and doc.title == "Contrat synthétique" and doc.edition == "test 2026"
+    assert doc.source_url == "https://example.test/contrat.pdf" and doc.ingest_fingerprint == p.ingest_fingerprint()
     by = {n.node_id: n for n in doc.nodes}
     parent = {c: n.node_id for n in doc.nodes for c in n.children}
     assert parent[f"{DOC}:a3.1.1.1.6"] == f"{DOC}:a3.1.1"  # préfixe le plus long existant (3.1.1.1 absent)
@@ -173,10 +180,14 @@ def test_page_with_image_but_no_text_is_blocking(tmp_path: Path) -> None:
     d = tmp_path / "data" / DOC
     d.mkdir(parents=True)
     build_pdf(d / "source.pdf", pages=nominal_pages(), image_page=True)
-    assert p.main([DOC, "--data", str(d.parent)]) == 1
+    (d / "source.url").write_text("https://example.test/contrat.pdf\n", "utf-8")
+    assert p.main([DOC, "--data", str(d.parent), "--title", "Contrat synthétique",
+                   "--edition", "test 2026"]) == 1
     report = json.loads((d / "report.json").read_text("utf-8"))
     check = next(c for c in report["checks"] if c["name"] == "page_sans_texte")
     assert check["level"] == "bloquant" and "3" in check["detail"]
+    assert "Tesseract" in check["detail"] and "fra" in check["detail"]
+    assert report["stats"]["pages_ocr_echec"] == 1
     assert json.loads((d.parent / "manifest.json").read_text("utf-8"))[DOC]["status"] == "quarantaine"
     assert not (d / "document.json").exists() and not (d / "summary.md").exists()
 
@@ -229,11 +240,276 @@ def test_mixed_text_and_image_page_is_an_alert(tmp_path: Path) -> None:
     _page(doc, [(56, 80, "1", 17.0, FONT_TITLE), (122, 80, "Lexique", 17.0, FONT_TITLE)], 1)
     pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 40), False)
     pix.clear_with(120)
-    doc[0].insert_image(pymupdf.Rect(100, 400, 300, 600), pixmap=pix)
+    doc[0].insert_image(pymupdf.Rect(50, 250, 545, 700), pixmap=pix)
     _save(doc, d / "source.pdf")
     report, entry = _run(d)
     check = next(c for c in report.checks if c.name == "pages_mixtes")
     assert check.level == "alerte" and check.detail.endswith(": 1") and entry.status == "servi"
+
+
+def test_small_logo_stays_below_mixed_page_density(tmp_path: Path) -> None:
+    """P3 : une image sous le seuil configuré ne fabrique pas une page mixte."""
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    doc = pymupdf.open()
+    _page(doc, [(56, 80, "1", 17.0, FONT_TITLE), (122, 80, "Lexique", 17.0, FONT_TITLE)], 1)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 20, 20), False)
+    pix.clear_with(120)
+    doc[0].insert_image(pymupdf.Rect(500, 50, 540, 90), pixmap=pix)
+    _save(doc, d / "source.pdf")
+    report, entry = _run(d)
+    assert entry.status == "servi" and all(check.name != "pages_mixtes" for check in report.checks)
+
+
+def test_table_is_one_atomic_block_and_its_cells_are_not_duplicated(tmp_path: Path) -> None:
+    """P1 : une rangée par ligne, cellules séparées par ` | `, aucun doublon en paragraphe."""
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((56, 70), "1", fontsize=17, fontname=FONT_TITLE)
+    page.insert_text((122, 70), "Garanties", fontsize=17, fontname=FONT_TITLE)
+    for x in (50, 200, 350):
+        page.draw_line((x, 100), (x, 180))
+    for y in (100, 140, 180):
+        page.draw_line((50, y), (350, y))
+    for x, y, text in ((60, 125, "Garantie"), (210, 125, "Plafond"),
+                       (60, 165, "Incendie"), (210, 165, "")):
+        if text:
+            page.insert_text((x, y), text, fontsize=10, fontname=FONT_BODY)
+    _save(doc, d / "source.pdf")
+    report, _ = _run(d)
+    built = Document.model_validate_json((d / "document.json").read_bytes())
+    tables = [block for block in built.blocks if block.kind == "table"]
+    assert len(tables) == 1 and tables[0].text == "Garantie | Plafond\nIncendie | "
+    assert sum("Incendie" in block.text for block in built.blocks) == 1
+    assert report.stats["tables"] == 1
+
+
+def test_table_rows_keep_their_source_geometry() -> None:
+    """P1 : les lignes d'une table gardent les boîtes réelles, même si leurs hauteurs diffèrent."""
+    table = p.PageTable(
+        [50, 100, 350, 190],
+        [["entête"], ["cellule multiligne"]],
+        row_bboxes=[[50, 100, 350, 125], [50, 125, 350, 190]],
+    )
+    groups = p._segment_page(p.PageText(page=1, width=595, height=842, tables=[table]))
+    assert len(groups) == 1 and groups[0][0] == "table"
+    assert [line.bbox for line in groups[0][1]] == table.row_bboxes
+
+
+def test_empty_table_is_ignored_and_only_line_center_inside_excludes_text() -> None:
+    class EmptyTable:
+        bbox = (10, 10, 50, 50)
+
+        @staticmethod
+        def extract():
+            return [[None, ""], ["  ", None]]
+
+    class TablePage:
+        @staticmethod
+        def find_tables():
+            return type("Found", (), {"tables": [EmptyTable()]})()
+
+    assert p._tables(TablePage()) == []
+
+    class TextPage:
+        @staticmethod
+        def get_text(kind, **options):
+            assert kind == "dict"
+            return {"blocks": [{"type": 0, "lines": [{
+                "bbox": [0, 0, 100, 10],
+                "spans": [{"text": "ligne chevauchée", "font": "helv", "size": 10}],
+            }]}]}
+
+    lines, _ = p._raw_lines(TextPage(), excluded=[[95, 0, 110, 10]])
+    assert [line.text for line in lines] == ["ligne chevauchée"]  # légende qui ne fait que frôler la table
+    lines, _ = p._raw_lines(TextPage(), excluded=[[40, 0, 110, 10]])
+    assert lines == []  # texte de cellule atomique : centre contenu, donc pas de doublon
+
+
+def test_overlapping_images_use_their_union_not_the_sum() -> None:
+    class ImagePage:
+        rect = pymupdf.Rect(0, 0, 100, 100)
+
+        @staticmethod
+        def get_image_info():
+            return [{"bbox": [0, 0, 50, 100]}, {"bbox": [25, 0, 75, 100]}]
+
+    assert p._image_area_ratio(ImagePage()) == pytest.approx(0.75)
+
+
+def test_targeted_ocr_is_marked_and_preserves_geometry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P2 : seul le chemin sans texte natif appelle l'OCR ; les blocs produits sont marqués."""
+    d = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 40), False)
+    pix.clear_with(120)
+    page.insert_image(page.rect, pixmap=pix)
+    doc.save(d)
+    native = p._raw_lines
+
+    def fake_raw(page, *, textpage=None, excluded=None):
+        if textpage is None:
+            return [], 1
+        return [p.PageLine("1", [56, 80, 70, 96], 17),
+                p.PageLine("Lexique OCR", [122, 80, 210, 96], 17)], 1
+
+    calls: list[dict] = []
+
+    def fake_ocr(self, **kwargs):
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setenv("OCR_DPI", "288")
+    p.get_settings.cache_clear()
+    monkeypatch.setattr(p, "_raw_lines", fake_raw)
+    monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", fake_ocr)
+    try:
+        pages, toc = p.extract_pages(d)
+    finally:
+        monkeypatch.setattr(p, "_raw_lines", native)
+        p.get_settings.cache_clear()
+    built, meta = p.build_document(pages, edition="test", source_hash="0" * 64, toc=toc,
+                                   doc_id=DOC, title="Contrat synthétique")
+    assert pages[0].ocr_attempted and pages[0].ocr_succeeded
+    assert calls == [{"language": "fra", "dpi": 288, "full": True}]
+    assert pages[0].native_text is False
+    assert built.blocks[0].source_field == "ocr" and built.blocks[0].page == 1 and built.blocks[0].bbox
+    report = p.build_pdf_report(built, None, pages=pages, numbers=meta["numbers"],
+                                duplicates=meta["duplicates"], continues=meta["continues"], toc=toc,
+                                printed_toc=meta["printed_toc"])
+    assert next(check for check in report.checks if check.name == "ocr_cible").level == "info"
+    assert all(check.name != "pages_mixtes" for check in report.checks)
+
+
+def test_visual_page_ocr_runs_after_native_band_removal_and_empty_result_keeps_diagnostic(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pdf = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.draw_rect(pymupdf.Rect(100, 100, 300, 300), fill=(0.5, 0.5, 0.5))
+    doc.save(pdf)
+
+    def fake_raw(page, *, textpage=None, excluded=None):
+        if textpage is None:
+            return [p.PageLine("EN-TÊTE", [56, 10, 150, 24], 9)], 0
+        return [p.PageLine("1", [530, 810, 540, 824], 9)], 0
+
+    monkeypatch.setattr(p, "_raw_lines", fake_raw)
+    monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", lambda self, **kwargs: object())
+    pages, toc = p.extract_pages(pdf)
+    assert pages[0].native_text is False
+    assert pages[0].ocr_attempted and not pages[0].ocr_succeeded and pages[0].lines == []
+    assert pages[0].ocr_error == "ocr_sans_texte_exploitable_apres_retrait_band"
+    built, meta = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=toc,
+                                   doc_id=DOC, title="Contrat")
+    report = p.build_pdf_report(built, None, pages=pages, numbers=meta["numbers"],
+                                duplicates=meta["duplicates"], continues=meta["continues"], toc=toc)
+    assert all(check.name != "ocr_cible" for check in report.checks)
+    assert next(check for check in report.checks if check.name == "page_sans_texte").level == "bloquant"
+
+
+def test_contract_without_numeric_articles_keeps_its_content_citable() -> None:
+    pages = [p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Garantie incendie sans numérotation", [56, 100, 350, 114], 10),
+        p.PageLine("Les dommages sont couverts.", [56, 115, 350, 129], 10),
+    ])]
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat sans articles")
+    assert document.blocks and all(block.kind != "autre" for block in document.blocks)
+    assert "Garantie incendie" in document.blocks[0].text
+
+
+def test_preliminary_groups_before_first_article_on_same_page_are_separate() -> None:
+    pages = [p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Avertissement préliminaire", [56, 80, 300, 94], 10),
+        p.PageLine("1 Garanties", [56, 130, 250, 146], 17, number="1"),
+        p.PageLine("La couverture commence ici.", [56, 165, 350, 179], 10),
+    ])]
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+    assert document.blocks[0].kind == "autre" and document.blocks[0].text == "Avertissement préliminaire"
+    article = next(node for node in document.nodes if node.node_id == f"{DOC}:a1")
+    assert article.blocks == [block.block_id for block in document.blocks[1:]]
+
+
+@pytest.mark.parametrize("is_toc", [False, True])
+def test_table_stays_atomic_in_preliminary_and_toc_pages(is_toc: bool) -> None:
+    table = p.PageTable([50, 100, 350, 180], [["Garantie", "Plafond"], ["Incendie", "100"]])
+    first = p.PageText(page=1, width=595, height=842, tables=[table], is_toc=is_toc)
+    article = p.PageText(page=2, width=595, height=842,
+                         lines=[p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1")])
+    document, _ = p.build_document([first, article], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+    page_one = [block for block in document.blocks if block.page == 1]
+    assert len(page_one) == 1 and page_one[0].kind == "table"
+    assert page_one[0].source_field == ("tdm" if is_toc else "preliminaire")
+
+
+def test_toc_title_in_table_continues_until_article_and_body_mention_does_not_trigger() -> None:
+    body_mention = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Consultez la table des matières pour vous orienter.", [56, 100, 450, 114], 10),
+    ])
+    title_table = p.PageText(page=2, width=595, height=842, tables=[
+        p.PageTable([50, 80, 350, 160], [["Table des matières"], ["1", "Lexique", "4"]]),
+    ])
+    continuation = p.PageText(page=3, width=595, height=842, lines=[
+        p.PageLine("2 Garanties 12", [56, 100, 250, 114], 10),
+    ])
+    article = p.PageText(page=4, width=595, height=842, lines=[
+        p.PageLine("1 Lexique", [56, 100, 250, 116], 17, number="1"),
+    ])
+    pages = [body_mention, title_table, continuation, article]
+    p._mark_toc_pages(pages)
+    assert [page.is_toc for page in pages] == [False, True, True, False]
+
+
+@pytest.mark.parametrize("title", ["Table des matières :", "TABLE DES MATIÈRES — suite", "Contrat : table des matières"])
+def test_toc_title_accepts_generic_punctuation_and_suffix_variants(title: str) -> None:
+    assert p._is_toc_title(title)
+    assert not p._is_toc_title("Le corps mentionne la table des matières pour information.")
+
+
+def test_toc_continuation_stops_on_unnumbered_body_and_body_before_first_article_is_citable() -> None:
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 80, 250, 94], 14),
+            p.PageLine("1 Garanties 4", [56, 110, 250, 124], 10),
+        ]),
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("Cette introduction explique les garanties applicables.", [56, 80, 420, 94], 10),
+        ]),
+        p.PageText(page=3, width=595, height=842, lines=[
+            p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        ]),
+    ]
+    p._mark_toc_pages(pages)
+    assert [page.is_toc for page in pages] == [True, False, False]
+    assert [page.after_toc for page in pages] == [False, True, True]
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+    intro = next(block for block in document.blocks if block.page == 2)
+    assert intro.kind == "para" and "introduction" in intro.text
+
+
+def test_toc_and_first_article_on_same_page_are_split_at_article() -> None:
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+        p.PageLine("1 Garanties 4", [56, 90, 250, 104], 10),
+        p.PageLine("1 Garanties", [56, 150, 250, 166], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 190, 350, 204], 10),
+    ])
+    p._mark_toc_pages([page])
+    document, _ = p.build_document([page], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+    toc_node = next(node for node in document.nodes if node.node_id == f"{DOC}:tdm")
+    article = next(node for node in document.nodes if node.node_id == f"{DOC}:a1")
+    assert all(document.block(block_id).text != "1 Garanties" for block_id in toc_node.blocks)
+    assert [document.block(block_id).text for block_id in article.blocks] == [
+        "1 Garanties", "Le corps citable commence ici.",
+    ]
 
 
 def test_non_monotonic_numbering_is_alert_and_served(tmp_path: Path) -> None:
@@ -264,6 +540,335 @@ def test_toc_pages_become_one_autre_block(tmp_path: Path) -> None:
     assert len(tdm) == 1 and tdm[0].kind == "autre" and tdm[0].text == "1 Lexique 6\n2 Garanties 20"
     assert next(n for n in doc_.nodes if n.node_id == f"{DOC}:tdm").blocks == [tdm[0].block_id]
     assert report.stats["pages_tdm"] == 1
+    check = next(c for c in report.checks if c.name == "tdm_imprimee")
+    assert check.level == "alerte" and check.detail.endswith(": 2")
+
+
+def test_printed_toc_match_is_info_and_bookmarks_remain_distinct(tmp_path: Path) -> None:
+    """P4 : la TdM imprimée concordante informe ; les signets PDF gardent leur propre contrôle."""
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((300, 30), "DOC - TABLE DES MATIÈRES", fontsize=10, fontname=FONT_BODY)
+    page.insert_text((56, 100), "1 Lexique 2", fontsize=12, fontname=FONT_BODY)
+    page.insert_text((56, 120), "2 Garanties 2", fontsize=12, fontname=FONT_BODY)
+    items: list = []
+    y = _article(items, 80, "1", "Lexique", size=17)
+    _article(items, y, "2", "Garanties", size=17)
+    _page(doc, items, 2)
+    doc.set_toc([[1, "1 Lexique", 2], [1, "3 Signet absent de l'arbre", 2]])
+    _save(doc, d / "source.pdf")
+
+    report, entry = _run(d)
+
+    printed = next(c for c in report.checks if c.name == "tdm_imprimee")
+    bookmarks = next(c for c in report.checks if c.name == "tdm_pdf_ecart")
+    assert printed.level == "info" and "2 titre(s)" in printed.detail
+    assert bookmarks.level == "alerte" and "3 (p. 2)" in bookmarks.detail
+    assert entry.status == "servi"
+
+
+def test_table_row_printed_toc_flows_through_document_and_final_report() -> None:
+    toc_page = p.PageText(page=1, width=595, height=842, tables=[p.PageTable(
+        [50, 70, 400, 150],
+        [["Table des matières"], ["1", "Garanties", "2"], ["2", "Exclusions", "3"]],
+    )])
+    article_pages = [
+        p.PageText(page=2, width=595, height=842,
+                   lines=[p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1")]),
+        p.PageText(page=3, width=595, height=842,
+                   lines=[p.PageLine("2 Exclusions", [56, 80, 250, 96], 17, number="2")]),
+    ]
+    pages = [toc_page, *article_pages]
+    p._mark_toc_pages(pages)
+    document, meta = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                      doc_id=DOC, title="Contrat")
+    toc_table = next(block for block in document.blocks if block.page == 1)
+    assert toc_table.kind == "table" and toc_table.source_field == "tdm"
+    assert meta["printed_toc"] == [("1", "Garanties"), ("2", "Exclusions")]
+    report = p.build_pdf_report(document, None, pages=pages, numbers=meta["numbers"],
+                                duplicates=meta["duplicates"], continues=meta["continues"], toc=[],
+                                printed_toc=meta["printed_toc"])
+    check = next(check for check in report.checks if check.name == "tdm_imprimee")
+    assert check.level == "info" and "2 titre(s)" in check.detail
+
+
+def _document_for_toc() -> Document:
+    children = [Node(node_id=f"{DOC}:a1", level=1, title="1 Conditions générales"),
+                Node(node_id=f"{DOC}:a1.1", level=2, title="1.1 Objet"),
+                Node(node_id=f"{DOC}:a2", level=1, title="2 Garanties complémentaires")]
+    root = Node(node_id=DOC, items=[p.NodeRef(node_id=node.node_id) for node in children if node.level == 1])
+    children[0].items.append(p.NodeRef(node_id=children[1].node_id))
+    return Document(doc_id=DOC, kind="contrat", title="Contrat", edition="2026",
+                    nodes=[root, *children], blocks=[])
+
+
+def test_printed_toc_compares_only_announced_levels_and_combines_differences() -> None:
+    document = _document_for_toc()
+    equal = _printed_toc_check(document, [("1", "Conditions générales communes"),
+                                          ("2", "Garanties complémentaires")], 1)
+    assert equal.level == "info"
+    missing = _printed_toc_check(document, [("1", "Conditions générales communes")], 1)
+    assert missing.level == "alerte" and "absents de la TdM : 2" in missing.detail
+    combined = _printed_toc_check(document, [("1", "Titre erroné"), ("3", "Inconnu")], 1)
+    assert combined.level == "alerte"
+    assert "absents de l'arbre : 3" in combined.detail
+    assert "absents de la TdM : 2" in combined.detail
+    assert "titres différents : 1" in combined.detail
+    assert "1.1" not in combined.detail  # le niveau 2 n'est pas annoncé par cette TdM
+
+
+def test_printed_toc_duplicate_and_conflicting_numbers_alert() -> None:
+    check = _printed_toc_check(_document_for_toc(), [
+        ("1", "Conditions générales"),
+        ("1", "Conditions générales"),
+        ("2", "Garanties complémentaires"),
+        ("2", "Titre incompatible"),
+    ], 1)
+    assert check.level == "alerte"
+    assert "annoncés plusieurs fois : 1, 2" in check.detail
+    assert "titres conflictuels pour un même numéro : 2" in check.detail
+
+
+def test_table_parser_preserves_identical_printed_toc_duplicates_for_report() -> None:
+    page = p.PageText(page=1, width=595, height=842, is_toc=True, tables=[p.PageTable(
+        [50, 70, 400, 150],
+        [["Table des matières"], ["1", "Conditions générales", "2"],
+         ["1", "Conditions générales", "3"]],
+    )])
+    entries = p._printed_toc_entries([page])
+    assert entries == [("1", "Conditions générales"), ("1", "Conditions générales")]
+    check = _printed_toc_check(_document_for_toc(), entries, 1)
+    assert check.level == "alerte" and "annoncés plusieurs fois : 1" in check.detail
+
+
+def test_multiline_toc_titles_in_columns_are_assembled_deterministically() -> None:
+    page = p.PageText(page=1, width=595, height=842, is_toc=True, lines=[
+        p.PageLine("2 Garanties", [330, 100, 440, 114], 12),
+        p.PageLine("complémentaires", [330, 116, 460, 130], 12),
+        p.PageLine("28", [540, 100, 560, 114], 12),
+        p.PageLine("1 Conditions générales", [56, 100, 220, 114], 12),
+        p.PageLine("communes", [56, 116, 130, 130], 12),
+        p.PageLine("12", [280, 100, 300, 114], 12),
+    ])
+    entries = p._printed_toc_entries([page])
+    assert entries == [("1", "Conditions générales communes"), ("2", "Garanties complémentaires")]
+    assert _printed_toc_check(_document_for_toc(), entries, 1).level == "info"
+
+
+@pytest.mark.parametrize(
+    "mutate, category",
+    [
+        (lambda raw: raw["blocks"].append(dict(raw["blocks"][0])), "block_id_duplique"),
+        (lambda raw: raw["nodes"][0].update(items=[]), "bloc_orphelin"),
+        (lambda raw: raw["nodes"].append({"node_id": "second", "items": [{"block_id": f"{DOC}:p1:1"}]}),
+         "bloc_parent_multiple"),
+    ],
+)
+def test_tree_validation_categories_are_explicit_blockers(mutate, category: str) -> None:
+    """P5 : Pydantic reste l'autorité ; le rapport nomme la catégorie refusée."""
+    raw = {
+        "doc_id": DOC,
+        "kind": "contrat",
+        "title": "Contrat",
+        "edition": "test",
+        "blocks": [{"block_id": f"{DOC}:p1:1", "text": "Clause", "loc": "p1", "seq": 1}],
+        "nodes": [{"node_id": "root", "items": [{"block_id": f"{DOC}:p1:1"}]}],
+    }
+    mutate(raw)
+    with pytest.raises(ValidationError) as caught:
+        Document.model_validate(raw)
+    report = report_from_validation_error(DOC, caught.value)
+    assert report.blocking[0].name == "invariants_arbre"
+    assert category in report.blocking[0].detail
+
+
+@pytest.mark.parametrize(
+    "nodes,category",
+    [
+        ([{"node_id": "root"}, {"node_id": "root"}], "node_id_duplique"),
+        ([{"node_id": "root", "items": [{"node_id": "left"}, {"node_id": "right"}]},
+          {"node_id": "left", "items": [{"node_id": "shared"}]},
+          {"node_id": "right", "items": [{"node_id": "shared"}]},
+          {"node_id": "shared"}], "noeud_parent_multiple"),
+        ([{"node_id": "left", "items": [{"node_id": "right"}]},
+          {"node_id": "right", "items": [{"node_id": "left"}]}], "cycle_noeuds"),
+        ([{"node_id": "left"}, {"node_id": "right"}], "racine_invalide"),
+    ],
+)
+def test_node_validation_categories_cover_duplicate_parent_cycle_and_root(nodes: list[dict], category: str) -> None:
+    raw = {"doc_id": DOC, "kind": "contrat", "title": "Contrat", "edition": "test",
+           "blocks": [], "nodes": nodes}
+    with pytest.raises(ValidationError) as caught:
+        Document.model_validate(raw)
+    report = report_from_validation_error(DOC, caught.value)
+    assert category in report.blocking[0].detail
+
+
+@pytest.mark.parametrize("message", [
+    "nœud dupliqué",
+    "node_id dupliqué",
+])
+def test_node_duplicate_validator_wording_maps_to_explicit_category(message: str) -> None:
+    assert _tree_category(message) == "node_id_duplique"
+
+
+@pytest.mark.parametrize("message", [
+    "nœud enfant rattaché à deux parents",
+    "node_id child has multiple parents",
+])
+def test_node_multiple_parent_validator_wording_maps_to_explicit_category(message: str) -> None:
+    assert _tree_category(message) == "noeud_parent_multiple"
+
+
+def test_quality_checks_are_generic_and_never_raise_coverage_to_blocking() -> None:
+    """P6 : résidu et charabia alertent, langue étrangère sort du ratio, couverture reste informative."""
+    header = p.PageLine("Entête résiduel", [20, 10, 180, 22], 9)
+    french = p.PageLine(
+        "Le contrat est applicable dans les conditions et pour les dommages qui sont décrits par une clause.",
+        [20, 40, 560, 60], 10,
+    )
+    english = p.PageLine(
+        "The contract is valid and this policy is for you with the insurer and the client.",
+        [20, 40, 560, 60], 10,
+    )
+    gibberish = p.PageLine(
+        "bcdfg ghjkl mnpqr stvwxyz bcdfg ghjkl mnpqr stvwxyz bcdfg ghjkl mnpqr stvwxyz",
+        [20, 40, 560, 60], 10,
+    )
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[header, french]),
+        p.PageText(page=2, width=595, height=842,
+                   lines=[p.PageLine("English heading", [20, 10, 180, 22], 9), english]),
+        p.PageText(page=3, width=595, height=842, lines=[header, gibberish]),
+        p.PageText(page=4, width=595, height=842, lines=[], images=1),
+    ]
+    blocks = [
+        Block(block_id=f"{DOC}:p{page}:1", text=text, loc=f"p{page}", seq=1, page=page)
+        for page, text in ((1, french.text), (2, english.text), (3, gibberish.text))
+    ]
+    document = Document(
+        doc_id=DOC,
+        kind="contrat",
+        title="Contrat",
+        edition="test",
+        blocks=blocks,
+        nodes=[Node(node_id="root", items=[BlockRef(block_id=block.block_id) for block in blocks])],
+    )
+
+    report = p.build_pdf_report(document, None, pages=pages, numbers=[], duplicates=[], continues=0, toc=[])
+    levels = {check.name: check.level for check in report.checks}
+
+    assert levels["page_sans_texte"] == "bloquant"
+    assert levels["residus_entete_pied"] == "alerte"
+    assert levels["charabia"] == "alerte"
+    assert levels["pages_non_francaises"] == "alerte"
+    assert levels["couverture"] == "info"
+    assert next(check for check in report.checks if check.name == "charabia").detail == "3"
+    assert next(check for check in report.checks if check.name == "pages_non_francaises").detail.endswith("2")
+    assert report.stats["couverture"] == pytest.approx(2 / 3, abs=0.0001)
+
+
+def test_short_page_with_configured_foreign_signals_is_not_silently_french(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QUALITY_MIN_WORDS", "20")
+    monkeypatch.setenv("FOREIGN_SIGNAL_MIN", "2")
+    monkeypatch.setenv("FRENCH_SIGNAL_RATIO_MIN", "0.40")
+    p.get_settings.cache_clear()
+    try:
+        page = p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("le contract the and", [56, 80, 180, 94], 10),
+        ])
+        foreign, gibberish, _ = _quality([page])
+    finally:
+        p.get_settings.cache_clear()
+    assert foreign == [1] and gibberish == [] and page.language == "autre"
+
+
+def test_non_default_gibberish_and_residual_thresholds_change_behavior(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    pages = [
+        p.PageText(page=number, width=595, height=842, lines=[
+            p.PageLine("résidu rare", [56, 10, 160, 24], 9),
+            p.PageLine("bcdfg ghjkl mnpqr avec voyelle", [56, 80, 330, 94], 10),
+        ])
+        for number in range(1, 4)
+    ]
+    monkeypatch.setenv("QUALITY_MIN_WORDS", "4")
+    monkeypatch.setenv("GIBBERISH_RATIO_MAX", "0.20")
+    monkeypatch.setenv("RESIDUAL_HEADER_MIN_PAGES_RATIO", "1.0")
+    p.get_settings.cache_clear()
+    try:
+        _, gibberish, residues = _quality(pages)
+    finally:
+        p.get_settings.cache_clear()
+    assert gibberish == [1, 2, 3]
+    assert residues == ["residu rare"]
+
+
+def test_table_plus_dense_image_is_mixed_and_residual_headers_use_ceil_and_bands() -> None:
+    table = p.PageTable([50, 100, 350, 180], [["Garantie", "Plafond"]])
+    mixed_page = p.PageText(page=1, width=595, height=842, tables=[table], images=1,
+                            image_area_ratio=0.5)
+    table_block = Block(block_id=f"{DOC}:p1:1", text="Garantie | Plafond", loc="p1", seq=1,
+                        page=1, kind="table")
+    document = Document(doc_id=DOC, kind="contrat", title="Contrat", edition="test",
+                        blocks=[table_block],
+                        nodes=[Node(node_id="root", items=[BlockRef(block_id=table_block.block_id)])])
+    report = p.build_pdf_report(document, None, pages=[mixed_page], numbers=[], duplicates=[],
+                                continues=0, toc=[])
+    assert next(check for check in report.checks if check.name == "pages_mixtes").detail.endswith(": 1")
+
+    pages = []
+    for number in range(1, 8):
+        lines = [p.PageLine("Corps répété", [56, 100, 220, 114], 10)]
+        if number <= 2:  # 2/7 : `int(7 × 0,3)` alertait, `ceil(7 × 0,3)` exige bien 3 pages.
+            lines.insert(0, p.PageLine("Résidu", [56, 10, 120, 24], 9))
+        pages.append(p.PageText(page=number, width=595, height=842, lines=lines))
+    _, _, residues = _quality(pages)
+    assert residues == []  # ni les deux vraies bandes, ni la première ligne du corps répétée ne suffisent
+
+
+def test_initial_running_band_ratio_uses_ceil(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pdf = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    for number in range(3):
+        page = doc.new_page(width=595, height=842)
+        if number < 2:
+            page.insert_text((56, 20), "bande récurrente", fontsize=9)
+        page.insert_text((56, 100), f"corps page {number + 1}", fontsize=10)
+    doc.save(pdf)
+    monkeypatch.setenv("HEADER_MIN_PAGES_RATIO", "0.67")
+    p.get_settings.cache_clear()
+    try:
+        pages, _ = p.extract_pages(pdf)
+    finally:
+        p.get_settings.cache_clear()
+    assert [line.text for line in pages[0].lines] == ["bande récurrente", "corps page 1"]
+    assert pages[0].removed == []
+
+
+def test_mixed_density_setting_and_zero_image_area_are_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    line = p.PageLine("Texte natif", [56, 80, 180, 94], 10)
+    blocks = [Block(block_id=f"{DOC}:p1:1", text=line.text, loc="p1", seq=1, page=1)]
+    document = Document(doc_id=DOC, kind="contrat", title="Contrat", edition="test", blocks=blocks,
+                        nodes=[Node(node_id="root", items=[BlockRef(block_id=blocks[0].block_id)])])
+    monkeypatch.setenv("MIXED_PAGE_IMAGE_DENSITY", "0")
+    p.get_settings.cache_clear()
+    try:
+        no_image = p.PageText(page=1, width=595, height=842, lines=[line], image_area_ratio=0,
+                              native_text=True)
+        report = p.build_pdf_report(document, None, pages=[no_image], numbers=[], duplicates=[],
+                                    continues=0, toc=[])
+        assert all(check.name != "pages_mixtes" for check in report.checks)
+        image = no_image.__class__(page=1, width=595, height=842, lines=[line], images=1,
+                                   image_area_ratio=0.01, native_text=True)
+        report = p.build_pdf_report(document, None, pages=[image], numbers=[], duplicates=[],
+                                    continues=0, toc=[])
+    finally:
+        p.get_settings.cache_clear()
+    assert next(check for check in report.checks if check.name == "pages_mixtes").level == "alerte"
 
 
 def test_missing_or_corrupt_source_is_blocking(tmp_path: Path) -> None:
@@ -288,7 +893,8 @@ def test_reference_hash_is_mandatory_and_checked_before_extraction(tmp_path: Pat
     build_pdf(d / "source.pdf", pages=nominal_pages(), sha=False)
     if content is not None:
         (d / "source.sha256").write_text(content, "utf-8")
-    assert p.main([DOC, "--data", str(d.parent)]) == 1
+    assert p.main([DOC, "--data", str(d.parent), "--title", "Contrat synthétique",
+                   "--edition", "test 2026"]) == 1
     report = json.loads((d / "report.json").read_text("utf-8"))
     assert report["checks"][0]["level"] == "bloquant" and fragment in report["checks"][0]["detail"]
     assert not (d / "document.json").exists()
@@ -299,6 +905,68 @@ def test_main_with_unknown_doc_dir_is_blocking(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "inconnu").mkdir()
     assert p.main(["inconnu", "--data", str(tmp_path / "data")]) == 1
+
+
+def _generic_source(tmp_path: Path, doc_id: str = DOC) -> Path:
+    data_dir = tmp_path / "data" / doc_id
+    data_dir.mkdir(parents=True)
+    build_pdf(data_dir / "source.pdf", pages=[[ (56, 100, "Clause sans numéro.", 10.0, FONT_BODY) ]])
+    return data_dir
+
+
+@pytest.mark.parametrize("url", ["http://example.test/contrat.pdf", "https://example.test/contrat.pdf",
+                                 "gs://bucket-valid/contracts/contrat.pdf"])
+def test_generic_contract_accepts_valid_source_url(tmp_path: Path, url: str) -> None:
+    data_dir = _generic_source(tmp_path)
+    (data_dir / "source.url").write_text(url + "\n", "utf-8")
+    assert p.main([DOC, "--data", str(data_dir.parent), "--title", "Contrat générique",
+                   "--edition", "édition 2026"]) == 0
+    entry = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))[DOC]
+    assert entry["status"] == "servi"
+    document = Document.model_validate_json((data_dir / "document.json").read_bytes())
+    assert document.source_url == url and document.edition == "édition 2026"
+
+
+@pytest.mark.parametrize("source_url", [None, "", "ftp://example.test/contrat.pdf", "https://",
+                                         "gs://", "gs://bucket", "gs://B/object", "gs://bucket/a b"])
+def test_generic_contract_rejects_missing_empty_or_malformed_source_url(
+        tmp_path: Path, source_url: str | None) -> None:
+    data_dir = _generic_source(tmp_path)
+    if source_url is not None:
+        (data_dir / "source.url").write_text(source_url, "utf-8")
+    report, entry = p.run(data_dir, edition="édition 2026", doc_id=DOC, title="Contrat générique")
+    assert entry.status == "quarantaine" and report.blocking[0].name == "source_illisible"
+    assert "URL HTTP(S) ou gs://bucket/objet non vide" in report.blocking[0].detail
+
+
+@pytest.mark.parametrize("doc_id", ["..", "../sortie", "dossier/doc", "dossier\\doc", "/absolu", "Doc-A"])
+def test_generic_cli_rejects_doc_id_outside_repository_slug_before_path_resolution(
+        tmp_path: Path, doc_id: str) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    assert p.main([doc_id, "--data", str(data), "--title", "Contrat", "--edition", "2026"]) == 2
+    assert list(data.iterdir()) == []
+
+
+def test_generic_cli_requires_edition_and_non_blank_title(tmp_path: Path) -> None:
+    data_dir = _generic_source(tmp_path)
+    (data_dir / "source.url").write_text("https://example.test/contrat.pdf\n", "utf-8")
+    assert p.main([DOC, "--data", str(data_dir.parent), "--title", "Contrat générique"]) == 1
+    entry = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))[DOC]
+    assert entry["edition"] == "" and entry["edition"] != p.DEFAULT_EDITION
+    assert "--edition" in json.loads((data_dir / "report.json").read_text("utf-8"))["checks"][0]["detail"]
+    assert p.main([DOC, "--data", str(data_dir.parent), "--title", "   ",
+                   "--edition", "édition 2026"]) == 1
+    assert "--title ne peut pas être vide" in json.loads(
+        (data_dir / "report.json").read_text("utf-8"))["checks"][0]["detail"]
+
+
+def test_axa_compatibility_cli_keeps_defaults_and_allows_missing_source_url(tmp_path: Path) -> None:
+    data_dir = _generic_source(tmp_path, p.DOC_ID)
+    assert not (data_dir / "source.url").exists()
+    assert p.main([p.DOC_ID, "--data", str(data_dir.parent)]) == 0
+    document = Document.model_validate_json((data_dir / "document.json").read_bytes())
+    assert document.edition == p.DEFAULT_EDITION and document.title == p.TITLE and document.source_url is None
 
 
 def test_ids_disparus_is_reported_when_text_moves(data: Path) -> None:
@@ -442,12 +1110,28 @@ def test_document_json_omits_defaults_and_text_norm(data: Path) -> None:
     assert document_json(doc) == (data / "document.json").read_text("utf-8")
 
 
-def test_fingerprint_depends_on_rules_and_thresholds(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "variable,value",
+    [
+        ("MIXED_PAGE_IMAGE_DENSITY", "0.31"),
+        ("OCR_DPI", "288"),
+        ("QUALITY_MIN_WORDS", "17"),
+        ("FOREIGN_SIGNAL_MIN", "4"),
+        ("FRENCH_SIGNAL_RATIO_MIN", "0.11"),
+        ("GIBBERISH_RATIO_MAX", "0.42"),
+        ("RESIDUAL_HEADER_MIN_PAGES_RATIO", "0.41"),
+        ("COVERAGE_THRESHOLD", "0.73"),
+    ],
+)
+def test_fingerprint_depends_on_rules_and_thresholds(
+        monkeypatch: pytest.MonkeyPatch, variable: str, value: str) -> None:
     before = p.ingest_fingerprint()
+    original_rules = p.SEGMENTATION_RULES
     monkeypatch.setattr(p, "SEGMENTATION_RULES", "autre")
     assert p.ingest_fingerprint() != before
-    monkeypatch.setattr(p, "SEGMENTATION_RULES", p.SEGMENTATION_RULES)
-    monkeypatch.setenv("HEADER_BAND_PT", "41")
+    monkeypatch.setattr(p, "SEGMENTATION_RULES", original_rules)
+    assert p.ingest_fingerprint() == before
+    monkeypatch.setenv(variable, value)
     p.get_settings.cache_clear()
     try:
         assert p.ingest_fingerprint() != before

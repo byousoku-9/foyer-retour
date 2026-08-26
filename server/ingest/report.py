@@ -2,20 +2,61 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
+from math import ceil
 from typing import Any
 
 from pydantic import ValidationError
 
+from server.app.config import get_settings
+from server.app.corpus.text import normalize
 from server.app.domain import Check, Document, Report
 
-# Estimation grossière : ~4 caractères par token pour du français (le vrai compte vient de l'API en 1.3).
-CHARS_PER_TOKEN = 4
+_WORD = re.compile(r"[a-zà-öø-ÿ]+", re.IGNORECASE)
+_FRENCH_SIGNALS = frozenset({
+    "à", "au", "aux", "ce", "ces", "dans", "de", "des", "du", "elle", "en", "est", "et", "la", "le",
+    "les", "ne", "ou", "par", "pas", "pour", "que", "qui", "sont", "sur", "un", "une",
+})
+_FOREIGN_SIGNALS = frozenset({
+    "and", "are", "das", "der", "die", "ein", "eine", "for", "from", "is", "of", "oder", "the", "this",
+    "und", "von", "with", "you", "com", "não", "para", "uma",
+})
+# Lexique juridique général, séparé des mots fonctionnels : il empêche qu'une page de clauses très télégraphique
+# soit qualifiée de charabia, sans introduire aucun terme propre à un assureur ou à un document.
+_LEGAL_WORDS = frozenset({
+    "assuré", "assuree", "assureur", "avenant", "clause", "conditions", "contrat", "dommage", "exclusion",
+    "franchise", "garantie", "indemnité", "indemnite", "prime", "responsabilité", "responsabilite", "sinistre",
+})
+
+
+def _tree_category(message: str) -> str:
+    """Catégorie stable pour les formulations françaises ou ASCII des validateurs structurels."""
+    lowered = message.lower()
+    if "block_id dupliqué" in lowered:
+        return "block_id_duplique"
+    if ("node_id" in lowered or "nœud" in lowered) and "dupliqu" in lowered:
+        return "node_id_duplique"
+    if "orphelin" in lowered:
+        return "bloc_orphelin"
+    if "rattaché à deux nœuds" in lowered:
+        return "bloc_parent_multiple"
+    if ("nœud" in lowered or "node_id" in lowered) \
+            and ("deux parents" in lowered or "multiple parent" in lowered):
+        return "noeud_parent_multiple"
+    if "cycle" in lowered:
+        return "cycle_noeuds"
+    if "racine" in lowered:
+        return "racine_invalide"
+    return "reference_ou_forme_invalide"
 
 
 def report_from_validation_error(doc_id: str, exc: ValidationError) -> Report:
-    """Le modèle a refusé l'arbre (bloc orphelin, id dupliqué…) : un seul check, bloquant."""
-    detail = "; ".join(str(e.get("msg", "")) for e in exc.errors())[:2000]
+    """Le modèle a refusé l'arbre : la catégorie précise accompagne le bloquant P5."""
+    messages = [str(e.get("msg", "")) for e in exc.errors()]
+    categories = [_tree_category(message) for message in messages]
+    detail = f"catégories={','.join(dict.fromkeys(categories))} ; " + "; ".join(messages)
+    detail = detail[:2000]
     return Report(doc_id=doc_id, checks=[Check(name="invariants_arbre", level="bloquant", detail=detail)])
 
 
@@ -64,9 +105,8 @@ def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *
                             detail="; ".join(parcours_alertes)[:2000]))
     if summary:
         stats["sommaire_chars"] = len(summary)
-        stats["sommaire_tokens_estimes"] = len(summary) // CHARS_PER_TOKEN
         checks.append(Check(name="taille_sommaire", level="info",
-                            detail=f"{len(summary)} caractères ≈ {len(summary) // CHARS_PER_TOKEN} tokens"))
+                            detail=f"{len(summary)} caractères (aucune estimation de tokens publiée)"))
     unresolved = [(b.block_id, r) for b in doc.blocks for r in b.unresolved_refs]
     if unresolved:
         checks.append(Check(name="unresolved_refs", level="alerte",
@@ -93,23 +133,138 @@ def _key(numero: str) -> tuple[int, ...]:
     return tuple(int(x) for x in numero.split("."))
 
 
+def _page_words(page: Any) -> list[str]:
+    text = " ".join(line.text for line in page.lines)
+    for table in getattr(page, "tables", []):
+        text += " " + " ".join(cell for row in table.rows for cell in row)
+    return [word.lower() for word in _WORD.findall(text)]
+
+
+def _quality(pages: list[Any]) -> tuple[list[int], list[int], list[str]]:
+    """Pages non françaises, pages de charabia et résidus d'en-tête ; contrôles génériques non bloquants."""
+    settings = get_settings()
+    foreign: list[int] = []
+    gibberish: list[int] = []
+    edge_texts: Counter[str] = Counter()
+    eligible = 0
+    for page in pages:
+        words = _page_words(page)
+        french = sum(word in _FRENCH_SIGNALS for word in words) / len(words) if words else 0.0
+        foreign_signals = sum(word in _FOREIGN_SIGNALS for word in words)
+        # Une courte page portant des signaux étrangers nets reste étrangère ; `quality_min_words`
+        # borne seulement le calcul de charabia, trop instable sur quelques mots.
+        if french < settings.french_signal_ratio_min and foreign_signals >= settings.foreign_signal_min:
+            foreign.append(page.page)
+            page.language = "autre"
+        if len(words) >= settings.quality_min_words:
+            plausible = sum(any(char in "aeiouyàâäéèêëîïôöùûü" for char in word) or word in _LEGAL_WORDS
+                            for word in words)
+            if 1 - plausible / len(words) > settings.gibberish_ratio_max:
+                gibberish.append(page.page)
+        if page.lines and not page.is_toc:
+            eligible += 1
+            band_lines = {
+                normalize(line.text) for line in page.lines
+                if line.bbox[1] < settings.header_band_pt
+                or line.bbox[3] > page.height - settings.footer_band_pt
+            }
+            for key in band_lines - {""}:
+                edge_texts[key] += 1
+    minimum = max(2, ceil(eligible * settings.residual_header_min_pages_ratio))
+    residues = [text for text, count in edge_texts.items() if count >= minimum]
+    return foreign, gibberish, residues
+
+
+def _normalized_article_title(title: str) -> str:
+    return normalize(re.sub(r"^\d+(?:\.\d+)*\.?\s*", "", title)).strip()
+
+
+def _titles_match(left: str, right: str) -> bool:
+    """Un titre d'article sur une ligne peut être le préfixe honnête de son intitulé multilignes en TdM."""
+    if left == right:
+        return True
+    shorter, longer = sorted((left, right), key=len)
+    return len(shorter) >= 20 and longer.startswith(shorter + " ")
+
+
+def _printed_toc_check(doc: Document, entries: list[tuple[str, str]], pages_toc: int) -> Check:
+    if not pages_toc:
+        return Check(name="tdm_imprimee", level="info", detail="aucune TdM imprimée détectée")
+    if not entries:
+        return Check(name="tdm_imprimee", level="alerte",
+                     detail="TdM imprimée détectée, mais aucune entrée numérotée exploitable")
+    expected: dict[str, str] = {}
+    prefix = f"{doc.doc_id}:a"
+    for node in doc.nodes:
+        if not node.node_id.startswith(prefix):
+            continue
+        numero = node.node_id[len(prefix):].split("-", 1)[0]
+        expected.setdefault(numero, _normalized_article_title(node.title))
+    titles_by_number: dict[str, list[str]] = {}
+    printed: dict[str, str] = {}
+    for numero, title in entries:
+        if not numero:
+            continue
+        normalized = _normalized_article_title(title)
+        titles_by_number.setdefault(numero, []).append(normalized)
+        printed.setdefault(numero, normalized)
+    duplicate_numbers = sorted((numero for numero, titles in titles_by_number.items() if len(titles) > 1), key=_key)
+    conflicting_numbers = sorted(
+        (numero for numero, titles in titles_by_number.items() if len(set(titles)) > 1), key=_key,
+    )
+    announced_levels = {numero.count(".") + 1 for numero in printed}
+    comparable_expected = {numero: title for numero, title in expected.items()
+                           if numero.count(".") + 1 in announced_levels}
+    unknown_numbers = sorted(set(printed) - set(expected), key=_key)
+    missing_numbers = sorted(set(comparable_expected) - set(printed), key=_key)
+    different_titles = sorted(
+        (numero for numero in set(printed) & set(expected)
+         if not _titles_match(printed[numero], expected[numero])),
+        key=_key,
+    )
+    details = []
+    if duplicate_numbers:
+        details.append("numéros annoncés plusieurs fois : " + ", ".join(duplicate_numbers))
+    if conflicting_numbers:
+        details.append("titres conflictuels pour un même numéro : " + ", ".join(conflicting_numbers))
+    if unknown_numbers:
+        details.append("numéros annoncés absents de l'arbre : " + ", ".join(unknown_numbers))
+    if missing_numbers:
+        details.append("numéros de l'arbre absents de la TdM : " + ", ".join(missing_numbers))
+    if different_titles:
+        details.append("titres différents : " + ", ".join(different_titles))
+    if details:
+        return Check(name="tdm_imprimee", level="alerte", detail=" ; ".join(details)[:2000])
+    return Check(name="tdm_imprimee", level="info",
+                 detail=f"{len(printed)} titre(s) numéroté(s) concordent avec l'arbre aux niveaux annoncés")
+
+
 def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[Any], numbers: list[str],
                      duplicates: list[str], continues: int, toc: list[Any], toc_gaps: list[str] | None = None,
-                     summary: str = "") -> Report:
+                     printed_toc: list[tuple[str, str]] | None = None, summary: str = "") -> Report:
     """Checks statiques d'un contrat PDF (AD-8) : `page_sans_texte` bloquant (page sans texte mais portant une image
     ou un tracé vectoriel), numérotation non monotone, pages mixtes et écart avec les signets du PDF en alerte."""
     checks: list[Check] = [Check(name="invariants_arbre", level="info", detail="ok")]
     kinds = Counter(b.kind for b in doc.blocks)
     pages_with_blocks = {b.page for b in doc.blocks}
-    no_text = [p.page for p in pages if not p.lines]
+    no_text = [p.page for p in pages if not p.lines and not getattr(p, "tables", [])]
     blank = [p for p in no_text if not pages[p - 1].visual]
     non_blank = [p for p in no_text if pages[p - 1].visual]
+    foreign, gibberish, residues = _quality(pages)
+    eligible_coverage = [p for p in pages if p.page not in foreign and (p.visual or p.lines or getattr(p, "tables", []))]
+    covered = [p for p in eligible_coverage if p.lines or getattr(p, "tables", [])]
+    coverage = len(covered) / len(eligible_coverage) if eligible_coverage else 1.0
     stats: dict[str, Any] = {
         "pages": len(pages),
         "pages_avec_blocs": len(pages_with_blocks),
         "pages_sans_texte": ", ".join(str(p) for p in no_text),
         "pages_blanches": len(blank),
         "pages_avec_images": sum(1 for p in pages if p.images),
+        "pages_ocr": sum(1 for p in pages if getattr(p, "ocr_succeeded", False)),
+        "pages_ocr_echec": sum(1 for p in pages if getattr(p, "ocr_attempted", False)
+                               and not getattr(p, "ocr_succeeded", False)),
+        "pages_non_francaises": len(foreign),
+        "couverture": round(coverage, 4),
         "pages_sans_texte_dessinees": sum(1 for p in pages if not p.lines and p.drawings),
         "pages_tdm": sum(1 for p in pages if p.is_toc),
         "noeuds": len(doc.nodes),
@@ -119,29 +274,59 @@ def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[An
         "en_tetes_retires": sum(len(p.removed) for p in pages),
         "tdm_pdf_entrees": len(toc),
         "numeros_articles": len(numbers),
+        "tables": kinds.get("table", 0),
     }
     if non_blank:
+        errors = [f"p.{p.page}: {p.ocr_error}" for p in pages if p.page in non_blank and p.ocr_error]
+        dependency = " ; dépendance OCR Tesseract (langue fra) : " + (
+            " ; ".join(errors) if errors else "aucun texte exploitable"
+        )
         checks.append(Check(name="page_sans_texte", level="bloquant",
                             detail="pages non blanches (image ou tracé vectoriel) sans texte extrait "
-                                   "(OCR ou revue humaine requis) : " + ", ".join(str(p) for p in non_blank)))
+                                   "après OCR ciblé : " + ", ".join(str(p) for p in non_blank) + dependency))
     if blank:
         checks.append(Check(name="pages_blanches", level="info", detail=", ".join(str(p) for p in blank)))
+    ocr_block_pages = {block.page for block in doc.blocks if block.source_field == "ocr"}
+    ocr_pages = [p.page for p in pages if getattr(p, "ocr_succeeded", False) and p.page in ocr_block_pages]
+    if ocr_pages:
+        checks.append(Check(name="ocr_cible", level="info",
+                            detail="pages OCRisées et marquées `source_field=ocr` : " +
+                                   ", ".join(str(page) for page in ocr_pages)))
     bad = [f"{prev} → {cur}" for prev, cur in zip(numbers, numbers[1:]) if _key(cur) <= _key(prev)]
     if bad:
         checks.append(Check(name="numerotation_non_monotone", level="alerte", detail=", ".join(bad)[:2000]))
     if duplicates:
         checks.append(Check(name="numerotation_dupliquee", level="alerte", detail=", ".join(duplicates)[:2000]))
-    checks.append(Check(name="tdm_pdf", level="info",
-                        detail=f"get_toc() : {len(toc)} entrée(s) ; la TdM imprimée n'est pas comparée (story 3.1)"))
+    checks.append(_printed_toc_check(doc, printed_toc or [], stats["pages_tdm"]))
+    checks.append(Check(name="tdm_pdf", level="info", detail=f"get_toc() : {len(toc)} entrée(s), contrôle distinct"))
     if toc_gaps:
         checks.append(Check(name="tdm_pdf_ecart", level="alerte",
                             detail="signets numérotés sans nœud correspondant : " + ", ".join(toc_gaps)[:2000]))
-    mixed = [p.page for p in pages if p.images and p.lines]
+    mixed = []
+    for page in pages:
+        native = getattr(page, "native_text", None)
+        if native is None:  # PageText synthétique : déduire la provenance comme avant.
+            native = bool(page.lines or getattr(page, "tables", []))
+        if native and page.image_area_ratio > 0 \
+                and page.image_area_ratio >= get_settings().mixed_page_image_density:
+            mixed.append(page.page)
     if mixed:  # AD-8 : alerte (revue humaine : l'image peut porter du texte non extrait)
         checks.append(Check(name="pages_mixtes", level="alerte",
-                            detail=f"{len(mixed)} page(s) texte + image : " + ", ".join(str(p) for p in mixed)[:1500]))
+                            detail=f"{len(mixed)} page(s) au-dessus de la densité image "
+                                   f"{get_settings().mixed_page_image_density:.2f} : " +
+                                   ", ".join(str(p) for p in mixed)[:1500]))
+    if residues:
+        checks.append(Check(name="residus_entete_pied", level="alerte", detail=", ".join(residues)[:2000]))
+    if gibberish:
+        checks.append(Check(name="charabia", level="alerte", detail=", ".join(str(page) for page in gibberish)))
+    if foreign:
+        checks.append(Check(name="pages_non_francaises", level="alerte",
+                            detail="exclues du dénominateur de couverture : " +
+                                   ", ".join(str(page) for page in foreign)))
+    checks.append(Check(name="couverture", level="info",
+                        detail=f"{len(covered)}/{len(eligible_coverage)} page(s) éligible(s), soit {coverage:.1%} ; "
+                               f"seuil indicatif {get_settings().coverage_threshold:.0%}"))
     if summary:
         stats["sommaire_chars"] = len(summary)
-        stats["sommaire_tokens_estimes"] = len(summary) // CHARS_PER_TOKEN
     checks += ids_disparus(doc, previous, stats)
     return Report(doc_id=doc.doc_id, checks=checks, stats=stats)

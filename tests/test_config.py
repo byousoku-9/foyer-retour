@@ -33,6 +33,9 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.evals_max_cost_eur == 1.0
     assert s.rate_limit_per_minute == 10 and s.rate_limit_per_day == 100
     assert s.coverage_threshold == 0.8 and s.kind_confidence_min == 0.7
+    assert s.mixed_page_image_density == 0.2 and s.ocr_dpi == 300
+    assert s.quality_min_words == 12 and s.foreign_signal_min == 3 and s.french_signal_ratio_min == 0.08
+    assert s.gibberish_ratio_max == 0.35 and s.residual_header_min_pages_ratio == 0.3
     assert s.env == "dev" and s.allow_ungated is True
     # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
     assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
@@ -80,7 +83,11 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             # story 1.10 : le plafond de coût d'un run d'évals (AD-9, AD-14)
             "evals_max_cost_eur",
             # story 2.3 : les places réservées, parmi `max_opens`, aux nœuds que le profil désigne
-            "profil_max_opens"} <= set(t.thresholds)
+            "profil_max_opens",
+            # story 3.1 : seuils génériques de densité, OCR et qualité PDF
+            "mixed_page_image_density", "ocr_dpi", "quality_min_words", "foreign_signal_min",
+            "french_signal_ratio_min",
+            "gibberish_ratio_max", "residual_header_min_pages_ratio"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
     # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
     # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).

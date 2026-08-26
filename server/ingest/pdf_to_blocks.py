@@ -7,8 +7,9 @@ qui le suit sur la même ligne de base sont fusionnés) ; en-têtes/pieds répé
 récurrent ou numéro de page). Segmentation : un numéro d'article ouvre un nœud `{doc_id}:a{numero}` (parent = préfixe
 le plus long existant, sinon la racine) ; une ligne à puce ouvre un item de `list` ; un écart vertical supérieur à
 `para_gap_ratio` hauteurs de ligne ouvre un `para` ; un paragraphe qui continue sur la page suivante est scindé,
-le second bloc porte `continues`. Les pages dont l'en-tête annonce la table des matières donnent un bloc `autre`
-par page sous le nœud `{doc_id}:tdm` (la TdM imprimée n'est pas interprétée — story 3.1).
+le second bloc porte `continues`. Un intitulé autonome de table des matières, dans une ligne ou une table, ouvre
+le nœud `{doc_id}:tdm` et se propage aux pages de continuation ; son texte reste `autre`, ses tables restent atomiques,
+et ses sections numérotées sont comparées à l'arbre reconstruit.
 `text` est brut : seules altérations, déclarées dans `FLAGS` (donc dans l'empreinte), les puces Wingdings deviennent
 `•`, le glyphe de tabulation `\\x07` est retiré, les espaces/tabulations de fin de ligne sont retirés, les espaces
 de tête d'une ligne sans puce sont retirés, et un numéro d'article seul sur sa ligne est joint par une espace au texte
@@ -24,31 +25,40 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
+from math import ceil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pymupdf
 from pydantic import ValidationError
 
 from server.app.config import get_settings
-from server.app.corpus.text import normalize_version
+from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report
+from server.app.domain.document import DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
                                      read_manifest, write_atomic)
+from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import build_pdf_report, report_from_validation_error
 
 DOC_ID = "axa-lu-optihome-2017"
-TITLE = "Conditions d'assurances OptiHome (multirisques habitation)"
+TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
 DEFAULT_EDITION = "juin 2017"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
-PARSER_VERSION = "2"  # revue Codex 1.2 : continues structurel, continuations de liste, seuils dans Settings
+PARSER_VERSION = "6"  # revue 3.1 : frontière TdM/citable et OCR après retrait des bandes
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
                       "gap>para_gap_ratio*h=>para;"
                       "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
-                      "tdm:entete~TABLE DES MATIERES=>autre/page;numero_para+ligne_minuscule=>meme_para;"
+                      "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_exclues;"
+                      "ocr:page_visuelle_sans_texte_retenu=>get_textpage_ocr(fra)&source_field=ocr;"
+                      "tdm:intitule_autonome(ligne|table)=>continuation_si_entrees_structurees;"
+                      "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
+                      "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
+                      "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
                       "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
                       "toc:get_toc()=>titres manquants+tdm_pdf_ecart")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
@@ -57,9 +67,9 @@ FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstri
 
 _NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\s*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_TDM_RE = re.compile(r"TABLE\s+DES\s+MATI[EÈ]RES", re.IGNORECASE)
 _PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
 _TOC_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
+_PRINTED_TOC_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\.?\s+(.+?)(?:\s+\.{2,}\s*|\s+)(\d{1,3})\s*$")
 _BULLET_FONTS = ("Wingdings",)
 _TERMINAL = (".", ";", ":")
 
@@ -77,6 +87,14 @@ def ingest_fingerprint() -> str:
                                          "baseline_tolerance_pt": s.baseline_tolerance_pt,
                                          "number_gap_tolerance_pt": s.number_gap_tolerance_pt,
                                          "list_indent_pt": s.list_indent_pt,
+                                         "mixed_page_image_density": s.mixed_page_image_density,
+                                         "ocr_dpi": s.ocr_dpi,
+                                         "quality_min_words": s.quality_min_words,
+                                         "foreign_signal_min": s.foreign_signal_min,
+                                         "french_signal_ratio_min": s.french_signal_ratio_min,
+                                         "gibberish_ratio_max": s.gibberish_ratio_max,
+                                         "residual_header_min_pages_ratio": s.residual_header_min_pages_ratio,
+                                         "coverage_threshold": s.coverage_threshold,
                                          # story 1.3 (revue P1) : le niveau de coupe du sommaire change summary.md
                                          "summary_max_level": s.summary_max_level}},
                          sort_keys=True, ensure_ascii=False)
@@ -101,22 +119,56 @@ class PageText:
     removed: list[str] = field(default_factory=list)  # en-têtes/pieds retirés
     images: int = 0
     drawings: int = 0  # tracés vectoriels : une page sans texte mais dessinée n'est pas blanche (AD-8)
+    image_area_ratio: float = 0.0
+    tables: list[PageTable] = field(default_factory=list)
     is_toc: bool = False
+    after_toc: bool = False
+    # `None` garde les PageText synthétiques rétrocompatibles ; l'extracteur pose explicitement
+    # si du contenu natif exploitable subsiste après retrait des bandes récurrentes.
+    native_text: bool | None = None
+    ocr_attempted: bool = False
+    ocr_succeeded: bool = False
+    ocr_error: str | None = None
+    language: str = "fr"
 
     @property
     def visual(self) -> bool:
         return bool(self.images or self.drawings)
 
 
+@dataclass
+class PageTable:
+    """Table détectée sur une page, conservée comme une unité dans l'ordre visuel."""
+
+    bbox: list[float]
+    rows: list[list[str]]
+    row_bboxes: list[list[float]] = field(default_factory=list)
+
+
 def _round(b: Any) -> list[float]:
     return [round(float(v), 2) for v in b]
 
 
-def _raw_lines(page: pymupdf.Page) -> tuple[list[PageLine], int]:
+def _center_inside(bbox: list[float], container: list[float]) -> bool:
+    """Une ligne appartient à une table lorsque le centre de sa boîte est dans celle de la table.
+
+    Une légende ou une note qui ne fait que frôler la boîte reste donc disponible, tandis que le
+    texte atomique des cellules n'est pas dupliqué dans les paragraphes.
+    """
+    center_x = (bbox[0] + bbox[2]) / 2
+    center_y = (bbox[1] + bbox[3]) / 2
+    return container[0] <= center_x <= container[2] and container[1] <= center_y <= container[3]
+
+
+def _raw_lines(page: pymupdf.Page, *, textpage: Any | None = None,
+               excluded: list[list[float]] | None = None) -> tuple[list[PageLine], int]:
     """Lignes brutes (texte nettoyé, bbox, taille dominante, puce) et nombre d'images."""
     out: list[PageLine] = []
     images = 0
-    for b in page.get_text("dict", sort=FLAGS["sort"])["blocks"]:
+    options: dict[str, Any] = {"sort": FLAGS["sort"]}
+    if textpage is not None:
+        options["textpage"] = textpage
+    for b in page.get_text("dict", **options)["blocks"]:
         if b["type"] != 0:
             images += 1
             continue
@@ -141,8 +193,131 @@ def _raw_lines(page: pymupdf.Page) -> tuple[list[PageLine], int]:
             if not text.strip():
                 continue
             size = max(sizes, key=lambda k: sizes[k]) if sizes else 0.0
-            out.append(PageLine(text=text, bbox=_round(line["bbox"]), size=size, bullet=bullet))
+            bbox = _round(line["bbox"])
+            if excluded and any(_center_inside(bbox, table_bbox) for table_bbox in excluded):
+                continue
+            out.append(PageLine(text=text, bbox=bbox, size=size, bullet=bullet))
     return out, images
+
+
+def _tables(page: pymupdf.Page) -> list[PageTable]:
+    """Tables PyMuPDF, cellules vides comprises. Une détection absente n'altère pas la page."""
+    try:
+        found = page.find_tables()
+    except (AttributeError, RuntimeError, ValueError):
+        return []
+    tables: list[PageTable] = []
+    for table in found.tables:
+        extracted = table.extract() or []
+        rows = [["" if cell is None else str(cell).replace("\x07", "").strip() for cell in row]
+                for row in extracted]
+        if not rows or not any(cell for row in rows for cell in row):
+            continue
+        row_bboxes = [_round(row.bbox) for row in getattr(table, "rows", [])]
+        tables.append(PageTable(bbox=_round(table.bbox), rows=rows, row_bboxes=row_bboxes))
+    return sorted(tables, key=lambda table: (table.bbox[1], table.bbox[0]))
+
+
+def _rectangles_union_area(rectangles: list[pymupdf.Rect]) -> float:
+    """Aire exacte de l'union de rectangles parallèles aux axes, sans compter deux fois les recouvrements."""
+    xs = sorted({float(x) for rect in rectangles for x in (rect.x0, rect.x1)})
+    area = 0.0
+    for left, right in zip(xs, xs[1:]):
+        if right <= left:
+            continue
+        intervals = sorted((float(rect.y0), float(rect.y1)) for rect in rectangles
+                           if rect.x0 < right and rect.x1 > left)
+        if not intervals:
+            continue
+        bottom, top = intervals[0]
+        height = 0.0
+        for start, end in intervals[1:]:
+            if start <= top:
+                top = max(top, end)
+            else:
+                height += top - bottom
+                bottom, top = start, end
+        height += top - bottom
+        area += (right - left) * height
+    return area
+
+
+def _image_area_ratio(page: pymupdf.Page) -> float:
+    """Densité visuelle de l'union des images raster, bornée à la surface de la page."""
+    page_area = max(float(page.rect.width * page.rect.height), 1.0)
+    rectangles: list[pymupdf.Rect] = []
+    try:
+        infos = page.get_image_info()
+    except (AttributeError, RuntimeError, ValueError):
+        infos = []
+    for info in infos:
+        bbox = info.get("bbox")
+        if not bbox:
+            continue
+        rect = pymupdf.Rect(bbox) & page.rect
+        if not rect.is_empty:
+            rectangles.append(rect)
+    return min(_rectangles_union_area(rectangles) / page_area, 1.0)
+
+
+def _is_toc_title(text: str) -> bool:
+    """Reconnaît un intitulé de TdM autonome, pas une mention dans une phrase de contenu."""
+    value = normalize(text).strip()
+    # Les préfixes exigent un séparateur et les suffixes une ponctuation : une phrase telle que
+    # « consultez la table des matières pour… » ne peut donc pas être prise pour un titre.
+    return bool(re.fullmatch(
+        r"(?:[^.\n]+?\s[-:]\s*)?table des matieres"
+        r"(?:\s*[.:;!?])*(?:\s*[-:]\s*[^.\n]+|\s*\([^()\n]+\))?",
+        value,
+    ))
+
+
+def _has_toc_title(page: PageText) -> bool:
+    return any(_is_toc_title(line.text) for line in page.lines) or any(
+        _is_toc_title(cell) for table in page.tables for row in table.rows for cell in row if cell
+    )
+
+
+def _has_toc_entries(page: PageText) -> bool:
+    """Vrai si la page porte au moins une entrée numérotée avec numéro de page imprimé."""
+    texts = [line.text for line in page.lines]
+    texts.extend(" ".join(cell.strip() for cell in row if cell.strip())
+                 for table in page.tables for row in table.rows)
+    if any(_PRINTED_TOC_RE.match(text.strip()) for text in texts):
+        return True
+    for line in page.lines:
+        if _TOC_NUMBER_RE.match(line.text.strip()) and any(
+            _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
+            and candidate.bbox[0] > line.bbox[0]
+            and abs(candidate.bbox[1] - line.bbox[1]) <= 8
+            for candidate in page.lines
+        ):
+            return True
+    return False
+
+
+def _mark_toc_pages(pages: list[PageText]) -> None:
+    """Propage une TdM seulement tant que ses pages gardent des entrées structurées."""
+    in_toc = False
+    toc_finished = False
+    for page in pages:
+        explicit = _has_toc_title(page) or any(_is_toc_title(text) for text in page.removed)
+        has_article = any(line.number is not None for line in page.lines)
+        if explicit:
+            in_toc = True
+            page.is_toc = True
+            page.after_toc = False
+            if has_article:
+                in_toc = False
+                toc_finished = True
+        elif in_toc and not has_article and _has_toc_entries(page):
+            page.is_toc = True
+        else:
+            page.is_toc = False
+            if in_toc:
+                in_toc = False
+                toc_finished = True
+            page.after_toc = toc_finished
 
 
 def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
@@ -169,6 +344,23 @@ def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
     return out
 
 
+def _without_running_bands(page: PageText, lines: list[PageLine], band_texts: dict[str, int],
+                           minimum: int) -> list[PageLine]:
+    """Retire les bandes récurrentes d'une couche native ou OCR et conserve leur diagnostic."""
+    s = get_settings()
+    kept: list[PageLine] = []
+    for line in lines:
+        in_band = line.bbox[1] < s.header_band_pt or line.bbox[3] > page.height - s.footer_band_pt
+        running = band_texts.get(line.text, 0) >= minimum or _PAGE_NUMBER_RE.match(line.text) is not None \
+            or (line.size <= s.header_caps_max_size_pt and line.text == line.text.upper())
+        if in_band and running:
+            if line.text not in page.removed:
+                page.removed.append(line.text)
+            continue
+        kept.append(line)
+    return kept
+
+
 def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
     """Pages (lignes + bbox + police, en-têtes/pieds retirés) et `get_toc()` du PDF."""
     s = get_settings()
@@ -178,31 +370,42 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
     try:
         toc = doc.get_toc()
         for pno, page in enumerate(doc, start=1):
-            lines, images = _raw_lines(page)
+            tables = _tables(page)
+            lines, images = _raw_lines(page, excluded=[table.bbox for table in tables])
+            drawings = len(page.get_drawings())
             # Relevé sans condition : une page dont les seules lignes sont un en-tête/pied retiré plus bas
             # doit rester « dessinée » et non blanche (AD-8, revue Codex 1.2 B3).
             pt = PageText(page=pno, width=page.rect.width, height=page.rect.height, lines=lines, images=images,
-                          drawings=len(page.get_drawings()))
+                          drawings=drawings, image_area_ratio=_image_area_ratio(page), tables=tables)
             for line in lines:
                 if line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt:
                     band_texts[line.text] = band_texts.get(line.text, 0) + 1
             pages.append(pt)
+        # `ceil` évite qu'une occurrence sous le ratio configuré soit promue par troncature.
+        min_pages = max(2, ceil(len(pages) * s.header_min_pages_ratio))
+        for index, pt in enumerate(pages):
+            page = doc[index]
+            native_kept = _without_running_bands(pt, pt.lines, band_texts, min_pages)
+            pt.native_text = bool(native_kept or pt.tables)
+            if not pt.native_text and pt.visual:
+                pt.ocr_attempted = True
+                try:
+                    textpage = page.get_textpage_ocr(language="fra", dpi=s.ocr_dpi, full=True)
+                    ocr_lines, _ = _raw_lines(page, textpage=textpage,
+                                              excluded=[table.bbox for table in pt.tables])
+                    retained_ocr = _without_running_bands(pt, ocr_lines, band_texts, min_pages)
+                    pt.lines = _merge_number_lines(retained_ocr)
+                    pt.ocr_succeeded = bool(pt.lines)
+                    if not pt.ocr_succeeded:
+                        pt.ocr_error = "ocr_sans_texte_exploitable_apres_retrait_band"
+                except Exception as exc:  # PyMuPDF expose FzErrorLibrary hors hiérarchie RuntimeError
+                    pt.lines = []
+                    pt.ocr_error = f"ocr_exception:{type(exc).__name__}: {exc}"[:500]
+            else:
+                pt.lines = _merge_number_lines(native_kept)
     finally:
         doc.close()
-    min_pages = max(2, int(len(pages) * s.header_min_pages_ratio))
-    for pt in pages:
-        kept: list[PageLine] = []
-        for line in pt.lines:
-            in_band = line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt
-            running = band_texts.get(line.text, 0) >= min_pages or _PAGE_NUMBER_RE.match(line.text) is not None \
-                or (line.size <= s.header_caps_max_size_pt and line.text == line.text.upper())
-            if in_band and running:
-                pt.removed.append(line.text)
-                if _TDM_RE.search(line.text):
-                    pt.is_toc = True
-                continue
-            kept.append(line)
-        pt.lines = _merge_number_lines(kept)
+    _mark_toc_pages(pages)
     return pages, toc
 
 
@@ -251,14 +454,15 @@ class _Builder:
         self.numbers.append(numero)
         return node
 
-    def add_block(self, page: int, lines: list[PageLine], kind: str, *, continues: str | None = None) -> Block:
+    def add_block(self, page: int, lines: list[PageLine], kind: str, *, continues: str | None = None,
+                  source_field: str | None = None) -> Block:
         loc = f"p{page}"
         seq = sum(1 for b in self.blocks if b.loc == loc) + 1
         block_id = f"{self.doc_id}:{loc}:{seq}"
         bbox = [min(l.bbox[0] for l in lines), min(l.bbox[1] for l in lines),
                 max(l.bbox[2] for l in lines), max(l.bbox[3] for l in lines)]
         block = Block(block_id=block_id, text="\n".join(l.text for l in lines), loc=loc, seq=seq, page=page,
-                      bbox=bbox, kind=kind, continues=continues,  # type: ignore[arg-type]
+                      bbox=bbox, kind=kind, continues=continues, source_field=source_field,  # type: ignore[arg-type]
                       lines=[Line(line_id=f"{block_id}:l{i}", text=l.text, bbox=l.bbox) for i, l in enumerate(lines, 1)])
         self.blocks.append(block)
         self.current.items.append(BlockRef(block_id=block_id))
@@ -314,31 +518,97 @@ def _segment_page(pt: PageText) -> list[tuple[str, list[PageLine]]]:
         kind = "heading" if line.size >= s.title_min_size_pt and line.number is None and not line.text.endswith(".") \
             else "para"
         groups.append((kind, [line]))
-    return groups
+    if not pt.tables:
+        return groups
+    ordered: list[tuple[float, float, str, list[PageLine]]] = [
+        (lines[0].bbox[1], lines[0].bbox[0], kind, lines) for kind, lines in groups
+    ]
+    for table in pt.tables:
+        row_height = max((table.bbox[3] - table.bbox[1]) / max(len(table.rows), 1), 1.0)
+        rows = []
+        for index, row in enumerate(table.rows):
+            bbox = table.row_bboxes[index] if index < len(table.row_bboxes) else [
+                table.bbox[0], round(table.bbox[1] + index * row_height, 2), table.bbox[2],
+                round(min(table.bbox[1] + (index + 1) * row_height, table.bbox[3]), 2),
+            ]
+            rows.append(PageLine(text=" | ".join(row), bbox=bbox, size=0.0))
+        ordered.append((table.bbox[1], table.bbox[0], "table", rows))
+    ordered.sort(key=lambda item: (item[0], item[1]))
+    return [(kind, lines) for _, _, kind, lines in ordered]
+
+
+def _content_lines(pt: PageText) -> list[PageLine]:
+    """Toutes les lignes d'une page dans l'ordre visuel, y compris les rangées de tables."""
+    return [line for _, lines in _segment_page(pt) for line in lines]
 
 
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
-                   doc_id: str = DOC_ID, title: str = TITLE) -> tuple[Document, dict[str, Any]]:
+                   doc_id: str = DOC_ID, title: str = TITLE,
+                   source_url: str | None = None) -> tuple[Document, dict[str, Any]]:
     """Arbre de blocs + méta de construction (numéros dans l'ordre, doublons, `continues`)."""
     b = _Builder(doc_id, title)
     toc_node: Node | None = None
     last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
+    article_seen = False
+    document_has_articles = any(line.number is not None for page in pages for line in page.lines)
+
+    def add_preliminary_groups(page: PageText, groups: list[tuple[str, list[PageLine]]], *,
+                               table_source: str) -> None:
+        """Fusionne le texte préliminaire contigu, mais jamais à travers une table atomique."""
+        pending: list[PageLine] = []
+
+        def flush() -> None:
+            if pending:
+                b.add_block(page.page, list(pending), "autre",
+                            source_field="ocr" if page.ocr_succeeded else None)
+                pending.clear()
+
+        for kind, lines in groups:
+            if kind == "table":
+                flush()
+                # Le kind reste fidèle à la source ; la non-citabilité est une provenance explicite
+                # que l'index peut appliquer aux recherches, fréquences et fenêtres.
+                b.add_block(page.page, lines, "table", source_field=table_source)
+            else:
+                pending.extend(lines)
+        flush()
+
     for pt in pages:
+        groups = _segment_page(pt)
         if pt.is_toc:
             if toc_node is None:
                 toc_node = Node(node_id=f"{doc_id}:tdm", level=1, title="Table des matières")
                 b.nodes[toc_node.node_id] = toc_node
                 b.order.append(toc_node.node_id)
                 b.root.items.append(NodeRef(node_id=toc_node.node_id))
-            if pt.lines:
-                saved, b.current = b.current, toc_node
-                b.add_block(pt.page, pt.lines, "autre")
-                b.current = saved
+            saved, b.current = b.current, toc_node
+            first_article_group = next((i for i, (_, lines) in enumerate(groups)
+                                        if lines[0].number is not None), None)
+            toc_groups = groups if first_article_group is None else groups[:first_article_group]
+            add_preliminary_groups(pt, toc_groups, table_source="tdm")
+            b.current = saved
             last_text_block = None
-            continue
+            if first_article_group is None:
+                continue
+            # Une première clause sur la même page clôt la TdM : elle et tous les groupes suivants
+            # appartiennent au corps citable.
+            groups = groups[first_article_group:]
+            article_seen = True
+        first_article_group = next((i for i, (_, lines) in enumerate(groups)
+                                    if lines[0].number is not None), None)
+        if document_has_articles and not article_seen and not pt.after_toc:
+            preliminary_count = len(groups) if first_article_group is None else first_article_group
+            add_preliminary_groups(pt, groups[:preliminary_count], table_source="preliminaire")
+            if first_article_group is None:
+                last_text_block = None
+                continue
+            groups = groups[first_article_group:]
+            article_seen = True
+        elif first_article_group is not None:
+            article_seen = True
         first = True
         page_last: Block | None = None
-        for kind, lines in _segment_page(pt):
+        for kind, lines in groups:
             continues = None
             # Scission de page (AD-2) : le premier bloc de la page, de même kind que le dernier bloc texte de la page
             # précédente, sans numéro d'article, alors que ce dernier ne finit pas une phrase (structure, pas casse).
@@ -350,7 +620,8 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 b.current = b.node_for(lines[0].number)
                 if kind == "heading":
                     b.current.title = lines[0].text
-            blk = b.add_block(pt.page, lines, kind, continues=continues)
+            blk = b.add_block(pt.page, lines, kind, continues=continues,
+                              source_field="ocr" if pt.ocr_succeeded else None)
             if kind in ("para", "list"):
                 page_last = blk
             if lines[0].number is not None and kind == "para":
@@ -359,10 +630,92 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     toc_gaps = _apply_toc(b, toc)
     nodes = [b.nodes[nid] for nid in b.order]
     doc = Document(doc_id=doc_id, kind="contrat", title=title, edition=edition, lang="fr", nodes=nodes,
-                   blocks=b.blocks, source_url=None, source_hash=source_hash, ingest_fingerprint=ingest_fingerprint())
+                   blocks=b.blocks, source_url=source_url, source_hash=source_hash,
+                   ingest_fingerprint=ingest_fingerprint())
+    printed_toc = _printed_toc_entries(pages)
     meta = {"numbers": b.numbers, "duplicates": b.duplicates, "continues": b.continues, "toc": toc,
-            "toc_gaps": toc_gaps}
+            "toc_gaps": toc_gaps, "printed_toc": printed_toc}
     return doc, meta
+
+
+def _printed_toc_entries(pages: list[PageText]) -> list[tuple[str, str]]:
+    """Sections numérotées annoncées par la TdM, titres multilignes réunis par géométrie de colonne."""
+    entries: list[tuple[str, str]] = []
+    for page in pages:
+        if not page.is_toc:
+            continue
+        first_article_y = min((line.bbox[1] for line in page.lines if line.number is not None),
+                              default=page.height)
+        lines = [line for line in page.lines
+                 if line.bbox[1] < first_article_y and not _is_toc_title(line.text)]
+        starts: list[tuple[PageLine, re.Match[str]]] = []
+        for line in lines:
+            text = line.text.strip()
+            direct = _PRINTED_TOC_RE.match(text)
+            if direct:
+                entries.append((direct.group(1), direct.group(2).strip(" .")))
+                continue
+            numbered = _TOC_NUMBER_RE.match(text)
+            if numbered:
+                starts.append((line, numbered))
+        starts.sort(key=lambda item: (item[0].bbox[0], item[0].bbox[1], item[0].text))
+        for line, numbered in starts:
+            next_y = page.height
+            for other, _ in starts:
+                if other.bbox[1] > line.bbox[1] and abs(other.bbox[0] - line.bbox[0]) <= 80:
+                    next_y = min(next_y, other.bbox[1])
+            page_numbers = [candidate for candidate in lines
+                            if _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
+                            and candidate.bbox[0] > line.bbox[0]
+                            and abs(candidate.bbox[1] - line.bbox[1]) <= 8]
+            if not page_numbers:
+                continue
+            boundary_x = min((candidate.bbox[0] for candidate in page_numbers), default=page.width)
+            title_parts = [numbered.group(2).strip(" .")]
+            last_bottom = line.bbox[3]
+            continuations = sorted(
+                (candidate for candidate in lines
+                 if line.bbox[1] < candidate.bbox[1] < next_y
+                 and candidate.bbox[0] >= line.bbox[0] - 5
+                 and candidate.bbox[2] < boundary_x
+                 and not _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
+                 and _TOC_NUMBER_RE.match(candidate.text.strip()) is None),
+                key=lambda candidate: (candidate.bbox[1], candidate.bbox[0]),
+            )
+            for candidate in continuations:
+                line_height = max(candidate.bbox[3] - candidate.bbox[1], 1.0)
+                if candidate.bbox[1] - last_bottom > 1.5 * line_height:
+                    break
+                title_parts.append(candidate.text.strip(" ."))
+                last_bottom = candidate.bbox[3]
+            entries.append((numbered.group(1), " ".join(part for part in title_parts if part)))
+        for table in page.tables:
+            if table.bbox[1] >= first_article_y:
+                continue
+            pending: tuple[str, list[str]] | None = None
+            for row in table.rows:
+                cells = [cell.strip() for cell in row if cell.strip()]
+                if not cells or any(_is_toc_title(cell) for cell in cells):
+                    continue
+                text = " ".join(cells)
+                direct = _PRINTED_TOC_RE.match(text)
+                if direct:
+                    entries.append((direct.group(1), direct.group(2).strip(" .")))
+                    pending = None
+                    continue
+                numbered = _TOC_NUMBER_RE.match(text)
+                if numbered:
+                    pending = (numbered.group(1), [numbered.group(2).strip(" .")])
+                elif pending:
+                    if _PAGE_NUMBER_RE.fullmatch(cells[-1]):
+                        pending[1].extend(cells[:-1])
+                        entries.append((pending[0], " ".join(pending[1]).strip(" .")))
+                        pending = None
+                    else:
+                        pending[1].extend(cells)
+    # Les doublons restent intentionnellement présents : le rapport doit les signaler, y compris
+    # quand deux lignes annoncent exactement le même titre et pas seulement quand elles divergent.
+    return entries
 
 
 def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
@@ -418,22 +771,32 @@ def build_summary(doc: Document) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def run(data_dir: Path, *, edition: str, doc_id: str = DOC_ID) -> tuple[Report, ManifestEntry]:
+def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
+        title: str | None = None) -> tuple[Report, ManifestEntry]:
     """Ingère `data_dir/source.pdf` ; toute erreur de source devient un check bloquant, jamais une trace Python."""
     manifest_path = data_dir.parent / "manifest.json"
     fingerprint = ingest_fingerprint()
+    resolved_edition = edition if edition is not None else (DEFAULT_EDITION if doc_id == DOC_ID else "")
     try:
         raw_manifest = read_manifest(manifest_path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         detail = f"{manifest_path} illisible, rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
         report = Report(doc_id=doc_id, checks=[Check(name="manifest_illisible", level="bloquant", detail=detail)])
         return report, ManifestEntry(status="quarantaine", source_hash="", ingest_fingerprint=fingerprint,
-                                     document_hash="", edition=edition, gate=None)
+                                     document_hash="", edition=resolved_edition, gate=None)
     source_hash = ""
     doc: Document | None = None
     summary = ""
     previous = load_previous(data_dir / "document.json")
     try:
+        document_title = TITLE if title is None and doc_id == DOC_ID else title
+        if document_title is None:
+            raise ValueError("--title est obligatoire pour un contrat autre que le document de compatibilité AXA")
+        document_title = document_title.strip()
+        if not document_title:
+            raise ValueError("--title ne peut pas être vide")
+        if not resolved_edition.strip():
+            raise ValueError("--edition doit reprendre le libellé imprimé du contrat")
         pdf_path = data_dir / "source.pdf"
         expected_path = data_dir / "source.sha256"
         # AD-7 : l'empreinte de référence est obligatoire et vérifiée avant toute extraction (jamais d'ingestion
@@ -447,10 +810,22 @@ def run(data_dir: Path, *, edition: str, doc_id: str = DOC_ID) -> tuple[Report, 
         if expected[0].lower() != source_hash:
             raise ValueError(f"source.pdf : sha256 {source_hash} ≠ source.sha256 — relancer fetch_source")
         pages, toc = extract_pages(pdf_path)
-        doc, meta = build_document(pages, edition=edition, source_hash=source_hash, toc=toc, doc_id=doc_id)
+        source_url_path = data_dir / "source.url"
+        source_url = source_url_path.read_text("utf-8").strip() if source_url_path.is_file() else None
+        if doc_id != DOC_ID:
+            parsed_url = urlsplit(source_url or "")
+            http_url = parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
+            gs_url = bool(source_url and GS_URL_RE.fullmatch(source_url))
+            if not source_url or not (http_url or gs_url) or any(char.isspace() for char in source_url):
+                raise ValueError(
+                    "source.url doit contenir une URL HTTP(S) ou gs://bucket/objet non vide pour un contrat générique"
+                )
+        doc, meta = build_document(pages, edition=resolved_edition, source_hash=source_hash, toc=toc, doc_id=doc_id,
+                                   title=document_title, source_url=source_url)
         summary = build_summary(doc)
         report = build_pdf_report(doc, previous, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
-                                  continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"], summary=summary)
+                                  continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
+                                  printed_toc=meta["printed_toc"], summary=summary)
     except ValidationError as exc:
         report = report_from_validation_error(doc_id, exc)
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
@@ -470,7 +845,7 @@ def run(data_dir: Path, *, edition: str, doc_id: str = DOC_ID) -> tuple[Report, 
     write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
     entry = merge_manifest(manifest_path, raw_manifest, doc_id,
                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
-                                         document_hash=document_hash, edition=edition,
+                                         document_hash=document_hash, edition=resolved_edition,
                                          overlay_hash=overlay_hash(data_dir), gate=None))
     return report, entry
 
@@ -479,9 +854,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("doc_id", nargs="?", default=DOC_ID)
     parser.add_argument("--data", default="data", type=Path)
-    parser.add_argument("--edition", default=DEFAULT_EDITION)
+    parser.add_argument("--edition")
+    parser.add_argument("--title")
     args = parser.parse_args(argv)
-    report, entry = run(args.data / args.doc_id, edition=args.edition, doc_id=args.doc_id)
+    # Résoudre `data/{doc_id}` avant ce contrôle autoriserait séparateurs et `..` à sortir du dépôt.
+    if not DOC_ID_RE.fullmatch(args.doc_id):
+        print(f"doc_id invalide (slug [a-z0-9-]+ attendu) : {args.doc_id!r}", file=sys.stderr)
+        return 2
+    report, entry = run(args.data / args.doc_id, edition=args.edition, doc_id=args.doc_id, title=args.title)
     for c in report.checks:
         print(f"[{c.level}] {c.name}: {c.detail}")
     print(f"stats: {json.dumps(report.stats, ensure_ascii=False)}")

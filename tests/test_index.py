@@ -98,6 +98,50 @@ def test_ouvrir_noeud_exposes_category_title_and_titled_children() -> None:
     assert window.blocks == [] and not window.truncated
 
 
+def test_autre_preliminaire_reste_dans_le_document_sans_consumer_le_rappel() -> None:
+    cover = Block(block_id="d:p1:1", text="Couverture contrat", loc="p1", seq=1, kind="autre")
+    clause = Block(block_id="d:p2:1", text="Garantie incendie", loc="p2", seq=1)
+    doc = Document(doc_id="d", kind="contrat", title="Contrat", edition="e", blocks=[cover, clause],
+                   nodes=[Node(node_id="root", items=[BlockRef(block_id=cover.block_id),
+                                                      BlockRef(block_id=clause.block_id)])])
+    index = Index(Corpus(documents={"d": doc}))
+    assert len(index) == 2 and doc.block(cover.block_id).kind == "autre"
+    assert index.chercher(["couverture"], limit=10) == []
+    assert [block.block_id for block in index.ouvrir_noeud("root", node_window=10).blocks] == [clause.block_id]
+
+
+def test_preliminary_and_toc_tables_are_non_citable_but_ordinary_table_remains_citable() -> None:
+    preliminary = Block(block_id="d:p1:1", text="secret couverture", loc="p1", seq=1,
+                        kind="table", source_field="preliminaire")
+    toc = Block(block_id="d:p2:1", text="secret sommaire", loc="p2", seq=1,
+                kind="table", source_field="tdm")
+    ordinary = Block(block_id="d:p3:1", text="secret garantie", loc="p3", seq=1, kind="table")
+    doc = Document(doc_id="d", kind="contrat", title="Contrat", edition="e",
+                   blocks=[preliminary, toc, ordinary],
+                   nodes=[Node(node_id="root", items=[BlockRef(block_id=block.block_id)
+                                                      for block in (preliminary, toc, ordinary)])])
+    index = Index(Corpus(documents={"d": doc}))
+    assert index.chercher(["couverture", "sommaire"], limit=10) == []
+    assert index.chercher(["garantie"], limit=10) == [(ordinary.block_id, "root")]
+    assert [block.block_id for block in index.ouvrir_noeud("root", node_window=10).blocks] == [ordinary.block_id]
+    assert index._block_frequencies["d"] == {"garantie": 1, "secret": 1}
+
+
+def test_autre_preliminaire_does_not_change_document_frequencies_or_citable_rank() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="mot commun", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="mot rare", loc="p1", seq=2),
+        Block(block_id="d:p1:3", text="encore commun", loc="p1", seq=3),
+        Block(block_id="d:p1:4", text="préliminaire rare", loc="p1", seq=4, kind="autre"),
+    ]
+    doc = Document(doc_id="d", kind="contrat", title="Contrat", edition="e", blocks=blocks,
+                   nodes=[Node(node_id="root", items=[BlockRef(block_id=block.block_id) for block in blocks])])
+    index = Index(Corpus(documents={"d": doc}))
+    assert len(index) == 4 and doc.block("d:p1:4").kind == "autre"
+    assert index.chercher(["rare commun"], limit=3, doc_id="d")[0] == ("d:p1:2", "root")
+    assert "d:p1:4" in [block.block_id for block in doc.blocks]
+
+
 def test_index_computes_missing_text_norm_and_refuses_id_collisions() -> None:
     ix = Index(Corpus(documents={"d": _doc(2)}))
     assert ix.chercher(["bloc"], limit=5) == [("d:p1:1", "n"), ("d:p1:2", "n")]

@@ -30,7 +30,7 @@ METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instanc
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/124.0 Safari/537.36")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_GS_RE = re.compile(r"^gs://([a-z0-9][a-z0-9._-]{1,221}[a-z0-9])/(.+)$")
+GS_URL_RE = re.compile(r"^gs://([a-z0-9][a-z0-9._-]{1,221}[a-z0-9])/(.+)$")
 
 EXIT_OK, EXIT_HASH, EXIT_UNREACHABLE, EXIT_USAGE = 0, 2, 3, 4
 
@@ -43,7 +43,7 @@ class FetchError(Exception):
 
 def gs_to_https(url: str) -> str:
     """`gs://bucket/objet` → `https://storage.googleapis.com/bucket/objet` (API XML, lecture avec jeton ou anonyme)."""
-    m = _GS_RE.match(url)
+    m = GS_URL_RE.match(url)
     if not m:
         raise FetchError(EXIT_USAGE, f"URL gs://bucket/objet attendue : {url}")
     return f"https://storage.googleapis.com/{m.group(1)}/{m.group(2)}"
@@ -56,7 +56,7 @@ def read_reference(doc_dir: Path) -> tuple[str, str]:
         raise FetchError(EXIT_USAGE, f"{doc_dir} : source.url et source.sha256 requis")
     url = url_path.read_text("utf-8").strip()
     expected = sha_path.read_text("utf-8").split()[0].lower() if sha_path.read_text("utf-8").split() else ""
-    if not (url.startswith("https://") or _GS_RE.match(url)) or not _SHA256_RE.match(expected):
+    if not (url.startswith("https://") or GS_URL_RE.match(url)) or not _SHA256_RE.match(expected):
         raise FetchError(EXIT_USAGE, f"{doc_dir} : URL https:// ou gs://bucket/objet, et sha256 hexadécimal "
                                      "(64 caractères) attendus")
     return url, expected
