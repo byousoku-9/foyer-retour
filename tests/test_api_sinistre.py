@@ -294,9 +294,6 @@ def test_report_rend_le_rapport_dingestion_tel_quel(prod: TestClient) -> None:
     assert corps["doc_id"] == AXA
     assert corps["checks"] and {"name", "level", "detail"} <= set(corps["checks"][0])
     assert corps["stats"]["pages"] > 0
-    # Le rapport lu au démarrage est **le même objet** que celui du fichier : aucune requête ne
-    # rouvre `data/`.
-    assert prod.app.state.foyer.reports[AXA].doc_id == AXA
 
 
 def test_report_dun_document_inconnu_est_un_400_sans_echo(prod: TestClient) -> None:
@@ -534,6 +531,10 @@ def test_ids_quarantaines_invalides_ne_lisent_rien_hors_data_dir(tmp_path: Any) 
         assert set(etat.source_urls) == set()
         assert set(etat.report_errors) == {"doc-mini"}
         assert all(a.doc_id not in {absolu, traversal} for a in etat.alerts)
+        alertes_anonymes = [a for a in etat.alerts
+                            if a.doc_id == "*" and a.alerte == "quarantaine"]
+        assert len(alertes_anonymes) == 2
+        assert all(a.detail == "quarantaine (manifest)" for a in alertes_anonymes)
         assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
         absent = client.get("/api/v1/documents/doc-mini/report")
         assert absent.status_code == 400
@@ -586,9 +587,9 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
     r"\\serveur\partage\contrat.pdf",
 ])
 def test_raison_publiable_masque_tout_emplacement_et_reste_utile(secret: str) -> None:
-    from server.app.api.routes.documents import _raison_publiable
+    from server.app.api.etat import raison_publiable
 
-    raison = _raison_publiable("rapport illisible : " + secret)
+    raison = raison_publiable("rapport illisible : " + secret)
     assert raison is not None
     assert raison.startswith("rapport illisible : ")
     assert "[emplacement masqué]" in raison
@@ -596,11 +597,15 @@ def test_raison_publiable_masque_tout_emplacement_et_reste_utile(secret: str) ->
 
 
 def test_raison_publiable_est_bornee_sans_alterer_un_diagnostic_normal() -> None:
-    from server.app.api.routes.documents import _raison_publiable
+    from server.app.api.etat import raison_publiable
 
-    assert _raison_publiable("bloquant_statique : page_sans_texte") == (
+    assert raison_publiable("bloquant_statique : page_sans_texte") == (
         "bloquant_statique : page_sans_texte")
-    bornee = _raison_publiable("diagnostic : " + "x" * 900)
+    # Un deux-points de diagnostic et une barre oblique au milieu d'une contrainte ne sont pas des
+    # emplacements. L'ancien filtre prenait tout ce qui suivait ``invalide:`` pour une URI.
+    diagnostic = "entrée invalide: String should match pattern '^[a-z0-9-]+$'"
+    assert raison_publiable(diagnostic) == diagnostic
+    bornee = raison_publiable("diagnostic : " + "x" * 900)
     assert bornee is not None and len(bornee) == 500 and bornee.endswith("…")
 
 

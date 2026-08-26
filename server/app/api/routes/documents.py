@@ -18,39 +18,16 @@ une chaîne de l'appelant, et l'enveloppe d'erreur n'est pas un endroit où la l
 
 from __future__ import annotations
 
-import re
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Request, Response
 
-from server.app.api.etat import url_publiable
+from server.app.api.etat import doc_id_auditable, raison_publiable, url_publiable
 from server.app.api.schemas import DOC_ID_MAX, DOC_ID_PATTERN, DocumentItem
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.ingest import Report
 
 router = APIRouter()
-
-
-def _raison_publiable(raison: str | None) -> str | None:
-    """Garde un diagnostic borné sans publier un emplacement issu des artefacts.
-
-    Les raisons normales du loader restent inchangées. Dès qu'un URI ou un chemin apparaît, seule
-    la partie précédente — le diagnostic utile — demeure, suivie d'un marqueur neutre. Les chemins
-    avec espaces sont volontairement masqués jusqu'à un séparateur de diagnostic sûr.
-    """
-    if raison is None:
-        return None
-    propre = re.sub(
-        r"(?i)\b[a-z][a-z0-9+.-]*:(?://)?[^\n,;)]*",
-        "[emplacement masqué]",
-        raison,
-    )
-    propre = re.sub(
-        r"(?<![\w.])(?:\.\.?/|/|\\\\)[^\n,;)]*",
-        "[emplacement masqué]",
-        propre,
-    )
-    return propre if len(propre) <= 500 else propre[:499] + "…"
 
 
 @router.get("/documents", response_model=list[DocumentItem])
@@ -68,7 +45,7 @@ async def documents(request: Request) -> list[DocumentItem]:
         # Une clé de manifest hors convention ne peut pas devenir un segment d'URL public. Le
         # loader la garde dans ses alertes, mais la surface HTTP ne publie ni chemin ni identifiant
         # hostile sous prétexte de rendre les quarantaines visibles.
-        if len(doc_id) > DOC_ID_MAX or re.fullmatch(DOC_ID_PATTERN, doc_id) is None:
+        if not doc_id_auditable(doc_id):
             continue
         document = etat.corpus.documents.get(doc_id)
         entree = etat.corpus.manifest.get(doc_id)
@@ -87,7 +64,7 @@ async def documents(request: Request) -> list[DocumentItem]:
             edition=document.edition if document is not None else (entree.edition if entree else None),
             status="servi" if servi else "quarantaine",
             selectionnable=bool(servi and document.kind == "contrat"),
-            raison=None if servi else _raison_publiable(etat.corpus.quarantine.get(doc_id)),
+            raison=None if servi else raison_publiable(etat.corpus.quarantine.get(doc_id)),
             # `Document.source_url` d'abord (l'ingestion l'a validé), puis `data/{doc_id}/source.url`
             # qu'AD-7 rend canonique : l'ingestion PDF laisse le champ vide parce que le PDF n'est
             # pas committé, et le contrat n'aurait alors aucune source affichable. Les **deux**

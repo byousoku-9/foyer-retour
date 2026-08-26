@@ -70,6 +70,16 @@ def _first_error(exc: ValueError) -> str:
     return str(exc).splitlines()[0] if str(exc) else type(exc).__name__
 
 
+def _read_error(exc: OSError | UnicodeDecodeError | ValueError) -> str:
+    """Diagnostic de lecture sans publier le chemin attaché à un ``OSError``.
+
+    Les raisons de quarantaine remontent jusqu'aux surfaces HTTP d'audit. Un ``OSError`` inclut
+    souvent le chemin absolu ouvert ; son type suffit à distinguer l'échec, tandis que les erreurs
+    de schéma/JSON gardent leur premier message utile.
+    """
+    return type(exc).__name__ if isinstance(exc, OSError) else _first_error(exc)
+
+
 def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ungated: bool) -> tuple[str, list[str]]:
     """Règle du gate (AD-7) : (raison de quarantaine, alertes).
 
@@ -263,7 +273,7 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
             try:
                 overlay = json.loads(overlay_path.read_bytes())
             except (OSError, UnicodeDecodeError, ValueError) as exc:
-                return None, f"overlay illisible : {_first_error(exc)}"[:500], []
+                return None, f"overlay illisible : {_read_error(exc)}"[:500], []
             reason = _apply_overlay(raw_doc, overlay) if isinstance(raw_doc, dict) else ""
             if reason:
                 return None, reason, []
@@ -317,7 +327,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         if not isinstance(raw, dict):
             raise ValueError("un objet JSON {doc_id: entrée} est attendu")
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        return Corpus(quarantine={"*": f"manifest invalide : {_first_error(exc)}"[:500]})
+        return Corpus(quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:500]})
     corpus = Corpus()
     for doc_id in sorted(raw):
         try:

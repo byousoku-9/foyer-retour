@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -379,6 +380,48 @@ def test_overlay_unreadable_or_malformed(data: Path) -> None:
     m["lux-guide"]["overlay_hash"] = _sha(path)
     _write_manifest(data, m)
     assert "overlay : objet" in load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+
+
+def test_un_oserror_overlay_ne_publie_jamais_son_chemin(data: Path, monkeypatch: Any) -> None:
+    path = data / "lux-guide" / "typing.manual.json"
+    path.write_text(json.dumps({
+        "schema_version": "1", "doc_id": "lux-guide",
+        "blocks": {"lux-guide:farrivee:2": {
+            "kind": "definition", "defines": "arrivée", "kind_source": "manual"}},
+    }), "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["overlay_hash"] = _sha(path)
+    _write_manifest(data, m)
+    original = Path.read_bytes
+    lectures = 0
+
+    def lire(chemin: Path) -> bytes:
+        nonlocal lectures
+        if chemin == path:
+            lectures += 1
+            if lectures == 2:  # la première lecture calcule le hash, la seconde parse l'overlay
+                raise OSError(f"échec privé sur {chemin}")
+        return original(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", lire)
+    raison = load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    assert raison == "overlay illisible : OSError"
+    assert str(data) not in raison
+
+
+def test_un_oserror_manifest_ne_publie_jamais_son_chemin(data: Path, monkeypatch: Any) -> None:
+    manifest = data / "manifest.json"
+    original = Path.read_bytes
+
+    def lire(chemin: Path) -> bytes:
+        if chemin == manifest:
+            raise OSError(f"échec privé sur {chemin}")
+        return original(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", lire)
+    raison = load_corpus(data, allow_ungated=True).quarantine["*"]
+    assert raison == "manifest invalide : OSError"
+    assert str(data) not in raison
 
 
 # --- AD-8 : le bloquant statique est une propriété du **loader** (story 1.10, D6) ---------------

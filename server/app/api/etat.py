@@ -52,9 +52,36 @@ SCHEMAS_PUBLIABLES = ("https://", "http://")
 SOURCE_URL_MAX = 2048
 
 
-def _doc_id_auditable(doc_id: str) -> bool:
+def doc_id_auditable(doc_id: str) -> bool:
     """Le contrat public du segment ``doc_id``, appliqué avant toute composition de chemin."""
     return len(doc_id) <= DOC_ID_MAX and re.fullmatch(DOC_ID_PATTERN, doc_id) is not None
+
+
+def raison_publiable(raison: str | None) -> str | None:
+    """Diagnostic public borné, dont seuls les véritables emplacements sont masqués.
+
+    Cette décision est commune à ``/sante`` et ``/documents``. Une URI avec ``://``, un chemin
+    POSIX absolu/relatif, un chemin Windows avec lecteur ou un partage UNC est privé ; un deux-points
+    de diagnostic ou une barre oblique au milieu d'un motif de validation ne l'est pas.
+    """
+    if raison is None:
+        return None
+    propre = re.sub(
+        r"(?i)\b[a-z][a-z0-9+.-]*://[^\n,;)]*",
+        "[emplacement masqué]",
+        raison,
+    )
+    propre = re.sub(
+        r"(?<![\w])(?:[a-zA-Z]:[\\/]|\\\\)[^\n,;)]*",
+        "[emplacement masqué]",
+        propre,
+    )
+    propre = re.sub(
+        r"(?<![\w.])(?:\.\.?/|/)[^\n,;)]*",
+        "[emplacement masqué]",
+        propre,
+    )
+    return propre if len(propre) <= 500 else propre[:499] + "…"
 
 
 def url_publiable(brut: str | None) -> str | None:
@@ -210,9 +237,13 @@ def _alertes(corpus: Corpus) -> list[Alerte]:
     """Les alertes des documents servis (AD-7), et les documents que le chargement a écartés."""
     alertes = [Alerte(doc_id=doc_id, alerte=a)
                for doc_id in sorted(corpus.alerts) for a in corpus.alerts[doc_id]]
-    alertes += [Alerte(doc_id=doc_id, alerte="quarantaine", detail=raison)
-                for doc_id, raison in sorted(corpus.quarantine.items())
-                if _doc_id_auditable(doc_id)]
+    # Une clé non publiable ne devient jamais un segment d'URL ni un identifiant réfléchi. Sa
+    # quarantaine reste néanmoins visible comme propriété du service : la taire ferait précisément
+    # disparaître le défaut de manifest que cette alerte doit signaler.
+    alertes += [Alerte(doc_id=doc_id if doc_id_auditable(doc_id) else "*",
+                       alerte="quarantaine",
+                       detail=raison_publiable(raison) or "raison indisponible")
+                for doc_id, raison in sorted(corpus.quarantine.items())]
     return alertes
 
 
@@ -346,7 +377,7 @@ def _doc_ids_audit(corpus: Corpus) -> list[str]:
     ``_sources`` : ``Path(data_dir) / doc_id`` sortirait alors potentiellement de ``data_dir``.
     """
     connus = set(corpus.served) | set(corpus.quarantine)
-    return sorted(doc_id for doc_id in connus if _doc_id_auditable(doc_id))
+    return sorted(doc_id for doc_id in connus if doc_id_auditable(doc_id))
 
 
 def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
