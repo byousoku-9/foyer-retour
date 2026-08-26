@@ -3172,3 +3172,5 @@ Les fronts `/`, `/guide/` et `/sinistre/` répondent 200 ; les 16 assets locaux 
 chargement du guide puis arrêt réel du serveur, une soumission affiche `MODE INDISPONIBLE`,
 `ASSISTANT INDISPONIBLE`, « Rien n'a été cherché », zéro `.srcs` et une seule action visible
 « Consulter le guide en recherche simple ».
+
+Revue croisée autonome story 3.4 : 0 bloquants / 1 importants, convergé en 1 tour(s) ; convergée et vérifiée avant push.
