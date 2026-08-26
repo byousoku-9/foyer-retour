@@ -14,9 +14,9 @@ function reponse(corps, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(corps) };
 }
 
-function charger(pathname, repondre) {
+function charger(pathname, repondre, options = {}) {
   const document = new Document();
-  document.readyState = "complete";
+  document.readyState = options.readyState || "complete";
   const titre = document.createElement("h1");
   titre.id = "titre";
   document.body.appendChild(titre);
@@ -28,10 +28,8 @@ function charger(pathname, repondre) {
     appels.push(String(url));
     return Promise.resolve(repondre(String(url), fetchOptions));
   };
-  const window = {
-    location: new URL(ORIGINE + pathname), document, fetch,
-    __INGESTION_SANS_DEMARRAGE: true,
-  };
+  const window = { location: new URL(ORIGINE + pathname), document, fetch };
+  if (!options.demarrageAutomatique) window.__INGESTION_SANS_DEMARRAGE = true;
   const bac = {
     window, document, fetch, URL, console, JSON, String, Array, Object, Error, Promise,
     setTimeout, clearTimeout, AbortController,
@@ -75,7 +73,14 @@ const RAPPORT = {
   stats: {},
 };
 
-const SANTE = { thresholds: { client_abort_margin_s: 7 } };
+const SANTE = {
+  thresholds: { client_abort_margin_s: 7 },
+  alerts: [{ doc_id: "cg-mini", alerte: "gate_perime", detail: "" }],
+};
+
+function prochainTour() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 async function main() {
   const cas = {};
@@ -100,6 +105,7 @@ async function main() {
       busy: h.rapport.getAttribute("aria-busy"),
       borne_ms: h.INGESTION.fetchTimeoutMs(),
       scripts: h.rapport.querySelectorAll("script").length,
+      avertissements: h.rapport.querySelectorAll(".gate-alerte").map((p) => p.textContent),
     };
   }
   {
@@ -164,11 +170,49 @@ async function main() {
       absente: h.INGESTION.valeur(null), vide: h.INGESTION.valeur(""), faux: h.INGESTION.valeur(false),
       doc_id: h.INGESTION.docIdDepuisChemin("/sinistre/ingestion/cg-mini"),
       doc_id_invalide: h.INGESTION.docIdDepuisChemin("/sinistre/ingestion/a/b"),
+      timeout_max: h.INGESTION.timeoutDepuisSante({
+        thresholds: { client_abort_margin_s: Number.MAX_SAFE_INTEGER },
+      }),
     };
     cas.editions_page = ["juin 2017", "", null].map((edition) =>
       h.INGESTION.carteMetadonnees(Object.assign({}, SERVI, { edition })).textContent);
+    const urls = [
+      "https://example.invalid/cg.pdf", "http://localhost/admin", "http://127.0.0.1/x",
+      "http://192.168.1.10/x", "https://[::1]/x", "pas une url",
+    ];
+    cas.urls = urls.map((url) => h.INGESTION.urlHttp(url));
+    cas.liens_urls = urls.map((source_url) =>
+      h.INGESTION.carteMetadonnees(Object.assign({}, SERVI, { source_url }))
+        .querySelectorAll("a").length);
     cas.rapport_vide = h.INGESTION.carteRapport(SERVI, { doc_id: "cg-mini", checks: [], stats: {} })
       .textContent;
+  }
+  {
+    const rapportQuiLeve = { doc_id: "cg-mini", stats: {} };
+    Object.defineProperty(rapportQuiLeve, "checks", {
+      get() { throw new Error("rendu volontairement impossible"); },
+    });
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse(rapportQuiLeve);
+    });
+    await h.INGESTION.demarrer();
+    cas.rendu_en_echec = { texte: h.rapport.textContent, busy: h.rapport.getAttribute("aria-busy") };
+  }
+  for (const readyState of ["complete", "loading"]) {
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse(RAPPORT);
+    }, { demarrageAutomatique: true, readyState });
+    const avant = h.appels.length;
+    if (readyState === "loading") h.document.declencher("DOMContentLoaded");
+    await prochainTour();
+    cas["autostart_" + readyState] = {
+      avant, appels: h.appels.map((u) => u.replace(ORIGINE, "")),
+      busy: h.rapport.getAttribute("aria-busy"), texte: h.rapport.textContent,
+    };
   }
   for (const statut of ["illisible", "etranger"]) {
     const doc = Object.assign({}, QUARANTAINE, {

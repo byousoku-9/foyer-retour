@@ -75,9 +75,40 @@
     return n;
   }
 
+  function hotePrive(hostname) {
+    var hote = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+    if (!hote || hote === "localhost" || /\.localhost$/.test(hote) || hote === "::" || hote === "::1") {
+      return true;
+    }
+    if (/^(?:fc|fd|fe8|fe9|fea|feb)[0-9a-f:]*$/.test(hote)) return true;
+    var ipv4 = hote.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!ipv4) return false;
+    var octets = ipv4.slice(1).map(Number);
+    if (octets.some(function (n) { return n > 255; })) return true;
+    return octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
+      (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168) || octets[0] >= 224;
+  }
+
   function lienHttp(url) {
     var u = String(url || "");
-    return /^https?:\/\//i.test(u) ? u : null;
+    if (!u || u.length > 2048 || /\s/.test(u)) return null;
+    try {
+      var analyse = new URL(u);
+      if ((analyse.protocol !== "http:" && analyse.protocol !== "https:") ||
+          analyse.username || analyse.password || hotePrive(analyse.hostname)) return null;
+      return u;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function editionAvecReserve(edition) {
+    var libelle = (edition === undefined || edition === null)
+      ? "indisponible" : (edition === "" ? "valeur vide" : String(edition));
+    return libelle + " — actualité non vérifiée";
   }
 
   // Le contrat est déjà validé par `lireReponse()` sur ce que l'écran consomme ; ces gardes valent
@@ -139,8 +170,7 @@
         p.push(RAISONS_APPLICABILITE[status.applicable_reason]);
       }
     }
-    p.push("édition " + (status.edition ? status.edition : "non précisée") +
-      " — actualité non vérifiée");
+    p.push("édition " + editionAvecReserve(status.edition));
     return p.join(" · ");
   }
 
@@ -519,10 +549,7 @@
     }
     return noeud("ul", "audit-liste", null, connus.map(function (d) {
       var statut = d.status === "quarantaine" ? "quarantaine" : "servi";
-      var edition = (d.edition === undefined || d.edition === null || d.edition === "")
-        ? "non précisée" : String(d.edition);
-      var meta = "statut effectif : " + statut + " · édition " + edition +
-        " (actualité non vérifiée)";
+      var meta = "statut effectif : " + statut + " · édition " + editionAvecReserve(d.edition);
       var enfants = [
         noeud("span", "audit-titre", String(d.title || d.doc_id)),
         noeud("span", "audit-meta", meta)
@@ -558,8 +585,7 @@
       // AD-4 : l'édition s'affiche **avec sa réserve**, jamais comme un statut vert. `edition` est
       // un `str` sans `min_length` : vide, elle faisait disparaître la réserve avec elle (revue
       // 1.9), alors que c'est justement là qu'on sait le moins de quoi on parle.
-      var edition = " — édition " + (d.edition ? String(d.edition) : "non précisée") +
-        " (actualité non vérifiée)";
+      var edition = " — édition " + editionAvecReserve(d.edition);
       return { valeur: String(d.doc_id), texte: titre + edition };
     });
     var vue = {

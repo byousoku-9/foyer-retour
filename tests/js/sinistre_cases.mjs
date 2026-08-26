@@ -409,6 +409,21 @@ async function main() {
     cas.formulaire = SINISTRE.vueFormulaire(DOCUMENTS);
     cas.selectionnable_prod = DOCUMENTS.filter((d) => d.kind === "contrat" && d.status === "servi")
       .map((d) => ({ doc_id: d.doc_id, selectionnable: d.selectionnable }));
+    cas.selectionnable_compat = SINISTRE.vueFormulaire([
+      { doc_id: "ancien-servi", title: "Ancien servi", kind: "contrat", status: "servi" },
+      { doc_id: "ancienne-quarantaine", title: "Ancienne quarantaine", kind: "contrat",
+        status: "quarantaine" },
+    ]).options.map((o) => o.valeur);
+    cas.sources_non_publiques = SINISTRE.vueFormulaire([
+      { doc_id: "public", title: "Public", kind: "contrat", status: "servi",
+        selectionnable: true, source_url: "https://example.invalid/cg.pdf" },
+      { doc_id: "localhost", title: "Local", kind: "contrat", status: "servi",
+        selectionnable: true, source_url: "http://localhost/admin" },
+      { doc_id: "prive", title: "Privé", kind: "contrat", status: "servi",
+        selectionnable: true, source_url: "http://192.168.1.8/cg.pdf" },
+      { doc_id: "malforme", title: "Malformé", kind: "contrat", status: "servi",
+        selectionnable: true, source_url: "https://exa mple.invalid/cg.pdf" },
+    ]).sources;
     cas.formulaire_sans_contrat = SINISTRE.vueFormulaire(
       DOCUMENTS.filter((d) => d.kind !== "contrat"));
     cas.formulaire_vide = SINISTRE.vueFormulaire([]);

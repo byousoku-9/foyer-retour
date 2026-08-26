@@ -93,6 +93,8 @@ def test_audit_affiche_checks_gate_empreintes_et_json_dans_lordre(
         assert fait in audit["texte"]
     assert audit["brut"] == "/api/v1/documents/cg-mini/report"
     assert audit["busy"] == "false"
+    assert audit["avertissements"] == [
+        "Ce gate est périmé : il ne valide pas le code actuellement servi."]
 
 
 def test_audit_rend_les_chaines_hostiles_comme_texte_et_filtre_la_source(
@@ -120,6 +122,7 @@ def test_audit_distingue_absence_liste_vide_et_valeur_vide(
     assert cas_ingestion["valeurs"] == {
         "absente": "indisponible", "vide": "valeur vide", "faux": "non",
         "doc_id": "cg-mini", "doc_id_invalide": None,
+        "timeout_max": 2_147_483_647,
     }
 
 
@@ -150,14 +153,43 @@ def test_audit_reserve_lactualite_pour_edition_valeur_vide_ou_absente(
     editions = cas_ingestion["editions_page"]
     assert len(editions) == 3
     assert "juin 2017 — actualité non vérifiée" in editions[0]
-    assert all("non précisée — actualité non vérifiée" in texte for texte in editions[1:])
+    assert "valeur vide — actualité non vérifiée" in editions[1]
+    assert "indisponible — actualité non vérifiée" in editions[2]
 
 
-def test_quarantaine_qualifie_les_faits_declares_non_corrobores(
+def test_quarantaine_ne_presente_pas_le_manifest_comme_validation_courante(
         cas_ingestion: dict[str, Any]) -> None:
     texte = cas_ingestion["quarantaine"]["texte"]
-    assert "faits déclarés par le manifest" in texte
-    assert "loader ne les a pas corroborés" in texte
+    assert "manifest observé au démarrage" in texte
+    assert "ne constituent pas une validation courante" in texte
+    assert "loader ne les a pas corroborés" not in texte
+
+
+def test_audit_ne_materialise_aucune_url_locale_privee_ou_malformee(
+        cas_ingestion: dict[str, Any]) -> None:
+    assert cas_ingestion["urls"] == ["https://example.invalid/cg.pdf", None, None, None, None, None]
+    assert cas_ingestion["liens_urls"] == [1, 0, 0, 0, 0, 0]
+
+
+def test_audit_distingue_echec_de_rendu_et_echec_de_liste(
+        cas_ingestion: dict[str, Any]) -> None:
+    rendu = cas_ingestion["rendu_en_echec"]
+    assert "données ont été chargées" in rendu["texte"]
+    assert "liste des documents" not in rendu["texte"]
+    assert rendu["busy"] == "false"
+
+
+def test_page_audit_demarre_reellement_immediate_ou_sur_domcontentloaded(
+        cas_ingestion: dict[str, Any]) -> None:
+    immediat = cas_ingestion["autostart_complete"]
+    differe = cas_ingestion["autostart_loading"]
+    assert immediat["avant"] == 1
+    assert differe["avant"] == 0
+    attendus = ["/api/v1/sante", "/api/v1/documents", "/api/v1/documents/cg-mini/report"]
+    assert immediat["appels"] == attendus
+    assert differe["appels"] == attendus
+    assert immediat["busy"] == differe["busy"] == "false"
+    assert "premierinfo" in immediat["texte"] and "premierinfo" in differe["texte"]
 
 
 def test_audit_borne_une_requete_sans_fin_et_quitte_letat_charge(
@@ -295,7 +327,7 @@ def test_le_selecteur_ne_propose_que_les_contrats(cas: dict[str, Any]) -> None:
     # est vide (`Document.edition` est un `str` sans `min_length`), et c'est justement là qu'on sait
     # le moins de quoi on parle (revue 1.9).
     assert all("actualité non vérifiée" in o["texte"] for o in options)
-    assert "édition non précisée" in options[1]["texte"]
+    assert "édition valeur vide" in options[1]["texte"]
     assert cas["formulaire"]["actif"] is True
     assert cas["formulaire"]["message"] is None
 
@@ -305,6 +337,21 @@ def test_les_fixtures_exercent_la_branche_selectionnable_de_production(cas: dict
         {"doc_id": "cg-mini", "selectionnable": True},
         {"doc_id": "cg-second", "selectionnable": True},
         {"doc_id": "cg-privee", "selectionnable": True},
+    ]
+
+
+def test_compatibilite_selectionnable_absent_ne_sert_jamais_une_quarantaine(
+        cas: dict[str, Any]) -> None:
+    assert cas["selectionnable_compat"] == ["ancien-servi"]
+
+
+def test_la_defense_web_refuse_les_sources_locales_privees_et_malformees(
+        cas: dict[str, Any]) -> None:
+    assert cas["sources_non_publiques"] == [
+        {"doc_id": "public", "url": "https://example.invalid/cg.pdf"},
+        {"doc_id": "localhost", "url": None},
+        {"doc_id": "prive", "url": None},
+        {"doc_id": "malforme", "url": None},
     ]
 
 
@@ -367,8 +414,8 @@ def test_la_liste_daudit_montre_la_quarantaine_sans_la_rendre_soumettable(
     # AD-4 : la réserve accompagne la valeur, la chaîne vide et `null` dans la liste elle-même.
     assert all("actualité non vérifiée" in a["texte"] for a in audits)
     assert "édition juin 2017" in par_href["/sinistre/ingestion/cg-mini"]
-    assert "édition non précisée" in par_href["/sinistre/ingestion/cg-second"]
-    assert "édition non précisée" in par_href["/sinistre/ingestion/cg-privee"]
+    assert "édition valeur vide" in par_href["/sinistre/ingestion/cg-second"]
+    assert "édition indisponible" in par_href["/sinistre/ingestion/cg-privee"]
 
 
 def test_chaque_contrat_servi_garde_selection_et_lien_de_rapport_exact(

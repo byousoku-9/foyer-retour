@@ -13,7 +13,7 @@
   function timeoutDepuisSante(sante) {
     var marge = sante && sante.thresholds && sante.thresholds.client_abort_margin_s;
     return (typeof marge === "number" && isFinite(marge) && marge > 0)
-      ? Math.round(marge * 1000) : FETCH_TIMEOUT_MS_REPLI;
+      ? Math.min(Math.round(marge * 1000), 2147483647) : FETCH_TIMEOUT_MS_REPLI;
   }
 
   function timeoutOption(options) {
@@ -36,9 +36,34 @@
     return String(v);
   }
 
+  function hotePrive(hostname) {
+    var hote = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+    if (!hote || hote === "localhost" || /\.localhost$/.test(hote) || hote === "::" || hote === "::1") {
+      return true;
+    }
+    if (/^(?:fc|fd|fe8|fe9|fea|feb)[0-9a-f:]*$/.test(hote)) return true;
+    var ipv4 = hote.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!ipv4) return false;
+    var octets = ipv4.slice(1).map(Number);
+    if (octets.some(function (n) { return n > 255; })) return true;
+    return octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
+      (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168) || octets[0] >= 224;
+  }
+
   function urlHttp(v) {
     var u = String(v || "");
-    return /^https?:\/\//i.test(u) ? u : null;
+    if (!u || u.length > 2048 || /\s/.test(u)) return null;
+    try {
+      var url = new URL(u);
+      if ((url.protocol !== "http:" && url.protocol !== "https:") ||
+          url.username || url.password || hotePrive(url.hostname)) return null;
+      return u;
+    } catch (_) {
+      return null;
+    }
   }
 
   function docIdDepuisChemin(pathname) {
@@ -60,8 +85,23 @@
   }
 
   function editionAvecReserve(v) {
-    var edition = (v === undefined || v === null || v === "") ? "non précisée" : String(v);
+    var edition = (v === undefined || v === null)
+      ? "indisponible" : (v === "" ? "valeur vide" : String(v));
     return edition + " — actualité non vérifiée";
+  }
+
+  var LIBELLES_ALERTES_GATE = {
+    gate_perime: "Ce gate est périmé : il ne valide pas le code actuellement servi.",
+    sans_gate: "Aucun gate courant ne valide ce document.",
+    ungated_refuse_en_production: "Ce document sans gate courant est refusé en production."
+  };
+
+  function alertesGate(sante, docId) {
+    var alertes = sante && Array.isArray(sante.alerts) ? sante.alerts : [];
+    return alertes.filter(function (alerte) {
+      return alerte && alerte.doc_id === docId &&
+        Object.prototype.hasOwnProperty.call(LIBELLES_ALERTES_GATE, alerte.alerte);
+    });
   }
 
   function carteMetadonnees(documentAudit) {
@@ -75,9 +115,9 @@
       section.appendChild(element("p", "Raison : " + valeur(d.raison), "raison"));
       section.appendChild(element(
         "p",
-        "Les empreintes et le gate ci-dessous sont des faits déclarés par le manifest ; " +
-          "le loader ne les a pas corroborés.",
-        "manifest-non-corrobore"));
+        "Les empreintes et le gate ci-dessous décrivent le manifest observé au démarrage. " +
+          "Ils ne constituent pas une validation courante tant que ce document reste en quarantaine.",
+        "avertissement manifest-avertissement"));
     }
     var dl = element("dl");
     ligne(dl, "Identifiant", d.doc_id);
@@ -104,9 +144,13 @@
     return section;
   }
 
-  function carteGate(gate) {
+  function carteGate(gate, alertes) {
     var section = element("section", null, "carte gate");
     section.appendChild(element("h2", "Gate"));
+    (Array.isArray(alertes) ? alertes : []).forEach(function (alerte) {
+      section.appendChild(element(
+        "p", LIBELLES_ALERTES_GATE[alerte.alerte], "avertissement gate-alerte"));
+    });
     if (!gate || typeof gate !== "object") {
       section.appendChild(element("p", "Gate indisponible", "indisponible"));
       return section;
@@ -174,14 +218,14 @@
     return section;
   }
 
-  function rendre(documentAudit, rapport) {
+  function rendre(documentAudit, rapport, alertes) {
     var hote = document.getElementById("rapport");
     if (!hote) return;
     hote.innerHTML = "";
     var titre = document.getElementById("titre");
     if (titre) titre.textContent = "Rapport d'ingestion — " + String(documentAudit.title || documentAudit.doc_id);
     hote.appendChild(carteMetadonnees(documentAudit));
-    hote.appendChild(carteGate(documentAudit.gate));
+    hote.appendChild(carteGate(documentAudit.gate, alertes));
     hote.appendChild(carteRapport(documentAudit, rapport));
     hote.setAttribute("aria-busy", "false");
   }
@@ -224,29 +268,34 @@
     });
   }
 
-  function chargerAudit(docId, timeoutMs) {
+  function chargerAudit(docId, timeoutMs, sante) {
     dernierTimeoutMs = timeoutMs;
     return json("/api/v1/documents", timeoutMs).then(function (documents) {
-      if (!Array.isArray(documents)) throw new Error("documents");
+      if (!Array.isArray(documents)) {
+        rendreErreur("La liste des documents n'a pas pu être chargée.");
+        return null;
+      }
       var documentAudit = documents.filter(function (d) { return d && d.doc_id === docId; })[0];
       if (!documentAudit) {
         rendreErreur("Ce document n'est pas connu du loader.");
         return null;
       }
+      var alertes = alertesGate(sante, docId);
       if (documentAudit.report_status !== "disponible") {
-        rendre(documentAudit, null);
+        rendre(documentAudit, null, alertes);
         return null;
       }
       return json("/api/v1/documents/" + encodeURIComponent(docId) + "/report", timeoutMs)
-        .then(function (rapport) { rendre(documentAudit, rapport); }, function () {
+        .then(function (rapport) { rendre(documentAudit, rapport, alertes); }, function () {
           // Le statut chargé au boot reste l'autorité ; une erreur HTTP n'est pas transformée en
           // faux rapport vide et aucun message potentiellement hostile du serveur n'est réfléchi.
           rendreErreur("Le rapport validé au démarrage n'a pas pu être consulté.");
         });
-    }).catch(function () {
-      // Le catch terminal couvre aussi une exception levée dans le gestionnaire de succès — en
-      // particulier un 200 qui ne porte pas le tableau contractuel.
+    }, function () {
       rendreErreur("La liste des documents n'a pas pu être chargée.");
+      return null;
+    }).catch(function () {
+      rendreErreur("Les données ont été chargées, mais le rapport n'a pas pu être affiché.");
     });
   }
 
@@ -257,11 +306,11 @@
       return Promise.resolve();
     }
     var injecte = timeoutOption(options);
-    if (injecte !== null) return chargerAudit(docId, injecte);
+    if (injecte !== null) return chargerAudit(docId, injecte, null);
     return json("/api/v1/sante", FETCH_TIMEOUT_MS_REPLI).then(function (sante) {
-      return chargerAudit(docId, timeoutDepuisSante(sante));
+      return chargerAudit(docId, timeoutDepuisSante(sante), sante);
     }, function () {
-      return chargerAudit(docId, FETCH_TIMEOUT_MS_REPLI);
+      return chargerAudit(docId, FETCH_TIMEOUT_MS_REPLI, null);
     });
   }
 
@@ -272,9 +321,11 @@
     docIdDepuisChemin: docIdDepuisChemin,
     carteMetadonnees: carteMetadonnees,
     carteGate: carteGate,
+    alertesGate: alertesGate,
     carteRapport: carteRapport,
     rendre: rendre,
     demarrer: demarrer,
+    timeoutDepuisSante: timeoutDepuisSante,
     apiBase: function () { return API_BASE; },
     fetchTimeoutMs: function () { return dernierTimeoutMs; }
   };
