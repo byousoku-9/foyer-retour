@@ -170,7 +170,9 @@ class Settings(BaseSettings):
     # leurs line_id précis — jamais de coordonnées. La route borne ces listes, puis le renderer
     # rasterise hors event loop, sous concurrence/file/pixels bornés, et garde seulement ce nombre
     # de PNG. La résolution est celle du PNG rendu, jamais celle de l'ingestion/OCR (`ocr_dpi`).
-    pdf_highlight_max_lines: int = Field(24, ge=1)
+    # `[HYPOTHÈSE]` : une quote de 250 caractères atteint 34 lignes dans le corpus servi ; 40 les
+    # couvre avec marge. Le coût de rasterisation reste borné séparément par `pdf_render_max_pixels`.
+    pdf_highlight_max_lines: int = Field(40, ge=1)
     pdf_highlight_max_blocks: int = Field(10, ge=1)
     pdf_render_concurrency: int = Field(2, ge=1)
     pdf_render_cache_pages: int = Field(32, ge=1)

@@ -131,6 +131,35 @@ def test_blocks_seuls_surlignent_deux_blocs_compatibles(tmp_path: Path) -> None:
         assert _pixel(response.content, 60, 107) != (255, 255, 255)
 
 
+def test_bloc_de_trente_quatre_lignes_legitimes_est_entierement_surligne(tmp_path: Path) -> None:
+    document = _document()
+    lines = [
+        Line(
+            line_id=f"p1:1:l{index}",
+            text=f"ligne {index}",
+            bbox=[30, 10 + (index - 1) * 5, 120, 13 + (index - 1) * 5],
+        )
+        for index in range(1, 35)
+    ]
+    document.blocks[0].lines = lines
+    document.blocks[0].text = "\n".join(line.text for line in lines)
+    settings = Settings(_env_file=None)
+    renderer = _renderer(max_lines=settings.pdf_highlight_max_lines)
+
+    with _client(tmp_path, document=document, renderer=renderer) as client:
+        response = client.get(
+            f"/api/v1/documents/{DOC_ID}/pages/1.png",
+            params=[("blocks", BLOCK_1), *(("line_ids", line.line_id) for line in lines)],
+        )
+
+    assert response.status_code == 200
+    assert response.headers["x-highlighted-lines"] == "34"
+    assert all(
+        _pixel(response.content, 60, 11 + (index - 1) * 5) != (255, 255, 255)
+        for index in range(1, 35)
+    )
+
+
 def test_citation_explicitement_sans_lignes_ne_surligne_pas_le_bloc(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         response = client.get(

@@ -48,7 +48,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
     assert s.verifier_sinistre_max_tokens == 3072
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
-    assert s.pdf_highlight_max_lines == 24 and s.pdf_highlight_max_blocks == 10
+    assert s.pdf_highlight_max_lines == 40 and s.pdf_highlight_max_blocks == 10
     assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0
     assert s.pdf_render_cache_pages == 32 and s.pdf_render_dpi == 144
     assert s.pdf_render_max_pixels == 16_000_000
