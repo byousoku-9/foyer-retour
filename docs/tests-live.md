@@ -2743,3 +2743,9 @@ appliqué : les deux échecs se reproduisent avec la baseline déterministe et n
 ajoutés. Le contrôle Chrome headless final à 390 px rend `/`, `/guide/` et `/sinistre/` avec
 `documentElement.scrollWidth = clientWidth = 390` et aucune ressource HTTP en erreur ; les routes et
 leurs actifs principaux répondent 200.
+
+Vérification finale : `ANTHROPIC_API_KEY= uv run pytest -q` rend **2 151 passed** ; les 10 contrôles
+de digest, Ruff et `git diff --check` sont verts. Les gates verticaux ont été réécrits sur les digests
+finaux : guide 1/1 à 0,0303 €, contrat 1/1 à 0,0221 €, tous deux `countersigned=false`. Un premier
+appel du gate contrat a été rejeté sans écrire le manifest (aucune clause survivante sous lecture
+tronquée) ; le rejeu officiel suivant est vert. Aucun push n’a été effectué.
