@@ -2759,7 +2759,7 @@ Revue croisée autonome story 2.6 : 0 bloquants / 3 importants, convergé en 1 t
 
 Le service local réel a été redémarré sur les artefacts AXA régénérés après la revue : 7 blocs
 `table`, 1 400 blocs au total, la prose territoriale qui suit la TdM de nouveau citable, et empreinte
-finale `5ebd311890cc…`. Les routes `/`, `/guide/`, `/sinistre/` et `/api/v1/sante` répondent 200 ;
+finale `a47f41ee2cdd…` après reprise indépendante. Les routes `/`, `/guide/`, `/sinistre/` et `/api/v1/sante` répondent 200 ;
 les deux documents sont servis et les seuils d’ingestion, dont `foreign_signal_min=3`, sont publiés.
 Le contrôle Chrome headless à 390 px et la coupure serveur restent ceux du même commit web, inchangé
 par la revue ; après celle-ci, les routes finales et leurs liens internes principaux ont été rejoués
@@ -2771,10 +2771,9 @@ compte aussi ou seulement les appareils ? » — en 200 à 0,0428 €, avec `p37
 emprunte `outils`, fait exactement deux appels de navigation, coûte 0,0261 € et cite `farrivee`.
 Aucun échec du socle n’est conservé derrière un rejeu reformulé.
 
-Les gates officiels ont ensuite été écrits sur l’empreinte et le `pipeline_digest` finaux : guide
-1/1 à 0,0305 € ; le premier run contrat s’est arrêté honnêtement sans toucher le manifest après une
-lecture tronquée sans clause survivante, puis le rejeu officiel est vert 1/1 à 0,0210 €. Les deux
-gates restent volontairement `countersigned=false`. La suite hermétique finale rend **2 227 tests
+Les gates officiels ont ensuite été réécrits sur l’empreinte et le `pipeline_digest` finaux : guide
+1/1 à 0,0352 € et contrat 1/1 à 0,0665 €. Les deux gates restent volontairement
+`countersigned=false`. La suite hermétique finale rend **2 239 tests
 verts** ; les contrôles de digest, Ruff et `git diff --check` sont verts.
 
 Preuve OCR réelle, distincte du double de test : PyMuPDF 1.28.2 et Tesseract 5.5.1 ont traité une
@@ -2782,6 +2781,14 @@ page réellement rasterisée avec le modèle français officiel chargé dans un 
 `get_textpage_ocr(language="fra", dpi=300, full=True)` a extrait « Dégât des eaux : déclaration sous
 cinq jours. ». Le modèle `fra` n’est pas installé durablement sur le poste : le README garde donc ce
 prérequis pour une ingestion opérée ailleurs.
+
+### Stabilité des identifiants lors de la migration 3.1
+
+La comparaison du `document.json` committé à la révision de base `b8c62b7` avec le premier artefact
+3.1 régénéré mesure 1 457 → 1 400 blocs : **57 `block_id` de l’ancien artefact absents** et
+**31 identifiants conservés dont le texte a changé**. Une seconde ingestion idempotente compare le
+fichier à lui-même et remet mécaniquement `ids_disparus` à zéro ; cette preuve versionnée conserve
+donc l’événement d’AD-2 que le rapport courant ne peut plus reconstruire après stabilisation.
 
 ### Campagne B — exactement six cas nouveaux
 
@@ -2800,3 +2807,18 @@ des limites réelles mais appartiennent au typage, à la portée et aux évals f
 La revue a corrigé des règles générales de citabilité, géométrie, TdM, OCR et diagnostic ; aucun
 prompt, terme de dictionnaire, identifiant de document, page ou table AD-6 n’a été spécialisé pour
 une question de cette campagne.
+
+### Reprise de la revue indépendante — service final
+
+Le socle A a été relancé sur le service réel après retrait du nœud vide `:tdm` du sommaire. Les
+attentes actives sont obtenues, notamment A6 en 200 avec `p34:12`, A15 avec `p40:11`, et A16 avec
+`p34:12` + `p46:1`. Les routes `/`, `/guide/`, `/sinistre/`, `/api/v1/sante` et tous les assets
+référencés répondent 200. Le rejeu B rend : B1 `p37:14` (0,0212 €), B2 `p65:5` + `p13:6`
+(0,0260 €), B3 `p41:10` (0,0385 €), B4 `p40:11` (0,0211 €), B5 `p38:4` + `p50:2`
+(0,0235 €), B6 `p34:12` + `p46:1` (0,0247 €).
+
+Deux premières formulations plus longues — une variante d’A6 et le premier rejeu B3 — ont produit
+un 503 `budget_exceeded` respectivement à 0,0325 € et 0,0377 €, puis les cas exacts ont repassé sans
+changement. Ce n’est pas attribué au parsing : c’est la reproduction du majorant pessimiste et de la
+politique sous lecture tronquée déjà routés vers 4.1. Le journal conserve ces deux sorties au lieu de
+présenter la campagne comme parfaitement stable.
