@@ -3214,8 +3214,11 @@ et de la trace ; il ne permet pas de reconstituer rétroactivement le coût four
 
 ### Campagne 3 — Step 4 Claude, `e5065d7c…` → `43198dae…`
 
-L'inclusion explicite de `server/app/domain` dans `PIPELINE_LAYERS`, imposée par D1, déplace le
-digest vers `43198dae1fddd717dadb4526c4cbf18655c48d51f9cede193c2cf595b83753aa` ; le
+À cette étape, la définition de `pipeline_digest` est alignée sur ses cinq couches
+`steps,pipelines,corpus,domain,llm`. Le nouvel instantané complet — qui inclut aussi les autres
+correctifs présents dans ces couches et ne permet donc pas d'attribuer historiquement le delta à
+`domain` seul — vaut
+`43198dae1fddd717dadb4526c4cbf18655c48d51f9cede193c2cf595b83753aa` ; le
 `prompts_digest` reste
 `4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45`. Après les tests hors
 réseau, les commandes autorisées ont été lancées exactement une fois chacune, dans cet ordre, sans
