@@ -3175,24 +3175,59 @@ chargement du guide puis arrêt réel du serveur, une soumission affiche `MODE I
 
 Revue croisée autonome story 3.4 : 0 bloquants / 1 importants, convergé en 1 tour(s) ; convergée et vérifiée avant push.
 
-## Story 3.5 — recertification après la revue Claude 1 (26/08/2026)
+## Story 3.5 — trois campagnes de recertification (26/08/2026)
 
-La correction du loader change le `pipeline_digest`, de `8583d2fc…` à `e5065d7c…`. Aucun Batch,
-aucune fixture et aucun artefact d'ingestion n'ont été modifiés. Les gates ont été lancés
-séquentiellement avec le runner standard, `--profile vertical --max-cost 1.0`.
+Les trois campagnes ci-dessous ont utilisé le runner standard séquentiel. Aucun Batch, prompt,
+fixture ni typage Anthropic n'a été modifié. Tous les objets `gate` restent
+`countersigned=false` : ces preuves techniques ne valent pas contresignature humaine.
+
+### Campagne 1 — livraison initiale, `00bbef5b…` → `8583d2fc…`
+
+Le code livré déplace le digest de
+`00bbef5ba2a45bda562b15d1b64fe0df1fe8335291cbd55fb65f58eb15c90e4b` à
+`8583d2fce8e768265af444872be0464aaa4e7d0d4f598e164c4abade91ca322a`.
+
+- `lux-guide` : `g-luxtrust-prix`, 1/1 `bonne_reponse`, 0,0705 EUR, premier essai vert ;
+- `axa-lu-optihome-2017` : `s-bougie-canape`, 1/1 `bonne_reponse`, 0,0722 EUR, premier essai vert.
+
+### Campagne 2 — revue Claude 1, `8583d2fc…` → `e5065d7c…`
+
+La correction du loader déplace le digest vers
+`e5065d7ca942fd6326e991e3936b9e76290dddaba14fea72abeaaca3513bba0d`. Les gates ont été lancés
+avec `--profile vertical --max-cost 1.0`.
 
 - `lux-guide` passe au premier essai : `g-luxtrust-prix`, 1/1 `bonne_reponse`, 0,0350 EUR,
   15,5 s ; gate écrit à `2026-08-26T19:38:11Z`.
-- Le premier essai d'`axa-lu-optihome-2017` échoue sans écrire le manifest : 0,0000 EUR reporté,
-  aucune clause ne survit à la vérification après une lecture tronquée à 6 nœuds, 30 blocs et
-  3 500 tokens. Le workflow s'arrête alors, sans répétition automatique.
+- Le premier essai d'`axa-lu-optihome-2017` échoue sans écrire le manifest : le runner historique
+  reporte 0,0000 EUR, mais le coût fournisseur réellement engagé est **inconnu** ; aucune clause ne
+  survit à la vérification après une lecture tronquée à 6 nœuds, 30 blocs et 3 500 tokens. Le
+  workflow s'arrête alors, sans répétition automatique.
 - Après autorisation humaine explicite d'un second et dernier essai, AXA passe :
   `s-bougie-canape`, 1/1 `bonne_reponse`, 0,0265 EUR, 13,2 s ; gate écrit à
   `2026-08-26T19:41:31Z`. Aucun troisième essai n'est lancé.
 
-Les deux gates portent `pipeline_digest=e5065d7ca942fd6326e991e3936b9e76290dddaba14fea72abeaaca3513bba0d`
-et le `prompts_digest` inchangé `4b8a3fce…`; ils restent `countersigned=false`. Le succès final AXA
-ne referme pas le risque stochastique : le même cas, le même code et le même plafond ont produit
-d'abord une lecture tronquée sans clause survivante, puis un succès. Cette dispersion est conservée
-comme fait de recertification, sans correctif de retrieval, de seuil, de fixture ou de prompt dans
-la story 3.5.
+Le succès final AXA ne referme pas le risque stochastique : le même cas, le même code et le même
+plafond ont produit d'abord une lecture tronquée sans clause survivante, puis un succès. Le correctif
+B10 de la campagne suivante conserve désormais, lors d'une `PipelineError`, le coût connu du budget
+et de la trace ; il ne permet pas de reconstituer rétroactivement le coût fournisseur de cet ancien
+échec.
+
+### Campagne 3 — Step 4 Claude, `e5065d7c…` → `43198dae…`
+
+L'inclusion explicite de `server/app/domain` dans `PIPELINE_LAYERS`, imposée par D1, déplace le
+digest vers `43198dae1fddd717dadb4526c4cbf18655c48d51f9cede193c2cf595b83753aa` ; le
+`prompts_digest` reste
+`4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45`. Après les tests hors
+réseau, les commandes autorisées ont été lancées exactement une fois chacune, dans cet ordre, sans
+retry :
+
+- `uv run python -m server.evals.run --gate lux-guide --profile vertical --max-cost 1.0` :
+  `g-luxtrust-prix`, 1/1 `bonne_reponse`, 0,0711 EUR, 15,339 s ; gate écrit à
+  `2026-08-26T20:52:14Z`, `cases_hash=9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791` ;
+- `uv run python -m server.evals.run --gate axa-lu-optihome-2017 --profile vertical --max-cost 1.0` :
+  `s-bougie-canape`, 1/1 `bonne_reponse`, 0,0936 EUR, 22,829 s ; gate écrit à
+  `2026-08-26T20:52:44Z`, `cases_hash=b02293a7fe68ddb94a4c0c54922cb0542ffa15d65cf959bf9ef0dde3ac82c3e9`.
+
+Les deux essais passent et écrivent le manifest au digest courant. Cette nouvelle réussite AXA
+n'annule pas la fragilité stochastique observée pendant la campagne 2 ; elle ajoute une observation
+verte, sans prouver que la dispersion a disparu.
