@@ -2822,3 +2822,5 @@ un 503 `budget_exceeded` respectivement à 0,0325 € et 0,0377 €, puis les ca
 changement. Ce n’est pas attribué au parsing : c’est la reproduction du majorant pessimiste et de la
 politique sous lecture tronquée déjà routés vers 4.1. Le journal conserve ces deux sorties au lieu de
 présenter la campagne comme parfaitement stable.
+
+Revue croisée autonome story 3.1 : 2 bloquants / 3 importants, convergé en 1 tour(s) ; convergée et vérifiée avant push.
