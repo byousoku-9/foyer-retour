@@ -2944,3 +2944,5 @@ mot pour mot dans `deferred-work.md` avec `target_story` :
   parle d'une franchise et d'un plafond, je retiens quoi pour annoncer un montant à l'assuré ? » →
   segment factuel « Les vélos ne figurent pas dans la liste des exclusions… » déduit à tort une
   absence depuis une clause isolée.
+
+Revue croisée autonome story 3.2 : 1 bloquants / 4 importants, convergé en 2 tour(s) ; convergée et vérifiée avant push.
