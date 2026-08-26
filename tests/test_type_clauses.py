@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from typing import Any
 
@@ -86,7 +87,7 @@ def test_t1_t2_resolution_et_scopes_sont_du_code() -> None:
     assert exclusion.scope_node_id == "contrat:a3.1" and exclusion.scope_node_ids == ["contrat:a3.1"]
     assert exclusion.unresolved_refs == ["99"]
     assert exclusion.relation.exception_de == "contrat:p2:1"  # T1 conservé malgré le désaccord T2
-    assert typed.node_scope_kind("contrat:a3") == "extension"
+    assert typed.node_scope_kind("contrat:a3") == "commun"
     assert typed.node_scope_kind("contrat:a3.1") == "special"  # signal enfant le plus proche prioritaire
     assert [(b.block_id, b.text, b.lines, b.bbox) for b in typed.blocks] == \
         [(b.block_id, b.text, b.lines, b.bbox) for b in doc.blocks]
@@ -150,6 +151,37 @@ def test_scope_explicite_rend_la_cible_et_ses_descendants_hors_socle() -> None:
     assert typed.node_scope_kind("contrat:a3.1") == "special"
     assert typed.node_scope_kind("contrat:a3.1.1") == "special"
     assert typed.node_scope_kind("contrat:a3") == "commun"
+
+
+def test_une_garantie_confirmee_referant_une_garantie_externe_devient_extension() -> None:
+    """T4 : seuls des liens résolus entre garanties confirmées prouvent la branche hors socle."""
+    doc = miniature()
+    first = {block.block_id: label(block.block_id, "autre") for block in doc.blocks}
+    first["contrat:p1:1"] = label("contrat:p1:1", "garantie")
+    first["contrat:p3:1"] = label("contrat:p3:1", "garantie", article_refs=["1"])
+    second = {
+        "contrat:p1:1": label("contrat:p1:1", "garantie"),
+        "contrat:p3:1": label("contrat:p3:1", "garantie"),
+    }
+    typed = tc.assemble(doc, first, second, settings())
+    assert typed.node_scope_kind("contrat:a3") == "extension"
+    assert typed.node_scope_kind("contrat:a3.1") == "extension"
+
+    source_unconfirmed = tc.assemble(
+        doc, first, second | {"contrat:p3:1": label("contrat:p3:1", "condition")}, settings(),
+    )
+    assert source_unconfirmed.node_scope_kind("contrat:a3") == "commun"
+
+    target_unconfirmed = tc.assemble(
+        doc, first, second | {"contrat:p1:1": label("contrat:p1:1", "condition")}, settings(),
+    )
+    assert target_unconfirmed.node_scope_kind("contrat:a3") == "commun"
+
+    # Même graphe, mais cible non garantie : aucune promotion inventée depuis une simple ref.
+    first["contrat:p1:1"] = label("contrat:p1:1", "definition", defines="garantie")
+    second["contrat:p1:1"] = label("contrat:p1:1", "definition")
+    conservative = tc.assemble(doc, first, second, settings())
+    assert conservative.node_scope_kind("contrat:a3") == "commun"
 
 
 def test_terme_defini_est_ancre_dans_le_bloc_ou_un_titre_ancetre() -> None:
@@ -349,6 +381,63 @@ class FakeBatches:
 class FakeClient:
     def __init__(self, batches: FakeBatches) -> None:
         self.messages = SimpleNamespace(batches=batches)
+
+
+class RetryableStandardError(RuntimeError):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
+
+class FakeStandardMessages:
+    def __init__(self, batches: FakeBatches, kinds: dict[str, str], *,
+                 failures: list[int] | None = None,
+                 interrupted_reading: int | None = None,
+                 interrupted_stop_reason: str = "max_tokens") -> None:
+        self.batches = batches
+        self.kinds = kinds
+        self.failures = list(failures or [])
+        self.interrupted_reading = interrupted_reading
+        self.interrupted_stop_reason = interrupted_stop_reason
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **params: Any) -> Any:
+        self.calls.append(params)
+        if self.failures:
+            raise RetryableStandardError(self.failures.pop(0))
+        payload = json.loads(params["messages"][0]["content"])
+        reading_one = params["output_config"]["format"]["schema"]["properties"]["labels"]["type"] == "object"
+        labels = []
+        for item in payload["blocks"]:
+            block_id = item["block_id"]
+            kind = self.kinds.get(block_id, "autre")
+            value = {
+                "block_id": block_id, "kind": kind, "confidence": 0.9,
+                "article_refs": [], "scope_articles": [], "defines": None,
+                "overrides_article": None, "relations": [],
+            }
+            if kind == "definition":
+                value["defines"] = "contenu"
+            labels.append(value)
+        rendered: Any = {value["block_id"]: value for value in labels} if reading_one else labels
+        return SimpleNamespace(
+            usage={"input_tokens": 100, "output_tokens": 20},
+            stop_reason=(self.interrupted_stop_reason
+                         if self.interrupted_reading == (1 if reading_one else 2)
+                         else "end_turn"),
+            content=[SimpleNamespace(type="text", text=json.dumps({"labels": rendered}))],
+        )
+
+
+class FakeStandardClient:
+    def __init__(self, batches: FakeBatches, kinds: dict[str, str], *,
+                 failures: list[int] | None = None,
+                 interrupted_reading: int | None = None,
+                 interrupted_stop_reason: str = "max_tokens") -> None:
+        self.messages = FakeStandardMessages(
+            batches, kinds, failures=failures, interrupted_reading=interrupted_reading,
+            interrupted_stop_reason=interrupted_stop_reason,
+        )
 
 
 def write_data(tmp_path: Path, *, overlay: bool = False) -> tuple[Path, Document]:
@@ -583,6 +672,281 @@ def test_un_lot_deja_soumis_est_recupere_sans_nouvelle_soumission() -> None:
     )
     assert not failures and set(texts) == {plan.custom_id for plan in plans}
     assert batches.created == []
+
+
+def test_standard_resume_reutilise_lot_complete_manquants_et_ne_cree_aucun_batch(
+    tmp_path: Path,
+) -> None:
+    doc_dir, doc = write_data(tmp_path)
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=2,
+                          type_clauses_standard_retry_base_s=0.001)
+    campaign = "a" * 64
+    first = tc.requests_for(doc, doc.blocks, 1, configured, campaign_override=campaign)
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    batches = FakeBatches(kinds, fail_first=True)
+    batches._by_id["partial-first"] = [plan.request for plan in first]
+    client = FakeStandardClient(batches, kinds)
+
+    result = tc.run(
+        doc_dir, settings=configured, client=client, max_cost=12,
+        first_batch_id="partial-first", transport="standard-resume",
+        resume_campaign=campaign,
+        resume_payload_sha256=tc.resume_payload_fingerprint(first, configured),
+        resume_justification="fixture : même payload, transport de reprise explicite",
+        output=io.StringIO(),
+    )
+
+    assert result is not None and result.transport == "standard-resume"
+    assert result.reused_requests == 1 and result.standard_requests == 2
+    assert len(client.messages.calls) == 2 and batches.created == []
+    assert result.cost_eur == round(result.batch_cost_eur + result.standard_cost_eur, 4)
+    saved_report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert saved_report.stats["typage_resume_batch_id"] == "partial-first"
+    assert saved_report.stats["typage_reused_requests"] == 1
+    assert saved_report.stats["typage_standard_requests"] == 2
+    proof = next(check for check in saved_report.checks if check.name == "typage_transport")
+    assert "aucune" not in proof.detail and campaign in proof.detail
+
+
+def test_standard_resume_rejoue_un_succes_dont_le_payload_a_change(tmp_path: Path) -> None:
+    doc_dir, doc = write_data(tmp_path)
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=1)
+    campaign = "e" * 64
+    first = tc.requests_for(doc, doc.blocks, 1, configured, campaign_override=campaign)
+    resumed_proofs = tc.resume_payload_proofs(first, configured)
+    changed_id = first[0].custom_id
+    resumed_proofs[changed_id] = "0" * 64
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    batches = FakeBatches(kinds)
+    batches._by_id["complete-old-first"] = [plan.request for plan in first]
+    client = FakeStandardClient(batches, kinds)
+
+    result = tc.run(
+        doc_dir, settings=configured, client=client, max_cost=12,
+        first_batch_id="complete-old-first", transport="standard-resume",
+        resume_campaign=campaign,
+        resume_payload_sha256=tc._payload_proofs_fingerprint(resumed_proofs),
+        resume_payload_proofs_map=resumed_proofs,
+        resume_justification="fixture : un plan propriétaire a changé et doit être rejoué",
+        output=io.StringIO(),
+    )
+
+    assert result is not None
+    assert result.replayed_requests == 1 and result.reused_requests == len(first) - 1
+    assert len(client.messages.calls) == 2  # un plan T1 rejoué + la lecture T2
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert report.stats["typage_replayed_payload_custom_ids"] == changed_id
+
+
+def test_standard_retries_seulement_429_et_5xx_et_conserve_lordre() -> None:
+    doc = miniature()
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=1,
+                          type_clauses_standard_max_retries=2,
+                          type_clauses_standard_retry_base_s=0.001)
+    plans = tc.requests_for(doc, doc.blocks, 1, configured)
+    client = FakeStandardClient(FakeBatches({}), {}, failures=[429, 503])
+    guard = tc._CostGuard(12)
+    texts, cost = tc.execute_standard(
+        client, plans, configured, guard=guard, output=io.StringIO(), sleep=lambda _delay: None,
+    )
+    assert list(texts) == [plan.custom_id for plan in plans]
+    assert len(client.messages.calls) == len(plans) + 2 and cost > 0
+
+
+def test_standard_garde_le_cout_avant_appel_et_echec_necrit_rien(tmp_path: Path) -> None:
+    doc_dir, doc = write_data(tmp_path)
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=1,
+                          type_clauses_standard_max_retries=1,
+                          type_clauses_standard_retry_base_s=0.001)
+    campaign = "b" * 64
+    first = tc.requests_for(doc, doc.blocks, 1, configured, campaign_override=campaign)
+    batches = FakeBatches({}, fail_first=True)
+    batches._by_id["partial-first"] = [plan.request for plan in first]
+    client = FakeStandardClient(batches, {}, failures=[500, 500])
+    tracked = [doc_dir / "document.json", doc_dir / "report.json", doc_dir.parent / "manifest.json"]
+    before = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(tc.BatchFailure, match="premier échec terminal"):
+        tc.run(
+            doc_dir, settings=configured, client=client, max_cost=12,
+            first_batch_id="partial-first", transport="standard-resume",
+            resume_campaign=campaign,
+            resume_payload_sha256=tc.resume_payload_fingerprint(first, configured),
+            resume_justification="fixture : même payload avant l'échec standard",
+            output=io.StringIO(), sleep=lambda _delay: None,
+        )
+    assert len(client.messages.calls) == 2 and batches.created == []
+    assert {path: path.read_bytes() for path in tracked} == before
+
+    plan = first[0]
+    no_call = FakeStandardClient(FakeBatches({}), {})
+    with pytest.raises(tc.BatchFailure, match="coût réel .* estimation .*aucun artefact"):
+        tc.execute_standard(
+            no_call, [plan], configured, guard=tc._CostGuard(0.000001), output=io.StringIO(),
+        )
+    assert no_call.messages.calls == []
+
+
+def test_garde_cout_concurrente_reserve_avant_chaque_create() -> None:
+    doc = miniature()
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=2)
+    plans = tc.requests_for(doc, doc.blocks, 1, configured)
+    estimates = [tc.standard_majorant_eur(plan, configured) for plan in plans]
+    actual = cost_from_usage(
+        tc.MODEL, {"input_tokens": 100, "output_tokens": 20}, configured.usd_eur, batch=False,
+    ).cost_eur
+    ceiling = max(estimates) + actual + 0.0001
+    assert all(estimate < ceiling for estimate in estimates) and sum(estimates) > ceiling
+
+    class BlockingMessages(FakeStandardMessages):
+        def __init__(self) -> None:
+            super().__init__(FakeBatches({}), {})
+            self.started = 0
+            self.lock = Lock()
+            self.first_started = Event()
+            self.second_started = Event()
+            self.release = Event()
+
+        def create(self, **params: Any) -> Any:
+            with self.lock:
+                self.started += 1
+                (self.first_started if self.started == 1 else self.second_started).set()
+            assert self.release.wait(2)
+            return super().create(**params)
+
+    messages = BlockingMessages()
+    client = SimpleNamespace(messages=messages)
+    guard = tc._CostGuard(ceiling)
+    outcome: list[object] = []
+
+    def run_standard() -> None:
+        try:
+            outcome.append(tc.execute_standard(
+                client, plans, configured, guard=guard, output=io.StringIO(),
+            ))
+        except BaseException as exc:  # pragma: no cover - rendu explicite dans l'assertion
+            outcome.append(exc)
+
+    worker = Thread(target=run_standard)
+    worker.start()
+    assert messages.first_started.wait(1)
+    assert not messages.second_started.wait(0.05)
+    messages.release.set()
+    worker.join(2)
+
+    assert not worker.is_alive() and outcome and not isinstance(outcome[0], BaseException)
+    assert messages.started == 2 and guard.spent <= ceiling and guard.reserved == 0
+
+
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "refusal"])
+def test_lecture_2_standard_interrompue_ne_publie_rien(
+    tmp_path: Path, stop_reason: str,
+) -> None:
+    doc_dir, doc = write_data(tmp_path)
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=1)
+    campaign = "c" * 64
+    first = tc.requests_for(doc, doc.blocks, 1, configured, campaign_override=campaign)
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    batches = FakeBatches(kinds)
+    batches._by_id["complete-first"] = [plan.request for plan in first]
+    client = FakeStandardClient(
+        batches, kinds, interrupted_reading=2, interrupted_stop_reason=stop_reason,
+    )
+    tracked = [doc_dir / "document.json", doc_dir / "report.json", doc_dir.parent / "manifest.json"]
+    before = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(tc.BatchFailure, match="premier échec terminal"):
+        tc.run(
+            doc_dir, settings=configured, client=client, max_cost=12,
+            first_batch_id="complete-first", transport="standard-resume",
+            resume_campaign=campaign,
+            resume_payload_sha256=tc.resume_payload_fingerprint(first, configured),
+            resume_justification="fixture : lecture 1 identique, lecture 2 standard interrompue",
+            output=io.StringIO(),
+        )
+
+    assert client.messages.calls and {path: path.read_bytes() for path in tracked} == before
+
+
+def test_reprise_refuse_un_payload_different_avant_tout_appel_standard(tmp_path: Path) -> None:
+    doc_dir, doc = write_data(tmp_path)
+    configured = settings(type_clauses_max_blocks_per_request=2)
+    campaign = "d" * 64
+    original_plans = tc.requests_for(doc, doc.blocks, 1, configured, campaign_override=campaign)
+    original_proof = tc.resume_payload_fingerprint(original_plans, configured)
+
+    changed_blocks = list(doc.blocks)
+    changed_blocks[0] = changed_blocks[0].model_copy(update={"text": "Payload courant différent."})
+    changed = Document.model_validate(doc.model_copy(update={"blocks": changed_blocks}).model_dump())
+    changed_text = document_json(changed)
+    (doc_dir / "document.json").write_text(changed_text, "utf-8")
+    manifest_path = doc_dir.parent / "manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    manifest["contrat"]["document_hash"] = hashlib.sha256(changed_text.encode()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), "utf-8")
+
+    batches = FakeBatches({})
+    batches._by_id["old-first"] = [plan.request for plan in original_plans]
+    client = FakeStandardClient(batches, {})
+    with pytest.raises(ValueError, match="certificat du manifeste payload"):
+        tc.run(
+            doc_dir, settings=configured, client=client, max_cost=12,
+            first_batch_id="old-first", transport="standard-resume",
+            resume_campaign=campaign, resume_payload_sha256=original_proof,
+            resume_justification="fixture : cette justification ne rend pas le payload identique",
+            output=io.StringIO(),
+        )
+    assert client.messages.calls == [] and batches.created == []
+
+
+def test_transport_programmatique_inconnu_est_refuse_avant_appel(tmp_path: Path) -> None:
+    doc_dir, _doc = write_data(tmp_path)
+    batches = FakeBatches({})
+    client = FakeStandardClient(batches, {})
+    with pytest.raises(ValueError, match="transport inconnu"):
+        tc.run(
+            doc_dir, settings=settings(), client=client, transport="surprise",  # type: ignore[arg-type]
+            output=io.StringIO(),
+        )
+    assert client.messages.calls == [] and batches.created == []
+
+
+def test_premier_echec_terminal_n_amorce_aucune_future_supplementaire() -> None:
+    doc = miniature()
+    configured = settings(type_clauses_max_blocks_per_request=1,
+                          type_clauses_standard_concurrency=2,
+                          type_clauses_standard_max_retries=1)
+    plans = tc.requests_for(doc, doc.blocks, 1, configured)
+
+    class StopMessages(FakeStandardMessages):
+        def __init__(self) -> None:
+            super().__init__(FakeBatches({}), {})
+            self.started = 0
+            self.lock = Lock()
+
+        def create(self, **params: Any) -> Any:
+            with self.lock:
+                self.started += 1
+                current = self.started
+            if current == 1:
+                raise RetryableStandardError(400)
+            return super().create(**params)
+
+    messages = StopMessages()
+    guard = tc._CostGuard(12)
+    with pytest.raises(tc.BatchFailure, match="premier échec terminal"):
+        tc.execute_standard(
+            SimpleNamespace(messages=messages), plans, configured,
+            guard=guard, output=io.StringIO(),
+        )
+    assert messages.started <= configured.type_clauses_standard_concurrency
+    assert guard.spent <= guard.ceiling and guard.reserved == 0
 
 
 def test_reprise_incompatible_echoue_et_voie_legacy_auditee_ne_soumet_rien(tmp_path: Path) -> None:

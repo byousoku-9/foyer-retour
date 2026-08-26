@@ -33,6 +33,7 @@ _NEGATIVE_MARKERS = frozenset({"ne", "pas", "exclu", "exclus", "exclue", "exclue
 _TYPING_CHECKS = frozenset({
     "corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
     "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes", "typage_clauses",
+    "typage_transport",
 })
 
 

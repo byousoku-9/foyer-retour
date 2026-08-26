@@ -364,6 +364,11 @@ class Settings(BaseSettings):
     type_clauses_max_cost_eur: float = Field(12.0, gt=0)
     type_clauses_batch_poll_s: float = Field(20.0, gt=0)
     type_clauses_batch_timeout_s: float = Field(7200.0, gt=0)
+    # Transport CLI de reprise (jamais utilisé par le runtime HTTP) : Messages standard, sans
+    # retry implicite du SDK, avec parallélisme et relances fournisseur explicitement bornés.
+    type_clauses_standard_concurrency: int = Field(8, ge=1, le=32)
+    type_clauses_standard_max_retries: int = Field(3, ge=1, le=8)
+    type_clauses_standard_retry_base_s: float = Field(1.0, gt=0, le=30)
     # Bornes appliquées aux étiquettes : une cible d'article trop large ou une liste partielle ne
     # produit aucun lien. Le verdict reste alors humain via `unresolved_refs`.
     type_clauses_max_article_refs: int = Field(12, ge=1)
@@ -404,6 +409,11 @@ class Settings(BaseSettings):
     baseline_tolerance_pt: float = Field(3.0, ge=0)
     number_gap_tolerance_pt: float = Field(1.0, ge=0)
     list_indent_pt: float = Field(4.0, ge=0)
+    # Dé-indentation structurelle (story 3.3) : un court dernier item numéroté peut être suivi
+    # d'un paragraphe de clôture aligné sur le corps de son parent. Les deux bornes restent
+    # géométriques/structurelles et entrent dans l'empreinte d'ingestion.
+    dedent_tolerance_pt: float = Field(1.0, ge=0)
+    dedent_starter_max_lines: int = Field(2, ge=1)
     fetch_timeout_s: float = Field(30.0, gt=0)
     metadata_timeout_s: float = Field(2.0, gt=0)  # serveur de métadonnées GCP (jeton du repli gs://)
 
@@ -555,6 +565,9 @@ class Settings(BaseSettings):
             "type_clauses_max_cost_eur": self.type_clauses_max_cost_eur,
             "type_clauses_batch_poll_s": self.type_clauses_batch_poll_s,
             "type_clauses_batch_timeout_s": self.type_clauses_batch_timeout_s,
+            "type_clauses_standard_concurrency": self.type_clauses_standard_concurrency,
+            "type_clauses_standard_max_retries": self.type_clauses_standard_max_retries,
+            "type_clauses_standard_retry_base_s": self.type_clauses_standard_retry_base_s,
             "type_clauses_max_article_refs": self.type_clauses_max_article_refs,
             "type_clauses_max_scope_articles": self.type_clauses_max_scope_articles,
             "type_clauses_max_relations": self.type_clauses_max_relations,
@@ -572,6 +585,8 @@ class Settings(BaseSettings):
             "baseline_tolerance_pt": self.baseline_tolerance_pt,
             "number_gap_tolerance_pt": self.number_gap_tolerance_pt,
             "list_indent_pt": self.list_indent_pt,
+            "dedent_tolerance_pt": self.dedent_tolerance_pt,
+            "dedent_starter_max_lines": self.dedent_starter_max_lines,
             "fetch_timeout_s": self.fetch_timeout_s,
             "metadata_timeout_s": self.metadata_timeout_s,
         }

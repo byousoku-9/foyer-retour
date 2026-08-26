@@ -406,10 +406,10 @@ def test_definitions_matches_normalized_defines_whole_word() -> None:
     ix = Index(Corpus(documents={"d": _def_doc()}))
     # terme exact, insensible à la casse et aux accents (normalize)
     assert ix.definitions(["Contenu"]) == [("d:p1:1", "n")]
-    # mot entier dans les deux sens : « jardin » trouve « mobilier de jardin », et le terme
-    # multi-mots « le contenu assuré » retrouve « contenu »
+    # Un terme plus précis de la question peut trouver le libellé défini qui le contient. L'inverse
+    # n'est pas une preuve : une expression plus large ne demande pas automatiquement sa composante.
     assert ix.definitions(["jardin"]) == [("d:p1:2", "n")]
-    assert ix.definitions(["le contenu assuré"]) == [("d:p1:1", "n")]
+    assert ix.definitions(["le contenu assuré"]) == []
     assert ix.definitions(["mobilier de jardin"]) == [("d:p1:2", "n")]
     # jamais de correspondance partielle de mot, ni via le texte du bloc
     assert ix.definitions(["conten"]) == []

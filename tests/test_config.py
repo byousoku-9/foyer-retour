@@ -39,6 +39,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.toc_page_number_baseline_pt == 8.0 and s.toc_column_tolerance_pt == 80.0
     assert s.toc_indent_tolerance_pt == 5.0 and s.toc_line_gap_ratio == 1.5
     assert s.toc_title_prefix_min_chars == 20
+    assert s.dedent_tolerance_pt == 1.0 and s.dedent_starter_max_lines == 2
     assert s.env == "dev" and s.allow_ungated is True
     # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
     assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
@@ -93,6 +94,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             "gibberish_ratio_max", "residual_header_min_pages_ratio",
             "toc_page_number_baseline_pt", "toc_column_tolerance_pt", "toc_indent_tolerance_pt",
             "toc_line_gap_ratio", "toc_title_prefix_min_chars"} <= set(t.thresholds)
+    assert {"dedent_tolerance_pt", "dedent_starter_max_lines"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
     # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
     # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).
@@ -202,6 +204,9 @@ def test_les_seuils_du_typage_clauses_sont_bornes_publies_et_documentes() -> Non
         "type_clauses_max_cost_eur": 12.0,
         "type_clauses_batch_poll_s": 20.0,
         "type_clauses_batch_timeout_s": 7200.0,
+        "type_clauses_standard_concurrency": 8,
+        "type_clauses_standard_max_retries": 3,
+        "type_clauses_standard_retry_base_s": 1.0,
         "type_clauses_max_article_refs": 12,
         "type_clauses_max_scope_articles": 20,
         "type_clauses_max_relations": 6,

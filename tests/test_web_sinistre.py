@@ -275,6 +275,12 @@ def test_la_portee_du_front_contient_celle_du_domaine(cas: dict[str, Any]) -> No
     assert "non validé par un expert" in cas["portee"]
 
 
+def test_une_clause_hors_portee_explique_son_statut_non(cas: dict[str, Any]) -> None:
+    statut = cas["statuts"]["non_hors_portee"]
+    assert "non applicable" in statut
+    assert "portée contractuelle ne couvre pas le cas déclaré" in statut
+
+
 def test_les_quatre_valeurs_du_verdict_ont_un_libelle(cas: dict[str, Any]) -> None:
     """AD-6 : quatre valeurs. Le front ne connaît que celles-là, et le dit quand il en reçoit une autre."""
     connues = {v["cle"] for v in cas["verdicts"] if v["cle"] != "inconnu"}

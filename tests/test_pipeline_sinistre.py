@@ -268,6 +268,10 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
     assert verdict.value == "ne_tranche_pas"
     statuts = {c.claim_id: c.status.applicable for c in answer.claims}
     assert statuts == {"c1": "humain", "c2": None, "c3": "non"}
+    raisons = {c.claim_id: c.status.applicable_reason for c in answer.claims}
+    assert raisons == {"c1": None, "c2": None, "c3": "hors_portee"}
+    rendered_claims = {claim["claim_id"]: claim for claim in answer.model_dump(mode="json")["claims"]}
+    assert rendered_claims["c3"]["status"]["applicable_reason"] == "hors_portee"
     assert verdict.missing.faits == ["caractère subit de l'action de la chaleur"]
     # matrice I/O : `ask_client` cite les options / conditions particulières **et** la nature « subite »
     assert any("caractère subit" in q for q in verdict.ask_client)

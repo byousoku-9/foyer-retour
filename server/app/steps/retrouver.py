@@ -116,6 +116,45 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
             for block in message.content]
 
 
+_KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
+
+
+def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: list[str],
+                          doc_id: str, search_candidates: Iterable[str]) -> list[str]:
+    """Fermeture commune aux deux variantes : refs, définitions et limites classées, un niveau.
+
+    Les cibles sont calculées uniquement depuis le bloc primaire. Leurs propres `refs` ne sont donc
+    jamais parcourus. Une limite décisionnelle déjà classée parmi les hits accompagne une garantie
+    ouverte : elle ne dépend d'aucun identifiant documentaire et reste soumise à la même unité
+    atomique et aux mêmes budgets globaux.
+    """
+    out: list[str] = []
+
+    def add(candidate: str) -> None:
+        # Une cible peut aussi être un primaire de la même fenêtre. Elle garde alors son unité
+        # propre, mais doit également voyager dans l'unité de la source : autrement la source
+        # pourrait être admise seule sous un petit budget, ce qui briserait l'atomicité du renvoi.
+        if candidate != block_id and candidate not in out:
+            out.append(candidate)
+
+    for candidate in block(block_id).refs:
+        add(candidate)
+    for candidate, _node_id in index.definitions(terms, doc_id=doc_id,
+                                                  blocs_ouverts=[block_id]):
+        add(candidate)
+    current = block(block_id)
+    if current.kind == "garantie":
+        for candidate in search_candidates:
+            if block(candidate).kind in _KINDS_LIMITATIFS:
+                add(candidate)
+                # Les hits sont déjà classés par pertinence. Une garantie conserve la meilleure
+                # limite disponible ; lui attacher toutes les exclusions partageant un mot courant
+                # transformerait une fermeture locale en aspiration du contrat entier et ferait
+                # refuser l'unité par le budget. Les autres limites restent leurs propres hits.
+                break
+    return out
+
+
 async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                             budget: RetrievalBudget, settings: Settings, client: Any,
                             request_budget: Any, doc_id: str,
@@ -151,6 +190,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     window_opened: list[str] = []
     primary_node_by_block: dict[str, str] = {}
     search_candidates: list[str] = []
+    search_runs: list[list[str]] = []
     searched_terms: list[str] = []
     blocks_used = 0
     tokens_used = 0
@@ -230,6 +270,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             for block_id, _node_id in hits:
                 if block_id not in search_candidates:
                     search_candidates.append(block_id)
+            search_runs.append([block_id for block_id, _node_id in hits])
             return {"candidats": [{"block_id": b, "node_id": n} for b, n in hits],
                     "truncated": search_truncated}, False
         if name == "ouvrir_noeud":
@@ -274,9 +315,19 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             for item in window.blocks:
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
                 # l'unité entière entre, ou le primaire n'est pas transmis isolément.
-                definitions = [b for b, _ in index.definitions(
-                    terms, doc_id=doc_id, blocs_ouverts=[item.block_id])]
-                unit = [item.block_id, *[r for r in item.refs if r != item.block_id], *definitions]
+                anchors = {focus} if focus is not None else {b.block_id for b in window.blocks}
+                relevant_candidates: list[str] = []
+                for run in search_runs:
+                    if anchors.intersection(run):
+                        relevant_candidates.extend(
+                            candidate for candidate in run
+                            if candidate not in relevant_candidates
+                        )
+                dependencies = _dependances_directes(
+                    item.block_id, block=block, index=index, terms=terms, doc_id=doc_id,
+                    search_candidates=relevant_candidates,
+                )
+                unit = [item.block_id, *dependencies]
                 got = admit(unit)
                 if item.block_id in got:
                     primary.append(item.block_id)
@@ -571,24 +622,16 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     fenetres.append(b.block_id)
                     noeud_de[b.block_id] = node_id
 
-        # Unités de dépendance, hors quota `max_opens` : un bloc de fenêtre et, avec lui, les cibles
-        # d'un seul niveau de ses renvois (les cibles ne sont pas suivies à leur tour — Deferred du
-        # spine « renvois en chaîne »). Une cible déjà présente dans une fenêtre reste à sa place.
+        # Unités de dépendance, hors quota `max_opens` : fermeture commune aux deux variantes.
+        # Le primaire, ses refs directes, ses définitions applicables et toute limite classée parmi
+        # les hits entrent ensemble ou sont tous refusés. Une cible n'est jamais suivie à son tour.
         unites: list[list[str]] = []
+        candidats = [block_id for block_id, _node_id in hits]
         for block_id in fenetres:
-            unite = [block_id]
-            for cible in bloc(block_id).refs:
-                if cible not in fenetres and cible not in unite:
-                    unite.append(cible)
-            unites.append(unite)
-
-        # Définitions (hors quota `max_opens`) : des termes de la question et de ceux rencontrés dans
-        # les blocs ouverts, résolues dans leur portée par l'index (AD-1, AD-2). Elles se suffisent à
-        # elles-mêmes — aucun référent à conserver — et passent donc en premier dans le budget.
-        definitions = [b for b, _ in index.definitions(terms, doc_id=doc_id,
-                                                       blocs_ouverts=fenetres)
-                       if b not in fenetres]
-        unites = [[d] for d in definitions] + unites
+            unites.append([block_id, *_dependances_directes(
+                block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
+                search_candidates=candidats,
+            )])
 
         seen: set[str] = set()
         blocs_utilises, tokens_utilises = 0, 0
@@ -605,10 +648,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             tokens_utilises += cout_tokens
             seen.update(nouveaux)
 
-        # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis les cibles de renvoi,
-        # puis les définitions — l'ordre d'admission dans le budget n'est pas l'ordre de lecture.
+        # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis leurs dépendances.
         ordre: list[str] = []
-        for b in (*fenetres, *(c for u in unites for c in u[1:]), *definitions):
+        for b in (*fenetres, *(c for u in unites for c in u[1:])):
             if b in seen and b not in ordre:
                 ordre.append(b)
         return ordre, noeud_de, tronque

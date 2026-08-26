@@ -26,6 +26,7 @@ from .document import DomainModel
 
 VerdictValue = Literal["couvert", "non_couvert", "sous_conditions", "ne_tranche_pas"]
 Applicable = Literal["oui", "non", "humain"]
+ApplicableReason = Literal["hors_portee", "faits_contraires"]
 
 # AD-6 : les `Block.kind` qui portent une décision. Une claim n'en couvre qu'**un seul** (les clauses
 # hétérogènes sont éclatées en claims distinctes) ; un bloc `para`, `definition` ou `table` cité à
@@ -146,7 +147,7 @@ class ClaimJugee(DomainModel):
         return self.clauses[0].kind if self.clauses else None
 
 
-def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
+def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = None) -> Applicable | None:
     """Découpage (a) d'AD-6 : `applicable` est **dérivé**, jamais rendu par le modèle.
 
     Ordre de dérivation (D1 de la spec 1.8), du plus prudent au plus engageant :
@@ -194,6 +195,12 @@ def applicable_de_claim(claim: ClaimJugee) -> Applicable | None:
         return "humain"
     if any(not c.portee for c in claim.clauses):
         return "humain"
+    # Une exclusion dont la portée déclarée ne couvre aucun nœud du cas est inapplicable par
+    # construction, indépendamment du jugement du modèle sur les faits. Une portée absente a déjà
+    # rendu `humain` ci-dessus ; un cas sans nœud prouvé ne permet pas non plus cette conclusion.
+    if (claim.kind == "exclusion" and noeuds_du_cas
+            and all(clause.portee.isdisjoint(noeuds_du_cas) for clause in claim.clauses)):
+        return "non"
     champs = claim.champs
     if champs is None:
         return "humain"
@@ -334,8 +341,34 @@ def _noeuds_du_cas(claims: list[ClaimJugee], *, hors: set[str]) -> set[str]:
             if clause.node_id and clause.block_id not in hors}
 
 
+def applicabilites_des_claims(
+        claims: list[ClaimJugee]) -> dict[str, tuple[Applicable | None, ApplicableReason | None]]:
+    """Statut et raison issus du même état de portée que la table AD-6.
+
+    Le calcul est par claim affichée. Pour une exclusion, les nœuds du cas excluent ses propres
+    blocs afin qu'elle ne puisse jamais s'auto-couvrir ; une garantie affichée les fixe en priorité.
+    """
+    out: dict[str, tuple[Applicable | None, ApplicableReason | None]] = {}
+    for claim in claims:
+        hors = {clause.block_id for clause in claim.clauses} if claim.kind == "exclusion" else set()
+        case_nodes = _noeuds_du_cas(claims, hors=hors)
+        applicable = applicable_de_claim(claim, noeuds_du_cas=case_nodes)
+        reason: ApplicableReason | None = None
+        if applicable == "non":
+            out_of_scope = (
+                claim.kind == "exclusion" and bool(case_nodes)
+                and bool(claim.clauses)
+                and all(clause.portee and clause.portee.isdisjoint(case_nodes)
+                        for clause in claim.clauses)
+            )
+            reason = "hors_portee" if out_of_scope else "faits_contraires"
+        out[claim.claim_id] = (applicable, reason)
+    return out
+
+
 def decider(claims: list[ClaimJugee], *, ask_client_max: int,
-            missing: MissingPackage | None = None) -> Verdict:
+            missing: MissingPackage | None = None,
+            resolutions: dict[str, tuple[Applicable | None, ApplicableReason | None]] | None = None) -> Verdict:
     """Découpage (b) d'AD-6 : la table exclusive, dans l'ordre, sur les claims **affichées** (D4).
 
     (0)   contradiction non résolue entre deux claims retenues, ou renvoi non résolu sur une claim
@@ -378,7 +411,13 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     """
     connu = (missing or MissingPackage()).model_copy(deep=True)
     retenues = [c for c in claims if c.retenue]
-    etat = {c.claim_id: applicable_de_claim(c) for c in retenues}
+    expected_claim_ids = {claim.claim_id for claim in retenues}
+    if resolutions is None or set(resolutions) != expected_claim_ids:
+        # Une map partielle ne doit ni lever `KeyError`, ni mélanger deux états de portée. On
+        # recalcule alors l'ensemble depuis les claims affichées, avec le même code que le chemin
+        # nominal ; les valeurs fournies ne sont pas complétées au hasard.
+        resolutions = applicabilites_des_claims(retenues)
+    etat = {claim_id: value for claim_id, (value, _reason) in resolutions.items()}
     # Les questions du paquet manquant d'abord : elles ne dépendent d'aucune sortie du modèle et
     # elles sont dues quel que soit le verdict — mais seulement pour les pièces réellement absentes.
     # Ce qu'elles laissent de place borne alors les libellés du modèle, si bien que `missing.faits` et

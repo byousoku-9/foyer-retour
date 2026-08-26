@@ -127,6 +127,106 @@ async def test_outils_nominal_exposes_four_tools_and_stops_after_one_useful_turn
     assert step.opened_block_ids == result.opened_block_ids
 
 
+async def test_les_deux_variantes_partagent_la_meme_fermeture_directe() -> None:
+    """Une garantie emporte sa définition, son renvoi direct et la limite déjà classée.
+
+    La cible du renvoi direct possède elle-même un renvoi : ce second niveau doit rester fermé.
+    """
+    blocks = [
+        Block(block_id="d:p1:1", text="Garantie incendie du contenu.", loc="p1", seq=1,
+              kind="garantie", refs=["d:p3:1"]),
+        Block(block_id="d:p2:1", text="Exclusion incendie volontaire.", loc="p2", seq=1,
+              kind="exclusion"),
+        Block(block_id="d:p4:1", text="Le contenu désigne les biens mobiliers.", loc="p4", seq=1,
+              kind="definition", defines="contenu"),
+        Block(block_id="d:p3:1", text="Cible directe sans terme de recherche.", loc="p3", seq=1,
+              refs=["d:p5:1"]),
+        Block(block_id="d:p5:1", text="Cible de second niveau interdite.", loc="p5", seq=1),
+        Block(block_id="d:p6:1", text="Exclusion contenu moins bien classée.", loc="p6", seq=1,
+              kind="exclusion"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, 7)])]
+    nodes.extend(Node(node_id=f"n{i}", items=[BlockRef(block_id=block.block_id)])
+                 for i, block in enumerate(blocks, 1))
+    corpus = Corpus(
+        documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
+                                   nodes=nodes, blocks=blocks)},
+        summaries={"d": "root\n  n1\n  n2\n  n3\n  n4\n  n5\n  n6"},
+    )
+    parsed = _parsed(["incendie", "contenu"])
+    budget = _budget(max_opens=2, node_window=1, max_blocks=10, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["incendie", "contenu"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = {"d:p1:1", "d:p2:1", "d:p3:1", "d:p4:1"}
+    assert set(deterministe.opened_block_ids) == set(outils.opened_block_ids) == attendu
+    assert "d:p5:1" not in deterministe.opened_block_ids
+    assert "d:p5:1" not in outils.opened_block_ids
+    assert "d:p6:1" not in deterministe.opened_block_ids
+    assert "d:p6:1" not in outils.opened_block_ids
+
+
+async def test_une_cible_aussi_primaire_reste_atomique_avec_sa_source() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Garantie feu, voir la condition.", loc="p1", seq=1,
+              kind="garantie", refs=["d:p1:2"]),
+        Block(block_id="d:p1:2", text="Condition feu applicable.", loc="p1", seq=2,
+              kind="condition"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]), Node(
+        node_id="n", items=[BlockRef(block_id=block.block_id) for block in blocks])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["feu"])
+    budget = _budget(node_window=2, max_blocks=1, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["feu"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:2"]
+    assert deterministe.truncated and outils.truncated
+
+
+async def test_outils_ne_reutilise_pas_la_limite_d_une_recherche_sans_rapport() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Garantie feu du mobilier.", loc="p1", seq=1,
+              kind="garantie"),
+        Block(block_id="d:p2:1", text="Exclusion eau souterraine.", loc="p2", seq=1,
+              kind="exclusion"),
+        Block(block_id="d:p3:1", text="Condition feu du mobilier.", loc="p3", seq=1,
+              kind="condition"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, 4)])]
+    nodes.extend(Node(node_id=f"n{i}", items=[BlockRef(block_id=block.block_id)])
+                 for i, block in enumerate(blocks, 1))
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2, n3"})
+    parsed = _parsed(["feu", "mobilier"])
+    budget = _budget(max_blocks=5, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["eau"]),
+                      _tool("chercher", "t2", termes=["feu", "mobilier"]),
+                      _tool("ouvrir_noeud", "t3", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1", "d:p3:1"]
+    assert "d:p2:1" not in outils.opened_block_ids
+
+
 async def test_outils_reason_tier_reaches_the_provider_and_the_trace_unchanged() -> None:
     settings = _s(max_cost_eur_per_request=1.0, retrouver_outils_tier="reason")
     result, step, fake, _ = await _run_outils([
@@ -453,7 +553,7 @@ def test_definitions_of_terms_met_in_the_opened_blocks_are_followed_too() -> Non
     assert result.discarded_block_ids == []  # la définition n'est pas un candidat de `chercher`
 
 
-def test_deterministic_definitions_keep_their_historical_independent_priority() -> None:
+def test_deterministic_definition_is_atomic_with_the_primary_block() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Le premier cas emploie Alpha.", loc="p1", seq=1),
         Block(block_id="d:p1:2", text="Le second cas reste autonome.", loc="p1", seq=2),
@@ -467,8 +567,10 @@ def test_deterministic_definitions_keep_their_historical_independent_priority() 
         doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)})
     result, _step = _run(_parsed(["cas"]), corpus, Index(corpus),
                          _budget(max_blocks=1, max_tokens=6000))
-    assert result.opened_block_ids == ["d:p9:1"]
-    assert "d:p1:1" not in result.opened_block_ids and "d:p1:2" not in result.opened_block_ids
+    # Le premier bloc rencontre « Alpha » et voyage donc avec sa définition. L'unité de deux blocs
+    # ne tient pas ; la fiche suivante, indépendante et plus petite, peut encore être admise.
+    assert result.opened_block_ids == ["d:p1:2"]
+    assert "d:p1:1" not in result.opened_block_ids and "d:p9:1" not in result.opened_block_ids
     assert result.truncated
 
 
@@ -828,9 +930,10 @@ def test_les_variantes_servent_sans_validation_humaine(tmp_path: Path) -> None:
 
 
 def test_les_definitions_continuent_de_recevoir_les_termes_seuls(tmp_path: Path) -> None:
-    """Reprise différée `target_story: 4.2` : `definitions()` apparie `defines` et les termes dans
-    les **deux sens**, et lui passer les variantes multiplierait un faux positif connu et non
-    corrigé. Le spec le dit littéralement : « `index.definitions()` continue de recevoir `terms` ».
+    """`definitions()` reçoit toujours les termes canoniques, jamais leurs variantes.
+
+    La fermeture les demande désormais pour chaque bloc primaire : toutes les invocations doivent
+    conserver cette même frontière lexicale.
     """
     corpus = _corpus_avec_manifest()
     index = Index(corpus)
@@ -845,7 +948,7 @@ def test_les_definitions_continuent_de_recevoir_les_termes_seuls(tmp_path: Path)
     dico = _dictionnaire(tmp_path, corpus, {"matricule": ["contenu"]})
     retrouver_deterministe(_parsed(["matricule"]), corpus=corpus, index=index, budget=_budget(),
                            settings=_s(), doc_id=DICO_DOC, dictionnaire=dico)
-    assert vus == [["matricule"]]  # jamais le dict élargi
+    assert vus and all(termes == ["matricule"] for termes in vus)  # jamais le dict élargi
 
 
 def test_un_dictionnaire_nelargit_que_le_document_dont_il_porte_lempreinte(tmp_path: Path) -> None:

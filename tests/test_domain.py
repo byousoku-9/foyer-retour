@@ -191,7 +191,9 @@ def test_node_items_is_single_source_of_order() -> None:
 def test_answer_models() -> None:
     assert fields(answer.Quote) == {"block_id", "quote"}
     assert fields(answer.Claim) == {"claim_id", "text", "quotes"}
-    assert fields(answer.ClaimStatus) == {"retrouvee", "pertinente", "applicable", "edition"}
+    assert fields(answer.ClaimStatus) == {
+        "retrouvee", "pertinente", "applicable", "applicable_reason", "edition",
+    }
     assert literal_values(answer.ClaimStatus, "applicable") == {"oui", "non", "humain"}
     assert fields(answer.AnswerSegment) == {"text", "kind", "claim_ids"}
     assert literal_values(answer.AnswerSegment, "kind") == {"factuel", "transition", "limite"}

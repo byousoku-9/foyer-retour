@@ -76,6 +76,7 @@ from server.app.domain.verdict import (
     MissingPackage,
     Verdict,
     applicable_de_claim,
+    applicabilites_des_claims,
     decider,
 )
 from server.app.llm.budget import RequestBudget
@@ -735,10 +736,21 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # ci-dessus. Un verdict adossé à une clause que l'utilisateur ne voit pas contredirait « rien
     # d'affiché sans preuve » — et AD-4 vient précisément de sortir cette claim de `claims[]`.
     verdict: Verdict | None = None
+    affichables: list[ClaimJugee] = []
     if sinistre:
         affichables = [jugees[c.claim_id] for c in claims if c.claim_id in jugees]
         _marquer_contradictions(affichables, corpus=corpus, index=index)
-        verdict = decider(affichables, ask_client_max=settings.ask_client_max, missing=dossier)
+        resolutions = applicabilites_des_claims(affichables)
+        # Le statut publié et la table lisent exactement la même résolution. La raison est du code
+        # pur : jamais une chaîne du modèle, et `hors_portee` vient de `Document.scope_nodes()`.
+        claims = [claim.model_copy(update={"status": claim.status.model_copy(update={
+            "applicable": resolutions.get(claim.claim_id, (None, None))[0],
+            "applicable_reason": resolutions.get(claim.claim_id, (None, None))[1],
+        })}, deep=True) for claim in claims]
+        verdict = decider(
+            affichables, ask_client_max=settings.ask_client_max, missing=dossier,
+            resolutions=resolutions,
+        )
         # `ok=True` quelle que soit la valeur : AD-6 fait de `ne_tranche_pas` « un résultat rare et
         # gagné, pas un repli par défaut » (AD-3 le redit). Le marquer en échec ferait passer pour un
         # défaut du système la seule réponse honnête sur un contrat qui ne tranche pas — et un lecteur
@@ -750,7 +762,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # AD-4 : `found` et `complete` sont calculés **ici**, jamais produits par le modèle.
     found = bool(claims)
     cites = {q.block_id for c in claims for q in c.quotes}
-    renvois_ouverts = any(corpus.documents[index.doc_of(b)].block(b).unresolved_refs for b in cites)
+    renvois_ouverts = (
+        any(c.renvoi_ouvert for c in affichables if c.clauses)
+        if sinistre else
+        any(corpus.documents[index.doc_of(b)].block(b).unresolved_refs for b in cites)
+    )
     # AD-4 exige « toutes les facettes de `ParsedQuestion` couvertes ». `unknown == []` n'en est pas
     # une approximation conservatrice : une réponse à deux facettes dont une est omise, sans segment
     # `limite`, sortait `complete=True` (revue Codex 1.5, B3). Les facettes sont celles de

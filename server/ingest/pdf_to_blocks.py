@@ -48,7 +48,7 @@ TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
 DEFAULT_EDITION = "juin 2017"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
-PARSER_VERSION = "7"  # revue 3.1 : entrée TdM structurelle, seuils géométriques et sommaire citable
+PARSER_VERSION = "9"  # story 3.3 review : la clôture exige la fin réelle de la fratrie
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -61,6 +61,7 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
                       "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
+                      "dedent:dernier_frere_reel+item_num_compact+alignement_corps_parent=>parent;"
                       "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
                       "toc:get_toc()=>titres manquants+tdm_pdf_ecart")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
@@ -91,6 +92,8 @@ def ingest_fingerprint() -> str:
                                          "baseline_tolerance_pt": s.baseline_tolerance_pt,
                                          "number_gap_tolerance_pt": s.number_gap_tolerance_pt,
                                          "list_indent_pt": s.list_indent_pt,
+                                         "dedent_tolerance_pt": s.dedent_tolerance_pt,
+                                         "dedent_starter_max_lines": s.dedent_starter_max_lines,
                                          "mixed_page_image_density": s.mixed_page_image_density,
                                          "ocr_dpi": s.ocr_dpi,
                                          "quality_min_words": s.quality_min_words,
@@ -445,6 +448,9 @@ class _Builder:
         self.numbers: list[str] = []  # ordre d'apparition, pour `numerotation_non_monotone`
         self.duplicates: list[str] = []
         self.continues = 0
+        self.parents: dict[str, str] = {}
+        self.starters: dict[str, tuple[str, list[PageLine]]] = {}
+        self.body_indents: dict[str, list[float]] = {}
 
     def node_for(self, numero: str) -> Node:
         node_id = f"{self.doc_id}:a{numero}"
@@ -465,10 +471,62 @@ class _Builder:
         # sémantique de `Node.scope.kind`, à partir des relations et portées explicites résolues.
         node = Node(node_id=node_id, level=len(parts), title="")
         self.nodes[node_id] = node
+        self.parents[node_id] = parent.node_id
         self.order.append(node_id)
         parent.items.append(NodeRef(node_id=node_id))
         self.numbers.append(numero)
         return node
+
+    def _has_later_sibling(self, node_id: str, future_numbers: list[str]) -> bool:
+        """Simule les parents que le streaming donnera aux prochains numéros."""
+        parent_id = self.parents.get(node_id)
+        if parent_id is None:
+            return False
+        known = set(self.nodes)
+        for number in future_numbers:
+            parts = number.split(".")
+            future_parent = self.root.node_id
+            for depth in range(len(parts) - 1, 0, -1):
+                candidate = f"{self.doc_id}:a{'.'.join(parts[:depth])}"
+                if candidate in known:
+                    future_parent = candidate
+                    break
+            if future_parent == parent_id:
+                return True
+            known.add(f"{self.doc_id}:a{number}")
+        return False
+
+    def dedent_closing_group(self, kind: str, lines: list[PageLine], *, tolerance_pt: float,
+                             starter_max_lines: int, future_numbers: list[str]) -> None:
+        """Rattache un paragraphe de clôture au parent géométriquement aligné.
+
+        Un groupe non numéroté n'est dé-indenté que lorsqu'il suit le dernier item compact d'une
+        fratrie numérotée et que son retrait coïncide avec un retrait de corps déjà observé chez
+        un ancêtre. Cette combinaison arbre + géométrie évite toute convention d'article ou de
+        vocabulaire juridique. Un premier corps ordinaire, une liste annoncée par deux-points ou un
+        item long restent sous le nœud courant.
+        """
+        if kind != "para" or not lines or lines[0].number is not None or self.current is self.root:
+            return
+        starter = self.starters.get(self.current.node_id)
+        parent_id = self.parents.get(self.current.node_id)
+        if starter is None or parent_id is None:
+            return
+        starter_kind, starter_lines = starter
+        if (starter_kind != "para" or len(starter_lines) > starter_max_lines
+                or starter_lines[-1].text.rstrip().endswith(":")
+                or self.body_indents.get(self.current.node_id)):
+            return
+        parent = self.nodes[parent_id]
+        # Le nœud courant doit clore une vraie fratrie, pas seulement être son dernier enfant *déjà
+        # vu*. La simulation des numéros restants emploie la même règle de parent que `node_for` et
+        # empêche de déplacer le corps de 1.2 si un frère 1.3 apparaît ensuite.
+        if (len(parent.children) < 2 or parent.children[-1] != self.current.node_id
+                or self._has_later_sibling(self.current.node_id, future_numbers)):
+            return
+        x = lines[0].bbox[0]
+        if any(abs(x - known) <= tolerance_pt for known in self.body_indents.get(parent_id, [])):
+            self.current = parent
 
     def add_block(self, page: int, lines: list[PageLine], kind: str, *, continues: str | None = None,
                   source_field: str | None = None) -> Block:
@@ -482,6 +540,10 @@ class _Builder:
                       lines=[Line(line_id=f"{block_id}:l{i}", text=l.text, bbox=l.bbox) for i, l in enumerate(lines, 1)])
         self.blocks.append(block)
         self.current.items.append(BlockRef(block_id=block_id))
+        if lines[0].number is not None:
+            self.starters.setdefault(self.current.node_id, (kind, list(lines)))
+        else:
+            self.body_indents.setdefault(self.current.node_id, []).append(lines[0].bbox[0])
         if continues:
             self.continues += 1
         return block
@@ -563,6 +625,8 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     article_seen = False
     document_has_articles = any(line.number is not None for page in pages for line in page.lines)
     document_has_toc = any(page.is_toc for page in pages)
+    future_numbers = [line.number for page in pages for line in page.lines
+                      if line.number is not None]
 
     def add_preliminary_groups(page: PageText, groups: list[tuple[str, list[PageLine]]], *,
                                table_source: str) -> None:
@@ -629,9 +693,20 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 continues = last_text_block.block_id
             first = False
             if lines[0].number is not None:
+                if future_numbers and future_numbers[0] == lines[0].number:
+                    future_numbers.pop(0)
+                elif lines[0].number in future_numbers:
+                    future_numbers.remove(lines[0].number)
                 b.current = b.node_for(lines[0].number)
                 if kind == "heading":
                     b.current.title = lines[0].text
+            elif continues is None:
+                settings = get_settings()
+                b.dedent_closing_group(
+                    kind, lines, tolerance_pt=settings.dedent_tolerance_pt,
+                    starter_max_lines=settings.dedent_starter_max_lines,
+                    future_numbers=future_numbers,
+                )
             blk = b.add_block(pt.page, lines, kind, continues=continues,
                               source_field="ocr" if pt.ocr_succeeded else None)
             if kind in ("para", "list"):

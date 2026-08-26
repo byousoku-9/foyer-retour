@@ -26,6 +26,7 @@ DOC = "axa-lu-optihome-2017"
 TYPING_CHECKS = {
     "corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
     "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes", "typage_clauses",
+    "typage_transport",
 }
 
 
@@ -85,7 +86,7 @@ def test_document_shape(doc: Document) -> None:
     assert all(b.loc == f"p{b.page}" and b.lines and b.bbox for b in doc.blocks)
     assert all("\x07" not in b.text and "Wingdings" not in b.text for b in doc.blocks)
     assert {b.kind for b in doc.blocks} <= {
-        "para", "heading", "table", "definition", "garantie", "exclusion", "condition",
+            "para", "heading", "table", "list", "definition", "garantie", "exclusion", "condition",
         "franchise", "renvoi", "autre",
     }
     assert all(b.structural_kind in {"para", "heading", "table", "list", "autre"} for b in doc.blocks)
@@ -182,6 +183,7 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     covered = d.scope_nodes(ex.block_id)
     assert covered == {f"{DOC}:a3.1.8.{i}" for i in (3, 4, 5, 6)}
     assert not covered & {f"{DOC}:a3.1.8", *(f"{DOC}:a3.1.8.{i}" for i in (1, 2, 7, 8))}
+    assert d.node_scope_kind(d.node_of(f"{DOC}:p47:4")) == "extension"
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     assert manifest["overlay_hash"] is None and not (REAL / "typing.manual.json").exists()
     raw = json.loads((REAL / "document.json").read_text("utf-8"))

@@ -19,9 +19,11 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Condition, Event
 from typing import Any, Literal
 
 import anthropic
@@ -29,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.corpus.text import normalize
-from server.app.domain import Block, BlockKind, Document, ManifestEntry, Node, Report, is_citable
+from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, Node, Report, is_citable
 from server.app.domain.document import DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
@@ -111,6 +113,14 @@ class TypingResult:
     cost_eur: float
     first_requests: int
     second_requests: int
+    transport: str = "batch"
+    reused_requests: int = 0
+    replayed_requests: int = 0
+    standard_requests: int = 0
+    batch_cost_eur: float = 0.0
+    standard_cost_eur: float = 0.0
+    prior_cost_eur: float = 0.0
+    cumulative_cost_eur: float = 0.0
 
 
 class BatchFailure(RuntimeError):
@@ -272,10 +282,10 @@ def _chunks(doc: Document, blocks: list[Block], settings: Settings) -> list[list
 
 
 def requests_for(doc: Document, blocks: list[Block], reading: int, settings: Settings, *,
-                 legacy_custom_ids: bool = False) -> list[RequestPlan]:
+                 legacy_custom_ids: bool = False, campaign_override: str | None = None) -> list[RequestPlan]:
     paths = _owner_paths(doc)
     prompt = _prompt(reading)
-    campaign = campaign_fingerprint(doc, settings)
+    campaign = campaign_override or campaign_fingerprint(doc, settings)
     plans = []
     for index, chunk in enumerate(_chunks(doc, blocks, settings), 1):
         block_ids = tuple(block.block_id for block in chunk)
@@ -308,6 +318,200 @@ def majorant_eur(plans: list[RequestPlan], settings: Settings) -> float:
         total += estimate_cost(params["model"], params["system"], params["messages"], params["max_tokens"], settings,
                                output_schema=params["output_config"]["format"]) * BATCH_DISCOUNT
     return round(total, 4)
+
+
+def standard_majorant_eur(plan: RequestPlan, settings: Settings) -> float:
+    """Majorant d'un appel Messages standard, sans la remise Batch."""
+    params = plan.request["params"]
+    return estimate_cost(
+        params["model"], params["system"], params["messages"], params["max_tokens"], settings,
+        output_schema=params["output_config"]["format"],
+    )
+
+
+def resume_payload_proofs(plans: list[RequestPlan], settings: Settings) -> dict[str, str]:
+    """Une preuve par requête, afin de ne rejouer que les payloads réellement modifiés."""
+    relevant_settings = {
+        name: value for name, value in settings.thresholds().items()
+        if name.startswith("type_clauses_") or name in {"kind_confidence_min", "usd_eur"}
+    }
+    out: dict[str, str] = {}
+    for plan in plans:
+        projection = {
+            "block_ids": list(plan.block_ids),
+            "params": plan.request["params"],
+            "settings": relevant_settings,
+        }
+        encoded = json.dumps(
+            projection, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+        out[plan.custom_id] = hashlib.sha256(encoded).hexdigest()
+    return out
+
+
+def _payload_proofs_fingerprint(proofs: dict[str, str]) -> str:
+    encoded = json.dumps(proofs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def resume_payload_fingerprint(plans: list[RequestPlan], settings: Settings) -> str:
+    """Certificat global des preuves par requête, indépendant du transport."""
+    return _payload_proofs_fingerprint(resume_payload_proofs(plans, settings))
+
+
+class _CostGuard:
+    """Réserve le prochain majorant contre le coût réel déjà observé, même en concurrence."""
+
+    def __init__(self, ceiling: float, spent: float = 0.0) -> None:
+        self.ceiling = ceiling
+        self.spent = spent
+        self.reserved = 0.0
+        self.condition = Condition()
+
+    def reserve(self, estimate: float) -> None:
+        with self.condition:
+            while self.spent + self.reserved + estimate > self.ceiling and self.reserved > 0:
+                self.condition.wait()
+            if self.spent + self.reserved + estimate > self.ceiling:
+                raise BatchFailure(
+                    f"plafond {self.ceiling:.4f} € insuffisant pour la requête suivante "
+                    f"(coût réel {self.spent:.4f} € + estimation {estimate:.4f} €); "
+                    "aucun artefact écrit"
+                )
+            self.reserved += estimate
+
+    def commit(self, estimate: float, actual: float) -> None:
+        with self.condition:
+            self.reserved -= estimate
+            self.spent += actual
+            self.condition.notify_all()
+
+    def release(self, estimate: float) -> None:
+        with self.condition:
+            self.reserved -= estimate
+            self.condition.notify_all()
+
+
+def _retryable_standard(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and (status == 429 or status >= 500)
+
+
+def _standard_response(message: Any, settings: Settings) -> tuple[str, float]:
+    usage = _attr(message, "usage")
+    if usage is None:
+        raise BatchFailure("réponse standard sans usage facturable; aucun artefact écrit")
+    cost = cost_from_usage(MODEL, usage, settings.usd_eur, batch=False).cost_eur
+    stop_reason = _attr(message, "stop_reason")
+    if stop_reason is not None and stop_reason not in NORMAL_STOPS:
+        raise BatchFailure(
+            f"réponse standard interrompue (stop_reason={stop_reason!r}, coût réel {cost:.4f} €); "
+            "aucun artefact écrit"
+        )
+    text = "".join(
+        str(_attr(part, "text", "")) for part in (_attr(message, "content") or [])
+        if _attr(part, "type") == "text"
+    )
+    return text, cost
+
+
+def execute_standard(client: Any, plans: list[RequestPlan], settings: Settings, *, guard: _CostGuard,
+                     output: Any = sys.stdout, sleep: Any = time.sleep) -> tuple[dict[str, str], float]:
+    """Messages standard explicites : concurrence, retries 429/5xx et coût tous bornés.
+
+    Aucun appel à `messages.batches.create` n'est possible depuis cette fonction. Le dictionnaire
+    rendu suit l'ordre des plans, indépendamment de l'ordre de terminaison des workers.
+    """
+    if not plans:
+        return {}, 0.0
+    stopped = Event()
+
+    def one(plan: RequestPlan) -> tuple[str, str, float]:
+        estimate = standard_majorant_eur(plan, settings)
+        if stopped.is_set():
+            raise BatchFailure(f"{plan.custom_id}: appel annulé avant démarrage")
+        guard.reserve(estimate)
+        reserved = True
+        try:
+            if stopped.is_set():
+                raise BatchFailure(f"{plan.custom_id}: appel annulé avant démarrage")
+            for attempt in range(settings.type_clauses_standard_max_retries + 1):
+                if stopped.is_set():
+                    raise BatchFailure(f"{plan.custom_id}: appel annulé avant nouvelle tentative")
+                try:
+                    message = client.messages.create(**plan.request["params"])
+                    usage = _attr(message, "usage")
+                    if usage is None:
+                        # L'absence d'usage empêche un certificat exact. On consomme le majorant
+                        # réservé avant de refuser, afin que les workers concurrents ne puissent pas
+                        # dépenser à sa place après un appel potentiellement facturé.
+                        guard.commit(estimate, estimate)
+                        reserved = False
+                        raise BatchFailure("réponse standard sans usage facturable; aucun artefact écrit")
+                    actual = cost_from_usage(MODEL, usage, settings.usd_eur, batch=False).cost_eur
+                    guard.commit(estimate, actual)
+                    reserved = False
+                    text, actual = _standard_response(message, settings)
+                    return plan.custom_id, text, actual
+                except Exception as exc:  # noqa: BLE001 - classification stricte par statut HTTP
+                    if (not _retryable_standard(exc)
+                            or attempt >= settings.type_clauses_standard_max_retries):
+                        raise BatchFailure(
+                            f"{plan.custom_id}: appel standard échoué après {attempt + 1} tentative(s) "
+                            f"({type(exc).__name__}); aucun artefact écrit"
+                        ) from exc
+                    sleep(settings.type_clauses_standard_retry_base_s * (2 ** attempt))
+        except Exception:
+            if reserved:
+                guard.release(estimate)
+            raise
+        raise AssertionError("boucle de retry standard impossible")
+
+    completed: dict[str, tuple[str, float]] = {}
+    failure: Exception | None = None
+    with ThreadPoolExecutor(max_workers=settings.type_clauses_standard_concurrency) as executor:
+        futures = {
+            executor.submit(one, plan): plan.custom_id
+            for plan in plans[:settings.type_clauses_standard_concurrency]
+        }
+        # La fenêtre seule est soumise : aucune file de dizaines d'appels n'est créée d'avance.
+        next_index = len(futures)
+        while futures and failure is None:
+            done, _pending = wait(futures, return_when=FIRST_COMPLETED)
+            succeeded = 0
+            for future in done:
+                futures.pop(future)
+                try:
+                    cid, text, cost = future.result()
+                except Exception as exc:  # les workers restants sont arrêtés au premier terminal
+                    failure = exc
+                    stopped.set()
+                    break
+                completed[cid] = (text, cost)
+                succeeded += 1
+            if failure is None:
+                for _ in range(succeeded):
+                    if next_index >= len(plans):
+                        break
+                    plan = plans[next_index]
+                    futures[executor.submit(one, plan)] = plan.custom_id
+                    next_index += 1
+        if failure is not None:
+            stopped.set()
+            for future in futures:
+                future.cancel()
+            # Les appels déjà entrés dans `messages.create` finissent et comptent leur usage dans
+            # le garde. Les futures non démarrées sont annulées par l'executor.
+            executor.shutdown(wait=True, cancel_futures=True)
+    if failure is not None:
+        raise BatchFailure(
+            f"arrêt des appels standard au premier échec terminal; coût réel acquis "
+            f"{guard.spent:.4f} €; cause: {failure}; aucun artefact écrit"
+        ) from failure
+    ordered = {plan.custom_id: completed[plan.custom_id][0] for plan in plans}
+    cost = round(sum(completed[plan.custom_id][1] for plan in plans), 4)
+    print(f"Messages standard: {len(plans)} appel(s), coût réel {cost:.4f} €", file=output)
+    return ordered, cost
 
 
 def _cancel(client: Any, batch_id: str) -> str:
@@ -711,8 +915,26 @@ def _apply_node_scopes(doc: Document) -> Document:
         if any(target is not None and doc.node_of(target) not in source_subtree for target in special_targets):
             signal(source, "special")
             continue
-        target = block.relation.specialise
-        if target is not None and doc.block(target).kind == "garantie" and doc.node_of(target) not in source_subtree:
+        # Une garantie confirmée qui dépend, par une relation ou un renvoi résolu, d'une garantie
+        # confirmée hors de son propre sous-arbre est une extension. Les refs vers une définition,
+        # une condition ou un bloc non confirmé ne portent pas ce signal ; l'absence de lien non plus.
+        relation_target = block.relation.specialise
+        relation_signal = (
+            block.kind == "garantie"
+            and block.kind_confirmed
+            and relation_target is not None
+            and doc.block(relation_target).kind == "garantie"
+            and doc.block(relation_target).kind_confirmed
+            and doc.node_of(relation_target) not in source_subtree
+        )
+        ref_signal = block.kind == "garantie" and block.kind_confirmed and any(
+            target is not None
+            and doc.block(target).kind == "garantie"
+            and doc.block(target).kind_confirmed
+            and doc.node_of(target) not in source_subtree
+            for target in block.refs
+        )
+        if relation_signal or ref_signal:
             signal(source, "extension")
 
     nodes: list[Node] = []
@@ -862,8 +1084,18 @@ def _exclusive_lock(doc_dir: Path) -> Any:
 def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_run: bool = False,
                 max_cost: float | None = None, first_batch_id: str | None = None,
                 second_batch_id: str | None = None, legacy_resume: str | None = None,
+                transport: Literal["batch", "standard-resume"] = "batch",
+                resume_campaign: str | None = None,
+                resume_payload_sha256: str | None = None,
+                resume_payload_proofs_map: dict[str, str] | None = None,
+                resume_justification: str | None = None,
+                prior_cost_eur: float = 0.0,
                 output: Any = sys.stdout, sleep: Any = time.sleep,
                 now: Any = time.monotonic) -> TypingResult | None:
+    if transport not in {"batch", "standard-resume"}:
+        raise ValueError(f"transport inconnu {transport!r}; aucun appel ni lot soumis")
+    if not math.isfinite(prior_cost_eur) or prior_cost_eur < 0:
+        raise ValueError("--prior-cost-eur doit être un nombre fini >= 0; aucun appel soumis")
     doc, report, raw_manifest, old_entry, migration = _load(doc_dir)
     campaign = campaign_fingerprint(doc, settings)
     print(f"empreinte de campagne: {campaign}", file=output)
@@ -876,30 +1108,153 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     if legacy_resume is not None:
         print("reprise legacy auditée: custom_id historiques vérifiés contre la campagne courante "
               f"{campaign}; aucune nouvelle soumission", file=output)
+    if transport == "standard-resume":
+        if not first_batch_id or second_batch_id or legacy_resume:
+            raise ValueError(
+                "--transport standard-resume exige --first-batch-id seul et interdit "
+                "--second-batch-id/--legacy-resume"
+            )
+        if resume_campaign is None or re.fullmatch(r"[0-9a-f]{64}", resume_campaign) is None:
+            raise ValueError("--resume-campaign doit être l'empreinte SHA-256 complète du lot repris")
+        if (resume_payload_sha256 is None
+                or re.fullmatch(r"[0-9a-f]{64}", resume_payload_sha256) is None):
+            raise ValueError(
+                "--resume-payload-sha256 doit prouver l'identité exacte des requêtes du lot repris"
+            )
+        resume_justification = " ".join((resume_justification or "").split())
+        if not resume_justification or len(resume_justification) > 500:
+            raise ValueError("--resume-justification doit contenir 1 à 500 caractères auditables")
+        print(
+            f"transport standard-resume: lot lecture 1 {first_batch_id}, campagne reprise "
+            f"{resume_campaign}; aucune nouvelle soumission Batch",
+            file=output,
+        )
+    elif any(value is not None for value in (
+            resume_campaign, resume_payload_sha256, resume_justification)):
+        raise ValueError(
+            "les preuves --resume-* ne sont acceptées qu'avec --transport standard-resume"
+        )
     citable = [block for block in doc.blocks if is_citable(block)]
-    first_plans = requests_for(doc, citable, 1, settings, legacy_custom_ids=legacy_resume is not None)
+    plan_campaign = resume_campaign if transport == "standard-resume" else None
+    first_plans = requests_for(
+        doc, citable, 1, settings, legacy_custom_ids=legacy_resume is not None,
+        campaign_override=plan_campaign,
+    )
+    current_payload_proofs = resume_payload_proofs(first_plans, settings)
+    current_payload_sha256 = _payload_proofs_fingerprint(current_payload_proofs)
+    resumed_payload_proofs = resume_payload_proofs_map or current_payload_proofs
+    resumed_payload_sha256 = _payload_proofs_fingerprint(resumed_payload_proofs)
+    changed_payload_ids: set[str] = set()
+    if transport == "standard-resume":
+        expected_ids = {plan.custom_id for plan in first_plans}
+        if (set(resumed_payload_proofs) != expected_ids
+                or any(re.fullmatch(r"[0-9a-f]{64}", value) is None
+                       for value in resumed_payload_proofs.values())):
+            raise ValueError("reprise refusée: manifeste de payload incomplet ou mal formé")
+        if resumed_payload_sha256 != resume_payload_sha256:
+            raise ValueError(
+                "reprise refusée avant appel: certificat du manifeste payload "
+                f"{resumed_payload_sha256} différent de la preuve {resume_payload_sha256}"
+            )
+        changed_payload_ids = {
+            cid for cid in expected_ids
+            if current_payload_proofs[cid] != resumed_payload_proofs[cid]
+        }
+        print(
+            f"reprise auditée: campagne lot={resume_campaign}; campagne courante={campaign}; "
+            f"payload_lot={resumed_payload_sha256}; payload_courant={current_payload_sha256}; "
+            f"plans_modifiés={len(changed_payload_ids)}; justification={resume_justification}",
+            file=output,
+        )
     # Pire cas avant le premier euro : chaque bloc de lecture 1 est juridique et repasse en lecture 2.
-    worst_second = requests_for(doc, citable, 2, settings, legacy_custom_ids=legacy_resume is not None)
+    worst_second = requests_for(
+        doc, citable, 2, settings, legacy_custom_ids=legacy_resume is not None,
+        campaign_override=plan_campaign,
+    )
     estimate = round(majorant_eur(first_plans, settings) + majorant_eur(worst_second, settings), 4)
     ceiling = settings.type_clauses_max_cost_eur if max_cost is None else max_cost
     if not math.isfinite(ceiling) or ceiling <= 0:
         raise ValueError("--max-cost doit être un nombre fini > 0; aucun lot soumis")
+    if prior_cost_eur >= ceiling:
+        raise ValueError(
+            f"coût réel déjà acquis {prior_cost_eur:.4f} € >= plafond {ceiling:.4f} €; aucun appel soumis"
+        )
     print(f"lecture 1: {len(citable)} bloc(s), {len(first_plans)} requête(s); lecture 2: au plus "
-          f"{len(citable)} bloc(s), {len(worst_second)} requête(s); majorant {estimate:.4f} € "
-          f"(remise Batch {BATCH_DISCOUNT}) / plafond {ceiling:.4f} €", file=output)
-    if estimate > ceiling:
+          f"{len(citable)} bloc(s), {len(worst_second)} requête(s); majorant Batch {estimate:.4f} € "
+          f"(remise {BATCH_DISCOUNT}) / plafond cumulé {ceiling:.4f} €", file=output)
+    if transport == "batch" and estimate > ceiling:
         raise ValueError(f"majorant {estimate:.4f} € > plafond {ceiling:.4f} €; aucun lot soumis")
     if dry_run:
         return None
     if client is None:
         if cle_absente(settings):
             raise PermissionError("ANTHROPIC_API_KEY absente; aucun lot soumis")
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        client = anthropic.Anthropic(
+            api_key=settings.anthropic_api_key,
+            max_retries=0 if transport == "standard-resume" else 2,
+        )
 
-    first_texts, first_cost, failures = execute_batch(client, first_plans, settings, batch_id=first_batch_id,
-                                                       output=output, sleep=sleep, now=now)
-    if failures:
-        raise BatchFailure(f"lecture 1 incomplète (coût réel {first_cost:.4f} €): " + "; ".join(failures))
+    reused_requests = 0
+    replayed_requests = 0
+    standard_requests = 0
+    batch_cost = 0.0
+    standard_cost = 0.0
+    if transport == "standard-resume":
+        recovered, batch_cost, failures = execute_batch(
+            client, first_plans, settings, batch_id=first_batch_id,
+            output=output, sleep=sleep, now=now,
+        )
+        batch_missing_plans = [plan for plan in first_plans if plan.custom_id not in recovered]
+        missing_ids = {plan.custom_id for plan in batch_missing_plans}
+        represented = {
+            cid for cid in missing_ids if sum(failure.startswith(f"{cid}:") for failure in failures) == 1
+        }
+        if len(failures) != len(batch_missing_plans) or represented != missing_ids:
+            raise BatchFailure(
+                "lot repris incohérent (résultat inconnu, dupliqué ou absent sans état); "
+                f"coût Batch réel {batch_cost:.4f} €; aucun artefact écrit"
+            )
+        replayed_requests = sum(cid in recovered for cid in changed_payload_ids)
+        reused_requests = len(recovered) - replayed_requests
+        missing_plans = [
+            plan for plan in first_plans
+            if plan.custom_id not in recovered or plan.custom_id in changed_payload_ids
+        ]
+        trusted_recovered = {
+            cid: text for cid, text in recovered.items() if cid not in changed_payload_ids
+        }
+        if prior_cost_eur and prior_cost_eur < batch_cost:
+            raise BatchFailure(
+                f"coût antérieur déclaré {prior_cost_eur:.4f} € < coût Batch récupéré "
+                f"{batch_cost:.4f} €; aucun appel standard"
+            )
+        acquired_before = prior_cost_eur or batch_cost
+        guard = _CostGuard(ceiling, spent=acquired_before)
+        completed, first_standard_cost = execute_standard(
+            client, missing_plans, settings, guard=guard, output=output, sleep=sleep,
+        )
+        first_texts = {
+            plan.custom_id: (trusted_recovered | completed)[plan.custom_id]
+            for plan in first_plans
+        }
+        standard_requests += len(missing_plans)
+        standard_cost += first_standard_cost
+        print(f"coût cumulé acquis après lecture 1: {guard.spent:.4f} €", file=output)
+        first_cost = round(batch_cost + first_standard_cost, 4)
+        print(
+            f"lecture 1 reprise: {reused_requests} résultat(s) Batch réutilisé(s), "
+            f"{replayed_requests} payload(s) succès rejoué(s), "
+            f"{len(missing_plans)} appel(s) standard",
+            file=output,
+        )
+    else:
+        first_texts, first_cost, failures = execute_batch(
+            client, first_plans, settings, batch_id=first_batch_id,
+            output=output, sleep=sleep, now=now,
+        )
+        if failures:
+            raise BatchFailure(f"lecture 1 incomplète (coût réel {first_cost:.4f} €): " + "; ".join(failures))
+        batch_cost = first_cost
     try:
         first = parse_reading(first_texts, first_plans, doc, settings, require_all_labels=True)
     except ValueError as exc:
@@ -907,17 +1262,33 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"lecture 1 hors schéma (coût réel {first_cost:.4f} €); aucun artefact écrit: {exc}"
         ) from exc
     legal_blocks = [doc.block(block_id) for block_id, label in first.items() if label.kind in LEGAL_KINDS]
-    second_plans = requests_for(doc, legal_blocks, 2, settings, legacy_custom_ids=legacy_resume is not None)
+    second_plans = requests_for(
+        doc, legal_blocks, 2, settings, legacy_custom_ids=legacy_resume is not None,
+        campaign_override=plan_campaign,
+    )
     actual_estimate = round(majorant_eur(first_plans, settings) + majorant_eur(second_plans, settings), 4)
-    if actual_estimate > ceiling:
+    if transport == "batch" and actual_estimate > ceiling:
         raise BatchFailure(f"les candidats de lecture 2 portent le majorant à {actual_estimate:.4f} € > plafond; "
                            "lecture 1 facturée, aucun artefact écrit")
-    second_texts, second_cost, failures = execute_batch(client, second_plans, settings, batch_id=second_batch_id,
-                                                         output=output, sleep=sleep, now=now)
-    total_cost = round(first_cost + second_cost, 4)
-    if failures:
-        raise BatchFailure(f"lecture 2 incomplète (coût réel cumulé {total_cost:.4f} €): "
-                           + "; ".join(failures))
+    if transport == "standard-resume":
+        second_texts, second_cost = execute_standard(
+            client, second_plans, settings, guard=guard, output=output, sleep=sleep,
+        )
+        standard_requests += len(second_plans)
+        standard_cost += second_cost
+        print(f"coût cumulé acquis après lecture 2: {guard.spent:.4f} €", file=output)
+    else:
+        second_texts, second_cost, failures = execute_batch(
+            client, second_plans, settings, batch_id=second_batch_id,
+            output=output, sleep=sleep, now=now,
+        )
+        if failures:
+            total_cost = round(first_cost + second_cost, 4)
+            raise BatchFailure(f"lecture 2 incomplète (coût réel cumulé {total_cost:.4f} €): "
+                               + "; ".join(failures))
+        batch_cost += second_cost
+    total_cost = round(batch_cost + standard_cost, 4)
+    cumulative_cost = round((prior_cost_eur or batch_cost) + standard_cost, 4)
     # Une omission de label **dans** une réponse valide est un désaccord T2, pas un lot T4 incomplet.
     try:
         second = parse_reading(second_texts, second_plans, doc, settings, require_all_labels=False)
@@ -930,6 +1301,38 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"aucun artefact écrit: {exc}"
         ) from exc
     typed_report = enrich_typing_report(report, typed, rejected_definitions=rejected_definitions)
+    if transport == "standard-resume":
+        typed_report.checks.append(Check(
+            name="typage_transport", level="info",
+            detail=(f"standard-resume; lot lecture 1={first_batch_id}; campagne={resume_campaign}; "
+                    f"campagne_courante={campaign}; payload_lot={resumed_payload_sha256}; "
+                    f"payload_courant={current_payload_sha256}; "
+                    f"justification={resume_justification}; "
+                    f"réutilisés={reused_requests}; rejoués_payload={replayed_requests}; "
+                    f"appels_standard={standard_requests}; "
+                    f"coût_batch={batch_cost:.4f} EUR; coût_standard={standard_cost:.4f} EUR; "
+                    f"coût_antérieur={prior_cost_eur:.4f} EUR; "
+                    f"coût_cumulé={cumulative_cost:.4f} EUR; plafond={ceiling:.4f} EUR"),
+        ))
+        typed_report.stats.update({
+            "typage_transport": transport,
+            "typage_resume_batch_id": first_batch_id,
+            "typage_resume_campaign": resume_campaign,
+            "typage_current_campaign": campaign,
+            "typage_resume_payload_sha256": resumed_payload_sha256,
+            "typage_current_payload_sha256": current_payload_sha256,
+            "typage_replayed_payload_requests": replayed_requests,
+            "typage_replayed_payload_custom_ids": ",".join(sorted(changed_payload_ids)),
+            "typage_resume_justification": resume_justification,
+            "typage_reused_requests": reused_requests,
+            "typage_standard_requests": standard_requests,
+            "typage_batch_cost_eur": round(batch_cost, 4),
+            "typage_standard_cost_eur": round(standard_cost, 4),
+            "typage_total_cost_eur": total_cost,
+            "typage_prior_cost_eur": round(prior_cost_eur, 4),
+            "typage_cumulative_cost_eur": cumulative_cost,
+            "typage_cost_ceiling_eur": round(ceiling, 4),
+        })
     doc_text = document_json(typed)
     report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
     document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
@@ -950,19 +1353,35 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     )
     return TypingResult(document=typed, report=typed_report, entry=merged_entry,
                         cost_eur=total_cost,
-                        first_requests=len(first_plans), second_requests=len(second_plans))
+                        first_requests=len(first_plans), second_requests=len(second_plans),
+                        transport=transport, reused_requests=reused_requests,
+                        replayed_requests=replayed_requests,
+                        standard_requests=standard_requests, batch_cost_eur=round(batch_cost, 4),
+                        standard_cost_eur=round(standard_cost, 4),
+                        prior_cost_eur=round(prior_cost_eur, 4),
+                        cumulative_cost_eur=cumulative_cost)
 
 
 def run(doc_dir: Path, *, settings: Settings, client: Any = None, dry_run: bool = False,
         max_cost: float | None = None, first_batch_id: str | None = None,
         second_batch_id: str | None = None, legacy_resume: str | None = None,
+        transport: Literal["batch", "standard-resume"] = "batch",
+        resume_campaign: str | None = None,
+        resume_payload_sha256: str | None = None,
+        resume_payload_proofs_map: dict[str, str] | None = None,
+        resume_justification: str | None = None,
+        prior_cost_eur: float = 0.0,
         output: Any = sys.stdout, sleep: Any = time.sleep,
         now: Any = time.monotonic) -> TypingResult | None:
     with _exclusive_lock(doc_dir):
         return _run_locked(
             doc_dir, settings=settings, client=client, dry_run=dry_run, max_cost=max_cost,
             first_batch_id=first_batch_id, second_batch_id=second_batch_id,
-            legacy_resume=legacy_resume, output=output, sleep=sleep, now=now,
+            legacy_resume=legacy_resume, transport=transport, resume_campaign=resume_campaign,
+            resume_payload_sha256=resume_payload_sha256,
+            resume_payload_proofs_map=resume_payload_proofs_map,
+            resume_justification=resume_justification, prior_cost_eur=prior_cost_eur,
+            output=output, sleep=sleep, now=now,
         )
 
 
@@ -976,6 +1395,30 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     parser.add_argument("--first-batch-id", help="reprendre un premier lot déjà soumis, sans le refacturer")
     parser.add_argument("--second-batch-id", help="reprendre un second lot déjà soumis, sans le refacturer")
     parser.add_argument(
+        "--transport", choices=("batch", "standard-resume"), default="batch",
+        help="transport CLI explicite; standard-resume ne soumet jamais de nouveau Batch",
+    )
+    parser.add_argument(
+        "--resume-campaign",
+        help="empreinte SHA-256 complète dont les custom_id du premier lot doivent être reconstruits",
+    )
+    parser.add_argument(
+        "--resume-payload-sha256",
+        help="preuve SHA-256 du payload exact du lot repris, hors transport et custom_id",
+    )
+    parser.add_argument(
+        "--resume-payload-proof", type=Path,
+        help="manifeste JSON custom_id→SHA-256 créé sur l'artefact exact du lot repris",
+    )
+    parser.add_argument(
+        "--resume-justification",
+        help="justification durable de l'écart entre campagne reprise et campagne courante",
+    )
+    parser.add_argument(
+        "--prior-cost-eur", type=float, default=0.0,
+        help="coût réel déjà acquis à compter dans le plafond cumulé avant tout nouvel appel",
+    )
+    parser.add_argument(
         "--legacy-resume", metavar="SHA256_CAMPAGNE",
         help="migration auditée de deux lots antérieurs; exige leurs deux IDs et l'empreinte courante",
     )
@@ -988,9 +1431,22 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         return 2
     settings = settings or get_settings()
     try:
+        resume_payload_proofs_map = None
+        if args.resume_payload_proof is not None:
+            raw_proofs = json.loads(args.resume_payload_proof.read_text("utf-8"))
+            if (not isinstance(raw_proofs, dict)
+                    or any(not isinstance(key, str) or not isinstance(value, str)
+                           for key, value in raw_proofs.items())):
+                raise ValueError("--resume-payload-proof doit être un objet JSON custom_id→SHA-256")
+            resume_payload_proofs_map = raw_proofs
         result = run(args.data / args.doc_id, settings=settings, client=client, dry_run=args.dry_run,
                      max_cost=args.max_cost, first_batch_id=args.first_batch_id,
-                     second_batch_id=args.second_batch_id, legacy_resume=args.legacy_resume, output=output)
+                     second_batch_id=args.second_batch_id, legacy_resume=args.legacy_resume,
+                     transport=args.transport, resume_campaign=args.resume_campaign,
+                     resume_payload_sha256=args.resume_payload_sha256,
+                     resume_payload_proofs_map=resume_payload_proofs_map,
+                     resume_justification=args.resume_justification,
+                     prior_cost_eur=args.prior_cost_eur, output=output)
     except PermissionError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -1004,7 +1460,9 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         print("dry-run: aucune soumission, aucune écriture", file=output)
         return 0
     print(f"coût réel des deux lectures: {result.cost_eur:.4f} €; "
-          f"{result.first_requests}+{result.second_requests} requête(s)", file=output)
+          f"{result.first_requests}+{result.second_requests} requête(s); "
+          f"transport={result.transport}; réutilisés={result.reused_requests}; "
+          f"appels_standard={result.standard_requests}", file=output)
     for check in result.report.checks:
         if check.name in {"corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
                           "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes",

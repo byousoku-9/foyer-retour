@@ -17,6 +17,7 @@ from server.app.domain.verdict import (
     ClauseCitee,
     MissingPackage,
     applicable_de_claim,
+    applicabilites_des_claims,
     decider,
 )
 
@@ -131,6 +132,16 @@ def test_an_exclusion_whose_scope_misses_the_case_does_not_exclude() -> None:
     # dossier au complet : sans lui, la règle (2) tranche avant qu'on puisse voir si l'exclusion mord
     v = decider([garantie, exclusion], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
     assert v.value == "couvert"
+    assert applicabilites_des_claims([garantie, exclusion])["c2"] == ("non", "hors_portee")
+
+
+def test_an_exclusion_without_a_known_scope_stays_human_even_with_case_nodes() -> None:
+    garantie = _claim("c1", "garantie", _champs(True))
+    exclusion = _claim(
+        "c2", "exclusion", _champs(True),
+        clause=_clause("exclusion", block_id="d:p1:2", portee=set()),
+    )
+    assert applicabilites_des_claims([garantie, exclusion])["c2"] == ("humain", None)
 
 
 def test_an_exclusion_alone_never_covers_itself() -> None:
@@ -305,6 +316,19 @@ def test_only_displayed_claims_enter_the_table() -> None:
     """D4 : une claim non retenue ne fonde aucun verdict — elle n'est pas sous les yeux de l'utilisateur."""
     cachee = _claim("c1", "garantie", _champs(True), retenue=False)
     assert decider([cachee], ask_client_max=ASK_MAX).value == "ne_tranche_pas"
+
+
+def test_a_nonempty_partial_resolution_map_is_recomputed_without_key_error() -> None:
+    garantie = _claim("c1", "garantie", _champs(True))
+    condition = _claim("c2", "condition", _champs(False, manquant="fait à établir"))
+    partial = {"c1": ("oui", None)}
+
+    verdict = decider(
+        [garantie, condition], ask_client_max=ASK_MAX, resolutions=partial,
+    )
+
+    assert verdict.value == "sous_conditions"
+    assert verdict.missing.faits == ["fait à établir"]
 
 
 def test_ask_client_is_deduplicated_and_bounded() -> None:

@@ -465,6 +465,116 @@ def test_preliminary_groups_before_first_article_on_same_page_are_separate() -> 
     assert article.blocks == [block.block_id for block in document.blocks[1:]]
 
 
+def test_an_aligned_closing_paragraph_returns_to_the_numbered_parent() -> None:
+    """T4 : dé-indentation par arbre + géométrie, sans numéro ni mots propres au contrat."""
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1.4 Catégorie", [56, 60, 210, 74], 17, number="1.4"),
+        p.PageLine("Le groupe comprend les items suivants :", [122, 90, 390, 104], 10),
+        p.PageLine("1.4.1 premier item ;", [56, 125, 250, 139], 10, number="1.4.1"),
+        p.PageLine("1.4.2 second item ;", [56, 160, 250, 174], 10, number="1.4.2"),
+        p.PageLine("1.4.3 dernier item.", [56, 195, 250, 209], 10, number="1.4.3"),
+        p.PageLine("Le groupe ne comprend pas :", [122, 230, 330, 244], 10),
+        p.PageLine("• la valeur écartée.", [122, 247, 310, 261], 10, bullet=True),
+        p.PageLine("1.5 Suite", [56, 285, 180, 299], 17, number="1.5"),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    parent = next(node for node in document.nodes if node.node_id == f"{DOC}:a1.4")
+    leaf = next(node for node in document.nodes if node.node_id == f"{DOC}:a1.4.3")
+    assert [document.block(block_id).text for block_id in leaf.blocks] == ["1.4.3 dernier item."]
+    assert [document.block(block_id).text for block_id in parent.blocks][-2:] == [
+        "Le groupe ne comprend pas :", "• la valeur écartée.",
+    ]
+
+
+def test_an_aligned_body_stays_under_a_child_that_has_a_later_sibling() -> None:
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Parent", [56, 50, 180, 64], 17, number="1"),
+        p.PageLine("Corps du parent.", [122, 80, 280, 94], 10),
+        p.PageLine("1.1 Premier", [56, 115, 180, 129], 10, number="1.1"),
+        p.PageLine("1.2 Deuxième", [56, 150, 190, 164], 10, number="1.2"),
+        p.PageLine("Corps aligné du deuxième.", [122, 185, 330, 199], 10),
+        p.PageLine("1.3 Troisième", [56, 220, 190, 234], 10, number="1.3"),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    parent = next(node for node in document.nodes if node.node_id == f"{DOC}:a1")
+    child = next(node for node in document.nodes if node.node_id == f"{DOC}:a1.2")
+    assert "Corps aligné du deuxième." in [document.block(block_id).text
+                                            for block_id in child.blocks]
+    assert "Corps aligné du deuxième." not in [document.block(block_id).text
+                                                for block_id in parent.blocks]
+
+
+def test_a_colon_terminated_starter_never_dedents_its_body() -> None:
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("2 Parent", [56, 50, 180, 64], 17, number="2"),
+        p.PageLine("Corps du parent.", [122, 80, 280, 94], 10),
+        p.PageLine("2.1 Premier", [56, 115, 180, 129], 10, number="2.1"),
+        p.PageLine("2.2 Éléments :", [56, 150, 210, 164], 10, number="2.2"),
+        p.PageLine("Corps annoncé.", [122, 185, 260, 199], 10),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    child = next(node for node in document.nodes if node.node_id == f"{DOC}:a2.2")
+    assert [document.block(block_id).text for block_id in child.blocks][-1] == "Corps annoncé."
+
+
+def test_a_starter_over_the_line_limit_never_dedents_its_body() -> None:
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("3 Parent", [56, 50, 180, 64], 17, number="3"),
+        p.PageLine("Corps du parent.", [122, 80, 280, 94], 10),
+        p.PageLine("3.1 Premier", [56, 115, 180, 129], 10, number="3.1"),
+        p.PageLine("3.2 élément étendu,", [56, 150, 240, 164], 10, number="3.2"),
+        p.PageLine("qui continue sur une ligne", [70, 166, 280, 180], 10),
+        p.PageLine("puis sur une troisième ligne.", [70, 182, 300, 196], 10),
+        p.PageLine("Corps aligné après le long item.", [122, 235, 360, 249], 10),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    child = next(node for node in document.nodes if node.node_id == f"{DOC}:a3.2")
+    assert [document.block(block_id).text for block_id in child.blocks][-1] == \
+        "Corps aligné après le long item."
+
+
+def test_a_node_with_an_existing_body_never_dedents_a_later_paragraph() -> None:
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("4 Parent", [56, 50, 180, 64], 17, number="4"),
+        p.PageLine("Corps du parent.", [122, 80, 280, 94], 10),
+        p.PageLine("4.1 Premier", [56, 115, 180, 129], 10, number="4.1"),
+        p.PageLine("4.2 Second", [56, 150, 190, 164], 10, number="4.2"),
+        p.PageLine("Premier corps propre.", [70, 185, 270, 199], 10),
+        p.PageLine("Corps aligné plus tard.", [122, 235, 330, 249], 10),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    child = next(node for node in document.nodes if node.node_id == f"{DOC}:a4.2")
+    assert [document.block(block_id).text for block_id in child.blocks][-2:] == [
+        "Premier corps propre.", "Corps aligné plus tard.",
+    ]
+
+
+def test_an_ordinary_first_child_body_is_not_dedented_on_alignment_alone() -> None:
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("2 Parent", [56, 60, 180, 74], 17, number="2"),
+        p.PageLine("Corps du parent.", [122, 90, 280, 104], 10),
+        p.PageLine("2.1 Enfant", [56, 125, 190, 139], 17, number="2.1"),
+        p.PageLine("Corps propre de l'enfant.", [122, 160, 320, 174], 10),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    child = next(node for node in document.nodes if node.node_id == f"{DOC}:a2.1")
+    assert [document.block(block_id).text for block_id in child.blocks] == [
+        "2.1 Enfant", "Corps propre de l'enfant.",
+    ]
+
+
 @pytest.mark.parametrize("is_toc", [False, True])
 def test_table_stays_atomic_in_preliminary_and_toc_pages(is_toc: bool) -> None:
     table = p.PageTable([50, 100, 350, 180], [["Garantie", "Plafond"], ["Incendie", "100"]])

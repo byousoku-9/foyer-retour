@@ -236,8 +236,10 @@ class Index:
                     blocs_ouverts: Iterable[str] | None = None) -> list[tuple[str, str]]:
         """Blocs `kind="definition"` qui définissent un terme cherché, résolus dans la portée (AD-1, AD-2).
 
-        Candidats : `defines` normalisé qui matche un terme (ou une variante si dict), en mots entiers,
-        dans les deux sens (« jardin » trouve « mobilier de jardin » et réciproquement) — **et**, si
+        Candidats : `defines` normalisé qui contient un terme (ou une variante si dict), en mots
+        entiers (« jardin » trouve « mobilier de jardin »). L'inverse n'est pas une preuve : une
+        question sur « assurance habitation » ne demande pas automatiquement la définition plus
+        générique « habitation » — **et**, si
         `blocs_ouverts` est donné, `defines` qui apparaît en mots entiers dans le texte de l'un d'eux :
         AD-1 exige les définitions « des termes rencontrés dans les blocs ouverts », pas seulement de
         ceux de la question (revue Codex 1.4, B2). Une clause qui introduit elle-même un terme défini
@@ -292,7 +294,7 @@ class Index:
             defined = " ".join(words(normalize(b.defines)))
             if not defined:
                 continue
-            de_la_question = any(f" {f} " in f" {defined} " or f" {defined} " in f" {f} " for f in forms)
+            de_la_question = any(f" {f} " in f" {defined} " for f in forms)
             # AD-1 : terme rencontré dans un bloc ouvert (jamais dans la définition elle-même)
             rencontre = {o.node_id for o in ouverts
                          if o.doc_id == e.doc_id and o.block.block_id != b.block_id

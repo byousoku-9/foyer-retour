@@ -14,7 +14,7 @@ from .langue import LANGUES_SERVIES
 # `Applicable` vit dans `verdict.py` (story 1.8) : c'est AD-6 qui en fixe les trois valeurs et le
 # code qui les dérive. Deux littéraux identiques dans deux modules auraient pu diverger en silence.
 from .question import CLARIFICATION_MAX_CHARS, QuestionScope
-from .verdict import Applicable, Verdict
+from .verdict import Applicable, ApplicableReason, Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
 # `non_citee` amende AD-4 (revue Codex 1.5) : une claim retrouvée et pertinente qu'**aucun** segment
@@ -73,6 +73,7 @@ class ClaimStatus(DomainModel):
     retrouvee: bool
     pertinente: bool | None = None
     applicable: Applicable | None = None
+    applicable_reason: ApplicableReason | None = None
     edition: str
 
 

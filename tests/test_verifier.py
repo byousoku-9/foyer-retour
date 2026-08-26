@@ -1219,6 +1219,9 @@ async def test_an_exclusion_out_of_scope_does_not_bite(contrat: Index) -> None:
     # règle (1) ne tranche pas, et la garantie du socle reprend la main sans que l'exclusion pèse
     assert v.verdict is not None and v.verdict.value == "couvert"
     assert "exclusion" not in v.verdict.reason
+    by_id = {claim.claim_id: claim.status for claim in v.claims}
+    assert by_id["c2"].applicable == "non"
+    assert by_id["c2"].applicable_reason == "hors_portee"
 
 
 async def test_an_open_condition_makes_the_verdict_conditional(contrat: Index) -> None:
