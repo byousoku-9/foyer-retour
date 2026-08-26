@@ -13,8 +13,10 @@ class RetrievalBudget(DomainModel):
     max_opens: int
     node_window: int
     search_limit: int
-    # L'invariant appartient au budget lui-même : les tests, évals et appels directs ne passent pas
-    # nécessairement par `Settings`, mais aucun d'eux ne doit pouvoir ouvrir un troisième tour.
+    # Ce plafond de sûreté appartient au budget lui-même : les tests, évals et appels directs ne
+    # passent pas nécessairement par `Settings`, et la livraison 2.6 interdit un troisième tour.
+    # La valeur opérationnelle reste une hypothèse de configuration portée aussi par `Settings` ;
+    # la story 4.1 pourra rediscuter ce plafond et le contrat de domaine ensemble si sa mesure le demande.
     max_llm_turns: int = Field(ge=1, le=2)
     max_blocks: int | None = None
     max_tokens: int | None = None

@@ -253,6 +253,31 @@ async def test_definitions_tool_only_serializes_question_or_opened_terms_and_one
     assert "d:p9:2" not in serialized and "d:p3:1" not in serialized
 
 
+async def test_definitions_tool_empty_opened_blocks_cannot_bypass_scope() -> None:
+    """I1 : une liste explicite vide ne recrée jamais le cas « aucun bloc ouvert » d'AD-1."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Le passage emploie Alpha.", loc="p1", seq=1),
+        Block(block_id="d:p9:1", text="Alpha désigne une notion d'une autre portée.",
+              loc="p9", seq=1, kind="definition", defines="alpha", scope_node_id="n2"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p9:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1 > n2"})
+
+    result, _step, _fake, _ = await _run_outils([
+        _tool_message(
+            _tool("ouvrir_noeud", "t1", node_id="n1"),
+            _tool("definitions", "t2", termes=["alpha"], blocs_ouverts=[]),
+        ),
+    ], corpus=corpus, parsed=_parsed(["alpha"]))
+
+    assert result.opened_block_ids == ["d:p1:1"]
+    assert "d:p9:1" not in result.opened_block_ids
+
+
 async def test_outils_invalid_open_still_consumes_the_global_open_quota() -> None:
     result, _step, _fake, _ = await _run_outils([
         _tool_message(_tool("ouvrir_noeud", "t1", node_id="inconnu")),
@@ -268,8 +293,26 @@ async def test_outils_multiple_searches_union_candidates_and_discard_only_unopen
                       _tool("ouvrir_noeud", "t3", node_id="n1")),
     ])
     assert result.discarded_block_ids == ["d:p2:1", "d:p3:1"]
+    (check,) = [c for c in _step.checks if c.name == "candidats_non_ouverts"]
+    assert check.ok is False and "2 candidat(s)" in check.detail
+    assert result.truncated is False
     # La cible voisine du renvoi est transmise mais n'était pas un hit : jamais "écartée".
     assert "d:p1:5" in result.opened_block_ids and "d:p1:5" not in result.discarded_block_ids
+
+
+async def test_outils_prioritizes_profile_nodes_and_reports_actual_contribution() -> None:
+    """I2 : le profil voyage par `scope.noeuds`, guide la navigation et reste vérifiable en trace."""
+    result, step, fake, _ = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n2")),
+    ], parsed=_parsed(["matricule"], noeuds=["n2"]),
+        budget=_budget(profil_max_opens=2, max_blocks=30, max_tokens=6000))
+
+    assert "n2" in fake.requests[0]["system"][0]["text"]
+    assert "scope.noeuds" in fake.requests[0]["system"][0]["text"]
+    assert "d:p2:1" in result.opened_block_ids
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is True and "n2" in check.detail
 
 
 @pytest.mark.parametrize("stop_reason", ["max_tokens", "refusal", "pause_turn"])

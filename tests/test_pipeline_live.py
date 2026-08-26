@@ -150,3 +150,54 @@ async def test_outils_navigates_the_real_summary_and_returns_a_sourced_answer(
     assert all(claim.status.retrouvee and claim.status.pertinente for claim in answer.claims)
     assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)
     assert budget.cost_eur <= settings.max_cost_eur_per_request
+
+
+async def test_outils_cold_path_preflights_every_real_request_under_the_cap(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """M3 : la fixture fournisseur ne court-circuite pas le majorant des requêtes froides.
+
+    Le rejeu emploie le sommaire, les prompts, les schémas, les outils et les plafonds réels. On
+    relève chaque appel à `estimate_cost()` au moment où le client le confronte au coût déjà engagé :
+    une dérive de prompt ou de seuil fait donc tomber ce test sans réseau avant l'appel suivant.
+    """
+    import server.app.llm.client as client_module
+
+    settings, budget = _settings(), _budget()
+    recorder = LLMRecorder(
+        "tests/test_pipeline_live.py::"
+        "test_outils_navigates_the_real_summary_and_returns_a_sourced_answer",
+        api_key="",
+    )
+    original = client_module.estimate_cost
+    preflights: list[tuple[float, float, int]] = []
+    appels_estimes: list[tuple[tuple, dict]] = []
+
+    def relever(*args, **kwargs):
+        estimate = original(*args, **kwargs)
+        max_tokens = int(args[3] if len(args) > 3 else kwargs["max_tokens"])
+        preflights.append((budget.cost_eur, estimate, max_tokens))
+        appels_estimes.append((args, kwargs))
+        return estimate
+
+    monkeypatch.setattr(client_module, "estimate_cost", relever)
+    answer, _trace = await repondre_guide(
+        OUTILS_QUESTION, [], Profil(), corpus=index.corpus, index=index,
+        client=LlmClient(settings, anthropic_client=RecordedAnthropic(recorder)), settings=settings,
+        request_id="preflight-outils", budget=budget, variant="outils")
+
+    assert answer.found and preflights
+    assert settings.retrouver_outils_max_tokens in {m for _, _, m in preflights}
+    assert settings.outils_rediger_max_tokens in {m for _, _, m in preflights}
+    assert settings.verifier_max_tokens in {m for _, _, m in preflights}
+    assert all(engage + estimate <= settings.max_cost_eur_per_request
+               for engage, estimate, _ in preflights)
+    # Contrôle négatif reproduisant le chemin froid qui avait bloqué la première tentative 2.6 :
+    # 0,0477 € engagés par la navigation Sonnet, puis l'ancien plafond commun de *rédiger*.
+    args_rediger, kwargs_rediger = next(
+        (args, kwargs) for args, kwargs in appels_estimes
+        if int(args[3] if len(args) > 3 else kwargs["max_tokens"])
+        == settings.outils_rediger_max_tokens
+    )
+    ancien_majorant = original(
+        *args_rediger[:3], settings.rediger_max_tokens, *args_rediger[4:], **kwargs_rediger)
+    assert 0.0477 + ancien_majorant > settings.max_cost_eur_per_request

@@ -263,6 +263,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:5c80eb42f19ee017": {
+    "request": "claude-haiku-4-5-20251001:5c80eb42f19ee017",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQSkwXWwoF6LWQg44EaS",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3652,
+        "output_tokens": 157,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:68506f1f340a5ba2": {
     "request": "claude-haiku-4-5-20251001:68506f1f340a5ba2",
     "response": {
@@ -370,7 +401,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeQMMBSBhWFopY4Qx9KyQ",
+      "id": "msg_011CeQSk2Kiwby6eYAzmsYM8",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -380,10 +411,10 @@
       "usage": {
         "cache_creation": {
           "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 4286
+          "ephemeral_5m_input_tokens": 0
         },
-        "cache_creation_input_tokens": 4286,
-        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4286,
         "inference_geo": "not_available",
         "input_tokens": 75,
         "output_tokens": 115,
@@ -418,6 +449,103 @@
         "inference_geo": "not_available",
         "input_tokens": 3761,
         "output_tokens": 153,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:cc12e38bfed3acbd": {
+    "request": "claude-haiku-4-5-20251001:cc12e38bfed3acbd",
+    "response": {
+      "content": [
+        {
+          "text": "Je vais rechercher les passages pertinents concernant la déclaration d'arrivée et les délais à la commune.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_015TpzUjKzxpZqe5pX3aXixU",
+          "input": {
+            "termes": [
+              "déclaration d'arrivée",
+              "délai",
+              "commune"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeQSkAB1M7y2Ut5Ne6vXX",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4906
+        },
+        "cache_creation_input_tokens": 4906,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 427,
+        "output_tokens": 99,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:df2aec8c7b14ec3b": {
+    "request": "claude-haiku-4-5-20251001:df2aec8c7b14ec3b",
+    "response": {
+      "content": [
+        {
+          "text": "Excellent ! Les résultats montrent que le nœud `lux-guide:farrivee` (Les huit premiers jours) et la question fréquente `lux-guide:q12` (Dans quel délai dois-je me déclarer à la commune ?) sont les plus pertinents. Je vais ouvrir ces passages.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_0159gNMkccNMYpgwGA6j4oJE",
+          "input": {
+            "node_id": "lux-guide:farrivee"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01PgbgV58mK7NMZFhuxXTb9c",
+          "input": {
+            "node_id": "lux-guide:q12"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeQSkFgtjKcwfBvHLgJep",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4906,
+        "inference_geo": "not_available",
+        "input_tokens": 1291,
+        "output_tokens": 196,
         "service_tier": "standard"
       }
     }
@@ -481,11 +609,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Vous disposez de huit jours après l'emménagement pour déclarer votre arrivée à la commune.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration doit se faire au bureau de la population, souvent appelé Biergercenter.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Elle produit deux documents essentiels : le certificat de résidence, qui porte votre matricule, et pour les ressortissants de l'UE restant plus de trois mois, l'attestation d'enregistrement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Comme les rendez-vous se prennent en ligne et que les créneaux partent vite en période de rentrée, il est conseillé de réserver avant même d'avoir les clés du logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas ce qui se passe concrètement si ce délai de huit jours est dépassé.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le délai pour déclarer son arrivée est de huit jours après l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c2\",\"text\":\"La déclaration se fait au bureau de la population, appelé Biergercenter.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c3\",\"text\":\"La déclaration produit le certificat de résidence et, pour les ressortissants de l'UE, l'attestation d'enregistrement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:4\",\"quote\":\"Elle produit en effet deux documents que l'on vous redemandera partout : le certificat de résidence et, pour les ressortissants de l'Union restant plus de trois mois, l'attestation d'enregistrement.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut prendre rendez-vous en ligne avant même d'avoir les clés, car les créneaux partent vite en période de rentrée.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Vous disposez de huit jours après votre emménagement pour déclarer votre arrivée à la commune.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration se fait au bureau de la population (Biergercenter) et non ailleurs.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Le délai court à partir de l'emménagement effectif, pas à partir de la signature du bail.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Comme les créneaux de rendez-vous partent vite, notamment en période de rentrée, il est conseillé de réserver en ligne avant même d'avoir les clés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population après l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"La déclaration se fait à la commune, condition de tout le reste des démarches.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]},{\"claim_id\":\"c3\",\"text\":\"Le délai de huit jours court après l'emménagement, pas après la signature du bail.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut réserver un rendez-vous en ligne avant même d'avoir les clés, car les créneaux partent vite en période de rentrée.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeQMMcQrL5SpdVYq8AEvF",
+      "id": "msg_011CeQSkS3ynUwsHazPfo2zy",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -501,7 +629,7 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 1377,
-        "output_tokens": 907,
+        "output_tokens": 775,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

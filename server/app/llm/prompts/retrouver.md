@@ -11,6 +11,11 @@ d'un résultat de `chercher` de ce même dialogue ; ne devine jamais un identifi
 navigable grâce à son titre et à ses enfants titrés. Utilise le curseur tant qu'une pagination utile
 reste inachevée. `definitions` éclaire les termes et les renvois des blocs déjà ouverts.
 
+Dans la question structurée, `scope.noeuds` contient les identifiants de nœuds désignés par le profil,
+pas le profil brut. Quand ces nœuds apparaissent parmi les candidats de `chercher`, ouvre-les en
+priorité, dans la limite de $profil_max_opens place(s) du quota global. Ils ordonnent les candidats :
+n'ouvre jamais un nœud sans hit pour le seul motif qu'il figure dans `scope.noeuds`.
+
 Le dialogue est borné à $max_llm_turns tour(s). Chaque appel à `ouvrir_noeud`, pagination comprise,
 consomme le quota global de $max_opens ouverture(s). Les budgets globaux de blocs et de tokens sont
 appliqués par le code ; un résultat peut donc signaler une troncature. Regroupe dès le premier tour la

@@ -5,6 +5,11 @@ configuré parcourir le sommaire avec exactement quatre outils, en deux tours au
 ni la chaîne du pipeline, ni `RetrievalResult`, ni la vérification aval. Le premier tour utile suffit
 dès qu'il a admis des blocs sans laisser de pagination ouverte.
 
+Dans cette variante, un candidat de `chercher` que le navigateur choisit de ne pas ouvrir reste dans
+`discarded_block_ids` mais ne rend pas `truncated=True` : il n'a jamais été lu. Un check
+`candidats_non_ouverts` en publie le compte afin que les évals distinguent ce choix d'une fenêtre lue
+puis bornée. Le déterministe, lui, marque la borne quand des nœuds candidats dépassent son quota.
+
 `chercher(terms + scope.themes, limit=search_limit)`, puis ouverture groupée des nœuds candidats par
 score (≤ `max_opens` nœuds, fenêtre `node_window` contenant le meilleur hit du nœud), puis suivi
 **automatique** d'un niveau des renvois (`Block.refs`) des blocs ouverts et des `definitions()` des
@@ -129,7 +134,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
     prompt = render_prompt(
         "retrouver", doc_id=doc_id, max_llm_turns=budget.max_llm_turns,
-        max_opens=budget.max_opens,
+        max_opens=budget.max_opens, profil_max_opens=budget.profil_max_opens,
         sommaire=untrusted("sommaire", index.sommaire(doc_id)))
     question = {
         "question_resolue": parsed.question_resolue,
@@ -144,6 +149,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     admitted: list[str] = []
     admitted_set: set[str] = set()
     window_opened: list[str] = []
+    primary_node_by_block: dict[str, str] = {}
     search_candidates: list[str] = []
     searched_terms: list[str] = []
     blocks_used = 0
@@ -277,6 +283,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if item.block_id in admitted_set:
                     if item.block_id not in window_opened:
                         window_opened.append(item.block_id)
+                    primary_node_by_block[item.block_id] = node_id
                 newly.extend(got)
             dependencies: list[str] = [b for b in newly if b not in primary]
             return {
@@ -292,6 +299,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             ouverts = _strings(args.get("blocs_ouverts", list(window_opened)))
             if not set(args) <= allowed or termes is None or ouverts is None:
                 return invalid()
+            # AD-1 : dès qu'un bloc est ouvert, sa portée s'impose. Une liste explicite vide ne
+            # peut donc pas recréer artificiellement le cas initial « aucun bloc ouvert », où
+            # aucune portée n'est invalidée.
+            if not ouverts and window_opened:
+                ouverts = list(window_opened)
             # Uniquement les blocs primaires d'une fenêtre : accepter une cible déjà admise ici
             # permettrait au modèle de suivre ses propres renvois au tour suivant, donc de créer
             # silencieusement une chaîne de profondeur > 1.
@@ -386,6 +398,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     step.ms = int((time.monotonic() - t0) * 1000)
     step.opened_block_ids = list(admitted)
     step.discarded_block_ids = list(discarded)
+    designes = list(parsed.scope.noeuds)
+    if designes and budget.profil_max_opens > 0:
+        designes_set = set(designes)
+        contributeurs = list(dict.fromkeys(
+            primary_node_by_block[b] for b in admitted
+            if b in primary_node_by_block and primary_node_by_block[b] in designes_set
+        ))
+        absents = [node_id for node_id in designes if node_id not in contributeurs]
+        detail = (f"{len(contributeurs)} nœud(s) désigné(s) par le profil ont contribué aux blocs "
+                  f"transmis sur {budget.profil_max_opens} place(s) prioritaire(s) "
+                  f"({', '.join(contributeurs) or 'aucun'})")
+        if absents:
+            detail += f" ; sans bloc retenu : {', '.join(absents)}"
+        step.checks.append(CheckResult(
+            name="noeuds_du_profil", ok=bool(contributeurs), detail=detail))
+    if discarded:
+        step.checks.append(CheckResult(
+            name="candidats_non_ouverts", ok=False,
+            detail=f"{len(discarded)} candidat(s) de chercher non lu(s) par le navigateur ; "
+                   "choix de navigation distinct d'une troncature"))
     if elargi and searched_terms:
         searched_expanded = dictionnaire.expand(searched_terms)
         base = {forme(t) for t in searched_terms} - {""}

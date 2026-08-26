@@ -1,4 +1,35 @@
 {
+  "claude-haiku-4-5-20251001:9dbdad87348d2fd5": {
+    "request": "claude-haiku-4-5-20251001:9dbdad87348d2fd5",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQSjsQCEeKWMeSKvZ5G4",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3411,
+        "output_tokens": 124,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:b24c01020705a5ae": {
     "request": "claude-haiku-4-5-20251001:b24c01020705a5ae",
     "response": {
@@ -9,7 +40,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeQJ5SXzEvKqCir2rQ4yj",
+      "id": "msg_011CeQSjL4HmRMDdMiM8sU5F",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -98,11 +129,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Vous devez déclarer votre arrivée à la commune dans les huit jours suivant l'emménagement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables pour la suite de vos démarches.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés du logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La déclaration à la commune doit se faire dans les huit jours suivant l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette déclaration produit le certificat de résidence et le matricule.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Vous devez déclarer votre arrivée à la commune dans les huit jours suivant votre emménagement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration produit deux documents indispensables pour la suite de vos démarches.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés du logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La déclaration d'arrivée à la commune doit être faite dans les huit jours suivant l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeQJ5bTG5nnWfp4EHGevJ",
+      "id": "msg_011CeQSjVAUeS544S6Fmp7ET",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -118,7 +149,7 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 2857,
-        "output_tokens": 501,
+        "output_tokens": 508,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

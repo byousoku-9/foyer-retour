@@ -165,6 +165,23 @@ async def _run(index: Index, script: list, *, historique: list[Turn] | None = No
     return answer, trace, fake
 
 
+def _avec_navigation_outils(script: list, variant: str) -> list:
+    """Ajoute le tour minimal de *retrouver* aux scénarios communs paramétrés sur les deux variantes."""
+    if variant != "outils":
+        return script
+    navigation = fake_message(
+        model=TIERS["micro"], stop_reason="tool_use", content=[
+            {"type": "tool_use", "id": "chercher-commun", "name": "chercher",
+             "input": {"termes": ["arrivée", "école"]}},
+            {"type": "tool_use", "id": "ouvrir-arrivee", "name": "ouvrir_noeud",
+             "input": {"node_id": f"{DOC_ID}:f1", "focus_block_id": f"{DOC_ID}:f1:2"}},
+            {"type": "tool_use", "id": "ouvrir-ecole", "name": "ouvrir_noeud",
+             "input": {"node_id": f"{DOC_ID}:f2", "focus_block_id": f"{DOC_ID}:f2:1"}},
+        ],
+    )
+    return [script[0], navigation, *script[1:]]
+
+
 def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *, validated: bool,
                   source_hash: str = "sha-source", doc_id: str = DOC_ID,
                   intents: dict[str, list[str]] | None = None):
@@ -295,7 +312,7 @@ async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert retrouver.discarded_block_ids == tool_candidates
     assert [check.name for check in retrouver.checks] == [
-        "repli_deterministe", "controle_deterministe"]
+        "candidats_non_ouverts", "repli_deterministe", "controle_deterministe"]
     assert retrouver.calls and retrouver.usage.cost_eur > 0
 
 
@@ -734,12 +751,17 @@ async def test_a_provider_failure_on_the_retry_is_terminal_too(index: Index) -> 
     assert exc.value.trace is not None and [s.name for s in exc.value.trace.steps][-1] == "rediger"
 
 
-async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(index: Index) -> None:
+@pytest.mark.parametrize("variant", ["deterministe", "outils"])
+async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(
+        index: Index, variant: str) -> None:
     """La contrepartie : plafond d'appels atteint, rien n'a été facturé, la réponse acquise reste due
     (AD-1 « aucun retry ne démarre sans marge », étendu aux euros par AD-4)."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
-                                             _verdicts(("c1", True))], budget=budget)
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3 + (variant == "outils"),
+                           max_cost_eur=0.10)
+    script = _avec_navigation_outils(
+        [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))], variant)
+    answer, trace, fake = await _run(index, script, budget=budget,
+                                     variant=variant)
     assert fake.remaining_script == 0 and answer.found is True
     rediger_steps = [s for s in trace.steps if s.name == "rediger"]
     assert len(rediger_steps) == 1  # l'étape avortée n'a rien appelé : elle n'entre pas dans la trace
@@ -747,15 +769,33 @@ async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(index:
     assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]
 
 
-async def test_a_retry_that_verifies_worse_never_replaces_the_answer(index: Index) -> None:
+@pytest.mark.parametrize("variant", ["deterministe", "outils"])
+async def test_a_retry_that_verifies_worse_never_replaces_the_answer(
+        index: Index, variant: str) -> None:
     """AD-3 relance pour améliorer : une seconde ébauche moins bonne ne jette pas l'acquis."""
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
-                                             _verdicts(("c1", True)), _rediger(MAUVAISE)])
+    script = _avec_navigation_outils(
+        [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)), _rediger(MAUVAISE)],
+        variant)
+    answer, trace, fake = await _run(index, script,
+                                     variant=variant)
     assert fake.remaining_script == 0  # la seconde vérification n'a rien à juger : aucun appel micro
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
     verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
     (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
     assert "0 affirmation(s) contre 1" in check.detail
+
+
+@pytest.mark.parametrize("variant", ["deterministe", "outils"])
+async def test_a_max_tokens_draft_is_retried_under_the_variant_output_cap(
+        index: Index, variant: str) -> None:
+    """M4 : la troncature de *rédiger* est éprouvée sur le plafond réduit du chemin outils."""
+    tronquee = _rediger(BONNE)
+    tronquee["stop_reason"] = "max_tokens"
+    settings = _settings(rediger_max_tokens=19, outils_rediger_max_tokens=17)
+    expected = 17 if variant == "outils" else 19
+    script = _avec_navigation_outils([_comprendre(), tronquee, tronquee], variant)
+    with pytest.raises(LlmParse, match=rf"tronquée.*max_tokens={expected}"):
+        await _run(index, script, variant=variant, settings=settings)
 
 
 async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
