@@ -12,14 +12,24 @@
       "detail": "108"
     },
     {
+      "name": "tdm_imprimee",
+      "level": "info",
+      "detail": "4 titre(s) numéroté(s) concordent avec l'arbre aux niveaux annoncés"
+    },
+    {
       "name": "tdm_pdf",
       "level": "info",
-      "detail": "get_toc() : 0 entrée(s) ; la TdM imprimée n'est pas comparée (story 3.1)"
+      "detail": "get_toc() : 0 entrée(s), contrôle distinct"
     },
     {
       "name": "pages_mixtes",
       "level": "alerte",
-      "detail": "1 page(s) texte + image : 1"
+      "detail": "1 page(s) au-dessus de la densité image 0.20 : 1"
+    },
+    {
+      "name": "couverture",
+      "level": "info",
+      "detail": "108/108 page(s) éligible(s), soit 100.0% ; seuil indicatif 80%"
     }
   ],
   "stats": {
@@ -28,22 +38,27 @@
     "pages_sans_texte": "108",
     "pages_blanches": 1,
     "pages_avec_images": 1,
+    "pages_ocr": 0,
+    "pages_ocr_echec": 0,
+    "pages_non_francaises": 0,
+    "couverture": 1.0,
     "pages_sans_texte_dessinees": 0,
     "pages_tdm": 3,
     "noeuds": 751,
-    "blocs": 1457,
+    "blocs": 1400,
     "blocs_par_kind": {
-      "autre": 3,
-      "heading": 419,
-      "list": 151,
-      "para": 884
+      "autre": 4,
+      "heading": 390,
+      "list": 150,
+      "para": 849,
+      "table": 7
     },
-    "continues": 5,
+    "continues": 4,
     "en_tetes_retires": 214,
     "tdm_pdf_entrees": 0,
     "numeros_articles": 749,
+    "tables": 7,
     "sommaire_chars": 6594,
-    "sommaire_tokens_estimes": 1648,
     "ids_disparus": 0,
     "ids_nouveaux": 0
   }

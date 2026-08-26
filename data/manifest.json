@@ -2,16 +2,16 @@
   "axa-lu-optihome-2017": {
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-    "ingest_fingerprint": "831d016d8046145aebf3759b93ee14d9736d31c26dca0e5951795ca21651a92a",
-    "document_hash": "c80b6c0eba3a8665be8e3e34f9e0daa07e2556cf43895939398f45995e7623dc",
+    "ingest_fingerprint": "5ebd311890cc4740594e6672e597eb5b60d4c2426449bc11dc8baf69868da9f3",
+    "document_hash": "2c4a07df0c9190200dfd4b155e123be84bf3db6d31e7d4506dad8650bba7e2f2",
     "edition": "juin 2017",
     "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
     "gate": {
       "profile": "vertical",
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-      "ingest_fingerprint": "831d016d8046145aebf3759b93ee14d9736d31c26dca0e5951795ca21651a92a",
+      "ingest_fingerprint": "5ebd311890cc4740594e6672e597eb5b60d4c2426449bc11dc8baf69868da9f3",
       "cases_hash": "b02293a7fe68ddb94a4c0c54922cb0542ffa15d65cf959bf9ef0dde3ac82c3e9",
-      "pipeline_digest": "b521ef8cbe11fe3da569d9f1bd63e7916005ee5035a941b386e3ae5199dd74ba",
+      "pipeline_digest": "695bc94be6dcae62c61442b8be4334f476ca9179e24db14066f325846dc5c468",
       "prompts_digest": "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -19,7 +19,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-26T00:54:21Z",
+      "date": "2026-08-26T03:37:21Z",
       "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
       "cases": 1,
       "countersigned": false
@@ -37,7 +37,7 @@
       "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
       "ingest_fingerprint": "b030c98acaaeab62c69f8acdfeb0d94e16acfd86f1432a48efc060ac3d8cebe3",
       "cases_hash": "9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791",
-      "pipeline_digest": "b521ef8cbe11fe3da569d9f1bd63e7916005ee5035a941b386e3ae5199dd74ba",
+      "pipeline_digest": "695bc94be6dcae62c61442b8be4334f476ca9179e24db14066f325846dc5c468",
       "prompts_digest": "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -45,7 +45,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-26T00:54:05Z",
+      "date": "2026-08-26T03:36:40Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false

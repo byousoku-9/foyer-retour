@@ -1,5 +1,5 @@
-<!-- axa-lu-optihome-2017 · edition juin 2017 · source_hash 6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c · ingest_fingerprint 831d016d8046145aebf3759b93ee14d9736d31c26dca0e5951795ca21651a92a -->
-# Conditions d'assurances OptiHome (multirisques habitation)
+<!-- axa-lu-optihome-2017 · edition juin 2017 · source_hash 6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c · ingest_fingerprint 5ebd311890cc4740594e6672e597eb5b60d4c2426449bc11dc8baf69868da9f3 -->
+# Conditions d’assurances OptiHome (multirisques habitation)
 
 - `axa-lu-optihome-2017:tdm` · Table des matières · p. 2
 - `axa-lu-optihome-2017:a1` · 1 Lexique · p. 6

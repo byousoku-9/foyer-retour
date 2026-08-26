@@ -1,27 +1,15 @@
 {
   "doc_id": "axa-lu-optihome-2017",
   "kind": "contrat",
-  "title": "Conditions d'assurances OptiHome (multirisques habitation)",
+  "title": "Conditions d’assurances OptiHome (multirisques habitation)",
   "edition": "juin 2017",
   "nodes": [
     {
       "node_id": "axa-lu-optihome-2017",
-      "title": "Conditions d'assurances OptiHome (multirisques habitation)",
+      "title": "Conditions d’assurances OptiHome (multirisques habitation)",
       "items": [
         {
           "block_id": "axa-lu-optihome-2017:p1:1"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p1:2"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p1:3"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p1:4"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p1:5"
         },
         {
           "node_id": "axa-lu-optihome-2017:tdm"
@@ -1827,15 +1815,6 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p18:16"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p18:17"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p18:18"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p18:19"
         }
       ]
     },
@@ -3040,64 +3019,7 @@
           "block_id": "axa-lu-optihome-2017:p30:4"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p30:5"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:6"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:7"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:8"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:9"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:10"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:11"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:12"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:13"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:14"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:15"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:16"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:17"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:18"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:19"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p30:20"
-        },
-        {
           "block_id": "axa-lu-optihome-2017:p31:1"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:2"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:3"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:4"
         }
       ]
     },
@@ -3107,10 +3029,10 @@
       "title": "2.20.2 Résiliation de la couverture RC Chasse",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p31:5"
+          "block_id": "axa-lu-optihome-2017:p31:2"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p31:6"
+          "block_id": "axa-lu-optihome-2017:p31:3"
         }
       ]
     },
@@ -3120,37 +3042,10 @@
       "title": "2.20.3 Résiliation par les ayants droit",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p31:7"
+          "block_id": "axa-lu-optihome-2017:p31:4"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p31:8"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:9"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:10"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:11"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:12"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:13"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:14"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:15"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:16"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:17"
+          "block_id": "axa-lu-optihome-2017:p31:5"
         }
       ]
     },
@@ -3160,34 +3055,10 @@
       "title": "2.20.4 Résiliation par le curateur",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p31:18"
+          "block_id": "axa-lu-optihome-2017:p31:6"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p31:19"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:20"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:21"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:22"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:23"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:24"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:25"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:26"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p31:27"
+          "block_id": "axa-lu-optihome-2017:p31:7"
         }
       ]
     },
@@ -3197,10 +3068,10 @@
       "title": "2.21 Forme de la résiliation",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p31:28"
+          "block_id": "axa-lu-optihome-2017:p31:8"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p31:29"
+          "block_id": "axa-lu-optihome-2017:p31:9"
         }
       ]
     },
@@ -5277,24 +5148,6 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p49:5"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p49:6"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p49:7"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p49:8"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p49:9"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p49:10"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p49:11"
         }
       ]
     },
@@ -5304,10 +5157,10 @@
       "title": "3.1.9.9 Recours des locataires ou occupants",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p49:12"
+          "block_id": "axa-lu-optihome-2017:p49:6"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p49:13"
+          "block_id": "axa-lu-optihome-2017:p49:7"
         }
       ]
     },
@@ -5317,10 +5170,10 @@
       "title": "3.1.9.10 Recours des tiers",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p49:14"
+          "block_id": "axa-lu-optihome-2017:p49:8"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p49:15"
+          "block_id": "axa-lu-optihome-2017:p49:9"
         }
       ]
     },
@@ -5330,10 +5183,10 @@
       "title": "3.1.10 Responsabilité civile immeuble",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p49:16"
+          "block_id": "axa-lu-optihome-2017:p49:10"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p49:17"
+          "block_id": "axa-lu-optihome-2017:p49:11"
         },
         {
           "node_id": "axa-lu-optihome-2017:a3.1.10.1"
@@ -10916,30 +10769,6 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p91:2"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:3"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:4"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:5"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:6"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:7"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:8"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:9"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p91:10"
         }
       ],
       "scope": {
@@ -10952,10 +10781,10 @@
       "title": "4.1.4.4.10 Principe de répartition",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p91:11"
+          "block_id": "axa-lu-optihome-2017:p91:3"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p91:12"
+          "block_id": "axa-lu-optihome-2017:p91:4"
         }
       ],
       "scope": {
@@ -10968,10 +10797,10 @@
       "title": "4.1.4.4.11 Subrogation",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p91:13"
+          "block_id": "axa-lu-optihome-2017:p91:5"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p91:14"
+          "block_id": "axa-lu-optihome-2017:p91:6"
         }
       ],
       "scope": {
@@ -10984,13 +10813,13 @@
       "title": "4.1.4.5 Etendue territoriale",
       "items": [
         {
-          "block_id": "axa-lu-optihome-2017:p91:15"
+          "block_id": "axa-lu-optihome-2017:p91:7"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p91:16"
+          "block_id": "axa-lu-optihome-2017:p91:8"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p91:17"
+          "block_id": "axa-lu-optihome-2017:p91:9"
         },
         {
           "block_id": "axa-lu-optihome-2017:p92:1"
@@ -13073,17 +12902,17 @@
   "blocks": [
     {
       "block_id": "axa-lu-optihome-2017:p1:1",
-      "text": "multirisques habitation",
+      "text": "multirisques habitation\nconditions d’assurances\nOptiHome\ntout ce que vous devez savoir\njuin 2017",
       "loc": "p1",
       "seq": 1,
       "page": 1,
       "bbox": [
-        21.5,
+        20.79,
         17.73,
-        309.9,
-        49.26
+        574.26,
+        725.07
       ],
-      "kind": "heading",
+      "kind": "autre",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p1:1:l1",
@@ -13094,25 +12923,9 @@
             309.9,
             49.26
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p1:2",
-      "text": "conditions d’assurances",
-      "loc": "p1",
-      "seq": 2,
-      "page": 1,
-      "bbox": [
-        20.79,
-        132.31,
-        502.29,
-        182.08
-      ],
-      "kind": "heading",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p1:2:l1",
+          "line_id": "axa-lu-optihome-2017:p1:1:l2",
           "text": "conditions d’assurances",
           "bbox": [
             20.79,
@@ -13120,25 +12933,9 @@
             502.29,
             182.08
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p1:3",
-      "text": "OptiHome",
-      "loc": "p1",
-      "seq": 3,
-      "page": 1,
-      "bbox": [
-        20.79,
-        181.4,
-        218.79,
-        232.07
-      ],
-      "kind": "heading",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p1:3:l1",
+          "line_id": "axa-lu-optihome-2017:p1:1:l3",
           "text": "OptiHome",
           "bbox": [
             20.79,
@@ -13146,25 +12943,9 @@
             218.79,
             232.07
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p1:4",
-      "text": "tout ce que vous devez savoir",
-      "loc": "p1",
-      "seq": 4,
-      "page": 1,
-      "bbox": [
-        321.94,
-        680.87,
-        574.26,
-        702.27
-      ],
-      "kind": "heading",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p1:4:l1",
+          "line_id": "axa-lu-optihome-2017:p1:1:l4",
           "text": "tout ce que vous devez savoir",
           "bbox": [
             321.94,
@@ -13172,25 +12953,9 @@
             574.26,
             702.27
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p1:5",
-      "text": "juin 2017",
-      "loc": "p1",
-      "seq": 5,
-      "page": 1,
-      "bbox": [
-        493.7,
-        704.05,
-        574.26,
-        725.07
-      ],
-      "kind": "heading",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p1:5:l1",
+          "line_id": "axa-lu-optihome-2017:p1:1:l5",
           "text": "juin 2017",
           "bbox": [
             493.7,
@@ -23022,290 +22787,65 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p18:13",
-      "text": "Age du bien *",
+      "text": " |  | Age du bien * |  |  |  | \n |  | ≤ 1 an | > 1 an et ≤ 2\nans | > 2 an et ≤ 3\nans | > 3 an et ≤ 4\nans | > 5 ans\nVétusté à\ndéduire pour : | matériel multimédia | 0% | 20% | 35% | 50% | 75%\n | n équipement d’alarme et de\nsurveillance\nn équipement domotique | 3% par an\nmaximum 75% |  |  |  | ",
       "loc": "p18",
       "seq": 13,
       "page": 18,
       "bbox": [
-        361.17,
-        544.56,
-        416.97,
-        554.69
+        56.86,
+        541.69,
+        539.36,
+        634.17
       ],
+      "kind": "table",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p18:13:l1",
-          "text": "Age du bien *",
+          "text": " |  | Age du bien * |  |  |  | ",
           "bbox": [
-            361.17,
-            544.56,
-            416.97,
-            554.69
+            56.86,
+            541.69,
+            539.36,
+            581.03
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p18:13:l2",
+          "text": " |  | ≤ 1 an | > 1 an et ≤ 2\nans | > 2 an et ≤ 3\nans | > 3 an et ≤ 4\nans | > 5 ans",
+          "bbox": [
+            238.82,
+            556.96,
+            539.36,
+            581.03
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p18:13:l3",
+          "text": "Vétusté à\ndéduire pour : | matériel multimédia | 0% | 20% | 35% | 50% | 75%",
+          "bbox": [
+            56.86,
+            581.03,
+            539.36,
+            634.17
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p18:13:l4",
+          "text": " | n équipement d’alarme et de\nsurveillance\nn équipement domotique | 3% par an\nmaximum 75% |  |  |  | ",
+          "bbox": [
+            116.34,
+            595.49,
+            539.36,
+            634.17
           ]
         }
       ]
     },
     {
       "block_id": "axa-lu-optihome-2017:p18:14",
-      "text": "> 5 ans\n≤ 1 an\n> 1 an et ≤ 2\n> 2 an et ≤ 3\n> 3 an et ≤ 4\nans\nans\nans",
-      "loc": "p18",
-      "seq": 14,
-      "page": 18,
-      "bbox": [
-        247.2,
-        560.11,
-        520.27,
-        578.56
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l1",
-          "text": "> 5 ans",
-          "bbox": [
-            493.07,
-            560.11,
-            520.27,
-            568.96
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l2",
-          "text": "≤ 1 an",
-          "bbox": [
-            247.2,
-            560.11,
-            269.84,
-            569.82
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l3",
-          "text": "> 1 an et ≤ 2",
-          "bbox": [
-            287.69,
-            560.11,
-            336.4,
-            569.82
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l4",
-          "text": "> 2 an et ≤ 3",
-          "bbox": [
-            352.94,
-            560.11,
-            401.65,
-            569.82
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l5",
-          "text": "> 3 an et ≤ 4",
-          "bbox": [
-            418.21,
-            560.11,
-            466.92,
-            569.82
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l6",
-          "text": "ans",
-          "bbox": [
-            304.44,
-            569.71,
-            317.24,
-            578.56
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l7",
-          "text": "ans",
-          "bbox": [
-            369.69,
-            569.71,
-            382.49,
-            578.56
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:14:l8",
-          "text": "ans",
-          "bbox": [
-            434.96,
-            569.71,
-            447.76,
-            578.56
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p18:15",
-      "text": "matériel multimédia\n0%\n20%\n35%\n50%\n75%\nVétusté à\ndéduire pour :",
-      "loc": "p18",
-      "seq": 15,
-      "page": 18,
-      "bbox": [
-        60.94,
-        584.18,
-        514.27,
-        602.63
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l1",
-          "text": "matériel multimédia",
-          "bbox": [
-            120.34,
-            584.18,
-            189.94,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l2",
-          "text": "0%",
-          "bbox": [
-            253.32,
-            584.18,
-            263.72,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l3",
-          "text": "20%",
-          "bbox": [
-            303.24,
-            584.18,
-            318.44,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l4",
-          "text": "35%",
-          "bbox": [
-            368.49,
-            584.18,
-            383.69,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l5",
-          "text": "50%",
-          "bbox": [
-            433.76,
-            584.18,
-            448.96,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l6",
-          "text": "75%",
-          "bbox": [
-            499.07,
-            584.18,
-            514.27,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l7",
-          "text": "Vétusté à",
-          "bbox": [
-            60.94,
-            584.18,
-            96.78,
-            593.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:15:l8",
-          "text": "déduire pour :",
-          "bbox": [
-            60.94,
-            593.78,
-            108.45,
-            602.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p18:16",
-      "text": "• équipement d’alarme et de\nsurveillance\n3% par an\nmaximum 75%\n• équipement domotique",
-      "loc": "p18",
-      "seq": 16,
-      "page": 18,
-      "bbox": [
-        120.34,
-        598.43,
-        414.75,
-        632.09
-      ],
-      "kind": "list",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p18:16:l1",
-          "text": "• équipement d’alarme et de",
-          "bbox": [
-            120.34,
-            598.43,
-            226.32,
-            609.49
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:16:l2",
-          "text": "surveillance",
-          "bbox": [
-            128.94,
-            609.86,
-            171.12,
-            618.71
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:16:l3",
-          "text": "3% par an",
-          "bbox": [
-            371.55,
-            605.95,
-            406.59,
-            614.8
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:16:l4",
-          "text": "maximum 75%",
-          "bbox": [
-            363.39,
-            615.55,
-            414.75,
-            624.4
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p18:16:l5",
-          "text": "• équipement domotique",
-          "bbox": [
-            120.34,
-            621.03,
-            209.58,
-            632.09
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p18:17",
       "text": "* durée qui sépare la date d’achat du matériel de la date de survenance du sinistre.",
       "loc": "p18",
-      "seq": 17,
+      "seq": 14,
       "page": 18,
       "bbox": [
         56.69,
@@ -23315,7 +22855,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p18:17:l1",
+          "line_id": "axa-lu-optihome-2017:p18:14:l1",
           "text": "* durée qui sépare la date d’achat du matériel de la date de survenance du sinistre.",
           "bbox": [
             56.69,
@@ -23327,10 +22867,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p18:18",
+      "block_id": "axa-lu-optihome-2017:p18:15",
       "text": "Le montant ainsi obtenu ne peut dépasser la valeur à neuf de biens de performances\ncomparables ;",
       "loc": "p18",
-      "seq": 18,
+      "seq": 15,
       "page": 18,
       "bbox": [
         121.89,
@@ -23340,7 +22880,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p18:18:l1",
+          "line_id": "axa-lu-optihome-2017:p18:15:l1",
           "text": "Le montant ainsi obtenu ne peut dépasser la valeur à neuf de biens de performances",
           "bbox": [
             121.89,
@@ -23350,7 +22890,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:18:l2",
+          "line_id": "axa-lu-optihome-2017:p18:15:l2",
           "text": "comparables ;",
           "bbox": [
             121.89,
@@ -23362,10 +22902,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p18:19",
+      "block_id": "axa-lu-optihome-2017:p18:16",
       "text": "• les appareils électriques et électroniques, sauf ceux visés au point précédent, de plus de deux\nans d’âge qui sont couverts en valeur à neuf, déduction faite d’une vétusté de 8% par année\nd’ancienneté révolue. Le montant ainsi obtenu ne peut dépasser la valeur à neuf de biens de\nperformances comparables ;\n• les objets de valeur qui sont couverts en valeur vénale, à moins qu’une valeur n’ait expressément\nété agréée par les parties contractantes ;\n• le mobilier confié à un Assuré (tel que celui qui lui a été loué ou prêté), à l’exception des objets\nde valeur, qui est couvert en valeur réelle.",
       "loc": "p18",
-      "seq": 19,
+      "seq": 16,
       "page": 18,
       "bbox": [
         121.89,
@@ -23376,7 +22916,7 @@
       "kind": "list",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l1",
+          "line_id": "axa-lu-optihome-2017:p18:16:l1",
           "text": "• les appareils électriques et électroniques, sauf ceux visés au point précédent, de plus de deux",
           "bbox": [
             121.89,
@@ -23386,7 +22926,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l2",
+          "line_id": "axa-lu-optihome-2017:p18:16:l2",
           "text": "ans d’âge qui sont couverts en valeur à neuf, déduction faite d’une vétusté de 8% par année",
           "bbox": [
             130.49,
@@ -23396,7 +22936,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l3",
+          "line_id": "axa-lu-optihome-2017:p18:16:l3",
           "text": "d’ancienneté révolue. Le montant ainsi obtenu ne peut dépasser la valeur à neuf de biens de",
           "bbox": [
             130.49,
@@ -23406,7 +22946,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l4",
+          "line_id": "axa-lu-optihome-2017:p18:16:l4",
           "text": "performances comparables ;",
           "bbox": [
             130.49,
@@ -23416,7 +22956,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l5",
+          "line_id": "axa-lu-optihome-2017:p18:16:l5",
           "text": "• les objets de valeur qui sont couverts en valeur vénale, à moins qu’une valeur n’ait expressément",
           "bbox": [
             121.89,
@@ -23426,7 +22966,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l6",
+          "line_id": "axa-lu-optihome-2017:p18:16:l6",
           "text": "été agréée par les parties contractantes ;",
           "bbox": [
             130.49,
@@ -23436,7 +22976,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l7",
+          "line_id": "axa-lu-optihome-2017:p18:16:l7",
           "text": "• le mobilier confié à un Assuré (tel que celui qui lui a été loué ou prêté), à l’exception des objets",
           "bbox": [
             121.89,
@@ -23446,7 +22986,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p18:19:l8",
+          "line_id": "axa-lu-optihome-2017:p18:16:l8",
           "text": "de valeur, qui est couvert en valeur réelle.",
           "bbox": [
             130.49,
@@ -29542,1653 +29082,191 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p30:4",
-      "text": "Selon quelles",
+      "text": "Qui peut\nrésilier ? | Dans quelles\ncirconstances ? | Selon quelles\nmodalités ? | Prise d’effet de\nla résiliation\nLe Preneur\nd’Assurance | à l’échéance annuelle | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard trente jours avant\nla date de l’échéance principale | À 0h00 de la date de l’échéance\nannuelle de la prime\n | annulation d’une ou plusieurs\ngaranties du contrat | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard un mois avant la date\nde l’échéance principale | À l’expiration d’un délai d’un mois\nà compter du lendemain de\nla notification de résiliation\n | en cas de résiliation par\nla Compagnie après sinistre,\nd’un autre de ses contrats | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard un mois suivant\nla notifciation de la résiliation\npréalablement adressée par\nla Compagnie | À l’expiration d’un délai d’un mois\nà compter du lendemain de\nla notification de résiliation\n | en cas d’augmentation tarifaire | En adressant une notification de\nrésiliation par lettre recommandée\nau plus tard dans les 60 jours\nsuivant la date d’envoi de l’avis\nd’échéance | Au deuxième jour suivant la date de\nl’envoi de la lettre de résiliation ou\nau plus tôt à la date d’échéance\n | en cas de modification et si\nla Compagnie ne réduit pas votre\nprime (point 2.8.1) | En adressant une notification de\nrésiliation par lettre avec accusé\nde réception au plus tard dans\nle mois suivant la demande de\nréduction introduite par le Preneur\nd’assurance. | Un mois suivant la date de l’envoi\nde la notification de la résiliation\nLa Compagnie | À l’échéance annuelle | En adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard 60 jours avant la date\nde l’échéance principale | À 0h00 de la date de l’échéance\nannuelle de la prime\n | Après la survenance d’un sinistre\ndonnant lieu à indemnisation | En adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard dans le mois suivant\nle paiement de la première prestation | À l’expiration d’un délai d’un mois\nà compter de la notification de\nla résiliation\n | En cas de non-paiement de la prime\nou d’une fraction de la prime dans\nles 10 jours de son échéance |  | Après un délai de 40 jours suivant\nmise en demeure adressée au\ndernier domicile connu du Preneur\nd’Assurance\n | En cas de manquement frauduleux\ndu Preneur d’Assurance et/ ou de\nl’Assuré aux obligations qui leur\nincombent en cas de sinistre | En adressant une notification de\nrésiliation par lettre recommandée\nau plus tard un mois après\nla découverte de la fraude | Dans les 30 jours à compter de\nla notification de résiliation",
       "loc": "p30",
       "seq": 4,
       "page": 30,
       "bbox": [
-        294.82,
-        188.52,
-        369.86,
-        202.04
+        56.93,
+        186.04,
+        538.35,
+        666.91
       ],
-      "kind": "heading",
+      "kind": "table",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p30:4:l1",
-          "text": "Selon quelles",
+          "text": "Qui peut\nrésilier ? | Dans quelles\ncirconstances ? | Selon quelles\nmodalités ? | Prise d’effet de\nla résiliation",
           "bbox": [
-            294.82,
-            188.52,
-            369.86,
-            202.04
+            56.93,
+            186.04,
+            538.35,
+            216.73
           ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:5",
-      "text": "Prise d’effet de",
-      "loc": "p30",
-      "seq": 5,
-      "page": 30,
-      "bbox": [
-        429.07,
-        188.52,
-        519.01,
-        202.04
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:5:l1",
-          "text": "Prise d’effet de",
-          "bbox": [
-            429.07,
-            188.52,
-            519.01,
-            202.04
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:6",
-      "text": "Qui peut",
-      "loc": "p30",
-      "seq": 6,
-      "page": 30,
-      "bbox": [
-        67.33,
-        188.52,
-        115.98,
-        202.04
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:6:l1",
-          "text": "Qui peut",
-          "bbox": [
-            67.33,
-            188.52,
-            115.98,
-            202.04
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:7",
-      "text": "résilier ?",
-      "loc": "p30",
-      "seq": 7,
-      "page": 30,
-      "bbox": [
-        66.61,
-        201.52,
-        113.1,
-        215.03
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:7:l1",
-          "text": "résilier ?",
-          "bbox": [
-            66.61,
-            201.52,
-            113.1,
-            215.03
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:8",
-      "text": "Dans quelles",
-      "loc": "p30",
-      "seq": 8,
-      "page": 30,
-      "bbox": [
-        156.32,
-        188.52,
-        228.49,
-        202.04
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:8:l1",
-          "text": "Dans quelles",
-          "bbox": [
-            156.32,
-            188.52,
-            228.49,
-            202.04
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:9",
-      "text": "circonstances ?",
-      "loc": "p30",
-      "seq": 9,
-      "page": 30,
-      "bbox": [
-        147.68,
-        201.52,
-        233.53,
-        215.03
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:9:l1",
-          "text": "circonstances ?",
-          "bbox": [
-            147.68,
-            201.52,
-            233.53,
-            215.03
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:10",
-      "text": "modalités ?",
-      "loc": "p30",
-      "seq": 10,
-      "page": 30,
-      "bbox": [
-        300.26,
-        201.52,
-        360.8,
-        215.03
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:10:l1",
-          "text": "modalités ?",
-          "bbox": [
-            300.26,
-            201.52,
-            360.8,
-            215.03
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:11",
-      "text": "la résiliation",
-      "loc": "p30",
-      "seq": 11,
-      "page": 30,
-      "bbox": [
-        437.39,
-        201.52,
-        503.56,
-        215.03
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:11:l1",
-          "text": "la résiliation",
-          "bbox": [
-            437.39,
-            201.52,
-            503.56,
-            215.03
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:12",
-      "text": "À 0h00 de la date de l’échéance\nannuelle de la prime\nà l’échéance annuelle\nen adressant une notification de\nrésiliation par lettre recommandée\nau plus tard trente jours avant\nla date de l’échéance principale",
-      "loc": "p30",
-      "seq": 12,
-      "page": 30,
-      "bbox": [
-        126.77,
-        219.88,
-        523.32,
-        258.73
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l1",
-          "text": "À 0h00 de la date de l’échéance",
-          "bbox": [
-            406.65,
-            219.88,
-            523.32,
-            228.73
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l2",
-          "text": "annuelle de la prime",
-          "bbox": [
-            406.65,
-            229.88,
-            478.02,
-            238.73
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l3",
-          "text": "à l’échéance annuelle",
-          "bbox": [
-            126.77,
-            219.88,
-            203.47,
-            228.73
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l4",
-          "text": "en adressant une notification de",
-          "bbox": [
-            266.71,
-            219.88,
-            378.77,
-            228.73
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l5",
-          "text": "résiliation par lettre recommandée",
-          "bbox": [
-            266.71,
-            229.72,
-            387.09,
-            238.73
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l6",
-          "text": "au plus tard trente jours avant",
-          "bbox": [
-            266.71,
-            239.88,
-            373.74,
-            248.73
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:12:l7",
-          "text": "la date de l’échéance principale",
-          "bbox": [
-            266.71,
-            249.88,
-            374.62,
-            258.73
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:13",
-      "text": "annulation d’une ou plusieurs\ngaranties du contrat\nÀ l’expiration d’un délai d’un mois\nà compter du lendemain de\nla notification de résiliation\nen adressant une notification de\nrésiliation par lettre recommandée\nau plus tard un mois avant la date\nde l’échéance principale",
-      "loc": "p30",
-      "seq": 13,
-      "page": 30,
-      "bbox": [
-        126.77,
-        264.35,
-        530.52,
-        303.2
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l1",
-          "text": "annulation d’une ou plusieurs",
-          "bbox": [
-            126.77,
-            264.35,
-            233.18,
-            273.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l2",
-          "text": "garanties du contrat",
-          "bbox": [
-            126.77,
-            274.35,
-            197.07,
-            283.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l3",
-          "text": "À l’expiration d’un délai d’un mois",
-          "bbox": [
-            406.65,
-            264.35,
-            530.52,
-            273.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l4",
-          "text": "à compter du lendemain de",
-          "bbox": [
-            406.65,
-            274.35,
-            507.21,
-            283.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l5",
-          "text": "la notification de résiliation",
-          "bbox": [
-            406.65,
-            284.19,
-            501.2,
-            293.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l6",
-          "text": "en adressant une notification de",
-          "bbox": [
-            266.71,
-            264.35,
-            378.77,
-            273.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l7",
-          "text": "résiliation par lettre recommandée",
-          "bbox": [
-            266.71,
-            274.19,
-            387.09,
-            283.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l8",
-          "text": "au plus tard un mois avant la date",
-          "bbox": [
-            266.71,
-            284.35,
-            387.55,
-            293.2
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:13:l9",
-          "text": "de l’échéance principale",
-          "bbox": [
-            266.71,
-            294.35,
-            349.06,
-            303.2
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:14",
-      "text": "en cas de résiliation par\nla Compagnie après sinistre,\nd’un autre de ses contrats\nÀ l’expiration d’un délai d’un mois\nà compter du lendemain de\nla notification de résiliation",
-      "loc": "p30",
-      "seq": 14,
-      "page": 30,
-      "bbox": [
-        126.77,
-        308.81,
-        530.52,
-        337.66
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:14:l1",
-          "text": "en cas de résiliation par",
-          "bbox": [
-            126.77,
-            308.81,
-            215.97,
-            317.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:14:l2",
-          "text": "la Compagnie après sinistre,",
-          "bbox": [
-            126.77,
-            318.65,
-            231.81,
-            327.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:14:l3",
-          "text": "d’un autre de ses contrats",
-          "bbox": [
-            126.77,
-            328.81,
-            219.64,
-            337.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:14:l4",
-          "text": "À l’expiration d’un délai d’un mois",
-          "bbox": [
-            406.65,
-            308.81,
-            530.52,
-            317.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:14:l5",
-          "text": "à compter du lendemain de",
-          "bbox": [
-            406.65,
-            318.81,
-            507.21,
-            327.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:14:l6",
-          "text": "la notification de résiliation",
-          "bbox": [
-            406.65,
-            328.65,
-            501.2,
-            337.66
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:15",
-      "text": "Le Preneur\nd’Assurance\nen adressant une notification de\nrésiliation par lettre recommandée\nau plus tard un mois suivant\nla notification de la résiliation\npréalablement adressée par\nla Compagnie",
-      "loc": "p30",
-      "seq": 15,
-      "page": 30,
-      "bbox": [
-        65.19,
-        308.81,
-        387.09,
-        367.66
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l1",
-          "text": "Le Preneur",
-          "bbox": [
-            65.19,
-            343.65,
-            105.28,
-            352.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l2",
-          "text": "d’Assurance",
-          "bbox": [
-            65.2,
-            353.65,
-            108.12,
-            362.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l3",
-          "text": "en adressant une notification de",
-          "bbox": [
-            266.71,
-            308.81,
-            378.77,
-            317.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l4",
-          "text": "résiliation par lettre recommandée",
-          "bbox": [
-            266.71,
-            318.65,
-            387.09,
-            327.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l5",
-          "text": "au plus tard un mois suivant",
-          "bbox": [
-            266.71,
-            328.81,
-            365.68,
-            337.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l6",
-          "text": "la notification de la résiliation",
-          "bbox": [
-            266.71,
-            338.65,
-            369.87,
-            347.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l7",
-          "text": "préalablement adressée par",
-          "bbox": [
-            266.71,
-            348.81,
-            366.86,
-            357.66
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:15:l8",
-          "text": "la Compagnie",
-          "bbox": [
-            266.71,
-            358.65,
-            313.94,
-            367.66
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:16",
-      "text": "Au deuxième jour suivant la date de\nl’envoi de la lettre de résiliation ou\nau plus tôt à la date d’échéance\nen cas d’augmentation tarifaire\nEn adressant une notification de\nrésiliation par lettre recommandée\nau plus tard dans les 60 jours\nsuivant la date d’envoi de l’avis\nd’échéance",
-      "loc": "p30",
-      "seq": 16,
-      "page": 30,
-      "bbox": [
-        126.77,
-        373.28,
-        534.03,
-        422.12
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l1",
-          "text": "Au deuxième jour suivant la date de",
-          "bbox": [
-            406.64,
-            373.28,
-            534.03,
-            382.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l2",
-          "text": "l’envoi de la lettre de résiliation ou",
-          "bbox": [
-            406.64,
-            383.12,
-            530.52,
-            392.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l3",
-          "text": "au plus tôt à la date d’échéance",
-          "bbox": [
-            406.64,
-            393.28,
-            519.95,
-            402.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l4",
-          "text": "en cas d’augmentation tarifaire",
-          "bbox": [
-            126.77,
-            373.28,
-            234.14,
-            382.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l5",
-          "text": "En adressant une notification de",
-          "bbox": [
-            266.71,
-            373.28,
-            382.47,
-            382.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l6",
-          "text": "résiliation par lettre recommandée",
-          "bbox": [
-            266.71,
-            383.12,
-            389.72,
-            392.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l7",
-          "text": "au plus tard dans les 60 jours",
-          "bbox": [
-            266.71,
-            393.28,
-            374.71,
-            402.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l8",
-          "text": "suivant la date d’envoi de l’avis",
-          "bbox": [
-            266.71,
-            403.28,
-            379.75,
-            412.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:16:l9",
-          "text": "d’échéance",
-          "bbox": [
-            266.71,
-            413.28,
-            307.03,
-            422.12
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:17",
-      "text": "Un mois suivant la date de l’envoi\nde la notification de la résiliation\nen cas de modification et si\nla Compagnie ne réduit pas votre\nprime (point 2.8.1)\nEn adressant une notification de\nrésiliation par lettre avec accusé\nde réception au plus tard dans\nle mois suivant la demande de\nréduction introduite par le Preneur\nd’assurance.",
-      "loc": "p30",
-      "seq": 17,
-      "page": 30,
-      "bbox": [
-        126.76,
-        427.74,
-        527.8,
-        486.59
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l1",
-          "text": "Un mois suivant la date de l’envoi",
-          "bbox": [
-            406.65,
-            427.74,
-            527.8,
-            436.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l2",
-          "text": "de la notification de la résiliation",
-          "bbox": [
-            406.65,
-            437.58,
-            520.78,
-            446.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l3",
-          "text": "en cas de modification et si",
-          "bbox": [
-            126.76,
-            427.74,
-            228.23,
-            436.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l4",
-          "text": "la Compagnie ne réduit pas votre",
-          "bbox": [
-            126.76,
-            437.58,
-            244.89,
-            446.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l5",
-          "text": "prime (point 2.8.1)",
-          "bbox": [
-            126.77,
-            447.74,
-            192.59,
-            456.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l6",
-          "text": "En adressant une notification de",
-          "bbox": [
-            266.7,
-            427.74,
-            382.46,
-            436.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l7",
-          "text": "résiliation par lettre avec accusé",
-          "bbox": [
-            266.71,
-            437.58,
-            383.0,
-            446.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l8",
-          "text": "de réception au plus tard dans",
-          "bbox": [
-            266.71,
-            447.74,
-            376.36,
-            456.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l9",
-          "text": "le mois suivant la demande de",
-          "bbox": [
-            266.71,
-            457.74,
-            376.55,
-            466.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l10",
-          "text": "réduction introduite par le Preneur",
-          "bbox": [
-            266.71,
-            467.58,
-            388.69,
-            476.59
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:17:l11",
-          "text": "d’assurance.",
-          "bbox": [
-            266.7,
-            477.58,
-            311.16,
-            486.59
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:18",
-      "text": "À 0h00 de la date de l’échéance\nannuelle de la prime\nÀ l’échéance annuelle\nEn adressant une notification de\nrésiliation par lettre recommandée\nau plus tard 60 jours avant la date\nde l’échéance principale",
-      "loc": "p30",
-      "seq": 18,
-      "page": 30,
-      "bbox": [
-        126.77,
-        492.2,
-        523.32,
-        531.05
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l1",
-          "text": "À 0h00 de la date de l’échéance",
-          "bbox": [
-            406.65,
-            492.2,
-            523.32,
-            501.05
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l2",
-          "text": "annuelle de la prime",
-          "bbox": [
-            406.65,
-            502.2,
-            478.02,
-            511.05
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l3",
-          "text": "À l’échéance annuelle",
-          "bbox": [
-            126.77,
-            492.2,
-            203.63,
-            501.05
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l4",
-          "text": "En adressant une notification de",
-          "bbox": [
-            266.71,
-            492.2,
-            378.93,
-            501.05
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l5",
-          "text": "résiliation par lettre recommandée",
-          "bbox": [
-            266.71,
-            502.04,
-            389.26,
-            511.05
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l6",
-          "text": "au plus tard 60 jours avant la date",
-          "bbox": [
-            266.71,
-            512.2,
-            386.42,
-            521.05
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:18:l7",
-          "text": "de l’échéance principale",
-          "bbox": [
-            266.71,
-            522.2,
-            349.06,
-            531.05
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:19",
-      "text": "Après la survenance d’un sinistre\ndonnant lieu à indemnisation\nÀ l’expiration d’un délai d’un mois\nà compter de la notification de\nla résiliation\nEn adressant une notification de\nrésiliation par lettre recommandée\nau plus tard dans le mois suivant\nle paiement de la première prestation\nLa Compagnie\nEn cas de non-paiement de la prime\nou d’une fraction de la prime dans\nles 10 jours de son échéance\nAprès un délai de 40 jours suivant\nmise en demeure adressée au\ndernier domicile connu du Preneur\nd’Assurance",
-      "loc": "p30",
-      "seq": 19,
-      "page": 30,
-      "bbox": [
-        65.2,
-        536.67,
-        530.52,
-        619.98
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l1",
-          "text": "Après la survenance d’un sinistre",
-          "bbox": [
-            126.77,
-            536.67,
-            246.78,
-            545.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l2",
-          "text": "donnant lieu à indemnisation",
-          "bbox": [
-            126.77,
-            546.67,
-            228.38,
-            555.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l3",
-          "text": "À l’expiration d’un délai d’un mois",
-          "bbox": [
-            406.65,
-            536.67,
-            530.52,
-            545.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l4",
-          "text": "à compter de la notification de",
-          "bbox": [
-            406.65,
-            546.67,
-            517.88,
-            555.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l5",
-          "text": "la résiliation",
-          "bbox": [
-            406.65,
-            556.51,
-            449.45,
-            565.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l6",
-          "text": "En adressant une notification de",
-          "bbox": [
-            266.71,
-            536.67,
-            376.67,
-            545.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l7",
-          "text": "résiliation par lettre recommandée",
-          "bbox": [
-            266.71,
-            546.51,
-            386.78,
-            555.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l8",
-          "text": "au plus tard dans le mois suivant",
-          "bbox": [
-            266.71,
-            556.67,
-            381.98,
-            565.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l9",
-          "text": "le paiement de la première prestation",
-          "bbox": [
-            266.71,
-            566.67,
-            392.05,
-            575.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l10",
-          "text": "La Compagnie",
-          "bbox": [
-            65.2,
-            573.74,
-            114.52,
-            582.75
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l11",
-          "text": "En cas de non-paiement de la prime",
-          "bbox": [
-            126.77,
-            581.13,
-            252.4,
-            589.98
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l12",
-          "text": "ou d’une fraction de la prime dans",
-          "bbox": [
-            126.77,
-            591.13,
-            247.07,
-            599.98
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l13",
-          "text": "les 10 jours de son échéance",
-          "bbox": [
-            126.77,
-            601.13,
-            228.61,
-            609.98
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l14",
-          "text": "Après un délai de 40 jours suivant",
-          "bbox": [
-            406.65,
-            581.13,
-            528.92,
-            589.98
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l15",
-          "text": "mise en demeure adressée au",
-          "bbox": [
-            406.65,
-            591.13,
-            516.12,
-            599.98
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l16",
-          "text": "dernier domicile connu du Preneur",
-          "bbox": [
-            406.65,
-            600.97,
-            528.85,
-            609.98
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p30:19:l17",
-          "text": "d’Assurance",
-          "bbox": [
-            406.65,
-            610.97,
-            449.57,
-            619.98
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p30:20",
-      "text": "Dans les 30 jours à compter de\nla notification de résiliation\nEn cas de manquement frauduleux\ndu Preneur d’Assurance et/ ou de\nl’Assuré aux obligations qui leur\nincombent en cas de sinistre\nEn adressant une notification de\nrésiliation par lettre recommandée\nau plus tard un mois après\nla découverte de la fraude",
-      "loc": "p30",
-      "seq": 20,
-      "page": 30,
-      "bbox": [
-        126.77,
-        625.6,
-        522.15,
-        664.44
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p30:20:l1",
-          "text": "Dans les 30 jours à compter de",
-          "bbox": [
-            406.64,
-            625.6,
-            522.15,
-            634.44
-          ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l2",
-          "text": "la notification de résiliation",
+          "line_id": "axa-lu-optihome-2017:p30:4:l2",
+          "text": "Le Preneur\nd’Assurance | à l’échéance annuelle | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard trente jours avant\nla date de l’échéance principale | À 0h00 de la date de l’échéance\nannuelle de la prime",
           "bbox": [
-            406.64,
-            635.44,
-            501.2,
-            644.44
+            56.93,
+            216.73,
+            538.35,
+            489.05
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l3",
-          "text": "En cas de manquement frauduleux",
+          "line_id": "axa-lu-optihome-2017:p30:4:l3",
+          "text": " | annulation d’une ou plusieurs\ngaranties du contrat | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard un mois avant la date\nde l’échéance principale | À l’expiration d’un délai d’un mois\nà compter du lendemain de\nla notification de résiliation",
           "bbox": [
-            126.77,
-            625.6,
-            250.58,
-            634.44
+            118.52,
+            261.2,
+            538.35,
+            305.66
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l4",
-          "text": "du Preneur d’Assurance et/ ou de",
+          "line_id": "axa-lu-optihome-2017:p30:4:l4",
+          "text": " | en cas de résiliation par\nla Compagnie après sinistre,\nd’un autre de ses contrats | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard un mois suivant\nla notifciation de la résiliation\npréalablement adressée par\nla Compagnie | À l’expiration d’un délai d’un mois\nà compter du lendemain de\nla notification de résiliation",
           "bbox": [
-            126.77,
-            635.44,
-            247.59,
-            644.44
+            118.52,
+            305.66,
+            538.35,
+            370.12
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l5",
-          "text": "l’Assuré aux obligations qui leur",
+          "line_id": "axa-lu-optihome-2017:p30:4:l5",
+          "text": " | en cas d’augmentation tarifaire | En adressant une notification de\nrésiliation par lettre recommandée\nau plus tard dans les 60 jours\nsuivant la date d’envoi de l’avis\nd’échéance | Au deuxième jour suivant la date de\nl’envoi de la lettre de résiliation ou\nau plus tôt à la date d’échéance",
           "bbox": [
-            126.77,
-            645.44,
-            240.58,
-            654.44
+            118.52,
+            370.12,
+            538.35,
+            424.59
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l6",
-          "text": "incombent en cas de sinistre",
+          "line_id": "axa-lu-optihome-2017:p30:4:l6",
+          "text": " | en cas de modification et si\nla Compagnie ne réduit pas votre\nprime (point 2.8.1) | En adressant une notification de\nrésiliation par lettre avec accusé\nde réception au plus tard dans\nle mois suivant la demande de\nréduction introduite par le Preneur\nd’assurance. | Un mois suivant la date de l’envoi\nde la notification de la résiliation",
           "bbox": [
-            126.77,
-            655.6,
-            228.29,
-            664.44
+            118.52,
+            424.59,
+            538.35,
+            489.05
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l7",
-          "text": "En adressant une notification de",
+          "line_id": "axa-lu-optihome-2017:p30:4:l7",
+          "text": "La Compagnie | À l’échéance annuelle | En adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard 60 jours avant la date\nde l’échéance principale | À 0h00 de la date de l’échéance\nannuelle de la prime",
           "bbox": [
-            266.7,
-            625.6,
-            382.46,
-            634.44
+            56.93,
+            489.05,
+            538.35,
+            666.91
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l8",
-          "text": "résiliation par lettre recommandée",
+          "line_id": "axa-lu-optihome-2017:p30:4:l8",
+          "text": " | Après la survenance d’un sinistre\ndonnant lieu à indemnisation | En adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard dans le mois suivant\nle paiement de la première prestation | À l’expiration d’un délai d’un mois\nà compter de la notification de\nla résiliation",
           "bbox": [
-            266.71,
-            635.44,
-            389.72,
-            644.44
+            118.52,
+            533.52,
+            538.35,
+            577.98
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l9",
-          "text": "au plus tard un mois après",
+          "line_id": "axa-lu-optihome-2017:p30:4:l9",
+          "text": " | En cas de non-paiement de la prime\nou d’une fraction de la prime dans\nles 10 jours de son échéance |  | Après un délai de 40 jours suivant\nmise en demeure adressée au\ndernier domicile connu du Preneur\nd’Assurance",
           "bbox": [
-            266.71,
-            645.6,
-            365.75,
-            654.44
+            118.52,
+            577.98,
+            538.35,
+            622.44
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p30:20:l10",
-          "text": "la découverte de la fraude",
+          "line_id": "axa-lu-optihome-2017:p30:4:l10",
+          "text": " | En cas de manquement frauduleux\ndu Preneur d’Assurance et/ ou de\nl’Assuré aux obligations qui leur\nincombent en cas de sinistre | En adressant une notification de\nrésiliation par lettre recommandée\nau plus tard un mois après\nla découverte de la fraude | Dans les 30 jours à compter de\nla notification de résiliation",
           "bbox": [
-            266.71,
-            655.6,
-            358.59,
-            664.44
+            118.52,
+            622.44,
+            538.35,
+            666.91
           ]
         }
       ]
     },
     {
       "block_id": "axa-lu-optihome-2017:p31:1",
-      "text": "en cas d’omission ou d’inexactitude\ndans la déclaration du risque\nen adressant une notification de\nrésiliation par lettre recommandée\nau plus tard suivant le délai de\nréflexion d’un mois laissé au Preneur\nd’Assurance après proposition de\nla Compagnie. (Points 2-7 et 2.8.2)\na l’expiration d’un délai d’un mois\nà compter de la notification de\nla résiliation\nen cas d’aggravation du risque.\nSi la Compagnie apporte la preuve\nqu’elle n’aurait pas assuré le risque\nou en cas de refus de la proposition\nde modification",
+      "text": "La Compagnie | en cas d’omission ou d’inexactitude\ndans la déclaration du risque | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard suivant le délai de\nréfelxion d’un mois laissé au Preneur\nd’Assurance après proposition de\nla Compagnie. (Points 2-7 et 2.8.2) | a l’expiration d’un délai d’un mois\nà compter de la notification de\nla résiliation\n | en cas d’aggravation du risque.\nSi la Compagnie apporte la preuve\nqu’elle n’aurait pas assuré le risque\nou en cas de refus de la proposition\nde modification |  | \n | en cas du décès du Preneur\nd’Assurance | dans les trois mois suivant le jour\noù la Compagnie a eu connaissance\ndu décès | un mois à compter du lendemain\nde la notification de la résiliation au\ndernier domicile connu du Preneur\nd’Assurance\n | en cas de faillite du Preneur\nd’Assurance | dans le mois suivant l’expiration\nd’un délai de trois mois après\ndéclaration en faillite | un mois à compter du lendemain\nde la notification de la résiliation au\ndernier domicile connu du Preneur\nd’Assurance\n | en cas de transfert ou cession\ndu bien assuré | le contrat prend fin de plein droit à\ncompter l’acte de transmission ou\nde cession (point 2.22) | ",
       "loc": "p31",
       "seq": 1,
       "page": 31,
       "bbox": [
-        126.77,
-        74.27,
-        530.36,
-        147.58
+        56.9,
+        71.12,
+        538.49,
+        273.44
       ],
-      "continues": "axa-lu-optihome-2017:p30:20",
+      "kind": "table",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p31:1:l1",
-          "text": "en cas d’omission ou d’inexactitude",
+          "text": "La Compagnie | en cas d’omission ou d’inexactitude\ndans la déclaration du risque | en adressant une notifciation de\nrésiliation par lettre recommandée\nau plus tard suivant le délai de\nréfelxion d’un mois laissé au Preneur\nd’Assurance après proposition de\nla Compagnie. (Points 2-7 et 2.8.2) | a l’expiration d’un délai d’un mois\nà compter de la notification de\nla résiliation",
           "bbox": [
-            126.77,
-            74.27,
-            255.54,
-            83.12
+            56.9,
+            71.12,
+            538.49,
+            273.44
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p31:1:l2",
-          "text": "dans la déclaration du risque",
+          "text": " | en cas d’aggravation du risque.\nSi la Compagnie apporte la preuve\nqu’elle n’aurait pas assuré le risque\nou en cas de refus de la proposition\nde modification |  | ",
           "bbox": [
-            126.77,
-            84.27,
-            230.9,
-            93.12
+            118.53,
+            95.58,
+            258.5,
+            150.04
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p31:1:l3",
-          "text": "en adressant une notification de",
+          "text": " | en cas du décès du Preneur\nd’Assurance | dans les trois mois suivant le jour\noù la Compagnie a eu connaissance\ndu décès | un mois à compter du lendemain\nde la notification de la résiliation au\ndernier domicile connu du Preneur\nd’Assurance",
           "bbox": [
-            266.71,
-            74.27,
-            378.77,
-            83.12
+            118.53,
+            150.04,
+            538.49,
+            194.51
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p31:1:l4",
-          "text": "résiliation par lettre recommandée",
+          "text": " | en cas de faillite du Preneur\nd’Assurance | dans le mois suivant l’expiration\nd’un délai de trois mois après\ndéclaration en faillite | un mois à compter du lendemain\nde la notification de la résiliation au\ndernier domicile connu du Preneur\nd’Assurance",
           "bbox": [
-            266.71,
-            84.11,
-            388.31,
-            93.12
+            118.53,
+            194.51,
+            538.49,
+            238.97
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p31:1:l5",
-          "text": "au plus tard suivant le délai de",
+          "text": " | en cas de transfert ou cession\ndu bien assuré | le contrat prend fin de plein droit à\ncompter l’acte de transmission ou\nde cession (point 2.22) | ",
           "bbox": [
-            266.7,
-            94.27,
-            373.71,
-            103.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l6",
-          "text": "réflexion d’un mois laissé au Preneur",
-          "bbox": [
-            266.7,
-            104.11,
-            396.37,
-            113.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l7",
-          "text": "d’Assurance après proposition de",
-          "bbox": [
-            266.71,
-            114.11,
-            387.62,
-            123.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l8",
-          "text": "la Compagnie. (Points 2-7 et 2.8.2)",
-          "bbox": [
-            266.71,
-            124.11,
-            388.28,
-            133.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l9",
-          "text": "a l’expiration d’un délai d’un mois",
-          "bbox": [
-            406.65,
-            74.27,
-            530.36,
-            83.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l10",
-          "text": "à compter de la notification de",
-          "bbox": [
-            406.65,
-            84.27,
-            517.88,
-            93.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l11",
-          "text": "la résiliation",
-          "bbox": [
-            406.65,
-            94.11,
-            450.6,
-            103.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l12",
-          "text": "en cas d’aggravation du risque.",
-          "bbox": [
-            126.77,
-            98.73,
-            239.05,
-            107.58
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l13",
-          "text": "Si la Compagnie apporte la preuve",
-          "bbox": [
-            126.77,
-            108.57,
-            251.19,
-            117.58
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l14",
-          "text": "qu’elle n’aurait pas assuré le risque",
-          "bbox": [
-            126.77,
-            118.73,
-            255.65,
-            127.58
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l15",
-          "text": "ou en cas de refus de la proposition",
-          "bbox": [
-            126.77,
-            128.73,
-            255.78,
-            137.58
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:1:l16",
-          "text": "de modification",
-          "bbox": [
-            126.77,
-            138.73,
-            180.16,
-            147.58
+            118.53,
+            238.97,
+            538.49,
+            273.44
           ]
         }
       ]
     },
     {
       "block_id": "axa-lu-optihome-2017:p31:2",
-      "text": "en cas du décès du Preneur\nd’Assurance\nLa Compagnie\ndans les trois mois suivant le jour\noù la Compagnie a eu connaissance\ndu décès\nun mois à compter du lendemain\nde la notification de la résiliation au\ndernier domicile connu du Preneur\nd’Assurance",
-      "loc": "p31",
-      "seq": 2,
-      "page": 31,
-      "bbox": [
-        65.19,
-        153.04,
-        535.32,
-        192.04
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l1",
-          "text": "en cas du décès du Preneur",
-          "bbox": [
-            126.77,
-            153.04,
-            227.92,
-            162.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l2",
-          "text": "d’Assurance",
-          "bbox": [
-            126.77,
-            163.04,
-            170.93,
-            172.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l3",
-          "text": "La Compagnie",
-          "bbox": [
-            65.19,
-            168.04,
-            114.52,
-            177.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l4",
-          "text": "dans les trois mois suivant le jour",
-          "bbox": [
-            266.71,
-            153.2,
-            383.76,
-            162.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l5",
-          "text": "où la Compagnie a eu connaissance",
-          "bbox": [
-            266.71,
-            163.04,
-            394.14,
-            172.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l6",
-          "text": "du décès",
-          "bbox": [
-            266.71,
-            173.2,
-            297.79,
-            182.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l7",
-          "text": "un mois à compter du lendemain",
-          "bbox": [
-            406.65,
-            153.2,
-            526.52,
-            162.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l8",
-          "text": "de la notification de la résiliation au",
-          "bbox": [
-            406.65,
-            163.04,
-            535.32,
-            172.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l9",
-          "text": "dernier domicile connu du Preneur",
-          "bbox": [
-            406.65,
-            173.04,
-            529.63,
-            182.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:2:l10",
-          "text": "d’Assurance",
-          "bbox": [
-            406.65,
-            183.04,
-            450.81,
-            192.04
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:3",
-      "text": "en cas de faillite du Preneur\nd’Assurance\ndans le mois suivant l’expiration\nd’un délai de trois mois après\ndéclaration en faillite\nun mois à compter du lendemain\nde la notification de la résiliation au\ndernier domicile connu du Preneur\nd’Assurance",
-      "loc": "p31",
-      "seq": 3,
-      "page": 31,
-      "bbox": [
-        126.76,
-        197.5,
-        534.2,
-        236.51
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l1",
-          "text": "en cas de faillite du Preneur",
-          "bbox": [
-            126.77,
-            197.5,
-            226.81,
-            206.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l2",
-          "text": "d’Assurance",
-          "bbox": [
-            126.76,
-            207.5,
-            173.28,
-            216.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l3",
-          "text": "dans le mois suivant l’expiration",
-          "bbox": [
-            266.71,
-            197.66,
-            382.36,
-            206.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l4",
-          "text": "d’un délai de trois mois après",
-          "bbox": [
-            266.71,
-            207.66,
-            373.95,
-            216.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l5",
-          "text": "déclaration en faillite",
-          "bbox": [
-            266.71,
-            217.66,
-            340.05,
-            226.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l6",
-          "text": "un mois à compter du lendemain",
-          "bbox": [
-            406.64,
-            197.66,
-            524.16,
-            206.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l7",
-          "text": "de la notification de la résiliation au",
-          "bbox": [
-            406.64,
-            207.66,
-            534.2,
-            216.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l8",
-          "text": "dernier domicile connu du Preneur",
-          "bbox": [
-            406.64,
-            217.66,
-            528.83,
-            226.51
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:3:l9",
-          "text": "d’Assurance",
-          "bbox": [
-            406.64,
-            227.66,
-            449.84,
-            236.51
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:4",
-      "text": "en cas de transfert ou cession\ndu bien assuré\nle contrat prend fin de plein droit à\ncompter l’acte de transmission ou\nde cession (point 2.22)",
-      "loc": "p31",
-      "seq": 4,
-      "page": 31,
-      "bbox": [
-        126.76,
-        242.12,
-        390.11,
-        270.97
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:4:l1",
-          "text": "en cas de transfert ou cession",
-          "bbox": [
-            126.76,
-            242.12,
-            239.03,
-            250.97
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:4:l2",
-          "text": "du bien assuré",
-          "bbox": [
-            126.76,
-            252.12,
-            178.83,
-            260.97
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:4:l3",
-          "text": "le contrat prend fin de plein droit à",
-          "bbox": [
-            266.7,
-            242.12,
-            390.11,
-            250.97
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:4:l4",
-          "text": "compter l’acte de transmission ou",
-          "bbox": [
-            266.7,
-            252.12,
-            388.91,
-            260.97
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:4:l5",
-          "text": "de cession (point 2.22)",
-          "bbox": [
-            266.7,
-            262.12,
-            348.48,
-            270.97
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:5",
       "text": "2.20.2 Résiliation de la couverture RC Chasse",
       "loc": "p31",
-      "seq": 5,
+      "seq": 2,
       "page": 31,
       "bbox": [
         56.69,
@@ -31199,7 +29277,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:5:l1",
+          "line_id": "axa-lu-optihome-2017:p31:2:l1",
           "text": "2.20.2 Résiliation de la couverture RC Chasse",
           "bbox": [
             56.69,
@@ -31211,10 +29289,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:6",
+      "block_id": "axa-lu-optihome-2017:p31:3",
       "text": "Celle-ci peut être résiliée dans les mêmes conditions que les garanties citée ci-dessus, celle-ci\nproduira ses effets après le trentième jour suivant sa notification auprès du ministère par lettre\nrecommandée conformément à l’article 66 de la loi du 25 mai 2011 relative à la chasse et\nle règlement du Grand-Ducal.",
       "loc": "p31",
-      "seq": 6,
+      "seq": 3,
       "page": 31,
       "bbox": [
         121.89,
@@ -31224,7 +29302,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:6:l1",
+          "line_id": "axa-lu-optihome-2017:p31:3:l1",
           "text": "Celle-ci peut être résiliée dans les mêmes conditions que les garanties citée ci-dessus, celle-ci",
           "bbox": [
             121.89,
@@ -31234,7 +29312,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p31:6:l2",
+          "line_id": "axa-lu-optihome-2017:p31:3:l2",
           "text": "produira ses effets après le trentième jour suivant sa notification auprès du ministère par lettre",
           "bbox": [
             121.89,
@@ -31244,7 +29322,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p31:6:l3",
+          "line_id": "axa-lu-optihome-2017:p31:3:l3",
           "text": "recommandée conformément à l’article 66 de la loi du 25 mai 2011 relative à la chasse et",
           "bbox": [
             121.89,
@@ -31254,7 +29332,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p31:6:l4",
+          "line_id": "axa-lu-optihome-2017:p31:3:l4",
           "text": "le règlement du Grand-Ducal.",
           "bbox": [
             121.89,
@@ -31266,10 +29344,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:7",
+      "block_id": "axa-lu-optihome-2017:p31:4",
       "text": "2.20.3 Résiliation par les ayants droit",
       "loc": "p31",
-      "seq": 7,
+      "seq": 4,
       "page": 31,
       "bbox": [
         56.69,
@@ -31280,7 +29358,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:7:l1",
+          "line_id": "axa-lu-optihome-2017:p31:4:l1",
           "text": "2.20.3 Résiliation par les ayants droit",
           "bbox": [
             56.69,
@@ -31292,388 +29370,46 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:8",
-      "text": "Selon quelles",
+      "block_id": "axa-lu-optihome-2017:p31:5",
+      "text": "Qui peut\nrésilier ? | Dans quelles\ncirconstances ? | Selon quelles\nmodalités ? | Prise d’effet de la\nrésiliation\nLes ayants droit | en cas de décès du Preneur\nd’assurance.\nSi la résiliation n’est pas demandée,\nle contrat continue sans autres\nformalités pour compte des ayants\ndroit qui restent solidairement et\nindivisiblement tenus des obligations\ndécoulant de l’assurance. | dans les trois mois et quarante jours\ndu décès du Preneur d’assurance. | à l’expiration d’un délai d’un mois\nà compter du lendemain de la\nnotification de la résiliation.",
       "loc": "p31",
-      "seq": 8,
+      "seq": 5,
       "page": 31,
       "bbox": [
-        294.98,
-        423.12,
-        373.55,
-        436.63
+        56.9,
+        420.63,
+        538.49,
+        535.82
       ],
-      "kind": "heading",
+      "kind": "table",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:8:l1",
-          "text": "Selon quelles",
+          "line_id": "axa-lu-optihome-2017:p31:5:l1",
+          "text": "Qui peut\nrésilier ? | Dans quelles\ncirconstances ? | Selon quelles\nmodalités ? | Prise d’effet de la\nrésiliation",
           "bbox": [
-            294.98,
-            423.12,
-            373.55,
-            436.63
+            56.9,
+            420.63,
+            538.49,
+            451.33
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p31:5:l2",
+          "text": "Les ayants droit | en cas de décès du Preneur\nd’assurance.\nSi la résiliation n’est pas demandée,\nle contrat continue sans autres\nformalités pour compte des ayants\ndroit qui restent solidairement et\nindivisiblement tenus des obligations\ndécoulant de l’assurance. | dans les trois mois et quarante jours\ndu décès du Preneur d’assurance. | à l’expiration d’un délai d’un mois\nà compter du lendemain de la\nnotification de la résiliation.",
+          "bbox": [
+            56.9,
+            451.33,
+            538.49,
+            535.82
           ]
         }
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:9",
-      "text": "Prise d’effet de la",
-      "loc": "p31",
-      "seq": 9,
-      "page": 31,
-      "bbox": [
-        422.74,
-        423.12,
-        522.28,
-        436.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:9:l1",
-          "text": "Prise d’effet de la",
-          "bbox": [
-            422.74,
-            423.12,
-            522.28,
-            436.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:10",
-      "text": "Qui peut",
-      "loc": "p31",
-      "seq": 10,
-      "page": 31,
-      "bbox": [
-        67.35,
-        423.12,
-        116.0,
-        436.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:10:l1",
-          "text": "Qui peut",
-          "bbox": [
-            67.35,
-            423.12,
-            116.0,
-            436.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:11",
-      "text": "résilier ?",
-      "loc": "p31",
-      "seq": 11,
-      "page": 31,
-      "bbox": [
-        66.63,
-        436.11,
-        113.12,
-        449.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:11:l1",
-          "text": "résilier ?",
-          "bbox": [
-            66.63,
-            436.11,
-            113.12,
-            449.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:12",
-      "text": "Dans quelles",
-      "loc": "p31",
-      "seq": 12,
-      "page": 31,
-      "bbox": [
-        156.4,
-        423.12,
-        228.57,
-        436.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:12:l1",
-          "text": "Dans quelles",
-          "bbox": [
-            156.4,
-            423.12,
-            228.57,
-            436.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:13",
-      "text": "circonstances ?",
-      "loc": "p31",
-      "seq": 13,
-      "page": 31,
-      "bbox": [
-        147.76,
-        436.11,
-        233.61,
-        449.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:13:l1",
-          "text": "circonstances ?",
-          "bbox": [
-            147.76,
-            436.11,
-            233.61,
-            449.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:14",
-      "text": "modalités ?",
-      "loc": "p31",
-      "seq": 14,
-      "page": 31,
-      "bbox": [
-        299.42,
-        436.11,
-        361.98,
-        449.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:14:l1",
-          "text": "modalités ?",
-          "bbox": [
-            299.42,
-            436.11,
-            361.98,
-            449.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:15",
-      "text": "résiliation",
-      "loc": "p31",
-      "seq": 15,
-      "page": 31,
-      "bbox": [
-        444.18,
-        436.11,
-        497.22,
-        449.63
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:15:l1",
-          "text": "résiliation",
-          "bbox": [
-            444.18,
-            436.11,
-            497.22,
-            449.63
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:16",
-      "text": "en cas de décès du Preneur\nd’assurance.\ndans les trois mois et quarante jours\ndu décès du Preneur d’assurance.\nà l’expiration d’un délai d’un mois\nà compter du lendemain de la\nnotification de la résiliation.",
-      "loc": "p31",
-      "seq": 16,
-      "page": 31,
-      "bbox": [
-        122.55,
-        454.32,
-        524.18,
-        482.53
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l1",
-          "text": "en cas de décès du Preneur",
-          "bbox": [
-            122.55,
-            454.32,
-            226.34,
-            463.33
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l2",
-          "text": "d’assurance.",
-          "bbox": [
-            122.55,
-            463.92,
-            168.31,
-            472.93
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l3",
-          "text": "dans les trois mois et quarante jours",
-          "bbox": [
-            262.56,
-            454.48,
-            394.52,
-            463.33
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l4",
-          "text": "du décès du Preneur d’assurance.",
-          "bbox": [
-            262.56,
-            463.92,
-            383.96,
-            472.93
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l5",
-          "text": "à l’expiration d’un délai d’un mois",
-          "bbox": [
-            402.58,
-            454.48,
-            524.18,
-            463.33
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l6",
-          "text": "à compter du lendemain de la",
-          "bbox": [
-            402.58,
-            464.08,
-            509.62,
-            472.93
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:16:l7",
-          "text": "notification de la résiliation.",
-          "bbox": [
-            402.58,
-            473.52,
-            500.82,
-            482.53
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:17",
-      "text": "Les ayants droit\nSi la résiliation n’est pas demandée,\nle contrat continue sans autres\nformalités pour compte des ayants\ndroit qui restent solidairement et\nindivisiblement tenus des obligations\ndécoulant de l’assurance.",
-      "loc": "p31",
-      "seq": 17,
-      "page": 31,
-      "bbox": [
-        59.78,
-        476.35,
-        255.03,
-        533.36
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l1",
-          "text": "Les ayants droit",
-          "bbox": [
-            59.78,
-            489.49,
-            114.55,
-            498.34
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l2",
-          "text": "Si la résiliation n’est pas demandée,",
-          "bbox": [
-            122.55,
-            476.35,
-            253.88,
-            485.36
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l3",
-          "text": "le contrat continue sans autres",
-          "bbox": [
-            122.55,
-            486.11,
-            234.5,
-            494.96
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l4",
-          "text": "formalités pour compte des ayants",
-          "bbox": [
-            122.55,
-            495.71,
-            247.12,
-            504.56
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l5",
-          "text": "droit qui restent solidairement et",
-          "bbox": [
-            122.55,
-            505.31,
-            240.33,
-            514.16
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l6",
-          "text": "indivisiblement tenus des obligations",
-          "bbox": [
-            122.55,
-            514.91,
-            255.03,
-            523.76
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:17:l7",
-          "text": "découlant de l’assurance.",
-          "bbox": [
-            122.55,
-            524.51,
-            213.27,
-            533.36
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:18",
+      "block_id": "axa-lu-optihome-2017:p31:6",
       "text": "2.20.4 Résiliation par le curateur",
       "loc": "p31",
-      "seq": 18,
+      "seq": 6,
       "page": 31,
       "bbox": [
         56.69,
@@ -31684,7 +29420,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:18:l1",
+          "line_id": "axa-lu-optihome-2017:p31:6:l1",
           "text": "2.20.4 Résiliation par le curateur",
           "bbox": [
             56.69,
@@ -31696,313 +29432,46 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:19",
-      "text": "Selon quelles",
+      "block_id": "axa-lu-optihome-2017:p31:7",
+      "text": "Qui peut\nrésilier ? | Dans quelles\ncirconstances ? | Selon quelles\nmodalités ? | Prise d’effet de la\nrésiliation\nLe curateur | en cas de faillite du Preneur\nd’assurance. | dans les trois mois qui suivent la\ndéclaration de faillite. | à l’expiration d’un délai d’un mois\nà compter du lendemain de la\nnotification de la résiliation.",
       "loc": "p31",
-      "seq": 19,
+      "seq": 7,
       "page": 31,
       "bbox": [
-        294.92,
-        585.83,
-        373.5,
-        599.34
+        56.9,
+        583.34,
+        538.49,
+        648.88
       ],
-      "kind": "heading",
+      "kind": "table",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:19:l1",
-          "text": "Selon quelles",
+          "line_id": "axa-lu-optihome-2017:p31:7:l1",
+          "text": "Qui peut\nrésilier ? | Dans quelles\ncirconstances ? | Selon quelles\nmodalités ? | Prise d’effet de la\nrésiliation",
           "bbox": [
-            294.92,
-            585.83,
-            373.5,
-            599.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:20",
-      "text": "Prise d’effet de la",
-      "loc": "p31",
-      "seq": 20,
-      "page": 31,
-      "bbox": [
-        422.66,
-        585.83,
-        522.2,
-        599.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:20:l1",
-          "text": "Prise d’effet de la",
-          "bbox": [
-            422.66,
-            585.83,
-            522.2,
-            599.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:21",
-      "text": "Qui peut",
-      "loc": "p31",
-      "seq": 21,
-      "page": 31,
-      "bbox": [
-        67.34,
-        585.83,
-        115.99,
-        599.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:21:l1",
-          "text": "Qui peut",
-          "bbox": [
-            67.34,
-            585.83,
-            115.99,
-            599.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:22",
-      "text": "résilier ?",
-      "loc": "p31",
-      "seq": 22,
-      "page": 31,
-      "bbox": [
-        66.62,
-        598.82,
-        113.11,
-        612.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:22:l1",
-          "text": "résilier ?",
-          "bbox": [
-            66.62,
-            598.82,
-            113.11,
-            612.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:23",
-      "text": "Dans quelles",
-      "loc": "p31",
-      "seq": 23,
-      "page": 31,
-      "bbox": [
-        156.37,
-        585.83,
-        228.54,
-        599.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:23:l1",
-          "text": "Dans quelles",
-          "bbox": [
-            156.37,
-            585.83,
-            228.54,
-            599.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:24",
-      "text": "circonstances ?",
-      "loc": "p31",
-      "seq": 24,
-      "page": 31,
-      "bbox": [
-        147.73,
-        598.82,
-        233.58,
-        612.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:24:l1",
-          "text": "circonstances ?",
-          "bbox": [
-            147.73,
-            598.82,
-            233.58,
-            612.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:25",
-      "text": "modalités ?",
-      "loc": "p31",
-      "seq": 25,
-      "page": 31,
-      "bbox": [
-        299.36,
-        598.82,
-        361.93,
-        612.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:25:l1",
-          "text": "modalités ?",
-          "bbox": [
-            299.36,
-            598.82,
-            361.93,
-            612.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:26",
-      "text": "résiliation",
-      "loc": "p31",
-      "seq": 26,
-      "page": 31,
-      "bbox": [
-        444.11,
-        598.82,
-        497.15,
-        612.34
-      ],
-      "kind": "heading",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:26:l1",
-          "text": "résiliation",
-          "bbox": [
-            444.11,
-            598.82,
-            497.15,
-            612.34
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p31:27",
-      "text": "en cas de faillite du Preneur\nd’assurance.\ndans les trois mois qui suivent la\ndéclaration de faillite.\nLe curateur\nà l’expiration d’un délai d’un mois\nà compter du lendemain de la\nnotification de la résiliation.",
-      "loc": "p31",
-      "seq": 27,
-      "page": 31,
-      "bbox": [
-        59.78,
-        617.02,
-        524.12,
-        645.23
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l1",
-          "text": "en cas de faillite du Preneur",
-          "bbox": [
-            122.54,
-            617.02,
-            226.65,
-            626.03
+            56.9,
+            583.34,
+            538.49,
+            614.04
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p31:27:l2",
-          "text": "d’assurance.",
+          "line_id": "axa-lu-optihome-2017:p31:7:l2",
+          "text": "Le curateur | en cas de faillite du Preneur\nd’assurance. | dans les trois mois qui suivent la\ndéclaration de faillite. | à l’expiration d’un délai d’un mois\nà compter du lendemain de la\nnotification de la résiliation.",
           "bbox": [
-            122.54,
-            626.62,
-            168.3,
-            635.63
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l3",
-          "text": "dans les trois mois qui suivent la",
-          "bbox": [
-            262.53,
-            617.18,
-            381.37,
-            626.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l4",
-          "text": "déclaration de faillite.",
-          "bbox": [
-            262.53,
-            626.78,
-            338.37,
-            635.63
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l5",
-          "text": "Le curateur",
-          "bbox": [
-            59.78,
-            627.38,
-            99.3,
-            636.22
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l6",
-          "text": "à l’expiration d’un délai d’un mois",
-          "bbox": [
-            402.52,
-            617.18,
-            524.12,
-            626.03
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l7",
-          "text": "à compter du lendemain de la",
-          "bbox": [
-            402.52,
-            626.78,
-            509.56,
-            635.63
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p31:27:l8",
-          "text": "notification de la résiliation.",
-          "bbox": [
-            402.52,
-            636.22,
-            503.16,
-            645.23
+            56.9,
+            614.04,
+            538.49,
+            648.88
           ]
         }
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:28",
+      "block_id": "axa-lu-optihome-2017:p31:8",
       "text": "2.21 Forme de la résiliation",
       "loc": "p31",
-      "seq": 28,
+      "seq": 8,
       "page": 31,
       "bbox": [
         56.69,
@@ -32013,7 +29482,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:28:l1",
+          "line_id": "axa-lu-optihome-2017:p31:8:l1",
           "text": "2.21 Forme de la résiliation",
           "bbox": [
             56.69,
@@ -32025,10 +29494,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p31:29",
+      "block_id": "axa-lu-optihome-2017:p31:9",
       "text": "La résiliation du contrat est notifiée soit par lettre recommandée à la poste, soit par exploit\nd’huissier ou par remise de la lettre de résiliation contre récépissé.",
       "loc": "p31",
-      "seq": 29,
+      "seq": 9,
       "page": 31,
       "bbox": [
         121.89,
@@ -32038,7 +29507,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p31:29:l1",
+          "line_id": "axa-lu-optihome-2017:p31:9:l1",
           "text": "La résiliation du contrat est notifiée soit par lettre recommandée à la poste, soit par exploit",
           "bbox": [
             121.89,
@@ -32048,7 +29517,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p31:29:l2",
+          "line_id": "axa-lu-optihome-2017:p31:9:l2",
           "text": "d’huissier ou par remise de la lettre de résiliation contre récépissé.",
           "bbox": [
             121.89,
@@ -42739,404 +40208,105 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p49:5",
-      "text": "Indemnités, hors frais d’expertise\nBarème appliqué en % de ces indemnités\nJusqu’à 6.484 €\n5 %",
+      "text": "Indemnités, hors frais d’expertise | Barème appliqué en % de ces indemnités\nJusqu’à 6.484 € | 5 %\nde 6.485 € à 43.232 € | 324 € + 3,50% sur la partie dépassant 6.485 €\nde 43.233 € à 216.165 € | 1.610 € + 2,00% sur la partie dépassant 43.233 €\nde 216.166 € à 432.335 € | 5.069 € + 1,50% sur la partie dépassant 216.166 €\nde 432.336 € à 1.296.988 € | 8.312 € + 0,75% sur la partie dépassant 432.336 €\nAu-delà de 1.296.988 € | 14.796 € + 0,35% sur la partie dépassant 1.296.989 €\nMaximum : 21.617 €\n | ",
       "loc": "p49",
       "seq": 5,
       "page": 49,
       "bbox": [
-        60.94,
-        287.03,
-        410.39,
-        311.44
+        56.92,
+        284.17,
+        538.36,
+        400.69
       ],
+      "kind": "table",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p49:5:l1",
-          "text": "Indemnités, hors frais d’expertise",
+          "text": "Indemnités, hors frais d’expertise | Barème appliqué en % de ces indemnités",
           "bbox": [
-            60.94,
-            287.03,
-            197.1,
-            297.17
+            56.92,
+            284.17,
+            538.36,
+            299.44
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p49:5:l2",
-          "text": "Barème appliqué en % de ces indemnités",
+          "text": "Jusqu’à 6.484 € | 5 %",
           "bbox": [
-            245.15,
-            287.03,
-            410.39,
-            297.17
+            56.92,
+            299.44,
+            538.36,
+            313.9
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p49:5:l3",
-          "text": "Jusqu’à 6.484 €",
+          "text": "de 6.485 € à 43.232 € | 324 € + 3,50% sur la partie dépassant 6.485 €",
           "bbox": [
-            60.94,
-            302.04,
-            117.78,
-            311.44
+            56.92,
+            313.9,
+            538.36,
+            328.37
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p49:5:l4",
-          "text": "5 %",
+          "text": "de 43.233 € à 216.165 € | 1.610 € + 2,00% sur la partie dépassant 43.233 €",
           "bbox": [
-            245.14,
-            302.59,
-            257.94,
-            311.44
+            56.92,
+            328.37,
+            538.36,
+            342.83
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p49:5:l5",
+          "text": "de 216.166 € à 432.335 € | 5.069 € + 1,50% sur la partie dépassant 216.166 €",
+          "bbox": [
+            56.92,
+            342.83,
+            538.36,
+            357.29
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p49:5:l6",
+          "text": "de 432.336 € à 1.296.988 € | 8.312 € + 0,75% sur la partie dépassant 432.336 €",
+          "bbox": [
+            56.92,
+            357.29,
+            538.36,
+            371.76
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p49:5:l7",
+          "text": "Au-delà de 1.296.988 € | 14.796 € + 0,35% sur la partie dépassant 1.296.989 €\nMaximum : 21.617 €",
+          "bbox": [
+            56.92,
+            371.76,
+            538.36,
+            400.69
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p49:5:l8",
+          "text": " | ",
+          "bbox": [
+            56.92,
+            386.22,
+            241.14,
+            400.69
           ]
         }
       ]
     },
     {
       "block_id": "axa-lu-optihome-2017:p49:6",
-      "text": "de 6.485 €\nà 43.232 €\n324 €\n+ 3,50%\nsur la partie dépassant 6.485 €",
-      "loc": "p49",
-      "seq": 6,
-      "page": 49,
-      "bbox": [
-        60.94,
-        316.5,
-        468.59,
-        325.9
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p49:6:l1",
-          "text": "de 6.485 €",
-          "bbox": [
-            60.94,
-            316.5,
-            101.78,
-            325.9
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:6:l2",
-          "text": "à 43.232 €",
-          "bbox": [
-            153.05,
-            316.5,
-            191.97,
-            325.9
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:6:l3",
-          "text": "324 €",
-          "bbox": [
-            245.15,
-            316.5,
-            265.35,
-            325.9
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:6:l4",
-          "text": "+ 3,50%",
-          "bbox": [
-            300.35,
-            317.05,
-            329.95,
-            325.9
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:6:l5",
-          "text": "sur la partie dépassant 6.485 €",
-          "bbox": [
-            356.8,
-            316.5,
-            468.59,
-            325.9
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p49:7",
-      "text": "de 43.233 €\nà 216.165 €\n1.610 €\n+ 2,00%\nsur la partie dépassant 43.233 €",
-      "loc": "p49",
-      "seq": 7,
-      "page": 49,
-      "bbox": [
-        60.95,
-        330.97,
-        473.4,
-        340.37
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p49:7:l1",
-          "text": "de 43.233 €",
-          "bbox": [
-            60.95,
-            330.97,
-            106.59,
-            340.37
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:7:l2",
-          "text": "à 216.165 €",
-          "bbox": [
-            153.05,
-            330.97,
-            196.77,
-            340.37
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:7:l3",
-          "text": "1.610 €",
-          "bbox": [
-            245.16,
-            330.97,
-            272.56,
-            340.37
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:7:l4",
-          "text": "+ 2,00%",
-          "bbox": [
-            300.36,
-            331.52,
-            329.96,
-            340.37
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:7:l5",
-          "text": "sur la partie dépassant 43.233 €",
-          "bbox": [
-            356.81,
-            330.97,
-            473.4,
-            340.37
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p49:8",
-      "text": "de 216.166 €\nà 432.335 €\n5.069 €\n+ 1,50%\nsur la partie dépassant 216.166 €",
-      "loc": "p49",
-      "seq": 8,
-      "page": 49,
-      "bbox": [
-        60.96,
-        345.43,
-        478.21,
-        354.83
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p49:8:l1",
-          "text": "de 216.166 €",
-          "bbox": [
-            60.96,
-            345.43,
-            111.4,
-            354.83
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:8:l2",
-          "text": "à 432.335 €",
-          "bbox": [
-            153.06,
-            345.43,
-            196.78,
-            354.83
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:8:l3",
-          "text": "5.069 €",
-          "bbox": [
-            245.17,
-            345.43,
-            272.57,
-            354.83
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:8:l4",
-          "text": "+ 1,50%",
-          "bbox": [
-            300.37,
-            345.98,
-            329.97,
-            354.83
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:8:l5",
-          "text": "sur la partie dépassant 216.166 €",
-          "bbox": [
-            356.82,
-            345.43,
-            478.21,
-            354.83
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p49:9",
-      "text": "de 432.336 €\nà 1.296.988 €\n8.312 €\n+ 0,75%\nsur la partie dépassant 432.336 €",
-      "loc": "p49",
-      "seq": 9,
-      "page": 49,
-      "bbox": [
-        60.97,
-        359.9,
-        478.22,
-        369.29
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p49:9:l1",
-          "text": "de 432.336 €",
-          "bbox": [
-            60.97,
-            359.9,
-            111.41,
-            369.29
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:9:l2",
-          "text": "à 1.296.988 €",
-          "bbox": [
-            153.07,
-            359.9,
-            203.99,
-            369.29
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:9:l3",
-          "text": "8.312 €",
-          "bbox": [
-            245.18,
-            359.9,
-            272.58,
-            369.29
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:9:l4",
-          "text": "+ 0,75%",
-          "bbox": [
-            300.38,
-            360.45,
-            329.97,
-            369.29
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:9:l5",
-          "text": "sur la partie dépassant 432.336 €",
-          "bbox": [
-            356.82,
-            359.9,
-            478.22,
-            369.29
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p49:10",
-      "text": "Au-delà de 1.296.988 €\n14.796 €\n+ 0,35%\nsur la partie dépassant 1.296.989 €",
-      "loc": "p49",
-      "seq": 10,
-      "page": 49,
-      "bbox": [
-        60.98,
-        374.36,
-        485.42,
-        383.76
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p49:10:l1",
-          "text": "Au-delà de 1.296.988 €",
-          "bbox": [
-            60.98,
-            374.36,
-            144.06,
-            383.76
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:10:l2",
-          "text": "14.796 €",
-          "bbox": [
-            245.18,
-            374.36,
-            277.38,
-            383.76
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:10:l3",
-          "text": "+ 0,35%",
-          "bbox": [
-            300.38,
-            374.91,
-            329.97,
-            383.76
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p49:10:l4",
-          "text": "sur la partie dépassant 1.296.989 €",
-          "bbox": [
-            356.82,
-            374.36,
-            485.42,
-            383.76
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p49:11",
-      "text": "Maximum : 21.617 €",
-      "loc": "p49",
-      "seq": 11,
-      "page": 49,
-      "bbox": [
-        245.18,
-        388.82,
-        321.73,
-        398.22
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p49:11:l1",
-          "text": "Maximum : 21.617 €",
-          "bbox": [
-            245.18,
-            388.82,
-            321.73,
-            398.22
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p49:12",
       "text": "3.1.9.9 Recours des locataires ou occupants",
       "loc": "p49",
-      "seq": 12,
+      "seq": 6,
       "page": 49,
       "bbox": [
         56.69,
@@ -43147,7 +40317,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p49:12:l1",
+          "line_id": "axa-lu-optihome-2017:p49:6:l1",
           "text": "3.1.9.9 Recours des locataires ou occupants",
           "bbox": [
             56.69,
@@ -43159,10 +40329,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p49:13",
+      "block_id": "axa-lu-optihome-2017:p49:7",
       "text": "La Compagnie couvre les frais que l’Assuré pourrait être amené à supporter en qualité soit de\nbailleur, en vertu de l’article 1721, deuxième alinéa du Code civil, à l’égard des locataires, soit\nde propriétaire à l’égard des occupants autres que locataires.",
       "loc": "p49",
-      "seq": 13,
+      "seq": 7,
       "page": 49,
       "bbox": [
         121.89,
@@ -43172,7 +40342,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p49:13:l1",
+          "line_id": "axa-lu-optihome-2017:p49:7:l1",
           "text": "La Compagnie couvre les frais que l’Assuré pourrait être amené à supporter en qualité soit de",
           "bbox": [
             121.89,
@@ -43182,7 +40352,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:13:l2",
+          "line_id": "axa-lu-optihome-2017:p49:7:l2",
           "text": "bailleur, en vertu de l’article 1721, deuxième alinéa du Code civil, à l’égard des locataires, soit",
           "bbox": [
             121.9,
@@ -43192,7 +40362,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:13:l3",
+          "line_id": "axa-lu-optihome-2017:p49:7:l3",
           "text": "de propriétaire à l’égard des occupants autres que locataires.",
           "bbox": [
             121.9,
@@ -43204,10 +40374,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p49:14",
+      "block_id": "axa-lu-optihome-2017:p49:8",
       "text": "3.1.9.10 Recours des tiers",
       "loc": "p49",
-      "seq": 14,
+      "seq": 8,
       "page": 49,
       "bbox": [
         56.7,
@@ -43218,7 +40388,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p49:14:l1",
+          "line_id": "axa-lu-optihome-2017:p49:8:l1",
           "text": "3.1.9.10 Recours des tiers",
           "bbox": [
             56.7,
@@ -43230,10 +40400,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p49:15",
+      "block_id": "axa-lu-optihome-2017:p49:9",
       "text": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du\nCode civil pour les dommages matériels causés par un sinistre garanti se communiquant à des\nbiens qui sont la propriété de tiers.",
       "loc": "p49",
-      "seq": 15,
+      "seq": 9,
       "page": 49,
       "bbox": [
         121.9,
@@ -43243,7 +40413,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p49:15:l1",
+          "line_id": "axa-lu-optihome-2017:p49:9:l1",
           "text": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du",
           "bbox": [
             121.9,
@@ -43253,7 +40423,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:15:l2",
+          "line_id": "axa-lu-optihome-2017:p49:9:l2",
           "text": "Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des",
           "bbox": [
             121.91,
@@ -43263,7 +40433,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:15:l3",
+          "line_id": "axa-lu-optihome-2017:p49:9:l3",
           "text": "biens qui sont la propriété de tiers.",
           "bbox": [
             121.91,
@@ -43275,10 +40445,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p49:16",
+      "block_id": "axa-lu-optihome-2017:p49:10",
       "text": "3.1.10 Responsabilité civile immeuble",
       "loc": "p49",
-      "seq": 16,
+      "seq": 10,
       "page": 49,
       "bbox": [
         56.69,
@@ -43289,7 +40459,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p49:16:l1",
+          "line_id": "axa-lu-optihome-2017:p49:10:l1",
           "text": "3.1.10 Responsabilité civile immeuble",
           "bbox": [
             56.69,
@@ -43301,10 +40471,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p49:17",
+      "block_id": "axa-lu-optihome-2017:p49:11",
       "text": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ responsabilité civile immeuble ” est accordée.\nCette garantie ne produit aucun effet si seul le contenu et/ou la responsabilité civile locative\nsont assurés.",
       "loc": "p49",
-      "seq": 17,
+      "seq": 11,
       "page": 49,
       "bbox": [
         121.89,
@@ -43314,7 +40484,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p49:17:l1",
+          "line_id": "axa-lu-optihome-2017:p49:11:l1",
           "text": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent",
           "bbox": [
             121.89,
@@ -43324,7 +40494,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:17:l2",
+          "line_id": "axa-lu-optihome-2017:p49:11:l2",
           "text": "que la garantie “ responsabilité civile immeuble ” est accordée.",
           "bbox": [
             121.89,
@@ -43334,7 +40504,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:17:l3",
+          "line_id": "axa-lu-optihome-2017:p49:11:l3",
           "text": "Cette garantie ne produit aucun effet si seul le contenu et/ou la responsabilité civile locative",
           "bbox": [
             121.89,
@@ -43344,7 +40514,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p49:17:l4",
+          "line_id": "axa-lu-optihome-2017:p49:11:l4",
           "text": "sont assurés.",
           "bbox": [
             121.89,
@@ -69102,524 +66272,75 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p91:1",
-      "text": "Défense des intérêts de\nl’Assuré (*) (**)",
+      "text": "Défense des intérêts de\nl’Assuré (*) (**)\nExpertises diverses (défense\namiable et judiciaire)\n1er instance\n(défense judiciaire)\nAppel (défense judiciaire)\nCassation (défense judiciaire) | 2.500 r\n5.750 r\n5.750 r\n5.750 r | par sinistre et par année d’assurance | Groupe I\nMise en relation en cas d’at-\nteinte à l’e-réputation | 5.000 r de prise en charge\ndes frais de nettoyage ou de\nnoyage des informations | par sinistre et par année d’assurance | Groupe II\nIndemnisation du préjudice\nsubi en cas d’usurpation\nd’identité | 5.000 r *** | par sinistre et par année d’assurance | \nIndemnisation du préjudice\nsubi en cas d’utilisation\nfrauduleuse des moyens de\npaiement | 5.000 r *** | par sinistre et par année d’assurance | \nIndemnisation du préjudice\nsubi en cas d’achat d’un bien\nmobilier corporel auprès d’un\ne-commerçant | 5.000 r | par sinistre et par année d’assurance | ",
       "loc": "p91",
       "seq": 1,
       "page": 91,
       "bbox": [
-        61.19,
-        86.31,
-        162.53,
-        107.25
+        57.15,
+        83.45,
+        538.17,
+        398.73
       ],
+      "kind": "table",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p91:1:l1",
-          "text": "Défense des intérêts de",
+          "text": "Défense des intérêts de\nl’Assuré (*) (**)\nExpertises diverses (défense\namiable et judiciaire)\n1er instance\n(défense judiciaire)\nAppel (défense judiciaire)\nCassation (défense judiciaire) | 2.500 r\n5.750 r\n5.750 r\n5.750 r | par sinistre et par année d’assurance | Groupe I",
           "bbox": [
-            61.19,
-            86.31,
-            162.53,
-            96.45
+            57.15,
+            83.45,
+            538.17,
+            217.52
           ]
         },
         {
           "line_id": "axa-lu-optihome-2017:p91:1:l2",
-          "text": "l’Assuré (*) (**)",
+          "text": "Mise en relation en cas d’at-\nteinte à l’e-réputation | 5.000 r de prise en charge\ndes frais de nettoyage ou de\nnoyage des informations | par sinistre et par année d’assurance | Groupe II",
           "bbox": [
-            61.19,
-            97.11,
-            129.05,
-            107.25
+            57.15,
+            217.52,
+            538.17,
+            398.73
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p91:1:l3",
+          "text": "Indemnisation du préjudice\nsubi en cas d’usurpation\nd’identité | 5.000 r *** | par sinistre et par année d’assurance | ",
+          "bbox": [
+            57.15,
+            254.39,
+            478.35,
+            294.95
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p91:1:l4",
+          "text": "Indemnisation du préjudice\nsubi en cas d’utilisation\nfrauduleuse des moyens de\npaiement | 5.000 r *** | par sinistre et par année d’assurance | ",
+          "bbox": [
+            57.15,
+            294.95,
+            478.35,
+            344.0
+          ]
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p91:1:l5",
+          "text": "Indemnisation du préjudice\nsubi en cas d’achat d’un bien\nmobilier corporel auprès d’un\ne-commerçant | 5.000 r | par sinistre et par année d’assurance | ",
+          "bbox": [
+            57.15,
+            344.0,
+            478.35,
+            398.73
           ]
         }
       ]
     },
     {
       "block_id": "axa-lu-optihome-2017:p91:2",
-      "text": "2.500 r\nExpertises diverses (défense\namiable et judiciaire)",
-      "loc": "p91",
-      "seq": 2,
-      "page": 91,
-      "bbox": [
-        61.19,
-        118.27,
-        224.19,
-        139.65
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:2:l1",
-          "text": "2.500 r",
-          "bbox": [
-            191.79,
-            118.27,
-            224.19,
-            128.85
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:2:l2",
-          "text": "Expertises diverses (défense",
-          "bbox": [
-            61.19,
-            118.89,
-            178.27,
-            128.85
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:2:l3",
-          "text": "amiable et judiciaire)",
-          "bbox": [
-            61.19,
-            129.69,
-            143.4,
-            139.65
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:3",
-      "text": "par sinistre et par année d’assurance\nGroupe I\n5.750 r\n1er instance\n(défense judiciaire)",
-      "loc": "p91",
-      "seq": 3,
-      "page": 91,
-      "bbox": [
-        61.19,
-        145.38,
-        526.79,
-        172.05
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:3:l1",
-          "text": "par sinistre et par année d’assurance",
-          "bbox": [
-            315.1,
-            145.89,
-            463.54,
-            155.85
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:3:l2",
-          "text": "Groupe I",
-          "bbox": [
-            489.64,
-            145.38,
-            526.79,
-            156.44
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:3:l3",
-          "text": "5.750 r",
-          "bbox": [
-            191.79,
-            150.67,
-            224.19,
-            161.25
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:3:l4",
-          "text": "1er instance",
-          "bbox": [
-            61.19,
-            151.29,
-            112.66,
-            161.25
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:3:l5",
-          "text": "(défense judiciaire)",
-          "bbox": [
-            61.19,
-            162.09,
-            136.2,
-            172.05
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:4",
-      "text": "Appel (défense judiciaire)\n5.750 r",
-      "loc": "p91",
-      "seq": 4,
-      "page": 91,
-      "bbox": [
-        61.19,
-        183.07,
-        224.19,
-        193.65
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:4:l1",
-          "text": "Appel (défense judiciaire)",
-          "bbox": [
-            61.19,
-            183.69,
-            160.67,
-            193.65
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:4:l2",
-          "text": "5.750 r",
-          "bbox": [
-            191.79,
-            183.07,
-            224.19,
-            193.65
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:5",
-      "text": "Cassation (défense judiciaire)\n5.750 r",
-      "loc": "p91",
-      "seq": 5,
-      "page": 91,
-      "bbox": [
-        61.19,
-        204.67,
-        224.19,
-        215.25
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:5:l1",
-          "text": "Cassation (défense judiciaire)",
-          "bbox": [
-            61.19,
-            205.29,
-            178.32,
-            215.25
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:5:l2",
-          "text": "5.750 r",
-          "bbox": [
-            191.79,
-            204.67,
-            224.19,
-            215.25
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:6",
-      "text": "par sinistre et par année d’assurance\nMise en relation en cas d’at-\nteinte à l’e-réputation\n5.000 r de prise en charge\ndes frais de nettoyage ou de\nnoyage des informations",
-      "loc": "p91",
-      "seq": 6,
-      "page": 91,
-      "bbox": [
-        61.19,
-        219.94,
-        463.54,
-        252.12
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:6:l1",
-          "text": "par sinistre et par année d’assurance",
-          "bbox": [
-            315.1,
-            231.36,
-            463.54,
-            241.32
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:6:l2",
-          "text": "Mise en relation en cas d’at-",
-          "bbox": [
-            61.19,
-            225.78,
-            176.7,
-            235.92
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:6:l3",
-          "text": "teinte à l’e-réputation",
-          "bbox": [
-            61.19,
-            236.58,
-            148.67,
-            246.72
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:6:l4",
-          "text": "5.000 r de prise en charge",
-          "bbox": [
-            191.79,
-            219.94,
-            303.17,
-            230.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:6:l5",
-          "text": "des frais de nettoyage ou de",
-          "bbox": [
-            191.79,
-            231.36,
-            307.17,
-            241.32
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:6:l6",
-          "text": "noyage des informations",
-          "bbox": [
-            191.79,
-            242.16,
-            288.74,
-            252.12
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:7",
-      "text": "5.000 r ***\npar sinistre et par année d’assurance\nIndemnisation du préjudice\nsubi en cas d’usurpation\nd’identité",
-      "loc": "p91",
-      "seq": 7,
-      "page": 91,
-      "bbox": [
-        61.19,
-        259.1,
-        462.68,
-        290.84
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:7:l1",
-          "text": "5.000 r ***",
-          "bbox": [
-            191.79,
-            269.46,
-            243.09,
-            280.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:7:l2",
-          "text": "par sinistre et par année d’assurance",
-          "bbox": [
-            315.1,
-            269.25,
-            462.68,
-            281.07
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:7:l3",
-          "text": "Indemnisation du préjudice",
-          "bbox": [
-            61.19,
-            259.1,
-            172.61,
-            269.24
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:7:l4",
-          "text": "subi en cas d’usurpation",
-          "bbox": [
-            61.19,
-            269.9,
-            162.53,
-            280.04
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:7:l5",
-          "text": "d’identité",
-          "bbox": [
-            61.19,
-            280.7,
-            99.71,
-            290.84
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:8",
-      "text": "Groupe II\n5.000 r ***\npar sinistre et par année d’assurance\nIndemnisation du préjudice\nsubi en cas d’utilisation\nfrauduleuse des moyens de\npaiement",
-      "loc": "p91",
-      "seq": 8,
-      "page": 91,
-      "bbox": [
-        61.19,
-        298.5,
-        528.09,
-        341.04
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l1",
-          "text": "Groupe II",
-          "bbox": [
-            488.34,
-            303.03,
-            528.09,
-            314.09
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l2",
-          "text": "5.000 r ***",
-          "bbox": [
-            191.79,
-            314.26,
-            243.09,
-            324.84
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l3",
-          "text": "par sinistre et par année d’assurance",
-          "bbox": [
-            315.1,
-            314.88,
-            463.54,
-            324.84
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l4",
-          "text": "Indemnisation du préjudice",
-          "bbox": [
-            61.19,
-            298.5,
-            172.61,
-            308.64
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l5",
-          "text": "subi en cas d’utilisation",
-          "bbox": [
-            61.19,
-            309.3,
-            160.19,
-            319.44
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l6",
-          "text": "frauduleuse des moyens de",
-          "bbox": [
-            61.19,
-            320.1,
-            173.33,
-            330.24
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:8:l7",
-          "text": "paiement",
-          "bbox": [
-            61.19,
-            330.9,
-            98.63,
-            341.04
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:9",
-      "text": "5.000 r\npar sinistre et par année d’assurance\nIndemnisation du préjudice\nsubi en cas d’achat d’un bien\nmobilier corporel auprès d’un\ne-commerçant",
-      "loc": "p91",
-      "seq": 9,
-      "page": 91,
-      "bbox": [
-        61.19,
-        350.39,
-        463.54,
-        392.92
-      ],
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p91:9:l1",
-          "text": "5.000 r",
-          "bbox": [
-            191.79,
-            366.15,
-            226.89,
-            376.72
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:9:l2",
-          "text": "par sinistre et par année d’assurance",
-          "bbox": [
-            315.1,
-            366.77,
-            463.54,
-            376.72
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:9:l3",
-          "text": "Indemnisation du préjudice",
-          "bbox": [
-            61.19,
-            350.39,
-            172.61,
-            360.52
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:9:l4",
-          "text": "subi en cas d’achat d’un bien",
-          "bbox": [
-            61.19,
-            361.19,
-            182.51,
-            371.32
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:9:l5",
-          "text": "mobilier corporel auprès d’un",
-          "bbox": [
-            61.19,
-            371.99,
-            181.2,
-            382.12
-          ]
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p91:9:l6",
-          "text": "e-commerçant",
-          "bbox": [
-            61.19,
-            382.79,
-            118.61,
-            392.92
-          ]
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p91:10",
       "text": "(*) Hors achat d’un bien mobilier corporel auprès d’un e-commerçant\n(**) En ce compris en cas d’achat d’un service auprès d’un e-commerçant\n(***) Surconsommations téléphoniques rendues nécessaires pour limiter les dommages dans la limite de 30 € par mois.",
       "loc": "p91",
-      "seq": 10,
+      "seq": 2,
       "page": 91,
       "bbox": [
         56.69,
@@ -69629,7 +66350,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:10:l1",
+          "line_id": "axa-lu-optihome-2017:p91:2:l1",
           "text": "(*) Hors achat d’un bien mobilier corporel auprès d’un e-commerçant",
           "bbox": [
             56.69,
@@ -69639,7 +66360,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:10:l2",
+          "line_id": "axa-lu-optihome-2017:p91:2:l2",
           "text": "(**) En ce compris en cas d’achat d’un service auprès d’un e-commerçant",
           "bbox": [
             56.69,
@@ -69649,7 +66370,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:10:l3",
+          "line_id": "axa-lu-optihome-2017:p91:2:l3",
           "text": "(***) Surconsommations téléphoniques rendues nécessaires pour limiter les dommages dans la limite de 30 € par mois.",
           "bbox": [
             56.69,
@@ -69661,10 +66382,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:11",
+      "block_id": "axa-lu-optihome-2017:p91:3",
       "text": "4.1.4.4.10 Principe de répartition",
       "loc": "p91",
-      "seq": 11,
+      "seq": 3,
       "page": 91,
       "bbox": [
         56.69,
@@ -69675,7 +66396,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:11:l1",
+          "line_id": "axa-lu-optihome-2017:p91:3:l1",
           "text": "4.1.4.4.10 Principe de répartition",
           "bbox": [
             56.69,
@@ -69687,10 +66408,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:12",
+      "block_id": "axa-lu-optihome-2017:p91:4",
       "text": "Dans l’éventualité où un sinistre relève de plusieurs garanties au sein d’un même groupe (I ou\nII), seul le montant de la prestation assurée par groupe la plus élevée sera d’application ; dans\nl’éventualité où plusieurs montants de prestation sont identiques, seul un des montants des\nprestations assurées sera disponible dans le cadre du sinistre couvert.",
       "loc": "p91",
-      "seq": 12,
+      "seq": 4,
       "page": 91,
       "bbox": [
         121.89,
@@ -69700,7 +66421,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:12:l1",
+          "line_id": "axa-lu-optihome-2017:p91:4:l1",
           "text": "Dans l’éventualité où un sinistre relève de plusieurs garanties au sein d’un même groupe (I ou",
           "bbox": [
             121.89,
@@ -69710,7 +66431,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:12:l2",
+          "line_id": "axa-lu-optihome-2017:p91:4:l2",
           "text": "II), seul le montant de la prestation assurée par groupe la plus élevée sera d’application ; dans",
           "bbox": [
             121.89,
@@ -69720,7 +66441,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:12:l3",
+          "line_id": "axa-lu-optihome-2017:p91:4:l3",
           "text": "l’éventualité où plusieurs montants de prestation sont identiques, seul un des montants des",
           "bbox": [
             121.89,
@@ -69730,7 +66451,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:12:l4",
+          "line_id": "axa-lu-optihome-2017:p91:4:l4",
           "text": "prestations assurées sera disponible dans le cadre du sinistre couvert.",
           "bbox": [
             121.89,
@@ -69742,10 +66463,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:13",
+      "block_id": "axa-lu-optihome-2017:p91:5",
       "text": "4.1.4.4.11 Subrogation",
       "loc": "p91",
-      "seq": 13,
+      "seq": 5,
       "page": 91,
       "bbox": [
         56.69,
@@ -69756,7 +66477,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:13:l1",
+          "line_id": "axa-lu-optihome-2017:p91:5:l1",
           "text": "4.1.4.4.11 Subrogation",
           "bbox": [
             56.69,
@@ -69768,10 +66489,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:14",
+      "block_id": "axa-lu-optihome-2017:p91:6",
       "text": "Le Prestataire est subrogé dans les droits de l’Assuré à la récupération des sommes qu’ il a\nprises en charge et notamment à une éventuelle indemnité de procédure",
       "loc": "p91",
-      "seq": 14,
+      "seq": 6,
       "page": 91,
       "bbox": [
         121.89,
@@ -69781,7 +66502,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:14:l1",
+          "line_id": "axa-lu-optihome-2017:p91:6:l1",
           "text": "Le Prestataire est subrogé dans les droits de l’Assuré à la récupération des sommes qu’ il a",
           "bbox": [
             121.89,
@@ -69791,7 +66512,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:14:l2",
+          "line_id": "axa-lu-optihome-2017:p91:6:l2",
           "text": "prises en charge et notamment à une éventuelle indemnité de procédure",
           "bbox": [
             121.89,
@@ -69803,10 +66524,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:15",
+      "block_id": "axa-lu-optihome-2017:p91:7",
       "text": "4.1.4.5 Etendue territoriale",
       "loc": "p91",
-      "seq": 15,
+      "seq": 7,
       "page": 91,
       "bbox": [
         56.69,
@@ -69817,7 +66538,7 @@
       "kind": "heading",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:15:l1",
+          "line_id": "axa-lu-optihome-2017:p91:7:l1",
           "text": "4.1.4.5 Etendue territoriale",
           "bbox": [
             56.69,
@@ -69829,10 +66550,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:16",
+      "block_id": "axa-lu-optihome-2017:p91:8",
       "text": "L’assurance sort ses effets :",
       "loc": "p91",
-      "seq": 16,
+      "seq": 8,
       "page": 91,
       "bbox": [
         121.89,
@@ -69842,7 +66563,7 @@
       ],
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:16:l1",
+          "line_id": "axa-lu-optihome-2017:p91:8:l1",
           "text": "L’assurance sort ses effets :",
           "bbox": [
             121.89,
@@ -69854,10 +66575,10 @@
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p91:17",
+      "block_id": "axa-lu-optihome-2017:p91:9",
       "text": "• dans le monde entier pour la garantie en cas d’atteinte à l’e-réputation pour autant que l’entité\nsur laquelle se trouve l’information ait un siège ou une succursale dans l’Union européenne\nen ce compris la Suisse, Monaco, Andorre, Saint-Marin, le Vatican, le Liechtenstein et la Nor-\nvège pour autant que la défense des intérêts juridiques de l’Assuré puisse y être assumée et\npour autant que l’Assuré soit domicilié au Luxembourg et y réside habituellement ;\n• dans un pays membre de l’Union européenne, en ce compris la Suisse, Monaco, Andorre,\nSaint-Marin, le Vatican, le Liechtenstein et la Norvège pour la garantie en cas d’usurpation\nd’identité et la garantie en cas d’utilisation frauduleuse des moyens de paiement pour autant\nque la défense des intérêts juridiques de l’Assuré puisse y être assumée et pour autant que\nl’Assuré soit domicilié au Luxembourg et y réside habituellement ;",
       "loc": "p91",
-      "seq": 17,
+      "seq": 9,
       "page": 91,
       "bbox": [
         121.89,
@@ -69868,7 +66589,7 @@
       "kind": "list",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l1",
+          "line_id": "axa-lu-optihome-2017:p91:9:l1",
           "text": "• dans le monde entier pour la garantie en cas d’atteinte à l’e-réputation pour autant que l’entité",
           "bbox": [
             121.89,
@@ -69878,7 +66599,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l2",
+          "line_id": "axa-lu-optihome-2017:p91:9:l2",
           "text": "sur laquelle se trouve l’information ait un siège ou une succursale dans l’Union européenne",
           "bbox": [
             130.56,
@@ -69888,7 +66609,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l3",
+          "line_id": "axa-lu-optihome-2017:p91:9:l3",
           "text": "en ce compris la Suisse, Monaco, Andorre, Saint-Marin, le Vatican, le Liechtenstein et la Nor-",
           "bbox": [
             130.56,
@@ -69898,7 +66619,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l4",
+          "line_id": "axa-lu-optihome-2017:p91:9:l4",
           "text": "vège pour autant que la défense des intérêts juridiques de l’Assuré puisse y être assumée et",
           "bbox": [
             130.56,
@@ -69908,7 +66629,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l5",
+          "line_id": "axa-lu-optihome-2017:p91:9:l5",
           "text": "pour autant que l’Assuré soit domicilié au Luxembourg et y réside habituellement ;",
           "bbox": [
             130.56,
@@ -69918,7 +66639,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l6",
+          "line_id": "axa-lu-optihome-2017:p91:9:l6",
           "text": "• dans un pays membre de l’Union européenne, en ce compris la Suisse, Monaco, Andorre,",
           "bbox": [
             121.89,
@@ -69928,7 +66649,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l7",
+          "line_id": "axa-lu-optihome-2017:p91:9:l7",
           "text": "Saint-Marin, le Vatican, le Liechtenstein et la Norvège pour la garantie en cas d’usurpation",
           "bbox": [
             130.56,
@@ -69938,7 +66659,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l8",
+          "line_id": "axa-lu-optihome-2017:p91:9:l8",
           "text": "d’identité et la garantie en cas d’utilisation frauduleuse des moyens de paiement pour autant",
           "bbox": [
             130.56,
@@ -69948,7 +66669,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l9",
+          "line_id": "axa-lu-optihome-2017:p91:9:l9",
           "text": "que la défense des intérêts juridiques de l’Assuré puisse y être assumée et pour autant que",
           "bbox": [
             130.56,
@@ -69958,7 +66679,7 @@
           ]
         },
         {
-          "line_id": "axa-lu-optihome-2017:p91:17:l10",
+          "line_id": "axa-lu-optihome-2017:p91:9:l10",
           "text": "l’Assuré soit domicilié au Luxembourg et y réside habituellement ;",
           "bbox": [
             130.56,
@@ -79875,6 +76596,7 @@
       ]
     }
   ],
+  "source_url": "https://luxembourg-axa.cdn.axa-contento-118412.eu/luxembourg-axa/dca71203-191a-4a67-8207-9f8646a313c2_axa+luxembourg+-+optihome+-+condition+assurances+fr.pdf",
   "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-  "ingest_fingerprint": "831d016d8046145aebf3759b93ee14d9736d31c26dca0e5951795ca21651a92a"
+  "ingest_fingerprint": "5ebd311890cc4740594e6672e597eb5b60d4c2426449bc11dc8baf69868da9f3"
 }

@@ -14,7 +14,7 @@
     {
       "name": "taille_sommaire",
       "level": "info",
-      "detail": "10359 caractères ≈ 2589 tokens"
+      "detail": "10359 caractères (aucune estimation de tokens publiée)"
     }
   ],
   "stats": {
@@ -33,7 +33,6 @@
     "parcours_fiches": 9,
     "parcours_etapes_ignorees": 29,
     "sommaire_chars": 10359,
-    "sommaire_tokens_estimes": 2589,
     "ids_disparus": 0,
     "ids_nouveaux": 0
   }
