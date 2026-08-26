@@ -3087,3 +3087,21 @@ Le coût post-suite est donc **0,2049 EUR** ; cumul global réel **11,3741 EUR /
 **0,6259 EUR**. Aucun autre live, aucune campagne A+B et aucun Batch n'ont été lancés. Après fixation
 définitive du code, des fixtures et des gates, l'unique suite complète hors réseau demandée rend
 **2296 passés en 37,10 s** ; aucun `xfail` ni `skip` n'a été ajouté.
+
+### Revue indépendante 3.3 — recertification ciblée
+
+La correction de portée des définitions a reprojeté hors réseau les métadonnées déjà
+confirmées : aucun texte, ligne, coordonnée, ordre ou `block_id` n'a changé. Elle n'invalide
+aucune décision des deux lectures Opus et n'a donc soumis ni nouveau Batch ni appel de typage. Le
+manifeste SHA-256 de la reprise close a été sorti du répertoire servi vers
+`docs/evals/axa-lu-optihome-2017-typing-resume-payload.json` ; le rapport distingue désormais les
+trois payloads modifiés des deux requêtes effectivement rejouées.
+
+Le digest du pipeline ayant changé, les deux seuls cas live directement affectés ont été joués
+une fois chacun, avec `--max-cost 0.15` : AXA `s-bougie-canape` 1/1 `bonne_reponse` à
+**0,0306 EUR** (`cases_hash=b02293a7fe68…`) ; guide `g-luxtrust-prix` 1/1 `bonne_reponse` à
+**0,0328 EUR** (`cases_hash=9e325311b481…`). Les deux gates portent
+`pipeline_digest=2fa2bacb03ea12dbb8c61aca399880e2529408411454920e0e817f71882e1da0`,
+`evals_ok=true` et `countersigned=false`. Coût ajouté : **0,0634 EUR** ; cumul global réel
+**11,4375 EUR / 12 EUR**, reliquat **0,5625 EUR**. Aucun autre live, aucune campagne A+B, aucune
+fixture et aucun Batch n'ont été touchés.
