@@ -2824,3 +2824,82 @@ politique sous lecture tronquée déjà routés vers 4.1. Le journal conserve ce
 présenter la campagne comme parfaitement stable.
 
 Revue croisée autonome story 3.1 : 2 bloquants / 3 importants, convergé en 1 tour(s) ; convergée et vérifiée avant push.
+
+## Story 3.2 — typage Batch Opus des clauses, campagne réelle du 26/08/2026
+
+Le dry-run final couvre 1 396 blocs citables en 140 requêtes par lecture au pire. Son majorant
+pessimiste des deux lectures est de 10,5133 € avec remise Batch, sous le plafond configuré de 12 € ;
+il ne vaut pas coût réel. Les unitaires doublent des résultats hors ordre, incomplets, tronqués et
+hors schéma, et prouvent qu'aucun de ces cas ne modifie un octet des artefacts.
+
+| Vérification | Commande / lot | Résultat |
+|---|---|---|
+| Lecture 1 complète | Batch `msgbatch_016fmwPYzfe18sCY9htpbVtN` | **140/140 `succeeded`**, couverture exacte des 1 396 blocs citables ; 667 626 tokens d'entrée, 134 622 de sortie, 3,0836 € |
+| Lecture 2 indépendante | Batch `msgbatch_0142VNCsLPcKqVxdqEfbz7BX` | **97/97 `succeeded`**, 970 candidats juridiques ; 414 213 tokens d'entrée, 56 238 de sortie, 1,5997 € |
+| Coût réel de la campagne réussie | usages rendus par l'API, remise Batch 50 % | **4,6833 €** ; détail durable dans `docs/evals/ingestion-costs.md` |
+| Artefact automatique | `document.json`, `report.json`, manifest | 981 blocs typés par le modèle ; 970 juridiques, dont **924 confirmés** par accord exact ; les quatre goldens p. 9/11/34/46 sont `model_verified` ; `typing.manual.json` supprimé, `overlay_hash: null` |
+| Rapport AD-8 | lecture de `report.json` | aucun bloquant ; alertes structurelles `blocs_non_citables`, `pages_mixtes`, puis `unresolved_refs` (**40** cibles conservées comme ambiguës/inconnues après la correction « T2 confirme seulement le kind »), `definition_introuvable`, `exclusion_sans_marqueur`, `confiance_typage_faible`, `kinds_non_confirmes` |
+| Reprise sans nouvelle soumission | `type_clauses … --first-batch-id msgbatch_016f… --second-batch-id msgbatch_0142… --legacy-resume 4cc2133d…` | exit 0 ; empreinte complète `4cc2133ddb86737b6101fece3ab452a3fb913db2f44568bf426d0a08c52e8673` ; 140 + 97 résultats relus, aucune création Batch ; SHA-256 avant/après strictement identiques : document `debc6a13…`, rapport `e007f7cc…`, manifest `729faa60…` |
+| Gate | `python -m server.evals.run --gate axa-lu-optihome-2017 --profile vertical` | Premier run fermé sans clause survivante et sans écriture ; seul rejeu : **1/1 `bonne_reponse`**, `evals_ok=true`, `countersigned=false`, 0,0375 € ; gate écrit sur les hashes finaux |
+
+Le premier essai réel (35 requêtes) avait omis deux labels malgré des réponses fournisseur
+`succeeded` : sortie non nulle, **aucun artefact modifié**, coût 1,8739 €. Un schéma avec
+`minItems=maxItems` puis un objet exact de 40 propriétés ont ensuite été refusés par le fournisseur
+avant inférence, sans usage. Le regroupement final de dix blocs et l'objet fermé exact ont fourni
+la couverture attendue. Ce journal conserve les essais refusés : le résultat final n'efface pas les
+coûts ni les limites fournisseur rencontrées.
+
+Après revue `patch`, `Block.structural_kind` conserve le kind antérieur au
+modèle ; une nouvelle lecture `autre` efface désormais kind automatique, confiance, liens,
+définition, relations et portées avant de le restaurer. T2 ne fournit plus aucune métadonnée : il
+confirme uniquement l'égalité du kind de T1. Les auto-références restent non résolues, un
+`succeeded` sans `usage` est incomplet, les overlays sont validés avant paiement, et le préflight
+exige `stats.pages_charabia`. La reprise ci-dessus a été faite après réingestion PDF locale puis sur
+l'artefact final ; elle n'a ni soumis ni refacturé de lot.
+
+### Campagne A — socle final, joué une fois
+
+Service local réel sur `127.0.0.1:8877`, artefacts et gate finaux. Les questions sont celles
+d'`automation/epreuves.md`, sans fixture ni reformulation de rattrapage.
+
+| Cas | Résultat réel | Jugement |
+|---|---|---|
+| A1 « Comment choisir ma commune ? » | 200, `choisir_commune`, 4 sources, 0,0409 € | Conforme. |
+| A2 « Comment trouver un logement au Luxembourg ? » | 200, `recherche_logement`, 3 sources, 0,0367 € | Conforme. |
+| A3 « Dans quel délai dois-je me déclarer à la commune ? » | 200, huit jours, `arrivee`, 0,0218 € | Conforme et lisible immédiatement. |
+| A4 météo | 200, `hors_perimetre`, aucune source, 0,0008 € | Conforme. |
+| A5 vide / « ? » | 400 borné puis 200 `clarification_requise`, aucun plantage | Conforme. |
+| A6 bougie sans embrasement | 200, `p34:12`, verdict prudent, 0,0189 € | Conforme. |
+| A7 chien / table | 200, exclusion `p35:2`, 0,0170 € | Conforme ; le typage est maintenant confirmé dans le corpus. |
+| A8 chat / Lune | 200, clarification, aucune source, 0,0037 € | Conforme, aucune clause forcée. |
+| A9 fuite lente puis plafond soudain | 200, chronologie complète, `p37:14`, 0,0217 € | Conforme. |
+| A10 porte fermée sans effraction | 200, clarification avant lecture, 0,0041 € | L'attente conditionnelle sur la raison de typage n'est pas déclenchée ; expérience faible mais déjà couverte par 4.2. |
+| A11 orage, appareils et nourriture | 200, `p22:5` + `p34:15`, 0,0261 € | Conforme ; denrées et limite sont citées. |
+| A12 fils du voisin / RC | 200, `p51:9`, 0,0198 € | Conforme à l'attente active 3.2 ; `p66:10` ne devient obligatoire qu'en 3.6. |
+| A13 radiateur volontaire / eau accidentelle | 200, causalité conservée, `p37:14` + `p38:2`, 0,0243 € | Conforme. |
+| A14 délai d'arrivée, variante guide par défaut | 200, `outils`, `arrivee`, 0,0264 € | Conforme : sourcé et sous 0,10 €. |
+| A15 ordinateur professionnel à l'hôtel | 200, `clarification_requise`, zéro bloc, 0,0038 € | **Échec bloquant** : clarification générique au lieu de `p40:11`. Correctif hors périmètre, cible 4.2. |
+| A16 vitre d'insert, fumée sans incendie | 200, `p34:12`, verdict prudent, 0,0428 € | **Échec bloquant** : la limite `p46:1` attendue n'est plus affichée. Correctif hors périmètre, cible 3.3. |
+
+Les routes `/`, `/guide/`, `/sinistre/` et tous leurs assets réellement référencés répondent 200.
+Chrome headless à 390 px mesure `scrollWidth = clientWidth = 390` sur les trois pages, sans ressource
+en échec. Après chargement du guide puis arrêt réel du serveur, la soumission affiche un seul bandeau
+« Assistant indisponible », badge « mode indisponible », explique que rien n'a été cherché et garde
+zéro `.srcs` avant l'action manuelle de repli.
+
+### Campagne B — exactement six cas nouveaux
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d'expérience | Classement et correction |
+|---|---|---|---|---|
+| B1 | « J’ai oublié le robinet de la baignoire ouvert, ça a traversé chez la voisine du dessous : les dégâts chez elle et chez moi, c’est le même volet ? » | 200 / 0,0203 € ; `p37:11` condition et `p66:10` garantie, toutes deux confirmées ; les deux volets sont séparés. | Excellent : chez soi / chez le tiers est visible en trois secondes et aide à ouvrir les bons volets. | Aucun défaut ; aucune correction. |
+| B2 | « Le feu n’a jamais pris, mais le chargeur du téléphone a fondu et noirci le mur : je déclare incendie ou dommage électrique ? » | 200 / 0,0200 € ; `p34:12` garantie confirmée, chaleur sans embrasement explicitée, verdict prudent. | Bon : le faux dilemme est corrigé en tête sans inventer un incendie. | Aucun défaut ; aucune correction. |
+| B3 | « Mon assurance rembourse forcément les serrures : j’ai perdu mes clés au marché, sans vol ni cambriolage, je fais changer la porte ? » | 200 / 0,0041 € ; clarification avant lecture ; son champ caché affirme pourtant une absence de couverture sans source. | Mauvais et non montrable : l'écran demande de préciser alors que les faits sont clairs, et la clarification porte une conclusion contractuelle invérifiée. | **Correctif hors périmètre** : compréhension/clarification 4.2 ; aucun prompt ni digest touché en 3.2. |
+| B4 | « Une tuile est tombée de mon toit sur la voiture garée de mon invité pendant l’orage : habitation, auto ou responsabilité civile ? » | 200 / 0,0368 € ; seule la condition RC `p65:5` est affichée, sans arbitrage entre les trois voies. | Moyen-faible : honnête, mais ne permet pas au gestionnaire de décider et ne mérite pas d'être montré comme réponse finale. | **Correctif hors périmètre** : portée/renvois 3.3 et mesure de facettes 4.2 ; aucune rustine de retrieval. |
+| B5 | « La fissure du mur existait avant mon achat, mais elle s’est ouverte d’un coup après les travaux du voisin : ancien défaut ou nouveau sinistre ? » | **503 `budget_exceeded`** en 6,872 s / 0,0159 €, après deux appels. | Bloquant côté expérience : aucune aide pendant l'appel malgré une formulation exploitable. | **Question d'architecture** : résultat sous lecture bornée/latence, cible 4.1 à contexte neuf ; aucun seuil relevé. |
+| B6 | « Mon ado a cassé exprès la baie vitrée chez sa grand-mère ; c’est ma responsabilité civile familiale même si c’était volontaire ? » | 200 / 0,0163 € ; condition RC `p65:5`, mais aucune clause ne traite l'intention. | Moyen-faible : la prudence est juste, mais l'information décisive « volontaire » n'est pas instruite. | **Correctif hors périmètre** : robustesse sinistre 4.2 ; aucun terme ou cas particulier ajouté. |
+
+La campagne B a duré moins de deux minutes et s'arrête à ces six cas. Zéro correctif local a été
+appliqué : les défauts touchent *comprendre*, le retrieval/les renvois, les évals ou la politique de
+résultat sous budget, surfaces que 3.2 ne possède pas. Les cas reproductibles sont consignés dans
+`deferred-work.md`. Les échecs A15/A16 rendent le socle bloquant ; aucun rejeu complet A+B n'a été
+fait et aucun résultat rouge n'a été effacé par une seconde formulation.
