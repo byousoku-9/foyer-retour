@@ -130,6 +130,36 @@ def test_audit_distingue_rapport_illisible_et_etranger(cas_ingestion: dict[str, 
     assert "décrit un autre document" in cas_ingestion["etranger"]["texte"]
 
 
+def test_audit_termine_tous_les_etats_derreur_et_de_vide_dans_le_dom(
+        cas_ingestion: dict[str, Any]) -> None:
+    attendus = {
+        "rapport_vide_dom": "Aucun contrôle dans ce rapport",
+        "rapport_erreur_dom": "rapport reçu est illisible",
+        "document_inconnu": "n'est pas connu du loader",
+        "rapport_inaccessible": "validé au démarrage n'a pas pu être consulté",
+        "documents_non_tableau": "liste des documents n'a pas pu être chargée",
+    }
+    for nom, texte in attendus.items():
+        releve = cas_ingestion[nom]
+        assert texte in releve["texte"], nom
+        assert releve["busy"] == "false", nom
+
+
+def test_audit_reserve_lactualite_pour_edition_valeur_vide_ou_absente(
+        cas_ingestion: dict[str, Any]) -> None:
+    editions = cas_ingestion["editions_page"]
+    assert len(editions) == 3
+    assert "juin 2017 — actualité non vérifiée" in editions[0]
+    assert all("non précisée — actualité non vérifiée" in texte for texte in editions[1:])
+
+
+def test_quarantaine_qualifie_les_faits_declares_non_corrobores(
+        cas_ingestion: dict[str, Any]) -> None:
+    texte = cas_ingestion["quarantaine"]["texte"]
+    assert "faits déclarés par le manifest" in texte
+    assert "loader ne les a pas corroborés" in texte
+
+
 def test_audit_borne_une_requete_sans_fin_et_quitte_letat_charge(
         cas_ingestion: dict[str, Any]) -> None:
     timeout = cas_ingestion["timeout"]
@@ -270,6 +300,14 @@ def test_le_selecteur_ne_propose_que_les_contrats(cas: dict[str, Any]) -> None:
     assert cas["formulaire"]["message"] is None
 
 
+def test_les_fixtures_exercent_la_branche_selectionnable_de_production(cas: dict[str, Any]) -> None:
+    assert cas["selectionnable_prod"] == [
+        {"doc_id": "cg-mini", "selectionnable": True},
+        {"doc_id": "cg-second", "selectionnable": True},
+        {"doc_id": "cg-privee", "selectionnable": True},
+    ]
+
+
 @pytest.mark.parametrize("cle", ["formulaire_sans_contrat", "formulaire_vide"])
 def test_sans_contrat_le_formulaire_est_desactive_et_le_dit(cas: dict[str, Any], cle: str) -> None:
     """Ligne « Contrat unique / aucun contrat » de la matrice : le sélecteur le dit, le formulaire dort."""
@@ -326,6 +364,11 @@ def test_la_liste_daudit_montre_la_quarantaine_sans_la_rendre_soumettable(
     assert "cg-quarantaine" not in cas["changement"]["options"]
     internes = [a for a in audits if a["href"].startswith("/sinistre/ingestion/")]
     assert internes and all(a["target"] == "" and a["rel"] == "" for a in internes)
+    # AD-4 : la réserve accompagne la valeur, la chaîne vide et `null` dans la liste elle-même.
+    assert all("actualité non vérifiée" in a["texte"] for a in audits)
+    assert "édition juin 2017" in par_href["/sinistre/ingestion/cg-mini"]
+    assert "édition non précisée" in par_href["/sinistre/ingestion/cg-second"]
+    assert "édition non précisée" in par_href["/sinistre/ingestion/cg-privee"]
 
 
 def test_chaque_contrat_servi_garde_selection_et_lien_de_rapport_exact(

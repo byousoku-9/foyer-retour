@@ -200,16 +200,17 @@ const Q_GARANTIE = "événement soudain, résultant de l'action subite de la cha
 const DOC_ID_2 = "cg-second";
 const DOCUMENTS = [
   { doc_id: DOC_ID, title: "Mini conditions générales", edition: "juin 2017", kind: "contrat",
-    status: "servi", source_url: "https://example.invalid/cg.pdf" },
+    status: "servi", selectionnable: true, source_url: "https://example.invalid/cg.pdf" },
   // AD-14 prévoit « ≥ 2 contrats » : le second est là pour que le `change` du sélecteur ait
   // quelque chose à changer, et pour que la sélection puisse être annulée si elle l'est.
   { doc_id: DOC_ID_2, title: "Autres conditions générales", edition: "", kind: "contrat",
-    status: "servi", source_url: "https://example.invalid/second.pdf" },
+    status: "servi", selectionnable: true, source_url: "https://example.invalid/second.pdf" },
   { doc_id: "lux-guide", title: "S'installer au Luxembourg", edition: "git:a8e8593", kind: "guide",
-    status: "servi", source_url: "https://lux-guide.github.io/app/kb.js" },
+    status: "servi", selectionnable: false, source_url: "https://lux-guide.github.io/app/kb.js" },
   // Un contrat dont la source est le bucket **privé** d'AD-7 : `lienHttp()` doit rendre `null`.
-  { doc_id: "cg-privee", title: "Conditions à source privée", edition: "2020", kind: "contrat",
-    status: "servi", source_url: "gs://foyer-retour-sources/cg-privee.pdf" },
+  { doc_id: "cg-privee", title: "Conditions à source privée", edition: null, kind: "contrat",
+    status: "servi", selectionnable: true,
+    source_url: "gs://foyer-retour-sources/cg-privee.pdf" },
   { doc_id: "cg-quarantaine", title: "cg-quarantaine", edition: "2024", kind: null,
     status: "quarantaine", selectionnable: false,
     raison: "bloquant_statique : <script>page_sans_texte</script>", source_url: null,
@@ -406,6 +407,8 @@ async function main() {
   {
     const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: DOCUMENTS }));
     cas.formulaire = SINISTRE.vueFormulaire(DOCUMENTS);
+    cas.selectionnable_prod = DOCUMENTS.filter((d) => d.kind === "contrat" && d.status === "servi")
+      .map((d) => ({ doc_id: d.doc_id, selectionnable: d.selectionnable }));
     cas.formulaire_sans_contrat = SINISTRE.vueFormulaire(
       DOCUMENTS.filter((d) => d.kind !== "contrat"));
     cas.formulaire_vide = SINISTRE.vueFormulaire([]);

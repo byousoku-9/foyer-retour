@@ -519,8 +519,10 @@
     }
     return noeud("ul", "audit-liste", null, connus.map(function (d) {
       var statut = d.status === "quarantaine" ? "quarantaine" : "servi";
-      var meta = "statut effectif : " + statut;
-      if (d.edition) meta += " · édition " + String(d.edition);
+      var edition = (d.edition === undefined || d.edition === null || d.edition === "")
+        ? "non précisée" : String(d.edition);
+      var meta = "statut effectif : " + statut + " · édition " + edition +
+        " (actualité non vérifiée)";
       var enfants = [
         noeud("span", "audit-titre", String(d.title || d.doc_id)),
         noeud("span", "audit-meta", meta)

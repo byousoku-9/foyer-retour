@@ -116,12 +116,57 @@ async function main() {
     };
   }
   {
+    const h = charger("/sinistre/ingestion/inconnu", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      throw new Error("aucun rapport inconnu ne doit être demandé");
+    });
+    await h.INGESTION.demarrer();
+    cas.document_inconnu = { texte: h.rapport.textContent, busy: h.rapport.getAttribute("aria-busy") };
+  }
+  {
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse({}, 404);
+    });
+    await h.INGESTION.demarrer();
+    cas.rapport_inaccessible = {
+      texte: h.rapport.textContent, busy: h.rapport.getAttribute("aria-busy"),
+    };
+  }
+  {
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
+      if (url.endsWith("/api/v1/documents")) return reponse({ documents: [SERVI] });
+      throw new Error("aucun rapport ne doit être demandé");
+    });
+    await h.INGESTION.demarrer();
+    cas.documents_non_tableau = {
+      texte: h.rapport.textContent, busy: h.rapport.getAttribute("aria-busy"),
+    };
+  }
+  for (const [nom, rapport] of [
+    ["rapport_vide_dom", { doc_id: "cg-mini", checks: [], stats: {} }],
+    ["rapport_erreur_dom", { doc_id: "cg-mini", checks: {}, stats: {} }],
+  ]) {
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse(rapport);
+    });
+    await h.INGESTION.demarrer();
+    cas[nom] = { texte: h.rapport.textContent, busy: h.rapport.getAttribute("aria-busy") };
+  }
+  {
     const h = charger("/sinistre/ingestion/cg-mini", () => reponse({}));
     cas.valeurs = {
       absente: h.INGESTION.valeur(null), vide: h.INGESTION.valeur(""), faux: h.INGESTION.valeur(false),
       doc_id: h.INGESTION.docIdDepuisChemin("/sinistre/ingestion/cg-mini"),
       doc_id_invalide: h.INGESTION.docIdDepuisChemin("/sinistre/ingestion/a/b"),
     };
+    cas.editions_page = ["juin 2017", "", null].map((edition) =>
+      h.INGESTION.carteMetadonnees(Object.assign({}, SERVI, { edition })).textContent);
     cas.rapport_vide = h.INGESTION.carteRapport(SERVI, { doc_id: "cg-mini", checks: [], stats: {} })
       .textContent;
   }

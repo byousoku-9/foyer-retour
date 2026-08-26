@@ -59,6 +59,11 @@
     dl.appendChild(dd);
   }
 
+  function editionAvecReserve(v) {
+    var edition = (v === undefined || v === null || v === "") ? "non précisée" : String(v);
+    return edition + " — actualité non vérifiée";
+  }
+
   function carteMetadonnees(documentAudit) {
     var d = documentAudit || {};
     var section = element("section", null, "carte metadonnees");
@@ -68,12 +73,17 @@
     section.appendChild(badge);
     if (d.status === "quarantaine") {
       section.appendChild(element("p", "Raison : " + valeur(d.raison), "raison"));
+      section.appendChild(element(
+        "p",
+        "Les empreintes et le gate ci-dessous sont des faits déclarés par le manifest ; " +
+          "le loader ne les a pas corroborés.",
+        "manifest-non-corrobore"));
     }
     var dl = element("dl");
     ligne(dl, "Identifiant", d.doc_id);
     ligne(dl, "Titre", d.title);
     ligne(dl, "Type", d.kind);
-    ligne(dl, "Édition", d.edition);
+    ligne(dl, "Édition", editionAvecReserve(d.edition));
     ligne(dl, "Empreinte source", d.source_hash);
     ligne(dl, "Empreinte d'ingestion", d.ingest_fingerprint);
     ligne(dl, "Empreinte document", d.document_hash);
@@ -233,7 +243,9 @@
           // faux rapport vide et aucun message potentiellement hostile du serveur n'est réfléchi.
           rendreErreur("Le rapport validé au démarrage n'a pas pu être consulté.");
         });
-    }, function () {
+    }).catch(function () {
+      // Le catch terminal couvre aussi une exception levée dans le gestionnaire de succès — en
+      // particulier un 200 qui ne porte pas le tableau contractuel.
       rendreErreur("La liste des documents n'a pas pu être chargée.");
     });
   }
@@ -255,6 +267,7 @@
 
   window.INGESTION = {
     valeur: valeur,
+    editionAvecReserve: editionAvecReserve,
     urlHttp: urlHttp,
     docIdDepuisChemin: docIdDepuisChemin,
     carteMetadonnees: carteMetadonnees,
