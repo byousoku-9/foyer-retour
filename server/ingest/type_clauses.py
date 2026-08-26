@@ -1146,7 +1146,7 @@ def _exclusive_lock(doc_dir: Path) -> Any:
 def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_run: bool = False,
                 max_cost: float | None = None, first_batch_id: str | None = None,
                 second_batch_id: str | None = None, legacy_resume: str | None = None,
-                transport: Literal["batch", "standard-resume"] = "batch",
+                transport: Literal["batch", "standard", "standard-resume"] = "batch",
                 resume_campaign: str | None = None,
                 resume_payload_sha256: str | None = None,
                 resume_payload_proofs_map: dict[str, str] | None = None,
@@ -1154,7 +1154,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
                 prior_cost_eur: float = 0.0,
                 output: Any = sys.stdout, sleep: Any = time.sleep,
                 now: Any = time.monotonic) -> TypingResult | None:
-    if transport not in {"batch", "standard-resume"}:
+    if transport not in {"batch", "standard", "standard-resume"}:
         raise ValueError(f"transport inconnu {transport!r}; aucun appel ni lot soumis")
     if not math.isfinite(prior_cost_eur) or prior_cost_eur < 0:
         raise ValueError("--prior-cost-eur doit être un nombre fini >= 0; aucun appel soumis")
@@ -1192,9 +1192,15 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             file=output,
         )
     elif any(value is not None for value in (
-            resume_campaign, resume_payload_sha256, resume_justification)):
+            resume_campaign, resume_payload_sha256, resume_payload_proofs_map,
+            resume_justification)):
         raise ValueError(
             "les preuves --resume-* ne sont acceptées qu'avec --transport standard-resume"
+        )
+    if transport == "standard" and (prior_cost_eur != 0 or any(value is not None for value in (
+            first_batch_id, second_batch_id, legacy_resume))):
+        raise ValueError(
+            "--transport standard part de zéro et interdit coût antérieur, IDs Batch et --legacy-resume"
         )
     citable = [block for block in doc.blocks if is_citable(block)]
     plan_campaign = resume_campaign if transport == "standard-resume" else None
@@ -1233,7 +1239,13 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         doc, citable, 2, settings, legacy_custom_ids=legacy_resume is not None,
         campaign_override=plan_campaign,
     )
-    estimate = round(majorant_eur(first_plans, settings) + majorant_eur(worst_second, settings), 4)
+    if transport in {"batch", "standard-resume"}:
+        estimate = round(majorant_eur(first_plans, settings) + majorant_eur(worst_second, settings), 4)
+        estimate_label = f"majorant Batch {estimate:.4f} € (remise {BATCH_DISCOUNT})"
+    else:
+        estimate = round(sum(standard_majorant_eur(plan, settings)
+                             for plan in [*first_plans, *worst_second]), 4)
+        estimate_label = f"majorant Messages standard {estimate:.4f} € (sans remise Batch)"
     ceiling = settings.type_clauses_max_cost_eur if max_cost is None else max_cost
     if not math.isfinite(ceiling) or ceiling <= 0:
         raise ValueError("--max-cost doit être un nombre fini > 0; aucun lot soumis")
@@ -1242,9 +1254,9 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"coût réel déjà acquis {prior_cost_eur:.4f} € >= plafond {ceiling:.4f} €; aucun appel soumis"
         )
     print(f"lecture 1: {len(citable)} bloc(s), {len(first_plans)} requête(s); lecture 2: au plus "
-          f"{len(citable)} bloc(s), {len(worst_second)} requête(s); majorant Batch {estimate:.4f} € "
-          f"(remise {BATCH_DISCOUNT}) / plafond cumulé {ceiling:.4f} €", file=output)
-    if transport == "batch" and estimate > ceiling:
+          f"{len(citable)} bloc(s), {len(worst_second)} requête(s); {estimate_label} "
+          f"/ plafond cumulé {ceiling:.4f} €", file=output)
+    if transport in {"batch", "standard"} and estimate > ceiling:
         raise ValueError(f"majorant {estimate:.4f} € > plafond {ceiling:.4f} €; aucun lot soumis")
     if dry_run:
         return None
@@ -1253,7 +1265,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             raise PermissionError("ANTHROPIC_API_KEY absente; aucun lot soumis")
         client = anthropic.Anthropic(
             api_key=settings.anthropic_api_key,
-            max_retries=0 if transport == "standard-resume" else 2,
+            max_retries=0 if transport in {"standard", "standard-resume"} else 2,
         )
 
     reused_requests = 0
@@ -1309,6 +1321,15 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"{len(missing_plans)} appel(s) standard",
             file=output,
         )
+    elif transport == "standard":
+        guard = _CostGuard(ceiling, spent=prior_cost_eur)
+        first_texts, first_cost = execute_standard(
+            client, first_plans, settings, guard=guard, output=output, sleep=sleep,
+        )
+        standard_requests += len(first_plans)
+        standard_cost += first_cost
+        print(f"lecture 1 standard initiale: {len(first_plans)} appel(s), "
+              f"coût cumulé acquis {guard.spent:.4f} €", file=output)
     else:
         first_texts, first_cost, failures = execute_batch(
             client, first_plans, settings, batch_id=first_batch_id,
@@ -1332,7 +1353,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     if transport == "batch" and actual_estimate > ceiling:
         raise BatchFailure(f"les candidats de lecture 2 portent le majorant à {actual_estimate:.4f} € > plafond; "
                            "lecture 1 facturée, aucun artefact écrit")
-    if transport == "standard-resume":
+    if transport in {"standard", "standard-resume"}:
         second_texts, second_cost = execute_standard(
             client, second_plans, settings, guard=guard, output=output, sleep=sleep,
         )
@@ -1363,30 +1384,34 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"aucun artefact écrit: {exc}"
         ) from exc
     typed_report = enrich_typing_report(report, typed, rejected_definitions=rejected_definitions)
-    if transport == "standard-resume":
+    if transport in {"standard", "standard-resume"}:
+        if transport == "standard":
+            transport_detail = (
+                f"standard initial; aucune API Batch; appels_standard={standard_requests}; "
+                f"coût_standard={standard_cost:.4f} EUR; coût_antérieur={prior_cost_eur:.4f} EUR; "
+                f"coût_cumulé={cumulative_cost:.4f} EUR; plafond={ceiling:.4f} EUR"
+            )
+        else:
+            transport_detail = (
+                f"standard-resume; lot lecture 1={first_batch_id}; campagne={resume_campaign}; "
+                f"campagne_courante={campaign}; payload_lot={resumed_payload_sha256}; "
+                f"payload_courant={current_payload_sha256}; justification={resume_justification}; "
+                f"réutilisés={reused_requests}; rejoués_payload={replayed_requests}; "
+                f"appels_standard={standard_requests}; coût_batch={batch_cost:.4f} EUR; "
+                f"coût_standard={standard_cost:.4f} EUR; coût_antérieur={prior_cost_eur:.4f} EUR; "
+                f"coût_cumulé={cumulative_cost:.4f} EUR; plafond={ceiling:.4f} EUR"
+            )
         typed_report.checks.append(Check(
             name="typage_transport", level="info",
-            detail=(f"standard-resume; lot lecture 1={first_batch_id}; campagne={resume_campaign}; "
-                    f"campagne_courante={campaign}; payload_lot={resumed_payload_sha256}; "
-                    f"payload_courant={current_payload_sha256}; "
-                    f"justification={resume_justification}; "
-                    f"réutilisés={reused_requests}; rejoués_payload={replayed_requests}; "
-                    f"appels_standard={standard_requests}; "
-                    f"coût_batch={batch_cost:.4f} EUR; coût_standard={standard_cost:.4f} EUR; "
-                    f"coût_antérieur={prior_cost_eur:.4f} EUR; "
-                    f"coût_cumulé={cumulative_cost:.4f} EUR; plafond={ceiling:.4f} EUR"),
+            detail=transport_detail,
         ))
-        typed_report.stats.update({
+        transport_stats: dict[str, int | float | str] = {
             "typage_transport": transport,
-            "typage_resume_batch_id": first_batch_id,
-            "typage_resume_campaign": resume_campaign,
             "typage_current_campaign": campaign,
-            "typage_resume_payload_sha256": resumed_payload_sha256,
             "typage_current_payload_sha256": current_payload_sha256,
             "typage_replayed_payload_requests": replayed_requests,
             "typage_changed_payload_requests": len(changed_payload_ids),
             "typage_changed_payload_custom_ids": ",".join(sorted(changed_payload_ids)),
-            "typage_resume_justification": resume_justification,
             "typage_reused_requests": reused_requests,
             "typage_standard_requests": standard_requests,
             "typage_batch_cost_eur": round(batch_cost, 4),
@@ -1395,7 +1420,15 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             "typage_prior_cost_eur": round(prior_cost_eur, 4),
             "typage_cumulative_cost_eur": cumulative_cost,
             "typage_cost_ceiling_eur": round(ceiling, 4),
-        })
+        }
+        if transport == "standard-resume":
+            transport_stats.update({
+                "typage_resume_batch_id": first_batch_id or "",
+                "typage_resume_campaign": resume_campaign or "",
+                "typage_resume_payload_sha256": resumed_payload_sha256,
+                "typage_resume_justification": resume_justification or "",
+            })
+        typed_report.stats.update(transport_stats)
     doc_text = document_json(typed)
     report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
     document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
@@ -1428,7 +1461,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
 def run(doc_dir: Path, *, settings: Settings, client: Any = None, dry_run: bool = False,
         max_cost: float | None = None, first_batch_id: str | None = None,
         second_batch_id: str | None = None, legacy_resume: str | None = None,
-        transport: Literal["batch", "standard-resume"] = "batch",
+        transport: Literal["batch", "standard", "standard-resume"] = "batch",
         resume_campaign: str | None = None,
         resume_payload_sha256: str | None = None,
         resume_payload_proofs_map: dict[str, str] | None = None,
@@ -1458,8 +1491,9 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     parser.add_argument("--first-batch-id", help="reprendre un premier lot déjà soumis, sans le refacturer")
     parser.add_argument("--second-batch-id", help="reprendre un second lot déjà soumis, sans le refacturer")
     parser.add_argument(
-        "--transport", choices=("batch", "standard-resume"), default="batch",
-        help="transport CLI explicite; standard-resume ne soumet jamais de nouveau Batch",
+        "--transport", choices=("batch", "standard", "standard-resume"), default="batch",
+        help=("transport explicite; standard part de zéro via Messages, standard-resume complète "
+              "un lot existant; le défaut production reste Batch"),
     )
     parser.add_argument(
         "--resume-campaign",

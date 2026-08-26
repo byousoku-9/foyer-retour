@@ -36,6 +36,11 @@ uv run python -m server.ingest.type_clauses axa-lu-optihome-2017 --dry-run
 uv run python -m server.ingest.type_clauses axa-lu-optihome-2017
 ```
 
+Ces commandes conservent volontairement le transport Batch de production. Pour une itération de
+développement depuis zéro, `--transport standard --max-cost <euros>` exécute les deux lectures via
+Messages standard, sans soumettre ni consulter de lot. Son majorant et son coût réel sont calculés
+sans remise Batch ; cette option doit donc rester explicite et plafonnée.
+
 Le dry-run final annonce 1 396 blocs / 140 requêtes par lecture au pire et un majorant de
 10,5133 € sous le plafond configuré de 12 €. Ce majorant n'est pas un coût réel.
 

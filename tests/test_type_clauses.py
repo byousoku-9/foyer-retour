@@ -713,6 +713,111 @@ def test_un_lot_deja_soumis_est_recupere_sans_nouvelle_soumission() -> None:
     assert batches.created == []
 
 
+def test_standard_initial_execute_t1_t2_sans_endpoint_batch_et_publie_atomiquement(
+    tmp_path: Path,
+) -> None:
+    doc_dir, _doc = write_data(tmp_path)
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    batches = FakeBatches(kinds)
+    client = FakeStandardClient(batches, kinds)
+
+    result = tc.run(
+        doc_dir, settings=settings(type_clauses_standard_concurrency=2), client=client,
+        transport="standard", max_cost=12, output=io.StringIO(),
+    )
+
+    assert result is not None and result.transport == "standard"
+    assert result.batch_cost_eur == 0 and result.standard_cost_eur == result.cost_eur
+    assert result.standard_requests == result.first_requests + result.second_requests
+    assert len(client.messages.calls) == result.standard_requests
+    assert batches.created == []
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert report.stats["typage_transport"] == "standard"
+    proof = next(check for check in report.checks if check.name == "typage_transport")
+    assert "aucune API Batch" in proof.detail
+
+
+def test_standard_initial_respecte_plafond_avant_appel_et_echec_terminal_necrit_rien(
+    tmp_path: Path,
+) -> None:
+    doc_dir, _doc = write_data(tmp_path / "cap")
+    tracked = [doc_dir / "document.json", doc_dir / "report.json", doc_dir.parent / "manifest.json"]
+    before = {path: path.read_bytes() for path in tracked}
+    no_call = FakeStandardClient(FakeBatches({}), {})
+    with pytest.raises(ValueError, match="majorant .* > plafond"):
+        tc.run(
+            doc_dir, settings=settings(), client=no_call, transport="standard",
+            max_cost=0.000001, output=io.StringIO(),
+        )
+    assert no_call.messages.calls == [] and no_call.messages.batches.created == []
+    assert {path: path.read_bytes() for path in tracked} == before
+
+    failed_dir, _doc = write_data(tmp_path / "failure")
+    failed_paths = [failed_dir / "document.json", failed_dir / "report.json",
+                    failed_dir.parent / "manifest.json"]
+    failed_before = {path: path.read_bytes() for path in failed_paths}
+    failed = FakeStandardClient(FakeBatches({}), {}, failures=[400])
+    with pytest.raises(tc.BatchFailure, match="premier échec terminal"):
+        tc.run(
+            failed_dir, settings=settings(), client=failed, transport="standard",
+            max_cost=12, output=io.StringIO(),
+        )
+    assert failed.messages.batches.created == []
+    assert {path: path.read_bytes() for path in failed_paths} == failed_before
+
+
+def test_standard_initial_t1_facturee_puis_t2_terminale_reste_atomique(tmp_path: Path) -> None:
+    doc_dir, _doc = write_data(tmp_path)
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    client = FakeStandardClient(
+        FakeBatches(kinds), kinds, interrupted_reading=2, interrupted_stop_reason="max_tokens",
+    )
+    tracked = [doc_dir / "document.json", doc_dir / "report.json", doc_dir.parent / "manifest.json"]
+    before = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(tc.BatchFailure, match=r"coût réel acquis 0\.[0-9]*[1-9][0-9]* €.*aucun artefact écrit"):
+        tc.run(
+            doc_dir, settings=settings(type_clauses_standard_concurrency=1), client=client,
+            transport="standard", max_cost=12, output=io.StringIO(),
+        )
+
+    assert len(client.messages.calls) >= 2
+    assert client.messages.batches.created == []
+    assert {path: path.read_bytes() for path in tracked} == before
+
+
+@pytest.mark.parametrize("transport", ["batch", "standard"])
+def test_preuves_payload_interdites_hors_standard_resume(
+    tmp_path: Path, transport: str,
+) -> None:
+    doc_dir, _doc = write_data(tmp_path)
+    client = FakeStandardClient(FakeBatches({}), {})
+    with pytest.raises(ValueError, match="preuves --resume-\\*"):
+        tc.run(
+            doc_dir, settings=settings(), client=client,
+            transport=transport,  # type: ignore[arg-type]
+            resume_payload_proofs_map={"inattendu": "a" * 64}, output=io.StringIO(),
+        )
+    assert client.messages.calls == [] and client.messages.batches.created == []
+
+
+def test_run_et_cli_restent_batch_par_defaut_et_standard_est_explicite(tmp_path: Path) -> None:
+    batch_dir, _doc = write_data(tmp_path / "batch")
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    batches = FakeBatches(kinds)
+    result = tc.run(batch_dir, settings=settings(), client=FakeClient(batches), output=io.StringIO())
+    assert result is not None and result.transport == "batch" and len(batches.created) == 2
+
+    standard_dir, _doc = write_data(tmp_path / "standard")
+    standard_batches = FakeBatches(kinds)
+    standard_client = FakeStandardClient(standard_batches, kinds)
+    code = tc.main(
+        ["contrat", "--data", str(standard_dir.parent), "--transport", "standard", "--max-cost", "12"],
+        client=standard_client, settings=settings(), output=io.StringIO(),
+    )
+    assert code == 0 and standard_batches.created == [] and standard_client.messages.calls
+
+
 def test_standard_resume_reutilise_lot_complete_manquants_et_ne_cree_aucun_batch(
     tmp_path: Path,
 ) -> None:
