@@ -6,8 +6,10 @@ et `prompts_digest()` relisent toute l'arborescence du code — les calculer par
 dizaines de lectures de fichiers, et les laisser au repli mémoïsé du pipeline ferait servir des
 empreintes périmées par une image dont le code aurait changé à chaud, **sans que rien ne le dise**.
 
-Rien ici n'est muté par une requête (convention « État & transversal » : aucune mutation d'état hors
-mémoire de process). Le seul objet vivant est le limiteur, dont c'est la raison d'être.
+Rien ici n'est muté durablement par une requête (convention « État & transversal » : aucune mutation
+d'état hors mémoire de process). Les deux objets vivants sont le limiteur et, depuis la story 3.4,
+le cache LRU/sémaphore borné du renderer de pages ; tous deux existent précisément pour partager
+une borne entre requêtes d'un même process.
 """
 
 from __future__ import annotations
@@ -23,9 +25,10 @@ from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
-from server.app.corpus.loader import Corpus, load_corpus
+from server.app.corpus.loader import Corpus, VerifiedSource, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.ingest import GateContext, Report
+from server.app.documents.page_renderer import PageRenderer
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide
@@ -114,6 +117,10 @@ class EtatApp:
     # `doc_id` → URL publique de la source (AD-7, `data/{doc_id}/source.url`). Lue au démarrage
     # comme tout le reste : `GET /api/v1/documents` ne touche pas `data/`.
     source_urls: dict[str, str] = field(default_factory=dict)
+    # Chemins déjà choisis et vérifiés par le loader. Le renderer ne les reconstruit jamais depuis
+    # un `doc_id` reçu sur HTTP, et n'ouvre aucun PDF tant qu'une page n'est pas demandée.
+    pdf_sources: dict[str, VerifiedSource] = field(default_factory=dict)
+    page_renderer: PageRenderer | None = None
     alerts: list[Alerte] = field(default_factory=list)
 
     @property
@@ -352,6 +359,16 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
     rapports, alertes_rapports = _rapports(data_dir, corpus.served)
     sources = _sources(data_dir, corpus.served)
+    pdf_sources = {doc_id: source for doc_id, source in corpus.source_paths.items()
+                   if source.path.name == "source.pdf"}
+    page_renderer = PageRenderer(
+        max_lines=settings.pdf_highlight_max_lines,
+        max_blocks=settings.pdf_highlight_max_blocks,
+        concurrency=settings.pdf_render_concurrency,
+        cache_pages=settings.pdf_render_cache_pages,
+        dpi=settings.pdf_render_dpi,
+        max_pixels=settings.pdf_render_max_pixels,
+        queue_timeout_s=settings.pdf_render_queue_timeout_s)
     alertes_ungated = _alerte_ungated(settings)
     if alertes_ungated:
         # AD-7 : une incohérence est visible, jamais muette. L'alerte de `/sante` est lue par la page
@@ -370,5 +387,6 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
         prompts_digest_hex=digest_prompts, dictionnaire=dictionnaire,
         reports=rapports, source_urls=sources,
+        pdf_sources=pdf_sources, page_renderer=page_renderer,
         alerts=_alertes(corpus) + alertes_rapports + alertes_ungated
         + _alertes_dictionnaire(dictionnaire))

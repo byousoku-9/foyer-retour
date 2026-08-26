@@ -50,7 +50,8 @@ SINISTRE_DIR = REPO_ROOT / "tools" / "sinistre"
 async def lifespan(app: FastAPI):
     """Charge **une fois** ce qui est constant : digests, corpus, index, client (AD-7, AD-9, reprise 1.6)."""
     settings: Settings = getattr(app.state, "settings", None) or get_settings()
-    etat = construire_etat(settings)
+    data_dir: Path | None = getattr(app.state, "data_dir", None)
+    etat = construire_etat(settings, data_dir=data_dir)
     app.state.foyer = etat
     try:
         yield
@@ -75,11 +76,15 @@ def _monter(app: FastAPI, chemin: str, dossier: Path, nom: str) -> None:
         logger.warning("dossier statique absent, %s ne sera pas servi : %s", chemin, dossier)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, data_dir: Path | None = None) -> FastAPI:
     configurer_journal()  # AD-10 : sans gestionnaire, la ligne JSON par requête n'est jamais émise
     app = FastAPI(title="foyer-retour", version="1", lifespan=lifespan)
     if settings is not None:
         app.state.settings = settings
+    if data_dir is not None:
+        # Injection de dossier réservée au boot/tests : les routes ne le lisent jamais et résolvent
+        # toujours le document dans le corpus construit par le lifespan.
+        app.state.data_dir = data_dir
     reglages = settings or get_settings()
 
     # AD-16 : une seule enveloppe, trois gestionnaires, aucun code inventé.

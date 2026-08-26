@@ -166,6 +166,17 @@ class Settings(BaseSettings):
     # conserve le témoin chaleur (0,57 mesuré) et rejette les rapprochements fortuits (< 0,12).
     limite_liee_max: int = Field(1, ge=0)
     limite_liee_proximite_min: float = Field(0.35, ge=0, le=1)
+    # Lecteur PDF (story 3.4) : le navigateur fournit les block_id canoniques et, facultativement,
+    # leurs line_id précis — jamais de coordonnées. La route borne ces listes, puis le renderer
+    # rasterise hors event loop, sous concurrence/file/pixels bornés, et garde seulement ce nombre
+    # de PNG. La résolution est celle du PNG rendu, jamais celle de l'ingestion/OCR (`ocr_dpi`).
+    pdf_highlight_max_lines: int = Field(24, ge=1)
+    pdf_highlight_max_blocks: int = Field(10, ge=1)
+    pdf_render_concurrency: int = Field(2, ge=1)
+    pdf_render_cache_pages: int = Field(32, ge=1)
+    pdf_render_dpi: int = Field(144, ge=72, le=600)
+    pdf_render_max_pixels: int = Field(16_000_000, ge=1)
+    pdf_render_queue_timeout_s: float = Field(2.0, gt=0)
     # Global à la requête. La chaîne du guide fait **cinq** appels dans son pire cas nominal —
     # *comprendre*, *rédiger*, *vérifier*, puis la relance unique d'AD-3 et la seconde vérification
     # qu'elle exige — plus une relance motivée du client sur un parse invalide (AD-16, « 1 retry »).
@@ -487,6 +498,13 @@ class Settings(BaseSettings):
             "search_limit": self.search_limit,
             "limite_liee_max": self.limite_liee_max,
             "limite_liee_proximite_min": self.limite_liee_proximite_min,
+            "pdf_highlight_max_lines": self.pdf_highlight_max_lines,
+            "pdf_highlight_max_blocks": self.pdf_highlight_max_blocks,
+            "pdf_render_concurrency": self.pdf_render_concurrency,
+            "pdf_render_cache_pages": self.pdf_render_cache_pages,
+            "pdf_render_dpi": self.pdf_render_dpi,
+            "pdf_render_max_pixels": self.pdf_render_max_pixels,
+            "pdf_render_queue_timeout_s": self.pdf_render_queue_timeout_s,
             "max_llm_attempts": self.max_llm_attempts,
             "max_llm_turns": self.max_llm_turns,
             "retrouver_outils_max_tokens": self.retrouver_outils_max_tokens,

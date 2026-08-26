@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Path, Request, Response
 
 from server.app.api.etat import url_publiable
 from server.app.api.schemas import DOC_ID_MAX, DOC_ID_PATTERN, DocumentItem
@@ -78,3 +78,54 @@ async def report(request: Request, doc_id: DocId) -> Report:
             "aucun rapport d'ingestion n'est publié pour ce document : il n'est pas servi, ou son "
             "rapport est absent ou illisible (voir /api/v1/documents et /api/v1/sante)")
     return rapport
+
+
+@router.get("/documents/{doc_id}/pages/{page}.png", response_class=Response)
+async def document_page(request: Request, doc_id: DocId,
+                        page: Annotated[int, Path(ge=1)]) -> Response:
+    """PNG paresseux ; `blocks=a,b` est l'identité canonique de ce qui peut être surligné."""
+    allowed = {"blocks", "line_ids"}
+    if any(key not in allowed for key in request.query_params):
+        raise InvalidRequest("paramètre inconnu sur la demande de page")
+    raw_blocks = request.query_params.getlist("blocks")
+    if len(raw_blocks) > 1:
+        raise InvalidRequest("le paramètre blocks doit être une liste canonique unique")
+    block_ids: list[str] = []
+    if raw_blocks:
+        if not raw_blocks[0]:
+            raise InvalidRequest("le paramètre blocks ne peut pas être vide")
+        block_ids = raw_blocks[0].split(",")
+        if any(not block_id for block_id in block_ids):
+            raise InvalidRequest("la liste de blocs est invalide")
+
+    line_ids: list[str] | None = None
+    if "line_ids" in request.query_params:
+        raw_lines = request.query_params.getlist("line_ids")
+        # `line_ids=` exprime explicitement « citation sans lignes ». L'absence du paramètre, elle,
+        # demande toutes les lignes des blocs canoniques.
+        if raw_lines == [""]:
+            line_ids = []
+        elif any(not line_id for line_id in raw_lines):
+            raise InvalidRequest("la liste de lignes est invalide")
+        else:
+            line_ids = raw_lines
+
+    etat = request.app.state.foyer
+    document = etat.corpus.documents.get(doc_id)
+    renderer = etat.page_renderer
+    if document is None or renderer is None:
+        raise InvalidRequest("document non servi")
+    resolved = renderer.resolve(document, page, block_ids, line_ids)
+    rendered = await renderer.render(resolved, etat.pdf_sources.get(doc_id))
+    return Response(
+        content=rendered.png,
+        media_type="image/png",
+        headers={
+            # Le cache LRU de process est la seule politique réglable. Aucun second seuil de durée
+            # ne vit en dur dans la couche HTTP ; le navigateur garde déjà le blob tant que le
+            # dialogue l'affiche, puis le script révoque son URL locale.
+            "Cache-Control": "private, no-store",
+            "X-Document-Page": str(page),
+            "X-Document-Pages": str(rendered.page_count),
+            "X-Highlighted-Lines": str(rendered.highlighted_lines),
+        })

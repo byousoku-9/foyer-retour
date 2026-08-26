@@ -48,6 +48,10 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
     assert s.verifier_sinistre_max_tokens == 3072
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
+    assert s.pdf_highlight_max_lines == 24 and s.pdf_highlight_max_blocks == 10
+    assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0
+    assert s.pdf_render_cache_pages == 32 and s.pdf_render_dpi == 144
+    assert s.pdf_render_max_pixels == 16_000_000
     # Revue 2.7 I2 : la longueur du contexte est bornée par son majorant de tokens ; le nombre de
     # blocs revient à sa valeur de rappel antérieure et ne sert plus de réglage de coût au cas par cas.
     assert s.retrieval_max_blocks == 30 and s.retrieval_max_tokens == 3500
@@ -82,6 +86,10 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             "retrieval_max_blocks",
             # story 1.5 : bornes du pipeline et de *vérifier*
             "historique_max_turns", "verifier_max_claims", "verifier_max_tokens",
+            # story 3.4 : rendu paresseux, concurrence, cache, résolution et lignes surlignées
+            "pdf_highlight_max_lines", "pdf_highlight_max_blocks", "pdf_render_concurrency",
+            "pdf_render_cache_pages", "pdf_render_dpi", "pdf_render_max_pixels",
+            "pdf_render_queue_timeout_s",
             # story 1.8 : les deux bornes posées sur ce que le modèle fait afficher au sinistre
             "fait_manquant_max_chars", "ask_client_max",
             # story 1.10 : le plafond de coût d'un run d'évals (AD-9, AD-14)
