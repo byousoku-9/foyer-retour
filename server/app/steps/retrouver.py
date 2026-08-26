@@ -654,6 +654,17 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
                 search_candidates=candidats, related_limit=budget.search_limit,
             )])
+        # Le pré-contrôle AD-5 interroge aussi `definitions()` : si aucun texte n'a de hit mais
+        # qu'un terme demandé est défini, le déterministe doit pouvoir rendre cette définition au
+        # lieu de fabriquer ensuite un `zero_hit`. Dès qu'une fenêtre primaire existe, cette voie
+        # autonome disparaît : la définition reste alors dans l'unité atomique de chaque bloc
+        # qu'elle éclaire, comme l'exigent AD-1/AD-2.
+        definitions_autonomes: list[str] = []
+        if not fenetres:
+            definitions_autonomes = [
+                block_id for block_id, _node_id in index.definitions(terms, doc_id=doc_id)
+            ]
+            unites.extend([block_id] for block_id in definitions_autonomes)
 
         seen: set[str] = set()
         blocs_utilises, tokens_utilises = 0, 0
@@ -670,9 +681,10 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             tokens_utilises += cout_tokens
             seen.update(nouveaux)
 
-        # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis leurs dépendances.
+        # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis leurs dépendances ;
+        # sans aucune fenêtre, les définitions directement demandées gardent l'ordre du corpus.
         ordre: list[str] = []
-        for b in (*fenetres, *(c for u in unites for c in u[1:])):
+        for b in (*fenetres, *definitions_autonomes, *(c for u in unites for c in u[1:])):
             if b in seen and b not in ordre:
                 ordre.append(b)
         return ordre, noeud_de, tronque

@@ -625,6 +625,26 @@ def test_deterministic_definition_is_atomic_with_the_primary_block() -> None:
     assert result.truncated
 
 
+def test_deterministic_opens_a_directly_requested_definition_when_text_has_no_hit() -> None:
+    """Le pré-contrôle et le retrieval partagent la même frontière sur une définition seule."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Le mobilier voyage avec le logement.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Ce bloc explique le mot défini sans le répéter.",
+              loc="p1", seq=2, kind="definition", defines="contenu"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]), Node(
+        node_id="n", items=[BlockRef(block_id=block.block_id) for block in blocks])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)})
+    index = Index(corpus)
+
+    assert index.chercher(["contenu"], limit=1, doc_id="d") == []
+    result, _step = _run(_parsed(["contenu"]), corpus, index, doc_id="d")
+
+    assert result.opened_block_ids == ["d:p1:2"]
+    assert result.truncated is False
+
+
 def test_a12_keeps_the_rc_clause_in_the_real_deterministic_claim_retrieval() -> None:
     settings = _s()
     corpus = load_corpus(ROOT / "data", allow_ungated=True)
