@@ -7,6 +7,11 @@
       "detail": "ok"
     },
     {
+      "name": "blocs_non_citables",
+      "level": "alerte",
+      "detail": "4 bloc(s) sur 4 page(s) exclus du rappel ; pages : 1, 2, 3, 4 ; kind=autre=4"
+    },
+    {
       "name": "pages_blanches",
       "level": "info",
       "detail": "108"
@@ -58,7 +63,9 @@
     "tdm_pdf_entrees": 0,
     "numeros_articles": 749,
     "tables": 7,
-    "sommaire_chars": 6594,
+    "blocs_non_citables": 4,
+    "pages_non_citables": 4,
+    "sommaire_chars": 6537,
     "ids_disparus": 0,
     "ids_nouveaux": 0
   }
