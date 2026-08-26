@@ -2752,3 +2752,5 @@ de digest, Ruff et `git diff --check` sont verts. Les gates verticaux ont été 
 finaux : guide 1/1 à 0,0303 €, contrat 1/1 à 0,0221 €, tous deux `countersigned=false`. Un premier
 appel du gate contrat a été rejeté sans écrire le manifest (aucune clause survivante sous lecture
 tronquée) ; le rejeu officiel suivant est vert. Aucun push n’a été effectué.
+
+Revue croisée autonome story 2.6 : 0 bloquants / 3 importants, convergé en 1 tour(s) ; convergée et vérifiée avant push.
