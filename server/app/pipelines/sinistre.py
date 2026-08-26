@@ -43,6 +43,7 @@ from server.app.domain.question import ClarificationRequise, Faits, ParsedQuesti
 from server.app.domain.trace import CheckResult, StepTrace, Trace
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
+    KINDS_FONDATEURS,
     PORTEE,
     MissingPackage,
     Verdict,
@@ -89,6 +90,29 @@ RAISONS_DE_REFUS: dict[str, str] = {
 # clause n'a passé le contrôle des citations, alors que ce n'est *pas* ce qui s'est passé — un kind
 # ajouté plus tard (AD-4 en a déjà gagné un en 1.5) mentirait sans que rien ne le signale.
 RAISON_DE_REFUS_GENERIQUE = "Le dossier n'a pas pu être confronté aux clauses du contrat"
+
+
+def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) -> bool:
+    """Une claim fondatrice rejetée exige la relance sinistre, même si une auxiliaire survit.
+
+    Revue 3.3 post-suite : le budget de rédaction peut réserver une place à une définition ou une
+    limite. Si cette auxiliaire passe le contrôle tandis que la garantie ou l'exclusion est rejetée
+    sur sa pertinence, `found=True` ne signifie pas qu'AD-6 dispose encore d'une base décisionnelle :
+    sans relance, les qualités contractuelles de la fondatrice disparaissent aussi des questions au
+    client. Le `kind` est relu dans le corpus ; ni le texte de la claim ni le document ne décident.
+    """
+    for claim in verification.rejected_claims:
+        if claim.rejection_kind != "non_pertinente":
+            continue
+        for quote in claim.quotes:
+            try:
+                document = corpus.documents[index.doc_of(quote.block_id)]
+                kind = document.block(quote.block_id).kind
+            except KeyError:
+                continue
+            if kind in KINDS_FONDATEURS:
+                return True
+    return False
 
 
 def _verdict_de_refus(kind: str, dossier: MissingPackage | None = None) -> Verdict:
@@ -333,7 +357,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         steps.append(step_verifier)
 
         # --- relance unique (AD-3) ------------------------------------------
-        if verification.motif and relance_utile(verification, settings):
+        if verification.motif and (
+            relance_utile(verification, settings)
+            or _fondatrice_rejetee(verification, corpus=corpus, index=index)
+        ):
             acquise = verification
             appels_avant = budget.attempts
             try:

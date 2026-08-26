@@ -100,9 +100,8 @@ class Settings(BaseSettings):
     # AD-3 nomme les motifs de relance par des défauts de **citation** ; une claim écartée par le seul
     # jugement de pertinence est déjà « conservée dans rejected_claims[] », et relancer *rédiger* pour
     # elle coûte un second appel `reason` (≈ 0,03 €, le tiers du budget). `[HYPOTHÈSE]` : à mesurer
-    # avec les questions-témoins (4.2) — la relance rattrape-t-elle des réponses, ou brûle-t-elle du
-    # budget ? Faux tant que rien ne l'a montré ; la relance reste inconditionnelle quand **aucune**
-    # affirmation n'a survécu (là, elle est le seul chemin vers une réponse).
+    # avec les questions-témoins (4.2). Le pipeline sinistre possède en plus la règle sémantique
+    # d'AD-6 : une claim fondatrice rejetée ne peut jamais être masquée par une auxiliaire survivante.
     relance_sur_non_pertinence: bool = False
     historique_max_turns: int = Field(6, ge=0)
     verifier_max_claims: int = Field(8, ge=1)

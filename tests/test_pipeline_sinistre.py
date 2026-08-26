@@ -592,6 +592,46 @@ async def test_the_same_guarantee_with_an_unestablished_quality_is_not_covered(i
     assert any(subite in q for q in verdict.ask_client)
 
 
+async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
+        index: Index) -> None:
+    """Revue 3.3 post-suite : une définition survivante ne vaut pas une claim fondatrice.
+
+    Avec deux places pour une facette et sa dépendance, la première rédaction emploie bien le
+    budget mais surinterprète la garantie. *Vérifier* la rejette et conserve la définition : cette
+    claim auxiliaire ne doit pas masquer la relance qui rendra la clause fondatrice vérifiable et
+    fera demander explicitement la qualité exigée mais non établie.
+    """
+    appliquee = (
+        "c1", "Cette garantie s'applique au sinistre décrit.",
+        [(f"{DOC_ID}:p1:2", Q_GARANTIE)],
+    )
+    neutre = (
+        "c1", "La clause vise les dégâts au mobilier causés par une action subite de la chaleur.",
+        [(f"{DOC_ID}:p1:2", Q_GARANTIE)],
+    )
+    settings = _settings(draft_max_claims=2, verifier_max_claims=2)
+
+    answer, trace, fake = await _run(index, [
+        _comprendre(),
+        _rediger(appliquee, DEF),
+        _verifier(("c1", False, False, False, False, SUBITE),
+                  ("c2", True, False, False, False, None)),
+        _rediger(neutre, DEF),
+        _verifier(("c1", True, True, False, False, None, [SUBITE], []),
+                  ("c2", True, False, False, False, None)),
+    ], settings=settings)
+
+    assert fake.remaining_script == 0
+    redactions = [request for request in fake.requests if request["model"] == TIERS["reason"]]
+    assert len(redactions) == 2
+    premiere_consigne = redactions[0]["messages"][-1]["content"]
+    assert "Plan de sortie concis : 1 facette(s)" in premiere_consigne
+    assert f"Définitions applicables à rendre vérifiables : {DOC_ID}:p1:4" in premiere_consigne
+    assert [step.name for step in trace.steps].count("rediger") == 2
+    assert answer.verdict is not None
+    assert any(SUBITE in question for question in answer.verdict.ask_client)
+
+
 async def test_an_open_condition_keeps_the_verdict_conditional(index: Index) -> None:
     answer, _trace, _fake = await _run(index, [
         _comprendre(), _rediger(GAR, COND),
