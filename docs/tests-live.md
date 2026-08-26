@@ -2754,3 +2754,49 @@ appel du gate contrat a été rejeté sans écrire le manifest (aucune clause su
 tronquée) ; le rejeu officiel suivant est vert. Aucun push n’a été effectué.
 
 Revue croisée autonome story 2.6 : 0 bloquants / 3 importants, convergé en 1 tour(s) ; convergée et vérifiée avant push.
+
+## Story 3.1 — ingestion PDF générique, campagne réelle du 26/08/2026
+
+Le service local réel a été redémarré sur les artefacts AXA régénérés après la revue : 7 blocs
+`table`, 1 400 blocs au total, la prose territoriale qui suit la TdM de nouveau citable, et empreinte
+finale `5ebd311890cc…`. Les routes `/`, `/guide/`, `/sinistre/` et `/api/v1/sante` répondent 200 ;
+les deux documents sont servis et les seuils d’ingestion, dont `foreign_signal_min=3`, sont publiés.
+Le contrôle Chrome headless à 390 px et la coupure serveur restent ceux du même commit web, inchangé
+par la revue ; après celle-ci, les routes finales et leurs liens internes principaux ont été rejoués
+par HTTP sans erreur.
+
+Le socle A a été rejoué mot pour mot sur ce service final : A1–A14 sont conformes. A11 passe cette
+fois dans sa formulation exacte — « L’orage a grillé la télé et le congélateur ; la nourriture perdue
+compte aussi ou seulement les appareils ? » — en 200 à 0,0428 €, avec `p37:9` et `p34:15`. A14
+emprunte `outils`, fait exactement deux appels de navigation, coûte 0,0261 € et cite `farrivee`.
+Aucun échec du socle n’est conservé derrière un rejeu reformulé.
+
+Les gates officiels ont ensuite été écrits sur l’empreinte et le `pipeline_digest` finaux : guide
+1/1 à 0,0305 € ; le premier run contrat s’est arrêté honnêtement sans toucher le manifest après une
+lecture tronquée sans clause survivante, puis le rejeu officiel est vert 1/1 à 0,0210 €. Les deux
+gates restent volontairement `countersigned=false`. La suite hermétique finale rend **2 227 tests
+verts** ; les contrôles de digest, Ruff et `git diff --check` sont verts.
+
+Preuve OCR réelle, distincte du double de test : PyMuPDF 1.28.2 et Tesseract 5.5.1 ont traité une
+page réellement rasterisée avec le modèle français officiel chargé dans un répertoire temporaire ;
+`get_textpage_ocr(language="fra", dpi=300, full=True)` a extrait « Dégât des eaux : déclaration sous
+cinq jours. ». Le modèle `fra` n’est pas installé durablement sur le poste : le README garde donc ce
+prérequis pour une ingestion opérée ailleurs.
+
+### Campagne B — exactement six cas nouveaux
+
+| # | Cas mot pour mot | Réponse en une ligne | Jugement d’expérience | Classement et correction |
+|---|---|---|---|---|
+| B1 | « La canalisation a gelé pendant mes vacances et a éclaté au dégel : le gel ou la fuite décide la couverture ? » | 200 / 0,0216 € ; `p37:14`, chronologie gel puis dégel conservée, verdict prudent. | Bon en trois secondes : la cause et la conséquence sont en tête ; la limite sur le rôle du gel est dite. | Aucun défaut local. |
+| B2 | « L’arbre du voisin est tombé sur ma toiture pendant la tempête : je passe par lui ou par mon habitation ? » | 200 / 0,0419 € ; `p65:5` et `p13:6`, `ne_tranche_pas`. | Moyen : les deux voies de responsabilité sont visibles, mais l’écran n’aide pas encore assez à arbitrer la garantie tempête ; je ne le montrerais pas comme décision finale. | Typage et portée dus en 3.2–3.3, mesure UX en 4.2 ; aucune rustine 3.1. |
+| B3 | « Mon vélo électrique a disparu de la cave commune, sans porte forcée : le vélo et la batterie comptent ensemble ? » | 200 / 0,0204 € ; `p41:10`, règle de cave commune visible ; la batterie reste explicitement inconnue. | Moyen mais honnête : la condition importante arrive vite, la seconde facette n’est pas noyée ni inventée. | Hors ingestion ; couverture des facettes à mesurer en 4.2. |
+| B4 | « Mon ordinateur professionnel a été volé dans ma chambre d’hôtel : mon contrat habitation le considère comme contenu ? » | 200 / 0,0212 € ; `p40:11`, séjour temporaire et plafond de 2 500 € affichés, nature professionnelle laissée inconnue. | Bon : plus de clarification générique, le gestionnaire obtient immédiatement la clause et la vraie question restante. | Le défaut initial ne se reproduit plus après les correctifs génériques de frontière/citabilité ; aucun cas particulier. Ajouté au socle A. |
+| B5 | « Du mazout de ma cuve a fui dans mon jardin puis chez le voisin : dommages chez moi et responsabilité, c’est le même dossier ? » | 200 / 0,0236 € ; `p38:4` et `p50:2`, fuite et responsabilité séparées. | Bon : les deux volets sont visibles en tête et aucun lien de responsabilité n’est inventé. | Aucun défaut local. |
+| B6 | « La vitre de l’insert a éclaté toute seule et la fumée a noirci le salon, sans incendie : quels dommages regarder ? » | 200 / 0,0235 € ; `p34:12` et `p46:1`, chaleur sans embrasement et limite d’extension affichées. | Bon et montrable : la réponse utile remplace le 503, le plus important est en tête et la prudence de portée reste visible. | Le défaut initial ne se reproduit plus après les correctifs génériques ; aucun prompt, seuil de budget ou identifiant particulier. Ajouté au socle A. |
+
+La campagne finale reste bornée à ces six cas et tient sous trente minutes. Les anciens défauts B4 et
+B6 ne se reproduisent plus sur le corpus final ; ils entrent donc dans le socle A. B2 et B3 restent
+des limites réelles mais appartiennent au typage, à la portée et aux évals futurs, pas au parsing PDF.
+La revue a corrigé des règles générales de citabilité, géométrie, TdM, OCR et diagnostic ; aucun
+prompt, terme de dictionnaire, identifiant de document, page ou table AD-6 n’a été spécialisé pour
+une question de cette campagne.

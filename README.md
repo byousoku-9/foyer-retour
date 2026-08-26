@@ -126,18 +126,27 @@ uv run python -m server.ingest.enrich_dictionary --valider "Nom"  # la signature
 - Les consignes d'ingestion vivent sous `server/ingest/prompts/` et **non** sous `server/app/llm/prompts/` : y entrer les mettrait dans `prompts_digest`, et modifier une consigne d'ingestion rendrait les deux gates `gate_perime` pour un prompt que le serveur n'exécute jamais.
 - Le périmètre annoncé à *comprendre* (`Corpus.perimetres`) est une projection des titres du corpus, calculée au chargement et bornée par `perimetre_max_chars` : une fiche ajoutée entre dans le périmètre sans qu'on réécrive une phrase de prompt.
 
-## Ingestion du contrat AXA
+## Ajouter un contrat PDF
 
 ```bash
-uv run python -m server.ingest.fetch_source axa-lu-optihome-2017   # source.url + source.sha256 → source.pdf (non committé)
-uv run python -m server.ingest.pdf_to_blocks axa-lu-optihome-2017  # source.pdf → document.json, summary.md, report.json ; manifest fusionné
+# 1. Créer data/<doc-id>/source.url et source.sha256 depuis la source publique et son hash vérifié.
+# 2. Télécharger le PDF local (il est ignoré par Git).
+uv run python -m server.ingest.fetch_source <doc-id>
+
+# 3. Ingérer avec les métadonnées éditoriales imprimées, puis relire report.json.
+uv run python -m server.ingest.pdf_to_blocks <doc-id> --title "Titre imprimé" --edition "Édition imprimée"
+
+# 4. Story 3.2 (encore différée) : typer les clauses et résoudre définitions/renvois.
+# 5. Après l'état final, certifier ce document avec ses empreintes et digest courants.
+uv run python -m server.evals.run --gate <doc-id> --profile vertical
 ```
 
-- Le PDF n'est **pas redistribué** : `fetch_source` le télécharge depuis `source.url` (URL publique d'AXA, ou `gs://bucket/objet` du bucket privé), vérifie le sha256 de référence (`source.sha256`) et se replie sur `gs://foyer-retour-sources/` si la source est morte ; hash différent ⇒ exit 2 sans rien écrire, repli en échec ⇒ exit 3. Le `Dockerfile` exécute `fetch_source --all` au build. En local, les objets `gs://` sont lus avec le jeton `GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)`. `pdf_to_blocks` exige `source.sha256` et le compare au PDF avant toute extraction.
-- `pdf_to_blocks` (PyMuPDF, `get_text("dict", sort=True)`) : un bloc par paragraphe/liste/titre avec `page`, `lines` (`line_id`, `text`, `bbox`) et `bbox` = union ; en-têtes et numéros de page retirés ; nœuds construits par la numérotation des articles (`a1.12`, `a3.1.1.1.6`, parent = préfixe le plus long) ; `scope.kind` : `1`, `2`, `3.1` ⇒ `commun`, `3.1.8` ⇒ `extension`, le reste ⇒ `special` ; un paragraphe ou une liste à cheval sur deux pages est scindé, le second bloc porte `continues` (règle structurelle : même kind, pas de numéro d'article, phrase non terminée). Les signets du PDF (`get_toc()`), s'il y en a, donnent leur titre aux nœuds qui n'en ont pas et sont confrontés à la numérotation (`tdm_pdf_ecart`). Texte brut, seules altérations déclarées dans `FLAGS` (puces `•`, glyphe de tabulation retiré, espaces de fin et de tête de ligne, numéro d'article joint par une espace à son titre).
-- `report.json` (AD-8) : `page_sans_texte` (page portant une image ou un tracé vectoriel mais aucun texte : bloquant ⇒ quarantaine), `numerotation_non_monotone`, `numerotation_dupliquee`, `pages_mixtes`, `tdm_pdf_ecart`, `ids_disparus` (alertes), statistiques (pages, blocs par kind, `continues`, en-têtes retirés, TdM du PDF).
+- Le PDF n'est **jamais committé**. `fetch_source` vérifie `source.sha256`, accepte une URL `https://` ou `gs://`, et le build rejette tout hash divergent. `source.url` est recopié dans `Document.source_url`; titre et édition restent des entrées explicites, car les deviner fabriquerait une valeur éditoriale.
+- `pdf_to_blocks` conserve texte, page, coordonnées et lignes ; regroupe chaque grille détectée dans un bloc `table` atomique (`cellule | cellule`) ; marque couverture et TdM comme `autre`; compare la TdM imprimée à l'arbre et les signets PDF dans un contrôle séparé. Les blocs préliminaires restent inspectables mais ne consomment pas le budget de rappel.
+- L'OCR est **ciblé** : seulement une page visuelle sans couche texte, avec Tesseract et les données françaises (`fra.traineddata`). Un succès produit des blocs `source_field=ocr`; moteur absent ou sortie vide laisse `page_sans_texte` bloquant et nomme la dépendance. Un logo sous la densité configurée ne suffit pas à signaler une page mixte.
+- `report.json` est à relire avant tout gate. Seules une page non blanche encore sans texte et les invariants d'arbre mettent le document en quarantaine. Numérotation, TdM, densité mixte, résidus, langue, charabia et IDs disparus alertent ; la couverture globale reste toujours informative.
 - `data/axa-lu-optihome-2017/typing.manual.json` : typage manuel des clauses (`kind`, `defines`, `scope_node_id`, `scope_node_ids`, `kind_source=manual`), fusionné par le loader **avant** validation sans modifier `document.json` ; `schema_version`, `doc_id` et `kind` sont obligatoires ; un `block_id` ou un nœud inconnu, un `kind_source` ≠ `manual` ou un champ inattendu met ce seul document en quarantaine. Son empreinte est écrite dans `manifest.json` (`overlay_hash`) par l'ingestion et vérifiée par le loader, et elle fait partie de ce que le gate des témoins couvre. `scope_node_ids` restreint la portée d'une clause à une partie du sous-arbre de `scope_node_id` (l'exclusion p. 46 ne vise que les extensions 3.1.8.3 à 3.1.8.6 ; `Document.scope_nodes(block_id)` donne les nœuds couverts). Remplacé par le typage automatique (Epic 3).
-- Les seuils d'ingestion (`header_band_pt`, `footer_band_pt`, `header_min_pages_ratio`, `para_gap_ratio`, `article_number_max_x`, `title_min_size_pt`, `header_caps_max_size_pt`, `baseline_tolerance_pt`, `number_gap_tolerance_pt`, `list_indent_pt`, `fetch_timeout_s`, `metadata_timeout_s`) vivent dans `server/app/config.py` ; ceux qui changent la segmentation entrent dans `ingest_fingerprint`.
+- Tous les seuils d'ingestion vivent dans `server/app/config.py`, sont publiés par `thresholds()` et entrent dans `ingest_fingerprint` lorsqu'ils changent extraction ou segmentation.
 - `tests/test_parsing_axa.py` compare les pages 9, 11, 34 et 46 à des extraits relus (`tests/data/axa/`) contre le `document.json` committé ; si `source.pdf` est présent, l'ingestion doit le regénérer à l'identique.
 - Les artefacts de tous les documents sont écrits sans valeurs par défaut ni `text_norm` (`SCHEMA_VERSION=3`, `server/ingest/artifacts.py`). La version du schéma entre dans **chaque** `ingest_fingerprint` : l'incrémenter ré-ingère les deux documents et périme les deux gates. `"3"` ajoute `Document.parcours` — les conditions de profil que la `timeline` du guide attache à ses fiches (story 2.3), vide pour un contrat.
 
