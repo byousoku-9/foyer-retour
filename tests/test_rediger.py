@@ -280,6 +280,42 @@ async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(
     assert req["system"][0]["text"] == expected_prefix
 
 
+async def test_sinistre_exige_une_claim_pour_toute_limite_a_portee_explicite() -> None:
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    ids = ["axa-lu-optihome-2017:p34:12", "axa-lu-optihome-2017:p46:1"]
+    retrieval = RetrievalResult(blocs=[doc.block(block_id) for block_id in ids],
+                                opened_block_ids=ids)
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+
+    await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
+                  doc_id=doc.doc_id, settings=_settings(), prompt="rediger_sinistre")
+
+    outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
+    assert "Limites à rendre vérifiables : axa-lu-optihome-2017:p46:1" in outside
+    assert "ne décide pas toi-même de son applicabilité" in outside
+    assert "axa-lu-optihome-2017:p34:12" not in outside
+
+
+async def test_sinistre_exige_une_claim_pour_toute_definition_resolue() -> None:
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    ids = ["axa-lu-optihome-2017:p9:2", "axa-lu-optihome-2017:p49:11"]
+    retrieval = RetrievalResult(blocs=[doc.block(block_id) for block_id in ids],
+                                opened_block_ids=ids)
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+
+    await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
+                  doc_id=doc.doc_id, settings=_settings(), prompt="rediger_sinistre")
+
+    outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
+    assert "Définitions applicables à rendre vérifiables : axa-lu-optihome-2017:p9:2" in outside
+    assert "déjà résolus par portée" in outside
+    ligne_definitions = next(line for line in outside.splitlines()
+                             if line.startswith("Définitions applicables"))
+    assert "axa-lu-optihome-2017:p49:11" not in ligne_definitions
+
+
 async def test_motif_is_appended_to_the_last_user_message_only_when_present(mini_index: Index) -> None:
     client, fake = _client([fake_message(text=_draft(), model=SONNET),
                             fake_message(text=_draft(), model=SONNET)])

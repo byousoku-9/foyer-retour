@@ -118,6 +118,28 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                  "seule phrase courte et la plus courte quote contiguë qui la soutient ; n'énumère "
                  "pas les autres items d'une liste contractuelle. N'ajoute ni transition, ni "
                  "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
+        limites_portees = [b.block_id for b in retrieval.blocs
+                            if b.kind in {"exclusion", "condition", "franchise"}
+                            and b.scope_node_ids]
+        if limites_portees:
+            # Story 3.3 : le code aval est seul autorisé à décider qu'une portée explicite ne couvre
+            # pas le cas. Si la rédaction omet la clause, cette décision pure ne peut jamais devenir
+            # visible. Les IDs viennent du corpus typé, pas de la question, et la consigne s'applique
+            # uniformément à toute limite explicitement bornée retrouvée.
+            tail += ("\nLimites à rendre vérifiables : " + ", ".join(limites_portees) +
+                     ". Pour chacun de ces blocs à portée explicite, rends une claim courte avec une "
+                     "citation contiguë, même si sa portée semble différente du cas : ne décide pas "
+                     "toi-même de son applicabilité, le code la calculera et affichera la raison.")
+        definitions = [b.block_id for b in retrieval.blocs
+                       if b.kind == "definition" and b.defines]
+        if definitions:
+            # `definitions()` a déjà résolu la proximité de portée et les overrides. Une définition
+            # ainsi sélectionnée mais omise par la rédaction rendrait cette résolution invisible ;
+            # le modèle la transcrit, sans refaire le choix sémantique acquis par le code.
+            tail += ("\nDéfinitions applicables à rendre vérifiables : " + ", ".join(definitions) +
+                     ". Pour chacun de ces blocs déjà résolus par portée, rends une claim courte "
+                     "avec une citation contiguë ; n'en substitue pas une autre et n'en déduis pas "
+                     "une conclusion que son texte ne porte pas.")
     if motif is not None:
         # AD-15 : le motif vient de *vérifier* (1.5), qui le compose à partir de la sortie du modèle et
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.

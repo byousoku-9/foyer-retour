@@ -120,7 +120,8 @@ _KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
 
 
 def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: list[str],
-                          doc_id: str, search_candidates: Iterable[str]) -> list[str]:
+                          doc_id: str, search_candidates: Iterable[str],
+                          related_limit: int) -> list[str]:
     """Fermeture commune aux deux variantes : refs, définitions et limites classées, un niveau.
 
     Les cibles sont calculées uniquement depuis le bloc primaire. Leurs propres `refs` ne sont donc
@@ -144,14 +145,35 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
         add(candidate)
     current = block(block_id)
     if current.kind == "garantie":
-        for candidate in search_candidates:
-            if block(candidate).kind in _KINDS_LIMITATIFS:
-                add(candidate)
-                # Les hits sont déjà classés par pertinence. Une garantie conserve la meilleure
-                # limite disponible ; lui attacher toutes les exclusions partageant un mot courant
-                # transformerait une fermeture locale en aspiration du contrat entier et ferait
-                # refuser l'unité par le budget. Les autres limites restent leurs propres hits.
-                break
+        cohort = list(search_candidates)
+        # Une limite peut reprendre presque mot pour mot la règle d'une garantie sans partager le
+        # vocabulaire factuel de la question. Une recherche déterministe depuis la clause ouverte
+        # complète donc le cohort de cette ouverture ; elle reste bornée comme la recherche initiale
+        # et ne réutilise aucun résultat d'un autre tour de navigation.
+        for candidate, _node_id in index.chercher(
+                forme(current.text).split(), limit=related_limit, doc_id=doc_id,
+                kinds_prioritaires=_KINDS_LIMITATIFS):
+            if candidate not in cohort:
+                cohort.append(candidate)
+        limites = [candidate for candidate in cohort
+                   if candidate != block_id and block(candidate).kind in _KINDS_LIMITATIFS]
+        if limites:
+            mots_source = set(forme(current.text).split())
+
+            def proximite(candidate: str) -> tuple[float, int, int]:
+                """Proximité contractuelle, puis ordre de recherche stable en dernier ressort."""
+                mots_candidat = set(forme(block(candidate).text).split())
+                communs = len(mots_source & mots_candidat)
+                union = len(mots_source | mots_candidat)
+                return (communs / union if union else 0.0, communs,
+                        -limites.index(candidate))
+
+            add(max(limites, key=proximite))
+            # Le classement de la question forme le cohort de limites autorisées ; dans ce cohort,
+            # la formulation contractuelle la plus proche de la garantie est la limite pertinente.
+            # Prendre seulement le premier hit favorisait une exclusion qui partageait un mot de la
+            # question mais pas la règle opératoire. Une garantie conserve toujours une seule limite :
+            # les autres restent leurs propres hits, sans aspiration du contrat ni dépassement budget.
     return out
 
 
@@ -325,7 +347,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         )
                 dependencies = _dependances_directes(
                     item.block_id, block=block, index=index, terms=terms, doc_id=doc_id,
-                    search_candidates=relevant_candidates,
+                    search_candidates=relevant_candidates, related_limit=budget.search_limit,
                 )
                 unit = [item.block_id, *dependencies]
                 got = admit(unit)
@@ -630,7 +652,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         for block_id in fenetres:
             unites.append([block_id, *_dependances_directes(
                 block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
-                search_candidates=candidats,
+                search_candidates=candidats, related_limit=budget.search_limit,
             )])
 
         seen: set[str] = set()

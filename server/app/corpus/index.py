@@ -332,7 +332,19 @@ class Index:
 
     def _portee_racines(self, e: _Entry) -> list[str]:
         b = e.block
-        return b.scope_node_ids or ([b.scope_node_id] if b.scope_node_id else [])
+        if b.scope_node_ids:
+            return list(b.scope_node_ids)
+        if not b.scope_node_id:
+            return []
+        # Le typage renseigne aussi le nœud propriétaire des définitions communes. Confondre ce
+        # rattachement structurel avec une restriction de portée faisait disparaître la définition
+        # partout hors de son propre article. Seules les branches `special|extension` bornent une
+        # définition ; un nœud explicitement commun est précisément la remontée prévue par AD-2.
+        document = self.corpus.documents[e.doc_id]
+        if (b.kind_source in {"model", "model_verified"}
+                and document.node_scope_kind(b.scope_node_id) == "commun"):
+            return []
+        return [b.scope_node_id]
 
     def _portee_profondeur(self, e: _Entry) -> int:
         """Profondeur de la portée d'une définition ; -1 = aucune portée (définition commune)."""

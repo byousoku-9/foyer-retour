@@ -465,6 +465,26 @@ def test_definitions_resolve_scope_overrides_and_the_nearest_one() -> None:
     assert ix.definitions(["contenu"], blocs_ouverts=["d:p1:1"]) == [("d:p1:1", "d:defs")]
 
 
+def test_a_common_definition_keeps_its_structural_owner_without_becoming_local() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Le contenu désigne les meubles confiés.", loc="p1", seq=1,
+              kind="definition", kind_source="model_verified", defines="contenu",
+              scope_node_id="d:defs"),
+        Block(block_id="d:p9:1", text="Le contenu endommagé est examiné.", loc="p9", seq=1),
+    ]
+    nodes = [Node(node_id="root", level=0, items=[NodeRef(node_id="d:defs"),
+                                                   NodeRef(node_id="d:sinistre")]),
+             Node(node_id="d:defs", level=1, scope={"kind": "commun"},
+                  items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="d:sinistre", level=1, scope={"kind": "special"},
+                  items=[BlockRef(block_id="d:p9:1")])]
+    ix = Index(Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)}))
+
+    assert ix.definitions(["contenu"], blocs_ouverts=["d:p9:1"]) == \
+        [("d:p1:1", "d:defs")]
+
+
 def test_definitions_are_resolved_per_opened_block_not_once_for_the_whole_result() -> None:
     """AD-2 « la plus proche dans la portée **du bloc décisionnel** » (revue Codex 1.4, B2, tour 2).
 

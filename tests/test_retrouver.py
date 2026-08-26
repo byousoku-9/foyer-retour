@@ -197,6 +197,57 @@ async def test_une_cible_aussi_primaire_reste_atomique_avec_sa_source() -> None:
     assert deterministe.truncated and outils.truncated
 
 
+async def test_la_limite_contractuellement_proche_prime_dans_lunite_bornee() -> None:
+    """La limite partageant la règle opératoire prime un hit lexical antérieur sans rapport.
+
+    Les identifiants, pages et mots du contrat réel n'interviennent pas : seule la proximité entre
+    les formulations des clauses départage le cohort déjà trouvé. Avec deux places, la garantie et
+    cette limite hors de sa portée entrent atomiquement dans les deux variantes.
+    """
+    blocks = [
+        Block(block_id="d:p1:1",
+              text=("Sinistre déclaré : dommages causés par une action subite de la chaleur "
+                    "sans embrasement."),
+              loc="p1", seq=1, kind="garantie", scope_node_id="n-garantie"),
+        Block(block_id="d:p2:1", text="Exclusion du sinistre pour les objets transportés.",
+              loc="p2", seq=1, kind="exclusion", scope_node_id="n-autre"),
+        Block(block_id="d:p3:1",
+              text=("Pour les extensions, les dommages causés par une action subite de la chaleur "
+                    "sans embrasement sont exclus."),
+              loc="p3", seq=1, kind="exclusion", scope_node_id="n-extension",
+              scope_node_ids=["n-extension-enfant"]),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=n) for n in
+                                          ("n-garantie", "n-autre", "n-extension")]),
+             Node(node_id="n-garantie", scope={"kind": "commun"},
+                  items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n-autre", scope={"kind": "special"},
+                  items=[BlockRef(block_id="d:p2:1")]),
+             Node(node_id="n-extension", scope={"kind": "extension"},
+                  items=[BlockRef(block_id="d:p3:1"),
+                         NodeRef(node_id="n-extension-enfant")]),
+             Node(node_id="n-extension-enfant", scope={"kind": "extension"})]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n-garantie, n-autre, n-extension"})
+    parsed = _parsed(["sinistre"])
+    budget = _budget(node_window=1, max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["sinistre"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n-garantie",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p3:1"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert corpus.documents["d"].block("d:p3:1").scope_node_ids == ["n-extension-enfant"]
+    assert len(deterministe.blocs) == len(outils.blocs) == budget.max_blocks
+    assert deterministe.truncated  # le déterministe publie les candidats tombés hors quota
+    assert outils.truncated is False  # un candidat jamais ouvert n'est pas une fenêtre tronquée
+
+
 async def test_outils_ne_reutilise_pas_la_limite_d_une_recherche_sans_rapport() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Garantie feu du mobilier.", loc="p1", seq=1,
