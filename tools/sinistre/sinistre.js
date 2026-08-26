@@ -122,6 +122,10 @@
     non: "non applicable",
     humain: "applicabilité à confirmer par un humain"
   };
+  var RAISONS_APPLICABILITE = {
+    hors_portee: "sa portée contractuelle ne couvre pas le cas déclaré",
+    faits_contraires: "les faits déclarés ne correspondent pas aux conditions de la clause"
+  };
 
   function statutTexte(status) {
     if (!status) return "";
@@ -130,6 +134,10 @@
     if (status.pertinente === true) p.push("pertinente");
     if (status.applicable && Object.prototype.hasOwnProperty.call(APPLICABLE, status.applicable)) {
       p.push(APPLICABLE[status.applicable]);
+      if (status.applicable === "non" && status.applicable_reason &&
+          Object.prototype.hasOwnProperty.call(RAISONS_APPLICABILITE, status.applicable_reason)) {
+        p.push(RAISONS_APPLICABILITE[status.applicable_reason]);
+      }
     }
     p.push("édition " + (status.edition ? status.edition : "non précisée") +
       " — actualité non vérifiée");

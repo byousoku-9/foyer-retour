@@ -420,6 +420,10 @@ async function main() {
       oui: SINISTRE.statutTexte(STATUT_OUI),
       non: SINISTRE.statutTexte({ retrouvee: true, pertinente: true, applicable: "non",
                                   edition: "juin 2017" }),
+      non_hors_portee: SINISTRE.statutTexte({
+        retrouvee: true, pertinente: true, applicable: "non",
+        applicable_reason: "hors_portee", edition: "juin 2017",
+      }),
       sans_applicable: SINISTRE.statutTexte({ retrouvee: true, pertinente: true, applicable: null,
                                               edition: "juin 2017" }),
       sans_edition: SINISTRE.statutTexte({ retrouvee: true, pertinente: true, edition: "" }),
