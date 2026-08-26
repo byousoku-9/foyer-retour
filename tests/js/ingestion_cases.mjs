@@ -14,7 +14,7 @@ function reponse(corps, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(corps) };
 }
 
-function charger(pathname, repondre, options = {}) {
+function charger(pathname, repondre) {
   const document = new Document();
   document.readyState = "complete";
   const titre = document.createElement("h1");
@@ -32,9 +32,6 @@ function charger(pathname, repondre, options = {}) {
     location: new URL(ORIGINE + pathname), document, fetch,
     __INGESTION_SANS_DEMARRAGE: true,
   };
-  if (options.timeoutMs !== undefined) {
-    window.__INGESTION_FETCH_TIMEOUT_MS = options.timeoutMs;
-  }
   const bac = {
     window, document, fetch, URL, console, JSON, String, Array, Object, Error, Promise,
     setTimeout, clearTimeout, AbortController,
@@ -78,10 +75,13 @@ const RAPPORT = {
   stats: {},
 };
 
+const SANTE = { thresholds: { client_abort_margin_s: 7 } };
+
 async function main() {
   const cas = {};
   {
     const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
       if (url.endsWith("/api/v1/documents")) return reponse([SERVI, QUARANTAINE]);
       return reponse(RAPPORT);
     });
@@ -98,11 +98,13 @@ async function main() {
       })(),
       brut: h.rapport.querySelector(".brut").href,
       busy: h.rapport.getAttribute("aria-busy"),
+      borne_ms: h.INGESTION.fetchTimeoutMs(),
       scripts: h.rapport.querySelectorAll("script").length,
     };
   }
   {
     const h = charger("/sinistre/ingestion/cg-quarantaine", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
       if (url.endsWith("/api/v1/documents")) return reponse([SERVI, QUARANTAINE]);
       throw new Error("le rapport absent ne doit pas être demandé");
     });
@@ -128,6 +130,7 @@ async function main() {
       doc_id: "cg-" + statut, report_status: statut,
     });
     const h = charger("/sinistre/ingestion/" + doc.doc_id, (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
       if (url.endsWith("/api/v1/documents")) return reponse([doc]);
       throw new Error("un rapport non publiable ne doit pas être demandé");
     });
@@ -143,8 +146,8 @@ async function main() {
         if (options.signal) {
           options.signal.addEventListener("abort", () => reject(new Error("abandon test")));
         }
-      }), { timeoutMs: 0 });
-    await h.INGESTION.demarrer();
+      }));
+    await h.INGESTION.demarrer({ timeoutMs: 0 });
     cas.timeout = {
       borne_ms: h.INGESTION.fetchTimeoutMs(),
       appels: h.appels.length,

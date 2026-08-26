@@ -863,6 +863,8 @@ async function main() {
       audits: elements["documents-audit"].querySelectorAll(".audit-entree").map((e) => ({
         texte: e.textContent,
         href: (e.querySelector("a") || {}).href,
+        target: (e.querySelector("a") || {}).target || "",
+        rel: (e.querySelector("a") || {}).rel || "",
       })),
     };
 

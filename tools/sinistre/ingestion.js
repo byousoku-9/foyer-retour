@@ -4,12 +4,22 @@
 
   var API_BASE = (window.location && /^https?:$/.test(window.location.protocol))
     ? window.location.origin : "";
-  // Page statique sans sonde de seuils : une borne locale courte empêche ``aria-busy`` de rester
-  // vrai indéfiniment si l'API ne termine jamais. Le harnais peut la remplacer avant chargement,
-  // sans modifier le chemin de production ni attendre réellement huit secondes.
-  var borneTest = window.__INGESTION_FETCH_TIMEOUT_MS;
-  var FETCH_TIMEOUT_MS = (typeof borneTest === "number" && borneTest >= 0 && borneTest <= 60000)
-    ? borneTest : 8000;
+  // Une lecture d'audit ne doit pas rester indéfiniment en ``aria-busy``. La borne vient du même
+  // seuil serveur que les autres lectures du front (`thresholds.client_abort_margin_s`) ; le
+  // littéral n'est qu'un repli pour la sonde `/sante` elle-même ou si elle est indisponible.
+  var FETCH_TIMEOUT_MS_REPLI = 10000;
+  var dernierTimeoutMs = FETCH_TIMEOUT_MS_REPLI;
+
+  function timeoutDepuisSante(sante) {
+    var marge = sante && sante.thresholds && sante.thresholds.client_abort_margin_s;
+    return (typeof marge === "number" && isFinite(marge) && marge > 0)
+      ? Math.round(marge * 1000) : FETCH_TIMEOUT_MS_REPLI;
+  }
+
+  function timeoutOption(options) {
+    var v = options && options.timeoutMs;
+    return (typeof v === "number" && isFinite(v) && v >= 0 && v <= 60000) ? v : null;
+  }
 
   function element(tag, texte, cls) {
     var e = document.createElement(tag);
@@ -177,7 +187,7 @@
     hote.setAttribute("aria-busy", "false");
   }
 
-  function json(chemin) {
+  function json(chemin, timeoutMs) {
     var ctrl = typeof AbortController === "function" ? new AbortController() : null;
     return new Promise(function (resolve, reject) {
       var termine = false;
@@ -186,7 +196,7 @@
         termine = true;
         if (ctrl) ctrl.abort();
         reject(new Error("timeout"));
-      }, FETCH_TIMEOUT_MS);
+      }, timeoutMs);
       function finir(fn, valeur) {
         if (termine) return;
         termine = true;
@@ -204,13 +214,9 @@
     });
   }
 
-  function demarrer() {
-    var docId = docIdDepuisChemin(window.location && window.location.pathname);
-    if (!docId) {
-      rendreErreur("L'identifiant du document est invalide.");
-      return Promise.resolve();
-    }
-    return json("/api/v1/documents").then(function (documents) {
+  function chargerAudit(docId, timeoutMs) {
+    dernierTimeoutMs = timeoutMs;
+    return json("/api/v1/documents", timeoutMs).then(function (documents) {
       if (!Array.isArray(documents)) throw new Error("documents");
       var documentAudit = documents.filter(function (d) { return d && d.doc_id === docId; })[0];
       if (!documentAudit) {
@@ -221,7 +227,7 @@
         rendre(documentAudit, null);
         return null;
       }
-      return json("/api/v1/documents/" + encodeURIComponent(docId) + "/report")
+      return json("/api/v1/documents/" + encodeURIComponent(docId) + "/report", timeoutMs)
         .then(function (rapport) { rendre(documentAudit, rapport); }, function () {
           // Le statut chargé au boot reste l'autorité ; une erreur HTTP n'est pas transformée en
           // faux rapport vide et aucun message potentiellement hostile du serveur n'est réfléchi.
@@ -229,6 +235,21 @@
         });
     }, function () {
       rendreErreur("La liste des documents n'a pas pu être chargée.");
+    });
+  }
+
+  function demarrer(options) {
+    var docId = docIdDepuisChemin(window.location && window.location.pathname);
+    if (!docId) {
+      rendreErreur("L'identifiant du document est invalide.");
+      return Promise.resolve();
+    }
+    var injecte = timeoutOption(options);
+    if (injecte !== null) return chargerAudit(docId, injecte);
+    return json("/api/v1/sante", FETCH_TIMEOUT_MS_REPLI).then(function (sante) {
+      return chargerAudit(docId, timeoutDepuisSante(sante));
+    }, function () {
+      return chargerAudit(docId, FETCH_TIMEOUT_MS_REPLI);
     });
   }
 
@@ -242,11 +263,13 @@
     rendre: rendre,
     demarrer: demarrer,
     apiBase: function () { return API_BASE; },
-    fetchTimeoutMs: function () { return FETCH_TIMEOUT_MS; }
+    fetchTimeoutMs: function () { return dernierTimeoutMs; }
   };
 
   if (!window.__INGESTION_SANS_DEMARRAGE) {
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", demarrer);
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", function () { demarrer(); });
+    }
     else demarrer();
   }
 })();

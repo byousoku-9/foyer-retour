@@ -1026,7 +1026,16 @@
     var e = document.createElement(vue.tag);
     if (vue.cls) e.className = vue.cls;
     if (vue.tag === "button") e.type = "button";
-    if (vue.href) { e.href = vue.href; e.target = "_blank"; e.rel = "noopener noreferrer"; }
+    if (vue.href) {
+      e.href = vue.href;
+      // Une source HTTP(S) quitte l'application : nouvel onglet et isolation de l'opener. Les
+      // liens de navigation internes (dont les rapports d'ingestion) gardent la page courante et
+      // n'annoncent pas à tort une navigation externe.
+      if (lienHttp(vue.href)) {
+        e.target = "_blank";
+        e.rel = "noopener noreferrer";
+      }
+    }
     if (vue.texte !== undefined) e.textContent = vue.texte;
     if (vue.attrs) {
       Object.keys(vue.attrs).forEach(function (nom) { e.setAttribute(nom, String(vue.attrs[nom])); });

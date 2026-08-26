@@ -85,7 +85,8 @@ def test_audit_affiche_checks_gate_empreintes_et_json_dans_lordre(
         cas_ingestion: dict[str, Any]) -> None:
     audit = cas_ingestion["servi"]
     assert audit["appels"] == [
-        "/api/v1/documents", "/api/v1/documents/cg-mini/report"]
+        "/api/v1/sante", "/api/v1/documents", "/api/v1/documents/cg-mini/report"]
+    assert audit["borne_ms"] == 7000
     assert audit["lignes"] == [
         "premierinfo<b>détail littéral</b>", "secondbloquantfin"]
     for fait in ("source-123", "ingest-456", "doc-789", "vertical", "2026-08-26"):
@@ -113,7 +114,7 @@ def test_audit_rend_les_chaines_hostiles_comme_texte_et_filtre_la_source(
 def test_audit_distingue_absence_liste_vide_et_valeur_vide(
         cas_ingestion: dict[str, Any]) -> None:
     quarantaine = cas_ingestion["quarantaine"]
-    assert quarantaine["appels"] == ["/api/v1/documents"]
+    assert quarantaine["appels"] == ["/api/v1/sante", "/api/v1/documents"]
     assert "rapport d'ingestion est absent" in quarantaine["texte"]
     assert "Aucun contrôle dans ce rapport" in cas_ingestion["rapport_vide"]
     assert cas_ingestion["valeurs"] == {
@@ -123,9 +124,9 @@ def test_audit_distingue_absence_liste_vide_et_valeur_vide(
 
 
 def test_audit_distingue_rapport_illisible_et_etranger(cas_ingestion: dict[str, Any]) -> None:
-    assert cas_ingestion["illisible"]["appels"] == ["/api/v1/documents"]
+    assert cas_ingestion["illisible"]["appels"] == ["/api/v1/sante", "/api/v1/documents"]
     assert "présent mais illisible" in cas_ingestion["illisible"]["texte"]
-    assert cas_ingestion["etranger"]["appels"] == ["/api/v1/documents"]
+    assert cas_ingestion["etranger"]["appels"] == ["/api/v1/sante", "/api/v1/documents"]
     assert "décrit un autre document" in cas_ingestion["etranger"]["texte"]
 
 
@@ -313,6 +314,8 @@ def test_la_liste_daudit_montre_la_quarantaine_sans_la_rendre_soumettable(
     assert "quarantaine" in par_href[href]
     assert "bloquant_statique : <script>page_sans_texte</script>" in par_href[href]
     assert "cg-quarantaine" not in cas["changement"]["options"]
+    internes = [a for a in audits if a["href"].startswith("/sinistre/ingestion/")]
+    assert internes and all(a["target"] == "" and a["rel"] == "" for a in internes)
 
 
 def test_chaque_contrat_servi_garde_selection_et_lien_de_rapport_exact(
