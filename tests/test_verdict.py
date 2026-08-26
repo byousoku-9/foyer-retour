@@ -144,8 +144,25 @@ def test_an_exclusion_without_a_known_scope_stays_human_even_with_case_nodes() -
     assert applicabilites_des_claims([garantie, exclusion])["c2"] == ("humain", None)
 
 
+def test_an_exclusion_without_a_displayed_guarantee_has_no_case_scope() -> None:
+    """Une condition citée n'établit pas à elle seule la branche contractuelle du cas."""
+    condition = ClaimJugee(
+        claim_id="c1",
+        clauses=[_clause("condition", block_id="d:p1:1", portee={SOCLE}, node_id=SOCLE)],
+        champs=_champs(True),
+    )
+    exclusion = ClaimJugee(
+        claim_id="c2",
+        clauses=[_clause("exclusion", block_id="d:p1:2", portee={EXTENSION},
+                         node_id=EXTENSION, socle=False)],
+        champs=_champs(True),
+    )
+
+    assert applicabilites_des_claims([condition, exclusion])["c2"] == ("humain", None)
+
+
 def test_an_exclusion_alone_never_covers_itself() -> None:
-    """D3 : à défaut de garantie, les nœuds du cas excluent les blocs de l'exclusion testée."""
+    """D3 : à défaut de garantie, aucune exclusion ne peut établir elle-même le cas."""
     exclusion = ClaimJugee(claim_id="c1", clauses=[_clause("exclusion")], champs=_champs(True))
     assert decider([exclusion], ask_client_max=ASK_MAX).value == "ne_tranche_pas"
 

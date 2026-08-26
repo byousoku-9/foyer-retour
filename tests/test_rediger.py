@@ -285,7 +285,8 @@ async def test_sinistre_exige_une_claim_pour_toute_limite_a_portee_explicite() -
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     ids = ["axa-lu-optihome-2017:p34:12", "axa-lu-optihome-2017:p46:1"]
     retrieval = RetrievalResult(blocs=[doc.block(block_id) for block_id in ids],
-                                opened_block_ids=ids)
+                                opened_block_ids=ids,
+                                decision_dependency_block_ids=[ids[1]])
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
 
     await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
@@ -302,7 +303,8 @@ async def test_sinistre_exige_une_claim_pour_toute_definition_resolue() -> None:
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     ids = ["axa-lu-optihome-2017:p9:2", "axa-lu-optihome-2017:p49:11"]
     retrieval = RetrievalResult(blocs=[doc.block(block_id) for block_id in ids],
-                                opened_block_ids=ids)
+                                opened_block_ids=ids,
+                                decision_dependency_block_ids=[ids[0]])
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
 
     await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
@@ -314,6 +316,30 @@ async def test_sinistre_exige_une_claim_pour_toute_definition_resolue() -> None:
     ligne_definitions = next(line for line in outside.splitlines()
                              if line.startswith("Définitions applicables"))
     assert "axa-lu-optihome-2017:p49:11" not in ligne_definitions
+
+
+async def test_sinistre_borne_les_dependances_exigees_au_budget_de_claims() -> None:
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    ids = ["axa-lu-optihome-2017:p34:12", "axa-lu-optihome-2017:p46:1"]
+    ids.extend(block.block_id for block in doc.blocks if block.kind == "definition")
+    retrieval = RetrievalResult(
+        blocs=[doc.block(block_id) for block_id in ids], opened_block_ids=ids,
+        decision_dependency_block_ids=ids[1:],
+    )
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+    parsed = _parsed(facettes=["dommages", "limites"])
+    settings = _settings(draft_max_claims=4)
+
+    budget = RequestBudget(deadline_s=30, max_attempts=4, max_cost_eur=1.0)
+    await rediger(parsed, retrieval, [], client=client, budget=budget, index=index,
+                  doc_id=doc.doc_id, settings=settings, prompt="rediger_sinistre")
+
+    outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
+    lignes = [line for line in outside.splitlines()
+              if line.startswith(("Limites à rendre", "Définitions applicables"))]
+    demandes = [block_id for line in lignes for block_id in ids if block_id in line]
+    assert len(demandes) <= settings.draft_max_claims - len(parsed.facettes)
 
 
 async def test_motif_is_appended_to_the_last_user_message_only_when_present(mini_index: Index) -> None:

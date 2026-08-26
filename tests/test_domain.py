@@ -549,7 +549,10 @@ def test_question_and_retrieval() -> None:
     assert clarification.language == "fr" and clarification.lang_fallback is True
     assert {"meteo", "bavardage", "hors_perimetre"} <= literal_values(question.ParsedQuestion, "intent")
     assert fields(question.Faits) == {"date", "lieu", "montant_eur", "description"}
-    assert fields(retrieval.RetrievalResult) == {"blocs", "opened_block_ids", "discarded_block_ids", "truncated"}
+    assert fields(retrieval.RetrievalResult) == {
+        "blocs", "opened_block_ids", "decision_dependency_block_ids", "discarded_block_ids",
+        "truncated",
+    }
     assert {"max_opens", "node_window", "search_limit", "max_llm_turns"} <= fields(retrieval.RetrievalBudget)
     with pytest.raises(ValidationError):
         question.Turn(role="user", texte="x" * 2001)

@@ -41,6 +41,9 @@ class RetrievalBudget(DomainModel):
 class RetrievalResult(DomainModel):
     blocs: list[Block] = Field(default_factory=list)
     opened_block_ids: list[str] = Field(default_factory=list)
+    # Dépendances directes effectivement admises avec une garantie/exclusion primaire. *rédiger*
+    # peut ainsi rendre visibles les résolutions utiles sans exiger une claim pour tout le contexte.
+    decision_dependency_block_ids: list[str] = Field(default_factory=list)
     discarded_block_ids: list[str] = Field(default_factory=list)
     truncated: bool = False
 

@@ -325,34 +325,33 @@ def _escalades(claims: list[ClaimJugee], *, contradiction: bool, renvoi: bool) -
     return out
 
 
-def _noeuds_du_cas(claims: list[ClaimJugee], *, hors: set[str]) -> set[str]:
+def _noeuds_du_cas(claims: list[ClaimJugee]) -> set[str]:
     """Les nœuds du contrat que le cas met en jeu (D3).
 
-    Les nœuds parents des blocs cités par les claims `garantie` retenues ; à défaut de garantie, ceux
-    de **toutes** les claims retenues, moins les blocs de l'exclusion testée — une exclusion ne
-    s'auto-couvre pas, sans quoi toute exclusion citée serait « applicable au cas » par le seul fait
-    d'avoir été citée.
+    Les nœuds parents des blocs cités par les claims `garantie` retenues. Sans garantie affichée,
+    la branche contractuelle du cas reste indéterminée : une condition ou une exclusion citée ailleurs
+    ne peut pas devenir le proxy positif du cas.
     """
     garanties = {clause.node_id for c in claims if c.kind == "garantie"
                  for clause in c.clauses if clause.node_id}
-    if garanties:
-        return garanties
-    return {clause.node_id for c in claims for clause in c.clauses
-            if clause.node_id and clause.block_id not in hors}
+    return garanties
 
 
 def applicabilites_des_claims(
         claims: list[ClaimJugee]) -> dict[str, tuple[Applicable | None, ApplicableReason | None]]:
     """Statut et raison issus du même état de portée que la table AD-6.
 
-    Le calcul est par claim affichée. Pour une exclusion, les nœuds du cas excluent ses propres
-    blocs afin qu'elle ne puisse jamais s'auto-couvrir ; une garantie affichée les fixe en priorité.
+    Le calcul est par claim affichée. Seule une garantie affichée fixe les nœuds contractuels du
+    cas ; sans elle, une exclusion reste humaine sauf si les faits typés suffisent à la contredire.
     """
     out: dict[str, tuple[Applicable | None, ApplicableReason | None]] = {}
     for claim in claims:
-        hors = {clause.block_id for clause in claim.clauses} if claim.kind == "exclusion" else set()
-        case_nodes = _noeuds_du_cas(claims, hors=hors)
-        applicable = applicable_de_claim(claim, noeuds_du_cas=case_nodes)
+        case_nodes = _noeuds_du_cas(claims)
+        applicable_sans_portee = applicable_de_claim(claim, noeuds_du_cas=set())
+        if claim.kind == "exclusion" and not case_nodes and applicable_sans_portee != "non":
+            applicable = "humain"
+        else:
+            applicable = applicable_de_claim(claim, noeuds_du_cas=case_nodes)
         reason: ApplicableReason | None = None
         if applicable == "non":
             out_of_scope = (
@@ -460,8 +459,7 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     for exclusion in exclusions:
         if etat[exclusion.claim_id] != "oui":
             continue
-        hors = {clause.block_id for clause in exclusion.clauses}
-        cas = _noeuds_du_cas(retenues, hors=hors)
+        cas = _noeuds_du_cas(retenues)
         if any(clause.portee & cas for clause in exclusion.clauses):
             return verdict("non_couvert", "Une exclusion applicable couvre le cas décrit")
 

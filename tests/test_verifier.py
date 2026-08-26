@@ -1288,6 +1288,8 @@ async def test_a_contradiction_declared_by_the_corpus_settles_nothing(contrat: I
     assert any("arbitrage humain" in e for e in v.verdict.escalate)
     # AD-6 : « les deux passages restent affichés »
     assert {c.claim_id for c in v.claims} == {"c1", "c2"}
+    assert v.complete is False
+    assert [lacune.kind for lacune in v.lacunes] == ["contradiction_non_resolue"]
 
 
 async def test_a_contradiction_with_a_passage_nobody_shows_is_not_one(contrat: Index) -> None:

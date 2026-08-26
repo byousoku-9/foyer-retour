@@ -767,6 +767,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         if sinistre else
         any(corpus.documents[index.doc_of(b)].block(b).unresolved_refs for b in cites)
     )
+    contradiction = sinistre and any(c.contredit for c in affichables)
     # AD-4 exige « toutes les facettes de `ParsedQuestion` couvertes ». `unknown == []` n'en est pas
     # une approximation conservatrice : une réponse à deux facettes dont une est omise, sans segment
     # `limite`, sortait `complete=True` (revue Codex 1.5, B3). Les facettes sont celles de
@@ -800,7 +801,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # été cherché et pourquoi rien n'a été retenu ; y ajouter « il me manque des éléments » ferait
     # deux comptes rendus du même fait.
     lacunes = _lacunes(retrieval=retrieval, parsed=parsed, facettes_couvertes=facettes_couvertes,
-                       renvois_ouverts=renvois_ouverts, ecartes=ecartes) if found else []
+                       renvois_ouverts=renvois_ouverts, contradiction=contradiction,
+                       ecartes=ecartes) if found else []
     # Une phrase écartée faute de soutien est une part de la réponse que l'ébauche voulait donner et
     # qui n'est pas montrée — y compris une limite retirée. La réponse servie est alors amputée :
     # elle n'est pas donnée pour complète (AD-4, « aucune troncature »). Les six conditions d'AD-4
@@ -822,7 +824,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
 
 def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_couvertes: list[int],
-             renvois_ouverts: bool, ecartes: int) -> list[Lacune]:
+             renvois_ouverts: bool, contradiction: bool, ecartes: int) -> list[Lacune]:
     """Les causes typées d'une réponse trouvée mais incomplète, dans l'ordre du pipeline.
 
     Une cause par fait, dans l'ordre où ils se produisent le long de la chaîne : ce qui n'a pas
@@ -849,6 +851,8 @@ def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_cou
         lacunes.append(Lacune(kind="facettes_sans_reponse", n=manquantes))
     if renvois_ouverts:
         lacunes.append(Lacune(kind="renvoi_non_resolu"))
+    if contradiction:
+        lacunes.append(Lacune(kind="contradiction_non_resolue"))
     if ecartes:
         lacunes.append(Lacune(kind="phrases_ecartees", n=ecartes))
     return lacunes

@@ -777,7 +777,10 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             "refs": [], "unresolved_refs": [], "defines": None, "scope_node_id": None,
             "scope_node_ids": [], "overrides": None, "relation": Relation(),
         }
-        if label.kind in LEGAL_KINDS or label.kind == "renvoi":
+        # Le propriétaire structurel n'est pas une portée. Pour une définition, la portée reste
+        # vide tant qu'un `scope_articles` résolu ou une dérogation locale ne prouve pas la branche
+        # qu'elle gouverne. Les autres clauses décisionnelles portent bien sur leur branche propre.
+        if label.kind in LEGAL_KINDS - {"definition"} or label.kind == "renvoi":
             update["scope_node_id"] = doc.node_of(block.block_id)
         blocks.append(block.model_copy(update=update, deep=True))
         metadata[block.block_id] = _metadata(label)
@@ -832,7 +835,7 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             expanded_scopes.extend((article, value) for value in expanded)
         for original_article, article in expanded_scopes:
             target = _target_node(article, article_index)
-            if target is None or target not in owner_subtree:
+            if target is None or (block.kind != "definition" and target not in owner_subtree):
                 unresolved.append(original_article)
                 scope_ok = False
             else:
@@ -881,7 +884,7 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
         block.relation = Relation(**relation_values)
         block.unresolved_refs = list(dict.fromkeys(unresolved))
 
-    typed = _apply_node_scopes(typed)
+    typed = recompute_semantic_scopes(typed)
     typed = Document.model_validate(typed.model_dump())
     final_identity = [
         (block.block_id, block.text, block.loc, block.seq, block.page, block.bbox,
@@ -891,6 +894,61 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
     if final_identity != original_identity:
         raise ValueError("le typage a modifié texte, lignes, coordonnées, ordre ou identifiants")
     return typed
+
+
+def _lowest_common_ancestor(doc: Document, node_ids: list[str]) -> str | None:
+    if not node_ids:
+        return None
+    parent = {child: node.node_id for node in doc.nodes for child in node.children}
+
+    def path(node_id: str) -> list[str]:
+        out = [node_id]
+        while out[-1] in parent:
+            out.append(parent[out[-1]])
+        return out
+
+    paths = [path(node_id) for node_id in node_ids]
+    common = set(paths[0]).intersection(*map(set, paths[1:]))
+    return next((node_id for node_id in paths[0] if node_id in common), None)
+
+
+def _definition_scope_root(doc: Document, block_id: str) -> str | None:
+    """Branche prouvée d'une dérogation, ou `None` si elle ne peut être distinguée du document."""
+    parent = {child: node.node_id for node in doc.nodes for child in node.children}
+    current = doc.node_of(block_id)
+    child_blocks = {block_id}
+    while True:
+        candidate_blocks = set(_subtree_items(doc, current)[0])
+        outside_article = candidate_blocks - child_blocks
+        if current in parent and any(
+                doc.block(candidate).kind in {"garantie", "exclusion"}
+                and doc.block(candidate).kind_confirmed
+                for candidate in outside_article):
+            return current
+        if current not in parent:
+            return None
+        child_blocks = candidate_blocks
+        current = parent[current]
+
+
+def recompute_semantic_scopes(doc: Document) -> Document:
+    """Reprojette les portées depuis les métadonnées résolues, sans nouvel appel de typage.
+
+    Les sorties de modèle (`kind`, `overrides`, relations et `scope_node_ids`) restent inchangées.
+    Cette fonction est donc aussi la voie de régénération d'un artefact déjà typé quand seule la
+    projection déterministe de portée évolue.
+    """
+    projected = Document.model_validate(doc.model_dump())
+    for block in projected.blocks:
+        if block.kind != "definition":
+            continue
+        if block.scope_node_ids:
+            block.scope_node_id = _lowest_common_ancestor(projected, block.scope_node_ids)
+        elif block.overrides:
+            block.scope_node_id = _definition_scope_root(projected, block.block_id)
+        else:
+            block.scope_node_id = None
+    return _apply_node_scopes(projected)
 
 
 def _apply_node_scopes(doc: Document) -> Document:
@@ -911,6 +969,10 @@ def _apply_node_scopes(doc: Document) -> Document:
         # socle. Le signal se propage à tous leurs descendants, y compris aux garanties qu'ils portent.
         for target_node in block.scope_node_ids:
             signal(target_node, "special")
+        if block.kind == "definition" and block.overrides:
+            if block.scope_node_id:
+                signal(block.scope_node_id, "special")
+            continue
         special_targets = [block.overrides, block.relation.exception_de]
         if any(target is not None and doc.node_of(target) not in source_subtree for target in special_targets):
             signal(source, "special")
@@ -1322,7 +1384,8 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             "typage_resume_payload_sha256": resumed_payload_sha256,
             "typage_current_payload_sha256": current_payload_sha256,
             "typage_replayed_payload_requests": replayed_requests,
-            "typage_replayed_payload_custom_ids": ",".join(sorted(changed_payload_ids)),
+            "typage_changed_payload_requests": len(changed_payload_ids),
+            "typage_changed_payload_custom_ids": ",".join(sorted(changed_payload_ids)),
             "typage_resume_justification": resume_justification,
             "typage_reused_requests": reused_requests,
             "typage_standard_requests": standard_requests,

@@ -465,11 +465,49 @@ def test_definitions_resolve_scope_overrides_and_the_nearest_one() -> None:
     assert ix.definitions(["contenu"], blocs_ouverts=["d:p1:1"]) == [("d:p1:1", "d:defs")]
 
 
+def test_a_global_override_wins_even_when_both_definitions_have_no_scope() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Accident désigne un événement.", loc="p1", seq=1,
+              kind="definition", defines="accident"),
+        Block(block_id="d:p1:2", text="Par dérogation, accident désigne un choc soudain.",
+              loc="p1", seq=2, kind="definition", defines="accident", overrides="d:p1:1"),
+        Block(block_id="d:p1:3", text="La garantie vise un accident.", loc="p1", seq=3,
+              kind="garantie"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]), Node(
+        node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)}))
+
+    assert ix.definitions(["accident"], blocs_ouverts=["d:p1:3"]) == [("d:p1:2", "n")]
+
+
+def test_a_scoped_override_covers_the_whole_governed_branch() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Accident désigne un événement.", loc="p1", seq=1,
+              kind="definition", defines="accident"),
+        Block(block_id="d:p2:1", text="Par dérogation, accident désigne un choc soudain.",
+              loc="p2", seq=1, kind="definition", defines="accident", scope_node_id="d:branche",
+              overrides="d:p1:1"),
+        Block(block_id="d:p3:1", text="La garantie vise un accident.", loc="p3", seq=1,
+              kind="garantie"),
+    ]
+    nodes = [
+        Node(node_id="root", items=[NodeRef(node_id="d:defs"), NodeRef(node_id="d:branche")]),
+        Node(node_id="d:defs", items=[BlockRef(block_id="d:p1:1")]),
+        Node(node_id="d:branche", items=[BlockRef(block_id="d:p2:1"), NodeRef(node_id="d:enfant")]),
+        Node(node_id="d:enfant", items=[BlockRef(block_id="d:p3:1")]),
+    ]
+    ix = Index(Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)}))
+
+    assert ix.definitions(["accident"], blocs_ouverts=["d:p3:1"]) == [("d:p2:1", "d:branche")]
+
+
 def test_a_common_definition_keeps_its_structural_owner_without_becoming_local() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Le contenu désigne les meubles confiés.", loc="p1", seq=1,
-              kind="definition", kind_source="model_verified", defines="contenu",
-              scope_node_id="d:defs"),
+              kind="definition", kind_source="model_verified", defines="contenu"),
         Block(block_id="d:p9:1", text="Le contenu endommagé est examiné.", loc="p9", seq=1),
     ]
     nodes = [Node(node_id="root", level=0, items=[NodeRef(node_id="d:defs"),
@@ -529,6 +567,17 @@ def test_definitions_on_real_corpus_finds_the_axa_overlay() -> None:
         [("axa-lu-optihome-2017:p9:2", "axa-lu-optihome-2017:a1.12")]
     assert ("axa-lu-optihome-2017:p11:12" in [b for b, _ in ix.definitions(["mobilier de jardin"])])
     assert ix.definitions(["matricule"]) == []  # le guide n'a aucun bloc definition
+
+
+def test_real_corpus_uses_the_rc_accident_override_across_its_branch() -> None:
+    ix = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    for opened in ["axa-lu-optihome-2017:p65:11", "axa-lu-optihome-2017:p66:10"]:
+        definitions = [block_id for block_id, _node_id in ix.definitions(
+            ["accident"], doc_id="axa-lu-optihome-2017",
+            blocs_ouverts=[opened],
+        )]
+        assert "axa-lu-optihome-2017:p65:10" in definitions
+        assert "axa-lu-optihome-2017:p6:4" not in definitions
 
 
 def test_chercher_on_real_corpus_uses_config_thresholds() -> None:

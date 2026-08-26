@@ -118,9 +118,13 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                  "seule phrase courte et la plus courte quote contiguë qui la soutient ; n'énumère "
                  "pas les autres items d'une liste contractuelle. N'ajoute ni transition, ni "
                  "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
+        reserve_facettes = min(len(parsed.facettes), settings.draft_max_claims)
+        places_dependances = settings.draft_max_claims - reserve_facettes
+        dependances_directes = set(retrieval.decision_dependency_block_ids)
         limites_portees = [b.block_id for b in retrieval.blocs
                             if b.kind in {"exclusion", "condition", "franchise"}
-                            and b.scope_node_ids]
+                            and b.scope_node_ids and b.block_id in dependances_directes]
+        limites_portees = limites_portees[:places_dependances]
         if limites_portees:
             # Story 3.3 : le code aval est seul autorisé à décider qu'une portée explicite ne couvre
             # pas le cas. Si la rédaction omet la clause, cette décision pure ne peut jamais devenir
@@ -130,8 +134,10 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                      ". Pour chacun de ces blocs à portée explicite, rends une claim courte avec une "
                      "citation contiguë, même si sa portée semble différente du cas : ne décide pas "
                      "toi-même de son applicabilité, le code la calculera et affichera la raison.")
+        places_restantes = places_dependances - len(limites_portees)
         definitions = [b.block_id for b in retrieval.blocs
-                       if b.kind == "definition" and b.defines]
+                       if b.kind == "definition" and b.defines
+                       and b.block_id in dependances_directes][:places_restantes]
         if definitions:
             # `definitions()` a déjà résolu la proximité de portée et les overrides. Une définition
             # ainsi sélectionnée mais omise par la rédaction rendrait cette résolution invisible ;

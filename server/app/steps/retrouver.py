@@ -117,11 +117,17 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
 
 
 _KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
+_MOTS_OUTILS_LIMITES = frozenset({
+    "a", "au", "aux", "avec", "ce", "ces", "dans", "de", "des", "du", "elle", "en", "est",
+    "et", "il", "ils", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
+    "par", "pas", "pour", "que", "qui", "sa", "se", "ses", "son", "sur", "un", "une",
+})
 
 
 def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: list[str],
-                          doc_id: str, search_candidates: Iterable[str],
-                          related_limit: int) -> list[str]:
+                          doc_id: str | None, search_candidates: Iterable[str],
+                          related_limit: int, related_max: int, proximity_min: float,
+                          related_cache: dict[str, list[str]], search_related: bool) -> list[str]:
     """Fermeture commune aux deux variantes : refs, définitions et limites classées, un niveau.
 
     Les cibles sont calculées uniquement depuis le bloc primaire. Leurs propres `refs` ne sont donc
@@ -130,6 +136,7 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
     atomique et aux mêmes budgets globaux.
     """
     out: list[str] = []
+    current_doc_id = doc_id or index.doc_of(block_id)
 
     def add(candidate: str) -> None:
         # Une cible peut aussi être un primaire de la même fenêtre. Elle garde alors son unité
@@ -140,40 +147,54 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
 
     for candidate in block(block_id).refs:
         add(candidate)
-    for candidate, _node_id in index.definitions(terms, doc_id=doc_id,
+    for candidate, _node_id in index.definitions(terms, doc_id=current_doc_id,
                                                   blocs_ouverts=[block_id]):
         add(candidate)
     current = block(block_id)
-    if current.kind == "garantie":
+    if current.kind == "garantie" and related_max:
         cohort = list(search_candidates)
         # Une limite peut reprendre presque mot pour mot la règle d'une garantie sans partager le
         # vocabulaire factuel de la question. Une recherche déterministe depuis la clause ouverte
         # complète donc le cohort de cette ouverture ; elle reste bornée comme la recherche initiale
         # et ne réutilise aucun résultat d'un autre tour de navigation.
-        for candidate, _node_id in index.chercher(
-                forme(current.text).split(), limit=related_limit, doc_id=doc_id,
-                kinds_prioritaires=_KINDS_LIMITATIFS):
+        if search_related and block_id not in related_cache:
+            related_cache[block_id] = [candidate for candidate, _node_id in index.chercher(
+                forme(current.text).split(), limit=related_limit, doc_id=current_doc_id,
+                kinds_prioritaires=_KINDS_LIMITATIFS)]
+        for candidate in related_cache.get(block_id, []):
             if candidate not in cohort:
                 cohort.append(candidate)
         limites = [candidate for candidate in cohort
                    if candidate != block_id and block(candidate).kind in _KINDS_LIMITATIFS]
         if limites:
-            mots_source = set(forme(current.text).split())
+            document = index.corpus.documents[current_doc_id]
+            mots_source = {mot for mot in forme(current.text).split()
+                           if mot.isalpha() and mot not in _MOTS_OUTILS_LIMITES}
 
-            def proximite(candidate: str) -> tuple[float, int, int]:
-                """Proximité contractuelle, puis ordre de recherche stable en dernier ressort."""
-                mots_candidat = set(forme(block(candidate).text).split())
-                communs = len(mots_source & mots_candidat)
-                union = len(mots_source | mots_candidat)
-                return (communs / union if union else 0.0, communs,
-                        -limites.index(candidate))
+            def preuve_et_proximite(candidate: str) -> tuple[bool, float, int]:
+                limite = block(candidate)
+                relations = {
+                    current.relation.exception_de, current.relation.specialise,
+                    limite.relation.exception_de, limite.relation.specialise,
+                }
+                liee = (candidate in current.refs or block_id in limite.refs
+                        or candidate in relations or block_id in relations
+                        or document.node_of(block_id) in document.scope_nodes(candidate))
+                mots_candidat = {mot for mot in forme(limite.text).split()
+                                 if mot.isalpha() and mot not in _MOTS_OUTILS_LIMITES}
+                union = mots_source | mots_candidat
+                proximite = len(mots_source & mots_candidat) / len(union) if union else 0.0
+                return liee, proximite, -limites.index(candidate)
 
-            add(max(limites, key=proximite))
-            # Le classement de la question forme le cohort de limites autorisées ; dans ce cohort,
-            # la formulation contractuelle la plus proche de la garantie est la limite pertinente.
-            # Prendre seulement le premier hit favorisait une exclusion qui partageait un mot de la
-            # question mais pas la règle opératoire. Une garantie conserve toujours une seule limite :
-            # les autres restent leurs propres hits, sans aspiration du contrat ni dépassement budget.
+            prouvees = [(candidate, preuve_et_proximite(candidate)) for candidate in limites]
+            prouvees = [(candidate, preuve) for candidate, preuve in prouvees
+                         if preuve[0] or preuve[1] >= proximity_min]
+            prouvees.sort(key=lambda item: item[1], reverse=True)
+            for candidate, _preuve in prouvees[:related_max]:
+                add(candidate)
+            # Le classement de la question forme le cohort de limites candidates. Seules celles
+            # dont le corpus prouve le lien, ou dont la proximité dépasse le seuil configuré,
+            # accompagnent la garantie ; le plafond reste lui aussi une hypothèse de configuration.
     return out
 
 
@@ -213,6 +234,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     primary_node_by_block: dict[str, str] = {}
     search_candidates: list[str] = []
     search_runs: list[list[str]] = []
+    related_cache: dict[str, list[str]] = {}
+    decision_dependencies: list[str] = []
     searched_terms: list[str] = []
     blocks_used = 0
     tokens_used = 0
@@ -332,22 +355,24 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             elif window.truncated:
                 pagination_expected[node_id] = -1
 
+            anchors = {focus} if focus is not None else {b.block_id for b in window.blocks}
+            relevant_candidates: list[str] = []
+            for run in search_runs:
+                if anchors.intersection(run):
+                    relevant_candidates.extend(
+                        candidate for candidate in run if candidate not in relevant_candidates)
             primary: list[str] = []
             newly: list[str] = []
             for item in window.blocks:
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
                 # l'unité entière entre, ou le primaire n'est pas transmis isolément.
-                anchors = {focus} if focus is not None else {b.block_id for b in window.blocks}
-                relevant_candidates: list[str] = []
-                for run in search_runs:
-                    if anchors.intersection(run):
-                        relevant_candidates.extend(
-                            candidate for candidate in run
-                            if candidate not in relevant_candidates
-                        )
                 dependencies = _dependances_directes(
                     item.block_id, block=block, index=index, terms=terms, doc_id=doc_id,
                     search_candidates=relevant_candidates, related_limit=budget.search_limit,
+                    related_max=settings.limite_liee_max,
+                    proximity_min=settings.limite_liee_proximite_min,
+                    related_cache=related_cache,
+                    search_related=item.block_id == focus or item.block_id in relevant_candidates,
                 )
                 unit = [item.block_id, *dependencies]
                 got = admit(unit)
@@ -357,12 +382,16 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     if item.block_id not in window_opened:
                         window_opened.append(item.block_id)
                     primary_node_by_block[item.block_id] = node_id
+                    if item.kind in {"garantie", "exclusion"}:
+                        decision_dependencies.extend(
+                            candidate for candidate in dependencies
+                            if candidate in admitted_set and candidate not in decision_dependencies)
                 newly.extend(got)
-            dependencies: list[str] = [b for b in newly if b not in primary]
+            dependances_rendues = [b for b in newly if b not in primary]
             return {
                 "node_id": window.node_id, "title": window.title,
                 "children": [c.model_dump(mode="json") for c in window.children],
-                "blocks": rendered(primary), "dependencies": rendered(dependencies),
+                "blocks": rendered(primary), "dependencies": rendered(dependances_rendues),
                 "truncated": window.truncated or any(b.block_id not in admitted_set for b in window.blocks),
                 "next_cursor": window.next_cursor,
             }, False
@@ -467,6 +496,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         candidats_out.extend(b for b in search_candidates if b not in candidats_out)
     result = RetrievalResult(
         blocs=[block(b) for b in admitted], opened_block_ids=list(admitted),
+        decision_dependency_block_ids=[b for b in decision_dependencies if b in admitted_set],
         discarded_block_ids=discarded, truncated=truncated)
     step.ms = int((time.monotonic() - t0) * 1000)
     step.opened_block_ids = list(admitted)
@@ -621,7 +651,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             nodes.append(node_id)
     if len(nodes) > budget.max_opens:
         truncated = True  # des nœuds candidats avaient des hits au-delà du quota
-    def lire(ouverts: list[str]) -> tuple[list[str], dict[str, str], bool]:
+    related_cache: dict[str, list[str]] = {}
+
+    def lire(ouverts: list[str]) -> tuple[list[str], dict[str, str], list[str], bool]:
         """Ouvre ces nœuds, suit renvois et définitions, applique le budget de blocs/tokens.
 
         Rend `(ordre des blocs transmis, nœud d'origine de chaque bloc de fenêtre, troncature)`.
@@ -648,12 +680,19 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # Le primaire, ses refs directes, ses définitions applicables et toute limite classée parmi
         # les hits entrent ensemble ou sont tous refusés. Une cible n'est jamais suivie à son tour.
         unites: list[list[str]] = []
+        dependances_par_primaire: dict[str, list[str]] = {}
         candidats = [block_id for block_id, _node_id in hits]
         for block_id in fenetres:
-            unites.append([block_id, *_dependances_directes(
+            directes = _dependances_directes(
                 block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
                 search_candidates=candidats, related_limit=budget.search_limit,
-            )])
+                related_max=settings.limite_liee_max,
+                proximity_min=settings.limite_liee_proximite_min,
+                related_cache=related_cache, search_related=block_id in candidats,
+            )
+            unites.append([block_id, *directes])
+            if bloc(block_id).kind in {"garantie", "exclusion"}:
+                dependances_par_primaire[block_id] = directes
         # Le pré-contrôle AD-5 interroge aussi `definitions()` : si aucun texte n'a de hit mais
         # qu'un terme demandé est défini, le déterministe doit pouvoir rendre cette définition au
         # lieu de fabriquer ensuite un `zero_hit`. Dès qu'une fenêtre primaire existe, cette voie
@@ -687,10 +726,17 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         for b in (*fenetres, *definitions_autonomes, *(c for u in unites for c in u[1:])):
             if b in seen and b not in ordre:
                 ordre.append(b)
-        return ordre, noeud_de, tronque
+        dependances_decisionnelles: list[str] = []
+        for primaire, directes in dependances_par_primaire.items():
+            if primaire not in seen:
+                continue
+            dependances_decisionnelles.extend(
+                candidate for candidate in directes
+                if candidate in seen and candidate not in dependances_decisionnelles)
+        return ordre, noeud_de, dependances_decisionnelles, tronque
 
     ouverts, (promus, cedes) = _reserver(nodes, designes, budget.max_opens, budget.profil_max_opens)
-    ordre, noeud_de, tronque = lire(ouverts)
+    ordre, noeud_de, dependances_decisionnelles, tronque = lire(ouverts)
     # **Réserver une place n'est pas l'occuper, et une place réservée pour rien doit être rendue**
     # (revue Codex 2.3, I1). L'unité de dépendance d'un nœud promu est soumise au budget de
     # blocs/tokens comme n'importe quelle autre : elle peut être écartée en entier. Le nœud qu'il
@@ -712,7 +758,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         promus = [p for p, _ in paires if p not in perdus]
         cedes = [c for p, c in paires if p not in perdus]
         ouverts = [n for n in nodes[:budget.max_opens] if n not in set(cedes)] + promus
-        ordre, noeud_de, tronque = lire(ouverts)
+        ordre, noeud_de, dependances_decisionnelles, tronque = lire(ouverts)
     truncated = truncated or tronque
     blocs = [bloc(b) for b in ordre]
 
@@ -722,6 +768,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # de recherche : c'est `truncated` qui porte cette information (revue Codex 1.4, B5).
     discarded = [b for b, _ in hits if b not in set(ordre)]
     result = RetrievalResult(blocs=blocs, opened_block_ids=opened, discarded_block_ids=discarded,
+                             decision_dependency_block_ids=dependances_decisionnelles,
                              truncated=truncated)
     step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"], ms=int((time.monotonic() - t0) * 1000),
                      opened_block_ids=list(opened), discarded_block_ids=list(discarded))

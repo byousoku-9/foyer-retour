@@ -162,6 +162,11 @@ class Settings(BaseSettings):
     profil_max_opens: int = Field(2, ge=0)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
+    # Story 3.3, revue indépendante I3 : une garantie ne peut aspirer qu'un nombre borné de clauses
+    # limitatives directement liées. Le seuil lexical s'applique après retrait des mots-outils ; il
+    # conserve le témoin chaleur (0,57 mesuré) et rejette les rapprochements fortuits (< 0,12).
+    limite_liee_max: int = Field(1, ge=0)
+    limite_liee_proximite_min: float = Field(0.35, ge=0, le=1)
     # Global à la requête. La chaîne du guide fait **cinq** appels dans son pire cas nominal —
     # *comprendre*, *rédiger*, *vérifier*, puis la relance unique d'AD-3 et la seconde vérification
     # qu'elle exige — plus une relance motivée du client sur un parse invalide (AD-16, « 1 retry »).
@@ -481,6 +486,8 @@ class Settings(BaseSettings):
             "profil_max_opens": self.profil_max_opens,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
+            "limite_liee_max": self.limite_liee_max,
+            "limite_liee_proximite_min": self.limite_liee_proximite_min,
             "max_llm_attempts": self.max_llm_attempts,
             "max_llm_turns": self.max_llm_turns,
             "retrouver_outils_max_tokens": self.retrouver_outils_max_tokens,

@@ -127,6 +127,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         "sans_decoupage": "Je n'ai pas pu découper votre question en sous-questions : je ne peux donc pas garantir de l'avoir traitée en entier.",
         "facettes_sans_reponse": ("Il reste {n} sous-question sans réponse dans ce que vous m'avez demandé.", "Il reste {n} sous-questions sans réponse dans ce que vous m'avez demandé."),
         "renvoi_non_resolu": "Un passage que je cite renvoie à un autre passage que je n'ai pas pu retrouver.",
+        "contradiction_non_resolue": "Deux passages que je cite se contredisent sans que le contrat les départage.",
         "phrases_ecartees": (
             "J'ai retiré {n} phrase de ma réponse : les passages joints ne la soutenaient pas.",
             "J'ai retiré {n} phrases de ma réponse : les passages joints ne les soutenaient pas.",
@@ -139,6 +140,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         "sans_decoupage": "I could not break your question into sub-questions, so I cannot guarantee that I addressed it in full.",
         "facettes_sans_reponse": ("There is still {n} unanswered sub-question in what you asked me.", "There are still {n} unanswered sub-questions in what you asked me."),
         "renvoi_non_resolu": "A passage I cite refers to another passage that I could not retrieve.",
+        "contradiction_non_resolue": "Two passages I cite contradict each other, and the contract does not resolve the conflict.",
         "phrases_ecartees": (
             "I removed {n} sentence from my answer because the attached passages did not support it.",
             "I removed {n} sentences from my answer because the attached passages did not support them.",
@@ -151,6 +153,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         "sans_decoupage": "Ich konnte Ihre Frage nicht in Teilfragen gliedern und kann daher nicht garantieren, sie vollständig behandelt zu haben.",
         "facettes_sans_reponse": ("In Ihrer Frage bleibt noch {n} Teilfrage unbeantwortet.", "In Ihrer Frage bleiben noch {n} Teilfragen unbeantwortet."),
         "renvoi_non_resolu": "Eine von mir zitierte Passage verweist auf eine andere Passage, die ich nicht finden konnte.",
+        "contradiction_non_resolue": "Zwei von mir zitierte Passagen widersprechen sich, ohne dass der Vertrag den Widerspruch auflöst.",
         "phrases_ecartees": (
             "Ich habe {n} Satz aus meiner Antwort entfernt, weil die beigefügten Passagen ihn nicht stützten.",
             "Ich habe {n} Sätze aus meiner Antwort entfernt, weil die beigefügten Passagen sie nicht stützten.",
@@ -163,6 +166,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         "sans_decoupage": "Não consegui dividir a sua pergunta em subperguntas, pelo que não posso garantir que a tratei por completo.",
         "facettes_sans_reponse": ("Falta responder a {n} subpergunta do que me perguntou.", "Falta responder a {n} subperguntas do que me perguntou."),
         "renvoi_non_resolu": "Uma passagem que cito remete para outra passagem que não consegui encontrar.",
+        "contradiction_non_resolue": "Duas passagens que cito contradizem-se, sem que o contrato resolva o conflito.",
         "phrases_ecartees": (
             "Retirei {n} frase da minha resposta porque as passagens associadas não a sustentavam.",
             "Retirei {n} frases da minha resposta porque as passagens associadas não as sustentavam.",

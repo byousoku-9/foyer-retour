@@ -81,7 +81,7 @@ def test_t1_t2_resolution_et_scopes_sont_du_code() -> None:
     assert warranty.kind_source == "model_verified" and warranty.kind_confidence == 0.9
     assert warranty.refs == ["contrat:p2:1"]  # l'article 2 devient son unique bloc juridique
     definition = typed.block("contrat:p2:1")
-    assert definition.defines == "contenu" and definition.scope_node_id == "contrat:a2"
+    assert definition.defines == "contenu" and definition.scope_node_id is None
     exclusion = typed.block("contrat:p3:2")
     assert exclusion.kind == "exclusion" and exclusion.kind_source == "model"
     assert exclusion.scope_node_id == "contrat:a3.1" and exclusion.scope_node_ids == ["contrat:a3.1"]
@@ -91,6 +91,45 @@ def test_t1_t2_resolution_et_scopes_sont_du_code() -> None:
     assert typed.node_scope_kind("contrat:a3.1") == "special"  # signal enfant le plus proche prioritaire
     assert [(b.block_id, b.text, b.lines, b.bbox) for b in typed.blocks] == \
         [(b.block_id, b.text, b.lines, b.bbox) for b in doc.blocks]
+
+
+def test_an_overriding_definition_is_scoped_to_the_decisional_branch_not_its_article() -> None:
+    blocks = [
+        Block(block_id="contrat:p1:1", text="Accident désigne un événement.", loc="p1", seq=1),
+        Block(block_id="contrat:p2:1", text="Par dérogation à l'article 1, accident désigne un choc.",
+              loc="p2", seq=1),
+        Block(block_id="contrat:p3:1", text="La garantie couvre cet accident.", loc="p3", seq=1),
+    ]
+    nodes = [
+        Node(node_id="contrat", items=[NodeRef(node_id="contrat:a1"),
+                                         NodeRef(node_id="contrat:a2")]),
+        Node(node_id="contrat:a1", level=1, title="1 Lexique",
+             items=[BlockRef(block_id="contrat:p1:1")]),
+        Node(node_id="contrat:a2", level=1, title="2 Responsabilité civile",
+             items=[NodeRef(node_id="contrat:a2.1"), NodeRef(node_id="contrat:a2.2")]),
+        Node(node_id="contrat:a2.1", level=2, title="2.1 Définitions",
+             items=[NodeRef(node_id="contrat:a2.1.1")]),
+        Node(node_id="contrat:a2.1.1", level=3, title="2.1.1 Accident",
+             items=[BlockRef(block_id="contrat:p2:1")]),
+        Node(node_id="contrat:a2.2", level=2, title="2.2 Etendue",
+             items=[BlockRef(block_id="contrat:p3:1")]),
+    ]
+    doc = Document(doc_id="contrat", kind="contrat", title="Contrat", edition="2026",
+                   nodes=nodes, blocks=blocks, source_hash="source", ingest_fingerprint="fp")
+    first = {
+        "contrat:p1:1": label("contrat:p1:1", "definition", defines="accident"),
+        "contrat:p2:1": label("contrat:p2:1", "definition", defines="accident",
+                                overrides_article="1"),
+        "contrat:p3:1": label("contrat:p3:1", "garantie"),
+    }
+    second = {block_id: label(block_id, value.kind, defines=value.defines)
+              for block_id, value in first.items()}
+
+    typed = tc.assemble(doc, first, second, settings())
+
+    assert typed.block("contrat:p1:1").scope_node_id is None
+    assert typed.block("contrat:p2:1").scope_node_id == "contrat:a2"
+    assert typed.node_scope_kind("contrat:a2") == "special"
 
 
 def test_cible_ambigue_ou_trop_large_ne_produit_jamais_de_selection_partielle() -> None:
@@ -737,7 +776,8 @@ def test_standard_resume_rejoue_un_succes_dont_le_payload_a_change(tmp_path: Pat
     assert result.replayed_requests == 1 and result.reused_requests == len(first) - 1
     assert len(client.messages.calls) == 2  # un plan T1 rejoué + la lecture T2
     report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
-    assert report.stats["typage_replayed_payload_custom_ids"] == changed_id
+    assert report.stats["typage_changed_payload_custom_ids"] == changed_id
+    assert report.stats["typage_changed_payload_requests"] == 1
 
 
 def test_standard_retries_seulement_429_et_5xx_et_conserve_lordre() -> None:

@@ -312,7 +312,11 @@ class Index:
         for cle, entries in par_terme.items():
             noeuds = contexte[cle]
             if not noeuds:  # aucun bloc ouvert dans ce document : aucune portée n'est invalidée
-                choisi = min(entries, key=lambda e: (bool(self._portee_racines(e)), e.rank))
+                communes = [e for e in entries if not self._portee_racines(e)]
+                eligibles = communes or entries
+                deroges = {e.block.overrides for e in eligibles if e.block.overrides}
+                eligibles = [e for e in eligibles if e.block.block_id not in deroges]
+                choisi = min(eligibles, key=lambda e: e.rank)
                 retenus.setdefault(choisi.block.block_id, choisi)
                 continue
             for noeud in sorted(noeuds):
@@ -326,6 +330,8 @@ class Index:
                     communes = [e for e in entries if not self._portee_racines(e)]
                     if not communes:
                         continue
+                    deroges = {e.block.overrides for e in communes if e.block.overrides}
+                    communes = [e for e in communes if e.block.block_id not in deroges]
                     choisi = min(communes, key=lambda e: e.rank)
                 retenus.setdefault(choisi.block.block_id, choisi)
         return [(e.block.block_id, e.node_id) for e in sorted(retenus.values(), key=lambda e: e.rank)]
@@ -335,14 +341,6 @@ class Index:
         if b.scope_node_ids:
             return list(b.scope_node_ids)
         if not b.scope_node_id:
-            return []
-        # Le typage renseigne aussi le nœud propriétaire des définitions communes. Confondre ce
-        # rattachement structurel avec une restriction de portée faisait disparaître la définition
-        # partout hors de son propre article. Seules les branches `special|extension` bornent une
-        # définition ; un nœud explicitement commun est précisément la remontée prévue par AD-2.
-        document = self.corpus.documents[e.doc_id]
-        if (b.kind_source in {"model", "model_verified"}
-                and document.node_scope_kind(b.scope_node_id) == "commun"):
             return []
         return [b.scope_node_id]
 

@@ -136,7 +136,7 @@ async def test_les_deux_variantes_partagent_la_meme_fermeture_directe() -> None:
         Block(block_id="d:p1:1", text="Garantie incendie du contenu.", loc="p1", seq=1,
               kind="garantie", refs=["d:p3:1"]),
         Block(block_id="d:p2:1", text="Exclusion incendie volontaire.", loc="p2", seq=1,
-              kind="exclusion"),
+              kind="exclusion", relation={"exception_de": "d:p1:1"}),
         Block(block_id="d:p4:1", text="Le contenu désigne les biens mobiliers.", loc="p4", seq=1,
               kind="definition", defines="contenu"),
         Block(block_id="d:p3:1", text="Cible directe sans terme de recherche.", loc="p3", seq=1,
@@ -276,6 +276,58 @@ async def test_outils_ne_reutilise_pas_la_limite_d_une_recherche_sans_rapport() 
 
     assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1", "d:p3:1"]
     assert "d:p2:1" not in outils.opened_block_ids
+
+
+async def test_une_limite_ne_partageant_que_des_mots_outils_nest_pas_attachee() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="La garantie est acquise pour le bien.", loc="p1", seq=1,
+              kind="garantie", scope_node_id="n1"),
+        Block(block_id="d:p2:1", text="La condition est prévue pour le contrat.", loc="p2", seq=1,
+              kind="condition", scope_node_id="n2"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["garantie", "bien"])
+    budget = _budget(max_blocks=4, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["garantie", "bien"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+
+
+async def test_outils_memoise_la_recherche_de_limite_par_bloc(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    corpus = _corpus()
+    doc = corpus.documents["d"]
+    garantie = doc.block("d:p1:1").model_copy(update={"kind": "garantie"}, deep=True)
+    corpus = Corpus(documents={"d": Document.model_validate(doc.model_copy(
+        update={"blocks": [garantie, *doc.blocks[1:]]}, deep=True).model_dump())},
+        summaries=corpus.summaries)
+    original = Index.chercher
+    calls: list[tuple[object, ...]] = []
+
+    def counted(self: Index, *args: object, **kwargs: object):
+        calls.append(args)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Index, "chercher", counted)
+    await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+            _tool("ouvrir_noeud", "t3", node_id="n1", focus_block_id="d:p1:1"),
+        ),
+    ], corpus=corpus, parsed=_parsed(["matricule"]), budget=_budget(max_blocks=10, max_tokens=6000))
+
+    assert len(calls) == 2  # recherche de question + une seule recherche liée pour la garantie
 
 
 async def test_outils_reason_tier_reaches_the_provider_and_the_trace_unchanged() -> None:

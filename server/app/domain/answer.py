@@ -33,6 +33,7 @@ LacuneKind = Literal[
     "sans_decoupage",
     "facettes_sans_reponse",
     "renvoi_non_resolu",
+    "contradiction_non_resolue",
     "phrases_ecartees",
     "segments_retires",
     "relance_abandonnee",
