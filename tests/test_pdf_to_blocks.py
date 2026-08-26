@@ -402,13 +402,42 @@ def test_visual_page_ocr_runs_after_native_band_removal_and_empty_result_keeps_d
     pages, toc = p.extract_pages(pdf)
     assert pages[0].native_text is False
     assert pages[0].ocr_attempted and not pages[0].ocr_succeeded and pages[0].lines == []
-    assert pages[0].ocr_error == "ocr_sans_texte_exploitable_apres_retrait_band"
+    assert pages[0].ocr_error == "sortie_vide"
     built, meta = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=toc,
                                    doc_id=DOC, title="Contrat")
     report = p.build_pdf_report(built, None, pages=pages, numbers=meta["numbers"],
                                 duplicates=meta["duplicates"], continues=meta["continues"], toc=toc)
     assert all(check.name != "ocr_cible" for check in report.checks)
     assert next(check for check in report.checks if check.name == "page_sans_texte").level == "bloquant"
+
+
+def test_ocr_exception_report_never_exposes_local_engine_paths(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue 3.1 M2 : le rapport public ne recopie jamais le message brut du moteur OCR."""
+    pdf = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.draw_rect(pymupdf.Rect(100, 100, 300, 300), fill=(0.5, 0.5, 0.5))
+    doc.save(pdf)
+
+    monkeypatch.setattr(
+        pymupdf.Page,
+        "get_textpage_ocr",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("No OCR support: /Users/alice/private/tessdata/fra.traineddata"),
+        ),
+    )
+    pages, toc = p.extract_pages(pdf)
+    built, meta = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=toc, doc_id=DOC, title="Contrat",
+    )
+    report = p.build_pdf_report(
+        built, None, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
+        continues=meta["continues"], toc=toc,
+    )
+    detail = next(check.detail for check in report.checks if check.name == "page_sans_texte")
+    assert "RuntimeError" in detail and "moteur_absent" in detail
+    assert "/Users/alice" not in detail and "tessdata/fra.traineddata" not in detail
 
 
 def test_contract_without_numeric_articles_keeps_its_content_citable() -> None:
@@ -470,6 +499,74 @@ def test_toc_title_in_table_continues_until_article_and_body_mention_does_not_tr
 def test_toc_title_accepts_generic_punctuation_and_suffix_variants(title: str) -> None:
     assert p._is_toc_title(title)
     assert not p._is_toc_title("Le corps mentionne la table des matières pour information.")
+
+
+def test_structural_sommaire_without_literal_title_marks_toc_and_keeps_unnumbered_body_citable() -> None:
+    """Revue 3.1 B1 : la géométrie d'une TdM suffit, même sans le littéral « table des matières »."""
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("CONDITIONS GÉNÉRALES", [56, 100, 320, 118], 17),
+        ]),
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("Sommaire", [56, 70, 220, 88], 17),
+            p.PageLine("Garanties ................................ 5", [56, 110, 500, 124], 10),
+            p.PageLine("Exclusions .............................. 9", [56, 132, 500, 146], 10),
+        ]),
+        p.PageText(page=3, width=595, height=842, lines=[
+            p.PageLine("Franchises ............................. 12", [56, 90, 500, 104], 10),
+        ]),
+        p.PageText(page=4, width=595, height=842, lines=[
+            p.PageLine("GARANTIES", [56, 80, 260, 98], 17),
+            p.PageLine("Les dommages causés par incendie sont couverts.", [56, 120, 460, 134], 10),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    assert [page.is_toc for page in pages] == [False, True, True, False]
+    assert [page.after_toc for page in pages] == [False, False, False, True]
+
+    document, meta = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat sans articles",
+    )
+    cover = next(block for block in document.blocks if block.page == 1)
+    body = [block for block in document.blocks if block.page == 4]
+    assert cover.kind == "autre"
+    assert body and all(p.is_citable(block) for block in body)
+    assert meta["printed_toc"] == []  # TdM non numérotée : détectée, mais aucun numéro n'est inventé.
+    report = p.build_pdf_report(
+        document, None, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
+        continues=meta["continues"], toc=[], printed_toc=meta["printed_toc"],
+    )
+    check = next(check for check in report.checks if check.name == "tdm_imprimee")
+    assert check.level == "alerte" and "aucune entrée numérotée exploitable" in check.detail
+
+
+def test_removed_toc_header_cannot_rearm_toc_after_body_started() -> None:
+    """Revue 3.1 B2 : une bande retirée répétée ne peut plus faire disparaître le corps du rappel."""
+    removed = ["CONTRAT - TABLE DES MATIÈRES"]
+    pages = [
+        p.PageText(page=1, width=595, height=842, removed=removed.copy(), lines=[
+            p.PageLine("1 Garanties 4", [56, 100, 500, 114], 10),
+            p.PageLine("2 Exclusions 8", [56, 122, 500, 136], 10),
+        ]),
+        p.PageText(page=2, width=595, height=842, removed=removed.copy(), lines=[
+            p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        ]),
+        p.PageText(page=3, width=595, height=842, removed=removed.copy(), lines=[
+            p.PageLine("Sont exclus les dommages causés par un animal appartenant à l'assuré.",
+                       [56, 100, 520, 114], 10),
+            p.PageLine("La franchise reste de 250 euros.", [56, 116, 380, 130], 10),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    assert [page.is_toc for page in pages] == [True, False, False]
+    assert pages[2].after_toc
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+    clauses = [block for block in document.blocks if block.page == 3]
+    assert clauses and all(p.is_citable(block) for block in clauses)
 
 
 def test_toc_continuation_stops_on_unnumbered_body_and_body_before_first_article_is_citable() -> None:
@@ -617,6 +714,19 @@ def test_printed_toc_compares_only_announced_levels_and_combines_differences() -
     assert "absents de la TdM : 2" in combined.detail
     assert "titres différents : 1" in combined.detail
     assert "1.1" not in combined.detail  # le niveau 2 n'est pas annoncé par cette TdM
+
+
+def test_toc_title_prefix_threshold_changes_the_report_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    document = _document_for_toc()
+    entries = [("1", "Conditions générales communes"), ("2", "Garanties complémentaires")]
+    assert _printed_toc_check(document, entries, 1).level == "info"
+    monkeypatch.setenv("TOC_TITLE_PREFIX_MIN_CHARS", "30")
+    p.get_settings.cache_clear()
+    try:
+        stricter = _printed_toc_check(document, entries, 1)
+    finally:
+        p.get_settings.cache_clear()
+    assert stricter.level == "alerte" and "titres différents : 1" in stricter.detail
 
 
 def test_printed_toc_duplicate_and_conflicting_numbers_alert() -> None:
@@ -770,6 +880,40 @@ def test_quality_checks_are_generic_and_never_raise_coverage_to_blocking() -> No
     assert report.stats["couverture"] == pytest.approx(2 / 3, abs=0.0001)
 
 
+def test_report_makes_every_non_citable_page_observable() -> None:
+    """Revue 3.1 B2 : l'exclusion du rappel est une alerte chiffrée, jamais une perte silencieuse."""
+    blocks = [
+        Block(block_id=f"{DOC}:p1:1", text="Couverture", loc="p1", seq=1, page=1, kind="autre"),
+        Block(block_id=f"{DOC}:p2:1", text="Garanties | 4", loc="p2", seq=1, page=2,
+              kind="table", source_field="tdm"),
+        Block(block_id=f"{DOC}:p3:1", text="Clause citable", loc="p3", seq=1, page=3),
+    ]
+    document = Document(
+        doc_id=DOC, kind="contrat", title="Contrat", edition="test", blocks=blocks,
+        nodes=[Node(node_id="root", items=[BlockRef(block_id=block.block_id) for block in blocks])],
+    )
+    pages = [
+        p.PageText(page=number, width=595, height=842,
+                   lines=[p.PageLine(block.text, [56, 80, 400, 94], 10)])
+        for number, block in enumerate(blocks, start=1)
+    ]
+    report = p.build_pdf_report(document, None, pages=pages, numbers=[], duplicates=[], continues=0, toc=[])
+    check = next(check for check in report.checks if check.name == "blocs_non_citables")
+    assert check.level == "alerte"
+    assert "2 bloc(s)" in check.detail and "2 page(s)" in check.detail and "1, 2" in check.detail
+
+
+def test_quality_analysis_does_not_mutate_extracted_pages() -> None:
+    """Revue 3.1 M4 : le rapport décrit son entrée sans changer la provenance extraite."""
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("the contract is valid and this policy is for you", [56, 80, 400, 94], 10),
+    ])
+    first = _quality([page])
+    second = _quality([page])
+    assert first == second
+    assert first[0] == [1] and page.language == "fr"
+
+
 def test_short_page_with_configured_foreign_signals_is_not_silently_french(
         monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QUALITY_MIN_WORDS", "20")
@@ -783,7 +927,7 @@ def test_short_page_with_configured_foreign_signals_is_not_silently_french(
         foreign, gibberish, _ = _quality([page])
     finally:
         p.get_settings.cache_clear()
-    assert foreign == [1] and gibberish == [] and page.language == "autre"
+    assert foreign == [1] and gibberish == [] and page.language == "fr"
 
 
 def test_non_default_gibberish_and_residual_thresholds_change_behavior(
@@ -1121,6 +1265,10 @@ def test_document_json_omits_defaults_and_text_norm(data: Path) -> None:
         ("GIBBERISH_RATIO_MAX", "0.42"),
         ("RESIDUAL_HEADER_MIN_PAGES_RATIO", "0.41"),
         ("COVERAGE_THRESHOLD", "0.73"),
+        ("TOC_PAGE_NUMBER_BASELINE_PT", "7.5"),
+        ("TOC_COLUMN_TOLERANCE_PT", "72"),
+        ("TOC_INDENT_TOLERANCE_PT", "4"),
+        ("TOC_LINE_GAP_RATIO", "1.4"),
     ],
 )
 def test_fingerprint_depends_on_rules_and_thresholds(

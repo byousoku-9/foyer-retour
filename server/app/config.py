@@ -311,6 +311,13 @@ class Settings(BaseSettings):
     french_signal_ratio_min: float = Field(0.08, ge=0, le=1)
     gibberish_ratio_max: float = Field(0.35, ge=0, le=1)
     residual_header_min_pages_ratio: float = Field(0.3, ge=0, le=1)
+    # Géométrie de TdM (revue 3.1) : alignement du numéro de page, colonne d'entrées,
+    # retrait d'une continuation, interligne maximal et préfixe minimal accepté par le rapport.
+    toc_page_number_baseline_pt: float = Field(8.0, ge=0)
+    toc_column_tolerance_pt: float = Field(80.0, ge=0)
+    toc_indent_tolerance_pt: float = Field(5.0, ge=0)
+    toc_line_gap_ratio: float = Field(1.5, gt=0)
+    toc_title_prefix_min_chars: int = Field(20, ge=1)
 
     # Dictionnaire enrichi (story 2.1, AD-5 / AD-7). Toutes ces bornes s'appliquent **par le code**
     # à ce que le modèle d'ingestion rend : AD-5 et AD-7 disent qu'il ne renvoie jamais de texte de
@@ -500,6 +507,11 @@ class Settings(BaseSettings):
             "french_signal_ratio_min": self.french_signal_ratio_min,
             "gibberish_ratio_max": self.gibberish_ratio_max,
             "residual_header_min_pages_ratio": self.residual_header_min_pages_ratio,
+            "toc_page_number_baseline_pt": self.toc_page_number_baseline_pt,
+            "toc_column_tolerance_pt": self.toc_column_tolerance_pt,
+            "toc_indent_tolerance_pt": self.toc_indent_tolerance_pt,
+            "toc_line_gap_ratio": self.toc_line_gap_ratio,
+            "toc_title_prefix_min_chars": self.toc_title_prefix_min_chars,
             # Story 2.1 : les bornes du dictionnaire enrichi et celle du périmètre dérivé du corpus.
             # Elles sont publiées comme les autres (convention Seuils) — `/api/v1/sante` et
             # `Trace.thresholds` se lisent avec la même règle, y compris pour ce que l'ingestion a

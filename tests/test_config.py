@@ -36,6 +36,9 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.mixed_page_image_density == 0.2 and s.ocr_dpi == 300
     assert s.quality_min_words == 12 and s.foreign_signal_min == 3 and s.french_signal_ratio_min == 0.08
     assert s.gibberish_ratio_max == 0.35 and s.residual_header_min_pages_ratio == 0.3
+    assert s.toc_page_number_baseline_pt == 8.0 and s.toc_column_tolerance_pt == 80.0
+    assert s.toc_indent_tolerance_pt == 5.0 and s.toc_line_gap_ratio == 1.5
+    assert s.toc_title_prefix_min_chars == 20
     assert s.env == "dev" and s.allow_ungated is True
     # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
     assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
@@ -87,7 +90,9 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             # story 3.1 : seuils génériques de densité, OCR et qualité PDF
             "mixed_page_image_density", "ocr_dpi", "quality_min_words", "foreign_signal_min",
             "french_signal_ratio_min",
-            "gibberish_ratio_max", "residual_header_min_pages_ratio"} <= set(t.thresholds)
+            "gibberish_ratio_max", "residual_header_min_pages_ratio",
+            "toc_page_number_baseline_pt", "toc_column_tolerance_pt", "toc_indent_tolerance_pt",
+            "toc_line_gap_ratio", "toc_title_prefix_min_chars"} <= set(t.thresholds)
     assert all(isinstance(v, (int, float)) for v in t.thresholds.values())
     # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
     # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).

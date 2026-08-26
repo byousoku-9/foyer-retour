@@ -9,20 +9,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from fractions import Fraction
 
-from server.app.domain import Block, BlockRef, Document, NodeChild, NodeRef, NodeWindow
+from server.app.domain import Block, BlockRef, Document, NodeChild, NodeRef, NodeWindow, is_citable
 
 from .loader import Corpus
 from .text import normalize
 
 _WORD = re.compile(r"[a-z0-9]+")
-_NON_CITABLE_SOURCE_FIELDS = frozenset({"preliminaire", "tdm"})
-
-
-def _citable(block: Block) -> bool:
-    """Les préliminaires restent auditables dans le document, jamais dans le contexte de réponse."""
-    return block.kind != "autre" and block.source_field not in _NON_CITABLE_SOURCE_FIELDS
-
-
 def words(text_norm: str) -> list[str]:
     """Mots d'un `text_norm` : suites alphanumériques (la ponctuation et l'apostrophe séparent)."""
     return _WORD.findall(text_norm)
@@ -75,7 +67,7 @@ class Index:
                 # `autre` et les tables explicitement marquées préliminaire/TdM restent auditables
                 # dans `Document.blocks`, mais ne consomment jamais une fenêtre ni le budget de rappel.
                 self._nodes[n.node_id] = (doc_id, [block_id for block_id in n.blocks
-                                                   if _citable(doc.block(block_id))])
+                                                   if is_citable(doc.block(block_id))])
                 self._node_titles[n.node_id] = n.title
                 self._node_children[n.node_id] = n.children
                 self._levels[n.node_id] = n.level
@@ -90,7 +82,7 @@ class Index:
                            tokens=frozenset(ws), padded=f" {' '.join(ws)} ")
                 self._entries.append(e)
                 self._by_block[block_id] = e
-                if _citable(b):
+                if is_citable(b):
                     frequencies = self._block_frequencies.setdefault(doc_id, {})
                     for token in e.tokens:
                         frequencies[token] = frequencies.get(token, 0) + 1
@@ -198,7 +190,7 @@ class Index:
         for e in self._entries:
             if doc_id is not None and e.doc_id != doc_id:
                 continue
-            if not _citable(e.block):
+            if not is_citable(e.block):
                 continue
             pleins = 0
             precision_plein = Fraction()

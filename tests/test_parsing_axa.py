@@ -91,10 +91,11 @@ def test_document_shape(doc: Document) -> None:
     assert p54.kind == "list" and p54.lines[2].text.startswith("immeubles qu") and p54.lines[4].text.startswith("de vol")
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert not report.blocking and report.stats["pages"] == 109 and report.stats["tdm_pdf_entrees"] == 0
-    assert [c.name for c in report.alerts] == ["pages_mixtes"]
+    assert [c.name for c in report.alerts] == ["blocs_non_citables", "pages_mixtes"]
     printed_toc = next(c for c in report.checks if c.name == "tdm_imprimee")
     assert printed_toc.level == "info" and "4 titre(s)" in printed_toc.detail
-    assert report.alerts[0].detail.endswith(": 1")
+    assert "4 bloc(s) sur 4 page(s)" in report.alerts[0].detail
+    assert report.alerts[1].detail.endswith(": 1")
     assert report.stats["tables"] == 7 and report.stats["couverture"] == 1.0
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     # Story 1.10 : le gate `vertical` est désormais écrit — par `evals run --gate`, jamais par
@@ -131,6 +132,13 @@ def test_overlay_confirms_four_blocks() -> None:
     assert manifest["overlay_hash"] == hashlib.sha256((REAL / "typing.manual.json").read_bytes()).hexdigest()
     raw = json.loads((REAL / "document.json").read_text("utf-8"))
     assert all("kind" not in b or b["kind"] in ("heading", "list", "table", "autre") for b in raw["blocks"])
+
+
+def test_revue_3_1_records_the_measured_id_reassignment() -> None:
+    """Revue 3.1 M1 : une réingestion idempotente ne doit pas effacer la preuve historique d'AD-2."""
+    journal = (ROOT / "docs" / "tests-live.md").read_text("utf-8")
+    assert "57 `block_id` de l’ancien artefact absents" in journal
+    assert "31 identifiants conservés dont le texte a changé" in journal
 
 
 @pytest.mark.skipif(not (REAL / "source.pdf").is_file(), reason="source.pdf absent (non committé)")

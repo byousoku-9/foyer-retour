@@ -50,6 +50,27 @@ def test_sommaire(mini_index: Index) -> None:
         mini_index.sommaire("inconnu")
 
 
+def test_pdf_summary_never_advertises_a_node_with_no_citable_block() -> None:
+    """Revue 3.1 I2 : chaque nœud annoncé produit une fenêtre de blocs utile."""
+    toc = Block(block_id="d:p1:1", text="Garanties .... 4", loc="p1", seq=1, page=1, kind="autre")
+    clause = Block(block_id="d:p2:1", text="Garantie incendie", loc="p2", seq=1, page=2)
+    document = Document(
+        doc_id="d", kind="contrat", title="Contrat", edition="e", blocks=[toc, clause],
+        nodes=[
+            Node(node_id="d", items=[NodeRef(node_id="d:tdm"), NodeRef(node_id="d:a1")]),
+            Node(node_id="d:tdm", level=1, title="Sommaire", items=[BlockRef(block_id=toc.block_id)]),
+            Node(node_id="d:a1", level=1, title="Garanties", items=[BlockRef(block_id=clause.block_id)]),
+        ],
+    )
+    from server.ingest.pdf_to_blocks import build_summary
+
+    summary = build_summary(document)
+    index = Index(Corpus(documents={"d": document}, summaries={"d": summary}))
+    advertised = [line.split("`")[1] for line in summary.splitlines() if "`" in line]
+    assert advertised == ["d:a1"]
+    assert all(index.ouvrir_noeud(node_id, node_window=8).blocks for node_id in advertised)
+
+
 def test_ouvrir_noeud_window_focus_and_cursor() -> None:
     ix = Index(Corpus(documents={"d": _doc(8)}))
     debut = ix.ouvrir_noeud("n", node_window=3)

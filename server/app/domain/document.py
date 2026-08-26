@@ -112,6 +112,14 @@ class Block(DomainModel):
         return self
 
 
+NON_CITABLE_SOURCE_FIELDS = frozenset({"preliminaire", "tdm"})
+
+
+def is_citable(block: Block) -> bool:
+    """Prédicat unique du rappel : les préliminaires restent auditables, jamais proposés comme preuve."""
+    return block.kind != "autre" and block.source_field not in NON_CITABLE_SOURCE_FIELDS
+
+
 class Node(DomainModel):
     node_id: str
     level: int = 0

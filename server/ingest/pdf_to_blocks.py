@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import re
 import sys
 from dataclasses import dataclass, field
@@ -35,7 +36,7 @@ from pydantic import ValidationError
 
 from server.app.config import get_settings
 from server.app.corpus.text import normalize, normalize_version
-from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report
+from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
 from server.app.domain.document import DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
                                      read_manifest, write_atomic)
@@ -47,7 +48,7 @@ TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
 DEFAULT_EDITION = "juin 2017"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
-PARSER_VERSION = "6"  # revue 3.1 : frontière TdM/citable et OCR après retrait des bandes
+PARSER_VERSION = "7"  # revue 3.1 : entrée TdM structurelle, seuils géométriques et sommaire citable
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -55,7 +56,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
                       "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_exclues;"
                       "ocr:page_visuelle_sans_texte_retenu=>get_textpage_ocr(fra)&source_field=ocr;"
-                      "tdm:intitule_autonome(ligne|table)=>continuation_si_entrees_structurees;"
+                      "tdm:entrees_structurees(numero+page|points_de_conduite+page)|intitule_autonome_visible"
+                      "=>continuation_si_entrees_structurees;sans_rearmement_apres_corps;"
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
                       "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
@@ -70,8 +72,10 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
 _TOC_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
 _PRINTED_TOC_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\.?\s+(.+?)(?:\s+\.{2,}\s*|\s+)(\d{1,3})\s*$")
+_TOC_LEADER_RE = re.compile(r"^\s*(\S.*?)\s*\.{2,}\s*\d{1,3}\s*$")
 _BULLET_FONTS = ("Wingdings",)
 _TERMINAL = (".", ";", ":")
+logger = logging.getLogger(__name__)
 
 
 def ingest_fingerprint() -> str:
@@ -95,6 +99,10 @@ def ingest_fingerprint() -> str:
                                          "gibberish_ratio_max": s.gibberish_ratio_max,
                                          "residual_header_min_pages_ratio": s.residual_header_min_pages_ratio,
                                          "coverage_threshold": s.coverage_threshold,
+                                         "toc_page_number_baseline_pt": s.toc_page_number_baseline_pt,
+                                         "toc_column_tolerance_pt": s.toc_column_tolerance_pt,
+                                         "toc_indent_tolerance_pt": s.toc_indent_tolerance_pt,
+                                         "toc_line_gap_ratio": s.toc_line_gap_ratio,
                                          # story 1.3 (revue P1) : le niveau de coupe du sommaire change summary.md
                                          "summary_max_level": s.summary_max_level}},
                          sort_keys=True, ensure_ascii=False)
@@ -279,17 +287,18 @@ def _has_toc_title(page: PageText) -> bool:
 
 
 def _has_toc_entries(page: PageText) -> bool:
-    """Vrai si la page porte au moins une entrée numérotée avec numéro de page imprimé."""
+    """Vrai si la page porte une entrée avec numéro en colonne ou points de conduite vers une page."""
+    settings = get_settings()
     texts = [line.text for line in page.lines]
     texts.extend(" ".join(cell.strip() for cell in row if cell.strip())
                  for table in page.tables for row in table.rows)
-    if any(_PRINTED_TOC_RE.match(text.strip()) for text in texts):
+    if any(_PRINTED_TOC_RE.match(text.strip()) or _TOC_LEADER_RE.match(text.strip()) for text in texts):
         return True
     for line in page.lines:
         if _TOC_NUMBER_RE.match(line.text.strip()) and any(
             _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
             and candidate.bbox[0] > line.bbox[0]
-            and abs(candidate.bbox[1] - line.bbox[1]) <= 8
+            and abs(candidate.bbox[1] - line.bbox[1]) <= settings.toc_page_number_baseline_pt
             for candidate in page.lines
         ):
             return True
@@ -297,27 +306,41 @@ def _has_toc_entries(page: PageText) -> bool:
 
 
 def _mark_toc_pages(pages: list[PageText]) -> None:
-    """Propage une TdM seulement tant que ses pages gardent des entrées structurées."""
+    """Entre par la structure visible, propage tant qu'elle subsiste et ne se réarme jamais après le corps."""
     in_toc = False
     toc_finished = False
     for page in pages:
-        explicit = _has_toc_title(page) or any(_is_toc_title(text) for text in page.removed)
+        structural = _has_toc_entries(page)
+        visible_title = _has_toc_title(page)
         has_article = any(line.number is not None for line in page.lines)
-        if explicit:
+        if toc_finished:
+            page.is_toc = False
+            page.after_toc = True
+            continue
+        if not in_toc and (structural or visible_title):
             in_toc = True
+        if in_toc and (structural or visible_title):
             page.is_toc = True
             page.after_toc = False
             if has_article:
                 in_toc = False
                 toc_finished = True
-        elif in_toc and not has_article and _has_toc_entries(page):
-            page.is_toc = True
         else:
             page.is_toc = False
             if in_toc:
                 in_toc = False
                 toc_finished = True
             page.after_toc = toc_finished
+
+
+def _ocr_error_category(exc: Exception) -> str:
+    """Catégorie publique stable ; le message complet reste exclusivement dans les journaux serveur."""
+    message = str(exc).lower()
+    if any(fragment in message for fragment in ("no ocr support", "tesseract is not installed", "not installed")):
+        return "moteur_absent"
+    if any(fragment in message for fragment in ("traineddata", "error opening data file", "failed loading language")):
+        return "langue_absente"
+    return "echec_moteur"
 
 
 def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
@@ -397,10 +420,12 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
                     pt.lines = _merge_number_lines(retained_ocr)
                     pt.ocr_succeeded = bool(pt.lines)
                     if not pt.ocr_succeeded:
-                        pt.ocr_error = "ocr_sans_texte_exploitable_apres_retrait_band"
+                        pt.ocr_error = "sortie_vide"
                 except Exception as exc:  # PyMuPDF expose FzErrorLibrary hors hiérarchie RuntimeError
                     pt.lines = []
-                    pt.ocr_error = f"ocr_exception:{type(exc).__name__}: {exc}"[:500]
+                    category = _ocr_error_category(exc)
+                    pt.ocr_error = f"ocr_exception:{type(exc).__name__}:{category}"
+                    logger.exception("Échec OCR page %s (%s)", pt.page, category)
             else:
                 pt.lines = _merge_number_lines(native_kept)
     finally:
@@ -537,11 +562,6 @@ def _segment_page(pt: PageText) -> list[tuple[str, list[PageLine]]]:
     return [(kind, lines) for _, _, kind, lines in ordered]
 
 
-def _content_lines(pt: PageText) -> list[PageLine]:
-    """Toutes les lignes d'une page dans l'ordre visuel, y compris les rangées de tables."""
-    return [line for _, lines in _segment_page(pt) for line in lines]
-
-
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
                    doc_id: str = DOC_ID, title: str = TITLE,
                    source_url: str | None = None) -> tuple[Document, dict[str, Any]]:
@@ -551,6 +571,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
     article_seen = False
     document_has_articles = any(line.number is not None for page in pages for line in page.lines)
+    document_has_toc = any(page.is_toc for page in pages)
 
     def add_preliminary_groups(page: PageText, groups: list[tuple[str, list[PageLine]]], *,
                                table_source: str) -> None:
@@ -596,7 +617,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             article_seen = True
         first_article_group = next((i for i, (_, lines) in enumerate(groups)
                                     if lines[0].number is not None), None)
-        if document_has_articles and not article_seen and not pt.after_toc:
+        if (document_has_articles or document_has_toc) and not article_seen and not pt.after_toc:
             preliminary_count = len(groups) if first_article_group is None else first_article_group
             add_preliminary_groups(pt, groups[:preliminary_count], table_source="preliminaire")
             if first_article_group is None:
@@ -641,6 +662,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
 def _printed_toc_entries(pages: list[PageText]) -> list[tuple[str, str]]:
     """Sections numérotées annoncées par la TdM, titres multilignes réunis par géométrie de colonne."""
     entries: list[tuple[str, str]] = []
+    settings = get_settings()
     for page in pages:
         if not page.is_toc:
             continue
@@ -662,12 +684,14 @@ def _printed_toc_entries(pages: list[PageText]) -> list[tuple[str, str]]:
         for line, numbered in starts:
             next_y = page.height
             for other, _ in starts:
-                if other.bbox[1] > line.bbox[1] and abs(other.bbox[0] - line.bbox[0]) <= 80:
+                if other.bbox[1] > line.bbox[1] \
+                        and abs(other.bbox[0] - line.bbox[0]) <= settings.toc_column_tolerance_pt:
                     next_y = min(next_y, other.bbox[1])
             page_numbers = [candidate for candidate in lines
                             if _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
                             and candidate.bbox[0] > line.bbox[0]
-                            and abs(candidate.bbox[1] - line.bbox[1]) <= 8]
+                            and abs(candidate.bbox[1] - line.bbox[1])
+                            <= settings.toc_page_number_baseline_pt]
             if not page_numbers:
                 continue
             boundary_x = min((candidate.bbox[0] for candidate in page_numbers), default=page.width)
@@ -676,7 +700,7 @@ def _printed_toc_entries(pages: list[PageText]) -> list[tuple[str, str]]:
             continuations = sorted(
                 (candidate for candidate in lines
                  if line.bbox[1] < candidate.bbox[1] < next_y
-                 and candidate.bbox[0] >= line.bbox[0] - 5
+                 and candidate.bbox[0] >= line.bbox[0] - settings.toc_indent_tolerance_pt
                  and candidate.bbox[2] < boundary_x
                  and not _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
                  and _TOC_NUMBER_RE.match(candidate.text.strip()) is None),
@@ -684,7 +708,7 @@ def _printed_toc_entries(pages: list[PageText]) -> list[tuple[str, str]]:
             )
             for candidate in continuations:
                 line_height = max(candidate.bbox[3] - candidate.bbox[1], 1.0)
-                if candidate.bbox[1] - last_bottom > 1.5 * line_height:
+                if candidate.bbox[1] - last_bottom > settings.toc_line_gap_ratio * line_height:
                     break
                 title_parts.append(candidate.text.strip(" ."))
                 last_bottom = candidate.bbox[3]
@@ -753,7 +777,11 @@ def build_summary(doc: Document) -> str:
             return first_page[node.node_id]
         p: int | None = None
         for item in node.items:
-            q = doc.block(item.block_id).page if isinstance(item, BlockRef) else page_of(by_id[item.node_id])
+            if isinstance(item, BlockRef):
+                block = doc.block(item.block_id)
+                q = block.page if is_citable(block) else None
+            else:
+                q = page_of(by_id[item.node_id])
             if q is not None and (p is None or q < p):
                 p = q
         first_page[node.node_id] = p
@@ -762,7 +790,8 @@ def build_summary(doc: Document) -> str:
     def walk(node: Node) -> None:
         for child_id in node.children:
             child = by_id[child_id]
-            if 1 <= child.level <= max_level:
+            if 1 <= child.level <= max_level \
+                    and any(is_citable(doc.block(block_id)) for block_id in child.blocks):
                 pg = page_of(child)
                 lines.append(f"{'  ' * (child.level - 1)}- `{child.node_id}` · {child.title} · p. {pg}")
             walk(child)

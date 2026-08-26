@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from server.app.config import get_settings
 from server.app.corpus.text import normalize
-from server.app.domain import Check, Document, Report
+from server.app.domain import Check, Document, Report, is_citable
 
 _WORD = re.compile(r"[a-zà-öø-ÿ]+", re.IGNORECASE)
 _FRENCH_SIGNALS = frozenset({
@@ -155,7 +155,6 @@ def _quality(pages: list[Any]) -> tuple[list[int], list[int], list[str]]:
         # borne seulement le calcul de charabia, trop instable sur quelques mots.
         if french < settings.french_signal_ratio_min and foreign_signals >= settings.foreign_signal_min:
             foreign.append(page.page)
-            page.language = "autre"
         if len(words) >= settings.quality_min_words:
             plausible = sum(any(char in "aeiouyàâäéèêëîïôöùûü" for char in word) or word in _LEGAL_WORDS
                             for word in words)
@@ -184,7 +183,7 @@ def _titles_match(left: str, right: str) -> bool:
     if left == right:
         return True
     shorter, longer = sorted((left, right), key=len)
-    return len(shorter) >= 20 and longer.startswith(shorter + " ")
+    return len(shorter) >= get_settings().toc_title_prefix_min_chars and longer.startswith(shorter + " ")
 
 
 def _printed_toc_check(doc: Document, entries: list[tuple[str, str]], pages_toc: int) -> Check:
@@ -276,6 +275,19 @@ def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[An
         "numeros_articles": len(numbers),
         "tables": kinds.get("table", 0),
     }
+    non_citable = [block for block in doc.blocks if not is_citable(block)]
+    non_citable_pages = sorted({block.page for block in non_citable if block.page is not None})
+    stats["blocs_non_citables"] = len(non_citable)
+    stats["pages_non_citables"] = len(non_citable_pages)
+    if non_citable:
+        sources = Counter(block.source_field or f"kind={block.kind}" for block in non_citable)
+        checks.append(Check(
+            name="blocs_non_citables",
+            level="alerte",
+            detail=f"{len(non_citable)} bloc(s) sur {len(non_citable_pages)} page(s) exclus du rappel ; "
+                   f"pages : {', '.join(str(page) for page in non_citable_pages) or 'hors page'} ; "
+                   + ", ".join(f"{source}={count}" for source, count in sorted(sources.items())),
+        ))
     if non_blank:
         errors = [f"p.{p.page}: {p.ocr_error}" for p in pages if p.page in non_blank and p.ocr_error]
         dependency = " ; dépendance OCR Tesseract (langue fra) : " + (
