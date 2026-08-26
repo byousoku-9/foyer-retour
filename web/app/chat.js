@@ -753,6 +753,7 @@ window.CHAT = (function () {
     applicabilite_contradictoire: "deux jeux de champs d'applicabilité pour une même affirmation",
     applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
     applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",
+    candidats_non_ouverts: "des passages trouvés n'ont pas été ouverts par la navigation",
     citations: "citations relues dans le corpus",
     claims_non_citees: "affirmations vérifiées qu'aucune phrase affichée ne reprend",
     clarification_langue_non_affirmee: "clarification retirée : sa langue n'est pas affirmable",
