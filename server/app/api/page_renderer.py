@@ -1,4 +1,4 @@
-"""Rasterisation bornée de pages PDF et surlignage exact de lignes du corpus."""
+"""Rasterisation HTTP bornée de pages PDF et surlignage exact de lignes du corpus."""
 
 from __future__ import annotations
 

@@ -28,7 +28,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.ingest import GateContext, Report
-from server.app.documents.page_renderer import PageRenderer, VerifiedSource
+from server.app.api.page_renderer import PageRenderer, VerifiedSource
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide

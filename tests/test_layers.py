@@ -36,7 +36,9 @@ EXTERNAL_ALLOWED: dict[str, set[str]] = {
     "pipelines": {"pydantic"},
     # Story 1.6 : la couche HTTP, et rien d'autre — `anthropic` en est absent, le SDK ne se voit
     # qu'à travers `llm` (AD-9), et `httpx` aussi : l'API ne sort jamais elle-même sur le réseau.
-    "api": {"fastapi", "starlette", "pydantic"},
+    # Story 3.4 / spine : le rendu de pages PDF appartient explicitement à la
+    # couche HTTP ; PyMuPDF reste donc visible ici, jamais dans le pipeline.
+    "api": {"fastapi", "starlette", "pydantic", "pymupdf"},
     "config": {"pydantic", "pydantic_settings"},
     "digests": {"pydantic"},
 }

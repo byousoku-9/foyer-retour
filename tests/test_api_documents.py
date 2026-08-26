@@ -20,7 +20,7 @@ from server.app.api.main import create_app
 from server.app.api.routes import documents as route_documents
 from server.app.config import Settings
 from server.app.corpus.loader import Corpus
-from server.app.documents.page_renderer import PageRenderer, RenderedPage, VerifiedSource
+from server.app.api.page_renderer import PageRenderer, RenderedPage, VerifiedSource
 from server.app.domain.document import Block, BlockRef, Document, Line, Node
 from server.app.domain.errors import CorpusUnavailable, InvalidRequest, PipelineError, Timeout
 
