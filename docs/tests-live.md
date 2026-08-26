@@ -3234,3 +3234,18 @@ retry :
 Les deux essais passent et écrivent le manifest au digest courant. Cette nouvelle réussite AXA
 n'annule pas la fragilité stochastique observée pendant la campagne 2 ; elle ajoute une observation
 verte, sans prouver que la dispersion a disparu.
+
+### Campagne 4 — revue finale BMAD, `43198dae…` → `c8003eeb…`
+
+Les correctifs fail-closed du loader et de validation du domaine déplacent le digest vers
+`c8003eebff9a2244637919fb5e858d3d184a915b7d0f5f2d76394ae19b6c36f1`. Après 2 421 tests
+hermétiques verts hors seul garde-fou de digest attendu rouge, les deux commandes standard ont été
+lancées exactement une fois, séquentiellement, sans Batch ni retry :
+
+- `lux-guide` : `g-luxtrust-prix`, 1/1 `bonne_reponse`, 0,0712 EUR, 14,932 s ; gate écrit à
+  `2026-08-26T23:44:05Z` ;
+- `axa-lu-optihome-2017` : `s-bougie-canape`, 1/1 `bonne_reponse`, 0,0677 EUR, 11,089 s ; gate écrit
+  à `2026-08-26T23:44:22Z`.
+
+Le rejeu complet après écriture rend 2 422 tests verts, y compris le garde-fou de digest. Les deux
+gates restent `countersigned=false` et la fragilité stochastique historique d'AXA reste consignée.
