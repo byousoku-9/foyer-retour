@@ -2742,7 +2742,10 @@ appliqué : les deux échecs se reproduisent avec la baseline déterministe et n
 2.6. Aucune rustine lexicale, aucun identifiant de document et aucune formulation spéciale n’ont été
 ajoutés. Le contrôle Chrome headless final à 390 px rend `/`, `/guide/` et `/sinistre/` avec
 `documentElement.scrollWidth = clientWidth = 390` et aucune ressource HTTP en erreur ; les routes et
-leurs actifs principaux répondent 200.
+leurs actifs principaux répondent 200. Après chargement de `/guide/`, le serveur a été réellement
+coupé puis la question « Quel délai pour déclarer mon arrivée ? » soumise : un unique bandeau
+« Assistant indisponible » explique que rien n’a été cherché, retire le tour sans réponse et offre
+exactement l’action « Consulter le guide en recherche simple ».
 
 Vérification finale : `ANTHROPIC_API_KEY= uv run pytest -q` rend **2 151 passed** ; les 10 contrôles
 de digest, Ruff et `git diff --check` sont verts. Les gates verticaux ont été réécrits sur les digests
