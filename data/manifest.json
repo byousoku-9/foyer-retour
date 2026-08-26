@@ -3,7 +3,7 @@
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
     "ingest_fingerprint": "a47f41ee2cddb255302d76dac93c41295fec626774740f82580c8c314c673178",
-    "document_hash": "debc6a138e380b1f4934b5102e170ec731067a0b4ff158534a2c5cacbbf81f96",
+    "document_hash": "f0933d38a04eb3c694672ac662354aea7e61b6b3bd2f0899c779f31a6bb7a609",
     "edition": "juin 2017",
     "overlay_hash": null,
     "gate": {
@@ -19,7 +19,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-26T06:52:41Z",
+      "date": "2026-08-26T07:54:16Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false
