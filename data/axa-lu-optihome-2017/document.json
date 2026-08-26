@@ -7004,7 +7004,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.8"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.1",
@@ -7017,7 +7020,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:7"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2",
@@ -7039,7 +7045,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.2.4"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.1",
@@ -7086,7 +7095,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.6"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.1",
@@ -7096,7 +7108,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:13"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.2",
@@ -7106,7 +7121,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:14"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.3",
@@ -7116,7 +7134,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:15"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.4",
@@ -7126,7 +7147,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:16"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.5",
@@ -7136,7 +7160,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:17"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.2.6",
@@ -7149,7 +7176,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p65:19"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.3",
@@ -7162,7 +7192,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:2"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.2.4",
@@ -7175,7 +7208,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:4"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.3",
@@ -7188,7 +7224,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:6"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.4",
@@ -7201,7 +7240,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:8"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5",
@@ -7268,7 +7310,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.5.15"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.1",
@@ -7278,7 +7323,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:14"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.2",
@@ -7291,7 +7339,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:16"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.3",
@@ -7301,7 +7352,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:17"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.4",
@@ -7311,7 +7365,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p66:18"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.5",
@@ -7321,7 +7378,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:1"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6",
@@ -7352,7 +7412,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.7"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.1",
@@ -7362,7 +7425,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:3"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.2",
@@ -7372,7 +7438,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:4"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.3",
@@ -7385,7 +7454,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:6"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.4",
@@ -7395,7 +7467,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:7"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.5",
@@ -7408,7 +7483,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:9"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.6",
@@ -7418,7 +7496,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:10"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.6.7",
@@ -7428,7 +7509,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:11"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.7",
@@ -7438,7 +7522,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:12"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.8",
@@ -7448,7 +7535,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:13"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.9",
@@ -7458,7 +7548,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p67:14"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.10",
@@ -7471,7 +7564,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:1"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.11",
@@ -7484,7 +7580,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:3"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.12",
@@ -7494,7 +7593,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:4"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.13",
@@ -7504,7 +7606,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:5"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.14",
@@ -7517,7 +7622,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:7"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.5.15",
@@ -7530,7 +7638,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:9"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.6",
@@ -7543,7 +7654,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:11"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.7",
@@ -7556,7 +7670,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p68:13"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8",
@@ -7596,7 +7713,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.8.9"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1",
@@ -7627,7 +7747,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.7"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.1",
@@ -7637,7 +7760,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:4"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.2",
@@ -7647,7 +7773,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:5"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.3",
@@ -7657,7 +7786,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:6"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.4",
@@ -7667,7 +7799,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:7"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.5",
@@ -7677,7 +7812,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:8"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.6",
@@ -7687,7 +7825,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:9"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.1.7",
@@ -7703,7 +7844,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:12"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.2",
@@ -7719,7 +7863,10 @@
         {
           "node_id": "axa-lu-optihome-2017:a4.1.1.8.2.2"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.2.1",
@@ -7732,7 +7879,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:15"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.2.2",
@@ -7742,7 +7892,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:16"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.3",
@@ -7752,7 +7905,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:17"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.4",
@@ -7762,7 +7918,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p69:18"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.5",
@@ -7772,7 +7931,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p70:1"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.6",
@@ -7782,7 +7944,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p70:2"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.7",
@@ -7792,7 +7957,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p70:3"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.8",
@@ -7802,7 +7970,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p70:4"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.1.8.9",
@@ -7812,7 +7983,10 @@
         {
           "block_id": "axa-lu-optihome-2017:p70:5"
         }
-      ]
+      ],
+      "scope": {
+        "kind": "special"
+      }
     },
     {
       "node_id": "axa-lu-optihome-2017:a4.1.2",
@@ -14842,7 +15016,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Accident",
-      "scope_node_id": "axa-lu-optihome-2017:a1.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:4:l1",
@@ -14930,7 +15103,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Accidentel",
-      "scope_node_id": "axa-lu-optihome-2017:a1.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:6:l1",
@@ -15041,7 +15213,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a1.3.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:9:l1",
@@ -15072,7 +15243,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a1.3.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:10:l1",
@@ -15103,7 +15273,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a1.3.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:11:l1",
@@ -15134,7 +15303,6 @@
       "kind_confidence": 0.75,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a1.3.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:12:l1",
@@ -15192,7 +15360,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Attentat",
-      "scope_node_id": "axa-lu-optihome-2017:a1.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:14:l1",
@@ -15249,7 +15416,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.4.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:16:l1",
@@ -15337,7 +15503,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "mouvement populaire",
-      "scope_node_id": "axa-lu-optihome-2017:a1.4.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p6:18:l1",
@@ -15414,7 +15579,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.4.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:2:l1",
@@ -15465,7 +15629,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "terrorisme",
-      "scope_node_id": "axa-lu-optihome-2017:a1.4.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:3:l1",
@@ -15543,7 +15706,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "bâtiment désigné",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:5:l1",
@@ -15584,7 +15746,6 @@
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
       "defines": "cours",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:6:l1",
@@ -15614,7 +15775,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:7:l1",
@@ -15645,7 +15805,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Bâtiment désigné",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:8:l1",
@@ -15676,7 +15835,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Bâtiment désigné",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:9:l1",
@@ -15707,7 +15865,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Bâtiment désigné",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.5",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:10:l1",
@@ -15738,7 +15895,6 @@
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
       "defines": "Bâtiment désigné",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.6",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:11:l1",
@@ -15789,7 +15945,6 @@
       "kind_confidence": 0.76,
       "kind_source": "model_verified",
       "defines": "Bâtiment désigné",
-      "scope_node_id": "axa-lu-optihome-2017:a1.5.7",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:12:l1",
@@ -15847,7 +16002,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Biens désignés",
-      "scope_node_id": "axa-lu-optihome-2017:a1.6",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:14:l1",
@@ -15905,7 +16059,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "Bijoux",
-      "scope_node_id": "axa-lu-optihome-2017:a1.7",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:16:l1",
@@ -15936,7 +16089,6 @@
       "kind_confidence": 0.8,
       "kind_source": "model_verified",
       "defines": "Bijoux",
-      "scope_node_id": "axa-lu-optihome-2017:a1.7.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:17:l1",
@@ -15967,7 +16119,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Bijoux",
-      "scope_node_id": "axa-lu-optihome-2017:a1.7.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p7:18:l1",
@@ -16065,7 +16216,6 @@
         "axa-lu-optihome-2017:p8:7"
       ],
       "defines": "Privation de jouissance immobilière",
-      "scope_node_id": "axa-lu-optihome-2017:a1.8.1.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:3:l1",
@@ -16109,7 +16259,6 @@
         "axa-lu-optihome-2017:p8:7"
       ],
       "defines": "Perte de loyer",
-      "scope_node_id": "axa-lu-optihome-2017:a1.8.1.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:4:l1",
@@ -16149,7 +16298,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.8.1.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:5:l1",
@@ -16206,7 +16354,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.6,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.8.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:7:l1",
@@ -16284,7 +16431,6 @@
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
       "defines": "Collection",
-      "scope_node_id": "axa-lu-optihome-2017:a1.9",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:9:l1",
@@ -16362,7 +16508,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Compagnie",
-      "scope_node_id": "axa-lu-optihome-2017:a1.10",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:11:l1",
@@ -16430,7 +16575,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Conflit du travail",
-      "scope_node_id": "axa-lu-optihome-2017:a1.11",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:13:l1",
@@ -16498,7 +16642,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "grève",
-      "scope_node_id": "axa-lu-optihome-2017:a1.11.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:15:l1",
@@ -16556,7 +16699,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "lock-out",
-      "scope_node_id": "axa-lu-optihome-2017:a1.11.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p8:17:l1",
@@ -16624,7 +16766,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Contenu",
-      "scope_node_id": "axa-lu-optihome-2017:a1.12",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:2:l1",
@@ -16674,7 +16815,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.6,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.12.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:3:l1",
@@ -16704,7 +16844,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.12.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:4:l1",
@@ -16754,7 +16893,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.12.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:5:l1",
@@ -16820,7 +16958,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.6,
       "kind_source": "model",
-      "scope_node_id": "axa-lu-optihome-2017:a1.12",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:7:l1",
@@ -16888,7 +17025,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Dépendances",
-      "scope_node_id": "axa-lu-optihome-2017:a1.13",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:9:l1",
@@ -16992,7 +17128,6 @@
       "kind_confidence": 0.65,
       "kind_source": "model_verified",
       "defines": "Documents constitutifs du contrat",
-      "scope_node_id": "axa-lu-optihome-2017:a1.14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:12:l1",
@@ -17082,7 +17217,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.62,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:13:l1",
@@ -17150,7 +17284,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Dommages corporels",
-      "scope_node_id": "axa-lu-optihome-2017:a1.15",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:15:l1",
@@ -17208,7 +17341,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Dommages matériels",
-      "scope_node_id": "axa-lu-optihome-2017:a1.16",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p9:17:l1",
@@ -17276,7 +17408,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Dommages immatériels",
-      "scope_node_id": "axa-lu-optihome-2017:a1.17",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:2:l1",
@@ -17364,7 +17495,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Equipement d’alarme et de surveillance",
-      "scope_node_id": "axa-lu-optihome-2017:a1.18",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:4:l1",
@@ -17442,7 +17572,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Equipement domotique",
-      "scope_node_id": "axa-lu-optihome-2017:a1.19",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:6:l1",
@@ -17540,7 +17669,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Frais de conservation",
-      "scope_node_id": "axa-lu-optihome-2017:a1.20",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:8:l1",
@@ -17628,7 +17756,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "Franchise",
-      "scope_node_id": "axa-lu-optihome-2017:a1.21",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:10:l1",
@@ -17696,7 +17823,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Glissement de terrain",
-      "scope_node_id": "axa-lu-optihome-2017:a1.22",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:12:l1",
@@ -17773,7 +17899,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.22",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:14:l1",
@@ -17841,7 +17966,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Inondation",
-      "scope_node_id": "axa-lu-optihome-2017:a1.23",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p10:16:l1",
@@ -17909,7 +18033,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Locaux",
-      "scope_node_id": "axa-lu-optihome-2017:a1.24",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:2:l1",
@@ -17967,7 +18090,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Matériel multimédia",
-      "scope_node_id": "axa-lu-optihome-2017:a1.25",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:4:l1",
@@ -17998,7 +18120,6 @@
       "kind_confidence": 0.83,
       "kind_source": "model_verified",
       "defines": "Matériel multimédia",
-      "scope_node_id": "axa-lu-optihome-2017:a1.25",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:5:l1",
@@ -18096,7 +18217,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Matériel nomade",
-      "scope_node_id": "axa-lu-optihome-2017:a1.26",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:7:l1",
@@ -18154,7 +18274,6 @@
       "kind_confidence": 0.91,
       "kind_source": "model_verified",
       "defines": "Mobilier",
-      "scope_node_id": "axa-lu-optihome-2017:a1.27",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:9:l1",
@@ -18205,7 +18324,6 @@
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
       "defines": "Mobilier",
-      "scope_node_id": "axa-lu-optihome-2017:a1.27",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:10:l1",
@@ -18303,7 +18421,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Mobilier de jardin",
-      "scope_node_id": "axa-lu-optihome-2017:a1.28",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:12:l1",
@@ -18391,7 +18508,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "Objets de valeur",
-      "scope_node_id": "axa-lu-optihome-2017:a1.29",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:14:l1",
@@ -18422,7 +18538,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Objets de valeur",
-      "scope_node_id": "axa-lu-optihome-2017:a1.29",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p11:15:l1",
@@ -18550,7 +18665,6 @@
       "kind_confidence": 0.87,
       "kind_source": "model_verified",
       "defines": "Objets personnels",
-      "scope_node_id": "axa-lu-optihome-2017:a1.30",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:2:l1",
@@ -18591,7 +18705,6 @@
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
       "defines": "Objets personnels",
-      "scope_node_id": "axa-lu-optihome-2017:a1.30",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:3:l1",
@@ -18706,7 +18819,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Occupation régulière",
-      "scope_node_id": "axa-lu-optihome-2017:a1.31.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:6:l1",
@@ -18736,7 +18848,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.62,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.31.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:7:l1",
@@ -18766,7 +18877,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.31.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:8:l1",
@@ -18854,7 +18964,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Occupation irrégulière",
-      "scope_node_id": "axa-lu-optihome-2017:a1.31.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:10:l1",
@@ -18912,7 +19021,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Pluies torrentielles",
-      "scope_node_id": "axa-lu-optihome-2017:a1.32",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:12:l1",
@@ -18980,7 +19088,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Préfabriqué (construction de type)",
-      "scope_node_id": "axa-lu-optihome-2017:a1.33",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:14:l1",
@@ -19048,7 +19155,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Preneur d’assurance",
-      "scope_node_id": "axa-lu-optihome-2017:a1.34",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:16:l1",
@@ -19126,7 +19232,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Recours des locataires ou occupants",
-      "scope_node_id": "axa-lu-optihome-2017:a1.35",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:18:l1",
@@ -19166,7 +19271,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.35.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p12:19:l1",
@@ -19226,7 +19330,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.35",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:2:l1",
@@ -19256,7 +19359,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.8,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.35",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:3:l1",
@@ -19334,7 +19436,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Recours des tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a1.36",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:5:l1",
@@ -19364,7 +19465,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.36.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:6:l1",
@@ -19409,7 +19509,6 @@
         "axa-lu-optihome-2017:p48:12",
         "axa-lu-optihome-2017:p48:13"
       ],
-      "scope_node_id": "axa-lu-optihome-2017:a1.36.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:7:l1",
@@ -19449,7 +19548,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.68,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.36.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:8:l1",
@@ -19480,7 +19578,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a1.36",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:9:l1",
@@ -19538,7 +19635,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Résiliation",
-      "scope_node_id": "axa-lu-optihome-2017:a1.37",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:11:l1",
@@ -19596,7 +19692,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Responsabilité locative ou d’occupant",
-      "scope_node_id": "axa-lu-optihome-2017:a1.38",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:13:l1",
@@ -19674,7 +19769,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Sanitaires",
-      "scope_node_id": "axa-lu-optihome-2017:a1.39",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:15:l1",
@@ -19732,7 +19826,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Séjour temporaire",
-      "scope_node_id": "axa-lu-optihome-2017:a1.40",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p13:17:l1",
@@ -19800,7 +19893,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Serrure de sécurité ou de sûreté",
-      "scope_node_id": "axa-lu-optihome-2017:a1.41",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:2:l1",
@@ -19830,7 +19922,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a1.41",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:3:l1",
@@ -19938,7 +20029,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "STATEC",
-      "scope_node_id": "axa-lu-optihome-2017:a1.42",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:5:l1",
@@ -19996,7 +20086,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Superficie",
-      "scope_node_id": "axa-lu-optihome-2017:a1.43",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:7:l1",
@@ -20124,7 +20213,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "tempête",
-      "scope_node_id": "axa-lu-optihome-2017:a1.44",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:9:l1",
@@ -20155,7 +20243,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "tempête",
-      "scope_node_id": "axa-lu-optihome-2017:a1.44",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:10:l1",
@@ -20253,7 +20340,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "tremblement de terre",
-      "scope_node_id": "axa-lu-optihome-2017:a1.45",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:12:l1",
@@ -20284,7 +20370,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "tremblement de terre",
-      "scope_node_id": "axa-lu-optihome-2017:a1.45",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:13:l1",
@@ -20372,7 +20457,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "valeurs",
-      "scope_node_id": "axa-lu-optihome-2017:a1.46",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p14:15:l1",
@@ -20450,7 +20534,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "valeur à neuf",
-      "scope_node_id": "axa-lu-optihome-2017:a1.47.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:2:l1",
@@ -20511,7 +20594,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "valeur à neuf",
-      "scope_node_id": "axa-lu-optihome-2017:a1.47.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:3:l1",
@@ -20589,7 +20671,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Valeur du jour",
-      "scope_node_id": "axa-lu-optihome-2017:a1.48",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:5:l1",
@@ -20647,7 +20728,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Valeur réelle",
-      "scope_node_id": "axa-lu-optihome-2017:a1.49",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:7:l1",
@@ -20715,7 +20795,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Valeur vénale",
-      "scope_node_id": "axa-lu-optihome-2017:a1.50",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:9:l1",
@@ -20793,7 +20872,6 @@
         "axa-lu-optihome-2017:p7:12"
       ],
       "defines": "Villégiature (bâtiment de -)",
-      "scope_node_id": "axa-lu-optihome-2017:a1.51",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:11:l1",
@@ -20881,7 +20959,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Vol",
-      "scope_node_id": "axa-lu-optihome-2017:a1.52",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:13:l1",
@@ -20969,7 +21046,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "vol simple",
-      "scope_node_id": "axa-lu-optihome-2017:a1.52.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p15:15:l1",
@@ -21067,7 +21143,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "vol par effraction",
-      "scope_node_id": "axa-lu-optihome-2017:a1.52.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:2:l1",
@@ -21135,7 +21210,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "vol par agression",
-      "scope_node_id": "axa-lu-optihome-2017:a1.52.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:4:l1",
@@ -21193,7 +21267,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "vol à la tire",
-      "scope_node_id": "axa-lu-optihome-2017:a1.52.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:6:l1",
@@ -21261,7 +21334,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "vol à la sauvette",
-      "scope_node_id": "axa-lu-optihome-2017:a1.52.5",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:8:l1",
@@ -21329,7 +21401,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Voyage",
-      "scope_node_id": "axa-lu-optihome-2017:a1.53",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:10:l1",
@@ -21397,7 +21468,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Zone inondable",
-      "scope_node_id": "axa-lu-optihome-2017:a1.54",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:12:l1",
@@ -21438,7 +21508,6 @@
       "kind_confidence": 0.85,
       "kind_source": "model_verified",
       "defines": "Zone inondable",
-      "scope_node_id": "axa-lu-optihome-2017:a1.54",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p16:13:l1",
@@ -22602,7 +22671,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.55,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a2.5.2.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p18:14:l1",
@@ -38509,7 +38577,6 @@
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
       "defines": "sinistre partiel",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.7.3.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p44:12:l1",
@@ -38550,7 +38617,6 @@
       "kind_confidence": 0.65,
       "kind_source": "model_verified",
       "defines": "sinistre partiel",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.7.3.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p44:13:l1",
@@ -38600,7 +38666,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.68,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.7.3.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p44:14:l1",
@@ -42304,7 +42369,7 @@
         "axa-lu-optihome-2017:p6:4"
       ],
       "defines": "accident",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.10.2.1",
+      "scope_node_id": "axa-lu-optihome-2017:a3.1.10",
       "overrides": "axa-lu-optihome-2017:p6:4",
       "relation": {
         "exception_de": "axa-lu-optihome-2017:p6:4"
@@ -42395,7 +42460,6 @@
         "1.3"
       ],
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.10.2.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p50:10:l1",
@@ -42429,7 +42493,6 @@
         "1.3"
       ],
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.10.2.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p50:11:l1",
@@ -42547,7 +42610,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.10.2.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p50:13:l1",
@@ -44909,7 +44971,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Habitation de l’Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.12.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p54:3:l1",
@@ -44970,7 +45031,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Urgent ou urgence",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.12.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p54:4:l1",
@@ -45010,7 +45070,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.82,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.12.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p54:5:l1",
@@ -45081,7 +45140,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Réparateur",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.12.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p54:6:l1",
@@ -45122,7 +45180,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Installation fixe",
-      "scope_node_id": "axa-lu-optihome-2017:a3.1.12.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p54:7:l1",
@@ -49886,7 +49943,6 @@
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
       "defines": "sinistre partiel",
-      "scope_node_id": "axa-lu-optihome-2017:a3.3.1.4.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p61:6:l1",
@@ -49926,7 +49982,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.68,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a3.3.1.4.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p61:7:l1",
@@ -52371,7 +52426,7 @@
         "axa-lu-optihome-2017:p6:4"
       ],
       "defines": "accident",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.1",
+      "scope_node_id": "axa-lu-optihome-2017:a4.1.1",
       "overrides": "axa-lu-optihome-2017:p6:4",
       "relation": {
         "specialise": "axa-lu-optihome-2017:p6:4"
@@ -52462,7 +52517,6 @@
         "1.3"
       ],
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:12:l1",
@@ -52493,7 +52547,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:13:l1",
@@ -52524,7 +52577,6 @@
       "kind_confidence": 0.82,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:14:l1",
@@ -52565,7 +52617,6 @@
       "kind_confidence": 0.82,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:15:l1",
@@ -52606,7 +52657,6 @@
       "kind_confidence": 0.82,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:16:l1",
@@ -52647,7 +52697,6 @@
       "kind_confidence": 0.75,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2.5",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:17:l1",
@@ -52703,7 +52752,6 @@
         "axa-lu-optihome-2017:p65:15"
       ],
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.2.6",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p65:18:l1",
@@ -52821,7 +52869,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Bâtiments",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p66:2:l1",
@@ -52899,7 +52946,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.2.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p66:4:l1",
@@ -55141,7 +55187,6 @@
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
       "defines": "faute lourde",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.8.1.7",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p69:11:l1",
@@ -55172,7 +55217,6 @@
       "kind_confidence": 0.8,
       "kind_source": "model_verified",
       "defines": "faute lourde",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.1.8.1.7",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p69:12:l1",
@@ -56826,7 +56870,6 @@
       "kind_confidence": 0.86,
       "kind_source": "model_verified",
       "defines": "tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.2.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p71:13:l1",
@@ -56857,7 +56900,6 @@
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
       "defines": "tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.2.4.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p71:14:l1",
@@ -56898,7 +56940,6 @@
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
       "defines": "tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.2.4.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p71:15:l1",
@@ -56979,7 +57020,6 @@
       "kind_confidence": 0.68,
       "kind_source": "model_verified",
       "defines": "tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.2.4.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p71:16:l1",
@@ -57875,7 +57915,6 @@
       "kind_confidence": 0.76,
       "kind_source": "model_verified",
       "defines": "vie privée",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.3.1.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p73:3:l1",
@@ -60909,7 +60948,6 @@
       "kind_confidence": 0.8,
       "kind_source": "model_verified",
       "defines": "Prestataire",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p77:7:l1",
@@ -61106,7 +61144,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "sinistre",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p77:9:l1",
@@ -61401,7 +61438,6 @@
       "kind_confidence": 0.7,
       "kind_source": "model_verified",
       "defines": "Année d’assurance",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p78:4:l1",
@@ -61432,7 +61468,6 @@
       "kind_confidence": 0.72,
       "kind_source": "model_verified",
       "defines": "Année d’assurance",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p78:5:l1",
@@ -61519,7 +61554,6 @@
         "1.3"
       ],
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p78:7:l1",
@@ -61560,7 +61594,6 @@
       "kind_confidence": 0.86,
       "kind_source": "model_verified",
       "defines": "Assuré",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p78:8:l1",
@@ -61698,7 +61731,6 @@
       "kind_confidence": 0.95,
       "kind_source": "model_verified",
       "defines": "Atteinte à l’e-réputation",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p78:10:l1",
@@ -61866,7 +61898,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Consigne pénale",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:2:l1",
@@ -61934,7 +61965,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Délai d’attente",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.5",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:4:l1",
@@ -62002,7 +62032,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Domicile",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.6",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:6:l1",
@@ -62060,7 +62089,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "E-commerçant",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.7",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:8:l1",
@@ -62128,7 +62156,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Internet",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.8",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:10:l1",
@@ -62236,7 +62263,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Objets connectés",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.9",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:12:l1",
@@ -62374,7 +62400,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Propriété intellectuelle",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.10",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:14:l1",
@@ -62442,7 +62467,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "Seuil d’intervention",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.11",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:16:l1",
@@ -62510,7 +62534,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Site de ventes aux enchères",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.12",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:18:l1",
@@ -62578,7 +62601,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Tiers",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.13",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p79:20:l1",
@@ -62636,7 +62658,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Usurpation d’identité",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:2:l1",
@@ -62696,7 +62717,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.8,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:3:l1",
@@ -62827,7 +62847,6 @@
       "kind_confidence": 0.82,
       "kind_source": "model_verified",
       "defines": "Éléments d’authentification",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:4:l1",
@@ -62857,7 +62876,6 @@
       "structural_kind": "list",
       "kind_confidence": 0.8,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.14",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:5:l1",
@@ -62965,7 +62983,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Utilisation frauduleuse des moyens de paiement",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.15",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:7:l1",
@@ -63006,7 +63023,6 @@
       "kind_confidence": 0.78,
       "kind_source": "model_verified",
       "defines": "Utilisation frauduleuse des moyens de paiement",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.15",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:8:l1",
@@ -63094,7 +63110,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Vie privée",
-      "scope_node_id": "axa-lu-optihome-2017:a4.1.4.1.16",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p80:10:l1",
@@ -71269,7 +71284,6 @@
       "structural_kind": "para",
       "kind_confidence": 0.79,
       "kind_source": "model_verified",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.1.2.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p93:1:l1",
@@ -71480,7 +71494,6 @@
       "kind_confidence": 0.88,
       "kind_source": "model_verified",
       "defines": "accident",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.1.2.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p93:4:l1",
@@ -73031,7 +73044,6 @@
       "kind_confidence": 0.6,
       "kind_source": "model_verified",
       "defines": "bagage",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.2.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p95:7:l1",
@@ -74367,7 +74379,6 @@
       "kind_confidence": 0.94,
       "kind_source": "model_verified",
       "defines": "Accident corporel",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.1",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:4:l1",
@@ -74445,7 +74456,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Autorité médicale compétente",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.2",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:6:l1",
@@ -74503,7 +74513,6 @@
       "kind_confidence": 0.93,
       "kind_source": "model_verified",
       "defines": "Domicile",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.3",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:8:l1",
@@ -74571,7 +74580,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Evacuation sanitaire",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.4",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:10:l1",
@@ -74659,7 +74667,6 @@
       "kind_confidence": 0.87,
       "kind_source": "model_verified",
       "defines": "Frais d’hôtel",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.5",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:12:l1",
@@ -74717,7 +74724,6 @@
       "kind_confidence": 0.9,
       "kind_source": "model_verified",
       "defines": "Incident médical",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.6",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:14:l1",
@@ -74775,7 +74781,6 @@
       "kind_confidence": 0.92,
       "kind_source": "model_verified",
       "defines": "Maladie",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.7",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:16:l1",
@@ -74833,7 +74838,6 @@
       "kind_confidence": 0.91,
       "kind_source": "model_verified",
       "defines": "Rapatriement",
-      "scope_node_id": "axa-lu-optihome-2017:a4.2.3.1.8",
       "lines": [
         {
           "line_id": "axa-lu-optihome-2017:p97:18:l1",

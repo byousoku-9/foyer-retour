@@ -115,7 +115,6 @@
     "typage_resume_payload_sha256": "0b20ac4624a4b98fc5c843d3f6fbe608d12c257b3b1b4b479592d6b6bd4ce61f",
     "typage_current_payload_sha256": "250b426317aa92b642be23520ca705cf5f9a4b274b0dbb04ca0e2b652b9a8c9e",
     "typage_replayed_payload_requests": 2,
-    "typage_replayed_payload_custom_ids": "clauses-r1-0085-f534a1e729f1-4b6f6e02,clauses-r1-0087-f534a1e729f1-ffafd233,clauses-r1-0120-f534a1e729f1-6c9f69a9",
     "typage_resume_justification": "Reprise du lot autorisé : 137 payloads inchangés ; les plans dont P2 corrige le propriétaire sont rejoués en standard, sans appliquer leurs anciens labels.",
     "typage_reused_requests": 128,
     "typage_standard_requests": 110,
@@ -124,6 +123,8 @@
     "typage_total_cost_eur": 6.5428,
     "typage_prior_cost_eur": 6.5188,
     "typage_cumulative_cost_eur": 10.2458,
-    "typage_cost_ceiling_eur": 12.0
+    "typage_cost_ceiling_eur": 12.0,
+    "typage_changed_payload_requests": 3,
+    "typage_changed_payload_custom_ids": "clauses-r1-0085-f534a1e729f1-4b6f6e02,clauses-r1-0087-f534a1e729f1-ffafd233,clauses-r1-0120-f534a1e729f1-6c9f69a9"
   }
 }
