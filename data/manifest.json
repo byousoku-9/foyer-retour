@@ -3,9 +3,9 @@
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
     "ingest_fingerprint": "a47f41ee2cddb255302d76dac93c41295fec626774740f82580c8c314c673178",
-    "document_hash": "752e21e37ccb6ad4919de076a95d2ae5040a610970f711e77e33dbd22bb8367a",
+    "document_hash": "debc6a138e380b1f4934b5102e170ec731067a0b4ff158534a2c5cacbbf81f96",
     "edition": "juin 2017",
-    "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
+    "overlay_hash": null,
     "gate": {
       "profile": "vertical",
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
@@ -19,8 +19,8 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-08-26T04:23:45Z",
-      "overlay_hash": "eed4bc532d9579f6fdb87a151eaf250308f416596d3183aa5af48a8cd3c3fdbc",
+      "date": "2026-08-26T06:52:41Z",
+      "overlay_hash": null,
       "cases": 1,
       "countersigned": false
     }
