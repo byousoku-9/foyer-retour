@@ -35,14 +35,6 @@ OVERLAY_REQUIRED: dict[str, tuple[str, ...]] = {
 PERIMETRE_MAX_CHARS = 4000
 
 
-@dataclass(frozen=True)
-class VerifiedSource:
-    """Chemin choisi par le loader, inséparable du hash vérifié à cet instant."""
-
-    path: Path
-    sha256: str
-
-
 @dataclass
 class Corpus:
     documents: dict[str, Document] = field(default_factory=dict)
@@ -58,10 +50,6 @@ class Corpus:
     # cacheable (AD-9), mais il devient vrai — une fiche ajoutée entre dans le périmètre sans qu'on
     # réécrive une phrase.
     perimetres: dict[str, str] = field(default_factory=dict)
-    # Source effectivement vérifiée contre `manifest.source_hash` par `_load_one`. Conserver ce
-    # chemin permet aux consommateurs autorisés (le lecteur de pages) de réutiliser cette décision
-    # sans reconstruire un chemin depuis une valeur venue de la requête.
-    source_paths: dict[str, VerifiedSource] = field(default_factory=dict)
 
     @property
     def served(self) -> list[str]:
@@ -346,14 +334,6 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}: {exc}"[:500]
             continue
         corpus.documents[doc_id] = doc
-        # `_load_one` vérifie la première source présente de `SOURCE_FILES`. On ne retient donc que
-        # cette source-là : un éventuel `source.pdf` placé après un `source.js` n'a pas été vérifié
-        # et ne doit jamais devenir lisible par la route documentaire.
-        for source_name in SOURCE_FILES:
-            source_path = data_dir / doc_id / source_name
-            if source_path.is_file():
-                corpus.source_paths[doc_id] = VerifiedSource(path=source_path, sha256=entry.source_hash)
-                break
         corpus.summaries[doc_id] = summary
         corpus.perimetres[doc_id], tronque = _perimetre(doc, perimetre_max_chars)
         if tronque:

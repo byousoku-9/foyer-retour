@@ -25,10 +25,10 @@ from server.app.config import REPO_ROOT, Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
-from server.app.corpus.loader import Corpus, VerifiedSource, load_corpus
+from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.ingest import GateContext, Report
-from server.app.documents.page_renderer import PageRenderer
+from server.app.documents.page_renderer import PageRenderer, VerifiedSource
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide
@@ -343,6 +343,29 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     return urls
 
 
+def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
+    """Projette les PDF déjà validés par le loader, sans toucher au cœur du corpus.
+
+    Un document servi a déjà passé le hash de la première source présente dans
+    ``SOURCE_FILES``. Rejouer exactement cette sélection permet au lecteur de
+    mémoriser le chemin choisi sans relire le PDF au démarrage. Le renderer
+    revérifie les octets au moment de chaque requête.
+    """
+    sources: dict[str, VerifiedSource] = {}
+    for doc_id in corpus.served:
+        entry = corpus.manifest.get(doc_id)
+        if entry is None:
+            continue
+        for source_name in SOURCE_FILES:
+            path = data_dir / doc_id / source_name
+            if not path.is_file():
+                continue
+            if source_name == "source.pdf":
+                sources[doc_id] = VerifiedSource(path=path, sha256=entry.source_hash)
+            break
+    return sources
+
+
 def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
     """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
     data_dir = DATA_DIR if data_dir is None else data_dir
@@ -359,8 +382,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
     rapports, alertes_rapports = _rapports(data_dir, corpus.served)
     sources = _sources(data_dir, corpus.served)
-    pdf_sources = {doc_id: source for doc_id, source in corpus.source_paths.items()
-                   if source.path.name == "source.pdf"}
+    pdf_sources = _pdf_sources(data_dir, corpus)
     page_renderer = PageRenderer(
         max_lines=settings.pdf_highlight_max_lines,
         max_blocks=settings.pdf_highlight_max_blocks,

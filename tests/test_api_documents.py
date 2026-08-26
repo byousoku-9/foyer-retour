@@ -19,8 +19,8 @@ from server.app.api.errors import gestionnaire_pipeline
 from server.app.api.main import create_app
 from server.app.api.routes import documents as route_documents
 from server.app.config import Settings
-from server.app.corpus.loader import Corpus, VerifiedSource
-from server.app.documents.page_renderer import PageRenderer, RenderedPage
+from server.app.corpus.loader import Corpus
+from server.app.documents.page_renderer import PageRenderer, RenderedPage, VerifiedSource
 from server.app.domain.document import Block, BlockRef, Document, Line, Node
 from server.app.domain.errors import CorpusUnavailable, InvalidRequest, PipelineError, Timeout
 
@@ -76,7 +76,7 @@ def _client(tmp_path: Path, *, document: Document | None = None,
     else:
         _pdf(source_path)
     source = _verified(source_path)
-    corpus = Corpus(documents={DOC_ID: document or _document()}, source_paths={DOC_ID: source})
+    corpus = Corpus(documents={DOC_ID: document or _document()})
     app = FastAPI()
     app.add_exception_handler(PipelineError, gestionnaire_pipeline)
     app.include_router(route_documents.router, prefix="/api/v1")

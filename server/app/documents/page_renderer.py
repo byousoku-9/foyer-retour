@@ -7,16 +7,24 @@ import hashlib
 import math
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
 import pymupdf
 from starlette.concurrency import run_in_threadpool
 
-from server.app.corpus.loader import VerifiedSource
 from server.app.domain.document import Document
 from server.app.domain.errors import CorpusUnavailable, InvalidRequest, Timeout
 
 BboxTuple = tuple[float, float, float, float]
 CacheKey = tuple[str, int, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class VerifiedSource:
+    """Chemin sélectionné au chargement, lié au hash déjà vérifié par le corpus."""
+
+    path: Path
+    sha256: str
 
 
 @dataclass(frozen=True)
