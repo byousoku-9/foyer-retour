@@ -2878,8 +2878,8 @@ d'`automation/epreuves.md`, sans fixture ni reformulation de rattrapage.
 | A12 fils du voisin / RC | 200, `p51:9`, 0,0198 € | Conforme à l'attente active 3.2 ; `p66:10` ne devient obligatoire qu'en 3.6. |
 | A13 radiateur volontaire / eau accidentelle | 200, causalité conservée, `p37:14` + `p38:2`, 0,0243 € | Conforme. |
 | A14 délai d'arrivée, variante guide par défaut | 200, `outils`, `arrivee`, 0,0264 € | Conforme : sourcé et sous 0,10 €. |
-| A15 ordinateur professionnel à l'hôtel | 200, `clarification_requise`, zéro bloc, 0,0038 € | **Échec bloquant** : clarification générique au lieu de `p40:11`. Correctif hors périmètre, cible 4.2. |
-| A16 vitre d'insert, fumée sans incendie | 200, `p34:12`, verdict prudent, 0,0428 € | **Échec bloquant** : la limite `p46:1` attendue n'est plus affichée. Correctif hors périmètre, cible 3.3. |
+| A15 ordinateur professionnel à l'hôtel | 200, `clarification_requise`, zéro bloc, 0,0038 € | Attente différée rouge : comportement intermittent, cible 4.2 ; invariants actifs sans 503 ni conclusion inventée. |
+| A16 vitre d'insert, fumée sans incendie | 200, `p34:12`, verdict prudent, 0,0428 € | Invariants actifs conformes ; attente différée rouge : limite `p46:1`, cible 3.3. |
 
 Les routes `/`, `/guide/`, `/sinistre/` et tous leurs assets réellement référencés répondent 200.
 Chrome headless à 390 px mesure `scrollWidth = clientWidth = 390` sur les trois pages, sans ressource
@@ -2901,5 +2901,6 @@ zéro `.srcs` avant l'action manuelle de repli.
 La campagne B a duré moins de deux minutes et s'arrête à ces six cas. Zéro correctif local a été
 appliqué : les défauts touchent *comprendre*, le retrieval/les renvois, les évals ou la politique de
 résultat sous budget, surfaces que 3.2 ne possède pas. Les cas reproductibles sont consignés dans
-`deferred-work.md`. Les échecs A15/A16 rendent le socle bloquant ; aucun rejeu complet A+B n'a été
-fait et aucun résultat rouge n'a été effacé par une seconde formulation.
+`deferred-work.md`. A15/A16 restent rouges et rejoués, mais leurs attentes renforcées deviennent
+bloquantes à leurs `target_story` 4.2 et 3.3 ; aucun rejeu complet A+B n'a été fait et aucun résultat
+rouge n'a été effacé par une seconde formulation.

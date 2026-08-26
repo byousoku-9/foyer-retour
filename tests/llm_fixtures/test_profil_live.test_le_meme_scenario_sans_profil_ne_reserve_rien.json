@@ -61,6 +61,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:110b9a4ac7effac3": {
+    "request": "claude-haiku-4-5-20251001:110b9a4ac7effac3",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": false}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQsKYUuCUHY6aNo1DNkE",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3933,
+        "output_tokens": 174,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:183a4c99003eef28": {
     "request": "claude-haiku-4-5-20251001:183a4c99003eef28",
     "response": {

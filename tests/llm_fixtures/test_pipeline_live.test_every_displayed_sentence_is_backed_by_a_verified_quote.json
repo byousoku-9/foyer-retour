@@ -1,4 +1,35 @@
 {
+  "claude-haiku-4-5-20251001:21e535230516896e": {
+    "request": "claude-haiku-4-5-20251001:21e535230516896e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}, {\"facette\": 1, \"claim_ids\": [\"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": false}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQsEnNS46dGDa9McgiXF",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4050,
+        "output_tokens": 191,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:79d3d480edbdcbcd": {
     "request": "claude-haiku-4-5-20251001:79d3d480edbdcbcd",
     "response": {

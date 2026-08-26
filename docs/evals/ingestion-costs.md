@@ -12,7 +12,7 @@ Modèle : `claude-opus-5`. Taux de conversion configuré : `USD_EUR=0.92`.
 |---|---:|---:|---:|---:|---:|
 | 1 — tous les blocs citables | 1 396 | 140 | 667 626 | 134 622 | 3,0836 € |
 | 2 — candidats juridiques de la lecture 1 | 970 | 97 | 414 213 | 56 238 | 1,5997 € |
-| **Total de la campagne réussie** | — | **237** | **1 081 839** | **190 860** | **4,6833 €** |
+| **Total de la campagne utile** | — | **237** | **1 081 839** | **190 860** | **4,6833 €** |
 
 Les 237 résultats ont tous le statut fournisseur `succeeded`. Aucun token de cache n'a été
 facturé. Le coût additionne, requête par requête, les usages rendus par l'API avec les prix de
@@ -23,7 +23,11 @@ Un premier essai de lecture 1, regroupé en 35 requêtes, a rendu 35 réponses f
 mais une réponse omettait deux `block_id`. Le pipeline a refusé toute écriture, comme prévu ; cet
 essai a coûté 1,8739 €. Deux essais intermédiaires de schéma ont été refusés avant inférence par
 le fournisseur (`minItems` non supporté, puis schéma trop complexe) : usage nul, coût nul. Ces
-incidents ne sont pas inclus dans le total de la campagne réussie.
+incidents ne sont pas inclus dans le total de la campagne utile.
+
+Le coût réellement engagé pour obtenir cet artefact est donc **6,5572 € au total** : 1,8739 € pour
+la première passe rejetée sans écriture, puis 4,6833 € pour les deux lectures utiles. Les deux refus
+de schéma n'ont rien facturé.
 
 Commande reproductible :
 

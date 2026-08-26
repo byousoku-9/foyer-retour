@@ -30,6 +30,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:2e88540c353a1d81": {
+    "request": "claude-haiku-4-5-20251001:2e88540c353a1d81",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQs9x8v7Zt1YqxJCeZ7A",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3565,
+        "output_tokens": 125,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:3a5f19cd6a360dbe": {
     "request": "claude-haiku-4-5-20251001:3a5f19cd6a360dbe",
     "response": {
@@ -212,6 +243,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3436,
         "output_tokens": 112,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:9d3356e2ac894a75": {
+    "request": "claude-haiku-4-5-20251001:9d3356e2ac894a75",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQsA6ZRxrvUDYC81gF9w",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 929,
+        "output_tokens": 18,
         "service_tier": "standard"
       }
     }

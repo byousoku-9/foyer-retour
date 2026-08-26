@@ -123,6 +123,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:2a12affc7ccd8567": {
+    "request": "claude-haiku-4-5-20251001:2a12affc7ccd8567",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true}, {\"claim_id\": \"c2\", \"pertinente\": true}, {\"claim_id\": \"c3\", \"pertinente\": true}, {\"claim_id\": \"c4\", \"pertinente\": true}, {\"claim_id\": \"c5\", \"pertinente\": false}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c2\", \"c3\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQs82WnirEARf4NvysiH",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3849,
+        "output_tokens": 207,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:57ee9df641c16d95": {
     "request": "claude-haiku-4-5-20251001:57ee9df641c16d95",
     "response": {
@@ -243,6 +274,37 @@
         "inference_geo": "not_available",
         "input_tokens": 732,
         "output_tokens": 16,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:74644927d467885b": {
+    "request": "claude-haiku-4-5-20251001:74644927d467885b",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": false, \"ecarts\": [\"La réponse affirme que les écoles publiques sont gratuites et multilingues, mais les passages sources ne mentionnent pas ces caractéristiques\", \"La réponse affirme que les écoles publiques intègrent très bien les jeunes arrivants et que les enfants plus âgés peuvent faire face à une barrière linguistique réelle, mais les passages sources ne soutiennent pas ces affirmations\", \"La réponse mentionne trois chemins différents pour la scolarité, mais les passages sources ne les énumèrent pas\"]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQs8B9wy7uH5WEhsq1oi",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 815,
+        "output_tokens": 153,
         "service_tier": "standard"
       }
     }
@@ -474,6 +536,40 @@
         "inference_geo": "global",
         "input_tokens": 2909,
         "output_tokens": 1145,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:6990ed58e930d606": {
+    "request": "claude-sonnet-5:6990ed58e930d606",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"School enrollment is the longest and most constrained step of settling in Luxembourg, and it should be started before even looking for housing.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Three different paths coexist for schooling children.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Public schools are free and multilingual, alphabetizing in Luxembourgish before introducing German and then French; they integrate young arrivals very well, though older children may face a real language barrier.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Alternatively, European schools lead to the European Baccalaureate with priority access for children of EU institution staff and a tuition fee for others, while public international schools offer English, French or German sections free of charge but are highly sought after, and private schools offer the IB or foreign curricula for significant fees.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Registration with the commune usually comes before school registration, and places in the most sought-after sections can fill up a year in advance, so it is essential to secure a certificate of deregistration and recent report cards from the child's current school before leaving the home country.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"The blocks provided do not specify exact application deadlines or forms required for each school type, so no further detail can be given on that point.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"School enrollment is the longest, most constrained step and should be started before housing.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Public schools are free, multilingual, and integrate young arrivals well but present a language barrier for older children.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"European, international and private schools offer different access conditions and fee structures.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"}]},{\"claim_id\":\"c4\",\"text\":\"Commune registration precedes school registration, and one should secure a certificate of deregistration and report cards before leaving.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeQs7BG7jemhbz5DTyGYv",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2794,
+        "output_tokens": 981,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
