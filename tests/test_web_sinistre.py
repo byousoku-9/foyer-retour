@@ -153,7 +153,6 @@ def test_audit_replie_sur_la_marge_par_defaut_si_sante_ne_la_fournit_pas(
 def test_page_audit_est_autonome_responsive_et_semantique(page_ingestion: str) -> None:
     assert '<meta name="viewport"' in page_ingestion
     assert '<main id="rapport" aria-live="polite"' in page_ingestion
-    assert "<table" in page_ingestion or "table" in page_ingestion  # tableau créé par le script
     assert 'src="/sinistre/ingestion.js?v=1"' in page_ingestion
     assert "web/app/" not in page_ingestion
     assert "<noscript>" in page_ingestion

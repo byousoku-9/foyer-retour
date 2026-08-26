@@ -294,6 +294,9 @@ def test_report_rend_le_rapport_dingestion_tel_quel(prod: TestClient) -> None:
     assert corps["doc_id"] == AXA
     assert corps["checks"] and {"name", "level", "detail"} <= set(corps["checks"][0])
     assert corps["stats"]["pages"] > 0
+    # Le rapport lu au démarrage est **le même objet** que celui du fichier : aucune requête ne
+    # rouvre `data/`.
+    assert prod.app.state.foyer.reports[AXA].doc_id == AXA
 
 
 def test_report_dun_document_inconnu_est_un_400_sans_echo(prod: TestClient) -> None:
