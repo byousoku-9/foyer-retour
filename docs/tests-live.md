@@ -3046,3 +3046,44 @@ gates après correctif 1 **0,0619 EUR** ; campagne B **0,1811 EUR** ; sondes cib
 **0,0671 EUR** ; gates après correctif 2 **0,0733 EUR**. Soit **0,8197 EUR** live et un cumul global
 réel de **11,1692 EUR / 12 EUR**. Les gates finaux sont AXA 1/1 `bonne_reponse` à 0,0394 EUR et
 guide 1/1 à 0,0339 EUR, `evals_ok=true`, `countersigned=false`, sur les digests finaux.
+
+### Reprise post-suite complète 3.3
+
+La première suite complète hermétique, exécutée par le superviseur après la campagne, rendait
+**2289 passés, 6 échecs**. Cinq échecs étaient des `FixtureMissing` : l'atomicité générique des
+renvois directs avait légitimement changé les fenêtres transmises à *rédiger*. Le sixième révélait
+un écart plus profond entre le pré-contrôle et le retrieval : quand la recherche textuelle ne
+trouvait rien mais que `Index.definitions()` couvrait le terme demandé, le pré-contrôle poursuivait
+alors que le déterministe ne rendait aucun bloc.
+
+La correction ne crée une unité autonome pour une définition directement demandée que lorsqu'il
+n'existe **aucune** fenêtre primaire. Dès qu'une fenêtre existe, toutes les définitions restent des
+dépendances atomiques de cette fenêtre. Une miniature zéro-hit texte/définition seule et les deux
+régressions d'atomicité couvrent les deux branches ; le test original du pré-contrôle est inchangé.
+Le ciblé final rend **9 passés** hors réseau.
+
+Avant réseau, les cinq rédactions exactes majoraient 0,4654 EUR. Les cinq vérifications aval
+nouvellement déterminées majoraient 0,0758 EUR et les trois contrôles de retraduction 0,0183 EUR ;
+avec 0,2000 EUR réservés aux deux gates bornés chacun par `--max-cost 0.10`, le majorant total était
+**0,7595 EUR**, sous le reliquat de 0,8308 EUR. Seuls les cinq fichiers de fixtures obsolètes ont été
+complétés, par `Anthropic.messages.create` standard synchrone, sans Batch et en rejouant localement
+toutes les entrées encore valides :
+
+| Fixture | Appels standard ajoutés — digest / message ID / coût réel | Total |
+|---|---|---:|
+| langue EN arrivée | rédaction `d9e835fbfbbd9c7c` / `msg_011CeRL6QPWfuaon1eTyhbX7` / 0,0159 ; vérification `3ce2a63a5bd38ec1` / `msg_011CeRLCrkCgMUsMZieKE5Wz` / 0,0037 ; retraduction `59464af97d572318` / `msg_011CeRLG4FLQFr84xKhBpUAc` / 0,0007 EUR | 0,0203 EUR |
+| langue DE arrivée | rédaction `edf48c1f93eda91d` / `msg_011CeRL6paoZkamdqC8pgMyG` / 0,0188 ; vérification `1b41c591f4a12e4a` / `msg_011CeRLCxkbxeLpGSTDkxJTX` / 0,0038 ; retraduction `ac12f2309c298959` / `msg_011CeRLGAEVpSxqAVfbWXrEF` / 0,0008 EUR | 0,0234 EUR |
+| langue PT arrivée | rédaction `d5ea81ba7f7cfd52` / `msg_011CeRL7LNSpDeB1ZKir6QSM` / 0,0166 ; vérification `61c541558fd91117` / `msg_011CeRLD5gKt9tEBjG4ZWWqi` / 0,0037 ; retraduction `411b2be9e302c8e7` / `msg_011CeRLGESFyhHVXiMHjo9FD` / 0,0008 EUR | 0,0211 EUR |
+| diagnostic déterministe guide | rédaction `3b59c9c77ed77f2c` / `msg_011CeRL7oqSGquF2t3TQnRYL` / 0,0177 ; vérification `eae75b67a2fd2e6b` / `msg_011CeRLDDRu6mimg6A8kix7R` / 0,0038 EUR | 0,0215 EUR |
+| bougie contrat | rédaction `0bd8e53f1c1a6bc6` / `msg_011CeRL8KRvVy4W5yVwPXjFT` / 0,0325 ; vérification `36fbe60b84f383bc` / `msg_011CeRLDPQg61qctsuHjbDe9` / 0,0115 EUR | 0,0440 EUR |
+
+Les **13** appels coûtent **0,1303 EUR**. Les seuls appels live suivants sont les deux gates
+directement invalidés : guide **1/1 `bonne_reponse`**, 0,0341 EUR, `cases_hash=9e325311b481…` ;
+AXA **1/1**, 0,0405 EUR, `cases_hash=b02293a7fe68…`. Tous deux sont `evals_ok=true`,
+`countersigned=false` et portent le `pipeline_digest`
+`d302dcf7fbadb5e8d4ed77eba3dc6e66ee8f8d31317f65ac2f8fdaa69b857a10`.
+
+Le coût post-suite est donc **0,2049 EUR** ; cumul global réel **11,3741 EUR / 12 EUR**, reliquat
+**0,6259 EUR**. Aucun autre live, aucune campagne A+B et aucun Batch n'ont été lancés. Après fixation
+définitive du code, des fixtures et des gates, l'unique suite complète hors réseau demandée rend
+**2296 passés en 37,10 s** ; aucun `xfail` ni `skip` n'a été ajouté.
