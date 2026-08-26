@@ -544,6 +544,22 @@ def test_ids_quarantaines_invalides_ne_lisent_rien_hors_data_dir(tmp_path: Any) 
         assert "secret.invalid" not in corps_sante
 
 
+def test_un_manifest_illisible_publie_une_quarantaine_anonyme_sur_sante(
+        tmp_path: Any) -> None:
+    """B1 : même sans clé de document publiable, l'échec global du manifest reste visible."""
+    (tmp_path / "manifest.json").write_text("{", encoding="utf-8")
+
+    with _client_sur(tmp_path) as client:
+        reponse = client.get("/api/v1/sante")
+        assert reponse.status_code == 200
+        quarantaines = [a for a in reponse.json()["alerts"] if a["alerte"] == "quarantaine"]
+        assert len(quarantaines) == 1
+        assert quarantaines[0]["doc_id"] == "*"
+        assert quarantaines[0]["detail"].startswith("manifest invalide : ")
+        assert str(tmp_path) not in quarantaines[0]["detail"]
+        assert client.get("/api/v1/documents").json() == []
+
+
 def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None:
     """Story 3.5 : ni la liste ni le JSON d'audit ne relisent ``data/`` par requête."""
     rapport = ('{"doc_id":"doc-mini","checks":['
@@ -585,6 +601,7 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
     "../secret/contrat.pdf",
     r"C:\Users\privé\contrat.pdf",
     r"\\serveur\partage\contrat.pdf",
+    "data:text/plain;base64,U0VDUkVU",
 ])
 def test_raison_publiable_masque_tout_emplacement_et_reste_utile(secret: str) -> None:
     from server.app.api.etat import raison_publiable
@@ -603,8 +620,12 @@ def test_raison_publiable_est_bornee_sans_alterer_un_diagnostic_normal() -> None
         "bloquant_statique : page_sans_texte")
     # Un deux-points de diagnostic et une barre oblique au milieu d'une contrainte ne sont pas des
     # emplacements. L'ancien filtre prenait tout ce qui suivait ``invalide:`` pour une URI.
-    diagnostic = "entrée invalide: String should match pattern '^[a-z0-9-]+$'"
-    assert raison_publiable(diagnostic) == diagnostic
+    diagnostics = (
+        "Invalid JSON: expected value at line 1 column 1",
+        "entrée de manifest invalide : Field required",
+        "entrée invalide: String should match pattern '^[a-z0-9-]+$'",
+    )
+    assert [raison_publiable(diagnostic) for diagnostic in diagnostics] == list(diagnostics)
     bornee = raison_publiable("diagnostic : " + "x" * 900)
     assert bornee is not None and len(bornee) == 500 and bornee.endswith("…")
 

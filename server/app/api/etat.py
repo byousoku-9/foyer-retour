@@ -60,9 +60,10 @@ def doc_id_auditable(doc_id: str) -> bool:
 def raison_publiable(raison: str | None) -> str | None:
     """Diagnostic public borné, dont seuls les véritables emplacements sont masqués.
 
-    Cette décision est commune à ``/sante`` et ``/documents``. Une URI avec ``://``, un chemin
-    POSIX absolu/relatif, un chemin Windows avec lecteur ou un partage UNC est privé ; un deux-points
-    de diagnostic ou une barre oblique au milieu d'un motif de validation ne l'est pas.
+    Cette décision est commune à ``/sante`` et ``/documents``. Une URI avec ``://`` (ou une URI
+    ``data:``), un chemin POSIX absolu/relatif, un chemin Windows avec lecteur ou un partage UNC est
+    privé ; un deux-points de diagnostic ou une barre oblique au milieu d'un motif de validation ne
+    l'est pas.
     """
     if raison is None:
         return None
@@ -70,6 +71,13 @@ def raison_publiable(raison: str | None) -> str | None:
         r"(?i)\b[a-z][a-z0-9+.-]*://[^\n,;)]*",
         "[emplacement masqué]",
         raison,
+    )
+    # ``data:`` est un vrai schéma sans ``//``. Le nommer explicitement évite de réintroduire le
+    # filtre trop large qui prenait ``Invalid JSON:`` ou ``manifest invalide :`` pour des URI.
+    propre = re.sub(
+        r"(?i)\bdata:[^\s)]*",
+        "[emplacement masqué]",
+        propre,
     )
     propre = re.sub(
         r"(?<![\w])(?:[a-zA-Z]:[\\/]|\\\\)[^\n,;)]*",
