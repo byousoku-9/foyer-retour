@@ -42,6 +42,7 @@ import asyncio
 import json
 import math
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -690,6 +691,38 @@ def cle_absente(settings: Settings) -> bool:
     return config_cle_absente(settings)
 
 
+def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
+                             ancetres: frozenset[Path] = frozenset()) -> None:
+    """Matérialise ``source`` sous ``cible`` sans jamais lire hors de ``racine``.
+
+    Les fichiers sont liés physiquement quand le système de fichiers le permet : le corpus AXA
+    n'est donc pas recopié. Une copie est le repli portable si le répertoire temporaire se trouve
+    sur un autre volume. Les liens symboliques internes sont résolus vers un fichier ou un dossier
+    réel dans l'ombre ; ceux qui sortent du vrai ``data/`` sont ignorés, comme le loader les
+    mettrait en quarantaine.
+    """
+    try:
+        resolu = source.resolve(strict=True)
+    except OSError:
+        return
+    if not resolu.is_relative_to(racine):
+        return
+    if resolu.is_dir():
+        if resolu in ancetres:
+            return
+        cible.mkdir()
+        descendants = ancetres | {resolu}
+        for enfant in resolu.iterdir():
+            _materialiser_dans_ombre(enfant, cible / enfant.name, racine, descendants)
+        return
+    if not resolu.is_file():
+        return
+    try:
+        os.link(resolu, cible)
+    except OSError:
+        shutil.copy2(resolu, cible)
+
+
 def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
     """Un `data/` **de lecture** identique, sauf que `manifest[doc_id].gate` y vaut `null`.
 
@@ -699,18 +732,20 @@ def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
     éternellement en code 2 « document non servi », et il n'existerait aucun chemin pour reprendre la
     mesure et écrire un gate vert. Un verdict d'éval ne doit pas rendre l'éval impossible.
 
-    Ce que cette fonction **ne fait pas** : modifier `data/`. Elle construit un dossier temporaire de
-    liens symboliques vers les dossiers de documents (jamais copiés : le contrat AXA pèse des méga-
-    octets) et n'y réécrit qu'un `manifest.json`, en mémoire, avec le seul `gate` du document visé mis
-    à `null`. Tout le reste de la règle d'AD-7 continue de s'appliquer sur cette lecture : hashes,
-    overlay, bloquant statique, `status: quarantaine`. L'écriture du gate, elle, se fait toujours sur
-    le **vrai** manifest.
+    Ce que cette fonction **ne fait pas** : modifier `data/`. Elle construit un dossier temporaire
+    composé de vrais répertoires et de fichiers liés physiquement (copiés seulement si nécessaire),
+    puis n'y réécrit qu'un `manifest.json`, en mémoire, avec le seul `gate` du document visé mis à
+    `null`. Cette vue reste donc confinée sous sa propre racine sans recopier normalement le contrat
+    AXA. Tout le reste de la règle d'AD-7 continue de s'appliquer sur cette lecture : hashes, overlay,
+    bloquant statique, `status: quarantaine`. L'écriture du gate, elle, se fait toujours sur le
+    **vrai** manifest.
     """
     ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
+    racine = data_dir.resolve(strict=True)
     for entree in data_dir.iterdir():
         if entree.name == MANIFEST:
             continue
-        (ombre / entree.name).symlink_to(entree.resolve(), target_is_directory=entree.is_dir())
+        _materialiser_dans_ombre(entree, ombre / entree.name, racine)
     brut = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8"))
     if isinstance(brut, dict) and isinstance(brut.get(doc_id), dict):
         brut[doc_id]["gate"] = None

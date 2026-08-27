@@ -804,7 +804,9 @@ def test_un_gate_hors_schema_se_reprend_comme_un_gate_rouge(tmp_path: Path) -> N
     code 2 « document non servi » — alors que réécrire ce gate est exactement ce que la commande
     demande (revue Codex 1.10 tour 2).
     """
-    racine = _data_dir(tmp_path)
+    racine = tmp_path / "data"
+    racine.mkdir()
+    _corpus_sur_disque(racine)
     chemin = racine / "manifest.json"
     brut = json.loads(chemin.read_text(encoding="utf-8"))
     brut[GUIDE]["gate"] = {"profile": "vertical", "source_hash": brut[GUIDE]["source_hash"],
@@ -821,6 +823,27 @@ def test_un_gate_hors_schema_se_reprend_comme_un_gate_rouge(tmp_path: Path) -> N
         # `data/` n'est pas touché, et l'autre document garde le sien.
         assert json.loads(chemin.read_text(encoding="utf-8"))[GUIDE]["gate"] is not None
         assert lu[CONTRAT]["gate"] == brut[CONTRAT]["gate"]
+        # La vue de reprise satisfait la même frontière que le vrai `data/` : aucun artefact ne
+        # se résout hors de sa racine temporaire et le loader peut donc appliquer son garde intact.
+        assert (ombre / GUIDE / "document.json").is_file()
+        assert all(not chemin_ombre.is_symlink() for chemin_ombre in ombre.rglob("*"))
+        assert all(chemin_ombre.resolve().is_relative_to(ombre.resolve())
+                   for chemin_ombre in ombre.rglob("*"))
+
+
+def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(tmp_path: Path) -> None:
+    """Le runner ne transforme pas une entrée hostile en lecture autorisée par sa copie temporaire."""
+    racine = tmp_path / "data"
+    racine.mkdir()
+    _corpus_sur_disque(racine)
+    externe = tmp_path / "hors-data"
+    externe.mkdir()
+    (externe / "secret.txt").write_text("ne pas lire", encoding="utf-8")
+    (racine / "lien-hors-data").symlink_to(externe, target_is_directory=True)
+
+    with ExitStack() as pile:
+        ombre = runner._sans_gate_sur_disque(racine, GUIDE, pile)
+        assert not (ombre / "lien-hors-data").exists()
 
 
 def test_un_manifest_invalide_arrete_tout_sans_rien_ecrire(tmp_path: Path) -> None:
