@@ -77,7 +77,8 @@
 
   function hotePrive(hostname) {
     var hote = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-    if (!hote || hote === "localhost" || /\.localhost$/.test(hote) || hote === "::" || hote === "::1") {
+    if (!hote || hote === "localhost" || /\.(?:localhost|local|internal|home|lan)$/.test(hote) ||
+        hote === "::" || hote === "::1") {
       return true;
     }
     if (/^(?:fc|fd|fe8|fe9|fea|feb)[0-9a-f:]*$/.test(hote)) return true;

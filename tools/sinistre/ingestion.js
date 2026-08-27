@@ -38,7 +38,8 @@
 
   function hotePrive(hostname) {
     var hote = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-    if (!hote || hote === "localhost" || /\.localhost$/.test(hote) || hote === "::" || hote === "::1") {
+    if (!hote || hote === "localhost" || /\.(?:localhost|local|internal|home|lan)$/.test(hote) ||
+        hote === "::" || hote === "::1") {
       return true;
     }
     if (/^(?:fc|fd|fe8|fe9|fea|feb)[0-9a-f:]*$/.test(hote)) return true;
@@ -93,14 +94,22 @@
   var LIBELLES_ALERTES_GATE = {
     gate_perime: "Ce gate est périmé : il ne valide pas le code actuellement servi.",
     sans_gate: "Aucun gate courant ne valide ce document.",
-    ungated_refuse_en_production: "Ce document sans gate courant est refusé en production."
+    ungated_refuse_en_production:
+      "Le service refuse globalement la dérogation sans gate en production.",
+    gate_etat_indisponible:
+      "L'état courant des gates n'a pas pu être vérifié ; ce gate reste un fait historique."
   };
 
   function alertesGate(sante, docId) {
-    var alertes = sante && Array.isArray(sante.alerts) ? sante.alerts : [];
+    if (!sante || !Array.isArray(sante.alerts)) {
+      return [{ doc_id: "*", alerte: "gate_etat_indisponible" }];
+    }
+    var alertes = sante.alerts;
     return alertes.filter(function (alerte) {
-      return alerte && alerte.doc_id === docId &&
-        Object.prototype.hasOwnProperty.call(LIBELLES_ALERTES_GATE, alerte.alerte);
+      if (!alerte || !Object.prototype.hasOwnProperty.call(
+        LIBELLES_ALERTES_GATE, alerte.alerte)) return false;
+      return alerte.doc_id === docId ||
+        (alerte.doc_id === "*" && alerte.alerte === "ungated_refuse_en_production");
     });
   }
 

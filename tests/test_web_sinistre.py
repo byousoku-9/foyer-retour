@@ -97,6 +97,14 @@ def test_audit_affiche_checks_gate_empreintes_et_json_dans_lordre(
         "Ce gate est périmé : il ne valide pas le code actuellement servi."]
 
 
+def test_audit_affiche_alerte_gate_globale_et_indisponibilite_de_sante(
+        cas_ingestion: dict[str, Any]) -> None:
+    assert cas_ingestion["alerte_gate_globale"] == [
+        "Le service refuse globalement la dérogation sans gate en production."]
+    assert cas_ingestion["etat_gate_indisponible"] == [
+        "L'état courant des gates n'a pas pu être vérifié ; ce gate reste un fait historique."]
+
+
 def test_audit_rend_les_chaines_hostiles_comme_texte_et_filtre_la_source(
         cas_ingestion: dict[str, Any]) -> None:
     servi = cas_ingestion["servi"]
@@ -167,8 +175,9 @@ def test_quarantaine_ne_presente_pas_le_manifest_comme_validation_courante(
 
 def test_audit_ne_materialise_aucune_url_locale_privee_ou_malformee(
         cas_ingestion: dict[str, Any]) -> None:
-    assert cas_ingestion["urls"] == ["https://example.invalid/cg.pdf", None, None, None, None, None]
-    assert cas_ingestion["liens_urls"] == [1, 0, 0, 0, 0, 0]
+    assert cas_ingestion["urls"] == [
+        "https://example.invalid/cg.pdf", None, None, None, None, None, None, None, None]
+    assert cas_ingestion["liens_urls"] == [1, 0, 0, 0, 0, 0, 0, 0, 0]
 
 
 def test_audit_distingue_echec_de_rendu_et_echec_de_liste(

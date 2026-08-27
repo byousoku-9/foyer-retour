@@ -122,6 +122,28 @@ async function main() {
     };
   }
   {
+    const santeGlobale = {
+      thresholds: { client_abort_margin_s: 7 },
+      alerts: [{ doc_id: "*", alerte: "ungated_refuse_en_production", detail: "" }],
+    };
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse(santeGlobale);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse(RAPPORT);
+    });
+    await h.INGESTION.demarrer();
+    cas.alerte_gate_globale = h.rapport.querySelectorAll(".gate-alerte").map((p) => p.textContent);
+  }
+  {
+    const h = charger("/sinistre/ingestion/cg-mini", (url) => {
+      if (url.endsWith("/api/v1/sante")) return reponse({}, 503);
+      if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
+      return reponse(RAPPORT);
+    });
+    await h.INGESTION.demarrer();
+    cas.etat_gate_indisponible = h.rapport.querySelectorAll(".gate-alerte").map((p) => p.textContent);
+  }
+  {
     const h = charger("/sinistre/ingestion/inconnu", (url) => {
       if (url.endsWith("/api/v1/sante")) return reponse(SANTE);
       if (url.endsWith("/api/v1/documents")) return reponse([SERVI]);
@@ -178,7 +200,8 @@ async function main() {
       h.INGESTION.carteMetadonnees(Object.assign({}, SERVI, { edition })).textContent);
     const urls = [
       "https://example.invalid/cg.pdf", "http://localhost/admin", "http://127.0.0.1/x",
-      "http://192.168.1.10/x", "https://[::1]/x", "pas une url",
+      "http://192.168.1.10/x", "https://[::1]/x", "http://127.1/x",
+      "http://0x7f.0.0.1/x", "http://service.local/x", "pas une url",
     ];
     cas.urls = urls.map((url) => h.INGESTION.urlHttp(url));
     cas.liens_urls = urls.map((source_url) =>
