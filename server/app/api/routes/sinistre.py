@@ -33,11 +33,22 @@ d'entrée. Le message dit pourquoi.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
+from server.app.api.conversation_token import signer, verifier as verifier_token
 from server.app.api.presenter import clauses_de
 from server.app.api.routes.chat import verifier_quota
-from server.app.api.schemas import VIA, SinistreRequest, SinistreResponse
+from server.app.api.schemas import (
+    VIA,
+    ConversationView,
+    SinistreConversationResponse,
+    SinistreFollowupRequest,
+    SinistreRequest,
+    SinistreResponse,
+)
+from server.app.domain.conversation import ContinuationState, initialiser
 from server.app.domain.errors import InvalidRequest, PipelineError
+from server.app.pipelines.sinistre import run_followup
 
 # AD-13 : « le limiteur est une dépendance de routeur sur les routes qui appellent un modèle ».
 router = APIRouter(dependencies=[Depends(verifier_quota)])
@@ -46,7 +57,7 @@ KIND_ATTENDU = "contrat"
 
 
 @router.post("/sinistre", response_model=SinistreResponse, response_model_exclude_none=False)
-async def sinistre(request: Request, demande: SinistreRequest) -> SinistreResponse:
+async def sinistre(request: Request, demande: SinistreRequest) -> SinistreResponse | JSONResponse:
     etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance `verifier_quota`)
 
     document = etat.corpus.documents.get(demande.doc_id)
@@ -94,4 +105,61 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         variants_count=answer.reason.variants_count if answer.reason is not None else None,
         blocks_scanned=answer.reason.blocks_scanned if answer.reason is not None else None,
         cost_eur=trace.total_cost_eur)
-    return SinistreResponse(answer=answer, sources=sources, via=VIA, trace=trace)
+    response = SinistreResponse(answer=answer, sources=sources, via=VIA, trace=trace)
+    # Compatibilité explicite : les appelants one-shot conservent leur contrat exact. La page 3.7
+    # demande le fil par un en-tête ; une Response directe contourne seulement la projection FastAPI
+    # qui retirerait le champ ajouté, pas la validation pydantic ci-dessous.
+    if request.headers.get("X-Sinistre-Conversation") != "1":
+        return response
+    entry = etat.corpus.manifest.get(demande.doc_id)
+    if entry is None:
+        raise InvalidRequest("empreintes du document indisponibles : conversation impossible")
+    state = initialiser(
+        doc_id=demande.doc_id, source_hash=entry.source_hash,
+        ingest_fingerprint=entry.ingest_fingerprint,
+        pipeline_digest=etat.pipeline_digest_hex, prompts_digest=etat.prompts_digest_hex,
+        request_id=request.state.request_id, faits=demande.faits, answer=answer,
+        decision_claims=list(answer._decision_claims))
+    conversation = _view(state, signer(state, etat.conversation_secret))
+    payload = SinistreConversationResponse(
+        answer=answer, sources=sources, via=VIA, trace=trace, conversation=conversation)
+    return JSONResponse(content=payload.model_dump(mode="json"))
+
+
+def _view(state: ContinuationState, token: str) -> ConversationView:
+    return ConversationView(
+        token=token, turn=state.turn, facts=state.facts, conflicts=state.conflicts,
+        questions=state.questions, history=state.history)
+
+
+@router.post("/sinistre/suivi", response_model=SinistreConversationResponse,
+             response_model_exclude_none=False)
+async def suivi(request: Request, demande: SinistreFollowupRequest) -> SinistreConversationResponse:
+    """Valide entièrement l'état transporté avant tout budget, retrieval ou modèle."""
+    etat = request.app.state.foyer
+    state = verifier_token(demande.token, etat.conversation_secret)
+    if state.doc_id != demande.doc_id:
+        raise InvalidRequest("l'état de continuation appartient à un autre document")
+    entry = etat.corpus.manifest.get(demande.doc_id)
+    document = etat.corpus.documents.get(demande.doc_id)
+    if document is None or document.kind != KIND_ATTENDU or entry is None:
+        raise InvalidRequest("le document de l'état n'est plus un contrat servi")
+    if (state.source_hash != entry.source_hash
+            or state.ingest_fingerprint != entry.ingest_fingerprint):
+        raise InvalidRequest("l'état de continuation est périmé pour ce document")
+    if (state.pipeline_digest != etat.pipeline_digest_hex
+            or state.prompts_digest != etat.prompts_digest_hex):
+        raise InvalidRequest("l'état de continuation est périmé pour cette version du pipeline")
+
+    answer, trace, updated = run_followup(
+        state, demande.domain_action(), settings=etat.settings,
+        request_id=request.state.request_id)
+    sources = clauses_de(answer, etat.index, etat.corpus)
+    token = signer(updated, etat.conversation_secret)
+    request.state.log_fields.update(
+        intent="suivi", found=answer.found,
+        verdict=answer.verdict.value if answer.verdict is not None else None,
+        cost_eur=0.0, conversation_turn=updated.turn)
+    return SinistreConversationResponse(
+        answer=answer, sources=sources, via=VIA, trace=trace,
+        conversation=_view(updated, token))

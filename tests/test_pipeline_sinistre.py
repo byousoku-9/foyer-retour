@@ -37,6 +37,8 @@ from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINIS
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DOC_ID = "cg"
+
+
 GARANTIE = ("Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement "
             "soudain, résultant de l'action subite de la chaleur, sont couverts.")
 EXCLUSION = ("Pour les extensions mentionnées aux points 2.1 et 2.2, les dégâts occasionnés au "

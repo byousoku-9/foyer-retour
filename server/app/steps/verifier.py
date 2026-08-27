@@ -816,6 +816,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         facettes_couvertes=facettes_couvertes, verdict=verdict,
         motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
     )
+    verification._decision_claims = affichables
     step.checks.append(CheckResult(
         name="citations", ok=not rejetees,
         detail=f"{len(claims)} affirmation(s) retenue(s), {len(rejetees)} rejetée(s) sur {len(draft.claims)}"))

@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Literal
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from .document import DomainModel
 from .langue import LANGUES_SERVIES
@@ -14,7 +14,7 @@ from .langue import LANGUES_SERVIES
 # `Applicable` vit dans `verdict.py` (story 1.8) : c'est AD-6 qui en fixe les trois valeurs et le
 # code qui les dérive. Deux littéraux identiques dans deux modules auraient pu diverger en silence.
 from .question import CLARIFICATION_MAX_CHARS, QuestionScope
-from .verdict import Applicable, ApplicableReason, Verdict
+from .verdict import Applicable, ApplicableReason, ClaimJugee, Verdict
 
 SegmentKind = Literal["factuel", "transition", "limite"]
 # `non_citee` amende AD-4 (revue Codex 1.5) : une claim retrouvée et pertinente qu'**aucun** segment
@@ -235,6 +235,9 @@ class Verification(DomainModel):
     # guide — AD-4 : « `Verdict` voyage dans l'unique `Answer` », il n'y a pas de second objet de
     # réponse, et une question du guide n'a pas de verdict à porter.
     verdict: Verdict | None = None
+    # Story 3.7 : état exact qui a alimenté AD-6. Il voyage seulement entre *vérifier*, le pipeline
+    # et la fabrique du jeton signé ; il n'est jamais sérialisé dans l'ancien contrat ``Answer``.
+    _decision_claims: list[ClaimJugee] = PrivateAttr(default_factory=list)
     motif: str | None = None
 
     @property
@@ -264,6 +267,9 @@ class Answer(DomainModel):
     rejected_claims: list[RejectedClaim] = Field(default_factory=list)
     reason: AbsenceProof | None = None
     verdict: Verdict | None = None
+    # État interne, exclu de toute projection HTTP. La route 3.7 le place dans l'état de continuation
+    # avant de signer celui-ci ; le navigateur ne peut donc ni le fabriquer ni le modifier.
+    _decision_claims: list[ClaimJugee] = PrivateAttr(default_factory=list)
     # Ce que *comprendre* a **compris** des faits déclarés (story 1.9, D4) : `ParsedQuestion.scope`,
     # c'est-à-dire le bien, l'événement, le lieu, la cause et le moment que FR15 fait extraire. L'AC
     # de la story exige de les afficher, et aucun canal ne les publiait — ils étaient écrits par

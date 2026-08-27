@@ -23,10 +23,18 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from server.app.config import Settings
 from server.app.domain.answer import Answer, AnswerSegment
+from server.app.domain.conversation import (
+    FACT_KEY_MAX,
+    ConversationAction,
+    FactConflict,
+    FactEvent,
+    TargetQuestion,
+    VerdictTurn,
+)
 from server.app.domain.document import Bbox, DOC_ID_MAX, DOC_ID_PATTERN
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.langue import normaliser_langue_forcee
@@ -301,3 +309,44 @@ class SinistreResponse(BaseModel):
     sources: list[ClauseSource] = Field(default_factory=list)
     via: str = VIA
     trace: Trace
+
+
+class ConversationView(BaseModel):
+    """Projection non décisive de l'état signé, consommée par la page."""
+
+    token: str
+    turn: int
+    facts: list[FactEvent] = Field(default_factory=list)
+    conflicts: list[FactConflict] = Field(default_factory=list)
+    questions: list[TargetQuestion] = Field(default_factory=list)
+    history: list[VerdictTurn] = Field(default_factory=list)
+
+
+class SinistreConversationResponse(SinistreResponse):
+    conversation: ConversationView
+
+
+class SinistreFollowupRequest(BaseModel):
+    """Suivi sans modèle : le jeton fait autorité après vérification HMAC."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str = Field(min_length=1, max_length=DOC_ID_MAX, pattern=DOC_ID_PATTERN)
+    token: str = Field(min_length=1, max_length=60_000)
+    action: Literal["reponse", "correction", "resolution"] = "reponse"
+    value: str | None = Field(None, max_length=500)
+    question_id: str | None = Field(None, max_length=80)
+    fact_key: str | None = Field(None, max_length=FACT_KEY_MAX)
+    replaces_event_id: str | None = Field(None, max_length=80)
+    conflict_id: str | None = Field(None, max_length=80)
+    chosen_event_id: str | None = Field(None, max_length=80)
+
+    @model_validator(mode="after")
+    def _action_valide(self) -> SinistreFollowupRequest:
+        # Le modèle du domaine est l'autorité de forme ; ce passage conserve aussi les chemins
+        # pydantic du contrat HTTP, donc un corps incomplet est un 400 avant la route.
+        ConversationAction.model_validate(self.model_dump(exclude={"doc_id", "token"}))
+        return self
+
+    def domain_action(self) -> ConversationAction:
+        return ConversationAction.model_validate(self.model_dump(exclude={"doc_id", "token"}))

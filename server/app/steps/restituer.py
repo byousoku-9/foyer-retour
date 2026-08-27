@@ -428,5 +428,6 @@ def restituer(*, language: str, lang_fallback: bool = False,
         unknown=unknown,
         clarification=clarification,
     )
+    answer._decision_claims = list(verification._decision_claims)
     step.ms = int((time.monotonic() - t0) * 1000)
     return answer, step

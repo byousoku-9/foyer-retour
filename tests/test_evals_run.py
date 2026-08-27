@@ -375,6 +375,18 @@ def test_sans_cle_le_runner_refuse_avant_tout_chargement(monkeypatch: pytest.Mon
     assert code == 2
 
 
+def test_dry_run_prepare_sans_cle_client_ni_ecriture(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Story 3.7 : le jalon superviseur se prépare sans franchir la frontière payante."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(runner, "construire_contexte", _interdit)
+    code = runner.main(["--gate", "lux-guide", "--profile", "vertical", "--dry-run"])
+    assert code == 0
+    sortie = capsys.readouterr().out
+    assert "aucun appel, aucun client et aucune écriture" in sortie
+    assert "gate=lux-guide" in sortie and "cas=1" in sortie
+
+
 def _interdit(*args: Any, **kw: Any) -> Any:
     raise AssertionError("le corpus a été chargé alors que la clé manque")
 

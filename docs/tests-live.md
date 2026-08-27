@@ -3372,3 +3372,41 @@ la divergence.
 La sonde réelle hors artefact a relu **411 134 octets** depuis l'URL officielle et confirmé le SHA
 `2c365b0e…`. La suite complète clé neutralisée rend **2472 passed**; Ruff et `git diff --check` sont
 verts. Aucun PDF, appel Anthropic, gate ou fixture n'a été modifié par cette vérification.
+
+## Story 3.7 — protocole conversationnel (préparation hors ligne du 27/08/2026)
+
+Le premier tour reste la chaîne mesurée `comprendre → retrouver → rédiger → vérifier → restituer`.
+Les deux tours suivants doivent reprendre le jeton signé rendu par la page et répondre à une
+`question_id` active : ils réutilisent les clauses et l'état AD-6 vérifiés, n'appellent ni modèle ni
+retrieval et publient les cinq étapes logiques avec un coût nul. La conversation reste uniquement
+dans la mémoire de la page ; un rechargement recommence un dossier vide.
+
+Protocole live préparé, mais **non exécuté dans cette story** :
+
+1. lancer un premier tour sur le cas témoin AXA `s-bougie-canape`, relever durée, coût, verdict,
+   `request_id`, 2–3 questions et jeton de continuation ;
+2. répondre à une question factuelle par le choix rapide, puis à la suivante en texte libre ;
+3. pour chaque suivi, vérifier une durée cible inférieure à cinq secondes, `total_cost_eur=0`, les
+   cinq étapes de trace, l'absence d'appel Anthropic/retrieval, la liaison à la `question_id` et
+   l'explication causale du verdict ;
+4. répéter le même état et les mêmes réponses sur Baloise pour contrôler la généricité, sans branche
+   propre à l'assureur ;
+5. altérer un octet du jeton, changer le `doc_id`, puis rejouer après un digest différent : attendre
+   trois 400 avant toute dépense et conserver le dernier état valide à l'écran ;
+6. provoquer une contradiction, vérifier les deux versions et leurs sources, puis choisir
+   explicitement la version retenue ; enfin tester « copier le dossier » et son erreur presse-papiers.
+
+Préparation standard, autorisée sans clé et sans écriture :
+
+```bash
+ANTHROPIC_API_KEY= uv run python -m server.evals.run \
+  --gate lux-guide --profile vertical --dry-run
+ANTHROPIC_API_KEY= uv run python -m server.evals.run \
+  --gate axa-lu-optihome-2017 --profile vertical --dry-run
+ANTHROPIC_API_KEY= uv run python -m server.evals.run \
+  --gate baloise-lu-home-2-2024 --profile vertical --dry-run
+```
+
+Le jalon superviseur devra autoriser séparément le premier tour AXA, les deux suivis (qui doivent
+rester gratuits) et le contrôle Baloise. Aucun résultat live, fixture LLM, gate ou manifest n'est
+revendiqué ici.

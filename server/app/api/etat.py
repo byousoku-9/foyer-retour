@@ -15,8 +15,11 @@ une borne entre requêtes d'un même process.
 from __future__ import annotations
 
 import ipaddress
+import hashlib
+import hmac
 import logging
 import re
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,6 +46,20 @@ from server.app.pipelines.sinistre import run as executer_sinistre
 LOG = logging.getLogger("foyer.etat")
 
 DATA_DIR = REPO_ROOT / "data"
+
+
+def _conversation_secret(settings: Settings) -> bytes:
+    """Clé inter-instance sans nouveau secret d'infrastructure.
+
+    En production, toutes les instances reçoivent déjà la même clé Anthropic depuis Secret Manager.
+    Une dérivation HMAC à domaine séparé évite de l'employer directement et permet à un suivi de
+    changer d'instance. Hors ligne, où cette clé est volontairement vide, une clé de processus suffit.
+    """
+    provider_key = settings.anthropic_api_key.strip()
+    if not provider_key:
+        return secrets.token_bytes(32)
+    return hmac.new(provider_key.encode("utf-8"), b"foyer-retour/conversation/v1",
+                    hashlib.sha256).digest()
 RAPPORT = "report.json"
 SOURCE_URL = "source.url"
 # Une URL de source tient largement là-dedans (celle du contrat AXA fait 170 caractères) ; au-delà,
@@ -270,6 +287,9 @@ class EtatApp:
     limiter: RateLimiter
     pipeline_digest_hex: str
     prompts_digest_hex: str
+    # Story 3.7 : clé éphémère du jeton de continuation. Elle n'identifie aucun utilisateur et ne
+    # conserve aucun dossier ; son renouvellement au redémarrage invalide les pages anciennes.
+    conversation_secret: bytes = field(default_factory=lambda: secrets.token_bytes(32), repr=False)
     # AD-5 / AD-7 (story 2.1) : l'objet chargé une fois au démarrage, en lecture seule. Le champ
     # porte l'**objet** et non plus un booléen, parce que trois lecteurs en ont besoin — `/sante`
     # (trois booléens), le pipeline du guide (le court-circuit et le compte de variantes) et
@@ -679,7 +699,8 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
-        prompts_digest_hex=digest_prompts, dictionnaire=dictionnaire,
+        prompts_digest_hex=digest_prompts, conversation_secret=_conversation_secret(settings),
+        dictionnaire=dictionnaire,
         dictionnaires=dictionnaires,
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,

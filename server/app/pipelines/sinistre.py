@@ -29,6 +29,7 @@ from pydantic import ValidationError
 
 from server.app.config import Settings
 from server.app.domain.answer import AbsenceProof, Answer, Verification
+from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
     BudgetExceeded,
     CorpusUnavailable,
@@ -492,3 +493,43 @@ def _verdict_par_defaut(verification: Verification,
         return verification
     return verification.model_copy(
         update={"verdict": _verdict_de_refus("claims_rejetes", dossier)})
+
+
+def run_followup(state: ContinuationState, action: ConversationAction, *, settings: Settings,
+                 request_id: str) -> tuple[Answer, Trace, ContinuationState]:
+    """Un tour de suivi entièrement pur : aucune lecture de corpus, aucun retrieval, aucun modèle.
+
+    Les cinq étapes restent visibles parce qu'elles sont le vocabulaire stable de la trace. Les
+    trois étapes normalement payantes disent explicitement qu'elles ont réutilisé l'état vérifié ;
+    aucune ne contient de texte fourni par le client.
+    """
+    try:
+        updated = appliquer(state, action, request_id=request_id,
+                            ask_client_max=settings.ask_client_max)
+    except ValueError as exc:
+        raise InvalidRequest(str(exc)) from exc
+    steps = [
+        StepTrace(name="comprendre", checks=[CheckResult(
+            name="reponse_liee", ok=True,
+            detail="réponse rattachée à une question active de l'état signé")]),
+        StepTrace(name="retrouver", checks=[CheckResult(
+            name="corpus_reutilise", ok=True,
+            detail="aucun retrieval : corpus et empreintes du premier tour réutilisés")]),
+        StepTrace(name="rediger", checks=[CheckResult(
+            name="sans_modele", ok=True,
+            detail="aucun appel modèle : ajout d'un événement typé seulement")]),
+        StepTrace(name="verifier", checks=[CheckResult(
+            name="etat_signe", ok=True,
+            detail="état décisif vérifié avant recalcul par la table AD-6")]),
+        StepTrace(name="restituer", checks=[CheckResult(
+            name="verdict_recalcule", ok=True,
+            detail=f"tour {updated.turn} rendu déterministement")]),
+    ]
+    trace = Trace(
+        request_id=request_id, pipeline=PIPELINE, variant=VARIANT, intent="suivi", steps=steps,
+        total_cost_eur=0.0, source_hash={state.doc_id: state.source_hash},
+        ingest_fingerprint={state.doc_id: state.ingest_fingerprint},
+        pipeline_digest=state.pipeline_digest, prompts_digest=state.prompts_digest,
+        thresholds=settings.thresholds(), retries=0, truncations=0,
+    )
+    return updated.answer, trace, updated

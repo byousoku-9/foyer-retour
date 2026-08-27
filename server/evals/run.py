@@ -945,6 +945,8 @@ def _parser() -> argparse.ArgumentParser:
                    help="plafond de coût du run en euros (défaut : evals_max_cost_eur de config.py)")
     p.add_argument("--cases-dir", type=Path, default=CASES_DIR)
     p.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    p.add_argument("--dry-run", action="store_true",
+                   help="valider et afficher le plan sans clé, client, appel ni écriture")
     return p
 
 
@@ -969,7 +971,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.gate:
             _valider_doc_id(args.gate)
         # 3. La clé, **avant tout chargement de corpus** (AD-14).
-        if cle_absente(settings):
+        if not args.dry_run and cle_absente(settings):
             raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
                                  "(AD-14 — les unitaires passent sans clé, les évals non)")
         # 4. Les cas, avant tout appel facturé.
@@ -999,6 +1001,14 @@ def main(argv: list[str] | None = None) -> int:
         if not cas:
             raise RefusDeTourner(f"aucun cas au profil {args.profile} "
                                  f"dans {args.cases_dir}{' (suites ' + ', '.join(suites) + ')' if suites else ''}")
+        if args.dry_run:
+            # Story 3.7 : jalon explicite avant toute dépense. Aucune construction de contexte —
+            # donc ni client, ni lecture/écriture du manifest — et aucun besoin de clé.
+            print("dry-run : aucun appel, aucun client et aucune écriture", file=sortie)
+            print(f"profil={args.profile} gate={args.gate or '-'} cas={len(cas)} "
+                  f"suites={','.join(suites or sorted({c.suite for c in cas}))} "
+                  f"plafond={max_cost:.4f} EUR", file=sortie)
+            return 0
         # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
             ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile)
