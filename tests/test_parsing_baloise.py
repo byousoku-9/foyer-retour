@@ -43,7 +43,24 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
         "document_hash": hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
         "edition": EDITION,
         "overlay_hash": None,
-        "gate": None,
+        "gate": {
+            "profile": "vertical",
+            "source_hash": SOURCE_HASH,
+            "ingest_fingerprint": doc.ingest_fingerprint,
+            "cases_hash": "e493de7d5d41ac4e64537f54124bdb6cac2ad97f6356aaca908a1d67c860e2e8",
+            "pipeline_digest": "7e57eec61ed2cc8ee2e4f12a7ff41780549a7824a4532d9b2e08af783d191bf5",
+            "prompts_digest": "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45",
+            "model_ids": {
+                "ingest": "claude-opus-5",
+                "reason": "claude-sonnet-5",
+                "micro": "claude-haiku-4-5-20251001",
+            },
+            "evals_ok": True,
+            "date": "2026-08-27T03:40:33Z",
+            "overlay_hash": None,
+            "cases": 3,
+            "countersigned": False,
+        },
     }
     assert not report.blocking
     assert report.stats["pages"] == report.stats["pages_avec_blocs"] == 48

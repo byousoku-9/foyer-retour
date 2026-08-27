@@ -284,24 +284,27 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
     assert axa["source_url"] and axa["source_url"].startswith("https://")
     assert "lux-guide" in par_id and par_id["lux-guide"]["kind"] == "guide"
     baloise = par_id["baloise-lu-home-2-2024"]
-    # La fixture démarre en dev avec la dérogation explicite : le statut effectif est donc servi.
-    # Le test du loader ci-dessous couvre le même manifest sans dérogation (`sans_gate`).
+    # Le gate final rend ce statut indépendant de la dérogation de la fixture.
     assert baloise["status"] == "servi" and baloise["selectionnable"] is True
     assert baloise["edition"] == "CG-HOME(2)-LUFR-09-24"
     assert baloise["source_url"].startswith("https://www.baloise.lu/")
     assert baloise["report_status"] == "disponible"
 
 
-def test_baloise_sans_gate_reste_auditable_mais_jamais_selectionnable_en_production(
+def test_baloise_gate_est_servi_et_selectionnable_en_production(
         production_reelle: TestClient) -> None:
     reponse = production_reelle.get("/api/v1/documents")
     assert reponse.status_code == 200
     baloise = {item["doc_id"]: item for item in reponse.json()}[BALOISE]
-    assert baloise["status"] == "quarantaine"
-    assert baloise["raison"] == "sans_gate"
-    assert baloise["selectionnable"] is False
-    assert BALOISE not in production_reelle.app.state.foyer.corpus.documents
-    assert production_reelle.app.state.foyer.corpus.quarantine[BALOISE] == "sans_gate"
+    assert baloise["status"] == "servi"
+    assert baloise["raison"] is None
+    assert baloise["selectionnable"] is True
+    assert baloise["gate"]["profile"] == "vertical"
+    assert baloise["gate"]["cases"] == 3
+    assert baloise["gate"]["evals_ok"] is True
+    assert baloise["gate"]["countersigned"] is False
+    assert BALOISE in production_reelle.app.state.foyer.corpus.documents
+    assert BALOISE not in production_reelle.app.state.foyer.corpus.quarantine
 
 
 def test_documents_ne_coute_rien_et_nest_pas_limitee(prod: TestClient) -> None:

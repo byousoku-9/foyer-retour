@@ -24,9 +24,9 @@ uv run python -m server.ingest.type_clauses baloise-lu-home-2-2024 \
 Le dry-run, joué avant le premier appel, affichait 69 requêtes de lecture 1 et au plus 69 de lecture
 2, pour un majorant de 9,7482 EUR. L'unique campagne payante a utilisé Messages standard : 69 appels
 T1 et 51 appels T2, aucun Batch, coût réel 4,2518 EUR sous le plafond de 10 EUR. Elle étiquette 513
-blocs, dont 510 juridiques et 453 confirmés par deux lectures. Aucun gate n'a été lancé dans cette
-story : Baloise est donc servi dans le fixture de développement qui autorise les documents sans gate,
-mais mis en quarantaine `sans_gate` par le chargement de production.
+blocs, dont 510 juridiques et 453 confirmés par deux lectures. Après convergence de la revue et du
+dictionnaire, le gate Baloise a réussi ses trois cas : le contrat est désormais servi et
+sélectionnable sans dérogation, y compris en production.
 
 ### Écarts conservés
 
@@ -51,8 +51,8 @@ pré-sérialisation supplémentaire n'est justifié sous la concurrence de démo
 L'agent a vérifié visuellement les pages 3, 10, 20, 30, 40 et 48 contre `document.json`, puis les
 passages relatifs à la brûlure de cigarette, aux denrées en congélateur et à la responsabilité civile
 vie privée. Trois témoins documentaires isolés sont versionnés : bougie/canapé, congélateur et
-invité/cigarette. Leur attendu prudent accepte `sous_conditions` ou `ne_tranche_pas`; leur exécution
-reste volontairement non faite car elle constituerait un gate payant.
+invité/cigarette. Leur attendu prudent accepte `sous_conditions` ou `ne_tranche_pas`; le gate final
+les a exécutés 3/3 avec succès pour 0,1520 EUR.
 
 Cette relecture est une inspection agent, pas une validation assurance. La relecture par Lancelot et
 l'expertise restent toutes deux dues; les YAML portent `countersigned_by: null` et
@@ -88,3 +88,16 @@ Messages standard**, pour un majorant de **5,0002 EUR** sans remise sous le plaf
 campagne réelle a coûté **2,8518 EUR** et écrit 540 canoniques, 3 029 variantes, zéro question
 candidate et 87 déclencheurs. Le fichier est chargeable, décrit l'empreinte courante du corpus et
 reste `validated=false` : sa génération ne remplace ni la validation humaine ni le gate du document.
+
+### Gates finaux
+
+Les trois gates ont été exécutés une fois chacun après stabilisation du code, du dictionnaire et des
+digests, tous sur le profil `vertical` et sans contresignature :
+
+- `lux-guide` : 1/1, 0,0706 EUR ;
+- `axa-lu-optihome-2017` : 1/1, 0,0900 EUR ;
+- `baloise-lu-home-2-2024` : 3/3, 0,1520 EUR.
+
+Le manifest porte le digest final `7e57eec6…`; ses trois entrées ont `evals_ok=true` et
+`countersigned=false`. Cela certifie l'exécution des cas versionnés, pas une validation assurance :
+la relecture par Lancelot et l'expertise restent dues.

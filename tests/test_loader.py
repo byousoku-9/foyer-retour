@@ -217,11 +217,17 @@ def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
 
 
 def test_repo_data_loads() -> None:
-    """Le second contrat reste auditable mais non servi avant son gate payant."""
+    """Les trois documents dont les gates finaux correspondent à l'image sont servis."""
     c = load_corpus(ROOT / "data", allow_ungated=False)
     axa = [] if (ROOT / "data" / "axa-lu-optihome-2017" / "source.pdf").is_file() else ["source_absente"]
-    assert c.quarantine == {"baloise-lu-home-2-2024": "sans_gate"}
-    assert c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": []}
+    baloise = ([] if (ROOT / "data" / "baloise-lu-home-2-2024" / "source.pdf").is_file()
+               else ["source_absente"])
+    assert c.quarantine == {}
+    assert c.alerts == {
+        "axa-lu-optihome-2017": axa,
+        "baloise-lu-home-2-2024": baloise,
+        "lux-guide": [],
+    }
     doc = c.documents["lux-guide"]
     assert doc.doc_id == "lux-guide" and doc.edition == "git:a8e8593" and len(doc.blocks) > 400
     assert all(b.text_norm == normalize(b.text) for b in doc.blocks)

@@ -767,11 +767,13 @@ def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod: TestClient) -> N
     j = r.json()
     assert j["ok"] is True
     assert j["version"] == "dev"
-    assert j["documents_servis"] == ["axa-lu-optihome-2017", "lux-guide"]
-    # Story 1.10 : les deux documents portent un gate `vertical` écrit par `evals run --gate`, donc
-    # `/sante` l'annonce — et il n'y a plus une seule alerte `sans_gate` à publier (AC de la story).
+    assert j["documents_servis"] == [
+        "axa-lu-optihome-2017", "baloise-lu-home-2-2024", "lux-guide"]
+    # Story 3.6 : les trois documents portent un gate `vertical` écrit par `evals run --gate`, donc
+    # `/sante` annonce leurs cinq cas — et il n'y a aucune alerte `sans_gate` à publier.
     assert j["gate_profile"] == "vertical"
-    assert j["gate_cases"] == 2
+    assert j["gate_cases"] == 5
+    assert j["gate_countersigned"] is False
     assert "sans_gate" not in [a["alerte"] for a in j["alerts"]]
     assert j["dictionary"]["validated"] is False  # AD-5 : le court-circuit « zéro hit » dort
     assert j["thresholds"]["rate_limit_per_minute"] == 10
@@ -928,16 +930,18 @@ def test_lalerte_de_derogation_ne_se_leve_que_en_production(env: str, allow: boo
     assert "ungated_refuse_en_production" not in [a["alerte"] for a in alertes]
 
 
-def test_limage_de_production_sert_les_deux_documents_sans_derogation() -> None:
-    """AC : « `ENV=prod` **sans** `ALLOW_UNGATED` ⇒ les deux documents sont servis (leur gate suffit) ».
+def test_limage_de_production_sert_les_trois_documents_sans_derogation() -> None:
+    """Après 3.6, `ENV=prod` sans `ALLOW_UNGATED` sert les trois documents gatés.
 
-    C'est exactement la configuration du `Dockerfile` depuis cette story. Sans les gates, ce test
-    rendrait `documents_servis: []`.
+    C'est exactement la configuration du `Dockerfile`. Sans l'un des gates, le document concerné
+    partirait en quarantaine plutôt que d'être servi par dérogation.
     """
     with TestClient(create_app(_settings(env="prod"))) as client:
         j = client.get("/api/v1/sante", headers=XFF).json()
-    assert j["documents_servis"] == ["axa-lu-optihome-2017", "lux-guide"]
-    assert j["gate_profile"] == "vertical" and j["gate_cases"] == 2
+    assert j["documents_servis"] == [
+        "axa-lu-optihome-2017", "baloise-lu-home-2-2024", "lux-guide"]
+    assert j["gate_profile"] == "vertical" and j["gate_cases"] == 5
+    assert j["gate_countersigned"] is False
     assert [a["alerte"] for a in j["alerts"] if a["alerte"] == "sans_gate"] == []
 
 

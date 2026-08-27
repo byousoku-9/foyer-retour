@@ -3285,12 +3285,13 @@ effacées.
 
 Les pages 3, 10, 20, 30, 40 et 48 ont été rendues depuis le PDF et relues visuellement par l'agent.
 Les trois cas `b-bougie-canape`, `b-congelateur` et `b-invite-cigarette` ont une provenance
-`lecture_humaine` explicitée par cette inspection, mais **n'ont pas été exécutés** : le spec interdit
-de lancer ici le gate payant. Leur résultat actuel est donc « attendu versionné, exécution due », pas
-une réussite revendiquée. Relecture Lancelot : en attente. Expertise : absente.
+`lecture_humaine` explicitée par cette inspection. À ce premier jalon ils n'avaient pas encore été
+exécutés; leur exécution finale est consignée plus bas. Relecture Lancelot : en attente. Expertise :
+absente.
 
-La vérification hors appels payants comprend le parsing réel byte-identique quand `source.pdf` est
-présent, les frontières source/hash, les suites et `cases_hash` isolés, les dictionnaires par contrat,
+La vérification initiale hors appels payants comprend le parsing réel byte-identique quand
+`source.pdf` est présent, les frontières source/hash, les suites et `cases_hash` isolés, les
+dictionnaires par contrat,
 le listing API et la quarantaine `sans_gate`. Le contrôle de digest des gates historiques devient
 rouge parce que les coutures pipeline ont changé; le réparer honnêtement exige de rejouer les gates
 payants AXA/guide, opération préparée mais volontairement non exécutée dans cette story. Résultat
@@ -3337,3 +3338,20 @@ Elle a terminé sans retry ni Batch : **36 appels**, coût réel **2,8518 EUR**,
 dupliqués et 388 propositions trop longues. Le fichier final est chargeable, `corpus_ok=true` pour
 `baloise-lu-home-2-2024` et `validated=false`. Aucun gate, appel live applicatif, fixture LLM ou push
 n'a été exécuté dans ce follow-up.
+
+### Certification finale post-revue
+
+Une fois le code, le dictionnaire et les digests stabilisés, les trois gates ont été exécutés
+exactement une fois chacun et ont tous réussi du premier coup :
+
+| Document | Résultat | Coût | Manifest final |
+|---|---:|---:|---|
+| `lux-guide` | 1/1 `bonne_reponse` | 0,0706 EUR | `evals_ok=true`, `countersigned=false` |
+| `axa-lu-optihome-2017` | 1/1 `bonne_reponse` | 0,0900 EUR | `evals_ok=true`, `countersigned=false` |
+| `baloise-lu-home-2-2024` | 3/3 `bonne_reponse` | 0,1520 EUR | `evals_ok=true`, `countersigned=false` |
+
+Le manifest final sert donc trois documents sans `ALLOW_UNGATED`, publie le profil `vertical` et
+additionne cinq cas. Les cinq assertions provisoires qui attendaient encore Baloise en quarantaine
+ont été alignées sur cet état final. Aucun autre appel live, gate, fixture LLM ou Batch n'a été lancé
+pendant cette mise à jour post-gate. La suite finale clé neutralisée rend **2470 passed**; Ruff et
+`git diff --check` sont verts.
