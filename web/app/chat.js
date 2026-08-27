@@ -784,7 +784,12 @@ window.CHAT = (function () {
     segments_non_soutenus: "des phrases avancent plus que les passages joints",
     segments_retires: "des phrases ont été retirées de la réponse",
     verdict: "verdict rendu sur les affirmations affichées",
-    verdict_contradictoire: "deux verdicts opposés pour une même affirmation"
+    verdict_contradictoire: "deux verdicts opposés pour une même affirmation",
+    reponse_liee: "réponse liée à la question active",
+    corpus_reutilise: "corpus vérifié du premier tour réutilisé sans nouvelle recherche",
+    sans_modele: "suivi déterministe sans appel modèle",
+    etat_signe: "état décisif transporté vérifié par le serveur",
+    verdict_recalcule: "verdict recalculé par la table AD-6"
   };
 
   function libelleControle(nom) {
