@@ -109,10 +109,11 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
 
     reglages = Settings(_env_file=None)
     manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
-    for doc_id in (reglages.guide_doc_id, reglages.sinistre_doc_id):
-        suite = suite_du_document(reglages, doc_id)
-        gate = manifest[doc_id]["gate"]
-        assert gate is not None, f"{doc_id} n'a pas de gate : relancer `evals run --gate {doc_id}`"
+    gates = [(doc_id, entree["gate"]) for doc_id, entree in sorted(manifest.items())
+             if isinstance(entree, dict) and isinstance(entree.get("gate"), dict)]
+    assert gates, "le manifest livré ne porte aucun gate"
+    for doc_id, gate in gates:
+        suite = suite_du_document(reglages, doc_id, cases_dir=CASES_DIR)
         # **Le même filtre que `main()`**, sinon les deux calculs de `cases_hash` divergeraient dès
         # qu'un cas d'un autre profil existerait (4.1) : le gate est écrit sur les cas du profil
         # demandé, ce test recalculerait sur toute la suite, et il rougirait sans qu'il y ait de
@@ -120,7 +121,9 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
         # ce qui rendra le contrôle juste le jour où elle sera permise.
         cas = [c for c in charger_cas(CASES_DIR, suites=(suite,)) if c.profile == gate["profile"]]
         assert cas, f"aucun cas au profil {gate['profile']} pour la suite {suite}"
-        fichiers = [CASES_DIR / c.suite / f"{c.id}.yaml" for c in cas]
+        assert all(c.case_path is not None for c in cas), (
+            f"la suite {suite} contient un cas sans chemin certifiable")
+        fichiers = [c.case_path for c in cas if c.case_path is not None]
         assert gate["cases_hash"] == cases_hash(fichiers, CASES_DIR), (
             f"le golden set de la suite {suite} a changé depuis le gate de {doc_id} : "
             f"relancer `uv run python -m server.evals.run --gate {doc_id} --profile vertical`")

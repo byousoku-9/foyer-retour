@@ -63,6 +63,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.digests import cases_hash, pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.app.domain.errors import ErrorCode, PipelineError
 from server.app.domain.ingest import Gate, GateContext, ManifestEntry
 from server.app.domain.profil import Profil
@@ -109,6 +110,27 @@ class RefusDeTourner(Exception):
 
 class IncidentTechnique(Exception):
     """Un incident pendant un cas — code 3, manifest intact : un incident n'est pas un verdict (D4)."""
+
+
+def _valider_doc_id(doc_id: str) -> str:
+    """Valide l'identifiant avant qu'il puisse influencer un chemin de cas ou de données."""
+    if len(doc_id) > DOC_ID_MAX or DOC_ID_RE.fullmatch(doc_id) is None:
+        raise RefusDeTourner(
+            f"doc_id invalide : {doc_id!r} (attendu : {DOC_ID_RE.pattern}, "
+            f"{DOC_ID_MAX} caractères maximum)")
+    return doc_id
+
+
+def _dans_cases(cases_dir: Path, cible: Path, *, objet: str) -> Path:
+    """Résout une cible et refuse tout lien/traversée qui sort de la racine des cas."""
+    try:
+        racine = cases_dir.resolve(strict=True)
+        resolue = cible.resolve(strict=True)
+        resolue.relative_to(racine)
+    except (OSError, ValueError) as exc:
+        raise RefusDeTourner(
+            f"{objet} hors de la racine des cas {cases_dir}: {cible}") from exc
+    return resolue
 
 
 class _ErreurInterneFacturee(Exception):
@@ -271,9 +293,12 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
         if doc_id is not None and suite != "sinistre":
             raise RefusDeTourner(
                 f"seule la suite sinistre accepte un sous-dossier documentaire ({suite_locator})")
+        if doc_id is not None:
+            _valider_doc_id(doc_id)
         dossier = cases_dir.joinpath(*morceaux)
         if not dossier.is_dir():
             continue
+        _dans_cases(cases_dir, dossier, objet="suite documentaire")
         # Tout ce que `glob("*.yaml")` (non récursif) ne ramènerait pas : un cas déposé en `.yml`,
         # et un cas rangé dans un sous-dossier. Les deux seraient **ignorés en silence**, et le gate
         # se réclamerait d'une suite amputée sans qu'un mot le dise. Un golden set muet est pire
@@ -292,6 +317,7 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
                                  f"{', '.join(etrangers)} (les cas sont des `*.yaml` à plat ; "
                                  "seuls les sous-dossiers documentaires de `sinistre/` sont admis)")
         for fichier in sorted(dossier.glob("*.yaml")):
+            _dans_cases(cases_dir, fichier, objet="cas YAML")
             lu = _lire_cas(fichier, suite)
             lu._doc_id = doc_id
             lu._case_path = fichier
@@ -489,12 +515,14 @@ def suite_du_document(settings: Settings, doc_id: str, *, cases_dir: Path = CASE
     suite `guide`, `--gate axa-lu-optihome-2017` la suite `sinistre`. Le jour où un second contrat
     arrive (story 3.6), c'est cette fonction qui ne suffira plus — entrée différée.
     """
+    _valider_doc_id(doc_id)
     if doc_id == settings.guide_doc_id:
         return "guide"
     if doc_id == settings.sinistre_doc_id:
         return "sinistre"
     suite_documentaire = cases_dir / "sinistre" / doc_id
     if suite_documentaire.is_dir():
+        _dans_cases(cases_dir, suite_documentaire, objet="suite documentaire")
         return f"sinistre/{doc_id}"
     raise RefusDeTourner(
         f"aucune suite ne sert le document {doc_id!r} (suite attendue : "
@@ -639,7 +667,16 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
     Un seul cas sans contresignature suffit à mettre le gate à `false` — « 2 cas relus à la main »
     serait faux dès qu'un des deux ne l'est pas.
     """
-    fichiers = [c.case_path or (cases_dir / c.suite / f"{c.id}.yaml") for c in cas]
+    fichiers: list[Path] = []
+    for c in cas:
+        if c.case_path is None:
+            if c.doc_id is not None:
+                raise RefusDeTourner(
+                    f"cas documentaire {c.id!r} sans case_path : impossible de certifier son hash")
+            fichier = cases_dir / c.suite / f"{c.id}.yaml"
+        else:
+            fichier = c.case_path
+        fichiers.append(_dans_cases(cases_dir, fichier, objet=f"cas {c.id!r}"))
     return Gate(
         profile=profil, source_hash=entry.source_hash,
         ingest_fingerprint=entry.ingest_fingerprint, overlay_hash=entry.overlay_hash,
@@ -927,11 +964,14 @@ def main(argv: list[str] | None = None) -> int:
             raise RefusDeTourner(f"profil `{args.profile}` : story {PROFILS_DIFFERES[args.profile]}")
         if args.profile not in PROFILS_LIVRES:
             raise RefusDeTourner(f"profil `{args.profile}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
-        # 2. La clé, **avant tout chargement de corpus** (AD-14).
+        # 2. Le doc_id du gate avant toute composition de chemin ou lecture de cas.
+        if args.gate:
+            _valider_doc_id(args.gate)
+        # 3. La clé, **avant tout chargement de corpus** (AD-14).
         if cle_absente(settings):
             raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
                                  "(AD-14 — les unitaires passent sans clé, les évals non)")
-        # 3. Les cas, avant tout appel facturé.
+        # 4. Les cas, avant tout appel facturé.
         suites = None
         if args.gate and args.cas:
             # `--gate` écrit un gate **de suite** : `cases` et `cases_hash` désignent ce qui a été
@@ -958,7 +998,7 @@ def main(argv: list[str] | None = None) -> int:
         if not cas:
             raise RefusDeTourner(f"aucun cas au profil {args.profile} "
                                  f"dans {args.cases_dir}{' (suites ' + ', '.join(suites) + ')' if suites else ''}")
-        # 4. Le corpus, puis le document visé par `--gate`.
+        # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
             ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile)
             # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.

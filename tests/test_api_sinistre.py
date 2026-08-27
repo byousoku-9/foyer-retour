@@ -50,6 +50,7 @@ XFF = {"X-Forwarded-For": "198.51.100.9"}
 DOC_ID = "cg-mini"
 GUIDE_ID = "guide-mini"
 AXA = "axa-lu-optihome-2017"
+BALOISE = "baloise-lu-home-2-2024"
 
 GARANTIE = ("Les dégâts occasionnés au mobilier assuré par un événement soudain, résultant de "
             "l'action subite de la chaleur, sont couverts.")
@@ -217,6 +218,12 @@ def prod() -> Any:
     yield from _serveur(_settings(env="dev", allow_ungated=True))
 
 
+@pytest.fixture(scope="module")
+def production_reelle() -> Any:
+    """Le vrai manifest sous la règle production : aucun passe-droit pour un gate absent."""
+    yield from _serveur(_settings(env="prod", allow_ungated=False))
+
+
 @pytest.fixture(autouse=True)
 def _etat_propre(request: pytest.FixtureRequest) -> Any:
     """L'application est partagée par le module ; son état, non — chaque test repart du réel."""
@@ -283,6 +290,18 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
     assert baloise["edition"] == "CG-HOME(2)-LUFR-09-24"
     assert baloise["source_url"].startswith("https://www.baloise.lu/")
     assert baloise["report_status"] == "disponible"
+
+
+def test_baloise_sans_gate_reste_auditable_mais_jamais_selectionnable_en_production(
+        production_reelle: TestClient) -> None:
+    reponse = production_reelle.get("/api/v1/documents")
+    assert reponse.status_code == 200
+    baloise = {item["doc_id"]: item for item in reponse.json()}[BALOISE]
+    assert baloise["status"] == "quarantaine"
+    assert baloise["raison"] == "sans_gate"
+    assert baloise["selectionnable"] is False
+    assert BALOISE not in production_reelle.app.state.foyer.corpus.documents
+    assert production_reelle.app.state.foyer.corpus.quarantine[BALOISE] == "sans_gate"
 
 
 def test_documents_ne_coute_rien_et_nest_pas_limitee(prod: TestClient) -> None:

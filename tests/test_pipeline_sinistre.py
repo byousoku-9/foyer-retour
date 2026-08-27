@@ -12,6 +12,7 @@ import json
 import pytest
 
 from server.app.config import Settings
+from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
@@ -196,14 +197,15 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True) -> di
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
                variant: str = "deterministe", dossier: MissingPackage | None = None,
-               lang: str | None = None, question: str = QUESTION):
+               lang: str | None = None, question: str = QUESTION,
+               dictionnaire: Dictionnaire | None = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await sinistre.run(doc_id, question, faits, corpus=index.corpus, index=index,
                                        client=client, settings=settings, request_id="req-sinistre",
                                        variant=variant, budget=budget or _budget(), dossier=dossier,
-                                       lang=lang)
+                                       lang=lang, dictionnaire=dictionnaire)
     return answer, trace, fake
 
 
@@ -382,6 +384,52 @@ async def test_un_autre_contrat_ne_recoit_pas_les_aliases_lexicaux_axa(
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit" and answer.reason.terms_searched == [terme]
     assert [step.name for step in trace.steps] == ["comprendre", "retrouver", "restituer"]
+
+
+async def test_une_variante_du_contrat_change_la_recherche_sans_fuite_inter_contrat(
+        index: Index) -> None:
+    alias = "sofa visiteur"
+    canonique = "mobilier"
+    dictionnaire = Dictionnaire(
+        charge=True, doc_id=DOC_ID, validated=True, corpus_ok=True, canoniques=1,
+        _groupes={forme(alias): (forme(alias), forme(canonique)),
+                  forme(canonique): (forme(alias), forme(canonique))},
+        _canoniques={forme(alias): (canonique,), forme(canonique): (canonique,)},
+    )
+    seconde_mauvaise = (
+        "c9", "Autre tentative fausse.",
+        [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")],
+    )
+
+    answer, trace, fake = await _run(index, [
+        _comprendre(terms=[alias]), _rediger(MAUVAISE), _rediger(seconde_mauvaise),
+    ], dictionnaire=dictionnaire)
+    retrouver = next(step for step in trace.steps if step.name == "retrouver")
+    assert fake.remaining_script == 0
+    assert retrouver.opened_block_ids, "la variante devait ouvrir les blocs portant le canonique"
+    assert f"{DOC_ID}:p1:2" in retrouver.opened_block_ids
+    assert answer.reason is not None and answer.reason.kind == "claims_rejetes"
+    assert answer.reason.terms_searched == [canonique]
+    assert answer.reason.variants_count == 1
+    assert trace.dictionnaire is not None
+    assert trace.dictionnaire.model_dump() == {
+        "charge": True, "validated": True, "corpus_ok": True, "court_circuit_actif": False}
+    controle = next(c for c in retrouver.checks if c.name == "dictionnaire")
+    assert controle.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
+
+    dictionnaire_autre = Dictionnaire(
+        charge=True, doc_id="autre-contrat", validated=True, corpus_ok=True, canoniques=1,
+        _groupes=dictionnaire._groupes, _canoniques=dictionnaire._canoniques,
+    )
+    sans_fuite, trace_sans_fuite, fake_sans_fuite = await _run(
+        index, [_comprendre(terms=[alias])], dictionnaire=dictionnaire_autre)
+    retrouver_sans_fuite = next(step for step in trace_sans_fuite.steps if step.name == "retrouver")
+    assert fake_sans_fuite.remaining_script == 0
+    assert retrouver_sans_fuite.opened_block_ids == []
+    assert all(c.name != "dictionnaire" for c in retrouver_sans_fuite.checks)
+    assert sans_fuite.reason is not None and sans_fuite.reason.kind == "zero_hit"
+    assert sans_fuite.reason.terms_searched == [alias]
+    assert sans_fuite.reason.variants_count == 0
 
 
 async def test_every_displayed_claim_carries_a_typed_applicability(index: Index) -> None:

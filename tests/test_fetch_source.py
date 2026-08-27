@@ -45,12 +45,16 @@ def test_nominal_writes_verified_pdf(data: Path) -> None:
 
 
 def test_hash_mismatch_writes_nothing_and_no_fallback(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    precedent = PDF  # son hash correspond bien à `source.sha256` : c'est la source valide existante
+    (data / "doc-a" / "source.pdf").write_bytes(precedent)
     seen: list[httpx.Request] = []
     client = _client({URL: httpx.Response(200, content=b"other"), GS: httpx.Response(200, content=PDF)}, seen)
     with pytest.raises(f.FetchError) as exc:
         f.fetch("doc-a", data, client=client)
     assert exc.value.code == 2 and "hash attendu" in str(exc.value) and "obtenu" in str(exc.value)
-    assert not (data / "doc-a" / "source.pdf").exists() and [str(r.url) for r in seen] == [URL]
+    assert (data / "doc-a" / "source.pdf").read_bytes() == precedent
+    assert [str(r.url) for r in seen] == [URL]
+    assert not list((data / "doc-a").glob("*.tmp"))
 
 
 def test_unreachable_falls_back_to_bucket_with_token(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:

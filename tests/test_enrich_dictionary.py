@@ -39,7 +39,8 @@ PASSAGE = "Vous disposez de huit jours après votre arrivée pour vous déclarer
 
 # --- corpus miniature écrit sur disque (le CLI charge `data/` lui-même) ----
 
-def _document(source_hash: str = SOURCE_HASH, *, deux_categories: bool = False) -> Document:
+def _document(source_hash: str = SOURCE_HASH, *, deux_categories: bool = False,
+              kind: str = "guide") -> Document:
     """Le corpus miniature. `deux_categories` ajoute « Logement » : c'est ce qui permet d'exercer un
     lot **partiellement** perdu (revue Codex 2.1, B2) — une catégorie tombe, l'autre revient."""
     blocks = [Block(block_id=f"{DOC_ID}:farrivee:1", text=PASSAGE, loc="farrivee", seq=1)]
@@ -54,7 +55,7 @@ def _document(source_hash: str = SOURCE_HASH, *, deux_categories: bool = False) 
         nodes += [Node(node_id=CAT2, level=1, title="Logement", items=[NodeRef(node_id=FICHE2)]),
                   Node(node_id=FICHE2, level=2, title="Signer un bail",
                        items=[BlockRef(block_id=f"{DOC_ID}:fbail:1")])]
-    return Document(doc_id=DOC_ID, kind="guide", title="Mini", edition="git:test",
+    return Document(doc_id=DOC_ID, kind=kind, title="Mini", edition="git:test",
                     source_hash=source_hash, ingest_fingerprint="fp", nodes=nodes, blocks=blocks)
 
 
@@ -64,7 +65,7 @@ SUMMARY_2 = (f"\n## Logement\n\n- `{FICHE2}` · Signer un bail · "
              "Trois ans, résiliation annuelle. · tags : bail, logement\n")
 
 
-def _ecrire_data(tmp_path: Path, *, deux_categories: bool = False) -> Path:
+def _ecrire_data(tmp_path: Path, *, deux_categories: bool = False, kind: str = "guide") -> Path:
     """Un `data/` minimal que `load_corpus` sert (hashes cohérents, gate absent + `allow_ungated`)."""
     import hashlib
 
@@ -76,7 +77,7 @@ def _ecrire_data(tmp_path: Path, *, deux_categories: bool = False) -> Path:
         SUMMARY + (SUMMARY_2 if deux_categories else ""), "utf-8")
     (doc_dir / "source.js").write_text("kb = {}\n", "utf-8")
     source_hash = hashlib.sha256((doc_dir / "source.js").read_bytes()).hexdigest()
-    texte = document_json(_document(source_hash, deux_categories=deux_categories))
+    texte = document_json(_document(source_hash, deux_categories=deux_categories, kind=kind))
     (doc_dir / "document.json").write_text(texte, "utf-8")
     entree = ManifestEntry(
         status="servi", source_hash=source_hash, ingest_fingerprint="fp",
@@ -250,6 +251,36 @@ def test_le_run_nominal_ecrit_un_dictionnaire_conforme_et_jamais_valide(tmp_path
     assert "coût réel :" in texte and "validated=false" in texte
     # Une requête par catégorie, plus une pour les intentions ; `custom_id` = la clé d'agrégation.
     assert [r["custom_id"] for r in batches.requetes] == [ed.custom_id(CAT), ed.CUSTOM_ID_INTENTS]
+
+
+def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path: Path) -> None:
+    data = _ecrire_data(tmp_path, kind="contrat")
+    racine = data / "dictionary.json"
+    racine.write_bytes(b'{"marqueur":"dictionnaire global intact"}\n')
+    avant = racine.read_bytes()
+    fichiers_avant = {p.relative_to(data): p.read_bytes() for p in data.rglob("*") if p.is_file()}
+    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie(),
+                            ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS})
+
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID],
+                   client=FauxClient(batches), settings=_settings(), sortie=io.StringIO(),
+                   dormir=lambda _s: None, maintenant=iter(range(0, 100000, 30)).__next__)
+    cible = data / DOC_ID / "dictionary.json"
+    assert code == 0 and cible.is_file()
+    assert racine.read_bytes() == avant
+    assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
+            if p.is_file() and p != cible} == fichiers_avant
+    produit = DictionaryFile.model_validate_json(cible.read_bytes())
+    assert produit.corpus_source_hashes == {DOC_ID: _source_hash(data)}
+    assert produit.validated is False
+
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--valider", "Lancelot Oudin"],
+                   client=None, settings=_settings(), sortie=io.StringIO())
+    valide = DictionaryFile.model_validate_json(cible.read_bytes())
+    assert code == 0 and valide.validated is True and valide.validated_by == "Lancelot Oudin"
+    assert racine.read_bytes() == avant
+    assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
+            if p.is_file() and p != cible} == fichiers_avant
 
 
 def test_relancer_ne_produit_aucun_diff_dordre(tmp_path: Path) -> None:

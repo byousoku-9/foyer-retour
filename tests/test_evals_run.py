@@ -42,6 +42,7 @@ from server.evals import run as runner
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
+TROISIEME = "troisieme-contrat"
 TEXTE_GUIDE = ("LuxTrust s'obtient au meilleur prix par une banque luxembourgeoise, souvent "
                "gratuitement pour ses clients.")
 TEXTE_CONTRAT = ("Les dégâts occasionnés au mobilier assuré par un événement soudain sont couverts, "
@@ -310,6 +311,29 @@ def test_un_cas_guide_ne_porte_pas_de_faits_et_un_cas_sinistre_en_exige(tmp_path
     assert "faits" in str(exc.value)
 
 
+def test_une_suite_documentaire_liee_hors_des_cas_est_refusee(tmp_path: Path) -> None:
+    racine = _cases_dir(tmp_path)
+    externe = tmp_path / "cas-externes"
+    externe.mkdir()
+    (externe / "x.yaml").write_text(CAS_SINISTRE.format(id="x"), encoding="utf-8")
+    (racine / "sinistre" / "doc-externe").symlink_to(externe, target_is_directory=True)
+
+    with pytest.raises(runner.RefusDeTourner, match="hors de la racine"):
+        runner.charger_cas(racine, suites=("sinistre/doc-externe",))
+
+
+def test_un_yaml_lie_hors_des_cas_ne_peut_pas_entrer_dans_un_gate(tmp_path: Path) -> None:
+    racine = _cases_dir(tmp_path)
+    dossier = racine / "sinistre" / "doc-lie"
+    dossier.mkdir()
+    externe = tmp_path / "x.yaml"
+    externe.write_text(CAS_SINISTRE.format(id="x"), encoding="utf-8")
+    (dossier / "x.yaml").symlink_to(externe)
+
+    with pytest.raises(runner.RefusDeTourner, match="cas YAML hors de la racine"):
+        runner.charger_cas(racine, suites=("sinistre/doc-lie",))
+
+
 # --- ce qui n'est pas livré est refusé, jamais simulé ---------------------
 
 def test_le_profil_full_est_refuse_en_nommant_sa_story() -> None:
@@ -364,6 +388,17 @@ def test_une_variable_posee_vide_fait_foi_sur_le_env_du_poste(monkeypatch: pytes
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert runner.cle_absente(_settings()) is False
     assert runner.cle_absente(_settings(anthropic_api_key="")) is True
+
+
+@pytest.mark.parametrize("doc_id", ["/tmp/contrat", "../contrat", "a/b", r"a\b", "a" * 65])
+def test_un_doc_id_de_gate_invalide_est_refuse_avant_tout_chemin_ou_cas(
+        doc_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    monkeypatch.setattr(runner, "suite_du_document", _interdit)
+    monkeypatch.setattr(runner, "charger_cas", _interdit)
+
+    assert runner.main(["--gate", doc_id, "--cases-dir", str(tmp_path)]) == 2
 
 
 # --- le jugement (D2) ----------------------------------------------------
@@ -714,6 +749,32 @@ def test_les_hashes_de_cas_sinistre_sont_isoles_par_document(tmp_path: Path) -> 
     assert gate_axa.cases_hash != gate_b.cases_hash
 
 
+def test_un_cas_documentaire_sans_chemin_ne_peut_pas_certifier_un_hash(tmp_path: Path) -> None:
+    racine = _cases_dir(
+        tmp_path, autres={"sinistre/doc-b/b-temoin.yaml": CAS_SINISTRE.format(id="b-temoin")})
+    cas = runner.charger_cas(racine, suites=("sinistre/doc-b",))[0]
+    cas._case_path = None
+    entry = ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                          document_hash="d", edition="2020")
+
+    with pytest.raises(runner.RefusDeTourner, match="sans case_path"):
+        runner.construire_gate(entry, _contexte([]), profil="vertical", cas=[cas],
+                               cases_dir=racine, evals_ok=True)
+
+
+def test_le_fallback_de_chemin_reste_disponible_pour_un_cas_plat(tmp_path: Path) -> None:
+    racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    cas = runner.charger_cas(racine, suites=("guide",))[0]
+    cas._case_path = None
+    entry = ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                          document_hash="d", edition="2020")
+
+    gate = runner.construire_gate(entry, _contexte([]), profil="vertical", cas=[cas],
+                                  cases_dir=racine, evals_ok=True)
+    from server.app.digests import cases_hash
+    assert gate.cases_hash == cases_hash([racine / "guide" / "g-luxtrust.yaml"], racine)
+
+
 def test_ecrire_le_gate_ne_touche_que_lentree_visee(tmp_path: Path) -> None:
     racine = _data_dir(tmp_path)
     avant = json.loads((racine / "manifest.json").read_text(encoding="utf-8"))
@@ -960,6 +1021,68 @@ def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
     # `allow_ungated=False` : les deux documents ne sont servis que parce que leur gate suffit (AC).
     for doc_id, alertes in corpus.alerts.items():
         assert "sans_gate" not in alertes and "gate_perime" not in alertes, (doc_id, alertes)
+
+
+def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_bout_en_bout(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    texte = "Le sofa confié à un visiteur fait partie du mobilier assuré."
+    document = _document(TROISIEME, "contrat", texte, "p7")
+    octets = json.dumps(document.model_dump(mode="json", exclude_defaults=True),
+                        ensure_ascii=False, sort_keys=True).encode("utf-8")
+    dossier = data / TROISIEME
+    dossier.mkdir()
+    (dossier / "document.json").write_bytes(octets)
+    (dossier / "summary.md").write_text(f"# {TROISIEME}", encoding="utf-8")
+    (dossier / "dictionary.json").write_text(json.dumps({
+        "schema_version": "1", "corpus_source_hashes": {TROISIEME: "s"},
+        "corpus": {"mobilier": ["sofa visiteur"]}, "intents": {},
+        "candidate_questions": {}, "validated": False,
+        "validated_by": None, "validated_at": None,
+    }, ensure_ascii=False), encoding="utf-8")
+    manifest_path = data / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[TROISIEME] = {
+        "status": "servi", "source_hash": "s", "ingest_fingerprint": "f",
+        "document_hash": hashlib.sha256(octets).hexdigest(), "edition": "2020",
+        "overlay_hash": None, "gate": None,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    autres_avant = {doc_id: entree for doc_id, entree in manifest.items() if doc_id != TROISIEME}
+
+    cases = _cases_dir(tmp_path, autres={
+        f"sinistre/{TROISIEME}/t-temoin.yaml": CAS_SINISTRE.format(id="t-temoin")})
+    corpus = load_corpus(data, allow_ungated=True)
+    index = Index(corpus)
+    reponse = _reponse([
+        _claim(_citation(index, f"{TROISIEME}:p7:1", "mobilier assuré"))],
+        verdict=Verdict(value="sous_conditions", reason="r"))
+    double = DoublePipeline([(reponse, _trace("sinistre"))])
+    _COURANT["guide"] = DoublePipeline([])
+    _COURANT["sinistre"] = double
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+
+    code = runner.main(["--gate", TROISIEME, "--cases-dir", str(cases),
+                        "--data-dir", str(data)])
+    assert code == 0 and len(double.appels) == 1
+    appel = double.appels[0]
+    assert appel["args"][0] == TROISIEME
+    dictionnaire = appel["kw"]["dictionnaire"]
+    assert dictionnaire.doc_id == TROISIEME and dictionnaire.charge and dictionnaire.corpus_ok
+    assert dictionnaire.expand(["sofa visiteur"])["sofa visiteur"] == ["mobilier"]
+
+    apres = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert {doc_id: entree for doc_id, entree in apres.items() if doc_id != TROISIEME} == autres_avant
+    gate = apres[TROISIEME]["gate"]
+    cas_charge = runner.charger_cas(cases, suites=(f"sinistre/{TROISIEME}",))
+    fichiers = [cas.case_path for cas in cas_charge if cas.case_path is not None]
+    assert gate["cases"] == 1 and gate["evals_ok"] is True
+    assert gate["cases_hash"] == runner.cases_hash(fichiers, cases)
 
 
 def test_gate_en_echec_de_cas_ecrit_evals_ok_false_et_rend_un(tmp_path: Path,
