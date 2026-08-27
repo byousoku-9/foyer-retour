@@ -165,6 +165,8 @@ jobs:
           mkdir -p .evals
           EVALS_MAX_COST="$(uv run python -c 'from server.app.config import Settings; print(Settings().evals_max_cost_eur)')"
           set +e
+          # Le marqueur payant exécute guide/sinistre. La suite parsing, locale et parfois rouge
+          # par construction, possède son propre rejeu documenté hors fournisseur.
           uv run pytest -m evals -q --evals-max-cost "$EVALS_MAX_COST"
           STATUS=$?
           set -e

@@ -9,7 +9,7 @@ faits:
   date: "2026-08-20"
   lieu: "cuisine du domicile assuré"
   description: "Une canalisation encastrée a rompu soudainement et l'eau a endommagé le mur et le mobilier."
-expected: {found: true, verdict: [couvert, sous_conditions], refusal: false}
+expected: {found: true, verdict: [couvert], refusal: false}
 mode_attendu: bonne_reponse
 truth:
   source: lecture_humaine

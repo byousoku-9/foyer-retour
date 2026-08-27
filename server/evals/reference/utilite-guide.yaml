@@ -193,3 +193,15 @@ references:
     interlocuteur: "Professionnel du droit"
     provenance: "Exploration epreuves.md"
     countersigned_by: null
+  - case_id: g-nounou-apres-ecole
+    ordre_juste: ["Chercher une garde après l'école", "Vérifier le conventionnement", "Contacter la commune ou une structure de garde"]
+    documents_cites: ["Fiche Garde d'enfants et chèque-service"]
+    interlocuteur: "Commune de résidence ou structure de garde conventionnée"
+    provenance: "Repro exact campagne 2.6 dans docs/tests-live.md et fiche fgarde relue dans le dépôt"
+    countersigned_by: null
+  - case_id: g-conjoints-arrivee-affiliation
+    ordre_juste: ["Distinguer les dates d'arrivée à la commune", "Distinguer l'affiliation sociale par l'employeur", "Traiter séparément le chèque-service des enfants"]
+    documents_cites: ["Les huit premiers jours", "Sécurité sociale et remboursements", "Garde d'enfants et chèque-service"]
+    interlocuteur: "Commune de résidence, employeur ou CCSS, puis service chèque-service"
+    provenance: "Repro exact campagne 3.3 dans docs/tests-live.md et fiches farrivee, fmatricule, fgarde relues"
+    countersigned_by: null

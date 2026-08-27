@@ -8,7 +8,7 @@ expected:
   found: true
   block_ids: ["baloise-lu-home-2-2024:p40:6"]
   text_norm: >-
-    nous declarer le sinistre au plus tard dans les 8 jours de sa survenance, sauf cas de force majeure ; en cas de vol ou de tentative de vol, ou d'acte de vandalisme ou de malveillance, deposer immediatement une plainte aupres des autorites judiciaires ou de police competentes et nous remettre le recepisse de depot de plainte ; nous fournir tous renseignements utiles et repondre sans retard aux demandes que nous vous adressons pour determiner les circonstances et l'etendue des dommages ; nous remettre des qu'il vous a ete notifie, signifie ou remis tout acte judiciaire ou extrajudiciaire relatif au sinistre ; comparaitre et vous soumettre aux mesures d'instruction ordonnees par le tribunal ; nous transmettre des reception, les reclamations et documents en relation avec le sinistre ;
+    nous declarer le sinistre au plus tard dans les 8 jours de sa survenance, sauf cas de force majeure; en cas de vol ou de tentative de vol, ou d'acte de vandalisme ou de malveillance, deposer immediatement une plainte aupres des autorites judiciaires ou de police competentes et nous remettre le recepisse de depot de plainte; nous fournir tous renseignements utiles et repondre sans retard aux demandes que nous vous adressons pour determiner les circonstances et l'etendue des dommages; nous remettre des qu'il vous a ete notifie, signifie ou remis tout acte judiciaire ou extrajudiciaire relatif au sinistre; comparaitre et vous soumettre aux mesures d'instruction ordonnees par le tribunal; nous transmettre des reception, les reclamations et documents en relation avec le sinistre;
 mode_attendu: bonne_reponse
 truth:
   source: lecture_humaine

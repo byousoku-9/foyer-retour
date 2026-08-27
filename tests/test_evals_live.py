@@ -21,6 +21,9 @@ def arguments_evals(max_cost: float, tmp_path: Path) -> tuple[list[str], Path, P
         "--cache-dir", str(cache_dir),
         "--output-json", str(output_json),
         "--output-markdown", str(output_markdown),
+        # Le parsing est une preuve locale dédiée, volontairement rouge quand l'extraction diverge
+        # de la lecture visuelle. L'entrée fournisseur ne le rejoue ni ne masque ces divergences.
+        "--exclude-suite", "parsing",
     ]
     if os.environ.get("EVALS_QUICK", "").lower() in {"1", "true", "yes"}:
         args.append("--quick")

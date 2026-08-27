@@ -315,9 +315,10 @@ def _lire_cas(dossier: Path, doc_id: str) -> CasTemoin:
             raise ErreurTransport(f"{candidat} illisible : {e}") from e
         _exiger(isinstance(valeur, dict),
                 f"{candidat} : la racine du cas doit être une table YAML")
-        # Les anciens tests unitaires sans `profile` décrivent le contrat historique vertical.
-        # Les YAML du dépôt, eux, le déclarent tous explicitement.
-        profile = valeur.get("profile", "vertical")
+        # Le smoke reste autonome (il ne peut importer la couche `evals`) ; il recopie donc ici le
+        # vocabulaire fermé du profil et exige sa présence au lieu de transformer une omission en
+        # témoin vertical.
+        profile = valeur.get("profile")
         _exiger(isinstance(profile, str) and profile in {"vertical", "full"},
                 f"{candidat} : `profile` doit valoir `vertical` ou `full`")
         if profile == "vertical":

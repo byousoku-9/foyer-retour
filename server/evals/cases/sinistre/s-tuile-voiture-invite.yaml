@@ -1,0 +1,21 @@
+id: s-tuile-voiture-invite
+suite: sinistre
+profile: full
+question: "Une tuile est tombée de mon toit sur la voiture garée de mon invité pendant l'orage : habitation, auto ou responsabilité civile ?"
+lang: fr
+scenario: "orage — arbitrage habitation, auto et responsabilité civile"
+famille: voies_garantie
+faits:
+  lieu: "devant le domicile assuré"
+  description: "Pendant un orage, une tuile est tombée du toit du domicile assuré sur la voiture garée d'un invité."
+expected:
+  found: true
+  block_ids: ["axa-lu-optihome-2017:p65:5"]
+  verdict: [sous_conditions, ne_tranche_pas]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Le repro live 3.2 consigne la seule condition RC p65:5 retrouvée et les voies habitation/auto non instruites ; la boucle a préparé la lecture et la contresignature humaine reste due."

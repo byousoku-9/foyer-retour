@@ -55,7 +55,7 @@ from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
@@ -95,7 +95,6 @@ LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_
                            "faux_refus", "citation_introuvable", "parsing")
 
 Suite = Literal["guide", "sinistre", "parsing"]
-SUITES_LIVREES: tuple[str, ...] = ("guide", "sinistre", "parsing")
 
 GateProfile = Literal["vertical", "full"]
 PROFILS_LIVRES: tuple[str, ...] = ("vertical", "full")
@@ -106,8 +105,13 @@ FAMILLES_FULL: dict[str, frozenset[str]] = {
     }),
     "sinistre": frozenset({
         "absurde", "multiple", "hors_habitation", "vide", "contradictoire",
-        "clairement_couvert", "sejour_temporaire", "chaleur_sans_incendie",
+        "clairement_couvert", "chaleur_sans_incendie",
         "telephone_vacances", "exclusion_animale",
+        "perte_exploitation", "voies_garantie", "acte_volontaire",
+    }),
+    "parsing": frozenset({
+        "acceptation", "definition", "exclusion", "garantie", "obligations", "portee",
+        "responsabilite",
     }),
 }
 
@@ -300,7 +304,7 @@ class Cas(BaseModel):
             raise ValueError("lang doit être non vide et trimée")
         if self.profile == "full" and self.truth.source not in {"lecture_humaine", "claude"}:
             raise ValueError("un cas full de la story 4.2 exige truth.source=lecture_humaine ou claude")
-        if self.profile == "full" and self.suite in FAMILLES_FULL:
+        if self.profile == "full" and self.suite in {"guide", "sinistre"}:
             if not self.scenario.strip() or self.scenario != self.scenario.strip():
                 raise ValueError("un cas full guide/sinistre exige un scenario non vide et trimé")
             if self.famille != self.famille.strip() or self.famille not in FAMILLES_FULL[self.suite]:
@@ -317,8 +321,10 @@ class Cas(BaseModel):
         if self.suite == "parsing":
             if self.profile != "full":
                 raise ValueError("un cas parsing appartient au profile `full`")
-            if not self.famille.strip() or self.famille != self.famille.strip():
-                raise ValueError("un cas parsing exige une `famille` documentaire")
+            if self.famille != self.famille.strip() or self.famille not in FAMILLES_FULL["parsing"]:
+                attendues = ", ".join(sorted(FAMILLES_FULL["parsing"]))
+                raise ValueError(
+                    f"famille parsing inconnue ou non trimée (attendu : {attendues})")
             if self.profil is not None or self.faits is not None or self.historique:
                 raise ValueError("le parsing local ne reçoit ni profil, ni faits, ni historique")
             if self.expected.text_norm is None or not self.expected.text_norm.strip():
@@ -358,12 +364,12 @@ class ReferenceUtilite(BaseModel):
     documents_cites: list[str] = Field(min_length=1)
     interlocuteur: str = Field(min_length=1)
     provenance: str = Field(min_length=1)
-    countersigned_by: None = None
+    countersigned_by: str | None = None
 
-    @field_validator("case_id", "interlocuteur", "provenance")
+    @field_validator("case_id", "interlocuteur", "provenance", "countersigned_by")
     @classmethod
-    def _chaine_non_blanche(cls, valeur: str) -> str:
-        if not valeur.strip():
+    def _chaine_non_blanche(cls, valeur: str | None) -> str | None:
+        if valeur is not None and not valeur.strip():
             raise ValueError("la chaîne ne peut pas être blanche")
         return valeur
 
@@ -386,15 +392,16 @@ class ControleRetraduction(BaseModel):
     test_id: str = Field(min_length=1)
     journal: str = Field(min_length=1)
     journal_section: str = Field(min_length=1)
-    resultat: Literal["fidele"]
+    resultat: Literal["fidele", "ecart"]
     ecarts: list[str] = Field(default_factory=list)
     reserve_signature: str = Field(min_length=1)
-    countersigned_by: None = None
+    countersigned_by: str | None = None
 
-    @field_validator("case_id", "fixture", "test_id", "journal", "journal_section", "reserve_signature")
+    @field_validator("case_id", "fixture", "test_id", "journal", "journal_section", "reserve_signature",
+                     "countersigned_by")
     @classmethod
-    def _chaine_non_blanche(cls, valeur: str) -> str:
-        if not valeur.strip():
+    def _chaine_non_blanche(cls, valeur: str | None) -> str | None:
+        if valeur is not None and not valeur.strip():
             raise ValueError("la chaîne ne peut pas être blanche")
         return valeur
 
@@ -404,6 +411,14 @@ class ControleRetraduction(BaseModel):
         if any(not valeur.strip() for valeur in valeurs):
             raise ValueError("un écart déclaré ne peut pas être blanc")
         return valeurs
+
+    @model_validator(mode="after")
+    def _resultat_coherent(self) -> ControleRetraduction:
+        if self.resultat == "fidele" and self.ecarts:
+            raise ValueError("resultat=fidele exige une liste ecarts vide")
+        if self.resultat == "ecart" and not self.ecarts:
+            raise ValueError("resultat=ecart exige au moins un écart")
+        return self
 
 
 class FichierUtilite(BaseModel):
@@ -523,10 +538,18 @@ def charger_references(cas: list[Cas], reference_dir: Path) -> ReferencesSnapsho
         test_file, _, test_name = controle.test_id.partition("::")
         if not test_name or test_file != "tests/test_langues_live.py":
             raise RefusDeTourner(f"cas {c.id} : test_id de retraduction non rejouable")
-        test_source = (REPO_ROOT / test_file).read_text(encoding="utf-8")
+        try:
+            test_source = (REPO_ROOT / test_file).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RefusDeTourner(
+                f"cas {c.id} : test de retraduction illisible ({test_file})") from exc
         if f"def {test_name}(" not in test_source and f"async def {test_name}(" not in test_source:
             raise RefusDeTourner(f"cas {c.id} : test_id absent de {test_file}")
-        journal = (REPO_ROOT / controle.journal).read_text(encoding="utf-8")
+        try:
+            journal = (REPO_ROOT / controle.journal).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RefusDeTourner(
+                f"cas {c.id} : journal de retraduction illisible ({controle.journal})") from exc
         journal_case_id = c.id.removeprefix("g-lang-")
         if controle.journal_section not in journal or f"`{journal_case_id}`" not in journal:
             raise RefusDeTourner(
@@ -647,9 +670,6 @@ def refuser_ce_qui_nest_pas_livre(cas: list[Cas], profil: str) -> None:
     """
     if profil not in PROFILS_LIVRES:
         raise RefusDeTourner(f"profil `{profil}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
-    for c in cas:
-        if c.suite not in SUITES_LIVREES:
-            raise RefusDeTourner(f"suite `{c.suite}` non livrée (cas {c.id})")
 
 
 def selection_profil(cas: list[Cas], profil: str) -> list[Cas]:
@@ -736,13 +756,16 @@ def snapshot_cas(cas: list[Cas], cases_dir: Path,
             contenu = path.read_bytes()
         assert root is not None
         lexical = candidat.absolute()
-        relatif = lexical.relative_to(root).as_posix()
+        # Même clé que `app.digests.cases_hash` : le chemin résolu relatif à la racine résolue.
+        # Les octets, eux, restent ceux capturés et parsés par `_lire_cas`.
+        relatif = path.relative_to(root).as_posix()
         h.update(relatif.encode("utf-8") + b"\0")
         h.update(contenu + b"\0")
         fichiers[lexical] = hashlib.sha256(contenu).hexdigest()
+    # Les compagnons ont leur autorité dédiée (`references_digest`). Ils restent figés et
+    # revérifiés avec les cas, mais ne polluent pas `cases_hash`, que `app/digests.py` recalcule
+    # exclusivement depuis les YAML de cas lors du gate.
     for path, contenu in sorted((references.contents if references else {}).items()):
-        h.update(f"@reference/{path.name}".encode("utf-8") + b"\0")
-        h.update(contenu + b"\0")
         fichiers[path] = hashlib.sha256(contenu).hexdigest()
     dossiers: dict[Path, tuple[str, ...]] = {}
     for c, path in ((c, c.case_path) for c in cas if c.case_path is not None):
@@ -760,6 +783,12 @@ def snapshot_cas(cas: list[Cas], cases_dir: Path,
 
 
 def verifier_snapshot_cas(snapshot: CasesSnapshot) -> None:
+    def etiquette(path: Path) -> str:
+        try:
+            return path.resolve(strict=False).relative_to(REPO_ROOT.resolve()).as_posix()
+        except ValueError:
+            return path.as_posix()
+
     modifies = []
     for path, attendu in snapshot.files.items():
         try:
@@ -767,7 +796,7 @@ def verifier_snapshot_cas(snapshot: CasesSnapshot) -> None:
         except OSError:
             courant = "absent"
         if courant != attendu:
-            modifies.append(path.name)
+            modifies.append(etiquette(path))
     if modifies:
         raise IncidentTechnique(
             "cas modifiés pendant le run : " + ", ".join(sorted(modifies))
@@ -779,7 +808,7 @@ def verifier_snapshot_cas(snapshot: CasesSnapshot) -> None:
         except OSError:
             courant = ("<absent>",)
         if courant != attendu:
-            modifies_dossiers.append(path.name)
+            modifies_dossiers.append(etiquette(path))
     if modifies_dossiers:
         raise IncidentTechnique(
             "contenu de dossiers modifié pendant le run : "
@@ -971,7 +1000,7 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
         "faits": cas.faits.model_dump(mode="json") if cas.faits is not None else None,
     }
     dictionnaire = (ctx.dictionnaire if cas.suite == "guide"
-                     else ctx.dictionnaires.get(doc_id))
+                     else ctx.dictionnaires.get(doc_id) if cas.suite == "sinistre" else None)
     return {
         "schema": CACHE_NAMESPACE_SCHEMA,
         "models": dict(TIERS),
@@ -985,7 +1014,10 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
         "source_hash": entry.source_hash,
         "ingest_fingerprint": entry.ingest_fingerprint,
         "overlay_hash": entry.overlay_hash,
-        "dictionary_fingerprint": _empreinte_dictionnaire(dictionnaire),
+        # Le parsing mesure les blocs ingérés ; publier le hash d'un `Dictionnaire()` vide ferait
+        # croire à une autorité lexicale qui n'a participé ni au chargement ni au jugement local.
+        "dictionary_fingerprint": (
+            None if cas.suite == "parsing" else _empreinte_dictionnaire(dictionnaire)),
         "normalize_version": normalize_version,
         "input": entree,
         "input_digest": empreinte_canonique(entree),
@@ -1008,12 +1040,16 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
         ns = namespace_cache(c, ctx, doc_id=doc_id, variant=variante)
         namespaces[c.id] = empreinte_canonique(ns)
         variantes[c.id] = variante
-        documents[doc_id] = {
+        document = {
             champ: ns[champ] for champ in (
                 "source_hash", "ingest_fingerprint", "overlay_hash",
                 "dictionary_fingerprint",
             )
         }
+        precedent = documents.get(doc_id)
+        if precedent is not None and document["dictionary_fingerprint"] is None:
+            document["dictionary_fingerprint"] = precedent["dictionary_fingerprint"]
+        documents[doc_id] = document
     return {
         "image": {
             "pipeline_digest": ctx.pipeline_digest_hex,
@@ -1723,8 +1759,10 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m server.evals.run",
         description="Harness reproductible des questions-témoins (AD-14) : cache, budget et rapports.")
-    p.add_argument("--suite", choices=sorted(SUITES_LIVREES),
+    p.add_argument("--suite", choices=sorted(get_args(Suite)),
                    help="n'exécuter que cette suite (défaut : toutes les suites livrées)")
+    p.add_argument("--exclude-suite", action="append", default=[], choices=sorted(get_args(Suite)),
+                   help="exclure une suite du lot (répétable ; utile aux évals fournisseur)")
     p.add_argument("--case", dest="cas", help="n'exécuter que ce cas (son identifiant)")
     p.add_argument("--profile", choices=PROFILS_LIVRES, default="vertical",
                    help="profil exécuté : vertical, ou full (inclut les cas vertical et full)")
@@ -1829,6 +1867,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise RefusDeTourner(f"--suite {args.suite} et --gate {args.gate} se contredisent : "
                                      f"la suite qui sert {args.gate} est {suites[0]}")
             suites = (args.suite,)
+        if args.suite and args.suite in args.exclude_suite:
+            raise RefusDeTourner(
+                f"--suite {args.suite} et --exclude-suite {args.suite} se contredisent")
         cas_tous = charger_cas(args.cases_dir)
         references = charger_references(cas_tous, reference_dir)
         if suites is None:
@@ -1841,6 +1882,8 @@ def main(argv: list[str] | None = None) -> int:
                 or (c.doc_id is None and c.suite in demandes)
                 or (c.doc_id is not None and f"{c.suite}/{c.doc_id}" in demandes)
             )]
+        if args.exclude_suite:
+            cas = [c for c in cas if c.suite not in set(args.exclude_suite)]
         refuser_ce_qui_nest_pas_livre(cas, args.profile)
         cas = selection_profil(cas, args.profile)
         if args.cas:
@@ -1868,7 +1911,7 @@ def main(argv: list[str] | None = None) -> int:
         # vertical périmerait les cinq gates historiques malgré leurs YAML byte-identiques.
         references_du_run = references if args.profile == "full" and any(
             c.suite == "guide" for c in cas) else None
-        references_digest = references.digest if references_du_run else empreinte_canonique([])
+        references_digest = references.digest if references_du_run else None
         snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
         if args.dry_run:
             # Story 3.7 : jalon explicite avant toute dépense. Aucune construction de contexte —

@@ -850,6 +850,7 @@ def _ecrire_cas(dossier: Path, contenu: str) -> Path:
 
 CAS_VALIDE = """
 id: c-1
+profile: vertical
 question: Une question
 lang: fr
 expected:
@@ -900,9 +901,10 @@ def test_zero_ou_deux_cas_sont_un_refus(tmp_path: Path, nombre: int) -> None:
 def test_les_cas_full_ne_masquent_pas_le_témoin_vertical(tmp_path: Path) -> None:
     import scripts.smoke as smoke
 
-    _ecrire_cas(tmp_path, "profile: vertical\n" + CAS_VALIDE)
+    _ecrire_cas(tmp_path, CAS_VALIDE)
     (tmp_path / "full.yaml").write_text(
-        "profile: full\n" + CAS_VALIDE.replace("id: c-1", "id: c-full"), encoding="utf-8")
+        CAS_VALIDE.replace("id: c-1", "id: c-full").replace(
+            "profile: vertical", "profile: full"), encoding="utf-8")
     assert smoke._lire_cas(tmp_path, "lux-guide").id == "c-1"
 
 
@@ -911,8 +913,16 @@ def test_un_profile_inconnu_ou_non_chaine_est_refuse(tmp_path: Path, profile: st
     import scripts.smoke as smoke
 
     valeur = profile if profile == "inconnu" else "3"
-    brut = f"profile: {valeur}\n" + CAS_VALIDE
+    brut = CAS_VALIDE.replace("profile: vertical", f"profile: {valeur}")
     _ecrire_cas(tmp_path, brut)
+    with pytest.raises(ErreurTransport, match="profile"):
+        smoke._lire_cas(tmp_path, "lux-guide")
+
+
+def test_un_profile_absent_est_refuse(tmp_path: Path) -> None:
+    import scripts.smoke as smoke
+
+    _ecrire_cas(tmp_path, CAS_VALIDE.replace("profile: vertical\n", ""))
     with pytest.raises(ErreurTransport, match="profile"):
         smoke._lire_cas(tmp_path, "lux-guide")
 
@@ -938,7 +948,8 @@ def test_chaque_champ_mal_forme_est_un_refus_nomme(tmp_path: Path, mutation: str
     """La docstring de `_lire_cas` promet des refus **nommés** : chacun est exercé ici."""
     import scripts.smoke as smoke
 
-    _ecrire_cas(tmp_path, mutation)
+    contenu = mutation if mutation.startswith("-") else "profile: vertical\n" + mutation
+    _ecrire_cas(tmp_path, contenu)
     with pytest.raises(ErreurTransport, match=re.escape(motif)):
         smoke._lire_cas(tmp_path, "lux-guide")
 

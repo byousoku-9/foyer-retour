@@ -369,4 +369,5 @@ def test_ladaptateur_ci_transmet_quick_et_tous_ses_chemins(
 
     assert args[:4] == ["--profile", "full", "--max-cost", "0.7"]
     assert "--quick" in args and str(tmp_path / "cache-ci") in args
+    assert args[args.index("--exclude-suite") + 1] == "parsing"
     assert json_path == tmp_path / "ci.json" and md_path == tmp_path / "ci.md"

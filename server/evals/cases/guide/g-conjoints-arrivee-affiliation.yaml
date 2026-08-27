@@ -1,0 +1,18 @@
+id: g-conjoints-arrivee-affiliation
+suite: guide
+profile: full
+question: "Ma femme commence son travail un mois avant moi : on doit s’inscrire ensemble à la commune et affilier les enfants tout de suite ?"
+lang: fr
+profil: {enfants: "oui"}
+scenario: "trois fiches — arrivée décalée des conjoints et affiliation des enfants"
+famille: trois_fiches
+expected:
+  found: true
+  fiche_ids: ["lux-guide:farrivee", "lux-guide:fmatricule", "lux-guide:fgarde"]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Le repro exact 3.3 cite délai communal, pièces du foyer et préalable au chèque-service ; la boucle a préparé la lecture de farrivee, fmatricule et fgarde et la contresignature humaine reste due."

@@ -12,11 +12,15 @@ uv run python -m server.evals.run --help
 
 `full` inclut les cas `vertical` et `full`. `--quick` choisit de façon stable le premier identifiant de chaque suite documentaire sélectionnée ; il est incompatible avec `--gate`, car un gate doit porter sur toute sa suite. Le guide accepte `outils` et `deterministe`; le sinistre accepte seulement `deterministe`; le parsing porte la variante `local`. Un couple incompatible est refusé avant tout appel.
 
+Sur un lot qui mêle plusieurs suites, `--variant` ne peut pas désigner une variante commune quand
+les vocabulaires diffèrent. Il faut d'abord sélectionner la suite, par exemple
+`--suite guide --variant deterministe` ou `--suite parsing --variant local`.
+
 ## Golden set et références
 
-Le profil complet contient 32 cas guide, 14 cas sinistre sur AXA et Baloise, et 10 observations parsing sur les deux contrats. Les cinq YAML `vertical` historiques restent byte-identiques. Les cas guide `full` nomment leur famille : parcours, météo FR/EN/DE, suivi, multilingue, traversée de trois fiches ou hors-guide. Les sinistres couvrent les six robustesses (absurde, multiple, hors habitation, vide, contradictoire, clairement couvert), les cas séjour temporaire/ordinateur professionnel et chaleur sans incendie, un téléphone volé pendant les vacances et une exclusion animale attendue `non_couvert`.
+Le profil complet contient 34 cas guide, 16 cas sinistre sur AXA et Baloise, et 11 observations parsing sur les deux contrats. Les cinq YAML `vertical` historiques restent byte-identiques ; le champ optionnel `expected.clarification` est absent de ces cinq témoins et ne change aucun verdict admissible. Les cas guide `full` nomment leur famille : parcours, météo FR/EN/DE, suivi, multilingue, traversée de trois fiches ou hors-guide. Les sinistres couvrent les six robustesses, la perte d'exploitation à domicile, la chaleur sans incendie, le téléphone en vacances, l'exclusion animale `non_couvert`, l'arbitrage habitation/auto/RC et l'acte volontaire.
 
-`server/evals/reference/utilite-guide.yaml` porte, pour tout cas guide qui déclare un scénario — témoin vertical compris — l'ordre juste, les documents et l'interlocuteur. `server/evals/reference/retraductions.yaml` relie chaque cas multilingue à sa fixture, au test hors ligne, à la section du journal, au résultat, aux écarts et à la réserve de signature. Les compagnons sont validés strictement, figés sur les mêmes octets qui ont été parsés, puis revérifiés ; ils entrent dans `cases_hash` et dans le vrai `identity.scope.references_digest` des runs `full` guide.
+`server/evals/reference/utilite-guide.yaml` porte, pour tout cas guide qui déclare un scénario — témoin vertical compris — l'ordre juste, les documents et l'interlocuteur. `server/evals/reference/retraductions.yaml` relie chaque cas multilingue à sa fixture, au test hors ligne, à la section du journal, au résultat, aux écarts et à la réserve de signature. Les compagnons sont validés strictement, figés sur les mêmes octets qui ont été parsés, puis revérifiés. `cases_hash` reste l'autorité unique des seuls YAML de cas, comme le gate le recalcule ; les compagnons ont leur propre `identity.scope.references_digest`, présent seulement sur un run `full` qui contient du guide.
 
 Un cas parsing vit sous `cases/parsing/<doc_id>/`, référence exactement un bloc et une transcription déjà normalisée par l'unique `normalize()`. Bloc absent ou trouvé dans un autre document donne `citation_introuvable` avec `found=false`, texte différent donne `parsing`, égalité donne `bonne_reponse`. Aucun repli inter-document n'est admis. Les trois divergences visuelles Baloise p30/p40/p48 sont conservées rouges ; une miniature entièrement exacte prouve séparément `recall=1.0`.
 
@@ -28,6 +32,15 @@ Le cache local vaut par défaut `<parent de data>/.cache/evals`; `--cache-dir` l
 
 Le prochain appel est majoré avant envoi contre ce qui reste de `--max-cost`. Si le majorant dépasse le reste, le run s'arrête sans cet appel. Les cas terminés gardent leur unique label ; les cas non exécutés vivent dans `unexecuted_cases` et ne reçoivent aucun huitième label. Le JSON et le Markdown sont écrits atomiquement même sur cet arrêt, avec `complete=false` et `stop_reason`.
 
+Le défaut de configuration est 1 EUR, tandis qu'un `full` fournisseur porte 50 cas guide/sinistre.
+Au plafond métier de 0,10 EUR par requête, le majorant arithmétique à cache froid est donc 5 EUR :
+le défaut peut produire un rapport partiel, ce n'est pas une estimation de facture complète.
+Toujours faire le dry-run, inspecter ou réchauffer le cache, puis passer explicitement
+`--max-cost <euros>` selon le risque accepté. Le quick fournisseur porte trois cas documentaires,
+soit un majorant de 0,30 EUR.
+Le calibrage ou le changement du défaut appartient aux baselines de la story 4.4 ; la story 4.2
+documente ce risque sans modifier le seuil métier ni la configuration.
+
 Les chemins par défaut sont `eval-results.json` et `eval-results.md` à côté de `data/`. Ils se déplacent avec `--output-json` et `--output-markdown`. Le JSON expose par cas label, variante, coûts courant/original, latence et claims. Son objet `identity` fige l'image (digests, modèles, normalisation), les documents et le périmètre exact (profil, quick, suites, cas, variantes et digests de namespace). Le Markdown agrège les sept labels, les variantes, recall, coût moyen, latence p50, `cases_hash` et taux de `ne_tranche_pas`.
 
 ## Pytest et CI
@@ -38,7 +51,13 @@ Les chemins par défaut sont `eval-results.json` et `eval-results.md` à côté 
 ANTHROPIC_API_KEY=... uv run pytest -m evals -q --evals-max-cost 1.0
 ```
 
-Sans clé ou plafond, la collecte refuse avant le premier test. Sur GitHub, le cache est restauré entre runs. Une pull request avec secret joue `full --quick`; `main` joue `full`. Sans secret, le résumé GitHub signale explicitement le skip. La table Markdown est ajoutée à `$GITHUB_STEP_SUMMARY` même si le test live rend un code non nul.
+Cette entrée payante ajoute toujours `--exclude-suite parsing` : elle mesure guide/sinistre et
+échoue si l'un de ces cas est rouge. Les divergences parsing ne sont ni masquées ni facturées ; elles
+se rejouent par la commande locale dédiée ci-dessus, dont le code 1 est attendu tant que les trois
+transcriptions visuelles divergent. Sans clé ou plafond, la collecte refuse avant le premier test.
+Sur GitHub, le cache est restauré entre runs. Une pull request avec secret joue `full --quick`;
+`main` joue `full`. Sans secret, le résumé GitHub signale explicitement le skip. La table Markdown
+est ajoutée à `$GITHUB_STEP_SUMMARY` même si le test live rend un code non nul.
 
 Variables lues par l'unique test live :
 

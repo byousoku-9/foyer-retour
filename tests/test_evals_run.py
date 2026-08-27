@@ -255,17 +255,18 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
     guide = [c for c in cas if c.suite == "guide"]
     sinistre = [c for c in cas if c.suite == "sinistre"]
     parsing = [c for c in cas if c.suite == "parsing"]
-    assert len(guide) == 32
-    assert len(sinistre) == 14
-    assert len(parsing) == 10
+    assert len(guide) == 34
+    assert len(sinistre) == 16
+    assert len(parsing) == 11
     assert sum(c.profile == "vertical" for c in cas) == 5
     assert {c.famille for c in guide if c.profile == "full"} == {
         "parcours", "meteo", "suivi", "multilingue", "trois_fiches", "hors_guide",
     }
     assert {c.famille for c in sinistre if c.profile == "full"} == {
         "absurde", "multiple", "hors_habitation", "vide", "contradictoire",
-        "clairement_couvert", "sejour_temporaire", "chaleur_sans_incendie",
-        "telephone_vacances", "exclusion_animale",
+        "clairement_couvert", "chaleur_sans_incendie",
+        "telephone_vacances", "exclusion_animale", "perte_exploitation",
+        "voies_garantie", "acte_volontaire",
     }
     meteo = [c for c in guide if c.famille == "meteo"]
     assert {c.lang for c in meteo} == {"fr", "en", "de"}
@@ -301,6 +302,47 @@ def test_les_cinq_verticaux_restent_byte_identiques() -> None:
     }
     for relatif, attendu in attendus.items():
         assert hashlib.sha256((runner.CASES_DIR / relatif).read_bytes()).hexdigest() == attendu
+
+
+def test_clarification_ne_change_ni_les_attentes_ni_les_verdicts_verticaux() -> None:
+    """Le nouveau champ est absent des cinq témoins historiques et ne les requalifie pas."""
+    verticaux = {c.id: c for c in runner.charger_cas(runner.CASES_DIR)
+                 if c.profile == "vertical"}
+    assert set(verticaux) == {
+        "g-luxtrust-prix", "s-bougie-canape", "b-bougie-canape", "b-congelateur",
+        "b-invite-cigarette",
+    }
+    assert all(c.expected.clarification is None for c in verticaux.values())
+    assert verticaux["g-luxtrust-prix"].expected.refusal is False
+    for case_id in set(verticaux) - {"g-luxtrust-prix"}:
+        assert verticaux[case_id].expected.verdict == ["sous_conditions", "ne_tranche_pas"]
+
+
+def test_les_cinq_repros_differes_sont_materialises_mot_pour_mot() -> None:
+    cas = {c.id: c for c in runner.charger_cas(runner.CASES_DIR)}
+    assert cas["s-perte-exploitation-domicile"].question == (
+        "Ma garantie perte d'exploitation couvre bien les trois semaines où je n'ai pas pu "
+        "travailler depuis chez moi ?")
+    assert cas["g-nounou-apres-ecole"].question == (
+        "Pour la petite, je cherche une nounou après l’école — je tape quoi et je contacte qui ?")
+    assert cas["s-tuile-voiture-invite"].question == (
+        "Une tuile est tombée de mon toit sur la voiture garée de mon invité pendant l'orage : "
+        "habitation, auto ou responsabilité civile ?")
+    assert cas["s-ado-baie-volontaire"].question == (
+        "Mon ado a cassé exprès la baie vitrée chez sa grand-mère ; c’est ma responsabilité civile "
+        "familiale même si c’était volontaire ?")
+    assert cas["g-conjoints-arrivee-affiliation"].question == (
+        "Ma femme commence son travail un mois avant moi : on doit s’inscrire ensemble à la "
+        "commune et affilier les enfants tout de suite ?")
+    assert cas["s-perte-exploitation-domicile"].expected.clarification is True
+    assert cas["s-ado-baie-volontaire"].expected.block_ids == [
+        "axa-lu-optihome-2017:p65:5", "axa-lu-optihome-2017:p22:5"]
+
+
+def test_le_cas_clairement_couvert_naccepte_pas_un_verdict_conditionnel() -> None:
+    cas = next(c for c in runner.charger_cas(runner.CASES_DIR)
+               if c.id == "b-clairement-couvert-degat-eau")
+    assert cas.expected.verdict == ["couvert"]
 
 
 def test_latest_ouvre_sur_la_reserve_non_experte_sans_inventer_de_run() -> None:
@@ -431,7 +473,7 @@ def test_un_parsing_invalide_nest_pas_ignore_en_silence(tmp_path: Path) -> None:
 
 def test_charger_la_suite_parsing_charge_recursivement_les_documents() -> None:
     cas = runner.charger_cas(runner.CASES_DIR, suites=("parsing",))
-    assert len(cas) == 10
+    assert len(cas) == 11
     assert {c.doc_id for c in cas} == {"axa-lu-optihome-2017", "baloise-lu-home-2-2024"}
 
 
@@ -490,18 +532,21 @@ def test_parsing_reel_tourne_sans_cle_client_ni_fournisseur(
     ])
     assert code == 1
     rapport = json.loads(sortie.read_text(encoding="utf-8"))
-    assert rapport["cases_completed"] == 10
+    assert rapport["cases_completed"] == 11
     assert rapport["cost_eur"] == rapport["cost_eur_original"] == 0.0
-    assert rapport["metrics"]["variants"] == {"local": 10}
-    assert rapport["metrics"]["labels"]["bonne_reponse"] == 7
+    assert rapport["metrics"]["variants"] == {"local": 11}
+    assert rapport["metrics"]["labels"]["bonne_reponse"] == 8
     assert rapport["metrics"]["labels"]["parsing"] == 3
-    assert rapport["metrics"]["recall"] == 0.7
+    assert rapport["metrics"]["recall"] == 0.7273
+    assert all(document["dictionary_fingerprint"] is None
+               for document in rapport["identity"]["documents"].values())
+    assert rapport["identity"]["scope"]["references_digest"] is None
     assert {r["id"] for r in rapport["results"] if r["label"] == "parsing"} == {
         "p-baloise-acceptation", "p-baloise-obligations", "p-baloise-rc-chiens",
     }
 
 
-def test_les_compagnons_modifient_lidentite_et_sont_figes_pendant_le_run(tmp_path: Path) -> None:
+def test_les_compagnons_ont_un_digest_distinct_et_sont_figes_pendant_le_run(tmp_path: Path) -> None:
     cas = runner.charger_cas(runner.CASES_DIR, suites=("guide",))[:1]
     reference = tmp_path / "utilite.yaml"
     reference.write_text("version: 1\n", encoding="utf-8")
@@ -509,11 +554,20 @@ def test_les_compagnons_modifient_lidentite_et_sont_figes_pendant_le_run(tmp_pat
     references = runner.ReferencesSnapshot(
         "digest", tmp_path, {reference: contenu}, (reference.name,))
     avant = runner.snapshot_cas(cas, runner.CASES_DIR, references)
+    gate = runner.construire_gate(
+        ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="i",
+                      document_hash="d", edition="2026"),
+        _contexte([]), profil="full", cas=cas, cases_dir=runner.CASES_DIR,
+        evals_ok=True, snapshot=avant)
+    from server.app.digests import cases_hash
+    assert gate.cases_hash == avant.cases_hash == cases_hash(
+        [c.case_path for c in cas if c.case_path is not None], runner.CASES_DIR)
     reference.write_text("version: 2\n", encoding="utf-8")
     contenu_apres = reference.read_bytes()
     apres = runner.snapshot_cas(cas, runner.CASES_DIR, runner.ReferencesSnapshot(
         "digest-2", tmp_path, {reference: contenu_apres}, (reference.name,)))
-    assert avant.cases_hash != apres.cases_hash
+    assert avant.cases_hash == apres.cases_hash
+    assert references.digest != "digest-2"
     with pytest.raises(runner.IncidentTechnique, match="modifiés pendant le run"):
         runner.verifier_snapshot_cas(avant)
 
@@ -546,6 +600,28 @@ def test_references_absentes_symlink_hors_racine_et_items_blancs_sont_refuses(
             "case_id": "g", "ordre_juste": ["  "], "documents_cites": ["doc"],
             "interlocuteur": "x", "provenance": "x", "countersigned_by": None,
         })
+    valide = runner.ReferenceUtilite.model_validate({
+        "case_id": "g", "ordre_juste": ["étape"], "documents_cites": ["doc"],
+        "interlocuteur": "x", "provenance": "x", "countersigned_by": "L. Oudin — 2026-08-27",
+    })
+    assert valide.countersigned_by is not None
+    with pytest.raises(runner.ValidationError):
+        runner.ReferenceUtilite.model_validate({
+            "case_id": "g", "ordre_juste": ["étape"], "documents_cites": ["doc"],
+            "interlocuteur": "x", "provenance": "x", "countersigned_by": "  ",
+        })
+    base = {
+        "case_id": "g", "langue": "en", "fixture": "f", "test_id": "t", "journal": "j",
+        "journal_section": "s", "reserve_signature": "due", "countersigned_by": None,
+    }
+    assert runner.ControleRetraduction.model_validate(
+        {**base, "resultat": "fidele", "ecarts": []}).resultat == "fidele"
+    assert runner.ControleRetraduction.model_validate(
+        {**base, "resultat": "ecart", "ecarts": ["nuance perdue"]}).resultat == "ecart"
+    for resultat, ecarts in (("fidele", ["écart"]), ("ecart", [])):
+        with pytest.raises(runner.ValidationError):
+            runner.ControleRetraduction.model_validate(
+                {**base, "resultat": resultat, "ecarts": ecarts})
 
 
 def test_les_references_ne_peuvent_pas_cibler_une_mauvaise_suite(tmp_path: Path) -> None:
@@ -570,6 +646,25 @@ def test_les_references_ne_peuvent_pas_cibler_une_mauvaise_suite(tmp_path: Path)
         runner.charger_references(cas, reference_dir)
 
 
+@pytest.mark.parametrize(("nom", "erreur", "motif"), [
+    ("test_langues_live.py", OSError("disque"), "test de retraduction illisible"),
+    ("tests-live.md", UnicodeDecodeError("utf-8", b"\xff", 0, 1, "octet"), "journal de retraduction illisible"),
+])
+def test_les_preuves_de_retraduction_illisibles_sont_un_refus_controle(
+        nom: str, erreur: Exception, motif: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    cas = runner.charger_cas(runner.CASES_DIR)
+    original = Path.read_text
+
+    def lire(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path.name == nom:
+            raise erreur
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", lire)
+    with pytest.raises(runner.RefusDeTourner, match=motif):
+        runner.charger_references(cas, runner.REFERENCE_DIR)
+
+
 def test_une_famille_full_absente_non_trimee_ou_inconnue_est_refusee() -> None:
     cas = next(c for c in runner.charger_cas(runner.CASES_DIR)
                if c.suite == "guide" and c.profile == "full")
@@ -578,6 +673,13 @@ def test_une_famille_full_absente_non_trimee_ou_inconnue_est_refusee() -> None:
         brut_mute = {**brut, "famille": famille}
         with pytest.raises(runner.ValidationError, match="famille"):
             runner.Cas.model_validate(brut_mute)
+
+    parsing = next(c for c in runner.charger_cas(runner.CASES_DIR)
+                   if c.suite == "parsing")
+    brut_parsing = parsing.model_dump(mode="json")
+    for famille in ("", " definition ", "echappatoire"):
+        with pytest.raises(runner.ValidationError, match="famille"):
+            runner.Cas.model_validate({**brut_parsing, "famille": famille})
 
 
 # --- la clé (AD-14) ------------------------------------------------------
@@ -1431,6 +1533,14 @@ def test_gate_en_echec_de_cas_ecrit_evals_ok_false_et_rend_un(tmp_path: Path,
     assert corpus.quarantine.get(GUIDE) == "gate_echoue"
 
 
+def test_un_sinistre_rouge_fait_echouer_un_run_sans_gate(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    code = _main(
+        tmp_path, ["--suite", "sinistre"], monkeypatch,
+        reponses_sinistre=[(_refus(), _trace("sinistre"))])
+    assert code == 1
+
+
 def test_gate_en_echec_technique_ne_modifie_pas_le_manifest(tmp_path: Path,
                                                             monkeypatch: pytest.MonkeyPatch) -> None:
     """Matrice : « manifest non modifié, code 3 — un incident n'est pas un verdict »."""
@@ -1645,9 +1755,20 @@ def test_suite_sinistre_selectionne_axa_et_tous_les_documents(
         capsys: pytest.CaptureFixture[str]) -> None:
     assert runner.main(["--suite", "sinistre", "--profile", "full", "--dry-run"]) == 0
     sortie = capsys.readouterr().out
-    assert "cas=14" in sortie
+    assert "cas=16" in sortie
     assert "s-telephone-vacances" in sortie
     assert "b-congelateur" in sortie
+    assert "s-tuile-voiture-invite" in sortie
+
+
+def test_quick_fournisseur_exclut_le_parsing_avant_selection(
+        capsys: pytest.CaptureFixture[str]) -> None:
+    assert runner.main([
+        "--profile", "full", "--exclude-suite", "parsing", "--quick", "--dry-run",
+    ]) == 0
+    sortie = capsys.readouterr().out
+    assert "cas=3" in sortie and "suites=guide,sinistre" in sortie
+    assert "p-baloise-acceptation" not in sortie
 
 
 def test_un_case_parsing_sans_suite_resout_avant_la_cle(
@@ -1705,6 +1826,9 @@ def test_execution_full_mixte_hors_ligne_et_digest_references_reel(
 
     premier = run_once()
     assert {r["suite"] for r in premier["results"]} == {"guide", "sinistre", "parsing"}
+    from server.app.digests import cases_hash
+    chemins = [c.case_path for c in runner.charger_cas(cases) if c.case_path is not None]
+    assert premier["cases_hash"] == cases_hash(chemins, cases)
     digest_1 = premier["identity"]["scope"]["references_digest"]
     assert digest_1 == runner.charger_references(
         runner.charger_cas(cases), tmp_path / "reference").digest
@@ -1713,6 +1837,7 @@ def test_execution_full_mixte_hors_ligne_et_digest_references_reel(
         "fixture locale", "fixture locale relue"), encoding="utf-8")
     second = run_once()
     assert second["identity"]["scope"]["references_digest"] != digest_1
+    assert second["cases_hash"] == premier["cases_hash"]
 
 
 # --- convention Couches ---------------------------------------------------

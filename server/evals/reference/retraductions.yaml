@@ -6,58 +6,58 @@ references:
     fixture: tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_en-arrivee_.json
     test_id: tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction
     journal: docs/tests-live.md
-    journal_section: &section "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
+    journal_section: "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
     resultat: fidele
     ecarts: []
-    reserve_signature: &reserve "Résultat fixture consigné ; contresignature humaine encore due."
+    reserve_signature: "Résultat fixture consigné ; contresignature humaine encore due."
     countersigned_by: null
   - case_id: g-lang-en-ecole
     langue: en
     fixture: tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_en-ecole_.json
     test_id: tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction
     journal: docs/tests-live.md
-    journal_section: *section
+    journal_section: "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
     resultat: fidele
     ecarts: []
-    reserve_signature: *reserve
+    reserve_signature: "Résultat fixture consigné ; contresignature humaine encore due."
     countersigned_by: null
   - case_id: g-lang-de-arrivee
     langue: de
     fixture: tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_de-arrivee_.json
     test_id: tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction
     journal: docs/tests-live.md
-    journal_section: *section
+    journal_section: "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
     resultat: fidele
     ecarts: []
-    reserve_signature: *reserve
+    reserve_signature: "Résultat fixture consigné ; contresignature humaine encore due."
     countersigned_by: null
   - case_id: g-lang-de-adem
     langue: de
     fixture: tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_de-adem_.json
     test_id: tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction
     journal: docs/tests-live.md
-    journal_section: *section
+    journal_section: "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
     resultat: fidele
     ecarts: []
-    reserve_signature: *reserve
+    reserve_signature: "Résultat fixture consigné ; contresignature humaine encore due."
     countersigned_by: null
   - case_id: g-lang-pt-arrivee
     langue: pt
     fixture: tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_pt-arrivee_.json
     test_id: tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction
     journal: docs/tests-live.md
-    journal_section: *section
+    journal_section: "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
     resultat: fidele
     ecarts: []
-    reserve_signature: *reserve
+    reserve_signature: "Résultat fixture consigné ; contresignature humaine encore due."
     countersigned_by: null
   - case_id: g-lang-pt-ecole
     langue: pt
     fixture: tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_pt-ecole_.json
     test_id: tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction
     journal: docs/tests-live.md
-    journal_section: *section
+    journal_section: "Les six retraductions, rejouées avec les réserves dans le contrôle (I1) et les termes vérifiés (I2)"
     resultat: fidele
     ecarts: []
-    reserve_signature: *reserve
+    reserve_signature: "Résultat fixture consigné ; contresignature humaine encore due."
     countersigned_by: null
