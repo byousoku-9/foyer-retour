@@ -3410,3 +3410,20 @@ ANTHROPIC_API_KEY= uv run python -m server.evals.run \
 Le jalon superviseur devra autoriser séparément le premier tour AXA, les deux suivis (qui doivent
 rester gratuits) et le contrôle Baloise. Aucun résultat live, fixture LLM, gate ou manifest n'est
 revendiqué ici.
+
+### Certification post-revue 3.7
+
+Le recheck ciblé Claude sur les huit corrections a rendu **APPROVE**, sans finding résiduel. Une fois
+ce verdict acquis, les trois gates `vertical` ont été lancés exactement une fois chacun, avec le
+transport standard, sans Batch ni retry :
+
+| Document | Résultat | Coût | Date du gate |
+|---|---:|---:|---|
+| `lux-guide` | 1/1 | 0,0702 EUR | `2026-08-27T05:53:36Z` |
+| `axa-lu-optihome-2017` | 1/1 | 0,1067 EUR | `2026-08-27T05:54:16Z` |
+| `baloise-lu-home-2-2024` | 3/3 | 0,0831 EUR | `2026-08-27T05:55:02Z` |
+
+Le coût total est **0,2600 EUR**. Les trois manifests portent le digest pipeline final
+`23699bbe…`, `evals_ok=true` et `countersigned=false`. Aucun autre appel live, gate, fixture LLM,
+Batch ou push n'a été exécuté. L'alignement mécanique de la preuve Baloise sur ce nouvel artefact est
+couvert par la suite hors ligne finale : **2515 tests réussis**, Ruff et `git diff --check` verts.
