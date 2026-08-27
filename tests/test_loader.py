@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from server.app.corpus import loader
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain import Document, GateContext
@@ -216,10 +217,11 @@ def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
 
 
 def test_repo_data_loads() -> None:
-    """Le corpus du dépôt, chargé sans dérogation, sert les deux documents recertifiés."""
+    """Le second contrat reste auditable mais non servi avant son gate payant."""
     c = load_corpus(ROOT / "data", allow_ungated=False)
     axa = [] if (ROOT / "data" / "axa-lu-optihome-2017" / "source.pdf").is_file() else ["source_absente"]
-    assert c.quarantine == {} and c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": []}
+    assert c.quarantine == {"baloise-lu-home-2-2024": "sans_gate"}
+    assert c.alerts == {"axa-lu-optihome-2017": axa, "lux-guide": []}
     doc = c.documents["lux-guide"]
     assert doc.doc_id == "lux-guide" and doc.edition == "git:a8e8593" and len(doc.blocks) > 400
     assert all(b.text_norm == normalize(b.text) for b in doc.blocks)
@@ -275,6 +277,14 @@ def test_invalid_manifest_gives_empty_corpus_with_reason(data: Path) -> None:
     assert load_corpus(data, allow_ungated=True).quarantine["*"].startswith("manifest invalide : ")
 
 
+def test_la_borne_injectee_gouverne_la_raison_dun_manifest_illisible(
+        data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (data / "manifest.json").write_text("{", "utf-8")
+    monkeypatch.setattr(loader, "_read_error", lambda exc: "x" * 200)
+    raison = load_corpus(data, allow_ungated=True, raison_max_chars=37).quarantine["*"]
+    assert len(raison) == 37
+
+
 def test_folder_name_must_match_doc_id(data: Path) -> None:
     m = _manifest(data)
     m["autre-doc"] = m.pop("lux-guide")
@@ -292,6 +302,19 @@ def _overlay(data: Path, blocks: dict, *, declare: bool = True, **extra) -> None
         m = _manifest(data)
         m["lux-guide"]["overlay_hash"] = _sha(path)
         _write_manifest(data, m)
+
+
+def test_la_borne_injectee_gouverne_la_raison_dun_overlay_illisible(
+        data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _overlay(data, {"lux-guide:farrivee:2": {"kind": "definition"}})
+    chemin = data / "lux-guide" / "typing.manual.json"
+    chemin.write_text("{", encoding="utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["overlay_hash"] = _sha(chemin)
+    _write_manifest(data, m)
+    monkeypatch.setattr(loader, "_read_error", lambda exc: "x" * 200)
+    raison = load_corpus(data, allow_ungated=True, raison_max_chars=43).quarantine["lux-guide"]
+    assert len(raison) == 43
 
 
 def test_overlay_is_merged_before_validation_without_touching_document_json(data: Path) -> None:

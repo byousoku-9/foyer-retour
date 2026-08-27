@@ -54,7 +54,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
 
 from server.app.config import REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
@@ -204,6 +204,17 @@ class Cas(BaseModel):
     expected: Attendu
     truth: Verite
     mode_attendu: Label
+    _doc_id: str | None = PrivateAttr(default=None)
+    _case_path: Path | None = PrivateAttr(default=None)
+
+    @property
+    def doc_id(self) -> str | None:
+        """Document propriétaire, dérivé du dossier et jamais recopié dans le YAML."""
+        return self._doc_id
+
+    @property
+    def case_path(self) -> Path | None:
+        return self._case_path
 
     @property
     def text_norm_declare(self) -> bool:
@@ -242,6 +253,7 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
     dossier), et ce qui fait que `cases_hash` — un hash de chemins et de contenus — désigne sans
     ambiguïté les cas dont un gate se réclame.
     """
+    balayage_complet = suites is None
     if suites is None:
         # **Tous** les dossiers présents, pas seulement les suites livrées : un `cases/parsing/`
         # déposé dans l'arborescence doit être **vu** puis refusé nommément (story 4.2), et non
@@ -250,22 +262,43 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
         suites = tuple(sorted(p.name for p in cases_dir.iterdir() if p.is_dir())) \
             if cases_dir.is_dir() else ()
     cas: list[Cas] = []
-    for suite in sorted(suites):
-        dossier = cases_dir / suite
+    for suite_locator in sorted(suites):
+        morceaux = Path(suite_locator).parts
+        suite = morceaux[0] if morceaux else ""
+        if suite not in {"guide", "sinistre", "parsing"} or len(morceaux) > 2:
+            raise RefusDeTourner(f"suite documentaire invalide : {suite_locator!r}")
+        doc_id = morceaux[1] if len(morceaux) == 2 else None
+        if doc_id is not None and suite != "sinistre":
+            raise RefusDeTourner(
+                f"seule la suite sinistre accepte un sous-dossier documentaire ({suite_locator})")
+        dossier = cases_dir.joinpath(*morceaux)
         if not dossier.is_dir():
             continue
         # Tout ce que `glob("*.yaml")` (non récursif) ne ramènerait pas : un cas déposé en `.yml`,
         # et un cas rangé dans un sous-dossier. Les deux seraient **ignorés en silence**, et le gate
         # se réclamerait d'une suite amputée sans qu'un mot le dise. Un golden set muet est pire
         # qu'un golden set rouge (AD-14).
-        etrangers = sorted(f.name + ("/" if f.is_dir() else "") for f in dossier.iterdir()
-                           if not f.name.startswith(".")
-                           and (f.is_dir() or f.suffix != ".yaml"))
+        etrangers = sorted(
+            f.name + ("/" if f.is_dir() else "")
+            for f in dossier.iterdir()
+            if not f.name.startswith(".")
+            and (
+                f.suffix != ".yaml"
+                and not (suite == "sinistre" and doc_id is None and f.is_dir())
+            )
+        )
         if etrangers:
             raise RefusDeTourner(f"{dossier} : entrées hors schéma de nommage : "
-                                 f"{', '.join(etrangers)} (les cas sont des `*.yaml` à plat)")
+                                 f"{', '.join(etrangers)} (les cas sont des `*.yaml` à plat ; "
+                                 "seuls les sous-dossiers documentaires de `sinistre/` sont admis)")
         for fichier in sorted(dossier.glob("*.yaml")):
-            cas.append(_lire_cas(fichier, suite))
+            lu = _lire_cas(fichier, suite)
+            lu._doc_id = doc_id
+            lu._case_path = fichier
+            cas.append(lu)
+        if balayage_complet and suite == "sinistre" and doc_id is None:
+            for sous_dossier in sorted(p for p in dossier.iterdir() if p.is_dir() and not p.name.startswith(".")):
+                cas.extend(charger_cas(cases_dir, suites=(f"sinistre/{sous_dossier.name}",)))
     vus: set[str] = set()
     for c in cas:
         if c.id in vus:
@@ -445,9 +478,10 @@ class Contexte:
     # le gate mesurerait un pipeline **sans** variantes et sans le court-circuit d'AD-5, alors que la
     # production les a : le gate est censé juger l'image, pas une variante de l'image.
     dictionnaire: Dictionnaire = field(default_factory=Dictionnaire)
+    dictionnaires: dict[str, Dictionnaire] = field(default_factory=dict)
 
 
-def suite_du_document(settings: Settings, doc_id: str) -> str:
+def suite_du_document(settings: Settings, doc_id: str, *, cases_dir: Path = CASES_DIR) -> str:
     """La suite dont le pipeline sert ce document (D5).
 
     Le schéma de cas d'AD-14 ne porte **pas** de `doc_id`, et lui en ajouter un amenderait une
@@ -455,15 +489,22 @@ def suite_du_document(settings: Settings, doc_id: str) -> str:
     suite `guide`, `--gate axa-lu-optihome-2017` la suite `sinistre`. Le jour où un second contrat
     arrive (story 3.6), c'est cette fonction qui ne suffira plus — entrée différée.
     """
-    par_doc = {settings.guide_doc_id: "guide", settings.sinistre_doc_id: "sinistre"}
-    if doc_id not in par_doc:
-        raise RefusDeTourner(
-            f"aucune suite ne sert le document {doc_id!r} "
-            f"(connus : {', '.join(sorted(par_doc))})")
-    return par_doc[doc_id]
+    if doc_id == settings.guide_doc_id:
+        return "guide"
+    if doc_id == settings.sinistre_doc_id:
+        return "sinistre"
+    suite_documentaire = cases_dir / "sinistre" / doc_id
+    if suite_documentaire.is_dir():
+        return f"sinistre/{doc_id}"
+    raise RefusDeTourner(
+        f"aucune suite ne sert le document {doc_id!r} (suite attendue : "
+        f"{suite_documentaire.relative_to(cases_dir)}/)")
 
 
 def document_de_la_suite(settings: Settings, suite: str) -> str:
+    morceaux = Path(suite).parts
+    if len(morceaux) == 2 and morceaux[0] == "sinistre":
+        return morceaux[1]
     return settings.guide_doc_id if suite == "guide" else settings.sinistre_doc_id
 
 
@@ -489,7 +530,9 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
                                                  dictionnaire=ctx.dictionnaire, **commun)
         else:
             assert cas.faits is not None  # garanti par `Cas._coherence`
-            answer, trace = await pipeline_sinistre.run(doc_id, cas.question, cas.faits, **commun)
+            answer, trace = await pipeline_sinistre.run(
+                doc_id, cas.question, cas.faits,
+                dictionnaire=ctx.dictionnaires.get(doc_id), **commun)
     except PipelineError as exc:
         # Une erreur terminale peut survenir après un ou plusieurs appels facturés. Le pipeline
         # attache sa trace partielle à l'erreur ; le budget reste l'autorité de coût même si cette
@@ -518,7 +561,7 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
             raise IncidentTechnique(
                 f"plafond de run atteint ({cumul:.4f} € sur {max_cost_eur:.4f} €) avant le cas "
                 f"{c.id} : {len(cas) - len(resultats)} cas non exécutés")
-        doc_id = document_de_la_suite(ctx.settings, c.suite)
+        doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
         depart = time.monotonic()
         try:
             answer, _trace, cout = await executer_cas(c, ctx, doc_id=doc_id, budget_restant_eur=restant)
@@ -596,7 +639,7 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
     Un seul cas sans contresignature suffit à mettre le gate à `false` — « 2 cas relus à la main »
     serait faux dès qu'un des deux ne l'est pas.
     """
-    fichiers = [cases_dir / c.suite / f"{c.id}.yaml" for c in cas]
+    fichiers = [c.case_path or (cases_dir / c.suite / f"{c.id}.yaml") for c in cas]
     return Gate(
         profile=profil, source_hash=entry.source_hash,
         ingest_fingerprint=entry.ingest_fingerprint, overlay_hash=entry.overlay_hash,
@@ -797,13 +840,20 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
         if gate_a_refaire:
             lecture = _sans_gate_sur_disque(data_dir, regate, pile)
     corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate,
-                         perimetre_max_chars=settings.perimetre_max_chars)
+                         perimetre_max_chars=settings.perimetre_max_chars,
+                         raison_max_chars=settings.raison_publiable_max_chars)
+    dictionnaires = {
+        doc_id: load_dictionary(data_dir, corpus, doc_id)
+        for doc_id, document in corpus.documents.items()
+        if document.kind == "contrat"
+    }
     return Contexte(settings=settings, index=Index(corpus), client=LlmClient(settings),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest,
                     # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
                     # le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
-                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id))
+                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id),
+                    dictionnaires=dictionnaires)
 
 
 async def _fermer(client: Any) -> None:
@@ -892,7 +942,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.suite in SUITES_DIFFEREES:
             raise RefusDeTourner(f"suite `{args.suite}` : story {SUITES_DIFFEREES[args.suite]}")
         if args.gate:
-            suites = (suite_du_document(settings, args.gate),)
+            suites = (suite_du_document(settings, args.gate, cases_dir=args.cases_dir),)
         if args.suite:
             if suites is not None and args.suite not in suites:
                 raise RefusDeTourner(f"--suite {args.suite} et --gate {args.gate} se contredisent : "

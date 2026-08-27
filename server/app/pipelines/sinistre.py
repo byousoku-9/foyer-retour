@@ -53,6 +53,7 @@ from server.app.pipelines.commun import (
     APPELS_DE_LA_RELANCE,
     INTENTS_REFUSES,
     blocs_cites,
+    dictionnaire_de,
     digests,
     domine,
     gate_de,
@@ -176,6 +177,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
               index: Any, client: Any, settings: Settings, request_id: str,
               variant: str = "deterministe", lang: str | None = None, deadline_s: float | None = None,
               budget: Any = None, dossier: MissingPackage | None = None,
+              dictionnaire: Any = None,
               pipeline_digest_hex: str | None = None,
               prompts_digest_hex: str | None = None) -> tuple[Answer, Trace]:
     """Un sinistre décrit → l'unique `Answer` d'AD-4, verdict compris, et sa `Trace`.
@@ -239,10 +241,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             deadline_remaining_s=round(budget.remaining(), 3),
             # Story 2.5 : les mêmes résolutions que le guide (`pipelines/commun`) — l'outil sinistre
             # affiche la même trace, et il doit pouvoir **nommer ses clauses** au lieu d'aligner des
-            # identifiants de blocs. `dictionnaire` reste `None` : ce pipeline n'en a pas, et publier
-            # un dictionnaire inerte laisserait croire qu'il a été consulté (AD-16).
+            # identifiants de blocs. Le dictionnaire publié est uniquement celui du contrat lu.
             blocs=libelles_de_blocs(corpus, doc_id, steps),
             gate=gate_de(corpus, doc_id),
+            dictionnaire=dictionnaire_de(
+                dictionnaire, doc_id,
+                court_circuit_autorise=False),
         )
 
     def absence(kind: str, parsed: ParsedQuestion | None) -> AbsenceProof:
@@ -250,7 +254,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         if parsed is None:  # rien n'a été cherché : ni termes, ni passages parcourus
             return AbsenceProof(kind=kind)
         document = corpus.documents.get(doc_id)
-        return AbsenceProof(kind=kind, terms_searched=parsed.termes_de_recherche(), variants_count=0,
+        termes = parsed.termes_de_recherche()
+        elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
+        return AbsenceProof(kind=kind,
+                            terms_searched=dictionnaire.canoniser(termes) if elargi else termes,
+                            variants_count=dictionnaire.variants_count(termes) if elargi else 0,
                             blocks_scanned=len(document.blocks) if document is not None else 0,
                             documents=[doc_id] if document is not None else [])
 
@@ -328,7 +336,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         echeance("retrouver")
         retrieval, step_retrouver = retrouver_deterministe(
             parsed, corpus=corpus, index=index, budget=retrieval_budget(settings), settings=settings,
-            doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS)
+            doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
+            dictionnaire=dictionnaire)
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:

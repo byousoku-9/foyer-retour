@@ -162,7 +162,9 @@ def test_document_shape(doc: Document) -> None:
 
 def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     c = load_corpus(ROOT / "data", allow_ungated=True)
-    assert c.quarantine == {} and set(c.documents) == {DOC, "lux-guide"}
+    assert c.quarantine == {} and set(c.documents) == {
+        DOC, "baloise-lu-home-2-2024", "lux-guide",
+    }
     d = c.documents[DOC]
     confirmed = {b.block_id: b for b in d.blocks if b.kind_confirmed}
     golden_ids = {f"{DOC}:p9:2", f"{DOC}:p11:12", f"{DOC}:p34:12", f"{DOC}:p46:1"}

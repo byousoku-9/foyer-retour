@@ -228,10 +228,15 @@ def _cases_dir(tmp_path: Path, *, guide: str | None = None, sinistre: str | None
 # --- lecture et validation stricte des cas (AD-14) ------------------------
 
 def test_les_cas_livres_du_depot_sont_valides() -> None:
-    """Le golden set réel : deux cas `vertical`, relus à la main, un par suite (AC de la story)."""
+    """Le golden set réel garde AXA à plat et isole les trois témoins Baloise par document."""
     cas = runner.charger_cas(runner.CASES_DIR)
-    assert {c.id for c in cas} == {"g-luxtrust-prix", "s-bougie-canape"}
+    assert {c.id for c in cas} == {
+        "g-luxtrust-prix", "s-bougie-canape", "b-bougie-canape", "b-congelateur",
+        "b-invite-cigarette",
+    }
     assert {c.suite for c in cas} == {"guide", "sinistre"}
+    baloise = [c for c in cas if c.id.startswith("b-")]
+    assert {c.doc_id for c in baloise} == {"baloise-lu-home-2-2024"}
     for c in cas:
         assert c.profile == "vertical"
         assert c.truth.source == "lecture_humaine"
@@ -669,14 +674,44 @@ def test_le_gate_change_avec_le_contenu_des_cas(tmp_path: Path) -> None:
     assert avant != apres
 
 
-def test_la_suite_dun_gate_est_celle_qui_sert_le_document() -> None:
+def test_la_suite_dun_gate_est_celle_qui_sert_le_document(tmp_path: Path) -> None:
     """D5 : `--gate lux-guide` → suite `guide` ; `--gate {contrat}` → suite `sinistre`."""
     s = _settings()
     assert runner.suite_du_document(s, GUIDE) == "guide"
     assert runner.suite_du_document(s, CONTRAT) == "sinistre"
+    dossier = tmp_path / "sinistre" / "baloise-lu-home-2-2024"
+    dossier.mkdir(parents=True)
+    assert runner.suite_du_document(
+        s, "baloise-lu-home-2-2024", cases_dir=tmp_path
+    ) == "sinistre/baloise-lu-home-2-2024"
+    assert runner.document_de_la_suite(
+        s, "sinistre/baloise-lu-home-2-2024"
+    ) == "baloise-lu-home-2-2024"
     with pytest.raises(runner.RefusDeTourner) as exc:
-        runner.suite_du_document(s, "un-autre-contrat")
+        runner.suite_du_document(s, "un-autre-contrat", cases_dir=tmp_path)
     assert "aucune suite" in str(exc.value)
+
+
+def test_les_hashes_de_cas_sinistre_sont_isoles_par_document(tmp_path: Path) -> None:
+    racine = _cases_dir(
+        tmp_path,
+        sinistre=CAS_SINISTRE,
+        autres={"sinistre/doc-b/b-temoin.yaml": CAS_SINISTRE.format(id="b-temoin")},
+    )
+    axa = runner.charger_cas(racine, suites=("sinistre",))
+    doc_b = runner.charger_cas(racine, suites=("sinistre/doc-b",))
+    assert {c.id for c in axa} == {"s-bougie"}
+    assert [c.id for c in doc_b] == ["b-temoin"] and doc_b[0].doc_id == "doc-b"
+    entry = ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                          document_hash="d", edition="2020")
+    ctx = _contexte([])
+    gate_axa = runner.construire_gate(
+        entry, ctx, profil="vertical", cas=axa,
+        cases_dir=racine, evals_ok=True)
+    gate_b = runner.construire_gate(
+        entry, ctx, profil="vertical", cas=doc_b, cases_dir=racine, evals_ok=True)
+    assert gate_axa.cases == 1 and gate_b.cases == 1
+    assert gate_axa.cases_hash != gate_b.cases_hash
 
 
 def test_ecrire_le_gate_ne_touche_que_lentree_visee(tmp_path: Path) -> None:

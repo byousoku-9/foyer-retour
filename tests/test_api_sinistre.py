@@ -201,9 +201,10 @@ def _serveur(settings: Settings) -> Any:
             nom: getattr(etat, nom)
             for nom in (
                 "settings", "corpus", "index", "pipeline_sinistre", "reports", "report_errors",
-                "source_urls", "alerts", "dictionnaire",
+                "source_urls", "alerts", "dictionnaire", "dictionnaires",
             )
         }
+        client.origine["dictionnaires"] = dict(etat.dictionnaires)  # type: ignore[attr-defined]
         yield client
 
 
@@ -275,6 +276,13 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
     # et c'est ce qui rend « édition juin 2017 » vérifiable par celui à qui on l'annonce.
     assert axa["source_url"] and axa["source_url"].startswith("https://")
     assert "lux-guide" in par_id and par_id["lux-guide"]["kind"] == "guide"
+    baloise = par_id["baloise-lu-home-2-2024"]
+    # La fixture démarre en dev avec la dérogation explicite : le statut effectif est donc servi.
+    # Le test du loader ci-dessous couvre le même manifest sans dérogation (`sans_gate`).
+    assert baloise["status"] == "servi" and baloise["selectionnable"] is True
+    assert baloise["edition"] == "CG-HOME(2)-LUFR-09-24"
+    assert baloise["source_url"].startswith("https://www.baloise.lu/")
+    assert baloise["report_status"] == "disponible"
 
 
 def test_documents_ne_coute_rien_et_nest_pas_limitee(prod: TestClient) -> None:
@@ -811,7 +819,10 @@ def test_frontieres_http_doc_id_64_accepte_65_refuse_par_le_schema(prod: TestCli
 
 def test_sinistre_nominal_rend_200_avec_le_contrat_ad11(prod: TestClient) -> None:
     """AC : 200, `sources[]` avec `page`/`bbox`/`line_ids`/`kind` et des citations **relues**."""
+    from server.app.corpus.dictionary import Dictionnaire
+
     corpus, _index = _mini_corpus()
+    prod.app.state.foyer.dictionnaires[DOC_ID] = Dictionnaire(doc_id=DOC_ID)
     double = _brancher(prod, Double((_reponse(corpus), _trace())))
     r = _poster(prod)
     assert r.status_code == 200
@@ -841,6 +852,17 @@ def test_sinistre_nominal_rend_200_avec_le_contrat_ad11(prod: TestClient) -> Non
     assert double.appels[0]["doc_id"] == DOC_ID
     assert double.appels[0]["faits"].description == FAITS["description"]
     assert double.appels[0]["request_id"] == corps["trace"]["request_id"]
+    assert double.appels[0]["dictionnaire"] is prod.app.state.foyer.dictionnaires[DOC_ID]
+
+
+def test_une_requete_bougie_baloise_recoit_seulement_son_dictionnaire(prod: TestClient) -> None:
+    doc_id = "baloise-lu-home-2-2024"
+    double = _brancher(prod, Double((_refus(), _trace())), mini=False)
+    r = _poster(prod, _corps(doc_id=doc_id, question="Une bougie a brûlé mon canapé."))
+    assert r.status_code == 200
+    assert double.appels[0]["doc_id"] == doc_id
+    assert double.appels[0]["dictionnaire"] is prod.app.state.foyer.dictionnaires[doc_id]
+    assert double.appels[0]["dictionnaire"] is not prod.app.state.foyer.dictionnaire
 
 
 def test_un_typage_non_confirme_ressort_du_serveur(prod: TestClient) -> None:

@@ -152,9 +152,9 @@ def dictionnaire_de(dictionnaire: Any, doc_id: str, *,
                     court_circuit_autorise: bool = True) -> DictionnaireTrace | None:
     """AD-5 — L'état du dictionnaire **pour ce document**, donc l'état du refus « zéro hit ».
 
-    `None` quand le pipeline n'en a pas (le sinistre) : la rubrique disparaît au lieu d'annoncer un
-    dictionnaire inerte qui n'a jamais été consulté. Le pipeline du guide en reçoit toujours un —
-    un fichier absent est un `Dictionnaire` inerte, pas un `None` (`api/etat`).
+    `None` quand le pipeline n'en a pas : la rubrique disparaît au lieu d'annoncer un dictionnaire
+    inerte qui n'a jamais été consulté. Guide et contrats peuvent chacun recevoir leur dictionnaire
+    propriétaire ; un fichier absent est un `Dictionnaire` inerte, pas un `None` (`api/etat`).
 
     `court_circuit_actif` est pris par `court_circuit_pour(doc_id)` et non par la propriété du même
     nom : c'est la décision **de cette requête**, et un dictionnaire qui décrit un autre document

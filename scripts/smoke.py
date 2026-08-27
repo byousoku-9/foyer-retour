@@ -158,8 +158,15 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
     if not isinstance(manifest, dict):
         raise ErreurTransport(f"{fichier} : la racine doit être une table de documents")
 
-    documents = tuple(sorted(doc_id for doc_id, e in manifest.items()
-                             if isinstance(e, dict) and e.get("status") == "servi"))
+    # Le loader de production met un document `servi` mais sans gate en quarantaine `sans_gate`.
+    # Le smoke doit donc attendre les documents effectivement sélectionnables, pas confondre le
+    # statut d'artefact du manifest avec le statut de service calculé au démarrage.
+    documents = tuple(sorted(
+        doc_id for doc_id, entry in manifest.items()
+        if isinstance(entry, dict)
+        and entry.get("status") == "servi"
+        and isinstance(entry.get("gate"), dict)
+    ))
     if not documents:
         raise ErreurTransport("aucun document `servi` dans data/manifest.json : rien à vérifier")
 
@@ -178,8 +185,7 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
     profils: set[str | None] = set()
     for doc_id in documents:
         gate = manifest[doc_id].get("gate")
-        # Une entrée peut porter explicitement `"gate": null` (document ingéré, jamais mesuré) :
-        # `.get("gate", {}).get(...)` levait alors sur `None`. C'est un refus, pas une exception nue.
+        # `documents` exclut déjà les artefacts sans gate, comme le loader de production.
         profils.add(gate.get("profile") if isinstance(gate, dict) else None)
     if len(profils) != 1 or None in profils:
         # AD-11 : `/sante` publie `gate_profile: null` dès qu'un document servi n'a pas de gate. Le

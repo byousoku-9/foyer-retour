@@ -272,14 +272,20 @@ def _corpus_ok(hashes: dict[str, str], corpus: Corpus, doc_id: str) -> tuple[boo
 
 
 def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictionnaire:
-    """`data/dictionary.json` → `Dictionnaire`. Absent, illisible ou non conforme ⇒ inerte, jamais d'exception.
+    """Dictionnaire du document → `Dictionnaire`. Absent ou invalide ⇒ inerte, jamais d'exception.
 
     `doc_id` est le document auquel ce dictionnaire sera **appliqué** (`settings.guide_doc_id` pour
     le serveur) : il est exigé parmi les `corpus_source_hashes` et porté par l'objet, de sorte que
     `utilisable_pour` / `court_circuit_pour` refusent tout autre document (revue Codex 2.1, B3).
     Le paramètre est obligatoire, et c'est le point : un appelant qui l'oublierait rouvrirait le trou.
     """
-    chemin = Path(data_dir) / DICTIONARY_FILE
+    racine = Path(data_dir)
+    document = corpus.documents.get(doc_id)
+    # Le guide conserve le chemin historique public. Chaque contrat possède sa donnée lexicale :
+    # deux assureurs ne partagent jamais leurs variantes par accident.
+    chemin = (racine / DICTIONARY_FILE
+              if document is None or document.kind == "guide"
+              else racine / doc_id / DICTIONARY_FILE)
     if not chemin.is_file():
         return Dictionnaire(doc_id=doc_id,
                             raison=f"{DICTIONARY_FILE} absent : lancer "

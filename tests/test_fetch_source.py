@@ -112,10 +112,16 @@ def test_main_codes(data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
 
 
 def test_real_reference_matches_spec() -> None:
-    real = Path(__file__).resolve().parents[1] / "data" / "axa-lu-optihome-2017"
-    url, sha = f.read_reference(real)
+    data = Path(__file__).resolve().parents[1] / "data"
+    url, sha = f.read_reference(data / "axa-lu-optihome-2017")
     assert sha == "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c"
     assert url.startswith("https://luxembourg-axa.cdn.axa-contento-118412.eu/")
+    url, sha = f.read_reference(data / "baloise-lu-home-2-2024")
+    assert url == (
+        "https://www.baloise.lu/dam/baloise-lu/1890/particulier/documents/"
+        "CG-CS/CG-HOME-2--LUFR-09-24.pdf"
+    )
+    assert sha == "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6"
 
 
 def test_gs_url_as_main_source_is_downloaded_with_token(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:

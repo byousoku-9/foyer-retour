@@ -1,0 +1,24 @@
+id: b-congelateur
+suite: sinistre
+profile: vertical
+question: "Une coupure a détruit les aliments du congélateur : quelles clauses faut-il regarder ?"
+lang: fr
+scenario: "témoin Baloise préparé par lecture du contrat, sans expertise assurance"
+faits:
+  lieu: "cuisine du domicile assuré"
+  description: >-
+    Une coupure de courant a arrêté le congélateur ; l'appareil fonctionne de nouveau mais les
+    aliments congelés sont perdus.
+expected:
+  found: true
+  verdict: [sous_conditions, ne_tranche_pas]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: >-
+    Attente préparée le 2026-08-27 par relecture agent de la page 20 du PDF Baloise, où le pack
+    « cave à vin / denrées alimentaires » est visible. Aucun attendu AXA n'est réutilisé. Le résultat
+    reste un signal de régression non expertisé ; relecture Lancelot et expertise restent dues.

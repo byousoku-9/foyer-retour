@@ -387,6 +387,32 @@ def test_le_verrou_de_corpus_nomme_le_document_quon_va_servir(tmp_path: Path) ->
         assert sien.court_circuit_pour(ailleurs) is False, ailleurs
 
 
+def test_chaque_contrat_charge_uniquement_son_dictionnaire(tmp_path: Path) -> None:
+    guide = _corpus()
+    contrat_a, contrat_b = "contrat-a", "contrat-b"
+    for doc_id, source_hash in ((contrat_a, "sha-a"), (contrat_b, "sha-b")):
+        guide.documents[doc_id] = guide.documents[DOC_ID].model_copy(
+            update={"doc_id": doc_id, "kind": "contrat", "title": doc_id})
+        guide.manifest[doc_id] = ManifestEntry(
+            status="servi", source_hash=source_hash, ingest_fingerprint=f"fp-{doc_id}",
+            document_hash=f"doc-{doc_id}", edition="2026")
+        dossier = tmp_path / doc_id
+        dossier.mkdir()
+        fichier = _fichier(
+            corpus_source_hashes={doc_id: source_hash}, candidate_questions={},
+            corpus={f"canonique-{doc_id}": ["forme-partagee", f"forme-{doc_id}"]})
+        (dossier / "dictionary.json").write_text(
+            json.dumps(fichier, ensure_ascii=False), encoding="utf-8")
+
+    a = load_dictionary(tmp_path, guide, contrat_a)
+    b = load_dictionary(tmp_path, guide, contrat_b)
+    assert a.utilisable_pour(contrat_a) and not a.utilisable_pour(contrat_b)
+    assert b.utilisable_pour(contrat_b) and not b.utilisable_pour(contrat_a)
+    assert forme(f"forme-{contrat_a}") in a.expand(["forme-partagee"])["forme-partagee"]
+    assert forme(f"forme-{contrat_b}") not in a.expand(["forme-partagee"])["forme-partagee"]
+    assert forme(f"forme-{contrat_b}") in b.expand(["forme-partagee"])["forme-partagee"]
+
+
 def test_canoniser_rend_les_canoniques_jamais_la_variante_employee(tmp_path: Path) -> None:
     """AD-4, mot pour mot : `terms_searched[] (canoniques)`.
 

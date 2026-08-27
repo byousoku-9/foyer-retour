@@ -1,0 +1,24 @@
+id: b-invite-cigarette
+suite: sinistre
+profile: vertical
+question: "Mon invité a brûlé le canapé du propriétaire avec sa cigarette : contenu ou RC ?"
+lang: fr
+scenario: "témoin Baloise préparé par lecture du contrat, sans expertise assurance"
+faits:
+  lieu: "logement loué assuré"
+  description: >-
+    Le canapé meublant appartient au propriétaire du logement. Un invité l'a brûlé avec sa
+    cigarette pendant une visite.
+expected:
+  found: true
+  verdict: [sous_conditions, ne_tranche_pas]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: >-
+    Attente préparée le 2026-08-27 par relecture agent des définitions et des garanties de
+    responsabilité civile du PDF Baloise. Elle ne choisit pas entre garanties et n'impose aucun
+    passage AXA. Relecture Lancelot et expertise restent dues.

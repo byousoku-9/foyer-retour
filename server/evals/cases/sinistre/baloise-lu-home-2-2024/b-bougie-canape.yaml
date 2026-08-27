@@ -1,0 +1,24 @@
+id: b-bougie-canape
+suite: sinistre
+profile: vertical
+question: "Une bougie a brûlé mon canapé sans incendie : quelles clauses faut-il regarder ?"
+lang: fr
+scenario: "témoin Baloise préparé par lecture du contrat, sans expertise assurance"
+faits:
+  lieu: "salon du domicile assuré"
+  description: >-
+    Une bougie est tombée sur le canapé et l'a brûlé localement, sans propagation des flammes ni
+    commencement d'incendie.
+expected:
+  found: true
+  verdict: [sous_conditions, ne_tranche_pas]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: >-
+    Attente préparée le 2026-08-27 par relecture agent des pages 3, 10 et 15–16 du PDF Baloise et de
+    l'artefact extrait. Elle exige seulement une clause authentique et un verdict prudent : aucun
+    passage AXA ni verdict expert n'a été recopié. Relecture Lancelot et expertise restent dues.

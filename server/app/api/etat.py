@@ -275,6 +275,9 @@ class EtatApp:
     # (trois booléens), le pipeline du guide (le court-circuit et le compte de variantes) et
     # *retrouver* (l'élargissement) — et qu'un booléen ne dit ni pourquoi, ni sur quel corpus.
     dictionnaire: Dictionnaire = field(default_factory=Dictionnaire)
+    # Les dictionnaires contractuels sont propriétaires de leur document. Le guide garde le champ
+    # historique ci-dessus pour `/sante`; le pipeline sinistre ne reçoit que l'objet de son contrat.
+    dictionnaires: dict[str, Dictionnaire] = field(default_factory=dict)
     # Le pipeline est un attribut, et non un import direct dans la route : c'est ce qui rend
     # explicite que l'API n'appelle **qu'un** pipeline (AD-1 : jamais de dispatch), et ce que les
     # tests remplacent par un double pour couvrir la matrice d'E/S sans réseau.
@@ -634,10 +637,16 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
                            model_ids=dict(TIERS))
     corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte,
-                         perimetre_max_chars=settings.perimetre_max_chars)
+                         perimetre_max_chars=settings.perimetre_max_chars,
+                         raison_max_chars=settings.raison_publiable_max_chars)
     # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
     # `corpus_ok` exige l'empreinte de **ce** document, pas celle d'un document quelconque du corpus.
     dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
+    dictionnaires = {
+        doc_id: load_dictionary(data_dir, corpus, doc_id)
+        for doc_id, document in corpus.documents.items()
+        if document.kind == "contrat"
+    }
     # Les quarantaines sont connues du loader mais ne sont jamais dans ``documents``. Leurs seuls
     # artefacts d'audit (rapport et URL publique filtrée) peuvent néanmoins être lus ici, une fois.
     doc_ids_audit = _doc_ids_audit(corpus)
@@ -671,6 +680,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
         limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
         prompts_digest_hex=digest_prompts, dictionnaire=dictionnaire,
+        dictionnaires=dictionnaires,
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
         alerts=_alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)

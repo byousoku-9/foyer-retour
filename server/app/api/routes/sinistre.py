@@ -67,6 +67,7 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         demande.doc_id, demande.question, demande.faits,
         corpus=etat.corpus, index=etat.index, client=etat.client, settings=etat.settings,
         request_id=request.state.request_id, lang=demande.lang, budget=budget,
+        dictionnaire=etat.dictionnaires.get(demande.doc_id),
         # `dossier` n'est **pas** passé (D1) : la route ne l'expose pas, donc tout le paquet
         # contractuel est réputé inconnu, annoncé par `missing` et réclamé par `ask_client`. C'est
         # ce que « au regard des conditions générales seules » veut dire, et c'est écrit.

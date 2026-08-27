@@ -240,7 +240,8 @@ def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
 
 
 def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated: bool,
-              current: GateContext | None) -> tuple[Document | None, str, list[str]]:
+              current: GateContext | None,
+              raison_max_chars: int = 500) -> tuple[Document | None, str, list[str]]:
     """Renvoie (document | None, raison de quarantaine, alertes). Aucune exception ne sort : tout devient une raison."""
     if entry.status == "quarantaine":
         return None, "quarantaine (manifest)", []
@@ -272,7 +273,7 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
             try:
                 overlay = json.loads(overlay_path.read_bytes())
             except (OSError, UnicodeDecodeError, ValueError) as exc:
-                return None, f"overlay illisible : {_read_error(exc)}"[:500], []
+                return None, f"overlay illisible : {_read_error(exc)}"[:raison_max_chars], []
             reason = _apply_overlay(raw_doc, overlay) if isinstance(raw_doc, dict) else ""
             if reason:
                 return None, reason, []
@@ -313,7 +314,8 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
 
 
 def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateContext | None = None,
-                perimetre_max_chars: int = PERIMETRE_MAX_CHARS) -> Corpus:
+                perimetre_max_chars: int = PERIMETRE_MAX_CHARS,
+                raison_max_chars: int = 500) -> Corpus:
     """Charge chaque document du manifest ; une incohérence met ce seul document en quarantaine (AD-7).
 
     `current` décrit l'image en cours (digests, modèles) ; sans lui, la péremption du gate n'est pas évaluée.
@@ -331,7 +333,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         if isinstance(exc, OSError):
             LOG.warning("manifest illisible %s : %s", manifest_path, exc)
-        return Corpus(quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:500]})
+        return Corpus(quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:raison_max_chars]})
     corpus = Corpus()
     racine_resolue = data_dir.resolve()
     for doc_id in sorted(raw):
@@ -348,7 +350,8 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             corpus.quarantine[doc_id] = "quarantaine (manifest)"
             continue
         doc, reason, alerts = _load_one(
-            doc_dir, doc_id, entry, allow_ungated=allow_ungated, current=current)
+            doc_dir, doc_id, entry, allow_ungated=allow_ungated, current=current,
+            raison_max_chars=raison_max_chars)
         if doc is None:
             corpus.quarantine[doc_id] = reason
             continue

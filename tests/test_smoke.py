@@ -762,7 +762,12 @@ def test_les_attendus_sont_ceux_du_manifest_et_des_cas_du_gate() -> None:
     """Ce que le smoke exige est lu dans `data/manifest.json` et les deux YAML — rien n'est recopié."""
     attendus = charger_attendus()
     manifest = json.loads((REPO / "data" / "manifest.json").read_text("utf-8"))
-    servis = tuple(sorted(d for d, e in manifest.items() if e["status"] == "servi"))
+    # Même définition que le loader de production : un artefact sans gate est `sans_gate`, donc
+    # auditable dans le listing mais absent de `documents_servis`.
+    servis = tuple(sorted(
+        doc_id for doc_id, entry in manifest.items()
+        if entry["status"] == "servi" and isinstance(entry.get("gate"), dict)
+    ))
     assert attendus.documents == servis
     assert attendus.gate_profile == manifest[servis[0]]["gate"]["profile"]
     assert attendus.source_hash == {d: manifest[d]["source_hash"] for d in servis}

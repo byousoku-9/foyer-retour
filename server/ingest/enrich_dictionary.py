@@ -641,7 +641,9 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         raison = corpus.quarantine.get(doc_id, "absent du manifest")
         print(f"document {doc_id!r} non servi ({raison}) : rien n'a été écrit", file=sys.stderr)
         return 2
-    chemin = data_dir / DICTIONARY_FILE
+    chemin = (data_dir / DICTIONARY_FILE
+              if corpus.documents[doc_id].kind == "guide"
+              else data_dir / doc_id / DICTIONARY_FILE)
 
     if args.valider is not None:
         return valider_a_la_main(chemin, corpus, args.valider.strip(), doc_id, sortie=sortie)
