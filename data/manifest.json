@@ -25,6 +25,15 @@
       "countersigned": false
     }
   },
+  "baloise-lu-home-2-2024": {
+    "status": "servi",
+    "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
+    "ingest_fingerprint": "b39fe6479cbf26438788520e34879e7d361fcde45a7f120cb18a66e441d4898a",
+    "document_hash": "8b656ab16aae0427249ee732cfd9e01f218be831ce06fc74751ebe74db39f436",
+    "edition": "CG-HOME(2)-LUFR-09-24",
+    "overlay_hash": null,
+    "gate": null
+  },
   "lux-guide": {
     "status": "servi",
     "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",

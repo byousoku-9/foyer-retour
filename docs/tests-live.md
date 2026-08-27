@@ -3267,3 +3267,33 @@ gate rouge (`1 failed, 2432 passed`) : la vue temporaire sûre du runner utilisa
 le nouveau confinement du loader rejetait. Le correctif est resté dans `server/evals/run.py`, sans
 changer le digest ni les gates ; la suite finale hors réseau passe à `2434 passed`, Ruff et
 `git diff --check` sont verts. Les gates restent `countersigned=false`.
+
+## Story 3.6 — Baloise Luxembourg HOME, ingestion et typage du 27/08/2026
+
+La source officielle Baloise a été téléchargée puis vérifiée au SHA-256
+`2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6`. L'ingestion commune publie
+48/48 pages, 692 blocs, 11 tables et 100 % de couverture, sans bloquant, sans OCR, langue étrangère ni
+charabia. La limite réelle est structurelle : les titres `1.` à `15.` et les lettres visibles dans le
+PDF ne donnent aucun numéro d'article au parseur; l'arbre contient deux nœuds et l'alerte de TdM reste
+visible.
+
+Avant tout appel, la commande standard `type_clauses … --transport standard --max-cost 10 --dry-run`
+a annoncé 69 T1 + au plus 69 T2 et un majorant de **9,7482 EUR**. L'unique exécution payante a fait
+69 T1 + 51 T2, soit **120 appels Messages standard**, aucun Batch, pour **4,2518 EUR**. Le rapport
+final compte 513 blocs typés, 510 juridiques et 453 confirmés; ses alertes de typage ne sont pas
+effacées.
+
+Les pages 3, 10, 20, 30, 40 et 48 ont été rendues depuis le PDF et relues visuellement par l'agent.
+Les trois cas `b-bougie-canape`, `b-congelateur` et `b-invite-cigarette` ont une provenance
+`lecture_humaine` explicitée par cette inspection, mais **n'ont pas été exécutés** : le spec interdit
+de lancer ici le gate payant. Leur résultat actuel est donc « attendu versionné, exécution due », pas
+une réussite revendiquée. Relecture Lancelot : en attente. Expertise : absente.
+
+La vérification hors appels payants comprend le parsing réel byte-identique quand `source.pdf` est
+présent, les frontières source/hash, les suites et `cases_hash` isolés, les dictionnaires par contrat,
+le listing API et la quarantaine `sans_gate`. Le contrôle de digest des gates historiques devient
+rouge parce que les coutures pipeline ont changé; le réparer honnêtement exige de rejouer les gates
+payants AXA/guide, opération préparée mais volontairement non exécutée dans cette story. Résultat
+final exact de `ANTHROPIC_API_KEY= uv run pytest -q` : **2442 passed, 1 failed**; l'unique échec est
+`tests/test_digests.py::test_les_gates_du_depot_sont_ceux_de_limage_courante` (digest courant
+`7e57eec6…`, gate historique `76e23d40…`). Ruff et `git diff --check` sont verts.
