@@ -596,7 +596,7 @@ def test_le_domaine_applique_les_vraies_frontieres_du_doc_id(doc_id: str, valide
     ("pdf", 2), ("typing", 2), ("fetch", 4), ("dictionary", 2),
 ])
 def test_les_cli_ingestion_refusent_un_doc_id_au_dela_de_la_borne(
-        module_name: str, attendu: int, tmp_path: Path) -> None:
+        module_name: str, attendu: int, tmp_path: Path, monkeypatch: Any) -> None:
     """Les entrées utilisateur partagent le contrat de 64 caractères avant toute I/O ou API."""
     trop_long = "a" * 65
     if module_name == "pdf":
@@ -609,8 +609,12 @@ def test_les_cli_ingestion_refusent_un_doc_id_au_dela_de_la_borne(
         from server.ingest.fetch_source import main
         code = main([trop_long, "--data", str(tmp_path)])
     else:
-        from server.ingest.enrich_dictionary import main
-        code = main(["--doc-id", trop_long, "--data", str(tmp_path)], settings=None)
+        from server.ingest import enrich_dictionary
+        monkeypatch.setattr(
+            enrich_dictionary, "get_settings",
+            lambda: (_ for _ in ()).throw(AssertionError(".env ne doit pas être lu")))
+        code = enrich_dictionary.main(
+            ["--doc-id", trop_long, "--data", str(tmp_path)], settings=None)
     assert code == attendu
 
 

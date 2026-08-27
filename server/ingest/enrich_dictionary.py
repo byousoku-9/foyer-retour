@@ -621,6 +621,13 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                         help="signe le dictionnaire existant (la seule chose qui arme le refus AD-5)")
     args = parser.parse_args(argv)
 
+    # Un argument explicite invalide est refusé avant de charger `.env` et ses secrets. Le défaut,
+    # lui, vient nécessairement des Settings et est validé juste après leur construction.
+    if (args.doc_id is not None
+            and (len(args.doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(args.doc_id))):
+        print(f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu) : "
+              f"{args.doc_id!r}", file=sys.stderr)
+        return 2
     settings = settings or get_settings()
     doc_id = args.doc_id or settings.guide_doc_id
     if len(doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(doc_id):

@@ -57,7 +57,14 @@ def _chemin_relatif_probable(match: re.Match[str]) -> str:
     # lorsqu'elles contiennent plusieurs ``/``.
     avant, apres = match.string[:match.start()], match.string[match.end():]
     if avant.count("`") % 2 and apres.count("`") % 2:
-        return valeur
+        debut = avant.rfind("`") + 1
+        fin_relative = apres.find("`")
+        contenu = match.string[debut:match.end() + fin_relative]
+        # Seul un littéral de regex complet est conservé. Les accents graves ne rendent pas un
+        # emplacement publiable : ``secrets/contrats/run.json`` reste un chemin privé.
+        if (contenu.startswith("/") and contenu.endswith("/")
+                and any(meta in contenu for meta in "^$[]{}+*?")):
+            return valeur
     morceaux = valeur.split("/")
     if all(m.isdigit() for m in morceaux):  # date, fraction ou version numérique
         return valeur
@@ -139,7 +146,7 @@ def raison_publiable(raison: str | None, *, max_chars: int = RAISON_PUBLIABLE_MA
     # Chemin relatif plausible sans préfixe `./` : au moins deux composantes séparées. Les regex
     # usuelles (`^[a-z0-9-]+$`, `/^[a-z]+/`) ne satisfont pas cette forme et restent donc intactes.
     propre = re.sub(
-        r"(?<![\w./])(?:[\w.-]+/)+[\w.-]+(?=$|[\s,;)'\"<>])",
+        r"(?<![\w./])(?:[\w.-]+/)+[\w.-]+(?=$|[\s,;)'\"<>`])",
         _chemin_relatif_probable,
         propre,
     )
@@ -187,10 +194,12 @@ def url_publiable(brut: str | None) -> str | None:
         if parsed.username is not None or parsed.password is not None or "\\" in url:
             continue
         hostname = parsed.hostname.rstrip(".").lower()
-        if hostname == "localhost" or hostname.endswith(".localhost"):
+        if (hostname == "localhost"
+                or hostname.endswith((".localhost", ".local", ".internal", ".home", ".lan"))):
             continue
+        adresse_historique = _ipv4_historique(hostname)
         try:
-            adresse = ipaddress.ip_address(hostname)
+            adresse = adresse_historique or ipaddress.ip_address(hostname)
         except ValueError:
             # Un nom public doit être un nom DNS, pas un alias local à une seule composante. IDNA
             # valide aussi les hôtes Unicode sans les réécrire dans la valeur publiée.
@@ -211,6 +220,43 @@ def url_publiable(brut: str | None) -> str | None:
             continue
         return url
     return None
+
+
+def _ipv4_historique(hostname: str) -> ipaddress.IPv4Address | None:
+    """Notation IPv4 historique que les navigateurs WHATWG normalisent avant navigation.
+
+    ``127.1``, ``127.0.1``, les composantes hexadécimales et octales désignent bien le loopback.
+    Les traiter comme des noms DNS laisserait le serveur publier une URL que le navigateur
+    réinterprète ensuite comme locale.
+    """
+    morceaux = hostname.split(".")
+    if morceaux and morceaux[-1] == "":
+        morceaux.pop()
+    if not morceaux or len(morceaux) > 4:
+        return None
+    nombres: list[int] = []
+    for morceau in morceaux:
+        base = 10
+        chiffres = morceau
+        if morceau.lower().startswith("0x"):
+            base, chiffres = 16, morceau[2:]
+        elif len(morceau) > 1 and morceau.startswith("0"):
+            base, chiffres = 8, morceau[1:]
+        if not chiffres:
+            nombres.append(0)
+            continue
+        try:
+            nombres.append(int(chiffres, base))
+        except ValueError:
+            return None
+    if any(nombre > 255 for nombre in nombres[:-1]):
+        return None
+    dernier_max = 256 ** (5 - len(nombres))
+    if nombres[-1] >= dernier_max:
+        return None
+    valeur = sum(nombre * (256 ** (3 - index)) for index, nombre in enumerate(nombres[:-1]))
+    valeur += nombres[-1]
+    return ipaddress.IPv4Address(valeur)
 
 
 @dataclass
@@ -425,16 +471,36 @@ def _journaliser_dictionnaire(dictionnaire: Dictionnaire) -> None:
 def _rapport_publiable(rapport: Report, *, raison_max_chars: int) -> Report:
     """Projection publique d'un rapport, sans emplacement privé dans ses champs textuels."""
     checks = [Check(
-        name=check.name,
+        name=raison_publiable(check.name, max_chars=raison_max_chars) or "",
         level=check.level,
         detail=raison_publiable(check.detail, max_chars=raison_max_chars) or "",
     ) for check in rapport.checks]
-    stats = {
-        cle: (raison_publiable(valeur, max_chars=raison_max_chars) or ""
-              if isinstance(valeur, str) else valeur)
-        for cle, valeur in rapport.stats.items()
-    }
+    stats = {}
+    for cle, valeur in rapport.stats.items():
+        cle_publique = raison_publiable(cle, max_chars=raison_max_chars) or ""
+        if isinstance(valeur, str):
+            valeur_publique: int | float | str | dict[str, int] = (
+                raison_publiable(valeur, max_chars=raison_max_chars) or "")
+        elif isinstance(valeur, dict):
+            valeur_publique = {
+                raison_publiable(sous_cle, max_chars=raison_max_chars) or "": sous_valeur
+                for sous_cle, sous_valeur in valeur.items()
+            }
+        else:
+            valeur_publique = valeur
+        stats[cle_publique] = valeur_publique
     return Report(doc_id=rapport.doc_id, checks=checks, stats=stats)
+
+
+def _artefact_audit(data_dir: Path, doc_id: str, nom: str) -> Path | None:
+    """Résout un artefact sans jamais suivre un lien hors de ``data_dir``."""
+    racine = data_dir.resolve()
+    chemin = data_dir / doc_id / nom
+    try:
+        resolu = chemin.resolve(strict=True)
+    except OSError:
+        return None
+    return resolu if resolu.is_relative_to(racine) and resolu.is_file() else None
 
 
 def _rapports(data_dir: Path, doc_ids: list[str], *,
@@ -455,8 +521,8 @@ def _rapports(data_dir: Path, doc_ids: list[str], *,
     rapports: dict[str, Report] = {}
     alertes: list[Alerte] = []
     for doc_id in doc_ids:
-        chemin = data_dir / doc_id / RAPPORT
-        if not chemin.is_file():
+        chemin = _artefact_audit(data_dir, doc_id, RAPPORT)
+        if chemin is None:
             continue
         try:
             rapport = Report.model_validate_json(chemin.read_bytes())
@@ -522,8 +588,8 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     """
     urls: dict[str, str] = {}
     for doc_id in doc_ids:
-        chemin = data_dir / doc_id / SOURCE_URL
-        if not chemin.is_file():
+        chemin = _artefact_audit(data_dir, doc_id, SOURCE_URL)
+        if chemin is None:
             continue
         try:
             brut = chemin.read_text(encoding="utf-8")

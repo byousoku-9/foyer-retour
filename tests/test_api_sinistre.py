@@ -363,7 +363,7 @@ def _corpus_sur_disque(racine: Any, *, rapport: str | None, source: str | None,
     (racine / "manifest.json").write_text(_json.dumps({"doc-mini": entree}), encoding="utf-8")
 
 
-def _client_sur(racine: Any) -> Any:
+def _client_sur(racine: Any, *, raison_max_chars: int = 500) -> Any:
     """Une application dont le lifespan charge **ce** `data_dir` (monkeypatché sur `etat.DATA_DIR`)."""
     from contextlib import contextmanager
 
@@ -376,7 +376,9 @@ def _client_sur(racine: Any) -> Any:
         try:
             # `env="dev"` : voir la fixture `prod` — un document sans gate n'est plus servi en
             # production, et ces `data/` minimaux n'en portent pas.
-            with TestClient(create_app(_settings(env="dev", allow_ungated=True))) as c:
+            with TestClient(create_app(_settings(
+                    env="dev", allow_ungated=True,
+                    raison_publiable_max_chars=raison_max_chars))) as c:
                 yield c
         finally:
             etat_module.DATA_DIR = ancien
@@ -452,7 +454,13 @@ def test_une_source_sur_deux_lignes_publie_la_ligne_publiable(tmp_path: Any, fic
     ("GS://prive/cg.pdf", None),
     ("https://localhost/secret.pdf", None),
     ("https://service.localhost/secret.pdf", None),
+    ("https://service.local/secret.pdf", None),
+    ("https://metadata.google.internal/secret", None),
     ("http://127.0.0.1/secret.pdf", None),
+    ("http://127.1/secret.pdf", None),
+    ("http://127.0.1/secret.pdf", None),
+    ("http://0x7f.0.0.1/secret.pdf", None),
+    ("http://0177.0.0.1/secret.pdf", None),
     ("http://10.0.0.8/secret.pdf", None),
     ("http://169.254.169.254/latest/meta-data", None),
     ("http://[::1]/secret.pdf", None),
@@ -642,6 +650,8 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
     "données/privées",
     "données/privées/contrat-éxécuté.pdf",
     "'/srv/données privées/contrat.pdf'",
+    "`secrets/contrats/run.json`",
+    "~/.ssh/id_rsa",
     r"C:\Users\privé\contrat.pdf",
     r"\\serveur\partage\contrat.pdf",
     "data:text/plain;base64,U0VDUkVU",
@@ -714,11 +724,13 @@ def test_un_rapport_publie_masque_les_emplacements_prives_sans_perdre_les_checks
     rapport = json.dumps({
         "doc_id": "doc-mini",
         "checks": [
-            {"name": "source_illisible", "level": "bloquant",
+            {"name": "/srv/private/check.py", "level": "bloquant",
              "detail": "OSError sur /srv/données privées/source.pdf"},
             {"name": "couverture", "level": "info", "detail": "12 pages vérifiées"},
         ],
-        "stats": {"pages": 12, "diagnostic": "cache secrets/rapports/run.json"},
+        "stats": {"pages": 12, "/srv/private/key": 1,
+                  "nested": {"/srv/private/nested": 2},
+                  "diagnostic": "cache secrets/rapports/run.json"},
     }, ensure_ascii=False)
     _corpus_sur_disque(tmp_path, rapport=rapport,
                        source="https://exemple.invalid/cg.pdf", quarantaine=True)
@@ -727,11 +739,56 @@ def test_un_rapport_publie_masque_les_emplacements_prives_sans_perdre_les_checks
         assert publie.status_code == 200
         corps = publie.json()
         assert [(c["name"], c["level"]) for c in corps["checks"]] == [
-            ("source_illisible", "bloquant"), ("couverture", "info")]
+            ("[emplacement masqué]", "bloquant"), ("couverture", "info")]
         assert corps["checks"][1]["detail"] == "12 pages vérifiées"
         assert "[emplacement masqué]" in corps["checks"][0]["detail"]
         assert "[emplacement masqué]" in corps["stats"]["diagnostic"]
+        assert corps["stats"]["[emplacement masqué]"] == 1
+        assert corps["stats"]["nested"] == {"[emplacement masqué]": 2}
         assert str(tmp_path) not in publie.text
+
+
+def test_le_boot_applique_la_borne_configuree_aux_alertes_et_rapports(tmp_path: Any) -> None:
+    max_chars = 20
+    rapport = json.dumps({
+        "doc_id": "doc-mini",
+        "checks": [{"name": "diagnostic", "level": "info", "detail": "x" * 120}],
+        "stats": {},
+    })
+    _corpus_sur_disque(tmp_path, rapport=rapport, source="https://exemple.invalid/cg.pdf")
+    manifest = json.loads((tmp_path / "manifest.json").read_text("utf-8"))
+    manifest["doc-mini"]["source_hash"] = "autre-" + "x" * 100
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with _client_sur(tmp_path, raison_max_chars=max_chars) as client:
+        sante = client.get("/api/v1/sante").json()
+        rapport_public = client.get("/api/v1/documents/doc-mini/report").json()
+    assert sante["thresholds"]["raison_publiable_max_chars"] == max_chars
+    quarantaine = next(a for a in sante["alerts"] if a["alerte"] == "quarantaine")
+    dictionnaire = next(a for a in sante["alerts"] if a["alerte"] == "dictionnaire_non_valide")
+    assert len(quarantaine["detail"]) == max_chars
+    assert dictionnaire["detail"].endswith("…")
+    assert len(rapport_public["checks"][0]["detail"]) == max_chars
+
+
+def test_un_lien_symbolique_daudit_ne_lit_jamais_hors_data(tmp_path: Any) -> None:
+    externe = tmp_path / "externe"
+    data = tmp_path / "data"
+    externe.mkdir()
+    data.mkdir()
+    _corpus_sur_disque(
+        externe, rapport=json.dumps({"doc_id": "doc-mini", "checks": [],
+                                     "stats": {"secret": "MARQUEUR_EXTERNE"}}),
+        source="https://externe.invalid/secret.pdf")
+    (data / "manifest.json").write_bytes((externe / "manifest.json").read_bytes())
+    (data / "doc-mini").symlink_to(externe / "doc-mini", target_is_directory=True)
+    with _client_sur(data) as client:
+        sante = client.get("/api/v1/sante")
+        documents = client.get("/api/v1/documents")
+        rapport = client.get("/api/v1/documents/doc-mini/report")
+    assert "MARQUEUR_EXTERNE" not in sante.text + documents.text + rapport.text
+    assert documents.json()[0]["status"] == "quarantaine"
+    assert documents.json()[0]["source_url"] is None
+    assert rapport.status_code == 400
 
 
 def test_rapport_absent_est_distingue_sur_la_liste(tmp_path: Any) -> None:

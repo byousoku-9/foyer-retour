@@ -284,7 +284,7 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
         # ``str(OSError)`` peut contenir le chemin absolu de ``data/`` et ne doit jamais sortir.
         # ``doc_id`` vient de la clé brute du manifest. ``%r`` conserve le détail interne tout en
         # échappant les retours à la ligne, donc une clé hostile ne forge pas une ligne de log.
-        LOG.warning("document.json illisible pour %r : %s", doc_id, exc)
+        LOG.warning("document.json illisible pour %r : %r", doc_id, exc)
         return None, f"document.json illisible : {type(exc).__name__}", []
     if doc.doc_id != doc_id:
         return None, f"doc_id {doc.doc_id!r} différent de la clé du manifest", []
@@ -333,6 +333,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             LOG.warning("manifest illisible %s : %s", manifest_path, exc)
         return Corpus(quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:500]})
     corpus = Corpus()
+    racine_resolue = data_dir.resolve()
     for doc_id in sorted(raw):
         try:
             entry = ManifestEntry.model_validate(raw[doc_id])
@@ -340,14 +341,21 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             corpus.quarantine[doc_id] = f"entrée de manifest invalide : {_first_error(exc)}"
             continue
         corpus.manifest[doc_id] = entry
-        doc, reason, alerts = _load_one(data_dir / doc_id, doc_id, entry, allow_ungated=allow_ungated, current=current)
+        doc_dir = data_dir / doc_id
+        if not doc_dir.resolve().is_relative_to(racine_resolue):
+            # La clé non publiable est annoncée anonymement par l'API ; la raison ne doit donc pas
+            # révéler si elle était absolue, traversante ou un lien symbolique.
+            corpus.quarantine[doc_id] = "quarantaine (manifest)"
+            continue
+        doc, reason, alerts = _load_one(
+            doc_dir, doc_id, entry, allow_ungated=allow_ungated, current=current)
         if doc is None:
             corpus.quarantine[doc_id] = reason
             continue
         try:
             summary = (data_dir / doc_id / "summary.md").read_text("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            LOG.warning("summary.md illisible pour %r : %s", doc_id, exc)
+            LOG.warning("summary.md illisible pour %r : %r", doc_id, exc)
             corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}"
             continue
         corpus.documents[doc_id] = doc
