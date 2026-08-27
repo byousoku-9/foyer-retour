@@ -41,7 +41,52 @@ def test_nominal_writes_verified_pdf(data: Path) -> None:
     out = f.fetch("doc-a", data, client=_client({URL: httpx.Response(200, content=PDF)}, seen))
     assert out == data / "doc-a" / "source.pdf" and out.read_bytes() == PDF
     assert seen[0].headers["user-agent"].startswith("Mozilla/5.0")
+    assert seen[0].headers["accept"].startswith("application/pdf")
+    assert seen[0].headers["accept-encoding"] == "identity"
     assert not list(data.glob("doc-a/*.tmp"))
+
+
+def test_public_406_is_renegotiated_once_as_a_complete_range(data: Path) -> None:
+    seen: list[httpx.Request] = []
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        seen.append(request)
+        calls += 1
+        if calls == 1:
+            return httpx.Response(406)
+        return httpx.Response(206, content=PDF,
+                              headers={"Content-Range": f"bytes 0-{len(PDF) - 1}/{len(PDF)}"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert f.fetch("doc-a", data, client=client).read_bytes() == PDF
+    assert [str(request.url) for request in seen] == [URL, URL]
+    assert "range" not in seen[0].headers
+    assert seen[1].headers["range"] == "bytes=0-"
+    assert seen[1].headers["referer"] == "https://example.invalid/"
+    assert seen[1].headers["sec-fetch-dest"] == "document"
+
+
+def test_public_406_then_partial_bytes_fails_the_hash_without_bucket_fallback(data: Path) -> None:
+    seen: list[httpx.Request] = []
+    # Le MockTransport route les deux requêtes par URL : la seconde réponse est remplacée ici par
+    # une plage valide au niveau HTTP mais incomplète au regard de l'empreinte source.
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        seen.append(request)
+        calls += 1
+        return (httpx.Response(406) if calls == 1
+                else httpx.Response(206, content=PDF[:-1]))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(f.FetchError) as exc:
+        f.fetch("doc-a", data, client=client)
+    assert exc.value.code == f.EXIT_HASH
+    assert [str(request.url) for request in seen] == [URL, URL]
+    assert not (data / "doc-a" / "source.pdf").exists()
 
 
 def test_hash_mismatch_writes_nothing_and_no_fallback(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:

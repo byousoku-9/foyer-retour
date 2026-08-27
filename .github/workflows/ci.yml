@@ -59,14 +59,12 @@ jobs:
       # disparaissait de la CI qui garde la production. Le télécharger ici est donc voulu, et c'est
       # la seule étape de ce job qui sorte sur le réseau : `pytest` lui-même n'y touche pas.
       #
-      # **Ce que cette étape coûte, et qu'il faut savoir avant de la lire comme gratuite** : la CI
-      # est ici *plus fragile* que le build. `fetch_source` se replie sur `gs://foyer-retour-sources/`
-      # avec le jeton du serveur de métadonnées — que Cloud Build a, et qu'un runner GitHub n'a pas
-      # (donner une identité GCP à `ci.yml` la rendrait déployable, ce qu'AD-12 interdit et que
-      # `test_la_ci_ne_deploie_rien` tient). Une URL publique morte rend donc **toutes** les pull
-      # requests rouges alors que le déploiement, lui, passerait par le repli. C'est un prix accepté
-      # en connaissance : le jour où il se paie, la sortie de secours est de retirer cette étape,
-      # pas de donner un jeton à la CI (revue 1.11).
+      # Le runner ne reçoit volontairement aucune identité GCP (`test_la_ci_ne_deploie_rien`) : le
+      # repli `gs://foyer-retour-sources/` reste donc réservé au build authentifié. Une source
+      # publique derrière un WAF peut répondre 406 à la première négociation depuis une IP de CI ;
+      # `fetch_source` rejoue alors une seule fois la même URL comme téléchargement navigateur borné
+      # (`Range: bytes=0-`). Le SHA committé reste l'autorité : octets partiels ou source changée
+      # font échouer la CI sans écriture et sans être masqués par le repli privé.
       - name: Télécharger les sources non committées (empreinte vérifiée)
         run: uv run python -m server.ingest.fetch_source --all
 

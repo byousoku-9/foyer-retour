@@ -20,6 +20,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -28,8 +29,14 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 
 SOURCES_BUCKET = "foyer-retour-sources"
 METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
-USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
-              "Chrome/124.0 Safari/537.36")
+USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/124.0.0.0 Safari/537.36")
+PUBLIC_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
+    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    "Accept-Encoding": "identity",
+}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GS_URL_RE = re.compile(r"^gs://([a-z0-9][a-z0-9._-]{1,221}[a-z0-9])/(.+)$")
 
@@ -77,11 +84,37 @@ def _metadata_token(client: httpx.Client) -> str | None:
     return None
 
 
-def _download(client: httpx.Client, url: str, headers: dict[str, str]) -> bytes:
+def _download(client: httpx.Client, url: str, headers: dict[str, str], *, partial_ok: bool = False) -> bytes:
     r = client.get(url, headers=headers, follow_redirects=True)
-    if r.status_code != 200:
+    if r.status_code != 200 and not (partial_ok and r.status_code == 206):
         raise httpx.HTTPStatusError(f"HTTP {r.status_code}", request=r.request, response=r)
     return r.content
+
+
+def _download_public(client: httpx.Client, url: str) -> bytes:
+    """Télécharge une URL publique, avec une seule renégociation bornée sur HTTP 406.
+
+    Certains frontaux WAF/CDN refusent sur les IP de CI un client HTTP pourtant muni d'un
+    User-Agent. Un 406 est précisément un refus de négociation : on rejoue alors la même URL comme
+    navigation PDF du même site, avec `Range: bytes=0-`. Aucun autre statut n'est rejoué. Un 206 est
+    admis uniquement sur cette voie; le SHA-256 de l'ensemble reste l'autorité plus bas, donc une
+    plage tronquée ou une source changée échoue sans écriture et sans repli silencieux.
+    """
+    try:
+        return _download(client, url, dict(PUBLIC_HEADERS))
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 406:
+            raise
+    parsed = urlsplit(url)
+    headers = dict(PUBLIC_HEADERS) | {
+        "Referer": f"{parsed.scheme}://{parsed.netloc}/",
+        "Range": "bytes=0-",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    return _download(client, url, headers, partial_ok=True)
 
 
 def fetch(doc_id: str, data_dir: Path | str = "data", *, client: httpx.Client | None = None) -> Path:
@@ -97,13 +130,15 @@ def fetch(doc_id: str, data_dir: Path | str = "data", *, client: httpx.Client | 
     client = client or httpx.Client(timeout=get_settings().fetch_timeout_s)
     try:
         try:
-            headers = {"User-Agent": USER_AGENT}
             if url.startswith("gs://"):
                 url = gs_to_https(url)
+                headers = {"User-Agent": USER_AGENT}
                 token = _metadata_token(client)
                 if token:
                     headers["Authorization"] = f"Bearer {token}"
-            content = _download(client, url, headers)
+                content = _download(client, url, headers)
+            else:
+                content = _download_public(client, url)
             origin = url
         except httpx.HTTPError as exc:
             print(f"{doc_id} : source injoignable ({type(exc).__name__}: {exc}) ; repli gs://{SOURCES_BUCKET}",

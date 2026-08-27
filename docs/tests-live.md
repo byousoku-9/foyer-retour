@@ -3355,3 +3355,20 @@ additionne cinq cas. Les cinq assertions provisoires qui attendaient encore Balo
 ont été alignées sur cet état final. Aucun autre appel live, gate, fixture LLM ou Batch n'a été lancé
 pendant cette mise à jour post-gate. La suite finale clé neutralisée rend **2470 passed**; Ruff et
 `git diff --check` sont verts.
+
+### Follow-up CI — source publique derrière WAF
+
+La CI `33037389749` s'est arrêtée avant les tests : l'URL Baloise officielle répondait HTTP 406
+depuis le runner GitHub, puis le bucket privé répondait 403 faute d'identité GCP — comportement
+attendu pour une CI qui ne doit pas pouvoir déployer. AXA avait été téléchargé et vérifié normalement.
+
+Le téléchargeur ne contient aucune branche Baloise. Pour toute URL publique, il envoie une
+négociation PDF explicite; sur le seul statut 406, il rejoue exactement une fois la même URL avec
+les en-têtes d'une navigation documentaire et `Range: bytes=0-`. Une réponse 206 n'est admise que
+sur cette voie et passe ensuite par le même SHA-256 committé. Le test de régression prouve qu'une
+plage partielle sort en erreur de hash, n'écrit rien et ne bascule pas vers le bucket pour masquer
+la divergence.
+
+La sonde réelle hors artefact a relu **411 134 octets** depuis l'URL officielle et confirmé le SHA
+`2c365b0e…`. La suite complète clé neutralisée rend **2472 passed**; Ruff et `git diff --check` sont
+verts. Aucun PDF, appel Anthropic, gate ou fixture n'a été modifié par cette vérification.
