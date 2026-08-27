@@ -12,7 +12,7 @@ Les six contrôles EN/DE/PT pointent vers les fixtures de `tests/test_langues_li
 
 ## Sinistre
 
-Les 16 cas couvrent AXA et Baloise. Les cas `full` nomment les robustesses absurde, multiple, hors habitation, vide, contradictoire et clairement couvert. Les témoins complémentaires couvrent la perte d'exploitation trois semaines d'un indépendant à domicile, la vitre d'insert avec fumée sans incendie, le téléphone volé par effraction pendant des vacances, l'exclusion animale attendue `non_couvert`, une tuile sur la voiture d'un invité et l'acte volontaire d'un adolescent. Ils mesurent des écarts ; ils ne déclarent pas le produit corrigé et ne transforment aucun verdict en avis juridique. Le cas clairement couvert n'accepte que `couvert` ; les cas réellement indécidables conservent leurs bornes prudentes.
+Les 16 cas couvrent AXA et Baloise. Les cas `full` nomment les robustesses absurde, multiple, hors habitation, vide, contradictoire et clairement couvert. Les témoins complémentaires couvrent la perte d'exploitation trois semaines d'un indépendant à domicile, l'ordinateur professionnel volé pendant un séjour privé, le téléphone volé par effraction pendant des vacances, l'exclusion animale attendue `non_couvert`, une tuile sur la voiture d'un invité et l'acte volontaire d'un adolescent. Ils mesurent des écarts ; ils ne déclarent pas le produit corrigé et ne transforment aucun verdict en avis juridique. Le cas clairement couvert n'accepte que `couvert` et l'exclusion intentionnelle de l'adolescent exige `non_couvert` ; les cas réellement indécidables conservent leurs bornes prudentes.
 
 ## Parsing
 

@@ -105,7 +105,7 @@ FAMILLES_FULL: dict[str, frozenset[str]] = {
     }),
     "sinistre": frozenset({
         "absurde", "multiple", "hors_habitation", "vide", "contradictoire",
-        "clairement_couvert", "chaleur_sans_incendie",
+        "clairement_couvert", "sejour_temporaire",
         "telephone_vacances", "exclusion_animale",
         "perte_exploitation", "voies_garantie", "acte_volontaire",
     }),
@@ -662,7 +662,7 @@ def _lire_cas(fichier: Path, suite_du_dossier: str) -> Cas:
 
 
 def refuser_ce_qui_nest_pas_livre(cas: list[Cas], profil: str) -> None:
-    """Les profils inconnus et suites différées sont refusés, jamais approximés.
+    """Les profils inconnus sont refusés, jamais approximés.
 
     Le profil ``full`` inclut explicitement les cas ``vertical`` et ``full`` ; le profil
     ``vertical`` ne garde que les premiers. Le filtre est appliqué dans ``main`` après que tous les

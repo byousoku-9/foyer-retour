@@ -7,7 +7,7 @@ scenario: "multilingue — arrivée en anglais"
 famille: multilingue
 expected: {found: true, fiche_ids: ["lux-guide:farrivee"], refusal: false}
 mode_attendu: bonne_reponse
-truth: &lang_truth
+truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false

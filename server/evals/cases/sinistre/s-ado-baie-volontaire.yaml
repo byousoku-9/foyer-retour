@@ -11,11 +11,11 @@ faits:
 expected:
   found: true
   block_ids: ["axa-lu-optihome-2017:p65:5", "axa-lu-optihome-2017:p22:5"]
-  verdict: [sous_conditions, ne_tranche_pas]
+  verdict: [non_couvert]
   refusal: false
 mode_attendu: bonne_reponse
 truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false
-  note: "Le repro live 3.2 n'affichait que la condition RC p65:5 ; la lecture locale ajoute l'exclusion de faute intentionnelle p22:5 comme facette décisive. La boucle a préparé cette lecture et la contresignature humaine reste due."
+  note: "Le repro live 3.2 n'affichait que la condition RC p65:5 ; la lecture locale ajoute l'exclusion de faute intentionnelle p22:5 comme facette décisive et soutient non_couvert. La boucle a préparé cette lecture et la contresignature humaine reste due."

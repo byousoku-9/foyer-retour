@@ -264,7 +264,7 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
     }
     assert {c.famille for c in sinistre if c.profile == "full"} == {
         "absurde", "multiple", "hors_habitation", "vide", "contradictoire",
-        "clairement_couvert", "chaleur_sans_incendie",
+        "clairement_couvert", "sejour_temporaire",
         "telephone_vacances", "exclusion_animale", "perte_exploitation",
         "voies_garantie", "acte_volontaire",
     }
@@ -279,7 +279,8 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
     assert {c.doc_id for c in baloise} == {"baloise-lu-home-2-2024"}
     for c in cas:
         assert c.truth.validated_by_expert is False
-        assert c.truth.countersigned_by is None
+        signature = c.truth.countersigned_by
+        assert signature is None or (isinstance(signature, str) and bool(signature.strip()))
         assert c.truth.note.strip()
         assert c.mode_attendu in runner.LABELS
     references = runner.charger_references(cas, runner.REFERENCE_DIR)
@@ -337,12 +338,37 @@ def test_les_cinq_repros_differes_sont_materialises_mot_pour_mot() -> None:
     assert cas["s-perte-exploitation-domicile"].expected.clarification is True
     assert cas["s-ado-baie-volontaire"].expected.block_ids == [
         "axa-lu-optihome-2017:p65:5", "axa-lu-optihome-2017:p22:5"]
+    assert cas["s-sejour-ordinateur-pro"].question == (
+        "Mon ordinateur professionnel a été volé dans ma chambre d’hôtel : mon contrat habitation "
+        "le considère comme contenu ?")
 
 
 def test_le_cas_clairement_couvert_naccepte_pas_un_verdict_conditionnel() -> None:
     cas = next(c for c in runner.charger_cas(runner.CASES_DIR)
                if c.id == "b-clairement-couvert-degat-eau")
     assert cas.expected.verdict == ["couvert"]
+
+
+def test_lacte_volontaire_refuse_lexquive_ne_tranche_pas() -> None:
+    cas = next(c for c in runner.charger_cas(runner.CASES_DIR)
+               if c.id == "s-ado-baie-volontaire")
+    assert cas.expected.verdict == ["non_couvert"]
+    corpus = load_corpus(runner.DATA_DIR, allow_ungated=True)
+    index = Index(corpus)
+    claims = [
+        _claim(_citation(
+            index, "axa-lu-optihome-2017:p65:5",
+            "Les présentes conditions spéciales"), "condition-rc"),
+        _claim(_citation(
+            index, "axa-lu-optihome-2017:p22:5",
+            "les dommages occasionnés par la faute intentionnelle"), "exclusion-intention"),
+    ]
+    answer = _reponse(
+        claims, verdict=Verdict(value="ne_tranche_pas", reason="esquive"))
+    label, ecarts = runner.juger(
+        cas, answer, doc_id="axa-lu-optihome-2017", index=index)
+    assert label == "faux_refus"
+    assert any("verdict ne_tranche_pas" in ecart for ecart in ecarts)
 
 
 def test_latest_ouvre_sur_la_reserve_non_experte_sans_inventer_de_run() -> None:
@@ -1279,8 +1305,14 @@ def test_le_gate_dit_si_la_relecture_est_contresignee(tmp_path: Path) -> None:
                                   cases_dir=melange, evals_ok=True)
     assert gate.countersigned is False
 
-    # Et la contresignature entre dans `cases_hash` : la poser périme le gate, qui doit être relancé.
-    assert runner.charger_cas(du, suites=("guide",))[0].truth.countersigned_by is None
+    # Le contrat accepte les deux états réels : signature encore due, ou nom/date non blanc.
+    signatures = [
+        runner.charger_cas(du, suites=("guide",))[0].truth.countersigned_by,
+        runner.charger_cas(fait, suites=("guide",))[0].truth.countersigned_by,
+    ]
+    assert any(signature is None for signature in signatures)
+    assert any(isinstance(signature, str) and bool(signature.strip())
+               for signature in signatures)
 
 
 def test_une_contresignature_doit_nommer_quelquun(tmp_path: Path) -> None:

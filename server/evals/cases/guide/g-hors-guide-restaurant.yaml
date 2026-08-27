@@ -7,7 +7,7 @@ scenario: "hors guide — recommandation locale temps réel"
 famille: hors_guide
 expected: {found: false, refusal: true}
 mode_attendu: bonne_reponse
-truth: &hors_truth
+truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false

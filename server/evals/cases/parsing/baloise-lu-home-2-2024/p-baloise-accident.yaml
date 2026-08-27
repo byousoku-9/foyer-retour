@@ -10,7 +10,7 @@ expected:
   text_norm: >-
     evenement soudain et imprevisible qui entraine l'alteration d'un bien et ayant pour resultat une perte de valeur ou une perte du bien.
 mode_attendu: bonne_reponse
-truth: &baloise_truth
+truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false

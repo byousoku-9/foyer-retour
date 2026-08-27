@@ -7,7 +7,7 @@ scenario: "météo — question directe hors corpus"
 famille: meteo
 expected: {found: false, refusal: true}
 mode_attendu: bonne_reponse
-truth: &meteo_truth
+truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false

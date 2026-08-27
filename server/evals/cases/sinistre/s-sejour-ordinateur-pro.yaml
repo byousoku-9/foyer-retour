@@ -1,0 +1,17 @@
+id: s-sejour-ordinateur-pro
+suite: sinistre
+profile: full
+question: "Mon ordinateur professionnel a été volé dans ma chambre d’hôtel : mon contrat habitation le considère comme contenu ?"
+lang: fr
+scenario: "sinistre nommé — séjour temporaire et bien professionnel"
+famille: sejour_temporaire
+faits:
+  lieu: "chambre d'hôtel pendant un séjour privé"
+  description: "Mon ordinateur professionnel a été volé dans ma chambre d'hôtel."
+expected: {found: true, verdict: [sous_conditions, ne_tranche_pas], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°15 ; caractère professionnel à confirmer honnêtement."

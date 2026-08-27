@@ -10,7 +10,7 @@ expected:
   text_norm: >-
     ensemble des biens repris ci-dessous qui se trouvent dans le batiment designe, y compris ses cours et jardins, et qui appartiennent ou sont confies a un assure. il comprend les rubriques suivantes :
 mode_attendu: bonne_reponse
-truth: &axa_truth
+truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false
