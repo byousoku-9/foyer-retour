@@ -101,6 +101,11 @@ def test_cli_returns_distinct_status_for_missing_binding_and_invalid_json(monkey
 
     monkeypatch.setattr(gcp_iam_security.sys, "stdin", io.StringIO(json.dumps({"bindings": []})))
     assert gcp_iam_security.main(["has-binding", "roles/iam.workloadIdentityUser", WIF]) == 1
+    # GCP omet `bindings` sur une policy valide et vide d'un compte fraîchement créé.
+    monkeypatch.setattr(gcp_iam_security.sys, "stdin", io.StringIO('{"etag": "ACAB"}'))
+    assert gcp_iam_security.main(["has-binding", "roles/iam.workloadIdentityUser", WIF]) == 1
+    monkeypatch.setattr(gcp_iam_security.sys, "stdin", io.StringIO("{}"))
+    assert gcp_iam_security.main(["has-binding", "roles/iam.workloadIdentityUser", WIF]) == 2
     monkeypatch.setattr(gcp_iam_security.sys, "stdin", io.StringIO("not-json"))
     assert gcp_iam_security.main(["has-binding", "roles/iam.workloadIdentityUser", WIF]) == 2
     monkeypatch.setattr(gcp_iam_security.sys, "stdin", io.StringIO('{"bindings": {}}'))

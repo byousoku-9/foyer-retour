@@ -66,7 +66,13 @@ def service_account_is_active(state: dict[str, Any]) -> bool:
 
 
 def _policy_understood(policy: dict[str, Any]) -> bool:
-    bindings = policy.get("bindings")
+    # `gcloud ... get-iam-policy --format=json` omet entièrement `bindings` pour une policy
+    # valide mais vide et ne rend alors que son `etag`. C'est précisément l'état initial d'un
+    # compte de service fraîchement créé : il doit signifier « binding absent » (status 1), pas
+    # « JSON incompréhensible » (status 2). Un objet arbitraire vide reste en revanche refusé.
+    if "bindings" not in policy:
+        return isinstance(policy.get("etag"), str)
+    bindings = policy["bindings"]
     return isinstance(bindings, list) and all(
         isinstance(binding, dict) and isinstance(binding.get("members", []), list)
         for binding in bindings
