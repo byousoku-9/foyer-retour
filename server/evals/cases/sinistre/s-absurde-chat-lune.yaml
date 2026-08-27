@@ -1,0 +1,15 @@
+id: s-absurde-chat-lune
+suite: sinistre
+profile: full
+question: "Quelles clauses faut-il regarder ?"
+lang: fr
+scenario: "robustesse — entrée absurde"
+famille: absurde
+faits: {description: "Mon chat a mangé la Lune."}
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°8 ; aucun verdict ni clause ne doit être forcé."

@@ -2,7 +2,7 @@
 
 Ce que ce module fait, et rien de plus :
 
-1. **lit et valide strictement** les cas YAML de `server/evals/cases/{guide,sinistre}/` au schéma
+1. **lit et valide strictement** les cas YAML de `server/evals/cases/{guide,sinistre,parsing}/` au schéma
    partagé d'AD-14 (`{id, suite, profile, question, lang, historique?, profil?|faits?, scenario?,
    expected, truth, mode_attendu}`) — un champ inconnu, un `truth.source` hors des trois valeurs, un
    `id` qui ne correspond pas au nom du fichier : refus **avant** tout appel facturé ;
@@ -32,9 +32,8 @@ consigne et le document part en `gate_echoue` au prochain démarrage, ce que le 
 faire. Un incident réseau ne dit rien du système mesuré, et le laisser retirer un document du service
 serait une panne inventée.
 
-Ce qui n'est **pas** ici et qui est refusé plutôt que simulé : la suite `parsing` (story 4.2), les
-campagnes élargies, les baselines et le holdout, `docs/evals/latest.md` et
-`GET /api/v1/evals/latest` (stories 4.2 à 4.5).
+Ce qui n'est **pas** ici et qui est refusé plutôt que simulé : le holdout, les baselines,
+la génération de résultats live courants et `GET /api/v1/evals/latest` (stories 4.3 à 4.5).
 """
 
 from __future__ import annotations
@@ -59,14 +58,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 from server.app.config import REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
-from server.app.corpus.text import normalize_version
+from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
@@ -84,6 +83,7 @@ from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
+REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 DATA_DIR = REPO_ROOT / "data"
 MANIFEST = "manifest.json"
 
@@ -95,16 +95,26 @@ LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_
                            "faux_refus", "citation_introuvable", "parsing")
 
 Suite = Literal["guide", "sinistre", "parsing"]
-SUITES_LIVREES: tuple[str, ...] = ("guide", "sinistre")
-# Ce que la story ne livre pas est **refusé**, jamais simulé, et le message dit où c'est traité.
-SUITES_DIFFEREES: dict[str, str] = {"parsing": "4.2"}
+SUITES_LIVREES: tuple[str, ...] = ("guide", "sinistre", "parsing")
 
 GateProfile = Literal["vertical", "full"]
 PROFILS_LIVRES: tuple[str, ...] = ("vertical", "full")
 
+FAMILLES_FULL: dict[str, frozenset[str]] = {
+    "guide": frozenset({
+        "parcours", "meteo", "suivi", "multilingue", "trois_fiches", "hors_guide",
+    }),
+    "sinistre": frozenset({
+        "absurde", "multiple", "hors_habitation", "vide", "contradictoire",
+        "clairement_couvert", "sejour_temporaire", "chaleur_sans_incendie",
+        "telephone_vacances", "exclusion_animale",
+    }),
+}
+
 VARIANTES_PAR_SUITE: dict[str, tuple[str, ...]] = {
     "guide": tuple(sorted(VARIANTES_GUIDE)),
     "sinistre": tuple(sorted(pipeline_sinistre.VARIANTES)),
+    "parsing": ("local",),
 }
 VARIANTES_LIVREES: tuple[str, ...] = tuple(sorted({
     variante for variantes in VARIANTES_PAR_SUITE.values() for variante in variantes
@@ -191,16 +201,20 @@ class Attendu(BaseModel):
     # Le domaine lie déjà les deux (`Answer._found_coherence`) ; le dire séparément garde le cas
     # lisible par un humain et rend l'attente explicite si le domaine changeait.
     refusal: bool | None = None
-    # Suite `parsing` seulement (AD-14 : « compare le texte de blocs clés à une lecture visuelle ») —
-    # la suite est refusée par ce runner (story 4.2), le champ n'est ici que pour que le schéma reste
-    # celui de la définition partagée, et non une variante locale.
+    # Une clarification est un non-résultat qui demande une précision, pas un refus documenté.
+    clarification: bool | None = None
+    # Suite `parsing` seulement (AD-14 : « compare le texte de blocs clés à une lecture visuelle »).
     text_norm: str | None = None
 
     @model_validator(mode="after")
     def _identifiants_uniques(self) -> Attendu:
         for champ, valeurs in (("block_ids", self.block_ids), ("fiche_ids", self.fiche_ids)):
+            if any(valeur != valeur.strip() or not valeur.strip() for valeur in valeurs):
+                raise ValueError(f"expected.{champ} exige des identifiants non blancs et trimés")
             if len(valeurs) != len(set(valeurs)):
                 raise ValueError(f"expected.{champ} ne peut pas contenir deux fois le même identifiant")
+        if self.refusal is True and self.clarification is True:
+            raise ValueError("expected.refusal et expected.clarification ne peuvent pas être vrais ensemble")
         return self
 
 
@@ -255,11 +269,15 @@ class Cas(BaseModel):
     profil: Profil | None = None
     faits: Faits | None = None
     scenario: str = ""
+    famille: str = ""
     expected: Attendu
     truth: Verite
     mode_attendu: Label
     _doc_id: str | None = PrivateAttr(default=None)
     _case_path: Path | None = PrivateAttr(default=None)
+    _case_bytes: bytes | None = PrivateAttr(default=None)
+    _case_resolved_path: Path | None = PrivateAttr(default=None)
+    _case_directory_entries: tuple[str, ...] | None = PrivateAttr(default=None)
 
     @property
     def doc_id(self) -> str | None:
@@ -276,6 +294,18 @@ class Cas(BaseModel):
 
     @model_validator(mode="after")
     def _coherence(self) -> Cas:
+        if self.question != self.question.strip():
+            raise ValueError("question doit être non vide et sans espaces de bord")
+        if self.lang is not None and (not self.lang.strip() or self.lang != self.lang.strip()):
+            raise ValueError("lang doit être non vide et trimée")
+        if self.profile == "full" and self.truth.source not in {"lecture_humaine", "claude"}:
+            raise ValueError("un cas full de la story 4.2 exige truth.source=lecture_humaine ou claude")
+        if self.profile == "full" and self.suite in FAMILLES_FULL:
+            if not self.scenario.strip() or self.scenario != self.scenario.strip():
+                raise ValueError("un cas full guide/sinistre exige un scenario non vide et trimé")
+            if self.famille != self.famille.strip() or self.famille not in FAMILLES_FULL[self.suite]:
+                attendues = ", ".join(sorted(FAMILLES_FULL[self.suite]))
+                raise ValueError(f"famille full {self.suite} inconnue ou non trimée (attendu : {attendues})")
         if self.suite == "guide" and self.faits is not None:
             raise ValueError("un cas de la suite guide ne porte pas de `faits` (le guide n'a pas de sinistre)")
         if self.suite == "sinistre":
@@ -284,9 +314,28 @@ class Cas(BaseModel):
             if self.profil is not None or self.historique:
                 raise ValueError("le pipeline sinistre ne reçoit ni `profil` ni `historique` : "
                                  "les déclarer ferait croire qu'ils sont pris en compte")
-        if self.text_norm_declare and self.suite != "parsing":
+        if self.suite == "parsing":
+            if self.profile != "full":
+                raise ValueError("un cas parsing appartient au profile `full`")
+            if not self.famille.strip() or self.famille != self.famille.strip():
+                raise ValueError("un cas parsing exige une `famille` documentaire")
+            if self.profil is not None or self.faits is not None or self.historique:
+                raise ValueError("le parsing local ne reçoit ni profil, ni faits, ni historique")
+            if self.expected.text_norm is None or not self.expected.text_norm.strip():
+                raise ValueError("un cas parsing exige expected.text_norm")
+            if normalize(self.expected.text_norm) != self.expected.text_norm:
+                raise ValueError("expected.text_norm doit déjà être normalisé par normalize()")
+            if len(self.expected.block_ids) != 1:
+                raise ValueError("un cas parsing référence exactement un expected.block_ids")
+            if not self.expected.found or self.expected.fiche_ids or self.expected.verdict \
+                    or self.expected.refusal is not None or self.expected.clarification is not None \
+                    or self.expected.complete is not None:
+                raise ValueError("un cas parsing ne porte que found=true, un block_id et text_norm")
+            if self.mode_attendu != "bonne_reponse":
+                raise ValueError("la transcription de référence attend mode_attendu=bonne_reponse")
+        elif self.text_norm_declare:
             # Toutes les autres attentes produisent un écart quand elles ne sont pas tenues ; celle-ci
-            # n'est lue par `juger()` que dans la suite `parsing`, qui n'est pas livrée (story 4.2).
+            # n'est lue que par le chemin local de la suite `parsing`.
             # L'accepter ailleurs laissait un cas passer au vert sur une attente que personne ne
             # vérifie — un golden set qui dit mesurer ce qu'il ne mesure pas.
             raise ValueError("expected.text_norm n'a de sens que dans la suite `parsing` "
@@ -299,6 +348,195 @@ class Cas(BaseModel):
         return self
 
 
+class ReferenceUtilite(BaseModel):
+    """Grille manuelle stable des trois critères d'utilité d'un cas guide."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1)
+    ordre_juste: list[str] = Field(min_length=1)
+    documents_cites: list[str] = Field(min_length=1)
+    interlocuteur: str = Field(min_length=1)
+    provenance: str = Field(min_length=1)
+    countersigned_by: None = None
+
+    @field_validator("case_id", "interlocuteur", "provenance")
+    @classmethod
+    def _chaine_non_blanche(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("la chaîne ne peut pas être blanche")
+        return valeur
+
+    @field_validator("ordre_juste", "documents_cites")
+    @classmethod
+    def _items_non_blancs(cls, valeurs: list[str]) -> list[str]:
+        if any(not valeur.strip() for valeur in valeurs):
+            raise ValueError("aucun item ne peut être blanc")
+        return valeurs
+
+
+class ControleRetraduction(BaseModel):
+    """Contrôle versionné d'une réponse multilingue déjà mesurée, sans nouveau rejeu."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1)
+    langue: Literal["en", "de", "pt"]
+    fixture: str = Field(min_length=1)
+    test_id: str = Field(min_length=1)
+    journal: str = Field(min_length=1)
+    journal_section: str = Field(min_length=1)
+    resultat: Literal["fidele"]
+    ecarts: list[str] = Field(default_factory=list)
+    reserve_signature: str = Field(min_length=1)
+    countersigned_by: None = None
+
+    @field_validator("case_id", "fixture", "test_id", "journal", "journal_section", "reserve_signature")
+    @classmethod
+    def _chaine_non_blanche(cls, valeur: str) -> str:
+        if not valeur.strip():
+            raise ValueError("la chaîne ne peut pas être blanche")
+        return valeur
+
+    @field_validator("ecarts")
+    @classmethod
+    def _ecarts_non_blancs(cls, valeurs: list[str]) -> list[str]:
+        if any(not valeur.strip() for valeur in valeurs):
+            raise ValueError("un écart déclaré ne peut pas être blanc")
+        return valeurs
+
+
+class FichierUtilite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["utilite_guide"]
+    version: Literal[1]
+    references: list[ReferenceUtilite] = Field(min_length=1)
+
+
+class FichierRetraduction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["retraductions"]
+    version: Literal[1]
+    references: list[ControleRetraduction] = Field(min_length=1)
+
+
+@dataclass(frozen=True)
+class ReferencesSnapshot:
+    digest: str
+    root: Path | None = None
+    contents: dict[Path, bytes] = field(default_factory=dict)
+    entries: tuple[str, ...] = ()
+
+    @property
+    def files(self) -> tuple[Path, ...]:
+        return tuple(sorted(self.contents))
+
+
+def charger_references(cas: list[Cas], reference_dir: Path) -> ReferencesSnapshot:
+    """Valide tous les compagnons et les relie aux cas, sans tolérer une référence orpheline."""
+    guides_a_documenter = [c for c in cas if c.suite == "guide" and c.scenario.strip()]
+    if not reference_dir.exists():
+        if guides_a_documenter:
+            raise RefusDeTourner(f"{reference_dir} : dossier de références absent")
+        return ReferencesSnapshot(empreinte_canonique([]))
+    if not reference_dir.is_dir():
+        raise RefusDeTourner(f"{reference_dir} : un dossier de références est attendu")
+    try:
+        root = reference_dir.resolve(strict=True)
+        entries = tuple(sorted(p.name for p in reference_dir.iterdir() if not p.name.startswith(".")))
+    except OSError as exc:
+        raise RefusDeTourner(f"{reference_dir} : dossier de références illisible") from exc
+    etrangers = sorted(p.name for p in reference_dir.iterdir()
+                       if not p.name.startswith(".") and p.suffix != ".yaml")
+    if etrangers:
+        raise RefusDeTourner(
+            f"{reference_dir} : entrées hors schéma de nommage : {', '.join(etrangers)}")
+    ids_cas = {c.id: c for c in cas}
+    utilites: dict[str, ReferenceUtilite] = {}
+    retraductions: dict[str, ControleRetraduction] = {}
+    fichiers = tuple(sorted(p for p in reference_dir.iterdir()
+                            if not p.name.startswith(".") and p.suffix == ".yaml"))
+    contenus: dict[Path, bytes] = {}
+    for fichier in fichiers:
+        try:
+            resolu = fichier.resolve(strict=True)
+            resolu.relative_to(root)
+            contenu = resolu.read_bytes()
+            # Le chemin lexical reste dans le snapshot : si un symlink interne est remplacé après
+            # la validation, la revérification relit sa nouvelle cible et détecte le changement.
+            contenus[root / fichier.name] = contenu
+            brut = yaml.safe_load(contenu.decode("utf-8"))
+            if not isinstance(brut, dict):
+                raise ValueError("un objet YAML est attendu")
+            kind = brut.get("kind")
+            if kind == "utilite_guide":
+                charge = FichierUtilite.model_validate(brut)
+                cible = utilites
+            elif kind == "retraductions":
+                charge = FichierRetraduction.model_validate(brut)
+                cible = retraductions
+            else:
+                raise ValueError("kind doit valoir utilite_guide ou retraductions")
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError, ValueError) as exc:
+            raise RefusDeTourner(f"{fichier} : compagnon invalide ({exc})") from exc
+        for reference in charge.references:
+            if reference.case_id in cible:
+                raise RefusDeTourner(
+                    f"{fichier} : référence dupliquée pour {reference.case_id!r}")
+            cible[reference.case_id] = reference
+    for case_id in sorted(set(utilites) | set(retraductions)):
+        if case_id not in ids_cas:
+            raise RefusDeTourner(f"référence orpheline : aucun cas {case_id!r}")
+    for case_id in sorted(utilites):
+        if ids_cas[case_id].suite != "guide":
+            raise RefusDeTourner(f"référence d'utilité {case_id!r} : la cible doit être guide")
+    for case_id in sorted(retraductions):
+        cible = ids_cas[case_id]
+        if not (cible.suite == "guide" and cible.profile == "full" and cible.famille == "multilingue"):
+            raise RefusDeTourner(
+                f"contrôle de retraduction {case_id!r} : la cible doit être guide/full/multilingue")
+    manquantes = sorted(c.id for c in guides_a_documenter if c.id not in utilites)
+    if manquantes:
+        raise RefusDeTourner("grille d'utilité absente pour : " + ", ".join(manquantes))
+    multilingues = [c for c in cas
+                    if c.suite == "guide" and c.profile == "full" and c.famille == "multilingue"]
+    manquantes = sorted(c.id for c in multilingues if c.id not in retraductions)
+    if manquantes:
+        raise RefusDeTourner("contrôle de retraduction absent pour : " + ", ".join(manquantes))
+    for c in multilingues:
+        controle = retraductions[c.id]
+        if controle.langue != c.lang:
+            raise RefusDeTourner(
+                f"cas {c.id} : langue du contrôle {controle.langue!r} "
+                f"différente du cas {c.lang!r}")
+        for champ, relatif in (("fixture", controle.fixture), ("journal", controle.journal)):
+            try:
+                cible = (REPO_ROOT / relatif).resolve(strict=True)
+                cible.relative_to(REPO_ROOT.resolve(strict=True))
+            except (OSError, ValueError) as exc:
+                raise RefusDeTourner(
+                    f"cas {c.id} : {champ} de retraduction absent ou hors dépôt ({relatif})") from exc
+            if not cible.is_file():
+                raise RefusDeTourner(f"cas {c.id} : {champ} n'est pas un fichier ({relatif})")
+        test_file, _, test_name = controle.test_id.partition("::")
+        if not test_name or test_file != "tests/test_langues_live.py":
+            raise RefusDeTourner(f"cas {c.id} : test_id de retraduction non rejouable")
+        test_source = (REPO_ROOT / test_file).read_text(encoding="utf-8")
+        if f"def {test_name}(" not in test_source and f"async def {test_name}(" not in test_source:
+            raise RefusDeTourner(f"cas {c.id} : test_id absent de {test_file}")
+        journal = (REPO_ROOT / controle.journal).read_text(encoding="utf-8")
+        journal_case_id = c.id.removeprefix("g-lang-")
+        if controle.journal_section not in journal or f"`{journal_case_id}`" not in journal:
+            raise RefusDeTourner(
+                f"cas {c.id} : section/résultat absent du journal de retraduction")
+    h = hashlib.sha256()
+    for fichier, contenu in sorted(contenus.items()):
+        h.update(fichier.name.encode("utf-8") + b"\0" + contenu + b"\0")
+    return ReferencesSnapshot(h.hexdigest(), root, contenus, entries)
+
+
 def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> list[Cas]:
     """Tous les cas des suites demandées, validés strictement — sinon `RefusDeTourner`.
 
@@ -309,10 +547,8 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
     """
     balayage_complet = suites is None
     if suites is None:
-        # **Tous** les dossiers présents, pas seulement les suites livrées : un `cases/parsing/`
-        # déposé dans l'arborescence doit être **vu** puis refusé nommément (story 4.2), et non
-        # ignoré en silence — un golden set dont une partie ne tourne pas sans qu'on le dise est
-        # exactement ce qu'AD-14 veut empêcher.
+        # **Tous** les dossiers présents, pas seulement une liste recopiée : une suite déposée dans
+        # l'arborescence doit être vue et validée, jamais ignorée en silence.
         suites = tuple(sorted(p.name for p in cases_dir.iterdir() if p.is_dir())) \
             if cases_dir.is_dir() else ()
     cas: list[Cas] = []
@@ -322,15 +558,22 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
         if suite not in {"guide", "sinistre", "parsing"} or len(morceaux) > 2:
             raise RefusDeTourner(f"suite documentaire invalide : {suite_locator!r}")
         doc_id = morceaux[1] if len(morceaux) == 2 else None
-        if doc_id is not None and suite != "sinistre":
+        if doc_id is not None and suite not in {"sinistre", "parsing"}:
             raise RefusDeTourner(
-                f"seule la suite sinistre accepte un sous-dossier documentaire ({suite_locator})")
+                "seules les suites sinistre et parsing acceptent un sous-dossier documentaire "
+                f"({suite_locator})")
+        if suite == "parsing" and doc_id is None:
+            # La racine est un simple rangement : chaque observation doit nommer son document par
+            # le sous-dossier, afin qu'aucun repli sur un autre corpus ne soit possible.
+            pass
         if doc_id is not None:
             _valider_doc_id(doc_id)
         dossier = cases_dir.joinpath(*morceaux)
         if not dossier.is_dir():
             continue
         _dans_cases(cases_dir, dossier, objet="suite documentaire")
+        entrees_dossier = tuple(sorted(f.name for f in dossier.iterdir()
+                                       if not f.name.startswith(".")))
         # Tout ce que `glob("*.yaml")` (non récursif) ne ramènerait pas : un cas déposé en `.yml`,
         # et un cas rangé dans un sous-dossier. Les deux seraient **ignorés en silence**, et le gate
         # se réclamerait d'une suite amputée sans qu'un mot le dise. Un golden set muet est pire
@@ -341,22 +584,28 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
             if not f.name.startswith(".")
             and (
                 f.suffix != ".yaml"
-                and not (suite == "sinistre" and doc_id is None and f.is_dir())
+                and not (suite in {"sinistre", "parsing"} and doc_id is None and f.is_dir())
             )
         )
         if etrangers:
             raise RefusDeTourner(f"{dossier} : entrées hors schéma de nommage : "
                                  f"{', '.join(etrangers)} (les cas sont des `*.yaml` à plat ; "
-                                 "seuls les sous-dossiers documentaires de `sinistre/` sont admis)")
+                                 "seuls les sous-dossiers documentaires de `sinistre/` et "
+                                 "`parsing/` sont admis)")
+        if suite == "parsing" and doc_id is None and any(dossier.glob("*.yaml")):
+            raise RefusDeTourner(
+                f"{dossier} : un cas parsing doit vivre sous parsing/<doc_id>/")
         for fichier in sorted(dossier.glob("*.yaml")):
-            _dans_cases(cases_dir, fichier, objet="cas YAML")
-            lu = _lire_cas(fichier, suite)
+            resolu = _dans_cases(cases_dir, fichier, objet="cas YAML")
+            lu = _lire_cas(resolu, suite)
             lu._doc_id = doc_id
-            lu._case_path = fichier
+            lu._case_path = fichier.absolute()
+            lu._case_resolved_path = resolu
+            lu._case_directory_entries = entrees_dossier
             cas.append(lu)
-        if balayage_complet and suite == "sinistre" and doc_id is None:
+        if (suite == "parsing" or (balayage_complet and suite == "sinistre")) and doc_id is None:
             for sous_dossier in sorted(p for p in dossier.iterdir() if p.is_dir() and not p.name.startswith(".")):
-                cas.extend(charger_cas(cases_dir, suites=(f"sinistre/{sous_dossier.name}",)))
+                cas.extend(charger_cas(cases_dir, suites=(f"{suite}/{sous_dossier.name}",)))
     vus: set[str] = set()
     for c in cas:
         if c.id in vus:
@@ -367,7 +616,8 @@ def charger_cas(cases_dir: Path, *, suites: tuple[str, ...] | None = None) -> li
 
 def _lire_cas(fichier: Path, suite_du_dossier: str) -> Cas:
     try:
-        brut = yaml.safe_load(fichier.read_text(encoding="utf-8"))
+        contenu = fichier.read_bytes()
+        brut = yaml.safe_load(contenu.decode("utf-8"))
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise RefusDeTourner(f"{fichier} : YAML illisible ({type(exc).__name__})") from exc
     if not isinstance(brut, dict):
@@ -378,15 +628,13 @@ def _lire_cas(fichier: Path, suite_du_dossier: str) -> Cas:
         premier = exc.errors()[0]
         champ = ".".join(str(p) for p in premier.get("loc", ())) or "(racine)"
         raise RefusDeTourner(f"{fichier} : champ {champ} — {premier.get('msg', '')}") from exc
-    if cas.suite in SUITES_DIFFEREES:
-        # Avant le contrôle de dossier : le message dû est celui de la suite, où qu'elle soit posée.
-        raise RefusDeTourner(f"suite `{cas.suite}` : story {SUITES_DIFFEREES[cas.suite]} ({fichier})")
     if cas.id != fichier.stem:
         raise RefusDeTourner(f"{fichier} : champ id — {cas.id!r} devrait être {fichier.stem!r} "
                              "(le nom du fichier fait foi : c'est lui qu'agrège `cases_hash`)")
     if cas.suite != suite_du_dossier:
         raise RefusDeTourner(f"{fichier} : champ suite — {cas.suite!r} dans le dossier "
                              f"{suite_du_dossier!r}")
+    cas._case_bytes = contenu
     return cas
 
 
@@ -395,13 +643,13 @@ def refuser_ce_qui_nest_pas_livre(cas: list[Cas], profil: str) -> None:
 
     Le profil ``full`` inclut explicitement les cas ``vertical`` et ``full`` ; le profil
     ``vertical`` ne garde que les premiers. Le filtre est appliqué dans ``main`` après que tous les
-    cas ont été strictement chargés, donc aucun fichier inconnu ou suite différée ne disparaît.
+    cas ont été strictement chargés, donc aucun fichier inconnu ne disparaît.
     """
     if profil not in PROFILS_LIVRES:
         raise RefusDeTourner(f"profil `{profil}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
     for c in cas:
-        if c.suite in SUITES_DIFFEREES:
-            raise RefusDeTourner(f"suite `{c.suite}` : story {SUITES_DIFFEREES[c.suite]} (cas {c.id})")
+        if c.suite not in SUITES_LIVREES:
+            raise RefusDeTourner(f"suite `{c.suite}` non livrée (cas {c.id})")
 
 
 def selection_profil(cas: list[Cas], profil: str) -> list[Cas]:
@@ -448,10 +696,12 @@ class Resultat:
 class CasesSnapshot:
     cases_hash: str
     files: dict[Path, str] = field(default_factory=dict)
+    directories: dict[Path, tuple[str, ...]] = field(default_factory=dict)
 
 
-def snapshot_cas(cas: list[Cas], cases_dir: Path) -> CasesSnapshot:
-    """Fige les octets réellement validés avant le premier appel fournisseur."""
+def snapshot_cas(cas: list[Cas], cases_dir: Path,
+                 references: ReferencesSnapshot | None = None) -> CasesSnapshot:
+    """Fige les cas et compagnons validés avant le premier appel fournisseur ou calcul local."""
     candidats: list[tuple[Cas, Path | None]] = []
     for c in cas:
         path = c.case_path
@@ -478,13 +728,35 @@ def snapshot_cas(cas: list[Cas], cases_dir: Path) -> CasesSnapshot:
             h.update(contenu + b"\0")
             continue
         path = _dans_cases(cases_dir, candidat, objet=f"cas {c.id!r}")
-        contenu = path.read_bytes()
+        if c._case_resolved_path is not None and path != c._case_resolved_path:
+            raise RefusDeTourner(
+                f"cas {c.id!r} : cible modifiée entre validation et snapshot")
+        contenu = c._case_bytes
+        if contenu is None:
+            contenu = path.read_bytes()
         assert root is not None
-        relatif = path.relative_to(root).as_posix()
+        lexical = candidat.absolute()
+        relatif = lexical.relative_to(root).as_posix()
         h.update(relatif.encode("utf-8") + b"\0")
         h.update(contenu + b"\0")
+        fichiers[lexical] = hashlib.sha256(contenu).hexdigest()
+    for path, contenu in sorted((references.contents if references else {}).items()):
+        h.update(f"@reference/{path.name}".encode("utf-8") + b"\0")
+        h.update(contenu + b"\0")
         fichiers[path] = hashlib.sha256(contenu).hexdigest()
-    return CasesSnapshot(h.hexdigest(), fichiers)
+    dossiers: dict[Path, tuple[str, ...]] = {}
+    for c, path in ((c, c.case_path) for c in cas if c.case_path is not None):
+        assert path is not None
+        if c._case_directory_entries is not None:
+            dossiers[path.parent] = c._case_directory_entries
+    for path in fichiers:
+        if path.is_relative_to(root) if root is not None else False:
+            parent = path.parent
+            dossiers.setdefault(parent, tuple(sorted(p.name for p in parent.iterdir()
+                                                   if not p.name.startswith("."))))
+    if references is not None and references.root is not None:
+        dossiers[references.root] = references.entries
+    return CasesSnapshot(h.hexdigest(), fichiers, dossiers)
 
 
 def verifier_snapshot_cas(snapshot: CasesSnapshot) -> None:
@@ -499,6 +771,19 @@ def verifier_snapshot_cas(snapshot: CasesSnapshot) -> None:
     if modifies:
         raise IncidentTechnique(
             "cas modifiés pendant le run : " + ", ".join(sorted(modifies))
+            + " — rapports et gate non certifiés")
+    modifies_dossiers = []
+    for path, attendu in snapshot.directories.items():
+        try:
+            courant = tuple(sorted(p.name for p in path.iterdir() if not p.name.startswith(".")))
+        except OSError:
+            courant = ("<absent>",)
+        if courant != attendu:
+            modifies_dossiers.append(path.name)
+    if modifies_dossiers:
+        raise IncidentTechnique(
+            "contenu de dossiers modifié pendant le run : "
+            + ", ".join(sorted(modifies_dossiers))
             + " — rapports et gate non certifiés")
 
 
@@ -536,9 +821,17 @@ def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, 
     if cas.expected.complete is not None and answer.complete is not cas.expected.complete:
         ecarts.append(f"complete={answer.complete} (attendu {cas.expected.complete})")
     if cas.expected.refusal is not None:
-        refus = (answer.found is False and answer.reason is not None)
+        refus = (answer.found is False and answer.reason is not None
+                 and answer.reason.kind != "clarification_requise")
         if refus is not cas.expected.refusal:
             ecarts.append(f"refus justifié={refus} (attendu {cas.expected.refusal})")
+    if cas.expected.clarification is not None:
+        clarification = (answer.found is False and answer.reason is not None
+                          and answer.reason.kind == "clarification_requise"
+                          and answer.clarification is not None)
+        if clarification is not cas.expected.clarification:
+            ecarts.append(
+                f"clarification explicite={clarification} (attendu {cas.expected.clarification})")
     blocs_manquants = sorted(set(cas.expected.block_ids) - set(ids_cites))
     if blocs_manquants:
         ecarts.append(f"blocs attendus non cités : {', '.join(blocs_manquants)}")
@@ -601,7 +894,7 @@ class Contexte:
 
     settings: Settings
     index: Index
-    client: LlmClient
+    client: Any | None
     pipeline_digest_hex: str
     prompts_digest_hex: str
     # Story 2.1 : le dictionnaire enrichi, chargé exactement comme `api/etat.py` le charge. Sans lui,
@@ -643,14 +936,19 @@ def document_de_la_suite(settings: Settings, suite: str) -> str:
     morceaux = Path(suite).parts
     if len(morceaux) == 2 and morceaux[0] == "sinistre":
         return morceaux[1]
-    return settings.guide_doc_id if suite == "guide" else settings.sinistre_doc_id
+    if suite == "guide":
+        return settings.guide_doc_id
+    if suite == "sinistre":
+        return settings.sinistre_doc_id
+    raise RefusDeTourner(f"suite `{suite}` sans sous-dossier documentaire")
 
 
 def variante_du_cas(cas: Cas, variante_demandee: str | None) -> str:
     """Résout la variante avant tout appel, en refusant les couples suite/variante impossibles."""
     suite = cas.suite.split("/", 1)[0]
     connues = VARIANTES_PAR_SUITE.get(suite, ())
-    variante = variante_demandee or ("outils" if suite == "guide" else "deterministe")
+    variante = variante_demandee or (
+        "outils" if suite == "guide" else "local" if suite == "parsing" else "deterministe")
     if variante not in connues:
         raise RefusDeTourner(
             f"variante `{variante}` incompatible avec la suite `{suite}` "
@@ -695,7 +993,7 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
 
 
 def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
-                 variant: str | None) -> dict[str, Any]:
+                 variant: str | None, references_digest: str | None = None) -> dict[str, Any]:
     """Identité publiable de l'image mesurée et du périmètre exact du run.
 
     Les digests de namespace par cas englobent aussi document, dictionnaire, seuils et entrée. Ils
@@ -729,6 +1027,7 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
             "case_ids": [c.id for c in cas],
             "suites": sorted({c.suite for c in cas}),
             "variants": variantes,
+            "references_digest": references_digest,
         },
         "documents": dict(sorted(documents.items())),
         "cache_namespace_digests": namespaces,
@@ -778,6 +1077,8 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
     évals, [le plafond par requête] est remplacé par un plafond par run (`--max-cost`) ». Un cas qui
     déborderait le reste du run est coupé par le budget lui-même, avant l'appel qui déborde.
     """
+    if cas.suite == "parsing":
+        raise RefusDeTourner("le parsing emprunte exclusivement le chemin local")
     budget = RequestBudget(deadline_s=ctx.settings.deadline_s,
                            max_attempts=ctx.settings.max_llm_attempts,
                            max_cost_eur=budget_restant_eur)
@@ -820,12 +1121,68 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
     return answer, trace, round(budget.cost_eur, 4)
 
 
+def _ecart_texte(attendu: str, observe: str) -> str:
+    """Situe le premier écart normalisé sans recopier tout le contrat dans le rapport."""
+    position = next((i for i, (a, b) in enumerate(zip(attendu, observe)) if a != b),
+                    min(len(attendu), len(observe)))
+    debut = max(0, position - 30)
+    fin = position + 30
+    return (f"texte normalisé différent à l'index {position} : "
+            f"attendu={attendu[debut:fin]!r}, observé={observe[debut:fin]!r}")
+
+
+def executer_parsing(cas: Cas, ctx: Contexte, *, doc_id: str) -> Resultat:
+    """Compare un unique bloc servi à sa transcription visuelle, sans client ni fournisseur."""
+    block_id = cas.expected.block_ids[0]
+    bloc = _bloc(ctx.index, block_id)
+    found = False
+    ecarts: list[str] = []
+    if bloc is None:
+        label = "citation_introuvable"
+        ecarts.append(f"bloc attendu absent du document {doc_id} : {block_id}")
+    else:
+        # L'identifiant encode son document, mais l'index reste l'autorité : aucune observation ne
+        # peut réussir en tombant sur un bloc homonyme d'un autre contrat.
+        try:
+            document_observe = ctx.index.doc_of(block_id)
+        except KeyError:
+            document_observe = ""
+        if document_observe != doc_id:
+            label = "citation_introuvable"
+            ecarts.append(
+                f"bloc {block_id} servi par {document_observe!r}, attendu dans {doc_id!r}")
+        else:
+            found = True
+            observe = normalize(bloc.text)
+            attendu = cas.expected.text_norm or ""
+            if observe == attendu:
+                label = "bonne_reponse"
+            else:
+                label = "parsing"
+                ecarts.append(_ecart_texte(attendu, observe))
+    if label != cas.mode_attendu:
+        ecarts.append(f"label {label} (mode_attendu {cas.mode_attendu})")
+    return Resultat(
+        id=cas.id, suite=cas.suite, label=label, variant="local", ecarts=ecarts,
+        cost_eur=0.0, cost_eur_original=0.0,
+        # `ms` mesure la latence fournisseur dans les rapports comparatifs : il n'y en a aucune.
+        ms=0, found=found,
+        expected_found=True, expected_block_ids=[block_id],
+    )
+
+
 async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                    sortie: Any = sys.stdout, variant: str | None = None) -> list[Resultat]:
     """Exécute les cas dans l'ordre, en s'arrêtant **avant** le cas qui dépasserait le plafond de run."""
     resultats: list[Resultat] = []
     cumul = 0.0
     for c in cas:
+        doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
+        if c.suite == "parsing":
+            resultat = executer_parsing(c, ctx, doc_id=doc_id)
+            resultats.append(resultat)
+            _ligne(resultat, sortie)
+            continue
         restant = round(max_cost_eur - cumul, 4)
         if restant <= 0 and ctx.response_cache is None:
             raise IncidentTechnique(
@@ -833,7 +1190,6 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                 f"{c.id} : {len(cas) - len(resultats)} cas non exécutés",
                 resultats=resultats, non_executes=[x.id for x in cas[len(resultats):]],
                 arret_budget=True, cost_eur_engaged=cumul)
-        doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
         variante = variante_du_cas(c, variant)
         if ctx.response_cache is not None:
             ctx.response_cache.set_namespace(namespace_cache(c, ctx, doc_id=doc_id, variant=variante))
@@ -911,6 +1267,10 @@ def _recall(resultats: list[Resultat]) -> float:
     trouves = 0
     attendus = 0
     for r in resultats:
+        if r.suite == "parsing":
+            attendus += 1
+            trouves += int(r.ok)
+            continue
         cites = {
             quote.get("block_id")
             for claim in r.claims
@@ -1308,6 +1668,20 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                     dictionnaires=dictionnaires, response_cache=response_cache)
 
 
+def construire_contexte_parsing(settings: Settings, data_dir: Path) -> Contexte:
+    """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit."""
+    contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
+                                model_ids=dict(TIERS))
+    corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
+                         perimetre_max_chars=settings.perimetre_max_chars,
+                         raison_max_chars=settings.raison_publiable_max_chars)
+    return Contexte(
+        settings=settings, index=Index(corpus), client=None,
+        pipeline_digest_hex=contexte_gate.pipeline_digest,
+        prompts_digest_hex=contexte_gate.prompts_digest,
+    )
+
+
 async def _fermer(client: Any) -> None:
     """Ferme le pool de connexions du client, si c'en est un (les tests passent un double)."""
     fermer = getattr(client, "aclose", None)
@@ -1349,7 +1723,7 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m server.evals.run",
         description="Harness reproductible des questions-témoins (AD-14) : cache, budget et rapports.")
-    p.add_argument("--suite", choices=sorted(SUITES_LIVREES) + sorted(SUITES_DIFFEREES),
+    p.add_argument("--suite", choices=sorted(SUITES_LIVREES),
                    help="n'exécuter que cette suite (défaut : toutes les suites livrées)")
     p.add_argument("--case", dest="cas", help="n'exécuter que ce cas (son identifiant)")
     p.add_argument("--profile", choices=PROFILS_LIVRES, default="vertical",
@@ -1357,7 +1731,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--quick", action="store_true",
                    help="sous-ensemble CI stable : premier identifiant de chaque suite sélectionnée")
     p.add_argument("--variant", choices=VARIANTES_LIVREES,
-                   help="variante de retrieval (défaut par suite : outils pour guide, déterministe sinon)")
+                   help="variante (défaut : outils pour guide, déterministe pour sinistre, local pour parsing)")
     p.add_argument("--gate", metavar="DOC_ID",
                    help="écrire `manifest.gate` pour ce document depuis la suite qui le sert")
     p.add_argument("--max-cost", type=float, default=None,
@@ -1380,16 +1754,18 @@ def _chevauchent(a: Path, b: Path) -> bool:
 
 
 def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path,
-                    data_dir: Path, cache_dir: Path) -> None:
+                    data_dir: Path, cache_dir: Path, reference_dir: Path | None = None) -> None:
     """Refuse avant client tout alias ou chevauchement pouvant écraser entrée ou état."""
     for nom, sortie in (("sortie JSON", output_json), ("sortie Markdown", output_markdown)):
         if sortie.exists() and sortie.is_dir():
             raise RefusDeTourner(
                 f"chemins en collision : {nom}={sortie.resolve()} existe comme répertoire")
+    reference_dir = reference_dir or cases_dir.parent / "reference"
     chemins = {
         "sortie JSON": output_json.resolve(),
         "sortie Markdown": output_markdown.resolve(),
         "cases_dir": cases_dir.resolve(),
+        "reference_dir": reference_dir.resolve(),
         "data_dir": data_dir.resolve(),
         "cache": cache_dir.resolve(),
         "manifest": (data_dir / MANIFEST).resolve(),
@@ -1415,9 +1791,12 @@ def main(argv: list[str] | None = None) -> int:
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
+    references = ReferencesSnapshot(empreinte_canonique([]))
+    reference_dir = args.cases_dir.parent / "reference"
     try:
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
-                        cases_dir=args.cases_dir, data_dir=args.data_dir, cache_dir=cache_dir)
+                        cases_dir=args.cases_dir, reference_dir=reference_dir,
+                        data_dir=args.data_dir, cache_dir=cache_dir)
         settings = Settings()
         max_cost = settings.evals_max_cost_eur if args.max_cost is None else args.max_cost
         if not math.isfinite(max_cost) or max_cost <= 0:
@@ -1432,11 +1811,8 @@ def main(argv: list[str] | None = None) -> int:
         # 2. Le doc_id du gate avant toute composition de chemin ou lecture de cas.
         if args.gate:
             _valider_doc_id(args.gate)
-        # 3. La clé, **avant tout chargement de corpus** (AD-14).
-        if not args.dry_run and cle_absente(settings):
-            raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
-                                 "(AD-14 — les unitaires passent sans clé, les évals non)")
-        # 4. Les cas, avant tout appel facturé.
+        # 3. Les cas, avant toute décision de clé ou tout appel facturé. Un `--case p-*` peut ainsi
+        # résoudre honnêtement vers un lot intégralement local sans exiger de secret fournisseur.
         suites = None
         if args.gate and args.cas:
             # `--gate` écrit un gate **de suite** : `cases` et `cases_hash` désignent ce qui a été
@@ -1446,8 +1822,6 @@ def main(argv: list[str] | None = None) -> int:
                                  "qui sert le document, jamais d'un cas choisi")
         if args.gate and args.quick:
             raise RefusDeTourner("--gate et --quick sont exclusifs : un gate exige la suite complète")
-        if args.suite in SUITES_DIFFEREES:
-            raise RefusDeTourner(f"suite `{args.suite}` : story {SUITES_DIFFEREES[args.suite]}")
         if args.gate:
             suites = (suite_du_document(settings, args.gate, cases_dir=args.cases_dir),)
         if args.suite:
@@ -1455,7 +1829,18 @@ def main(argv: list[str] | None = None) -> int:
                 raise RefusDeTourner(f"--suite {args.suite} et --gate {args.gate} se contredisent : "
                                      f"la suite qui sert {args.gate} est {suites[0]}")
             suites = (args.suite,)
-        cas = charger_cas(args.cases_dir, suites=suites)
+        cas_tous = charger_cas(args.cases_dir)
+        references = charger_references(cas_tous, reference_dir)
+        if suites is None:
+            cas = cas_tous
+        else:
+            demandes = set(suites)
+            cas = [c for c in cas_tous if (
+                (c.suite == "parsing" and "parsing" in demandes)
+                or (c.suite == "sinistre" and args.suite == "sinistre" and args.gate is None)
+                or (c.doc_id is None and c.suite in demandes)
+                or (c.doc_id is not None and f"{c.suite}/{c.doc_id}" in demandes)
+            )]
         refuser_ce_qui_nest_pas_livre(cas, args.profile)
         cas = selection_profil(cas, args.profile)
         if args.cas:
@@ -1475,7 +1860,16 @@ def main(argv: list[str] | None = None) -> int:
                 "la variante servie par défaut")
         if args.quick:
             cas = selection_quick(cas)
-        snapshot = snapshot_cas(cas, args.cases_dir)
+        parsing_local_seul = args.gate is None and all(c.suite == "parsing" for c in cas)
+        if not args.dry_run and not parsing_local_seul and cle_absente(settings):
+            raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
+                                 "(AD-14 — les unitaires passent sans clé, les évals non)")
+        # Les compagnons décrivent exclusivement les cas guide `full`. Les injecter dans un run
+        # vertical périmerait les cinq gates historiques malgré leurs YAML byte-identiques.
+        references_du_run = references if args.profile == "full" and any(
+            c.suite == "guide" for c in cas) else None
+        references_digest = references.digest if references_du_run else empreinte_canonique([])
+        snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
         if args.dry_run:
             # Story 3.7 : jalon explicite avant toute dépense. Aucune construction de contexte —
             # donc ni client, ni lecture/écriture du manifest — et aucun besoin de clé.
@@ -1487,10 +1881,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
-            ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
-                                      cache_dir=cache_dir)
+            if all(c.suite == "parsing" for c in cas):
+                ctx = construire_contexte_parsing(settings, args.data_dir)
+            else:
+                ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
+                                          cache_dir=cache_dir)
             run_identity = identite_run(
-                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant)
+                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
+                references_digest=references_digest)
             # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
             # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
             # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client

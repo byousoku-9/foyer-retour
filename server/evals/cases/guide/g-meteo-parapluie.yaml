@@ -1,0 +1,14 @@
+id: g-meteo-parapluie
+suite: guide
+profile: full
+question: "Je prends un parapluie ce soir ou pas ?"
+lang: fr
+scenario: "météo — formulation indirecte"
+famille: meteo
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du cas météo de tests/test_steps_live.py ; la contresignature humaine reste due."

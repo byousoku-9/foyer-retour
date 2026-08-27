@@ -1,0 +1,195 @@
+kind: utilite_guide
+version: 1
+references:
+  - case_id: g-luxtrust-prix
+    ordre_juste: ["Identifier le besoin LuxTrust", "Distinguer l'activation d'un prix non documenté", "Orienter vers LuxTrust"]
+    documents_cites: ["Fiche LuxTrust — installer et activer"]
+    interlocuteur: "LuxTrust"
+    provenance: "Cas vertical et fiche LuxTrust relus dans le dépôt"
+    countersigned_by: null
+  - case_id: g-commune-choix
+    ordre_juste: ["Comparer logement, transports et services", "Choisir avant la déclaration d'arrivée"]
+    documents_cites: ["Fiche Choisir sa commune"]
+    interlocuteur: "Administration communale"
+    provenance: "FAQ q1 et epreuves.md n°1"
+    countersigned_by: null
+  - case_id: g-logement-trouver
+    ordre_juste: ["Définir le besoin", "Préparer le dossier", "Organiser les visites"]
+    documents_cites: ["Fiche Trouver un logement"]
+    interlocuteur: "Bailleur ou agence immobilière"
+    provenance: "FAQ q16 et epreuves.md n°2"
+    countersigned_by: null
+  - case_id: g-arrivee-huit-jours
+    ordre_juste: ["Arriver", "Se déclarer dans les huit jours"]
+    documents_cites: ["Fiche Les huit premiers jours"]
+    interlocuteur: "Bureau de la population de la commune"
+    provenance: "FAQ q12 et epreuves.md n°3"
+    countersigned_by: null
+  - case_id: g-banque-compte
+    ordre_juste: ["Comparer les banques", "Ouvrir le compte", "Activer les moyens de paiement"]
+    documents_cites: ["Fiche Banque et moyens de paiement"]
+    interlocuteur: "Banque luxembourgeoise"
+    provenance: "FAQ q14"
+    countersigned_by: null
+  - case_id: g-bail-caution
+    ordre_juste: ["Lire le bail", "Vérifier la caution", "Signer après accord"]
+    documents_cites: ["Fiche Signer un bail"]
+    interlocuteur: "Bailleur"
+    provenance: "FAQ q15"
+    countersigned_by: null
+  - case_id: g-assurance-habitation-quand
+    ordre_juste: ["Choisir le logement", "Souscrire avant la remise des clés"]
+    documents_cites: ["Fiche Assurer son logement"]
+    interlocuteur: "Assureur habitation"
+    provenance: "FAQ q17"
+    countersigned_by: null
+  - case_id: g-permis-europeen
+    ordre_juste: ["Identifier le permis", "Vérifier sa reconnaissance", "Échanger si nécessaire"]
+    documents_cites: ["Fiche Permis de conduire"]
+    interlocuteur: "SNCA"
+    provenance: "FAQ q18"
+    countersigned_by: null
+  - case_id: g-vehicule-immatriculer
+    ordre_juste: ["Préparer les justificatifs", "Assurer le véhicule", "Immatriculer"]
+    documents_cites: ["Fiche Immatriculer son véhicule"]
+    interlocuteur: "SNCA"
+    provenance: "FAQ q19"
+    countersigned_by: null
+  - case_id: g-assureur-documents
+    ordre_juste: ["Décrire le besoin", "Demander garanties, exclusions et franchises", "Comparer"]
+    documents_cites: ["Fiche Assurer son logement"]
+    interlocuteur: "Assureur"
+    provenance: "FAQ q8"
+    countersigned_by: null
+  - case_id: g-internet-delai
+    ordre_juste: ["Vérifier l'éligibilité", "Commander", "Planifier l'installation"]
+    documents_cites: ["Fiche Internet et téléphonie"]
+    interlocuteur: "Opérateur télécom"
+    provenance: "FAQ q35"
+    countersigned_by: null
+  - case_id: g-meteo-aujourdhui
+    ordre_juste: ["Identifier une demande temps réel", "Refuser sans citation inventée"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Service météorologique externe non appelé"
+    provenance: "epreuves.md n°4"
+    countersigned_by: null
+  - case_id: g-meteo-demain
+    ordre_juste: ["Identifier l'horizon futur", "Refuser sans prévision inventée"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Service météorologique externe non appelé"
+    provenance: "Reformulation du témoin météo"
+    countersigned_by: null
+  - case_id: g-meteo-parapluie
+    ordre_juste: ["Résoudre la formulation indirecte", "Refuser sans conseil météo inventé"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Service météorologique externe non appelé"
+    provenance: "tests/test_steps_live.py"
+    countersigned_by: null
+  - case_id: g-meteo-weekend
+    ordre_juste: ["Identifier lieu et période", "Refuser sans prévision inventée"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Service météorologique externe non appelé"
+    provenance: "Reformulation du témoin météo"
+    countersigned_by: null
+  - case_id: g-suivi-enfants
+    ordre_juste: ["Relire l'historique", "Résoudre enfants", "Ouvrir la fiche école"]
+    documents_cites: ["Fiche Scolariser ses enfants"]
+    interlocuteur: "Service scolaire communal"
+    provenance: "tests/test_suivi_live.py"
+    countersigned_by: null
+  - case_id: g-suivi-caution
+    ordre_juste: ["Relire l'historique", "Résoudre le bailleur", "Répondre sur la caution"]
+    documents_cites: ["Fiche Signer un bail"]
+    interlocuteur: "Bailleur"
+    provenance: "Boucle de suivi story 2.2"
+    countersigned_by: null
+  - case_id: g-suivi-vehicule
+    ordre_juste: ["Relire l'historique", "Résoudre le véhicule", "Expliquer l'immatriculation"]
+    documents_cites: ["Fiche Immatriculer son véhicule"]
+    interlocuteur: "SNCA"
+    provenance: "FAQ q19 et suivi story 2.2"
+    countersigned_by: null
+  - case_id: g-suivi-sans-ancrage
+    ordre_juste: ["Constater l'anaphore sans antécédent", "Demander une précision"]
+    documents_cites: ["Aucun document avant clarification"]
+    interlocuteur: "Utilisateur à clarifier"
+    provenance: "tests/test_suivi_live.py"
+    countersigned_by: null
+  - case_id: g-lang-en-arrivee
+    ordre_juste: ["Comprendre en anglais", "Chercher en français", "Répondre en anglais"]
+    documents_cites: ["Fiche Les huit premiers jours"]
+    interlocuteur: "Administration communale"
+    provenance: "test_langues_live CAS en-arrivee"
+    countersigned_by: null
+  - case_id: g-lang-en-ecole
+    ordre_juste: ["Comprendre en anglais", "Chercher en français", "Répondre en anglais"]
+    documents_cites: ["Fiche Scolariser ses enfants"]
+    interlocuteur: "Service scolaire communal"
+    provenance: "test_langues_live CAS en-ecole"
+    countersigned_by: null
+  - case_id: g-lang-de-arrivee
+    ordre_juste: ["Comprendre en allemand", "Chercher en français", "Répondre en allemand"]
+    documents_cites: ["Fiche Les huit premiers jours"]
+    interlocuteur: "Administration communale"
+    provenance: "test_langues_live CAS de-arrivee"
+    countersigned_by: null
+  - case_id: g-lang-de-adem
+    ordre_juste: ["Comprendre en allemand", "Chercher en français", "Répondre en allemand"]
+    documents_cites: ["Fiche Chercher un emploi"]
+    interlocuteur: "ADEM"
+    provenance: "test_langues_live CAS de-adem"
+    countersigned_by: null
+  - case_id: g-lang-pt-arrivee
+    ordre_juste: ["Comprendre en portugais", "Chercher en français", "Répondre en portugais"]
+    documents_cites: ["Fiche Les huit premiers jours"]
+    interlocuteur: "Administration communale"
+    provenance: "test_langues_live CAS pt-arrivee"
+    countersigned_by: null
+  - case_id: g-lang-pt-ecole
+    ordre_juste: ["Comprendre en portugais", "Chercher en français", "Répondre en portugais"]
+    documents_cites: ["Fiche Scolariser ses enfants"]
+    interlocuteur: "Service scolaire communal"
+    provenance: "test_langues_live CAS pt-ecole"
+    countersigned_by: null
+  - case_id: g-trois-fiches-installation
+    ordre_juste: ["Déclaration communale", "Compte bancaire", "Assurance habitation"]
+    documents_cites: ["Les huit premiers jours", "Banque et moyens de paiement", "Assurer son logement"]
+    interlocuteur: "Commune, banque puis assureur"
+    provenance: "FAQ q12, q14, q17"
+    countersigned_by: null
+  - case_id: g-trois-fiches-famille
+    ordre_juste: ["Inscription scolaire", "Organisation de la garde", "Demande d'allocations"]
+    documents_cites: ["Scolariser ses enfants", "Garde d'enfants", "Allocations familiales"]
+    interlocuteur: "Commune, structure de garde puis CAE"
+    provenance: "FAQ q31, q32, q33"
+    countersigned_by: null
+  - case_id: g-trois-fiches-auto
+    ordre_juste: ["Vérifier le permis", "Assurer", "Immatriculer"]
+    documents_cites: ["Permis de conduire", "Assurer son véhicule", "Immatriculer son véhicule"]
+    interlocuteur: "Assureur puis SNCA"
+    provenance: "FAQ q18, q19 et parcours véhicule"
+    countersigned_by: null
+  - case_id: g-hors-guide-restaurant
+    ordre_juste: ["Identifier une recommandation temps réel", "Refuser sans inventer"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Service local externe non appelé"
+    provenance: "Exploration epreuves.md"
+    countersigned_by: null
+  - case_id: g-hors-guide-score
+    ordre_juste: ["Identifier une actualité sportive", "Refuser sans inventer"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Source sportive externe non appelée"
+    provenance: "Exploration epreuves.md"
+    countersigned_by: null
+  - case_id: g-hors-guide-passeport
+    ordre_juste: ["Identifier une demande d'action", "Expliquer la limite sans prétendre agir"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Consulat de France"
+    provenance: "Exploration epreuves.md"
+    countersigned_by: null
+  - case_id: g-hors-guide-conseil-juridique
+    ordre_juste: ["Identifier la garantie juridique demandée", "Refuser toute promesse de résultat"]
+    documents_cites: ["Aucun document du guide"]
+    interlocuteur: "Professionnel du droit"
+    provenance: "Exploration epreuves.md"
+    countersigned_by: null

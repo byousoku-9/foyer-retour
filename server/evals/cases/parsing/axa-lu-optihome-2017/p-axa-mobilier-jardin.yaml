@@ -1,0 +1,17 @@
+id: p-axa-mobilier-jardin
+suite: parsing
+profile: full
+question: "Transcription visuelle AXA — mobilier de jardin page 11"
+scenario: "page AXA relue — définition détaillée"
+famille: definition
+expected:
+  found: true
+  block_ids: ["axa-lu-optihome-2017:p11:12"]
+  text_norm: >-
+    ce mobilier comprend, a l'exclusion des objets de decoration, les objets suivants : les chaises, chaises longues, fauteuils et tables de jardins, les parasols et tonnelles, les barbecues, les chauffages de terrasse, les jeux d'enfants de type maisonnette en kit, trampoline, balancoire ou toboggan.
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Transcription de tests/data/axa/p11-1.28.txt, comparée à la page 11 rendue."

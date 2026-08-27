@@ -1,0 +1,14 @@
+id: g-meteo-weekend
+suite: guide
+profile: full
+question: "Wie wird das Wetter dieses Wochenende im Norden des Landes?"
+lang: de
+scenario: "météo — lieu et période précisés"
+famille: meteo
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du témoin météo consigné et de son refus par intention ; la contresignature humaine reste due."

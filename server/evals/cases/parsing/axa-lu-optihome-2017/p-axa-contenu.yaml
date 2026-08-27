@@ -1,0 +1,17 @@
+id: p-axa-contenu
+suite: parsing
+profile: full
+question: "Transcription visuelle AXA — définition du contenu page 9"
+scenario: "page AXA relue — définition"
+famille: definition
+expected:
+  found: true
+  block_ids: ["axa-lu-optihome-2017:p9:2"]
+  text_norm: >-
+    ensemble des biens repris ci-dessous qui se trouvent dans le batiment designe, y compris ses cours et jardins, et qui appartiennent ou sont confies a un assure. il comprend les rubriques suivantes :
+mode_attendu: bonne_reponse
+truth: &axa_truth
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Relié à tests/data/axa/p09-1.12.txt et à la relecture visuelle page 9 ; contresignature du cas due."

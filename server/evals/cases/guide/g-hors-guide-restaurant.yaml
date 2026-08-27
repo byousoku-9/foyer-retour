@@ -1,0 +1,14 @@
+id: g-hors-guide-restaurant
+suite: guide
+profile: full
+question: "Quel restaurant est ouvert près de la gare ce soir ?"
+lang: fr
+scenario: "hors guide — recommandation locale temps réel"
+famille: hors_guide
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth: &hors_truth
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture des angles d'epreuves.md et des fiches ; la contresignature humaine reste due."

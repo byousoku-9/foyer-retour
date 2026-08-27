@@ -1,0 +1,17 @@
+id: p-axa-chaleur
+suite: parsing
+profile: full
+question: "Transcription visuelle AXA — chaleur sans embrasement page 34"
+scenario: "page AXA relue — garantie"
+famille: garantie
+expected:
+  found: true
+  block_ids: ["axa-lu-optihome-2017:p34:12"]
+  text_norm: >-
+    3.1.1.1.6 les degats occasionnes au mobilier assure et au batiment designe par un evenement soudain, resultant de l'action subite de la chaleur ou par le contact direct et immediat avec un foyer ou une substance incandescente, meme lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Transcription exacte de tests/data/axa/p34-3.1.1.1.6.txt, relue sur la page 34."

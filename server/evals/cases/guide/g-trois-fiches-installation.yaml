@@ -1,0 +1,17 @@
+id: g-trois-fiches-installation
+suite: guide
+profile: full
+question: "Dans quel ordre gérer ma déclaration à la commune, mon compte bancaire et mon assurance habitation ?"
+lang: fr
+scenario: "trois fiches — ordre d'installation"
+famille: trois_fiches
+expected:
+  found: true
+  fiche_ids: ["lux-guide:farrivee", "lux-guide:fbanque", "lux-guide:fassurance_habitation"]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture des FAQ q12/q14/q17 et de la grille compagnon ; la contresignature humaine reste due."

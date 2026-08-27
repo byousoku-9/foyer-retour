@@ -1,0 +1,14 @@
+id: g-banque-compte
+suite: guide
+profile: full
+question: "Ai-je besoin d'un compte bancaire luxembourgeois ?"
+lang: fr
+scenario: "parcours réel — banque avant démarches en ligne"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fbanque"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q14 ; attente établie par lecture de la fiche banque."

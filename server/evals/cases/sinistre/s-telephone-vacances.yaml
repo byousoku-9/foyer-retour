@@ -1,0 +1,21 @@
+id: s-telephone-vacances
+suite: sinistre
+profile: full
+question: "Mon téléphone a été volé par effraction dans la maison louée pendant mes vacances : quelles clauses faut-il vérifier ?"
+lang: fr
+scenario: "vol — téléphone en vacances"
+famille: telephone_vacances
+faits:
+  lieu: "maison louée pendant un séjour temporaire à l'étranger"
+  description: "Mon smartphone personnel a été volé après effraction dans la maison louée pendant mes vacances."
+expected:
+  found: true
+  block_ids: ["axa-lu-optihome-2017:p43:2"]
+  verdict: [sous_conditions, ne_tranche_pas]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture locale de la clause AXA p43 sur le matériel multimédia déplacé en séjour temporaire ; la contresignature humaine reste due."

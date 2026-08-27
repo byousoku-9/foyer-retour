@@ -8,6 +8,7 @@ sans test est une règle non tenue.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 from contextlib import ExitStack
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
@@ -187,6 +189,8 @@ suite: guide
 profile: {profile}
 question: "Quelle est la façon la moins chère d'obtenir LuxTrust ?"
 lang: fr
+scenario: "parcours miniature"
+famille: parcours
 expected:
   found: true
   fiche_ids: ["{fiche}"]
@@ -223,6 +227,16 @@ def _cases_dir(tmp_path: Path, *, guide: str | None = None, sinistre: str | None
     if guide is not None:
         (racine / "guide" / "g-luxtrust.yaml").write_text(
             guide.format(id="g-luxtrust", profile="vertical", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+        reference = racine.parent / "reference"
+        reference.mkdir(exist_ok=True)
+        (reference / "utilite.yaml").write_text(
+            "kind: utilite_guide\nversion: 1\nreferences:\n"
+            "  - case_id: g-luxtrust\n"
+            "    ordre_juste: [Lire la fiche]\n"
+            "    documents_cites: [Fiche miniature]\n"
+            "    interlocuteur: LuxTrust\n"
+            "    provenance: fixture locale\n"
+            "    countersigned_by: null\n", encoding="utf-8")
     if sinistre is not None:
         (racine / "sinistre" / "s-bougie.yaml").write_text(
             sinistre.format(id="s-bougie"), encoding="utf-8")
@@ -236,27 +250,73 @@ def _cases_dir(tmp_path: Path, *, guide: str | None = None, sinistre: str | None
 # --- lecture et validation stricte des cas (AD-14) ------------------------
 
 def test_les_cas_livres_du_depot_sont_valides() -> None:
-    """Le golden set réel garde AXA à plat et isole les trois témoins Baloise par document."""
+    """Le golden set 4.2 tient ses volumes, familles, provenances et réserves humaines."""
     cas = runner.charger_cas(runner.CASES_DIR)
-    assert {c.id for c in cas} == {
-        "g-luxtrust-prix", "s-bougie-canape", "b-bougie-canape", "b-congelateur",
-        "b-invite-cigarette",
+    guide = [c for c in cas if c.suite == "guide"]
+    sinistre = [c for c in cas if c.suite == "sinistre"]
+    parsing = [c for c in cas if c.suite == "parsing"]
+    assert len(guide) == 32
+    assert len(sinistre) == 14
+    assert len(parsing) == 10
+    assert sum(c.profile == "vertical" for c in cas) == 5
+    assert {c.famille for c in guide if c.profile == "full"} == {
+        "parcours", "meteo", "suivi", "multilingue", "trois_fiches", "hors_guide",
     }
-    assert {c.suite for c in cas} == {"guide", "sinistre"}
+    assert {c.famille for c in sinistre if c.profile == "full"} == {
+        "absurde", "multiple", "hors_habitation", "vide", "contradictoire",
+        "clairement_couvert", "sejour_temporaire", "chaleur_sans_incendie",
+        "telephone_vacances", "exclusion_animale",
+    }
+    meteo = [c for c in guide if c.famille == "meteo"]
+    assert {c.lang for c in meteo} == {"fr", "en", "de"}
+    assert any(c.famille == "telephone_vacances" for c in sinistre)
+    assert any("non_couvert" in c.expected.verdict for c in sinistre)
+    assert {c.doc_id for c in parsing} == {
+        "axa-lu-optihome-2017", "baloise-lu-home-2-2024",
+    }
     baloise = [c for c in cas if c.id.startswith("b-")]
     assert {c.doc_id for c in baloise} == {"baloise-lu-home-2-2024"}
     for c in cas:
-        assert c.profile == "vertical"
-        assert c.truth.source == "lecture_humaine"
         assert c.truth.validated_by_expert is False
-        assert c.truth.note.strip(), "un cas relu à la main sans note ne dit pas qui a relu quoi"
+        assert c.truth.countersigned_by is None
+        assert c.truth.note.strip()
         assert c.mode_attendu in runner.LABELS
+    references = runner.charger_references(cas, runner.REFERENCE_DIR)
+    assert len(references.files) == 2 and len(references.digest) == 64
+    brut_retraductions = yaml.safe_load((runner.REFERENCE_DIR / "retraductions.yaml").read_text("utf-8"))
+    controles = runner.FichierRetraduction.model_validate(brut_retraductions).references
+    assert all(not hasattr(controle, "retraduction_fr") for controle in controles)
+    assert all((runner.REPO_ROOT / controle.fixture).is_file() for controle in controles)
+    assert all(controle.resultat == "fidele" and controle.ecarts == []
+               and "due" in controle.reserve_signature for controle in controles)
+
+
+def test_les_cinq_verticaux_restent_byte_identiques() -> None:
+    attendus = {
+        "guide/g-luxtrust-prix.yaml": "f2e571839b87973ba6507343558a64cd2eb136c357f84f2fbe6e65cec78f58df",
+        "sinistre/s-bougie-canape.yaml": "2d571d64f7f275c4c80ae4d466b3a5ca2ea76bb7e201b076b865dd99977d4664",
+        "sinistre/baloise-lu-home-2-2024/b-bougie-canape.yaml": "6b98d6906df82d303c8a41c1226b07eebcfb50d84dc2b00144403f7cd92395aa",
+        "sinistre/baloise-lu-home-2-2024/b-congelateur.yaml": "89c243e258152d9aded0a33f9de48a5998704384867b15718c9be600b8ecde6f",
+        "sinistre/baloise-lu-home-2-2024/b-invite-cigarette.yaml": "a6e19c8872db005e4152594844c45608538660088c16ae4e0e6504208a8e15b8",
+    }
+    for relatif, attendu in attendus.items():
+        assert hashlib.sha256((runner.CASES_DIR / relatif).read_bytes()).hexdigest() == attendu
+
+
+def test_latest_ouvre_sur_la_reserve_non_experte_sans_inventer_de_run() -> None:
+    latest = (runner.REPO_ROOT / "docs" / "evals" / "latest.md").read_text(encoding="utf-8")
+    tete = "\n".join(latest.splitlines()[:6]).casefold()
+    assert "avertissement non expert" in tete
+    assert "aucun résultat live" in latest.casefold()
+    assert "ne fabrique donc aucun résultat courant" in latest.casefold()
 
 
 def test_quick_porte_les_ids_exacts_et_stables_du_depot() -> None:
     cas = runner.charger_cas(runner.CASES_DIR)
     assert [c.id for c in runner.selection_quick(cas)] == [
-        "b-bougie-canape", "g-luxtrust-prix", "s-bougie-canape"]
+        "b-bougie-canape", "g-arrivee-huit-jours", "p-axa-chaleur",
+        "p-baloise-acceptation", "s-absurde-chat-lune",
+    ]
 
 
 def test_un_champ_inconnu_est_refuse_en_nommant_le_fichier_et_le_champ(tmp_path: Path) -> None:
@@ -355,25 +415,169 @@ def test_les_profils_vertical_et_full_sont_livres() -> None:
     runner.refuser_ce_qui_nest_pas_livre([], "full")
 
 
-def test_la_suite_parsing_est_refusee_en_nommant_sa_story(tmp_path: Path) -> None:
-    """Matrice : « Suite non livrée ⇒ refus immédiat, code 2, “suite `parsing` : story 4.2” »."""
-    cas_parsing = CAS_GUIDE.replace("suite: guide", "suite: parsing")
-    racine = _cases_dir(tmp_path, autres={"parsing/p-page9.yaml": cas_parsing.format(
-        id="p-page9", profile="vertical", fiche=f"{GUIDE}:n1")})
-    with pytest.raises(runner.RefusDeTourner) as exc:
+def test_un_cas_parsing_exige_un_sous_dossier_documentaire(tmp_path: Path) -> None:
+    racine = _cases_dir(tmp_path, autres={"parsing/p-page9.yaml": "x: y\n"})
+    with pytest.raises(runner.RefusDeTourner, match="parsing/<doc_id>"):
         runner.charger_cas(racine)
-    assert "parsing" in str(exc.value) and "4.2" in str(exc.value)
 
 
-def test_une_suite_deposee_hors_des_suites_livrees_nest_pas_ignoree_en_silence(tmp_path: Path) -> None:
-    """`charger_cas` balaie **tous** les dossiers : un golden set muet est pire qu'un golden set rouge."""
+def test_un_parsing_invalide_nest_pas_ignore_en_silence(tmp_path: Path) -> None:
     racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
-    (racine / "parsing").mkdir()
-    (racine / "parsing" / "p-x.yaml").write_text(
-        CAS_GUIDE.replace("suite: guide", "suite: parsing").format(
-            id="p-x", profile="vertical", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+    (racine / "parsing" / GUIDE).mkdir(parents=True)
+    (racine / "parsing" / GUIDE / "p-x.yaml").write_text("id: p-x\nsuite: parsing\n", encoding="utf-8")
     with pytest.raises(runner.RefusDeTourner):
         runner.charger_cas(racine)
+
+
+def test_charger_la_suite_parsing_charge_recursivement_les_documents() -> None:
+    cas = runner.charger_cas(runner.CASES_DIR, suites=("parsing",))
+    assert len(cas) == 10
+    assert {c.doc_id for c in cas} == {"axa-lu-optihome-2017", "baloise-lu-home-2-2024"}
+
+
+def _cas_parsing(block_id: str, text_norm: str) -> runner.Cas:
+    cas = runner.Cas.model_validate({
+        "id": "p-test", "suite": "parsing", "profile": "full", "question": "lecture",
+        "scenario": "test local", "famille": "definition",
+        "expected": {"found": True, "block_ids": [block_id], "text_norm": text_norm},
+        "mode_attendu": "bonne_reponse",
+        "truth": {"source": "lecture_humaine", "validated_by_expert": False,
+                  "countersigned_by": None, "note": "fixture locale"},
+    })
+    cas._doc_id = GUIDE
+    return cas
+
+
+def test_parsing_exact_divergent_et_bloc_absent_portent_les_trois_labels() -> None:
+    ctx = _contexte([])
+    block_id = f"{GUIDE}:ffiche:1"
+    exact = runner.executer_parsing(_cas_parsing(block_id, normalize(TEXTE_GUIDE)), ctx, doc_id=GUIDE)
+    divergent = runner.executer_parsing(
+        _cas_parsing(block_id, "transcription visuelle differente"), ctx, doc_id=GUIDE)
+    absent = runner.executer_parsing(
+        _cas_parsing(f"{GUIDE}:p404:1", "bloc attendu mais absent"), ctx, doc_id=GUIDE)
+
+    assert exact.label == "bonne_reponse" and exact.ok
+    assert divergent.label == "parsing" and "index" in divergent.ecarts[0]
+    assert absent.label == "citation_introuvable" and "absent" in absent.ecarts[0]
+    assert all(r.variant == "local" and r.cost_eur == r.cost_eur_original == 0.0 and r.ms == 0
+               for r in (exact, divergent, absent))
+
+    rapport_exact = runner.construire_rapport(
+        [exact], [_cas_parsing(block_id, normalize(TEXTE_GUIDE))], cases_dir=Path("/absent"),
+        profile="full", max_cost_eur=0.01, complete=True,
+        snapshot=runner.CasesSnapshot("miniature-exacte"))
+    assert rapport_exact["metrics"]["recall"] == 1.0
+
+
+def test_parsing_cross_document_est_introuvable_et_found_false() -> None:
+    ctx = _contexte([])
+    cas = _cas_parsing(f"{CONTRAT}:p34:1", normalize(TEXTE_CONTRAT))
+    resultat = runner.executer_parsing(cas, ctx, doc_id=GUIDE)
+    assert resultat.label == "citation_introuvable"
+    assert resultat.found is False
+    assert CONTRAT in resultat.ecarts[0] and GUIDE in resultat.ecarts[0]
+
+
+def test_parsing_reel_tourne_sans_cle_client_ni_fournisseur(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(runner, "LlmClient", _interdit)
+    sortie = tmp_path / "parsing.json"
+    code = runner.main([
+        "--suite", "parsing", "--profile", "full", "--max-cost", "0.01",
+        "--output-json", str(sortie), "--output-markdown", str(tmp_path / "parsing.md"),
+    ])
+    assert code == 1
+    rapport = json.loads(sortie.read_text(encoding="utf-8"))
+    assert rapport["cases_completed"] == 10
+    assert rapport["cost_eur"] == rapport["cost_eur_original"] == 0.0
+    assert rapport["metrics"]["variants"] == {"local": 10}
+    assert rapport["metrics"]["labels"]["bonne_reponse"] == 7
+    assert rapport["metrics"]["labels"]["parsing"] == 3
+    assert rapport["metrics"]["recall"] == 0.7
+    assert {r["id"] for r in rapport["results"] if r["label"] == "parsing"} == {
+        "p-baloise-acceptation", "p-baloise-obligations", "p-baloise-rc-chiens",
+    }
+
+
+def test_les_compagnons_modifient_lidentite_et_sont_figes_pendant_le_run(tmp_path: Path) -> None:
+    cas = runner.charger_cas(runner.CASES_DIR, suites=("guide",))[:1]
+    reference = tmp_path / "utilite.yaml"
+    reference.write_text("version: 1\n", encoding="utf-8")
+    contenu = reference.read_bytes()
+    references = runner.ReferencesSnapshot(
+        "digest", tmp_path, {reference: contenu}, (reference.name,))
+    avant = runner.snapshot_cas(cas, runner.CASES_DIR, references)
+    reference.write_text("version: 2\n", encoding="utf-8")
+    contenu_apres = reference.read_bytes()
+    apres = runner.snapshot_cas(cas, runner.CASES_DIR, runner.ReferencesSnapshot(
+        "digest-2", tmp_path, {reference: contenu_apres}, (reference.name,)))
+    assert avant.cases_hash != apres.cases_hash
+    with pytest.raises(runner.IncidentTechnique, match="modifiés pendant le run"):
+        runner.verifier_snapshot_cas(avant)
+
+
+def test_une_apparition_dans_un_dossier_snapshotte_est_detectee(tmp_path: Path) -> None:
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    cas = runner.charger_cas(cases, suites=("guide",))
+    snapshot = runner.snapshot_cas(cas, cases)
+    (cases / "guide" / "nouveau.yaml").write_text("invalide: vrai\n", encoding="utf-8")
+    with pytest.raises(runner.IncidentTechnique, match="contenu de dossiers modifié"):
+        runner.verifier_snapshot_cas(snapshot)
+
+
+def test_references_absentes_symlink_hors_racine_et_items_blancs_sont_refuses(
+        tmp_path: Path) -> None:
+    cas = runner.charger_cas(runner.CASES_DIR)
+    with pytest.raises(runner.RefusDeTourner, match="dossier de références absent"):
+        runner.charger_references(cas, tmp_path / "absent")
+
+    reference_dir = tmp_path / "reference"
+    reference_dir.mkdir()
+    dehors = tmp_path / "dehors.yaml"
+    dehors.write_text("kind: utilite_guide\nversion: 1\nreferences: []\n", encoding="utf-8")
+    (reference_dir / "utilite.yaml").symlink_to(dehors)
+    with pytest.raises(runner.RefusDeTourner, match="compagnon invalide"):
+        runner.charger_references(cas, reference_dir)
+
+    with pytest.raises(runner.ValidationError):
+        runner.ReferenceUtilite.model_validate({
+            "case_id": "g", "ordre_juste": ["  "], "documents_cites": ["doc"],
+            "interlocuteur": "x", "provenance": "x", "countersigned_by": None,
+        })
+
+
+def test_les_references_ne_peuvent_pas_cibler_une_mauvaise_suite(tmp_path: Path) -> None:
+    cas = runner.charger_cas(runner.CASES_DIR)
+    reference_dir = tmp_path / "reference"
+    reference_dir.mkdir()
+    utilite = (runner.REFERENCE_DIR / "utilite-guide.yaml").read_text("utf-8")
+    utilite = utilite.replace("case_id: g-luxtrust-prix", "case_id: s-bougie-canape", 1)
+    (reference_dir / "utilite.yaml").write_text(utilite, encoding="utf-8")
+    (reference_dir / "retraductions.yaml").write_bytes(
+        (runner.REFERENCE_DIR / "retraductions.yaml").read_bytes())
+    with pytest.raises(runner.RefusDeTourner, match="cible doit être guide"):
+        runner.charger_references(cas, reference_dir)
+
+    (reference_dir / "utilite.yaml").write_bytes(
+        (runner.REFERENCE_DIR / "utilite-guide.yaml").read_bytes())
+    retraductions = (runner.REFERENCE_DIR / "retraductions.yaml").read_text("utf-8")
+    (reference_dir / "retraductions.yaml").write_text(
+        retraductions.replace("case_id: g-lang-en-arrivee", "case_id: g-meteo-demain", 1),
+        encoding="utf-8")
+    with pytest.raises(runner.RefusDeTourner, match="guide/full/multilingue"):
+        runner.charger_references(cas, reference_dir)
+
+
+def test_une_famille_full_absente_non_trimee_ou_inconnue_est_refusee() -> None:
+    cas = next(c for c in runner.charger_cas(runner.CASES_DIR)
+               if c.suite == "guide" and c.profile == "full")
+    brut = cas.model_dump(mode="json")
+    for famille in ("", " parcours ", "echappatoire"):
+        brut_mute = {**brut, "famille": famille}
+        with pytest.raises(runner.ValidationError, match="famille"):
+            runner.Cas.model_validate(brut_mute)
 
 
 # --- la clé (AD-14) ------------------------------------------------------
@@ -408,8 +612,9 @@ def test_main_full_quick_planifie_seulement_les_ids_stables(
     assert runner.main(["--profile", "full", "--quick", "--dry-run"]) == 0
 
     sortie = capsys.readouterr().out
-    assert "cas=3" in sortie
-    assert "ids=b-bougie-canape,g-luxtrust-prix,s-bougie-canape" in sortie
+    assert "cas=5" in sortie
+    assert ("ids=b-bougie-canape,g-arrivee-huit-jours,p-axa-chaleur,"
+            "p-baloise-acceptation,s-absurde-chat-lune") in sortie
 
 
 def _interdit(*args: Any, **kw: Any) -> Any:
@@ -549,6 +754,22 @@ def test_un_refus_attendu_et_obtenu_na_aucun_ecart() -> None:
     cas = _cas(expected={"found": False, "refusal": True}, mode_attendu="bonne_reponse")
     label, ecarts = runner.juger(cas, _refus(), doc_id=GUIDE, index=index)
     assert label == "bonne_reponse" and ecarts == []
+
+
+def test_une_clarification_attendue_nest_pas_assimilee_a_un_refus() -> None:
+    _corpus_, index = _corpus()
+    answer = Answer(
+        found=False, complete=False, texte="",
+        reason=AbsenceProof(kind="clarification_requise"),
+        clarification="De quel sujet parlez-vous ?",
+    )
+    clarification = _cas(expected={"found": False, "clarification": True})
+    label, ecarts = runner.juger(clarification, answer, doc_id=GUIDE, index=index)
+    assert label == "bonne_reponse" and ecarts == []
+
+    refus = _cas(expected={"found": False, "refusal": True})
+    _label, ecarts_refus = runner.juger(refus, answer, doc_id=GUIDE, index=index)
+    assert "refus justifié=False (attendu True)" in ecarts_refus
 
 
 def test_un_label_different_du_mode_attendu_est_un_ecart() -> None:
@@ -1255,7 +1476,7 @@ def test_gate_et_quick_sont_exclusifs_avant_pipeline(
 
 @pytest.mark.parametrize("collision", [
     "sorties-identiques", "sortie-dans-cases", "sortie-ancetre-data",
-    "cache-dans-data", "cases-dans-data", "cache-egale-cases",
+    "cache-dans-data", "cases-dans-data", "cache-egale-cases", "sortie-dans-reference",
 ])
 def test_tous_les_chevauchements_de_chemins_sont_refuses(
         collision: str, tmp_path: Path) -> None:
@@ -1267,6 +1488,7 @@ def test_tous_les_chevauchements_de_chemins_sont_refuses(
         "output_json": tmp_path / "r.json",
         "output_markdown": tmp_path / "r.md",
         "cases_dir": cases,
+        "reference_dir": tmp_path / "reference",
         "data_dir": data,
         "cache_dir": tmp_path / "cache",
     }
@@ -1282,6 +1504,8 @@ def test_tous_les_chevauchements_de_chemins_sont_refuses(
         valeurs["cases_dir"] = data / "cases"
     elif collision == "cache-egale-cases":
         valeurs["cache_dir"] = cases
+    elif collision == "sortie-dans-reference":
+        valeurs["output_json"] = valeurs["reference_dir"] / "r.json"
     with pytest.raises(runner.RefusDeTourner, match="collision"):
         runner.valider_chemins(**valeurs)
 
@@ -1297,6 +1521,7 @@ def test_une_sortie_existante_comme_repertoire_est_refusee(
     valeurs = {
         "output_json": tmp_path / "r.json", "output_markdown": tmp_path / "r.md",
         "cases_dir": cases, "data_dir": data, "cache_dir": cache,
+        "reference_dir": tmp_path / "reference",
     }
     valeurs[sortie] = repertoire
     with pytest.raises(runner.RefusDeTourner, match="répertoire"):
@@ -1414,6 +1639,80 @@ def test_suite_et_gate_contradictoires_sont_refuses(tmp_path: Path,
 
 def test_un_cas_inconnu_est_refuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert _main(tmp_path, ["--case", "n-existe-pas"], monkeypatch) == 2
+
+
+def test_suite_sinistre_selectionne_axa_et_tous_les_documents(
+        capsys: pytest.CaptureFixture[str]) -> None:
+    assert runner.main(["--suite", "sinistre", "--profile", "full", "--dry-run"]) == 0
+    sortie = capsys.readouterr().out
+    assert "cas=14" in sortie
+    assert "s-telephone-vacances" in sortie
+    assert "b-congelateur" in sortie
+
+
+def test_un_case_parsing_sans_suite_resout_avant_la_cle(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(runner, "LlmClient", _interdit)
+    code = runner.main([
+        "--case", "p-axa-chaleur", "--profile", "full", "--max-cost", "0.01",
+        "--output-json", str(tmp_path / "p.json"),
+        "--output-markdown", str(tmp_path / "p.md"),
+    ])
+    assert code == 0
+
+
+def test_un_lot_mixte_garde_lexigence_de_cle(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(runner, "construire_contexte", _interdit)
+    assert runner.main(["--profile", "full", "--max-cost", "0.01"]) == 2
+
+
+def test_execution_full_mixte_hors_ligne_et_digest_references_reel(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    parsing_dir = cases / "parsing" / GUIDE
+    parsing_dir.mkdir(parents=True)
+    parsing_dir.joinpath("p-mini.yaml").write_text(
+        "id: p-mini\nsuite: parsing\nprofile: full\nquestion: lecture locale\n"
+        "scenario: miniature exacte\nfamille: definition\n"
+        f"expected:\n  found: true\n  block_ids: [{GUIDE}:ffiche:1]\n"
+        f"  text_norm: {normalize(TEXTE_GUIDE)!r}\n"
+        "mode_attendu: bonne_reponse\ntruth:\n  source: lecture_humaine\n"
+        "  countersigned_by: null\n  validated_by_expert: false\n"
+        "  note: La boucle a préparé la miniature locale ; la contresignature humaine reste due.\n",
+        encoding="utf-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    sinistre = (_reponse(
+        [_claim(_citation(index, f"{CONTRAT}:p34:1", "mobilier assuré"))],
+        verdict=Verdict(value="sous_conditions", reason="r")), _trace("sinistre"))
+
+    def run_once() -> dict[str, Any]:
+        _COURANT["guide"] = DoublePipeline([guide])
+        _COURANT["sinistre"] = DoublePipeline([sinistre])
+        assert runner.main([
+            "--profile", "full", "--max-cost", "1", "--cases-dir", str(cases),
+            "--data-dir", str(data), "--output-json", str(tmp_path / "mixte.json"),
+            "--output-markdown", str(tmp_path / "mixte.md"),
+        ]) == 0
+        return json.loads((tmp_path / "mixte.json").read_text("utf-8"))
+
+    premier = run_once()
+    assert {r["suite"] for r in premier["results"]} == {"guide", "sinistre", "parsing"}
+    digest_1 = premier["identity"]["scope"]["references_digest"]
+    assert digest_1 == runner.charger_references(
+        runner.charger_cas(cases), tmp_path / "reference").digest
+    utilite = tmp_path / "reference" / "utilite.yaml"
+    utilite.write_text(utilite.read_text("utf-8").replace(
+        "fixture locale", "fixture locale relue"), encoding="utf-8")
+    second = run_once()
+    assert second["identity"]["scope"]["references_digest"] != digest_1
 
 
 # --- convention Couches ---------------------------------------------------
@@ -1573,6 +1872,14 @@ def test_le_profil_full_inclut_vertical_et_full_en_dry_run(
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     (cases / "guide" / "g-plus-tard.yaml").write_text(
         CAS_GUIDE.format(id="g-plus-tard", profile="full", fiche=f"{GUIDE}:n1"), encoding="utf-8")
+    utilite = tmp_path / "reference" / "utilite.yaml"
+    utilite.write_text(utilite.read_text("utf-8") + (
+        "  - case_id: g-plus-tard\n"
+        "    ordre_juste: [Lire la fiche]\n"
+        "    documents_cites: [Fiche miniature]\n"
+        "    interlocuteur: LuxTrust\n"
+        "    provenance: fixture locale\n"
+        "    countersigned_by: null\n"), encoding="utf-8")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
     _COURANT["guide"] = DoublePipeline([])

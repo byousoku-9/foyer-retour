@@ -1,0 +1,14 @@
+id: g-lang-en-ecole
+suite: guide
+profile: full
+question: "Where do I register my children for school in Luxembourg?"
+lang: en
+scenario: "multilingue — école en anglais"
+famille: multilingue
+expected: {found: true, fiche_ids: ["lux-guide:fecole"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte du contrôle enregistré test_langues_live ; signature Lancelot due."

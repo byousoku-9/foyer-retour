@@ -1,0 +1,14 @@
+id: g-vehicule-immatriculer
+suite: guide
+profile: full
+question: "Comment immatriculer mon véhicule ?"
+lang: fr
+scenario: "parcours réel — véhicule dans les trente jours"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fvehicule"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q19 ; attente établie par lecture de la fiche véhicule."

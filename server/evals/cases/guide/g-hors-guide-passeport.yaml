@@ -1,0 +1,14 @@
+id: g-hors-guide-passeport
+suite: guide
+profile: full
+question: "Peux-tu renouveler mon passeport français à ma place ?"
+lang: fr
+scenario: "hors guide — action administrative impossible"
+famille: hors_guide
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du corpus pour cette sonde sans mandat administratif ; la contresignature humaine reste due."

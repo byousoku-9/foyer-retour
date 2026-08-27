@@ -293,10 +293,11 @@ def _exiger(condition: bool, message: str) -> None:
 
 
 def _lire_cas(dossier: Path, doc_id: str) -> CasTemoin:
-    """Le cas unique de la suite, lu **strictement**.
+    """L'unique cas ``vertical`` de la suite, lu **strictement**.
 
-    Deux cas, ou zéro, sont un refus : le smoke rejoue le cas témoin de la suite, il n'en désigne pas
-    un parmi plusieurs. Et chaque champ consommé est contrôlé dans sa forme plutôt que converti : le
+    Deux cas verticaux, ou zéro, sont un refus : le smoke rejoue le témoin du gate vertical et ne
+    choisit jamais parmi plusieurs. Les cas ``full`` peuvent partager le dossier sans changer ce
+    smoke de déploiement. Chaque champ consommé est contrôlé dans sa forme plutôt que converti : le
     contre-exemple qui a motivé cette dureté est `expected.verdict: sous_conditions` écrit en scalaire
     — `tuple(...)` en aurait fait un tuple de onze caractères, dans lequel aucun verdict réel ne
     figure, et **tout** déploiement sain serait reparti rouge. `server/evals/run.py` valide ces mêmes
@@ -306,15 +307,25 @@ def _lire_cas(dossier: Path, doc_id: str) -> CasTemoin:
     if not dossier.is_dir():
         raise ErreurTransport(f"{dossier} : dossier de cas témoins absent")
     fichiers = sorted(dossier.glob("*.yaml"))
-    _exiger(len(fichiers) == 1,
-            f"{dossier} contient {len(fichiers)} cas : le smoke rejoue le cas témoin de la suite, "
-            f"il n'en désigne pas un parmi plusieurs (élargir le smoke, ou le laisser refuser)")
-    fichier = fichiers[0]
-    try:
-        brut = yaml.safe_load(fichier.read_text("utf-8"))
-    except (OSError, yaml.YAMLError) as e:
-        raise ErreurTransport(f"{fichier} illisible : {e}") from e
-    _exiger(isinstance(brut, dict), f"{fichier} : la racine du cas doit être une table YAML")
+    charges: list[tuple[Path, dict[str, Any]]] = []
+    for candidat in fichiers:
+        try:
+            valeur = yaml.safe_load(candidat.read_text("utf-8"))
+        except (OSError, yaml.YAMLError) as e:
+            raise ErreurTransport(f"{candidat} illisible : {e}") from e
+        _exiger(isinstance(valeur, dict),
+                f"{candidat} : la racine du cas doit être une table YAML")
+        # Les anciens tests unitaires sans `profile` décrivent le contrat historique vertical.
+        # Les YAML du dépôt, eux, le déclarent tous explicitement.
+        profile = valeur.get("profile", "vertical")
+        _exiger(isinstance(profile, str) and profile in {"vertical", "full"},
+                f"{candidat} : `profile` doit valoir `vertical` ou `full`")
+        if profile == "vertical":
+            charges.append((candidat, valeur))
+    _exiger(len(charges) == 1,
+            f"{dossier} contient {len(charges)} cas vertical : le smoke rejoue l'unique témoin "
+            "du gate vertical, il n'en désigne pas un parmi plusieurs")
+    fichier, brut = charges[0]
 
     _exiger(isinstance(brut.get("id"), str) and bool(brut["id"].strip()),
             f"{fichier} : `id` doit être une chaîne non vide")

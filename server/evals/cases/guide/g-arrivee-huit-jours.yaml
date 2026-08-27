@@ -1,0 +1,14 @@
+id: g-arrivee-huit-jours
+suite: guide
+profile: full
+question: "Dans quel délai dois-je me déclarer à la commune ?"
+lang: fr
+scenario: "parcours réel — déclaration d'arrivée"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:farrivee"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q12 et épreuve produit n°3 ; le corpus porte huit jours."

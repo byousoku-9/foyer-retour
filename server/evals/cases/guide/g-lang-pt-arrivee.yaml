@@ -1,0 +1,14 @@
+id: g-lang-pt-arrivee
+suite: guide
+profile: full
+question: "Quanto tempo tenho para declarar a minha chegada à comuna?"
+lang: pt
+scenario: "multilingue — arrivée en portugais"
+famille: multilingue
+expected: {found: true, fiche_ids: ["lux-guide:farrivee"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte du contrôle enregistré test_langues_live ; signature Lancelot due."

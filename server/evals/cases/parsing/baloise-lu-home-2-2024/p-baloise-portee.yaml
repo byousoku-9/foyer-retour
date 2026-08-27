@@ -1,0 +1,17 @@
+id: p-baloise-portee
+suite: parsing
+profile: full
+question: "Transcription visuelle Baloise — portée territoriale page 10"
+scenario: "page Baloise rendue — portée"
+famille: portee
+expected:
+  found: true
+  block_ids: ["baloise-lu-home-2-2024:p10:13"]
+  text_norm: >-
+    les garanties s'exercent au lieu d'assurance indiquee dans vos conditions particulieres sauf pour les garanties et packs : "vol / agression sur la personne", "objets precieux / bijoux", "multimedia nomades", "objets de loisirs" et "equipements de mobilite durable". les garanties et packs : "vol / agression sur la personne", "objets precieux / bijoux", "multimedia nomades", "objets de loisirs", "equipements de mobilite durable" et la garantie "responsabilite civile vie privee" s'exercent dans le monde entier pour des sejours prives d'une duree globale inferieure ou egale a 12 mois, renouvelable apres un sejour au grandduche du luxembourg de plus de 60 jours consecutifs. cas particulier du "logement etudiant"
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture visuelle locale de la page 10 ; la contresignature humaine reste due."

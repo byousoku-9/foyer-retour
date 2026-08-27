@@ -1,0 +1,18 @@
+id: b-clairement-couvert-degat-eau
+suite: sinistre
+profile: full
+question: "Quelles clauses du contrat HOME faut-il appliquer ?"
+lang: fr
+scenario: "robustesse — événement clairement couvert à instruire"
+famille: clairement_couvert
+faits:
+  date: "2026-08-20"
+  lieu: "cuisine du domicile assuré"
+  description: "Une canalisation encastrée a rompu soudainement et l'eau a endommagé le mur et le mobilier."
+expected: {found: true, verdict: [couvert, sous_conditions], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du contrat Baloise pour ce cas ; la contresignature humaine reste due et aucune expertise juridique n'est affirmée."

@@ -1,0 +1,14 @@
+id: g-bail-caution
+suite: guide
+profile: full
+question: "Quelle caution peut me demander un bailleur ?"
+lang: fr
+scenario: "parcours réel — signature du bail"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fbail"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q15 ; attente établie par lecture de la fiche bail."

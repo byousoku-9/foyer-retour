@@ -1,0 +1,14 @@
+id: g-meteo-aujourdhui
+suite: guide
+profile: full
+question: "Il fait quel temps aujourd'hui ?"
+lang: fr
+scenario: "météo — question directe hors corpus"
+famille: meteo
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth: &meteo_truth
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°4 ; le guide ne fournit aucune météo temps réel."

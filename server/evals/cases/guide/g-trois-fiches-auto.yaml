@@ -1,0 +1,18 @@
+id: g-trois-fiches-auto
+suite: guide
+profile: full
+question: "Je viens avec ma voiture : que faire pour le permis, l'immatriculation et l'assurance auto ?"
+lang: fr
+profil: {vehicule: "Oui"}
+scenario: "trois fiches — mobilité complète"
+famille: trois_fiches
+expected:
+  found: true
+  fiche_ids: ["lux-guide:fpermis", "lux-guide:fvehicule", "lux-guide:fassurance_auto"]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture des FAQ q18/q19 et de la fiche assurance auto ; la contresignature humaine reste due."

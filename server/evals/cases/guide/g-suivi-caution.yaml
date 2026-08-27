@@ -1,0 +1,17 @@
+id: g-suivi-caution
+suite: guide
+profile: full
+question: "Et combien peut-il me demander ?"
+lang: fr
+historique:
+  - {role: user, texte: "Je vais signer un bail de location."}
+  - {role: assistant, texte: "Vérifiez notamment la caution demandée par le bailleur."}
+scenario: "suivi — bailleur résolu par l'historique"
+famille: suivi
+expected: {found: true, fiche_ids: ["lux-guide:fbail"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du suivi consigné en story 2.2 ; la contresignature humaine reste due."

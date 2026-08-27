@@ -1,0 +1,14 @@
+id: g-permis-europeen
+suite: guide
+profile: full
+question: "Puis-je conduire avec mon permis européen ?"
+lang: fr
+scenario: "parcours réel — mobilité après l'arrivée"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fpermis"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q18 ; attente documentaire non experte."

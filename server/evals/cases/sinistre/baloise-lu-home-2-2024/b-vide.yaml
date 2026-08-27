@@ -1,0 +1,15 @@
+id: b-vide
+suite: sinistre
+profile: full
+question: "Que faut-il faire ?"
+lang: fr
+scenario: "robustesse — faits vides"
+famille: vide
+faits: {description: ""}
+expected: {found: false, clarification: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé ce cas vide demandé par l'AC et la lecture des témoins de clarification ; la contresignature humaine reste due."

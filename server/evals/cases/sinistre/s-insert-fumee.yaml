@@ -1,0 +1,17 @@
+id: s-insert-fumee
+suite: sinistre
+profile: full
+question: "Quels dommages faut-il regarder ?"
+lang: fr
+scenario: "sinistre nommé — chaleur sans incendie"
+famille: chaleur_sans_incendie
+faits:
+  lieu: "salon du domicile assuré"
+  description: "La vitre de l'insert a éclaté toute seule et la fumée a noirci le salon, sans incendie."
+expected: {found: true, verdict: [sous_conditions, ne_tranche_pas], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°16 ; verdict prudent et limite de portée dus."

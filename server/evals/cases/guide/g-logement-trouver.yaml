@@ -1,0 +1,14 @@
+id: g-logement-trouver
+suite: guide
+profile: full
+question: "Comment trouver un logement au Luxembourg ?"
+lang: fr
+scenario: "parcours réel — recherche du logement"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:frecherche_logement"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°2, reliée à la FAQ q16 ; contresignature due."

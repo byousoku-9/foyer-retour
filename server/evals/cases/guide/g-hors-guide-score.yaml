@@ -1,0 +1,14 @@
+id: g-hors-guide-score
+suite: guide
+profile: full
+question: "Qui a gagné le match du Luxembourg hier ?"
+lang: fr
+scenario: "hors guide — actualité sportive"
+famille: hors_guide
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture de la sonde hors périmètre d'epreuves.md ; la contresignature humaine reste due."

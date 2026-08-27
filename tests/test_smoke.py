@@ -887,13 +887,33 @@ def test_un_found_absent_est_refuse_plutot_que_devine(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("nombre", [0, 2])
 def test_zero_ou_deux_cas_sont_un_refus(tmp_path: Path, nombre: int) -> None:
-    """Le smoke rejoue *le* cas témoin de la suite ; il n'en désigne pas un parmi plusieurs."""
+    """Le smoke rejoue l'unique cas vertical ; il n'en désigne pas un parmi plusieurs."""
     import scripts.smoke as smoke
 
     tmp_path.mkdir(parents=True, exist_ok=True)
     for i in range(nombre):
         (tmp_path / f"cas-{i}.yaml").write_text(CAS_VALIDE, encoding="utf-8")
-    with pytest.raises(ErreurTransport, match=f"contient {nombre} cas"):
+    with pytest.raises(ErreurTransport, match=f"contient {nombre} cas vertical"):
+        smoke._lire_cas(tmp_path, "lux-guide")
+
+
+def test_les_cas_full_ne_masquent_pas_le_témoin_vertical(tmp_path: Path) -> None:
+    import scripts.smoke as smoke
+
+    _ecrire_cas(tmp_path, "profile: vertical\n" + CAS_VALIDE)
+    (tmp_path / "full.yaml").write_text(
+        "profile: full\n" + CAS_VALIDE.replace("id: c-1", "id: c-full"), encoding="utf-8")
+    assert smoke._lire_cas(tmp_path, "lux-guide").id == "c-1"
+
+
+@pytest.mark.parametrize("profile", ["inconnu", "3"])
+def test_un_profile_inconnu_ou_non_chaine_est_refuse(tmp_path: Path, profile: str) -> None:
+    import scripts.smoke as smoke
+
+    valeur = profile if profile == "inconnu" else "3"
+    brut = f"profile: {valeur}\n" + CAS_VALIDE
+    _ecrire_cas(tmp_path, brut)
+    with pytest.raises(ErreurTransport, match="profile"):
         smoke._lire_cas(tmp_path, "lux-guide")
 
 

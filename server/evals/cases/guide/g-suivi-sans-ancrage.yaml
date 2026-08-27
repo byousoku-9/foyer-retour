@@ -1,0 +1,14 @@
+id: g-suivi-sans-ancrage
+suite: guide
+profile: full
+question: "Et pour eux, je fais comment ?"
+lang: fr
+scenario: "suivi — anaphore sans historique"
+famille: suivi
+expected: {found: false, clarification: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Forme issue du témoin tests/test_suivi_live.py : sans historique, une clarification est due."

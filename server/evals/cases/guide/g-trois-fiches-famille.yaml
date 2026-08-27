@@ -1,0 +1,18 @@
+id: g-trois-fiches-famille
+suite: guide
+profile: full
+question: "Pour mes enfants, comment enchaîner école, garde et allocations familiales ?"
+lang: fr
+profil: {enfants: "2"}
+scenario: "trois fiches — famille avec enfants"
+famille: trois_fiches
+expected:
+  found: true
+  fiche_ids: ["lux-guide:fecole", "lux-guide:fgarde", "lux-guide:fallocations"]
+  refusal: false
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture des FAQ q31/q32/q33 et du profil famille ; la contresignature humaine reste due."

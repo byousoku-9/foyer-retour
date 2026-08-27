@@ -1,0 +1,17 @@
+id: s-contradictoire-vol
+suite: sinistre
+profile: full
+question: "Le vol est-il couvert dans ces circonstances ?"
+lang: fr
+scenario: "robustesse — faits contradictoires"
+famille: contradictoire
+faits:
+  lieu: "domicile assuré"
+  description: "La porte était fermée, enfin je crois, mais aucune trace d'effraction et l'ordinateur a disparu."
+expected: {found: true, verdict: [sous_conditions, ne_tranche_pas], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°10 ; l'incertitude ne doit pas être gommée."

@@ -1,0 +1,14 @@
+id: g-meteo-demain
+suite: guide
+profile: full
+question: "Will it rain tomorrow in Luxembourg?"
+lang: en
+scenario: "météo — horizon futur"
+famille: meteo
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du témoin météo consigné, sans donnée temps réel ; la contresignature humaine reste due."

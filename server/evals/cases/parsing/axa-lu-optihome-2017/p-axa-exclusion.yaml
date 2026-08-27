@@ -1,0 +1,17 @@
+id: p-axa-exclusion
+suite: parsing
+profile: full
+question: "Transcription visuelle AXA — exclusion page 46"
+scenario: "page AXA relue — exclusion"
+famille: exclusion
+expected:
+  found: true
+  block_ids: ["axa-lu-optihome-2017:p46:1"]
+  text_norm: >-
+    pour les extensions mentionnees aux points 3.1.8.3, 3.1.8.4, 3.1.8.5 et 3.1.8.6, les degats occasionnes au batiment par un evenement soudain, resultant de l'action subite de la chaleur ou par le contact direct et immediat avec un foyer ou une substance incandescente, sont exclus en l'absence d'embrasement ou de commencement d'incendie.
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Transcription exacte de tests/data/axa/p46-exclusion.txt, relue sur la page 46."

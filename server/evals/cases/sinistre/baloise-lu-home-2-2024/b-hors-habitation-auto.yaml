@@ -1,0 +1,17 @@
+id: b-hors-habitation-auto
+suite: sinistre
+profile: full
+question: "Mon contrat HOME couvre-t-il ce dommage automobile ?"
+lang: fr
+scenario: "robustesse — hors habitation"
+famille: hors_habitation
+faits:
+  lieu: "parking public"
+  description: "J'ai rayé seule la portière de ma voiture en sortant d'une place de stationnement."
+expected: {found: false, refusal: true}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture du périmètre HOME pour cette sonde ; la contresignature humaine reste due."

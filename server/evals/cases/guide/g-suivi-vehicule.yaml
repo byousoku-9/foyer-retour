@@ -1,0 +1,17 @@
+id: g-suivi-vehicule
+suite: guide
+profile: full
+question: "Et pour l'immatriculer ?"
+lang: fr
+historique:
+  - {role: user, texte: "Je viens avec ma voiture au Luxembourg."}
+  - {role: assistant, texte: "Votre véhicule entraîne plusieurs démarches locales."}
+scenario: "suivi — objet véhicule résolu par l'historique"
+famille: suivi
+expected: {found: true, fiche_ids: ["lux-guide:fvehicule"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture de la formulation FAQ q19 consignée ; la contresignature humaine reste due."

@@ -1,0 +1,14 @@
+id: g-commune-choix
+suite: guide
+profile: full
+question: "Comment choisir ma commune ?"
+lang: fr
+scenario: "parcours réel — choisir le lieu d'installation"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fchoisir_commune"], refusal: false}
+mode_attendu: bonne_reponse
+truth: &truth
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q1 et épreuve produit n°1 ; contresignature humaine due."

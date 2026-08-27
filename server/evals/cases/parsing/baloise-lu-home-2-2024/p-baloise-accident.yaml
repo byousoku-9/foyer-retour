@@ -1,0 +1,17 @@
+id: p-baloise-accident
+suite: parsing
+profile: full
+question: "Transcription visuelle Baloise — définition accident page 3"
+scenario: "page Baloise rendue — définition"
+famille: definition
+expected:
+  found: true
+  block_ids: ["baloise-lu-home-2-2024:p3:6"]
+  text_norm: >-
+    evenement soudain et imprevisible qui entraine l'alteration d'un bien et ayant pour resultat une perte de valeur ou une perte du bien.
+mode_attendu: bonne_reponse
+truth: &baloise_truth
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "La boucle a préparé la lecture visuelle locale de la page 3 ; la contresignature humaine reste due."

@@ -1,0 +1,17 @@
+id: p-baloise-rc-chiens
+suite: parsing
+profile: full
+question: "Transcription visuelle Baloise — responsabilité chiens page 30"
+scenario: "page Baloise rendue — responsabilité civile"
+famille: responsabilite
+expected:
+  found: true
+  block_ids: ["baloise-lu-home-2-2024:p30:6"]
+  text_norm: >-
+    nous garantissons, dans la limite prevue dans votre tableau des garanties, les consequences pecuniaires de votre responsabilite civile resultant : des dommages accidentels causes a autrui par les chiens relevant de la definition "chiens dangereux" dont vous etes proprietaire ou dont vous avez la garde.
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Lecture visuelle préparée par la boucle sur la colonne gauche de la page 30 rendue ; l'interleaving équidés du bloc ingéré est volontairement exclu. Contresignature humaine due."

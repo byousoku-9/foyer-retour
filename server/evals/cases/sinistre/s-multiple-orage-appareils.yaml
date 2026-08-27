@@ -1,0 +1,17 @@
+id: s-multiple-orage-appareils
+suite: sinistre
+profile: full
+question: "La nourriture perdue compte aussi ou seulement les appareils ?"
+lang: fr
+scenario: "robustesse — dommages multiples"
+famille: multiple
+faits:
+  lieu: "domicile assuré"
+  description: "L'orage a grillé la télé et le congélateur ; les appareils et les aliments sont endommagés."
+expected: {found: true, verdict: [sous_conditions, ne_tranche_pas], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte de l'épreuve produit n°11 ; plusieurs facettes doivent rester visibles."

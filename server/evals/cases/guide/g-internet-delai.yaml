@@ -1,0 +1,14 @@
+id: g-internet-delai
+suite: guide
+profile: full
+question: "Combien de temps pour avoir internet ?"
+lang: fr
+scenario: "parcours réel — mise en service du logement"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:ftelecom"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q35 ; attente établie par lecture de la fiche télécom."

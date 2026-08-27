@@ -1,0 +1,14 @@
+id: g-assurance-habitation-quand
+suite: guide
+profile: full
+question: "Quand dois-je souscrire l'assurance habitation ?"
+lang: fr
+scenario: "parcours réel — assurer le logement avant l'entrée"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fassurance_habitation"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Formulation exacte FAQ q17 ; aucune validation juridique n'est revendiquée."
