@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -200,9 +201,13 @@ def test_revue_3_1_records_the_measured_id_reassignment() -> None:
     assert "31 identifiants conservés dont le texte a changé" in journal
 
 
-@pytest.mark.skipif(not (REAL / "source.pdf").is_file(), reason="source.pdf absent (non committé)")
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
 def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
     pdf = REAL / "source.pdf"
+    assert pdf.is_file(), "source.pdf AXA requis par la porte de déploiement"
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
     assert source_hash == (REAL / "source.sha256").read_text("utf-8").strip()
     pages, toc = p.extract_pages(pdf)

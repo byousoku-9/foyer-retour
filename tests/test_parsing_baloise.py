@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -107,9 +108,13 @@ def test_baloise_has_citable_contract_passages_for_the_three_witnesses(doc: Docu
     )
 
 
-@pytest.mark.skipif(not (REAL / "source.pdf").is_file(), reason="source.pdf absent (non committé)")
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
 def test_real_baloise_pdf_regenerates_the_committed_structural_identity(doc: Document) -> None:
     pdf = REAL / "source.pdf"
+    assert pdf.is_file(), "source.pdf Baloise requis par la porte de déploiement"
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
     assert source_hash == SOURCE_HASH == (REAL / "source.sha256").read_text("utf-8").strip()
     pages, toc = p.extract_pages(pdf)

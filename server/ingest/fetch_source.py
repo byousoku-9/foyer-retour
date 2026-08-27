@@ -2,6 +2,7 @@
 
     uv run python -m server.ingest.fetch_source axa-lu-optihome-2017
     uv run python -m server.ingest.fetch_source --all        # au build de l'image Docker
+    uv run python -m server.ingest.fetch_source --all --private-source  # porte CI de main
 
 Codes de sortie : 0 = téléchargé et vérifié ; 2 = hash différent du hash de référence (rien n'est écrit, aucun
 repli : le contenu existe mais n'est pas celui attendu) ; 3 = URL publique injoignable **et** repli
@@ -10,6 +11,8 @@ repli : le contenu existe mais n'est pas celui attendu) ; 3 = URL publique injoi
 `gs://` est lu par HTTPS (`storage.googleapis.com`) avec le jeton `GOOGLE_OAUTH_ACCESS_TOKEN`
 (local : `gcloud auth print-access-token`) ou celui du serveur de métadonnées (Cloud Build, Cloud Run),
 sinon anonymement — le repli sur `gs://foyer-retour-sources/` passe par le même chemin.
+`--private-source` ne tente aucune URL publique ni métadonnée : il exige le jeton explicite de la CI
+et lit directement `gs://foyer-retour-sources/{doc_id}.pdf`.
 """
 
 from __future__ import annotations
@@ -84,6 +87,14 @@ def _metadata_token(client: httpx.Client) -> str | None:
     return None
 
 
+def _required_access_token() -> str:
+    """Jeton explicite de la porte CI privée ; aucun repli vers les métadonnées ou l'anonyme."""
+    token = os.environ.get("GOOGLE_OAUTH_ACCESS_TOKEN", "").strip()
+    if not token:
+        raise FetchError(EXIT_UNREACHABLE, "jeton GOOGLE_OAUTH_ACCESS_TOKEN requis pour la source privée")
+    return token
+
+
 def _download(client: httpx.Client, url: str, headers: dict[str, str], *, partial_ok: bool = False) -> bytes:
     r = client.get(url, headers=headers, follow_redirects=True)
     if r.status_code != 200 and not (partial_ok and r.status_code == 206):
@@ -117,7 +128,13 @@ def _download_public(client: httpx.Client, url: str) -> bytes:
     return _download(client, url, headers, partial_ok=True)
 
 
-def fetch(doc_id: str, data_dir: Path | str = "data", *, client: httpx.Client | None = None) -> Path:
+def fetch(
+    doc_id: str,
+    data_dir: Path | str = "data",
+    *,
+    client: httpx.Client | None = None,
+    private_source: bool = False,
+) -> Path:
     """Écrit `data/{doc_id}/source.pdf` (atomique) après vérification du sha256 ; lève `FetchError(code)`."""
     if len(doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(doc_id):
         raise FetchError(
@@ -129,30 +146,44 @@ def fetch(doc_id: str, data_dir: Path | str = "data", *, client: httpx.Client | 
     own = client is None
     client = client or httpx.Client(timeout=get_settings().fetch_timeout_s)
     try:
-        try:
-            if url.startswith("gs://"):
-                url = gs_to_https(url)
+        if private_source:
+            origin = gs_to_https(f"gs://{SOURCES_BUCKET}/{doc_id}.pdf")
+            headers = {"User-Agent": USER_AGENT, "Authorization": f"Bearer {_required_access_token()}"}
+            try:
+                content = _download(client, origin, headers)
+            except httpx.HTTPError as exc:
+                raise FetchError(
+                    EXIT_UNREACHABLE,
+                    f"{doc_id} : source privée en échec ({type(exc).__name__}: {exc})",
+                ) from exc
+        else:
+            try:
+                if url.startswith("gs://"):
+                    url = gs_to_https(url)
+                    headers = {"User-Agent": USER_AGENT}
+                    token = _metadata_token(client)
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+                    content = _download(client, url, headers)
+                else:
+                    content = _download_public(client, url)
+                origin = url
+            except httpx.HTTPError as exc:
+                print(f"{doc_id} : source injoignable ({type(exc).__name__}: {exc}) ; repli gs://{SOURCES_BUCKET}",
+                      file=sys.stderr)
+                fallback = gs_to_https(f"gs://{SOURCES_BUCKET}/{doc_id}.pdf")
                 headers = {"User-Agent": USER_AGENT}
                 token = _metadata_token(client)
                 if token:
                     headers["Authorization"] = f"Bearer {token}"
-                content = _download(client, url, headers)
-            else:
-                content = _download_public(client, url)
-            origin = url
-        except httpx.HTTPError as exc:
-            print(f"{doc_id} : source injoignable ({type(exc).__name__}: {exc}) ; repli gs://{SOURCES_BUCKET}",
-                  file=sys.stderr)
-            fallback = gs_to_https(f"gs://{SOURCES_BUCKET}/{doc_id}.pdf")
-            headers = {"User-Agent": USER_AGENT}
-            token = _metadata_token(client)
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            try:
-                content = _download(client, fallback, headers)
-            except httpx.HTTPError as exc2:
-                raise FetchError(EXIT_UNREACHABLE, f"{doc_id} : repli en échec ({type(exc2).__name__}: {exc2})") from exc2
-            origin = fallback
+                try:
+                    content = _download(client, fallback, headers)
+                except httpx.HTTPError as exc2:
+                    raise FetchError(
+                        EXIT_UNREACHABLE,
+                        f"{doc_id} : repli en échec ({type(exc2).__name__}: {exc2})",
+                    ) from exc2
+                origin = fallback
     finally:
         if own:
             client.close()
@@ -179,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("doc_id", nargs="?")
     parser.add_argument("--all", action="store_true", help="tous les documents de data/ qui ont un source.sha256")
+    parser.add_argument(
+        "--private-source",
+        action="store_true",
+        help=f"lire directement gs://{SOURCES_BUCKET}/ avec le jeton explicite de la CI",
+    )
     parser.add_argument("--data", default="data", type=Path)
     args = parser.parse_args(argv)
     if bool(args.doc_id) == args.all:
@@ -191,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         doc_ids = [args.doc_id]
     for doc_id in doc_ids:
         try:
-            fetch(doc_id, args.data)
+            fetch(doc_id, args.data, private_source=args.private_source)
         except FetchError as exc:
             print(str(exc), file=sys.stderr)
             return exc.code

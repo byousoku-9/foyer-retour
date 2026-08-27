@@ -13,9 +13,19 @@ name: CI
 on:
   pull_request:
   workflow_call:
+    inputs:
+      sources_reelles:
+        description: Régénérer les artefacts depuis les PDF authentifiés avant les tests
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+  # Le provider GCP refuse toute référence autre que `refs/heads/main`. Sur PR, aucune étape
+  # d'authentification ne tourne ; lors de l'appel réutilisable du déploiement, ce droit permet au
+  # seul lecteur de sources d'échanger le jeton OIDC court dont `fetch_source` a besoin.
+  id-token: write
 
 jobs:
   verifier:
@@ -53,20 +63,59 @@ jobs:
       - name: Lint
         run: uv run ruff check server tests scripts
 
-      # Le PDF du contrat n'est pas dans le dépôt (FR32) — et sans lui,
-      # `test_real_pdf_regenerates_committed_artefacts` se met en `skip` à la **collecte** : le seul
-      # test qui prouve que les artefacts AXA committés sont encore ceux que le parseur produit
-      # disparaissait de la CI qui garde la production. Le télécharger ici est donc voulu, et c'est
-      # la seule étape de ce job qui sorte sur le réseau : `pytest` lui-même n'y touche pas.
-      #
-      # Le runner ne reçoit volontairement aucune identité GCP (`test_la_ci_ne_deploie_rien`) : le
-      # repli `gs://foyer-retour-sources/` reste donc réservé au build authentifié. Une source
-      # publique derrière un WAF peut répondre 406 à la première négociation depuis une IP de CI ;
-      # `fetch_source` rejoue alors une seule fois la même URL comme téléchargement navigateur borné
-      # (`Range: bytes=0-`). Le SHA committé reste l'autorité : octets partiels ou source changée
-      # font échouer la CI sans écriture et sans être masqués par le repli privé.
-      - name: Télécharger les sources non committées (empreinte vérifiée)
-        run: uv run python -m server.ingest.fetch_source --all
+      - name: Contrôler l'identité du lecteur de sources
+        if: inputs.sources_reelles
+        env:
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          SOURCE_READER_SA: ${{ vars.SOURCE_READER_SA }}
+          WIF_PROVIDER_ATTENDU: projects/1061254857807/locations/global/workloadIdentityPools/github/providers/foyer-retour
+          SOURCE_READER_SA_ATTENDU: source-reader@foyer-retour.iam.gserviceaccount.com
+        run: |
+          [ -n "$WIF_PROVIDER" ] || { echo "variable WIF_PROVIDER absente" >&2; exit 1; }
+          [ -n "$SOURCE_READER_SA" ] || { echo "variable SOURCE_READER_SA absente" >&2; exit 1; }
+          [ "$WIF_PROVIDER" = "$WIF_PROVIDER_ATTENDU" ] || {
+            echo "WIF_PROVIDER ne désigne pas le provider borné à ce dépôt et à main" >&2
+            exit 1
+          }
+          [ "$SOURCE_READER_SA" = "$SOURCE_READER_SA_ATTENDU" ] || {
+            echo "SOURCE_READER_SA ne désigne pas le lecteur dédié sans droit de déploiement" >&2
+            exit 1
+          }
+
+      # Cette branche n'existe que dans l'appel réutilisable de `deploy.yml`, depuis `main`. Le
+      # compte dédié n'a aucun droit de projet ni de déploiement : il peut seulement lire les objets
+      # de `gs://foyer-retour-sources`. `create_credentials_file: false` évite de déposer un
+      # `gha-creds-*.json` ; l'access token court reste une sortie de cette étape.
+      - name: Identité fédérée du lecteur de sources (sans clé)
+        id: auth_sources
+        if: inputs.sources_reelles
+        # v3 vérifié : le SHA évite qu'un tag mutable change le courtier d'identité sans revue.
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.SOURCE_READER_SA }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/devstorage.read_only
+          create_credentials_file: false
+
+      # Le jeton n'est transmis qu'à ce processus. La porte `main` lit directement les deux objets
+      # privés : elle ne dépend donc plus du comportement régional des frontaux publics. Le SHA
+      # committé reste l'autorité : tout octet divergent échoue avant écriture et avant `pytest`.
+      - name: Télécharger les sources réelles (empreinte vérifiée)
+        if: inputs.sources_reelles
+        env:
+          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth_sources.outputs.access_token }}
+        run: uv run python -m server.ingest.fetch_source --all --private-source
+
+      - name: Prouver la régénération des deux PDF réels
+        if: inputs.sources_reelles
+        env:
+          REAL_PDF_TESTS_REQUIRED: '1'
+        run: >-
+          uv run pytest -q
+          tests/test_parsing_axa.py::test_real_pdf_regenerates_committed_artefacts
+          tests/test_parsing_baloise.py::test_real_baloise_pdf_regenerates_the_committed_structural_identity
 
       # `ANTHROPIC_API_KEY=` : la suite doit passer **sans** clé (AD-14) — les fixtures LLM sont
       # enregistrées, et un test qui sortirait sur le réseau échouerait ici plutôt qu'en silence.

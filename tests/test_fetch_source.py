@@ -68,6 +68,100 @@ def test_public_406_is_renegotiated_once_as_a_complete_range(data: Path) -> None
     assert seen[1].headers["sec-fetch-dest"] == "document"
 
 
+def test_public_406_twice_falls_back_once_to_authenticated_bucket(
+    data: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Le WAF peut refuser les deux négociations ; le seul troisième chemin est le bucket privé."""
+    monkeypatch.setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "jeton-ci-court")
+    seen: list[httpx.Request] = []
+    public_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal public_calls
+        seen.append(request)
+        if str(request.url) == URL:
+            public_calls += 1
+            return httpx.Response(406)
+        if str(request.url) == GS:
+            return httpx.Response(200, content=PDF)
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert f.fetch("doc-a", data, client=client).read_bytes() == PDF
+    assert [str(request.url) for request in seen] == [URL, URL, GS]
+    assert "authorization" not in seen[0].headers
+    assert "authorization" not in seen[1].headers
+    assert seen[2].headers["authorization"] == "Bearer jeton-ci-court"
+
+
+def test_private_source_reads_only_authenticated_bucket(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "jeton-ci-court")
+    seen: list[httpx.Request] = []
+    client = _client({GS: httpx.Response(200, content=PDF)}, seen)
+    assert f.fetch("doc-a", data, client=client, private_source=True).read_bytes() == PDF
+    assert [str(request.url) for request in seen] == [GS]
+    assert seen[0].headers["authorization"] == "Bearer jeton-ci-court"
+
+
+@pytest.mark.parametrize("token,status", [(None, None), ("jeton-refuse", 403)])
+def test_private_source_fails_closed_without_usable_token(
+    data: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    token: str | None,
+    status: int | None,
+) -> None:
+    if token is None:
+        monkeypatch.delenv("GOOGLE_OAUTH_ACCESS_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("GOOGLE_OAUTH_ACCESS_TOKEN", token)
+    seen: list[httpx.Request] = []
+    routes = {} if status is None else {GS: httpx.Response(status)}
+    with pytest.raises(f.FetchError) as exc:
+        f.fetch("doc-a", data, client=_client(routes, seen), private_source=True)
+    assert exc.value.code == f.EXIT_UNREACHABLE
+    assert not (data / "doc-a" / "source.pdf").exists()
+    if token is None:
+        assert seen == []
+    else:
+        assert len(seen) == 1 and str(seen[0].url) == GS
+
+
+def test_private_source_hash_mismatch_writes_nothing(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "jeton-ci-court")
+    seen: list[httpx.Request] = []
+    with pytest.raises(f.FetchError) as exc:
+        f.fetch(
+            "doc-a",
+            data,
+            client=_client({GS: httpx.Response(200, content=b"octets-alteres")}, seen),
+            private_source=True,
+        )
+    assert exc.value.code == f.EXIT_HASH
+    assert [str(request.url) for request in seen] == [GS]
+    assert not (data / "doc-a" / "source.pdf").exists()
+
+
+def test_private_fallback_without_identity_fails_closed(
+    data: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Une PR sans jeton ne transforme pas l'absence d'identité ou d'objet en faux succès."""
+    monkeypatch.delenv("GOOGLE_OAUTH_ACCESS_TOKEN", raising=False)
+    seen: list[httpx.Request] = []
+    client = _client(
+        {
+            URL: httpx.Response(406),
+            f.METADATA_TOKEN_URL: httpx.ConnectError("pas de serveur de métadonnées"),
+            GS: httpx.Response(403),
+        },
+        seen,
+    )
+    with pytest.raises(f.FetchError) as exc:
+        f.fetch("doc-a", data, client=client)
+    assert exc.value.code == f.EXIT_UNREACHABLE
+    assert not (data / "doc-a" / "source.pdf").exists()
+    assert str(seen[-1].url) == GS and "authorization" not in seen[-1].headers
+
+
 def test_public_406_then_partial_bytes_fails_the_hash_without_bucket_fallback(data: Path) -> None:
     seen: list[httpx.Request] = []
     # Le MockTransport route les deux requêtes par URL : la seconde réponse est remplacée ici par
@@ -150,14 +244,30 @@ def test_documents_to_fetch_lists_committed_sources(data: Path) -> None:
 
 
 def test_main_codes(data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    monkeypatch.setattr(f, "fetch", lambda doc_id, d: (_ for _ in ()).throw(f.FetchError(2, f"{doc_id} : hash")))
+    monkeypatch.setattr(
+        f,
+        "fetch",
+        lambda doc_id, d, **_: (_ for _ in ()).throw(f.FetchError(2, f"{doc_id} : hash")),
+    )
     assert f.main(["--all", "--data", str(data)]) == 2
     out, err = capsys.readouterr()
     assert "lux-guide : source committée" in out and "doc-a : hash" in err
-    monkeypatch.setattr(f, "fetch", lambda doc_id, d: data / doc_id / "source.pdf")
+    monkeypatch.setattr(f, "fetch", lambda doc_id, d, **_: data / doc_id / "source.pdf")
     assert f.main(["doc-a", "--data", str(data)]) == 0
     with pytest.raises(SystemExit):
         f.main(["--data", str(data)])
+
+
+def test_main_forwards_private_source_mode(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, Path, bool]] = []
+
+    def fake_fetch(doc_id: str, data_dir: Path, *, private_source: bool = False) -> Path:
+        calls.append((doc_id, data_dir, private_source))
+        return data_dir / doc_id / "source.pdf"
+
+    monkeypatch.setattr(f, "fetch", fake_fetch)
+    assert f.main(["--all", "--private-source", "--data", str(data)]) == 0
+    assert calls == [("doc-a", data, True)]
 
 
 def test_real_reference_matches_spec() -> None:

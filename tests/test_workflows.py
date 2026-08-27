@@ -90,6 +90,8 @@ def test_le_deploiement_ne_part_que_de_main_ou_de_la_main_dun_humain() -> None:
     # production. La portée n'est donc pas tenue par la liste des déclencheurs, mais ici (revue 1.11).
     assert doc["jobs"]["deployer"]["if"] == "github.ref == 'refs/heads/main'", (
         "le job de déploiement doit refuser toute référence autre que `main`")
+    assert doc["jobs"]["deployer"]["environment"] == "production", (
+        "le claim OIDC environment=production distingue le déployeur du lecteur")
 
 
 def test_le_deploiement_demande_le_jeton_oidc() -> None:
@@ -101,13 +103,18 @@ def test_le_lint_et_la_suite_gardent_la_porte_avant_tout_deploiement() -> None:
     jobs = lire(DEPLOY)["jobs"]
     assert jobs["verifier"]["uses"] == "./.github/workflows/ci.yml", (
         "le job de vérification réutilise `ci.yml` : un seul texte dit ce que « vert » veut dire")
+    assert jobs["verifier"]["with"]["sources_reelles"] == "${{ github.ref == 'refs/heads/main' }}", (
+        "seule main demande la variante réelle ; un workflow_dispatch hors main reste hermétique")
+    assert jobs["verifier"]["permissions"]["id-token"] == "write"
     assert jobs["deployer"]["needs"] == "verifier"
 
 
 def test_les_versions_dactions_sont_celles_du_spine() -> None:
     """Stack figée : `auth@v3`, `deploy-cloudrun@v3` (AD-12, table Stack)."""
     uses = [e.get("uses", "") for e in etapes(lire(DEPLOY), "deployer")]
-    assert "google-github-actions/auth@v3" in uses
+    auth_sha = "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093"
+    assert auth_sha in uses
+    assert auth_sha in [e.get("uses", "") for e in etapes(lire(CI), "verifier")]
     assert "google-github-actions/deploy-cloudrun@v3" in uses
 
 
@@ -441,6 +448,72 @@ def test_la_condition_du_provider_wif_borne_le_depot_et_la_branche() -> None:
     assert " && " in texte_condition, "les deux bornes valent ensemble, pas au choix"
     # …et le mapping doit exposer ce que la condition lit, sinon `update-oidc` la refuse.
     assert "attribute.repository=assertion.repository" in script
+    assert "attribute.role=${PROVIDER_ROLE_EXPR}" in script
+    assert "'environment' in assertion" in script
+    assert "assertion.environment == 'production'" in script
+    assert "'job_workflow_ref' in assertion" in script
+    assert "${SOURCE_WORKFLOW_REF}" in script
+    assert "? 'source-reader' : 'none'" in script
+    assert 'attribute.role != \\"none\\"' in texte_condition
+
+
+def test_la_migration_wif_pose_les_principals_etroits_avant_de_retirer_le_large() -> None:
+    script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
+    deploy = 'bind_wif_user "${DEPLOY_SA}" "${WIF_DEPLOY_MEMBER}"'
+    reader = 'bind_wif_user "${SOURCE_READER_SA}" "${WIF_SOURCE_READER_MEMBER}"'
+    retire = 'unbind_wif_user "${DEPLOY_SA}" "${WIF_MEMBER_LEGACY}"'
+    assert 0 <= script.index(deploy) < script.index(reader) < script.index(retire)
+    assert "attribute.repository/${REPO}" in script
+    assert "attribute.role/deploy" in script and "attribute.role/source-reader" in script
+    assert "remove-iam-policy-binding" in script
+    assert not re.search(
+        r'^bind_wif_user "\$\{DEPLOY_SA\}" "\$\{WIF_MEMBER_LEGACY\}"', script, re.M
+    )
+    assert "condition et mapping à jour" in script and "provider_matches" in script
+
+
+def test_le_lecteur_de_sources_est_distinct_et_sans_role_projet() -> None:
+    """Le jeton qui prouve les PDF ne doit jamais porter les pouvoirs du déployeur."""
+    script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
+    assert 'SOURCE_READER_NAME="source-reader"' in script
+    assert 'SOURCE_READER_SA="${SOURCE_READER_NAME}@${PROJECT}.iam.gserviceaccount.com"' in script
+    assert 'ensure_sa "${SOURCE_READER_NAME}"' in script
+    assert 'audit_no_project_roles "serviceAccount:${SOURCE_READER_SA}"' in script
+    assert "rôles projet inattendus" in script
+    assert "refus de les révoquer automatiquement" in script
+    assert 'bind_wif_user "${SOURCE_READER_SA}" "${WIF_SOURCE_READER_MEMBER}"' in script
+    assert ('bind_bucket_role "${SOURCES_BUCKET}" "serviceAccount:${SOURCE_READER_SA}" '
+            'roles/storage.objectViewer') in script
+    assert 'bind_project_role "serviceAccount:${SOURCE_READER_SA}"' not in script
+    assert ('bind_bucket_role "${SOURCES_BUCKET}" "serviceAccount:${DEPLOY_SA}" '
+            'roles/storage.objectViewer') in script
+    assert 'unbind_bucket_role "${SOURCES_BUCKET}" "serviceAccount:${DEPLOY_SA}"' not in script
+    assert 'SOURCE_READER_SA=${SOURCE_READER_SA}' in script
+    assert "audit_sa_wif_policy" in script and "audit_source_bucket_policy" in script
+    assert "audit des rôles projet impossible" in script
+    audit = script[script.index("audit_no_project_roles()"):
+                   script.index('log "Compte de service déployeur"')]
+    assert "|| true" not in audit
+    assert "allUsers" in script and "allAuthenticatedUsers" in script
+    assert "--uniform-bucket-level-access" in script
+    assert "--public-access-prevention=enforced" in script
+
+
+def test_le_bootstrap_verifie_les_deux_objets_prives_par_leur_sha() -> None:
+    script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
+    for doc_id in ("axa-lu-optihome-2017", "baloise-lu-home-2-2024"):
+        assert f'ensure_source_object "{doc_id}"' in script
+        sha = (WORKFLOWS.parents[1] / "data" / doc_id / "source.sha256").read_text("utf-8").strip()
+        assert sha not in script, "le hash committé ne doit pas avoir une seconde autorité dans le shell"
+    assert 'read_committed_source_sha "${doc_id}"' in script
+    assert 'data/$1/source.sha256' in script
+    assert "storage cp --if-generation-match=0" in script
+    assert script.index('storage objects describe "${object}"') < script.index(
+        'storage cat "${object}" | sha256_stdin'
+    )
+    assert "existe mais sa lecture a échoué" in script
+    assert 'storage cat "${object}" | sha256_stdin' in script, (
+        "un objet déjà présent doit être vérifié, pas seulement déclaré présent")
 
 
 # --- `ci.yml` ------------------------------------------------------------------------------------
@@ -451,13 +524,68 @@ def test_la_ci_se_declenche_sur_les_pull_requests() -> None:
     assert "pull_request" in on
     assert "workflow_call" in on, "appelée aussi par `deploy.yml` : un seul texte pour deux portes"
     assert "push" not in on
+    entree = on["workflow_call"]["inputs"]["sources_reelles"]
+    assert entree == {"description": "Régénérer les artefacts depuis les PDF authentifiés avant les tests",
+                      "required": False, "default": False, "type": "boolean"}
 
 
 def test_la_ci_ne_deploie_rien() -> None:
     """Une pull request ne touche jamais le service (AD-12)."""
     contenu = texte(CI)
-    for interdit in ("deploy-cloudrun", "update-traffic", "google-github-actions/auth"):
+    for interdit in ("deploy-cloudrun", "update-traffic"):
         assert interdit not in contenu
+
+
+def test_la_pr_est_hermetique_et_lidentite_nexiste_que_pour_les_sources_reelles() -> None:
+    pas = etapes(lire(CI), "verifier")
+    controle = pas[_index_par_nom(pas, "Contrôler l'identité")]
+    auth = pas[index_de(pas, "google-github-actions/auth")]
+    fetch = pas[index_de(pas, "fetch_source --all")]
+    assert controle["if"] == "inputs.sources_reelles"
+    assert controle["env"] == {
+        "WIF_PROVIDER": "${{ vars.WIF_PROVIDER }}",
+        "SOURCE_READER_SA": "${{ vars.SOURCE_READER_SA }}",
+        "WIF_PROVIDER_ATTENDU": (
+            "projects/1061254857807/locations/global/workloadIdentityPools/github/providers/foyer-retour"
+        ),
+        "SOURCE_READER_SA_ATTENDU": "source-reader@foyer-retour.iam.gserviceaccount.com",
+    }
+    assert '"$WIF_PROVIDER" = "$WIF_PROVIDER_ATTENDU"' in controle["run"]
+    assert '"$SOURCE_READER_SA" = "$SOURCE_READER_SA_ATTENDU"' in controle["run"]
+    assert _index_par_nom(pas, "Contrôler l'identité") < index_de(pas, "google-github-actions/auth")
+    assert auth["if"] == "inputs.sources_reelles"
+    assert fetch["if"] == "inputs.sources_reelles"
+    assert auth["with"] == {
+        "workload_identity_provider": "${{ vars.WIF_PROVIDER }}",
+        "service_account": "${{ vars.SOURCE_READER_SA }}",
+        "token_format": "access_token",
+        "access_token_lifetime": "300s",
+        "access_token_scopes": "https://www.googleapis.com/auth/devstorage.read_only",
+        "create_credentials_file": False,
+    }
+    assert fetch["env"] == {
+        "GOOGLE_OAUTH_ACCESS_TOKEN": "${{ steps.auth_sources.outputs.access_token }}",
+    }, "le jeton court ne doit être transmis qu'au processus qui lit le bucket privé"
+    assert all("GOOGLE_OAUTH_ACCESS_TOKEN" not in e.get("env", {}) for e in pas if e is not fetch)
+    assert "DEPLOY_SA" not in texte(CI), "la vérification réelle ne doit jamais emprunter le déployeur"
+
+
+def test_main_lit_le_bucket_prive_et_joue_les_deux_preuves_pdf_nommees() -> None:
+    pas = etapes(lire(CI), "verifier")
+    fetch = pas[index_de(pas, "fetch_source --all")]
+    assert fetch["if"] == "inputs.sources_reelles"
+    assert "--all --private-source" in fetch["run"]
+    preuve = pas[index_de(pas, "test_real_pdf_regenerates_committed_artefacts")]
+    assert preuve["if"] == "inputs.sources_reelles"
+    assert preuve["env"] == {"REAL_PDF_TESTS_REQUIRED": "1"}
+    nodeids = (
+        "tests/test_parsing_axa.py::test_real_pdf_regenerates_committed_artefacts",
+        "tests/test_parsing_baloise.py::test_real_baloise_pdf_regenerates_the_committed_structural_identity",
+    )
+    assert all(nodeid in preuve["run"] for nodeid in nodeids)
+    preuve_i = index_de(pas, nodeids[0])
+    assert index_de(pas, "fetch_source --all") < preuve_i < _index_par_nom(pas, "Tests unitaires")
+    assert all("REAL_PDF_TESTS_REQUIRED" not in e.get("env", {}) for e in pas if e is not preuve)
 
 
 def test_la_ci_lint_puis_teste() -> None:
@@ -475,7 +603,7 @@ def test_la_suite_tourne_sans_cle_et_avec_le_front_exige() -> None:
     `skip` est indiscernable d'un succès dans un `pytest -q`.
     """
     pas = etapes(lire(CI), "verifier")
-    tests = pas[index_de(pas, "pytest")]
+    tests = pas[_index_par_nom(pas, "Tests unitaires")]
     assert tests["env"]["ANTHROPIC_API_KEY"] == ""
     assert str(tests["env"]["FRONT_TESTS_REQUIS"]) == "1"
 
@@ -514,7 +642,7 @@ def test_node_est_installe_et_epingle() -> None:
     assert index_de(pas, "actions/setup-node") < index_de(pas, "pytest")
 
 
-def test_la_ci_telecharge_les_sources_avant_de_tester() -> None:
+def test_la_ci_authentifie_et_telecharge_les_sources_reelles_avant_de_tester() -> None:
     """Sinon la CI joue une suite plus faible que celle que le dépôt annonce.
 
     `test_real_pdf_regenerates_committed_artefacts` est gardé par un `skipif` sur la présence de
@@ -524,7 +652,7 @@ def test_la_ci_telecharge_les_sources_avant_de_tester() -> None:
     donc être une étape à part, avant `pytest`, et non un `fixture`.
     """
     pas = etapes(lire(CI), "verifier")
-    assert index_de(pas, "fetch_source --all") < index_de(pas, "pytest")
+    assert index_de(pas, "google-github-actions/auth") < index_de(pas, "fetch_source --all") < index_de(pas, "pytest")
 
 
 # --- ce que le workflow ne peut pas faire seul : la procédure écrite -----------------------------
