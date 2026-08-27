@@ -785,7 +785,7 @@
 
     var actives = tableau(conversation.questions).filter(function (q) {
       return q && q.status === "active";
-    }).slice(0, 3);
+    });
     if (actives.length) {
       var selections = actives.map(function (q, index) {
         return noeud("button", "conv-selection-question", String(q.text), null, {
