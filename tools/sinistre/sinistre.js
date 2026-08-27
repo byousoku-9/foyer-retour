@@ -36,6 +36,7 @@
   // limitait (revue 1.9, tour 2). Bornés dans le domaine, reflétés ici.
   var DATE_MAX = 64;
   var LIEU_MAX = 200;
+  var QUESTION_SINISTRE = "Ce sinistre est-il couvert par les conditions générales du contrat ?";
 
   // Borne d'abandon côté client : la deadline du serveur plus la marge qu'il annonce. Les deux sont
   // des **seuils de `config.py`** (`deadline_s`, `client_abort_margin_s`), publiés par
@@ -124,6 +125,11 @@
 
   function section(cls, titre, enfants) {
     return noeud("section", cls, null, [noeud("h3", null, titre)].concat(enfants));
+  }
+
+  function sectionRepliee(cls, titre, enfants) {
+    return noeud("details", cls + " details-preuves", null,
+      [noeud("summary", null, titre)].concat(enfants));
   }
 
   // ---------- textes composés ----------
@@ -347,7 +353,12 @@
     segments_non_soutenus: "des phrases avancent plus que les passages joints",
     segments_retires: "des phrases ont été retirées de la réponse",
     verdict: "verdict rendu sur les affirmations affichées",
-    verdict_contradictoire: "deux verdicts opposés pour une même affirmation"
+    verdict_contradictoire: "deux verdicts opposés pour une même affirmation",
+    reponse_liee: "réponse liée à la question active",
+    corpus_reutilise: "corpus vérifié du premier tour réutilisé sans nouvelle recherche",
+    sans_modele: "suivi déterministe sans appel modèle",
+    etat_signe: "état décisif transporté vérifié par le serveur",
+    verdict_recalcule: "verdict recalculé par la table AD-6"
   };
 
   function libelleControle(nom) {
@@ -612,6 +623,26 @@
     return vue;
   }
 
+  function texteDecisif(texte, termes) {
+    var source = String(texte || "");
+    var candidats = tableau(termes).map(function (t) { return String(t || "").trim(); })
+      .filter(function (t) { return t.length >= 3; })
+      .sort(function (a, b) { return b.length - a.length; });
+    var trouve = null;
+    var position = -1;
+    candidats.some(function (terme) {
+      var i = source.toLocaleLowerCase().indexOf(terme.toLocaleLowerCase());
+      if (i < 0) return false;
+      trouve = terme; position = i; return true;
+    });
+    if (position < 0) return [noeud("span", null, "« " + source + " »")];
+    return [
+      noeud("span", null, "« " + source.slice(0, position)),
+      noeud("mark", "mot-decisif", source.slice(position, position + trouve.length)),
+      noeud("span", null, source.slice(position + trouve.length) + " »")
+    ];
+  }
+
   function clauseVue(src, status, contexte) {
     var meta = [noeud("span", "cl-kind", libelleKind(src.kind))];
     if (src.kind_confirmed === false) {
@@ -622,8 +653,12 @@
     if (typeof src.page === "number") meta.push(noeud("span", "cl-page", "page " + src.page));
     var statut = statutTexte(status);
     if (statut) meta.push(noeud("span", "cl-statut", statut));
+    var termesDecisifs = contexte && contexte.decisive;
+    var citation = tableau(termesDecisifs).length
+      ? noeud("blockquote", "cl-q", null, texteDecisif(src.quote, termesDecisifs))
+      : noeud("blockquote", "cl-q", "« " + String(src.quote || "") + " »");
     var enfants = [
-      noeud("blockquote", "cl-q", "« " + String(src.quote || "") + " »"),
+      citation,
       noeud("div", "cl-meta", null, meta)
     ];
     var c = contexte || {};
@@ -651,7 +686,8 @@
     { cle: "evenement", libelle: "Événement" },
     { cle: "lieu", libelle: "Lieu" },
     { cle: "cause", libelle: "Cause" },
-    { cle: "moment", libelle: "Moment" }
+    { cle: "moment", libelle: "Moment" },
+    { cle: "montant_eur", libelle: "Montant déclaré" }
   ];
 
   function faitsComprisVue(faits) {
@@ -678,6 +714,152 @@
       noeud("p", "fc-note", "Relu depuis votre description par le modèle. Si l'un de ces éléments " +
         "est faux, le verdict porte sur autre chose que votre sinistre.")
     ]);
+  }
+
+  var SOURCES_FAIT = {
+    declaration_initiale: "déclaration initiale du client",
+    extraction: "extrait par le modèle au premier tour",
+    reponse_client: "réponse du client",
+    correction: "correction explicite",
+    resolution: "version choisie pour résoudre un conflit"
+  };
+
+  function faitsRetenus(conversation) {
+    var c = conversation || {};
+    var exclus = {};
+    tableau(c.facts).forEach(function (f) {
+      if (f && f.replaces_event_id) exclus[f.replaces_event_id] = true;
+    });
+    tableau(c.conflicts).forEach(function (conflit) {
+      if (!conflit) return;
+      if (conflit.status === "ouvert") {
+        tableau(conflit.event_ids).forEach(function (id) { exclus[id] = true; });
+      } else {
+        tableau(conflit.event_ids).forEach(function (id) {
+          if (id !== conflit.chosen_event_id) exclus[id] = true;
+        });
+      }
+    });
+    return tableau(c.facts).filter(function (f) { return f && !exclus[f.event_id]; });
+  }
+
+  function conversationVue(conversation) {
+    if (!conversation) return null;
+    var remplaces = {};
+    tableau(conversation.facts).forEach(function (f) {
+      if (f && f.replaces_event_id) remplaces[f.replaces_event_id] = true;
+    });
+    var faits = tableau(conversation.facts).map(function (f) {
+      if (!f) return null;
+      var statut = remplaces[f.event_id] ? " · remplacé (historique conservé)" : "";
+      var attrs = { "data-fact-key": String(f.key), "data-event-id": String(f.event_id) };
+      return noeud("li", "conv-fait" + (remplaces[f.event_id] ? " conv-remplace" : ""), null, [
+        noeud("span", "conv-fait-val", String(f.key) + " : " + String(f.value)),
+        noeud("span", "conv-source", "source : " +
+          (SOURCES_FAIT[f.source] || String(f.source)) + " · tour " + String(f.turn) + statut),
+        noeud("button", "conv-corriger", "Corriger ce fait", null, attrs)
+      ]);
+    }).filter(Boolean);
+    var enfants = [section("conv-faits", "Faits et provenance", [
+      noeud("ul", "conv-faits-liste", null, faits)
+    ])];
+
+    var conflits = tableau(conversation.conflicts).filter(function (c) {
+      return c && c.status === "ouvert";
+    });
+    if (conflits.length) {
+      enfants.push(section("conv-conflits", "Contradictions à résoudre", conflits.map(function (c) {
+        var versions = tableau(c.event_ids).map(function (eventId) {
+          var fait = tableau(conversation.facts).filter(function (f) { return f.event_id === eventId; })[0];
+          return noeud("button", "conv-resoudre", fait ? String(fait.value) : "Version inconnue", null, {
+            "data-conflict-id": String(c.conflict_id), "data-event-id": String(eventId)
+          });
+        });
+        return noeud("div", "conv-conflit", null, [
+          noeud("p", null, "Deux versions restent actives pour « " + String(c.key) +
+            " ». Le verdict ne se resserre pas avant votre choix."),
+          noeud("div", "conv-choix", null, versions)
+        ]);
+      })));
+    }
+
+    var actives = tableau(conversation.questions).filter(function (q) {
+      return q && q.status === "active";
+    }).slice(0, 3);
+    if (actives.length) {
+      var selections = actives.map(function (q, index) {
+        return noeud("button", "conv-selection-question", String(q.text), null, {
+          "type": "button", "data-question-id": String(q.question_id),
+          "data-question-text": String(q.text), "aria-pressed": index === 0 ? "true" : "false"
+        });
+      });
+      enfants.push(section("conv-questions", "Prochaines questions décisives", [
+        noeud("div", "conv-liste-questions", null, selections),
+        noeud("p", "conv-provenance-exigence",
+              "Ces questions viennent des exigences des clauses ou des pièces du dossier ; " +
+              "vos réponses restent des faits du tour client."),
+        noeud("div", "conv-reponse-commune", null, [
+          noeud("p", "conv-question-contexte", String(actives[0].text), null,
+                { "data-selected-question-id": String(actives[0].question_id) }),
+          noeud("div", "conv-reponses", null, [
+            noeud("button", "conv-repondre", "Oui", null, { "type": "button", "data-value": "oui" }),
+            noeud("button", "conv-repondre", "Non", null, { "type": "button", "data-value": "non" }),
+            noeud("button", "conv-repondre", "Ne sait pas", null,
+                  { "type": "button", "data-value": "inconnu" }),
+            noeud("input", "conv-reponse-libre", null, null,
+                  { "type": "text", "maxlength": "500", "aria-label": "Réponse libre" }),
+            noeud("button", "conv-envoyer-libre", "Envoyer la réponse libre", null,
+                  { "type": "button" })
+          ])
+        ])
+      ]));
+    }
+
+    var historique = tableau(conversation.history).map(function (h) {
+      var causes = tableau(h.causal_events).length
+        ? " · événement(s) causal(aux) : " + tableau(h.causal_events).join(" ; ") : "";
+      return noeud("li", "conv-tour", "Tour " + String(h.turn) + " — " +
+        String(h.value).replace(/_/g, " ") + (h.changed ? " · verdict modifié" : " · verdict stable") +
+        causes + " — " + String(h.reason));
+    });
+    enfants.push(noeud("details", "conv-historique", null, [
+      noeud("summary", null, "Historique causal du verdict"),
+      noeud("ol", null, null, historique)
+    ]));
+    enfants.push(noeud("div", "conv-actions", null, [
+      noeud("button", "conv-copier", "Copier le dossier"),
+      noeud("span", "conv-statut", "", null, { "role": "status", "aria-live": "polite" })
+    ]));
+    return section("conversation", "Dossier conversationnel — tour " + String(conversation.turn), enfants);
+  }
+
+  function dossierTexte(reponse) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var v = a.verdict || {};
+    var c = r.conversation || {};
+    var lignes = [
+      "Verdict : " + String(v.value || "indisponible").replace(/_/g, " "),
+      "Raison : " + String(v.reason || "indisponible"),
+      "Faits retenus et provenances :"
+    ];
+    faitsRetenus(c).forEach(function (f) {
+      lignes.push("- " + String(f.key) + " : " + String(f.value) + " [" +
+        (SOURCES_FAIT[f.source] || String(f.source)) + ", tour " + String(f.turn) + "]");
+    });
+    lignes.push("Clauses et pages :");
+    tableau(r.sources).forEach(function (s) {
+      lignes.push("- " + String(s.kind) + (s.page ? ", page " + String(s.page) : "") +
+        " : « " + String(s.quote) + " »");
+    });
+    lignes.push("Paquet manquant :");
+    PIECES.forEach(function (p) { if (v.missing && v.missing[p.cle]) lignes.push("- " + p.libelle); });
+    tableau(v.missing && v.missing.faits).forEach(function (f) { lignes.push("- fait : " + String(f)); });
+    lignes.push("Questions restantes :");
+    tableau(c.questions).filter(function (q) { return q.status === "active"; })
+      .forEach(function (q) { lignes.push("- " + String(q.text)); });
+    lignes.push("Référence de requête : " + String(r.trace && r.trace.request_id || "indisponible"));
+    return lignes.join("\n");
   }
 
   var PIECES = [
@@ -883,6 +1065,12 @@
     var verdict = a.verdict || null;
     var sources = tableau(r.sources);
     var enfants = [];
+    var contexteClauses = Object.assign({}, contexte || {});
+    contexteClauses.decisive = tableau(r.conversation && r.conversation.history)
+      .reduce(function (out, h) {
+        tableau(h && h.decisive_terms).forEach(function (term) { out.push(term); });
+        return out;
+      }, []);
 
     var v = libelleVerdict(verdict && verdict.value);
     enfants.push(noeud("div", "verdict-tete", null, [
@@ -894,10 +1082,15 @@
       enfants.push(noeud("p", "verdict-raison", String(verdict.reason)));
     }
 
+    // Story 3.7 : l'essentiel suit immédiatement la décision. Les preuves historiques de 1.9
+    // restent plus bas et repliables ; le fil n'est conservé que dans cet objet en mémoire de page.
+    var conversation = conversationVue(r.conversation);
+    if (conversation) enfants.push(conversation);
+
     // Le texte de la réponse est **rendu par le serveur** depuis les segments vérifiés (AD-3) : la
     // page ne recompose rien, elle le pose.
     if (String(a.texte || "").trim()) {
-      enfants.push(section("analyse", "Ce que disent les clauses retenues", [
+      enfants.push(sectionRepliee("analyse", "Ce que disent les clauses retenues", [
         noeud("p", "analyse-txt", String(a.texte))
       ]));
     }
@@ -910,7 +1103,7 @@
 
     var questions = tableau(verdict && verdict.ask_client)
       .filter(function (q) { return String(q || "").trim(); });
-    if (questions.length) {
+    if (questions.length && !r.conversation) {
       enfants.push(section("ask", "Questions à poser au client", [liste("ask-liste", questions)]));
     }
 
@@ -931,7 +1124,7 @@
           if (!entree.clauses.length) return;
           corps.push(noeud("div", "affirmation", null,
             [noeud("p", "aff-txt", String(entree.text || ""))].concat(
-              entree.clauses.map(function (src) { return clauseVue(src, entree.status, contexte); }))));
+              entree.clauses.map(function (src) { return clauseVue(src, entree.status, contexteClauses); }))));
         });
       } else {
         corps.push(noeud("p", "degrade",
@@ -944,7 +1137,7 @@
           // Le compte ne porte que sur l'**ambiguïté** : une clause qu'aucune affirmation affichée
           // ne cite n'a pas de statut à taire, elle n'en a pas.
           if (statutAmbigu(a, src.block_id)) ambigus++;
-          corps.push(clauseVue(src, statutDeBloc(a, src.block_id), contexte));
+          corps.push(clauseVue(src, statutDeBloc(a, src.block_id), contexteClauses));
         });
         if (ambigus) {
           corps.push(noeud("p", "degrade",
@@ -955,7 +1148,9 @@
             "laquelle s'applique ici."));
         }
       }
-      enfants.push(section("clauses", "Clauses citées, relues dans le contrat", corps));
+      enfants.push(r.conversation
+        ? sectionRepliee("clauses", "Clauses citées, relues dans le contrat", corps)
+        : section("clauses", "Clauses citées, relues dans le contrat", corps));
     }
 
     // D7 : les clauses non retrouvées, **sans** leur citation — la quote d'une claim rejetée sur ses
@@ -967,7 +1162,7 @@
       // `non_citee` une affirmation vérifiée qu'aucune phrase affichée ne reprend. Ce qui leur est
       // commun, et seulement cela, c'est qu'elles ont été écartées et que leur citation n'est pas
       // montrée (D7). Le motif exact est sur chaque ligne.
-      enfants.push(section("rejetees", "Affirmations écartées par la vérification", [
+      var vueRejetees = [
         noeud("p", "rejetees-note",
           "Le modèle a avancé ces affirmations ; les contrôles les ont écartées. Aucune de leurs " +
           "citations n'est affichée : le motif de chacune est donné en dessous."),
@@ -983,7 +1178,10 @@
             noeud("p", "rej-kind", String(c.rejection_kind || ""))
           ]);
         }))
-      ]));
+      ];
+      enfants.push(r.conversation
+        ? sectionRepliee("rejetees", "Affirmations écartées par la vérification", vueRejetees)
+        : section("rejetees", "Affirmations écartées par la vérification", vueRejetees));
     }
 
     // M15 / reprise différée de 1.9 : la **preuve chiffrée** de l'absence. Le contrat la transporte
@@ -1385,6 +1583,63 @@
     };
   }
 
+  function lireConversation(c) {
+    exiger(estObjet(c), "conversation");
+    exiger(estChaine(c.token), "conversation.token");
+    exiger(estCompteur(c.turn), "conversation.turn");
+    ["facts", "conflicts", "questions", "history"].forEach(function (nom) {
+      exiger(Array.isArray(c[nom]), "conversation." + nom);
+    });
+    c.facts.forEach(function (f, i) {
+      var champ = "conversation.facts[" + i + "]";
+      exiger(estObjet(f), champ); exiger(estChaine(f.event_id), champ + ".event_id");
+      exiger(estChaine(f.key), champ + ".key"); exiger(estChaine(f.value), champ + ".value");
+      exiger(estChaine(f.source), champ + ".source"); exiger(estCompteur(f.turn), champ + ".turn");
+      exiger(ouNul(estChaine)(f.question_id), champ + ".question_id");
+      exiger(ouNul(estChaine)(f.replaces_event_id), champ + ".replaces_event_id");
+    });
+    c.conflicts.forEach(function (conflit, i) {
+      var champ = "conversation.conflicts[" + i + "]";
+      exiger(estObjet(conflit), champ); exiger(estChaine(conflit.conflict_id), champ + ".conflict_id");
+      exiger(estChaine(conflit.key), champ + ".key");
+      exigerListe(conflit.event_ids, estChaine, champ + ".event_ids");
+      exiger(estChaine(conflit.status), champ + ".status");
+      exiger(ouNul(estChaine)(conflit.chosen_event_id), champ + ".chosen_event_id");
+    });
+    c.questions.forEach(function (q, i) {
+      var champ = "conversation.questions[" + i + "]";
+      exiger(estObjet(q), champ); exiger(estChaine(q.question_id), champ + ".question_id");
+      exiger(estChaine(q.text), champ + ".text"); exiger(estChaine(q.kind), champ + ".kind");
+      exiger(estChaine(q.fact_key), champ + ".fact_key"); exiger(estChaine(q.status), champ + ".status");
+      exiger(ouNul(estChaine)(q.claim_id), champ + ".claim_id");
+      exiger(ouNul(estChaine)(q.expected_value), champ + ".expected_value");
+      exiger(ouNul(estChaine)(q.answered_event_id), champ + ".answered_event_id");
+    });
+    c.history.forEach(function (h, i) {
+      var champ = "conversation.history[" + i + "]";
+      exiger(estObjet(h), champ); exiger(estCompteur(h.turn), champ + ".turn");
+      exiger(estChaine(h.value), champ + ".value"); exiger(estChaine(h.reason), champ + ".reason");
+      exiger(estBooleen(h.changed), champ + ".changed");
+      exigerListe(h.causal_event_ids, estChaine, champ + ".causal_event_ids");
+      if (h.causal_events !== undefined) {
+        exigerListe(h.causal_events, estChaine, champ + ".causal_events");
+      }
+      if (h.decisive_terms !== undefined) {
+        exigerListe(h.decisive_terms, estChaine, champ + ".decisive_terms");
+      }
+      exiger(estChaine(h.request_id), champ + ".request_id");
+    });
+    return c;
+  }
+
+  function lireReponseConversation(j) {
+    var response = lireReponse(j);
+    // Tolérance de déploiement progressif : l'ancien serveur reste un one-shot honnête. Il n'est
+    // jamais transformé en conversation locale ; aucune question active n'est fabriquée côté page.
+    response.conversation = j && j.conversation ? lireConversation(j.conversation) : null;
+    return response;
+  }
+
   function illisible(champ) {
     var e = erreurSinistre({ kind: "requete", code: "reponse_illisible", statut: 200 });
     e.champ = champ;
@@ -1447,6 +1702,22 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpsSinistre(saisie))
     }).then(lireReponse);
+  }
+
+  function soumettreConversation(saisie) {
+    return requete("/api/v1/sinistre", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sinistre-Conversation": "1" },
+      body: JSON.stringify(corpsSinistre(saisie))
+    }).then(lireReponseConversation);
+  }
+
+  function suivre(conversation, docId, action) {
+    var corps = Object.assign({ doc_id: String(docId || ""), token: conversation.token }, action || {});
+    return requete("/api/v1/sinistre/suivi", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corps)
+    }).then(lireReponseConversation);
   }
 
   // ---------- lecteur PDF paresseux (story 3.4) ----------
@@ -1661,6 +1932,116 @@
     });
   }
 
+  function copierDossier(reponse) {
+    var texte = dossierTexte(reponse);
+    var pressePapiers = window.navigator && window.navigator.clipboard;
+    if (!pressePapiers || typeof pressePapiers.writeText !== "function") {
+      return Promise.reject(new Error("presse_papiers_indisponible"));
+    }
+    return pressePapiers.writeText(texte).then(function () { return texte; });
+  }
+
+  var suiviGeneration = 0;
+  var suiviEnCours = false;
+
+  function verrouillerSuivi(racine, occupe) {
+    if (!racine) return;
+    ["conv-selection-question", "conv-repondre", "conv-envoyer-libre", "conv-reponse-libre",
+     "conv-corriger", "conv-resoudre", "conv-copier"].forEach(function (classe) {
+      racine.querySelectorAll("." + classe)
+        .forEach(function (controle) { controle.disabled = !!occupe; });
+    });
+  }
+
+  function brancherConversation(racine, reponse, contexte, onUpdate) {
+    if (!racine || !reponse || !reponse.conversation) return;
+    // Toute nouvelle vue invalide les promesses encore attachées à l'ancienne. Le jeton de la
+    // réponse obsolète ne peut donc jamais remplacer le dernier état rendu.
+    suiviGeneration++;
+    suiviEnCours = false;
+    var statut = racine.querySelector(".conv-statut");
+    function annoncer(texte) { if (statut) statut.textContent = texte; }
+    function questionSelectionnee() {
+      var contexteQuestion = racine.querySelector(".conv-question-contexte");
+      return contexteQuestion && contexteQuestion.getAttribute("data-selected-question-id");
+    }
+    function envoyer(action) {
+      if (suiviEnCours) return Promise.resolve(null);
+      suiviEnCours = true;
+      var generation = ++suiviGeneration;
+      verrouillerSuivi(racine, true);
+      annoncer("Réponse en cours de vérification…");
+      return suivre(reponse.conversation, contexte.doc_id, action).then(function (nouvelle) {
+        if (generation !== suiviGeneration) return null;
+        suiviEnCours = false;
+        verrouillerSuivi(racine, false);
+        if (typeof onUpdate === "function") onUpdate(nouvelle);
+        return nouvelle;
+      }).catch(function (erreur) {
+        if (generation !== suiviGeneration) return null;
+        suiviEnCours = false;
+        verrouillerSuivi(racine, false);
+        // Le dernier état valide reste intégralement à l'écran : seul ce statut change.
+        annoncer("Le suivi a été refusé : " + messageErreur(erreur) +
+                 " Le dernier verdict valide reste affiché.");
+        return null;
+      });
+    }
+    racine.querySelectorAll(".conv-selection-question").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        var questionId = bouton.getAttribute("data-question-id");
+        var texteQuestion = bouton.getAttribute("data-question-text") || bouton.textContent;
+        racine.querySelectorAll(".conv-selection-question").forEach(function (autre) {
+          autre.setAttribute("aria-pressed", autre === bouton ? "true" : "false");
+        });
+        var cible = racine.querySelector(".conv-question-contexte");
+        if (cible) {
+          cible.textContent = texteQuestion;
+          cible.setAttribute("data-selected-question-id", questionId);
+        }
+        var libre = racine.querySelector(".conv-reponse-libre");
+        if (libre && typeof libre.focus === "function") libre.focus();
+      });
+    });
+    racine.querySelectorAll(".conv-repondre").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        envoyer({ action: "reponse", question_id: questionSelectionnee(),
+                  value: bouton.getAttribute("data-value") });
+      });
+    });
+    racine.querySelectorAll(".conv-envoyer-libre").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        var qid = questionSelectionnee();
+        var input = racine.querySelector(".conv-reponse-libre");
+        var value = input && String(input.value || "").trim();
+        if (!value) { annoncer("Écrivez une réponse avant de l'envoyer."); return; }
+        envoyer({ action: "reponse", question_id: qid, value: value });
+      });
+    });
+    racine.querySelectorAll(".conv-corriger").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        var value = window.prompt ? window.prompt("Nouvelle valeur de ce fait :") : null;
+        if (value === null || !String(value).trim()) return;
+        envoyer({ action: "correction", fact_key: bouton.getAttribute("data-fact-key"),
+                  replaces_event_id: bouton.getAttribute("data-event-id"), value: String(value).trim() });
+      });
+    });
+    racine.querySelectorAll(".conv-resoudre").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        envoyer({ action: "resolution", conflict_id: bouton.getAttribute("data-conflict-id"),
+                  chosen_event_id: bouton.getAttribute("data-event-id") });
+      });
+    });
+    var copier = racine.querySelector(".conv-copier");
+    if (copier) copier.addEventListener("click", function () {
+      copierDossier(reponse).then(function () {
+        annoncer("Dossier copié dans le presse-papiers.");
+      }).catch(function () {
+        annoncer("La copie a échoué : le presse-papiers n'est pas accessible. Rien n'a été annoncé comme copié.");
+      });
+    });
+  }
+
   function preparerLecteur() {
     var fermer = $("lecteur-fermer");
     var precedent = $("lecteur-precedent");
@@ -1689,10 +2070,10 @@
   function saisieCourante() {
     return {
       doc_id: ($("contrat") || {}).value || "",
-      question: ($("question") || {}).value || "",
-      date: ($("date") || {}).value || "",
-      lieu: ($("lieu") || {}).value || "",
-      montant_eur: ($("montant") || {}).value || "",
+      question: QUESTION_SINISTRE,
+      date: "",
+      lieu: "",
+      montant_eur: "",
       description: ($("description") || {}).value || ""
     };
   }
@@ -1752,7 +2133,7 @@
   }
 
   function verrouiller(occupe) {
-    ["contrat", "question", "date", "lieu", "montant", "description", "analyser"]
+    ["contrat", "description", "analyser"]
       .forEach(function (id) { var e = $(id); if (e) e.disabled = !!occupe; });
     var hote = $("resultat");
     if (hote) hote.setAttribute("aria-busy", occupe ? "true" : "false");
@@ -1762,9 +2143,6 @@
   function manquant(saisie) {
     if (!String(saisie.doc_id || "").trim()) {
       return "Choisissez le contrat auquel confronter ce sinistre.";
-    }
-    if (!String(saisie.question || "").trim()) {
-      return "La question posée au contrat ne peut pas être vide.";
     }
     if (!String(saisie.description || "").trim()) {
       return "Décrivez les faits : sans description, il n'y a rien à confronter aux clauses.";
@@ -1790,8 +2168,7 @@
     // `date` n'y est pas : `maxlength` ne s'applique pas à `<input type="date">` et le navigateur
     // l'ignore. `DATE_MAX` reste publié par `bornes()` — c'est la borne du domaine, appliquée par
     // le serveur, et le test l'y compare — mais la page ne fait pas mine de la poser.
-    var bornes = [{ id: "question", max: QUESTION_MAX }, { id: "description", max: DESCRIPTION_MAX },
-                  { id: "lieu", max: LIEU_MAX }];
+    var bornes = [{ id: "description", max: DESCRIPTION_MAX }];
     bornes.forEach(function (b) { var e = $(b.id); if (e) e.maxLength = b.max; });
     preparerLecteur();
 
@@ -1823,6 +2200,8 @@
     if (form) {
       form.addEventListener("submit", function (ev) {
         ev.preventDefault();
+        suiviGeneration++;
+        suiviEnCours = false;
         var saisie = saisieCourante();
         var defaut = manquant(saisie);
         if (defaut) {
@@ -1835,17 +2214,22 @@
         // n'y reste pas, et le plus simple est qu'il ne survive à aucune soumission.
         peindre(vueAttente());
         verrouiller(true);
-        soumettre(saisie)
+        soumettreConversation(saisie)
           .then(function (r) {
             verrouiller(false);
             var source = tableau(vueForm.sources).filter(function (s) {
               return s && s.doc_id === saisie.doc_id;
             })[0];
-            var resultat = peindre(vueVerdict(r, {
+            var contexte = {
               doc_id: saisie.doc_id,
               source_url: source && source.url
-            }));
-            brancherLecteur(resultat);
+            };
+            function afficher(valide) {
+              var resultat = peindre(vueVerdict(valide, contexte));
+              brancherLecteur(resultat);
+              brancherConversation(resultat, valide, contexte, afficher);
+            }
+            afficher(r);
           })
           .catch(function (e) {
             verrouiller(false);
@@ -1880,6 +2264,11 @@
     // Réseau et peinture.
     documents: documents,
     soumettre: soumettre,
+    soumettreConversation: soumettreConversation,
+    suivre: suivre,
+    conversationVue: conversationVue,
+    dossierTexte: dossierTexte,
+    copierDossier: copierDossier,
     materialiser: materialiser,
     peindre: peindre,
     demarrer: demarrer,
@@ -1903,6 +2292,7 @@
     fermerLecteur: fermerLecteur,
     naviguerLecteur: naviguerLecteur,
     brancherLecteur: brancherLecteur,
+    brancherConversation: brancherConversation,
     libelleControle: libelleControle,
     PORTEE: PORTEE
   };

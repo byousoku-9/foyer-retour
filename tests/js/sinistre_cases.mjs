@@ -287,6 +287,35 @@ function reponseVerdict(surcharge) {
   return Object.assign(r, surcharge || {});
 }
 
+function reponseConversation() {
+  const r = reponseVerdict();
+  r.conversation = {
+    token: "etat.signe", turn: 0,
+    facts: [
+      { event_id: "f-1", key: "cause", value: "bougie", source: "extraction", turn: 0,
+        question_id: null, replaces_event_id: null },
+      { event_id: "f-2", key: "montant_eur", value: "1200",
+        source: "declaration_initiale", turn: 0, question_id: null, replaces_event_id: null },
+    ],
+    conflicts: [],
+    questions: [
+      { question_id: "q-1", text: "Le caractère subit est-il établi ?", kind: "fait",
+        fact_key: "caractère subit", claim_id: "c1", expected_value: "subite",
+        status: "active", answered_event_id: null },
+      { question_id: "q-2", text: "Le dommage est-il accidentel ?", kind: "fait",
+        fact_key: "caractère accidentel", claim_id: "c1", expected_value: "accidentel",
+        status: "active", answered_event_id: null },
+      { question_id: "q-3", text: "Une option a-t-elle été souscrite ?", kind: "option",
+        fact_key: "option_requise", claim_id: "c1", expected_value: null,
+        status: "active", answered_event_id: null },
+    ],
+    history: [{ turn: 0, value: "sous_conditions", reason: r.answer.verdict.reason,
+                changed: false, causal_event_ids: [], causal_events: [], decisive_terms: [],
+                request_id: "r-1" }],
+  };
+  return r;
+}
+
 /** Un refus : 200, `ne_tranche_pas`, aucune clause. */
 function reponseRefus() {
   const phrase = "Je n'ai trouvé aucune clause du contrat qui traite du sinistre décrit.";
@@ -373,6 +402,139 @@ async function main() {
     cas.corps_methode = requete.options.method;
     cas.corps_entetes = requete.options.headers;
     cas.corps = JSON.parse(requete.options.body);
+
+    const conversation = reponseConversation();
+    cas.conversation_vue = SINISTRE.conversationVue(conversation.conversation);
+    const avecBascule = JSON.parse(JSON.stringify(conversation));
+    avecBascule.conversation.history.push({
+      turn: 1, value: "couvert", reason: "qualité confirmée", changed: true,
+      causal_event_ids: ["f-r"], causal_events: ["caractère subit = oui (tour client)"],
+      decisive_terms: ["subite"], request_id: "r-2",
+    });
+    cas.fragments_decisifs = aplatirVue(SINISTRE.vueVerdict(avecBascule, { doc_id: DOC_ID }))
+      .filter((n) => n.cls === "mot-decisif").map((n) => n.texte);
+    cas.dossier_copie = SINISTRE.dossierTexte(conversation);
+    const dossierConflit = JSON.parse(JSON.stringify(conversation));
+    dossierConflit.conversation.facts.push(
+      { event_id: "f-3", key: "cause", value: "court-circuit", source: "reponse_client",
+        turn: 1, question_id: "q-1", replaces_event_id: null });
+    dossierConflit.conversation.conflicts = [
+      { conflict_id: "c-1", key: "cause", event_ids: ["f-1", "f-3"], status: "ouvert",
+        chosen_event_id: null }];
+    const ouvert = SINISTRE.dossierTexte(dossierConflit);
+    dossierConflit.conversation.conflicts[0].status = "resolu";
+    dossierConflit.conversation.conflicts[0].chosen_event_id = "f-3";
+    const resolu = SINISTRE.dossierTexte(dossierConflit);
+    cas.dossier_conflit = {
+      ouvert_bougie: ouvert.includes("bougie"),
+      ouvert_court_circuit: ouvert.includes("court-circuit"),
+      resolu_bougie: resolu.includes("bougie"),
+      resolu_court_circuit: resolu.includes("court-circuit"),
+    };
+    const suiviCharge = charger(PAGE, () => reponseHttp({ corps: conversation }));
+    await suiviCharge.SINISTRE.suivre(conversation.conversation, DOC_ID,
+      { action: "reponse", question_id: "q-1", value: "oui" });
+    const appelSuivi = suiviCharge.appels.filter((a) =>
+      String(a.url).endsWith("/api/v1/sinistre/suivi"))[0];
+    cas.suivi = {
+      url: appelSuivi.url,
+      corps: JSON.parse(appelSuivi.options.body),
+    };
+
+    // Les vrais handlers rendus : sélection d'une question, choix rapide, réponse libre et copie.
+    const handlers = charger(PAGE, () => reponseHttp({ corps: conversation }));
+    const racine = handlers.SINISTRE.materialiser(
+      handlers.SINISTRE.conversationVue(conversation.conversation));
+    handlers.document.body.appendChild(racine);
+    let misesAJour = 0;
+    handlers.SINISTRE.brancherConversation(racine, conversation, { doc_id: DOC_ID },
+      () => { misesAJour++; });
+    const selections = racine.querySelectorAll(".conv-selection-question");
+    selections[1].declencher("click");
+    const contexteSelection = racine.querySelector(".conv-question-contexte");
+    racine.querySelector(".conv-repondre").declencher("click");
+    const verrouilles = racine.querySelectorAll(".conv-repondre").map((b) => !!b.disabled);
+    // Un second clic pendant la même promesse ne produit pas un second suivi.
+    racine.querySelectorAll(".conv-repondre")[1].declencher("click");
+    await tick(); await tick();
+    const apresDouble = handlers.appels.filter((a) => String(a.url).endsWith("/sinistre/suivi")).length;
+    const libre = racine.querySelector(".conv-reponse-libre");
+    selections[2].declencher("click");
+    libre.value = "preuve jointe";
+    racine.querySelector(".conv-envoyer-libre").declencher("click");
+    await tick(); await tick();
+    const appelsHandlers = handlers.appels.filter((a) => String(a.url).endsWith("/sinistre/suivi"));
+    handlers.window.navigator = { clipboard: { writeText: () => Promise.resolve() } };
+    racine.querySelector(".conv-copier").declencher("click");
+    await tick();
+    const copieSucces = racine.querySelector(".conv-statut").textContent;
+    handlers.window.navigator = {};
+    racine.querySelector(".conv-copier").declencher("click");
+    await tick();
+    const copieEchec = racine.querySelector(".conv-statut").textContent;
+    handlers.window.prompt = () => "nouvelle cause";
+    racine.querySelector(".conv-corriger").declencher("click");
+    await tick(); await tick();
+
+    const avecConflit = JSON.parse(JSON.stringify(conversation));
+    avecConflit.conversation.facts.push(
+      { event_id: "f-conflit", key: "cause", value: "court-circuit", source: "reponse_client",
+        turn: 1, question_id: "q-1", replaces_event_id: null });
+    avecConflit.conversation.conflicts.push(
+      { conflict_id: "conflit-1", key: "cause", event_ids: ["f-1", "f-conflit"],
+        status: "ouvert", chosen_event_id: null });
+    const racineConflit = handlers.SINISTRE.materialiser(
+      handlers.SINISTRE.conversationVue(avecConflit.conversation));
+    handlers.SINISTRE.brancherConversation(racineConflit, avecConflit, { doc_id: DOC_ID }, () => {});
+    racineConflit.querySelector(".conv-resoudre").declencher("click");
+    await tick(); await tick();
+    cas.handlers_conversation = {
+      questions: selections.length,
+      selection: contexteSelection.getAttribute("data-selected-question-id"),
+      choix_corps: JSON.parse(appelsHandlers[0].options.body),
+      libre_corps: JSON.parse(appelsHandlers[1].options.body),
+      appels_apres_double_clic: apresDouble,
+      verrouilles,
+      mises_a_jour: misesAJour,
+      correction_corps: JSON.parse(handlers.appels.filter((a) =>
+        String(a.url).endsWith("/sinistre/suivi"))[2].options.body),
+      resolution_corps: JSON.parse(handlers.appels.filter((a) =>
+        String(a.url).endsWith("/sinistre/suivi"))[3].options.body),
+      copie_succes: copieSucces,
+      copie_echec: copieEchec,
+    };
+
+    // Une réponse de l'ancienne vue est ignorée après qu'une nouvelle vue a été branchée.
+    let resoudreAncienne;
+    const anciennePromise = new Promise((resolve) => { resoudreAncienne = resolve; });
+    const stale = charger(PAGE, () => anciennePromise);
+    const ancienne = stale.SINISTRE.materialiser(stale.SINISTRE.conversationVue(conversation.conversation));
+    const nouvelle = stale.SINISTRE.materialiser(stale.SINISTRE.conversationVue(conversation.conversation));
+    let staleUpdates = 0;
+    stale.SINISTRE.brancherConversation(ancienne, conversation, { doc_id: DOC_ID },
+      () => { staleUpdates++; });
+    ancienne.querySelector(".conv-repondre").declencher("click");
+    stale.SINISTRE.brancherConversation(nouvelle, conversation, { doc_id: DOC_ID },
+      () => { staleUpdates++; });
+    resoudreAncienne(reponseHttp({ corps: conversation }));
+    await tick(); await tick();
+    cas.suivi_obsolete = { mises_a_jour: staleUpdates };
+
+    const refuse = charger(PAGE, () => reponseHttp({ status: 400,
+      corps: { error: { code: "invalid_request", message: "périmé", request_id: "r-refus" } } }));
+    const racineRefus = refuse.SINISTRE.materialiser(
+      refuse.SINISTRE.conversationVue(conversation.conversation));
+    let refusUpdates = 0;
+    refuse.SINISTRE.brancherConversation(racineRefus, conversation, { doc_id: DOC_ID },
+      () => { refusUpdates++; });
+    racineRefus.querySelector(".conv-repondre").declencher("click");
+    await tick(); await tick();
+    cas.suivi_refuse = {
+      mises_a_jour: refusUpdates,
+      faits_restants: racineRefus.querySelectorAll(".conv-fait").length,
+      statut: racineRefus.querySelector(".conv-statut").textContent,
+      deverrouille: !racineRefus.querySelector(".conv-repondre").disabled,
+    };
 
     // Les champs facultatifs vides ne partent **pas** : `Faits.date`/`lieu` sont `str | None`, et
     // une chaîne vide n'est pas l'absence.
@@ -909,7 +1071,7 @@ async function main() {
     cas.soumission_defaut_empeche = evenement.defautEmpeche;
     // L'attente est peinte **avant** l'appel : le verdict précédent quitte l'écran tout de suite.
     cas.attente_peinte = elements.resultat.querySelectorAll(".attente").length;
-    cas.verrouille_pendant = ["question", "description", "analyser"]
+    cas.verrouille_pendant = ["contrat", "description", "analyser"]
       .map((id) => !!elements[id].disabled);
     await tick();
     await tick();
@@ -919,7 +1081,7 @@ async function main() {
       corps: JSON.parse(poste.options.body),
       badge: (elements.resultat.querySelector(".badge") || {}).textContent,
       attente_restante: elements.resultat.querySelectorAll(".attente").length,
-      verrouille_apres: ["question", "description", "analyser"].map((id) => !!elements[id].disabled),
+      verrouille_apres: ["contrat", "description", "analyser"].map((id) => !!elements[id].disabled),
       stockage: localStorage.entrees(),
       cartes: document.querySelectorAll(".carte").length,
       commandes_pdf: elements.resultat.querySelectorAll(".cl-ouvrir").length,

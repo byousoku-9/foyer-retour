@@ -312,17 +312,15 @@ def test_les_bornes_du_front_sont_celles_du_serveur(cas: dict[str, Any], page: s
                          "lieu_max": 200}
     for nom, valeur in attendues.items():
         assert cas["bornes"][nom] == valeur, nom
-    for identifiant, valeur in [("question", attendues["question_max"]),
-                                ("description", attendues["description_max"]),
-                                ("lieu", attendues["lieu_max"])]:
+    for identifiant, valeur in [("description", attendues["description_max"])]:
         assert f'id="{identifiant}"' in page
         assert f'maxlength="{valeur}"' in page, identifiant
     # `date` n'en porte **pas**, et c'est volontaire : `maxlength` ne s'applique pas à
     # `<input type="date">`, le navigateur l'ignore, et l'écrire ferait croire à une borne posée là
     # où il n'y en a aucune. La borne du domaine reste le contrôle réel, y compris pour un appelant
     # qui n'est pas un navigateur — et elle est assertée ci-dessus comme les trois autres.
-    champ_date = re.search(r'<input id="date"[^>]*>', page)
-    assert champ_date is not None and "maxlength" not in champ_date.group(0)
+    assert all(f'id="{identifiant}"' not in page
+               for identifiant in ("question", "date", "lieu", "montant"))
 
 
 # --- le sélecteur de contrat ---------------------------------------------
@@ -1158,8 +1156,8 @@ def test_la_page_ne_peint_aucun_bouton_dans_le_resultat(cas: dict[str, Any]) -> 
 
 
 def test_la_trace_est_un_details_natif(cas: dict[str, Any]) -> None:
-    assert cas["dom"]["details"] == 1
-    assert cas["dom"]["summary"] == "Comment cette réponse a été obtenue"
+    assert cas["dom"]["details"] >= 2
+    assert cas["dom"]["summary"] == "Ce que disent les clauses retenues"
 
 
 def test_rien_du_sinistre_natteint_le_navigateur(cas: dict[str, Any]) -> None:
@@ -1196,24 +1194,14 @@ def test_le_selecteur_est_rempli_au_demarrage(cas: dict[str, Any]) -> None:
 def test_les_maxlength_sont_poses_par_le_script(cas: dict[str, Any]) -> None:
     """Une seule source à l'exécution (revue 1.9) ; l'attribut HTML reste le repli sans JavaScript."""
     poses = cas["demarrage"]["maxlength"]
-    assert poses["question"] == 1000
     assert poses["description"] == 2000
-    assert poses["lieu"] == 200
-    # Rien sur `date` : le script ne pose pas un attribut que le navigateur ignore.
-    assert not poses["date"]
+    assert not poses["question"] and not poses["lieu"] and not poses["date"]
 
 
-def test_les_centimes_sont_saisissables_dans_un_navigateur(page: str) -> None:
-    """`Faits.montant_eur` est un `float` et la page lit « 1200,50 » — encore faut-il pouvoir l'écrire.
-
-    Avec `step="1"`, la validation native du navigateur bloque la soumission **entière** dès qu'un
-    montant porte des centimes : le chemin décimal n'était joué que par le harnais Node (revue 1.9,
-    tour 2). `inputmode="decimal"` disait déjà le contraire de `step="1"` dans le même attribut.
-    """
-    montant = re.search(r'<input id="montant"[^>]*>', page)
-    assert montant is not None
-    assert 'step="any"' in montant.group(0)
-    assert 'step="1"' not in montant.group(0)
+def test_la_description_libre_suffit_au_parcours_conversationnel(page: str) -> None:
+    assert '<textarea id="description"' in page
+    assert all(f'id="{identifiant}"' not in page
+               for identifiant in ("question", "date", "lieu", "montant"))
 
 
 def test_la_page_desarme_la_validation_native(page: str) -> None:
@@ -1267,10 +1255,7 @@ def test_la_soumission_poste_la_saisie_et_peint_le_verdict(cas: dict[str, Any]) 
     assert cas["soumission"]["cartes"] == 1
 
 
-@pytest.mark.parametrize("cle, attendu", [
-    ("description_vide", "Décrivez les faits"),
-    ("question_vide", "ne peut pas être vide"),
-])
+@pytest.mark.parametrize("cle, attendu", [("description_vide", "Décrivez les faits")])
 def test_une_saisie_incomplete_ne_part_jamais_et_le_dit(cas: dict[str, Any], cle: str,
                                                         attendu: str) -> None:
     """Un appel modèle coûte : une saisie incomplète n'en déclenche aucun — **et le bouton parle**.
@@ -1288,8 +1273,8 @@ def test_une_saisie_incomplete_ne_part_jamais_et_le_dit(cas: dict[str, Any], cle
 
 def test_manquant_nomme_ce_qui_manque_et_rien_dautre(cas: dict[str, Any]) -> None:
     assert cas["manquant"]["complet"] is None
-    assert all(cas["manquant"][c] for c in ("sans_description", "sans_question", "sans_contrat"))
-    assert len({cas["manquant"][c] for c in ("sans_description", "sans_question", "sans_contrat")}) == 3
+    assert cas["manquant"]["sans_description"] and cas["manquant"]["sans_contrat"]
+    assert cas["manquant"]["sans_question"] is None
 
 
 def test_le_montant_a_trois_issues_et_non_deux(cas: dict[str, Any]) -> None:
@@ -1318,9 +1303,7 @@ def test_un_montant_illisible_ne_part_pas_ampute_mais_refuse(cas: dict[str, Any]
     for cle in ("montant_negatif", "montant_mots"):
         assert "nombre en euros" in cas["manquant"][cle]
     releve = cas["montant_negatif_soumis"]
-    assert releve["appels"] == 0
-    assert "nombre en euros" in releve["texte"]
-    assert releve["cartes_erreur"] == 1 and releve["badges"] == 0
+    assert releve["appels"] == 1  # l'ancien champ n'appartient plus à la surface conversationnelle
 
 
 def test_une_liste_de_documents_en_echec_le_dit_sans_mentir(cas: dict[str, Any]) -> None:
@@ -1378,7 +1361,7 @@ def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) ->
 def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
     """D8 : sans framework, sans requête tierce, et **sans** dépendance à `web/app/styles.css`."""
     scripts = re.findall(r'<script[^>]*src="([^"]+)"', page)
-    assert scripts == ["sinistre.js?v=2"]
+    assert scripts == ["sinistre.js?v=4"]
     # Aucune feuille de style externe : les styles sont dans la page, et surtout pas ceux du guide
     # (`web/app/styles.css`, 1 328 lignes taillées pour un autre DOM — une classe renommée là-bas
     # casserait celui-ci). Le commentaire d'en-tête l'explique ; ce qu'on vérifie, ce sont les
@@ -1394,8 +1377,7 @@ def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
 def test_les_identifiants_de_la_page_sont_ceux_que_le_script_cherche(page: str) -> None:
     """Un renommage dans la page ne doit pas laisser le script piloter un formulaire fantôme."""
     for identifiant in ("formulaire", "contrat", "contrats-message", "contrat-source",
-                        "documents-audit", "question",
-                        "date", "lieu", "montant", "description", "analyser", "resultat",
+                        "documents-audit", "description", "analyser", "resultat",
                         "lecteur-pdf", "lecteur-titre", "lecteur-statut", "lecteur-image",
                         "lecteur-sans-surlignage", "lecteur-precedent", "lecteur-suivant",
                         "lecteur-source", "lecteur-fermer"):
@@ -1436,6 +1418,75 @@ def test_toute_classe_composee_par_le_script_est_stylee_dans_la_page(page: str) 
     for classe in sorted(composees - structurelles):
         assert re.search(rf"[.#][\w -]*\b{re.escape(classe)}\b[^{{]*\{{", page), (
             f"la classe « {classe} » est composée par le script et n'est stylée nulle part")
+
+
+def test_le_fil_affiche_faits_questions_historique_et_copie(cas: dict[str, Any]) -> None:
+    vue = cas["conversation_vue"]
+
+    def textes(noeud: Any) -> list[str]:
+        if not isinstance(noeud, dict):
+            return []
+        return ([noeud["texte"]] if isinstance(noeud.get("texte"), str) else []) + [
+            texte for enfant in noeud.get("enfants", []) for texte in textes(enfant)]
+
+    rendu = "\n".join(textes(vue))
+    assert "Faits et provenance" in rendu
+    assert "source : extrait par le modèle au premier tour" in rendu
+    assert "Prochaines questions décisives" in rendu
+    assert "Historique causal du verdict" in rendu
+    assert "Copier le dossier" in rendu
+    copie = cas["dossier_copie"]
+    for fragment in ("Verdict :", "Raison :", "Faits retenus et provenances :",
+                     "Clauses et pages :", "Paquet manquant :", "Questions restantes :",
+                     "Référence de requête :"):
+        assert fragment in copie
+    assert "subite" in [fragment.casefold() for fragment in cas["fragments_decisifs"]]
+
+
+def test_le_suivi_poste_le_jeton_et_l_identifiant_de_question(cas: dict[str, Any]) -> None:
+    assert cas["suivi"]["url"].endswith("/api/v1/sinistre/suivi")
+    assert cas["suivi"]["corps"] == {
+        "doc_id": "cg-mini", "token": "etat.signe", "action": "reponse",
+        "question_id": "q-1", "value": "oui",
+    }
+
+
+def test_les_handlers_rendus_selectionnent_verrouillent_et_ignorent_l_obsolete(
+        cas: dict[str, Any]) -> None:
+    handlers = cas["handlers_conversation"]
+    assert handlers["questions"] == 3
+    assert handlers["choix_corps"]["question_id"] == "q-2"
+    assert handlers["choix_corps"]["value"] == "oui"
+    assert handlers["libre_corps"]["question_id"] == "q-3"
+    assert handlers["libre_corps"]["value"] == "preuve jointe"
+    assert handlers["appels_apres_double_clic"] == 1
+    assert all(handlers["verrouilles"])
+    assert handlers["mises_a_jour"] == 3
+    assert handlers["correction_corps"] == {
+        "doc_id": "cg-mini", "token": "etat.signe", "action": "correction",
+        "fact_key": "cause", "replaces_event_id": "f-1", "value": "nouvelle cause",
+    }
+    assert handlers["resolution_corps"] == {
+        "doc_id": "cg-mini", "token": "etat.signe", "action": "resolution",
+        "conflict_id": "conflit-1", "chosen_event_id": "f-1",
+    }
+    assert "copié" in handlers["copie_succes"]
+    assert "échoué" in handlers["copie_echec"]
+    assert cas["suivi_obsolete"]["mises_a_jour"] == 0
+    refuse = cas["suivi_refuse"]
+    assert refuse["mises_a_jour"] == 0 and refuse["faits_restants"] == 2
+    assert refuse["deverrouille"] is True
+    assert "dernier verdict valide reste affiché" in refuse["statut"]
+
+
+def test_le_dossier_exclut_toutes_les_versions_d_un_conflit_ouvert(cas: dict[str, Any]) -> None:
+    conflit = cas["dossier_conflit"]
+    assert conflit == {
+        "ouvert_bougie": False,
+        "ouvert_court_circuit": False,
+        "resolu_bougie": False,
+        "resolu_court_circuit": True,
+    }
 
 
 def test_les_couleurs_de_la_page_ont_toutes_leur_variante_sombre(page: str) -> None:

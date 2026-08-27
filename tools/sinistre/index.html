@@ -75,10 +75,39 @@
   .fc-ligne { display: grid; grid-template-columns: 160px 1fr; gap: 8px; padding: 3px 0; }
   .fc-cle { opacity: .7; font-size: 14px; }
   .fc-note, .rejetees-note, .attente-note, .err-note { font-size: 13px; opacity: .7; }
+  .conversation { margin-top: 16px; padding: 14px; border: 1px solid var(--bord); border-radius: 10px; }
+  .conv-faits-liste { list-style: none; padding: 0; display: grid; gap: 8px; }
+  .conv-fait { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 8px 0;
+    border-bottom: 1px solid var(--bord); }
+  .conv-source { grid-column: 1; font-size: 12px; opacity: .7; }
+  .conv-remplace { opacity: .6; text-decoration: line-through; }
+  .conv-corriger { grid-column: 2; grid-row: 1 / span 2; margin: 0; padding: 5px 8px; font-size: 12px; }
+  .conv-question, .conv-conflit { border-left: 3px solid var(--bord); padding-left: 12px; margin: 10px 0; }
+  .conv-question-contexte { font-weight: 600; margin: 0 0 8px; }
+  .conv-liste-questions { display: grid; gap: 6px; }
+  .conv-selection-question { margin: 0; padding: 8px 10px; text-align: left; }
+  .conv-selection-question[aria-pressed="true"] { outline: 2px solid var(--accent); }
+  .conv-provenance-exigence { font-size: 12px; opacity: .72; }
+  .conv-reponse-commune { border-left: 3px solid var(--bord); padding-left: 12px; margin-top: 10px; }
+  .conv-reponses, .conv-choix, .conv-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .conv-reponses button, .conv-choix button, .conv-actions button { margin: 0; padding: 6px 10px; }
+  .conv-reponse-libre { flex: 1 1 220px; width: auto; }
+  .conv-conflits { border: 1px solid #a16207; border-radius: 8px; padding: 10px; }
+  .conv-historique { margin-top: 14px; }
+  .conv-actions { margin-top: 14px; }
+  .conv-statut { font-size: 13px; opacity: .8; }
+  .details-preuves { margin-top: 18px; }
+  .details-preuves > summary { cursor: pointer; font-weight: 600; }
+  .conv-faits, .conv-questions { margin-top: 10px; }
+  .conv-fait-val { overflow-wrap: anywhere; }
+  .conv-tour { margin: 4px 0; }
+  .conv-repondre, .conv-envoyer-libre, .conv-resoudre, .conv-copier { min-height: 34px; }
   .affirmation { margin: 0 0 16px; }
   .aff-txt { margin: 0 0 6px; }
   .clause { border-left: 3px solid var(--bord); padding: 2px 0 2px 14px; margin: 0 0 12px; }
   .cl-q { margin: 0; font-style: italic; }
+  .mot-decisif { font-weight: 700; background: #fde68a; color: #422006; padding: 0 .08em; }
+  @media (prefers-color-scheme: dark) { .mot-decisif { background: #854d0e; color: #fef3c7; } }
   .cl-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; opacity: .75; margin-top: 4px; }
   .cl-kind { text-transform: uppercase; letter-spacing: .04em; }
   .cl-doute { font-style: italic; }
@@ -157,7 +186,12 @@
   .err-titre { display: block; margin-bottom: 6px; }
   .err-ref { font-size: 13px; opacity: .7; }
   p.pied { font-size: 13px; opacity: .7; border-top: 1px solid var(--bord); padding-top: 16px; margin-top: 40px; }
-  @media (max-width: 560px) { .duo { grid-template-columns: 1fr; } .fc-ligne { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) {
+    body { padding: 20px 12px 48px; }
+    .duo { grid-template-columns: 1fr; }
+    .fc-ligne, .conv-fait { grid-template-columns: 1fr; }
+    .conv-corriger { grid-column: 1; grid-row: auto; justify-self: start; }
+  }
 </style>
 </head>
 <body>
@@ -206,39 +240,6 @@
     </div>
   </section>
 
-  <!-- `maxlength` alignés sur les bornes du serveur (`api/schemas.SinistreRequest.question` et
-       `domain/question.Faits.description`) : un rejet en 400 après dix secondes d'attente est une
-       mauvaise façon d'apprendre qu'on a écrit trop long. `sinistre.js` les repose au démarrage
-       depuis ses propres constantes — une seule source à l'exécution — et ceux écrits ici sont le
-       repli sans JavaScript. Un test Python épingle les deux contre les schémas : s'ils divergent,
-       la suite devient rouge. -->
-  <label for="question">Question posée au contrat</label>
-  <input id="question" type="text" maxlength="1000"
-         value="Ce sinistre est-il couvert par les conditions générales du contrat ?">
-
-  <div class="duo">
-    <div>
-      <label for="date">Date du sinistre (facultatif)</label>
-      <!-- Pas de `maxlength` ici : l'attribut ne s'applique **pas** à `<input type="date">`, le
-           navigateur l'ignore, et l'écrire ferait croire à une borne posée là où il n'y en a
-           aucune. Le contrôle réel est la borne du domaine (`Faits.date`, 64 caractères), qui vaut
-           aussi pour les appelants non-navigateurs — le champ, lui, ne peut produire qu'un
-           `AAAA-MM-JJ`. -->
-      <input id="date" type="date">
-    </div>
-    <div>
-      <label for="montant">Montant estimé en euros (facultatif)</label>
-      <!-- `step="any"` : `Faits.montant_eur` est un `float`, et `corpsSinistre()` lit explicitement
-           « 1200,50 ». Avec `step="1"`, la validation native refusait tout montant à centimes — le
-           chemin décimal n'était donc joué que par le harnais Node, jamais par un navigateur
-           (revue 1.9, tour 2). `inputmode="decimal"` disait déjà le contraire de `step="1"`. -->
-      <input id="montant" type="number" min="0" step="any" inputmode="decimal">
-    </div>
-  </div>
-
-  <label for="lieu">Lieu (facultatif)</label>
-  <input id="lieu" type="text" maxlength="200">
-
   <label for="description">Description des faits</label>
   <textarea id="description" maxlength="2000" required
             placeholder="Ce qui s'est passé, sur quel bien, où, quand, et ce qui a été endommagé."></textarea>
@@ -271,6 +272,6 @@
   <a href="/">← retour</a>
 </p>
 
-<script src="sinistre.js?v=2"></script>
+<script src="sinistre.js?v=4"></script>
 </body>
 </html>
