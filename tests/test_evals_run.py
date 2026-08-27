@@ -399,6 +399,19 @@ def test_dry_run_prepare_sans_cle_client_ni_ecriture(
     assert "gate=lux-guide" in sortie and "cas=1" in sortie
 
 
+def test_main_full_quick_planifie_seulement_les_ids_stables(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Preuve de couture : ``main`` applique réellement quick au lot full avant exécution."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(runner, "construire_contexte", _interdit)
+
+    assert runner.main(["--profile", "full", "--quick", "--dry-run"]) == 0
+
+    sortie = capsys.readouterr().out
+    assert "cas=3" in sortie
+    assert "ids=b-bougie-canape,g-luxtrust-prix,s-bougie-canape" in sortie
+
+
 def _interdit(*args: Any, **kw: Any) -> Any:
     raise AssertionError("le corpus a été chargé alors que la clé manque")
 
