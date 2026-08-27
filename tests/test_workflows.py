@@ -439,9 +439,9 @@ def test_la_condition_du_provider_wif_borne_le_depot_et_la_branche() -> None:
     `assertion.ref == "refs/heads/main"` — le seul contexte où AD-12 autorise un déploiement.
     """
     script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
-    condition = re.search(r'^PROVIDER_CONDITION="(.+)"$', script, re.M)
-    assert condition, "la condition du provider doit être un littéral relisible du script"
-    texte_condition = condition.group(1)
+    base = re.search(r'^PROVIDER_BASE_CONDITION="(.+)"$', script, re.M)
+    assert base, "la frontière dépôt + branche doit rester relisible du script"
+    texte_condition = base.group(1)
     assert r'attribute.repository == \"${REPO}\"' in texte_condition, "le dépôt reste borné"
     assert r'assertion.ref == \"refs/heads/main\"' in texte_condition, (
         "la branche doit être bornée côté IAM, pas seulement par le `if:` du workflow")
@@ -451,25 +451,31 @@ def test_la_condition_du_provider_wif_borne_le_depot_et_la_branche() -> None:
     assert "attribute.role=${PROVIDER_ROLE_EXPR}" in script
     assert "'environment' in assertion" in script
     assert "assertion.environment == 'production'" in script
+    assert "'workflow_ref' in assertion" in script
+    assert "${DEPLOY_WORKFLOW_REF}" in script
     assert "'job_workflow_ref' in assertion" in script
     assert "${SOURCE_WORKFLOW_REF}" in script
     assert "? 'source-reader' : 'none'" in script
-    assert 'attribute.role != \\"none\\"' in texte_condition
+    assert 'PROVIDER_DEPLOY_CONDITION="${PROVIDER_BASE_CONDITION} && attribute.role == \\"deploy\\""' in script
+    assert 'PROVIDER_CONDITION="${PROVIDER_BASE_CONDITION} && attribute.role != \\"none\\""' in script
 
 
-def test_la_migration_wif_pose_les_principals_etroits_avant_de_retirer_le_large() -> None:
+def test_la_migration_wif_refuse_le_lecteur_avant_de_retirer_le_binding_large() -> None:
     script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
     deploy = 'bind_wif_user "${DEPLOY_SA}" "${WIF_DEPLOY_MEMBER}"'
     reader = 'bind_wif_user "${SOURCE_READER_SA}" "${WIF_SOURCE_READER_MEMBER}"'
     retire = 'unbind_wif_user "${DEPLOY_SA}" "${WIF_MEMBER_LEGACY}"'
-    assert 0 <= script.index(deploy) < script.index(reader) < script.index(retire)
+    deploy_only = 'update_provider "${PROVIDER_DEPLOY_CONDITION}"'
+    final = 'update_provider "${PROVIDER_CONDITION}"'
+    assert 0 <= script.index(deploy_only) < script.index(deploy) < script.index(retire)
+    assert script.index(retire) < script.index(reader) < script.index(final)
     assert "attribute.repository/${REPO}" in script
     assert "attribute.role/deploy" in script and "attribute.role/source-reader" in script
     assert "remove-iam-policy-binding" in script
     assert not re.search(
         r'^bind_wif_user "\$\{DEPLOY_SA\}" "\$\{WIF_MEMBER_LEGACY\}"', script, re.M
     )
-    assert "condition et mapping à jour" in script and "provider_matches" in script
+    assert "condition, mapping, issuer et état à jour" in script and "provider_matches" in script
 
 
 def test_le_lecteur_de_sources_est_distinct_et_sans_role_projet() -> None:
@@ -494,9 +500,12 @@ def test_le_lecteur_de_sources_est_distinct_et_sans_role_projet() -> None:
     audit = script[script.index("audit_no_project_roles()"):
                    script.index('log "Compte de service déployeur"')]
     assert "|| true" not in audit
-    assert "allUsers" in script and "allAuthenticatedUsers" in script
+    helper = (WORKFLOWS.parents[1] / "scripts" / "gcp_iam_security.py").read_text("utf-8")
+    assert "allUsers" in helper and "allAuthenticatedUsers" in helper
     assert "--uniform-bucket-level-access" in script
-    assert "--public-access-prevention=enforced" in script
+    assert "--public-access-prevention" in script
+    assert "--public-access-prevention=enforced" not in script
+    assert 'python3 "${ROOT}/scripts/gcp_bucket_security.py"' in script
 
 
 def test_le_bootstrap_verifie_les_deux_objets_prives_par_leur_sha() -> None:
@@ -508,12 +517,15 @@ def test_le_bootstrap_verifie_les_deux_objets_prives_par_leur_sha() -> None:
     assert 'read_committed_source_sha "${doc_id}"' in script
     assert 'data/$1/source.sha256' in script
     assert "storage cp --if-generation-match=0" in script
-    assert script.index('storage objects describe "${object}"') < script.index(
+    assert script.index('storage objects list "${SOURCES_BUCKET}"') < script.index(
         'storage cat "${object}" | sha256_stdin'
     )
+    assert "inventaire du bucket source impossible" in script
     assert "existe mais sa lecture a échoué" in script
     assert 'storage cat "${object}" | sha256_stdin' in script, (
         "un objet déjà présent doit être vérifié, pas seulement déclaré présent")
+    assert 'mktemp "${TMPDIR:-/tmp}/foyer-retour-source.XXXXXX.pdf"' in script
+    assert 'storage cp --if-generation-match=0 "${snapshot}"' in script
 
 
 # --- `ci.yml` ------------------------------------------------------------------------------------

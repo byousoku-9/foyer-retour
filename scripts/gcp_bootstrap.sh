@@ -16,6 +16,7 @@ DEPLOYER_NAME="deployer"
 SOURCE_READER_NAME="source-reader"
 RUNTIME_NAME="foyer-retour-run"
 SOURCE_WORKFLOW_REF="${REPO}/.github/workflows/ci.yml@refs/heads/main"
+DEPLOY_WORKFLOW_REF="${REPO}/.github/workflows/deploy.yml@refs/heads/main"
 SOURCES_BUCKET="gs://${PROJECT}-sources"
 STAGING_BUCKET="gs://${PROJECT}_cloudbuild"
 # Le dépôt de sources de `gcloud run deploy --source` : depuis gcloud 5xx, ce n'est **plus** le
@@ -58,7 +59,12 @@ $G services enable \
 echo "   activées"
 
 ensure_sa() { # name display
-  if $G iam service-accounts describe "$1@${PROJECT}.iam.gserviceaccount.com" >/dev/null 2>&1; then
+  local state
+  if state="$($G iam service-accounts describe "$1@${PROJECT}.iam.gserviceaccount.com" --format=json 2>/dev/null)"; then
+    if ! printf '%s' "${state}" | python3 "${ROOT}/scripts/gcp_iam_security.py" sa-active; then
+      echo "   compte $1 présent mais désactivé ou illisible — refus de continuer" >&2
+      return 1
+    fi
     present "$1"
   else
     $G iam service-accounts create "$1" --display-name="$2" >/dev/null
@@ -209,7 +215,7 @@ else
   echo "   créé : pool ${POOL}"
 fi
 PROVIDER_ISSUER="https://token.actions.githubusercontent.com"
-PROVIDER_ROLE_EXPR="('environment' in assertion && assertion.environment == 'production') ? 'deploy' : (('job_workflow_ref' in assertion && assertion.job_workflow_ref == '${SOURCE_WORKFLOW_REF}') ? 'source-reader' : 'none')"
+PROVIDER_ROLE_EXPR="('environment' in assertion && assertion.environment == 'production' && 'workflow_ref' in assertion && assertion.workflow_ref == '${DEPLOY_WORKFLOW_REF}') ? 'deploy' : (('job_workflow_ref' in assertion && assertion.job_workflow_ref == '${SOURCE_WORKFLOW_REF}') ? 'source-reader' : 'none')"
 PROVIDER_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor,attribute.role=${PROVIDER_ROLE_EXPR}"
 # **La condition est la frontière d'identité, pas le `if:` du workflow** (revue Codex 1.11). Bornée
 # au seul dépôt, elle laissait n'importe quel workflow du dépôt — sur n'importe quelle branche, donc
@@ -223,76 +229,105 @@ PROVIDER_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.re
 # testés avec `in` avant lecture : absence d'environnement ou de workflow appelé ⇒ `none`, que la
 # condition refuse. Le déployeur exige l'environnement GitHub `production`; le lecteur exige le
 # workflow réutilisable `ci.yml` pris sur `main`.
-PROVIDER_CONDITION="attribute.repository == \"${REPO}\" && assertion.ref == \"refs/heads/main\" && attribute.role != \"none\""
-provider_matches() { # JSON du describe sur stdin
-  python3 -c '
-import json, sys
-state = json.load(sys.stdin)
-expected = {
-    "google.subject": "assertion.sub",
-    "attribute.repository": "assertion.repository",
-    "attribute.actor": "assertion.actor",
-    "attribute.role": sys.argv[2],
+PROVIDER_BASE_CONDITION="attribute.repository == \"${REPO}\" && assertion.ref == \"refs/heads/main\""
+PROVIDER_DEPLOY_CONDITION="${PROVIDER_BASE_CONDITION} && attribute.role == \"deploy\""
+PROVIDER_CONDITION="${PROVIDER_BASE_CONDITION} && attribute.role != \"none\""
+provider_matches() { # condition attendue ; JSON du describe sur stdin
+  python3 "${ROOT}/scripts/gcp_iam_security.py" provider-exact \
+    "$1" "${PROVIDER_ROLE_EXPR}" "${PROVIDER_ISSUER}"
 }
-raise SystemExit(0 if state.get("attributeCondition") == sys.argv[1]
-                 and state.get("attributeMapping") == expected else 1)
-' "${PROVIDER_CONDITION}" "${PROVIDER_ROLE_EXPR}"
+describe_provider() {
+  $G iam workload-identity-pools providers describe "${PROVIDER}" \
+    --workload-identity-pool="${POOL}" --location=global --format=json
 }
-if PROVIDER_ACTUEL="$($G iam workload-identity-pools providers describe "${PROVIDER}" \
-      --workload-identity-pool="${POOL}" --location=global \
-      --format=json 2>/dev/null)"; then
-  # Condition **et mapping** font autorité : comparer seulement la condition laisserait survivre le
-  # principal pool-wide historique malgré un provider annoncé comme réparé.
-  if printf '%s' "${PROVIDER_ACTUEL}" | provider_matches; then
-    present "provider ${PROVIDER} (condition et mapping à jour)"
-  else
-    echo "   condition ou mapping divergent : mise à jour fail-closed"
-    $G iam workload-identity-pools providers update-oidc "${PROVIDER}" \
-      --workload-identity-pool="${POOL}" --location=global --display-name="${REPO}" \
-      --attribute-mapping="${PROVIDER_MAPPING}" \
-      --attribute-condition="${PROVIDER_CONDITION}" >/dev/null
-    echo "   mis à jour : provider ${PROVIDER} → ${REPO}"
-  fi
-else
-  $G iam workload-identity-pools providers create-oidc "${PROVIDER}" \
+update_provider() { # condition
+  $G iam workload-identity-pools providers update-oidc "${PROVIDER}" \
     --workload-identity-pool="${POOL}" --location=global --display-name="${REPO}" \
-    --issuer-uri="${PROVIDER_ISSUER}" \
-    --attribute-mapping="${PROVIDER_MAPPING}" \
-    --attribute-condition="${PROVIDER_CONDITION}" >/dev/null
-  echo "   créé : provider ${PROVIDER}"
-fi
+    --issuer-uri="${PROVIDER_ISSUER}" --attribute-mapping="${PROVIDER_MAPPING}" \
+    --attribute-condition="$1" >/dev/null
+}
 WIF_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/providers/${PROVIDER}"
 WIF_MEMBER_LEGACY="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.repository/${REPO}"
 WIF_DEPLOY_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.role/deploy"
 WIF_SOURCE_READER_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.role/source-reader"
+policy_has_wif_binding() { # role member ; policy JSON sur stdin
+  python3 "${ROOT}/scripts/gcp_iam_security.py" has-binding "$1" "$2"
+}
 bind_wif_user() { # service_account member libellé
-  if $G iam service-accounts get-iam-policy "$1" --flatten='bindings[].members' \
-      --filter="bindings.role=roles/iam.workloadIdentityUser AND bindings.members=$2" \
-      --format='value(bindings.role)' | grep -q .; then
+  local policy status
+  if ! policy="$($G iam service-accounts get-iam-policy "$1" --format=json)"; then
+    echo "   policy IAM illisible pour $1 — refus de modifier les bindings" >&2
+    return 1
+  fi
+  if printf '%s' "${policy}" | policy_has_wif_binding roles/iam.workloadIdentityUser "$2"; then
     present "workloadIdentityUser $3"
   else
+    status=$?
+    [ "${status}" -eq 1 ] || { echo "   policy IAM invalide pour $1" >&2; return 1; }
     retry $G iam service-accounts add-iam-policy-binding "$1" \
       --member="$2" --role=roles/iam.workloadIdentityUser >/dev/null
     echo "   lié : GitHub ${REPO} → $3"
   fi
 }
 unbind_wif_user() { # service_account member libellé
-  if $G iam service-accounts get-iam-policy "$1" --flatten='bindings[].members' \
-      --filter="bindings.role=roles/iam.workloadIdentityUser AND bindings.members=$2" \
-      --format='value(bindings.role)' | grep -q .; then
+  local policy status
+  if ! policy="$($G iam service-accounts get-iam-policy "$1" --format=json)"; then
+    echo "   policy IAM illisible pour $1 — refus d'annoncer le binding absent" >&2
+    return 1
+  fi
+  if printf '%s' "${policy}" | policy_has_wif_binding roles/iam.workloadIdentityUser "$2"; then
     retry $G iam service-accounts remove-iam-policy-binding "$1" \
       --member="$2" --role=roles/iam.workloadIdentityUser >/dev/null
     echo "   retiré : $3"
   else
+    status=$?
+    [ "${status}" -eq 1 ] || { echo "   policy IAM invalide pour $1" >&2; return 1; }
     present "$3 déjà absent"
   fi
 }
-# Ordre de migration : les deux bindings étroits existent avant que l'ancien principal repository
-# pool-wide du déployeur soit retiré. Une interruption ne laisse donc jamais le déploiement sans voie.
+
+# Migration en deux phases. Tant que le binding repository historique existe sur le déployeur, le
+# provider n'accepte **que** le rôle deploy : un jeton source-reader ne peut donc jamais profiter de
+# ce binding large, même si le bootstrap s'interrompt. Le rôle étroit deploy est posé avant retrait
+# du legacy; le lecteur et la condition finale ne sont ouverts qu'ensuite.
+PROVIDER_FINAL=false
+if PROVIDER_ACTUEL="$(describe_provider 2>/dev/null)"; then
+  if printf '%s' "${PROVIDER_ACTUEL}" | provider_matches "${PROVIDER_CONDITION}"; then
+    PROVIDER_FINAL=true
+    present "provider ${PROVIDER} (condition, mapping, issuer et état à jour)"
+  else
+    status=$?
+    [ "${status}" -eq 1 ] || { echo "   JSON du provider invalide — aucune mutation tentée" >&2; exit 1; }
+    echo "   provider divergent : passage temporaire deploy-only"
+    update_provider "${PROVIDER_DEPLOY_CONDITION}"
+  fi
+else
+  $G iam workload-identity-pools providers create-oidc "${PROVIDER}" \
+    --workload-identity-pool="${POOL}" --location=global --display-name="${REPO}" \
+    --issuer-uri="${PROVIDER_ISSUER}" --attribute-mapping="${PROVIDER_MAPPING}" \
+    --attribute-condition="${PROVIDER_DEPLOY_CONDITION}" >/dev/null
+  echo "   créé : provider ${PROVIDER} (deploy-only)"
+fi
+if [ "${PROVIDER_FINAL}" = false ]; then
+  PROVIDER_ACTUEL="$(describe_provider)"
+  printf '%s' "${PROVIDER_ACTUEL}" | provider_matches "${PROVIDER_DEPLOY_CONDITION}" || {
+    echo "   provider deploy-only non confirmé — refus de poursuivre" >&2
+    exit 1
+  }
+fi
 bind_wif_user "${DEPLOY_SA}" "${WIF_DEPLOY_MEMBER}" "déployeur (attribute.role/deploy)"
+unbind_wif_user "${DEPLOY_SA}" "${WIF_MEMBER_LEGACY}" "binding repository pool-wide du déployeur"
 bind_wif_user "${SOURCE_READER_SA}" "${WIF_SOURCE_READER_MEMBER}" \
   "lecteur de sources (attribute.role/source-reader)"
-unbind_wif_user "${DEPLOY_SA}" "${WIF_MEMBER_LEGACY}" "binding repository pool-wide du déployeur"
+if [ "${PROVIDER_FINAL}" = false ]; then
+  update_provider "${PROVIDER_CONDITION}"
+  PROVIDER_ACTUEL="$(describe_provider)"
+  printf '%s' "${PROVIDER_ACTUEL}" | provider_matches "${PROVIDER_CONDITION}" || {
+    echo "   provider final non confirmé — refus de poursuivre" >&2
+    exit 1
+  }
+  echo "   mis à jour : provider ${PROVIDER} → deploy + source-reader"
+fi
 
 audit_sa_wif_policy() { # service_account expected_member
   local policy details
@@ -300,17 +335,8 @@ audit_sa_wif_policy() { # service_account expected_member
     echo "   policy du compte lecteur illisible — refus de continuer" >&2
     return 1
   fi
-  if details="$(printf '%s' "${policy}" | python3 -c '
-import json, sys
-expected = sys.argv[1]
-bindings = json.load(sys.stdin).get("bindings", [])
-actual = [(b.get("role"), member) for b in bindings for member in b.get("members", [])]
-wanted = [("roles/iam.workloadIdentityUser", expected)]
-if actual != wanted:
-    for role, member in actual:
-        print(f"{role} -> {member}")
-    raise SystemExit(1)
-' "$2")"; then
+  if details="$(printf '%s' "${policy}" | python3 "${ROOT}/scripts/gcp_iam_security.py" \
+      audit-sa-wif "$2")"; then
     present "policy SA du lecteur limitée à workloadIdentityUser étroit"
   else
     echo "   bindings inattendus sur le compte lecteur :" >&2
@@ -339,31 +365,33 @@ ensure_bucket "${RUN_SOURCES_BUCKET}"
 ensure_bucket "${SOURCES_BUCKET}"
 
 source_bucket_security_ok() { # JSON du describe sur stdin
-  python3 -c '
-import json, sys
-iam = json.load(sys.stdin).get("iamConfiguration", {})
-ubla = iam.get("uniformBucketLevelAccess", {}).get("enabled") is True
-pap = iam.get("publicAccessPrevention") == "enforced"
-raise SystemExit(0 if ubla and pap else 1)
-'
+  python3 "${ROOT}/scripts/gcp_bucket_security.py"
 }
 ensure_source_bucket_security() {
-  local state
+  local state status
   if ! state="$($G storage buckets describe "${SOURCES_BUCKET}" --format=json)"; then
     echo "   configuration du bucket source illisible — refus de continuer" >&2
     return 1
   fi
-  if ! printf '%s' "${state}" | source_bucket_security_ok; then
+  if printf '%s' "${state}" | source_bucket_security_ok; then
+    present "UBLA actif, Public Access Prevention enforced"
+    return
+  else
+    status=$?
+  fi
+  if [ "${status}" -ne 1 ]; then
+    echo "   JSON du bucket source invalide — aucune mutation tentée" >&2
+    return 1
+  fi
+  if [ "${status}" -eq 1 ]; then
     $G storage buckets update "${SOURCES_BUCKET}" \
-      --uniform-bucket-level-access --public-access-prevention=enforced >/dev/null
+      --uniform-bucket-level-access --public-access-prevention >/dev/null
     if ! state="$($G storage buckets describe "${SOURCES_BUCKET}" --format=json)" \
         || ! printf '%s' "${state}" | source_bucket_security_ok; then
       echo "   UBLA/PAP non confirmés après mise à niveau — refus de continuer" >&2
       return 1
     fi
     echo "   mis à niveau : UBLA actif, Public Access Prevention enforced"
-  else
-    present "UBLA actif, Public Access Prevention enforced"
   fi
 }
 ensure_source_bucket_security
@@ -399,19 +427,8 @@ audit_source_bucket_policy() {
     echo "   policy du bucket source illisible — refus de continuer" >&2
     return 1
   fi
-  if details="$(printf '%s' "${policy}" | python3 -c '
-import json, sys
-reader = sys.argv[1]
-bindings = json.load(sys.stdin).get("bindings", [])
-reader_bindings = [(b.get("role"), m) for b in bindings for m in b.get("members", []) if m == reader]
-public_bindings = [(b.get("role"), m) for b in bindings for m in b.get("members", [])
-                   if m in {"allUsers", "allAuthenticatedUsers"}]
-expected = [("roles/storage.objectViewer", reader)]
-if reader_bindings != expected or public_bindings:
-    for role, member in reader_bindings + public_bindings:
-        print(f"{role} -> {member}")
-    raise SystemExit(1)
-' "serviceAccount:${SOURCE_READER_SA}")"; then
+  if details="$(printf '%s' "${policy}" | python3 "${ROOT}/scripts/gcp_iam_security.py" \
+      audit-source-bucket "serviceAccount:${SOURCE_READER_SA}")"; then
     present "policy source : lecteur objectViewer seul, aucun membre public"
   else
     echo "   policy source inattendue (aucune révocation automatique) :" >&2
@@ -439,10 +456,15 @@ read_committed_source_sha() { # doc_id
 }
 
 ensure_source_object() { # doc_id chemin_local nom_variable
-  local doc_id="$1" local_path="$2" variable_name="$3" object actual expected
+  local doc_id="$1" local_path="$2" variable_name="$3" object actual expected names snapshot
   expected="$(read_committed_source_sha "${doc_id}")"
   object="${SOURCES_BUCKET}/${doc_id}.pdf"
-  if $G storage objects describe "${object}" >/dev/null 2>&1; then
+  if ! names="$($G storage objects list "${SOURCES_BUCKET}" \
+      --filter="name=${doc_id}.pdf" --format='value(name)')"; then
+    echo "   inventaire du bucket source impossible — refus de traiter ${object}" >&2
+    return 1
+  fi
+  if [ "${names}" = "${doc_id}.pdf" ]; then
     if ! actual="$($G storage cat "${object}" | sha256_stdin)"; then
       echo "   ${object} existe mais sa lecture a échoué — refus de continuer" >&2
       return 1
@@ -461,15 +483,20 @@ ensure_source_object() { # doc_id chemin_local nom_variable
     echo "   relancer avec ${variable_name}=/chemin/vers/${doc_id}.pdf" >&2
     exit 1
   fi
-  actual="$(sha256_of "${local_path}")"
+  snapshot="$(mktemp "${TMPDIR:-/tmp}/foyer-retour-source.XXXXXX.pdf")"
+  cp -- "${local_path}" "${snapshot}"
+  actual="$(sha256_of "${snapshot}")"
   [ "${actual}" = "${expected}" ] || {
-    echo "   sha256 inattendu pour ${local_path} : ${actual} (attendu ${expected})" >&2
+    rm -f -- "${snapshot}"
+    echo "   sha256 inattendu pour le snapshot de ${local_path} : ${actual} (attendu ${expected})" >&2
     exit 1
   }
-  if ! $G storage cp --if-generation-match=0 "${local_path}" "${object}" >/dev/null; then
+  if ! $G storage cp --if-generation-match=0 "${snapshot}" "${object}" >/dev/null; then
+    rm -f -- "${snapshot}"
     echo "   création conditionnelle en échec pour ${object} — rien n'est annoncé conforme" >&2
     return 1
   fi
+  rm -f -- "${snapshot}"
   if ! actual="$($G storage cat "${object}" | sha256_stdin)"; then
     echo "   objet déposé mais relecture impossible : ${object}" >&2
     return 1
