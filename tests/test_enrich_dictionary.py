@@ -186,6 +186,26 @@ class FauxClient:
         self.messages = type("_M", (), {"batches": batches})()
 
 
+@dataclass
+class FauxMessagesStandard:
+    reponses: list[Any]
+    requetes: list[dict[str, Any]] = field(default_factory=list)
+
+    def create(self, **params: Any) -> Any:
+        self.requetes.append(params)
+        if not self.reponses:
+            raise AssertionError("appel Messages standard non prévu")
+        suivant = self.reponses.pop(0)
+        if isinstance(suivant, BaseException):
+            raise suivant
+        return suivant
+
+
+class FauxClientStandard:
+    def __init__(self, messages: FauxMessagesStandard) -> None:
+        self.messages = messages
+
+
 def _sortie_categorie(**over: Any) -> dict:
     base = {
         "termes": [{"fiche_id": FICHE, "canonique": "déclaration d'arrivée",
@@ -259,7 +279,11 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     racine.write_bytes(b'{"marqueur":"dictionnaire global intact"}\n')
     avant = racine.read_bytes()
     fichiers_avant = {p.relative_to(data): p.read_bytes() for p in data.rglob("*") if p.is_file()}
-    batches = FauxBatches({ed.custom_id(CAT): _sortie_categorie(),
+    block_id = f"{DOC_ID}:farrivee:1"
+    batches = FauxBatches({ed.custom_id(block_id): _sortie_categorie(
+                                termes=[{"fiche_id": block_id,
+                                         "canonique": "déclaration d'arrivée",
+                                         "variantes": ["Anmeldung"]}], questions=[]),
                             ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS})
 
     code = ed.main(["--data", str(data), "--doc-id", DOC_ID],
@@ -281,6 +305,134 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     assert racine.read_bytes() == avant
     assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
             if p.is_file() and p != cible} == fichiers_avant
+
+
+def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
+    from server.app.config import REPO_ROOT
+    from server.app.corpus.loader import load_corpus
+    from server.app.domain.document import is_citable
+
+    doc_id = "baloise-lu-home-2-2024"
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
+    settings = _settings()
+    unites = ed.categories(corpus, doc_id, settings)
+    document = corpus.documents[doc_id]
+    noeuds = {node.node_id: node for node in document.nodes}
+    attendus = [bloc.block_id for bloc in document.blocks if is_citable(bloc)]
+
+    assert unites and all(isinstance(unite, ed.UniteContrat) for unite in unites)
+    assert all(unite.extraits for unite in unites)
+    assert [extrait.block_id for unite in unites for extrait in unite.extraits] == attendus
+    for unite in unites:
+        assert len(unite.extraits) <= settings.dictionary_flat_max_blocks_per_request
+        assert sum(len(extrait.text) for extrait in unite.extraits) \
+            <= settings.dictionary_flat_max_input_chars
+        for extrait in unite.extraits:
+            bloc = document.block(extrait.block_id)
+            assert extrait.node_id == document.node_of(bloc.block_id)
+            assert extrait.node_title == noeuds[extrait.node_id].title
+            assert extrait.text == bloc.text and extrait.truncated is False
+
+    reqs = ed.requetes(corpus, doc_id, settings)
+    assert len(reqs) == len(unites) + 1
+    for requete, unite in zip(reqs[:-1], unites, strict=True):
+        contenu = json.loads(requete["params"]["messages"][0]["content"])
+        assert contenu["unite"] == {"node_id": unite.node_id, "node_title": unite.node_title}
+        assert contenu["extraits"] == [extrait.model_dump() for extrait in unite.extraits]
+        assert requete["params"]["max_tokens"] == settings.dictionary_flat_max_output_tokens
+
+
+def test_la_projection_historique_du_guide_reste_strictement_identique() -> None:
+    corpus = _corpus_en_memoire()
+    (categorie,) = ed.categories(corpus, DOC_ID, _settings())
+    assert type(categorie) is ed.Categorie
+    assert categorie.model_dump() == {
+        "node_id": CAT, "titre": "Administratif",
+        "fiches": [{"fiche_id": FICHE, "titre": "Les huit premiers jours",
+                     "resume": "Tout part de la commune.", "tags": ["arrivée", "commune"]}],
+    }
+    (requete, intents) = ed.requetes(corpus, DOC_ID, _settings())
+    assert json.loads(requete["params"]["messages"][0]["content"]) == {
+        "categorie": "Administratif",
+        "fiches": [{"fiche_id": FICHE, "titre": "Les huit premiers jours",
+                     "resume": "Tout part de la commune.", "tags": ["arrivée", "commune"]}],
+    }
+    assert requete["params"]["max_tokens"] == _settings().dictionary_max_output_tokens
+    assert "catégorie du guide" in requete["params"]["system"][0]["text"]
+    assert intents["custom_id"] == ed.CUSTOM_ID_INTENTS
+
+
+def _sortie_contrat() -> dict[str, Any]:
+    block_id = f"{DOC_ID}:farrivee:1"
+    return {"termes": [{"fiche_id": block_id, "canonique": "déclaration d'arrivée",
+                         "variantes": ["Anmeldung"]}], "questions": []}
+
+
+def test_standard_dry_run_ne_cree_ni_client_ni_fichier(tmp_path: Path) -> None:
+    data = _ecrire_data(tmp_path, kind="contrat")
+    flux = io.StringIO()
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard",
+                    "--dry-run"], client=None, settings=_settings(anthropic_api_key=""), sortie=flux)
+    assert code == 0 and not (data / DOC_ID / "dictionary.json").exists()
+    assert "Messages standard (sans remise Batch, sans retry)" in flux.getvalue()
+
+
+def test_le_plafond_standard_refuse_avant_le_premier_appel(tmp_path: Path) -> None:
+    data = _ecrire_data(tmp_path, kind="contrat")
+    messages = FauxMessagesStandard([])
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard",
+                    "--max-cost", "0.0001"], client=FauxClientStandard(messages),
+                   settings=_settings(), sortie=io.StringIO())
+    assert code == 3 and messages.requetes == []
+    assert not (data / DOC_ID / "dictionary.json").exists()
+
+
+@pytest.mark.parametrize("plafond", ["0", "nan", "inf"])
+def test_un_plafond_standard_non_borne_est_refuse_avant_appel(
+        tmp_path: Path, plafond: str) -> None:
+    data = _ecrire_data(tmp_path, kind="contrat")
+    messages = FauxMessagesStandard([])
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard",
+                    "--max-cost", plafond], client=FauxClientStandard(messages),
+                   settings=_settings(), sortie=io.StringIO())
+    assert code == 3 and messages.requetes == []
+
+
+def test_standard_double_ecrit_un_dictionnaire_contractuel_chargeable(tmp_path: Path) -> None:
+    from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.loader import load_corpus
+
+    data = _ecrire_data(tmp_path, kind="contrat")
+    messages = FauxMessagesStandard([_message(_sortie_contrat()), _message(SORTIE_INTENTS)])
+    flux = io.StringIO()
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"],
+                   client=FauxClientStandard(messages), settings=_settings(), sortie=flux)
+    assert code == 0 and len(messages.requetes) == 2
+    corpus = load_corpus(data, allow_ungated=True)
+    dictionnaire = load_dictionary(data, corpus, DOC_ID)
+    assert dictionnaire.charge and dictionnaire.corpus_ok and dictionnaire.doc_id == DOC_ID
+    assert dictionnaire.expand(["Anmeldung"])["Anmeldung"] == ["declaration d arrivee"]
+    assert not (data / "dictionary.json").exists()
+    from server.app.llm.pricing import cost_from_usage
+    usage = {"input_tokens": 2000, "output_tokens": 500, "cache_read_input_tokens": 0,
+             "cache_creation_input_tokens": 0}
+    attendu = round(2 * cost_from_usage(ed.MODEL, usage, _settings().usd_eur,
+                                       batch=False).cost_eur, 4)
+    assert f"coût réel {attendu:.4f} €" in flux.getvalue()
+
+
+def test_standard_partiel_ou_tronque_necrase_jamais_le_dictionnaire(tmp_path: Path) -> None:
+    data = _ecrire_data(tmp_path, kind="contrat")
+    cible = data / DOC_ID / "dictionary.json"
+    precedent = b'{"dictionnaire":"precedent"}\n'
+    cible.write_bytes(precedent)
+    messages = FauxMessagesStandard([
+        _message(_sortie_contrat()), _message(SORTIE_INTENTS, stop_reason="max_tokens")])
+
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"],
+                   client=FauxClientStandard(messages), settings=_settings(), sortie=io.StringIO())
+    assert code == 4 and cible.read_bytes() == precedent
+    assert len(messages.requetes) == 2, "aucun retry ne doit suivre la troncature"
 
 
 def test_relancer_ne_produit_aucun_diff_dordre(tmp_path: Path) -> None:
@@ -501,6 +653,14 @@ def test_le_majorant_applique_lescompte_du_batch() -> None:
                               output_schema=r["params"]["output_config"]["format"])
                 for r in reqs)
     assert ed.majorant_eur(reqs, settings) == pytest.approx(plein * BATCH_DISCOUNT, rel=1e-3)
+
+
+def test_le_majorant_standard_napplique_jamais_la_remise_batch() -> None:
+    settings = _settings()
+    reqs = ed.requetes(_corpus_en_memoire(), DOC_ID, settings)
+    batch = ed.majorant_eur(reqs, settings, batch=True)
+    standard = ed.majorant_eur(reqs, settings, batch=False)
+    assert standard == pytest.approx(batch / ed.BATCH_DISCOUNT, abs=0.0001)
 
 
 def test_limit_borne_le_nombre_de_categories() -> None:

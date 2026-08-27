@@ -3297,3 +3297,43 @@ payants AXA/guide, opération préparée mais volontairement non exécutée dans
 final exact de `ANTHROPIC_API_KEY= uv run pytest -q` : **2442 passed, 1 failed**; l'unique échec est
 `tests/test_digests.py::test_les_gates_du_depot_sont_ceux_de_limage_courante` (digest courant
 `7e57eec6…`, gate historique `76e23d40…`). Ruff et `git diff --check` sont verts.
+
+### Follow-up dictionnaire plat — génération standard reproductible
+
+Le finding a été reproduit sur le vrai `document.json` Baloise : la projection historique des
+catégories rendait `[]` (racine plate et nœud TdM sans fiche), donc `requetes()` ne préparait que les
+intents. Le dictionnaire initial à trois groupes n'était pas attribuable à cette commande. Il a été
+remplacé par la sortie reproductible de la projection corrigée, sans reprendre ni certifier son
+contenu à la main.
+
+La nouvelle préparation part exclusivement des blocs citables réels, de leur vrai nœud propriétaire
+et du texte effectivement envoyé; les unités sont bornées en blocs et en caractères, sans article,
+fiche ou hiérarchie synthétique. Les tests hors ligne couvrent le shape Baloise, l'identité du chemin
+guide, le dry-run sans clé, le plafond avant appel, le coût sans remise, l'écriture standard doublée
+et la préservation byte-identique du fichier précédent sur sortie partielle ou tronquée.
+La vérification ciblée finale compte **265 tests réussis**; Ruff et `git diff --check` sont verts.
+
+Dry-run de preuve avant toute dépense :
+
+```bash
+ANTHROPIC_API_KEY= uv run python -m server.ingest.enrich_dictionary \
+  --doc-id baloise-lu-home-2-2024 --transport standard --max-cost 5.01 --dry-run
+```
+
+Sortie observée : **35 unités contractuelles + `intents` = 36 requêtes**, tier `ingest`
+(`claude-opus-5`), majorant Messages standard **5,0002 EUR** sans remise Batch contre le plafond de
+5,01 EUR. Lancé avec `ANTHROPIC_API_KEY=`, le chemin `--dry-run` s'est arrêté avant toute construction
+de client et n'a rien écrit.
+
+Après convergence du code et des tests hors ligne, une unique régénération payante a été lancée :
+
+```bash
+uv run python -m server.ingest.enrich_dictionary \
+  --doc-id baloise-lu-home-2-2024 --transport standard --max-cost 5.01
+```
+
+Elle a terminé sans retry ni Batch : **36 appels**, coût réel **2,8518 EUR**, 540 canoniques,
+3 029 variantes, zéro question candidate et 87 déclencheurs. Les contrôles ont écarté 67 canoniques
+dupliqués et 388 propositions trop longues. Le fichier final est chargeable, `corpus_ok=true` pour
+`baloise-lu-home-2-2024` et `validated=false`. Aucun gate, appel live applicatif, fixture LLM ou push
+n'a été exécuté dans ce follow-up.

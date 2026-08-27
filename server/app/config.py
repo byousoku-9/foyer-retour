@@ -359,6 +359,13 @@ class Settings(BaseSettings):
     dictionary_question_max_chars: int = Field(160, ge=1)
     dictionary_max_questions_per_fiche: int = Field(5, ge=1)
     dictionary_max_intent_triggers: int = Field(30, ge=1)
+    # Un contrat sans hiérarchie exploitable est enrichi depuis des unités de **vrais blocs**,
+    # jamais depuis des fiches inventées. Ces quatre bornes dimensionnent séparément leur entrée et
+    # leur sortie : le gros plafond historique reste nécessaire à la catégorie FAQ du guide.
+    dictionary_flat_max_blocks_per_request: int = Field(20, ge=1)
+    dictionary_flat_max_input_chars: int = Field(12000, ge=1)
+    dictionary_flat_max_terms_per_block: int = Field(3, ge=1)
+    dictionary_flat_max_output_tokens: int = Field(4096, ge=1)
     # Sortie maximale d'une requête de batch. Elle n'est **pas** bornée par `llm_max_output_tokens` :
     # celui-ci borne les appels du **serveur**, qui vivent sous la deadline et le plafond par requête
     # (AD-9) ; l'ingestion est hors ligne, en Batch API, et son majorant est le plafond de coût
@@ -590,6 +597,10 @@ class Settings(BaseSettings):
             "dictionary_question_max_chars": self.dictionary_question_max_chars,
             "dictionary_max_questions_per_fiche": self.dictionary_max_questions_per_fiche,
             "dictionary_max_intent_triggers": self.dictionary_max_intent_triggers,
+            "dictionary_flat_max_blocks_per_request": self.dictionary_flat_max_blocks_per_request,
+            "dictionary_flat_max_input_chars": self.dictionary_flat_max_input_chars,
+            "dictionary_flat_max_terms_per_block": self.dictionary_flat_max_terms_per_block,
+            "dictionary_flat_max_output_tokens": self.dictionary_flat_max_output_tokens,
             "dictionary_max_output_tokens": self.dictionary_max_output_tokens,
             "dictionary_max_cost_eur": self.dictionary_max_cost_eur,
             "dictionary_batch_poll_s": self.dictionary_batch_poll_s,

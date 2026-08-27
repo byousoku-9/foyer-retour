@@ -190,6 +190,10 @@ def test_les_seuils_du_dictionnaire_sont_ceux_de_la_spec() -> None:
     assert s.dictionary_max_variants_per_term == 8 and s.dictionary_max_terms_per_fiche == 20
     assert s.dictionary_question_max_chars == 160 and s.dictionary_max_questions_per_fiche == 5
     assert s.dictionary_max_intent_triggers == 30 and s.dictionary_max_output_tokens == 16000
+    assert s.dictionary_flat_max_blocks_per_request == 20
+    assert s.dictionary_flat_max_input_chars == 12000
+    assert s.dictionary_flat_max_terms_per_block == 3
+    assert s.dictionary_flat_max_output_tokens == 4096
     assert s.dictionary_max_cost_eur == 3.0
     assert s.dictionary_batch_poll_s == 20.0 and s.dictionary_batch_timeout_s == 3600.0
     assert s.perimetre_max_chars == 4000
@@ -199,6 +203,8 @@ def test_les_seuils_du_dictionnaire_sont_ceux_de_la_spec() -> None:
                 "dictionary_max_variants_per_term", "dictionary_max_terms_per_fiche",
                 "dictionary_question_max_chars", "dictionary_max_questions_per_fiche",
                 "dictionary_max_intent_triggers", "dictionary_max_output_tokens",
+                "dictionary_flat_max_blocks_per_request", "dictionary_flat_max_input_chars",
+                "dictionary_flat_max_terms_per_block", "dictionary_flat_max_output_tokens",
                 "dictionary_max_cost_eur", "dictionary_batch_poll_s",
                 "dictionary_batch_timeout_s", "perimetre_max_chars"):
         assert t[nom] == getattr(s, nom), nom
@@ -238,6 +244,8 @@ def test_les_seuils_du_typage_clauses_sont_bornes_publies_et_documentes() -> Non
     {"dictionary_max_variants_per_term": 0}, {"dictionary_max_terms_per_fiche": 0},
     {"dictionary_question_max_chars": 0}, {"dictionary_max_questions_per_fiche": 0},
     {"dictionary_max_intent_triggers": 0}, {"dictionary_max_output_tokens": 0},
+    {"dictionary_flat_max_blocks_per_request": 0}, {"dictionary_flat_max_input_chars": 0},
+    {"dictionary_flat_max_terms_per_block": 0}, {"dictionary_flat_max_output_tokens": 0},
     {"dictionary_max_cost_eur": 0}, {"dictionary_batch_poll_s": 0},
     {"dictionary_batch_timeout_s": 0}, {"perimetre_max_chars": 0},
 ])

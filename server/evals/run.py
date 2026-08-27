@@ -512,8 +512,9 @@ def suite_du_document(settings: Settings, doc_id: str, *, cases_dir: Path = CASE
 
     Le schéma de cas d'AD-14 ne porte **pas** de `doc_id`, et lui en ajouter un amenderait une
     définition partagée pour un besoin que cette story n'a pas : `--gate lux-guide` exécute donc la
-    suite `guide`, `--gate axa-lu-optihome-2017` la suite `sinistre`. Le jour où un second contrat
-    arrive (story 3.6), c'est cette fonction qui ne suffira plus — entrée différée.
+    suite `guide`, le contrat historique la suite `sinistre` à plat, et chaque autre contrat sa
+    sous-suite livrée `sinistre/<doc_id>`. L'existence du dossier fait foi ; aucun slug assureur
+    n'est codé dans le runner.
     """
     _valider_doc_id(doc_id)
     if doc_id == settings.guide_doc_id:

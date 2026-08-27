@@ -57,3 +57,34 @@ reste volontairement non faite car elle constituerait un gate payant.
 Cette relecture est une inspection agent, pas une validation assurance. La relecture par Lancelot et
 l'expertise restent toutes deux dues; les YAML portent `countersigned_by: null` et
 `validated_by_expert: false`.
+
+### Dictionnaire contractuel reproductible
+
+Le premier `dictionary.json` Baloise contenait trois groupes candidats préparés pour les témoins. Il
+**n'avait pas été généré** par `enrich_dictionary` : l'ancienne projection ne voyait que les
+catégories de guide et rendait zéro unité sur cette racine plate. Il a été remplacé, sans le
+certifier rétroactivement, par la sortie reproductible décrite ci-dessous.
+
+La projection corrigée ne fabrique aucun article ni fiche : elle prend les seuls blocs citables du
+document, conserve leur `block_id`, leur texte fourni et leur vrai nœud propriétaire, puis les groupe
+sous les bornes de configuration. Un bloc trop long n'est fourni que par un préfixe marqué
+`truncated=true`; le prompt interdit toute déduction sur le texte absent. Le guide structuré conserve
+son prompt et son payload historiques. La voie de développement exacte est :
+
+```bash
+ANTHROPIC_API_KEY= uv run python -m server.ingest.enrich_dictionary \
+  --doc-id baloise-lu-home-2-2024 --transport standard --max-cost 5.01 --dry-run
+uv run python -m server.ingest.enrich_dictionary \
+  --doc-id baloise-lu-home-2-2024 --transport standard --max-cost 5.01
+```
+
+La seconde commande a été exécutée exactement une fois le 27/08/2026. Le transport standard part de
+zéro via `messages.create`, sans Batch ni retry; son plafond est vérifié avant le premier appel et le
+fichier existant n'est remplacé que si toutes les unités et les intents reviennent complets et non
+tronqués.
+
+Le dry-run réel, clé neutralisée, prépare **35 unités de blocs + les intents**, soit **36 appels
+Messages standard**, pour un majorant de **5,0002 EUR** sans remise sous le plafond de 5,01 EUR. La
+campagne réelle a coûté **2,8518 EUR** et écrit 540 canoniques, 3 029 variantes, zéro question
+candidate et 87 déclencheurs. Le fichier est chargeable, décrit l'empreinte courante du corpus et
+reste `validated=false` : sa génération ne remplace ni la validation humaine ni le gate du document.

@@ -15,10 +15,11 @@ ne couvre que `server/app`, et la table des couches du spine ne nomme pas `inges
 partagé, parce qu'il n'y a qu'une autorité pour ça : la table des tiers (`llm/models.py`) et la table
 des prix (`llm/pricing.py`), lues sans être modifiées.
 
-**Un lot de batch par catégorie, pas par fiche** : le guide a dix catégories et trente-neuf fiches ;
-une requête par fiche multiplierait par quatre le majorant de sortie sans rien apporter, et la
-concurrence n'est pas le facteur limitant d'un batch. Une requête de plus porte les déclencheurs
-d'intention, qui ne dépendent d'aucune catégorie.
+**Une requête par unité documentaire** : pour le guide structuré, l'unité historique reste sa
+catégorie et ses fiches. Pour un contrat, l'unité est un groupe borné de blocs citables appartenant
+à un même vrai nœud ; les extraits envoyés sont exactement ceux de ces blocs (un bloc individuel
+trop long est préfixé et signalé comme tel). Aucune fiche ni hiérarchie n'est inventée. Une requête
+de plus porte les déclencheurs d'intention.
 
 **Le majorant est calculé avant soumission** et comparé à `dictionary_max_cost_eur` : le run refuse
 de démarrer plutôt que de découvrir la facture après coup (AD-1, AD-9).
@@ -27,6 +28,10 @@ de démarrer plutôt que de découvrir la facture après coup (AD-1, AD-9).
 jamais de texte de bloc »). Chaque chaîne rendue passe les bornes de `config.py` et le contrôle
 « chaîne recopiée d'un bloc » ; une chaîne hors borne est **écartée**, jamais tronquée, et l'écart
 est compté puis affiché. Un `fiche_id` inconnu est écarté de même.
+
+Le transport historique reste Batch par défaut. En développement, `--transport standard` part de
+zéro par `messages.create`, sans Batch ni retry ; son majorant et son coût réel sont calculés sans
+remise Batch.
 
 Codes de sortie : `0` ok · `2` pas de clé · `3` majorant dépassé · `4` aucun résultat exploitable
 · `5` `--valider` sur un corpus périmé.
@@ -37,6 +42,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 import time
@@ -58,7 +64,7 @@ from server.app.domain.dictionary import (
     SCHEMA_VERSION,
     DictionaryFile,
 )
-from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Block, is_citable
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 
@@ -117,6 +123,25 @@ class Categorie(BaseModel):
     fiches: list[Fiche]
 
 
+class ExtraitContrat(BaseModel):
+    """Un vrai bloc, éventuellement borné par préfixe — jamais une fiche ou un résumé fabriqué."""
+
+    block_id: str
+    node_id: str
+    node_title: str
+    text: str
+    truncated: bool = False
+
+
+class UniteContrat(BaseModel):
+    """Une unité de transport, identifiée par son premier bloc réel et son vrai propriétaire."""
+
+    unit_id: str
+    node_id: str
+    node_title: str
+    extraits: list[ExtraitContrat]
+
+
 def _fiches_du_sommaire(summary: str) -> dict[str, tuple[str, list[str]]]:
     """`{fiche_id: (résumé, tags)}` lus dans `summary.md` ; une ligne illisible est simplement ignorée."""
     out: dict[str, tuple[str, list[str]]] = {}
@@ -134,9 +159,57 @@ def _fiches_du_sommaire(summary: str) -> dict[str, tuple[str, list[str]]]:
     return out
 
 
-def categories(corpus: Corpus, doc_id: str) -> list[Categorie]:
-    """Les catégories du document : nœuds de **niveau 1** et leurs enfants directs (les fiches)."""
+def categories(corpus: Corpus, doc_id: str, settings: Settings | None = None) \
+        -> list[Categorie | UniteContrat]:
+    """Unités honnêtes du document, sans modifier la projection historique du guide.
+
+    Le guide conserve strictement ses catégories de niveau 1 et leurs fiches directes. Tout autre
+    document est projeté depuis ses blocs citables, groupés par leur véritable nœud propriétaire,
+    puis bornés en nombre et en caractères. `unit_id` est le premier `block_id` du groupe : c'est
+    une identité source existante, pas un nœud synthétique.
+    """
     doc = corpus.documents[doc_id]
+    if doc.kind != "guide":
+        s = settings or Settings(_env_file=None, anthropic_api_key="")
+        par_noeud = {n.node_id: n for n in doc.nodes}
+        groupes: dict[str, list[Block]] = {}
+        ordre_noeuds: list[str] = []
+        for bloc in doc.blocks:
+            if not is_citable(bloc):
+                continue
+            node_id = doc.node_of(bloc.block_id)
+            if node_id not in groupes:
+                groupes[node_id] = []
+                ordre_noeuds.append(node_id)
+            groupes[node_id].append(bloc)
+
+        unites: list[UniteContrat] = []
+        for node_id in ordre_noeuds:
+            node = par_noeud[node_id]
+            courants: list[ExtraitContrat] = []
+            caracteres = 0
+
+            def fermer() -> None:
+                nonlocal courants, caracteres
+                if courants:
+                    unites.append(UniteContrat(
+                        unit_id=courants[0].block_id, node_id=node_id,
+                        node_title=node.title, extraits=courants))
+                courants, caracteres = [], 0
+
+            for bloc in groupes[node_id]:
+                texte = bloc.text[:s.dictionary_flat_max_input_chars]
+                if courants and (
+                        len(courants) >= s.dictionary_flat_max_blocks_per_request
+                        or caracteres + len(texte) > s.dictionary_flat_max_input_chars):
+                    fermer()
+                courants.append(ExtraitContrat(
+                    block_id=bloc.block_id, node_id=node_id, node_title=node.title,
+                    text=texte, truncated=len(texte) < len(bloc.text)))
+                caracteres += len(texte)
+            fermer()
+        return unites
+
     par_id = {n.node_id: n for n in doc.nodes}
     meta = _fiches_du_sommaire(corpus.summaries.get(doc_id, ""))
     out: list[Categorie] = []
@@ -275,11 +348,12 @@ def _schema(model: type[BaseModel]) -> dict[str, Any]:
     return {"type": "json_schema", "schema": anthropic.transform_schema(model.model_json_schema())}
 
 
-def _params(system: str, contenu: str, schema: dict[str, Any], settings: Settings) -> dict[str, Any]:
+def _params(system: str, contenu: str, schema: dict[str, Any], settings: Settings,
+            *, max_tokens: int | None = None) -> dict[str, Any]:
     """Le corps d'un appel `messages`, tel que le batch le rejoue. `effort` explicite (AD-9)."""
     return {
         "model": MODEL,
-        "max_tokens": settings.dictionary_max_output_tokens,
+        "max_tokens": max_tokens or settings.dictionary_max_output_tokens,
         "system": [{"type": "text", "text": system}],
         "messages": [{"role": "user", "content": contenu}],
         "output_config": {"format": schema, "effort": EFFORT[TIER]},
@@ -288,13 +362,16 @@ def _params(system: str, contenu: str, schema: dict[str, Any], settings: Setting
 
 def requetes(corpus: Corpus, doc_id: str, settings: Settings, *,
              limit: int | None = None) -> list[dict[str, Any]]:
-    """Une requête par catégorie du guide, plus une pour les intentions. `custom_id` = la clé d'agrégation."""
-    cats = categories(corpus, doc_id)
+    """Une requête par unité réelle, plus une pour les intentions."""
+    document = corpus.documents[doc_id]
+    cats = categories(corpus, doc_id, settings)
     if limit is not None:
         cats = cats[:limit]
     perimetre_texte = corpus.perimetres.get(doc_id) or perimetre(corpus.documents[doc_id])
-    systeme_cat = _rendu("enrich_dictionary",
-                         max_terms=settings.dictionary_max_terms_per_fiche,
+    guide = document.kind == "guide"
+    systeme_cat = _rendu("enrich_dictionary" if guide else "enrich_dictionary_contract",
+                         max_terms=(settings.dictionary_max_terms_per_fiche if guide
+                                    else settings.dictionary_flat_max_terms_per_block),
                          max_variants=settings.dictionary_max_variants_per_term,
                          max_questions=settings.dictionary_max_questions_per_fiche,
                          term_max_chars=settings.dictionary_term_max_chars,
@@ -303,35 +380,54 @@ def requetes(corpus: Corpus, doc_id: str, settings: Settings, *,
     schema_cat = _schema(SortieCategorie)
     out: list[dict[str, Any]] = []
     for cat in cats:
-        contenu = json.dumps({"categorie": cat.titre,
-                              "fiches": [f.model_dump() for f in cat.fiches]},
-                             ensure_ascii=False, indent=2, sort_keys=True)
-        out.append({"custom_id": custom_id(cat.node_id),
-                    "params": _params(systeme_cat, contenu, schema_cat, settings)})
-    systeme_int = _rendu("enrich_intents",
+        if isinstance(cat, Categorie):
+            # Branche guide byte-identique : même prompt, même JSON, même max_tokens.
+            contenu = json.dumps({"categorie": cat.titre,
+                                  "fiches": [f.model_dump() for f in cat.fiches]},
+                                 ensure_ascii=False, indent=2, sort_keys=True)
+            cle = cat.node_id
+            max_tokens = None
+        else:
+            contenu = json.dumps({
+                "document": {"kind": document.kind, "title": document.title},
+                "unite": {"node_id": cat.node_id, "node_title": cat.node_title},
+                "extraits": [extrait.model_dump() for extrait in cat.extraits],
+            }, ensure_ascii=False, indent=2, sort_keys=True)
+            cle = cat.unit_id
+            max_tokens = settings.dictionary_flat_max_output_tokens
+        out.append({"custom_id": custom_id(cle),
+                    "params": _params(systeme_cat, contenu, schema_cat, settings,
+                                      max_tokens=max_tokens)})
+    systeme_int = _rendu("enrich_intents" if guide else "enrich_intents_contract",
                          max_triggers=settings.dictionary_max_intent_triggers,
                          term_max_chars=settings.dictionary_term_max_chars,
                          term_max_words=settings.dictionary_term_max_words,
-                         perimetre_guide=perimetre_texte)
+                         **({"perimetre_guide": perimetre_texte} if guide
+                            else {"perimetre_documentaire": perimetre_texte}))
     out.append({"custom_id": CUSTOM_ID_INTENTS,
                 "params": _params(systeme_int, "Produis les déclencheurs des trois intentions.",
                                   _schema(SortieIntents), settings)})
     return out
 
 
-def majorant_eur(reqs: list[dict[str, Any]], settings: Settings) -> float:
-    """Majorant du run, **avant** soumission : `estimate_cost` × `BATCH_DISCOUNT` (AD-9, NFR4)."""
+def majorant_eur(reqs: list[dict[str, Any]], settings: Settings, *, batch: bool = True) -> float:
+    """Majorant avant appel, avec remise uniquement pour le transport Batch."""
     total = 0.0
     for r in reqs:
         p = r["params"]
-        total += estimate_cost(p["model"], p["system"], p["messages"], p["max_tokens"], settings,
-                               output_schema=p["output_config"]["format"]) * BATCH_DISCOUNT
+        estimation = estimate_cost(p["model"], p["system"], p["messages"], p["max_tokens"], settings,
+                                   output_schema=p["output_config"]["format"])
+        total += estimation * (BATCH_DISCOUNT if batch else 1.0)
     return round(total, 4)
 
 
 # --- soumission et attente -------------------------------------------------
 
 class EchecDeBatch(RuntimeError):
+    pass
+
+
+class EchecStandard(RuntimeError):
     pass
 
 
@@ -426,6 +522,44 @@ def executer(client: Any, reqs: list[dict[str, Any]], settings: Settings,
     return textes, round(cout, 4), echecs
 
 
+def executer_standard(client: Any, reqs: list[dict[str, Any]], settings: Settings,
+                      *, sortie: Any = sys.stdout) -> tuple[dict[str, Any], float, list[str]]:
+    """Exécute les requêtes depuis zéro via Messages standard, séquentiellement et sans retry.
+
+    Chaque coût vient de l'usage de la réponse au tarif standard. Une exception terminale arrête la
+    campagne ; une réponse sans usage ou tronquée est rendue comme échec, sans texte exploitable.
+    L'appelant n'écrit qu'après couverture complète de tous les `custom_id`, donc les résultats déjà
+    acquis ne peuvent jamais produire un dictionnaire partiel.
+    """
+    textes: dict[str, Any] = {}
+    echecs: list[str] = []
+    cout = 0.0
+    for requete in reqs:
+        cle = requete["custom_id"]
+        try:
+            message = client.messages.create(**requete["params"])
+        except Exception as exc:  # noqa: BLE001 — frontière SDK, transformée en refus atomique
+            raise EchecStandard(
+                f"{cle} : appel Messages standard échoué ({type(exc).__name__}) après "
+                f"{len(textes)} réponse(s), sans retry ; coût réel acquis {cout:.4f} € — "
+                "rien n'a été écrit") from exc
+        usage = _attr(message, "usage")
+        if usage is None:
+            echecs.append(f"{cle} : réponse standard sans usage facturable")
+            break
+        cout += cost_from_usage(MODEL, usage, settings.usd_eur, batch=False).cost_eur
+        arret = _attr(message, "stop_reason")
+        if arret is not None and arret not in FINS_NORMALES:
+            echecs.append(f"{cle} : réponse interrompue (stop_reason={arret!r}) — sortie "
+                          "incomplète, l'unité est écartée plutôt que tronquée")
+            break
+        textes[cle] = "".join(
+            _attr(bloc, "text", "") for bloc in (_attr(message, "content") or [])
+            if _attr(bloc, "type") == "text")
+    print(f"Messages standard : {len(reqs)} appel(s), coût réel {cout:.4f} €", file=sortie)
+    return textes, round(cout, 4), echecs
+
+
 # --- agrégation ------------------------------------------------------------
 
 def _valider(texte: str, model: type[BaseModel]) -> BaseModel | None:
@@ -454,7 +588,10 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
     conforme : `intents` n'est lu par personne (`target_story: 2.5`), un déclencheur écarté ne
     change rien à ce que le serveur trouve ou refuse.
     """
-    cats = {custom_id(c.node_id): c for c in categories(corpus, doc_id)}
+    cats = {
+        custom_id(c.node_id if isinstance(c, Categorie) else c.unit_id): c
+        for c in categories(corpus, doc_id, settings)
+    }
     plaintes: list[str] = []
     termes: dict[str, list[str]] = {}
     questions: dict[str, list[str]] = {}
@@ -488,11 +625,14 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
         if sortie is None:
             plaintes.append(f"{cle} : sortie non conforme au schéma, ignorée")
             continue
-        connues = {f.fiche_id for f in cat.fiches}
+        connues = ({f.fiche_id for f in cat.fiches} if isinstance(cat, Categorie)
+                   else {extrait.block_id for extrait in cat.extraits})
+        max_termes = (settings.dictionary_max_terms_per_fiche if isinstance(cat, Categorie)
+                      else settings.dictionary_flat_max_terms_per_block)
         for entree in sortie.termes:
             if not controles.fiche(entree.fiche_id, connues):
                 continue
-            if par_fiche.get(entree.fiche_id, 0) >= settings.dictionary_max_terms_per_fiche:
+            if par_fiche.get(entree.fiche_id, 0) >= max_termes:
                 continue
             canonique = controles.terme(entree.canonique)
             if not canonique:
@@ -514,6 +654,10 @@ def agreger(textes: dict[str, Any], corpus: Corpus, doc_id: str, controles: Cont
             traites.add(cle)  # la catégorie a livré au moins un canonique
             par_fiche[entree.fiche_id] = par_fiche.get(entree.fiche_id, 0) + 1
         for entree in sortie.questions:
+            if not isinstance(cat, Categorie):
+                if entree.question.strip() or entree.fiche_id.strip():
+                    controles.ecart("question_non_supportee_pour_contrat")
+                continue
             if not controles.fiche(entree.fiche_id, connues):
                 continue
             q = controles.question(entree.question)
@@ -610,6 +754,8 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     parser.add_argument("--doc-id", default=None, help="document enrichi (défaut : guide_doc_id)")
     parser.add_argument("--max-cost", type=float, default=None,
                         help="surcharge dictionary_max_cost_eur pour ce run")
+    parser.add_argument("--transport", choices=("batch", "standard"), default="batch",
+                        help="Batch historique, ou Messages standard depuis zéro sans Batch ni retry")
     parser.add_argument("--dry-run", action="store_true",
                         help="affiche le plan et le majorant, ne soumet rien et n'écrit rien")
     parser.add_argument("--limit", type=int, default=None,
@@ -650,13 +796,20 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
 
     reqs = requetes(corpus, doc_id, settings, limit=args.limit)
     plafond = settings.dictionary_max_cost_eur if args.max_cost is None else args.max_cost
-    majorant = majorant_eur(reqs, settings)
+    if not math.isfinite(plafond) or plafond <= 0:
+        print(f"plafond {plafond!r} invalide : une valeur finie strictement positive est exigée ; "
+              "aucun appel n'est soumis, rien n'a été écrit", file=sys.stderr)
+        return 3
+    batch = args.transport == "batch"
+    majorant = majorant_eur(reqs, settings, batch=batch)
     for r in reqs:
         print(f"  {r['custom_id']}", file=sortie)
-    print(f"{len(reqs)} requête(s) de batch, tier {TIER} ({MODEL}), majorant {majorant:.4f} € "
-          f"(escompte batch {BATCH_DISCOUNT}) contre un plafond de {plafond:.4f} €", file=sortie)
+    transport = (f"Batch (remise {BATCH_DISCOUNT})" if batch
+                 else "Messages standard (sans remise Batch, sans retry)")
+    print(f"{len(reqs)} requête(s), tier {TIER} ({MODEL}), transport {transport}, "
+          f"majorant {majorant:.4f} € contre un plafond de {plafond:.4f} €", file=sortie)
     if majorant > plafond:
-        print(f"majorant {majorant:.4f} € > plafond {plafond:.4f} € : aucun batch n'est soumis, "
+        print(f"majorant {majorant:.4f} € > plafond {plafond:.4f} € : aucun appel n'est soumis, "
               "rien n'a été écrit", file=sys.stderr)
         return 3
     if args.dry_run:
@@ -674,9 +827,12 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         client = _client(settings.anthropic_api_key)
 
     try:
-        textes, cout, echecs = executer(client, reqs, settings, sortie=sortie, dormir=dormir,
-                                        maintenant=maintenant)
-    except EchecDeBatch as exc:
+        if batch:
+            textes, cout, echecs = executer(client, reqs, settings, sortie=sortie, dormir=dormir,
+                                            maintenant=maintenant)
+        else:
+            textes, cout, echecs = executer_standard(client, reqs, settings, sortie=sortie)
+    except (EchecDeBatch, EchecStandard) as exc:
         print(str(exc), file=sys.stderr)
         return 4
     for echec in echecs:
