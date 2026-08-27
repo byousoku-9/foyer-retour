@@ -15,12 +15,12 @@ from server.app.domain.conversation import (
     ContinuationState,
     ConversationAction,
     FactEvent,
-    appliquer,
+    appliquer as appliquer_domaine,
     classifier_reponse,
-    initialiser,
+    initialiser as initialiser_domaine,
     montant_de_description,
 )
-from server.app.domain.errors import InvalidRequest
+from server.app.domain.errors import ErrorCode, InvalidRequest, PipelineError
 from server.app.domain.question import Faits, QuestionScope
 from server.app.domain.verdict import (
     ChampsApplicabilite,
@@ -30,6 +30,16 @@ from server.app.domain.verdict import (
     decider,
 )
 from tests.test_api_sinistre import Double, XFF, _corps, _mini_corpus, _reponse, _settings, _trace
+
+
+def initialiser(**kwargs):
+    return initialiser_domaine(active_questions_max=3, **kwargs)
+
+
+def appliquer(state, action, *, request_id: str, ask_client_max: int):
+    return appliquer_domaine(
+        state, action, request_id=request_id, ask_client_max=ask_client_max,
+        max_turns=20, active_questions_max=3)
 
 
 def _claim() -> ClaimJugee:
@@ -80,6 +90,10 @@ def test_reponse_ciblee_recalcule_ad6_sans_modifier_l_historique() -> None:
     assert updated.answer.verdict.value == "couvert"
     assert updated.history[-1].changed is True
     assert updated.facts[-1].question_id == question.question_id
+    assert updated.answer.texte.startswith("Verdict recalculé : couvert.")
+    assert updated.answer.segments == [
+        updated.answer.segments[0].model_copy()]  # une seule restitution déterministe
+    assert updated.answer.segments[0].kind == "limite"
 
 
 def test_ne_sait_pas_reste_inconnu_et_le_rejeu_est_deterministe() -> None:
@@ -202,7 +216,7 @@ def test_une_claim_multi_exigences_conserve_un_non_anterieur() -> None:
     assert state.answer.verdict.value != "couvert"
 
 
-def test_contradiction_initiale_fige_le_verdict_jusqu_a_resolution() -> None:
+def test_contradiction_initiale_independante_ne_bloque_pas_un_fait_decisif() -> None:
     state = _state()
     answer = state.answer.model_copy(update={
         "faits_compris": QuestionScope(lieu="cuisine", bien="canapé")})
@@ -215,7 +229,20 @@ def test_contradiction_initiale_fige_le_verdict_jusqu_a_resolution() -> None:
     question = next(q for q in state.questions if q.status == "active")
     updated = appliquer(state, ConversationAction(question_id=question.question_id, value="oui"),
                         request_id="r-1", ask_client_max=3)
-    assert updated.answer.verdict == state.answer.verdict
+    assert updated.answer.verdict.value == "couvert"
+
+
+def test_conflit_sur_un_fait_decisif_exclut_ses_versions_du_recalcul() -> None:
+    state = _state()
+    question = next(q for q in state.questions if q.kind == "fait" and q.claim_id)
+    state.facts.append(FactEvent(
+        event_id="version-oui", key=question.fact_key, value="oui", source="reponse_client",
+        turn=0, question_id=question.question_id))
+    conflicted = appliquer(
+        state, ConversationAction(question_id=question.question_id, value="non"),
+        request_id="r-conflit", ask_client_max=3)
+    assert conflicted.conflicts[-1].status == "ouvert"
+    assert conflicted.answer.verdict.value == "ne_tranche_pas"
 
 
 def test_les_questions_tournent_et_une_question_perimee_est_refusee() -> None:
@@ -265,6 +292,72 @@ def test_option_et_conditions_particulieres_mettront_a_jour_le_paquet() -> None:
     state = appliquer(state, ConversationAction(question_id=cp.question_id, value="oui"),
                       request_id="r2", ask_client_max=5)
     assert state.missing.conditions_particulieres is False
+
+
+def test_aucune_question_visible_n_est_decisionnellement_morte() -> None:
+    state = _state()
+    assert all(q.claim_id is not None or q.kind in {
+        "option", "conditions_particulieres", "avenant_date"}
+               for q in state.questions if q.status == "active")
+    question = next(q for q in state.questions if q.status == "active")
+    updated = appliquer(state, ConversationAction(
+        question_id=question.question_id, value="inconnu"), request_id="r-doc", ask_client_max=3)
+    assert updated.history[-1].causal_events
+    assert updated.history[-1].changed is False
+
+
+def test_reponse_negative_avenant_date_rouvre_explicitement_les_claims() -> None:
+    claim = _claim()
+    base = _state()
+    verdict = decider([claim], ask_client_max=8, missing=MissingPackage())
+    state = initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0", faits=Faits(description="d"),
+        answer=base.answer.model_copy(update={"verdict": verdict}), decision_claims=[claim])
+    avenant = next(q for q in state.questions if q.kind == "avenant_date")
+    while avenant.status != "active":
+        first = next(q for q in state.questions if q.status == "active")
+        state = appliquer(state, ConversationAction(
+            question_id=first.question_id, value="inconnu"), request_id="r0", ask_client_max=8)
+        avenant = next(q for q in state.questions if q.kind == "avenant_date")
+    assert avenant.status == "active"
+    updated = appliquer(state, ConversationAction(
+        question_id=avenant.question_id, value="non"), request_id="r-non", ask_client_max=8)
+    assert updated.missing.avenants is True and updated.missing.date_effet is True
+    assert updated.decision_claims[0].champs is not None
+    assert updated.decision_claims[0].champs.fait_manquant == "date d'effet et avenants applicables"
+
+
+def test_correction_liee_ne_touche_que_la_claim_concernee() -> None:
+    first = _claim().model_copy(deep=True)
+    second = _claim().model_copy(deep=True)
+    first.claim_id = "claim-subit"
+    second.claim_id = "claim-accidentel"
+    assert first.champs is not None and second.champs is not None
+    first.champs.fait_manquant = "subit"
+    first.champs.qualites_exigees = ["subit"]
+    first.champs.qualites_non_etablies = ["subit"]
+    second.champs.fait_manquant = "accidentel"
+    second.champs.qualites_exigees = ["accidentel"]
+    second.champs.qualites_non_etablies = ["accidentel"]
+    base = _state()
+    verdict = decider([first, second], ask_client_max=6, missing=MissingPackage(
+        conditions_particulieres=False, options_souscrites=False, avenants=False, date_effet=False))
+    state = initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0", faits=Faits(description="d"),
+        answer=base.answer.model_copy(update={"verdict": verdict}), decision_claims=[first, second])
+    question = next(q for q in state.questions if q.claim_id == first.claim_id)
+    state = appliquer(state, ConversationAction(question_id=question.question_id, value="oui"),
+                      request_id="r1", ask_client_max=6)
+    event = next(e for e in state.facts if e.question_id == question.question_id)
+    state = appliquer(state, ConversationAction(
+        action="correction", fact_key=event.key, value="non", replaces_event_id=event.event_id),
+        request_id="r2", ask_client_max=6)
+    by_id = {claim.claim_id: claim for claim in state.decision_claims}
+    assert by_id[first.claim_id].champs is not None and by_id[second.claim_id].champs is not None
+    assert by_id[first.claim_id].champs.fait_requis_present is False
+    assert by_id[second.claim_id].champs.fait_manquant == "accidentel"
 
 
 def test_correction_identique_remplacee_et_en_conflit() -> None:
@@ -429,3 +522,138 @@ def test_api_refuse_tout_etat_signe_mais_perime_avant_tout_suivi(perime: str) ->
         })
         assert rejected.status_code == 400
         assert len(double.appels) == 1
+
+
+def test_le_quota_suivi_est_borne_et_independant_du_quota_payant() -> None:
+    settings = _settings(
+        env="dev", allow_ungated=True, rate_limit_per_minute=2, rate_limit_per_day=10,
+        conversation_rate_limit_per_minute=2, conversation_rate_limit_per_day=10)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        double = Double((_reponse(corpus), _trace()))
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = double
+        for _ in range(2):
+            assert client.post("/api/v1/sinistre/suivi", headers=XFF, json={}).status_code == 400
+        limited = client.post("/api/v1/sinistre/suivi", headers=XFF, json={})
+        assert limited.status_code == 429
+        assert limited.json()["error"]["code"] == "rate_limited"
+        assert int(limited.headers["Retry-After"]) >= 1
+        paid = client.post("/api/v1/sinistre", json=_corps(), headers=XFF)
+        assert paid.status_code == 200 and len(double.appels) == 1
+
+
+def test_le_quota_payant_epuise_ne_bloque_pas_le_compteur_suivi() -> None:
+    settings = _settings(
+        env="dev", allow_ungated=True, rate_limit_per_minute=2, rate_limit_per_day=10,
+        conversation_rate_limit_per_minute=2, conversation_rate_limit_per_day=10)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        for _ in range(2):
+            assert client.post("/api/v1/sinistre", headers=XFF, json={}).status_code == 400
+        assert client.post("/api/v1/sinistre", headers=XFF, json={}).status_code == 429
+        followup = client.post("/api/v1/sinistre/suivi", headers=XFF, json={})
+        assert followup.status_code == 400
+        assert followup.json()["error"]["code"] == "invalid_request"
+
+
+def test_suivi_rattache_sa_trace_si_la_relecture_des_clauses_echoue(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    import server.app.api.routes.sinistre as route_sinistre
+
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        double = Double((_reponse(corpus), _trace()))
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = double
+        first = client.post(
+            "/api/v1/sinistre", json=_corps(), headers={**XFF, "X-Sinistre-Conversation": "1"})
+        conversation = first.json()["conversation"]
+        question = next(q for q in conversation["questions"] if q["status"] == "active")
+
+        def incoherente(*_args, **_kwargs):
+            raise PipelineError(ErrorCode.internal, "preuve de test")
+
+        monkeypatch.setattr(route_sinistre, "clauses_de", incoherente)
+        failed = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": conversation["token"],
+            "question_id": question["question_id"], "value": "inconnu",
+        })
+        assert failed.status_code == 500
+        body = failed.json()
+        assert body["trace"]["total_cost_eur"] == 0
+        assert body["trace"]["request_id"] == body["error"]["request_id"]
+
+
+def test_api_suivi_restitue_un_answer_coherent_et_preserve_ses_clauses() -> None:
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        double = Double((_reponse(corpus), _trace()))
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = double
+        first = client.post(
+            "/api/v1/sinistre", json=_corps(), headers={**XFF, "X-Sinistre-Conversation": "1"})
+        conversation = first.json()["conversation"]
+        question = next(q for q in conversation["questions"] if q["status"] == "active")
+        followup = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": conversation["token"],
+            "question_id": question["question_id"], "value": "oui",
+        })
+        assert followup.status_code == 200
+        body = followup.json()
+        verdict = body["answer"]["verdict"]["value"].replace("_", " ")
+        assert f"Verdict recalculé : {verdict}." in body["answer"]["texte"]
+        assert all(claim["text"] == "Clause vérifiée conservée pour le recalcul du verdict."
+                   for claim in body["answer"]["claims"])
+        assert body["sources"], "les clauses vérifiées restent disponibles à la copie et à l'UX"
+
+
+def test_seuils_conversation_alignent_settings_api_domaine_et_trace() -> None:
+    settings = _settings(
+        env="dev", allow_ungated=True, conversation_max_turns=1,
+        conversation_active_questions_max=2)
+    assert settings.thresholds()["conversation_max_turns"] == 1
+    assert settings.thresholds()["conversation_active_questions_max"] == 2
+    claim = _claim().model_copy(deep=True)
+    assert claim.champs is not None
+    claim.champs.fait_manquant = None
+    claim.champs.qualites_non_etablies = [f"qualité {n}" for n in range(4)]
+    claim.champs.qualites_exigees = list(claim.champs.qualites_non_etablies)
+    base = _state()
+    domain_state = initialiser_domaine(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r", faits=Faits(description="d"),
+        answer=base.answer.model_copy(update={
+            "verdict": decider([claim], ask_client_max=8, missing=MissingPackage())}),
+        decision_claims=[claim], active_questions_max=settings.conversation_active_questions_max)
+    assert len([q for q in domain_state.questions if q.status == "active"]) == 2
+    app = create_app(settings)
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        double = Double((_reponse(corpus), _trace()))
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = double
+        first = client.post(
+            "/api/v1/sinistre", json=_corps(), headers={**XFF, "X-Sinistre-Conversation": "1"})
+        conversation = first.json()["conversation"]
+        assert 0 < len([q for q in conversation["questions"] if q["status"] == "active"]) <= 2
+        question = next(q for q in conversation["questions"] if q["status"] == "active")
+        turn_one = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": conversation["token"],
+            "question_id": question["question_id"], "value": "inconnu",
+        })
+        assert turn_one.status_code == 200
+        assert turn_one.json()["trace"]["thresholds"]["conversation_max_turns"] == 1
+        refused = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": turn_one.json()["conversation"]["token"],
+            "question_id": question["question_id"], "value": "inconnu",
+        })
+        assert refused.status_code == 400
+        assert "limite de 1 tours" in refused.json()["error"]["message"]

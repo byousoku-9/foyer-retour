@@ -94,10 +94,13 @@ class _Fenetre:
 
 
 class RateLimiter:
-    """Quotas `rate_limit_per_minute` / `rate_limit_per_day` par identité, table bornée."""
+    """Deux fenêtres configurables par identité et une table de clients bornée."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, per_minute: str = "rate_limit_per_minute",
+                 per_day: str = "rate_limit_per_day") -> None:
         self._settings = settings
+        self._per_minute = per_minute
+        self._per_day = per_day
         self._clients: OrderedDict[str, tuple[_Fenetre, _Fenetre]] = OrderedDict()
 
     def reset(self) -> None:
@@ -131,11 +134,13 @@ class RateLimiter:
         # zéro quota journalier — l'exact contraire de ce qu'un limiteur doit faire.
         compte_minute = minute.compter(maintenant, FENETRE_MINUTE_S)
         compte_jour = jour.compter(maintenant, FENETRE_JOUR_S)
-        if compte_minute > s.rate_limit_per_minute:
-            raise self._trop(f"{s.rate_limit_per_minute} requêtes par minute",
+        minute_max = int(getattr(s, self._per_minute))
+        day_max = int(getattr(s, self._per_day))
+        if compte_minute > minute_max:
+            raise self._trop(f"{minute_max} requêtes par minute",
                              minute.reste(maintenant, FENETRE_MINUTE_S))
-        if compte_jour > s.rate_limit_per_day:
-            raise self._trop(f"{s.rate_limit_per_day} requêtes par jour",
+        if compte_jour > day_max:
+            raise self._trop(f"{day_max} requêtes par jour",
                              jour.reste(maintenant, FENETRE_JOUR_S))
         return identite
 

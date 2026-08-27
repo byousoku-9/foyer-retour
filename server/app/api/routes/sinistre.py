@@ -50,13 +50,13 @@ from server.app.domain.conversation import ContinuationState, initialiser
 from server.app.domain.errors import InvalidRequest, PipelineError
 from server.app.pipelines.sinistre import run_followup
 
-# AD-13 : « le limiteur est une dépendance de routeur sur les routes qui appellent un modèle ».
-router = APIRouter(dependencies=[Depends(verifier_quota)])
+router = APIRouter()
 
 KIND_ATTENDU = "contrat"
 
 
-@router.post("/sinistre", response_model=SinistreResponse, response_model_exclude_none=False)
+@router.post("/sinistre", response_model=SinistreResponse, response_model_exclude_none=False,
+             dependencies=[Depends(verifier_quota)])
 async def sinistre(request: Request, demande: SinistreRequest) -> SinistreResponse | JSONResponse:
     etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance `verifier_quota`)
 
@@ -119,7 +119,8 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         ingest_fingerprint=entry.ingest_fingerprint,
         pipeline_digest=etat.pipeline_digest_hex, prompts_digest=etat.prompts_digest_hex,
         request_id=request.state.request_id, faits=demande.faits, answer=answer,
-        decision_claims=list(answer._decision_claims))
+        decision_claims=list(answer._decision_claims),
+        active_questions_max=etat.settings.conversation_active_questions_max)
     conversation = _view(state, signer(state, etat.conversation_secret))
     payload = SinistreConversationResponse(
         answer=answer, sources=sources, via=VIA, trace=trace, conversation=conversation)
@@ -132,8 +133,14 @@ def _view(state: ContinuationState, token: str) -> ConversationView:
         questions=state.questions, history=state.history)
 
 
+async def verifier_quota_suivi(request: Request) -> None:
+    """Quota coût-zéro distinct, avec la même identité et les mêmes réponses AD-13."""
+    request.app.state.foyer.followup_limiter.check(request)
+
+
 @router.post("/sinistre/suivi", response_model=SinistreConversationResponse,
-             response_model_exclude_none=False)
+             response_model_exclude_none=False,
+             dependencies=[Depends(verifier_quota_suivi)])
 async def suivi(request: Request, demande: SinistreFollowupRequest) -> SinistreConversationResponse:
     """Valide entièrement l'état transporté avant tout budget, retrieval ou modèle."""
     etat = request.app.state.foyer
@@ -154,7 +161,11 @@ async def suivi(request: Request, demande: SinistreFollowupRequest) -> SinistreC
     answer, trace, updated = run_followup(
         state, demande.domain_action(), settings=etat.settings,
         request_id=request.state.request_id)
-    sources = clauses_de(answer, etat.index, etat.corpus)
+    try:
+        sources = clauses_de(answer, etat.index, etat.corpus)
+    except PipelineError as exc:
+        exc.trace = trace
+        raise
     token = signer(updated, etat.conversation_secret)
     request.state.log_fields.update(
         intent="suivi", found=answer.found,

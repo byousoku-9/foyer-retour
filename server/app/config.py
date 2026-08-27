@@ -299,6 +299,13 @@ class Settings(BaseSettings):
     # Limiteur best-effort par instance (AD-13)
     rate_limit_per_minute: int = Field(10, ge=1)
     rate_limit_per_day: int = Field(100, ge=1)
+    # Les suivis conversationnels ne dépensent aucun appel fournisseur, mais restent bornés contre
+    # le flood. Leur compteur distinct évite qu'une exploration légitime épuise le quota des
+    # premiers tours payants, tout en réutilisant exactement les mêmes fenêtres et l'identité AD-13.
+    conversation_rate_limit_per_minute: int = Field(30, ge=1)
+    conversation_rate_limit_per_day: int = Field(300, ge=1)
+    conversation_max_turns: int = Field(20, ge=1)
+    conversation_active_questions_max: int = Field(3, ge=2, le=3)
     # Story 1.6 — nombre maximal d'identités clientes suivies simultanément par le limiteur. Le
     # limiteur vit en mémoire de process (AD-13 : best-effort par instance) ; sans borne, une adresse
     # forgée par requête ferait grossir la table jusqu'à la mémoire du conteneur. Au-delà, la plus
@@ -542,6 +549,10 @@ class Settings(BaseSettings):
             "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,
             "fait_manquant_max_chars": self.fait_manquant_max_chars,
             "ask_client_max": self.ask_client_max,
+            "conversation_rate_limit_per_minute": self.conversation_rate_limit_per_minute,
+            "conversation_rate_limit_per_day": self.conversation_rate_limit_per_day,
+            "conversation_max_turns": self.conversation_max_turns,
+            "conversation_active_questions_max": self.conversation_active_questions_max,
             "qualites_exigees_max": self.qualites_exigees_max,
             "qualite_mot_min_chars": self.qualite_mot_min_chars,
             "historique_max_turns": self.historique_max_turns,

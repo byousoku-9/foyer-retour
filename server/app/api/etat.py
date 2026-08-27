@@ -285,6 +285,7 @@ class EtatApp:
     index: Index
     client: LlmClient
     limiter: RateLimiter
+    followup_limiter: RateLimiter
     pipeline_digest_hex: str
     prompts_digest_hex: str
     # Story 3.7 : clé éphémère du jeton de continuation. Elle n'identifie aucun utilisateur et ne
@@ -698,7 +699,11 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     _journaliser_dictionnaire(dictionnaire)
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus), client=LlmClient(settings),
-        limiter=RateLimiter(settings), pipeline_digest_hex=digest_pipeline,
+        limiter=RateLimiter(settings),
+        followup_limiter=RateLimiter(
+            settings, per_minute="conversation_rate_limit_per_minute",
+            per_day="conversation_rate_limit_per_day"),
+        pipeline_digest_hex=digest_pipeline,
         prompts_digest_hex=digest_prompts, conversation_secret=_conversation_secret(settings),
         dictionnaire=dictionnaire,
         dictionnaires=dictionnaires,

@@ -11,10 +11,16 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from .answer import Answer
+from .answer import Answer, AnswerSegment
 from .document import DomainModel
 from .question import Faits, QuestionScope
-from .verdict import ClaimJugee, MissingPackage, Verdict, decider
+from .verdict import (
+    ClaimJugee,
+    MissingPackage,
+    Verdict,
+    applicabilites_des_claims,
+    decider,
+)
 
 FACT_KEY_MAX = 256
 FactSource = Literal["declaration_initiale", "extraction", "reponse_client", "correction"]
@@ -132,7 +138,7 @@ class ContinuationState(DomainModel):
     pipeline_digest: str
     prompts_digest: str
     initial_request_id: str
-    turn: int = Field(default=0, ge=0, le=20)
+    turn: int = Field(default=0, ge=0)
     answer: Answer
     base_claims: list[ClaimJugee] = Field(default_factory=list)
     decision_claims: list[ClaimJugee] = Field(default_factory=list)
@@ -264,9 +270,13 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
         elif "conditions particulières" in lower:
             item = ("conditions_particulieres", text, "conditions_particulieres", None, None)
         elif "avenant" in lower or "pris effet" in lower:
-            item = ("avenant_date", text, "avenant_date", None, None)
+            item = ("avenant_date",
+                    "Les pièces établissent-elles la date d'effet et l'absence ou le contenu "
+                    "des avenants applicables ?", "avenant_date", None, None)
         else:
-            item = ("fait", text, text, None, text)
+            # Une question factuelle sans claim cible serait visible mais décisionnellement morte :
+            # les faits/qualités des claims ont déjà produit leurs questions liées ci-dessus.
+            continue
         candidates.append(item)
     result: list[TargetQuestion] = []
     seen: set[tuple[str, str, str | None]] = set()
@@ -282,31 +292,33 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
     return result
 
 
-def _promote(questions: list[TargetQuestion]) -> None:
+def _promote(questions: list[TargetQuestion], *, active_questions_max: int) -> None:
     active = sum(q.status == "active" for q in questions)
     for question in questions:
-        if active >= 3:
+        if active >= active_questions_max:
             break
         if question.status == "pending":
             question.status = "active"
             active += 1
 
 
-def _merge_questions(questions: list[TargetQuestion], claims: list[ClaimJugee], verdict: Verdict) -> None:
+def _merge_questions(questions: list[TargetQuestion], claims: list[ClaimJugee], verdict: Verdict,
+                     *, active_questions_max: int) -> None:
     existing = {q.question_id for q in questions}
     questions.extend(q for q in _question_candidates(claims, verdict) if q.question_id not in existing)
-    _promote(questions)
+    _promote(questions, active_questions_max=active_questions_max)
 
 
 def initialiser(*, doc_id: str, source_hash: str, ingest_fingerprint: str,
                 pipeline_digest: str, prompts_digest: str, request_id: str, faits: Faits,
-                answer: Answer, decision_claims: list[ClaimJugee]) -> ContinuationState:
+                answer: Answer, decision_claims: list[ClaimJugee],
+                active_questions_max: int) -> ContinuationState:
     verdict = answer.verdict
     if verdict is None:
         raise ValueError("un premier tour sinistre exige un verdict")
     facts = _faits_initiaux(faits, answer.faits_compris)
     questions = _question_candidates(decision_claims, verdict)
-    _promote(questions)
+    _promote(questions, active_questions_max=active_questions_max)
     base_missing = verdict.missing.model_copy(deep=True)
     return ContinuationState.model_validate({
         "doc_id": doc_id, "source_hash": source_hash, "ingest_fingerprint": ingest_fingerprint,
@@ -337,23 +349,18 @@ def active_events(state: ContinuationState, key: str | None = None,
 
 
 def _response_by_question(state: ContinuationState) -> dict[str, ResponseMeaning]:
-    return {event.question_id: classifier_reponse(event.value) for event in active_events(state)
+    return {event.question_id: classifier_reponse(event.value)
+            for event in active_events(state, include_contested=False)
             if event.question_id is not None}
 
 
 def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPackage]:
     answers = _response_by_question(state)
     questions = {q.question_id: q for q in state.questions}
+    contested_keys = {conflict.key.casefold() for conflict in state.conflicts
+                      if conflict.status == "ouvert"}
     claims = [claim.model_copy(deep=True) for claim in state.base_claims]
     missing = state.base_missing.model_copy(deep=True)
-    unlinked_corrections = [event for event in active_events(state)
-                            if event.source == "correction" and event.question_id is None]
-    if unlinked_corrections:
-        corrected = ", ".join(dict.fromkeys(event.key for event in unlinked_corrections))
-        for claim in claims:
-            if claim.champs is not None:
-                claim.champs.fait_requis_present = False
-                claim.champs.fait_manquant = f"valeur corrigée à confirmer : {corrected}"
     for claim in claims:
         if claim.champs is None:
             continue
@@ -362,6 +369,9 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
                     and questions[qid].kind == "fait"]
         negatives = [q for q, meaning in relevant if meaning == ResponseMeaning.NEGATIVE]
         positives = [q for q, meaning in relevant if meaning == ResponseMeaning.AFFIRMATIVE]
+        contested = next((q for q in state.questions if q.claim_id == claim.claim_id
+                          and (q.fact_key.casefold() in contested_keys
+                               or (q.expected_value or "").casefold() in contested_keys)), None)
         if negatives:
             claim.champs.fait_requis_present = False
             claim.champs.fait_manquant = None
@@ -376,6 +386,9 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
             if required and all(answers.get(q.question_id) == ResponseMeaning.AFFIRMATIVE
                                 for q in required):
                 claim.champs.fait_requis_present = True
+        if contested is not None and not negatives:
+            claim.champs.fait_requis_present = False
+            claim.champs.fait_manquant = contested.expected_value or contested.fact_key
     for question in state.questions:
         meaning = answers.get(question.question_id)
         if meaning not in {ResponseMeaning.AFFIRMATIVE, ResponseMeaning.NEGATIVE}:
@@ -401,6 +414,14 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
             if meaning == ResponseMeaning.AFFIRMATIVE:
                 missing.avenants = False
                 missing.date_effet = False
+            else:
+                # L'absence de ces pièces concerne la période de validité de toutes les clauses :
+                # elle ne prouve pas une non-couverture, elle remet explicitement leur application
+                # à l'état humain jusqu'à production de la date/du ou des avenants.
+                for claim in targets:
+                    if claim.champs is not None:
+                        claim.champs.fait_requis_present = False
+                        claim.champs.fait_manquant = "date d'effet et avenants applicables"
     return claims, missing
 
 
@@ -415,10 +436,57 @@ def _describe(event: FactEvent) -> str:
     return f"{event.key} = {event.value} ({source})"
 
 
+def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict) -> Answer:
+    """Restitution sans modèle dont aucun texte figé ne peut contredire le verdict courant."""
+    labels = {
+        "couvert": "couvert", "non_couvert": "non couvert",
+        "sous_conditions": "sous conditions", "ne_tranche_pas": "ne tranche pas",
+    }
+    texte = f"Verdict recalculé : {labels[verdict.value]}. {verdict.reason}"
+    resolutions = applicabilites_des_claims(claims)
+    judged = {claim.claim_id: resolution for claim, resolution in
+              ((claim, resolutions.get(claim.claim_id)) for claim in claims)}
+    verified = []
+    for claim in initial.claims:
+        resolution = judged.get(claim.claim_id)
+        status = claim.status.model_copy(deep=True)
+        if resolution is not None:
+            status.applicable, status.applicable_reason = resolution
+        else:
+            status.applicable, status.applicable_reason = None, None
+        verified.append(claim.model_copy(update={
+            "text": "Clause vérifiée conservée pour le recalcul du verdict.", "status": status,
+        }, deep=True))
+    rejected = []
+    for claim in initial.rejected_claims:
+        status = claim.status.model_copy(update={
+            "applicable": None, "applicable_reason": None}, deep=True)
+        rejected.append(claim.model_copy(update={
+            "text": "Affirmation écartée au premier tour, conservée pour l'audit.",
+            "status": status,
+        }, deep=True))
+    found = bool(verified)
+    complete = found and verdict.value in {"couvert", "non_couvert"}
+    answer = initial.model_copy(update={
+        "found": found,
+        "complete": complete,
+        "texte": texte,
+        "segments": [AnswerSegment(text=texte, kind="limite")],
+        "claims": verified,
+        "rejected_claims": rejected,
+        "unknown": ([] if complete or not found else [
+            "Le verdict conserve des conditions, des pièces ou des faits non établis."]),
+        "verdict": verdict,
+    }, deep=True)
+    answer._decision_claims = [claim.model_copy(deep=True) for claim in claims]
+    return Answer.model_validate(answer.model_dump(mode="python"))
+
+
 def appliquer(state: ContinuationState, action: ConversationAction, *, request_id: str,
-              ask_client_max: int) -> ContinuationState:
-    if state.turn >= 20:
-        raise ValueError("le dossier a atteint la limite de 20 tours : recommencer l'analyse")
+              ask_client_max: int, max_turns: int,
+              active_questions_max: int) -> ContinuationState:
+    if state.turn >= max_turns:
+        raise ValueError(f"le dossier a atteint la limite de {max_turns} tours : recommencer l'analyse")
     turn = state.turn + 1
     facts = [e.model_copy(deep=True) for e in state.facts]
     conflicts = [c.model_copy(deep=True) for c in state.conflicts]
@@ -508,11 +576,10 @@ def appliquer(state: ContinuationState, action: ConversationAction, *, request_i
     claims, missing = _recompute(intermediate)
     previous = state.answer.verdict
     assert previous is not None
-    verdict = (previous.model_copy(deep=True)
-               if any(c.status == "ouvert" for c in conflicts)
-               else decider(claims, ask_client_max=ask_client_max, missing=missing))
-    answer = state.answer.model_copy(update={"verdict": verdict}, deep=True)
-    _merge_questions(questions, claims, verdict)
+    verdict = decider(claims, ask_client_max=ask_client_max, missing=missing)
+    answer = _followup_answer(state.answer, claims, verdict)
+    _merge_questions(questions, claims, verdict,
+                     active_questions_max=active_questions_max)
     changed = (verdict.value, verdict.reason) != (previous.value, previous.reason)
     history = [h.model_copy(deep=True) for h in state.history]
     history.append(VerdictTurn(

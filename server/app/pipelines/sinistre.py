@@ -505,7 +505,9 @@ def run_followup(state: ContinuationState, action: ConversationAction, *, settin
     """
     try:
         updated = appliquer(state, action, request_id=request_id,
-                            ask_client_max=settings.ask_client_max)
+                            ask_client_max=settings.ask_client_max,
+                            max_turns=settings.conversation_max_turns,
+                            active_questions_max=settings.conversation_active_questions_max)
     except ValueError as exc:
         raise InvalidRequest(str(exc)) from exc
     steps = [
