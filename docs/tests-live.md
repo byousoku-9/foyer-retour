@@ -3249,3 +3249,21 @@ lancées exactement une fois, séquentiellement, sans Batch ni retry :
 
 Le rejeu complet après écriture rend 2 422 tests verts, y compris le garde-fou de digest. Les deux
 gates restent `countersigned=false` et la fragilité stochastique historique d'AXA reste consignée.
+
+### Campagne 5 — follow-up sécurité, `c8003eeb…` → `76e23d40…`
+
+Le durcissement de la frontière publique d'audit déplace le digest vers
+`76e23d400c7f53bf5602d8a94feccb44c6b55af9e2845b9fe1be3e1d44b0c9ed`. Après la revue croisée
+et les tests hors ligne, les deux commandes standard ont été lancées exactement une fois chacune,
+séquentiellement, sans Batch ni retry :
+
+- `lux-guide` : `g-luxtrust-prix`, 1/1 `bonne_reponse`, 0,0357 EUR, 14,788 s ; gate écrit à
+  `2026-08-27T00:49:02Z` ;
+- `axa-lu-optihome-2017` : `s-bougie-canape`, 1/1 `bonne_reponse`, 0,0312 EUR, 11,251 s ; gate
+  écrit à `2026-08-27T00:49:20Z`.
+
+Une première suite complète a ensuite découvert une régression hors pipeline dans la reprise d'un
+gate rouge (`1 failed, 2432 passed`) : la vue temporaire sûre du runner utilisait des symlinks que
+le nouveau confinement du loader rejetait. Le correctif est resté dans `server/evals/run.py`, sans
+changer le digest ni les gates ; la suite finale hors réseau passe à `2434 passed`, Ruff et
+`git diff --check` sont verts. Les gates restent `countersigned=false`.
