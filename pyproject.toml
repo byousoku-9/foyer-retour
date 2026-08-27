@@ -60,6 +60,7 @@ ignore = ["E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not evals'"
 asyncio_mode = "auto"
 filterwarnings = ["ignore:builtin type (SwigPyPacked|SwigPyObject|swigvarlink) has no __module__ attribute:DeprecationWarning"]
 markers = [

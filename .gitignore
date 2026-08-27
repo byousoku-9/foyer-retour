@@ -46,3 +46,9 @@ data/*/source.pdf
 data/*/*.tmp
 # Inode persistant des verrous `flock` de typage ; ne jamais l'unlink pendant qu'un concurrent attend.
 data/*/.type-clauses.lock
+
+# Artefacts locaux/CI du harness d'évals (cache et rapports reproductibles, jamais committés)
+.cache/evals/
+.evals/
+eval-results.json
+eval-results.md

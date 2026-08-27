@@ -6,8 +6,8 @@ et passés au pipeline, qui ne connaît le type d'aucun des trois). L'inverse es
 `server/app/` n'importe jamais `server/evals/` — sans quoi le système mesuré dépendrait de ce qui le
 mesure. `tests/test_layers.py` le vérifie statiquement.
 
-La story 1.10 en livre la version **minimale bornée** : le schéma de cas d'AD-14, les sept labels
-fixes, l'exécution d'un cas par le pipeline réel et `--gate {doc_id} --profile vertical`. Ce qui
-n'est pas là est **refusé**, jamais simulé : le profil `full` (story 4.1), la suite `parsing`
-(story 4.2), le cache de réponses, les baselines, la table Markdown et `docs/evals/latest.md`.
+La story 4.1 livre le profil `full`, le sous-ensemble quick, les variantes compatibles, le cache
+persistant namespacé, le plafond par run et les rapports JSON/Markdown complets ou partiels. Ce qui
+n'est pas là est **refusé**, jamais simulé : la suite `parsing` (story 4.2), le holdout et les
+baselines committées (stories 4.3/4.4), `docs/evals/latest.md` et l'API latest (story 4.5).
 """

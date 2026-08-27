@@ -5,9 +5,9 @@
 # copies auraient divergé au premier réglage, et c'est exactement le « deux textes faisant autorité »
 # que la convention Seuils du spine interdit.
 #
-# **Ce qui n'est pas ici, et pourquoi.** Pas d'évals : elles coûtent, exigent la clé et n'ont de sens
-# qu'en sous-ensemble rapide — story 4.1 (AD-14). Pas de déploiement : une pull request ne touche
-# jamais le service (AD-12, « les PR exécutent tests sans déployer »).
+# Les évals 4.1 tournent avec cache et plafond quand le secret existe : full uniquement sur la ref
+# exacte `refs/heads/main`, quick sur toute PR ou autre exécution. Sans secret, le skip est explicite
+# dans le step summary. Pas de déploiement ici : une pull request ne touche jamais le service.
 name: CI
 
 on:
@@ -19,6 +19,10 @@ on:
         required: false
         default: false
         type: boolean
+    secrets:
+      ANTHROPIC_API_KEY:
+        description: Clé optionnelle ; sans elle les évals sont sautées explicitement
+        required: false
 
 permissions:
   contents: read
@@ -31,9 +35,11 @@ jobs:
   verifier:
     name: Lint et suite hors ligne
     runs-on: ubuntu-latest
-    # La suite tient en une quinzaine de secondes ; le reste est de l'installation. Au-delà, quelque
-    # chose attend ce qui ne viendra pas — mieux vaut le dire que d'occuper un runner une heure.
-    timeout-minutes: 15
+    # La suite hors ligne tient en quelques minutes ; le profil full payant de main peut en prendre
+    # davantage. Une heure reste la borne dure : au-delà, un appel attend ce qui ne viendra pas.
+    timeout-minutes: 60
+    env:
+      EVALS_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -129,3 +135,37 @@ jobs:
           ANTHROPIC_API_KEY: ''
           FRONT_TESTS_REQUIS: '1'
         run: uv run pytest -q
+
+      - name: Restaurer le cache des questions-témoins
+        if: env.EVALS_API_KEY != ''
+        uses: actions/cache@v4
+        with:
+          path: .evals/cache
+          key: evals-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.ref_name }}
+          restore-keys: |
+            evals-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+
+      - name: Questions-témoins quick hors main, full sur main
+        if: env.EVALS_API_KEY != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVALS_CACHE_DIR: .evals/cache
+          EVALS_OUTPUT_JSON: .evals/results.json
+          EVALS_OUTPUT_MARKDOWN: .evals/results.md
+          EVALS_PROFILE: full
+          EVALS_QUICK: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
+        run: |
+          mkdir -p .evals
+          EVALS_MAX_COST="$(uv run python -c 'from server.app.config import Settings; print(Settings().evals_max_cost_eur)')"
+          set +e
+          uv run pytest -m evals -q --evals-max-cost "$EVALS_MAX_COST"
+          STATUS=$?
+          set -e
+          if [ -f .evals/results.md ]; then
+            cat .evals/results.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
+
+      - name: Questions-témoins non exécutées sans secret
+        if: env.EVALS_API_KEY == ''
+        run: echo "Questions-témoins ignorées explicitement — secret ANTHROPIC_API_KEY indisponible." >> "$GITHUB_STEP_SUMMARY"

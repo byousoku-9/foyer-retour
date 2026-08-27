@@ -315,20 +315,21 @@ def test_les_deux_jobs_ont_un_plafond_de_duree() -> None:
     assert lire(CI)["jobs"]["verifier"]["timeout-minutes"] <= 60
 
 
-def test_le_deploiement_ne_lance_aucune_eval() -> None:
-    """Pas d'évals en CI : elles coûtent et exigent la clé — sous-ensemble rapide en 4.1 (AD-14).
-
-    Le contrôle porte sur ce qui **s'exécute** (`run:`), pas sur le fichier entier : les commentaires
-    des deux workflows expliquent précisément pourquoi les évals n'y sont pas, et un test qui
-    interdirait le mot interdirait de l'écrire. Une version antérieure neutralisait ce conflit par un
-    `.replace()` d'une chaîne qu'aucun des deux fichiers ne contenait — une garde qui ne gardait rien.
-    """
-    for fichier in (DEPLOY, CI):
-        doc = lire(fichier)
-        for job in doc["jobs"].values():
-            for etape in job.get("steps", []):
-                commande = str(etape.get("run", ""))
-                assert "evals" not in commande, f"{fichier.name} exécute une éval : {commande!r}"
+def test_la_ci_lance_quick_sur_pr_full_sur_main_et_resume_en_markdown() -> None:
+    """4.1 : le workflow réutilisé choisit le profil par événement et garde le coût explicite."""
+    doc = lire(CI)
+    assert declencheurs(doc)["workflow_call"]["secrets"]["ANTHROPIC_API_KEY"]["required"] is False
+    pas = etapes(doc, "verifier")
+    evals = pas[_index_par_nom(pas, "Questions-témoins quick")]
+    assert evals["if"] == "env.EVALS_API_KEY != ''"
+    assert evals["env"]["EVALS_QUICK"] == "${{ github.ref == 'refs/heads/main' && '0' || '1' }}"
+    assert "pytest -m evals" in evals["run"] and "--evals-max-cost" in evals["run"]
+    assert 'cat .evals/results.md >> "$GITHUB_STEP_SUMMARY"' in evals["run"]
+    cache = pas[index_de(pas, "actions/cache@v4")]
+    assert cache["with"]["path"] == ".evals/cache"
+    saut = pas[_index_par_nom(pas, "Questions-témoins non exécutées")]
+    assert saut["if"] == "env.EVALS_API_KEY == ''" and "ignorées explicitement" in saut["run"]
+    assert lire(DEPLOY)["jobs"]["verifier"]["secrets"] == "inherit"
 
 
 def test_deux_deploiements_ne_se_promeuvent_pas_dans_le_desordre() -> None:

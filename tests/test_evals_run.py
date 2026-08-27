@@ -36,7 +36,7 @@ from server.app.domain.errors import (
     Timeout,
 )
 from server.app.domain.ingest import ManifestEntry
-from server.app.domain.trace import StepTrace, Trace
+from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
 
@@ -108,9 +108,13 @@ def _refus() -> Answer:
                   reason=AbsenceProof(kind="hors_perimetre"))
 
 
-def _trace(pipeline: str = "guide") -> Trace:
-    return Trace(request_id="eval", pipeline=pipeline, total_cost_eur=0.01,
-                 steps=[StepTrace(name="comprendre", tier="micro")])
+def _trace(pipeline: str = "guide", *, variant: str = "deterministe",
+           cost_eur_original: float = 0.0) -> Trace:
+    calls = ([LLMCall(model="modele-test", usage=Usage(
+        cost_eur=cost_eur_original, cost_eur_original=cost_eur_original))]
+        if cost_eur_original else [])
+    return Trace(request_id="eval", pipeline=pipeline, variant=variant, total_cost_eur=0.01,
+                 steps=[StepTrace(name="comprendre", tier="micro", calls=calls)])
 
 
 class DoublePipeline:
@@ -246,6 +250,12 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
         assert c.mode_attendu in runner.LABELS
 
 
+def test_quick_porte_les_ids_exacts_et_stables_du_depot() -> None:
+    cas = runner.charger_cas(runner.CASES_DIR)
+    assert [c.id for c in runner.selection_quick(cas)] == [
+        "b-bougie-canape", "g-luxtrust-prix", "s-bougie-canape"]
+
+
 def test_un_champ_inconnu_est_refuse_en_nommant_le_fichier_et_le_champ(tmp_path: Path) -> None:
     """Matrice : « Cas invalide ⇒ refus **avant** tout appel facturé, message nommant le fichier »."""
     racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
@@ -336,11 +346,10 @@ def test_un_yaml_lie_hors_des_cas_ne_peut_pas_entrer_dans_un_gate(tmp_path: Path
 
 # --- ce qui n'est pas livré est refusé, jamais simulé ---------------------
 
-def test_le_profil_full_est_refuse_en_nommant_sa_story() -> None:
-    """Matrice : « Profil non livré ⇒ refus immédiat, code 2, “profil `full` : story 4.1” »."""
-    with pytest.raises(runner.RefusDeTourner) as exc:
-        runner.refuser_ce_qui_nest_pas_livre([], "full")
-    assert "full" in str(exc.value) and "4.1" in str(exc.value)
+def test_les_profils_vertical_et_full_sont_livres() -> None:
+    """4.1 ferme le contrat : les deux profils sont adressables."""
+    runner.refuser_ce_qui_nest_pas_livre([], "vertical")
+    runner.refuser_ce_qui_nest_pas_livre([], "full")
 
 
 def test_la_suite_parsing_est_refusee_en_nommant_sa_story(tmp_path: Path) -> None:
@@ -542,11 +551,13 @@ def test_un_label_different_du_mode_attendu_est_un_ecart() -> None:
 
 # --- exécution : la matrice d'E/S ----------------------------------------
 
-def _executer(ctx: runner.Contexte, cas: list[runner.Cas], *, max_cost: float = 1.0) -> Any:
+def _executer(ctx: runner.Contexte, cas: list[runner.Cas], *, max_cost: float = 1.0,
+              variant: str | None = None) -> Any:
     import asyncio
     sortie = io.StringIO()
     _armer(ctx)
-    return asyncio.run(runner.executer(cas, ctx, max_cost_eur=max_cost, sortie=sortie)), sortie
+    return (asyncio.run(runner.executer(
+        cas, ctx, max_cost_eur=max_cost, sortie=sortie, variant=variant)), sortie)
 
 
 def test_run_nominal_execute_chaque_cas_par_le_pipeline(tmp_path: Path) -> None:
@@ -565,6 +576,29 @@ def test_run_nominal_execute_chaque_cas_par_le_pipeline(tmp_path: Path) -> None:
     assert kw["corpus"] is ctx.index.corpus and kw["index"] is ctx.index
     assert kw["client"] is ctx.client and kw["doc_id"] == GUIDE
     assert kw["pipeline_digest_hex"] == "pd" and kw["prompts_digest_hex"] == "pp"
+
+
+def test_variante_answer_trace_et_mesures_sont_projetees_jusquau_json(tmp_path: Path) -> None:
+    _corpus_, index = _corpus()
+    block_id = f"{GUIDE}:ffiche:1"
+    answer = _reponse([_claim(_citation(index, block_id, "LuxTrust"))])
+    ctx = _armer(_contexte([(answer, _trace(
+        variant="deterministe", cost_eur_original=0.0372))]))
+    cas = _cas(id="g-projection", expected={"found": True, "block_ids": [block_id]})
+
+    resultats, _ = _executer(ctx, [cas], variant="deterministe")
+    rapport = runner.construire_rapport(
+        resultats, [cas], cases_dir=tmp_path, profile="vertical", max_cost_eur=1.0,
+        complete=True)
+
+    assert ctx._guide.appels[0]["kw"]["variant"] == "deterministe"  # type: ignore[attr-defined]
+    assert resultats[0].variant == "deterministe"
+    assert rapport["metrics"]["variants"] == {"deterministe": 1}
+    assert rapport["metrics"]["recall"] == 1.0
+    projection = rapport["results"][0]
+    assert projection["claims"][0]["quotes"][0]["block_id"] == block_id
+    assert projection["cost_eur_original"] == 0.0372
+    assert isinstance(projection["latency_ms"], int) and projection["latency_ms"] >= 0
 
 
 def test_le_cas_sinistre_passe_par_le_pipeline_sinistre() -> None:
@@ -1017,12 +1051,14 @@ def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
     assert _main(tmp_path, ["--gate", CONTRAT], monkeypatch, reponses_sinistre=[sinistre]) == 0
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    dernier_rapport = json.loads((tmp_path / "eval-results.json").read_text(encoding="utf-8"))
     for doc_id in (GUIDE, CONTRAT):
         gate = manifest[doc_id]["gate"]
         assert gate["evals_ok"] is True and gate["profile"] == "vertical" and gate["cases"] == 1
         assert set(gate) >= {"profile", "source_hash", "ingest_fingerprint", "cases_hash",
                              "pipeline_digest", "prompts_digest", "model_ids", "evals_ok", "date",
                              "overlay_hash", "cases", "countersigned"}
+    assert dernier_rapport["cases_hash"] == manifest[CONTRAT]["gate"]["cases_hash"]
     # …et le corpus se recharge sans `sans_gate` ni `gate_perime` (AC).
     from server.app.domain.ingest import GateContext
     contexte = GateContext(pipeline_digest=manifest[GUIDE]["gate"]["pipeline_digest"],
@@ -1093,8 +1129,9 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
     gate = apres[TROISIEME]["gate"]
     cas_charge = runner.charger_cas(cases, suites=(f"sinistre/{TROISIEME}",))
     fichiers = [cas.case_path for cas in cas_charge if cas.case_path is not None]
+    from server.app.digests import cases_hash
     assert gate["cases"] == 1 and gate["evals_ok"] is True
-    assert gate["cases_hash"] == runner.cases_hash(fichiers, cases)
+    assert gate["cases_hash"] == cases_hash(fichiers, cases)
 
 
 def test_gate_en_echec_de_cas_ecrit_evals_ok_false_et_rend_un(tmp_path: Path,
@@ -1140,14 +1177,147 @@ def test_gate_dun_document_inconnu_est_refuse(tmp_path: Path,
     assert _main(tmp_path, ["--gate", "document-inconnu"], monkeypatch) == 2
 
 
-def test_profil_full_rend_deux_sans_rien_charger(tmp_path: Path,
-                                                 monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _main(tmp_path, ["--profile", "full"], monkeypatch) == 2
+def test_gate_refuse_une_variante_non_servie_avant_pipeline(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _main(tmp_path, ["--gate", GUIDE, "--variant", "deterministe"], monkeypatch) == 2
+    assert _COURANT["guide"].appels == []
+
+
+@pytest.mark.parametrize("collision", [
+    "sorties-identiques", "sortie-dans-cases", "sortie-ancetre-data",
+    "cache-dans-data", "cases-dans-data", "cache-egale-cases",
+])
+def test_tous_les_chevauchements_de_chemins_sont_refuses(
+        collision: str, tmp_path: Path) -> None:
+    cases = tmp_path / "cases"
+    data = tmp_path / "data"
+    cases.mkdir()
+    data.mkdir()
+    valeurs = {
+        "output_json": tmp_path / "r.json",
+        "output_markdown": tmp_path / "r.md",
+        "cases_dir": cases,
+        "data_dir": data,
+        "cache_dir": tmp_path / "cache",
+    }
+    if collision == "sorties-identiques":
+        valeurs["output_markdown"] = valeurs["output_json"]
+    elif collision == "sortie-dans-cases":
+        valeurs["output_json"] = cases / "r.json"
+    elif collision == "sortie-ancetre-data":
+        valeurs["output_json"] = tmp_path
+    elif collision == "cache-dans-data":
+        valeurs["cache_dir"] = data / "cache"
+    elif collision == "cases-dans-data":
+        valeurs["cases_dir"] = data / "cases"
+    elif collision == "cache-egale-cases":
+        valeurs["cache_dir"] = cases
+    with pytest.raises(runner.RefusDeTourner, match="collision"):
+        runner.valider_chemins(**valeurs)
+
+
+def test_profil_full_est_adressable_en_dry_run_sans_rien_charger(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _main(tmp_path, ["--profile", "full", "--dry-run"], monkeypatch) == 0
 
 
 def test_un_plafond_nul_est_refuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """CLAUDE.md : « les évals tournent seulement avec la clé **et un plafond** »."""
     assert _main(tmp_path, ["--suite", "guide", "--max-cost", "0"], monkeypatch) == 2
+
+
+def test_arret_budget_ecrit_les_deux_rapports_partiels_sans_faux_label(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Matrice 4.1 : le cas acquis reste publié et le suivant est non exécuté, pas labellisé."""
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    json_path, md_path = tmp_path / "partiel.json", tmp_path / "partiel.md"
+    code = _main(
+        tmp_path,
+        ["--max-cost", "0.02", "--output-json", str(json_path),
+         "--output-markdown", str(md_path)],
+        monkeypatch, reponses_guide=[guide],
+    )
+    assert code == 3
+    rapport = json.loads(json_path.read_text("utf-8"))
+    assert rapport["complete"] is False and rapport["cases_completed"] == 1
+    assert rapport["results"][0]["label"] == "bonne_reponse"
+    assert rapport["unexecuted_cases"] == ["s-bougie"]
+    assert "Run **partiel**" in md_path.read_text("utf-8")
+
+
+def test_arret_budget_pendant_le_premier_cas_ecrit_les_deux_rapports_partiels(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    json_path, md_path = tmp_path / "pendant.json", tmp_path / "pendant.md"
+    code = _main(
+        tmp_path,
+        ["--suite", "guide", "--max-cost", "0.03", "--output-json", str(json_path),
+         "--output-markdown", str(md_path)],
+        monkeypatch, reponses_guide=[BudgetExceeded("majorant > reste")],
+    )
+    assert code == 3 and json_path.is_file() and md_path.is_file()
+    rapport = json.loads(json_path.read_text("utf-8"))
+    assert rapport["complete"] is False and rapport["cases_completed"] == 0
+    assert rapport["unexecuted_cases"] == ["g-luxtrust"]
+    assert "Run **partiel**" in md_path.read_text("utf-8")
+
+
+@pytest.mark.parametrize("partiel", [False, True])
+def test_une_erreur_de_rapport_reste_un_incident_et_ne_touche_pas_le_gate(
+        partiel: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_text("utf-8")
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    monkeypatch.setattr(runner, "ecrire_rapports", lambda *a, **k: (_ for _ in ()).throw(
+        OSError("disque indisponible")))
+    _corpus_, index = _corpus()
+    reponse: Any = (BudgetExceeded("majorant > reste") if partiel else (
+        _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace()))
+    _COURANT["guide"] = DoublePipeline([reponse])
+    _COURANT["sinistre"] = DoublePipeline([])
+
+    code = runner.main([
+        "--gate", GUIDE, "--max-cost", "0.03", "--cases-dir", str(cases),
+        "--data-dir", str(data)])
+
+    assert code == 3
+    assert (data / "manifest.json").read_text("utf-8") == avant
+
+
+def test_un_cas_modifie_pendant_le_run_ne_peut_pas_etre_certifie(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_text("utf-8")
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    chemin = cases / "guide" / "g-luxtrust.yaml"
+    _corpus_, index = _corpus()
+    nominal = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+
+    class PipelineQuiModifieLeCas(DoublePipeline):
+        async def __call__(self, *args: Any, **kw: Any) -> tuple[Answer, Trace]:
+            resultat = await super().__call__(*args, **kw)
+            chemin.write_text(chemin.read_text("utf-8") + "\n# mutation pendant le run\n",
+                               encoding="utf-8")
+            return resultat
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    _COURANT["guide"] = PipelineQuiModifieLeCas([nominal])
+    _COURANT["sinistre"] = DoublePipeline([])
+
+    code = runner.main([
+        "--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+
+    assert code == 3
+    assert (data / "manifest.json").read_text("utf-8") == avant
+    assert not (tmp_path / "eval-results.json").exists()
+    assert not (tmp_path / "eval-results.md").exists()
 
 
 def test_suite_et_gate_contradictoires_sont_refuses(tmp_path: Path,
@@ -1299,24 +1469,16 @@ def test_une_exception_inattendue_est_un_incident_pas_un_verdict(tmp_path: Path,
     assert (data / "manifest.json").read_text(encoding="utf-8") == avant
 
 
-def test_un_cas_dun_profil_differe_est_refuse_pas_ecarte(tmp_path: Path) -> None:
-    """Le filtre de `main()` retirait un cas `profile: full` **sans un mot** (revue 1.10).
-
-    Le gate se serait alors écrit avec un `cases` et un `cases_hash` amputés : un golden set dont une
-    partie ne tourne pas sans que personne le sache — la même amputation muette que les garde-fous
-    « `.yml` » et « suite différée » empêchent, par une autre porte.
-    """
+def test_un_cas_full_est_accepte_par_le_contrat_4_1(tmp_path: Path) -> None:
     racine = _cases_dir(tmp_path, guide=CAS_GUIDE)
     (racine / "guide" / "g-plus-tard.yaml").write_text(
         CAS_GUIDE.format(id="g-plus-tard", profile="full", fiche=f"{GUIDE}:n1"), encoding="utf-8")
     cas = runner.charger_cas(racine)          # la lecture, elle, reste permissive : le schéma le permet
-    with pytest.raises(runner.RefusDeTourner) as exc:
-        runner.refuser_ce_qui_nest_pas_livre(cas, "vertical")
-    assert "full" in str(exc.value) and "4.1" in str(exc.value) and "g-plus-tard" in str(exc.value)
+    runner.refuser_ce_qui_nest_pas_livre(cas, "full")
 
 
-def test_le_meme_refus_vaut_de_bout_en_bout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """…et il sort en code 2, sans toucher au manifest."""
+def test_le_profil_full_inclut_vertical_et_full_en_dry_run(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
@@ -1328,9 +1490,13 @@ def test_le_meme_refus_vaut_de_bout_en_bout(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
     _COURANT["guide"] = DoublePipeline([])
     _COURANT["sinistre"] = DoublePipeline([])
-    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
-    assert code == 2
+    code = runner.main(["--profile", "full", "--dry-run", "--cases-dir", str(cases),
+                        "--data-dir", str(data)])
+    assert code == 0
     assert (data / "manifest.json").read_text(encoding="utf-8") == avant
+
+    selection = runner.selection_profil(runner.charger_cas(cases), "full")
+    assert {c.id for c in selection} >= {"g-luxtrust", "g-plus-tard"}
 
 
 def test_une_attente_de_la_suite_parsing_est_refusee_ailleurs(tmp_path: Path) -> None:
@@ -1385,7 +1551,7 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
     monkeypatch.setattr(runner.tempfile, "mkstemp", espion)
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
-    ecritures = [n for n in vus if n.endswith(".tmp")]
+    ecritures = [n for n in vus if Path(n).name.startswith("manifest.json.") and n.endswith(".tmp")]
     assert len(ecritures) == 2 and len(set(ecritures)) == 2, ecritures
     assert all(Path(n).parent == data for n in ecritures), ecritures
 

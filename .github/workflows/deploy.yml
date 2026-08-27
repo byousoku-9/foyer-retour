@@ -46,6 +46,7 @@ jobs:
   # hors ligne. Une seule définition, appelée des deux côtés.
   verifier:
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
     with:
       sources_reelles: ${{ github.ref == 'refs/heads/main' }}
     permissions:
