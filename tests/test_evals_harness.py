@@ -238,6 +238,46 @@ def test_le_cout_du_retry_ne_fusionne_pas_un_appel_logique_anterieur() -> None:
     assert runner._couts_logiques_non_caches(trace) == [0.01, 0.05]
 
 
+def test_le_cout_du_retry_ignore_un_hit_anterieur_mais_conserve_le_hit_de_relance() -> None:
+    trace = Trace(request_id="r", pipeline="guide", steps=[StepTrace(
+        name="etape",
+        calls=[
+            LLMCall(model="m", usage=Usage(cost_eur_original=0.90, cached_response=True)),
+            LLMCall(model="m", usage=Usage(cost_eur_original=0.02)),
+            LLMCall(model="m", usage=Usage(cost_eur_original=0.03, cached_response=True)),
+        ],
+        checks=[CheckResult(name="parse_retry", ok=False)],
+    )])
+    assert runner._couts_logiques_non_caches(trace) == [0.05]
+
+
+def test_snapshot_mixte_garde_les_octets_disque_dans_son_identite(tmp_path: Path) -> None:
+    cases_dir = tmp_path / "cases"
+    fichier = cases_dir / "guide" / "g-disque.yaml"
+    fichier.parent.mkdir(parents=True)
+    fichier.write_text("octets initiaux\n", encoding="utf-8")
+    disque = _cas().model_copy(update={"id": "g-disque"})
+    disque._case_path = fichier
+    memoire = _cas().model_copy(update={"id": "g-memoire"})
+
+    avant = runner.snapshot_cas([disque, memoire], cases_dir)
+    fichier.write_text("octets modifies\n", encoding="utf-8")
+    apres = runner.snapshot_cas([disque, memoire], cases_dir)
+
+    assert avant.cases_hash != apres.cases_hash
+    assert fichier.resolve() in avant.files
+
+
+def test_recall_compte_les_fiches_attendues_et_pas_seulement_found() -> None:
+    resultat = Resultat(
+        id="g", suite="guide", label="doc_manque", found=True, expected_found=True,
+        expected_fiche_ids=["guide:attendue"], cited_fiche_ids=["guide:autre"],
+    )
+    assert runner._recall([resultat]) == 0.0
+    resultat.cited_fiche_ids.append("guide:attendue")
+    assert runner._recall([resultat]) == 1.0
+
+
 def test_variante_incompatible_est_refusee_au_preflight() -> None:
     cas = Cas.model_validate({
         "id": "s-un", "suite": "sinistre", "profile": "vertical", "question": "couvert ?",
@@ -284,7 +324,7 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
     }
     md = rendre_markdown(rapport)
     for attendu in ("cases_hash", "recall", "coût moyen", "latence p50", "ne_tranche_pas",
-                    "`bonne_reponse`", "`outils`", "Cas non exécutés"):
+                    "<code>bonne_reponse</code>", "<code>outils</code>", "Cas non exécutés"):
         assert attendu in md
     json_path, md_path = tmp_path / "out" / "result.json", tmp_path / "out" / "result.md"
     ecrire_rapports(rapport, json_path, md_path)
@@ -312,4 +352,21 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
     markdown = rendre_markdown(rapport)
     for brut in ("p|`", "diag|`", "c|`", "i|`", "s|`", "v|`", "l|`"):
         assert brut not in markdown
-    assert "&#124;" in markdown and "&#96;" in markdown and "<br>" in markdown
+    assert "<code>" in markdown and "&#124;" in markdown and "&#96;" in markdown and "<br>" in markdown
+    assert "`i&#124;" not in markdown, "une entité ne doit pas être enfermée dans un code span"
+
+
+def test_ladaptateur_ci_transmet_quick_et_tous_ses_chemins(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_evals_live import arguments_evals
+
+    monkeypatch.setenv("EVALS_PROFILE", "full")
+    monkeypatch.setenv("EVALS_QUICK", "true")
+    monkeypatch.setenv("EVALS_CACHE_DIR", str(tmp_path / "cache-ci"))
+    monkeypatch.setenv("EVALS_OUTPUT_JSON", str(tmp_path / "ci.json"))
+    monkeypatch.setenv("EVALS_OUTPUT_MARKDOWN", str(tmp_path / "ci.md"))
+    args, json_path, md_path = arguments_evals(0.7, tmp_path)
+
+    assert args[:4] == ["--profile", "full", "--max-cost", "0.7"]
+    assert "--quick" in args and str(tmp_path / "cache-ci") in args
+    assert json_path == tmp_path / "ci.json" and md_path == tmp_path / "ci.md"

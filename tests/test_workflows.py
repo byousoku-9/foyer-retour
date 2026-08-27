@@ -325,11 +325,22 @@ def test_la_ci_lance_quick_sur_pr_full_sur_main_et_resume_en_markdown() -> None:
     assert evals["env"]["EVALS_QUICK"] == "${{ github.ref == 'refs/heads/main' && '0' || '1' }}"
     assert "pytest -m evals" in evals["run"] and "--evals-max-cost" in evals["run"]
     assert 'cat .evals/results.md >> "$GITHUB_STEP_SUMMARY"' in evals["run"]
-    cache = pas[index_de(pas, "actions/cache@v4")]
-    assert cache["with"]["path"] == ".evals/cache"
+    restauration = pas[index_de(pas, "actions/cache/restore@v4")]
+    sauvegarde = pas[index_de(pas, "actions/cache/save@v4")]
+    assert restauration["id"] == "evals_cache"
+    assert restauration["with"]["path"] == sauvegarde["with"]["path"] == ".evals/cache"
+    assert restauration["with"]["key"] == sauvegarde["with"]["key"]
+    assert "always()" in sauvegarde["if"] and "outcome == 'success'" in sauvegarde["if"]
+    assert "cache-hit != 'true'" in sauvegarde["if"]
     saut = pas[_index_par_nom(pas, "Questions-témoins non exécutées")]
     assert saut["if"] == "env.EVALS_API_KEY == ''" and "ignorées explicitement" in saut["run"]
     assert lire(DEPLOY)["jobs"]["verifier"]["secrets"] == "inherit"
+
+
+def test_la_ci_annule_seulement_la_campagne_perimee_dune_pr() -> None:
+    concurrence = lire(CI)["concurrency"]
+    assert "pull_request.number" in concurrence["group"]
+    assert concurrence["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
 
 def test_deux_deploiements_ne_se_promeuvent_pas_dans_le_desordre() -> None:

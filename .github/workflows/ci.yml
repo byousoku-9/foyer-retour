@@ -31,6 +31,12 @@ permissions:
   # seul lecteur de sources d'échanger le jeton OIDC court dont `fetch_source` a besoin.
   id-token: write
 
+# Une nouvelle révision d'une PR rend l'ancienne campagne payante sans valeur. Les appels
+# réutilisables de main ne sont pas annulés ici : deploy.yml les sérialise sans annulation.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verifier:
     name: Lint et suite hors ligne
@@ -137,8 +143,9 @@ jobs:
         run: uv run pytest -q
 
       - name: Restaurer le cache des questions-témoins
+        id: evals_cache
         if: env.EVALS_API_KEY != ''
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .evals/cache
           key: evals-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.ref_name }}
@@ -165,6 +172,15 @@ jobs:
             cat .evals/results.md >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$STATUS"
+
+      - name: Sauvegarder le cache des questions-témoins
+        if: >-
+          always() && env.EVALS_API_KEY != '' && steps.evals_cache.outcome == 'success' &&
+          steps.evals_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .evals/cache
+          key: evals-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.ref_name }}
 
       - name: Questions-témoins non exécutées sans secret
         if: env.EVALS_API_KEY == ''

@@ -108,11 +108,12 @@ def _refus() -> Answer:
                   reason=AbsenceProof(kind="hors_perimetre"))
 
 
-def _trace(pipeline: str = "guide", *, variant: str = "deterministe",
+def _trace(pipeline: str = "guide", *, variant: str | None = None,
            cost_eur_original: float = 0.0) -> Trace:
     calls = ([LLMCall(model="modele-test", usage=Usage(
         cost_eur=cost_eur_original, cost_eur_original=cost_eur_original))]
         if cost_eur_original else [])
+    variant = variant or ("outils" if pipeline == "guide" else "deterministe")
     return Trace(request_id="eval", pipeline=pipeline, variant=variant, total_cost_eur=0.01,
                  steps=[StepTrace(name="comprendre", tier="micro", calls=calls)])
 
@@ -128,6 +129,8 @@ class DoublePipeline:
     async def __call__(self, *args: Any, **kw: Any) -> tuple[Answer, Trace]:
         self.appels.append({"args": args, "kw": kw})
         budget = kw.get("budget")
+        if budget is not None and budget.max_cost_eur <= 0 and self.cout > 0:
+            raise BudgetExceeded("aucun budget restant pour un miss cache")
         if budget is not None:
             # Un vrai pipeline consomme du budget ; le double le simule pour que le plafond de run
             # se mesure sur autre chose qu'un compteur nul.
@@ -690,6 +693,51 @@ def test_le_plafond_de_run_arrete_avant_le_cas_suivant() -> None:
     assert len(ctx._guide.appels) == 1   # type: ignore[attr-defined]
 
 
+def test_le_plafond_exact_laisse_un_cas_suivant_tenter_un_hit_cache(tmp_path: Path) -> None:
+    """Un plafond épuisé interdit un appel, pas une lecture locale à coût nul."""
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+
+    class PipelineCacheAware(DoublePipeline):
+        async def __call__(self, *args: Any, **kw: Any) -> tuple[Answer, Trace]:
+            if kw["budget"].max_cost_eur == 0:
+                cout = self.cout
+                self.cout = 0.0
+                try:
+                    return await super().__call__(*args, **kw)
+                finally:
+                    self.cout = cout
+            return await super().__call__(*args, **kw)
+
+    ctx = _contexte([], cout=0.05)
+    ctx._guide = PipelineCacheAware([bonne, bonne], cout=0.05)  # type: ignore[attr-defined]
+    ctx.response_cache = runner.PersistentResponseCache(tmp_path / "cache")
+    resultats, _ = _executer(ctx, [_cas(id="a"), _cas(id="b")], max_cost=0.05)
+
+    assert [r.id for r in resultats] == ["a", "b"]
+    assert ctx._guide.appels[1]["kw"]["budget"].max_cost_eur == 0  # type: ignore[attr-defined]
+
+
+def test_une_trace_de_variante_differente_est_un_incident_et_purge_sa_namespace(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _corpus_, index = _corpus()
+    answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
+    ctx = _contexte([(answer, _trace(variant="deterministe"))])
+    cache = runner.PersistentResponseCache(tmp_path / "cache")
+    ctx.response_cache = cache
+    purges: list[bool] = []
+    original = cache.discard_namespace
+
+    def purge() -> None:
+        purges.append(True)
+        original()
+
+    monkeypatch.setattr(cache, "discard_namespace", purge)
+    with pytest.raises(runner.IncidentTechnique, match="TraceVariantMismatch"):
+        _executer(ctx, [_cas(id="g-mismatch")], variant="outils")
+    assert purges == [True]
+
+
 def test_le_budget_dun_cas_est_le_reste_du_plafond_de_run() -> None:
     """AD-9 : « en évals, [le plafond par requête] est remplacé par un plafond par run »."""
     corpus, index = _corpus()
@@ -1059,6 +1107,9 @@ def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
                              "pipeline_digest", "prompts_digest", "model_ids", "evals_ok", "date",
                              "overlay_hash", "cases", "countersigned"}
     assert dernier_rapport["cases_hash"] == manifest[CONTRAT]["gate"]["cases_hash"]
+    assert dernier_rapport["identity"]["image"]["pipeline_digest"]
+    assert dernier_rapport["identity"]["scope"]["case_ids"] == ["s-bougie"]
+    assert CONTRAT in dernier_rapport["identity"]["documents"]
     # …et le corpus se recharge sans `sans_gate` ni `gate_perime` (AC).
     from server.app.domain.ingest import GateContext
     contexte = GateContext(pipeline_digest=manifest[GUIDE]["gate"]["pipeline_digest"],
@@ -1183,6 +1234,12 @@ def test_gate_refuse_une_variante_non_servie_avant_pipeline(
     assert _COURANT["guide"].appels == []
 
 
+def test_gate_et_quick_sont_exclusifs_avant_pipeline(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _main(tmp_path, ["--gate", GUIDE, "--quick"], monkeypatch) == 2
+    assert _COURANT["guide"].appels == []
+
+
 @pytest.mark.parametrize("collision", [
     "sorties-identiques", "sortie-dans-cases", "sortie-ancetre-data",
     "cache-dans-data", "cases-dans-data", "cache-egale-cases",
@@ -1213,6 +1270,23 @@ def test_tous_les_chevauchements_de_chemins_sont_refuses(
     elif collision == "cache-egale-cases":
         valeurs["cache_dir"] = cases
     with pytest.raises(runner.RefusDeTourner, match="collision"):
+        runner.valider_chemins(**valeurs)
+
+
+@pytest.mark.parametrize("sortie", ["output_json", "output_markdown"])
+def test_une_sortie_existante_comme_repertoire_est_refusee(
+        sortie: str, tmp_path: Path) -> None:
+    cases, data, cache = tmp_path / "cases", tmp_path / "data", tmp_path / "cache"
+    cases.mkdir()
+    data.mkdir()
+    repertoire = tmp_path / "sortie"
+    repertoire.mkdir()
+    valeurs = {
+        "output_json": tmp_path / "r.json", "output_markdown": tmp_path / "r.md",
+        "cases_dir": cases, "data_dir": data, "cache_dir": cache,
+    }
+    valeurs[sortie] = repertoire
+    with pytest.raises(runner.RefusDeTourner, match="répertoire"):
         runner.valider_chemins(**valeurs)
 
 
@@ -1663,6 +1737,27 @@ def test_le_contexte_porte_le_dictionnaire_comme_api_etat(tmp_path: Path) -> Non
     assert isinstance(ctx.dictionnaire, runner.Dictionnaire)
     # Aucun `dictionary.json` ici : l'objet est inerte, et rien ne lève au chargement (AD-7).
     assert ctx.dictionnaire.charge is False and ctx.dictionnaire.court_circuit_actif is False
+
+
+def test_le_meme_cache_est_cable_au_client_et_au_runner(tmp_path: Path) -> None:
+    racine = _data_dir(tmp_path)
+    ctx = runner.construire_contexte(_settings(), racine, cache_dir=tmp_path / "cache")
+    assert ctx.response_cache is not None
+    assert ctx.client._cache is ctx.response_cache
+
+
+def test_le_runner_arme_la_namespace_normative_avant_le_pipeline(tmp_path: Path) -> None:
+    _corpus_, index = _corpus()
+    answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
+    ctx = _contexte([(answer, _trace(variant="outils"))])
+    cache = runner.PersistentResponseCache(tmp_path / "cache")
+    ctx.response_cache = cache
+    attendue = runner.namespace_cache(
+        _cas(id="g-namespace"), ctx, doc_id=GUIDE, variant="outils")
+
+    _executer(ctx, [_cas(id="g-namespace")], variant="outils")
+
+    assert cache.namespace_digest == runner.empreinte_canonique(attendue)
 
 
 def test_le_dictionnaire_du_contexte_part_au_pipeline_du_guide() -> None:

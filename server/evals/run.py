@@ -435,6 +435,8 @@ class Resultat:
     claims: list[dict[str, Any]] = field(default_factory=list)
     expected_found: bool = False
     expected_block_ids: list[str] = field(default_factory=list)
+    expected_fiche_ids: list[str] = field(default_factory=list)
+    cited_fiche_ids: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -450,7 +452,7 @@ class CasesSnapshot:
 
 def snapshot_cas(cas: list[Cas], cases_dir: Path) -> CasesSnapshot:
     """Fige les octets réellement validés avant le premier appel fournisseur."""
-    candidats: list[tuple[Cas, Path]] = []
+    candidats: list[tuple[Cas, Path | None]] = []
     for c in cas:
         path = c.case_path
         if path is None:
@@ -459,17 +461,25 @@ def snapshot_cas(cas: list[Cas], cases_dir: Path) -> CasesSnapshot:
                     f"cas documentaire {c.id!r} sans case_path : impossible de certifier son hash")
             path = cases_dir / c.suite / f"{c.id}.yaml"
             if not path.is_file():
-                # Les cas purement en mémoire des tests/outils internes gardent une identité
-                # canonique ; un cas chargé du disque emprunte toujours la branche octets ci-dessous.
-                return CasesSnapshot(empreinte_canonique(
-                    [item.model_dump(mode="json") for item in cas]))
+                # Un lot peut mêler cas chargés du disque et cas synthétiques. Ne jamais faire
+                # disparaître les octets disque de l'identité du lot au premier cas en mémoire.
+                path = None
         candidats.append((c, path))
-    root = cases_dir.resolve(strict=True)
+    root = cases_dir.resolve(strict=True) if any(path is not None for _, path in candidats) else None
     h = hashlib.sha256()
     fichiers: dict[Path, str] = {}
-    for c, candidat in sorted(candidats, key=lambda item: item[1].as_posix()):
+    for c, candidat in sorted(
+            candidats, key=lambda item: item[1].as_posix() if item[1] is not None
+            else f"@memory/{item[0].suite}/{item[0].id}"):
+        if candidat is None:
+            relatif = f"@memory/{c.suite}/{c.id}.json"
+            contenu = json_canonique(c.model_dump(mode="json")).encode("utf-8")
+            h.update(relatif.encode("utf-8") + b"\0")
+            h.update(contenu + b"\0")
+            continue
         path = _dans_cases(cases_dir, candidat, objet=f"cas {c.id!r}")
         contenu = path.read_bytes()
+        assert root is not None
         relatif = path.relative_to(root).as_posix()
         h.update(relatif.encode("utf-8") + b"\0")
         h.update(contenu + b"\0")
@@ -684,6 +694,47 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
     }
 
 
+def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
+                 variant: str | None) -> dict[str, Any]:
+    """Identité publiable de l'image mesurée et du périmètre exact du run.
+
+    Les digests de namespace par cas englobent aussi document, dictionnaire, seuils et entrée. Ils
+    permettent de comparer deux rapports sans recopier dans ceux-ci les questions ou faits métier.
+    """
+    namespaces: dict[str, str] = {}
+    documents: dict[str, dict[str, Any]] = {}
+    variantes: dict[str, str] = {}
+    for c in cas:
+        doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
+        variante = variante_du_cas(c, variant)
+        ns = namespace_cache(c, ctx, doc_id=doc_id, variant=variante)
+        namespaces[c.id] = empreinte_canonique(ns)
+        variantes[c.id] = variante
+        documents[doc_id] = {
+            champ: ns[champ] for champ in (
+                "source_hash", "ingest_fingerprint", "overlay_hash",
+                "dictionary_fingerprint",
+            )
+        }
+    return {
+        "image": {
+            "pipeline_digest": ctx.pipeline_digest_hex,
+            "prompts_digest": ctx.prompts_digest_hex,
+            "model_ids": dict(TIERS),
+            "normalize_version": normalize_version,
+        },
+        "scope": {
+            "profile": profile,
+            "quick": quick,
+            "case_ids": [c.id for c in cas],
+            "suites": sorted({c.suite for c in cas}),
+            "variants": variantes,
+        },
+        "documents": dict(sorted(documents.items())),
+        "cache_namespace_digests": namespaces,
+    }
+
+
 def _cout_original(trace: Trace) -> float:
     return round(sum(call.usage.cost_eur_original for step in trace.steps for call in step.calls), 4)
 
@@ -702,7 +753,8 @@ def _couts_logiques_non_caches(trace: Trace) -> list[float]:
             # appels logiques antérieurs de la même étape restent des entrées distinctes du cache.
             debut_paires = max(0, len(appels) - 2 * retries)
             couts.extend(round(call.usage.cost_eur_original, 4)
-                         for call in appels[:debut_paires])
+                         for call in appels[:debut_paires]
+                         if not call.usage.cached_response)
             for index in range(debut_paires, len(appels), 2):
                 paire = appels[index:index + 2]
                 couts.append(round(sum(call.usage.cost_eur_original for call in paire), 4))
@@ -759,6 +811,11 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
         # un appel facturé. Ne pas la laisser sortir brute (ni remettre son coût à zéro) : le runner
         # la convertira en incident, sans inventer de verdict.
         raise _ErreurInterneFacturee(type(exc).__name__, round(budget.cost_eur, 4)) from exc
+    variante_attendue = variant or ("outils" if cas.suite == "guide" else "deterministe")
+    if trace.variant != variante_attendue:
+        if ctx.response_cache is not None:
+            ctx.response_cache.discard_namespace()
+        raise _ErreurInterneFacturee("TraceVariantMismatch", round(budget.cost_eur, 4))
     _finaliser_cache(ctx, trace)
     return answer, trace, round(budget.cost_eur, 4)
 
@@ -770,7 +827,7 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
     cumul = 0.0
     for c in cas:
         restant = round(max_cost_eur - cumul, 4)
-        if restant <= 0:
+        if restant <= 0 and ctx.response_cache is None:
             raise IncidentTechnique(
                 f"plafond de run atteint ({cumul:.4f} € sur {max_cost_eur:.4f} €) avant le cas "
                 f"{c.id} : {len(cas) - len(resultats)} cas non exécutés",
@@ -819,7 +876,13 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                             verdict=answer.verdict.value if answer.verdict is not None else None,
                             claims=[claim.model_dump(mode="json") for claim in answer.claims],
                             expected_found=c.expected.found,
-                            expected_block_ids=list(c.expected.block_ids))
+                            expected_block_ids=list(c.expected.block_ids),
+                            expected_fiche_ids=list(c.expected.fiche_ids),
+                            cited_fiche_ids=sorted({
+                                ctx.index.parent_node(quote.block_id)
+                                for claim in answer.claims for quote in claim.quotes
+                                if _bloc(ctx.index, quote.block_id) is not None
+                            }))
         resultats.append(resultat)
         _ligne(resultat, sortie)
     return resultats
@@ -854,9 +917,11 @@ def _recall(resultats: list[Resultat]) -> float:
             for quote in claim.get("quotes", [])
             if isinstance(quote, dict)
         }
-        if r.expected_block_ids:
-            attendus += len(r.expected_block_ids)
+        if r.expected_block_ids or r.expected_fiche_ids:
+            attendus += len(r.expected_block_ids) + len(r.expected_fiche_ids)
             trouves += sum(1 for block_id in r.expected_block_ids if block_id in cites)
+            trouves += sum(1 for fiche_id in r.expected_fiche_ids
+                           if fiche_id in r.cited_fiche_ids)
         elif r.expected_found:
             attendus += 1
             trouves += int(r.found)
@@ -868,7 +933,8 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                        stop_reason: str | None = None,
                        non_executes: list[str] | None = None,
                        cost_eur_engaged: float | None = None,
-                       snapshot: CasesSnapshot | None = None) -> dict[str, Any]:
+                       snapshot: CasesSnapshot | None = None,
+                       run_identity: dict[str, Any] | None = None) -> dict[str, Any]:
     snapshot = snapshot or snapshot_cas(cas, cases_dir)
     verifier_snapshot_cas(snapshot)
     labels = {label: sum(1 for r in resultats if r.label == label) for label in LABELS}
@@ -879,9 +945,12 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
     cout_total = round(cost_eur_engaged, 4) if cost_eur_engaged is not None else cout_cas_termines
     cout_original = round(sum(r.cost_eur_original for r in resultats), 4)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "profile": profile,
+        "identity": run_identity or {
+            "scope": {"profile": profile, "case_ids": [c.id for c in cas]},
+        },
         "complete": complete,
         "stop_reason": stop_reason,
         "unexecuted_cases": list(non_executes or []),
@@ -932,13 +1001,18 @@ def _markdown_value(value: Any) -> str:
             .replace("\n", "<br>"))
 
 
+def _markdown_code(value: Any) -> str:
+    """Code inline sûr : les entités sont interprétées, pas affichées littéralement."""
+    return f"<code>{_markdown_value(value)}</code>"
+
+
 def rendre_markdown(rapport: dict[str, Any]) -> str:
     m = rapport["metrics"]
     etat = "complet" if rapport["complete"] else "partiel"
     lignes = [
         "# Résultat des questions-témoins",
         "",
-        f"Run **{etat}** — profil `{_markdown_value(rapport['profile'])}`, "
+        f"Run **{etat}** — profil {_markdown_code(rapport['profile'])}, "
         f"{rapport['cases_completed']}/{rapport['cases_planned']} cas terminés.",
         "",
     ]
@@ -947,26 +1021,26 @@ def rendre_markdown(rapport: dict[str, Any]) -> str:
     lignes.extend([
         "| cases_hash | recall | coût moyen (€) | latence p50 (ms) | ne_tranche_pas |",
         "|---|---:|---:|---:|---:|",
-        f"| `{_markdown_value(rapport['cases_hash'])}` | {m['recall']:.4f} | "
+        f"| {_markdown_code(rapport['cases_hash'])} | {m['recall']:.4f} | "
         f"{m['average_cost_eur']:.4f} | "
         f"{m['latency_p50_ms']} | {m['ne_tranche_pas_rate']:.4f} |",
         "",
         "| Label | Nombre |",
         "|---|---:|",
     ])
-    lignes.extend(f"| `{_markdown_value(label)}` | {m['labels'][label]} |" for label in LABELS)
+    lignes.extend(f"| {_markdown_code(label)} | {m['labels'][label]} |" for label in LABELS)
     lignes.extend(["", "| Variante | Nombre |", "|---|---:|"])
-    lignes.extend(f"| `{_markdown_value(variant)}` | {count} |"
+    lignes.extend(f"| {_markdown_code(variant)} | {count} |"
                   for variant, count in m["variants"].items())
     lignes.extend(["", "| Cas | Suite | Variante | Label | Coût (€) | Coût original (€) | Latence (ms) |",
                    "|---|---|---|---|---:|---:|---:|"])
     for r in rapport["results"]:
-        lignes.append(f"| `{_markdown_value(r['id'])}` | `{_markdown_value(r['suite'])}` | "
-                      f"`{_markdown_value(r['variant'])}` | `{_markdown_value(r['label'])}` | "
+        lignes.append(f"| {_markdown_code(r['id'])} | {_markdown_code(r['suite'])} | "
+                      f"{_markdown_code(r['variant'])} | {_markdown_code(r['label'])} | "
                       f"{r['cost_eur']:.4f} | {r['cost_eur_original']:.4f} | {r['latency_ms']} |")
     if rapport["unexecuted_cases"]:
         lignes.extend(["", "Cas non exécutés : "
-                       + ", ".join(f"`{_markdown_value(case_id)}`"
+                       + ", ".join(_markdown_code(case_id)
                                    for case_id in rapport["unexecuted_cases"]), ""])
     return "\n".join(lignes).rstrip() + "\n"
 
@@ -1308,6 +1382,10 @@ def _chevauchent(a: Path, b: Path) -> bool:
 def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path,
                     data_dir: Path, cache_dir: Path) -> None:
     """Refuse avant client tout alias ou chevauchement pouvant écraser entrée ou état."""
+    for nom, sortie in (("sortie JSON", output_json), ("sortie Markdown", output_markdown)):
+        if sortie.exists() and sortie.is_dir():
+            raise RefusDeTourner(
+                f"chemins en collision : {nom}={sortie.resolve()} existe comme répertoire")
     chemins = {
         "sortie JSON": output_json.resolve(),
         "sortie Markdown": output_markdown.resolve(),
@@ -1336,6 +1414,7 @@ def main(argv: list[str] | None = None) -> int:
     output_markdown = args.output_markdown or args.data_dir.parent / "eval-results.md"
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
     snapshot: CasesSnapshot | None = None
+    run_identity: dict[str, Any] | None = None
     try:
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
                         cases_dir=args.cases_dir, data_dir=args.data_dir, cache_dir=cache_dir)
@@ -1410,6 +1489,8 @@ def main(argv: list[str] | None = None) -> int:
         with ExitStack() as pile:
             ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
                                       cache_dir=cache_dir)
+            run_identity = identite_run(
+                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant)
             # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
             # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
             # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
@@ -1431,7 +1512,7 @@ def main(argv: list[str] | None = None) -> int:
                     exc.resultats, cas, cases_dir=args.cases_dir, profile=args.profile,
                     max_cost_eur=max_cost, complete=False, stop_reason=str(exc),
                     non_executes=exc.non_executes, cost_eur_engaged=exc.cost_eur_engaged,
-                    snapshot=snapshot)
+                    snapshot=snapshot, run_identity=run_identity)
                 ecrire_rapports(rapport, output_json, output_markdown)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
@@ -1454,7 +1535,8 @@ def main(argv: list[str] | None = None) -> int:
         if snapshot is None:
             raise IncidentTechnique("snapshot des cas absent au moment du rapport")
         rapport = construire_rapport(resultats, cas, cases_dir=args.cases_dir, profile=args.profile,
-                                     max_cost_eur=max_cost, complete=True, snapshot=snapshot)
+                                     max_cost_eur=max_cost, complete=True, snapshot=snapshot,
+                                     run_identity=run_identity)
         ecrire_rapports(rapport, output_json, output_markdown)
         print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques

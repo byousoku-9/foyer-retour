@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,19 @@ class PersistentResponseCache:
             raise ValueError("la namespace de cache doit être un objet JSON")
         self._namespace = copie
         self._namespace_digest = empreinte_canonique(copie)
+        self._logical_root = None
+        self._logical_aliases = []
+
+    def discard_namespace(self) -> None:
+        """Retire uniquement la namespace courante lorsqu'une réponse a été mal attribuée.
+
+        Une incohérence de variante est détectée après que le client a pu écrire sa réponse. La
+        conserver sous la variante demandée empoisonnerait les runs suivants ; cette suppression
+        bornée au digest exact transforme donc l'incident en miss reproductible au prochain run.
+        """
+        namespace_dir = self.root / self._namespace_digest[:2] / self._namespace_digest
+        if namespace_dir.is_dir():
+            shutil.rmtree(namespace_dir)
         self._logical_root = None
         self._logical_aliases = []
 

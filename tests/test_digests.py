@@ -105,7 +105,7 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
     import json
 
     from server.app.config import REPO_ROOT, Settings
-    from server.evals.run import CASES_DIR, charger_cas, suite_du_document
+    from server.evals.run import CASES_DIR, charger_cas, selection_profil, suite_du_document
 
     reglages = Settings(_env_file=None)
     manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
@@ -117,9 +117,9 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
         # **Le même filtre que `main()`**, sinon les deux calculs de `cases_hash` divergeraient dès
         # qu'un cas d'un autre profil existerait (4.1) : le gate est écrit sur les cas du profil
         # demandé, ce test recalculerait sur toute la suite, et il rougirait sans qu'il y ait de
-        # défaut. `refuser_ce_qui_nest_pas_livre` empêche aujourd'hui la cohabitation ; ce filtre est
-        # ce qui rendra le contrôle juste le jour où elle sera permise.
-        cas = [c for c in charger_cas(CASES_DIR, suites=(suite,)) if c.profile == gate["profile"]]
+        # défaut. `selection_profil` est l'autorité commune : `full` couvre vertical + full, tandis
+        # que `vertical` reste strictement vertical.
+        cas = selection_profil(charger_cas(CASES_DIR, suites=(suite,)), gate["profile"])
         assert cas, f"aucun cas au profil {gate['profile']} pour la suite {suite}"
         assert all(c.case_path is not None for c in cas), (
             f"la suite {suite} contient un cas sans chemin certifiable")

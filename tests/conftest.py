@@ -15,9 +15,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Une sélection live explicite refuse de démarrer avant le premier test sans ses deux gardes."""
-    if config.option.markexpr.strip() != "evals":
+    # ``-m 'evals and not lent'`` et toute autre expression composite doivent emprunter la même
+    # porte. Avec ``trylast``, le plugin de sélection a déjà retiré les items désélectionnés.
+    if not any(item.get_closest_marker("evals") is not None for item in items):
         return
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     max_cost = config.getoption("--evals-max-cost")
