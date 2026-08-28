@@ -9,10 +9,16 @@ partir du `line_uid` désigné, et les `node_id` sont un chemin positionnel calc
 schéma fournisseur énumère les `uid` autorisés et `parse_proposition` les revérifie « même si le
 schéma l'impose » (idiome `type_clauses.parse_reading`).
 
+L'appel suit la convention LLM du spine : `messages.parse(..., output_config={"format": …})`
+**sans** `output_format`, puis validation locale par `TypeAdapter`. Avec `output_format`, le SDK
+1.0.0 valide le texte avant de rendre la réponse et lève `ValidationError` : `usage`, `stop_reason`
+et le texte reçu seraient perdus — donc le coût réel et le motif du refus. Le corps envoyé est
+identique sur le fil.
+
 `verifier()` est en code pur, hors réseau et **fail-closed** : un refus est nommé, il n'est jamais
 rattrapé par un repli silencieux vers l'heuristique numérique (AD-16). Sans `structure.json`,
-l'heuristique reste le chemin nominal ; **avec** un `structure.json` refusé, le document part en
-quarantaine.
+l'heuristique reste le chemin nominal ; **avec** un `structure.json` refusé — ou seulement présent
+et illisible, un répertoire, un lien pendant —, le document part en quarantaine.
 
 La proposition est un **artefact**, pas un appel à chaud : AD-2 exige que `source_hash` +
 `ingest_fingerprint` égaux rendent les mêmes identifiants, et rejouer le modèle à chaque ingestion
@@ -25,13 +31,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import anthropic
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
@@ -42,13 +50,16 @@ from server.ingest.artifacts import write_atomic
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
 MODEL = TIERS[TIER]
-STRUCTURE_RULES_VERSION = "4.2c-1"
+# `-2` : la couverture est devenue totale et les lignes d'une table sont entrées au registre. Une
+# proposition acceptée sous les règles précédentes ne l'est plus forcément, et le registre qu'elle
+# adresse a changé : l'empreinte doit le dire (AD-2, lu par le loader).
+STRUCTURE_RULES_VERSION = "4.2c-2"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
 MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
           "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive", "ordre_impossible",
-          "intervalles_croises", "parent_non_contenant", "couverture_insuffisante",
-          "noeud_non_construit")
+          "intervalles_croises", "parent_non_contenant", "ligne_omise",
+          "affectation_non_prouvee", "noeud_non_construit")
 
 
 class StrictModel(BaseModel):
@@ -68,6 +79,20 @@ class StructureProposee(StrictModel):
     schema_version: Literal["1"] = "1"
     doc_id: str = Field(max_length=DOC_ID_MAX)
     noeuds: list[NoeudPropose] = Field(default_factory=list)
+
+
+class PropositionFilaire(StrictModel):
+    """Forme **filaire** exacte de la réponse : un objet `{noeuds: [...]}`, et rien d'autre.
+
+    Le modèle n'écrit ni `schema_version`, ni `doc_id` : les deux sont posés par le code. Ce modèle
+    dédié est la validation locale qu'impose la convention LLM du spine — celle que `output_format`
+    ferait faire au SDK, au prix d'`usage`, de `stop_reason` et du texte reçu.
+    """
+
+    noeuds: list[NoeudPropose]
+
+
+_FILAIRE: TypeAdapter[PropositionFilaire] = TypeAdapter(PropositionFilaire)
 
 
 @dataclass(frozen=True)
@@ -134,25 +159,50 @@ def empreinte_proposition(proposition: StructureProposee | None) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
-    """Registre adressable : les lignes source qu'un bloc peut porter, dans l'ordre de lecture.
+def _porteurs(page: Any) -> list[tuple[list[str], int, str]]:
+    """(uid portés, colonne, texte porté) d'une page, dans l'ordre de lecture — tables comprises.
 
-    Les lignes écartées par un motif explicite (bande récurrente, ligne de table) n'y figurent pas :
-    elles ne sont l'ancre de rien, et une proposition qui les désignerait serait refusée.
+    Une table sert son contenu dans un bloc `table` : les lignes brutes qu'elle a absorbées sont donc
+    portées, pas retirées, et doivent figurer au registre présenté au proposant — **à la position de
+    la table dans l'ordre de lecture**, la seule qui rende un intervalle proposable autour d'elle.
+    Les lignes gardent leur ordre exact (`pdf_to_blocks._assign_reading_order` l'a arrêté) ; chaque
+    table est insérée devant la première ligne que sa clé de lecture précède, la clé même dont
+    `_segment_page` se sert pour replacer la table entre les groupes.
+    """
+    porteurs = [(line.source_uids, line.colonne, line.text) for line in page.lines]
+    cles = [(line.bande, line.colonne, line.bbox[1], line.bbox[0]) for line in page.lines]
+    layout = page.layout
+    tables = sorted((table for table in page.tables if table.sert_un_bloc),
+                    key=lambda table: (layout.bande(table.bbox[1]), layout.colonne(table.bbox),
+                                       table.bbox[1], table.bbox[0]))
+    for decalage, table in enumerate(tables):
+        cle = (layout.bande(table.bbox[1]), layout.colonne(table.bbox), table.bbox[1], table.bbox[0])
+        position = sum(1 for autre in cles if autre < cle)
+        porteurs.insert(position + decalage, (table.source_uids, layout.colonne(table.bbox), ""))
+    return porteurs
+
+
+def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
+    """Registre adressable : les lignes source qu'un bloc porte, dans l'ordre de lecture.
+
+    Les lignes écartées par un motif de retrait explicite (bande récurrente) n'y figurent pas : leur
+    contenu n'est servi nulle part, elles ne sont donc l'ancre de rien, et une proposition qui les
+    désignerait serait refusée. Les lignes absorbées par une table y figurent au contraire : leur
+    texte **est** servi, par le bloc `table`.
     L'ordre de lecture doit avoir été arrêté (`pdf_to_blocks.ordonner_pages`) avant l'appel.
     """
     out: dict[str, Entree] = {}
     rang = 0
     for page in pages:
         par_uid = {source.uid: source for source in page.source.lines}
-        for line in page.lines:
-            for uid in line.source_uids:
+        for uids, colonne, texte_porte in _porteurs(page):
+            for uid in uids:
                 source = par_uid.get(uid)
                 if source is None or uid in out:
                     continue
                 rang += 1
-                out[uid] = Entree(uid=uid, page=source.page, colonne=line.colonne, ordre=rang,
-                                  bbox=source.bbox, texte=source.text, texte_porte=line.text)
+                out[uid] = Entree(uid=uid, page=source.page, colonne=colonne, ordre=rang,
+                                  bbox=source.bbox, texte=source.text, texte_porte=texte_porte)
     return out
 
 
@@ -223,12 +273,16 @@ def majorant_eur(params: dict[str, Any], settings: Settings) -> float:
 
 
 def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str) -> StructureProposee:
-    """Défense locale, **même si le schéma l'impose** : tout `uid` étranger est refusé avant usage."""
+    """Défense locale, **même si le schéma l'impose** : tout `uid` étranger est refusé avant usage.
+
+    Deux temps, dans cet ordre. D'abord la **forme filaire**, validée localement par
+    `TypeAdapter(PropositionFilaire).validate_json` — la convention LLM du spine, celle que
+    `client.py` applique déjà. Puis les contrôles d'`uid` : appartenance au registre et unicité des
+    titres. La validation locale ne les remplace pas — aucun schéma pydantic ne connaît le registre
+    de ce document — elle les précède.
+    """
     try:
-        value = json.loads(raw)
-        if not isinstance(value, dict) or set(value) != {"noeuds"}:
-            raise ValueError("objet {noeuds: [...]} attendu")
-        noeuds = [NoeudPropose.model_validate(item) for item in value["noeuds"]]
+        noeuds = _FILAIRE.validate_json(raw).noeuds
     except (ValidationError, ValueError, TypeError) as exc:
         raise ValueError(f"proposition hors schéma strict ({type(exc).__name__})") from exc
     vus: set[str] = set()
@@ -259,8 +313,9 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
     if proposition.doc_id != doc_id:
         return _refus("document_different", f"proposition pour {proposition.doc_id!r}, document {doc_id!r}")
     if not proposition.noeuds:
-        # Une proposition sans nœud passerait la couverture dès que `structure_min_coverage` vaut 0,
-        # servirait un arbre plat et désarmerait l'heuristique en annonçant « proposition vérifiée ».
+        # Refusée pour ce qu'elle est, avant même la couverture : « aucun nœud » est un état du
+        # proposant, pas une liste de lignes omises. Le motif dit donc qu'il n'y a rien à prouver,
+        # plutôt que d'énumérer tout le registre sous `ligne_omise`.
         return _refus("proposition_vide", "aucun nœud proposé : rien n'est structuré ni prouvé")
     noeuds = proposition.noeuds
     titres: dict[str, NoeudPropose] = {}
@@ -362,14 +417,23 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                 return _refus("intervalles_croises",
                               f"{droite!r} est emboîté dans {gauche!r} sans en descendre")
 
-    couvertes = sum(1 for entree in registre.values()
-                    if any(premiere <= entree.ordre <= derniere for premiere, derniere in bornes.values()))
-    couverture = couvertes / len(registre) if registre else 0.0
-    if couverture < settings.structure_min_coverage:
-        return _refus("couverture_insuffisante",
-                      f"{couvertes}/{len(registre)} ligne(s) couverte(s), soit {couverture:.1%} "
-                      f"< {settings.structure_min_coverage:.0%}")
-    return Verdict(accepte=True, detail=f"{len(noeuds)} nœud(s), couverture {couverture:.1%}")
+    # Couverture **totale**, prouvée uid par uid : « toute ligne inconnue, dupliquée, omise […] met
+    # le document en quarantaine ». Une part suffisante ne prouvait rien de la ligne restante : les
+    # groupes laissés hors de tout intervalle héritaient du nœud voisin, et l'arbre servi portait
+    # alors une affectation que la proposition n'avait ni portée ni prouvée.
+    # `structure_min_coverage` reste la borne de couverture nommée et publiée qu'exige l'AC, mais
+    # elle ne peut que **durcir** cette règle, jamais la desserrer : l'abaisser ne rouvre aucun trou,
+    # chaque uid non couvert reste un refus nommé qui désigne les lignes concernées.
+    omises = [entree.uid for entree in sorted(registre.values(), key=lambda e: e.ordre)
+              if not any(premiere <= entree.ordre <= derniere
+                         for premiere, derniere in bornes.values())]
+    if omises:
+        return _refus("ligne_omise",
+                      f"{len(omises)}/{len(registre)} ligne(s) du registre hors de tout intervalle "
+                      f"proposé (borne STRUCTURE_MIN_COVERAGE={settings.structure_min_coverage:.0%}, "
+                      f"jamais desserrée ligne à ligne) : {', '.join(omises[:20])}")
+    return Verdict(accepte=True,
+                   detail=f"{len(noeuds)} nœud(s), couverture totale de {len(registre)} ligne(s)")
 
 
 def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: str,
@@ -413,13 +477,36 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
     return plan, par_uid
 
 
-def charger(path: Path) -> StructureProposee:
-    """Lit `structure.json`. Un fichier illisible ou hors schéma est un refus **nommé**.
+def presente(path: Path) -> bool:
+    """`structure.json` **existe-t-il** au sens du système de fichiers ? — pas « est-ce un fichier ».
 
-    `OSError` compte au même titre que le hors-schéma : un fichier aux droits refusés ou remplacé par
-    un répertoire donnait sinon une quarantaine sous motif générique, alors que le check promet un
-    motif du vocabulaire fermé.
+    Un répertoire, un lien pendant, un tube : autant d'artefacts présents mais illisibles. Les
+    confondre avec une absence rendait la main à l'heuristique numérique sans qu'aucun refus soit
+    nommé — le repli silencieux qu'AD-16 interdit, sur le chemin même bâti pour l'empêcher. Tout ce
+    qui existe passe donc par `charger()`, donc par un refus nommé et la quarantaine.
+
+    `lexists` et non `exists` : un lien pendant n'existe pas au sens de sa cible, mais son entrée de
+    répertoire, elle, est bien là — et c'est elle que l'opérateur a déposée.
     """
+    return os.path.lexists(path)
+
+
+def charger(path: Path) -> StructureProposee:
+    """Lit `structure.json`. Un artefact illisible ou hors schéma est un refus **nommé**.
+
+    La nature de l'entrée est jugée **avant** toute ouverture : ce qui n'est pas un fichier régulier
+    est refusé sans être lu. Un répertoire ou un lien pendant lèveraient bien une `OSError`, mais un
+    tube, lui, ferait bloquer l'ingestion jusqu'à ce qu'un écrivain se présente — un refus doit être
+    rendu, jamais attendu.
+
+    `OSError` compte ensuite au même titre que le hors-schéma : un fichier aux droits refusés donnait
+    sinon une quarantaine sous motif générique, alors que le check promet un motif du vocabulaire
+    fermé.
+    """
+    if not path.is_file():  # suit les liens : seul un fichier régulier atteignable est lisible
+        raise StructureRefusee(
+            "proposition_illisible",
+            f"{path.name} présent mais illisible : ni fichier régulier, ni absent")
     try:
         return StructureProposee.model_validate_json(path.read_bytes())
     except (ValidationError, ValueError, OSError, UnicodeDecodeError) as exc:
@@ -442,16 +529,28 @@ def _texte(message: Any, settings: Settings) -> tuple[str, float]:
 
 def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
              settings: Settings) -> tuple[StructureProposee, float]:
-    """Un seul appel structuré du tier `ingest`, client **injecté** : ce module n'en construit pas."""
+    """Un seul appel structuré du tier `ingest`, client **injecté** : ce module n'en construit pas.
+
+    Convention LLM du spine : `messages.parse(..., output_config={"format": …})` **sans**
+    `output_format`, puis validation locale par `TypeAdapter` (`parse_proposition`). Avec
+    `output_format`, le SDK 1.0.0 valide le texte avant de rendre la réponse et lève
+    `ValidationError` : `usage`, `stop_reason` et le texte reçu seraient perdus — donc le coût réel
+    d'un appel pourtant facturé, et le motif exact du refus. Ils sont ici tous portés par le refus.
+    """
     params = requete(registre, doc_id, settings)
     try:
-        message = client.messages.create(**params)
+        message = client.messages.parse(**params)
     except Exception as exc:  # noqa: BLE001 - toute panne fournisseur est un refus, pas une trace
         # Réseau coupé, 429, 5xx, authentification : l'appelant reçoit un refus contrôlé et la
         # promesse « rien n'a été écrit », jamais un traceback brut sorti du SDK.
         raise ValueError(f"appel refusé ({type(exc).__name__}); rien n'a été écrit") from exc
     raw, cost = _texte(message, settings)
-    return parse_proposition(raw, registre, doc_id), cost
+    try:
+        return parse_proposition(raw, registre, doc_id), cost
+    except ValueError as exc:
+        stop_reason = getattr(message, "stop_reason", None)
+        raise ValueError(f"{exc} (coût réel {cost:.4f} €, stop_reason={stop_reason!r}, "
+                         f"{len(raw)} caractère(s) reçus); rien n'a été écrit") from exc
 
 
 def _bornes_publiees(settings: Settings) -> dict[str, Any]:
@@ -471,6 +570,19 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     parser.add_argument("--max-cost", type=float)
     args = parser.parse_args(argv)
     settings = settings or get_settings()
+    # AD-9 : le plafond est résolu et validé **avant** toute lecture, toute extraction et toute
+    # construction de client. `nan` rend `estimate > ceiling` toujours faux et `inf` ne bloque
+    # jamais : le plafond annoncé serait neutralisé juste avant l'appel le plus cher du projet.
+    # `Settings` borne `structure_max_cost_eur` par `gt=0`, ce qui rejette bien `nan` mais laisse
+    # passer `inf` : la garde porte donc sur la valeur **résolue**, quelle que soit sa source.
+    # Code 2 (et non 3) : le run n'a rien tenté, comme un `doc_id` mal formé — 3 reste le refus
+    # chiffré rendu après l'estimation (idiome `type_clauses.main`).
+    ceiling = settings.structure_max_cost_eur if args.max_cost is None else args.max_cost
+    if not math.isfinite(ceiling) or ceiling <= 0:
+        print(f"plafond {ceiling!r} invalide : un nombre fini strictement positif est exigé "
+              "(--max-cost ou STRUCTURE_MAX_COST_EUR); aucune extraction, aucun appel, "
+              "rien n'a été écrit", file=sys.stderr)
+        return 2
     print(f"bornes: {json.dumps(_bornes_publiees(settings), ensure_ascii=False, sort_keys=True)}",
           file=output)
     print(f"règles: {STRUCTURE_RULES_VERSION}; refus possibles: {', '.join(MOTIFS)}", file=output)
@@ -496,7 +608,6 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
             raise ValueError("registre vide : aucune ligne source à proposer")
         params = requete(registre, args.doc_id, settings)
         estimate = majorant_eur(params, settings)
-        ceiling = settings.structure_max_cost_eur if args.max_cost is None else args.max_cost
         print(f"{len(registre)} ligne(s) source, {len(params['messages'][0]['content'])} caractère(s) ; "
               f"majorant Messages standard {estimate:.4f} € / plafond {ceiling:.4f} €", file=output)
         if estimate > ceiling:

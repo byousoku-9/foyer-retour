@@ -421,10 +421,16 @@ class Settings(BaseSettings):
     # Profondeur maximale d'un arbre proposé. Au-delà, la « hiérarchie » n'est plus une structure
     # lisible mais une chaîne que rien ne peut vérifier à l'œil.
     structure_max_depth: int = Field(6, ge=1)
-    # Part minimale des lignes retenues que les intervalles proposés doivent couvrir. Une
-    # proposition qui laisse un tiers du contrat hors de tout nœud ne structure pas le document :
-    # elle en structure un extrait, et le reste deviendrait invisible à l'arbre servi.
-    structure_min_coverage: float = Field(0.9, ge=0, le=1)
+    # Part minimale des lignes du registre que les intervalles proposés doivent couvrir. L'AC exige
+    # une borne de couverture **explicite** : elle est nommée ici, publiée par `thresholds()` et
+    # documentée. Son défaut est `1.0` parce que l'AC exige aussi que « toute ligne omise » mette le
+    # document en quarantaine — une proposition qui laisse une ligne hors de tout nœud ne structure
+    # pas le document, elle en structure un extrait, et le reste serait servi sous un nœud voisin que
+    # personne n'a prouvé. Mesuré en revue : à 0,9, dix lignes dont neuf couvertes rendaient
+    # `accepte=True`. Ce réglage ne peut donc que **durcir** la règle par uid du vérificateur, jamais
+    # la desserrer : l'abaisser ne rouvre aucun trou, chaque ligne non couverte reste un refus
+    # `ligne_omise` (prouvé par `test_abaisser_la_borne_de_couverture_ne_rouvre_pas_la_ligne_omise`).
+    structure_min_coverage: float = Field(1.0, ge=0, le=1)
     # Bornes de la seule requête : la charge utile est le registre de lignes du document entier,
     # et la réponse ne porte que des uid et des liens — jamais du texte.
     # **Mesuré, et non supposé** (revue 4.2c) : les deux contrats déjà ingérés rendent 4 214 lignes

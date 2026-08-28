@@ -45,7 +45,7 @@ from server.ingest.report import (build_pdf_report, numero_de_noeud, report_from
                                   structure_check)
 from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
                                      StructureRefusee, arbre, charger, empreinte_proposition,
-                                     registre_lignes, verifier)
+                                     presente, registre_lignes, verifier)
 
 DOC_ID = "axa-lu-optihome-2017"
 TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
@@ -58,7 +58,7 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
                       "gap>para_gap_ratio*h=>para;"
                       "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
-                      "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_exclues;"
+                      "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_portees_une_fois;"
                       "ocr:page_visuelle_sans_texte_retenu=>get_textpage_ocr(fra)&source_field=ocr;"
                       "tdm:entrees_structurees(numero+page|points_de_conduite+page)|intitule_autonome_visible"
                       "=>continuation_si_entrees_structurees;sans_rearmement_apres_corps;"
@@ -74,7 +74,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "&remplissage<column_min_fill_ratio=>gouttiere_ecartee;"
                       "sans_gouttiere=>ordre_lecture=ordre_source;traversante=>colonne0+bande;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
-                      "structure:proposition_verifiee(line_uid)=>noeuds positionnels+titres du registre;"
+                      "structure:proposition_verifiee(line_uid)&couverture_totale"
+                      "=>noeuds positionnels+titres du registre;"
                       "refus=>quarantaine")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
          "lstrip_lines_sans_puce": True, "merge_number_sep": " ",
@@ -163,7 +164,9 @@ class SourceRegistry:
     """Registre d'une page : ses lignes source et le motif de retrait de celles qu'aucun bloc ne porte."""
 
     lines: list[SourceLine] = field(default_factory=list)
-    removed: dict[str, str] = field(default_factory=dict)  # uid → motif (`ligne_de_table`, `bande_recurrente`)
+    # uid → motif de retrait, réservé au contenu **réellement non servi** : `bande_recurrente`, et
+    # `table_sans_bloc` pour une table détectée qui ne rend finalement aucune rangée.
+    removed: dict[str, str] = field(default_factory=dict)
 
     def add(self, *, page: int, text: str, bbox: list[float]) -> SourceLine:
         line = SourceLine(uid=f"p{page}:l{len(self.lines) + 1}", text=text, page=page,
@@ -252,11 +255,22 @@ class PageText:
 
 @dataclass
 class PageTable:
-    """Table détectée sur une page, conservée comme une unité dans l'ordre visuel."""
+    """Table détectée sur une page, conservée comme une unité dans l'ordre visuel.
+
+    `source_uids` (story 4.2c) porte les lignes brutes que la table a absorbées : leur contenu est
+    **servi**, par le bloc `table` reconstruit depuis `rows`, et la bijection lignes/blocs exige donc
+    qu'elles y soient rattachées — jamais comptées « retirées » pendant que leur texte est publié.
+    """
 
     bbox: list[float]
     rows: list[list[str]]
     row_bboxes: list[list[float]] = field(default_factory=list)
+    source_uids: list[str] = field(default_factory=list)
+
+    @property
+    def sert_un_bloc(self) -> bool:
+        """Une table sans rangée ne produit aucun bloc : son contenu n'est alors pas servi."""
+        return bool(self.rows)
 
 
 def _round(b: Any) -> list[float]:
@@ -275,17 +289,21 @@ def _center_inside(bbox: list[float], container: list[float]) -> bool:
 
 
 def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = None,
-               excluded: list[list[float]] | None = None,
+               tables: list[PageTable] | None = None,
                registry: SourceRegistry | None = None) -> tuple[list[PageLine], int]:
     """Lignes brutes (texte nettoyé, bbox, taille dominante, puce) et nombre d'images.
 
     Seul point d'extraction du parseur, donc **le seul endroit où le registre peut être figé** :
     chaque ligne visuelle retenue y reçoit son `SourceLine` avant toute fusion, tout retrait de bande
-    et toute exclusion de table — une ligne écartée parce que son centre tombe dans une table entre
-    au registre avec le motif `ligne_de_table`, jamais dans le silence.
+    et toute absorption par une table. Une ligne dont le centre tombe dans une table sort du flux des
+    paragraphes — son texte serait sinon publié deux fois — mais elle est **confiée à cette table**,
+    qui la portera dans son propre bloc : son contenu est servi, elle n'est donc jamais « retirée ».
+    Les uid sont réattribués à chaque passe (une page ré-extraite en OCR refait son registre).
     """
     out: list[PageLine] = []
     images = 0
+    for table in tables or ():
+        table.source_uids = []
     options: dict[str, Any] = {"sort": FLAGS["sort"]}
     if textpage is not None:
         options["textpage"] = textpage
@@ -316,9 +334,13 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
             size = max(sizes, key=lambda k: sizes[k]) if sizes else 0.0
             bbox = _round(line["bbox"])
             source = registry.add(page=page_no, text=text, bbox=bbox) if registry is not None else None
-            if excluded and any(_center_inside(bbox, table_bbox) for table_bbox in excluded):
-                if registry is not None and source is not None:
-                    registry.retirer([source.uid], "ligne_de_table")
+            # La **première** table qui contient le centre l'absorbe : deux boîtes qui se recouvrent
+            # ne peuvent donc pas porter la même ligne deux fois.
+            absorbante = next((table for table in tables or ()
+                               if _center_inside(bbox, table.bbox)), None)
+            if absorbante is not None:
+                if source is not None:
+                    absorbante.source_uids.append(source.uid)
                 continue
             out.append(PageLine(text=text, bbox=bbox, size=size, bullet=bullet,
                                 source_uids=[source.uid] if source is not None else []))
@@ -669,8 +691,7 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
         for pno, page in enumerate(doc, start=1):
             tables = _tables(page)
             registry = SourceRegistry()
-            lines, images = _raw_lines(page, page_no=pno, excluded=[table.bbox for table in tables],
-                                       registry=registry)
+            lines, images = _raw_lines(page, page_no=pno, tables=tables, registry=registry)
             drawings = len(page.get_drawings())
             # Relevé sans condition : une page dont les seules lignes sont un en-tête/pied retiré plus bas
             # doit rester « dessinée » et non blanche (AD-8, revue Codex 1.2 B3).
@@ -693,8 +714,7 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
                     textpage = page.get_textpage_ocr(language="fra", dpi=s.ocr_dpi, full=True)
                     ocr_registry = SourceRegistry()
                     ocr_lines, _ = _raw_lines(page, page_no=pt.page, textpage=textpage,
-                                              excluded=[table.bbox for table in pt.tables],
-                                              registry=ocr_registry)
+                                              tables=pt.tables, registry=ocr_registry)
                     retained_ocr = _without_running_bands(pt, ocr_lines, band_texts, min_pages,
                                                           registry=ocr_registry)
                     pt.lines = _merge_number_lines(retained_ocr)
@@ -960,6 +980,13 @@ def _segment_page(pt: PageText, node_of_uid: dict[str, str] | None = None,
         for kind, lines in groups
     ]
     for table in pt.tables:
+        if not table.sert_un_bloc:
+            # Cas limite explicite : une table détectée qui ne rend aucune rangée ne produit aucun
+            # bloc. Ses lignes brutes seraient alors du contenu réellement non servi — elles sont
+            # inscrites au motif de retrait qui le dit, jamais perdues entre l'absorption et un bloc
+            # qui n'existe pas.
+            pt.source.retirer(table.source_uids, "table_sans_bloc")
+            continue
         row_height = max((table.bbox[3] - table.bbox[1]) / max(len(table.rows), 1), 1.0)
         rows = []
         for index, row in enumerate(table.rows):
@@ -970,42 +997,41 @@ def _segment_page(pt: PageText, node_of_uid: dict[str, str] | None = None,
             colonne = pt.layout.colonne(table.bbox)
             rows.append(PageLine(text=" | ".join(row), bbox=bbox, size=0.0,
                                  colonne=colonne, bande=pt.layout.bande(table.bbox[1])))
+        # Les lignes brutes absorbées sont portées par la **première** rangée du bloc : le bloc les
+        # porte donc exactement une fois, quel que soit le nombre de rangées reconstruites — les
+        # rangées ne sont pas les lignes source et n'ont aucune raison de leur correspondre une à une.
+        rows[0].source_uids = list(table.source_uids)
         ordered.append((pt.layout.bande(table.bbox[1]), pt.layout.colonne(table.bbox),
                         table.bbox[1], table.bbox[0], "table", rows))
     ordered.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
     return [(kind, lines) for _, _, _, _, kind, lines in ordered]
 
 
-def _noeuds_des_groupes(groups: list[tuple[str, list[PageLine]]], node_of_uid: dict[str, str],
-                        ) -> list[str | None]:
-    """Nœud de chaque groupe d'une page, **déterminé par la page seule**.
+def _noeud_de_groupe(lines: list[PageLine], node_of_uid: dict[str, str], *, page: int) -> str:
+    """Le nœud prouvé d'un groupe, **prouvé ligne à ligne** — jamais hérité d'un voisin.
 
-    Un groupe couvert prend le nœud de sa première ligne couverte. Un groupe qui ne porte aucune
-    ligne du registre (une table : ses cellules ne sont pas des lignes source) ou que la marge de
-    couverture a laissé hors de tout intervalle prend le nœud du groupe couvert qui le précède sur
-    la page, à défaut celui qui le suit. Rien n'est donc hérité de l'état courant du constructeur —
-    un même groupe se rattache au même nœud quel que soit ce qui a été bâti avant lui.
+    La couverture d'une proposition acceptée est totale : toute ligne du registre appartient à un
+    intervalle, donc tout groupe qui porte des lignes du registre a son nœud. Rattacher un groupe au
+    nœud de son voisin servait au contraire une affectation que la proposition n'avait ni portée ni
+    prouvée, sous l'annonce « proposition vérifiée ».
+
+    Deux refus, parce qu'un bloc servi ne peut pas être moins prouvé que la proposition qui l'annonce :
+    un groupe sans aucune ligne prouvée serait servi sans liaison ligne/bloc, et un groupe à cheval
+    sur deux nœuds — une table atomique que la proposition scinde, ou une ligne fusionnée dont les
+    deux uid tombent de part et d'autre d'une frontière — serait servi entier sous l'un des deux.
     """
-    directs = [_noeud_de_groupe(lines, node_of_uid) for _kind, lines in groups]
-    out: list[str | None] = list(directs)
-    precedent: str | None = None
-    for index, node_id in enumerate(directs):
-        if node_id is not None:
-            precedent = node_id
-        else:
-            out[index] = precedent
-    suivant: str | None = None
-    for index in range(len(directs) - 1, -1, -1):
-        if directs[index] is not None:
-            suivant = directs[index]
-        elif out[index] is None:
-            out[index] = suivant
-    return out
-
-
-def _noeud_de_groupe(lines: list[PageLine], node_of_uid: dict[str, str]) -> str | None:
-    return next((node_of_uid[uid] for line in lines for uid in line.source_uids
-                 if uid in node_of_uid), None)
+    noeuds = {node_of_uid[uid] for line in lines for uid in line.source_uids if uid in node_of_uid}
+    if len(noeuds) == 1:
+        return noeuds.pop()
+    apercu = " / ".join(line.text for line in lines[:3])[:200]
+    if not noeuds:
+        raise StructureRefusee(
+            "affectation_non_prouvee",
+            f"p{page} : un bloc serait servi sans aucune ligne source prouvée ({apercu!r})")
+    raise StructureRefusee(
+        "affectation_non_prouvee",
+        f"p{page} : un bloc atomique serait servi à cheval sur {len(noeuds)} nœuds prouvés "
+        f"({', '.join(sorted(noeuds))}) : {apercu!r}")
 
 
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
@@ -1068,9 +1094,9 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             # racine ou au nœud `:tdm` des lignes que la proposition place ailleurs, et faisaient
             # disparaître des nœuds pourtant acceptés — jusqu'à trouer le chemin positionnel servi.
             page_last = None
-            for index, (node_id, (kind, lines)) in enumerate(
-                    zip(_noeuds_des_groupes(groups, node_of_uid), groups)):
-                b.current = b.root if node_id is None else b.node_propose(node_id)
+            for index, (kind, lines) in enumerate(groups):
+                node_id = _noeud_de_groupe(lines, node_of_uid, page=pt.page)
+                b.current = b.node_propose(node_id)
                 continues = None
                 # Scission de page (AD-2), inchangée, mais jamais à travers un nœud : deux sections
                 # différentes ne se continuent pas l'une l'autre.
@@ -1378,8 +1404,12 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         # Story 4.2c : la proposition est un artefact, jamais un appel à chaud (AD-2, stabilité).
         # Absente, l'heuristique numérique reste le chemin nominal ; présente, elle est revérifiée à
         # chaque ingestion et son refus met le document en quarantaine.
+        # `presente()` et non `is_file()` : un répertoire ou un lien pendant répondent `False` à
+        # `is_file()` et faisaient retomber l'ingestion sur l'heuristique **en silence**, alors que
+        # `charger()` promet de les classer `proposition_illisible` (AD-16). Seule l'absence au sens
+        # du système de fichiers est une absence.
         structure_path = data_dir / "structure.json"
-        structure = charger(structure_path) if structure_path.is_file() else None
+        structure = charger(structure_path) if presente(structure_path) else None
         # La proposition appliquée entre dans l'empreinte : deux ingestions du même PDF qui rendent
         # des `node_id` différents ne peuvent pas porter la même (AD-2, lu par le loader).
         fingerprint = ingest_fingerprint(structure)

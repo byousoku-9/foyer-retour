@@ -15,7 +15,8 @@ Règles vérifiées par le code ; une proposition qui les enfreint est refusée 
 - `premiere_line_uid` ≤ `titre_line_uid` ≤ `derniere_line_uid` dans l'ordre de lecture ;
 - deux sections sont disjointes ou strictement emboîtées, jamais chevauchantes ;
 - les sections de même parent sont rendues dans l'ordre de lecture croissant ;
-- les sections couvrent la quasi-totalité des lignes reçues.
+- les sections couvrent **toutes** les lignes reçues : une seule ligne laissée hors de tout intervalle fait refuser la proposition entière ;
+- une ligne reçue à la position d'une table appartient à un bloc atomique : les lignes d'une même table tiennent dans une seule section.
 
 Ne rends aucun texte, titre, résumé, raisonnement, numéro inventé, identifiant de bloc, type de clause, portée, applicabilité ni verdict.
 Le titre affiché sera relu dans la ligne que tu désignes : ce que tu écrirais ne serait pas repris.
