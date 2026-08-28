@@ -367,3 +367,48 @@ def test_un_gate_rouge_sur_un_manifest_sans_gate_est_ecrit(tmp_path: Path) -> No
     chemin = _manifest(tmp_path, None)
     assert runner.ecrire_gate(chemin, GUIDE, _gate(False)) is True
     assert json.loads(chemin.read_text("utf-8"))[GUIDE]["gate"]["evals_ok"] is False
+
+
+def _resultat_sinistre(repetition: int, *, verdict: str = "sous_conditions",
+                       hash_preuve: str = "h1") -> runner.Resultat:
+    return runner.Resultat(
+        id="s-stable", suite="sinistre:contrat-test", label="bonne_reponse",
+        found=True, verdict=verdict, repetition=repetition, doc_id="contrat-test",
+        proofs=[{"doc_id": "contrat-test", "block_id": "contrat-test:p1:1",
+                 "kind": "garantie", "quote_hash": hash_preuve}])
+
+
+def _cas_sinistre_stabilite() -> runner.Cas:
+    return runner.Cas.model_validate({
+        "id": "s-stable", "suite": "sinistre", "profile": "vertical",
+        "question": "Ce dommage est-il couvert ?",
+        "faits": {"description": "Un objet chaud est tombé sur un meuble."},
+        "expected": {"found": True, "verdict": ["sous_conditions", "ne_tranche_pas"]},
+        "truth": {"source": "lecture_humaine", "validated_by_expert": False, "note": "relu"},
+        "mode_attendu": "bonne_reponse",
+    })
+
+
+def test_la_stabilite_sinistre_compare_preuve_et_verdict_admissible() -> None:
+    """AC 4.2b : « même claim » ⇔ même `{doc_id, block_id, kind, quote_hash}` et même verdict.
+
+    Un `quote_hash` divergent ou un verdict hors des valeurs admissibles rend le cas instable,
+    et la raison est publiée — jamais masquée.
+    """
+    cas = _cas_sinistre_stabilite()
+    stables = [_resultat_sinistre(i) for i in (1, 2, 3)]
+    agregat = runner.agreger_stabilite(stables, [cas], repeat=3)
+    assert agregat["cases"]["s-stable"]["stable"] is True
+
+    preuve_divergente = [_resultat_sinistre(1), _resultat_sinistre(2),
+                         _resultat_sinistre(3, hash_preuve="h2")]
+    detail = runner.agreger_stabilite(preuve_divergente, [cas], repeat=3)["cases"]["s-stable"]
+    assert detail["stable"] is False
+    assert "signatures divergentes entre répétitions" in detail["raisons"]
+
+    verdict_inadmissible = [_resultat_sinistre(i) for i in (1, 2)] \
+        + [_resultat_sinistre(3, verdict="couvert")]
+    detail = runner.agreger_stabilite(verdict_inadmissible, [cas], repeat=3)["cases"]["s-stable"]
+    assert detail["stable"] is False
+    assert "verdict hors des valeurs admissibles sur au moins une répétition" in detail["raisons"]
+    assert "signatures divergentes entre répétitions" in detail["raisons"]
