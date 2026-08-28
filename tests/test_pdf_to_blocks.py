@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pymupdf
@@ -17,6 +18,43 @@ from server.ingest.report import _printed_toc_check, _quality, _tree_category, r
 
 DOC = "doc-a"
 FONT_BODY, FONT_TITLE = "helv", "hebo"
+ROOT = Path(__file__).resolve().parents[1]
+# Marqueur déclaratif lu dans `docs/choix-et-limites.md` : « l'empreinte committée de ce document
+# est périmée, et on le sait ». C'est la seule tolérance admise par la garde ci-dessous.
+DECLARATION_EMPREINTE = re.compile(r"empreinte-committee-perimee:\s*([a-z0-9-]+)")
+
+
+def empreintes_perimees_declarees() -> set[str]:
+    """Les `doc_id` dont `docs/choix-et-limites.md` déclare l'empreinte committée périmée."""
+    return set(DECLARATION_EMPREINTE.findall(
+        (ROOT / "docs" / "choix-et-limites.md").read_text("utf-8")))
+
+
+def assert_empreinte_committee_declaree(doc_id: str, committee: str) -> None:
+    """Garde **toujours exécutée** : une empreinte committée périmée est tolérée, mais **déclarée**.
+
+    « Le parseur courant reproduirait cet artefact » ne se prouve qu'à la réingestion, qui exige les
+    PDF réels — non committés, donc absents de ce dépôt : le test qui en portait l'égalité est
+    `skipif`. Sans garde toujours jouée, la divergence n'avait plus aucun témoin : elle pouvait
+    s'installer, s'aggraver ou s'étendre à un troisième document sans que rien ne rougisse.
+
+    La tolérance est donc déclarative, et symétrique. Tant que le document est nommé dans
+    `docs/choix-et-limites.md`, la divergence est un état publié. Une divergence **non** déclarée
+    rougit. Et le jour où la réingestion rétablit l'égalité, c'est la déclaration devenue fausse qui
+    rougit à son tour — pour qu'elle soit retirée, et non oubliée là pour toujours. Aucune empreinte
+    n'est écrite en dur : les deux valeurs comparées sont lues, l'une dans l'artefact, l'autre au
+    parseur courant.
+    """
+    courante = p.ingest_fingerprint()
+    declaree = doc_id in empreintes_perimees_declarees()
+    if committee == courante:
+        assert not declaree, (
+            f"{doc_id} : l'empreinte committée vaut désormais celle du parseur courant — retirer sa "
+            f"déclaration « empreinte-committee-perimee » de docs/choix-et-limites.md")
+    else:
+        assert declaree, (
+            f"{doc_id} : l'empreinte committée diverge du parseur courant sans être déclarée. "
+            f"Réingérer avec le PDF réel, ou publier la limite dans docs/choix-et-limites.md")
 
 
 def _page(doc: pymupdf.Document, items: list[tuple[float, float, str, float, str]], page_no: int) -> None:

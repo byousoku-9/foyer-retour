@@ -80,6 +80,17 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
     )
 
 
+def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> None:
+    """Garde toujours exécutée, que ce document n'avait jamais eue (voir le helper partagé).
+
+    Le test de régénération qui porte l'égalité est `skipif` sans le PDF réel : sans cette garde,
+    rien ici ne comparait jamais l'empreinte committée à celle du parseur courant.
+    """
+    from tests.test_pdf_to_blocks import assert_empreinte_committee_declaree
+
+    assert_empreinte_committee_declaree(DOC, doc.ingest_fingerprint)
+
+
 def test_baloise_typing_used_only_standard_messages_under_the_ceiling(doc: Document) -> None:
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.stats["typage_transport"] == "standard"

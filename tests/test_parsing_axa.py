@@ -199,6 +199,18 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     assert all(raw_by_id[block_id]["kind_source"] == "model_verified" for block_id in golden_ids)
 
 
+def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> None:
+    """Garde toujours exécutée de l'égalité `document.json` ↔ parseur courant (voir le helper).
+
+    L'égalité elle-même appartient au test de régénération, seul à disposer du PDF ; ce qui restait
+    sans témoin, c'est la **divergence** : elle est désormais tolérée uniquement tant qu'elle est
+    déclarée dans `docs/choix-et-limites.md`.
+    """
+    from tests.test_pdf_to_blocks import assert_empreinte_committee_declaree
+
+    assert_empreinte_committee_declaree(DOC, doc.ingest_fingerprint)
+
+
 def test_revue_3_1_records_the_measured_id_reassignment() -> None:
     """Revue 3.1 M1 : une réingestion idempotente ne doit pas effacer la preuve historique d'AD-2."""
     journal = (ROOT / "docs" / "tests-live.md").read_text("utf-8")

@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from server.app.config import get_settings
+from server.app.config import Settings, get_settings
 from server.app.domain import Document
 from server.ingest import pdf_to_blocks as p
 from server.ingest import structure as s
@@ -145,6 +145,71 @@ def test_une_ligne_de_table_entre_au_registre_avec_son_motif() -> None:
     assert registre.removed == {"p3:l1": "ligne_de_table"}
 
 
+def _page_registre(nombre: int) -> tuple[p.PageText, list[p.SourceLine]]:
+    """Une page réduite à son registre : seul l'appariement lignes source ↔ blocs est en jeu ici."""
+    registre = p.SourceRegistry()
+    lignes = [registre.add(page=1, text=f"Ligne source {index}.",
+                           bbox=[56.0, 100.0 + index * 20.0, 356.0, 112.0 + index * 20.0])
+              for index in range(1, nombre + 1)]
+    return p.PageText(page=1, width=595, height=842, source=registre), lignes
+
+
+def _cas_de_registre(famille: str) -> tuple[p.PageText, dict[str, list[str]]]:
+    """Un registre cohérent, puis **une** incohérence de la famille demandée, et une seule."""
+    page, lignes = _page_registre(4)
+    page.source.retirer([lignes[3].uid], "bande_recurrente")
+    portees = {"bloc:1": [lignes[0].uid, lignes[1].uid], "bloc:2": [lignes[2].uid]}
+    if famille == "inconnue_du_registre":
+        portees["bloc:2"].append("p1:l99")  # un bloc porte un uid que l'extraction n'a jamais produit
+    elif famille == "deux_blocs":
+        portees["bloc:2"].append(lignes[0].uid)
+    elif famille == "sans_bloc_ni_motif":
+        portees["bloc:1"].remove(lignes[1].uid)
+    elif famille == "portee_et_retiree":
+        portees["bloc:2"].append(lignes[3].uid)
+    return page, portees
+
+
+def test_un_registre_coherent_ne_rend_aucune_anomalie_sans_etre_vide() -> None:
+    """Témoin positif de l'invariant, sur deux ensembles **réellement peuplés**.
+
+    Comparer deux ensembles vides ne prouve rien : un registre sans ligne satisfait « union
+    complète, intersection vide » quel que soit le code qui l'évalue.
+    """
+    page, portees = _cas_de_registre("aucune")
+    assert p.anomalies_registre([page], portees) == []
+    assert len(page.source.lines) == 4 and len(page.source.removed) == 1
+    assert sum(len(uids) for uids in portees.values()) == 3
+
+
+@pytest.mark.parametrize("famille,fragment", [
+    # (a) un uid porté par un bloc mais absent du registre : le bloc cite une ligne qui n'existe pas.
+    ("inconnue_du_registre", "sans exister au registre"),
+    # (b) un uid porté par deux blocs : la même preuve serait citable à deux endroits.
+    ("deux_blocs", "rattachée à 2 blocs"),
+    # (c) une ligne extraite sans bloc ni motif de retrait : elle a disparu en silence.
+    ("sans_bloc_ni_motif", "sans bloc ni motif de retrait"),
+    # (d) une ligne à la fois portée et retirée : l'intersection n'est plus vide.
+    ("portee_et_retiree", "à la fois dans"),
+])
+def test_chaque_incoherence_du_registre_est_nommee(famille: str, fragment: str) -> None:
+    """AC : union complète, intersection vide — l'invariant doit **savoir échouer**, famille par famille."""
+    page, portees = _cas_de_registre(famille)
+    anomalies = p.anomalies_registre([page], portees)
+    assert len(anomalies) == 1 and fragment in anomalies[0], anomalies
+
+
+def test_build_document_leve_sur_une_ligne_extraite_que_rien_ne_porte() -> None:
+    """L'invariant n'est pas un rapport : il arrête l'ingestion avant tout artefact."""
+    pages = _corpus()
+    perdue = pages[0].source.add(page=1, text="Ligne extraite que rien ne porte.",
+                                 bbox=[56.0, 400.0, 356.0, 412.0])
+    with pytest.raises(ValueError, match="registre de lignes source incohérent") as capture:
+        p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+                         title="Contrat")
+    assert perdue.uid in str(capture.value) and "sans bloc ni motif" in str(capture.value)
+
+
 # --- 2. Surface exacte du modèle ----------------------------------------------------------------
 
 def test_la_charge_utile_nexpose_que_la_position_et_le_texte_en_lecture_seule() -> None:
@@ -263,6 +328,68 @@ def test_la_cli_hors_ligne_ne_construit_aucun_client_et_publie_ses_bornes() -> N
     # Sans document et hors dry-run, la CLI refuse plutôt que d'appeler ; et sans clé, elle refuse
     # aussi sur un document — aucun client `anthropic` n'est jamais construit par ces chemins.
     assert s.main([], output=io.StringIO()) == 2
+
+
+def _aucun_client(*args: Any, **kwargs: Any) -> Any:
+    """Sentinelle posée à la place d'`anthropic.Anthropic` : le construire est la faute recherchée."""
+    raise AssertionError("aucun client anthropic ne doit être construit sur ce chemin")
+
+
+def test_le_prevol_de_cout_refuse_avant_toute_construction_de_client(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """AD-1/AD-9 : le majorant est comparé au plafond **avant** tout client (idiome `type_clauses`).
+
+    `--dry-run` sans document sort avant le registre, la requête et l'estimation : il ne joue donc ni
+    `majorant_eur`, ni `estimate_cost`, ni la comparaison au plafond, alors que `config.py` promet
+    « majorant vérifié avant toute construction de client ». C'est ce chemin-là qui est joué ici, sur
+    un document réel du système de fichiers, avec un plafond volontairement minuscule.
+    """
+    dossier = _dossier(tmp_path)
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
+    sortie = io.StringIO()
+    code = s.main([DOC, "--data", str(dossier.parent), "--max-cost", "0.0001"], output=sortie)
+    assert code == 3  # non nul : le run refuse, il ne se termine pas « avec succès sans rien faire »
+    rendu = sortie.getvalue()
+    assert "ligne(s) source" in rendu and "majorant Messages standard" in rendu
+    assert "aucun appel soumis" in capsys.readouterr().err
+    assert not (dossier / "structure.json").exists()
+
+
+def test_le_plafond_de_cout_se_regle_aussi_par_config(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Convention Seuils : `--max-cost` ne fait que **surcharger** `structure_max_cost_eur`."""
+    dossier = _dossier(tmp_path)
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
+    reglages = Settings(_env_file=None, structure_max_cost_eur=0.0001)
+    code = s.main([DOC, "--data", str(dossier.parent)], settings=reglages, output=io.StringIO())
+    assert code == 3 and not (dossier / "structure.json").exists()
+
+
+def test_sans_cle_anthropic_la_cli_refuse_sur_un_document(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """AD-14 : « sans clé, ça refuse » — y compris une fois le majorant passé, et sans rien écrire."""
+    dossier = _dossier(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # posée et vide : elle fait foi
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
+    code = s.main([DOC, "--data", str(dossier.parent)],
+                  settings=Settings(_env_file=None, anthropic_api_key=""), output=io.StringIO())
+    assert code == 2 and "ANTHROPIC_API_KEY absente" in capsys.readouterr().err
+    assert not (dossier / "structure.json").exists()
+
+
+def test_la_cli_ecrit_structure_json_atomiquement_avec_un_client_injecte(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le chemin nominal hors ligne : client injecté, verdict rendu, artefact écrit d'un seul coup."""
+    dossier = _dossier(tmp_path)
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)  # injecté ⇒ aucun n'est construit
+    sortie = io.StringIO()
+    code = s.main([DOC, "--data", str(dossier.parent)], client=FauxClient(), output=sortie)
+    assert code == 0 and "verdict accepté" in sortie.getvalue()
+    ecrite = s.StructureProposee.model_validate_json((dossier / "structure.json").read_bytes())
+    assert ecrite.doc_id == DOC and ecrite.noeuds
+    # `write_atomic` : le fichier de travail est renommé, jamais laissé à côté de l'artefact.
+    assert [chemin.name for chemin in dossier.glob("*.tmp")] == []
+    assert (dossier / "structure.json").read_text("utf-8").endswith("\n")
 
 
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
@@ -406,7 +533,63 @@ def test_build_document_leve_sur_un_refus_plutot_que_de_replier_sur_la_numerotat
     assert capture.value.motif == "couverture_insuffisante"
 
 
-# --- Quarantaine de bout en bout ----------------------------------------------------------------
+# --- Colonnes et proposition, éprouvées ensemble ------------------------------------------------
+
+def _page_a_deux_colonnes_avec_registre() -> p.PageText:
+    """Les fixtures de colonnes, **dans l'ordre d'extraction réel**, munies de leur registre.
+
+    `tests/test_colonnes.py` monte ses pages entrelacées comme l'extracteur les rend ; il ne leur
+    donne pas de registre, et les corpus de structure sont mono-colonne. Les deux moitiés de la story
+    ne se rencontraient donc jamais : le champ `colonne` de la charge utile valait `1` partout.
+    """
+    from tests.test_colonnes import DROITE_X, GAUCHE_X, _colonne, _extrait
+
+    registre = p.SourceRegistry()
+    lines = _extrait(_colonne("G", GAUCHE_X), _colonne("D", DROITE_X))
+    for line in lines:
+        line.source_uids = [registre.add(page=1, text=line.text, bbox=line.bbox).uid]
+    return p.PageText(page=1, width=595, height=842, lines=lines, source=registre)
+
+
+def test_une_page_a_deux_colonnes_porte_une_proposition_verifiee() -> None:
+    """Given une page à deux colonnes, when une proposition est vérifiée, then l'arbre suit la lecture.
+
+    La proposition n'est pas écrite sur l'ordre d'extraction — entrelacé — mais sur l'**ordre de
+    lecture** que la détection de colonnes arrête : c'est ce couplage que la story promet et que rien
+    n'éprouvait.
+    """
+    page = _page_a_deux_colonnes_avec_registre()
+    registre = _registre([page])
+    entrees = sorted(registre.values(), key=lambda entree: entree.ordre)
+    charge = json.loads(s.demande(registre, get_settings()))
+    assert {ligne["colonne"] for ligne in charge["lignes"]} == {1, 2}  # le champ n'est pas une constante
+    gauche = [entree for entree in entrees if entree.colonne == 1]
+    droite = [entree for entree in entrees if entree.colonne == 2]
+    # La lecture épuise une colonne avant l'autre : chaque colonne est un intervalle **contigu**,
+    # donc proposable. Sur l'ordre entrelacé d'avant, aucun des deux ne l'aurait été.
+    assert [entree.ordre for entree in gauche] == list(range(1, len(gauche) + 1))
+    assert [entree.ordre for entree in droite] == list(range(len(gauche) + 1, len(entrees) + 1))
+    proposition = s.StructureProposee(schema_version="1", doc_id=DOC, noeuds=[
+        s.NoeudPropose(titre_line_uid=cote[0].uid, premiere_line_uid=cote[0].uid,
+                       derniere_line_uid=cote[-1].uid)
+        for cote in (gauche, droite)
+    ])
+    assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
+    document, meta = p.build_document([page], edition="2026", source_hash="0" * 64, toc=[],
+                                      doc_id=DOC, title="Contrat", structure=proposition)
+    par_id = {node.node_id: node for node in document.nodes}
+    assert set(par_id) == {DOC, f"{DOC}:s1", f"{DOC}:s2"}
+    assert par_id[f"{DOC}:s1"].title == gauche[0].texte and par_id[f"{DOC}:s2"].title == droite[0].texte
+    # Aucun nœud ne mêle deux colonnes, et aucun bloc non plus : les deux invariants tiennent ensemble.
+    for node_id, cote in ((f"{DOC}:s1", "G"), (f"{DOC}:s2", "D")):
+        textes = [line.text for block_id in par_id[node_id].blocks
+                  for line in document.block(block_id).lines]
+        assert textes and all(texte.startswith(cote) for texte in textes), node_id
+    assert all(len({line.text[:1] for line in block.lines}) == 1 for block in document.blocks)
+    assert p.anomalies_registre([page], meta["source_uids"]) == []
+
+
+# --- Bout en bout : servi sur proposition acceptée, quarantaine sur refus -----------------------
 
 def _dossier(tmp_path: Path) -> Path:
     from tests.test_pdf_to_blocks import build_pdf, nominal_pages
@@ -419,11 +602,64 @@ def _dossier(tmp_path: Path) -> Path:
 
 
 def test_sans_structure_json_lheuristique_reste_le_chemin_nominal(tmp_path: Path) -> None:
+    """Sans proposition, l'heuristique numérique reste le chemin nominal **et le rapport ne bouge pas**.
+
+    Le check `structure_proposee` n'est alors **pas émis** : l'émettre malgré tout ajouterait un nom
+    à la liste `checks` de chaque document déjà servi. Les `report.json` committés — produits avant
+    cette story et relus ici tels quels — ne le portent pas, et la porte de déploiement les rejoue.
+    « Aucune proposition » n'est pas un état à publier : c'est l'état d'avant la story.
+    """
     dossier = _dossier(tmp_path)
     report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
-    check = next(c for c in report.checks if c.name == "structure_proposee")
-    assert check.level == "info" and "aucune proposition" in check.detail
+    noms = [c.name for c in report.checks]
+    assert "structure_proposee" not in noms
+    assert not any("structure" in nom for nom in noms)  # aucun nom introduit par 4.2c
+    avant_la_story = {c["name"]
+                      for chemin in sorted((Path(__file__).resolve().parents[1] / "data").glob("*/report.json"))
+                      for c in json.loads(chemin.read_text("utf-8"))["checks"]}
+    assert avant_la_story and set(noms) <= avant_la_story
     assert entry.status == "servi" and (dossier / "document.json").is_file()
+
+
+def _proposition_du_document(dossier: Path, *, noeuds: int = 2) -> s.StructureProposee:
+    """Deux sections contiguës sur les lignes réellement extraites du PDF déposé — couverture entière."""
+    pages, _toc = p.extract_pages(dossier / "source.pdf")
+    entrees = sorted(_registre(pages).values(), key=lambda entree: entree.ordre)
+    coupes = [round(index * len(entrees) / noeuds) for index in range(noeuds)] + [len(entrees)]
+    return s.StructureProposee(schema_version="1", doc_id=DOC, noeuds=[
+        s.NoeudPropose(titre_line_uid=entrees[debut].uid, premiere_line_uid=entrees[debut].uid,
+                       derniere_line_uid=entrees[fin - 1].uid)
+        for debut, fin in zip(coupes, coupes[1:])
+    ])
+
+
+def test_une_structure_json_acceptee_est_servie_de_bout_en_bout(tmp_path: Path) -> None:
+    """AC : le chemin **accepté**, joué par `run()` — le seul que les trois autres ne jouaient pas.
+
+    « Pas de `structure.json` », « refusé » et « hors schéma » prouvaient les refus ; ils ne
+    prouvaient jamais qu'une proposition valide traverse l'ingestion complète et ressorte servie.
+    """
+    dossier = _dossier(tmp_path)
+    proposition = _proposition_du_document(dossier)
+    (dossier / "structure.json").write_text(
+        json.dumps(proposition.model_dump(), ensure_ascii=False, indent=2) + "\n", "utf-8")
+    report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
+    check = next(c for c in report.checks if c.name == "structure_proposee")
+    assert check.level == "info" and f"{len(proposition.noeuds)} nœud(s)" in check.detail
+    assert not report.blocking and entry.status == "servi"
+    document = Document.model_validate_json((dossier / "document.json").read_bytes())
+    proposes = [node for node in document.nodes if node.node_id != DOC]
+    assert [node.node_id for node in proposes] == [f"{DOC}:s{rang}" for rang in (1, 2)]
+    assert all(node.title and node.blocks for node in proposes)  # titres relus au registre
+    assert not any(node.node_id.startswith(f"{DOC}:a") for node in document.nodes)
+    assert (dossier / "summary.md").is_file() and f"`{DOC}:s1`" in (dossier / "summary.md").read_text("utf-8")
+    # L'empreinte servie **inclut** la proposition appliquée : sans elle, le même PDF rendrait
+    # `:a…` ou `:s…` selon la présence du fichier, sans qu'aucune des deux valeurs du loader ne bouge.
+    assert entry.ingest_fingerprint == document.ingest_fingerprint == p.ingest_fingerprint(proposition)
+    assert entry.ingest_fingerprint != p.ingest_fingerprint()
+    manifest = json.loads((dossier.parent / "manifest.json").read_text("utf-8"))[DOC]
+    assert manifest["status"] == "servi" and manifest["ingest_fingerprint"] == entry.ingest_fingerprint
+    assert manifest["document_hash"] == hashlib.sha256((dossier / "document.json").read_bytes()).hexdigest()
 
 
 def test_une_structure_json_refusee_met_le_document_en_quarantaine(tmp_path: Path) -> None:
@@ -459,8 +695,13 @@ def test_une_structure_json_hors_schema_est_un_refus_nomme_et_non_une_trace(tmp_
 # --- Permutation métamorphique ------------------------------------------------------------------
 
 def _permuter(pages: list[p.PageText], *, prefixe: str, pages_decalees: int,
-              translation: float) -> list[p.PageText]:
-    """Préfixe de `doc_id`, décalage de pages, translation de bbox et inversion d'ordre des sections."""
+              translation: float) -> tuple[list[p.PageText], str]:
+    """Préfixe de `doc_id`, décalage de pages, translation de bbox et inversion d'ordre des sections.
+
+    Le préfixe est **lu** : c'est lui qui nomme le document permuté, rendu ici avec les pages. Déclaré
+    puis jamais employé, il laissait la permutation d'identifiants se réduire au décalage des pages,
+    et le `doc_id` de l'autre corpus était en réalité une constante écrite à la main dans chaque test.
+    """
     permutees: list[p.PageText] = []
     for page in reversed(pages):
         registre = p.SourceRegistry()
@@ -471,7 +712,7 @@ def _permuter(pages: list[p.PageText], *, prefixe: str, pages_decalees: int,
             lines.append(p.PageLine(source.text, bbox, 10.0, source_uids=[nouvelle.uid]))
         permutees.append(p.PageText(page=page.page + pages_decalees, width=page.width,
                                     height=page.height, lines=lines, source=registre))
-    return permutees
+    return permutees, f"{prefixe}-{DOC}"
 
 
 def _proposition_permutee(pages_decalees: int, doc_id: str) -> s.StructureProposee:
@@ -492,10 +733,10 @@ def _proposition_permutee(pages_decalees: int, doc_id: str) -> s.StructurePropos
 def test_le_verdict_est_invariant_sous_permutation_du_corpus() -> None:
     """Le vérificateur décide sur les positions relatives, jamais sur un identifiant particulier."""
     origine = _verdict(_proposition())
-    permutees = _permuter(_corpus(), prefixe="miroir", pages_decalees=40, translation=17.0)
+    permutees, doc_permute = _permuter(_corpus(), prefixe="miroir", pages_decalees=40, translation=17.0)
     registre = _registre(permutees)
-    autre = s.verifier(_proposition_permutee(40, "miroir-doc"), registre,
-                       doc_id="miroir-doc", settings=get_settings())
+    autre = s.verifier(_proposition_permutee(40, doc_permute), registre,
+                       doc_id=doc_permute, settings=get_settings())
     assert origine.accepte and autre.accepte
 
 
@@ -505,30 +746,60 @@ def test_un_refus_reste_un_refus_du_meme_nom_sous_permutation() -> None:
         s.NoeudPropose(titre_line_uid=t, premiere_line_uid=a, derniere_line_uid=b, parent_line_uid=parent)
         for t, a, b, parent in invalide
     ]))
-    permutees = _permuter(_corpus(), prefixe="miroir", pages_decalees=40, translation=17.0)
-    autre = s.verifier(s.StructureProposee(schema_version="1", doc_id="miroir-doc", noeuds=[
+    permutees, doc_permute = _permuter(_corpus(), prefixe="miroir", pages_decalees=40, translation=17.0)
+    autre = s.verifier(s.StructureProposee(schema_version="1", doc_id=doc_permute, noeuds=[
         s.NoeudPropose(titre_line_uid="p41:l1", premiere_line_uid="p41:l1", derniere_line_uid="p41:l3"),
         s.NoeudPropose(titre_line_uid="p41:l2", premiere_line_uid="p41:l2", derniere_line_uid="p41:l4"),
-    ]), _registre(permutees), doc_id="miroir-doc", settings=get_settings())
+    ]), _registre(permutees), doc_id=doc_permute, settings=get_settings())
     assert origine.motif == autre.motif == "intervalles_croises"
 
 
-def test_controle_negatif_un_verificateur_branche_sur_un_uid_est_detecte() -> None:
-    """Le contrôle prouve que la permutation ferait bien rougir un branchement interdit."""
+def _verifier_branche_sur_un_uid(uid: str) -> Any:
+    """`structure.verifier` **recompilé** avec une branche interdite sur un `uid` littéral.
+
+    Le contrôle négatif doit porter sur la fonction de production. Observer un décideur écrit dans le
+    test ne prouvait que ceci : la permutation attraperait un uid codé en dur… dans une fonction qui
+    n'est pas celle qu'on teste. La source réelle est donc relue, la branche y est injectée juste
+    après la docstring, et la mutante est compilée dans un espace de noms **séparé** : le module n'est
+    jamais modifié, et la mutation disparaît avec le test.
+    """
+    lignes = inspect.getsource(s.verifier).splitlines()
+    fin_docstring = max(index for index, ligne in enumerate(lignes) if ligne.strip() == '"""')
+    mutante = [*lignes[:fin_docstring + 1],
+               f"    if {uid!r} not in registre:",
+               '        return _refus("ligne_inconnue", "branchement interdit sur un uid littéral")',
+               *lignes[fin_docstring + 1:]]
+    espace: dict[str, Any] = {}
+    exec(compile("\n".join(mutante), "<verifier-mute>", "exec"), dict(vars(s)), espace)
+    return espace["verifier"]
+
+
+def test_controle_negatif_le_verificateur_de_production_branche_sur_un_uid_rougirait() -> None:
+    """La permutation détecterait un branchement sur un uid **dans `verifier()` lui-même**.
+
+    Sans ce contrôle, l'invariance observée plus haut pourrait être celle d'un test qui ne regarde
+    rien : elle ne vaut que si l'on montre, sur le même code, que la permutation sait rougir.
+    """
     origine = _registre(_corpus())
-    permute = _registre(_permuter(_corpus(), prefixe="miroir", pages_decalees=40, translation=17.0))
-
-    def mauvais_verificateur(registre: dict[str, s.Entree]) -> bool:
-        return "p1:l1" in registre
-
-    assert mauvais_verificateur(origine) is True
-    assert mauvais_verificateur(permute) is False
+    permutees, doc_permute = _permuter(_corpus(), prefixe="miroir", pages_decalees=40, translation=17.0)
+    permute = _registre(permutees)
+    proposition_permutee = _proposition_permutee(40, doc_permute)
+    mutante = _verifier_branche_sur_un_uid(next(iter(origine)))  # un uid du corpus, jamais écrit ici
+    assert mutante(_proposition(), origine, doc_id=DOC, settings=get_settings()).accepte
+    rouge = mutante(proposition_permutee, permute, doc_id=doc_permute, settings=get_settings())
+    assert not rouge.accepte and rouge.motif == "ligne_inconnue"  # la permutation rougit : le contrôle tient
+    # Le vérificateur réel, lui, accepte les deux corpus : il ne connaît aucun uid particulier.
+    assert s.verifier(_proposition(), origine, doc_id=DOC, settings=get_settings()).accepte
+    assert s.verifier(proposition_permutee, permute, doc_id=doc_permute,
+                      settings=get_settings()).accepte
 
 
 def test_le_vocabulaire_du_module_et_du_corpus_est_neutre() -> None:
     """Never 4.2c : ni assureur, ni cas du golden set, ni page réelle dans le module ou son corpus."""
-    source = (inspect.getsource(s) + inspect.getsource(_corpus) + inspect.getsource(_page)
-              + inspect.getsource(_proposition)).lower()
+    source = (inspect.getsource(s) + "".join(
+        inspect.getsource(fabrique) for fabrique in
+        (_corpus, _page, _proposition, _page_registre, _cas_de_registre, _proposition_du_document,
+         _page_a_deux_colonnes_avec_registre, _permuter))).lower()
     for interdit in ("axa", "baloise", "optihome", "bougie", "canape", "s-bougie", "p34:12",
                      "congelateur", "cigarette"):
         assert interdit not in source, f"vocabulaire non neutre : {interdit!r}"

@@ -241,6 +241,43 @@ def test_les_seuils_du_typage_clauses_sont_bornes_publies_et_documentes() -> Non
     assert {name.upper() for name in expected} <= cited
 
 
+def test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_documentes() -> None:
+    """Story 4.2c, convention Seuils : borné dans `Settings`, publié par `thresholds()`, cité dans
+    `.env.example`. Un seuil que personne ne sait régler n'est pas un réglage.
+
+    Que chacune des cinq bornes de colonne soit un **levier** réel — l'abaisser change la détection —
+    est prouvé par `tests/test_colonnes.py`, et que celles du vérificateur en soient aussi l'est par
+    `tests/test_structure_proposee.py` : ce test ne redouble ni l'un ni l'autre. Il ferme le seul
+    trou qui restait : les treize nombres de la story n'étaient publiés qu'à moitié, et aucun n'était
+    documenté.
+    """
+    s = Settings(_env_file=None)
+    # nom → (défaut attendu, une valeur que la borne doit refuser)
+    attendus: dict[str, tuple[float | int, float | int]] = {
+        "column_gutter_min_pt": (18.0, 0),
+        "column_min_lines": (4, 1),
+        "column_min_span_ratio": (0.35, 0),
+        "column_row_pairing_max_ratio": (0.5, 0),
+        "column_min_fill_ratio": (0.6, 0),
+        "structure_max_depth": (6, 0),
+        "structure_min_coverage": (0.9, -0.1),
+        "structure_max_input_chars": (900000, 0),
+        "structure_max_output_tokens": (16000, 0),
+        "structure_max_cost_eur": (5.0, 0),
+    }
+    thresholds = s.thresholds()
+    for nom, (valeur, refuse) in attendus.items():
+        assert getattr(s, nom) == valeur and thresholds[nom] == valeur, nom
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, **{nom: refuse})
+    for nom in ("column_min_span_ratio", "column_row_pairing_max_ratio", "column_min_fill_ratio",
+                "structure_min_coverage"):
+        with pytest.raises(ValidationError):  # une part reste une part : jamais au-delà de 1
+            Settings(_env_file=None, **{nom: 1.5})
+    cites = set(_seuils_commentes())
+    assert {nom.upper() for nom in attendus} <= cites, sorted({nom.upper() for nom in attendus} - cites)
+
+
 @pytest.mark.parametrize("bad", [
     {"dictionary_term_max_chars": 0}, {"dictionary_term_max_words": 0},
     {"dictionary_max_variants_per_term": 0}, {"dictionary_max_terms_per_fiche": 0},
