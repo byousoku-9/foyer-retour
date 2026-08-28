@@ -111,6 +111,18 @@ def _text_len(content: Any) -> int:
     return total
 
 
+def estimate_run_majorant(executions_payantes: int, settings: Settings) -> float:
+    """Majorant estimé d'une campagne d'évals, **avant le premier appel** (story 4.2b).
+
+    `estimate_cost` majore un appel ; ce majorant-ci agrège, par exécution payante (cas ×
+    répétition), le **pire chemin d'une requête avec relance** : le plafond par requête d'AD-9
+    (`max_cost_eur_per_request`), sous lequel `estimate_cost` refuse déjà l'appel qui déborderait
+    en production. C'est une estimation de refus, pas une facture : le rapport publie ensuite la
+    comparaison avec le coût froid réel (p50/p95/max par exécution).
+    """
+    return _round4(executions_payantes * settings.max_cost_eur_per_request)
+
+
 def estimate_tokens(text: str, settings: Settings) -> int:
     """Majorant du nombre de tokens d'un texte, sans appeler le tokenizer (AD-1, revue Codex 1.4 B1).
 

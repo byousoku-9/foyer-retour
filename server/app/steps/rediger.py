@@ -24,7 +24,7 @@ from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import EFFORT_PAR_PROMPT, STEP_TIERS
+from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, STEP_TIERS, model_for
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
@@ -88,7 +88,9 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     transmettre son seuil mesuré sans dupliquer l'appel LLM ni modifier les autres chemins.
     """
     t0 = time.monotonic()
-    step = StepTrace(name="rediger", tier=STEP_TIERS["rediger"],
+    # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
+    tier = getattr(settings, "rediger_tier", None) or STEP_TIERS["rediger"]
+    step = StepTrace(name="rediger", tier=tier,
                      opened_block_ids=[b.block_id for b in retrieval.blocs])
     etrangers = [b.block_id for b in retrieval.blocs if index.doc_of(b.block_id) != doc_id]
     if etrangers:
@@ -152,7 +154,7 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         tail += "\n" + untrusted("motif", motif)
     content = "\n\n".join(parts) + "\n\n" + tail
     try:
-        result = await client.parse(tier=STEP_TIERS["rediger"], system_prefix=prefix,
+        result = await client.parse(tier=tier, system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
                                     budget=budget, step=step,
                                     max_tokens=(settings.rediger_max_tokens
@@ -163,7 +165,10 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                                     # tokens malgré un JSON court et forcer un retry. `low` conserve le
                                     # même modèle, le même schéma et les mêmes bornes, et ne touche pas
                                     # la variante guide 2.6.
-                                    effort=EFFORT_PAR_PROMPT.get(prompt))
+                                    # Story 4.2b : un tier épinglé sur un modèle sans `effort`
+                                    # (Haiku) ne reçoit aucune dérogation — le client refuserait.
+                                    effort=(EFFORT_PAR_PROMPT.get(prompt)
+                                            if MODEL_CAPS[model_for(tier)]["effort"] else None))
     except PipelineError as exc:
         # AD-10/AD-16 : l'appel raté a pu être facturé (`step.calls` le porte, `budget` aussi). Sans
         # ce rattachement, l'étape disparaît de la trace alors que son coût y compte, et l'appelant ne

@@ -496,7 +496,9 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     la règle (2) d'AD-6 plafonne le verdict à `sous_conditions`.
     """
     t0 = time.monotonic()
-    step = StepTrace(name="verifier", tier=STEP_TIERS["verifier"])
+    # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
+    tier = getattr(settings, "verifier_tier", None) or STEP_TIERS["verifier"]
+    step = StepTrace(name="verifier", tier=tier)
     sinistre = faits is not None
 
     # Blocs réellement transmis à *rédiger* : le périmètre exact de ce qui est citable (AD-1,
@@ -927,7 +929,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
              "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
     content = "\n\n".join(parts)
     try:
-        result = await client.parse(tier=STEP_TIERS["verifier"], system_prefix=prefix,
+        result = await client.parse(tier=getattr(settings, "verifier_tier", None) or STEP_TIERS["verifier"],
+                                    system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
                                     output_model=SortieVerifierSinistre if sinistre else SortieVerifier,
                                     budget=budget, step=step,

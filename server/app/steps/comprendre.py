@@ -179,7 +179,9 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     profil (ou `faits` du sinistre) ») ; ils sont délimités par `untrusted()` comme le reste.
     """
     t0 = time.monotonic()
-    step = StepTrace(name="comprendre", tier=STEP_TIERS["comprendre"])
+    # Story 4.2b : la matrice baseline épingle le tier par étape ; `STEP_TIERS` reste le défaut AD-9.
+    tier = getattr(settings, "comprendre_tier", None) or STEP_TIERS["comprendre"]
+    step = StepTrace(name="comprendre", tier=tier)
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
         prompt, question_min_terms=settings.question_min_terms,
         question_max_terms=settings.question_max_terms,
@@ -223,7 +225,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     # servie n'est donc pas rattrapable après l'appel : la question est servie telle quelle et la
     # divergence est publiée (voir `ClarificationRequise.langue_affirmee`).
     try:
-        result = await client.parse(tier=STEP_TIERS["comprendre"], system_prefix=prefix,
+        result = await client.parse(tier=tier, system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
                                     output_model=SortieComprendre, budget=budget, step=step,
                                     max_tokens=settings.comprendre_max_tokens)

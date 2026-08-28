@@ -203,6 +203,14 @@ class Settings(BaseSettings):
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
     retrouver_outils_tier: Literal["micro", "reason"] = "micro"
+    # Story 4.2b : surcharges de tier **par étape**, pour que la matrice baseline (`micro`/`reason`
+    # par étape) soit exécutable à paramètres épinglés au lieu d'exiger une édition de code. Les
+    # défauts sont l'affectation d'AD-9 (`STEP_TIERS`) ; la valeur active est publiée dans
+    # `thresholds()` (projection 0/1, `Trace.thresholds` étant numérique) et entre donc dans
+    # l'identité de cache des évals — deux runs à tiers différents ne partagent jamais une réponse.
+    comprendre_tier: Literal["micro", "reason"] = "micro"
+    rediger_tier: Literal["micro", "reason"] = "reason"
+    verifier_tier: Literal["micro", "reason"] = "micro"
     retrouver_outils_max_tokens: int = Field(1024, ge=1)
     # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
@@ -236,6 +244,14 @@ class Settings(BaseSettings):
     # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
     # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
     evals_max_cost_eur: float = Field(1.0, ge=0)
+    # Story 4.2b — budget de **campagne** live (règle trusted `automation/plancher.yaml`) : 0,50 €
+    # par défaut, surchargé par l'environnement (`LIVE_BUDGET_EUR`). Le budget effectif d'un run
+    # d'évals est `min(--max-cost, live_budget_eur)` ; il est appliqué deux fois — par le runner
+    # (préflight : le majorant estimé d'une campagne payante est refusé **avant** le premier appel,
+    # avec `configured_budget_eur`, `accrued_cost_eur`, `refused_cost_eur`) et par le client
+    # (`LlmClient` refuse l'appel qui ferait déborder la campagne). Un refus est un rouge chiffré,
+    # jamais une question humaine.
+    live_budget_eur: float = Field(0.50, gt=0)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
     # invalide, heuristique d'estimation avant appel (caractères par token et marge tokenizer, calibrés pour que
@@ -539,6 +555,14 @@ class Settings(BaseSettings):
             "max_cost_eur_per_request": self.max_cost_eur_per_request,
             "cost_alert_eur": self.cost_alert_eur,
             "evals_max_cost_eur": self.evals_max_cost_eur,
+            "live_budget_eur": self.live_budget_eur,
+            # Story 4.2b : la matrice baseline épingle les tiers par étape. `Trace.thresholds` est
+            # numérique : 1 = `reason`, 0 = `micro` (défaut AD-9). Publiés ici, ils entrent dans la
+            # namespace de cache des évals via `thresholds()`.
+            "comprendre_tier_reason": int(self.comprendre_tier == "reason"),
+            "rediger_tier_reason": int(self.rediger_tier == "reason"),
+            "verifier_tier_reason": int(self.verifier_tier == "reason"),
+            "retrouver_outils_tier_reason": int(self.retrouver_outils_tier == "reason"),
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,

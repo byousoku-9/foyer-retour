@@ -101,6 +101,13 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
         return "gate_echoue", []
     if current is not None and (gate.pipeline_digest, gate.prompts_digest, gate.model_ids) != (
             current.pipeline_digest, current.prompts_digest, current.model_ids):
+        # Story 4.2b : sous un gate `full`, des digests non concordants ne sont plus une simple
+        # alerte — la politique complète promet que le document servi est exactement l'image que la
+        # campagne a mesurée, et servir autre chose sous ce label serait la bascule silencieuse
+        # qu'AD-11/AD-16 interdisent. Quarantaine. Sous `vertical`, l'alerte `gate_perime` reste :
+        # le profil n'affirme que deux cas relus, pas la politique complète.
+        if gate.profile == "full":
+            return "gate_perime", []
         return "", ["gate_perime"]
     return "", []
 

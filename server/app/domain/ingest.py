@@ -37,6 +37,28 @@ class Report(DomainModel):
         return [c for c in self.checks if c.level == "alerte"]
 
 
+class GateDecision(DomainModel):
+    """Une décision chiffrée du gate (story 4.2b) — jamais un booléen écrasable.
+
+    Chaque décision dit **quoi** a été mesuré (`metric`), **par qui** (`producer` — la règle trusted
+    ne reconnaît que l'orchestrateur comme producteur de preuve ; un run de builder est un
+    diagnostic), **contre quel plancher** (`threshold`, tiré de `server/evals/reference/plancher.yaml`
+    et couvert par son digest), **sur quel périmètre** (`scope`), **sur combien d'exécutions** (`n`,
+    interruptions comprises au dénominateur), et **depuis quel run** (`run_digest`, l'empreinte
+    canonique de l'identité du run). `value` et `status` sont le constat — un run interrompu ou
+    `aucun_admissible` est `red`, jamais retiré du dénominateur.
+    """
+
+    metric: str
+    producer: str
+    threshold: float
+    scope: str
+    n: int = Field(ge=0)
+    run_digest: str
+    value: float
+    status: Literal["green", "red"]
+
+
 class Gate(DomainModel):
     """Écrit uniquement par `evals run --gate {doc_id}` (AD-7) ; jamais par l'ingestion."""
 
@@ -78,6 +100,12 @@ class Gate(DomainModel):
     # la phrase publiée par l'accueil bascule dessus, et un gate qui ne le dit pas laisserait le
     # loader choisir à la place du run — alors qu'AD-7 réserve l'écriture du gate au runner.
     countersigned: bool
+    # Story 4.2b : les décisions chiffrées qui fondent `evals_ok`, et l'empreinte du run qui les a
+    # produites. **Optionnels** (défauts vides) : les gates déjà écrits — antérieurs à cette story —
+    # restent valides au schéma (cf. la compatibilité de `run.py::ecrire_gate`), et un gate sans
+    # décisions se lit comme « mesuré avant le protocole 4.2b », jamais comme un vert par défaut.
+    decisions: list[GateDecision] = Field(default_factory=list)
+    run_digest: str | None = None
 
 
 class GateContext(DomainModel):
