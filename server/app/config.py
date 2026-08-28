@@ -370,6 +370,42 @@ class Settings(BaseSettings):
     toc_line_gap_ratio: float = Field(1.5, gt=0)
     toc_title_prefix_min_chars: int = Field(20, ge=1)
 
+    # Colonnes du corps (story 4.2c, AD-2 / AD-8). La table des matières avait déjà sa géométrie de
+    # colonne (`toc_column_tolerance_pt`) ; le **corps** n'en avait aucune, si bien que l'ordre de
+    # `get_text(sort=True)` entrelaçait deux colonnes en une seule suite de lignes. Ces trois bornes
+    # décrivent une gouttière, jamais une mise en page particulière : elles n'ont ni nombre de
+    # colonnes, ni position, ni document dans leur énoncé. Elles entrent dans `ingest_fingerprint`
+    # parce qu'elles changent l'ordre de lecture, donc `seq`, donc les `block_id` (AD-2, stabilité).
+    # Aucune gouttière retenue ⇒ l'ordre de lecture reste l'ordre d'extraction, à l'octet.
+    # Largeur minimale du blanc vertical qui sépare deux colonnes. Une gouttière imprimée fait
+    # couramment 20 à 40 pt ; 18 pt (≈ 6 mm) reste sous toute gouttière réelle et très au-dessus
+    # d'une espace entre deux mots, qui ne peut donc jamais être prise pour une séparation.
+    column_gutter_min_pt: float = Field(18.0, gt=0)
+    # Nombre minimal de lignes **entièrement** d'un côté de la gouttière, de chaque côté. Deux
+    # étiquettes isolées de part et d'autre d'un blanc ne font pas deux colonnes.
+    column_min_lines: int = Field(4, ge=2)
+    # Part de la hauteur écrite que chaque côté doit couvrir. Une colonne est haute ; un encadré
+    # local, un pied de tableau ou une paire de légendes ne le sont pas.
+    column_min_span_ratio: float = Field(0.35, gt=0, le=1)
+
+    # Structure proposée puis vérifiée (story 4.2c, AD-2 / AD-7 / AD-16). Le tier `ingest` propose
+    # une hiérarchie **sur des uid de lignes source** ; le code la prouve ou la refuse. Ces bornes
+    # sont appliquées par le vérificateur, hors réseau : elles ne dépendent d'aucun document et un
+    # refus est bloquant (quarantaine), jamais un repli silencieux vers l'heuristique numérique.
+    # Profondeur maximale d'un arbre proposé. Au-delà, la « hiérarchie » n'est plus une structure
+    # lisible mais une chaîne que rien ne peut vérifier à l'œil.
+    structure_max_depth: int = Field(6, ge=1)
+    # Part minimale des lignes retenues que les intervalles proposés doivent couvrir. Une
+    # proposition qui laisse un tiers du contrat hors de tout nœud ne structure pas le document :
+    # elle en structure un extrait, et le reste deviendrait invisible à l'arbre servi.
+    structure_min_coverage: float = Field(0.9, ge=0, le=1)
+    # Bornes de la seule requête : la charge utile est le registre de lignes du document entier,
+    # et la réponse ne porte que des uid et des liens — jamais du texte.
+    structure_max_input_chars: int = Field(300000, ge=1)
+    structure_max_output_tokens: int = Field(16000, ge=1)
+    # Majorant vérifié **avant** toute construction de client (idiome `type_clauses`).
+    structure_max_cost_eur: float = Field(5.0, gt=0)
+
     # Dictionnaire enrichi (story 2.1, AD-5 / AD-7). Toutes ces bornes s'appliquent **par le code**
     # à ce que le modèle d'ingestion rend : AD-5 et AD-7 disent qu'il ne renvoie jamais de texte de
     # bloc, et le code le vérifie plutôt que de le croire. Une chaîne hors borne est **écartée**,
@@ -624,6 +660,17 @@ class Settings(BaseSettings):
             "toc_indent_tolerance_pt": self.toc_indent_tolerance_pt,
             "toc_line_gap_ratio": self.toc_line_gap_ratio,
             "toc_title_prefix_min_chars": self.toc_title_prefix_min_chars,
+            # Story 4.2c : la géométrie des colonnes du corps et les bornes du vérificateur de
+            # structure se publient comme les autres (convention Seuils). Les trois premières
+            # entrent aussi dans `ingest_fingerprint` : elles changent l'ordre de lecture.
+            "column_gutter_min_pt": self.column_gutter_min_pt,
+            "column_min_lines": self.column_min_lines,
+            "column_min_span_ratio": self.column_min_span_ratio,
+            "structure_max_depth": self.structure_max_depth,
+            "structure_min_coverage": self.structure_min_coverage,
+            "structure_max_input_chars": self.structure_max_input_chars,
+            "structure_max_output_tokens": self.structure_max_output_tokens,
+            "structure_max_cost_eur": self.structure_max_cost_eur,
             # Story 2.1 : les bornes du dictionnaire enrichi et celle du périmètre dérivé du corpus.
             # Elles sont publiées comme les autres (convention Seuils) — `/api/v1/sante` et
             # `Trace.thresholds` se lisent avec la même règle, y compris pour ce que l'ingestion a

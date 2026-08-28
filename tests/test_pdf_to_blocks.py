@@ -46,6 +46,15 @@ def _para(items: list, y: float, lines: list[str]) -> float:
     return y + 11
 
 
+def _fake_lines(registry, page_no: int, items: list[tuple[str, list[float], float]]) -> list:
+    """Double d'extraction : il alimente le registre comme le vrai `_raw_lines` (story 4.2c)."""
+    out = []
+    for text, bbox, size in items:
+        uids = [registry.add(page=page_no, text=text, bbox=bbox).uid] if registry is not None else []
+        out.append(p.PageLine(text, bbox, size, source_uids=uids))
+    return out
+
+
 def _write_sha(path: Path) -> None:
     """`source.sha256` obligatoire (AD-7, revue Codex 1.2) : l'ingestion refuse un PDF sans empreinte de référence."""
     path.with_name("source.sha256").write_text(hashlib.sha256(path.read_bytes()).hexdigest() + "\n", "utf-8")
@@ -351,11 +360,11 @@ def test_targeted_ocr_is_marked_and_preserves_geometry(tmp_path: Path, monkeypat
     doc.save(d)
     native = p._raw_lines
 
-    def fake_raw(page, *, textpage=None, excluded=None):
+    def fake_raw(page, *, page_no=1, textpage=None, excluded=None, registry=None):
         if textpage is None:
             return [], 1
-        return [p.PageLine("1", [56, 80, 70, 96], 17),
-                p.PageLine("Lexique OCR", [122, 80, 210, 96], 17)], 1
+        return _fake_lines(registry, page_no, [("1", [56, 80, 70, 96], 17),
+                                               ("Lexique OCR", [122, 80, 210, 96], 17)]), 1
 
     calls: list[dict] = []
 
@@ -393,10 +402,10 @@ def test_visual_page_ocr_runs_after_native_band_removal_and_empty_result_keeps_d
     page.draw_rect(pymupdf.Rect(100, 100, 300, 300), fill=(0.5, 0.5, 0.5))
     doc.save(pdf)
 
-    def fake_raw(page, *, textpage=None, excluded=None):
+    def fake_raw(page, *, page_no=1, textpage=None, excluded=None, registry=None):
         if textpage is None:
-            return [p.PageLine("EN-TÊTE", [56, 10, 150, 24], 9)], 0
-        return [p.PageLine("1", [530, 810, 540, 824], 9)], 0
+            return _fake_lines(registry, page_no, [("EN-TÊTE", [56, 10, 150, 24], 9)]), 0
+        return _fake_lines(registry, page_no, [("1", [530, 810, 540, 824], 9)]), 0
 
     monkeypatch.setattr(p, "_raw_lines", fake_raw)
     monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", lambda self, **kwargs: object())

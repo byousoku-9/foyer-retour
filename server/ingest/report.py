@@ -67,6 +67,18 @@ def report_from_validation_error(doc_id: str, exc: ValidationError) -> Report:
     return Report(doc_id=doc_id, checks=[Check(name="invariants_arbre", level="bloquant", detail=detail)])
 
 
+def structure_check(motif: str | None, detail: str) -> Check:
+    """`structure_proposee` (story 4.2c) : bloquant sur refus nommé, info sinon.
+
+    Fail-closed : un refus du vérificateur met le document en quarantaine et le motif est publié tel
+    quel. Il n'existe **pas** de niveau intermédiaire — retomber sur l'heuristique numérique après un
+    refus servirait un arbre que personne n'a prouvé en laissant croire le contraire (AD-16).
+    """
+    if motif is None:
+        return Check(name="structure_proposee", level="info", detail=detail[:2000])
+    return Check(name="structure_proposee", level="bloquant", detail=f"{motif} : {detail}"[:2000])
+
+
 def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *,
                  parcours_ignorees: int, parcours_alertes: list[str], summary: str = "") -> Report:
     """Checks statiques calculés sans pipeline ; `doc` a déjà passé les invariants du modèle.
@@ -247,10 +259,12 @@ def _printed_toc_check(doc: Document, entries: list[tuple[str, str]], pages_toc:
 
 def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[Any], numbers: list[str],
                      duplicates: list[str], continues: int, toc: list[Any], toc_gaps: list[str] | None = None,
-                     printed_toc: list[tuple[str, str]] | None = None, summary: str = "") -> Report:
+                     printed_toc: list[tuple[str, str]] | None = None, summary: str = "",
+                     structure: str = "aucune proposition : arbre par numérotation") -> Report:
     """Checks statiques d'un contrat PDF (AD-8) : `page_sans_texte` bloquant (page sans texte mais portant une image
     ou un tracé vectoriel), numérotation non monotone, pages mixtes et écart avec les signets du PDF en alerte."""
-    checks: list[Check] = [Check(name="invariants_arbre", level="info", detail="ok")]
+    checks: list[Check] = [Check(name="invariants_arbre", level="info", detail="ok"),
+                           structure_check(None, structure)]
     kinds = Counter(b.kind for b in doc.blocks)
     pages_with_blocks = {b.page for b in doc.blocks}
     no_text = [p.page for p in pages if not p.lines and not getattr(p, "tables", [])]
