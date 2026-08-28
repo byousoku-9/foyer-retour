@@ -787,6 +787,8 @@ window.CHAT = (function () {
     relance_sans_place_pour_les_limites: "relance non lancée : elle aurait tronqué une réserve acquise",
     relance_sans_effet: "relance sans effet sur la réponse",
     segment_contradictoire: "deux verdicts opposés pour une même phrase",
+    segments_derives: "phrases identiques à leur affirmation : un seul jugement, celui de la pertinence",
+    segments_derives_masques: "phrases identiques à une affirmation rejetée ou sans verdict : masquées avec elle",
     segments_non_soutenus: "des phrases avancent plus que les passages joints",
     segments_retires: "des phrases ont été retirées de la réponse",
     verdict: "verdict rendu sur les affirmations affichées",
