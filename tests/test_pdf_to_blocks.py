@@ -370,9 +370,9 @@ def test_empty_table_is_ignored_and_only_line_center_inside_excludes_text() -> N
                 "spans": [{"text": "ligne chevauchée", "font": "helv", "size": 10}],
             }]}]}
 
-    lines, _ = p._raw_lines(TextPage(), excluded=[[95, 0, 110, 10]])
+    lines, _ = p._raw_lines(TextPage(), tables=[p.PageTable([95, 0, 110, 10], [["cellule"]])])
     assert [line.text for line in lines] == ["ligne chevauchée"]  # légende qui ne fait que frôler la table
-    lines, _ = p._raw_lines(TextPage(), excluded=[[40, 0, 110, 10]])
+    lines, _ = p._raw_lines(TextPage(), tables=[p.PageTable([40, 0, 110, 10], [["cellule"]])])
     assert lines == []  # texte de cellule atomique : centre contenu, donc pas de doublon
 
 
@@ -398,7 +398,7 @@ def test_targeted_ocr_is_marked_and_preserves_geometry(tmp_path: Path, monkeypat
     doc.save(d)
     native = p._raw_lines
 
-    def fake_raw(page, *, page_no=1, textpage=None, excluded=None, registry=None):
+    def fake_raw(page, *, page_no=1, textpage=None, tables=None, registry=None):
         if textpage is None:
             return [], 1
         return _fake_lines(registry, page_no, [("1", [56, 80, 70, 96], 17),
@@ -440,7 +440,7 @@ def test_visual_page_ocr_runs_after_native_band_removal_and_empty_result_keeps_d
     page.draw_rect(pymupdf.Rect(100, 100, 300, 300), fill=(0.5, 0.5, 0.5))
     doc.save(pdf)
 
-    def fake_raw(page, *, page_no=1, textpage=None, excluded=None, registry=None):
+    def fake_raw(page, *, page_no=1, textpage=None, tables=None, registry=None):
         if textpage is None:
             return _fake_lines(registry, page_no, [("EN-TÊTE", [56, 10, 150, 24], 9)]), 0
         return _fake_lines(registry, page_no, [("1", [530, 810, 540, 824], 9)]), 0

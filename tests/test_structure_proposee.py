@@ -18,6 +18,8 @@ import hashlib
 import inspect
 import io
 import json
+import math
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -130,7 +132,12 @@ def test_une_ligne_fusionnee_porte_les_deux_uid_de_ses_sources() -> None:
     assert len(fusionnees) == 1 and fusionnees[0].source_uids == [numero.uid, suite.uid]
 
 
-def test_une_ligne_de_table_entre_au_registre_avec_son_motif() -> None:
+def test_une_ligne_de_table_reste_au_registre_et_est_confiee_a_sa_table() -> None:
+    """Une ligne de cellule n'est pas « retirée » : son contenu est servi par le bloc `table`.
+
+    L'inscrire sous un motif de retrait laissait `anomalies_registre` valider une ligne **servie sans
+    liaison ligne/bloc** — la bijection contournée par le seul chemin qui la contourne.
+    """
     class TextPage:
         @staticmethod
         def get_text(kind: str, **options: Any) -> dict[str, Any]:
@@ -140,9 +147,132 @@ def test_une_ligne_de_table_entre_au_registre_avec_son_motif() -> None:
             }]}]}
 
     registre = p.SourceRegistry()
-    lignes, _ = p._raw_lines(TextPage(), page_no=3, excluded=[[40, 0, 110, 10]], registry=registre)
+    table = p.PageTable(bbox=[40, 0, 110, 10], rows=[["cellule atomique"]])
+    lignes, _ = p._raw_lines(TextPage(), page_no=3, tables=[table], registry=registre)
     assert lignes == [] and [line.uid for line in registre.lines] == ["p3:l1"]
-    assert registre.removed == {"p3:l1": "ligne_de_table"}
+    assert table.source_uids == ["p3:l1"] and registre.removed == {}
+
+
+def _dossier_avec_table(tmp_path: Path) -> Path:
+    """Un PDF synthétique dont `find_tables()` détecte réellement la table (grille tracée)."""
+    import pymupdf
+
+    from tests.test_pdf_to_blocks import FONT_BODY, FONT_TITLE, _write_sha
+
+    dossier = tmp_path / "data" / DOC
+    dossier.mkdir(parents=True)
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((56, 70), "1", fontsize=17, fontname=FONT_TITLE)
+    page.insert_text((122, 70), "Rubriques", fontsize=17, fontname=FONT_TITLE)
+    for x in (50, 200, 350):
+        page.draw_line((x, 100), (x, 180))
+    for y in (100, 140, 180):
+        page.draw_line((50, y), (350, y))
+    for x, y, texte in ((60, 125, "Rubrique une"), (210, 125, "Valeur une"),
+                        (60, 165, "Rubrique deux"), (210, 165, "Valeur deux")):
+        page.insert_text((x, y), texte, fontsize=10, fontname=FONT_BODY)
+    page.insert_text((56, 220), "Ligne de corps sous la table.", fontsize=10, fontname=FONT_BODY)
+    doc.save(str(dossier / "source.pdf"))
+    doc.close()
+    _write_sha(dossier / "source.pdf")
+    (dossier / "source.url").write_text("https://example.test/contrat.pdf\n", "utf-8")
+    return dossier
+
+
+def test_chaque_ligne_source_dune_table_extraite_est_portee_une_fois_par_son_bloc(
+        tmp_path: Path) -> None:
+    """AC : bijection lignes/blocs — la table sert son contenu, elle doit donc porter ses lignes.
+
+    `_segment_page` sert les rangées d'un bloc `table` synthétique construit depuis `table.rows` ;
+    compter ces lignes « retirées » revenait à servir du texte qu'aucun bloc ne réclamait, et à les
+    soustraire au registre présenté au proposant.
+    """
+    dossier = _dossier_avec_table(tmp_path)
+    pages, toc = p.extract_pages(dossier / "source.pdf")
+    table = pages[0].tables[0]
+    assert len(table.source_uids) >= 2  # les cellules extraites, pas les rangées reconstruites
+    document, meta = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=toc,
+                                      doc_id=DOC, title="Contrat")
+    bloc = next(block for block in document.blocks if block.kind == "table")
+    portees = meta["source_uids"][bloc.block_id]
+    assert portees == table.source_uids  # une fois, et une seule, dans l'ordre d'extraction
+    assert len(set(portees)) == len(portees)
+    assert not set(table.source_uids) & set(pages[0].source.removed)  # servi ⇒ jamais « retiré »
+    assert p.anomalies_registre(pages, meta["source_uids"]) == []
+    # Et elles sont proposables, à la position de la table dans l'ordre de lecture.
+    registre = _registre(pages)
+    ordres = [registre[uid].ordre for uid in table.source_uids]
+    assert ordres == list(range(ordres[0], ordres[0] + len(ordres)))
+    assert registre[table.source_uids[0]].ordre > registre["p1:l1"].ordre
+
+
+def _page_avec_table(rows: list[list[str]]) -> tuple[p.PageText, list[p.SourceLine]]:
+    """Un titre, une table qui a absorbé deux lignes brutes, puis un corps — registre compris."""
+    registre = p.SourceRegistry()
+    entete = registre.add(page=1, text="Intitule au-dessus de la table.", bbox=[56.0, 60.0, 356.0, 72.0])
+    cellules = [registre.add(page=1, text=f"Cellule {rang}", bbox=[60.0, 100.0 + rang * 20.0,
+                                                                  190.0, 112.0 + rang * 20.0])
+                for rang in (1, 2)]
+    corps = registre.add(page=1, text="Ligne de corps sous la table.", bbox=[56.0, 200.0, 356.0, 212.0])
+    table = p.PageTable(bbox=[50.0, 90.0, 350.0, 180.0], rows=rows,
+                        source_uids=[cellule.uid for cellule in cellules])
+    lignes = [p.PageLine(source.text, list(source.bbox), 10.0, source_uids=[source.uid])
+              for source in (entete, corps)]
+    page = p.PageText(page=1, width=595, height=842, lines=lignes, tables=[table], source=registre)
+    return page, [entete, *cellules, corps]
+
+
+def test_une_table_scindee_entre_deux_noeuds_proposes_est_refusee() -> None:
+    """Le bloc `table` est atomique : il ne peut pas être servi à cheval sur deux nœuds prouvés.
+
+    La proposition est **acceptée par le vérificateur** — intervalles disjoints, ordre croissant,
+    couverture totale — et pourtant l'arbre servi placerait les deux cellules sous un seul nœud. Le
+    bloc serait donc moins prouvé que la proposition qui l'annonce : c'est un refus.
+    """
+    page, sources = _page_avec_table([["Cellule 1"], ["Cellule 2"]])
+    entete, premiere, seconde, corps = sources
+    registre = _registre([page])
+    assert [registre[source.uid].ordre for source in sources] == [1, 2, 3, 4]  # table à sa place
+    entiere = _proposition(noeuds=[
+        s.NoeudPropose(titre_line_uid=entete.uid, premiere_line_uid=entete.uid,
+                       derniere_line_uid=corps.uid),
+    ])
+    assert s.verifier(entiere, registre, doc_id=DOC, settings=get_settings()).accepte
+    document, meta = p.build_document([page], edition="2026", source_hash="0" * 64, toc=[],
+                                      doc_id=DOC, title="Contrat", structure=entiere)
+    bloc = next(block for block in document.blocks if block.kind == "table")
+    assert meta["source_uids"][bloc.block_id] == [premiere.uid, seconde.uid]
+    assert bloc.block_id in {node.node_id: node for node in document.nodes}[f"{DOC}:s1"].blocks
+
+    scindee = _proposition(noeuds=[
+        s.NoeudPropose(titre_line_uid=entete.uid, premiere_line_uid=entete.uid,
+                       derniere_line_uid=premiere.uid),
+        s.NoeudPropose(titre_line_uid=seconde.uid, premiere_line_uid=seconde.uid,
+                       derniere_line_uid=corps.uid),
+    ])
+    assert s.verifier(scindee, registre, doc_id=DOC, settings=get_settings()).accepte
+    with pytest.raises(s.StructureRefusee) as capture:
+        p.build_document([page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+                         title="Contrat", structure=scindee)
+    assert capture.value.motif == "affectation_non_prouvee"
+    assert capture.value.motif in s.MOTIFS and "à cheval" in capture.value.detail
+
+
+def test_une_table_sans_rangee_ne_fait_pas_disparaitre_ses_lignes_en_silence() -> None:
+    """Cas limite : une table détectée qui ne rend aucune rangée ne sert **aucun** bloc.
+
+    Ses lignes brutes redeviennent alors du contenu non servi, et c'est le seul cas où l'absorption
+    par une table donne un motif de retrait — nommé `table_sans_bloc`, jamais un silence.
+    """
+    page, sources = _page_avec_table([])
+    _entete, premiere, seconde, _corps = sources
+    _document, meta = p.build_document([page], edition="2026", source_hash="0" * 64, toc=[],
+                                       doc_id=DOC, title="Contrat")
+    assert page.source.removed == {premiere.uid: "table_sans_bloc", seconde.uid: "table_sans_bloc"}
+    assert p.anomalies_registre([page], meta["source_uids"]) == []
+    # Rien ne les sert : elles ne sont donc l'ancre de rien et ne sont pas proposables.
+    assert not {premiere.uid, seconde.uid} & set(_registre([page]))
 
 
 def _page_registre(nombre: int) -> tuple[p.PageText, list[p.SourceLine]]:
@@ -248,8 +378,18 @@ def test_la_charge_utile_reste_sous_la_borne_publiee(monkeypatch: pytest.MonkeyP
         get_settings.cache_clear()
 
 
+class CreateInterdit(BaseException):
+    """Hors de `Exception` **exprès** : `proposer()` convertit toute panne fournisseur en refus
+    contrôlé, si bien qu'une `Exception` levée ici ressortirait déguisée en « appel refusé » et le
+    double resterait muet sur la faute. Elle doit traverser le filet et faire échouer le test."""
+
+
 class FauxMessages:
-    """Double qui **lit la charge utile réelle** et répond à partir des seuls uid reçus."""
+    """Double qui **lit la charge utile réelle** et répond à partir des seuls uid reçus.
+
+    Il n'expose `messages.parse` que parce que la convention LLM du spine l'impose : appeler
+    `messages.create` est la faute recherchée, et le double échoue alors bruyamment.
+    """
 
     def __init__(self, *, noeuds: Any = None, stop_reason: str = "end_turn",
                  usage: dict[str, int] | None = None) -> None:
@@ -257,9 +397,13 @@ class FauxMessages:
         self.stop_reason = stop_reason
         self.usage = {"input_tokens": 120, "output_tokens": 30} if usage is None else usage
         self.calls: list[dict[str, Any]] = []
+        self.create_calls: list[dict[str, Any]] = []
 
-    def create(self, **params: Any) -> Any:
+    def parse(self, **params: Any) -> Any:
         self.calls.append(params)
+        assert "output_format" not in params, (
+            "convention LLM du spine : `output_format` ferait valider le SDK avant de rendre la "
+            "réponse — `usage`, `stop_reason` et le texte reçu seraient perdus")
         lignes = json.loads(params["messages"][0]["content"])["lignes"]
         premiere, derniere = lignes[0]["uid"], lignes[-1]["uid"]
         noeuds = self.noeuds if self.noeuds is not None else [
@@ -269,6 +413,12 @@ class FauxMessages:
         return SimpleNamespace(usage=self.usage, stop_reason=self.stop_reason,
                                content=[SimpleNamespace(type="text",
                                                         text=json.dumps({"noeuds": noeuds}))])
+
+    def create(self, **params: Any) -> Any:
+        self.create_calls.append(params)
+        raise CreateInterdit(
+            "`messages.create` est interdit ici : la convention LLM du spine impose "
+            "`messages.parse(..., output_config={'format': …})` sans `output_format`")
 
 
 class FauxClient:
@@ -287,6 +437,49 @@ def test_le_faux_client_repond_a_partir_des_uid_recus_et_la_proposition_est_acce
     assert cout > 0 and proposition.doc_id == DOC
     assert proposition.noeuds[0].titre_line_uid == "p1:l1"
     assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
+
+
+def test_lappel_passe_par_messages_parse_sans_output_format_et_jamais_par_create() -> None:
+    """Convention LLM du spine : `messages.parse(..., output_config={"format": …})` **sans**
+    `output_format`, validation locale par `TypeAdapter`.
+
+    Le double **échoue si `create` est appelé** : avec `create`, le module d'ingestion parlerait au
+    fournisseur par une surface que le spine n'autorise pas, et la seule chose qui l'aurait dit
+    était l'absence de test.
+    """
+    registre = _registre(_corpus())
+    client = FauxClient()
+    s.proposer(client, registre, doc_id=DOC, settings=get_settings())
+    assert client.messages.calls and client.messages.create_calls == []
+    params = client.messages.calls[0]
+    assert "output_format" not in params
+    assert set(params["output_config"]) == {"format", "effort"}
+    assert params["output_config"]["format"]["type"] == "json_schema"
+    # Le piège est bien armé : `create` échoue, et son échec n'est pas rattrapable en « refus »
+    # (`CreateInterdit` n'est pas une `Exception`, donc le filet à pannes fournisseur la laisse
+    # passer). Une régression vers `messages.create` rougirait ici et dans chaque autre test qui
+    # emploie ce double.
+    with pytest.raises(CreateInterdit):
+        FauxClient().messages.create(**params)
+    assert not issubclass(CreateInterdit, Exception)
+
+
+def test_une_reponse_localement_invalide_conserve_usage_stop_reason_et_texte_recu() -> None:
+    """La raison d'être de la convention : la validation est **locale**, donc après la réponse.
+
+    Avec `output_format`, le SDK 1.0.0 valide avant de rendre le message et lève `ValidationError` :
+    `usage` (donc le coût réel), `stop_reason` et le texte reçu seraient perdus. Ici, le refus les
+    porte tous les trois.
+    """
+    registre = _registre(_corpus())
+    hors_forme = [{"titre_line_uid": "p1:l1", "premiere_line_uid": "p1:l1",
+                   "derniere_line_uid": "p1:l4", "parent_line_uid": None, "kind": "garantie"}]
+    with pytest.raises(ValueError) as leve:
+        s.proposer(FauxClient(noeuds=hors_forme), registre, doc_id=DOC, settings=get_settings())
+    message = str(leve.value)
+    assert "hors schéma strict" in message  # la validation locale, non celle du SDK
+    assert "coût réel" in message and "stop_reason='end_turn'" in message
+    assert "caractère(s) reçus" in message and "rien n'a été écrit" in message
 
 
 def test_un_uid_etranger_est_refuse_avant_tout_usage_meme_si_le_schema_limpose() -> None:
@@ -365,6 +558,48 @@ def test_le_plafond_de_cout_se_regle_aussi_par_config(
     assert code == 3 and not (dossier / "structure.json").exists()
 
 
+def _aucune_extraction(*args: Any, **kwargs: Any) -> Any:
+    """Sentinelle posée à la place d'`extract_pages` : extraire est déjà trop tard."""
+    raise AssertionError("aucune extraction ne doit avoir lieu avant la validation du plafond")
+
+
+@pytest.mark.parametrize("valeur", ["nan", "inf", "-inf", "0", "-0.0", "-1"])
+def test_un_plafond_non_fini_ou_nul_est_refuse_avant_extraction_et_avant_tout_client(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+        valeur: str) -> None:
+    """AD-9 : un plafond que la comparaison ne peut pas faire respecter est refusé d'entrée.
+
+    `nan` rend `estimate > ceiling` **toujours** faux et `inf` ne bloque jamais : le plafond annoncé
+    était neutralisable depuis la ligne de commande, juste avant l'appel le plus cher du projet.
+    Zéro et les valeurs négatives ne sont pas davantage un plafond. Le refus précède l'extraction et
+    toute construction de client, comme dans les autres CLI d'ingestion.
+    """
+    dossier = _dossier(tmp_path)
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
+    monkeypatch.setattr(p, "extract_pages", _aucune_extraction)
+    # `--max-cost=-inf` et non `--max-cost -inf` : argparse prend `-inf` pour une option.
+    code = s.main([DOC, "--data", str(dossier.parent), f"--max-cost={valeur}"], output=io.StringIO())
+    assert code == 2
+    erreur = capsys.readouterr().err
+    assert "plafond" in erreur and "fini strictement positif" in erreur
+    assert not (dossier / "structure.json").exists()
+
+
+def test_un_plafond_infini_venu_du_reglage_est_refuse_lui_aussi(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """L'autre source de plafond : `structure_max_cost_eur` est borné `gt=0`… ce qui laisse `inf`.
+
+    La garde porte donc sur la valeur **résolue**, jamais sur le seul argument de ligne de commande.
+    """
+    dossier = _dossier(tmp_path)
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
+    monkeypatch.setattr(p, "extract_pages", _aucune_extraction)
+    reglages = Settings(_env_file=None, structure_max_cost_eur=math.inf)
+    code = s.main([DOC, "--data", str(dossier.parent)], settings=reglages, output=io.StringIO())
+    assert code == 2 and "plafond" in capsys.readouterr().err
+    assert not (dossier / "structure.json").exists()
+
+
 def test_sans_cle_anthropic_la_cli_refuse_sur_un_document(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """AD-14 : « sans clé, ça refuse » — y compris une fois le majorant passé, et sans rien écrire."""
@@ -411,8 +646,8 @@ def test_la_cli_ecrit_structure_json_atomiquement_avec_un_client_injecte(
     ([("p1:l1", "p1:l1", "p1:l3", None), ("p1:l2", "p1:l2", "p1:l4", None)], "intervalles_croises"),
     # Emboîtement sans filiation : contenu dans l'autre sans en descendre.
     ([("p1:l1", "p1:l1", "p1:l4", None), ("p1:l2", "p1:l2", "p1:l3", None)], "intervalles_croises"),
-    # Couverture insuffisante : une seule ligne couverte sur sept.
-    ([("p1:l1", "p1:l1", "p1:l1", None)], "couverture_insuffisante"),
+    # Lignes omises : une seule ligne couverte sur sept.
+    ([("p1:l1", "p1:l1", "p1:l1", None)], "ligne_omise"),
 ])
 def test_chaque_famille_invalide_rend_un_refus_nomme(noeuds: list[tuple], motif: str) -> None:
     proposition = _proposition(noeuds=[
@@ -445,21 +680,57 @@ def test_une_profondeur_hors_borne_est_refusee(monkeypatch: pytest.MonkeyPatch) 
     assert not verdict.accepte and verdict.motif == "profondeur_excessive"
 
 
-def test_une_couverture_hors_borne_est_refusee(monkeypatch: pytest.MonkeyPatch) -> None:
-    """La borne de couverture est un réglage publié, pas un nombre en dur dans le vérificateur."""
-    partielle = _proposition(noeuds=[
-        s.NoeudPropose(titre_line_uid="p1:l1", premiere_line_uid="p1:l1", derniere_line_uid="p1:l4"),
+def _dix_lignes() -> p.PageText:
+    return _page(1, [f"Ligne source numero {index}." for index in range(1, 11)])
+
+
+def _neuf_sur_dix() -> s.StructureProposee:
+    """La sonde de revue : dix lignes au registre, neuf couvertes — `p1:l10` reste hors de tout nœud."""
+    return _proposition(noeuds=[
+        s.NoeudPropose(titre_line_uid="p1:l1", premiere_line_uid="p1:l1", derniere_line_uid="p1:l9"),
     ])
-    monkeypatch.setenv("STRUCTURE_MIN_COVERAGE", "0.5")
+
+
+def test_une_seule_ligne_omise_sur_dix_est_un_refus_nomme_qui_designe_son_uid() -> None:
+    """AC : « toute ligne inconnue, dupliquée, **omise** … met le document en quarantaine ».
+
+    Une couverture de 90 % rendait `Verdict(accepte=True)` : les groupes laissés hors de tout
+    intervalle étaient ensuite rattachés à un nœud voisin, et l'arbre servi portait une affectation
+    que la proposition n'avait ni portée ni prouvée, sous l'annonce « proposition vérifiée ».
+    """
+    registre = _registre([_dix_lignes()])
+    assert len(registre) == 10
+    verdict = s.verifier(_neuf_sur_dix(), registre, doc_id=DOC, settings=get_settings())
+    assert not verdict.accepte and verdict.motif == "ligne_omise"
+    assert "p1:l10" in verdict.detail  # le refus **nomme** les uid concernés
+    assert "ligne_omise" in s.MOTIFS and "couverture_insuffisante" not in s.MOTIFS
+
+
+def test_abaisser_la_borne_de_couverture_ne_rouvre_pas_la_ligne_omise(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """La borne reste publiée, mais la règle par uid est **inconditionnelle** : rien ne la desserre.
+
+    C'est ce qui empêche `structure_min_coverage` de redevenir la porte par laquelle une proposition
+    incomplète était acceptée : abaisser le réglage ne rend aucune ligne omise acceptable.
+    """
+    monkeypatch.setenv("STRUCTURE_MIN_COVERAGE", "0.1")
     get_settings.cache_clear()
     try:
-        assert _verdict(partielle).accepte  # 4 lignes sur 7 : au-dessus de 50 %
-        assert get_settings().thresholds()["structure_min_coverage"] == 0.5
+        assert get_settings().thresholds()["structure_min_coverage"] == 0.1
+        verdict = s.verifier(_neuf_sur_dix(), _registre([_dix_lignes()]), doc_id=DOC,
+                             settings=get_settings())
     finally:
         monkeypatch.delenv("STRUCTURE_MIN_COVERAGE")
         get_settings.cache_clear()
-    verdict = _verdict(partielle)
-    assert not verdict.accepte and verdict.motif == "couverture_insuffisante"
+    assert not verdict.accepte and verdict.motif == "ligne_omise"
+
+
+def test_une_ligne_omise_leve_dans_build_document_plutot_que_de_setre_fait_heriter_un_noeud() -> None:
+    """L'omission arrête l'ingestion : aucun groupe ne se voit prêter le nœud de son voisin."""
+    with pytest.raises(s.StructureRefusee) as capture:
+        p.build_document([_dix_lignes()], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+                         title="Contrat", structure=_neuf_sur_dix())
+    assert capture.value.motif == "ligne_omise" and "p1:l10" in capture.value.detail
 
 
 def test_une_proposition_pour_un_autre_document_est_refusee() -> None:
@@ -530,7 +801,7 @@ def test_build_document_leve_sur_un_refus_plutot_que_de_replier_sur_la_numerotat
     with pytest.raises(s.StructureRefusee) as capture:
         p.build_document(_corpus(), edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
                          title="Contrat", structure=invalide)
-    assert capture.value.motif == "couverture_insuffisante"
+    assert capture.value.motif == "ligne_omise"
 
 
 # --- Colonnes et proposition, éprouvées ensemble ------------------------------------------------
@@ -676,11 +947,37 @@ def test_une_structure_json_refusee_met_le_document_en_quarantaine(tmp_path: Pat
     }), "utf-8")
     report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
     check = next(c for c in report.checks if c.name == "structure_proposee")
-    assert check.level == "bloquant" and "couverture_insuffisante" in check.detail
+    assert check.level == "bloquant" and "ligne_omise" in check.detail
     assert report.blocking and entry.status == "quarantaine"
     assert not (dossier / "document.json").exists() and not (dossier / "summary.md").exists()
     manifest = json.loads((dossier.parent / "manifest.json").read_text("utf-8"))[DOC]
     assert manifest["status"] == "quarantaine"
+
+
+def test_une_seule_ligne_omise_dun_document_entier_met_le_document_en_quarantaine(
+        tmp_path: Path) -> None:
+    """Bout en bout, sur la sonde de revue : **une** ligne hors des intervalles suffit à refuser.
+
+    Sur un document de plusieurs dizaines de lignes, l'omission d'une seule laissait la couverture
+    très au-dessus de la borne : le document était servi, et sa dernière ligne rattachée au nœud
+    voisin par héritage. Le rapport annonçait alors « proposition vérifiée » sur un arbre qui
+    contenait une affectation que personne n'avait prouvée.
+    """
+    dossier = _dossier(tmp_path)
+    pages, _toc = p.extract_pages(dossier / "source.pdf")
+    entrees = sorted(_registre(pages).values(), key=lambda entree: entree.ordre)
+    assert len(entrees) >= 10  # la couverture reste au-dessus de 90 % : c'est tout l'enjeu
+    proposition = s.StructureProposee(schema_version="1", doc_id=DOC, noeuds=[
+        s.NoeudPropose(titre_line_uid=entrees[0].uid, premiere_line_uid=entrees[0].uid,
+                       derniere_line_uid=entrees[-2].uid),  # la dernière ligne reste hors de tout nœud
+    ])
+    (dossier / "structure.json").write_text(
+        json.dumps(proposition.model_dump(), ensure_ascii=False, indent=2) + "\n", "utf-8")
+    report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
+    check = next(c for c in report.checks if c.name == "structure_proposee")
+    assert check.level == "bloquant" and "ligne_omise" in check.detail
+    assert entrees[-1].uid in check.detail
+    assert entry.status == "quarantaine" and not (dossier / "document.json").exists()
 
 
 def test_une_structure_json_hors_schema_est_un_refus_nomme_et_non_une_trace(tmp_path: Path) -> None:
@@ -690,6 +987,59 @@ def test_une_structure_json_hors_schema_est_un_refus_nomme_et_non_une_trace(tmp_
     check = next(c for c in report.checks if c.name == "structure_proposee")
     assert check.level == "bloquant" and "proposition_illisible" in check.detail
     assert "Traceback" not in check.detail and entry.status == "quarantaine"
+
+
+def _poser_artefact_non_regulier(chemin: Path, forme: str) -> None:
+    if forme == "repertoire":
+        chemin.mkdir()
+    elif forme == "lien_pendant":
+        chemin.symlink_to(chemin.parent / "proposition-absente.json")
+    elif forme == "lien_vers_repertoire":
+        (chemin.parent / "ailleurs").mkdir()
+        chemin.symlink_to(chemin.parent / "ailleurs")
+    elif forme == "tube":
+        os.mkfifo(chemin)  # lire un tube sans écrivain **bloque** : il faut refuser sans ouvrir
+    else:  # pragma: no cover - garde de programmation du test lui-même
+        raise AssertionError(forme)
+
+
+@pytest.mark.parametrize("forme", ["repertoire", "lien_pendant", "lien_vers_repertoire", "tube"])
+def test_un_structure_json_present_mais_non_regulier_part_en_quarantaine(
+        tmp_path: Path, forme: str) -> None:
+    """AD-16 : « présent mais illisible » n'est pas « absent » — jamais de repli sur l'heuristique.
+
+    `is_file()` répond `False` pour un répertoire, un lien pendant, un lien vers un répertoire ou un
+    tube : le chargement était alors sauté et l'ingestion retombait **silencieusement** sur
+    l'heuristique numérique, en servant le document, alors que `charger()` promet précisément de
+    classer ces artefacts en `proposition_illisible`. La présence se juge au sens du système de
+    fichiers (`lexists`, qui voit aussi le lien pendant), et tout ce qui existe passe par le refus
+    nommé et la quarantaine.
+    """
+    dossier = _dossier(tmp_path)
+    _poser_artefact_non_regulier(dossier / "structure.json", forme)
+    report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
+    check = next(c for c in report.checks if c.name == "structure_proposee")
+    assert check.level == "bloquant" and "proposition_illisible" in check.detail
+    assert check.detail.count("proposition_illisible") and "Traceback" not in check.detail
+    assert report.blocking and entry.status == "quarantaine"
+    assert not (dossier / "document.json").exists() and not (dossier / "summary.md").exists()
+
+
+@pytest.mark.parametrize("forme", ["repertoire", "lien_pendant", "lien_vers_repertoire", "tube"])
+def test_charger_refuse_tout_artefact_non_regulier_sans_jamais_louvrir(
+        tmp_path: Path, forme: str) -> None:
+    """Le refus est rendu par `charger()` lui-même, sur la seule nature de l'entrée de répertoire."""
+    chemin = tmp_path / "structure.json"
+    _poser_artefact_non_regulier(chemin, forme)
+    assert s.presente(chemin), "l'artefact existe : le traiter en absence est le repli interdit"
+    with pytest.raises(s.StructureRefusee) as leve:
+        s.charger(chemin)
+    assert leve.value.motif == "proposition_illisible" and leve.value.motif in s.MOTIFS
+
+
+def test_labsence_reste_une_absence_et_non_un_refus(tmp_path: Path) -> None:
+    """La contrepartie stricte : rien à cet emplacement ⇒ l'heuristique reste le chemin nominal."""
+    assert not s.presente(tmp_path / "structure.json")
 
 
 # --- Permutation métamorphique ------------------------------------------------------------------
@@ -799,7 +1149,8 @@ def test_le_vocabulaire_du_module_et_du_corpus_est_neutre() -> None:
     source = (inspect.getsource(s) + "".join(
         inspect.getsource(fabrique) for fabrique in
         (_corpus, _page, _proposition, _page_registre, _cas_de_registre, _proposition_du_document,
-         _page_a_deux_colonnes_avec_registre, _permuter))).lower()
+         _page_a_deux_colonnes_avec_registre, _permuter, _page_avec_table, _dossier_avec_table,
+         _dix_lignes))).lower()
     for interdit in ("axa", "baloise", "optihome", "bougie", "canape", "s-bougie", "p34:12",
                      "congelateur", "cigarette"):
         assert interdit not in source, f"vocabulaire non neutre : {interdit!r}"
