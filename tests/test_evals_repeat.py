@@ -81,7 +81,8 @@ def _reponse(claims: list[VerifiedClaim]) -> Answer:
 
 
 def _trace(pipeline: str = "guide") -> Trace:
-    variant = "outils" if pipeline == "guide" else "deterministe"
+    # Même défaut que le runner : le sinistre navigue par outils depuis la story 4.2d.
+    variant = runner.DEFAUT_PAR_SUITE[pipeline]
     return Trace(request_id="eval", pipeline=pipeline, variant=variant, total_cost_eur=0.01,
                  steps=[StepTrace(name="comprendre", tier="micro",
                                   opened_block_ids=[f"{GUIDE}:ffiche:1"],

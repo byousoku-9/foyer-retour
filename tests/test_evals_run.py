@@ -121,7 +121,9 @@ def _trace(pipeline: str = "guide", *, variant: str | None = None,
     calls = ([LLMCall(model="modele-test", usage=Usage(
         cost_eur=cost_eur_original, cost_eur_original=cost_eur_original))]
         if cost_eur_original else [])
-    variant = variant or ("outils" if pipeline == "guide" else "deterministe")
+    # La variante par défaut de la suite, lue sur le runner : depuis la story 4.2d le sinistre navigue
+    # lui aussi par outils, et un double qui trace `deterministe` mentirait à la garde de cohérence.
+    variant = variant or runner.DEFAUT_PAR_SUITE[pipeline]
     return Trace(request_id="eval", pipeline=pipeline, variant=variant, total_cost_eur=0.01,
                  steps=[StepTrace(name="comprendre", tier="micro", calls=calls)])
 

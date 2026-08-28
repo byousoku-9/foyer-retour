@@ -84,6 +84,7 @@ from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.pricing import estimate_run_majorant
 from server.app.pipelines import sinistre as pipeline_sinistre
+from server.app.pipelines.guide import VARIANT as VARIANT_GUIDE
 from server.app.pipelines.guide import VARIANTS as VARIANTES_GUIDE
 from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
@@ -135,6 +136,15 @@ VARIANTES_PAR_SUITE: dict[str, tuple[str, ...]] = {
     "guide": tuple(sorted(VARIANTES_GUIDE)),
     "sinistre": tuple(sorted(pipeline_sinistre.VARIANTES)),
     "parsing": ("local",),
+}
+# La variante qu'une suite tourne quand `--variant` n'est pas donné. Elle est **lue sur le pipeline**
+# (`VARIANT`), jamais recopiée : deux runs ne sont comparables qu'à variante égale, et le harness doit
+# mesurer ce que la production sert. Le parsing n'emprunte aucun pipeline — son unique variante est
+# le chemin local.
+DEFAUT_PAR_SUITE: dict[str, str] = {
+    "guide": VARIANT_GUIDE,
+    "sinistre": pipeline_sinistre.VARIANT,
+    "parsing": "local",
 }
 VARIANTES_LIVREES: tuple[str, ...] = tuple(sorted({
     variante for variantes in VARIANTES_PAR_SUITE.values() for variante in variantes
@@ -1097,8 +1107,7 @@ def variante_du_cas(cas: Cas, variante_demandee: str | None) -> str:
     """Résout la variante avant tout appel, en refusant les couples suite/variante impossibles."""
     suite = cas.suite.split("/", 1)[0]
     connues = VARIANTES_PAR_SUITE.get(suite, ())
-    variante = variante_demandee or (
-        "outils" if suite == "guide" else "local" if suite == "parsing" else "deterministe")
+    variante = variante_demandee or DEFAUT_PAR_SUITE.get(suite, "")
     if variante not in connues:
         raise RefusDeTourner(
             f"variante `{variante}` incompatible avec la suite `{suite}` "
@@ -1262,12 +1271,14 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
             answer, trace = await repondre_guide(cas.question, list(cas.historique),
                                                  cas.profil or Profil(), doc_id=doc_id,
                                                  dictionnaire=ctx.dictionnaire,
-                                                 variant=variant or "outils", **commun)
+                                                 variant=variant or DEFAUT_PAR_SUITE["guide"],
+                                                 **commun)
         else:
             assert cas.faits is not None  # garanti par `Cas._coherence`
             answer, trace = await pipeline_sinistre.run(
                 doc_id, cas.question, cas.faits,
-                dictionnaire=ctx.dictionnaires.get(doc_id), variant=variant or "deterministe", **commun)
+                dictionnaire=ctx.dictionnaires.get(doc_id),
+                variant=variant or DEFAUT_PAR_SUITE["sinistre"], **commun)
     except PipelineError as exc:
         # Une erreur terminale peut survenir après un ou plusieurs appels facturés. Le pipeline
         # attache sa trace partielle à l'erreur ; le budget reste l'autorité de coût même si cette
