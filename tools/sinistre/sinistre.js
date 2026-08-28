@@ -344,6 +344,7 @@
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
     quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
+    raison_hors_vocabulaire: "une raison de rejet hors du vocabulaire fermé écarte l'affirmation",
     refus: "refus composé, avec sa preuve d'absence",
     repli_deterministe: "navigation par outils incomplète : repli déterministe borné",
     relance_abandonnee: "relance de la rédaction abandonnée faute de budget",
