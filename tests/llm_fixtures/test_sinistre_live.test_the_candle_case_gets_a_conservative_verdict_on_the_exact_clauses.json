@@ -1,0 +1,207 @@
+{
+  "claude-haiku-4-5-20251001:045c2196cf92a2ff": {
+    "request": "claude-haiku-4-5-20251001:045c2196cf92a2ff",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": false, \"raison\": \"non_soutenue\"}], \"facettes\": [{\"facette\": 0, \"claim_ids\": []}], \"segments\": [{\"segment\": 0, \"soutenu\": false}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": null}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeVRLAHRxra5KLRpKLcHv",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 8924
+        },
+        "cache_creation_input_tokens": 8924,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 526,
+        "output_tokens": 143,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:77f4c79772a9cbf3": {
+    "request": "claude-haiku-4-5-20251001:77f4c79772a9cbf3",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Le mobilier de salon (canapé et table basse) endommagé par brûlure suite à la chute d'une bougie allumée le 1er août 2026 au salon du domicile est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"brûlure\", \"dégât du feu\", \"bougie\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier par brûlure accidentelle\"], \"bien\": \"mobilier de salon (canapé, table basse)\", \"evenement\": \"brûlure accidentelle sans propagation\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute de bougie allumée\", \"moment\": \"1er août 2026\"}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeVRKSjNFVwYFQoLVp6jT",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3431,
+        "output_tokens": 227,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:ee0e2cc12aab794f": {
+    "request": "claude-haiku-4-5-20251001:ee0e2cc12aab794f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": false, \"raison\": \"hors_objet\"}, {\"claim_id\": \"c3\", \"pertinente\": false, \"raison\": \"hors_objet\"}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": null}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeVRMKuAEnrhXaUcEPoQe",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8924,
+        "inference_geo": "not_available",
+        "input_tokens": 996,
+        "output_tokens": 235,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:2b68215cd597002d": {
+    "request": "claude-sonnet-5:2b68215cd597002d",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette garantie par contact direct avec un foyer incandescent ne vaut que pour le mobilier et le bâtiment désigné dans son champ propre ; pour les extensions visées aux points 3.1.8.3 à 3.1.8.6, les dégâts au bâtiment causés par un événement soudain de chaleur ou contact avec une substance incandescente sont exclus en l'absence d'embrasement ou de commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Le Preneur d'assurance est défini par le contrat comme une catégorie d'Assuré.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"Pour les extensions mentionnées aux points 3.1.8.3, 3.1.8.4, 3.1.8.5 et 3.1.8.6, les dégâts occasionnés au bâtiment par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l'absence d'embrasement ou de commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p46:1\",\"quote\":\"les dégâts occasionnés au bâtiment par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l'absence d'embrasement ou de commencement d'incendie.\"}]},{\"claim_id\":\"c3\",\"text\":\"Le Preneur d'assurance est défini par le contrat comme une catégorie d'Assuré.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p6:9\",\"quote\":\"1.3.1 Le Preneur d'assurance,\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeVRH3LdxTwBF52RFzS11",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7619,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 7619,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 3596,
+        "output_tokens": 1019,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a5cae049b7d14312": {
+    "request": "claude-sonnet-5:a5cae049b7d14312",
+    "response": {
+      "content": [
+        {
+          "signature": "ErEOCpABCBEYAipASxWy17Gi7okYbEyasP61hG/7QApI4GnsCJXmvMjDkESJPDZ/jqFwEISmfzbgZ6X57otVGjSKCNMISnImfA/55jIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcLfxtQGEgyvGJCglp7ieotokA0aDF3vPTWpfoiHtfCB2SIwZs3W8r+GxX7p23Mbs+ylXWkiwSZSG8EDBT1x3I2FLEE1hJoD0A5qy/Cm7ZHTwBlfKs0M9X8GHvR0j5RFqXri/ZOGB/YCjwWszkc3nALNUzWh66PUvXOEWa1V42La9rSgwCDExsx1Uybz4ygWiINAxMoXc1sT2XRAtNaoNI/1wVVWPHnTxVSGpXfpdFZxWTSNhJc9q1RuM3fLt2AkkurpWQ3iqqCpK3R6FuYJu5ZgVCTkRw4hzey6S6cxqCACSYTI+3avBz9Oa7ti84ZPyRbg7izquSP3KQx1XVtgP1qyGv3i+DPUDSwNhI9ViEXb7qWUMoLG4I0OwhagcD1HiA6o0JGWinCaMu6CVafZ2V6mEFIaV6/byO0EViZbD81g088j4stY2UbwVRb8ReaTi8S5Oqj3qoknK0O2haVjEJ8eJiq7G+543716RIbhuVlouracyNWTBOTNe6aVAnW+lO1Gc2+g5nEGtGhWmUDhNFzvORHyCr3DgSBVd+WTwk9fadoOErVQjIE/U0OOr4zOJwAxoTjfzE+h0BRoq46kMFjqQpHLZjUYQ8UFzNLjN0MxPodMWJzDEBhwAwjHy7ETwvwA8TavAs6Nq6E8Kq2+QBk9zNNGwlAToyzDu946ttoNW6eSzZWdcmnzQgPZTdCnRo8rnZpDXhEPQ5k65wVgI1V8xtHjvxUYoK2V/AcyRRBp/Avbz8nzgI/70cvd4lUhicgIc1GOQ2yOPf+B2twhNjDWJGN0zqJrUMlP4NT0neCGAZankYxJPNc4LwKHm8s4LZDBPIfSRiQ92jVZ1QpLQ0VqKDdVcKVVlWv7Xv58cr/eF3hplTrZcdFICYZMnnhY9iu0h4A7ykdAYU3sqiTMUj47wv7q4ue4HZPzyTpCivVPUEEwtch5Ts+Z8LUSy1hvKkyLTEQlefuPvLRRbP6gmImqRthOu1vvW9wUgnlXOW3TCNOtB3W2gr8k6IL7tpcjF3Y0+xgy224YuHrRuFtaAMN1j/kL9lXHRLHd6pBT+0LwKjTz4c6T4pq/z0ATH4D819NPcsfldrpQwJGylL2mxT7hjPqNvG/2H9qVesltxat25WLNWOUBboWyXU/yMYlSHpOwuM2gPjqL1KOVmk8qdi388aPfNdJ3jiH94tSiETTXEVfJHtp43ELuUS2HcKHAWq5xnKWaYLOWHYXnFYrbHKk6KgAOj8NoUZWrpSstJDcIesg6ga9JLCoVaPYB0cd+Pj19o63jCJqDB6BkthA8smQ53ul1cxUqs179UvwCEwhXG4V11y8b0+O8/MwLzCoFVtplNVLlI1AAj2HFyHICq5oggTWykbwCE8LQOL1gG9s3Czm1eeAPJ3xyee3yPVIiOFG4kLPYkmCYVLSG6U/xf9pCcUrefI7ap0rILJVoblhNnjWfy/gNa/KD3XT6v3a5CkbB1orIFV2T/0+okWCH1pG/YppIJSyRhRfMo1ZlQOUY0ZLQWaC9tQ7rF3NM07TLSN4p2x25jJCEeuqn3LfOGP9sjI9h+Vkr8GKIET2elSUS7OwR5Jdglqq7aXeJVO+7m/Z1k3ScylF7maSzLzHtCvrgkIBkpr4Etn+jjdv/59HSAj8lLWjFJHrY4beAph+4NfAmJ8CAlQ+Eb2P2Vdcrj8MCbK0u0DsHRwN/t17YLwaRRZE/fyehFKhO9JHUnlZEc8NaXMAAr7v0cttkbjMOTGysbnu11TXQKi/Qtqnf7RzOYc2bGQt7V8f25bmUS1TOExYL1IK1gYP9lXlLTYklyVsKTHBYjRxKmlNYLmTZ9ij+YcuYjW4hZI/lbkmWC4s2G0PjRHyqjs9B0QC0x7wEXgWaAfUSmJvibsN3sBWOvNr2HWjCgcUwA4zXx0aQpfex7v9bWaHH5nAtYea6ZyPBJd8+BkBLDzkejm4HS4MUCVf9zElCj8wDTGbNXMB1vcRKH1DakZwNLKbdEL3KX1BF/CkmmRFpNufpmtNKzZyqWu3Z4VBM/5DYfiEaE6bIZd9KUYEexKMgzLRI5ObTRPFXCwBy+1oxjVN5UFrgM1+P7S83qf22mqNsfsrbJxgegdGw1soEZey8ln23jk8SqH6ll5L1rkA3BRpAHKf1pVidcZBHhWoNmMl+HC1/0yCeCpfIpfsF58Lb1DmZ9GXGK8vC3etFzL+RcgeRc9kkib90wjRVmSi+LfdZ7v3j94efwcAbgS8dfWHSPh8KO9btkZEaX0t4Vf0YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Une clause du contrat traite des dommages causés par le feu aux biens.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Une autre clause, relative à la chasse, garantit certains dommages liés au feu survenu à cette occasion.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Le contrat définit également ce qu'englobe le bâtiment désigné.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les blocs fournis ne permettent pas d'établir davantage de précisions sur la couverture du mobilier de salon endommagé par une bougie.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat exclut les dommages aux biens causés par le feu, la fumée, l'eau, l'explosion, l'implosion, le déplacement du sol ou du bâtiment.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p50:18\",\"quote\":\"aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\"}]},{\"claim_id\":\"c2\",\"text\":\"Le contrat garantit les dommages causés par le feu ou les explosions ayant pris naissance sur le terrain de chasse à l'occasion de la chasse et des activités y relatives.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p70:16\",\"quote\":\"par le feu ou les explosions ayant pris naissance sur le terrain de chasse à l’occasion de\\nla chasse et des activités y relatives\"}]},{\"claim_id\":\"c3\",\"text\":\"Le bâtiment désigné inclut notamment les cours.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p7:6\",\"quote\":\"1.5.1 les cours ;\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeVRLMvv9ovRvohgjRode",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7619,
+        "inference_geo": "global",
+        "input_tokens": 3680,
+        "output_tokens": 1243,
+        "output_tokens_details": {
+          "thinking_tokens": 582
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:e6d79d822b718ebf": {
+    "request": "claude-sonnet-5:e6d79d822b718ebf",
+    "response": {
+      "content": [
+        {
+          "signature": "EucFCpABCBEYAipAMswSSciZIAuTbkS4SAvt9kk8D76dzainsHS9R3qS3edvsJsWrB+QwhAZcdLDEhhyCqM6IZMWagZ+M6/Pmm1e3DIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbXfxtQGEgyS3O/yp2YIMZb1B+UaDG7kOjEwGM+P/ZSbqSIw53+7ZLsemD0+isLrRQbOCT/aDS5rencySNx9FkSjbcm1/bD7ssygucL26IOY4kfWKoME/+plDew2hyQk22sCmVXXK4tcS7gxuBs5TA1sd1H4OhzlwlqaaFqGOiSAuysRM53ReAw5aF4UKBhBb6GrjvkGNUD2KeypVcEq7VHEzG9NmTms/Xqd+uonLa1S6kuMoFehKmqQXKm+GmIXzUiwa+vi++VDU64k3HZw4AX8UjHmPCY7jmvTA7wV+Vb0kYivqAZ/oOv5wfmwk0r7AjkuMfxwUcqDxepBFlhKjAgHTs3JQkAa9EvzEihlDiN2pREm9lEFjg3vgsyd0lEyynsXbmKRuGoeW/aRF481p0vycqXIWUNVpqfEw3QnxseOrc4Te9jtFkfsOg0AKg1Q7GcjwVyVKhQd25cHVCukoMstX8k6VOFM64f+oyB+Ibm6xHSGOxnuevlu3xcBxrlc4TIOsO2es2J9xM1og0oLg6LpBFzzOGHFUoNqpKtNU1M3XFu3aWqHEVqco+8WVMLLNYa4qqNki6/gQ4STpZFpCErTMwaYz2510967Bh/BSUwx9ZazvyRn1GZtHkfN0jIoYxT0P42A3sEPHf9QOxEAtWYH2dn/2X8IqeMWbCdt2w2GtgmjKRsIFCbfh9JESCE3+AdFxROYGwTTDHNq4AntOFvqGP68RrLV+3OZOkPULO6ogVg7ZVG+p8IbKTsYUtXWaY8Z1lQ8yRGHy2PzjtnaeK0cwbVaIgjoBn0YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La clause 3.1.10.3.3 exclut les dommages aux biens causés par le feu, la fumée ou l'eau, sous réserve du contexte de l'exclusion applicable.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La clause 3.1.10.3.3 exclut les dommages aux biens causés par le feu, la fumée ou l'eau, sous réserve du contexte de l'exclusion applicable.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p50:18\",\"quote\":\"aux biens par le feu, la fumée, l'eau, l'explosion, l'implosion, le déplacement du sol ou du\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeVRKesrqciingvCETHSD",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7619,
+        "inference_geo": "global",
+        "input_tokens": 3339,
+        "output_tokens": 469,
+        "output_tokens_details": {
+          "thinking_tokens": 205
+        },
+        "service_tier": "standard"
+      }
+    }
+  }
+}
