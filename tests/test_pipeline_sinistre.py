@@ -1469,8 +1469,9 @@ async def test_les_deux_variantes_rendent_le_meme_contrat_sous_le_meme_budget(
     outils, deterministe = resultats["outils"], resultats["deterministe"]
     # Même contrat : mêmes champs, même type — `RetrievalResult` n'a pas de variante d'un côté.
     assert set(outils.model_dump()) == set(deterministe.model_dump())
-    # Même borne, à l'octet des seuils près : c'est `retrieval_budget(settings)` des deux côtés.
-    assert bornes["outils"] == bornes["deterministe"]
+    # Même borne, à l'octet des seuils près : c'est `retrieval_budget(settings)` des deux côtés (deux
+    # requêtes distinctes ici, donc deux objets — l'identité se prouve dans le test du repli).
+    assert bornes["outils"] == bornes["deterministe"] == retrieval_budget(_settings())
     # Mêmes blocs atteignables : sur ce corpus, la navigation ouvre ce que l'index classe.
     assert sorted(outils.opened_block_ids) == sorted(deterministe.opened_block_ids)
     assert (sorted(b.block_id for b in outils.blocs)
@@ -1482,13 +1483,19 @@ async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
         index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC : repli **unique**, borné, sous le même budget, et nommé dans la trace."""
     appels: list[dict[str, Any]] = []
-    reel = sinistre.retrouver_deterministe
+    bornes_outils: list[Any] = []
+    reel_deterministe, reel_outils = sinistre.retrouver_deterministe, sinistre.retrouver_outils
 
     def capture(*args: Any, **kw: Any):
         appels.append(kw)
-        return reel(*args, **kw)
+        return reel_deterministe(*args, **kw)
+
+    async def capture_outils(*args: Any, **kw: Any):
+        bornes_outils.append(kw["budget"])
+        return await reel_outils(*args, **kw)
 
     monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
+    monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
     answer, trace, fake = await _run(index, [
         _comprendre(), _outils(), _rediger(GAR),
         _verifier(("c1", True, True, False, False, None))], variant=SANS_VARIANTE)
@@ -1497,8 +1504,9 @@ async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
     retrouver = trace.steps[1]
     # Une seule tentative de repli, et elle garde le départage décisionnel de la story 1.8.
     assert len(appels) == 1 and appels[0]["kinds_prioritaires"] == KINDS_DECISIONNELS
-    # Sous **la même** borne, littéralement le même objet : le repli ne repart pas sur un budget neuf.
-    assert appels[0]["budget"] == retrieval_budget(_settings())
+    # Sous **la même** borne, littéralement le même objet : un repli qui reconstruirait un budget de
+    # même valeur satisferait une égalité, pas une identité — et AD-1 borne l'étape, pas chaque passe.
+    assert len(bornes_outils) == 1 and appels[0]["budget"] is bornes_outils[0]
     assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
     # Un seul appel modèle : le repli est du code pur, il n'ajoute aucun tour.
     assert len(retrouver.calls) == 1 and retrouver.tier == _tier_de_navigation()

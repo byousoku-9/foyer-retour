@@ -174,8 +174,15 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     assert etapes[:4] == ["comprendre", "retrouver", "rediger", "verifier"]
     assert etapes[-1] == "restituer"
     assert etapes[4:-1] in ([], ["rediger"], ["rediger", "verifier"]), etapes
-    assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
-    assert trace.steps[1].calls == []  # *retrouver* déterministe : aucun modèle
+    # Story 4.2d : `run` est appelé **sans** `variant`, et le défaut du pipeline est désormais la
+    # navigation par outils (AD-1, amendement du 25/08/2026) — c'est ce que sert `POST /api/v1/sinistre`,
+    # donc ce que ce témoin live doit mesurer. *retrouver* porte maintenant son appel de navigation et
+    # publie son tier réel, lu sur la configuration (AD-9) et jamais recopié ici.
+    assert trace.pipeline == "sinistre" and trace.variant == sinistre.VARIANT == "outils"
+    retrouver = trace.steps[1]
+    assert retrouver.name == "retrouver" and retrouver.tier == settings.retrouver_outils_tier
+    assert len(retrouver.calls) >= 1, "la navigation par outils appelle le modèle"
+    assert len(retrouver.calls) <= settings.max_llm_turns  # bornée à deux tours (AD-1)
     for step in (s for s in trace.steps if s.name == "verifier"):
         assert len(step.calls) == 1, "AD-9 amendé : un seul appel `micro`, jamais un second"
     assert budget.cost_eur < settings.max_cost_eur_per_request
