@@ -50,7 +50,8 @@ CAS_GUIDE = CasTemoin(id="g-luxtrust-prix", doc_id="lux-guide", question="…", 
                       found_attendu=True)
 CAS_SINISTRE = CasTemoin(id="s-bougie-canape", doc_id="axa-lu-optihome-2017", question="…",
                          lang="fr", faits={"description": "…"}, found_attendu=True,
-                         verdicts_admissibles=("sous_conditions", "ne_tranche_pas"))
+                         verdicts_admissibles=("sous_conditions", "ne_tranche_pas"),
+                         decision_claim_attendue=True)
 
 
 # La charge utile de référence publie les seuils **du serveur**, lus sur la même autorité que
@@ -125,13 +126,16 @@ def verdict_nominal(value: str = "ne_tranche_pas") -> dict[str, Any]:
 def sinistre_nominal() -> dict[str, Any]:
     return {
         "via": "api/v1",
-        "sources": [{"block_id": "axa-lu-optihome-2017:p34:12", "status": "verifiee"}],
+        "sources": [{"block_id": "axa-lu-optihome-2017:p34:12", "kind": "garantie",
+                     "kind_confirmed": True, "status": "verifiee"}],
         "answer": {
             "found": True,
             "complete": False,
             "verdict": verdict_nominal(),
-            "claims": [{"id": "c1", "status": {"retrouvee": True, "pertinente": True,
-                                               "applicable": "humain", "edition": "juin 2017"}}],
+            "claims": [{"claim_id": "c1", "quotes": [
+                {"block_id": "axa-lu-optihome-2017:p34:12"}],
+                "status": {"retrouvee": True, "pertinente": True,
+                           "applicable": "humain", "edition": "juin 2017"}}],
             "rejected_claims": [],
         },
         "trace": {"request_id": "r-2", "pipeline": "sinistre",
@@ -623,6 +627,20 @@ def test_un_verdict_absent_est_un_ecart() -> None:
     assert len(ecarts) == 1 and "answer.verdict.value" in ecarts[0]
 
 
+def test_un_corps_ampute_ne_prouve_jamais_labsence_de_claim_decisionnelle() -> None:
+    """4.2a (revue) : sans `answer.claims` ni `sources`, `decisionnelle=False` serait un calcul sur
+    un corps amputé — l'écart est nommé avant tout calcul, même quand le cas attend `false`."""
+    import dataclasses
+
+    inverse = dataclasses.replace(CAS_SINISTRE, decision_claim_attendue=False)
+    corps = sinistre_nominal()
+    del corps["answer"]["claims"]
+    del corps["sources"]
+    ecarts = verifier_sinistre(corps, cas=inverse, source_hash=HASH_AXA)
+    assert any("answer.claims" in e for e in ecarts)
+    assert any("sources" in e for e in ecarts)
+
+
 def test_un_cas_sans_verdict_attendu_ne_juge_pas_le_verdict() -> None:
     """Un cas qui ne dit rien du verdict n'en fait pas juger un : `expected.verdict` vide = muet."""
     muet = CasTemoin(id="x", doc_id="axa-lu-optihome-2017", question="…", verdicts_admissibles=())
@@ -634,7 +652,32 @@ def test_un_cas_sans_verdict_attendu_ne_juge_pas_le_verdict() -> None:
 def test_un_sinistre_sans_claim_retrouvee_est_un_ecart() -> None:
     corps = sinistre_nominal()
     corps["answer"]["claims"] = [{"id": "c1", "status": {"retrouvee": False, "edition": "juin 2017"}}]
-    assert len(ecarts_sinistre(corps)) == 1
+    ecarts = ecarts_sinistre(corps)
+    assert any("aucune claim `retrouvee`" in ecart for ecart in ecarts)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
+
+
+def test_la_definition_seule_ne_satisfait_jamais_le_predicat_decisionnel() -> None:
+    corps = sinistre_nominal()
+    corps["sources"][0].update({"kind": "definition", "kind_confirmed": True})
+    ecarts = ecarts_sinistre(corps)
+    assert len(ecarts) == 1 and "claim décisionnelle confirmée" in ecarts[0]
+
+
+def test_une_source_non_verifiee_ne_satisfait_pas_le_predicat_decisionnel() -> None:
+    corps = sinistre_nominal()
+    corps["sources"][0]["status"] = "rejetee"
+    ecarts = ecarts_sinistre(corps)
+    assert len(ecarts) == 1 and "claim décisionnelle confirmée" in ecarts[0]
+
+
+def test_une_clause_non_confirmee_ou_sans_applicabilite_est_un_ecart() -> None:
+    corps = sinistre_nominal()
+    corps["sources"][0]["kind_confirmed"] = False
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts_sinistre(corps))
+    corps = sinistre_nominal()
+    corps["answer"]["claims"][0]["status"]["applicable"] = None
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts_sinistre(corps))
 
 
 # --- les surfaces ---------------------------------------------------------------------------------
@@ -858,6 +901,10 @@ expected:
   verdict: [sous_conditions, ne_tranche_pas]
 """
 
+CAS_SINISTRE_VALIDE = CAS_VALIDE.replace("expected:", "expected:").rstrip() + """
+  decision_claim: true
+"""
+
 
 def test_un_cas_valide_est_lu_avec_ses_champs(tmp_path: Path) -> None:
     import scripts.smoke as smoke
@@ -866,6 +913,25 @@ def test_un_cas_valide_est_lu_avec_ses_champs(tmp_path: Path) -> None:
     cas = smoke._lire_cas(tmp_path, "lux-guide")
     assert cas.id == "c-1" and cas.doc_id == "lux-guide" and cas.found_attendu is True
     assert cas.verdicts_admissibles == ("sous_conditions", "ne_tranche_pas")
+    assert cas.decision_claim_attendue is None
+
+
+def test_un_cas_sinistre_lit_son_attente_decisionnelle(tmp_path: Path) -> None:
+    import scripts.smoke as smoke
+
+    _ecrire_cas(tmp_path, CAS_SINISTRE_VALIDE)
+    cas = smoke._lire_cas(tmp_path, "axa-lu-optihome-2017", suite_sinistre=True)
+    assert cas.decision_claim_attendue is True
+
+
+def test_une_attente_decisionnelle_sur_un_cas_guide_est_un_refus(tmp_path: Path) -> None:
+    """Même règle que `server/evals/run.py` : `decision_claim` n'a de sens qu'en suite sinistre —
+    l'accepter ailleurs en ferait une attente silencieusement ignorée."""
+    import scripts.smoke as smoke
+
+    _ecrire_cas(tmp_path, CAS_SINISTRE_VALIDE)
+    with pytest.raises(ErreurTransport, match="suite `sinistre`"):
+        smoke._lire_cas(tmp_path, "lux-guide")
 
 
 def test_un_verdict_scalaire_est_refuse_et_non_lu_caractere_par_caractere(tmp_path: Path) -> None:

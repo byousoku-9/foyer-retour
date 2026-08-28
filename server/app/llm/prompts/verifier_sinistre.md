@@ -10,23 +10,66 @@ champ pour le faire, et la table qui en décide est appliquée par le code appel
 plus si la clause « s'applique » : tu rends des valeurs typées et deux listes de libellés, le code
 en tire l'applicabilité.
 
-Pour le jugement `pertinente` demandé par les instructions communes, une clause qui définit le
-**sens de la responsabilité** (qui est l'Assuré, qui est le tiers, qui cause le dommage) apporte bien
-un élément de réponse à une question qui compare deux responsabilités civiles, y compris quand ce
-sens est l'inverse de celui du sinistre déclaré. Si l'affirmation reste exactement soutenue par la
-quote, rends `pertinente = true` ; la question de périmètre ci-dessous enregistrera ensuite que la
-clause ne vise pas le cas. Ne rejette pas cette preuve de sens comme « hors sujet ».
+Pour le jugement `pertinente` demandé par les instructions communes, sépare toujours l'objet
+contractuel de la question et l'applicabilité au dossier. Une affirmation qui rapporte fidèlement la
+règle conditionnelle d'une clause répond à l'objet dès que cette règle traite la garantie,
+l'exclusion ou la responsabilité interrogée, même si une qualité exigée manque dans les faits ou si
+le périmètre est contraire. Rends alors `pertinente = true` : les champs ci-dessous enregistreront
+ensuite `humain` pour une qualité manquante ou `non` pour un périmètre contraire. Ne transforme
+jamais cette règle en « la clause s'applique » : sans preuve dans les faits ou dans la quote, cette
+conclusion ajoutée vaut `pertinente = false` avec `raison = conclusion_ajoutee`.
+
+La suffisance de la quote se lit grammaticalement : la citation retenue doit porter à la fois le
+**sujet** dont l'affirmation parle et l'**opérateur** de couverture qu'elle revendique (couvre,
+exclut, est garanti, est soumis à condition…). Un passage qui n'établit qu'une partie — le sujet
+sans l'opérateur, ou l'opérateur sur un autre sujet — n'établit pas l'affirmation : rends
+`pertinente = false` avec `raison = non_soutenue`, quel que soit le voisinage thématique.
+
+Le champ `clause.kind` est le typage contractuel confirmé du passage. Il guide l'opérateur à
+contrôler mais ne constitue pas une preuve textuelle autonome. Quand la quote est un item de liste
+grammaticalement incomplet, sa claim peut nommer son appartenance à la rubrique parente donnée par
+la structure du contrat puis décrire seulement ce que l'item énumère. Cette formulation n'invente
+pas un verdict. En revanche, une claim qui dit qu'une `exclusion` garantit ou couvre ce qu'elle
+énumère — ou qu'une `garantie` l'exclut — inverse la règle : rends `pertinente = false`. Ne déduis
+jamais l'opérateur de la seule étiquette si ni le texte ni la rubrique citée dans la claim ne le
+porte.
 
 Quand un segment factuel reprend exactement `Claim.text`, ses jugements ne posent pas deux questions
 différentes : si la quote soutient cette claim et qu'elle répond à la question (`pertinente=true`),
 le segment porte la même valeur de vérité (`soutenu=true`). Inversement, une claim non pertinente ne
-rend pas son segment soutenu. Ne produis jamais deux booléens opposés pour le même texte.
+rend pas son segment soutenu. Contrôle cette cohérence juste avant de rendre le JSON : pour un segment
+factuel byte-identique à une claim elle-même byte-identique à sa quote, la paire
+`pertinente=true, soutenu=false` est impossible. Ne produis jamais deux booléens opposés pour le même
+texte.
 
-Exemple normatif : si un tiers a cassé le bien de l'Assuré et que la question demande « sa RC ou
-mon contrat ? », l'affirmation « la RC vie privée fournie vise les dommages que l'Assuré cause à des
-tiers » est `pertinente = true` lorsqu'elle est soutenue par sa quote. Elle répond en établissant le
-sens de cette clause, sans conclure sur le contrat du tiers. Dans les champs d'applicabilité, son
-périmètre est en revanche contraire au cas déclaré (`fait_requis_present = false`).
+Exemple normatif, étranger par construction à tout cas soumis : une clause couvre les dommages à un
+bien **si** le choc qui l'atteint est violent. Si les faits disent seulement qu'un vase a basculé
+sur le tapis, l'affirmation « la clause vise les dommages causés par un choc violent » reste
+pertinente lorsqu'elle est soutenue par sa quote ; l'applicabilité vaut ensuite `humain`, car le
+caractère violent du choc reste à établir. Écrire « ce dommage est couvert » ajoute au contraire une
+conclusion que ni la quote ni les faits n'établissent. La règle vaut à l'identique quels que soient
+le bien, l'événement et la qualité exigée : elle ne dépend d'aucun objet ni d'aucune condition
+particulière.
+
+Le verbe « couvrir » ne suffit donc pas à transformer une règle en conclusion : « le contrat couvre
+les dommages **causés par un choc violent** » rapporte encore la règle conditionnelle et vaut
+`pertinente = true` si la quote l'établit. Seule une formulation qui rattache cette couverture au
+dossier (« ce dommage est couvert », « cette clause s'applique au sinistre décrit ») ajoute
+l'application au cas.
+
+Procède littéralement dans cet ordre : (1) relève toutes les conditions conservées dans
+l'affirmation ; (2) demande-toi si son sujet est seulement le contrat/la clause et une catégorie de
+dommages, ou si elle désigne le dossier reçu ; (3) n'utilise les faits que pour `applicabilite`. Une
+affirmation dont le sujet est le contrat et qui conserve les conditions de la quote est la règle,
+pas le verdict demandé par la question — même si elle emploie « couvre ». Ne rends jamais
+`conclusion_ajoutee` pour cette seule forme.
+
+L'objet peut être une décision finale **ou** l'identification des catégories de dommages, garanties,
+exclusions ou règles à examiner. Dans ce second cas, une règle soutenue qui traite l'un des dommages
+déclarés répond déjà à l'objet : elle reste `pertinente = true`, même si elle ne rattache pas encore
+ce dommage à la catégorie contractuelle et même si une autre facette reste sans réponse. La
+couverture des facettes mesure séparément ce qui manque ; elle ne rend pas hors objet la règle utile
+à une seule facette.
 
 - `claim_id` : reprends **tel quel** l'identifiant de l'affirmation. N'invente aucun identifiant,
   n'en réponds aucun deux fois, n'en rends pas pour une affirmation sans clause décisionnelle.

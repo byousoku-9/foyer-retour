@@ -274,6 +274,10 @@ class Settings(BaseSettings):
     quote_max_chars: int = Field(250, ge=1)
     draft_max_segments: int = Field(6, ge=1)
     draft_max_claims: int = Field(4, ge=1)
+    # Story 4.2a : nombre maximal de définitions auxiliaires que la rédaction sinistre rend
+    # vérifiables par ébauche. Une définition éclaire la clause décisionnelle sans s'y substituer ;
+    # ce seuil de comportement se règle ici, jamais en dur dans l'étape.
+    draft_max_definitions: int = Field(1, ge=0)
     question_min_terms: int = Field(2, ge=0)
     question_max_terms: int = Field(6, ge=1)
     # AD-4 : le découpage de la question en sous-questions, rendu par *comprendre*. Borné pour la
@@ -585,6 +589,7 @@ class Settings(BaseSettings):
             "quote_max_chars": self.quote_max_chars,
             "draft_max_segments": self.draft_max_segments,
             "draft_max_claims": self.draft_max_claims,
+            "draft_max_definitions": self.draft_max_definitions,
             "question_min_terms": self.question_min_terms,
             "question_max_terms": self.question_max_terms,
             "question_max_facettes": self.question_max_facettes,

@@ -62,14 +62,15 @@ def _settings(**kw: Any) -> Settings:
     return Settings(_env_file=None, **defauts)
 
 
-def _document(doc_id: str, kind: str, texte: str, loc: str) -> Document:
+def _document(doc_id: str, kind: str, texte: str, loc: str, *,
+              block_kind: str = "para", kind_source: str | None = None) -> Document:
     doc = Document(
         doc_id=doc_id, kind=kind, title=f"Doc {doc_id}", edition="2020",
         source_hash="s", ingest_fingerprint="f",
         nodes=[Node(node_id=f"{doc_id}:n1", level=1, title="N1",
                     items=[{"block_id": f"{doc_id}:{loc}:1"}])],
-        blocks=[{"block_id": f"{doc_id}:{loc}:1", "loc": loc, "seq": 1, "kind": "para",
-                 "text": texte}])
+        blocks=[{"block_id": f"{doc_id}:{loc}:1", "loc": loc, "seq": 1, "kind": block_kind,
+                 "kind_source": kind_source, "text": texte}])
     for b in doc.blocks:
         b.text_norm = normalize(b.text)
     return doc
@@ -77,7 +78,8 @@ def _document(doc_id: str, kind: str, texte: str, loc: str) -> Document:
 
 def _corpus() -> tuple[Corpus, Index]:
     docs = {GUIDE: _document(GUIDE, "guide", TEXTE_GUIDE, "ffiche"),
-            CONTRAT: _document(CONTRAT, "contrat", TEXTE_CONTRAT, "p34")}
+            CONTRAT: _document(CONTRAT, "contrat", TEXTE_CONTRAT, "p34",
+                               block_kind="garantie", kind_source="manual")}
     manifest = {d: ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
                                  document_hash="d", edition="2020") for d in docs}
     corpus = Corpus(documents=docs, manifest=manifest,
@@ -93,9 +95,11 @@ def _citation(index: Index, block_id: str, extrait: str) -> VerifiedQuote:
                          text_start=debut, text_end=debut + len(extrait))
 
 
-def _claim(quote: VerifiedQuote, claim_id: str = "c1") -> VerifiedClaim:
+def _claim(quote: VerifiedQuote, claim_id: str = "c1", *,
+           applicable: str | None = None) -> VerifiedClaim:
     return VerifiedClaim(claim_id=claim_id, text="Une affirmation.", quotes=[quote],
-                         status=ClaimStatus(retrouvee=True, pertinente=True, edition="2020"))
+                         status=ClaimStatus(retrouvee=True, pertinente=True, applicable=applicable,
+                                            edition="2020"))
 
 
 def _reponse(claims: list[VerifiedClaim], *, verdict: Verdict | None = None,
@@ -298,7 +302,7 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
 def test_les_cinq_verticaux_restent_byte_identiques() -> None:
     attendus = {
         "guide/g-luxtrust-prix.yaml": "f2e571839b87973ba6507343558a64cd2eb136c357f84f2fbe6e65cec78f58df",
-        "sinistre/s-bougie-canape.yaml": "2d571d64f7f275c4c80ae4d466b3a5ca2ea76bb7e201b076b865dd99977d4664",
+        "sinistre/s-bougie-canape.yaml": "207ebc073d8e32869737d1e609810e17f0b065d8c4c78776b41d4d06c56e78c2",
         "sinistre/baloise-lu-home-2-2024/b-bougie-canape.yaml": "6b98d6906df82d303c8a41c1226b07eebcfb50d84dc2b00144403f7cd92395aa",
         "sinistre/baloise-lu-home-2-2024/b-congelateur.yaml": "89c243e258152d9aded0a33f9de48a5998704384867b15718c9be600b8ecde6f",
         "sinistre/baloise-lu-home-2-2024/b-invite-cigarette.yaml": "a6e19c8872db005e4152594844c45608538660088c16ae4e0e6504208a8e15b8",
@@ -787,12 +791,40 @@ def _cas(**kw: Any) -> runner.Cas:
     return runner.Cas.model_validate(base)
 
 
+def test_expected_decision_claim_est_un_booleen_strict_et_reserve_au_sinistre() -> None:
+    with pytest.raises(runner.ValidationError, match="decision_claim"):
+        _cas(suite="sinistre", faits={"description": "x"},
+             expected={"found": True, "decision_claim": "true"})
+    with pytest.raises(runner.ValidationError, match="suite `sinistre`"):
+        _cas(expected={"found": True, "decision_claim": True})
+
+
 def test_une_reponse_conforme_est_une_bonne_reponse() -> None:
     _corpus_, index = _corpus()
     answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
     label, ecarts = runner.juger(_cas(expected={"found": True, "fiche_ids": [f"{GUIDE}:n1"]}),
                                  answer, doc_id=GUIDE, index=index)
     assert (label, ecarts) == ("bonne_reponse", [])
+
+
+def test_le_predicat_decisionnel_exige_kind_confirme_et_applicabilite_calculee() -> None:
+    _corpus_, index = _corpus()
+    citation = _citation(index, f"{CONTRAT}:p34:1", "mobilier assuré")
+    cas = _cas(suite="sinistre", faits={"description": "x"},
+               expected={"found": True, "decision_claim": True})
+
+    sans_applicabilite = _reponse([_claim(citation)])
+    _label, ecarts = runner.juger(cas, sans_applicabilite, doc_id=CONTRAT, index=index)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
+
+    decisionnelle = _reponse([_claim(citation, applicable="humain")])
+    label, ecarts = runner.juger(cas, decisionnelle, doc_id=CONTRAT, index=index)
+    assert (label, ecarts) == ("bonne_reponse", [])
+
+    bloc = index.corpus.documents[CONTRAT].block(f"{CONTRAT}:p34:1")
+    bloc.kind_source = None
+    _label, ecarts = runner.juger(cas, decisionnelle, doc_id=CONTRAT, index=index)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
 
 
 def test_un_bloc_attendu_absent_du_corpus_est_citation_introuvable() -> None:

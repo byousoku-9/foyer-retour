@@ -129,7 +129,7 @@ temoins:
     incident: "repetition manquante = rouge au denominateur"
     scope: case
     mesure_par: orchestrator
-    note: "le predicat decision_claim vit sur la branche 4.2a (non fusionnee) : ce runner ne le duplique pas"
+    note: "le predicat est fusionne dans juger (chaque repetition d'un cas expected.decision_claim le juge) ; la serie chiffree du gate reste mesuree par la serie orchestrateur"
   - metric: stabilite_sinistre
     pipeline: sinistre
     famille: stabilite

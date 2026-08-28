@@ -28,7 +28,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from server.app.config import Settings
-from server.app.domain.answer import AbsenceProof, Answer, Verification
+from server.app.domain.answer import AbsenceProof, Answer, AnswerDraft, AnswerSegment, Claim, Verification
 from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
     BudgetExceeded,
@@ -119,17 +119,96 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
 
 
 def _fondatrice_survivante(verification: Verification, *, corpus: Any, index: Any) -> bool:
-    """Une claim affichée cite-t-elle une garantie ou exclusion qui peut fonder AD-6 ?"""
+    """Une claim affichée cite-t-elle une garantie ou exclusion confirmée qui peut fonder AD-6 ?
+
+    Corrective 4.2a : le typage doit être **confirmé**, comme pour `_fondatrices_omises` et le
+    prédicat décisionnel. Une clause au kind non confirmé vaut `applicable="humain"` (AD-6) — elle
+    ne peut fonder ni `couvert` ni `non_couvert` — et la seule apparition d'un kind ne doit jamais
+    faire perdre plusieurs acquis à la dominance.
+    """
     for claim in verification.claims:
         for quote in claim.quotes:
             try:
                 document = corpus.documents[index.doc_of(quote.block_id)]
-                kind = document.block(quote.block_id).kind
+                bloc = document.block(quote.block_id)
             except KeyError:
                 continue
-            if kind in KINDS_FONDATEURS:
+            if bloc.kind in KINDS_FONDATEURS and bloc.kind_confirmed:
                 return True
     return False
+
+
+def _fondatrices_omises(verification: Verification, retrieval: Any,
+                        settings: Settings) -> list[str]:
+    """Blocs `garantie|exclusion` confirmés retrouvés dont aucune claim survivante ne cite un seul.
+
+    Preuve finale 4.2a : la rédaction peut ne rendre qu'une définition et un segment limite —
+    aucun rejet, donc aucun motif, donc aucune relance — alors que le retrieval portait une clause
+    décisionnelle confirmée. Le témoin d'AD-6 exige qu'une règle retrouvée soit rendue vérifiable,
+    son applicabilité étant **calculée par le code** : une portée contraire vaut `applicable="non"`,
+    jamais une omission. Le `kind` vient de l'ingestion, relu sur les blocs du retrieval ; aucun
+    vocabulaire de la question n'entre dans la décision. Dès qu'une seule fondatrice est citée par
+    une claim survivante, rien n'est signalé : la base décisionnelle existe. Ce déclencheur est
+    complémentaire de `_fondatrice_rejetee` (clause citée mais rejetée) et de
+    `_fondatrice_survivante` (adoption de la seconde vérification) : il couvre la clause jamais
+    citée, que les deux autres ne voient pas.
+    """
+    fondatrices = [b.block_id for b in retrieval.blocs
+                   if b.kind in KINDS_FONDATEURS and b.kind_confirmed]
+    if not fondatrices:
+        return []
+    citees = {quote.block_id for claim in verification.claims for quote in claim.quotes}
+    if citees & set(fondatrices):
+        return []
+    return fondatrices[:settings.draft_max_claims]
+
+
+def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verification,
+                       settings: Settings) -> AnswerDraft:
+    """Fusionne les claims déjà vérifiées dans la relance, sans dépasser les bornes existantes.
+
+    Une consigne de prompt aide le rédacteur à les reconduire, mais ne constitue pas une garantie :
+    une sortie modèle peut l'ignorer. La fusion repart des claims **déjà soumises** au premier
+    contrôle, sélectionnées par les identifiants effectivement retenus. Elle n'invente donc aucun
+    texte ni aucune citation. Les acquis passent d'abord ; la place restante accueille la correction
+    et ses identifiants conflictuels sont renommés localement. Les segments non factuels de la
+    relance (limites, transitions) sont conservés après les factuels, sous `draft_max_segments`,
+    comme `_rattacher_claims_sinistre` le fait déjà : `Answer.unknown` est rempli depuis les seuls
+    segments `limite` (AD-4), et les supprimer ici ferait taire « Ce que je ne sais pas » puis
+    abaisserait `nb_manques` avant la dominance. La seconde vérification relit ensuite tout ce
+    résultat et la dominance reste l'autorité d'adoption.
+    """
+    acquis_ids = {claim.claim_id for claim in acquise.claims}
+    claims: list[Claim] = [claim for claim in draft.claims if claim.claim_id in acquis_ids]
+    utilises = {claim.claim_id for claim in claims}
+
+    def identifiant_libre() -> str:
+        for place in range(1, settings.draft_max_claims + 1):
+            candidate = f"r{place}"
+            if candidate not in utilises:
+                return candidate
+        raise ValueError("aucun identifiant de claim libre sous la borne de rédaction")
+
+    for claim in relance.claims:
+        if len(claims) >= settings.draft_max_claims:
+            break
+        if claim.claim_id in utilises:
+            # Même contenu : le modèle a bien reconduit l'acquis, ne le duplique pas. Contenu
+            # différent : sa correction reste contrôlable sous un identifiant non ambigu.
+            ancienne = next(c for c in claims if c.claim_id == claim.claim_id)
+            if ancienne.text == claim.text and ancienne.quotes == claim.quotes:
+                continue
+            claim = claim.model_copy(update={"claim_id": identifiant_libre()})
+        utilises.add(claim.claim_id)
+        claims.append(claim)
+
+    factuels = [AnswerSegment(text=claim.text, kind="factuel", claim_ids=[claim.claim_id])
+                for claim in claims[:settings.draft_max_segments]]
+    claims = claims[:len(factuels)]
+    place = settings.draft_max_segments - len(factuels)
+    non_factuels = [AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[])
+                    for segment in relance.segments if segment.kind != "factuel"][:place]
+    return AnswerDraft(segments=[*factuels, *non_factuels], claims=claims)
 
 
 def _verdict_de_refus(kind: str, dossier: MissingPackage | None = None) -> Verdict:
@@ -382,10 +461,25 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         steps.append(step_verifier)
 
         # --- relance unique (AD-3) ------------------------------------------
-        if verification.motif and (
+        omises = _fondatrices_omises(verification, retrieval, settings)
+        if (verification.motif and (
             relance_utile(verification, settings)
             or _fondatrice_rejetee(verification, corpus=corpus, index=index)
-        ):
+        )) or omises:
+            motif_relance = verification.motif
+            if omises:
+                # Composé par le code, comme tout motif (AD-15) : les identifiants viennent du
+                # corpus typé, pas de la question, et la consigne reprend celle de la story 3.3 —
+                # rendre la clause vérifiable, laisser le code décider de l'applicabilité.
+                consigne_fondatrice = (
+                    "aucune affirmation vérifiable ne rapporte la règle d'une clause décisionnelle "
+                    "confirmée pourtant retrouvée (" + ", ".join(omises) + ") : rends pour au "
+                    "moins l'une d'elles une claim courte qui rapporte sa règle conditionnelle, "
+                    "avec sa plus courte citation contiguë, sans décider de son applicabilité au "
+                    "dossier — le code la calcule, même si son périmètre semble différent du cas "
+                    "déclaré.")
+                motif_relance = (f"{motif_relance}\n{consigne_fondatrice}" if motif_relance
+                                 else consigne_fondatrice)
             acquise = verification
             appels_avant = budget.attempts
             try:
@@ -397,7 +491,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
                 draft_2, step_rediger_2 = await rediger(parsed, retrieval, [], client=client, budget=budget,
                                                         index=index, doc_id=doc_id, settings=settings,
-                                                        motif=verification.motif, prompt="rediger_sinistre")
+                                                        motif=motif_relance,
+                                                        blocs_a_conserver=sorted(blocs_cites(acquise)),
+                                                        prompt="rediger_sinistre")
+                draft_2 = _reconduire_acquis(draft, draft_2, acquise, settings)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
                 relances += 1
@@ -411,11 +508,17 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                               budget=budget, settings=settings,
                                                               faits=faits, dossier=dossier)
                     steps.append(step_verifier_2)
-                    # Campagne B 2.7 et revue corrective 4.2b : retrouver une clause fondatrice est
-                    # une amélioration stricte non seulement sur zéro claim, mais aussi sur une
-                    # auxiliaire survivante (p. ex. une définition). Sans cela `_fondatrice_rejetee`
-                    # déclenche bien la relance, puis la dominance générale conserve justement la
-                    # version qui n'a plus aucune base pour AD-6 ni question sur ses qualités.
+                    # Une relance corrige, elle ne troque jamais l'acquis contre une autre qualité.
+                    # La rédaction reçoit donc les blocs déjà retenus à reconduire
+                    # (`blocs_a_conserver`, puis la fusion `_reconduire_acquis`), et la dominance
+                    # générique tranche : aucun kind (confirmé ou non) ne contourne found, claims,
+                    # facettes, blocs cités, complétude ou nombre de manques.
+                    # Campagne B 2.7 et revue corrective 4.2b (garde reconduite en 4.2a) : retrouver
+                    # une clause fondatrice est une amélioration stricte non seulement sur zéro
+                    # claim, mais aussi sur une auxiliaire survivante (p. ex. une définition). Sans
+                    # cela `_fondatrice_rejetee` déclenche bien la relance, puis la dominance
+                    # générale conserve justement la version qui n'a plus aucune base pour AD-6 ni
+                    # question sur ses qualités.
                     relance_trouve_clause = seconde.found and (
                         not acquise.found
                         or (

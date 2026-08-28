@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
@@ -26,6 +27,31 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, model_for
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
+
+
+def _clause_autonome(texte: str) -> bool:
+    """Distingue une clause lisible seule d'un item qui prolonge une liste.
+
+    Les numéros et puces éventuels ne portent pas la syntaxe. Après eux, une phrase autonome
+    commence par une capitale ; un fragment tel que « aux biens par… » doit au contraire conserver
+    la formulation courte produite par le rédacteur. Ce critère de forme est indépendant du corpus,
+    du vocabulaire métier et des témoins live.
+    """
+    premiere_lettre = next((caractere for caractere in texte if caractere.isalpha()), None)
+    return premiere_lettre is not None and premiere_lettre.isupper()
+
+
+def _rubrique_parente(index: Index, block_id: str) -> str | None:
+    """Titre de la rubrique parente d'un bloc, si la structure en fournit une."""
+    document = index.corpus.documents[index.doc_of(block_id)]
+    node_id = document.node_of(block_id)
+    noeuds = {noeud.node_id: noeud for noeud in document.nodes}
+    parent_id = next((noeud.node_id for noeud in document.nodes
+                      if node_id in noeud.children), None)
+    if parent_id is None:
+        return None
+    titre = noeuds[parent_id].title.strip()
+    return titre or None
 
 
 def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[AnswerDraft, int]:
@@ -77,6 +103,7 @@ def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[
 async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique: list[Turn], *,
                   client: LlmClient, budget: RequestBudget, index: Index, doc_id: str,
                   settings: Settings, motif: str | None = None,
+                  blocs_a_conserver: Iterable[str] = (),
                   prompt: str = "rediger", max_tokens: int | None = None
                   ) -> tuple[AnswerDraft, StepTrace]:
     """`prompt` nomme le fichier de `llm/prompts/` inséré entre `commun.md` et le sommaire.
@@ -120,6 +147,27 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                  "seule phrase courte et la plus courte quote contiguë qui la soutient ; n'énumère "
                  "pas les autres items d'une liste contractuelle. N'ajoute ni transition, ni "
                  "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
+        fondatrices_confirmees: list[str] = []
+        for bloc in retrieval.blocs:
+            if bloc.kind not in {"garantie", "exclusion"} or not bloc.kind_confirmed:
+                continue
+            description = f"{bloc.block_id}={bloc.kind}"
+            if not _clause_autonome(bloc.text):
+                rubrique = _rubrique_parente(index, bloc.block_id)
+                if rubrique:
+                    description += f" (rubrique parente : {rubrique})"
+            fondatrices_confirmees.append(description)
+        if fondatrices_confirmees:
+            # Le kind confirmé guide l'opérateur mais n'est jamais une citation. Pour un item qui
+            # dépend d'une liste, le titre parent (déjà dans le sommaire) donne le contexte textuel
+            # à nommer, sans inventer un verbe absent du fragment ni ouvrir un nouveau bloc.
+            tail += ("\nOpérateurs contractuels confirmés : " + "; ".join(fondatrices_confirmees) +
+                     ". Ce typage guide la formulation mais ne constitue pas à lui seul une preuve "
+                     "citable. Respecte l'opérateur de chaque identifiant. Si un item est "
+                     "grammaticalement incomplet, nomme son appartenance à la rubrique parente et "
+                     "décris seulement ce qu'il énumère ; n'invente pas `couvre` ou `exclut` sur "
+                     "la seule étiquette. Ne transforme jamais une exclusion en garantie, ni "
+                     "l'inverse.")
         reserve_facettes = min(len(parsed.facettes), settings.draft_max_claims)
         places_dependances = settings.draft_max_claims - reserve_facettes
         dependances_directes = set(retrieval.decision_dependency_block_ids)
@@ -137,17 +185,33 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                      "citation contiguë, même si sa portée semble différente du cas : ne décide pas "
                      "toi-même de son applicabilité, le code la calculera et affichera la raison.")
         places_restantes = places_dependances - len(limites_portees)
+        # Une définition éclaire la clause ; elle ne doit ni s'y substituer ni multiplier les
+        # verdicts structurés de *vérifier* : les clauses décisionnelles et limites restent toutes
+        # prioritaires, et le choix demeure celui déjà résolu par `definitions()` dans l'ordre du
+        # corpus. La borne vit dans la configuration (`draft_max_definitions`, publiée dans
+        # `thresholds()`) et ne change aucun budget de retrieval ou de modèle.
         definitions = [b.block_id for b in retrieval.blocs
                        if b.kind == "definition" and b.defines
-                       and b.block_id in dependances_directes][:places_restantes]
+                       and b.block_id in dependances_directes
+                       ][:min(places_restantes, settings.draft_max_definitions)]
         if definitions:
             # `definitions()` a déjà résolu la proximité de portée et les overrides. Une définition
             # ainsi sélectionnée mais omise par la rédaction rendrait cette résolution invisible ;
             # le modèle la transcrit, sans refaire le choix sémantique acquis par le code.
             tail += ("\nDéfinitions applicables à rendre vérifiables : " + ", ".join(definitions) +
-                     ". Pour chacun de ces blocs déjà résolus par portée, rends une claim courte "
+                     ". Pour ces blocs déjà résolus par portée, rends au plus une claim courte "
                      "avec une citation contiguë ; n'en substitue pas une autre et n'en déduis pas "
                      "une conclusion que son texte ne porte pas.")
+        disponibles = {b.block_id for b in retrieval.blocs}
+        a_conserver = [block_id for block_id in dict.fromkeys(blocs_a_conserver)
+                       if block_id in disponibles]
+        if a_conserver:
+            # Ces identifiants sont relus parmi les blocs du retrieval : la consigne est de confiance
+            # et ne peut pas être alimentée par un identifiant inventé dans le motif du modèle.
+            tail += ("\nAcquis à reconduire pendant la relance : " + ", ".join(a_conserver) +
+                     ". Conserve au moins une claim vérifiable pour chacun de ces blocs, avec ses "
+                     "facettes déjà traitées, en plus de corriger le motif ; ne remplace pas une "
+                     "preuve acquise par la nouvelle clause.")
     if motif is not None:
         # AD-15 : le motif vient de *vérifier* (1.5), qui le compose à partir de la sortie du modèle et
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.
@@ -179,6 +243,13 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         raise
     draft = result.parsed
     if prompt == "rediger_sinistre":
+        # Revue 4.2a (I1) : aucune réécriture de claim en code. L'ancienne « ancre » remplaçait
+        # claim et quote par le texte intégral du bloc fondateur : le contrôle de soutien devenait
+        # tautologique (claim byte-identique à sa quote) et les blocs au-delà de `quote_max_chars`
+        # devenaient le texte affiché. Une conclusion appliquée au dossier est traitée là où AD-3
+        # la place : *vérifier* la rejette avec la raison fermée `conclusion_ajoutee` et la relance
+        # typée redemande la règle conditionnelle — le texte soumis au contrôle reste celui du
+        # modèle, mot pour mot.
         draft, _changements = _rattacher_claims_sinistre(draft, settings)
     step.ms = int((time.monotonic() - t0) * 1000)
     return draft, step

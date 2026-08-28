@@ -61,7 +61,8 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, PrivateAttr, StrictBool, ValidationError,
+                      field_validator, model_validator)
 
 from server.app.config import REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
@@ -226,6 +227,10 @@ class Attendu(BaseModel):
     refusal: bool | None = None
     # Une clarification est un non-résultat qui demande une précision, pas un refus documenté.
     clarification: bool | None = None
+    # Prédicat générique du témoin sinistre : au moins une claim affichée cite une garantie ou une
+    # exclusion dont le typage est confirmé, et son applicabilité a été calculée. Aucun `block_id`
+    # particulier n'est nécessaire pour exiger une preuve décisionnelle.
+    decision_claim: StrictBool | None = None
     # Suite `parsing` seulement (AD-14 : « compare le texte de blocs clés à une lecture visuelle »).
     text_norm: str | None = None
 
@@ -337,6 +342,8 @@ class Cas(BaseModel):
             if self.profil is not None or self.historique:
                 raise ValueError("le pipeline sinistre ne reçoit ni `profil` ni `historique` : "
                                  "les déclarer ferait croire qu'ils sont pris en compte")
+        elif self.expected.decision_claim is not None:
+            raise ValueError("expected.decision_claim n'a de sens que dans la suite `sinistre`")
         if self.suite == "parsing":
             if self.profile != "full":
                 raise ValueError("un cas parsing appartient au profile `full`")
@@ -354,7 +361,7 @@ class Cas(BaseModel):
                 raise ValueError("un cas parsing référence exactement un expected.block_ids")
             if not self.expected.found or self.expected.fiche_ids or self.expected.verdict \
                     or self.expected.refusal is not None or self.expected.clarification is not None \
-                    or self.expected.complete is not None:
+                    or self.expected.complete is not None or self.expected.decision_claim is not None:
                 raise ValueError("un cas parsing ne porte que found=true, un block_id et text_norm")
             if self.mode_attendu != "bonne_reponse":
                 raise ValueError("la transcription de référence attend mode_attendu=bonne_reponse")
@@ -968,6 +975,22 @@ def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, 
     if cas.expected.verdict and valeur_verdict not in cas.expected.verdict:
         ecarts.append(f"verdict {valeur_verdict} hors des valeurs admissibles "
                       f"({', '.join(cas.expected.verdict)})")
+    decisionnelle = any(
+        claim.status.retrouvee is True
+        and claim.status.pertinente is True
+        and claim.status.applicable in {"oui", "non", "humain"}
+        and any(
+            (bloc := _bloc(index, quote.block_id)) is not None
+            and bloc.kind in {"garantie", "exclusion"}
+            and bloc.kind_confirmed
+            for quote in claim.quotes
+        )
+        for claim in answer.claims
+    )
+    if cas.expected.decision_claim is not None and decisionnelle is not cas.expected.decision_claim:
+        ecarts.append(
+            "claim décisionnelle confirmée avec applicabilité calculée="
+            f"{decisionnelle} (attendu {cas.expected.decision_claim})")
 
     # --- label : la précédence de D2 --------------------------------------------------------------
     absents = [b for b in cas.expected.block_ids if _bloc(index, b) is None]
@@ -1613,8 +1636,9 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher) -> 
     """Charge une preuve externe mesurée par l'orchestrateur, sans lui faire déclarer son statut.
 
     Le fichier ne fournit que les mesures : seuil, producteur et statut sont recalculés depuis le
-    plancher versionné. Ainsi A16, `decision_claim` et les tests hors ligne peuvent rejoindre le
-    gate sans être simulés par le runner ni auto-certifiés par le JSON d'entrée.
+    plancher versionné. Ainsi A16, `decision_claim` (le prédicat est fusionné dans `juger`, mais la
+    décision chiffrée reste celle de la série orchestrateur) et les tests hors ligne peuvent
+    rejoindre le gate sans être simulés par le runner ni auto-certifiés par le JSON d'entrée.
     """
     try:
         brut = json.loads(path.read_text(encoding="utf-8"))
@@ -1667,9 +1691,10 @@ def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher:
     """Les décisions chiffrées du run contre le plancher pré-enregistré (story 4.2b).
 
     Seules les métriques que **ce runner** mesure produisent une décision (`mesure_par:
-    eval_runner`) : les témoins de l'orchestrateur (tests hors ligne, A16 HTTP, prédicat
-    `decision_claim` de la branche 4.2a) restent les siens — les dupliquer ici serait une seconde
-    autorité sur la même mesure. Trois règles ferment le vert par vacuité (revue 4.2b, HIGH 1) :
+    eval_runner`) : les témoins de l'orchestrateur (tests hors ligne, A16 HTTP, la série chiffrée
+    `decision_claim` — le prédicat lui-même est fusionné dans `juger`, qui le juge à chaque
+    répétition d'un cas `expected.decision_claim`) restent les siens — les dupliquer ici serait une
+    seconde autorité sur la même mesure. Trois règles ferment le vert par vacuité (revue 4.2b, HIGH 1) :
 
     - une décision dont `n` est sous le `N` du témoin pré-enregistré est **rouge**
       (`sous-échantillonné`) — un `--gate` sans `--repeat 3` ne prouve rien ;
@@ -2315,7 +2340,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--series-id",
                    help="identité stable partagée par les points d'une même série orchestrateur")
     p.add_argument("--orchestrator-evidence", type=Path,
-                   help="mesures externes trusted (tests hors ligne, A16, decision_claim) ; "
+                   help="mesures externes trusted (tests hors ligne, A16, série decision_claim — "
+                        "le prédicat est jugé par le runner, la série chiffrée reste orchestrateur) ; "
                         "réservé à --producer orchestrator et --gate")
     p.add_argument("--max-cost", type=float, default=None,
                    help="plafond de coût du run en euros (défaut : evals_max_cost_eur de config.py ; "

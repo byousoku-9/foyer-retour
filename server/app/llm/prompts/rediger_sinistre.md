@@ -28,6 +28,17 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   claim atomique et cite un extrait contigu de $quote_min_chars à $quote_max_chars caractères.
   Ne la remplace jamais par une définition, un titre ou une clause plus lointaine seulement pour
   respecter la borne de claims.
+- Rapporte cette clause comme une **règle conditionnelle** : conserve dans la claim les conditions
+  qu'elle écrit (« si », « lorsque », « causés par… », « sous réserve de… »). « Le contrat couvre les
+  dégâts causés par X » décrit encore la règle ; « ce dommage est couvert » ou « cette clause
+  s'applique au sinistre décrit » applique la règle au dossier et est interdit. Cette distinction
+  vaut aussi lors d'une relance : reformule la règle, ne retire jamais ses conditions.
+- Pour rendre cette frontière impossible à confondre au contrôle, formule la règle avec le sujet
+  contractuel et sa condition : « le contrat couvre les dommages lorsque… » ou « la clause exclut
+  les dommages causés par… » sont permis quand ces opérateurs restituent fidèlement le texte.
+  N'écris jamais une conclusion sur le cas (« ce sinistre/ce dommage est couvert ou exclu »), ni
+  qu'une clause « s'applique au dossier/sinistre décrit ». Ces formulations appliquent la règle au
+  dossier au lieu de la rapporter ; les mots peuvent naturellement rester dans une quote exacte.
 - **Une seule clause par affirmation.** Une claim ne cite qu'**une** clause du contrat : si un
   passage de garantie et un passage d'exclusion se rapportent tous deux au sinistre, fais-en deux
   claims distinctes. Une claim qui mélange deux clauses est rejetée par le contrôle et te sera

@@ -156,11 +156,87 @@ def test_quote_hash_est_invariant_sous_renommage_du_corpus() -> None:
     assert quote_hash(texte) != quote_hash(texte + " autre phrase")
 
 
+# --- B3 (corrective 4.2a) : la règle de frontière ne dépend d'aucun triplet particulier ----------
+# La frontière objet/applicabilité — une règle conditionnelle soutenue est jugée sur ses champs
+# typés : qualité exigée non établie ⇒ `humain`, périmètre connu et contraire ⇒ `non` — doit rendre
+# la même décision quels que soient l'objet assuré, la condition exigée, l'ordre de lecture et la
+# formulation du libellé. Un exemple de prompt n'est jamais la règle : si la décision bougeait d'un
+# triplet à l'autre, elle dépendrait d'un vocabulaire, pas des champs.
+TRIPLETS_FRONTIERE = [
+    ("appareil menager", "brutal"),
+    ("cloture du jardin", "imprevisible"),
+    ("velo range a la cave", "avec effraction"),
+]
+
+
+def _dossier_qualite_manquante(objet: str, qualite: str) -> list[ClaimJugee]:
+    """Une règle conditionnelle soutenue dont la qualité exigée n'est pas établie par les faits."""
+    return [
+        ClaimJugee(claim_id=f"c-{normalize(objet).replace(' ', '-')}",
+                   clauses=[_clause("garantie", block_id="doc-neutre:p2:1",
+                                    qualificatifs=[qualite])],
+                   champs=ChampsApplicabilite(fait_requis_present=True,
+                                              qualites_exigees=[qualite],
+                                              qualites_non_etablies=[qualite])),
+    ]
+
+
+def _dossier_perimetre_contraire(objet: str) -> list[ClaimJugee]:
+    """Une clause au périmètre connu et contraire : `non` par le code, jamais une omission."""
+    return [
+        ClaimJugee(claim_id=f"c-{normalize(objet).replace(' ', '-')}",
+                   clauses=[_clause("garantie", block_id="doc-neutre:p2:1")],
+                   champs=_champs(False)),
+    ]
+
+
+def test_la_qualite_manquante_rend_humain_quel_que_soit_le_triplet() -> None:
+    """Objet, condition et formulation varient ; la frontière rend toujours `humain`."""
+    decisions = set()
+    for objet, qualite in TRIPLETS_FRONTIERE:
+        dossier = _dossier_qualite_manquante(objet, qualite)
+        statuts = [a for a, _r in applicabilites_des_claims(dossier).values()]
+        assert statuts == ["humain"], (objet, qualite)
+        decisions.add(decider(dossier, ask_client_max=8).value)
+    assert decisions == {"ne_tranche_pas"}
+
+
+def test_la_qualite_manquante_est_invariante_sous_permutation_et_reformulation() -> None:
+    """Renommage des ids, renumérotation des pages, ordre inversé, libellé reformulé : rien ne bouge."""
+    for objet, qualite in TRIPLETS_FRONTIERE:
+        original = _dossier_qualite_manquante(objet, qualite)
+        permute = _permuter(_dossier_qualite_manquante(objet, qualite), prefixe="autre", pages=17)
+        reformule = [
+            claim.model_copy(update={"champs": claim.champs.model_copy(update={
+                "qualites_exigees": [f"caractere {qualite} de l'evenement"],
+                "qualites_non_etablies": [f"caractere {qualite} de l'evenement"],
+            })})
+            for claim in _dossier_qualite_manquante(objet, qualite)
+        ]
+        for variante in (original, permute, reformule):
+            assert [a for a, _r in applicabilites_des_claims(variante).values()] == ["humain"]
+            assert decider(variante, ask_client_max=8).value == "ne_tranche_pas"
+
+
+def test_le_perimetre_contraire_rend_non_quel_que_soit_le_triplet() -> None:
+    """Le périmètre connu et contraire vaut `non` calculé — jamais une omission — pour tout objet."""
+    for objet, _qualite in TRIPLETS_FRONTIERE:
+        original = _dossier_perimetre_contraire(objet)
+        permute = _permuter(_dossier_perimetre_contraire(objet), prefixe="miroir", pages=23)
+        for variante in (original, permute):
+            assert [a for a, _r in applicabilites_des_claims(variante).values()] == ["non"]
+            assert decider(variante, ask_client_max=8).value == "ne_tranche_pas"
+
+
 def test_le_vocabulaire_des_corpus_synthetiques_est_neutre() -> None:
     """Never 4.2b : pas de vocabulaire d'assureur réel dans les corpus synthétiques permutés."""
     import inspect
     source = (inspect.getsource(_corpus_synthetique) + inspect.getsource(_permuter)
-              + inspect.getsource(_clause) + inspect.getsource(_champs)).lower()
-    for interdit in ("axa", "baloise", "optihome", "s-bougie", "p34:12"):
+              + inspect.getsource(_clause) + inspect.getsource(_champs)
+              + inspect.getsource(_dossier_qualite_manquante)
+              + inspect.getsource(_dossier_perimetre_contraire)
+              + repr(TRIPLETS_FRONTIERE)).lower()
+    for interdit in ("axa", "baloise", "optihome", "s-bougie", "p34:12",
+                     "bougie", "canape", "mobilier", "soudain", "chaleur"):
         assert interdit not in source, \
             f"vocabulaire non neutre dans les corpus synthétiques : {interdit!r}"

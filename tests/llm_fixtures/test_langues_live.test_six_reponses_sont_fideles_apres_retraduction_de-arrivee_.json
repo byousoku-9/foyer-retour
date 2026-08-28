@@ -318,7 +318,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeQs9AL7PsUNyMaDNUqJF",
+      "id": "msg_011CeTkdPaozYX6SHMzHiY4f",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -437,11 +437,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Combien de jours ai-je pour déclarer mon arrivée à la commune ?\", \"clarification\": null, \"language\": \"de\", \"terms\": [\"déclaration d'arrivée\", \"commune\", \"délai\"], \"themes\": [], \"facettes\": [\"délai de déclaration d'arrivée à la commune\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Combien de jours ai-je pour déclarer mon arrivée à la commune ?\", \"clarification\": null, \"language\": \"de\", \"terms\": [\"déclaration d'arrivée\", \"commune\", \"délai\"], \"themes\": [], \"facettes\": [\"délai de déclaration d'arrivée\"], \"bien\": null, \"evenement\": null, \"lieu\": null, \"cause\": null, \"moment\": null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CePjeB8c5M3Hkio4JDrFr",
+      "id": "msg_011CeTkceVE78udFGwSzxics",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -457,7 +457,7 @@
         "cache_read_input_tokens": 4286,
         "inference_geo": "not_available",
         "input_tokens": 83,
-        "output_tokens": 120,
+        "output_tokens": 117,
         "service_tier": "standard"
       }
     }
@@ -520,6 +520,37 @@
         "inference_geo": "not_available",
         "input_tokens": 817,
         "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:e2041ccccf4530c6": {
+    "request": "claude-haiku-4-5-20251001:e2041ccccf4530c6",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c3\", \"pertinente\": false, \"raison\": \"hors_objet\"}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeTkdFCXtD8bMYnMHtvJz",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3835,
+        "output_tokens": 147,
         "service_tier": "standard"
       }
     }
@@ -761,16 +792,12 @@
     "response": {
       "content": [
         {
-          "signature": "EooDCpABCBEYAipA6skzHyui1YAVgc/lnj3RNohnQiHxAAuDsXZBxqBgbqKS9W5d1/r/bAVbUmAi4YeDXNz+jf9s34R3TWwlUIdbiDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZetu9QGEgwGbr2MgdT/4/nkyv4aDAO6TfkYuAcUUgGINyIwpm6nhbghjNcXWoUcnhb4NjPuhJjBp8IyagjBXtdktQGeMY9Zw9w0fksFS0nPKTPgKqYBn5XA0CmJxsAiihffN2kd6F51qYMvJzDF14ccRTZD4ZCy8PBL8PKjm7NgqOJcEKQW4HOUR3geTifrzRcmw6Q+EJIF3kXZipq+1gA6geGpPTDvie8mIFggHaBA5iYLArMcQrNGR54WLUIe64oCO/XRbk/naocYyElkRDtir3LokazXAdHUD3XvcR6rAgoAwqj2nbjQh3OKIE8FQtRvQ+ZQzl9SKLBcRBgB",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
-          "text": "{\"segments\":[{\"text\":\"Sie müssen sich innerhalb von acht Tagen nach Ihrem Einzug bei der Gemeinde anmelden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Anmeldung ist grundlegend, da sie den Wohnsitznachweis und die Matrikelnummer erzeugt, die für alle weiteren Schritte notwendig sind.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Es empfiehlt sich, den Termin online zu vereinbaren, noch bevor Sie die Wohnungsschlüssel erhalten haben.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung bei der Gemeinde muss innerhalb von acht Tagen nach dem Einzug erfolgen.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Diese Erklärung erzeugt den Wohnsitznachweis und die Matrikelnummer.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Es wird empfohlen, den Termin online zu buchen, bevor man die Schlüssel erhält.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Sie müssen sich innerhalb von acht Tagen nach dem Einzug bei der Gemeinde anmelden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Anmeldung ist grundlegend, da sie die Wohnsitzbescheinigung und die Matrikelnummer erzeugt, die für alle weiteren Schritte notwendig sind.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Es empfiehlt sich, den Termin bereits online zu vereinbaren, bevor man überhaupt die Wohnungsschlüssel erhält.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung bei der Gemeinde muss innerhalb von acht Tagen nach dem Einzug erfolgen.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Diese Anmeldung erzeugt die Wohnsitzbescheinigung und die Matrikelnummer, die für alle weiteren Schritte notwendig sind.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Man sollte den Termin bereits online buchen, bevor man die Schlüssel erhält.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeRL6paoZkamdqC8pgMyG",
+      "id": "msg_011CeTkcoA81NVk5EY11j8RW",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -786,9 +813,9 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 2884,
-        "output_tokens": 647,
+        "output_tokens": 606,
         "output_tokens_details": {
-          "thinking_tokens": 60
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }

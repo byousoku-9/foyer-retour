@@ -63,7 +63,7 @@ CAS = [
      "jours residence communale"),
     ("pt-ecole", "pt", "Onde devo matricular os meus filhos na escola no Luxemburgo?",
      "ecole ecoles enfants enseignement etablissement fondamentale inscription primaire "
-     "scolaire scolarisation scolarite luxembourg"),
+     "scolaire scolarisation scolariser scolarite luxembourg"),
 ]
 
 
