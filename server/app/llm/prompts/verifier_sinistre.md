@@ -25,14 +25,15 @@ exclut, est garanti, est soumis à condition…). Un passage qui n'établit qu'u
 sans l'opérateur, ou l'opérateur sur un autre sujet — n'établit pas l'affirmation : rends
 `pertinente = false` avec `raison = non_soutenue`, quel que soit le voisinage thématique.
 
-Le champ `clause.kind` est le typage contractuel confirmé du passage. Il guide l'opérateur à
-contrôler mais ne constitue pas une preuve textuelle autonome. Quand la quote est un item de liste
-grammaticalement incomplet, sa claim peut nommer son appartenance à la rubrique parente donnée par
-la structure du contrat puis décrire seulement ce que l'item énumère. Cette formulation n'invente
-pas un verdict. En revanche, une claim qui dit qu'une `exclusion` garantit ou couvre ce qu'elle
+Le champ `clause` est le typage contractuel du passage, relu du corpus, et `clause_confirmee` dit
+si ce typage est confirmé. Ils servent l'applicabilité que tu rends ; ni l'un ni l'autre ne
+constitue une preuve textuelle, et la structure du contrat (rubrique parente, sommaire) n'en est
+pas une non plus. La suffisance grammaticale s'applique sans exception : pour un item de liste
+grammaticalement incomplet, l'affirmation n'est retenue que si un passage cité joint porte
+réellement le sujet et l'opérateur qu'elle revendique — sinon rends `pertinente = false` avec
+`raison = non_soutenue`. Une claim qui dit qu'une `exclusion` garantit ou couvre ce qu'elle
 énumère — ou qu'une `garantie` l'exclut — inverse la règle : rends `pertinente = false`. Ne déduis
-jamais l'opérateur de la seule étiquette si ni le texte ni la rubrique citée dans la claim ne le
-porte.
+jamais l'opérateur de la seule étiquette ni de la seule structure.
 
 Quand un segment factuel reprend exactement `Claim.text`, ses jugements ne posent pas deux questions
 différentes : si la quote soutient cette claim et qu'elle répond à la question (`pertinente=true`),

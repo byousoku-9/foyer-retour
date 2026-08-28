@@ -18,27 +18,36 @@ from collections.abc import Iterable
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.domain.answer import AnswerDraft, AnswerSegment
+from server.app.domain.document import Block
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.verdict import KINDS_FONDATEURS
-from server.app.domain.trace import StepTrace
+from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, model_for
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
-def _clause_autonome(texte: str) -> bool:
+def _clause_autonome(bloc: Block) -> bool:
     """Distingue une clause lisible seule d'un item qui prolonge une liste.
 
-    Les numéros et puces éventuels ne portent pas la syntaxe. Après eux, une phrase autonome
-    commence par une capitale ; un fragment tel que « aux biens par… » doit au contraire conserver
-    la formulation courte produite par le rédacteur. Ce critère de forme est indépendant du corpus,
-    du vocabulaire métier et des témoins live.
+    Revue Codex 4.2a (I2) : la **structure d'ingestion** prime la casse. Un bloc que l'ingestion a
+    classé `list` prolonge son amorce quelle que soit sa première lettre — un item capitalisé ou
+    ouvert par un acronyme ne perd plus son contexte. Pour les autres structures, la casse reste le
+    seul signal disponible : l'ingestion étiquette `para` des items numérotés (« 3.1.10.3.3 aux
+    biens par… »), si bien qu'un `structural_kind` non-`list` ne prouve pas l'autonomie. Les
+    numéros et puces ne portent pas la syntaxe : après eux, une phrase autonome commence par une
+    capitale ; une première lettre minuscule — item numéroté comme phrase mal océrisée — reçoit le
+    contexte parent, comportement conservateur : la rubrique parente est un contexte de
+    formulation, jamais une preuve (revue B4), et un contexte de trop est un bruit, pas une
+    erreur. Ce critère reste indépendant du corpus, du vocabulaire métier et des témoins live.
     """
-    premiere_lettre = next((caractere for caractere in texte if caractere.isalpha()), None)
+    if bloc.structural_kind == "list":
+        return False
+    premiere_lettre = next((caractere for caractere in bloc.text if caractere.isalpha()), None)
     return premiere_lettre is not None and premiere_lettre.isupper()
 
 
@@ -85,6 +94,15 @@ def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[
             ordre.append(claim.claim_id)
             vus.add(claim.claim_id)
 
+    # Revue Codex 4.2a (B1) : la borne annoncée au prompt est appliquée **mécaniquement** à la
+    # sortie du modèle — la fusion de relance et ses invariants de conservation reposent sur
+    # `len(claims) <= draft_max_claims`. L'appelant trace l'écart (`claims_hors_borne_ecartees`) ;
+    # rien n'est tu, et rien de vérifié n'est perdu : ces claims n'ont jamais été soumises au
+    # contrôle.
+    hors_borne = ordre[settings.draft_max_claims:]
+    if hors_borne:
+        ordre = ordre[:settings.draft_max_claims]
+
     if len(ordre) > settings.draft_max_segments:
         raise ValueError("plus de claims que de segments autorisés : la configuration doit garantir "
                          "draft_max_claims <= draft_max_segments")
@@ -94,11 +112,13 @@ def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[
     non_factuels = [AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[])
                     for segment in draft.segments if segment.kind != "factuel"][:place]
     segments = [*factuels, *non_factuels]
+    claims = ([claim for claim in draft.claims if claim.claim_id not in set(hors_borne)]
+              if hors_borne else draft.claims)
     changements = sum(1 for avant, apres in zip(draft.segments, segments, strict=False)
-                       if avant != apres) + abs(len(draft.segments) - len(segments))
+                       if avant != apres) + abs(len(draft.segments) - len(segments)) + len(hors_borne)
     if not changements:
         return draft, 0
-    return draft.model_copy(update={"segments": segments}), changements
+    return draft.model_copy(update={"segments": segments, "claims": claims}), changements
 
 
 async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique: list[Turn], *,
@@ -153,22 +173,25 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
             if bloc.kind not in KINDS_FONDATEURS or not bloc.kind_confirmed:
                 continue
             description = f"{bloc.block_id}={bloc.kind}"
-            if not _clause_autonome(bloc.text):
+            if not _clause_autonome(bloc):
                 rubrique = _rubrique_parente(index, bloc.block_id)
                 if rubrique:
                     description += f" (rubrique parente : {rubrique})"
             fondatrices_confirmees.append(description)
         if fondatrices_confirmees:
             # Le kind confirmé guide l'opérateur mais n'est jamais une citation. Pour un item qui
-            # dépend d'une liste, le titre parent (déjà dans le sommaire) donne le contexte textuel
-            # à nommer, sans inventer un verbe absent du fragment ni ouvrir un nouveau bloc.
+            # dépend d'une liste, le titre parent (déjà dans le sommaire) situe le contexte de
+            # formulation — jamais une preuve (revue Codex 4.2a, B4) : l'opérateur revendiqué doit
+            # être porté par un passage cité, sinon *vérifier* rejette `non_soutenue`.
             tail += ("\nOpérateurs contractuels confirmés : " + "; ".join(fondatrices_confirmees) +
                      ". Ce typage guide la formulation mais ne constitue pas à lui seul une preuve "
                      "citable. Respecte l'opérateur de chaque identifiant. Si un item est "
-                     "grammaticalement incomplet, nomme son appartenance à la rubrique parente et "
-                     "décris seulement ce qu'il énumère ; n'invente pas `couvre` ou `exclut` sur "
-                     "la seule étiquette. Ne transforme jamais une exclusion en garantie, ni "
-                     "l'inverse.")
+                     "grammaticalement incomplet, appuie le sujet et l'opérateur que tu revendiques "
+                     "sur un passage cité qui les porte réellement — l'amorce de la liste, citée en "
+                     "plus de l'item, quand elle est citable — ou décris seulement ce que l'item "
+                     "énumère sans conclure ; la rubrique parente situe le contexte mais n'est "
+                     "jamais une preuve ; n'invente pas `couvre` ou `exclut` sur la seule "
+                     "étiquette. Ne transforme jamais une exclusion en garantie, ni l'inverse.")
         reserve_facettes = min(len(parsed.facettes), settings.draft_max_claims)
         places_dependances = settings.draft_max_claims - reserve_facettes
         dependances_directes = set(retrieval.decision_dependency_block_ids)
@@ -252,5 +275,11 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # typée redemande la règle conditionnelle — le texte soumis au contrôle reste celui du
         # modèle, mot pour mot.
         draft, _changements = _rattacher_claims_sinistre(draft, settings)
+        if len(draft.claims) < len(result.parsed.claims):
+            step.checks.append(CheckResult(
+                name="claims_hors_borne_ecartees", ok=False,
+                detail=f"{len(result.parsed.claims) - len(draft.claims)} claim(s) au-delà de "
+                       "draft_max_claims écartée(s) mécaniquement avant vérification : la borne "
+                       "annoncée au prompt fait foi"))
     step.ms = int((time.monotonic() - t0) * 1000)
     return draft, step

@@ -876,11 +876,31 @@ async def test_une_definition_seule_declenche_la_relance_vers_la_fondatrice_retr
     assert any(q.block_id == f"{DOC_ID}:p1:2" for c in answer.claims for q in c.quotes)
 
 
-async def test_une_fondatrice_confirmee_bat_une_auxiliaire_seule(index: Index) -> None:
-    """Base 4.2b conservée en 4.2a : à dominance nulle (une claim contre une), la seconde
-    vérification qui cite une fondatrice **confirmée** remplace l'acquise qui n'a qu'une
-    auxiliaire — sans cette extension, la dominance générale conserverait justement la version
-    sans aucune base pour AD-6 ni question sur ses qualités."""
+async def test_une_fondatrice_retrouvee_est_adoptee_par_dominance_pleine(index: Index) -> None:
+    """Réécrit après la revue Codex 4.2a (B3) : l'ancienne version de ce test épinglait le
+    contournement de `domine` par `_fondatrice_survivante` — une adoption qui perdait l'acquis c2
+    et son bloc. L'arbitrage corrigé passe par la fusion : les acquis sont reconduits dans
+    l'ébauche relancée, la seconde vérification les retient avec la fondatrice, et l'adoption est
+    une dominance réelle sur les six axes — jamais un raccourci par kind."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(DEF),
+        _verifier(("c2", True, False, False, False, None)),
+        _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c2", True, False, False, False, None), facettes=[["c1", "c2"]])])
+
+    assert fake.remaining_script == 0
+    assert {c.claim_id for c in answer.claims} == {"c1", "c2"}
+    assert any(q.block_id == f"{DOC_ID}:p1:2" for c in answer.claims for q in c.quotes)
+    assert not any(check.name == "relance_moins_bonne"
+                   for step in trace.steps for check in step.checks)
+
+
+async def test_une_relance_qui_perd_lacquis_nest_pas_adoptee_meme_avec_fondatrice(
+        index: Index) -> None:
+    """Revue Codex 4.2a (B3), reproduction fermée : la seconde vérification cite une fondatrice
+    confirmée mais rejette l'acquis c2 — elle perd son bloc (`p1:4`). Aucun kind ne contourne la
+    dominance : l'acquise fait foi, l'écart est nommé."""
     answer, trace, fake = await _run(index, [
         _comprendre(), _rediger(DEF),
         _verifier(("c2", True, False, False, False, None)),
@@ -889,10 +909,85 @@ async def test_une_fondatrice_confirmee_bat_une_auxiliaire_seule(index: Index) -
                   ("c2", False, False, False, False, None))])
 
     assert fake.remaining_script == 0
-    assert [c.claim_id for c in answer.claims] == ["c1"]
-    assert any(q.block_id == f"{DOC_ID}:p1:2" for c in answer.claims for q in c.quotes)
-    assert not any(check.name == "relance_moins_bonne"
-                   for step in trace.steps for check in step.checks)
+    assert [c.claim_id for c in answer.claims] == ["c2"]
+    assert any(check.name == "relance_moins_bonne"
+               for step in trace.steps for check in step.checks)
+
+
+async def test_une_relance_qui_perd_une_facette_nest_pas_adoptee(index: Index) -> None:
+    """B3 : deux facettes couvertes par l'acquise ; la seconde n'en couvre qu'une — conservée."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=["définition du bien", "condition d'occupation"]),
+        _rediger(DEF, COND),
+        _verifier(("c2", True, False, False, False, None),
+                  ("c5", True, False, False, False, "occupation permanente du bien"),
+                  facettes=[["c2"], ["c5"]]),
+        _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c2", True, False, False, False, None),
+                  ("c5", False, False, False, False, None),
+                  facettes=[["c1", "c2"], []])])
+
+    assert fake.remaining_script == 0
+    assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
+    assert any(check.name == "relance_moins_bonne"
+               for step in trace.steps for check in step.checks)
+
+
+async def test_une_relance_qui_ajoute_des_manques_nest_pas_adoptee(index: Index) -> None:
+    """B3 : la seconde conserve les acquis mais déclare trois réserves de plus — non dominante,
+    l'acquise fait foi (la garde 2.7 ne joue que sur zéro claim acquise)."""
+    limites = ["Le contrat ne précise pas la franchise applicable.",
+               "Le plafond annuel d'indemnisation n'est pas indiqué dans les passages lus.",
+               "La procédure de déclaration n'est pas décrite dans les passages lus."]
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(DEF),
+        _verifier(("c2", True, False, False, False, None)),
+        _rediger_avec_limites(GAR, limites=limites),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c2", True, False, False, False, None), facettes=[["c1", "c2"]])])
+
+    assert fake.remaining_script == 0
+    assert [c.claim_id for c in answer.claims] == ["c2"]
+    assert any(check.name == "relance_moins_bonne"
+               for step in trace.steps for check in step.checks)
+
+
+async def test_une_fondatrice_omise_sans_place_ne_lance_pas_de_relance_tronquante(
+        index: Index) -> None:
+    """Revue Codex 4.2a (B1), « borne entièrement occupée » : les affirmations retenues occupent
+    déjà draft_max_claims — une relance fondatrice ne pourrait que tronquer. Elle n'est pas
+    lancée : l'état est nommé, l'acquise est servie avec la lacune de relance abandonnée, jamais
+    donnée pour complète. La longueur du script est l'assertion (aucun 4e appel)."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(DEF),
+        _verifier(("c2", True, False, False, False, None))],
+        settings=_settings(draft_max_claims=1))
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert [c.claim_id for c in answer.claims] == ["c2"]
+    assert any(check.name == "relance_fondatrice_sans_place"
+               for step in trace.steps for check in step.checks)
+    assert answer.complete is False
+
+
+async def test_une_limite_acquise_survit_a_une_relance_qui_lomet(index: Index) -> None:
+    """Revue Codex 4.2a (B2) : la première ébauche porte une limite que la relance ne répète pas.
+
+    La fusion conserve les segments non factuels des deux ébauches : la réserve acquise reste dans
+    `unknown`, `nb_manques` ne baisse pas artificiellement, et l'adoption reste une dominance
+    honnête (manques égaux, claims strictement supérieures)."""
+    limite = "Le contrat ne précise pas la franchise applicable."
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger_avec_limites(DEF, limites=[limite]),
+        _verifier(("c2", True, False, False, False, None)),
+        _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c2", True, False, False, False, None), facettes=[["c1", "c2"]])])
+
+    assert fake.remaining_script == 0
+    assert {c.claim_id for c in answer.claims} == {"c1", "c2"}
+    assert any("franchise" in u for u in answer.unknown)
 
 
 async def test_une_fondatrice_citee_ne_declenche_aucune_relance_supplementaire(index: Index) -> None:
@@ -970,7 +1065,7 @@ def test_la_reconduction_refuse_de_tronquer_des_claims_verifiees() -> None:
     acquise = SimpleNamespace(claims=[SimpleNamespace(claim_id=f"c{i}") for i in range(1, 4)])
     bornes = SimpleNamespace(draft_max_claims=3, draft_max_segments=2)
     with pytest.raises(ValueError, match="draft_max_claims <= draft_max_segments"):
-        sinistre._reconduire_acquis(draft, draft, acquise, bornes)
+        sinistre._reconduire_acquis(draft, draft, acquise, bornes, step=StepTrace(name="rediger"))
 
 
 async def test_une_relance_qui_trouve_la_clause_nest_pas_annulee_par_ses_manques(index: Index) -> None:
@@ -1025,7 +1120,7 @@ def test_la_fusion_renomme_une_correction_qui_garde_un_identifiant_acquis() -> N
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}])
     acquise = Verification.model_construct(claims=list(draft.claims))
 
-    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings)
+    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=StepTrace(name="rediger"))
 
     assert [c.claim_id for c in fusion.claims] == ["c1", "r1"]
     assert fusion.claims[0].text == "Clause acquise."
@@ -1041,7 +1136,7 @@ def test_la_fusion_saute_un_acquis_reconduit_a_lidentique() -> None:
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}])
     acquise = Verification.model_construct(claims=list(draft.claims))
 
-    fusion = sinistre._reconduire_acquis(draft, draft, acquise, settings)
+    fusion = sinistre._reconduire_acquis(draft, draft, acquise, settings, step=StepTrace(name="rediger"))
 
     assert [c.claim_id for c in fusion.claims] == ["c1"]
     assert len(fusion.segments) == 1

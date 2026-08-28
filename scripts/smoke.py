@@ -655,6 +655,28 @@ def verifier_sinistre(corps: Any, *, cas: CasTemoin, source_hash: str) -> list[s
                           f"({type(sources).__name__})")
         if not isinstance(claims, list) or not isinstance(sources, list):
             return ecarts
+        # Revue Codex 4.2a (I1) : la forme minimale de **chaque** élément est validée avant le
+        # prédicat, quelle que soit la valeur attendue — une liste d'éléments illisibles rendrait
+        # `decisionnelle=False` par accident quand le cas attend `false`.
+        illisibles: list[str] = []
+        for rang, source in enumerate(sources):
+            if not (isinstance(source, dict)
+                    and isinstance(source.get("block_id"), str)
+                    and isinstance(source.get("kind"), str)
+                    and isinstance(source.get("kind_confirmed"), bool)
+                    and isinstance(source.get("status"), str)):
+                illisibles.append(f"sources[{rang}]")
+        for rang, claim in enumerate(claims):
+            if not (isinstance(claim, dict)
+                    and isinstance(claim.get("status"), dict)
+                    and isinstance(claim.get("quotes"), list)
+                    and all(isinstance(quote, dict) and isinstance(quote.get("block_id"), str)
+                            for quote in claim.get("quotes", []))):
+                illisibles.append(f"answer.claims[{rang}]")
+        if illisibles:
+            ecarts.append(f"sinistre/{cas.id} : élément(s) illisible(s) pour le prédicat "
+                          f"décisionnel : {', '.join(illisibles)}")
+            return ecarts
         blocs_decisionnels = {
             source.get("block_id")
             for source in sources

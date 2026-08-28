@@ -51,8 +51,12 @@ def test_le_prompt_sinistre_generalise_la_frontiere_objet_applicabilite() -> Non
     assert "une autre facette reste sans réponse" in prompt
     assert "byte-identique à une claim elle-même byte-identique à sa quote" in prompt
     assert "`pertinente=true, soutenu=false` est impossible" in prompt
-    assert "`clause.kind` est le typage contractuel confirmé" in prompt
-    assert "ne constitue pas une preuve textuelle autonome" in prompt
+    # B4 : le typage et sa confirmation voyagent séparément, et ni l'un ni l'autre — ni la
+    # structure — n'est une preuve textuelle ; l'exception « rubrique parente » a disparu.
+    assert "et `clause_confirmee` dit" in prompt
+    assert "La suffisance grammaticale s'applique sans exception" in prompt
+    assert "ni de la seule structure" in prompt
+    assert "peut nommer son appartenance à la rubrique parente" not in prompt
     assert "inverse la règle" in prompt
     # I1 : la règle de quote suffisante — sujet **et** opérateur — vit dans le prompt sinistre.
     assert "La suffisance de la quote se lit grammaticalement" in prompt
@@ -1035,6 +1039,34 @@ async def test_wording_that_says_the_clause_applies_is_rejected_with_a_typed_ret
     assert v.rejected_claims[0].status.pertinente is False
     assert "règle conditionnelle que le passage énonce" in v.rejected_claims[0].motif
     assert v.motif is not None and "sans conclure qu'elle s'applique" in v.motif
+
+
+async def test_un_item_incomplet_sans_passage_operateur_tombe_non_soutenue(
+        contrat: Index) -> None:
+    """Revue Codex 4.2a (B4) : la rubrique parente n'est jamais une preuve, et un kind non
+    confirmé n'est plus présenté comme confirmé.
+
+    La claim revendique un opérateur (« garantit ») que sa seule quote — l'énumération de l'item —
+    ne porte pas, en s'appuyant sur la structure (rubrique) ; le bloc cité (`cg:p1:5`) a un kind
+    `garantie` **non confirmé** (`kind_source="model"`). Le modèle scripté suit la règle sans
+    exception du prompt : `pertinente=false`, `raison=non_soutenue`. Le payload transporte le
+    typage honnêtement : `clause` + `clause_confirmee: false`, jamais « confirmé » d'office.
+    """
+    draft = _draft(("c1", "La rubrique Vol garantit les biens qu'elle énumère.",
+                    [("cg:p1:5", "vol commis avec effraction dans le bâtiment désigné")]))
+    v, _step, fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(
+            ("c1", True, False, False, None), verdicts=[("c1", False)],
+            raisons={"c1": "non_soutenue"})])
+    assert v.claims == []
+    assert v.rejected_claims[0].status.pertinente is False
+    assert "ne rapporter que ce que le passage cité établit" in v.rejected_claims[0].motif
+    content = fake.requests[0]["messages"][0]["content"]
+    assert '"clause": "garantie"' in content
+    assert '"clause_confirmee": false' in content
+    prompt = fake.requests[0]["system"][0]["text"]
+    assert "peut nommer son appartenance à la rubrique parente" not in prompt
+    assert "La suffisance grammaticale s'applique sans exception" in prompt
 
 
 async def test_a_quote_missing_the_claimed_operator_is_rejected_as_non_soutenue(

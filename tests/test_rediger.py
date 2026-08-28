@@ -23,7 +23,9 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT_PAR_PROMPT, TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
+from server.app.domain.document import Block
 from server.app.steps.rediger import (
+    _clause_autonome,
     _rubrique_parente,
     _rattacher_claims_sinistre,
     rediger,
@@ -410,6 +412,60 @@ async def test_sinistre_exige_une_claim_pour_toute_definition_resolue() -> None:
     assert "axa-lu-optihome-2017:p49:11" not in ligne_definitions
 
 
+def test_lautonomie_dune_clause_se_lit_sur_la_structure_avant_la_casse() -> None:
+    """Revue Codex 4.2a (I2) : un item `list` prolonge son amorce quelle que soit sa casse.
+
+    Hors structure `list`, la casse reste le seul signal disponible — l'ingestion étiquette `para`
+    des items numérotés (« 3.1.10.3.3 aux biens par… ») — et une forme ambiguë reçoit le contexte
+    parent, comportement conservateur : depuis la revue B4, la rubrique n'est jamais une preuve,
+    un contexte de trop est un bruit. Aucune branche propre à un corpus.
+    """
+    def bloc(texte: str, structural_kind: str | None) -> Block:
+        return Block(block_id="doc:p1:1", loc="p1", seq=1, kind="exclusion", text=texte,
+                     structural_kind=structural_kind)
+
+    # Item de liste : jamais autonome — même capitalisé, ouvert par un acronyme ou numéroté.
+    assert _clause_autonome(bloc("Bris de glace et dommages assimilés", "list")) is False
+    assert _clause_autonome(bloc("RC locative du fait des biens confiés", "list")) is False
+    assert _clause_autonome(bloc("3.1.8.2 Les dommages énumérés ci-dessus", "list")) is False
+    # Hors `list` : une phrase autonome commence par une capitale, un item numéroté incomplet non.
+    assert _clause_autonome(bloc("3.1.10.3.3 aux biens par le feu, la fumée", "para")) is False
+    assert _clause_autonome(bloc("Les dégâts occasionnés au bâtiment sont exclus.", "para")) is True
+    assert _clause_autonome(bloc("Les dommages au bâtiment sont exclus.", None)) is True
+    # Forme ambiguë (minuscule hors liste, p. ex. OCR) : conservateur — le contexte parent est un
+    # bruit possible, jamais une preuve.
+    assert _clause_autonome(bloc("le contrat couvre les dommages au bâtiment.", "para")) is False
+
+
+async def test_une_sortie_modele_au_dessus_de_la_borne_de_claims_est_ecartee_avec_trace(
+        mini_index: Index) -> None:
+    """Revue Codex 4.2a (B1) : `draft_max_claims` est appliquée mécaniquement à la sortie du modèle.
+
+    La fusion de relance et ses invariants de conservation reposent sur
+    `len(claims) <= draft_max_claims` : une sortie au-dessus de la borne est ramenée à la borne, et
+    l'écart est tracé (`claims_hors_borne_ecartees`) — jamais silencieux. Rien de vérifié n'est
+    perdu : ces claims n'ont jamais été soumises au contrôle.
+    """
+    brut = _draft(
+        segments=[{"text": f"Affirmation {i}.", "kind": "factuel", "claim_ids": [f"c{i}"]}
+                  for i in (1, 2, 3)],
+        claims=[{"claim_id": f"c{i}", "text": f"Affirmation {i}.",
+                 "quotes": [{"block_id": "lux-guide:farrivee:3",
+                             "quote": "huit jours pour déclarer votre arrivée"}]}
+                for i in (1, 2, 3)])
+    settings = _settings(draft_max_claims=2)
+    fake = FakeAnthropic([fake_message(text=brut, model=SONNET)])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+
+    draft, step = await rediger(_parsed(), retrieval, [], client=LlmClient(settings, anthropic_client=fake),
+                                budget=_budget(), index=mini_index, doc_id="lux-guide",
+                                settings=settings, prompt="rediger_sinistre")
+
+    assert [c.claim_id for c in draft.claims] == ["c1", "c2"]
+    assert [s.claim_ids for s in draft.segments if s.kind == "factuel"] == [["c1"], ["c2"]]
+    assert any(c.name == "claims_hors_borne_ecartees" and not c.ok for c in step.checks)
+
+
 async def test_la_borne_de_definitions_vit_dans_la_configuration() -> None:
     """4.2a (revue I4) : « au plus N définitions par ébauche » se règle par `draft_max_definitions`."""
     index = Index(load_corpus(ROOT / "data", allow_ungated=True))
@@ -421,17 +477,23 @@ async def test_la_borne_de_definitions_vit_dans_la_configuration() -> None:
                                 decision_dependency_block_ids=definitions)
 
     lignes = {}
-    for borne in (1, 2):
+    messages = {}
+    for borne in (0, 1, 2):
         client, fake = _client([fake_message(text=_draft(), model=SONNET)])
         await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
                       doc_id=doc.doc_id, settings=_settings(draft_max_definitions=borne),
                       prompt="rediger_sinistre")
         outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
-        lignes[borne] = next(line for line in outside.splitlines()
-                             if line.startswith("Définitions applicables"))
+        messages[borne] = outside
+        lignes[borne] = next((line for line in outside.splitlines()
+                              if line.startswith("Définitions applicables")), None)
 
-    assert definitions[0] in lignes[1] and definitions[1] not in lignes[1]
-    assert definitions[0] in lignes[2] and definitions[1] in lignes[2]
+    # Revue Codex 4.2a (M1) : la borne zéro est un réglage licite (`ge=0`) — aucune consigne,
+    # aucun identifiant de définition dans le message.
+    assert lignes[0] is None
+    assert all(definition not in messages[0] for definition in definitions)
+    assert lignes[1] is not None and definitions[0] in lignes[1] and definitions[1] not in lignes[1]
+    assert lignes[2] is not None and definitions[0] in lignes[2] and definitions[1] in lignes[2]
 
 
 async def test_sinistre_borne_les_dependances_exigees_au_budget_de_claims() -> None:

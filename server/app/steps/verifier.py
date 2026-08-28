@@ -971,8 +971,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         if clauses_de_la_claim:
             # Le `kind` vient de l'ingestion, jamais du modèle (AD-6) : on le lui **dit**, pour qu'il
             # sache de quelle affirmation on attend des champs typés — et il n'y en a qu'un, le
-            # contrôle « une clause par affirmation » l'a déjà garanti (D6).
+            # contrôle « une clause par affirmation » l'a déjà garanti (D6). Revue Codex 4.2a (B4) :
+            # la confirmation du typage voyage **séparément** — elle sert l'applicabilité et le
+            # prédicat, jamais la preuve textuelle, et un kind non confirmé n'est plus présenté
+            # comme confirmé.
             charge["clause"] = clauses_de_la_claim[0].kind
+            charge["clause_confirmee"] = clauses_de_la_claim[0].kind_confirmed
         parts.append(untrusted("claim", json.dumps(charge, ensure_ascii=False)))
     for position, segment in segments:
         # Le texte du segment vient du modèle : il est délimité comme tout le reste (AD-15). C'est

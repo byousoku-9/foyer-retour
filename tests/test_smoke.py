@@ -667,10 +667,27 @@ def test_un_cas_sans_verdict_attendu_ne_juge_pas_le_verdict() -> None:
 
 def test_un_sinistre_sans_claim_retrouvee_est_un_ecart() -> None:
     corps = sinistre_nominal()
-    corps["answer"]["claims"] = [{"id": "c1", "status": {"retrouvee": False, "edition": "juin 2017"}}]
+    corps["answer"]["claims"] = [{"claim_id": "c1", "quotes": [],
+                                  "status": {"retrouvee": False, "edition": "juin 2017"}}]
     ecarts = ecarts_sinistre(corps)
     assert any("aucune claim `retrouvee`" in ecart for ecart in ecarts)
     assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
+
+
+def test_des_elements_internes_illisibles_ne_prouvent_jamais_labsence_de_claim() -> None:
+    """Revue Codex 4.2a (I1) : listes bien typées mais éléments illisibles — l'écart est nommé
+    avant tout calcul du prédicat, même quand le cas attend `decision_claim=false`."""
+    import dataclasses
+
+    inverse = dataclasses.replace(CAS_SINISTRE, decision_claim_attendue=False)
+    corps = sinistre_nominal()
+    corps["answer"]["claims"] = [{"claim_id": "c1", "status": "retenue", "quotes": [{}]}]
+    corps["sources"] = [{"kind": "garantie", "kind_confirmed": "oui"}]
+    ecarts = verifier_sinistre(corps, cas=inverse, source_hash=HASH_AXA)
+    assert any("élément(s) illisible(s) pour le prédicat" in e for e in ecarts)
+    assert any("sources[0]" in e for e in ecarts)
+    assert any("answer.claims[0]" in e for e in ecarts)
+    assert not any("claim décisionnelle confirmée" in e for e in ecarts)
 
 
 def test_la_definition_seule_ne_satisfait_jamais_le_predicat_decisionnel() -> None:
