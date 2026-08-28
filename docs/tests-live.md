@@ -3487,3 +3487,43 @@ Le split B (`~/foyer-retour-holdout/B/`) reste à créer et à sceller par l'orc
 `cases_hash` figé **avant** tout réglage sur la série A. Le builder ne le lit ni ne le
 matérialise jamais ; un seul verdict B par candidat ; la promotion ne publie que le verdict et
 les agrégats, jamais les questions, réponses brutes ou détail par cas.
+
+## Story 4.2a-bis — mesure produit finale bougie N=3 (2026-08-28, orchestrateur)
+
+### Ce que le builder a fait au live : rien
+
+Le builder n'a lancé aucun appel fournisseur pendant cette story (règle trusted inchangée). La
+mesure ci-dessous a été tirée par l'**orchestrateur**, après revue croisée, sur le SHA candidat
+figé `664431a20eec3a7e637484b1f33346b77f237a4a` — elle reste attachée à ce SHA même si le HEAD a
+changé depuis (le présent commit ne touche que la documentation). Un seul processus `--repeat 3`,
+sans cache de réponse ni correction entre répétitions, producteur `orchestrator`, série `final`
+(`4.2a-bis-bougie-final-664431a`), campagne `20260828-4.2a-bis-664431a`, transport Anthropic
+Messages **standard** exclusivement, aucun Batch. Bornes : `LIVE_BUDGET_EUR=0.5`,
+`--max-cost 0,2974 €` — le plafond local représente le solde du budget global de la story après
+les `0,2026 €` de fixture, et empêche de contourner le budget global.
+
+### Résultats, publiés tels quels
+
+| Répétition | Label | HTTP | Verdict | Preuve (`quote_hash`) | Coût (€) | Latence (ms) |
+|---:|---|---:|---|---|---:|---:|
+| 1 | `claim_non_soutenu` | 503 | — (`TruncatedRead`) | aucune | 0,0703 | 30 439 |
+| 2 | `bonne_reponse` | 200 | `ne_tranche_pas` | `5949edb17c5ed5dbde150083e2e0facb79c406a22595b4ec71cacdd0a87fb46a` | 0,0334 | 17 430 |
+| 3 | `bonne_reponse` | 200 | `ne_tranche_pas` | `5949edb17c5ed5dbde150083e2e0facb79c406a22595b4ec71cacdd0a87fb46a` | 0,0233 | 11 020 |
+
+Agrégat : **2/3 bonnes réponses**, recall 0,6667, coût de série **0,1270 €** (moyen 0,0423 €),
+latence p50 **17 430 ms**. Les répétitions 2 et 3 portent la même preuve
+`{doc_id, block_id, kind, quote_hash}` et le même verdict admissible ; la répétition 1 n'a rendu
+**aucune preuve** (`lecture_tronquee`). **La stabilité complète de la série est rouge à cause du
+run 1** (signatures divergentes, verdict absent sur une répétition). Digests :
+`run_digest=77f18d80…`, `plancher_digest=d6df020a…`,
+`cases_hash=0b521262f9d9e4ed5da3923df9985e416f4ab6de6c911e959facf2b36eaa57e0`.
+
+Coût live cumulé réel global de la story : **0,3296 €** (`0,2026 €` de fixture + `0,1270 €` de
+série), sous `0,5000 €`. Aucun autre appel live ne sera lancé pour cette story.
+
+### Ce que cette mesure décide : rien ici
+
+C'est un **état produit non bloquant** pour le verdict mono-cause de 4.2a-bis (la dérivation
+segment/claim, prouvée hors réseau). Comme critère de promotion, ce rouge appartient
+**exclusivement au gate 4.5**. Aucune promotion n'est exécutée, le dernier vert et son trafic sont
+inchangés, et rien ici ne prétend le candidat E2E vert.

@@ -641,8 +641,32 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # vide ne l'est pas, et un segment `factuel` dont **aucune** claim n'a passé le contrôle de
     # citation est retiré par AD-3 de toute façon. Payer des tokens pour les juger serait du gâchis.
     citables = {claim.claim_id for claim, _, _ in retrouvees}
+    # Story 4.2a-bis : un segment `factuel` dont le texte normalisé est **byte-identique** à celui
+    # d'une claim qu'il référence ne reçoit aucun second jugement de soutien. Le même octet a déjà
+    # son jugement — la pertinence de la claim, rendue dans le même appel groupé — et un second
+    # verdict sur le même texte pouvait le contredire (`pertinente=true` / `soutenu=false`), masquer
+    # le segment, orphaniser la claim (`non_citee`), vider la réponse et finir en `TruncatedRead`.
+    # L'identité est le byte-à-byte des formes `normalize()` (la même normalisation que les
+    # citations), jamais une similarité ; la table est calculée sur `draft.claims` entier : une
+    # claim non citable ou excédentaire n'aura pas de verdict de pertinence, donc masque le segment
+    # (fail-closed), et une claim rejetée ne se ressuscite pas par un autre pointeur du segment.
+    claims_du_draft = {c.claim_id: c for c in draft.claims}
+    derives: dict[int, set[str]] = {}
+    for i, s in enumerate(draft.segments):
+        if s.kind != "factuel" or not s.text.strip():
+            continue
+        forme_segment = normalize(s.text)
+        identiques = {cid for cid in s.claim_ids if cid in claims_du_draft
+                      and normalize(claims_du_draft[cid].text) == forme_segment}
+        # Revue Codex 4.2a-bis (B1) : l'identité est l'égalité des formes normalisées, sans
+        # exception — `normalize()` peut vider un texte (« • »), et deux formes vides restent
+        # byte-identiques. Exiger une forme non vide rouvrait le second jugement contradictoire
+        # sur exactement cette classe.
+        if identiques:
+            derives[i] = identiques
     a_juger = [(i, s) for i, s in enumerate(draft.segments)
-               if s.text.strip() and (s.kind != "factuel" or (set(s.claim_ids) & citables))]
+               if i not in derives
+               and s.text.strip() and (s.kind != "factuel" or (set(s.claim_ids) & citables))]
     verdicts: dict[str, bool] = {}
     couverture: dict[int, list[str]] = {}
     soutiens: dict[int, bool] = {}
@@ -744,16 +768,56 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     ecartes = 0
     if evaluees:  # sans appel groupé, aucun verdict n'a pu être rendu : rien n'est jugé, ni retiré
         soumis = {i for i, _ in a_juger}
+        # Story 4.2a-bis : l'affichage d'un segment dérivé suit la seule décision de pertinence de
+        # sa claim byte-identique — retenue ⇒ affiché, rejetée ou sans verdict ⇒ masqué, sans
+        # résurrection par un `soutenu=true` scripté (la position n'a pas été soumise) ni par une
+        # autre claim distincte du segment. `claims` à ce point = les claims `pertinente=true`,
+        # avant le filtre `non_citee` — qu'un dérivé affiché n'active donc plus.
+        retenues = {c.claim_id for c in claims}
+        if derives:
+            # Trace de la dérivation (AD-10 : des comptes, jamais le texte d'un bloc ni d'une
+            # phrase). Émise ici, là où la dérivation s'applique réellement : sans appel groupé
+            # (`evaluees` vide) rien n'est jugé ni dérivé, et un appel raté ne doit pas laisser
+            # dans sa trace un contrat d'affichage qui n'a pas été appliqué. « Référencée » et non
+            # « citée » : la claim identique peut avoir échoué au contrôle de citation.
+            step.checks.append(CheckResult(
+                name="segments_derives", ok=True,
+                detail=f"{len(derives)} segment(s) factuel(s) au texte byte-identique à une "
+                       "affirmation référencée : non soumis au jugement de soutien, leur affichage "
+                       "suit la décision de pertinence de l'affirmation"))
+
+        def _affiche(i: int) -> bool:
+            if i in derives:
+                return bool(derives[i] & retenues)
+            return i in soumis and soutiens.get(i) is True
+
         survivants = [s for i, s in enumerate(draft.segments)
-                      if not s.text.strip() or (i in soumis and soutiens.get(i) is True)]
-        ecartes = sum(1 for i, s in enumerate(draft.segments)
-                      if s.text.strip() and not (i in soumis and soutiens.get(i) is True)
-                      and (s.kind != "factuel" or (set(s.claim_ids) & citables)))
-        if ecartes:
+                      if not s.text.strip() or _affiche(i)]
+        # Un dérivé masqué ampute la réponse voulue : il compte dans `ecartes` (lacune
+        # `phrases_ecartees`), mais sous un check distinct — le détail de `segments_non_soutenus`
+        # (« avancent plus que les passages joints ») serait faux pour un texte jamais rejugé.
+        # Même éligibilité que les segments soumis (`set(s.claim_ids) & citables`) : un segment
+        # dont **aucune** claim n'était citable n'était pas affichable avant la dérivation non
+        # plus — le compter créerait une lacune que son jumeau paraphrasé n'a jamais créée, et sa
+        # claim rejetée alimente déjà la relance.
+        derives_masques = sum(1 for i, s in enumerate(draft.segments)
+                              if s.text.strip() and i in derives and not (derives[i] & retenues)
+                              and (set(s.claim_ids) & citables))
+        non_soutenus = sum(1 for i, s in enumerate(draft.segments)
+                           if s.text.strip() and i not in derives
+                           and not (i in soumis and soutiens.get(i) is True)
+                           and (s.kind != "factuel" or (set(s.claim_ids) & citables)))
+        ecartes = non_soutenus + derives_masques
+        if non_soutenus:
             step.checks.append(CheckResult(
                 name="segments_non_soutenus", ok=False,
-                detail=f"{ecartes} phrase(s) de l'ébauche avancent plus que les passages joints "
+                detail=f"{non_soutenus} phrase(s) de l'ébauche avancent plus que les passages joints "
                        "(ou n'ont pas été jugées) : elles ne sont pas affichées"))
+        if derives_masques:
+            step.checks.append(CheckResult(
+                name="segments_derives_masques", ok=False,
+                detail=f"{derives_masques} segment(s) au texte byte-identique à une affirmation "
+                       "rejetée ou sans verdict de pertinence : masqués avec elle, jamais rejugés"))
 
     # --- ce qu'une phrase ne peut pas prouver : l'absence (revue Codex 1.5, tour 3, B1) -----
     # Un segment `limite` dit ce que le guide **ne dit pas**. Aucun passage ne peut le soutenir : une
