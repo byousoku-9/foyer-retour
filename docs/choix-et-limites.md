@@ -57,7 +57,10 @@ chemin positionnel (`{doc_id}:s1.2`) calculé par le code : renommer les intitul
 identifiant. Le vérificateur est en code pur, hors réseau, et rend un refus **nommé** :
 `proposition_illisible`, `document_different`, `ligne_inconnue`, `titre_duplique`, `titre_ambigu`,
 `cycle`, `profondeur_excessive`, `ordre_impossible`, `intervalles_croises`,
-`couverture_insuffisante`. Un refus est un check `bloquant` `structure_proposee` : le manifest passe
+`parent_non_contenant`, `couverture_insuffisante`, `proposition_vide`, `noeud_non_construit`. Un
+nœud prouvé que l'arbre bâti ne porte pas est donc un refus, pas une note : annoncer « proposition
+vérifiée » sur un arbre qui n'en contient qu'une partie serait le même mensonge que le repli
+silencieux. Un refus est un check `bloquant` `structure_proposee` : le manifest passe
 en `quarantaine` et `document.json`/`summary.md` sont purgés. Il n'existe **pas** de repli silencieux
 vers l'heuristique — servir un arbre que personne n'a prouvé en laissant croire que la proposition a
 été honorée est exactement ce qu'AD-16 interdit. Sans `structure.json`, l'heuristique reste le chemin
@@ -70,10 +73,43 @@ rendrait l'arbre instable et mettrait le document en quarantaine à chaque déma
 `uv run python -m server.ingest.structure <doc_id>`, puis relu et revérifié à chaque ingestion. Sa
 liaison cryptographique au manifest reste hors périmètre (différé, `target_story: 4.5`).
 
+### Les dix réglages de la story, et où ils se règlent
+
+Convention Seuils : aucune de ces valeurs n'est écrite en dur dans le parseur ou le vérificateur.
+Chacune vit dans `server/app/config.py` avec la justification de sa valeur, est publiée par
+`thresholds()` — donc lisible sur `/api/v1/sante` et dans `Trace.thresholds` — et se règle par la
+variable d'environnement du même nom en majuscules. Les cinq bornes de colonne entrent en plus dans
+`ingest_fingerprint`, parce qu'elles changent l'ordre de lecture, donc les identifiants.
+
+La liste ci-dessous est un **second texte faisant autorité sur les mêmes nombres** : une garde
+(`test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_documentes`) relit chaque
+valeur par `Settings` et rougit si elle s'écarte du défaut, pour qu'une dérive comme celle qu'a
+connue `STRUCTURE_MAX_INPUT_CHARS` — annoncée à 300 000 alors que les deux contrats déjà ingérés
+mesurent 710 081 et 655 999 caractères — ne survive pas une story de plus.
+
+Géométrie des colonnes du corps :
+
+- `COLUMN_GUTTER_MIN_PT=18.0` — largeur minimale du blanc vertical entre deux colonnes.
+- `COLUMN_MIN_LINES=4` — lignes entièrement d'un côté, exigées de chaque côté.
+- `COLUMN_MIN_SPAN_RATIO=0.35` — part de la hauteur écrite que chaque côté doit couvrir.
+- `COLUMN_ROW_PAIRING_MAX_RATIO=0.5` — appariement des lignes de base au-delà duquel les deux côtés
+  ressemblent à une rangée ; n'écarte la gouttière qu'avec le critère suivant.
+- `COLUMN_MIN_FILL_RATIO=0.6` — part de sa largeur *disponible* qu'occupe le côté le moins rempli.
+
+Structure proposée puis vérifiée :
+
+- `STRUCTURE_MAX_DEPTH=6` — profondeur maximale de l'arbre proposé.
+- `STRUCTURE_MIN_COVERAGE=0.9` — part des lignes du registre que les intervalles doivent couvrir.
+- `STRUCTURE_MAX_INPUT_CHARS=900000` — la charge utile est le registre du document entier et part en
+  une seule requête : aucun découpage n'est possible pour un arbre qui porte sur tout le document.
+- `STRUCTURE_MAX_OUTPUT_TOKENS=16000` — la réponse ne porte que des `uid` et des liens.
+- `STRUCTURE_MAX_COST_EUR=5.0` — majorant du seul appel, vérifié **avant** toute construction de
+  client ; `--max-cost` le surcharge pour un run.
+
 ### Limite assumée : les artefacts committés attendent une réingestion
 
 Corriger l'entrelacement change l'ordre de lecture d'un document réellement à deux colonnes, donc ses
-`seq`, donc ses `block_id`. Les trois seuils géométriques entrent dans `ingest_fingerprint`, et
+`seq`, donc ses `block_id`. Les cinq seuils géométriques entrent dans `ingest_fingerprint`, et
 `PARSER_VERSION` passe de `9` à `10` : l'empreinte du parseur courant diffère donc de celle inscrite
 dans les `document.json` committés. Les PDF sources ne sont pas versionnés ; **aucune mesure n'a donc
 été prise sur un contrat réel dans cette story**, et aucun chiffre d'ingestion réelle n'est publié

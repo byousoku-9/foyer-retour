@@ -241,14 +241,39 @@ def test_les_seuils_du_typage_clauses_sont_bornes_publies_et_documentes() -> Non
     assert {name.upper() for name in expected} <= cited
 
 
+def _seuils_documentes() -> dict[str, str]:
+    """Les paires `NOM=valeur` que `docs/choix-et-limites.md` publie comme réglages.
+
+    Même rôle que `_seuils_commentes` pour `.env.example` — un second texte faisant autorité sur les
+    mêmes nombres, donc à garder — mais sur la surface où cette story documente ses réglages. Les
+    accents graves ne sont pas exclus ici : ce document est du markdown, où un nom de variable
+    s'écrit entre accents graves, et la liste visée est une énumération de réglages, jamais de la
+    prose décrivant une situation.
+    """
+    import re
+
+    connus = {k.upper() for k in Settings.model_fields}
+    paire = re.compile(r"\b([A-Z][A-Z0-9_]*)=([^\s`]+)")
+    trouves: dict[str, str] = {}
+    for nom, valeur in paire.findall((REPO_ROOT / "docs" / "choix-et-limites.md").read_text("utf-8")):
+        if nom in connus:
+            trouves[nom] = valeur.rstrip(".,;)")
+    return trouves
+
+
 def test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_documentes() -> None:
-    """Story 4.2c, convention Seuils : borné dans `Settings`, publié par `thresholds()`, cité dans
-    `.env.example`. Un seuil que personne ne sait régler n'est pas un réglage.
+    """Story 4.2c, convention Seuils : borné dans `Settings`, publié par `thresholds()`, documenté.
+
+    La documentation vit dans `docs/choix-et-limites.md`, à côté de la géométrie qu'elle règle, et
+    non dans `.env.example` : la plage produit d'une story ne peut porter aucun fichier `.env*`, que
+    la checklist de passation refuse sans distinguer le gabarit d'un vrai fichier d'environnement.
+    La preuve n'y perd rien et y gagne l'égalité des valeurs — chaque nombre publié est relu par
+    `Settings` et comparé au défaut, là où `.env.example` n'aurait prouvé que la présence du nom.
 
     Que chacune des cinq bornes de colonne soit un **levier** réel — l'abaisser change la détection —
     est prouvé par `tests/test_colonnes.py`, et que celles du vérificateur en soient aussi l'est par
     `tests/test_structure_proposee.py` : ce test ne redouble ni l'un ni l'autre. Il ferme le seul
-    trou qui restait : les treize nombres de la story n'étaient publiés qu'à moitié, et aucun n'était
+    trou qui restait : les dix nombres de la story n'étaient publiés qu'à moitié, et aucun n'était
     documenté.
     """
     s = Settings(_env_file=None)
@@ -274,8 +299,16 @@ def test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_docum
                 "structure_min_coverage"):
         with pytest.raises(ValidationError):  # une part reste une part : jamais au-delà de 1
             Settings(_env_file=None, **{nom: 1.5})
-    cites = set(_seuils_commentes())
-    assert {nom.upper() for nom in attendus} <= cites, sorted({nom.upper() for nom in attendus} - cites)
+    documentes = _seuils_documentes()
+    manquants = sorted({nom.upper() for nom in attendus} - set(documentes))
+    assert not manquants, f"seuils de la story non documentés dans choix-et-limites.md : {manquants}"
+    ecarts = []
+    for nom in attendus:
+        # La valeur publiée est du texte : on la relit par `Settings`, comme un `.env` le ferait.
+        relu = getattr(Settings(_env_file=None, **{nom: documentes[nom.upper()]}), nom)
+        if relu != getattr(s, nom):
+            ecarts.append(f"{nom.upper()}={documentes[nom.upper()]} documenté, {getattr(s, nom)!r} dans config.py")
+    assert not ecarts, "\n".join(ecarts)
 
 
 @pytest.mark.parametrize("bad", [
