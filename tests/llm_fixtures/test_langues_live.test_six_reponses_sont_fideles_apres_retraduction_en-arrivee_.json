@@ -30,6 +30,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:0e43d6efe4123f80": {
+    "request": "claude-haiku-4-5-20251001:0e43d6efe4123f80",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeTkbY9T2sHBRRBUJnVKr",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 659,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:133836063c2907d8": {
     "request": "claude-haiku-4-5-20251001:133836063c2907d8",
     "response": {
@@ -379,7 +410,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CePjcR9fL1hCM7tsyCeEZ",
+      "id": "msg_011CeTkabjy4rEAZhXh1AZcc",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -389,10 +420,10 @@
       "usage": {
         "cache_creation": {
           "ephemeral_1h_input_tokens": 0,
-          "ephemeral_5m_input_tokens": 0
+          "ephemeral_5m_input_tokens": 4286
         },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 4286,
+        "cache_creation_input_tokens": 4286,
+        "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 70,
         "output_tokens": 117,
@@ -427,6 +458,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3278,
         "output_tokens": 95,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:baa47f417f6fa090": {
+    "request": "claude-haiku-4-5-20251001:baa47f417f6fa090",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": false, \"raison\": \"hors_objet\"}, {\"claim_id\": \"c3\", \"pertinente\": false, \"raison\": \"hors_objet\"}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeTkbQVaa5ieHgK8nVm77",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3727,
+        "output_tokens": 153,
         "service_tier": "standard"
       }
     }
@@ -829,11 +891,12 @@
     "response": {
       "content": [
         {
-          "text": "{\"segments\":[{\"text\":\"You must declare yourself at the commune within eight days of moving in.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"This declaration is essential because it produces the residence certificate and the matricule, which are required for the following steps.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"It is advisable to book the appointment online before even having the keys.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Declaration to the commune must happen within eight days of moving in.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"The declaration produces the residence certificate and matricule, indispensable for further steps.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"One should book the appointment online before even having the keys.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"You must declare your arrival at the commune within eight days of moving in.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"This declaration is what produces your residence certificate and matricule, which are needed for the following administrative steps.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"It is worth booking the appointment online before you even have the keys, since slots can be scarce.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"The declaration to the commune must be made within eight days of moving in.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"This declaration produces the residence certificate and the matricule, essential for what follows.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"You should book the appointment online before even having the keys.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeRL6QPWfuaon1eTyhbX7",
+      "id": "msg_011CeTkaovT3SqZKfF9EHgaA",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -842,14 +905,14 @@
       "type": "message",
       "usage": {
         "cache_creation": {
-          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 6811,
           "ephemeral_5m_input_tokens": 0
         },
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 6811,
+        "cache_creation_input_tokens": 6811,
+        "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 2886,
-        "output_tokens": 439,
+        "output_tokens": 448,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

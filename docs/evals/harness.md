@@ -74,3 +74,47 @@ sur la commande pytest. `ANTHROPIC_API_KEY` reste la clé fournisseur explicite.
 sauvegardé même après un échec de mesure, sauf lorsqu'une restauration a trouvé la clé exacte.
 
 Le holdout de 4.3, les baselines publiées de 4.4 et l'API/page d'accueil de 4.5 ne font pas partie de ce livrable.
+
+## Protocole 4.2b : plancher, répétitions, budget de campagne, décisions
+
+Le protocole complet vit dans `docs/evals/protocole.md` ; le harness en applique quatre mécanismes.
+
+**Plancher pré-enregistré.** `server/evals/reference/plancher.yaml` fige par témoin le plancher,
+`N`, numérateur, dénominateur et règles d'incident. `server/evals/plancher.py` le charge, refuse
+toute diminution du floor 4.2a ou de la règle trusted, et calcule son digest — inscrit dans
+`identity.image.plancher_digest` et couvert par `identity.run_digest` (empreinte canonique de
+l'identité du run). Sans plancher lisible, aucun run ne part.
+
+**Répétitions sans cache.** `--repeat N` répète chaque cas `N` fois, cache de réponse désarmé :
+chaque répétition est payée et publiée en entier (rapport `schema_version: 3` — blocs lus,
+claims + applicabilité, `found`/`complete`, coût, latence, tiers/coût par étape, preuves
+normalisées `{doc_id, block_id, kind, quote_hash}`). L'agrégat `stability` compare les répétitions :
+sinistre = même preuve et même verdict admissible ; guide = même statut, `found`/`complete`, label
+et ensemble de fiches. Une répétition manquante (interruption) reste **rouge au dénominateur** et
+le rapport partiel est toujours écrit — sur tout incident, budget ou non.
+
+**Budget de campagne.** `LIVE_BUDGET_EUR` (défaut 1,00 €) est agrégé dans un ledger persistant,
+verrouillé et identifié par `LIVE_CAMPAIGN_ID`; `--max-cost` reste la borne locale obligatoire de
+chaque run orchestrateur. Le client persiste le coût réel après chaque appel, et une invocation
+suivante repart de cet `accrued_cost_eur`. Le préflight s'applique à **tout run payant** : il refuse
+en code 4, avant le
+premier appel, quand le **majorant de référence** (plafond par requête de production × exécutions
+payantes — une référence d'estimation, pas une borne du chemin évals où chaque exécution reçoit le
+restant du run) dépasse le budget effectif, avec `configured_budget_eur`, `accrued_cost_eur` et
+`refused_cost_eur` — jamais une question. Un run simple adossé au cache n'est pas refusé au
+préflight : il reste borné par l'arrêt en cours de run et par le budget de campagne du client.
+
+**Décisions chiffrées du gate.** `--gate` n'écrit plus un booléen nu : `Gate.decisions[]` porte
+`{metric, producer, threshold, scope, n, run_digest, value, status}`. Le runner mesure
+`cases_ok_rate`, `stabilite_guide`/`stabilite_sinistre` et les témoins à `case_id` qui lui
+appartiennent. Les mesures trusted externes (tests hors ligne, A16, `decision_claim`) sont injectées
+par l'orchestrateur avec `--orchestrator-evidence <json>` ; le runner recalcule leurs seuils et
+statuts depuis le plancher, et toute mesure applicable absente reste rouge. Un `builder` reste rouge
+même si ses valeurs tiennent les seuils. `evals_ok` est la conjonction. Un gate candidat **rouge ne
+remplace jamais** un gate
+`evals_ok: true` : le verdict candidat est publié dans le rapport, le manifest reste intact. Sous
+gate `full`, des digests pipeline/prompts/modèles non concordants mettent le document en
+quarantaine au chargement au lieu d'une simple alerte. `--producer orchestrator` déclare la
+provenance ; la règle trusted ne reconnaît que l'orchestrateur comme producteur de preuve. Le JSON
+d'évidence porte `plancher_digest` et une liste `decisions` de
+`{metric, n, value, run_digest}` — jamais un statut auto-déclaré.

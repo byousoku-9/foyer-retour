@@ -10,23 +10,67 @@ champ pour le faire, et la table qui en décide est appliquée par le code appel
 plus si la clause « s'applique » : tu rends des valeurs typées et deux listes de libellés, le code
 en tire l'applicabilité.
 
-Pour le jugement `pertinente` demandé par les instructions communes, une clause qui définit le
-**sens de la responsabilité** (qui est l'Assuré, qui est le tiers, qui cause le dommage) apporte bien
-un élément de réponse à une question qui compare deux responsabilités civiles, y compris quand ce
-sens est l'inverse de celui du sinistre déclaré. Si l'affirmation reste exactement soutenue par la
-quote, rends `pertinente = true` ; la question de périmètre ci-dessous enregistrera ensuite que la
-clause ne vise pas le cas. Ne rejette pas cette preuve de sens comme « hors sujet ».
+Pour le jugement `pertinente` demandé par les instructions communes, sépare toujours l'objet
+contractuel de la question et l'applicabilité au dossier. Une affirmation qui rapporte fidèlement la
+règle conditionnelle d'une clause répond à l'objet dès que cette règle traite la garantie,
+l'exclusion ou la responsabilité interrogée, même si une qualité exigée manque dans les faits ou si
+le périmètre est contraire. Rends alors `pertinente = true` : les champs ci-dessous enregistreront
+ensuite `humain` pour une qualité manquante ou `non` pour un périmètre contraire. Ne transforme
+jamais cette règle en « la clause s'applique » : sans preuve dans les faits ou dans la quote, cette
+conclusion ajoutée vaut `pertinente = false` avec `raison = conclusion_ajoutee`.
+
+La suffisance de la quote se lit grammaticalement : la citation retenue doit porter à la fois le
+**sujet** dont l'affirmation parle et l'**opérateur** de couverture qu'elle revendique (couvre,
+exclut, est garanti, est soumis à condition…). Un passage qui n'établit qu'une partie — le sujet
+sans l'opérateur, ou l'opérateur sur un autre sujet — n'établit pas l'affirmation : rends
+`pertinente = false` avec `raison = non_soutenue`, quel que soit le voisinage thématique.
+
+Le champ `clause` est le typage contractuel du passage, relu du corpus, et `clause_confirmee` dit
+si ce typage est confirmé. Ils servent l'applicabilité que tu rends ; ni l'un ni l'autre ne
+constitue une preuve textuelle, et la structure du contrat (rubrique parente, sommaire) n'en est
+pas une non plus. La suffisance grammaticale s'applique sans exception : pour un item de liste
+grammaticalement incomplet, l'affirmation n'est retenue que si un passage cité joint porte
+réellement le sujet et l'opérateur qu'elle revendique — sinon rends `pertinente = false` avec
+`raison = non_soutenue`. Une claim qui dit qu'une `exclusion` garantit ou couvre ce qu'elle
+énumère — ou qu'une `garantie` l'exclut — inverse la règle : rends `pertinente = false`. Ne déduis
+jamais l'opérateur de la seule étiquette ni de la seule structure.
 
 Quand un segment factuel reprend exactement `Claim.text`, ses jugements ne posent pas deux questions
 différentes : si la quote soutient cette claim et qu'elle répond à la question (`pertinente=true`),
 le segment porte la même valeur de vérité (`soutenu=true`). Inversement, une claim non pertinente ne
-rend pas son segment soutenu. Ne produis jamais deux booléens opposés pour le même texte.
+rend pas son segment soutenu. Contrôle cette cohérence juste avant de rendre le JSON : pour un segment
+factuel byte-identique à une claim elle-même byte-identique à sa quote, la paire
+`pertinente=true, soutenu=false` est impossible. Ne produis jamais deux booléens opposés pour le même
+texte.
 
-Exemple normatif : si un tiers a cassé le bien de l'Assuré et que la question demande « sa RC ou
-mon contrat ? », l'affirmation « la RC vie privée fournie vise les dommages que l'Assuré cause à des
-tiers » est `pertinente = true` lorsqu'elle est soutenue par sa quote. Elle répond en établissant le
-sens de cette clause, sans conclure sur le contrat du tiers. Dans les champs d'applicabilité, son
-périmètre est en revanche contraire au cas déclaré (`fait_requis_present = false`).
+Exemple normatif, étranger par construction à tout cas soumis : une clause couvre les dommages à un
+bien **si** le choc qui l'atteint est violent. Si les faits disent seulement qu'un vase a basculé
+sur le tapis, l'affirmation « la clause vise les dommages causés par un choc violent » reste
+pertinente lorsqu'elle est soutenue par sa quote ; l'applicabilité vaut ensuite `humain`, car le
+caractère violent du choc reste à établir. Écrire « ce dommage est couvert » ajoute au contraire une
+conclusion que ni la quote ni les faits n'établissent. La règle vaut à l'identique quels que soient
+le bien, l'événement et la qualité exigée : elle ne dépend d'aucun objet ni d'aucune condition
+particulière.
+
+Le verbe « couvrir » ne suffit donc pas à transformer une règle en conclusion : « le contrat couvre
+les dommages **causés par un choc violent** » rapporte encore la règle conditionnelle et vaut
+`pertinente = true` si la quote l'établit. Seule une formulation qui rattache cette couverture au
+dossier (« ce dommage est couvert », « cette clause s'applique au sinistre décrit ») ajoute
+l'application au cas.
+
+Procède littéralement dans cet ordre : (1) relève toutes les conditions conservées dans
+l'affirmation ; (2) demande-toi si son sujet est seulement le contrat/la clause et une catégorie de
+dommages, ou si elle désigne le dossier reçu ; (3) n'utilise les faits que pour `applicabilite`. Une
+affirmation dont le sujet est le contrat et qui conserve les conditions de la quote est la règle,
+pas le verdict demandé par la question — même si elle emploie « couvre ». Ne rends jamais
+`conclusion_ajoutee` pour cette seule forme.
+
+L'objet peut être une décision finale **ou** l'identification des catégories de dommages, garanties,
+exclusions ou règles à examiner. Dans ce second cas, une règle soutenue qui traite l'un des dommages
+déclarés répond déjà à l'objet : elle reste `pertinente = true`, même si elle ne rattache pas encore
+ce dommage à la catégorie contractuelle et même si une autre facette reste sans réponse. La
+couverture des facettes mesure séparément ce qui manque ; elle ne rend pas hors objet la règle utile
+à une seule facette.
 
 - `claim_id` : reprends **tel quel** l'identifiant de l'affirmation. N'invente aucun identifiant,
   n'en réponds aucun deux fois, n'en rends pas pour une affirmation sans clause décisionnelle.
@@ -34,7 +78,7 @@ périmètre est en revanche contraire au cas déclaré (`fait_requis_present = f
 ### `fait_requis_present` et `fait_manquant` : deux questions, dans cet ordre
 
 Une clause ne joue que si des faits sont réunis. Pose-toi les deux questions ci-dessous **dans cet
-ordre**, et arrête-toi à la première qui répond.
+ordre**, et n'examine pas les suivantes après la première qui répond.
 
 **1. Le périmètre.** La clause vise-t-elle le bien, le lieu et la situation du sinistre décrit ? Si
 les faits déclarés disent le **contraire**, alors `fait_requis_present = false` et `fait_manquant =
@@ -60,8 +104,8 @@ null` — rien ne manque, on **sait** que la clause ne vise pas ce cas. C'est le
 **qualité** de l'événement, du bien ou de l'assuré — soudain, subit, accidentel, imprévisible,
 permanent, direct et immédiat, avec effraction, à titre principal… ? Si les faits déclarés ne
 l'établissent pas **dans ces termes**, alors `fait_requis_present = false` et `fait_manquant` **nomme
-cette qualité**. N'infère jamais une qualité des circonstances : « une bougie est tombée sur le
-canapé » dit ce qui s'est passé, pas que l'action de la chaleur ait été *subite* au sens de la
+cette qualité**. N'infère jamais une qualité des circonstances : « un vase a basculé sur le tapis »
+dit ce qui s'est passé, pas que le choc ait été *violent* au sens de la
 clause, ni que l'événement ait été *soudain*. C'est précisément ce qu'il faut faire préciser au
 client.
 
@@ -69,7 +113,7 @@ client.
 exigée est établie — ou la clause n'exige aucun fait particulier.
 
 Forme du `fait_manquant` : quelques mots, **en français**, repris du vocabulaire de la clause
-(« caractère subit de l'action de la chaleur », « existence d'un commencement d'incendie »,
+(« caractère violent du choc », « contact direct avec le bien »,
 « qualité de locataire de l'assuré »). Jamais une phrase, jamais une question, jamais un conseil,
 jamais une conclusion. Un seul fait par affirmation : le plus déterminant. **Au plus
 $fait_manquant_max_chars caractères** : au-delà, le code appelant ignore **tous** tes champs typés
@@ -114,8 +158,8 @@ qualités d'une clause qui, elle, vise le cas.
     fragment introuvable, reformulé ou résumé fait tomber la qualité en « non établie ». Ne cite que
     ce que les faits disent — ni la clause, ni ton raisonnement, ni une paraphrase.
 
-    Le code vérifie aussi que le fragment emploie **chacun** des mots de la qualité. « Une bougie
-    allumée est tombée sur le canapé » ne contient ni *soudain*, ni *subite*, ni *foyer* : il
+    Le code vérifie aussi que le fragment emploie **chacun** des mots de la qualité. « Un vase a
+    basculé sur le tapis » ne contient ni *violent*, ni *direct*, ni *immédiat* : il
     n'établit aucune de ces qualités, et le citer trois fois pour trois qualités différentes les fait
     toutes tomber. Un mot partagé ne suffit pas non plus : « la chaleur a agi lentement » parle bien
     de la *chaleur*, mais il dit le contraire de l'*action subite de la chaleur* — il ne l'établit
@@ -123,9 +167,9 @@ qualités d'une clause qui, elle, vise le cas.
     précisément ce qu'il faut faire préciser au client.
 
   Une qualité que tu n'as pas trouvée dans les faits déclarés n'y figure pas — ne l'infère jamais des
-  circonstances : « une bougie est tombée sur le canapé » ne dit pas que l'action de la chaleur ait
-  été *subite* au sens de la clause, et « le mobilier a brûlé » ne dit pas que la chaleur ait agi de
-  façon *subite*. Dans le doute, **ne l'y mets pas** : une qualité laissée à confirmer coûte moins
+  circonstances : « un vase a basculé sur le tapis » ne dit pas que le choc ait été *violent* au
+  sens de la clause, et « le tapis est abîmé » ne dit pas qu'il ait été atteint de façon *directe*.
+  Dans le doute, **ne l'y mets pas** : une qualité laissée à confirmer coûte moins
   cher qu'une qualité tenue pour acquise.
 
 Le code appelant fait la différence des deux listes : toute qualité exigée qui n'est pas établie —

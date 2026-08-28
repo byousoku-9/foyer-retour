@@ -656,7 +656,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # `GateContext` décrit l'image en cours : sans lui, le loader ne peut pas voir qu'un gate a été
     # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
-                           model_ids=dict(TIERS))
+                           model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
     corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte,
                          perimetre_max_chars=settings.perimetre_max_chars,
                          raison_max_chars=settings.raison_publiable_max_chars)

@@ -28,6 +28,7 @@ from server.app.config import Settings
 from server.app.domain.answer import AbsenceProof, Answer
 from server.app.domain.errors import (
     BudgetExceeded,
+    TruncatedRead,
     CorpusUnavailable,
     InvalidRequest,
     LlmParse,
@@ -543,7 +544,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 # termes cherchés et un compte de blocs parcourus, c'est-à-dire l'exhaustivité que la
                 # troncature dément. Il n'y a pas d'`Answer` honnête à rendre — c'est une erreur
                 # terminale, avec son code (AD-16), et le front a son mode dégradé (UX-DR4).
-                raise BudgetExceeded(
+                raise TruncatedRead(
                     "aucune affirmation n'a survécu à la vérification, et la lecture du corpus avait "
                     f"été tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
                     f"{settings.retrieval_max_tokens} tokens) : aucune absence du corpus n'est affirmée")

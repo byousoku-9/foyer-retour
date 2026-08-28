@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from server.app.config import Settings
 from server.app.domain.errors import BudgetExceeded, ErrorCode, LlmParse, LlmUnavailable, Timeout
-from server.app.domain.trace import StepTrace
+from server.app.domain.trace import StepTrace, Usage
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient, MemoryResponseCache, map_provider_error
 from server.app.llm.models import TIERS
@@ -52,6 +52,43 @@ async def test_nominal_call_traces_counts_and_costs() -> None:
     assert step.usage.cost_eur == result.usage.cost_eur
     assert result.call.model == HAIKU and result.call.ms >= 0
     assert step.checks == []  # pas de cout_eleve : 1000×1 + 100×5 USD/MTok « 0,05 €
+
+
+async def test_parse_applique_le_budget_cumule_de_campagne(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le second appel est refusé par `parse()` avant d'atteindre le fournisseur."""
+    import server.app.llm.client as module_client
+
+    monkeypatch.setattr(module_client, "estimate_cost", lambda *a, **k: 0.06)
+    monkeypatch.setattr(module_client, "cost_from_usage", lambda *a, **k: Usage(cost_eur=0.06))
+    fake = FakeAnthropic([fake_message(model=HAIKU), fake_message(model=HAIKU)])
+    client = LlmClient(_settings(), anthropic_client=fake, campaign_budget_eur=0.10)
+    await _call(client)
+    with pytest.raises(BudgetExceeded, match="budget de campagne"):
+        await _call(client)
+    assert client.campaign_cost_eur == 0.06
+    assert len(fake.requests) == 1
+
+
+async def test_tool_turn_applique_le_budget_cumule_de_campagne(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le chemin outils applique la même frontière de campagne que le chemin structuré."""
+    import server.app.llm.client as module_client
+
+    monkeypatch.setattr(module_client, "estimate_cost", lambda *a, **k: 0.06)
+    monkeypatch.setattr(module_client, "cost_from_usage", lambda *a, **k: Usage(cost_eur=0.06))
+    fake = FakeAnthropic([fake_message(model=SONNET), fake_message(model=SONNET)])
+    client = LlmClient(_settings(), anthropic_client=fake, campaign_budget_eur=0.10)
+    kwargs = {
+        "tier": "reason", "system_prefix": "p", "messages": [],
+        "tools": [{"name": "chercher", "input_schema": {"type": "object"}}],
+        "max_tokens": 20,
+    }
+    await client.tool_turn(**kwargs, budget=_budget(), step=StepTrace(name="retrouver"))
+    with pytest.raises(BudgetExceeded, match="budget de campagne"):
+        await client.tool_turn(**kwargs, budget=_budget(), step=StepTrace(name="retrouver"))
+    assert client.campaign_cost_eur == 0.06
+    assert len(fake.requests) == 1
 
 
 async def test_request_shape_micro_no_effort_temperature_zero() -> None:

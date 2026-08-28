@@ -45,9 +45,10 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from server.app.config import Settings
 from server.app.corpus.text import normalize, normalize_spans
@@ -81,7 +82,6 @@ from server.app.domain.verdict import (
 )
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 # Un `claim_id` produit par le modèle n'entre dans un motif que s'il ressemble à ce que le prompt
@@ -91,9 +91,36 @@ _CLAIM_ID = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
 BLOC_INCONNU = "<bloc inconnu>"
 
 
+RAISONS_NON_PERTINENCE = ("non_soutenue", "hors_objet", "conclusion_ajoutee")
+
+
 class VerdictPertinence(BaseModel):
     claim_id: str
     pertinente: bool
+    raison: Literal["non_soutenue", "hors_objet", "conclusion_ajoutee"] | None = None
+    # Sentinelle interne (revue 4.2a, B2) : `SkipJsonSchema` la retire du schéma envoyé au modèle —
+    # le vocabulaire des raisons reste fermé côté fournisseur, et rien ne peut la renseigner de
+    # l'extérieur (le validateur ci-dessous l'écrase quoi qu'il arrive).
+    raison_hors_vocabulaire: SkipJsonSchema[bool] = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _invalidite_brute(cls, data: Any) -> Any:
+        """Une raison brute hors vocabulaire n'est jamais une sortie nominale (revue 4.2a, B2).
+
+        Le schéma envoyé au modèle reste fermé (`Literal`). Une valeur brute inconnue ne fait pas
+        échouer les autres claims du lot : elle est détectée **avant** la coercition pydantic et
+        marquée par la sentinelle interne — jamais exposée dans le schéma — pour que le code aval
+        écarte la seule claim concernée. Elle n'est jamais silencieusement ramenée à ``None`` sans
+        trace : le normaliser en sortie nominale était l'anti-modèle exact de la revue.
+        """
+        if isinstance(data, dict):
+            brut = data.get("raison")
+            hors_vocabulaire = brut is not None and brut not in RAISONS_NON_PERTINENCE
+            data = {**data, "raison_hors_vocabulaire": hors_vocabulaire}
+            if hors_vocabulaire:
+                data["raison"] = None
+        return data
 
 
 class FacettePertinence(BaseModel):
@@ -427,6 +454,31 @@ def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
             + "\n".join(lignes))
 
 
+# Ces motifs sont composés par le code pour les deux pipelines : le vocabulaire reste neutre
+# (« objet de la question », « passage », « cas soumis »), jamais propre au contrat — une relance
+# guide ne doit pas recevoir une consigne formulée pour le sinistre.
+MOTIFS_NON_PERTINENCE: dict[str, str] = {
+    "non_soutenue": (
+        "citation non soutenue : reformule l'affirmation pour ne rapporter que ce que le passage "
+        "cité établit"
+    ),
+    "hors_objet": (
+        "affirmation hors de l'objet de la question : appuie-toi sur un passage qui répond à "
+        "cet objet"
+    ),
+    "conclusion_ajoutee": (
+        "conclusion ajoutée : rapporte uniquement la règle conditionnelle que le passage énonce, "
+        "sans conclure qu'elle s'applique au cas soumis ni trancher le verdict"
+    ),
+}
+
+MOTIF_NON_PERTINENCE_GENERIQUE = (
+    "citation non pertinente : le passage cité ne soutient pas l'affirmation, ou l'affirmation ne "
+    "répond pas à l'objet de la question ; rapporte seulement une règle soutenue qui répond à cet "
+    "objet, sans ajouter son applicabilité ni une conclusion"
+)
+
+
 def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
@@ -496,7 +548,9 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     la règle (2) d'AD-6 plafonne le verdict à `sous_conditions`.
     """
     t0 = time.monotonic()
-    step = StepTrace(name="verifier", tier=STEP_TIERS["verifier"])
+    # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
+    tier = settings.verifier_tier
+    step = StepTrace(name="verifier", tier=tier)
     sinistre = faits is not None
 
     # Blocs réellement transmis à *rédiger* : le périmètre exact de ce qui est citable (AD-1,
@@ -595,13 +649,15 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     applicabilites: dict[str, ChampsApplicabilite] = {}
     if evaluees:
         try:
-            verdicts, couverture, soutiens, applicabilites = await _pertinence(
+            verdicts, raisons, couverture, soutiens, applicabilites = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step, faits=faits,
                 clauses=clauses_par_claim)
         except PipelineError:
             step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
             raise
+    else:
+        raisons = {}
 
     claims: list[VerifiedClaim] = []
     jugees: dict[str, ClaimJugee] = {}  # mode sinistre : ce que la table AD-6 lira des claims retenues
@@ -634,8 +690,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             claims.append(VerifiedClaim(claim_id=claim.claim_id, text=claim.text, quotes=quotes,
                                         status=status, line_ids=line_ids))
             continue
-        motif = ("citation non pertinente : le passage cité ne soutient pas l'affirmation, ou "
-                 "l'affirmation ne répond pas à la question posée"
+        motif = (MOTIFS_NON_PERTINENCE.get(
+            raisons.get(claim.claim_id, ""), MOTIF_NON_PERTINENCE_GENERIQUE)
                  if pertinente is False else
                  "pertinence non rendue par le contrôle groupé : l'affirmation est écartée plutôt que devinée")
         # Ces quotes **ont** été retrouvées : leurs offsets et `line_ids` sont conservés, c'est ce qui
@@ -864,7 +920,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                       client: LlmClient, budget: RequestBudget, settings: Settings, step: StepTrace,
                       faits: Faits | None = None,
                       clauses: dict[str, list[ClauseCitee]] | None = None,
-                      ) -> tuple[dict[str, bool], dict[int, list[str]], dict[int, bool],
+                      ) -> tuple[dict[str, bool], dict[str, str], dict[int, list[str]], dict[int, bool],
                                  dict[str, ChampsApplicabilite]]:
     """L'unique appel `micro` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
 
@@ -915,8 +971,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         if clauses_de_la_claim:
             # Le `kind` vient de l'ingestion, jamais du modèle (AD-6) : on le lui **dit**, pour qu'il
             # sache de quelle affirmation on attend des champs typés — et il n'y en a qu'un, le
-            # contrôle « une clause par affirmation » l'a déjà garanti (D6).
+            # contrôle « une clause par affirmation » l'a déjà garanti (D6). Revue Codex 4.2a (B4) :
+            # la confirmation du typage voyage **séparément** — elle sert l'applicabilité et le
+            # prédicat, jamais la preuve textuelle, et un kind non confirmé n'est plus présenté
+            # comme confirmé.
             charge["clause"] = clauses_de_la_claim[0].kind
+            charge["clause_confirmee"] = clauses_de_la_claim[0].kind_confirmed
         parts.append(untrusted("claim", json.dumps(charge, ensure_ascii=False)))
     for position, segment in segments:
         # Le texte du segment vient du modèle : il est délimité comme tout le reste (AD-15). C'est
@@ -927,7 +987,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
              "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
     content = "\n\n".join(parts)
     try:
-        result = await client.parse(tier=STEP_TIERS["verifier"], system_prefix=prefix,
+        result = await client.parse(tier=step.tier,
+                                    system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
                                     output_model=SortieVerifierSinistre if sinistre else SortieVerifier,
                                     budget=budget, step=step,
@@ -943,6 +1004,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         raise
     attendus = {claim.claim_id for claim, _, _ in evaluees}
     verdicts: dict[str, bool] = {}
+    raisons: dict[str, str] = {}
     for v in result.parsed.verdicts:
         if v.claim_id not in attendus:  # un identifiant inventé ne décide de rien
             continue
@@ -951,11 +1013,47 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             # doute, réponds false ». Une contradiction est un doute : elle écarte la claim, elle ne
             # s'arbitre pas par l'ordre d'arrivée (revue 1.5).
             verdicts[v.claim_id] = False
+            raisons.pop(v.claim_id, None)
             step.checks.append(CheckResult(
                 name="verdict_contradictoire", ok=False,
                 detail="deux verdicts opposés pour une même affirmation : elle est écartée"))
             continue
+        if v.claim_id in verdicts and not v.pertinente:
+            precedente = raisons.get(v.claim_id)
+            courante = v.raison
+            if precedente != courante:
+                raisons.pop(v.claim_id, None)
+                step.checks.append(CheckResult(
+                    name="verdict_contradictoire", ok=False,
+                    detail="deux raisons différentes pour une même affirmation rejetée : la "
+                           "relance emploie le repli strict générique"))
+            continue
         verdicts.setdefault(v.claim_id, v.pertinente)
+        if v.pertinente:
+            if v.raison is not None:
+                verdicts[v.claim_id] = False
+                raisons.pop(v.claim_id, None)
+                step.checks.append(CheckResult(
+                    name="verdict_contradictoire", ok=False,
+                    detail="une affirmation pertinente porte une raison de rejet : sortie "
+                           "incohérente, l'affirmation est écartée par prudence"))
+            elif v.raison_hors_vocabulaire:
+                # Revue 4.2a (B2) : `{pertinente: true, raison: hors vocabulaire}` n'est jamais une
+                # sortie nominale. Seule cette claim est écartée — le lot reste jugé — et la relance
+                # emploiera le repli strict générique composé par le code.
+                verdicts[v.claim_id] = False
+                step.checks.append(CheckResult(
+                    name="raison_hors_vocabulaire", ok=False,
+                    detail="une affirmation pertinente porte une raison hors vocabulaire fermé : "
+                           "sortie invalide, l'affirmation est écartée par prudence"))
+            continue
+        if v.raison is None:
+            step.checks.append(CheckResult(
+                name="pertinence_incomplete", ok=False,
+                detail="une affirmation rejetée ne porte aucune raison fermée valide : la relance "
+                       "emploie le repli strict générique"))
+        else:
+            raisons[v.claim_id] = v.raison
     # La couverture ne s'entend que sur des rangs **envoyés** et des `claim_id` **attendus** : un
     # rang inventé ne couvre rien, un identifiant inventé non plus, et une facette dont le contrôle
     # ne dit rien reste une facette de la question — non couverte, donc `complete=False`.
@@ -1112,4 +1210,4 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     name="qualite_exigee_non_etablie", ok=False,
                     detail=f"{len(non_etablies)} qualité(s) exigée(s) par une clause citée ne sont pas "
                            "établies par les faits déclarés : l'affirmation est traitée comme `humain`"))
-    return verdicts, couverture, soutiens, applicabilites
+    return verdicts, raisons, couverture, soutiens, applicabilites

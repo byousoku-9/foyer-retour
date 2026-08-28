@@ -9,13 +9,22 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
 
 - `pertinente = true` seulement si les **deux** conditions tiennent : le passage dit bien ce que
   l'affirmation prétend (pas seulement un sujet voisin), et l'affirmation apporte un élément de
-  réponse à la question. Un passage exact mais hors sujet ⇒ `false`. Une affirmation juste mais qui
-  ne répond pas à la question posée ⇒ `false`. Un passage qui n'établit qu'une partie de
-  l'affirmation, le reste étant ajouté par la rédaction ⇒ `false`.
+  réponse à l'**objet** de la question. Pour une règle conditionnelle, rapporte fidèlement « si X,
+  alors Y » : elle reste pertinente quand la question porte sur Y, même si les faits soumis
+  n'établissent pas encore X. L'absence de X décide ensuite de l'applicabilité ; elle ne rend pas la
+  règle hors objet. Un passage exact mais hors objet ⇒ `false`. Une affirmation juste mais qui ne
+  répond pas à l'objet posé ⇒ `false`. Un passage qui n'établit qu'une partie de l'affirmation, le
+  reste étant ajouté par la rédaction ⇒ `false`.
 - Dans le doute, réponds `false` : une affirmation écartée coûte moins cher qu'une affirmation
   affichée sans appui.
 - Rends **exactement un** verdict par `claim_id` reçu, en reprenant le `claim_id` **tel quel** ;
   n'invente aucun identifiant, n'en omets aucun, n'en réponds aucun deux fois.
+- Chaque verdict rend aussi `raison`. Pour `pertinente = true`, rends `raison = null`. Pour
+  `pertinente = false`, choisis exactement une valeur du vocabulaire fermé :
+  `non_soutenue` si la citation n'établit pas toute l'affirmation ; `hors_objet` si l'affirmation
+  soutenue ne répond pas à l'objet de la question ; `conclusion_ajoutee` si l'affirmation transforme
+  une règle conditionnelle en application au cas ou ajoute une conclusion. Aucun autre texte ni
+  aucune justification : le code compose seul la relance.
 
 Rends ensuite, pour **chaque phrase** de la réponse rédigée qui t'est soumise (`segment`), un second
 jugement — celui-ci porte sur le **texte affiché**, pas sur l'affirmation :

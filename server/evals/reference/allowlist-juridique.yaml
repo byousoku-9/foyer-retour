@@ -1,0 +1,7 @@
+# Allowlist juridique de la garde anti-rustine (story 4.2b), versionnée.
+#
+# Toute future entrée devra prouver une règle générique sur au moins deux cas indépendants qui
+# portent réellement son vocabulaire. Les exemples de prompts actuels vivent hors golden set ;
+# aucune exception n'est donc nécessaire.
+schema_version: 1
+entrees: []

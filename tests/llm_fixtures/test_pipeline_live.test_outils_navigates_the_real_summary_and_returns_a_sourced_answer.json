@@ -201,6 +201,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:4d864e5d21584f16": {
+    "request": "claude-haiku-4-5-20251001:4d864e5d21584f16",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c3\", \"pertinente\": false, \"raison\": \"hors_objet\"}, {\"claim_id\": \"c4\", \"pertinente\": true, \"raison\": null}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": false}, {\"segment\": 4, \"soutenu\": true}, {\"segment\": 5, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeTkm2EecotSCyM9h2E2N",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4155,
+        "output_tokens": 213,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:50b06627b62de90c": {
     "request": "claude-haiku-4-5-20251001:50b06627b62de90c",
     "response": {
@@ -453,7 +484,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeQSk2Kiwby6eYAzmsYM8",
+      "id": "msg_011CeTkk37TPKRp16tkd2MEW",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -548,7 +579,7 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_015TpzUjKzxpZqe5pX3aXixU",
+          "id": "toolu_01VFTjrU3j5sPQpbh6VLF2Yx",
           "input": {
             "termes": [
               "déclaration d'arrivée",
@@ -560,7 +591,7 @@
           "type": "tool_use"
         }
       ],
-      "id": "msg_011CeQSkAB1M7y2Ut5Ne6vXX",
+      "id": "msg_011CeTkkAyjLG17euwA6TNbH",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -633,6 +664,58 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:f6140ef33e49f86c": {
+    "request": "claude-haiku-4-5-20251001:f6140ef33e49f86c",
+    "response": {
+      "content": [
+        {
+          "text": "Les résultats montrent que le nœud `lux-guide:farrivee` (Les huit premiers jours) et la question `lux-guide:q12` (Dans quel délai dois-je me déclarer à la commune ?) sont les plus pertinents. Je vais ouvrir ces passages.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01QMV69cCMTBh5HfNZM3DXTn",
+          "input": {
+            "node_id": "lux-guide:farrivee"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01QVF98eteK8EZgmhwUpCbDx",
+          "input": {
+            "node_id": "lux-guide:q12"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeTkkGWMwyVaM58NohazL",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4906,
+        "inference_geo": "not_available",
+        "input_tokens": 1291,
+        "output_tokens": 189,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:34ee9aea01247fec": {
     "request": "claude-sonnet-5:34ee9aea01247fec",
     "response": {
@@ -692,11 +775,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Vous disposez de huit jours après votre emménagement pour déclarer votre arrivée à la commune.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration se fait au bureau de la population (Biergercenter) et non ailleurs.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Le délai court à partir de l'emménagement effectif, pas à partir de la signature du bail.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Comme les créneaux de rendez-vous partent vite, notamment en période de rentrée, il est conseillé de réserver en ligne avant même d'avoir les clés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population après l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"La déclaration se fait à la commune, condition de tout le reste des démarches.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]},{\"claim_id\":\"c3\",\"text\":\"Le délai de huit jours court après l'emménagement, pas après la signature du bail.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut réserver un rendez-vous en ligne avant même d'avoir les clés, car les créneaux partent vite en période de rentrée.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Vous disposez de huit jours après votre emménagement pour déclarer votre arrivée à la commune, au bureau de la population (Biergercenter).\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration est essentielle car elle conditionne toutes vos autres démarches.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Elle produit deux documents importants.\",\"kind\":\"transition\"},{\"text\":\"La déclaration produit le certificat de résidence, portant votre matricule, et l'attestation d'enregistrement pour les ressortissants de l'Union restant plus de trois mois.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Le délai court à partir de l'emménagement effectif, et non à partir de la signature du bail.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Comme les créneaux de rendez-vous peuvent se raréfier en période de rentrée, il est conseillé de réserver en ligne avant même d'avoir les clés pour ne pas dépasser ce délai.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le délai pour déclarer son arrivée à la commune est de huit jours après l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette formalité conditionne littéralement tout le reste de l'installation.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Cette formalité, qui prend une vingtaine de minutes, conditionne littéralement tout le reste de votre installation.\"}]},{\"claim_id\":\"c3\",\"text\":\"La déclaration produit le certificat de résidence et, pour certains, l'attestation d'enregistrement.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:4\",\"quote\":\"le certificat de résidence et, pour les ressortissants de l'Union restant plus de trois mois, l'attestation d'enregistrement\"}]},{\"claim_id\":\"c4\",\"text\":\"Le délai de huit jours court après l'emménagement, pas après la signature du bail.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeQSkS3ynUwsHazPfo2zy",
+      "id": "msg_011CeTkkQvNfV7dubg3mHjxS",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -712,7 +795,7 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 1377,
-        "output_tokens": 775,
+        "output_tokens": 867,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

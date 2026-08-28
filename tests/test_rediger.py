@@ -23,7 +23,13 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT_PAR_PROMPT, TIERS
 from server.app.llm.prompting import load_prompt, render_prompt
-from server.app.steps.rediger import _rattacher_claims_sinistre, rediger
+from server.app.domain.document import Block
+from server.app.steps.rediger import (
+    _clause_autonome,
+    _rubrique_parente,
+    _rattacher_claims_sinistre,
+    rediger,
+)
 from server.ingest import kb_to_blocks as k
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -43,6 +49,26 @@ def test_le_prompt_sinistre_prefere_le_passage_complet_sans_claim_de_remplissage
     assert "Les plafonds et\n  la définition du mobilier ne répondent pas" in prompt
     assert "Chaque claim doit être effectivement affichée" in prompt
     assert "reprend exactement `claim.text`" in prompt
+    assert "règle conditionnelle" in prompt
+    assert "ce dommage est couvert" in prompt
+    assert "reformule la règle, ne retire jamais ses conditions" in prompt
+    assert "le contrat couvre les dommages lorsque…" in prompt
+    assert "la clause exclut\n  les dommages causés par…" in prompt
+    assert "ce sinistre/ce dommage est couvert ou exclu" in prompt
+    assert "s'applique au dossier/sinistre décrit" in prompt
+    assert "n'emploie jamais « couvre »" not in prompt
+
+
+async def test_la_relance_reconduit_seulement_les_blocs_acquis_du_retrieval(
+        mini_index: Index) -> None:
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+    await _rediger(
+        client, mini_index, prompt="rediger_sinistre",
+        blocs_a_conserver=["lux-guide:farrivee:3", "bloc:invente"],
+    )
+    contenu = fake.requests[0]["messages"][-1]["content"]
+    assert "Acquis à reconduire pendant la relance : lux-guide:farrivee:3" in contenu
+    assert "bloc:invente" not in contenu
 
 
 @pytest.fixture(scope="module")
@@ -173,11 +199,11 @@ def test_sinistre_projette_chaque_claim_une_fois_sous_la_borne_de_segments() -> 
     assert sorted(cid for s in projete.segments for cid in s.claim_ids) == ["c1", "c2", "c3"]
 
 
-async def test_rediger_sinistre_ne_recrit_pas_les_claims_rendues_par_le_modele() -> None:
+async def test_rediger_sinistre_ne_recrit_pas_une_claim_non_fondatrice() -> None:
     index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     p34 = doc.block("axa-lu-optihome-2017:p34:12")
-    voisin = doc.block("axa-lu-optihome-2017:p46:1")
+    voisin = doc.block("axa-lu-optihome-2017:p9:2")
     retrieval = RetrievalResult(blocs=[p34, voisin],
                                 opened_block_ids=[p34.block_id, voisin.block_id])
     brut = _draft(
@@ -194,8 +220,50 @@ async def test_rediger_sinistre_ne_recrit_pas_les_claims_rendues_par_le_modele()
         budget=_budget(), index=index, doc_id=doc.doc_id, settings=settings,
         prompt="rediger_sinistre")
 
-    assert [claim.model_dump() for claim in draft.claims] == [claim.model_dump() for claim in attendu.claims]
+    assert [claim.model_dump() for claim in draft.claims] == [
+        claim.model_dump() for claim in attendu.claims]
     assert [segment.text for segment in draft.segments] == ["Clause voisine."]
+
+
+@pytest.mark.parametrize("texte", [
+    "Cette garantie s'applique au sinistre décrit.",
+    "Le contrat couvre les dommages lorsque l'événement est soudain.",
+])
+async def test_aucune_claim_fondatrice_nest_reecrite_en_code(texte: str) -> None:
+    """4.2a (revue I1) : le texte soumis à *vérifier* est celui du modèle, mot pour mot.
+
+    L'ancienne ancre remplaçait claim et quote par le texte intégral du bloc fondateur : le
+    contrôle de soutien devenait tautologique (claim byte-identique à sa quote) et les blocs
+    au-delà de `quote_max_chars` devenaient le texte affiché. Une conclusion appliquée au dossier
+    se traite chez *vérifier* (raison fermée `conclusion_ajoutee`, relance typée), jamais par
+    réécriture en code — y compris sur une garantie confirmée autonome citée en quote unique,
+    le cas exact que l'ancre capturait.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    block = doc.block("axa-lu-optihome-2017:p34:12")
+    retrieval = RetrievalResult(blocs=[block], opened_block_ids=[block.block_id])
+    settings = _settings()
+    citation = block.text.strip()[:settings.quote_max_chars // 2]
+    brut = _draft(
+        segments=[{"text": texte, "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": texte,
+                 "quotes": [{"block_id": block.block_id, "quote": citation}]}],
+    )
+    attendu = AnswerDraft.model_validate_json(brut)
+    fake = FakeAnthropic([fake_message(text=brut, model=SONNET)])
+
+    draft, _step = await rediger(
+        _parsed(), retrieval, [], client=LlmClient(settings, anthropic_client=fake),
+        budget=_budget(), index=index, doc_id=doc.doc_id, settings=settings,
+        prompt="rediger_sinistre")
+
+    assert block.kind == "garantie" and block.kind_confirmed
+    assert len(block.text.strip()) > settings.quote_max_chars
+    assert [claim.model_dump() for claim in draft.claims] == [
+        claim.model_dump() for claim in attendu.claims]
+    assert all(len(quote.quote) <= settings.quote_max_chars
+               for claim in draft.claims for quote in claim.quotes)
 
 
 async def test_request_shape_cacheable_prefix_with_summary_then_delimited_content(mini_index: Index) -> None:
@@ -280,6 +348,29 @@ async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(
     assert req["system"][0]["text"] == expected_prefix
 
 
+async def test_sinistre_donne_loperateur_et_la_rubrique_sans_en_faire_une_citation(
+        ) -> None:
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    ids = ["axa-lu-optihome-2017:p34:12", "axa-lu-optihome-2017:p50:18",
+           "axa-lu-optihome-2017:p9:2"]
+    retrieval = RetrievalResult(blocs=[doc.block(block_id) for block_id in ids],
+                                opened_block_ids=ids)
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+
+    await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
+                  doc_id=doc.doc_id, settings=_settings(), prompt="rediger_sinistre")
+
+    outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
+    assert "axa-lu-optihome-2017:p34:12=garantie" in outside
+    assert ("axa-lu-optihome-2017:p50:18=exclusion (rubrique parente : "
+            "3.1.10.3 Dommages exclus)") in outside
+    assert "Ce typage guide la formulation mais ne constitue pas à lui seul une preuve citable" in outside
+    assert "n'invente pas `couvre` ou `exclut` sur la seule étiquette" in outside
+    assert "axa-lu-optihome-2017:p9:2=" not in outside
+    assert _rubrique_parente(index, ids[1]) == "3.1.10.3 Dommages exclus"
+
+
 async def test_sinistre_exige_une_claim_pour_toute_limite_a_portee_explicite() -> None:
     index = Index(load_corpus(ROOT / "data", allow_ungated=True))
     doc = index.corpus.documents["axa-lu-optihome-2017"]
@@ -295,7 +386,9 @@ async def test_sinistre_exige_une_claim_pour_toute_limite_a_portee_explicite() -
     outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
     assert "Limites à rendre vérifiables : axa-lu-optihome-2017:p46:1" in outside
     assert "ne décide pas toi-même de son applicabilité" in outside
-    assert "axa-lu-optihome-2017:p34:12" not in outside
+    ligne_limites = next(line for line in outside.splitlines()
+                          if line.startswith("Limites à rendre vérifiables"))
+    assert "axa-lu-optihome-2017:p34:12" not in ligne_limites
 
 
 async def test_sinistre_exige_une_claim_pour_toute_definition_resolue() -> None:
@@ -312,10 +405,95 @@ async def test_sinistre_exige_une_claim_pour_toute_definition_resolue() -> None:
 
     outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
     assert "Définitions applicables à rendre vérifiables : axa-lu-optihome-2017:p9:2" in outside
+    assert "rends au plus une claim courte" in outside
     assert "déjà résolus par portée" in outside
     ligne_definitions = next(line for line in outside.splitlines()
                              if line.startswith("Définitions applicables"))
     assert "axa-lu-optihome-2017:p49:11" not in ligne_definitions
+
+
+def test_lautonomie_dune_clause_se_lit_sur_la_structure_avant_la_casse() -> None:
+    """Revue Codex 4.2a (I2) : un item `list` prolonge son amorce quelle que soit sa casse.
+
+    Hors structure `list`, la casse reste le seul signal disponible — l'ingestion étiquette `para`
+    des items numérotés (« 3.1.10.3.3 aux biens par… ») — et une forme ambiguë reçoit le contexte
+    parent, comportement conservateur : depuis la revue B4, la rubrique n'est jamais une preuve,
+    un contexte de trop est un bruit. Aucune branche propre à un corpus.
+    """
+    def bloc(texte: str, structural_kind: str | None) -> Block:
+        return Block(block_id="doc:p1:1", loc="p1", seq=1, kind="exclusion", text=texte,
+                     structural_kind=structural_kind)
+
+    # Item de liste : jamais autonome — même capitalisé, ouvert par un acronyme ou numéroté.
+    assert _clause_autonome(bloc("Bris de glace et dommages assimilés", "list")) is False
+    assert _clause_autonome(bloc("RC locative du fait des biens confiés", "list")) is False
+    assert _clause_autonome(bloc("3.1.8.2 Les dommages énumérés ci-dessus", "list")) is False
+    # Hors `list` : une phrase autonome commence par une capitale, un item numéroté incomplet non.
+    assert _clause_autonome(bloc("3.1.10.3.3 aux biens par le feu, la fumée", "para")) is False
+    assert _clause_autonome(bloc("Les dégâts occasionnés au bâtiment sont exclus.", "para")) is True
+    assert _clause_autonome(bloc("Les dommages au bâtiment sont exclus.", None)) is True
+    # Forme ambiguë (minuscule hors liste, p. ex. OCR) : conservateur — le contexte parent est un
+    # bruit possible, jamais une preuve.
+    assert _clause_autonome(bloc("le contrat couvre les dommages au bâtiment.", "para")) is False
+
+
+async def test_une_sortie_modele_au_dessus_de_la_borne_de_claims_est_ecartee_avec_trace(
+        mini_index: Index) -> None:
+    """Revue Codex 4.2a (B1) : `draft_max_claims` est appliquée mécaniquement à la sortie du modèle.
+
+    La fusion de relance et ses invariants de conservation reposent sur
+    `len(claims) <= draft_max_claims` : une sortie au-dessus de la borne est ramenée à la borne, et
+    l'écart est tracé (`claims_hors_borne_ecartees`) — jamais silencieux. Rien de vérifié n'est
+    perdu : ces claims n'ont jamais été soumises au contrôle.
+    """
+    brut = _draft(
+        segments=[{"text": f"Affirmation {i}.", "kind": "factuel", "claim_ids": [f"c{i}"]}
+                  for i in (1, 2, 3)],
+        claims=[{"claim_id": f"c{i}", "text": f"Affirmation {i}.",
+                 "quotes": [{"block_id": "lux-guide:farrivee:3",
+                             "quote": "huit jours pour déclarer votre arrivée"}]}
+                for i in (1, 2, 3)])
+    settings = _settings(draft_max_claims=2)
+    fake = FakeAnthropic([fake_message(text=brut, model=SONNET)])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+
+    draft, step = await rediger(_parsed(), retrieval, [], client=LlmClient(settings, anthropic_client=fake),
+                                budget=_budget(), index=mini_index, doc_id="lux-guide",
+                                settings=settings, prompt="rediger_sinistre")
+
+    assert [c.claim_id for c in draft.claims] == ["c1", "c2"]
+    assert [s.claim_ids for s in draft.segments if s.kind == "factuel"] == [["c1"], ["c2"]]
+    assert any(c.name == "claims_hors_borne_ecartees" and not c.ok for c in step.checks)
+
+
+async def test_la_borne_de_definitions_vit_dans_la_configuration() -> None:
+    """4.2a (revue I4) : « au plus N définitions par ébauche » se règle par `draft_max_definitions`."""
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    definitions = [b.block_id for b in doc.blocks if b.kind == "definition" and b.defines][:2]
+    assert len(definitions) == 2
+    retrieval = RetrievalResult(blocs=[doc.block(block_id) for block_id in definitions],
+                                opened_block_ids=definitions,
+                                decision_dependency_block_ids=definitions)
+
+    lignes = {}
+    messages = {}
+    for borne in (0, 1, 2):
+        client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+        await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=index,
+                      doc_id=doc.doc_id, settings=_settings(draft_max_definitions=borne),
+                      prompt="rediger_sinistre")
+        outside = UNTRUSTED.sub("", fake.requests[0]["messages"][0]["content"])
+        messages[borne] = outside
+        lignes[borne] = next((line for line in outside.splitlines()
+                              if line.startswith("Définitions applicables")), None)
+
+    # Revue Codex 4.2a (M1) : la borne zéro est un réglage licite (`ge=0`) — aucune consigne,
+    # aucun identifiant de définition dans le message.
+    assert lignes[0] is None
+    assert all(definition not in messages[0] for definition in definitions)
+    assert lignes[1] is not None and definitions[0] in lignes[1] and definitions[1] not in lignes[1]
+    assert lignes[2] is not None and definitions[0] in lignes[2] and definitions[1] in lignes[2]
 
 
 async def test_sinistre_borne_les_dependances_exigees_au_budget_de_claims() -> None:
@@ -452,3 +630,34 @@ async def test_blocks_from_another_document_than_the_summary_are_refused(mini_in
         await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=reel,
                       doc_id="lux-guide", settings=_settings())
     assert fake.requests == []  # refusé avant tout appel : aucun euro dépensé
+
+
+async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(mini_index: Index) -> None:
+    """Story 4.2b (revue, MEDIUM 8) : `rediger_tier="micro"` part réellement sur le modèle `micro`
+    — la requête envoyée et `StepTrace.tier` le prouvent. Une régression vers `STEP_TIERS`
+    figerait la matrice baseline sans qu'aucun test rougisse."""
+    reglages = _settings(rediger_tier="micro")
+    client, fake = _client([fake_message(text=_draft(), model=TIERS["micro"])])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+    _draft_obj, step = await rediger(_parsed(), retrieval, [], client=client, budget=_budget(),
+                                     index=mini_index, doc_id="lux-guide", settings=reglages)
+    assert fake.requests[0]["model"] == TIERS["micro"]
+    assert step.tier == "micro"
+    assert step.calls[0].model == TIERS["micro"]
+
+
+async def test_rediger_sinistre_sous_tier_micro_ne_porte_aucun_effort_et_aboutit(
+        mini_index: Index) -> None:
+    """Story 4.2b (revue, MEDIUM 9) : le point de matrice `REDIGER_TIER=micro` sur la suite
+    sinistre ne doit pas crasher — Haiku n'accepte pas `effort`, la dérogation `rediger_sinistre`
+    (`low`) est donc supprimée de la requête, qui aboutit."""
+    reglages = _settings(rediger_tier="micro")
+    client, fake = _client([fake_message(text=_draft(), model=TIERS["micro"])])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+    draft, step = await rediger(_parsed(), retrieval, [], client=client, budget=_budget(),
+                                index=mini_index, doc_id="lux-guide", settings=reglages,
+                                prompt="rediger_sinistre")
+    (req,) = fake.requests
+    assert req["model"] == TIERS["micro"]
+    assert "effort" not in req["output_config"]
+    assert isinstance(draft, AnswerDraft) and step.tier == "micro"

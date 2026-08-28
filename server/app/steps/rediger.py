@@ -13,19 +13,55 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.domain.answer import AnswerDraft, AnswerSegment
+from server.app.domain.document import Block
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
-from server.app.domain.trace import StepTrace
+from server.app.domain.verdict import KINDS_FONDATEURS
+from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import EFFORT_PAR_PROMPT, STEP_TIERS
+from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, model_for
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
+
+
+def _clause_autonome(bloc: Block) -> bool:
+    """Distingue une clause lisible seule d'un item qui prolonge une liste.
+
+    Revue Codex 4.2a (I2) : la **structure d'ingestion** prime la casse. Un bloc que l'ingestion a
+    classé `list` prolonge son amorce quelle que soit sa première lettre — un item capitalisé ou
+    ouvert par un acronyme ne perd plus son contexte. Pour les autres structures, la casse reste le
+    seul signal disponible : l'ingestion étiquette `para` des items numérotés (« 3.1.10.3.3 aux
+    biens par… »), si bien qu'un `structural_kind` non-`list` ne prouve pas l'autonomie. Les
+    numéros et puces ne portent pas la syntaxe : après eux, une phrase autonome commence par une
+    capitale ; une première lettre minuscule — item numéroté comme phrase mal océrisée — reçoit le
+    contexte parent, comportement conservateur : la rubrique parente est un contexte de
+    formulation, jamais une preuve (revue B4), et un contexte de trop est un bruit, pas une
+    erreur. Ce critère reste indépendant du corpus, du vocabulaire métier et des témoins live.
+    """
+    if bloc.structural_kind == "list":
+        return False
+    premiere_lettre = next((caractere for caractere in bloc.text if caractere.isalpha()), None)
+    return premiere_lettre is not None and premiere_lettre.isupper()
+
+
+def _rubrique_parente(index: Index, block_id: str) -> str | None:
+    """Titre de la rubrique parente d'un bloc, si la structure en fournit une."""
+    document = index.corpus.documents[index.doc_of(block_id)]
+    node_id = document.node_of(block_id)
+    noeuds = {noeud.node_id: noeud for noeud in document.nodes}
+    parent_id = next((noeud.node_id for noeud in document.nodes
+                      if node_id in noeud.children), None)
+    if parent_id is None:
+        return None
+    titre = noeuds[parent_id].title.strip()
+    return titre or None
 
 
 def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[AnswerDraft, int]:
@@ -58,25 +94,51 @@ def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[
             ordre.append(claim.claim_id)
             vus.add(claim.claim_id)
 
+    # Revue Codex 4.2a (B1) : la borne annoncée au prompt est appliquée **mécaniquement** à la
+    # sortie du modèle — la fusion de relance et ses invariants de conservation reposent sur
+    # `len(claims) <= draft_max_claims`. L'appelant trace l'écart (`claims_hors_borne_ecartees`) ;
+    # rien n'est tu, et rien de vérifié n'est perdu : ces claims n'ont jamais été soumises au
+    # contrôle.
+    hors_borne = ordre[settings.draft_max_claims:]
+    if hors_borne:
+        ordre = ordre[:settings.draft_max_claims]
+
     if len(ordre) > settings.draft_max_segments:
         raise ValueError("plus de claims que de segments autorisés : la configuration doit garantir "
                          "draft_max_claims <= draft_max_segments")
     factuels = [AnswerSegment(text=par_id[cid].text.strip(), kind="factuel", claim_ids=[cid])
                 for cid in ordre]
     place = settings.draft_max_segments - len(factuels)
-    non_factuels = [AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[])
-                    for segment in draft.segments if segment.kind != "factuel"][:place]
+    # Recheck Codex 4.2a (B2, tour 2) : les segments non factuels sont **normalisés une seule
+    # fois, ici, avant la première `Verification`** — deux limites byte-identiques ne disent pas
+    # deux réserves. `nb_manques` devient ainsi une métrique stable des deux côtés de la dominance
+    # (première vérification, fusion de relance, seconde vérification passent toutes par cette
+    # même projection) : aucune déduplication ultérieure ne peut plus l'abaisser artificiellement.
+    vus_non_factuels: set[tuple[str, str]] = set()
+    non_factuels: list[AnswerSegment] = []
+    for segment in draft.segments:
+        if segment.kind == "factuel":
+            continue
+        cle = (segment.kind, segment.text.strip())
+        if cle in vus_non_factuels:
+            continue
+        vus_non_factuels.add(cle)
+        non_factuels.append(AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[]))
+    non_factuels = non_factuels[:place]
     segments = [*factuels, *non_factuels]
+    claims = ([claim for claim in draft.claims if claim.claim_id not in set(hors_borne)]
+              if hors_borne else draft.claims)
     changements = sum(1 for avant, apres in zip(draft.segments, segments, strict=False)
-                       if avant != apres) + abs(len(draft.segments) - len(segments))
+                       if avant != apres) + abs(len(draft.segments) - len(segments)) + len(hors_borne)
     if not changements:
         return draft, 0
-    return draft.model_copy(update={"segments": segments}), changements
+    return draft.model_copy(update={"segments": segments, "claims": claims}), changements
 
 
 async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique: list[Turn], *,
                   client: LlmClient, budget: RequestBudget, index: Index, doc_id: str,
                   settings: Settings, motif: str | None = None,
+                  blocs_a_conserver: Iterable[str] = (),
                   prompt: str = "rediger", max_tokens: int | None = None
                   ) -> tuple[AnswerDraft, StepTrace]:
     """`prompt` nomme le fichier de `llm/prompts/` inséré entre `commun.md` et le sommaire.
@@ -88,7 +150,9 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     transmettre son seuil mesuré sans dupliquer l'appel LLM ni modifier les autres chemins.
     """
     t0 = time.monotonic()
-    step = StepTrace(name="rediger", tier=STEP_TIERS["rediger"],
+    # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
+    tier = settings.rediger_tier
+    step = StepTrace(name="rediger", tier=tier,
                      opened_block_ids=[b.block_id for b in retrieval.blocs])
     etrangers = [b.block_id for b in retrieval.blocs if index.doc_of(b.block_id) != doc_id]
     if etrangers:
@@ -118,6 +182,30 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                  "seule phrase courte et la plus courte quote contiguë qui la soutient ; n'énumère "
                  "pas les autres items d'une liste contractuelle. N'ajoute ni transition, ni "
                  "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
+        fondatrices_confirmees: list[str] = []
+        for bloc in retrieval.blocs:
+            if bloc.kind not in KINDS_FONDATEURS or not bloc.kind_confirmed:
+                continue
+            description = f"{bloc.block_id}={bloc.kind}"
+            if not _clause_autonome(bloc):
+                rubrique = _rubrique_parente(index, bloc.block_id)
+                if rubrique:
+                    description += f" (rubrique parente : {rubrique})"
+            fondatrices_confirmees.append(description)
+        if fondatrices_confirmees:
+            # Le kind confirmé guide l'opérateur mais n'est jamais une citation. Pour un item qui
+            # dépend d'une liste, le titre parent (déjà dans le sommaire) situe le contexte de
+            # formulation — jamais une preuve (revue Codex 4.2a, B4) : l'opérateur revendiqué doit
+            # être porté par un passage cité, sinon *vérifier* rejette `non_soutenue`.
+            tail += ("\nOpérateurs contractuels confirmés : " + "; ".join(fondatrices_confirmees) +
+                     ". Ce typage guide la formulation mais ne constitue pas à lui seul une preuve "
+                     "citable. Respecte l'opérateur de chaque identifiant. Si un item est "
+                     "grammaticalement incomplet, appuie le sujet et l'opérateur que tu revendiques "
+                     "sur un passage cité qui les porte réellement — l'amorce de la liste, citée en "
+                     "plus de l'item, quand elle est citable — ou décris seulement ce que l'item "
+                     "énumère sans conclure ; la rubrique parente situe le contexte mais n'est "
+                     "jamais une preuve ; n'invente pas `couvre` ou `exclut` sur la seule "
+                     "étiquette. Ne transforme jamais une exclusion en garantie, ni l'inverse.")
         reserve_facettes = min(len(parsed.facettes), settings.draft_max_claims)
         places_dependances = settings.draft_max_claims - reserve_facettes
         dependances_directes = set(retrieval.decision_dependency_block_ids)
@@ -135,24 +223,40 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                      "citation contiguë, même si sa portée semble différente du cas : ne décide pas "
                      "toi-même de son applicabilité, le code la calculera et affichera la raison.")
         places_restantes = places_dependances - len(limites_portees)
+        # Une définition éclaire la clause ; elle ne doit ni s'y substituer ni multiplier les
+        # verdicts structurés de *vérifier* : les clauses décisionnelles et limites restent toutes
+        # prioritaires, et le choix demeure celui déjà résolu par `definitions()` dans l'ordre du
+        # corpus. La borne vit dans la configuration (`draft_max_definitions`, publiée dans
+        # `thresholds()`) et ne change aucun budget de retrieval ou de modèle.
         definitions = [b.block_id for b in retrieval.blocs
                        if b.kind == "definition" and b.defines
-                       and b.block_id in dependances_directes][:places_restantes]
+                       and b.block_id in dependances_directes
+                       ][:min(places_restantes, settings.draft_max_definitions)]
         if definitions:
             # `definitions()` a déjà résolu la proximité de portée et les overrides. Une définition
             # ainsi sélectionnée mais omise par la rédaction rendrait cette résolution invisible ;
             # le modèle la transcrit, sans refaire le choix sémantique acquis par le code.
             tail += ("\nDéfinitions applicables à rendre vérifiables : " + ", ".join(definitions) +
-                     ". Pour chacun de ces blocs déjà résolus par portée, rends une claim courte "
+                     ". Pour ces blocs déjà résolus par portée, rends au plus une claim courte "
                      "avec une citation contiguë ; n'en substitue pas une autre et n'en déduis pas "
                      "une conclusion que son texte ne porte pas.")
+        disponibles = {b.block_id for b in retrieval.blocs}
+        a_conserver = [block_id for block_id in dict.fromkeys(blocs_a_conserver)
+                       if block_id in disponibles]
+        if a_conserver:
+            # Ces identifiants sont relus parmi les blocs du retrieval : la consigne est de confiance
+            # et ne peut pas être alimentée par un identifiant inventé dans le motif du modèle.
+            tail += ("\nAcquis à reconduire pendant la relance : " + ", ".join(a_conserver) +
+                     ". Conserve au moins une claim vérifiable pour chacun de ces blocs, avec ses "
+                     "facettes déjà traitées, en plus de corriger le motif ; ne remplace pas une "
+                     "preuve acquise par la nouvelle clause.")
     if motif is not None:
         # AD-15 : le motif vient de *vérifier* (1.5), qui le compose à partir de la sortie du modèle et
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.
         tail += "\n" + untrusted("motif", motif)
     content = "\n\n".join(parts) + "\n\n" + tail
     try:
-        result = await client.parse(tier=STEP_TIERS["rediger"], system_prefix=prefix,
+        result = await client.parse(tier=tier, system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
                                     budget=budget, step=step,
                                     max_tokens=(settings.rediger_max_tokens
@@ -163,7 +267,10 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                                     # tokens malgré un JSON court et forcer un retry. `low` conserve le
                                     # même modèle, le même schéma et les mêmes bornes, et ne touche pas
                                     # la variante guide 2.6.
-                                    effort=EFFORT_PAR_PROMPT.get(prompt))
+                                    # Story 4.2b : un tier épinglé sur un modèle sans `effort`
+                                    # (Haiku) ne reçoit aucune dérogation — le client refuserait.
+                                    effort=(EFFORT_PAR_PROMPT.get(prompt)
+                                            if MODEL_CAPS[model_for(tier)]["effort"] else None))
     except PipelineError as exc:
         # AD-10/AD-16 : l'appel raté a pu être facturé (`step.calls` le porte, `budget` aussi). Sans
         # ce rattachement, l'étape disparaît de la trace alors que son coût y compte, et l'appelant ne
@@ -174,6 +281,19 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         raise
     draft = result.parsed
     if prompt == "rediger_sinistre":
+        # Revue 4.2a (I1) : aucune réécriture de claim en code. L'ancienne « ancre » remplaçait
+        # claim et quote par le texte intégral du bloc fondateur : le contrôle de soutien devenait
+        # tautologique (claim byte-identique à sa quote) et les blocs au-delà de `quote_max_chars`
+        # devenaient le texte affiché. Une conclusion appliquée au dossier est traitée là où AD-3
+        # la place : *vérifier* la rejette avec la raison fermée `conclusion_ajoutee` et la relance
+        # typée redemande la règle conditionnelle — le texte soumis au contrôle reste celui du
+        # modèle, mot pour mot.
         draft, _changements = _rattacher_claims_sinistre(draft, settings)
+        if len(draft.claims) < len(result.parsed.claims):
+            step.checks.append(CheckResult(
+                name="claims_hors_borne_ecartees", ok=False,
+                detail=f"{len(result.parsed.claims) - len(draft.claims)} claim(s) au-delà de "
+                       "draft_max_claims écartée(s) mécaniquement avant vérification : la borne "
+                       "annoncée au prompt fait foi"))
     step.ms = int((time.monotonic() - t0) * 1000)
     return draft, step

@@ -312,16 +312,28 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
         stop_reason="plafond atteint avant g-deux", non_executes=["g-deux"],
     )
     assert rapport["complete"] is False and rapport["unexecuted_cases"] == ["g-deux"]
+    # Story 4.2b : les dénominateurs incluent les interruptions — `g-deux` non exécuté apporte son
+    # attente (`expected.found`) avec zéro trouvé, et la distribution des coûts/latences est publiée
+    # (p95/max) pour la comparaison majorant estimé vs coût réel.
     assert rapport["metrics"] == {
         "labels": {label: int(label == "bonne_reponse") for label in (
             "bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu", "faux_refus",
             "citation_introuvable", "parsing")},
         "variants": {"outils": 1},
-        "recall": 1.0,
-        "average_cost_eur": 0.0,
-        "latency_p50_ms": 11,
+        "recall": 0.5,
+            "average_cost_eur": 0.0,
+            "latency_p50_ms": 5,
+            "cost_p50_eur": 0.0,
+            "cost_p95_eur": 0.0,
+        "cost_max_eur": 0.0,
+        "latency_p95_ms": 11,
+        "latency_max_ms": 11,
         "ne_tranche_pas_rate": 0.0,
     }
+    assert rapport["schema_version"] == 3
+    assert rapport["executions_planned"] == 2
+    assert rapport["executions_completed"] == 1
+    assert rapport["executions_interrupted"] == 1
     md = rendre_markdown(rapport)
     for attendu in ("cases_hash", "recall", "coût moyen", "latence p50", "ne_tranche_pas",
                     "<code>bonne_reponse</code>", "<code>outils</code>", "Cas non exécutés"):

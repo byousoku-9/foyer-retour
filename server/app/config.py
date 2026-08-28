@@ -203,6 +203,14 @@ class Settings(BaseSettings):
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
     retrouver_outils_tier: Literal["micro", "reason"] = "micro"
+    # Story 4.2b : surcharges de tier **par étape**, pour que la matrice baseline (`micro`/`reason`
+    # par étape) soit exécutable à paramètres épinglés au lieu d'exiger une édition de code. Les
+    # défauts sont l'affectation d'AD-9 (`STEP_TIERS`) ; la valeur active est publiée dans
+    # `thresholds()` (projection 0/1, `Trace.thresholds` étant numérique) et entre donc dans
+    # l'identité de cache des évals — deux runs à tiers différents ne partagent jamais une réponse.
+    comprendre_tier: Literal["micro", "reason"] = "micro"
+    rediger_tier: Literal["micro", "reason"] = "reason"
+    verifier_tier: Literal["micro", "reason"] = "micro"
     retrouver_outils_max_tokens: int = Field(1024, ge=1)
     # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
@@ -236,6 +244,12 @@ class Settings(BaseSettings):
     # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
     # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
     evals_max_cost_eur: float = Field(1.0, ge=0)
+    # Story 4.2b corrective — plafond **agrégé persistant** de story/campagne : 1,00 € par défaut,
+    # surchargé par `LIVE_BUDGET_EUR`. `--max-cost` reste une borne locale distincte par run.
+    # L'orchestrateur fournit `LIVE_CAMPAIGN_ID`; le ledger inter-processus conserve le coût réel
+    # entre invocations et refuse toute seconde série baseline/finale par témoin nommé.
+    live_budget_eur: float = Field(1.00, gt=0)
+    live_campaign_id: str | None = Field(None, min_length=1, max_length=128)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
     # invalide, heuristique d'estimation avant appel (caractères par token et marge tokenizer, calibrés pour que
@@ -260,6 +274,10 @@ class Settings(BaseSettings):
     quote_max_chars: int = Field(250, ge=1)
     draft_max_segments: int = Field(6, ge=1)
     draft_max_claims: int = Field(4, ge=1)
+    # Story 4.2a : nombre maximal de définitions auxiliaires que la rédaction sinistre rend
+    # vérifiables par ébauche. Une définition éclaire la clause décisionnelle sans s'y substituer ;
+    # ce seuil de comportement se règle ici, jamais en dur dans l'étape.
+    draft_max_definitions: int = Field(1, ge=0)
     question_min_terms: int = Field(2, ge=0)
     question_max_terms: int = Field(6, ge=1)
     # AD-4 : le découpage de la question en sous-questions, rendu par *comprendre*. Borné pour la
@@ -539,6 +557,14 @@ class Settings(BaseSettings):
             "max_cost_eur_per_request": self.max_cost_eur_per_request,
             "cost_alert_eur": self.cost_alert_eur,
             "evals_max_cost_eur": self.evals_max_cost_eur,
+            "live_budget_eur": self.live_budget_eur,
+            # Story 4.2b : la matrice baseline épingle les tiers par étape. `Trace.thresholds` est
+            # numérique : 1 = `reason`, 0 = `micro` (défaut AD-9). Publiés ici, ils entrent dans la
+            # namespace de cache des évals via `thresholds()`.
+            "comprendre_tier_reason": int(self.comprendre_tier == "reason"),
+            "rediger_tier_reason": int(self.rediger_tier == "reason"),
+            "verifier_tier_reason": int(self.verifier_tier == "reason"),
+            "retrouver_outils_tier_reason": int(self.retrouver_outils_tier == "reason"),
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,
@@ -563,6 +589,7 @@ class Settings(BaseSettings):
             "quote_max_chars": self.quote_max_chars,
             "draft_max_segments": self.draft_max_segments,
             "draft_max_claims": self.draft_max_claims,
+            "draft_max_definitions": self.draft_max_definitions,
             "question_min_terms": self.question_min_terms,
             "question_max_terms": self.question_max_terms,
             "question_max_facettes": self.question_max_facettes,

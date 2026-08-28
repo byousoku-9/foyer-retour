@@ -120,3 +120,12 @@ class BudgetExceeded(PipelineError):
 
     def __init__(self, message: str = "") -> None:
         super().__init__(ErrorCode.budget_exceeded, message)
+
+
+class TruncatedRead(BudgetExceeded):
+    """Lecture bornée sans résultat fiable : sortie mesurée rouge, pas plafond financier."""
+
+    def __init__(self, message: str = "") -> None:
+        # Le contrat HTTP historique reste un 503 `budget_exceeded`; le type Python permet au
+        # harness de le distinguer d'un vrai dépassement de coût et de poursuivre les répétitions.
+        super().__init__(message)

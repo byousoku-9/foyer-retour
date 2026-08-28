@@ -35,14 +35,39 @@ ROOT = Path(__file__).resolve().parents[1]
 HAIKU = TIERS["micro"]
 
 
-def test_le_prompt_sinistre_garde_une_clause_qui_prouve_le_sens_de_la_rc() -> None:
+def test_le_prompt_sinistre_generalise_la_frontiere_objet_applicabilite() -> None:
     prompt = render_prompt("verifier_sinistre", fait_manquant_max_chars=160,
                            qualites_exigees_max=8)
-    assert "sens de la responsabilité" in prompt
-    assert "y compris quand ce\nsens est l'inverse" in prompt
-    assert "Ne rejette pas cette preuve de sens comme « hors sujet »" in prompt
-    assert "Exemple normatif : si un tiers a cassé le bien de l'Assuré" in prompt
-    assert "est `pertinente = true`" in prompt
+    assert "sépare toujours l'objet\ncontractuel" in prompt
+    assert "une qualité exigée manque" in prompt
+    assert "`humain` pour une qualité manquante" in prompt
+    assert "`non` pour un périmètre contraire" in prompt
+    assert "raison = conclusion_ajoutee" in prompt
+    assert "Le verbe « couvrir » ne suffit donc pas" in prompt
+    assert "ce dommage est couvert" in prompt
+    assert "n'utilise les faits que pour `applicabilite`" in prompt
+    assert "Ne rends jamais\n`conclusion_ajoutee` pour cette seule forme" in prompt
+    assert "l'identification des catégories de dommages" in prompt
+    assert "une autre facette reste sans réponse" in prompt
+    assert "byte-identique à une claim elle-même byte-identique à sa quote" in prompt
+    assert "`pertinente=true, soutenu=false` est impossible" in prompt
+    # B4 : le typage et sa confirmation voyagent séparément, et ni l'un ni l'autre — ni la
+    # structure — n'est une preuve textuelle ; l'exception « rubrique parente » a disparu.
+    assert "et `clause_confirmee` dit" in prompt
+    assert "La suffisance grammaticale s'applique sans exception" in prompt
+    assert "ni de la seule structure" in prompt
+    assert "peut nommer son appartenance à la rubrique parente" not in prompt
+    assert "inverse la règle" in prompt
+    # I1 : la règle de quote suffisante — sujet **et** opérateur — vit dans le prompt sinistre.
+    assert "La suffisance de la quote se lit grammaticalement" in prompt
+    assert "raison = non_soutenue" in prompt
+    # B3 : l'exemple normatif est volontairement étranger au témoin — aucun triplet superposable.
+    # Le lexique fermé des qualités (« soudain », « chaleur »…) reste, lui, générique et corpus-large.
+    assert "étranger par construction à tout cas soumis" in prompt
+    assert "un vase a basculé" in prompt
+    assert "mobilier" not in prompt
+    assert "dégâts au mobilier causés par un événement soudain" not in prompt
+    assert "source de chaleur" not in prompt
 UNTRUSTED = re.compile(r'<untrusted kind="([a-z0-9_]+)">\n(.*?)\n</untrusted>', re.DOTALL)
 
 ARRIVEE = "Vous disposez de huit jours pour déclarer votre arrivée au Biergercenter de la commune."
@@ -94,7 +119,8 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
 
 
 def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
-              segments: dict[int, bool] | None = None, nb_segments: int = 8) -> dict:
+              segments: dict[int, bool] | None = None, nb_segments: int = 8,
+              raisons: dict[str, str | None] | None = None) -> dict:
     """Verdicts groupés + phrases soutenues + couverture des facettes.
 
     `facettes[i]` = les `claim_id` que le contrôle attribue à la facette de rang `i` de la
@@ -107,7 +133,8 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
         facettes = [[c for c, ok in paires if ok]]
     soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(text=json.dumps(
-        {"verdicts": [{"claim_id": c, "pertinente": p} for c, p in paires],
+        {"verdicts": [{"claim_id": c, "pertinente": p,
+                        "raison": (raisons or {}).get(c)} for c, p in paires],
          "facettes": [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(facettes)],
          "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}),
         model=HAIKU)
@@ -269,6 +296,35 @@ async def test_a_missing_verdict_is_never_guessed(mini: Index) -> None:
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None
     assert rejet.rejection_kind == "non_pertinente" and "non rendue" in rejet.motif
     assert [c.name for c in step.checks if not c.ok] == ["pertinence_incomplete", "citations"]
+
+
+@pytest.mark.parametrize("raison", [None, "texte libre du modèle"])
+async def test_an_absent_or_unknown_rejection_reason_uses_the_strict_code_fallback(
+        mini: Index, raison: str | None) -> None:
+    draft = _draft(("c1", "Une affirmation rejetée.",
+                    [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+    v, step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", False), raisons={"c1": raison})])
+    (rejet,) = v.rejected_claims
+    assert "objet de la question" in rejet.motif
+    assert "texte libre du modèle" not in rejet.motif
+    assert [check for check in step.checks
+            if check.name == "pertinence_incomplete" and not check.ok]
+
+
+async def test_each_closed_rejection_reason_composes_a_specialized_retry_in_code(mini: Index) -> None:
+    attendus = {
+        "non_soutenue": "ne rapporter que ce que le passage cité établit",
+        "hors_objet": "hors de l'objet de la question",
+        "conclusion_ajoutee": "règle conditionnelle que le passage énonce",
+    }
+    for raison, fragment in attendus.items():
+        draft = _draft(("c1", "Une affirmation rejetée.",
+                        [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+        v, _step, _fake = await _verifier(
+            mini, draft, [_verdicts(("c1", False), raisons={"c1": raison})])
+        assert fragment in v.rejected_claims[0].motif
+        assert v.motif is not None and fragment in v.motif
 
 
 async def test_an_invented_claim_id_decides_nothing(mini: Index) -> None:
@@ -500,6 +556,55 @@ async def test_two_contradictory_verdicts_discard_the_claim(mini: Index) -> None
     assert v.claims == [] and v.found is False
     assert v.rejected_claims[0].status.pertinente is False
     assert [c.name for c in step.checks if not c.ok][0] == "verdict_contradictoire"
+
+
+async def test_true_with_a_rejection_reason_is_fail_closed(mini: Index) -> None:
+    draft = _draft(("c1", "t", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+    v, step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True), raisons={"c1": "hors_objet"})])
+    assert v.claims == [] and v.rejected_claims[0].status.pertinente is False
+    assert "citation non pertinente" in v.rejected_claims[0].motif
+    assert "hors de l'objet de la question" not in v.rejected_claims[0].motif
+    assert any(c.name == "verdict_contradictoire" and not c.ok for c in step.checks)
+
+
+async def test_true_with_an_out_of_vocabulary_reason_discards_only_that_claim(mini: Index) -> None:
+    """Revue 4.2a (B2) : `{pertinente: true, raison: hors vocabulaire}` n'est jamais nominal.
+
+    L'anti-modèle exact était un validateur qui ramenait la valeur inconnue à `None` : la claim
+    ressortait retenue comme si de rien n'était. Ici, seule la claim concernée est écartée, avec le
+    motif générique composé par le code ; les autres claims du lot restent jugées normalement.
+    """
+    draft = _draft(
+        ("c1", "Une affirmation.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]),
+        ("c2", "Une autre affirmation.", [("mini:p1:3", "La caution est plafonnée à deux mois")]))
+    v, step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True), ("c2", True),
+                                raisons={"c1": "segment_incoherent_avec_claim"})])
+    assert [c.claim_id for c in v.claims] == ["c2"]
+    (rejet,) = v.rejected_claims
+    assert rejet.claim_id == "c1" and rejet.status.pertinente is False
+    assert "citation non pertinente" in rejet.motif
+    assert "segment_incoherent_avec_claim" not in rejet.motif
+    assert any(c.name == "raison_hors_vocabulaire" and not c.ok for c in step.checks)
+
+
+async def test_two_closed_rejection_reasons_use_the_generic_motive(mini: Index) -> None:
+    draft = _draft(("c1", "t", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
+    sortie = _verdicts(("c1", False), ("c1", False),
+                       raisons={"c1": "non_soutenue"})
+    sortie["content"][0]["text"] = sortie["content"][0]["text"].replace(
+        '"raison": "non_soutenue"}, {"claim_id": "c1", "pertinente": false, '
+        '"raison": "non_soutenue"}',
+        '"raison": "non_soutenue"}, {"claim_id": "c1", "pertinente": false, '
+        '"raison": "hors_objet"}',
+    )
+    v, step, _fake = await _verifier(mini, draft, [sortie])
+    motif = v.rejected_claims[0].motif
+    assert "citation non pertinente" in motif
+    assert "ne rapporter que ce que le passage cité établit" not in motif
+    assert "hors de l'objet de la question" not in motif
+    assert any(c.name == "verdict_contradictoire" and not c.ok for c in step.checks)
 
 
 async def test_a_claim_rejected_on_relevance_keeps_its_offsets(reel: Index) -> None:
@@ -818,7 +923,8 @@ QUALITES_FIDELES = ([SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN), (SUBITE, FR
 
 def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
                    nb_segments: int = 8, segments: dict[int, bool] | None = None,
-                   doublon: bool = False, enumere: bool = True) -> dict:
+                   doublon: bool = False, enumere: bool = True,
+                   raisons: dict[str, str | None] | None = None) -> dict:
     """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité.
 
     Une entrée est `(claim_id, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
@@ -848,7 +954,8 @@ def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
         champs.append(dict(champs[0]))
     soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(text=json.dumps({
-        "verdicts": [{"claim_id": c, "pertinente": p} for c, p in verdicts],
+        "verdicts": [{"claim_id": c, "pertinente": p,
+                       "raison": (raisons or {}).get(c)} for c, p in verdicts],
         "facettes": [{"facette": 0, "claim_ids": [c for c, ok in verdicts if ok]}],
         "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())],
         "applicabilite": champs}), model=HAIKU)
@@ -898,6 +1005,89 @@ async def test_applicability_travels_in_the_single_grouped_micro_call(contrat: I
     assert "valeurs typées d'applicabilité" in systeme and "un booléen par" not in systeme.split("\n")[0]
     kinds = dict(UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"]))
     assert "faits" in kinds and "bougie" in kinds["faits"]
+
+
+async def test_a_supported_conditional_clause_stays_relevant_when_its_quality_is_missing(
+        contrat: Index) -> None:
+    """4.2a : objet contractuel, applicabilité et verdict sont trois décisions distinctes."""
+    draft = _draft((
+        "c1",
+        "La clause vise les dégâts au mobilier causés par un événement soudain résultant de "
+        "l'action subite de la chaleur.",
+        [("cg:p1:1", Q_GARANTIE)],
+    ))
+    v, _step, fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(
+            ("c1", True, False, False, None, [SUBITE], []),
+            verdicts=[("c1", True)])])
+    assert v.claims[0].status.pertinente is True
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    prompt = fake.requests[0]["system"][0]["text"]
+    assert "sépare toujours l'objet\ncontractuel" in prompt and "conclusion_ajoutee" in prompt
+
+
+async def test_wording_that_says_the_clause_applies_is_rejected_with_a_typed_retry(
+        contrat: Index) -> None:
+    draft = _draft(("c1", "Cette clause s'applique au sinistre décrit.",
+                    [("cg:p1:1", Q_GARANTIE)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(
+            ("c1", True, False, False, None), verdicts=[("c1", False)],
+            raisons={"c1": "conclusion_ajoutee"})])
+    assert v.claims == []
+    assert v.rejected_claims[0].status.pertinente is False
+    assert "règle conditionnelle que le passage énonce" in v.rejected_claims[0].motif
+    assert v.motif is not None and "sans conclure qu'elle s'applique" in v.motif
+
+
+async def test_un_item_incomplet_sans_passage_operateur_tombe_non_soutenue(
+        contrat: Index) -> None:
+    """Revue Codex 4.2a (B4) : la rubrique parente n'est jamais une preuve, et un kind non
+    confirmé n'est plus présenté comme confirmé.
+
+    La claim revendique un opérateur (« garantit ») que sa seule quote — l'énumération de l'item —
+    ne porte pas, en s'appuyant sur la structure (rubrique) ; le bloc cité (`cg:p1:5`) a un kind
+    `garantie` **non confirmé** (`kind_source="model"`). Le modèle scripté suit la règle sans
+    exception du prompt : `pertinente=false`, `raison=non_soutenue`. Le payload transporte le
+    typage honnêtement : `clause` + `clause_confirmee: false`, jamais « confirmé » d'office.
+    """
+    draft = _draft(("c1", "La rubrique Vol garantit les biens qu'elle énumère.",
+                    [("cg:p1:5", "vol commis avec effraction dans le bâtiment désigné")]))
+    v, _step, fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(
+            ("c1", True, False, False, None), verdicts=[("c1", False)],
+            raisons={"c1": "non_soutenue"})])
+    assert v.claims == []
+    assert v.rejected_claims[0].status.pertinente is False
+    assert "ne rapporter que ce que le passage cité établit" in v.rejected_claims[0].motif
+    content = fake.requests[0]["messages"][0]["content"]
+    assert '"clause": "garantie"' in content
+    assert '"clause_confirmee": false' in content
+    prompt = fake.requests[0]["system"][0]["text"]
+    assert "peut nommer son appartenance à la rubrique parente" not in prompt
+    assert "La suffisance grammaticale s'applique sans exception" in prompt
+
+
+async def test_a_quote_missing_the_claimed_operator_is_rejected_as_non_soutenue(
+        contrat: Index) -> None:
+    """Revue 4.2a (I1) : la quote doit porter le sujet **et** l'opérateur que la claim revendique.
+
+    Le modèle scripté suit la règle renforcée du prompt : `Q_GARANTIE` porte le sujet (les dégâts
+    au mobilier) mais pas l'opérateur « sont couverts » que l'affirmation revendique — un voisinage
+    thématique n'est pas un soutien. La claim tombe `non_soutenue` et n'est jamais affichée.
+    """
+    draft = _draft(("c1", "La garantie couvre les dégâts occasionnés au mobilier assuré.",
+                    [("cg:p1:1", Q_GARANTIE)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(
+            ("c1", True, False, False, None), verdicts=[("c1", False)],
+            raisons={"c1": "non_soutenue"})])
+    assert v.claims == [] and v.found is False
+    (rejet,) = v.rejected_claims
+    assert rejet.rejection_kind == "non_pertinente" and rejet.status.pertinente is False
+    assert "ne rapporter que ce que le passage cité établit" in rejet.motif
+    assert v.motif is not None and "ne rapporter que ce que le passage cité établit" in v.motif
 
 
 async def test_the_model_never_returns_a_verdict_field(contrat: Index) -> None:
@@ -1459,3 +1649,16 @@ async def test_complete_se_reduit_a_found_et_manques_vides(mini: Index) -> None:
         v, _s, _f = await _verifier(mini, _draft_simple(), script, **kwargs)
         assert v.complete is attendu
         assert v.complete == (v.found and v.nb_manques == 0)
+
+
+async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(mini: Index) -> None:
+    """Story 4.2b (revue, MEDIUM 8) : `verifier_tier="reason"` part réellement sur le modèle
+    `reason` — la requête envoyée et `StepTrace.tier` le prouvent. Une régression vers
+    `STEP_TIERS` figerait la matrice baseline sans qu'aucun test rougisse."""
+    draft = _draft_simple()
+    _verification, step, fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True))],
+        settings=_settings(verifier_tier="reason"))
+    assert fake.messages.requests[0]["model"] == TIERS["reason"]
+    assert fake.messages.requests[0]["output_config"]["effort"] == "medium"
+    assert step.tier == "reason"

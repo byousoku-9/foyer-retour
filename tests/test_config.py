@@ -96,6 +96,8 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             "fait_manquant_max_chars", "ask_client_max",
             # story 1.10 : le plafond de coût d'un run d'évals (AD-9, AD-14)
             "evals_max_cost_eur",
+            # corrective 4.2a : la borne de définitions auxiliaires de la rédaction sinistre
+            "draft_max_definitions",
             # story 2.3 : les places réservées, parmi `max_opens`, aux nœuds que le profil désigne
             "profil_max_opens",
             # story 3.1 : seuils génériques de densité, OCR et qualité PDF

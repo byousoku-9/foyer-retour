@@ -26,6 +26,9 @@ Codes de sortie, et pourquoi ils sont quatre (D4) :
 | 1 | un cas rend un mauvais label ou laisse une attente inassouvie | gate écrit `evals_ok: false` (avec `--gate`) |
 | 2 | refus de tourner : pas de clé, profil ou suite non livrés, cas invalide, document non servi | **non modifié** |
 | 3 | incident technique : `Timeout`, `LlmUnavailable`, `BudgetExceeded`, plafond de run atteint | **non modifié** |
+| 4 | refus de budget **avant le premier appel** (story 4.2b) : majorant estimé d'une campagne
+payante > budget effectif (`min(--max-cost, LIVE_BUDGET_EUR)`) — rouge chiffré, jamais une
+question | **non modifié** |
 
 La ligne de partage entre 1 et 3 est celle d'AD-8 : un mauvais label est un **résultat** — le gate le
 consigne et le document part en `gate_echoue` au prochain démarrage, ce que le gate est fait pour
@@ -58,7 +61,8 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, PrivateAttr, StrictBool, ValidationError,
+                      field_validator, model_validator)
 
 from server.app.config import REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
@@ -69,23 +73,35 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.app.domain.errors import ErrorCode, PipelineError
-from server.app.domain.ingest import Gate, GateContext, ManifestEntry
+from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
+from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
+from server.app.domain.verdict import KINDS_FONDATEURS
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
+from server.app.llm.pricing import estimate_run_majorant
 from server.app.pipelines import sinistre as pipeline_sinistre
 from server.app.pipelines.guide import VARIANTS as VARIANTES_GUIDE
 from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
+from server.evals.campaign import CampaignLedger, CampaignLedgerError
+from server.evals.plancher import ChargePlancher, PlancherInvalide, charger_plancher
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 DATA_DIR = REPO_ROOT / "data"
 MANIFEST = "manifest.json"
+# Story 4.2b : les artefacts de **protocole** rangés sous `reference/` — le plancher pré-enregistré
+# (chargé et figé par `server/evals/plancher.py`, digest dans l'identité de run) et l'allowlist
+# juridique de la garde anti-rustine (`tests/test_anti_rustine.py`). Ce ne sont pas des compagnons
+# de cas : `charger_references` les ignore, leurs autorités et leurs digests sont ailleurs.
+PROTOCOLE_FILES = frozenset({
+    "plancher.yaml", "allowlist-juridique.yaml", "floor-4.2a.yaml",
+    "trusted-automation-plancher.yaml",
+})
 
 # AD-14, mot pour mot : « labels fixes ». Un vocabulaire qu'une story élargit n'est plus fixe — ce
 # qu'ils ne couvrent pas s'appelle `ecarts` et ne porte pas de nom de label (D2).
@@ -143,12 +159,17 @@ class IncidentTechnique(Exception):
 
     def __init__(self, message: str, *, resultats: list[Resultat] | None = None,
                  non_executes: list[str] | None = None, arret_budget: bool = False,
-                 cost_eur_engaged: float | None = None) -> None:
+                 cost_eur_engaged: float | None = None, http: int | None = None,
+                 latency_ms_engaged: int | None = None) -> None:
         super().__init__(message)
         self.resultats = list(resultats or [])
         self.non_executes = list(non_executes or [])
         self.arret_budget = arret_budget
         self.cost_eur_engaged = cost_eur_engaged
+        # Statut AD-16 de l'exécution qui a interrompu le run (503/500) — publié `stop_http` dans
+        # le rapport partiel (revue 4.2b, LOW 15). `None` quand l'incident n'est pas une exécution.
+        self.http = http
+        self.latency_ms_engaged = latency_ms_engaged
 
 
 def _valider_doc_id(doc_id: str) -> str:
@@ -207,6 +228,10 @@ class Attendu(BaseModel):
     refusal: bool | None = None
     # Une clarification est un non-résultat qui demande une précision, pas un refus documenté.
     clarification: bool | None = None
+    # Prédicat générique du témoin sinistre : au moins une claim affichée cite une garantie ou une
+    # exclusion dont le typage est confirmé, et son applicabilité a été calculée. Aucun `block_id`
+    # particulier n'est nécessaire pour exiger une preuve décisionnelle.
+    decision_claim: StrictBool | None = None
     # Suite `parsing` seulement (AD-14 : « compare le texte de blocs clés à une lecture visuelle »).
     text_norm: str | None = None
 
@@ -318,6 +343,8 @@ class Cas(BaseModel):
             if self.profil is not None or self.historique:
                 raise ValueError("le pipeline sinistre ne reçoit ni `profil` ni `historique` : "
                                  "les déclarer ferait croire qu'ils sont pris en compte")
+        elif self.expected.decision_claim is not None:
+            raise ValueError("expected.decision_claim n'a de sens que dans la suite `sinistre`")
         if self.suite == "parsing":
             if self.profile != "full":
                 raise ValueError("un cas parsing appartient au profile `full`")
@@ -335,7 +362,7 @@ class Cas(BaseModel):
                 raise ValueError("un cas parsing référence exactement un expected.block_ids")
             if not self.expected.found or self.expected.fiche_ids or self.expected.verdict \
                     or self.expected.refusal is not None or self.expected.clarification is not None \
-                    or self.expected.complete is not None:
+                    or self.expected.complete is not None or self.expected.decision_claim is not None:
                 raise ValueError("un cas parsing ne porte que found=true, un block_id et text_norm")
             if self.mode_attendu != "bonne_reponse":
                 raise ValueError("la transcription de référence attend mode_attendu=bonne_reponse")
@@ -464,7 +491,8 @@ def charger_references(cas: list[Cas], reference_dir: Path) -> ReferencesSnapsho
     except OSError as exc:
         raise RefusDeTourner(f"{reference_dir} : dossier de références illisible") from exc
     etrangers = sorted(p.name for p in reference_dir.iterdir()
-                       if not p.name.startswith(".") and p.suffix != ".yaml")
+                       if not p.name.startswith(".") and p.suffix != ".yaml"
+                       and p.name not in PROTOCOLE_FILES)
     if etrangers:
         raise RefusDeTourner(
             f"{reference_dir} : entrées hors schéma de nommage : {', '.join(etrangers)}")
@@ -472,7 +500,8 @@ def charger_references(cas: list[Cas], reference_dir: Path) -> ReferencesSnapsho
     utilites: dict[str, ReferenceUtilite] = {}
     retraductions: dict[str, ControleRetraduction] = {}
     fichiers = tuple(sorted(p for p in reference_dir.iterdir()
-                            if not p.name.startswith(".") and p.suffix == ".yaml"))
+                            if not p.name.startswith(".") and p.suffix == ".yaml"
+                            and p.name not in PROTOCOLE_FILES))
     contenus: dict[Path, bytes] = {}
     for fichier in fichiers:
         try:
@@ -705,11 +734,32 @@ class Resultat:
     expected_block_ids: list[str] = field(default_factory=list)
     expected_fiche_ids: list[str] = field(default_factory=list)
     cited_fiche_ids: list[str] = field(default_factory=list)
+    # Story 4.2b — la publication complète par répétition. `repetition` est 1-indexée ;
+    # `doc_id` situe le résultat ; `complete` et `reason_kind` viennent de l'`Answer` ;
+    # `opened_block_ids` sont les blocs effectivement passés au modèle (`StepTrace.opened_block_ids`,
+    # jusqu'ici jetés avec la trace) ; `steps` porte tier/coût/latence par étape ; `proofs` est la
+    # projection normalisée des claims affichées — `{doc_id, block_id, kind, quote_hash}` — qui fonde
+    # l'agrégat de stabilité.
+    repetition: int = 1
+    doc_id: str = ""
+    complete: bool | None = None
+    reason_kind: str | None = None
+    opened_block_ids: list[str] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    proofs: list[dict[str, Any]] = field(default_factory=list)
+    # AD-11 : toute réponse du pipeline (refus compris) est un 200 ; une exécution interrompue
+    # n'a pas de `Resultat` et son statut AD-16 part dans `stop_http`. `None` pour la suite
+    # `parsing`, locale — aucune sémantique HTTP (revue 4.2b, LOW 15).
+    http: int | None = 200
 
     @property
     def ok(self) -> bool:
         """Le gate exige `ok`, pas seulement le label (D2) : une attente inassouvie est un échec."""
         return not self.ecarts
+
+    @property
+    def execution_id(self) -> str:
+        return f"{self.id}#r{self.repetition}"
 
 
 @dataclass(frozen=True)
@@ -825,6 +875,61 @@ def _bloc(index: Index, block_id: str) -> Any | None:
         return None
 
 
+def quote_hash(segment_norm: str) -> str:
+    """SHA-256 du segment relu (`Block.text_norm[start:end]`) préfixé de `normalize_version`.
+
+    Stable entre répétitions à corpus égal, sans nouveau champ de domaine (Design Notes 4.2b) :
+    deux répétitions qui citent le même passage produisent le même hash, quel que soit le
+    `claim_id` — refait à neuf par chaque appel de *rédiger* — ou la chaîne rendue par le modèle.
+    """
+    return hashlib.sha256(f"{normalize_version}:{segment_norm}".encode()).hexdigest()
+
+
+def _preuves(answer: Answer, index: Index) -> list[dict[str, Any]]:
+    """Projection normalisée des claims affichées : `{doc_id, block_id, kind, quote_hash}` (4.2b).
+
+    C'est l'identité de « même claim » de l'agrégat de stabilité : la preuve, jamais le libellé.
+    Un bloc que le corpus servi ne connaît pas rend une preuve sans hash (`quote_hash: None`) —
+    l'écart est publié, pas masqué.
+    """
+    preuves: list[dict[str, Any]] = []
+    for claim in answer.claims:
+        for q in claim.quotes:
+            bloc = _bloc(index, q.block_id)
+            start = getattr(q, "start", None)
+            end = getattr(q, "end", None)
+            if bloc is None or start is None or end is None:
+                preuves.append({"doc_id": None, "block_id": q.block_id, "kind": None,
+                                "quote_hash": None})
+                continue
+            preuves.append({
+                "doc_id": index.doc_of(q.block_id),
+                "block_id": q.block_id,
+                "kind": bloc.kind,
+                "quote_hash": quote_hash(bloc.text_norm[start:end]),
+            })
+    return sorted(preuves, key=lambda p: (p["doc_id"] or "", p["block_id"], p["quote_hash"] or ""))
+
+
+def _etapes(trace: Trace) -> list[dict[str, Any]]:
+    """Tier, coût et latence par étape — publiés par répétition au lieu d'être jetés avec la trace."""
+    return [{
+        "name": s.name,
+        "tier": s.tier,
+        "cost_eur": round(sum(call.usage.cost_eur for call in s.calls), 4),
+        "ms": s.ms,
+        "calls": len(s.calls),
+    } for s in trace.steps]
+
+
+def _blocs_ouverts(trace: Trace) -> list[str]:
+    vus: dict[str, None] = {}
+    for s in trace.steps:
+        for block_id in s.opened_block_ids:
+            vus.setdefault(block_id, None)
+    return list(vus)
+
+
 def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, list[str]]:
     """(label du vocabulaire fixe d'AD-14, écarts restants).
 
@@ -871,6 +976,22 @@ def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, 
     if cas.expected.verdict and valeur_verdict not in cas.expected.verdict:
         ecarts.append(f"verdict {valeur_verdict} hors des valeurs admissibles "
                       f"({', '.join(cas.expected.verdict)})")
+    decisionnelle = any(
+        claim.status.retrouvee is True
+        and claim.status.pertinente is True
+        and claim.status.applicable in {"oui", "non", "humain"}
+        and any(
+            (bloc := _bloc(index, quote.block_id)) is not None
+            and bloc.kind in KINDS_FONDATEURS
+            and bloc.kind_confirmed
+            for quote in claim.quotes
+        )
+        for claim in answer.claims
+    )
+    if cas.expected.decision_claim is not None and decisionnelle is not cas.expected.decision_claim:
+        ecarts.append(
+            "claim décisionnelle confirmée avec applicabilité calculée="
+            f"{decisionnelle} (attendu {cas.expected.decision_claim})")
 
     # --- label : la précédence de D2 --------------------------------------------------------------
     absents = [b for b in cas.expected.block_ids if _bloc(index, b) is None]
@@ -1025,7 +1146,10 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
 
 
 def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
-                 variant: str | None, references_digest: str | None = None) -> dict[str, Any]:
+                 variant: str | None, references_digest: str | None = None,
+                 plancher_digest: str | None = None, repeat: int = 1,
+                 campaign_id: str | None = None, series_kind: str | None = None,
+                 series_id: str | None = None) -> dict[str, Any]:
     """Identité publiable de l'image mesurée et du périmètre exact du run.
 
     Les digests de namespace par cas englobent aussi document, dictionnaire, seuils et entrée. Ils
@@ -1050,24 +1174,35 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
         if precedent is not None and document["dictionary_fingerprint"] is None:
             document["dictionary_fingerprint"] = precedent["dictionary_fingerprint"]
         documents[doc_id] = document
-    return {
+    identite = {
         "image": {
             "pipeline_digest": ctx.pipeline_digest_hex,
             "prompts_digest": ctx.prompts_digest_hex,
             "model_ids": dict(TIERS),
             "normalize_version": normalize_version,
+            # Story 4.2b : le protocole (plancher pré-enregistré) fait partie de l'identité — deux
+            # runs ne se comparent qu'à plancher égal, comme à corpus égal.
+            "plancher_digest": plancher_digest,
         },
         "scope": {
             "profile": profile,
             "quick": quick,
+            "repeat": repeat,
             "case_ids": [c.id for c in cas],
             "suites": sorted({c.suite for c in cas}),
             "variants": variantes,
             "references_digest": references_digest,
+            "campaign_id": campaign_id,
+            "series_kind": series_kind,
+            "series_id": series_id,
         },
         "documents": dict(sorted(documents.items())),
         "cache_namespace_digests": namespaces,
     }
+    # `run_digest` = empreinte canonique de l'identité (Design Notes 4.2b). Calculé sur l'identité
+    # **sans** lui-même, puis publié dedans : c'est lui que les décisions du gate référencent.
+    identite["run_digest"] = empreinte_canonique(identite)
+    return identite
 
 
 def _cout_original(trace: Trace) -> float:
@@ -1204,65 +1339,126 @@ def executer_parsing(cas: Cas, ctx: Contexte, *, doc_id: str) -> Resultat:
         # `ms` mesure la latence fournisseur dans les rapports comparatifs : il n'y en a aucune.
         ms=0, found=found,
         expected_found=True, expected_block_ids=[block_id],
+        http=None,  # comparaison locale : aucune sémantique HTTP (LOW 15)
     )
 
 
 async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
-                   sortie: Any = sys.stdout, variant: str | None = None) -> list[Resultat]:
-    """Exécute les cas dans l'ordre, en s'arrêtant **avant** le cas qui dépasserait le plafond de run."""
+                   sortie: Any = sys.stdout, variant: str | None = None,
+                   repeat: int = 1) -> list[Resultat]:
+    """Exécute les cas dans l'ordre, en s'arrêtant **avant** l'exécution qui dépasserait le plafond.
+
+    Story 4.2b : `repeat` répète chaque cas `repeat` fois — trois exécutions **payantes** quand le
+    cache est désarmé (le runner le désarme sous `--repeat`), chacune publiée en entier. Tout
+    incident — budget ou non — emporte les acquis (`resultats`) et le plan restant
+    (`non_executes`) : le rapport partiel est toujours écrit, et les exécutions manquantes restent
+    rouges au dénominateur.
+    """
+    if repeat < 1:
+        raise RefusDeTourner(f"--repeat {repeat} : au moins une exécution par cas")
+    if repeat > 1 and ctx.response_cache is not None:
+        raise RefusDeTourner("--repeat exige un cache désarmé : une répétition servie du cache "
+                             "ne mesure pas la stabilité (story 4.2b)")
+    def _restants(index_cas: int, repetition_courante: int) -> list[str]:
+        restants: list[str] = []
+        for suivant_index in range(index_cas, len(cas)):
+            debut = repetition_courante if suivant_index == index_cas else 1
+            for suivante_repetition in range(debut, repeat + 1):
+                identifiant = cas[suivant_index].id
+                restants.append(identifiant if repeat == 1 else
+                                 f"{identifiant}#r{suivante_repetition}")
+        return restants
+
     resultats: list[Resultat] = []
     cumul = 0.0
-    for c in cas:
-        doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
-        if c.suite == "parsing":
-            resultat = executer_parsing(c, ctx, doc_id=doc_id)
-            resultats.append(resultat)
-            _ligne(resultat, sortie)
-            continue
-        restant = round(max_cost_eur - cumul, 4)
-        if restant <= 0 and ctx.response_cache is None:
-            raise IncidentTechnique(
-                f"plafond de run atteint ({cumul:.4f} € sur {max_cost_eur:.4f} €) avant le cas "
-                f"{c.id} : {len(cas) - len(resultats)} cas non exécutés",
-                resultats=resultats, non_executes=[x.id for x in cas[len(resultats):]],
-                arret_budget=True, cost_eur_engaged=cumul)
-        variante = variante_du_cas(c, variant)
-        if ctx.response_cache is not None:
-            ctx.response_cache.set_namespace(namespace_cache(c, ctx, doc_id=doc_id, variant=variante))
-        depart = time.monotonic()
-        try:
-            answer, trace, cout = await executer_cas(
-                c, ctx, doc_id=doc_id, budget_restant_eur=restant, variant=variante)
-        except _ErreurInterneFacturee as exc:
-            cout_total = round(cumul + exc.cout_eur, 4)
-            raise IncidentTechnique(
-                f"cas {c.id} : internal ({exc.type_erreur}) — coût engagé {cout_total:.4f} €") from exc
-        except PipelineError as exc:
-            cout_engage = exc.eval_cost_eur
-            cout_total = round(cumul + cout_engage, 4)
-            if exc.code is ErrorCode.budget_exceeded:
-                # Le plafond de run **atteint pendant** un cas, et non avant lui : le budget de la
-                # requête est réglé sur ce qui reste du run (AD-9), donc `BudgetExceeded` ici veut
-                # dire « ce cas déborderait le plafond », pas « le fournisseur est en panne ». C'est
-                # la même condition prévue que l'arrêt avant le cas suivant, vue une étape plus tard.
+    for index_cas, c in enumerate(cas):
+        for repetition in range(1, repeat + 1):
+            doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
+            if c.suite == "parsing":
+                resultat = executer_parsing(c, ctx, doc_id=doc_id)
+                resultat.repetition = repetition
+                resultats.append(resultat)
+                _ligne(resultat, sortie, repeat=repeat)
+                continue
+            restant = round(max_cost_eur - cumul, 4)
+            if restant <= 0 and ctx.response_cache is None:
+                non_executes = _restants(index_cas, repetition)
                 raise IncidentTechnique(
-                    f"plafond de run atteint pendant le cas {c.id} ({cout_total:.4f} € engagés sur "
-                    f"{max_cost_eur:.4f} €) : {exc.message}", resultats=resultats,
-                    non_executes=[x.id for x in cas[len(resultats):]], arret_budget=True,
-                    cost_eur_engaged=cout_total) from exc
-            if exc.code in CODES_INCIDENT:
-                # D4 : un incident ne dit rien du système mesuré. Le manifest n'est pas touché.
+                    f"plafond de run atteint ({cumul:.4f} € sur {max_cost_eur:.4f} €) avant "
+                    f"l'exécution {c.id} (répétition {repetition}) : "
+                    f"{len(non_executes)} exécutions non exécutées",
+                    resultats=resultats, non_executes=non_executes,
+                    arret_budget=True, cost_eur_engaged=cumul)
+            variante = variante_du_cas(c, variant)
+            if ctx.response_cache is not None:
+                ctx.response_cache.set_namespace(namespace_cache(
+                    c, ctx, doc_id=doc_id, variant=variante))
+            depart = time.monotonic()
+            try:
+                answer, trace, cout = await executer_cas(
+                    c, ctx, doc_id=doc_id, budget_restant_eur=restant, variant=variante)
+            except _ErreurInterneFacturee as exc:
+                cout_total = round(cumul + exc.cout_eur, 4)
+                # Story 4.2b : l'incident n'efface plus les acquis — les résultats terminés et le
+                # plan restant partent avec l'exception, et le rapport partiel est écrit.
                 raise IncidentTechnique(
-                    f"cas {c.id} : {exc.code.value} — {exc.message} — coût engagé "
+                    f"cas {c.id} (répétition {repetition}) : internal ({exc.type_erreur}) — "
+                    f"coût engagé {cout_total:.4f} €",
+                    resultats=resultats, non_executes=_restants(index_cas, repetition),
+                    cost_eur_engaged=cout_total,
+                    http=HTTP_STATUS[ErrorCode.internal],
+                    latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
+            except PipelineError as exc:
+                cout_engage = exc.eval_cost_eur
+                cout_total = cumul + cout_engage
+                if isinstance(exc, TruncatedRead):
+                    trace = exc.trace
+                    resultat = Resultat(
+                        id=c.id, suite=c.suite, label="claim_non_soutenu",
+                        variant=(trace.variant if trace is not None else variante),
+                        ecarts=[f"lecture tronquée : {exc.message}"], cost_eur=cout_engage,
+                        cost_eur_original=(_cout_original(trace) if trace is not None else 0.0),
+                        ms=int((time.monotonic() - depart) * 1000), found=False,
+                        expected_found=c.expected.found,
+                        expected_block_ids=list(c.expected.block_ids),
+                        expected_fiche_ids=list(c.expected.fiche_ids), repetition=repetition,
+                        doc_id=doc_id, complete=False,
+                        reason_kind="lecture_tronquee",
+                        opened_block_ids=(_blocs_ouverts(trace) if trace is not None else []),
+                        steps=(_etapes(trace) if trace is not None else []),
+                        http=HTTP_STATUS[exc.code])
+                    resultats.append(resultat)
+                    cumul = cout_total
+                    _ligne(resultat, sortie, repeat=repeat)
+                    continue
+                if exc.code is ErrorCode.budget_exceeded:
+                    # Le plafond atteint pendant un cas est le même rouge que l'arrêt avant le
+                    # suivant, vu une étape plus tôt.
+                    raise IncidentTechnique(
+                        f"plafond de run atteint pendant le cas {c.id} (répétition {repetition}, "
+                        f"{cout_total:.4f} € engagés sur {max_cost_eur:.4f} €) : {exc.message}",
+                        resultats=resultats,
+                        non_executes=_restants(index_cas, repetition), arret_budget=True,
+                        cost_eur_engaged=cout_total,
+                        http=HTTP_STATUS[ErrorCode.budget_exceeded],
+                        latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
+                if exc.code in CODES_INCIDENT:
+                    # D4 : un incident ne dit rien du système mesuré. Le manifest n'est pas touché,
+                    # mais les acquis sont conservés et le rapport partiel écrit.
+                    raise IncidentTechnique(
+                        f"cas {c.id} (répétition {repetition}) : {exc.code.value} — {exc.message} — "
+                        f"coût engagé {cout_total:.4f} €",
+                        resultats=resultats, non_executes=_restants(index_cas, repetition),
+                        cost_eur_engaged=cout_total, http=HTTP_STATUS[exc.code],
+                        latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
+                # `invalid_request` : le cas est hors des bornes du pipeline. C'est une faute
+                # d'écriture du cas, pas une mesure ; refus, et rien n'est écrit non plus.
+                raise RefusDeTourner(
+                    f"cas {c.id} refusé par le pipeline : {exc.message} — coût engagé "
                     f"{cout_total:.4f} €") from exc
-            # `invalid_request` : le cas est hors des bornes du pipeline. C'est une faute d'écriture
-            # du cas, pas une mesure ; refus, et rien n'est écrit non plus.
-            raise RefusDeTourner(
-                f"cas {c.id} refusé par le pipeline : {exc.message} — coût engagé "
-                f"{cout_total:.4f} €") from exc
-        cumul = round(cumul + cout, 4)
-        label, ecarts = juger(c, answer, doc_id=doc_id, index=ctx.index)
-        resultat = Resultat(id=c.id, suite=c.suite, label=label, variant=trace.variant,
+            cumul = round(cumul + cout, 4)
+            label, ecarts = juger(c, answer, doc_id=doc_id, index=ctx.index)
+            resultat = Resultat(id=c.id, suite=c.suite, label=label, variant=trace.variant,
                             ecarts=ecarts, cost_eur=cout, cost_eur_original=_cout_original(trace),
                             ms=int((time.monotonic() - depart) * 1000), found=answer.found,
                             verdict=answer.verdict.value if answer.verdict is not None else None,
@@ -1274,14 +1470,21 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                                 ctx.index.parent_node(quote.block_id)
                                 for claim in answer.claims for quote in claim.quotes
                                 if _bloc(ctx.index, quote.block_id) is not None
-                            }))
-        resultats.append(resultat)
-        _ligne(resultat, sortie)
+                            }),
+                            repetition=repetition, doc_id=doc_id,
+                            complete=answer.complete,
+                            reason_kind=answer.reason.kind if answer.reason is not None else None,
+                            opened_block_ids=_blocs_ouverts(trace),
+                            steps=_etapes(trace),
+                            proofs=_preuves(answer, ctx.index))
+            resultats.append(resultat)
+            _ligne(resultat, sortie, repeat=repeat)
     return resultats
 
 
-def _ligne(r: Resultat, sortie: Any) -> None:
-    print(f"{r.id:<28} {r.label:<21} {'ok' if r.ok else 'ECART':<6} "
+def _ligne(r: Resultat, sortie: Any, *, repeat: int = 1) -> None:
+    etiquette = r.id if repeat == 1 else r.execution_id
+    print(f"{etiquette:<28} {r.label:<21} {'ok' if r.ok else 'ECART':<6} "
           f"{r.cost_eur:>7.4f} €  {r.ms:>6} ms", file=sortie)
     for e in r.ecarts:
         print(f"{'':<28} · {e}", file=sortie)
@@ -1299,7 +1502,9 @@ def resume(resultats: list[Resultat], *, max_cost_eur: float, sortie: Any = sys.
           file=sortie)
 
 
-def _recall(resultats: list[Resultat]) -> float:
+def _recall(resultats: list[Resultat], manquants: list[Cas] | None = None) -> float:
+    """Recall du run. Story 4.2b : les exécutions **manquantes** (interruption) restent au
+    dénominateur — chacune apporte ses attentes avec zéro trouvé, jamais retirée du calcul."""
     trouves = 0
     attendus = 0
     for r in resultats:
@@ -1321,7 +1526,244 @@ def _recall(resultats: list[Resultat]) -> float:
         elif r.expected_found:
             attendus += 1
             trouves += int(r.found)
+    for c in manquants or []:
+        if c.suite == "parsing":
+            attendus += 1
+        elif c.expected.block_ids or c.expected.fiche_ids:
+            attendus += len(c.expected.block_ids) + len(c.expected.fiche_ids)
+        elif c.expected.found:
+            attendus += 1
     return round(trouves / attendus, 4) if attendus else 0.0
+
+
+def _cas_de_lexecution(execution_id: str) -> str:
+    """`g-cas#r2` → `g-cas` ; un id sans répétition reste lui-même."""
+    return execution_id.split("#r", 1)[0]
+
+
+def _signature_stabilite(r: Resultat) -> dict[str, Any]:
+    """L'identité comparée entre répétitions (story 4.2b).
+
+    Sinistre : « même claim » ⇔ même preuve `{doc_id, block_id, kind, quote_hash}`, et même
+    verdict. Guide : même statut (`reason.kind`), `found`/`complete`, label, ensemble de fiches.
+    """
+    if r.suite.startswith("sinistre"):
+        return {
+            "verdict": r.verdict,
+            "proofs": [f"{p['doc_id']}:{p['block_id']}:{p['kind']}:{p['quote_hash']}"
+                       for p in r.proofs],
+        }
+    return {"found": r.found, "complete": r.complete, "label": r.label,
+            "reason_kind": r.reason_kind, "fiches": list(r.cited_fiche_ids)}
+
+
+def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
+                      non_executes: list[str] | None = None) -> dict[str, Any]:
+    """L'agrégat de stabilité par cas : preuves, verdicts, dispersion de coût et de latence.
+
+    Un cas est **stable** ssi ses `repeat` répétitions sont toutes là (une répétition manquante
+    est une interruption : rouge) et rendent la même signature — et, pour un sinistre dont le cas
+    borne les verdicts admissibles, un verdict admissible. La dispersion est publiée, jamais
+    masquée.
+
+    Les cas `parsing` sont **exclus des métriques** `stabilite_*` — et l'exclusion est dite, pas
+    tue (revue 4.2b, LOW 14) : la suite est locale et déterministe, sa « stabilité » ne mesure
+    rien du modèle. Leur détail reste publié avec `comptabilise: false`.
+    """
+    par_cas = {c.id: c for c in cas}
+    manquantes: dict[str, int] = {}
+    for execution_id in non_executes or []:
+        base = _cas_de_lexecution(execution_id)
+        manquantes[base] = manquantes.get(base, 0) + 1
+    detail: dict[str, Any] = {}
+    for case_id in sorted({r.id for r in resultats} | set(manquantes)):
+        reps = sorted((r for r in resultats if r.id == case_id), key=lambda r: r.repetition)
+        signatures = [_signature_stabilite(r) for r in reps]
+        raisons: list[str] = []
+        if len(reps) < repeat:
+            raisons.append(f"répétitions manquantes : {repeat - len(reps)} sur {repeat}")
+        numeros = {r.repetition for r in reps}
+        attendus = set(range(1, repeat + 1))
+        if numeros != attendus:
+            raisons.append(
+                f"numéros de répétition invalides : {sorted(numeros)}, attendus {sorted(attendus)}")
+        if signatures and any(s != signatures[0] for s in signatures[1:]):
+            raisons.append("signatures divergentes entre répétitions")
+        c = par_cas.get(case_id)
+        if (c is not None and reps and reps[0].suite.startswith("sinistre") and c.expected.verdict
+                and any(r.verdict not in c.expected.verdict for r in reps)):
+            raisons.append("verdict hors des valeurs admissibles sur au moins une répétition")
+        suite = reps[0].suite if reps else (c.suite if c is not None else "")
+        detail[case_id] = {
+            "suite": suite,
+            "stable": not raisons,
+            "raisons": raisons,
+            "comptabilise": suite != "parsing",
+            "repetitions_completed": len(reps),
+            "repetitions_planned": repeat,
+            "signatures": signatures,
+            "cost_eur": [r.cost_eur for r in reps],
+            "latency_ms": [r.ms for r in reps],
+        }
+    agregat: dict[str, Any] = {"n": repeat, "cases": detail}
+    if any(not v["comptabilise"] for v in detail.values()):
+        agregat["exclusions"] = {
+            "parsing": "suite locale déterministe : hors métriques stabilite_* (détail publié)"}
+    return agregat
+
+
+def _taux_stabilite(stabilite: dict[str, Any], prefixe_suite: str) -> tuple[float, int] | None:
+    cases = [v for v in stabilite["cases"].values() if str(v["suite"]).startswith(prefixe_suite)]
+    if not cases:
+        return None
+    stables = sum(1 for v in cases if v["stable"])
+    return round(stables / len(cases), 4), len(cases)
+
+
+def _temoin_applicable(temoin: Any, cas: list[Cas]) -> bool:
+    """Le témoin porte-t-il sur ce lot, même si sa mesure appartient à l'orchestrateur ?"""
+    if temoin.scope in ("repo", "run"):
+        return True
+    if temoin.scope == "suite":
+        return any(c.suite.split("/", 1)[0] == temoin.pipeline for c in cas)
+    if temoin.scope == "case":
+        return temoin.case_id is not None and any(c.id == temoin.case_id for c in cas)
+    if temoin.scope == "live_http":
+        return any(c.suite.split("/", 1)[0] == temoin.pipeline for c in cas)
+    return False
+
+
+def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher) -> list[GateDecision]:
+    """Charge une preuve externe mesurée par l'orchestrateur, sans lui faire déclarer son statut.
+
+    Le fichier ne fournit que les mesures : seuil, producteur et statut sont recalculés depuis le
+    plancher versionné. Ainsi A16, `decision_claim` (le prédicat est fusionné dans `juger`, mais la
+    décision chiffrée reste celle de la série orchestrateur) et les tests hors ligne peuvent
+    rejoindre le gate sans être simulés par le runner ni auto-certifiés par le JSON d'entrée.
+    """
+    try:
+        brut = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise RefusDeTourner(
+            f"preuve orchestrateur {path} illisible ({type(exc).__name__})") from exc
+    if not isinstance(brut, dict) or brut.get("plancher_digest") != plancher.digest:
+        raise RefusDeTourner("preuve orchestrateur : plancher_digest divergent")
+    mesures = brut.get("decisions")
+    if not isinstance(mesures, list):
+        raise RefusDeTourner("preuve orchestrateur : decisions doit être une liste")
+    decisions: list[GateDecision] = []
+    deja: set[str] = set()
+    for mesure in mesures:
+        if not isinstance(mesure, dict) or set(mesure) != {"metric", "n", "value", "run_digest"}:
+            raise RefusDeTourner(
+                "preuve orchestrateur : chaque mesure porte metric, n, value et run_digest")
+        metric = mesure["metric"]
+        temoin = plancher.plancher.temoin(metric) if isinstance(metric, str) else None
+        if temoin is None or temoin.mesure_par != "orchestrator":
+            raise RefusDeTourner(f"preuve orchestrateur : métrique externe inconnue {metric!r}")
+        if metric in deja:
+            raise RefusDeTourner(f"preuve orchestrateur : métrique dupliquée {metric!r}")
+        deja.add(metric)
+        n, value, run_digest = mesure["n"], mesure["value"], mesure["run_digest"]
+        if (isinstance(n, bool) or not isinstance(n, int) or n < 0
+                or isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) or not 0 <= float(value) <= 1
+                or not isinstance(run_digest, str) or len(run_digest) != 64
+                or any(c not in "0123456789abcdef" for c in run_digest)):
+            raise RefusDeTourner(f"preuve orchestrateur : mesure invalide pour {metric!r}")
+        status = "green" if n >= temoin.n and float(value) >= temoin.plancher else "red"
+        raison = None if status == "green" else (
+            f"sous-échantillonné n={n} < N={temoin.n}" if n < temoin.n
+            else f"valeur {float(value):.4f} < plancher {temoin.plancher:.4f}")
+        scope = (f"case:{temoin.case_id}" if temoin.scope == "case" and temoin.case_id
+                 else temoin.scope)
+        decisions.append(GateDecision(
+            metric=metric, producer="orchestrator", threshold=temoin.plancher, scope=scope,
+            n=n, run_digest=run_digest, value=round(float(value), 4), status=status,
+            reason=raison))
+    return decisions
+
+
+def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher: ChargePlancher,
+                         repeat: int, run_digest: str, producer: str,
+                         non_executes: list[str] | None = None,
+                         decisions_orchestrateur: list[GateDecision] | None = None,
+                         ) -> list[GateDecision]:
+    """Les décisions chiffrées du run contre le plancher pré-enregistré (story 4.2b).
+
+    Seules les métriques que **ce runner** mesure produisent une décision (`mesure_par:
+    eval_runner`) : les témoins de l'orchestrateur (tests hors ligne, A16 HTTP, la série chiffrée
+    `decision_claim` — le prédicat lui-même est fusionné dans `juger`, qui le juge à chaque
+    répétition d'un cas `expected.decision_claim`) restent les siens — les dupliquer ici serait une
+    seconde autorité sur la même mesure. Trois règles ferment le vert par vacuité (revue 4.2b, HIGH 1) :
+
+    - une décision dont `n` est sous le `N` du témoin pré-enregistré est **rouge**
+      (`sous-échantillonné`) — un `--gate` sans `--repeat 3` ne prouve rien ;
+    - tout témoin **bloquant** du runner dont le scope couvre ce lot produit une décision, même
+      quand le run ne l'a pas mesuré : absente = non prouvée = rouge explicite ;
+    - toute interruption reste au dénominateur (`executions_completes`, témoin du plancher).
+    """
+    decisions: list[GateDecision] = []
+    planifiees = len(cas) * repeat
+    manquantes = len(non_executes or [])
+
+    def _decision(metric: str, *, value: float, n: int, scope: str) -> None:
+        temoin = plancher.plancher.temoin(metric)
+        if temoin is None:
+            return
+        raison: str | None = None
+        status = "green"
+        if producer != plancher.plancher.producer_de_preuve:
+            status = "red"
+            raison = (f"producteur non probant {producer!r} ; attendu "
+                      f"{plancher.plancher.producer_de_preuve!r}")
+        elif n < temoin.n:
+            status = "red"
+            raison = f"sous-échantillonné n={n} < N={temoin.n}"
+        elif value < temoin.plancher:
+            status = "red"
+        decisions.append(GateDecision(
+            metric=metric, producer=producer, threshold=temoin.plancher, scope=scope,
+            n=n, run_digest=run_digest, value=round(value, 4), status=status, reason=raison))
+
+    ok = sum(1 for r in resultats if r.ok)
+    _decision("cases_ok_rate", value=(ok / planifiees) if planifiees else 0.0,
+              n=repeat, scope="run")
+    # LOW 13 : le seuil d'`executions_completes` vit dans le plancher, jamais en dur ici.
+    _decision("executions_completes",
+              value=round((planifiees - manquantes) / planifiees, 4) if planifiees else 0.0,
+              n=repeat, scope="run")
+    stabilite = agreger_stabilite(resultats, cas, repeat=repeat, non_executes=non_executes)
+    for metric, prefixe in (("stabilite_sinistre", "sinistre"), ("stabilite_guide", "guide")):
+        taux = _taux_stabilite(stabilite, prefixe)
+        if taux is not None:
+            # Sous `repeat=1` le taux est trivialement 1.0 : la décision existe quand même, et le
+            # sous-échantillonnage la rend rouge — jamais un vert par absence de mesure.
+            _decision(metric, value=taux[0], n=repeat, scope=f"suite:{prefixe}")
+    for temoin in plancher.plancher.temoins:
+        if temoin.mesure_par != "eval_runner" or temoin.case_id is None:
+            continue
+        if not any(c.id == temoin.case_id for c in cas):
+            continue
+        reps_ok = sum(1 for r in resultats if r.id == temoin.case_id and r.ok)
+        _decision(temoin.metric, value=reps_ok / repeat, n=repeat,
+                  scope=f"case:{temoin.case_id}")
+    for decision in decisions_orchestrateur or []:
+        temoin = plancher.plancher.temoin(decision.metric)
+        if temoin is not None and _temoin_applicable(temoin, cas):
+            decisions.append(decision)
+    emises = {d.metric for d in decisions}
+    for temoin in plancher.plancher.temoins:
+        if (temoin.criticite != "bloquant" or temoin.metric in emises
+                or not _temoin_applicable(temoin, cas)):
+            continue
+        decisions.append(GateDecision(
+            metric=temoin.metric, producer=producer, threshold=temoin.plancher,
+            scope=temoin.scope, n=0, run_digest=run_digest, value=0.0, status="red",
+            reason=("témoin orchestrateur applicable absent de ce run"
+                    if temoin.mesure_par == "orchestrator"
+                    else "témoin bloquant applicable non prouvé par ce run")))
+    return decisions
 
 
 def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: Path,
@@ -1330,7 +1772,14 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                        non_executes: list[str] | None = None,
                        cost_eur_engaged: float | None = None,
                        snapshot: CasesSnapshot | None = None,
-                       run_identity: dict[str, Any] | None = None) -> dict[str, Any]:
+                       run_identity: dict[str, Any] | None = None,
+                       repeat: int = 1,
+                       plancher: ChargePlancher | None = None,
+                       producer: str = "builder",
+                       preflight: dict[str, Any] | None = None,
+                       stop_http: int | None = None,
+                       stop_latency_ms: int | None = None,
+                       decisions_orchestrateur: list[GateDecision] | None = None) -> dict[str, Any]:
     snapshot = snapshot or snapshot_cas(cas, cases_dir)
     verifier_snapshot_cas(snapshot)
     labels = {label: sum(1 for r in resultats if r.label == label) for label in LABELS}
@@ -1340,8 +1789,33 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
     cout_cas_termines = round(sum(r.cost_eur for r in resultats), 4)
     cout_total = round(cost_eur_engaged, 4) if cost_eur_engaged is not None else cout_cas_termines
     cout_original = round(sum(r.cost_eur_original for r in resultats), 4)
-    return {
-        "schema_version": 2,
+    par_cas = {c.id: c for c in cas}
+    # Story 4.2b : les dénominateurs incluent les interruptions. Une exécution manquante reste
+    # planifiée — la retirer du calcul rendrait un run interrompu plus flatteur qu'un run complet.
+    executions_planifiees = len(cas) * repeat
+    manquantes_ids = list(non_executes or [])
+    manquants_cas = [par_cas[_cas_de_lexecution(execution_id)] for execution_id in manquantes_ids
+                     if _cas_de_lexecution(execution_id) in par_cas]
+    sinistres_planifies = len(sinistres) + sum(
+        1 for c in manquants_cas if c.suite.startswith("sinistre"))
+    cout_interrompu = max(0.0, round(cout_total - cout_cas_termines, 4))
+    couts_observes = ([r.cost_eur for r in resultats]
+                      + ([cout_interrompu] if cout_interrompu > 0 else []))
+    couts = sorted(couts_observes + [0.0] * max(0, executions_planifiees - len(couts_observes)))
+    latences_observees = ([r.ms for r in resultats]
+                          + ([stop_latency_ms] if stop_latency_ms is not None else []))
+    latences = sorted(latences_observees
+                      + [0] * max(0, executions_planifiees - len(latences_observees)))
+    repetitions_par_cas = {
+        c.id: {r.repetition for r in resultats if r.id == c.id}
+        for c in cas
+    }
+
+    def _p95(valeurs: list[Any]) -> Any:
+        return valeurs[max(0, math.ceil(0.95 * len(valeurs)) - 1)] if valeurs else 0
+
+    rapport: dict[str, Any] = {
+        "schema_version": 3,
         "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "profile": profile,
         "identity": run_identity or {
@@ -1349,28 +1823,47 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
         },
         "complete": complete,
         "stop_reason": stop_reason,
-        "unexecuted_cases": list(non_executes or []),
+        # Statut AD-16 de l'exécution qui a interrompu le run (`None` sur un run complet) : les
+        # exécutions jamais démarrées n'ont pas de statut, elles sont dans `unexecuted_cases`.
+        "stop_http": stop_http,
+        "unexecuted_cases": manquantes_ids,
         "cases_hash": snapshot.cases_hash,
         "cases_planned": len(cas),
-        "cases_completed": len(resultats),
+        "cases_completed": sum(
+            1 for c in cas if repetitions_par_cas[c.id] == set(range(1, repeat + 1))),
+        "repeat": repeat,
+        "executions_planned": executions_planifiees,
+        "executions_completed": len(resultats),
+        "executions_interrupted": len(manquantes_ids),
         "max_cost_eur": max_cost_eur,
         "cost_eur": cout_total,
         "cost_eur_original": cout_original,
         "metrics": {
             "labels": labels,
             "variants": variants,
-            "recall": _recall(resultats),
-            "average_cost_eur": round(cout_cas_termines / len(resultats), 4) if resultats else 0.0,
-            "latency_p50_ms": int(statistics.median(r.ms for r in resultats)) if resultats else 0,
+            "recall": _recall(resultats, manquants_cas),
+            "average_cost_eur": round(cout_total / executions_planifiees, 4)
+            if executions_planifiees else 0.0,
+            "latency_p50_ms": int(statistics.median(latences)) if latences else 0,
+            # Story 4.2b : la comparaison majorant estimé vs coût réel exige la queue de la
+            # distribution, pas seulement la médiane (reprises différées 1.8/1.9).
+            "cost_p50_eur": round(statistics.median(couts), 4) if couts else 0.0,
+            "cost_p95_eur": _p95(couts),
+            "cost_max_eur": couts[-1] if couts else 0.0,
+            "latency_p95_ms": _p95(latences),
+            "latency_max_ms": latences[-1] if latences else 0,
             "ne_tranche_pas_rate": (
-                round(sum(1 for r in sinistres if r.verdict == "ne_tranche_pas") / len(sinistres), 4)
-                if sinistres else 0.0
+                round(sum(1 for r in sinistres if r.verdict == "ne_tranche_pas")
+                      / sinistres_planifies, 4)
+                if sinistres_planifies else 0.0
             ),
         },
         "results": [
             {
                 "id": r.id,
+                "repetition": r.repetition,
                 "suite": r.suite,
+                "doc_id": r.doc_id,
                 "label": r.label,
                 "variant": r.variant,
                 "ok": r.ok,
@@ -1378,13 +1871,38 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                 "cost_eur": r.cost_eur,
                 "cost_eur_original": r.cost_eur_original,
                 "latency_ms": r.ms,
+                "http": r.http,
                 "found": r.found,
+                "complete": r.complete,
+                "reason_kind": r.reason_kind,
                 "verdict": r.verdict,
                 "claims": r.claims,
+                "proofs": r.proofs,
+                "opened_block_ids": r.opened_block_ids,
+                # « Blocs attendus ∈ blocs lus » : la preuve que le rappel a réellement présenté
+                # les blocs attendus au modèle, publiée par exécution (spec 4.2b, Code Map). La
+                # suite `parsing` est locale : aucun bloc n'est « lu » par un modèle.
+                "expected_blocks_not_opened": ([] if r.suite == "parsing" else sorted(
+                    set(r.expected_block_ids) - set(r.opened_block_ids))),
+                "steps": r.steps,
             }
             for r in resultats
         ],
     }
+    if preflight is not None:
+        rapport["preflight"] = preflight
+    if repeat > 1:
+        rapport["stability"] = agreger_stabilite(resultats, cas, repeat=repeat,
+                                                 non_executes=manquantes_ids)
+    if plancher is not None:
+        run_digest = str((run_identity or {}).get("run_digest", ""))
+        decisions = construire_decisions(resultats, cas, plancher=plancher, repeat=repeat,
+                                         run_digest=run_digest, producer=producer,
+                                         non_executes=manquantes_ids,
+                                         decisions_orchestrateur=decisions_orchestrateur)
+        rapport["plancher_digest"] = plancher.digest
+        rapport["decisions"] = [d.model_dump(mode="json") for d in decisions]
+    return rapport
 
 
 def _markdown_value(value: Any) -> str:
@@ -1467,7 +1985,9 @@ def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Pat
 
 def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: list[Cas],
                     cases_dir: Path, evals_ok: bool,
-                    snapshot: CasesSnapshot | None = None) -> Gate:
+                    snapshot: CasesSnapshot | None = None,
+                    decisions: list[GateDecision] | None = None,
+                    run_digest: str | None = None) -> Gate:
     """Le gate d'un document : les empreintes de **l'entrée du manifest**, pas celles recalculées.
 
     AD-7 : « le gate porte `source_hash`, `ingest_fingerprint`, `overlay_hash` de l'entrée du manifest
@@ -1492,11 +2012,12 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
         cases_hash=snapshot.cases_hash, cases=len(cas),
         countersigned=all(c.truth.countersigned_by is not None for c in cas),
         pipeline_digest=ctx.pipeline_digest_hex, prompts_digest=ctx.prompts_digest_hex,
-        model_ids=dict(TIERS), evals_ok=evals_ok,
+        model_ids=dict(TIERS), pipeline_settings=ctx.settings.thresholds(), evals_ok=evals_ok,
+        decisions=list(decisions or []), run_digest=run_digest,
         date=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"))
 
 
-def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
+def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
     """Écrit `manifest[doc_id].gate` — l'unique écriture de `data/` de tout ce module (AD-7).
 
     Le manifest entier est relu et **validé** avant la moindre écriture : un fichier illisible ou une
@@ -1504,6 +2025,11 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
     temporaire puis `replace`) et garde la forme des autres écrivains de `data/` — clés triées,
     `indent=2`, `ensure_ascii=False`, saut de ligne final —, pour qu'un `git diff` de gate ne soit
     qu'un gate.
+
+    **Non-mutation du dernier vert (story 4.2b).** Un gate candidat **rouge** ne remplace jamais un
+    gate `evals_ok: true` : le verdict candidat est publié dans le rapport (décisions chiffrées,
+    raison, limites), le mécanisme de promotion reste le seul chemin de bascule, et cette fonction
+    rend `False` sans toucher le disque. Elle rend `True` quand le gate a été écrit.
     """
     try:
         brut = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1511,6 +2037,24 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
         raise RefusDeTourner(f"{manifest_path} illisible : {type(exc).__name__}") from exc
     if not isinstance(brut, dict) or doc_id not in brut:
         raise RefusDeTourner(f"{manifest_path} : aucune entrée {doc_id!r}")
+    gate_existant = brut[doc_id].get("gate") if isinstance(brut[doc_id], dict) else None
+    if (not gate.evals_ok and isinstance(gate_existant, dict)
+            and gate_existant.get("evals_ok") is True):
+        # Le rouge est un **résultat**, publié dans le rapport ; le dernier vert — gate, révision,
+        # trafic — reste intact. Écraser le vert ferait d'un candidat raté une régression de
+        # production (Intent 4.2b : « un rouge peut détruire le dernier vert »).
+        print(f"gate candidat rouge sur {doc_id!r} : le gate vert existant n'est pas modifié "
+              "(le verdict candidat, ses raisons et ses limites sont publiés dans le rapport)",
+              file=sys.stderr)
+        return False
+    if (gate.evals_ok and not gate.decisions and isinstance(gate_existant, dict)
+            and gate_existant.get("evals_ok") is True and gate_existant.get("decisions")):
+        # HIGH 1 : un vert **sans décisions** — écrit à la main ou par un chemin antérieur au
+        # protocole — ne remplace pas un vert qui porte sa preuve chiffrée. Ce serait troquer une
+        # preuve contre un booléen.
+        print(f"gate candidat sans décisions sur {doc_id!r} : le gate vert existant, qui porte "
+              "ses décisions chiffrées, n'est pas modifié", file=sys.stderr)
+        return False
     # Un gate **périmé au sens du schéma** n'empêche pas d'en écrire un neuf (revue Codex 1.10
     # tour 2). Quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
     # —, tous les gates déjà écrits deviennent invalides et doivent être refaits, un document après
@@ -1566,6 +2110,7 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> None:
         tmp.unlink(missing_ok=True)
         raise RefusDeTourner(f"{manifest_path} : écriture impossible ({type(exc).__name__}) — "
                              "le manifest n'a pas été modifié") from exc
+    return True
 
 
 # --- l'assemblage ----------------------------------------------------------------------------------
@@ -1644,7 +2189,10 @@ def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
 
 
 def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | None = None,
-                        pile: Any = None, cache_dir: Path | None = None) -> Contexte:
+                        pile: Any = None, cache_dir: Path | None = None,
+                        campaign_budget_eur: float | None = None,
+                        campaign_accrued_eur: float = 0.0,
+                        campaign_cost_recorder: Any = None) -> Contexte:
     """Corpus, index et client — le même assemblage qu'`api/etat.construire_etat` (AD-7, AD-9).
 
     `allow_ungated=True` **toujours**, et ce n'est pas une dérogation : c'est ce runner qui écrit le
@@ -1668,7 +2216,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     document, et pour la lecture seulement, il est traité comme absent.
     """
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS))
+                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
     lecture = data_dir
     if regate is not None and pile is not None:
         entree_brute = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8")) \
@@ -1678,6 +2226,12 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
         gate_a_refaire = False
         if isinstance(brut_gate, dict):
             gate_a_refaire = brut_gate.get("evals_ok") is False
+            if (not gate_a_refaire and brut_gate.get("profile") == "full"
+                    and (brut_gate.get("pipeline_digest"), brut_gate.get("prompts_digest"),
+                         brut_gate.get("model_ids"), brut_gate.get("pipeline_settings", {})) != (
+                         contexte_gate.pipeline_digest, contexte_gate.prompts_digest,
+                         contexte_gate.model_ids, contexte_gate.pipeline_settings)):
+                gate_a_refaire = True
             if not gate_a_refaire:
                 try:
                     Gate.model_validate(brut_gate)
@@ -1695,7 +2249,10 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     }
     response_cache = PersistentResponseCache(cache_dir) if cache_dir is not None else None
     return Contexte(settings=settings, index=Index(corpus),
-                    client=LlmClient(settings, cache=response_cache),
+                    client=LlmClient(settings, cache=response_cache,
+                                     campaign_budget_eur=campaign_budget_eur,
+                                     campaign_accrued_eur=campaign_accrued_eur,
+                                     campaign_cost_recorder=campaign_cost_recorder),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest,
                     # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
@@ -1707,7 +2264,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
 def construire_contexte_parsing(settings: Settings, data_dir: Path) -> Contexte:
     """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit."""
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS))
+                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
     corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
                          raison_max_chars=settings.raison_publiable_max_chars)
@@ -1727,7 +2284,7 @@ async def _fermer(client: Any) -> None:
 
 async def _executer_puis_fermer(cas: list[Cas], ctx: Contexte, *, gate: str | None,
                                 max_cost_eur: float, sortie: Any,
-                                variant: str | None = None) -> list[Resultat]:
+                                variant: str | None = None, repeat: int = 1) -> list[Resultat]:
     """Le refus, l'exécution **et** la fermeture du client, dans **une seule** boucle asyncio.
 
     Pourquoi une seule, et pourquoi c'est un défaut de production et pas une élégance : le pool de
@@ -1750,7 +2307,8 @@ async def _executer_puis_fermer(cas: list[Cas], ctx: Contexte, *, gate: str | No
         if gate and gate not in ctx.index.corpus.documents:
             raison = ctx.index.corpus.quarantine.get(gate, "absent du corpus")
             raise RefusDeTourner(f"--gate {gate} : document non servi ({raison})")
-        return await executer(cas, ctx, max_cost_eur=max_cost_eur, sortie=sortie, variant=variant)
+        return await executer(cas, ctx, max_cost_eur=max_cost_eur, sortie=sortie, variant=variant,
+                              repeat=repeat)
     finally:
         await _fermer(ctx.client)
 
@@ -1772,8 +2330,23 @@ def _parser() -> argparse.ArgumentParser:
                    help="variante (défaut : outils pour guide, déterministe pour sinistre, local pour parsing)")
     p.add_argument("--gate", metavar="DOC_ID",
                    help="écrire `manifest.gate` pour ce document depuis la suite qui le sert")
+    p.add_argument("--repeat", type=int, default=1, metavar="N",
+                   help="répéter chaque cas N fois, sans cache de réponse : publication complète "
+                        "par répétition + agrégat de stabilité (story 4.2b ; N>=3 pour une preuve)")
+    p.add_argument("--producer", choices=("builder", "orchestrator"), default="builder",
+                   help="qui produit ce run : la règle trusted ne reconnaît que l'orchestrateur "
+                        "comme producteur de preuve ; un run de builder est un diagnostic")
+    p.add_argument("--series-kind", choices=("baseline", "final"),
+                   help="phase de la série orchestrateur ; obligatoire avec --producer orchestrator")
+    p.add_argument("--series-id",
+                   help="identité stable partagée par les points d'une même série orchestrateur")
+    p.add_argument("--orchestrator-evidence", type=Path,
+                   help="mesures externes trusted (tests hors ligne, A16, série decision_claim — "
+                        "le prédicat est jugé par le runner, la série chiffrée reste orchestrateur) ; "
+                        "réservé à --producer orchestrator et --gate")
     p.add_argument("--max-cost", type=float, default=None,
-                   help="plafond de coût du run en euros (défaut : evals_max_cost_eur de config.py)")
+                   help="plafond de coût du run en euros (défaut : evals_max_cost_eur de config.py ; "
+                        "le budget effectif est min(--max-cost, LIVE_BUDGET_EUR))")
     p.add_argument("--cases-dir", type=Path, default=CASES_DIR)
     p.add_argument("--data-dir", type=Path, default=DATA_DIR)
     p.add_argument("--cache-dir", type=Path,
@@ -1821,6 +2394,12 @@ def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Ferme toujours les ressources persistantes, quel que soit le code de sortie de la CLI."""
+    with ExitStack() as lifecycle:
+        return _main(argv, lifecycle=lifecycle)
+
+
+def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
     args = _parser().parse_args(argv)
     sortie = sys.stdout
     cas: list[Cas] = []
@@ -1829,13 +2408,27 @@ def main(argv: list[str] | None = None) -> int:
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
+    decisions_orchestrateur: list[GateDecision] = []
     references = ReferencesSnapshot(empreinte_canonique([]))
     reference_dir = args.cases_dir.parent / "reference"
+    campaign: CampaignLedger | None = None
+
+    def noter_campaign(status: str) -> None:
+        if campaign is not None:
+            campaign.record_run(
+                run_digest=(str(run_identity.get("run_digest")) if run_identity else None),
+                status=status)
     try:
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
                         cases_dir=args.cases_dir, reference_dir=reference_dir,
                         data_dir=args.data_dir, cache_dir=cache_dir)
-        settings = Settings()
+        try:
+            settings = Settings()
+        except ValidationError as exc:
+            premier = exc.errors()[0]
+            champ = ".".join(str(p) for p in premier.get("loc", ())) or "configuration"
+            raise RefusDeTourner(
+                f"configuration invalide ({champ}) : {premier.get('msg', '')}") from exc
         max_cost = settings.evals_max_cost_eur if args.max_cost is None else args.max_cost
         if not math.isfinite(max_cost) or max_cost <= 0:
             # `argparse(type=float)` accepte « inf » et « nan », et `nan <= 0` est **faux** : sans
@@ -1843,6 +2436,41 @@ def main(argv: list[str] | None = None) -> int:
             # partait sans borne, contre AD-9 et contre CLAUDE.md (« la clé **et un plafond** »).
             raise RefusDeTourner(f"plafond de run {max_cost} € : les évals tournent avec un plafond "
                                  "fini et strictement positif (CLAUDE.md, AD-9)")
+        if args.repeat < 1:
+            raise RefusDeTourner(f"--repeat {args.repeat} : au moins une exécution par cas")
+        # Story 4.2b : le protocole précède toute mesure. Sans plancher chargé — donc sans digest —
+        # aucun run ne part : il n'y aurait rien contre quoi comparer le résultat.
+        try:
+            charge_plancher = charger_plancher(producer=args.producer)
+        except PlancherInvalide as exc:
+            raise RefusDeTourner(str(exc)) from exc
+        if args.repeat > charge_plancher.plancher.series.max_repeat:
+            raise RefusDeTourner(
+                f"--repeat {args.repeat} dépasse la borne pré-enregistrée "
+                f"{charge_plancher.plancher.series.max_repeat}")
+        if args.producer == "orchestrator":
+            if args.max_cost is None:
+                raise RefusDeTourner(
+                    "--producer orchestrator exige --max-cost explicite (borne locale par run)")
+            if args.repeat < charge_plancher.plancher.n_minimum:
+                raise RefusDeTourner(
+                    f"--producer orchestrator exige --repeat >= "
+                    f"{charge_plancher.plancher.n_minimum}")
+            if not args.dry_run and (args.series_kind is None or not args.series_id):
+                raise RefusDeTourner(
+                    "--producer orchestrator exige --series-kind et --series-id")
+            if not args.dry_run and not settings.live_campaign_id:
+                raise RefusDeTourner(
+                    "--producer orchestrator exige LIVE_CAMPAIGN_ID : preuve non vérifiable")
+        elif args.series_kind is not None or args.series_id is not None:
+            raise RefusDeTourner(
+                "--series-kind/--series-id sont réservés à --producer orchestrator")
+        if args.orchestrator_evidence is not None:
+            if args.producer != "orchestrator" or args.gate is None:
+                raise RefusDeTourner(
+                    "--orchestrator-evidence exige --producer orchestrator et --gate")
+            decisions_orchestrateur = charger_decisions_orchestrateur(
+                args.orchestrator_evidence, plancher=charge_plancher)
         # 1. Le profil, avant tout le reste.
         if args.profile not in PROFILS_LIVRES:
             raise RefusDeTourner(f"profil `{args.profile}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
@@ -1913,6 +2541,46 @@ def main(argv: list[str] | None = None) -> int:
             c.suite == "guide" for c in cas) else None
         references_digest = references.digest if references_du_run else None
         snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
+        accrued_cost_eur = 0.0
+        if args.producer == "orchestrator" and not args.dry_run:
+            try:
+                campaign = lifecycle.enter_context(CampaignLedger(
+                    cache_dir / "campaigns",
+                    campaign_id=str(settings.live_campaign_id),
+                    budget_eur=settings.live_budget_eur))
+                max_series = (charge_plancher.plancher.series.baseline_per_named_witness
+                              if args.series_kind == "baseline"
+                              else charge_plancher.plancher.series.final_per_named_witness)
+                campaign.register_series(
+                    kind=args.series_kind, series_id=str(args.series_id),
+                    witnesses=[c.id for c in cas], max_series=max_series)
+                accrued_cost_eur = campaign.accrued_cost_eur
+            except CampaignLedgerError as exc:
+                raise RefusDeTourner(str(exc)) from exc
+        budget_restant_global = max(settings.live_budget_eur - accrued_cost_eur, 0.0)
+        # Deux bornes distinctes : `--max-cost` limite ce run ; le ledger limite la campagne.
+        # Aucun arrondi ne peut transformer un petit budget positif en zéro silencieux.
+        budget_effectif = min(max_cost, budget_restant_global)
+        # Story 4.2b — préflight : le majorant de la campagne est estimé **avant le premier appel**
+        # (agrégat du majorant par requête d'AD-9, `max_cost_eur_per_request`, sur les exécutions
+        # payantes). Une campagne payante (`--repeat` ≥ 2 : cache désarmé, chaque exécution est
+        # facturée) dont le majorant dépasse le budget effectif est refusée proprement, chiffres
+        # publiés, acquis conservés — jamais une question humaine (règle trusted).
+        executions_payantes = sum(1 for c in cas if c.suite != "parsing") * args.repeat
+        majorant_estime = estimate_run_majorant(executions_payantes, settings)
+        preflight = {
+            "campaign_id": settings.live_campaign_id,
+            "series_kind": args.series_kind,
+            "series_id": args.series_id,
+            "configured_budget_eur": settings.live_budget_eur,
+            "accrued_cost_eur": accrued_cost_eur,
+            "live_budget_eur": settings.live_budget_eur,
+            "max_cost_eur": max_cost,
+            "effective_run_budget_eur": budget_effectif,
+            "majorant_estime_eur": majorant_estime,
+            "refused_cost_eur": majorant_estime,
+            "executions_payantes": executions_payantes,
+        }
         if args.dry_run:
             # Story 3.7 : jalon explicite avant toute dépense. Aucune construction de contexte —
             # donc ni client, ni lecture/écriture du manifest — et aucun besoin de clé.
@@ -1921,47 +2589,125 @@ def main(argv: list[str] | None = None) -> int:
                   f"suites={','.join(suites or sorted({c.suite for c in cas}))} "
                   f"variantes={','.join(sorted({variante_du_cas(c, args.variant) for c in cas}))} "
                   f"ids={','.join(c.id for c in cas)} plafond={max_cost:.4f} EUR", file=sortie)
+            print(f"plancher_digest={charge_plancher.digest} repeat={args.repeat} "
+                  f"majorant_estime={majorant_estime:.4f} EUR "
+                  f"budget_effectif={budget_effectif:.4f} EUR", file=sortie)
             return 0
+        if executions_payantes and majorant_estime > budget_effectif:
+            non_executes = [
+                c.id if args.repeat == 1 else f"{c.id}#r{repetition}"
+                for c in cas for repetition in range(1, args.repeat + 1)
+            ]
+            identite_refus = {
+                "image": {
+                    "pipeline_digest": pipeline_digest(),
+                    "prompts_digest": prompts_digest(),
+                    "model_ids": dict(TIERS),
+                    "normalize_version": normalize_version,
+                    "plancher_digest": charge_plancher.digest,
+                },
+                "scope": {
+                    "profile": args.profile,
+                    "quick": args.quick,
+                    "repeat": args.repeat,
+                    "case_ids": [c.id for c in cas],
+                    "suites": sorted({c.suite for c in cas}),
+                    "variants": {c.id: variante_du_cas(c, args.variant) for c in cas},
+                    "references_digest": references_digest,
+                    "campaign_id": settings.live_campaign_id,
+                    "series_kind": args.series_kind,
+                    "series_id": args.series_id,
+                },
+                "documents": {},
+                "cache_namespace_digests": {},
+                "preflight_refused": True,
+            }
+            identite_refus["run_digest"] = empreinte_canonique(identite_refus)
+            rapport_refus = construire_rapport(
+                [], cas, cases_dir=args.cases_dir, profile=args.profile,
+                max_cost_eur=budget_effectif, complete=False,
+                stop_reason="refus de budget avant le premier appel",
+                non_executes=non_executes, cost_eur_engaged=0.0,
+                snapshot=snapshot, run_identity=identite_refus, repeat=args.repeat,
+                plancher=charge_plancher, producer=args.producer, preflight=preflight,
+                decisions_orchestrateur=decisions_orchestrateur)
+            ecrire_rapports(rapport_refus, output_json, output_markdown)
+            print("refus de budget avant le premier appel : "
+                  f"configured_budget_eur={settings.live_budget_eur:.4f} "
+                  f"accrued_cost_eur={accrued_cost_eur:.4f} "
+                  f"refused_cost_eur={majorant_estime:.4f} "
+                  f"({executions_payantes} exécutions payantes × majorant par requête) — "
+                  "rouge chiffré, rapport écrit, acquis conservés, manifest non modifié",
+                  file=sys.stderr)
+            if campaign is not None:
+                campaign.record_run(
+                    run_digest=str(identite_refus["run_digest"]), status="budget_refused")
+            return 4
         # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
             if all(c.suite == "parsing" for c in cas):
                 ctx = construire_contexte_parsing(settings, args.data_dir)
             else:
+                # `--repeat` désarme le cache : trois répétitions servies du cache ne mesureraient
+                # ni la stabilité ni le coût (story 4.2b).
                 ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
-                                          cache_dir=cache_dir)
-            run_identity = identite_run(
-                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
-                references_digest=references_digest)
+                                          cache_dir=None if args.repeat > 1 else cache_dir,
+                                          campaign_budget_eur=(settings.live_budget_eur
+                                                               if campaign is not None
+                                                               else budget_effectif),
+                                          campaign_accrued_eur=accrued_cost_eur,
+                                          campaign_cost_recorder=(campaign.record_cost
+                                                                  if campaign is not None else None))
+            try:
+                run_identity = identite_run(
+                    cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
+                    references_digest=references_digest,
+                    plancher_digest=charge_plancher.digest, repeat=args.repeat,
+                    campaign_id=settings.live_campaign_id, series_kind=args.series_kind,
+                    series_id=args.series_id)
+            except Exception:
+                fermer = getattr(ctx.client, "aclose", None)
+                if fermer is not None:
+                    asyncio.run(fermer())
+                raise
             # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
             # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
             # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
             # lève `Event loop is closed` et fait sortir en code 3 un run par ailleurs vert, sans
             # écrire le gate. Voir `_executer_puis_fermer`.
             resultats = asyncio.run(_executer_puis_fermer(
-                cas, ctx, gate=args.gate, max_cost_eur=max_cost, sortie=sortie,
-                variant=args.variant))
+                cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
+                variant=args.variant, repeat=args.repeat))
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
+        noter_campaign("refused")
         return 2
     except IncidentTechnique as exc:
         # AD-16 : l'échec est terminal et **dit**. Le manifest n'a pas été touché.
-        if exc.arret_budget and cas:
+        # Story 4.2b : le rapport partiel est écrit sur **tout** incident — budget ou non — dès
+        # qu'un lot existait ; les exécutions manquantes restent rouges au dénominateur.
+        if cas:
             try:
                 if snapshot is None:
                     raise IncidentTechnique("snapshot des cas absent au moment du rapport partiel")
                 rapport = construire_rapport(
                     exc.resultats, cas, cases_dir=args.cases_dir, profile=args.profile,
-                    max_cost_eur=max_cost, complete=False, stop_reason=str(exc),
+                    max_cost_eur=budget_effectif, complete=False, stop_reason=str(exc),
                     non_executes=exc.non_executes, cost_eur_engaged=exc.cost_eur_engaged,
-                    snapshot=snapshot, run_identity=run_identity)
+                    snapshot=snapshot, run_identity=run_identity, repeat=args.repeat,
+                    plancher=charge_plancher, producer=args.producer, preflight=preflight,
+                    stop_http=exc.http, stop_latency_ms=exc.latency_ms_engaged,
+                    decisions_orchestrateur=decisions_orchestrateur)
                 ecrire_rapports(rapport, output_json, output_markdown)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
                 print(f"incident de rapport partiel : {type(rapport_exc).__name__}: {rapport_exc} "
                       "— manifest non modifié", file=sys.stderr)
+                noter_campaign("incident_report")
                 return 3
         print(f"incident : {exc} — manifest non modifié (un incident n'est pas un verdict)",
               file=sys.stderr)
+        noter_campaign("incident")
         return 3
     except Exception as exc:  # noqa: BLE001 — voir ci-dessous
         # Tout le reste (`TypeError` d'une signature qui a bougé, `KeyError`, `OSError`) sortait en
@@ -1970,27 +2716,43 @@ def main(argv: list[str] | None = None) -> int:
         # manifest intact, et la trace part sur stderr pour être diagnosticable.
         traceback.print_exc()
         print(f"incident : {type(exc).__name__}: {exc} — manifest non modifié", file=sys.stderr)
+        noter_campaign("internal")
         return 3
     try:
-        resume(resultats, max_cost_eur=max_cost, sortie=sortie)
+        resume(resultats, max_cost_eur=budget_effectif, sortie=sortie)
         if snapshot is None:
             raise IncidentTechnique("snapshot des cas absent au moment du rapport")
         rapport = construire_rapport(resultats, cas, cases_dir=args.cases_dir, profile=args.profile,
-                                     max_cost_eur=max_cost, complete=True, snapshot=snapshot,
-                                     run_identity=run_identity)
+                                     max_cost_eur=budget_effectif, complete=True, snapshot=snapshot,
+                                     run_identity=run_identity, repeat=args.repeat,
+                                     plancher=charge_plancher, producer=args.producer,
+                                     preflight=preflight,
+                                     decisions_orchestrateur=decisions_orchestrateur)
         ecrire_rapports(rapport, output_json, output_markdown)
         print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques
         print(f"incident de rapport : {type(exc).__name__}: {exc} — manifest non modifié",
               file=sys.stderr)
+        noter_campaign("incident_report")
         return 3
     tous_ok = all(r.ok for r in resultats)
     if args.gate:
         try:
             entry = ctx.index.corpus.manifest[args.gate]
+            # Story 4.2b : `evals_ok` est fondé sur les décisions chiffrées — un booléen seul
+            # s'écrase, une décision porte son plancher, son n et son run_digest.
+            decisions = construire_decisions(
+                resultats, cas, plancher=charge_plancher, repeat=args.repeat,
+                run_digest=str(run_identity.get("run_digest", "")) if run_identity else "",
+                producer=args.producer, decisions_orchestrateur=decisions_orchestrateur)
+            # HIGH 1 : une liste de décisions vide serait un vert par vacuité (`all([])` est vrai).
+            evals_ok = tous_ok and bool(decisions) and all(d.status == "green" for d in decisions)
             gate = construire_gate(entry, ctx, profil=args.profile, cas=cas,
-                                   cases_dir=args.cases_dir, evals_ok=tous_ok, snapshot=snapshot)
-            ecrire_gate(args.data_dir / MANIFEST, args.gate, gate)
+                                   cases_dir=args.cases_dir, evals_ok=evals_ok, snapshot=snapshot,
+                                   decisions=decisions,
+                                   run_digest=(str(run_identity.get("run_digest", ""))
+                                               if run_identity else None))
+            gate_ecrit = ecrire_gate(args.data_dir / MANIFEST, args.gate, gate)
         except RefusDeTourner as exc:
             print(f"refus : {exc}", file=sys.stderr)
             return 2
@@ -1998,10 +2760,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"incident de gate : {type(exc).__name__}: {exc} — manifest non modifié",
                   file=sys.stderr)
             return 3
-        print(f"gate écrit sur {args.gate} : profile={gate.profile} evals_ok={gate.evals_ok} "
-              f"cases={gate.cases} countersigned={gate.countersigned} "
-              f"cases_hash={gate.cases_hash[:12]}… date={gate.date}", file=sortie)
-        if not gate.countersigned:
+        if gate_ecrit:
+            print(f"gate écrit sur {args.gate} : profile={gate.profile} evals_ok={gate.evals_ok} "
+                  f"cases={gate.cases} countersigned={gate.countersigned} "
+                  f"cases_hash={gate.cases_hash[:12]}… date={gate.date}", file=sortie)
+        if gate_ecrit and not gate.countersigned:
             # AD-14 définit `vertical` par une relecture humaine. Écrire un gate dont les cas ne
             # sont pas contresignés est permis — sans quoi aucun gate ne pourrait exister avant la
             # contresignature — mais jamais muet : l'accueil dira la réserve, et ceci la dit à qui
@@ -2011,7 +2774,10 @@ def main(argv: list[str] | None = None) -> int:
                   f"({manquants}) — l'accueil n'écrira pas « relus à la main » tant que "
                   "`truth.countersigned_by` n'est pas rempli, et le gate devra être relancé",
                   file=sys.stderr)
-    return 0 if tous_ok else 1
+    gate_ok = not args.gate or (gate_ecrit and gate.evals_ok)
+    code = 0 if tous_ok and gate_ok else 1
+    noter_campaign("green" if code == 0 else "red")
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover — point d'entrée

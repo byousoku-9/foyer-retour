@@ -1,0 +1,32 @@
+schema_version: 2
+effective_from_story: "4.2b"
+
+live:
+  proof_producer: orchestrator
+  builder_calls:
+    purpose: diagnostic_only
+    proof_eligible: false
+  proof_command:
+    module: server.evals.run
+    repeat_required: true
+    max_cost_required: true
+  series:
+    baseline_per_named_witness: 1
+    final_per_named_witness: 1
+
+budget:
+  environment_variable: LIVE_BUDGET_EUR
+  # Plafond agrégé de story/campagne. `--max-cost` reste une borne locale par run.
+  default_eur: 1.00
+  enforced_by:
+    - anthropic_client
+    - eval_runner
+    - campaign_ledger
+  on_exceeded:
+    status: red
+    action: return_to_builder
+    report:
+      - configured_budget_eur
+      - accrued_cost_eur
+      - refused_cost_eur
+    ask_first: false

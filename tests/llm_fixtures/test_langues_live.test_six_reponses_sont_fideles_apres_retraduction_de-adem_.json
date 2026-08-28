@@ -133,7 +133,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CePjf2TzDFEnoB15GAw5A",
+      "id": "msg_011CeTkdTPksLdy2LBrgK6L2",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -150,6 +150,37 @@
         "inference_geo": "not_available",
         "input_tokens": 77,
         "output_tokens": 116,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:695930fc4ace04dc": {
+    "request": "claude-haiku-4-5-20251001:695930fc4ace04dc",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeTkeNZL8ema3kHrtgzoC",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 925,
+        "output_tokens": 18,
         "service_tier": "standard"
       }
     }
@@ -243,6 +274,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3436,
         "output_tokens": 112,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:83d7631d9bf73a4e": {
+    "request": "claude-haiku-4-5-20251001:83d7631d9bf73a4e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": false, \"raison\": \"hors_objet\"}, {\"claim_id\": \"c2\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c3\", \"pertinente\": true, \"raison\": null}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c2\", \"c3\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": false}, {\"segment\": 1, \"soutenu\": true}, {\"segment\": 2, \"soutenu\": true}, {\"segment\": 3, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeTkeDx9jFpMmKUEPmtCB",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4044,
+        "output_tokens": 165,
         "service_tier": "standard"
       }
     }
@@ -476,11 +538,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Die Anmeldung bei der ADEM (Agence pour le développement de l'emploi), dem öffentlichen Arbeitsvermittlungsdienst Luxemburgs, bringt mehrere konkrete Vorteile.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Zunächst öffnet sie den Zugang zu Betreuung, Weiterbildungen und unter bestimmten Voraussetzungen zu einer Entschädigung.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Vor allem aber sind Arbeitgeber gesetzlich verpflichtet, offene Stellen der ADEM zu melden, was diese zu einer Quelle für Angebote macht, die anderswo nicht immer kursieren.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Die vorliegenden Dokumente enthalten keine weiteren Details zu den genauen Bedingungen für den Bezug einer Entschädigung oder zur Dauer der Betreuung.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die ADEM ist der öffentliche Arbeitsvermittlungsdienst Luxemburgs.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"L'Agence pour le développement de l'emploi est le service public de l'emploi.\"}]},{\"claim_id\":\"c2\",\"text\":\"Die Anmeldung ermöglicht Zugang zu Betreuung, Weiterbildungen und ggf. Entschädigung.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"S'y inscrire ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation.\"}]},{\"claim_id\":\"c3\",\"text\":\"Arbeitgeber müssen offene Stellen der ADEM melden, was Zugang zu nicht anderswo veröffentlichten Angeboten bietet.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"les employeurs sont légalement tenus de lui déclarer leurs postes vacants, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs\"},{\"block_id\":\"lux-guide:femploi:6\",\"quote\":\"L'inscription à l'ADEM ouvre des offres non publiées ailleurs.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Die Anmeldung bei der ADEM (Agence pour le développement de l'emploi), dem öffentlichen Arbeitsvermittlungsdienst, bietet mehrere konkrete Vorteile.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Zunächst erhält man Zugang zu Betreuung, Weiterbildungen und unter bestimmten Bedingungen zu einer Entschädigung.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Ein besonders wichtiger Punkt ist der Zugang zu Stellenangeboten, die nirgendwo sonst zirkulieren, da Arbeitgeber gesetzlich verpflichtet sind, ihre offenen Stellen der ADEM zu melden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Die Dokumente liefern keine weiteren Details zu den genauen Modalitäten der Entschädigung oder zu den angebotenen Weiterbildungen.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die ADEM ist der öffentliche Arbeitsvermittlungsdienst.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"L'Agence pour le développement de l'emploi est le service public de l'emploi.\"}]},{\"claim_id\":\"c2\",\"text\":\"Die Anmeldung eröffnet Zugang zu Betreuung, Weiterbildungen und unter Bedingungen zur Entschädigung.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"S'y inscrire ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation.\"}]},{\"claim_id\":\"c3\",\"text\":\"Arbeitgeber müssen offene Stellen der ADEM melden, was Zugang zu nicht anderswo zirkulierenden Angeboten verschafft.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"les employeurs sont légalement tenus de lui déclarer leurs postes vacants, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs\"},{\"block_id\":\"lux-guide:femploi:6\",\"quote\":\"L'inscription à l'ADEM ouvre des offres non publiées ailleurs.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeQCZ3eevKb7vU8atxp61",
+      "id": "msg_011CeTkdbQDGhzorYYxzDpeU",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -496,7 +558,7 @@
         "cache_read_input_tokens": 6811,
         "inference_geo": "global",
         "input_tokens": 2775,
-        "output_tokens": 860,
+        "output_tokens": 851,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .document import DomainModel
 
@@ -35,6 +35,32 @@ class Report(DomainModel):
     @property
     def alerts(self) -> list[Check]:
         return [c for c in self.checks if c.level == "alerte"]
+
+
+class GateDecision(DomainModel):
+    """Une décision chiffrée du gate (story 4.2b) — jamais un booléen écrasable.
+
+    Chaque décision dit **quoi** a été mesuré (`metric`), **par qui** (`producer` — la règle trusted
+    ne reconnaît que l'orchestrateur comme producteur de preuve ; un run de builder est un
+    diagnostic), **contre quel plancher** (`threshold`, tiré de `server/evals/reference/plancher.yaml`
+    et couvert par son digest), **sur quel périmètre** (`scope`), **sur combien d'exécutions** (`n`,
+    interruptions comprises au dénominateur), et **depuis quel run** (`run_digest`, l'empreinte
+    canonique de l'identité du run). `value` et `status` sont le constat — un run interrompu ou
+    `aucun_admissible` est `red`, jamais retiré du dénominateur.
+    """
+
+    metric: str
+    producer: str
+    threshold: float
+    scope: str
+    n: int = Field(ge=0)
+    run_digest: str
+    value: float
+    status: Literal["green", "red"]
+    # Pourquoi la décision est rouge quand la valeur seule ne le dit pas : une preuve
+    # sous-échantillonnée (`n < N` du témoin pré-enregistré) ou un témoin bloquant que le run n'a
+    # pas prouvé. `None` quand le statut se lit sur `value` contre `threshold` (revue 4.2b, HIGH 1).
+    reason: str | None = None
 
 
 class Gate(DomainModel):
@@ -78,6 +104,19 @@ class Gate(DomainModel):
     # la phrase publiée par l'accueil bascule dessus, et un gate qui ne le dit pas laisserait le
     # loader choisir à la place du run — alors qu'AD-7 réserve l'écriture du gate au runner.
     countersigned: bool
+    # Story 4.2b : les décisions chiffrées qui fondent `evals_ok`, et l'empreinte du run qui les a
+    # produites. **Optionnels** (défauts vides) : les gates déjà écrits — antérieurs à cette story —
+    # restent valides au schéma (cf. la compatibilité de `run.py::ecrire_gate`), et un gate sans
+    # décisions se lit comme « mesuré avant le protocole 4.2b », jamais comme un vert par défaut.
+    decisions: list[GateDecision] = Field(default_factory=list)
+    run_digest: str | None = None
+    pipeline_settings: dict[str, int | float | str | bool] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _decision_coherente(self) -> Gate:
+        if self.decisions and self.evals_ok != all(d.status == "green" for d in self.decisions):
+            raise ValueError("evals_ok diverge des décisions chiffrées")
+        return self
 
 
 class GateContext(DomainModel):
@@ -86,6 +125,7 @@ class GateContext(DomainModel):
     pipeline_digest: str = ""
     prompts_digest: str = ""
     model_ids: dict[str, str] = Field(default_factory=dict)
+    pipeline_settings: dict[str, int | float | str | bool] = Field(default_factory=dict)
 
 
 class ManifestEntry(DomainModel):

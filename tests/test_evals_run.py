@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import io
 import json
+import os
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
+from server.evals.plancher import charger_plancher
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -60,14 +62,15 @@ def _settings(**kw: Any) -> Settings:
     return Settings(_env_file=None, **defauts)
 
 
-def _document(doc_id: str, kind: str, texte: str, loc: str) -> Document:
+def _document(doc_id: str, kind: str, texte: str, loc: str, *,
+              block_kind: str = "para", kind_source: str | None = None) -> Document:
     doc = Document(
         doc_id=doc_id, kind=kind, title=f"Doc {doc_id}", edition="2020",
         source_hash="s", ingest_fingerprint="f",
         nodes=[Node(node_id=f"{doc_id}:n1", level=1, title="N1",
                     items=[{"block_id": f"{doc_id}:{loc}:1"}])],
-        blocks=[{"block_id": f"{doc_id}:{loc}:1", "loc": loc, "seq": 1, "kind": "para",
-                 "text": texte}])
+        blocks=[{"block_id": f"{doc_id}:{loc}:1", "loc": loc, "seq": 1, "kind": block_kind,
+                 "kind_source": kind_source, "text": texte}])
     for b in doc.blocks:
         b.text_norm = normalize(b.text)
     return doc
@@ -75,7 +78,8 @@ def _document(doc_id: str, kind: str, texte: str, loc: str) -> Document:
 
 def _corpus() -> tuple[Corpus, Index]:
     docs = {GUIDE: _document(GUIDE, "guide", TEXTE_GUIDE, "ffiche"),
-            CONTRAT: _document(CONTRAT, "contrat", TEXTE_CONTRAT, "p34")}
+            CONTRAT: _document(CONTRAT, "contrat", TEXTE_CONTRAT, "p34",
+                               block_kind="garantie", kind_source="manual")}
     manifest = {d: ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
                                  document_hash="d", edition="2020") for d in docs}
     corpus = Corpus(documents=docs, manifest=manifest,
@@ -91,9 +95,11 @@ def _citation(index: Index, block_id: str, extrait: str) -> VerifiedQuote:
                          text_start=debut, text_end=debut + len(extrait))
 
 
-def _claim(quote: VerifiedQuote, claim_id: str = "c1") -> VerifiedClaim:
+def _claim(quote: VerifiedQuote, claim_id: str = "c1", *,
+           applicable: str | None = None) -> VerifiedClaim:
     return VerifiedClaim(claim_id=claim_id, text="Une affirmation.", quotes=[quote],
-                         status=ClaimStatus(retrouvee=True, pertinente=True, edition="2020"))
+                         status=ClaimStatus(retrouvee=True, pertinente=True, applicable=applicable,
+                                            edition="2020"))
 
 
 def _reponse(claims: list[VerifiedClaim], *, verdict: Verdict | None = None,
@@ -296,7 +302,7 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
 def test_les_cinq_verticaux_restent_byte_identiques() -> None:
     attendus = {
         "guide/g-luxtrust-prix.yaml": "f2e571839b87973ba6507343558a64cd2eb136c357f84f2fbe6e65cec78f58df",
-        "sinistre/s-bougie-canape.yaml": "2d571d64f7f275c4c80ae4d466b3a5ca2ea76bb7e201b076b865dd99977d4664",
+        "sinistre/s-bougie-canape.yaml": "207ebc073d8e32869737d1e609810e17f0b065d8c4c78776b41d4d06c56e78c2",
         "sinistre/baloise-lu-home-2-2024/b-bougie-canape.yaml": "6b98d6906df82d303c8a41c1226b07eebcfb50d84dc2b00144403f7cd92395aa",
         "sinistre/baloise-lu-home-2-2024/b-congelateur.yaml": "89c243e258152d9aded0a33f9de48a5998704384867b15718c9be600b8ecde6f",
         "sinistre/baloise-lu-home-2-2024/b-invite-cigarette.yaml": "a6e19c8872db005e4152594844c45608538660088c16ae4e0e6504208a8e15b8",
@@ -764,7 +770,9 @@ def test_une_variable_posee_vide_fait_foi_sur_le_env_du_poste(monkeypatch: pytes
 def test_un_doc_id_de_gate_invalide_est_refuse_avant_tout_chemin_ou_cas(
         doc_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
-    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    monkeypatch.setattr(
+        runner, "Settings",
+        lambda: _settings(live_campaign_id=os.environ.get("LIVE_CAMPAIGN_ID")))
     monkeypatch.setattr(runner, "suite_du_document", _interdit)
     monkeypatch.setattr(runner, "charger_cas", _interdit)
 
@@ -783,12 +791,64 @@ def _cas(**kw: Any) -> runner.Cas:
     return runner.Cas.model_validate(base)
 
 
+def test_expected_decision_claim_est_un_booleen_strict_et_reserve_au_sinistre() -> None:
+    with pytest.raises(runner.ValidationError, match="decision_claim"):
+        _cas(suite="sinistre", faits={"description": "x"},
+             expected={"found": True, "decision_claim": "true"})
+    with pytest.raises(runner.ValidationError, match="suite `sinistre`"):
+        _cas(expected={"found": True, "decision_claim": True})
+
+
 def test_une_reponse_conforme_est_une_bonne_reponse() -> None:
     _corpus_, index = _corpus()
     answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
     label, ecarts = runner.juger(_cas(expected={"found": True, "fiche_ids": [f"{GUIDE}:n1"]}),
                                  answer, doc_id=GUIDE, index=index)
     assert (label, ecarts) == ("bonne_reponse", [])
+
+
+def test_le_predicat_decision_claim_exige_kind_confirme_et_applicabilite_calculee() -> None:
+    _corpus_, index = _corpus()
+    citation = _citation(index, f"{CONTRAT}:p34:1", "mobilier assuré")
+    cas = _cas(suite="sinistre", faits={"description": "x"},
+               expected={"found": True, "decision_claim": True})
+
+    sans_applicabilite = _reponse([_claim(citation)])
+    _label, ecarts = runner.juger(cas, sans_applicabilite, doc_id=CONTRAT, index=index)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
+
+    decisionnelle = _reponse([_claim(citation, applicable="humain")])
+    label, ecarts = runner.juger(cas, decisionnelle, doc_id=CONTRAT, index=index)
+    assert (label, ecarts) == ("bonne_reponse", [])
+
+    bloc = index.corpus.documents[CONTRAT].block(f"{CONTRAT}:p34:1")
+    bloc.kind_source = None
+    _label, ecarts = runner.juger(cas, decisionnelle, doc_id=CONTRAT, index=index)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
+
+
+def test_la_definition_confirmee_ne_satisfait_jamais_le_predicat_decision_claim() -> None:
+    """Miroir runner du smoke : un bloc confirmé mais non décisionnel ne fonde rien.
+
+    Le kind-set du prédicat est `KINDS_FONDATEURS` — élargir le set à `definition` dans `juger`
+    doit faire rougir ce test : une définition confirmée, citée avec une applicabilité calculée,
+    ne satisfait jamais `expected.decision_claim: true`.
+    """
+    docs = {GUIDE: _document(GUIDE, "guide", TEXTE_GUIDE, "ffiche"),
+            CONTRAT: _document(CONTRAT, "contrat", TEXTE_CONTRAT, "p34",
+                               block_kind="definition", kind_source="manual")}
+    manifest = {d: ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                                 document_hash="d", edition="2020") for d in docs}
+    corpus = Corpus(documents=docs, manifest=manifest,
+                    summaries={d: f"# {d}" for d in docs}, alerts={d: [] for d in docs})
+    index = Index(corpus)
+    assert index.corpus.documents[CONTRAT].block(f"{CONTRAT}:p34:1").kind_confirmed
+    cas = _cas(suite="sinistre", faits={"description": "x"},
+               expected={"found": True, "decision_claim": True})
+    reponse = _reponse([_claim(_citation(index, f"{CONTRAT}:p34:1", "mobilier assuré"),
+                               applicable="humain")])
+    _label, ecarts = runner.juger(cas, reponse, doc_id=CONTRAT, index=index)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
 
 
 def test_un_bloc_attendu_absent_du_corpus_est_citation_introuvable() -> None:
@@ -1050,7 +1110,10 @@ def test_le_plafond_de_run_arrete_avant_le_cas_suivant() -> None:
         _executer(ctx, [_cas(id="a"), _cas(id="b"), _cas(id="c")], max_cost=0.05)
     message = str(exc.value)
     assert "plafond de run" in message and "0.0500" in message
-    assert "2 cas non exécutés" in message
+    # Story 4.2b : le plan se compte en **exécutions** (cas × répétitions), et l'incident emporte
+    # les acquis pour que le rapport partiel les publie.
+    assert "2 exécutions non exécutées" in message
+    assert exc.value.non_executes == ["b", "c"]
     # Un seul cas a démarré : l'arrêt est **avant** le suivant, pas au milieu.
     assert len(ctx._guide.appels) == 1   # type: ignore[attr-defined]
 
@@ -1457,20 +1520,20 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     return runner.main(argv + ["--cases-dir", str(cases), "--data-dir", str(data)])
 
 
-def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
-                                                 monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC : deux `--gate` successifs ⇒ `manifest.gate` renseigné, code 0."""
+def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """Les suites tournent, mais la provenance builder ne peut produire aucune preuve verte."""
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
     sinistre = (_reponse([_claim(_citation(index, f"{CONTRAT}:p34:1", "mobilier assuré"))],
                          verdict=Verdict(value="sous_conditions", reason="r")), _trace("sinistre"))
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
-    assert _main(tmp_path, ["--gate", CONTRAT], monkeypatch, reponses_sinistre=[sinistre]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
+    assert _main(tmp_path, ["--gate", CONTRAT], monkeypatch, reponses_sinistre=[sinistre]) == 1
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
     dernier_rapport = json.loads((tmp_path / "eval-results.json").read_text(encoding="utf-8"))
     for doc_id in (GUIDE, CONTRAT):
         gate = manifest[doc_id]["gate"]
-        assert gate["evals_ok"] is True and gate["profile"] == "vertical" and gate["cases"] == 1
+        assert gate["evals_ok"] is False and gate["profile"] == "vertical" and gate["cases"] == 1
         assert set(gate) >= {"profile", "source_hash", "ingest_fingerprint", "cases_hash",
                              "pipeline_digest", "prompts_digest", "model_ids", "evals_ok", "date",
                              "overlay_hash", "cases", "countersigned"}
@@ -1478,16 +1541,43 @@ def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
     assert dernier_rapport["identity"]["image"]["pipeline_digest"]
     assert dernier_rapport["identity"]["scope"]["case_ids"] == ["s-bougie"]
     assert CONTRAT in dernier_rapport["identity"]["documents"]
-    # …et le corpus se recharge sans `sans_gate` ni `gate_perime` (AC).
+    # Le corpus refuse honnêtement ces diagnostics non probants.
     from server.app.domain.ingest import GateContext
     contexte = GateContext(pipeline_digest=manifest[GUIDE]["gate"]["pipeline_digest"],
                            prompts_digest=manifest[GUIDE]["gate"]["prompts_digest"],
                            model_ids=manifest[GUIDE]["gate"]["model_ids"])
     corpus = load_corpus(tmp_path / "data", allow_ungated=False, current=contexte)
-    assert sorted(corpus.documents) == sorted([GUIDE, CONTRAT])
-    # `allow_ungated=False` : les deux documents ne sont servis que parce que leur gate suffit (AC).
-    for doc_id, alertes in corpus.alerts.items():
-        assert "sans_gate" not in alertes and "gate_perime" not in alertes, (doc_id, alertes)
+    assert corpus.documents == {}
+    assert corpus.quarantine == {GUIDE: "gate_echoue", CONTRAT: "gate_echoue"}
+
+
+def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé."""
+    charge = charger_plancher()
+    preuve = tmp_path / "preuve-orchestrateur.json"
+    preuve.write_text(json.dumps({
+        "plancher_digest": charge.digest,
+        "decisions": [{
+            "metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
+            "run_digest": "a" * 64,
+        }],
+    }), encoding="utf-8")
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    monkeypatch.setenv("LIVE_CAMPAIGN_ID", "test-gate-orchestrateur")
+    code = _main(
+        tmp_path,
+        ["--gate", GUIDE, "--repeat", "3", "--producer", "orchestrator",
+         "--series-kind", "final", "--series-id", "final-guide", "--max-cost", "1.0",
+         "--orchestrator-evidence", str(preuve)],
+        monkeypatch, reponses_guide=[guide, guide, guide])
+    assert code == 0
+    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    gate = manifest[GUIDE]["gate"]
+    assert gate["evals_ok"] is True
+    assert {d["metric"] for d in gate["decisions"]} >= {
+        "offline_tests_pass_rate", "cases_ok_rate", "stabilite_guide", "executions_completes"}
 
 
 def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_bout_en_bout(
@@ -1536,7 +1626,7 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
 
     code = runner.main(["--gate", TROISIEME, "--cases-dir", str(cases),
                         "--data-dir", str(data)])
-    assert code == 0 and len(double.appels) == 1
+    assert code == 1 and len(double.appels) == 1
     appel = double.appels[0]
     assert appel["args"][0] == TROISIEME
     dictionnaire = appel["kw"]["dictionnaire"]
@@ -1549,7 +1639,7 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
     cas_charge = runner.charger_cas(cases, suites=(f"sinistre/{TROISIEME}",))
     fichiers = [cas.case_path for cas in cas_charge if cas.case_path is not None]
     from server.app.digests import cases_hash
-    assert gate["cases"] == 1 and gate["evals_ok"] is True
+    assert gate["cases"] == 1 and gate["evals_ok"] is False
     assert gate["cases_hash"] == cases_hash(fichiers, cases)
 
 
@@ -1580,9 +1670,18 @@ def test_gate_en_echec_technique_ne_modifie_pas_le_manifest(tmp_path: Path,
     data.mkdir()
     _corpus_sur_disque(data)
     avant = (data / "manifest.json").read_text(encoding="utf-8")
-    code = _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[Timeout("deadline")])
+    json_path, md_path = tmp_path / "timeout.json", tmp_path / "timeout.md"
+    code = _main(tmp_path, ["--gate", GUIDE, "--output-json", str(json_path),
+                            "--output-markdown", str(md_path)], monkeypatch,
+                 reponses_guide=[Timeout("deadline")])
     assert code == 3
     assert (data / "manifest.json").read_text(encoding="utf-8") == avant
+    assert json_path.is_file() and md_path.is_file()
+    rapport = json.loads(json_path.read_text(encoding="utf-8"))
+    assert rapport["complete"] is False
+    assert rapport["unexecuted_cases"] == ["g-luxtrust"]
+    assert rapport["stop_http"] == 503
+    assert rapport["decisions"] and all(d["status"] == "red" for d in rapport["decisions"])
 
 
 def test_gate_dun_document_non_servi_est_refuse(tmp_path: Path,
@@ -1685,6 +1784,7 @@ def test_arret_budget_ecrit_les_deux_rapports_partiels_sans_faux_label(
     """Matrice 4.1 : le cas acquis reste publié et le suivant est non exécuté, pas labellisé."""
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_: 0.01)
     json_path, md_path = tmp_path / "partiel.json", tmp_path / "partiel.md"
     code = _main(
         tmp_path,
@@ -1702,6 +1802,7 @@ def test_arret_budget_ecrit_les_deux_rapports_partiels_sans_faux_label(
 
 def test_arret_budget_pendant_le_premier_cas_ecrit_les_deux_rapports_partiels(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_: 0.01)
     json_path, md_path = tmp_path / "pendant.json", tmp_path / "pendant.md"
     code = _main(
         tmp_path,
@@ -1932,16 +2033,16 @@ def test_un_gate_rouge_peut_etre_repris(tmp_path: Path, monkeypatch: pytest.Monk
     # 1. un run rouge écrit `evals_ok: false` et le document part en quarantaine.
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[(_refus(), _trace())]) == 1
     assert load_corpus(data, allow_ungated=True).quarantine.get(GUIDE) == "gate_echoue"
-    # 2. le run suivant peut malgré tout mesurer ce document, et écrire un gate vert.
+    # 2. le run suivant peut malgré tout mesurer ce document ; sa provenance builder reste rouge.
     _corpus_, index = _corpus()
     bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 1
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest[GUIDE]["gate"]["evals_ok"] is True
-    # Ce document redevient servi **sans dérogation** ; l'autre reste `sans_gate` (il n'a pas été
-    # mesuré), ce qui montre que la reprise n'a dérogé qu'au gate rouge du document visé.
+    assert manifest[GUIDE]["gate"]["evals_ok"] is False
+    # La reprise a bien exécuté le document sans élargir la dérogation, puis le service reste fermé.
     corpus = load_corpus(data, allow_ungated=False)
-    assert corpus.served == [GUIDE] and corpus.quarantine == {CONTRAT: "sans_gate"}
+    assert corpus.served == [] and corpus.quarantine == {
+        GUIDE: "gate_echoue", CONTRAT: "sans_gate"}
     # …et `data/` n'a pas été touché autrement : le second document garde son entrée d'origine.
     assert manifest[CONTRAT]["gate"] is None
 
@@ -2085,7 +2186,7 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
     """
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
     data = tmp_path / "data"
     restes = sorted(p.name for p in data.iterdir() if p.name.startswith("manifest.json."))
     assert restes == [], restes
@@ -2100,8 +2201,8 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
         return fd, nom
 
     monkeypatch.setattr(runner.tempfile, "mkstemp", espion)
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
     ecritures = [n for n in vus if Path(n).name.startswith("manifest.json.") and n.endswith(".tmp")]
     assert len(ecritures) == 2 and len(set(ecritures)) == 2, ecritures
     assert all(Path(n).parent == data for n in ecritures), ecritures
@@ -2160,10 +2261,10 @@ def test_le_client_se_ferme_sur_la_boucle_qui_la_servi(tmp_path: Path,
 
     code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
 
-    assert code == 0, "le client a été fermé sur une autre boucle que celle qui l'a servi"
+    assert code == 1, "le rouge de provenance ne doit pas masquer la fermeture correcte du client"
     assert client.fermetures == 1
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest[GUIDE]["gate"] is not None and manifest[GUIDE]["gate"]["evals_ok"] is True
+    assert manifest[GUIDE]["gate"] is not None and manifest[GUIDE]["gate"]["evals_ok"] is False
 
 
 def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,

@@ -20,6 +20,9 @@ faits:
 
 expected:
   found: true
+  # Preuve décisionnelle générique : le témoin exige une claim affichée qui cite une garantie ou
+  # une exclusion confirmée et dont l'applicabilité est calculée, sans figer aucun `block_id`.
+  decision_claim: true
   # AD-6 : le verdict est conservateur, et jamais `couvert` sur ce cas — les qualités que la clause
   # exige (« événement soudain », « action subite de la chaleur ») ne sont pas établies par les faits
   # déclarés. Les deux valeurs admissibles sont celles de l'AC de la story 1.8.
@@ -48,10 +51,11 @@ truth:
     La boucle autonome (agent de build, 2026-08-24) a relu ces quatre blocs dans
     data/axa-lu-optihome-2017/document.json et leur typage dans typing.manual.json, et vérifie que
     l'attente écrite ci-dessus est celle que le texte porte.
-    `expected.block_ids` est **vide**, et ce que ce cas ne mesure donc pas est écrit ici plutôt que
-    taire : n'importe quelle citation authentique du contrat, avec l'un des deux verdicts admissibles,
-    le fait passer — il contrôle le verdict, pas le passage sur lequel il repose (revue Codex 1.10,
-    I2, constat accepté). Deux raisons distinctes, et une seule était écrite jusqu'ici :
+    `expected.block_ids` reste **vide** : le cas n'impose aucun passage particulier. En revanche,
+    `expected.decision_claim: true` exige désormais une claim affichée citant une garantie ou une
+    exclusion confirmée, avec applicabilité calculée. Une définition authentique seule ne suffit
+    donc plus à faire passer ce témoin. Deux raisons expliquent pourquoi aucun identifiant précis
+    n'est figé :
     (1) p9:2 et p11:12 ne sont pas **ramenées** — le rappel repose encore sur les termes, l'overlay
     ne type que quatre blocs, et la mesure live de 1.8 le montre (différé, `target_story: 3.2`) ;
     (2) p34:12, elle, **est** ramenée (*retrouver* est déterministe) mais n'est pas citée de façon
@@ -60,8 +64,8 @@ truth:
     `expected.block_ids` et `expected.fiche_ids` sont des ensembles **exigés en entier** : y inscrire
     p34:12 rendrait le gate rouge environ une fois sur trois, sans faute du système mesuré, et un
     gate rouge met le document en quarantaine (AD-8) — le démonstrateur s'éteindrait sur un tirage.
-    Ce qui manque est une attente « au moins un parmi », que le schéma d'AD-14 ne porte pas : c'est
-    la story 4.1, qui réécrit ce juge, qui peut la poser. Entrée différée.
+    Le prédicat décisionnel exprime l'invariant utile sans choisir une page ni un bloc au nom du
+    système mesuré.
     Ce qui reste dû : la contresignature de Lancelot Oudin sur le cas **en tant que cas d'éval**
     (question, verdict admissible, attentes) — entrée différée `target_story: 1.11`, et
     `countersigned_by: null` ci-dessus la rend lisible par le code : le gate porte

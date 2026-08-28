@@ -28,10 +28,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from server.app.config import Settings
-from server.app.domain.answer import AbsenceProof, Answer, Verification
+from server.app.domain.answer import AbsenceProof, Answer, AnswerDraft, AnswerSegment, Claim, Verification
 from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
     BudgetExceeded,
+    TruncatedRead,
     CorpusUnavailable,
     InvalidRequest,
     LlmParse,
@@ -115,6 +116,152 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
             if kind in KINDS_FONDATEURS:
                 return True
     return False
+
+
+def _fondatrices_omises(verification: Verification, retrieval: Any,
+                        settings: Settings) -> list[str]:
+    """Blocs `garantie|exclusion` confirmés retrouvés dont aucune claim survivante ne cite un seul.
+
+    Preuve finale 4.2a : la rédaction peut ne rendre qu'une définition et un segment limite —
+    aucun rejet, donc aucun motif, donc aucune relance — alors que le retrieval portait une clause
+    décisionnelle confirmée. Le témoin d'AD-6 exige qu'une règle retrouvée soit rendue vérifiable,
+    son applicabilité étant **calculée par le code** : une portée contraire vaut `applicable="non"`,
+    jamais une omission. Le `kind` vient de l'ingestion, relu sur les blocs du retrieval ; aucun
+    vocabulaire de la question n'entre dans la décision. Dès qu'une seule fondatrice est citée par
+    une claim survivante, rien n'est signalé : la base décisionnelle existe. Ce déclencheur est
+    complémentaire de `_fondatrice_rejetee` (clause citée mais rejetée) : il couvre la clause
+    jamais citée, que l'autre ne voit pas. L'adoption de la seconde vérification, elle, passe par
+    la dominance générique seule (revue Codex 4.2a, B3).
+    """
+    fondatrices = [b.block_id for b in retrieval.blocs
+                   if b.kind in KINDS_FONDATEURS and b.kind_confirmed]
+    if not fondatrices:
+        return []
+    citees = {quote.block_id for claim in verification.claims for quote in claim.quotes}
+    if citees & set(fondatrices):
+        return []
+    return fondatrices[:settings.draft_max_claims]
+
+
+def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verification,
+                       settings: Settings, *, step: StepTrace) -> AnswerDraft:
+    """Fusionne les acquis vérifiés dans la relance, sans jamais tronquer en silence.
+
+    Une consigne de prompt aide le rédacteur à reconduire les acquis, mais ne constitue pas une
+    garantie : une sortie modèle peut l'ignorer. La fusion repart des claims **déjà soumises** au
+    premier contrôle, sélectionnées par les identifiants effectivement retenus — elle n'invente
+    aucun texte ni aucune citation. Les acquis passent d'abord ; la place restante sous
+    `draft_max_claims` accueille la correction, dont les identifiants conflictuels sont renommés
+    localement.
+
+    Revue Codex 4.2a (B1) : la borne `draft_max_claims` est appliquée mécaniquement dès la sortie
+    de *rédiger* (`_rattacher_claims_sinistre`), l'appelant vérifie qu'il reste une place avant de
+    lancer une relance fondatrice, et toute correction que la borne écarte quand même est tracée
+    (`corrections_non_retenues`) — jamais jetée en silence.
+
+    Revue Codex 4.2a (B2, durci au recheck) : les segments non factuels des **deux** ébauches sont
+    fusionnés et dédupliqués, limites acquises d'abord. `Answer.unknown` est rempli depuis les
+    seuls segments `limite` (AD-4) : perdre une limite acquise que la relance ne répète pas
+    abaisserait `nb_manques` avant la dominance et ferait passer pour plus complète une réponse qui
+    a oublié une réserve. La place des limites **acquises** — celles de `acquise.unknown`,
+    l'autorité AD-4 de ce qui a survécu au contrôle (recheck tour 2, N1) — est donc **réservée
+    structurellement** : les corrections de la relance ne peuvent pas saturer
+    `draft_max_segments` au point d'en chasser une — l'appelant refuse d'ailleurs de lancer la
+    relance quand acquis + limites acquises + une correction ne tiennent pas sous la borne
+    (`relance_sans_place_pour_les_limites`). Une limite du draft rejetée par le contrôle n'est ni
+    réservée ni reconduite ; seules les limites **nouvelles** de la relance peuvent encore être
+    bornées, et c'est tracé (`limites_non_reconduites`). La seconde vérification relit ensuite
+    tout ce résultat et la dominance reste l'autorité d'adoption.
+    """
+    acquis_ids = {claim.claim_id for claim in acquise.claims}
+    claims: list[Claim] = [claim for claim in draft.claims if claim.claim_id in acquis_ids]
+    if len(claims) > settings.draft_max_claims:
+        raise ValueError("plus d'acquis que de claims autorisées : la borne draft_max_claims doit "
+                         "avoir été appliquée à la sortie de *rédiger*")
+    utilises = {claim.claim_id for claim in claims}
+
+    def identifiant_libre() -> str:
+        for place in range(1, settings.draft_max_claims + 1):
+            candidate = f"r{place}"
+            if candidate not in utilises:
+                return candidate
+        raise ValueError("aucun identifiant de claim libre sous la borne de rédaction")
+
+    # La borne effective des factuels réserve la place des limites **acquises** : une correction de
+    # plus ne vaut jamais une réserve acquise de moins. Recheck tour 2 (N1) : les limites acquises
+    # se dérivent de `acquise.unknown` — l'autorité AD-4 de ce qui a survécu au contrôle —, jamais
+    # du draft brut : une limite rejetée (`soutenu=false`) n'est ni réservée ni ressuscitée. Les
+    # textes d'`unknown` sont déjà normalisés à la source (`_rattacher_claims_sinistre`, B2) : la
+    # multiplicité comparée par `nb_manques` est stable des deux côtés. Les acquis eux-mêmes ne
+    # sont jamais rognés par cette réserve (une première ébauche légale tenait déjà claims +
+    # limites sous `draft_max_segments`).
+    limites_acquises = {u.strip() for u in acquise.unknown if u.strip()}
+    borne_factuels = max(len(claims),
+                         min(settings.draft_max_claims,
+                             settings.draft_max_segments - len(limites_acquises)))
+
+    ecartees = 0
+    for claim in relance.claims:
+        if claim.claim_id in utilises:
+            # Même contenu : le modèle a bien reconduit l'acquis, ne le duplique pas. Contenu
+            # différent : sa correction reste contrôlable sous un identifiant non ambigu.
+            ancienne = next(c for c in claims if c.claim_id == claim.claim_id)
+            if ancienne.text == claim.text and ancienne.quotes == claim.quotes:
+                continue
+            if len(claims) >= borne_factuels:
+                ecartees += 1
+                continue
+            claim = claim.model_copy(update={"claim_id": identifiant_libre()})
+        elif len(claims) >= borne_factuels:
+            ecartees += 1
+            continue
+        utilises.add(claim.claim_id)
+        claims.append(claim)
+    if ecartees:
+        step.checks.append(CheckResult(
+            name="corrections_non_retenues", ok=False,
+            detail=f"{ecartees} correction(s) de la relance au-delà de la borne effective "
+                   "(draft_max_claims, place des réserves acquises réservée), écartée(s) après "
+                   "la reconduction des acquis : borne mécanique tracée, jamais muette"))
+
+    if len(claims) > settings.draft_max_segments:
+        # Même invariant que `_rattacher_claims_sinistre` : aucune claim vérifiée ne disparaît
+        # sans trace. `Settings._coherence` garantit draft_max_claims <= draft_max_segments ; si
+        # une borne effective plus basse rendait la fusion tronquante, elle refuse plutôt que de
+        # faire disparaître silencieusement un acquis.
+        raise ValueError("plus de claims que de segments autorisés : la configuration doit garantir "
+                         "draft_max_claims <= draft_max_segments")
+    factuels = [AnswerSegment(text=claim.text, kind="factuel", claim_ids=[claim.claim_id])
+                for claim in claims]
+    place = settings.draft_max_segments - len(factuels)
+    # Limites d'abord — les acquises (celles d'`unknown`) avant les nouvelles de la relance —,
+    # transitions ensuite : sous une place bornée, une réserve vaut plus qu'une liaison. Une
+    # limite du draft **rejetée** par le contrôle (`soutenu=false`, absente d'`unknown`) n'est pas
+    # reconduite : la fusion ne ressuscite pas ce que la vérification a écarté (N1).
+    par_priorite = ([s for s in draft.segments
+                     if s.kind == "limite" and s.text.strip() in limites_acquises]
+                    + [s for s in relance.segments if s.kind == "limite"]
+                    + [s for s in relance.segments if s.kind == "transition"]
+                    + [s for s in draft.segments if s.kind == "transition"])
+    vus: set[tuple[str, str]] = set()
+    non_factuels: list[AnswerSegment] = []
+    limites_ecartees = 0
+    for segment in par_priorite:
+        cle = (segment.kind, segment.text.strip())
+        if not segment.text.strip() or cle in vus:
+            continue
+        vus.add(cle)
+        if len(non_factuels) >= place:
+            if segment.kind == "limite":
+                limites_ecartees += 1
+            continue
+        non_factuels.append(AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[]))
+    if limites_ecartees:
+        step.checks.append(CheckResult(
+            name="limites_non_reconduites", ok=False,
+            detail=f"{limites_ecartees} segment(s) limite ne tiennent pas sous draft_max_segments "
+                   "après les claims fusionnées : réserve(s) perdue(s) nommée(s), jamais tue(s)"))
+    return AnswerDraft(segments=[*factuels, *non_factuels], claims=claims)
 
 
 def _verdict_de_refus(kind: str, dossier: MissingPackage | None = None) -> Verdict:
@@ -367,10 +514,62 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         steps.append(step_verifier)
 
         # --- relance unique (AD-3) ------------------------------------------
-        if verification.motif and (
+        omises = _fondatrices_omises(verification, retrieval, settings)
+        if omises and len(verification.claims) >= settings.draft_max_claims:
+            # Revue Codex 4.2a (B1) : la fusion doit reconduire **tous** les acquis et au moins une
+            # correction fondatrice. Quand les affirmations retenues occupent déjà
+            # `draft_max_claims`, une relance ne pourrait que tronquer — l'état est nommé, la
+            # réponse acquise est servie sans être donnée pour complète (même lacune typée que la
+            # relance abandonnée faute de budget : une relance due n'a pas pu démarrer).
+            step_verifier.checks.append(CheckResult(
+                name="relance_fondatrice_sans_place", ok=False,
+                detail=f"clause décisionnelle confirmée jamais citée ({', '.join(omises)}) mais "
+                       f"les {len(verification.claims)} affirmation(s) retenue(s) occupent déjà "
+                       "draft_max_claims : la relance fondatrice ne peut pas reconduire les "
+                       "acquis et ajouter la clause"))
+            verification = relance_abandonnee(verification)
+            omises = []
+        relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
             or _fondatrice_rejetee(verification, corpus=corpus, index=index)
-        ):
+        )) or omises)
+        if relance_due:
+            # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.
+            # La fusion doit reconduire tous les acquis, **toutes leurs limites** et au moins une
+            # correction ; si `draft_max_segments` ne le permet pas, la relance produirait un
+            # candidat amputé dont `nb_manques` aurait baissé artificiellement **avant** la
+            # dominance. Elle n'est pas lancée : l'état est nommé, la réponse acquise — limites
+            # comprises — est servie avec la lacune de relance abandonnée, jamais donnée pour
+            # complète. La dominance ne voit ainsi jamais un candidat amputé.
+            # Recheck tour 2 (N1) : les limites **acquises** sont celles de `Verification.unknown`
+            # — l'autorité AD-4 de ce qui a survécu au contrôle —, jamais celles du draft brut :
+            # une limite rejetée (`soutenu=false`) ne compte pas, et ne peut plus interdire à tort
+            # une relance qui tient réellement sous la borne.
+            limites_acquises = [u.strip() for u in verification.unknown if u.strip()]
+            if len(verification.claims) + 1 + len(limites_acquises) > settings.draft_max_segments:
+                step_verifier.checks.append(CheckResult(
+                    name="relance_sans_place_pour_les_limites", ok=False,
+                    detail=f"les {len(verification.claims)} affirmation(s) retenue(s), leurs "
+                           f"{len(limites_acquises)} réserve(s) acquise(s) et une correction ne "
+                           "tiennent pas sous draft_max_segments : la relance tronquerait une "
+                           "limite acquise avant la dominance — acquis servi, réserves comprises"))
+                verification = relance_abandonnee(verification)
+                relance_due = False
+        if relance_due:
+            motif_relance = verification.motif
+            if omises:
+                # Composé par le code, comme tout motif (AD-15) : les identifiants viennent du
+                # corpus typé, pas de la question, et la consigne reprend celle de la story 3.3 —
+                # rendre la clause vérifiable, laisser le code décider de l'applicabilité.
+                consigne_fondatrice = (
+                    "aucune affirmation vérifiable ne rapporte la règle d'une clause décisionnelle "
+                    "confirmée pourtant retrouvée (" + ", ".join(omises) + ") : rends pour au "
+                    "moins l'une d'elles une claim courte qui rapporte sa règle conditionnelle, "
+                    "avec sa plus courte citation contiguë, sans décider de son applicabilité au "
+                    "dossier — le code la calcule, même si son périmètre semble différent du cas "
+                    "déclaré.")
+                motif_relance = (f"{motif_relance}\n{consigne_fondatrice}" if motif_relance
+                                 else consigne_fondatrice)
             acquise = verification
             appels_avant = budget.attempts
             try:
@@ -382,7 +581,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
                 draft_2, step_rediger_2 = await rediger(parsed, retrieval, [], client=client, budget=budget,
                                                         index=index, doc_id=doc_id, settings=settings,
-                                                        motif=verification.motif, prompt="rediger_sinistre")
+                                                        motif=motif_relance,
+                                                        blocs_a_conserver=sorted(blocs_cites(acquise)),
+                                                        prompt="rediger_sinistre")
+                draft_2 = _reconduire_acquis(draft, draft_2, acquise, settings,
+                                             step=step_rediger_2)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
                 relances += 1
@@ -396,14 +599,16 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                               budget=budget, settings=settings,
                                                               faits=faits, dossier=dossier)
                     steps.append(step_verifier_2)
-                    # Campagne B 2.7 : une première rédaction dont **aucune** claim n'a survécu
-                    # peut être suivie d'une clause exacte et pertinente, mais le verdict prudent de
-                    # cette seconde version porte le paquet contractuel manquant. Le compteur de
-                    # manques est alors plus grand et la dominance générale conservait le vide ;
-                    # sur une lecture tronquée, ce vide devenait un 503. Une clause effectivement
-                    # vérifiée est une amélioration stricte sur zéro clause : elle ne préfère aucun
-                    # verdict et ne change aucun seuil, elle empêche seulement le paquet manquant
-                    # d'annuler la preuve retrouvée par la relance.
+                    # Une relance corrige, elle ne troque jamais l'acquis contre une autre qualité.
+                    # Revue Codex 4.2a (B3) : aucun kind — confirmé ou non — ne contourne la
+                    # dominance. La fusion `_reconduire_acquis` vient de reconduire les acquis et
+                    # leurs limites dans l'ébauche relancée : une adoption légitime domine donc
+                    # réellement sur les six axes (found, claims, facettes, blocs cités, complete,
+                    # manques). La seule exception reste la garde de la campagne B 2.7 : une clause
+                    # effectivement vérifiée bat zéro claim — il n'y a alors **aucun** acquis à
+                    # perdre (facettes et blocs de l'acquise sont vides), et seul l'axe des manques
+                    # peut reculer, ce qui est exactement le vide qu'une lecture tronquée
+                    # transformait en 503.
                     relance_trouve_clause = seconde.found and not acquise.found
                     if relance_trouve_clause or domine(seconde, acquise):
                         verification = seconde
@@ -445,7 +650,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # l'endroit où l'affirmer à tort coûte le plus cher — « aucune clause n'a été retrouvée »
             # lu sur un contrat que nous n'avons pas fini de lire est une réponse d'assureur. Échec
             # terminal avec sa trace partielle (AD-16), jamais un `AbsenceProof`.
-            raise BudgetExceeded(
+            raise TruncatedRead(
                 "aucune clause n'a survécu à la vérification, et la lecture du contrat avait été "
                 f"tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
                 f"{settings.retrieval_max_tokens} tokens) : aucune absence du contrat n'est affirmée")

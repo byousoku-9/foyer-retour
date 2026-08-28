@@ -66,7 +66,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import yaml
 
@@ -77,6 +77,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
+from server.app.domain.document import BlockKind  # noqa: E402 — idem
+from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
+
+# Le vocabulaire fermé des kinds de bloc (AD-2), relu du domaine : une source dont le `kind` sort
+# de ce vocabulaire est un corps hors contrat, jamais une absence légitime de claim décisionnelle.
+KINDS_DE_BLOC = frozenset(get_args(BlockKind))
+APPLICABLES = frozenset({"oui", "non", "humain"})
 
 VIA_ATTENDU = "api/v1"
 
@@ -119,6 +126,7 @@ class CasTemoin:
     faits: dict[str, Any] = field(default_factory=dict)
     found_attendu: bool = True
     verdicts_admissibles: tuple[str, ...] = ()
+    decision_claim_attendue: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -224,8 +232,8 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
         source_hash=hashes,
         dictionnaire_validated=_dictionnaire_validated(racine),
         dictionnaire_corpus_ok=_dictionnaire_corpus_ok(racine, manifest, reglages.guide_doc_id),
-        cas_guide=_lire_cas(cases / "guide", reglages.guide_doc_id),
-        cas_sinistre=_lire_cas(cases / "sinistre", reglages.sinistre_doc_id))
+        cas_guide=_lire_cas(cases / "guide", reglages.guide_doc_id, suite_sinistre=False),
+        cas_sinistre=_lire_cas(cases / "sinistre", reglages.sinistre_doc_id, suite_sinistre=True))
 
 
 def _dictionnaire_du_depot(racine: Path) -> DictionaryFile | None:
@@ -292,7 +300,7 @@ def _exiger(condition: bool, message: str) -> None:
         raise ErreurTransport(message)
 
 
-def _lire_cas(dossier: Path, doc_id: str) -> CasTemoin:
+def _lire_cas(dossier: Path, doc_id: str, *, suite_sinistre: bool = False) -> CasTemoin:
     """L'unique cas ``vertical`` de la suite, lu **strictement**.
 
     Deux cas verticaux, ou zéro, sont un refus : le smoke rejoue le témoin du gate vertical et ne
@@ -342,6 +350,14 @@ def _lire_cas(dossier: Path, doc_id: str) -> CasTemoin:
     _exiger(isinstance(verdicts, list) and all(isinstance(v, str) for v in verdicts),
             f"{fichier} : `expected.verdict` doit être une **liste** de valeurs admissibles "
             f"(un scalaire serait lu caractère par caractère)")
+    decision_claim = attendu.get("decision_claim")
+    _exiger(decision_claim is None or isinstance(decision_claim, bool),
+            f"{fichier} : `expected.decision_claim` doit être un booléen ou `null`")
+    # Même règle que `server/evals/run.py` : l'attente décisionnelle n'a de sens que dans la suite
+    # sinistre. L'accepter sur un cas guide en ferait une attente silencieusement ignorée — un gate
+    # qui croit mesurer.
+    _exiger(decision_claim is None or suite_sinistre,
+            f"{fichier} : `expected.decision_claim` n'a de sens que dans la suite `sinistre`")
 
     lang = brut.get("lang")
     _exiger(lang is None or isinstance(lang, str), f"{fichier} : `lang` doit être une chaîne ou `null`")
@@ -362,7 +378,8 @@ def _lire_cas(dossier: Path, doc_id: str) -> CasTemoin:
         historique=tuple(historique),
         faits=faits,
         found_attendu=attendu["found"],
-        verdicts_admissibles=tuple(verdicts))
+        verdicts_admissibles=tuple(verdicts),
+        decision_claim_attendue=decision_claim)
 
 
 # --- les décisions : pures, testées hors ligne ---------------------------------------------------
@@ -621,6 +638,97 @@ def verifier_sinistre(corps: Any, *, cas: CasTemoin, source_hash: str) -> list[s
         elif verdict not in cas.verdicts_admissibles:
             ecarts.append(f"sinistre/{cas.id} : verdict={verdict!r}, hors des valeurs admissibles "
                           f"du cas témoin {list(cas.verdicts_admissibles)!r}")
+    if cas.decision_claim_attendue is not None:
+        claims = _lire(corps, "answer", "claims")
+        sources = _lire(corps, "sources")
+        # Un corps amputé n'est pas une absence légitime de claim décisionnelle : sans ces champs,
+        # `decisionnelle=False` passerait par accident quand le cas attend `false`. L'écart est
+        # nommé avant tout calcul.
+        if claims is _ABSENT:
+            ecarts.append(_manquant("answer.claims"))
+        if sources is _ABSENT:
+            ecarts.append(_manquant("sources"))
+        if claims is _ABSENT or sources is _ABSENT:
+            return ecarts
+        # Même esprit que le corps amputé : un champ présent mais mal formé n'est pas une absence
+        # légitime de claim décisionnelle — `decisionnelle=False` passerait par accident quand le
+        # cas attend `false`. L'écart est nommé avant tout calcul du prédicat.
+        if not isinstance(claims, list):
+            ecarts.append(f"sinistre/{cas.id} : answer.claims n'est pas une liste "
+                          f"({type(claims).__name__})")
+        if not isinstance(sources, list):
+            ecarts.append(f"sinistre/{cas.id} : sources n'est pas une liste "
+                          f"({type(sources).__name__})")
+        if not isinstance(claims, list) or not isinstance(sources, list):
+            return ecarts
+        # Revue Codex 4.2a (I1) : la forme minimale de **chaque** élément est validée avant le
+        # prédicat, quelle que soit la valeur attendue — une liste d'éléments illisibles rendrait
+        # `decisionnelle=False` par accident quand le cas attend `false`.
+        # Recheck Codex (I1) : la présence structurelle ne suffit pas — les champs, leurs types et
+        # leurs vocabulaires sont exigés. `status` de source reste une chaîne libre du contrat v1
+        # (`schemas.py` : str) : sa forme est validée, sa valeur exacte (`verifiee`) appartient au
+        # prédicat lui-même.
+        illisibles: list[str] = []
+        # Recheck tour 2 (I1) : `isinstance(..., str)` précède **tout** test de vocabulaire — une
+        # liste ou un objet JSON dans `kind` ou `applicable` est un écart nommé, jamais un
+        # TypeError (l'appartenance à un frozenset lèverait sur une valeur non hashable).
+        for rang, source in enumerate(sources):
+            kind = source.get("kind") if isinstance(source, dict) else None
+            if not (isinstance(source, dict)
+                    and isinstance(source.get("block_id"), str) and source["block_id"].strip()
+                    and isinstance(kind, str) and kind in KINDS_DE_BLOC
+                    and isinstance(source.get("kind_confirmed"), bool)
+                    and isinstance(source.get("status"), str) and source["status"].strip()):
+                illisibles.append(f"sources[{rang}]")
+        for rang, claim in enumerate(claims):
+            status = claim.get("status") if isinstance(claim, dict) else None
+            quotes = claim.get("quotes") if isinstance(claim, dict) else None
+            applicable = status.get("applicable") if isinstance(status, dict) else None
+            if not (isinstance(claim, dict)
+                    and isinstance(status, dict)
+                    and isinstance(status.get("retrouvee"), bool)
+                    and isinstance(status.get("pertinente"), bool)
+                    and (applicable is None
+                         or (isinstance(applicable, str) and applicable in APPLICABLES))
+                    and isinstance(quotes, list) and quotes
+                    and all(isinstance(quote, dict)
+                            and isinstance(quote.get("block_id"), str)
+                            and quote["block_id"].strip()
+                            for quote in quotes)):
+                illisibles.append(f"answer.claims[{rang}]")
+        if illisibles:
+            ecarts.append(f"sinistre/{cas.id} : élément(s) illisible(s) pour le prédicat "
+                          f"décisionnel : {', '.join(illisibles)}")
+            return ecarts
+        blocs_decisionnels = {
+            source.get("block_id")
+            for source in sources
+            if isinstance(source, dict)
+            and source.get("kind") in KINDS_FONDATEURS
+            and source.get("kind_confirmed") is True
+            and source.get("status") == "verifiee"
+            and isinstance(source.get("block_id"), str)
+        }
+        decisionnelle = False
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            status = claim.get("status")
+            quotes = claim.get("quotes")
+            if not isinstance(status, dict) or not isinstance(quotes, list):
+                continue
+            calculee = status.get("applicable") in {"oui", "non", "humain"}
+            retenue = status.get("retrouvee") is True and status.get("pertinente") is True
+            cite_decisionnelle = any(
+                isinstance(quote, dict) and quote.get("block_id") in blocs_decisionnels
+                for quote in quotes)
+            if calculee and retenue and cite_decisionnelle:
+                decisionnelle = True
+                break
+        if decisionnelle is not cas.decision_claim_attendue:
+            ecarts.append(
+                f"sinistre/{cas.id} : claim décisionnelle confirmée avec applicabilité calculée="
+                f"{decisionnelle!r}, attendu {cas.decision_claim_attendue!r}")
     return ecarts
 
 
