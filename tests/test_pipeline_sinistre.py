@@ -9,7 +9,8 @@ vérifie sans compter les appels à la main.
 from __future__ import annotations
 
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, NamedTuple
 
 import anthropic
 import httpx
@@ -157,12 +158,13 @@ def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
 
 def _outils(*, termes: list[str] | None = None, node_id: str | None = None,
             stop_reason: str = "tool_use", **fenetre) -> dict:
-    """Un tour de navigation par outils : une recherche, puis l'ouverture d'un nœud.
+    """Un tour de navigation par outils sur le mini-contrat témoin de ce fichier.
 
     Le même motif de scriptage qu'au guide (`tests/test_pipeline_guide.py`) : `FakeAnthropic` rend
-    un message `tool_use`, et *retrouver* exécute réellement les outils sur l'index synthétique. Sans
-    `termes` ni `node_id`, le tour ne demande rien — la navigation est alors tronquée sans bloc, ce
-    qui est exactement l'état qui arme le repli déterministe.
+    un message `tool_use`, et *retrouver* exécute réellement les outils sur l'index. Il ne sert
+    qu'aux tests de route déjà écrits, que le changement de défaut de la story 4.2d oblige à
+    scripter une navigation ; les preuves de 4.2d, elles, ont leur corpus neutre et leur propre
+    `_navigation`.
     """
     contenu: list[dict] = []
     if termes is not None:
@@ -366,8 +368,6 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
     corps = reponse.json()
     assert fake.remaining_script == 0
     assert corps["trace"]["pipeline"] == "sinistre"
-    # Story 4.2d : le corps ne porte pas `variant`, donc la requête HTTP sert le défaut du pipeline.
-    assert corps["trace"]["variant"] == "outils"
     assert corps["trace"]["gate"] == {
         "profile": "vertical", "cases": 1, "countersigned": False, "alerts": []}
     resolus = {bloc["block_id"]: bloc for bloc in corps["trace"]["blocs"]}
@@ -1362,36 +1362,237 @@ def test_la_fusion_saute_un_acquis_reconduit_a_lidentique() -> None:
 # la variante `deterministe` devient la baseline de comparaison des évals et le repli ». Le sinistre
 # ne connaissait qu'une variante — donc **toute** requête `POST /api/v1/sinistre`, dont le corps ne
 # porte pas de `variant`, empruntait encore le chemin déterministe.
+#
+# **Corpus propre à la story, volontairement neutre** (revue croisée 4.2d, I1). Les preuves qui
+# portent les AC de 4.2d ne lisent ni `DOC_ID`, ni la fixture `index`, ni `QUESTION`, `FAITS`, `GAR`
+# ou les `Q_*` du mini-contrat témoin : aucun assureur, aucun cas du golden set, aucun mot du cas
+# témoin (chaleur, mobilier, bougie, subite, incendie, contenu, brûlure). La story ne câble pas un
+# document ni un sinistre, elle câble une **variante** : ses preuves ne doivent donc rien devoir à
+# l'identité de ce qui est lu. Les tests des histoires antérieures gardent, eux, le mini-contrat
+# témoin qui les a écrits — il est leur sujet, pas un décor.
+#
+# L'idiome — corpus synthétique, puis **permutation** de ses identifiants — est celui de
+# `tests/test_metamorphique.py` (story 4.2b) : une décision qui bougerait sous permutation prouverait
+# un branchement sur l'identité, et c'est la garde que
+# `test_les_decisions_de_variante_survivent_a_la_permutation_du_corpus` tient plus bas.
 
-TERMES_DU_SINISTRE = ["mobilier", "chaleur", "contenu"]
-# Le tour qui ouvre exactement ce que l'index déterministe classe : les deux nœuds du mini-contrat.
-NAVIGATION_COMPLETE = dict(termes=TERMES_DU_SINISTRE, node_id=f"{DOC_ID}:socle")
+TERMES_NEUTRES = ("objet", "registre", "structure")
+QUESTION_NEUTRE = "La situation décrite relève-t-elle du texte applicable ?"
+QUESTION_RESOLUE_NEUTRE = "Le dossier décrit relève-t-il du texte applicable ?"
+FAITS_NEUTRES = Faits(
+    date="2030-01-02", lieu="local déclaré", montant_eur=100.0,
+    description="Le dossier décrit un épisode répertorié ayant atteint l'objet inventorié dans le "
+                "local déclaré ; aucun élément nominatif n'est joint.")
+
+# `(clé, kind, texte)` dans l'ordre de lecture de référence. La **clé** est le rôle du bloc : c'est
+# elle que les assertions comparent d'un corpus à l'autre, jamais l'identifiant. Aucun texte n'emploie
+# un mot du lexique fermé des qualificatifs (`steps/verifier.QUALIFICATIFS`) : la clause n'exige
+# aucune qualité, et ces preuves-ci portent sur *retrouver*, pas sur la table d'AD-6.
+CLAUSES_DU_SOCLE_NEUTRE = (
+    ("titre", "heading", "Titre du chapitre"),
+    ("prise_en_charge", "garantie",
+     "Les dommages atteignant l'objet inventorié et la structure porteuse lors d'un épisode "
+     "répertorié sont pris en charge."),
+    ("inscription", "condition",
+     "La prise en charge n'est acquise que si le local reste inscrit au registre déclaré."),
+    ("definition_objet", "definition",
+     "L'objet inventorié désigne tout élément porté au registre annexé."),
+    ("ecart_socle", "exclusion",
+     "Sont écartés les dommages qui portent sur un registre non déclaré."),
+)
+CLAUSES_DE_L_ANNEXE_NEUTRE = (
+    ("ecart_annexe", "exclusion",
+     "Pour les rubriques annexées, les dommages atteignant la structure porteuse sont écartés."),
+)
+# Citation contiguë de la clause de prise en charge : plus longue que `quote_min_chars` et présente
+# dans ce seul bloc — AD-3 exige une occurrence non ambiguë.
+CITATION_NEUTRE = "atteignant l'objet inventorié et la structure porteuse"
 
 
-def _navigation_des_deux_noeuds() -> dict:
-    return fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
-        {"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
-         "input": {"termes": TERMES_DU_SINISTRE}},
-        {"type": "tool_use", "id": "toolu_socle", "name": "ouvrir_noeud",
-         "input": {"node_id": f"{DOC_ID}:socle"}},
-        {"type": "tool_use", "id": "toolu_ext", "name": "ouvrir_noeud",
-         "input": {"node_id": f"{DOC_ID}:ext"}},
-    ])
+class IdentiteNeutre(NamedTuple):
+    """Tout ce qu'une permutation déplace : le document, ses pages, ses `seq`, ses nœuds, l'ordre.
+
+    Rien de ce que cette structure porte n'est censé peser sur une décision du pipeline : c'est
+    exactement l'hypothèse que la garde métamorphique met à l'épreuve.
+    """
+
+    doc_id: str
+    page_socle: int
+    page_annexe: int
+    seq_depart: int
+    socle: str
+    annexe: str
+    racine: str
+    # L'ordre des termes de la question : une contingence de formulation, jamais un champ typé.
+    termes_inverses: bool = False
+    # L'ordre de lecture **déclaré** du document (`Node.items`). Il n'est pas de la même nature que
+    # les précédents : AD-2 en fait « la source unique de l'ordre de lecture », donc une donnée du
+    # corpus. Il a le droit de déplacer l'ordre des blocs transmis — et rien d'autre.
+    ordre_lecture_inverse: bool = False
+
+    def noeud(self, nom: str) -> str:
+        return f"{self.doc_id}:{nom}"
+
+    def termes(self) -> list[str]:
+        return list(reversed(TERMES_NEUTRES)) if self.termes_inverses else list(TERMES_NEUTRES)
 
 
-def _script_nominal_outils() -> list:
-    return [_comprendre(), _outils(**NAVIGATION_COMPLETE), _rediger(GAR),
-            _verifier(("c1", True, True, False, False, None))]
+IDENTITE_NEUTRE = IdentiteNeutre(doc_id="texte-neutre-a", page_socle=1, page_annexe=2, seq_depart=1,
+                                 socle="n1", annexe="n2", racine="n0")
+# Permutation de pure **identité** : bijection du `doc_id`, renumérotation des pages, décalage des
+# `seq`, renommage des nœuds, inversion de l'ordre des termes. Rien de ce que le corpus déclare ne
+# bouge — donc rien du tout ne doit bouger, pas même l'ordre des blocs transmis.
+IDENTITE_PERMUTEE = IdentiteNeutre(doc_id="texte-neutre-b", page_socle=7, page_annexe=8,
+                                   seq_depart=6, socle="m4", annexe="m5", racine="m3",
+                                   termes_inverses=True)
+# La même permutation, **plus** l'inversion de l'ordre de lecture déclaré : les décisions restent
+# les mêmes, l'ordre des blocs suit le document.
+IDENTITE_RELUE = IDENTITE_PERMUTEE._replace(doc_id="texte-neutre-c", page_socle=12, page_annexe=13,
+                                            seq_depart=30, socle="k9", annexe="k8", racine="k7",
+                                            ordre_lecture_inverse=True)
+
+
+class CorpusNeutre(NamedTuple):
+    index: Index
+    identite: IdentiteNeutre
+    par_cle: dict[str, str]   # rôle du bloc → block_id sous cette identité
+
+    def bloc(self, cle: str) -> str:
+        return self.par_cle[cle]
+
+    def cles(self, block_ids: Iterable[str]) -> list[str]:
+        """Les identifiants relus comme des **rôles** : la seule lecture comparable entre corpus."""
+        inverse = {block_id: cle for cle, block_id in self.par_cle.items()}
+        return [inverse[block_id] for block_id in block_ids]
+
+
+def _corpus_neutre(identite: IdentiteNeutre) -> CorpusNeutre:
+    """Le corpus synthétique de 4.2d sous une identité donnée : un socle commun, une annexe."""
+    par_cle: dict[str, str] = {}
+    blocs: list[dict[str, Any]] = []
+    noeuds: list[Node] = []
+    for nom, page, scope, clauses in (
+            (identite.socle, identite.page_socle, None, CLAUSES_DU_SOCLE_NEUTRE),
+            (identite.annexe, identite.page_annexe, {"kind": "extension"},
+             CLAUSES_DE_L_ANNEXE_NEUTRE)):
+        items: list[dict[str, str]] = []
+        for rang, (cle, kind, texte) in enumerate(clauses):
+            loc, seq = f"p{page}", identite.seq_depart + rang
+            block_id = f"{identite.doc_id}:{loc}:{seq}"
+            par_cle[cle] = block_id
+            bloc: dict[str, Any] = {"block_id": block_id, "loc": loc, "seq": seq, "kind": kind,
+                                    "text": texte}
+            if kind != "heading":
+                bloc["kind_source"] = "manual"
+                bloc["scope_node_id"] = identite.noeud(nom)
+            if kind == "definition":
+                bloc["defines"] = "objet inventorié"
+            blocs.append(bloc)
+            items.append({"block_id": block_id})
+        if identite.ordre_lecture_inverse:
+            items.reverse()
+        noeuds.append(Node(node_id=identite.noeud(nom), level=1, title=f"Section {nom}",
+                           items=items, **({"scope": scope} if scope else {})))
+    branches = [{"node_id": identite.noeud(identite.socle)},
+                {"node_id": identite.noeud(identite.annexe)}]
+    if identite.ordre_lecture_inverse:
+        branches.reverse()
+    noeuds.append(Node(node_id=identite.noeud(identite.racine), level=0, title="Texte applicable",
+                       items=branches))
+    document = Document(doc_id=identite.doc_id, kind="contrat", title="Texte neutre",
+                        edition="2030", nodes=noeuds, blocks=blocs)
+    for b in document.blocks:
+        b.text_norm = normalize(b.text)
+    manifest = {identite.doc_id: ManifestEntry(
+        status="servi", source_hash=f"sha-{identite.doc_id}",
+        ingest_fingerprint=f"fp-{identite.doc_id}", document_hash="sha-doc", edition="2030")}
+    sommaire = "\n".join([f"# {document.title}",
+                          f"- {identite.socle} Section {identite.socle}",
+                          f"- {identite.annexe} Section {identite.annexe}"])
+    return CorpusNeutre(
+        index=Index(Corpus(documents={identite.doc_id: document}, manifest=manifest,
+                           summaries={identite.doc_id: sommaire})),
+        identite=identite, par_cle=par_cle)
+
+
+@pytest.fixture
+def neutre() -> CorpusNeutre:
+    return _corpus_neutre(IDENTITE_NEUTRE)
+
+
+def _settings_neutre(identite: IdentiteNeutre, **kw) -> Settings:
+    """Les réglages par défaut, pointés sur le document neutre — jamais sur le contrat témoin."""
+    kw.setdefault("sinistre_doc_id", identite.doc_id)
+    return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
 def _tier_de_navigation() -> str:
     """Le tier de navigation vient de la configuration (AD-9), jamais d'un littéral recopié ici."""
-    return _settings().retrouver_outils_tier
+    return Settings(_env_file=None, anthropic_api_key="").retrouver_outils_tier
 
 
-async def test_sans_variante_le_sinistre_navigue_par_outils(index: Index) -> None:
+def _comprendre_neutre(corpus: CorpusNeutre, **champs) -> dict:
+    """La sortie de *comprendre*, à vocabulaire entièrement neutre : rien du cas témoin n'y entre."""
+    return _comprendre(terms=corpus.identite.termes(),
+                       question_resolue=QUESTION_RESOLUE_NEUTRE,
+                       facettes=["prise en charge"],
+                       bien="objet inventorié", evenement="épisode répertorié",
+                       lieu="local déclaré", cause="agent externe", moment="période déclarée",
+                       **champs)
+
+
+def _rediger_neutre(corpus: CorpusNeutre) -> dict:
+    return _rediger(("k1", "Le texte pris en charge nomme l'objet inventorié.",
+                     [(corpus.bloc("prise_en_charge"), CITATION_NEUTRE)]))
+
+
+def _verifier_neutre() -> dict:
+    """Deux listes de qualités **vides**, et c'est fidèle : le texte de la clause n'en écrit aucune.
+
+    Le contrôle du tour 3 de la story 1.8 relit la clause dans le corpus ; sur un texte sans mot du
+    lexique fermé, il n'a rien à ajouter. Ces preuves portent sur *retrouver*, pas sur AD-6.
+    """
+    return _verifier(("k1", True, True, False, False, None, [], []))
+
+
+def _navigation(corpus: CorpusNeutre, *, noeuds: tuple[str, ...] = (), chercher: bool = True,
+                stop_reason: str = "tool_use") -> dict:
+    """Un tour de navigation par outils sur le corpus neutre : une recherche, puis des ouvertures.
+
+    Sans recherche ni ouverture, le tour ne demande rien : la navigation est alors tronquée sans
+    aucun bloc, l'état exact qui arme le repli déterministe.
+    """
+    demandes: list[dict[str, Any]] = []
+    if chercher:
+        demandes.append({"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+                         "input": {"termes": corpus.identite.termes()}})
+    for rang, nom in enumerate(noeuds):
+        demandes.append({"type": "tool_use", "id": f"toolu_ouvrir_{rang}", "name": "ouvrir_noeud",
+                         "input": {"node_id": corpus.identite.noeud(nom)}})
+    return fake_message(model=TIERS["micro"], stop_reason=stop_reason, content=demandes)
+
+
+def _tous_les_noeuds(corpus: CorpusNeutre) -> tuple[str, ...]:
+    return (corpus.identite.socle, corpus.identite.annexe)
+
+
+def _script_outils(corpus: CorpusNeutre, **navigation) -> list:
+    """Le script nominal : comprendre, un tour d'outils qui lit tout, rédiger, vérifier."""
+    navigation.setdefault("noeuds", _tous_les_noeuds(corpus))
+    return [_comprendre_neutre(corpus), _navigation(corpus, **navigation),
+            _rediger_neutre(corpus), _verifier_neutre()]
+
+
+async def _run_neutre(corpus: CorpusNeutre, script: list, *, variant: object = SANS_VARIANTE,
+                      settings: Settings | None = None, **kw):
+    return await _run(corpus.index, script,
+                      settings=settings or _settings_neutre(corpus.identite),
+                      question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=variant, **kw)
+
+
+async def test_sans_variante_le_sinistre_navigue_par_outils(neutre: CorpusNeutre) -> None:
     """AC : `run` **sans** `variant` fait tourner la navigation par outils, chaîne inchangée."""
-    answer, trace, fake = await _run(index, _script_nominal_outils(), variant=SANS_VARIANTE)
+    answer, trace, fake = await _run_neutre(neutre, _script_outils(neutre))
 
     assert fake.remaining_script == 0
     assert trace.pipeline == "sinistre" and trace.variant == "outils"
@@ -1403,17 +1604,57 @@ async def test_sans_variante_le_sinistre_navigue_par_outils(index: Index) -> Non
     assert retrouver.tier == _tier_de_navigation() and len(retrouver.calls) == 1
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
-    assert f"{DOC_ID}:p1:2" in retrouver.opened_block_ids
+    assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
     assert answer.found and answer.verdict is not None
 
 
-async def test_la_variante_outils_explicite_est_le_meme_chemin_que_le_defaut(index: Index) -> None:
+def test_une_requete_http_sans_variante_sert_la_navigation_par_outils(
+        neutre: CorpusNeutre) -> None:
+    """AC centrale : c'est parce que le corps ne nomme aucune variante que le défaut est **servi**.
+
+    `POST /api/v1/sinistre` ne transporte pas `variant` (`api/schemas.py`, `extra="forbid"`) : la
+    variante servie en HTTP est donc, littéralement, le défaut du pipeline. Le seam est celui des
+    autres tests de route de ce fichier — pipeline réel scripté → FastAPI → JSON, sans service
+    externe — mais sur le corpus neutre : la story câble une variante, pas un document.
+    """
+    from fastapi.testclient import TestClient
+
+    from server.app.api.main import create_app
+
+    fake = FakeAnthropic(_script_outils(neutre))
+    reglages = _settings_neutre(neutre.identite, env="dev", allow_ungated=True)
+
+    async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
+        kw["client"] = LlmClient(kw["settings"], anthropic_client=fake)
+        return await sinistre.run(doc_id, question, faits, **kw)
+
+    app = create_app(reglages)
+    with TestClient(app) as client:
+        etat = app.state.foyer
+        etat.corpus, etat.index = neutre.index.corpus, neutre.index
+        etat.pipeline_sinistre = pipeline_http
+        reponse = client.post("/api/v1/sinistre", json={
+            "doc_id": neutre.identite.doc_id, "question": QUESTION_NEUTRE,
+            "faits": FAITS_NEUTRES.model_dump()})
+
+    assert reponse.status_code == 200, reponse.text
+    corps = reponse.json()
+    assert fake.remaining_script == 0
+    assert corps["trace"]["pipeline"] == "sinistre" and corps["trace"]["variant"] == "outils"
+    navigation = corps["trace"]["steps"][1]
+    assert navigation["name"] == "retrouver" and len(navigation["calls"]) == 1
+    assert corps["sources"][0]["block_id"] == neutre.bloc("prise_en_charge")
+
+
+async def test_la_variante_outils_explicite_est_le_meme_chemin_que_le_defaut(
+        neutre: CorpusNeutre) -> None:
     """AC : `variant="outils"` et l'absence de variante ne sont pas deux chemins."""
-    _defaut, trace_defaut, _f1 = await _run(index, _script_nominal_outils(), variant=SANS_VARIANTE)
-    _explicite, trace_explicite, _f2 = await _run(index, _script_nominal_outils(), variant="outils")
+    _defaut, trace_defaut, _f1 = await _run_neutre(neutre, _script_outils(neutre))
+    _explicite, trace_explicite, _f2 = await _run_neutre(neutre, _script_outils(neutre),
+                                                         variant="outils")
 
     assert trace_defaut.variant == trace_explicite.variant == "outils"
-    assert ([s.name for s in trace_defaut.steps] == [s.name for s in trace_explicite.steps])
+    assert [s.name for s in trace_defaut.steps] == [s.name for s in trace_explicite.steps]
     assert (trace_defaut.steps[1].opened_block_ids
             == trace_explicite.steps[1].opened_block_ids)
     assert [c.name for c in trace_defaut.steps[1].checks] == [
@@ -1421,7 +1662,7 @@ async def test_la_variante_outils_explicite_est_le_meme_chemin_que_le_defaut(ind
 
 
 async def test_la_variante_deterministe_reste_la_baseline_en_code_pur(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC : `variant="deterministe"` garde le chemin code pur **et** son départage de la story 1.8."""
     recus: list[dict[str, Any]] = []
     reel = sinistre.retrouver_deterministe
@@ -1431,9 +1672,9 @@ async def test_la_variante_deterministe_reste_la_baseline_en_code_pur(
         return reel(*args, **kw)
 
     monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
-    _answer, trace, fake = await _run(index, [
-        _comprendre(), _rediger(GAR),
-        _verifier(("c1", True, True, False, False, None))], variant="deterministe")
+    _answer, trace, fake = await _run_neutre(
+        neutre, [_comprendre_neutre(neutre), _rediger_neutre(neutre), _verifier_neutre()],
+        variant="deterministe")
 
     assert fake.remaining_script == 0
     assert trace.variant == "deterministe"
@@ -1442,7 +1683,7 @@ async def test_la_variante_deterministe_reste_la_baseline_en_code_pur(
 
 
 async def test_les_deux_variantes_rendent_le_meme_contrat_sous_le_meme_budget(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC : même `RetrievalResult`, mêmes blocs atteignables, même `RetrievalBudget`."""
     resultats: dict[str, RetrievalResult] = {}
     bornes: dict[str, Any] = {}
@@ -1461,26 +1702,27 @@ async def test_les_deux_variantes_rendent_le_meme_contrat_sous_le_meme_budget(
     monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
     monkeypatch.setattr(sinistre, "retrouver_deterministe", capture_deterministe)
 
-    verdicts = _verifier(("c1", True, True, False, False, None))
-    await _run(index, [_comprendre(), _navigation_des_deux_noeuds(), _rediger(GAR), verdicts],
-               variant=SANS_VARIANTE)
-    await _run(index, [_comprendre(), _rediger(GAR), verdicts], variant="deterministe")
+    await _run_neutre(neutre, _script_outils(neutre))
+    await _run_neutre(neutre, [_comprendre_neutre(neutre), _rediger_neutre(neutre),
+                               _verifier_neutre()], variant="deterministe")
 
     outils, deterministe = resultats["outils"], resultats["deterministe"]
     # Même contrat : mêmes champs, même type — `RetrievalResult` n'a pas de variante d'un côté.
     assert set(outils.model_dump()) == set(deterministe.model_dump())
     # Même borne, à l'octet des seuils près : c'est `retrieval_budget(settings)` des deux côtés (deux
     # requêtes distinctes ici, donc deux objets — l'identité se prouve dans le test du repli).
-    assert bornes["outils"] == bornes["deterministe"] == retrieval_budget(_settings())
+    attendue = retrieval_budget(_settings_neutre(neutre.identite))
+    assert bornes["outils"] == bornes["deterministe"] == attendue
     # Mêmes blocs atteignables : sur ce corpus, la navigation ouvre ce que l'index classe.
-    assert sorted(outils.opened_block_ids) == sorted(deterministe.opened_block_ids)
-    assert (sorted(b.block_id for b in outils.blocs)
-            == sorted(b.block_id for b in deterministe.blocs))
+    assert sorted(neutre.cles(outils.opened_block_ids)) == sorted(
+        neutre.cles(deterministe.opened_block_ids))
+    assert (sorted(neutre.cles(b.block_id for b in outils.blocs))
+            == sorted(neutre.cles(b.block_id for b in deterministe.blocs)))
     assert outils.truncated is deterministe.truncated is False
 
 
 async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC : repli **unique**, borné, sous le même budget, et nommé dans la trace."""
     appels: list[dict[str, Any]] = []
     bornes_outils: list[Any] = []
@@ -1496,9 +1738,8 @@ async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
 
     monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
     monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
-    answer, trace, fake = await _run(index, [
-        _comprendre(), _outils(), _rediger(GAR),
-        _verifier(("c1", True, True, False, False, None))], variant=SANS_VARIANTE)
+    answer, trace, fake = await _run_neutre(
+        neutre, _script_outils(neutre, noeuds=(), chercher=False))
 
     assert fake.remaining_script == 0 and answer.found
     retrouver = trace.steps[1]
@@ -1510,11 +1751,11 @@ async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
     assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
     # Un seul appel modèle : le repli est du code pur, il n'ajoute aucun tour.
     assert len(retrouver.calls) == 1 and retrouver.tier == _tier_de_navigation()
-    assert f"{DOC_ID}:p1:2" in retrouver.opened_block_ids
+    assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
 
 
 async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
     """AD-10 : les candidats écartés des **deux** passes sont publiés, et les checks fusionnés."""
     reel = sinistre.retrouver_deterministe
 
@@ -1524,12 +1765,15 @@ async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
         return resultat, step
 
     monkeypatch.setattr(sinistre, "retrouver_deterministe", repli_marque)
-    candidats_outils = [b for b, _ in index.chercher(TERMES_DU_SINISTRE,
-                                                     limit=_settings().search_limit, doc_id=DOC_ID)]
-    answer, trace, fake = await _run(index, [
-        _comprendre(), _outils(termes=TERMES_DU_SINISTRE), _outils(stop_reason="end_turn"),
-        _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
-        variant=SANS_VARIANTE, settings=_settings(retrieval_max_blocks=4))
+    reglages = _settings_neutre(neutre.identite, retrieval_max_blocks=4)
+    candidats_outils = [b for b, _ in neutre.index.chercher(
+        neutre.identite.termes(), limit=reglages.search_limit, doc_id=neutre.identite.doc_id)]
+    # Un premier tour qui **cherche sans ouvrir**, puis un tour qui conclut : la navigation a des
+    # candidats et aucun bloc admis, et le repli hérite donc de candidats à publier.
+    answer, trace, fake = await _run_neutre(
+        neutre, [_comprendre_neutre(neutre), _navigation(neutre),
+                 _navigation(neutre, chercher=False, stop_reason="end_turn"),
+                 _rediger_neutre(neutre), _verifier_neutre()], settings=reglages)
 
     assert fake.remaining_script == 0 and answer.found
     retrouver = trace.steps[1]
@@ -1540,11 +1784,11 @@ async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
     assert retrouver.discarded_block_ids and not answer.complete
 
 
-async def test_des_blocs_outils_partiels_ne_declenchent_aucun_repli(index: Index) -> None:
+async def test_des_blocs_outils_partiels_ne_declenchent_aucun_repli(neutre: CorpusNeutre) -> None:
     """AC : `truncated` avec au moins un bloc admis reste un contexte honnête, publié `complete=False`."""
-    answer, trace, fake = await _run(index, [
-        _comprendre(), _outils(stop_reason="max_tokens", **NAVIGATION_COMPLETE),
-        _rediger(GAR), _verifier(("c1", True, True, False, False, None))], variant=SANS_VARIANTE)
+    # Une seule branche ouverte, tour coupé par `max_tokens` : des blocs utiles, et une lecture bornée.
+    answer, trace, fake = await _run_neutre(neutre, _script_outils(
+        neutre, noeuds=(neutre.identite.socle,), stop_reason="max_tokens"))
 
     assert fake.remaining_script == 0
     retrouver = trace.steps[1]
@@ -1553,11 +1797,12 @@ async def test_des_blocs_outils_partiels_ne_declenchent_aucun_repli(index: Index
     assert trace.truncations == 1 and answer.found and not answer.complete
 
 
-async def test_un_repli_lui_aussi_vide_laisse_remonter_le_budget_exceeded(index: Index) -> None:
+async def test_un_repli_lui_aussi_vide_laisse_remonter_le_budget_exceeded(
+        neutre: CorpusNeutre) -> None:
     """AC : aucune absence du contrat n'est affirmée à partir d'une borne qui est la nôtre."""
     with pytest.raises(BudgetExceeded, match="aucune absence du contrat n'est affirmée") as capture:
-        await _run(index, [_comprendre(), _outils()], variant=SANS_VARIANTE,
-                   settings=_settings(retrieval_max_tokens=1))
+        await _run_neutre(neutre, [_comprendre_neutre(neutre), _navigation(neutre, chercher=False)],
+                          settings=_settings_neutre(neutre.identite, retrieval_max_tokens=1))
 
     trace = capture.value.trace  # AD-16 : la trace partielle voyage avec l'erreur
     assert trace is not None and trace.variant == "outils"
@@ -1565,17 +1810,133 @@ async def test_un_repli_lui_aussi_vide_laisse_remonter_le_budget_exceeded(index:
     assert any(c.name == "repli_deterministe" for c in trace.steps[1].checks)
 
 
-async def test_un_echec_de_navigation_voyage_avec_son_etape_partielle(index: Index) -> None:
+async def test_un_echec_de_navigation_voyage_avec_son_etape_partielle(
+        neutre: CorpusNeutre) -> None:
     """AC : `PipelineError` pendant *retrouver* ⇒ 503 typé et trace partielle, comme au guide."""
     panne = anthropic.APIStatusError("529", response=httpx.Response(
         529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
     with pytest.raises(LlmUnavailable) as capture:
-        await _run(index, [_comprendre(), panne], variant=SANS_VARIANTE)
+        await _run_neutre(neutre, [_comprendre_neutre(neutre), panne])
 
     trace = capture.value.trace
     assert trace is not None and trace.variant == "outils"
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
     assert len(trace.steps[-1].calls) == 1
+
+
+async def test_une_variante_inconnue_est_refusee_avant_tout_appel_facture(
+        neutre: CorpusNeutre) -> None:
+    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », et le message énumère les variantes connues."""
+    with pytest.raises(InvalidRequest, match="variante") as capture:
+        await _run_neutre(neutre, [], variant="agentique")
+    assert all(connue in capture.value.message for connue in sinistre.VARIANTES)
+    assert sinistre.VARIANTES == {"outils", "deterministe"} and sinistre.VARIANT == "outils"
+
+
+# --- la garde métamorphique : aucune décision ne tient à l'identité de ce qui est lu -------------
+
+async def _decisions_de_variante(corpus: CorpusNeutre, scenario: str,
+                                 monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Ce que 4.2d **décide** sur un corpus donné, lu en rôles et non en identifiants.
+
+    Variante retenue, dispatch effectif (navigation appelée ou non, nombre de replis), champs du
+    `RetrievalResult`, checks de la trace, blocs ouverts et écartés — tout ce dont la story répond.
+    """
+    replis: list[dict[str, Any]] = []
+    navigations: list[dict[str, Any]] = []
+    champs: dict[str, set[str]] = {}
+    reel_deterministe, reel_outils = sinistre.retrouver_deterministe, sinistre.retrouver_outils
+
+    def capture_deterministe(*args: Any, **kw: Any):
+        resultat, step = reel_deterministe(*args, **kw)
+        replis.append(kw)
+        champs["resultat"] = set(resultat.model_dump())
+        return resultat, step
+
+    async def capture_outils(*args: Any, **kw: Any):
+        resultat, step = await reel_outils(*args, **kw)
+        navigations.append(kw)
+        champs["resultat"] = set(resultat.model_dump())
+        return resultat, step
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture_deterministe)
+    monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
+
+    if scenario == "defaut":
+        script, variant = _script_outils(corpus), SANS_VARIANTE
+    elif scenario == "repli":
+        script, variant = _script_outils(corpus, noeuds=(), chercher=False), SANS_VARIANTE
+    else:  # baseline explicite
+        script = [_comprendre_neutre(corpus), _rediger_neutre(corpus), _verifier_neutre()]
+        variant = "deterministe"
+    answer, trace, fake = await _run_neutre(corpus, script, variant=variant)
+
+    retrouver = trace.steps[1]
+    return {
+        "variant": trace.variant,
+        "etapes": [s.name for s in trace.steps],
+        "navigations": len(navigations),
+        "replis": len(replis),
+        # `kinds_prioritaires` du départage décisionnel : passé, ou non, aux mêmes endroits.
+        "kinds": [kw.get("kinds_prioritaires") for kw in replis],
+        "champs_du_resultat": champs["resultat"],
+        "checks": [(c.name, c.ok) for c in retrouver.checks],
+        "tier": retrouver.tier,
+        "appels_modele": len(retrouver.calls),
+        "ouverts": corpus.cles(retrouver.opened_block_ids),
+        "ecartes": corpus.cles(retrouver.discarded_block_ids),
+        "found": answer.found,
+        "script_epuise": fake.remaining_script,
+    }
+
+
+@pytest.mark.parametrize("scenario", ["defaut", "repli", "baseline"])
+async def test_les_decisions_de_variante_survivent_a_la_permutation_du_corpus(
+        scenario: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Story 4.2b, idiome métamorphique appliqué aux décisions de 4.2d.
+
+    Le second corpus est le premier permuté : autre `doc_id`, autres pages, `seq` décalés, nœuds
+    renommés, ordre des termes inversé. Aucune de ces choses n'est un champ typé ; aucune ne doit
+    donc peser sur la variante retenue, sur le dispatch, sur l'unicité du repli, sur les champs du
+    `RetrievalResult`, sur les checks de la trace, ni même sur l'ordre des blocs transmis — le
+    corpus déclare exactement le même ordre de lecture des deux côtés. L'égalité est donc exigée
+    **entière** : une seule décision qui bougerait ici prouverait un branchement sur l'identité,
+    c'est-à-dire la garde qui manquait à 4.2d.
+
+    Les blocs sont comparés par leur **rôle** (`CorpusNeutre.cles`) et non par leur identifiant :
+    comparer les identifiants bruts serait exiger que la permutation n'ait pas eu lieu.
+    """
+    base = await _decisions_de_variante(_corpus_neutre(IDENTITE_NEUTRE), scenario, monkeypatch)
+    permute = await _decisions_de_variante(_corpus_neutre(IDENTITE_PERMUTEE), scenario, monkeypatch)
+
+    assert base == permute
+    # …et la garde ne serait pas une garde si elle comparait deux fois rien : le scénario a bien
+    # exercé le dispatch qu'il annonce, sur deux corpus qui ne partagent aucun identifiant.
+    assert base["variant"] == ("deterministe" if scenario == "baseline" else "outils")
+    assert base["replis"] == (1 if scenario in ("repli", "baseline") else 0)
+    assert base["ouverts"], "le scénario doit avoir ouvert des blocs"
+
+
+@pytest.mark.parametrize("scenario", ["defaut", "repli", "baseline"])
+async def test_l_ordre_de_lecture_declare_ne_deplace_que_l_ordre_des_blocs(
+        scenario: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La seule chose que la permutation a le droit de déplacer, et rien d'autre.
+
+    `Node.items` est « la source unique de l'ordre de lecture » (AD-2) : c'est une **donnée du
+    corpus**, pas un identifiant, et l'inverser doit changer l'ordre des blocs transmis — sinon le
+    pipeline ne lirait pas le document qu'on lui donne. Ce test sépare donc ce qui a le droit de
+    bouger de ce qui n'en a pas : mêmes décisions, même **ensemble** de blocs ouverts, seul l'ordre
+    diffère. Sans la dernière assertion, la garde pourrait passer en comparant deux fois le même
+    ordre et ne prouverait rien.
+    """
+    base = await _decisions_de_variante(_corpus_neutre(IDENTITE_NEUTRE), scenario, monkeypatch)
+    relu = await _decisions_de_variante(_corpus_neutre(IDENTITE_RELUE), scenario, monkeypatch)
+
+    assert {c: v for c, v in base.items() if c not in ("ouverts", "ecartes")} == {
+        c: v for c, v in relu.items() if c not in ("ouverts", "ecartes")}
+    assert sorted(base["ouverts"]) == sorted(relu["ouverts"])
+    assert sorted(base["ecartes"]) == sorted(relu["ecartes"])
+    assert base["ouverts"] != relu["ouverts"], "l'ordre de lecture inversé doit se voir"
 
 
 # --- bornes d'entrée : rien de facturé -----------------------------------------
@@ -1585,11 +1946,8 @@ async def test_an_unknown_document_is_refused_before_any_billed_call(index: Inde
 
 
 async def test_an_unknown_variant_is_refused_before_any_billed_call(index: Index) -> None:
-    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », et le message énumère les variantes connues."""
-    with pytest.raises(InvalidRequest, match="variante") as capture:
-        await _run(index, [], variant="agentique")
-    assert all(connue in capture.value.message for connue in sinistre.VARIANTES)
-    assert sinistre.VARIANTES == {"outils", "deterministe"} and sinistre.VARIANT == "outils"
+    with pytest.raises(InvalidRequest, match="variante"):
+        await _run(index, [], variant="autre")
 
 
 async def test_an_oversized_description_is_rejected_never_truncated(index: Index) -> None:
