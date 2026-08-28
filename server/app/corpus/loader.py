@@ -99,8 +99,12 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
         return ("", ["sans_gate"]) if allow_ungated else ("sans_gate", [])
     if not gate.evals_ok:
         return "gate_echoue", []
-    if current is not None and (gate.pipeline_digest, gate.prompts_digest, gate.model_ids) != (
-            current.pipeline_digest, current.prompts_digest, current.model_ids):
+    if gate.profile == "full" and (not gate.decisions or not gate.run_digest):
+        return "gate_preprotocole", []
+    if current is not None and (
+            gate.pipeline_digest, gate.prompts_digest, gate.model_ids, gate.pipeline_settings) != (
+            current.pipeline_digest, current.prompts_digest, current.model_ids,
+            current.pipeline_settings):
         # Story 4.2b : sous un gate `full`, des digests non concordants ne sont plus une simple
         # alerte — la politique complète promet que le document servi est exactement l'image que la
         # campagne a mesurée, et servir autre chose sous ce label serait la bascule silencieuse

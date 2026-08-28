@@ -32,6 +32,7 @@ from server.app.domain.answer import AbsenceProof, Answer, Verification
 from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
     BudgetExceeded,
+    TruncatedRead,
     CorpusUnavailable,
     InvalidRequest,
     LlmParse,
@@ -106,6 +107,20 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     for claim in verification.rejected_claims:
         if claim.rejection_kind != "non_pertinente":
             continue
+        for quote in claim.quotes:
+            try:
+                document = corpus.documents[index.doc_of(quote.block_id)]
+                kind = document.block(quote.block_id).kind
+            except KeyError:
+                continue
+            if kind in KINDS_FONDATEURS:
+                return True
+    return False
+
+
+def _fondatrice_survivante(verification: Verification, *, corpus: Any, index: Any) -> bool:
+    """Une claim affichée cite-t-elle une garantie ou exclusion qui peut fonder AD-6 ?"""
+    for claim in verification.claims:
         for quote in claim.quotes:
             try:
                 document = corpus.documents[index.doc_of(quote.block_id)]
@@ -396,15 +411,18 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                               budget=budget, settings=settings,
                                                               faits=faits, dossier=dossier)
                     steps.append(step_verifier_2)
-                    # Campagne B 2.7 : une première rédaction dont **aucune** claim n'a survécu
-                    # peut être suivie d'une clause exacte et pertinente, mais le verdict prudent de
-                    # cette seconde version porte le paquet contractuel manquant. Le compteur de
-                    # manques est alors plus grand et la dominance générale conservait le vide ;
-                    # sur une lecture tronquée, ce vide devenait un 503. Une clause effectivement
-                    # vérifiée est une amélioration stricte sur zéro clause : elle ne préfère aucun
-                    # verdict et ne change aucun seuil, elle empêche seulement le paquet manquant
-                    # d'annuler la preuve retrouvée par la relance.
-                    relance_trouve_clause = seconde.found and not acquise.found
+                    # Campagne B 2.7 et revue corrective 4.2b : retrouver une clause fondatrice est
+                    # une amélioration stricte non seulement sur zéro claim, mais aussi sur une
+                    # auxiliaire survivante (p. ex. une définition). Sans cela `_fondatrice_rejetee`
+                    # déclenche bien la relance, puis la dominance générale conserve justement la
+                    # version qui n'a plus aucune base pour AD-6 ni question sur ses qualités.
+                    relance_trouve_clause = seconde.found and (
+                        not acquise.found
+                        or (
+                            _fondatrice_survivante(seconde, corpus=corpus, index=index)
+                            and not _fondatrice_survivante(acquise, corpus=corpus, index=index)
+                        )
+                    )
                     if relance_trouve_clause or domine(seconde, acquise):
                         verification = seconde
                     else:
@@ -445,7 +463,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # l'endroit où l'affirmer à tort coûte le plus cher — « aucune clause n'a été retrouvée »
             # lu sur un contrat que nous n'avons pas fini de lire est une réponse d'assureur. Échec
             # terminal avec sa trace partielle (AD-16), jamais un `AbsenceProof`.
-            raise BudgetExceeded(
+            raise TruncatedRead(
                 "aucune clause n'a survécu à la vérification, et la lecture du contrat avait été "
                 f"tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
                 f"{settings.retrieval_max_tokens} tokens) : aucune absence du contrat n'est affirmée")

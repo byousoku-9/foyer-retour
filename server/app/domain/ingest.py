@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .document import DomainModel
 
@@ -110,6 +110,13 @@ class Gate(DomainModel):
     # décisions se lit comme « mesuré avant le protocole 4.2b », jamais comme un vert par défaut.
     decisions: list[GateDecision] = Field(default_factory=list)
     run_digest: str | None = None
+    pipeline_settings: dict[str, int | float | str | bool] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _decision_coherente(self) -> Gate:
+        if self.decisions and self.evals_ok != all(d.status == "green" for d in self.decisions):
+            raise ValueError("evals_ok diverge des décisions chiffrées")
+        return self
 
 
 class GateContext(DomainModel):
@@ -118,6 +125,7 @@ class GateContext(DomainModel):
     pipeline_digest: str = ""
     prompts_digest: str = ""
     model_ids: dict[str, str] = Field(default_factory=dict)
+    pipeline_settings: dict[str, int | float | str | bool] = Field(default_factory=dict)
 
 
 class ManifestEntry(DomainModel):

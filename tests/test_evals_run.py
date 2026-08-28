@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import io
 import json
+import os
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -765,7 +766,9 @@ def test_une_variable_posee_vide_fait_foi_sur_le_env_du_poste(monkeypatch: pytes
 def test_un_doc_id_de_gate_invalide_est_refuse_avant_tout_chemin_ou_cas(
         doc_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
-    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    monkeypatch.setattr(
+        runner, "Settings",
+        lambda: _settings(live_campaign_id=os.environ.get("LIVE_CAMPAIGN_ID")))
     monkeypatch.setattr(runner, "suite_du_document", _interdit)
     monkeypatch.setattr(runner, "charger_cas", _interdit)
 
@@ -1506,9 +1509,11 @@ def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
     }), encoding="utf-8")
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    monkeypatch.setenv("LIVE_CAMPAIGN_ID", "test-gate-orchestrateur")
     code = _main(
         tmp_path,
         ["--gate", GUIDE, "--repeat", "3", "--producer", "orchestrator",
+         "--series-kind", "final", "--series-id", "final-guide", "--max-cost", "1.0",
          "--orchestrator-evidence", str(preuve)],
         monkeypatch, reponses_guide=[guide, guide, guide])
     assert code == 0
@@ -1609,9 +1614,18 @@ def test_gate_en_echec_technique_ne_modifie_pas_le_manifest(tmp_path: Path,
     data.mkdir()
     _corpus_sur_disque(data)
     avant = (data / "manifest.json").read_text(encoding="utf-8")
-    code = _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[Timeout("deadline")])
+    json_path, md_path = tmp_path / "timeout.json", tmp_path / "timeout.md"
+    code = _main(tmp_path, ["--gate", GUIDE, "--output-json", str(json_path),
+                            "--output-markdown", str(md_path)], monkeypatch,
+                 reponses_guide=[Timeout("deadline")])
     assert code == 3
     assert (data / "manifest.json").read_text(encoding="utf-8") == avant
+    assert json_path.is_file() and md_path.is_file()
+    rapport = json.loads(json_path.read_text(encoding="utf-8"))
+    assert rapport["complete"] is False
+    assert rapport["unexecuted_cases"] == ["g-luxtrust"]
+    assert rapport["stop_http"] == 503
+    assert rapport["decisions"] and all(d["status"] == "red" for d in rapport["decisions"])
 
 
 def test_gate_dun_document_non_servi_est_refuse(tmp_path: Path,
@@ -1714,6 +1728,7 @@ def test_arret_budget_ecrit_les_deux_rapports_partiels_sans_faux_label(
     """Matrice 4.1 : le cas acquis reste publié et le suivant est non exécuté, pas labellisé."""
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_: 0.01)
     json_path, md_path = tmp_path / "partiel.json", tmp_path / "partiel.md"
     code = _main(
         tmp_path,
@@ -1731,6 +1746,7 @@ def test_arret_budget_ecrit_les_deux_rapports_partiels_sans_faux_label(
 
 def test_arret_budget_pendant_le_premier_cas_ecrit_les_deux_rapports_partiels(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_: 0.01)
     json_path, md_path = tmp_path / "pendant.json", tmp_path / "pendant.md"
     code = _main(
         tmp_path,

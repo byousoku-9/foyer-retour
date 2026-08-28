@@ -322,7 +322,7 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
         "variants": {"outils": 1},
         "recall": 0.5,
             "average_cost_eur": 0.0,
-            "latency_p50_ms": 11,
+            "latency_p50_ms": 5,
             "cost_p50_eur": 0.0,
             "cost_p95_eur": 0.0,
         "cost_max_eur": 0.0,

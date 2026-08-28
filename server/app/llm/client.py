@@ -20,7 +20,7 @@ import json
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Generic, Literal, Protocol, TypeVar
+from typing import Any, Callable, Generic, Literal, Protocol, TypeVar
 
 import anthropic
 import pydantic
@@ -159,7 +159,9 @@ class LlmClient:
 
     def __init__(self, settings: Settings, anthropic_client: Any | None = None,
                  cache: ResponseCache | None = None,
-                 campaign_budget_eur: float | None = None) -> None:
+                 campaign_budget_eur: float | None = None,
+                 campaign_accrued_eur: float = 0.0,
+                 campaign_cost_recorder: Callable[[float], None] | None = None) -> None:
         self._settings = settings
         self._cache = cache
         # Story 4.2b — budget de **campagne** (règle trusted `LIVE_BUDGET_EUR`) : cumul de tous les
@@ -169,7 +171,8 @@ class LlmClient:
         # déborder la campagne est refusé **avant** l'envoi, avec les trois chiffres du rapport
         # trusted (configured/accrued/refused), jamais une question humaine.
         self.campaign_budget_eur = campaign_budget_eur
-        self.campaign_cost_eur = 0.0
+        self.campaign_cost_eur = campaign_accrued_eur
+        self._campaign_cost_recorder = campaign_cost_recorder
         if anthropic_client is None:
             anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=0)
         self._anthropic = anthropic_client
@@ -185,7 +188,11 @@ class LlmClient:
                 f"refused_cost_eur={estimate:.4f}")
 
     def _noter_campagne(self, usage: Usage) -> None:
-        self.campaign_cost_eur = round(self.campaign_cost_eur + usage.cost_eur, 4)
+        # Garde la précision fournisseur ; seuls les rendus sont arrondis. Le callback du runner
+        # persiste chaque appel sous verrou, même si le processus s'interrompt plus tard.
+        self.campaign_cost_eur += usage.cost_eur
+        if self._campaign_cost_recorder is not None:
+            self._campaign_cost_recorder(usage.cost_eur)
 
     async def aclose(self) -> None:
         """Ferme le pool de connexions du SDK. Appelé par le `lifespan` de l'API, à l'arrêt.

@@ -60,7 +60,7 @@ def test_comprendre_sinistre_reserve_des_termes_a_chaque_dommage() -> None:
     text = prompting.load_prompt("comprendre_sinistre")
     assert "plusieurs dommages distincts" in text
     assert "dégâts des eaux" in text
-    assert "dégâts causés par un animal" in text
+    assert "dégâts mobiliers dus à un choc" in text
 
 
 def test_rediger_sinistre_demande_la_premiere_clause_decisionnelle_sans_recriture_code() -> None:

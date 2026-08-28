@@ -244,14 +244,12 @@ class Settings(BaseSettings):
     # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
     # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
     evals_max_cost_eur: float = Field(1.0, ge=0)
-    # Story 4.2b — budget de **campagne** live (règle trusted `automation/plancher.yaml`) : 0,50 €
-    # par défaut, surchargé par l'environnement (`LIVE_BUDGET_EUR`). Le budget effectif d'un run
-    # d'évals est `min(--max-cost, live_budget_eur)` ; il est appliqué deux fois — par le runner
-    # (préflight : le majorant estimé d'une campagne payante est refusé **avant** le premier appel,
-    # avec `configured_budget_eur`, `accrued_cost_eur`, `refused_cost_eur`) et par le client
-    # (`LlmClient` refuse l'appel qui ferait déborder la campagne). Un refus est un rouge chiffré,
-    # jamais une question humaine.
-    live_budget_eur: float = Field(0.50, gt=0)
+    # Story 4.2b corrective — plafond **agrégé persistant** de story/campagne : 1,00 € par défaut,
+    # surchargé par `LIVE_BUDGET_EUR`. `--max-cost` reste une borne locale distincte par run.
+    # L'orchestrateur fournit `LIVE_CAMPAIGN_ID`; le ledger inter-processus conserve le coût réel
+    # entre invocations et refuse toute seconde série baseline/finale par témoin nommé.
+    live_budget_eur: float = Field(1.00, gt=0)
+    live_campaign_id: str | None = Field(None, min_length=1, max_length=128)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
     # invalide, heuristique d'estimation avant appel (caractères par token et marge tokenizer, calibrés pour que

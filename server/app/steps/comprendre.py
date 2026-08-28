@@ -45,7 +45,6 @@ from server.app.domain.question import (
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
@@ -180,7 +179,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     """
     t0 = time.monotonic()
     # Story 4.2b : la matrice baseline épingle le tier par étape ; `STEP_TIERS` reste le défaut AD-9.
-    tier = getattr(settings, "comprendre_tier", None) or STEP_TIERS["comprendre"]
+    tier = settings.comprendre_tier
     step = StepTrace(name="comprendre", tier=tier)
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
         prompt, question_min_terms=settings.question_min_terms,

@@ -14,11 +14,12 @@ import yaml
 from server.app.config import Settings
 from server.app.corpus.loader import _gate_alerts
 from server.app.domain.errors import BudgetExceeded
-from server.app.domain.ingest import Gate, GateContext, ManifestEntry
+from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.llm.client import LlmClient
 from server.app.domain.trace import Usage
 from server.evals.plancher import (Configuration, PlancherInvalide, charger_plancher,
                                    classer_configurations, PLANCHER_PATH)
+from server.evals.campaign import CampaignLedger, CampaignLedgerError
 
 
 def _settings(**kw: object) -> Settings:
@@ -42,8 +43,8 @@ def test_le_plancher_livre_se_charge_et_porte_son_digest() -> None:
         temoin = charge.plancher.temoin(metric)
         assert temoin is not None, f"témoin {metric} du floor 4.2a absent"
         assert temoin.plancher >= 1.0 and temoin.n >= 3
-    # La règle trusted fait foi : budget 0,50 €, variable LIVE_BUDGET_EUR, refus sans question.
-    assert charge.plancher.budget.default_eur == 0.50
+    # La règle trusted fait foi : budget agrégé 1,00 €, variable LIVE_BUDGET_EUR.
+    assert charge.plancher.budget.default_eur == 1.00
     assert charge.plancher.budget.environment_variable == "LIVE_BUDGET_EUR"
     assert charge.plancher.budget.on_exceeded.get("ask_first") is False
     # Les trois splits sont pré-enregistrés, B hors dépôt, C jamais exécuté.
@@ -56,6 +57,16 @@ def test_le_digest_change_avec_le_fichier(tmp_path: Path) -> None:
     original = charger_plancher(copie)
     copie.write_bytes(PLANCHER_PATH.read_bytes() + b"\n# commentaire\n")
     assert charger_plancher(copie).digest != original.digest
+
+
+def test_le_plancher_se_charge_hors_du_depot_parent(tmp_path: Path) -> None:
+    reference = tmp_path / "produit-autonome" / "server" / "evals" / "reference"
+    reference.mkdir(parents=True)
+    for nom in ("plancher.yaml", "floor-4.2a.yaml", "trusted-automation-plancher.yaml"):
+        (reference / nom).write_bytes((PLANCHER_PATH.parent / nom).read_bytes())
+    assert charger_plancher(reference / "plancher.yaml").plancher.story == "4.2b"
+    with pytest.raises(PlancherInvalide, match="preuve non vérifiable"):
+        charger_plancher(reference / "plancher.yaml", producer="orchestrator")
 
 
 def _plancher_modifie(tmp_path: Path, mutation) -> Path:
@@ -93,13 +104,13 @@ def test_abaisser_import_et_temoin_ensemble_reste_refuse(tmp_path: Path) -> None
             if temoin["metric"] == "bougie_post_success_rate":
                 temoin["plancher"] = 0.2
 
-    with pytest.raises(PlancherInvalide, match="source d'autorité"):
+    with pytest.raises(PlancherInvalide, match="snapshot figé|source d'autorité"):
         charger_plancher(_plancher_modifie(tmp_path, _abaisse_les_deux))
 
 
 def test_diminuer_le_budget_trusted_est_refuse(tmp_path: Path) -> None:
     def _change(brut: dict) -> None:
-        brut["budget"]["default_eur"] = 1.00
+        brut["budget"]["default_eur"] = 0.50
 
     with pytest.raises(PlancherInvalide, match="trusted"):
         charger_plancher(_plancher_modifie(tmp_path, _change))
@@ -156,10 +167,33 @@ def test_le_client_refuse_lappel_qui_deborde_la_campagne() -> None:
 
 
 def test_live_budget_vit_dans_config_et_suit_lenvironnement(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _settings().live_budget_eur == 0.50
-    assert _settings().thresholds()["live_budget_eur"] == 0.50
+    assert _settings().live_budget_eur == 1.00
+    assert _settings().thresholds()["live_budget_eur"] == 1.00
     monkeypatch.setenv("LIVE_BUDGET_EUR", "0.25")
     assert Settings(_env_file=None).live_budget_eur == 0.25
+
+
+def test_ledger_persiste_le_cout_et_refuse_une_seconde_baseline(tmp_path: Path) -> None:
+    with CampaignLedger(tmp_path, campaign_id="story-4.2b", budget_eur=1.0) as ledger:
+        ledger.register_series(kind="baseline", series_id="baseline-A",
+                               witnesses=["s-temoin"], max_series=1)
+        ledger.record_cost(0.123456)
+        assert ledger.accrued_cost_eur == pytest.approx(0.123456)
+    with CampaignLedger(tmp_path, campaign_id="story-4.2b", budget_eur=1.0) as ledger:
+        assert ledger.accrued_cost_eur == pytest.approx(0.123456)
+        ledger.register_series(kind="baseline", series_id="baseline-A",
+                               witnesses=["s-temoin"], max_series=1)
+        with pytest.raises(CampaignLedgerError, match="seconde série baseline"):
+            ledger.register_series(kind="baseline", series_id="baseline-B",
+                                   witnesses=["s-temoin"], max_series=1)
+
+
+def test_ledger_verrouille_les_processus_concurrents(tmp_path: Path) -> None:
+    premier = CampaignLedger(tmp_path, campaign_id="story-4.2b", budget_eur=1.0)
+    with premier:
+        with pytest.raises(CampaignLedgerError, match="déjà active"):
+            with CampaignLedger(tmp_path, campaign_id="story-4.2b", budget_eur=1.0):
+                pass
 
 
 def test_les_tiers_par_etape_sont_pilotables_et_publies() -> None:
@@ -177,12 +211,16 @@ def test_les_tiers_par_etape_sont_pilotables_et_publies() -> None:
 # --- digests non concordants sous gate full : quarantaine ------------------------------------------
 
 def _entry(profile: str) -> ManifestEntry:
+    digest = "a" * 64
     return ManifestEntry(
         status="servi", source_hash="s", ingest_fingerprint="f", document_hash="d", edition="e",
         gate=Gate(profile=profile, source_hash="s", ingest_fingerprint="f", overlay_hash=None,
                   cases_hash="c", cases=1, countersigned=False, pipeline_digest="ancien",
                   prompts_digest="ancien", model_ids={"micro": "m"}, evals_ok=True,
-                  date="2026-08-28"))
+                  date="2026-08-28", run_digest=digest,
+                  decisions=[GateDecision(
+                      metric="temoin", producer="orchestrator", threshold=1.0,
+                      scope="run", n=3, run_digest=digest, value=1.0, status="green")]))
 
 
 def test_digests_divergents_sous_full_mettent_le_document_en_quarantaine() -> None:
@@ -205,3 +243,21 @@ def test_digests_concordants_ne_changent_rien() -> None:
                           model_ids={"micro": "m"})
     for profile in ("vertical", "full"):
         assert _gate_alerts(_entry(profile), courant, allow_ungated=False) == ("", [])
+
+
+def test_un_changement_de_tier_perime_un_gate_full() -> None:
+    entree = _entry("full")
+    assert entree.gate is not None
+    entree.gate.pipeline_settings = {"rediger_tier_reason": 1}
+    courant = GateContext(pipeline_digest="ancien", prompts_digest="ancien",
+                          model_ids={"micro": "m"},
+                          pipeline_settings={"rediger_tier_reason": 0})
+    assert _gate_alerts(entree, courant, allow_ungated=False) == ("gate_perime", [])
+
+
+def test_un_gate_full_preprotocole_est_mis_en_quarantaine() -> None:
+    entree = _entry("full")
+    assert entree.gate is not None
+    entree.gate.decisions = []
+    entree.gate.run_digest = None
+    assert _gate_alerts(entree, None, allow_ungated=False) == ("gate_preprotocole", [])

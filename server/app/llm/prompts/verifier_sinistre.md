@@ -34,7 +34,7 @@ périmètre est en revanche contraire au cas déclaré (`fait_requis_present = f
 ### `fait_requis_present` et `fait_manquant` : deux questions, dans cet ordre
 
 Une clause ne joue que si des faits sont réunis. Pose-toi les deux questions ci-dessous **dans cet
-ordre**, et arrête-toi à la première qui répond.
+ordre**, et n'examine pas les suivantes après la première qui répond.
 
 **1. Le périmètre.** La clause vise-t-elle le bien, le lieu et la situation du sinistre décrit ? Si
 les faits déclarés disent le **contraire**, alors `fait_requis_present = false` et `fait_manquant =
@@ -60,8 +60,8 @@ null` — rien ne manque, on **sait** que la clause ne vise pas ce cas. C'est le
 **qualité** de l'événement, du bien ou de l'assuré — soudain, subit, accidentel, imprévisible,
 permanent, direct et immédiat, avec effraction, à titre principal… ? Si les faits déclarés ne
 l'établissent pas **dans ces termes**, alors `fait_requis_present = false` et `fait_manquant` **nomme
-cette qualité**. N'infère jamais une qualité des circonstances : « une bougie est tombée sur le
-canapé » dit ce qui s'est passé, pas que l'action de la chaleur ait été *subite* au sens de la
+cette qualité**. N'infère jamais une qualité des circonstances : « un vase a basculé sur le tapis »
+dit ce qui s'est passé, pas que le choc ait été *violent* au sens de la
 clause, ni que l'événement ait été *soudain*. C'est précisément ce qu'il faut faire préciser au
 client.
 
@@ -69,7 +69,7 @@ client.
 exigée est établie — ou la clause n'exige aucun fait particulier.
 
 Forme du `fait_manquant` : quelques mots, **en français**, repris du vocabulaire de la clause
-(« caractère subit de l'action de la chaleur », « existence d'un commencement d'incendie »,
+(« caractère violent du choc », « contact direct avec le bien »,
 « qualité de locataire de l'assuré »). Jamais une phrase, jamais une question, jamais un conseil,
 jamais une conclusion. Un seul fait par affirmation : le plus déterminant. **Au plus
 $fait_manquant_max_chars caractères** : au-delà, le code appelant ignore **tous** tes champs typés
@@ -114,8 +114,8 @@ qualités d'une clause qui, elle, vise le cas.
     fragment introuvable, reformulé ou résumé fait tomber la qualité en « non établie ». Ne cite que
     ce que les faits disent — ni la clause, ni ton raisonnement, ni une paraphrase.
 
-    Le code vérifie aussi que le fragment emploie **chacun** des mots de la qualité. « Une bougie
-    allumée est tombée sur le canapé » ne contient ni *soudain*, ni *subite*, ni *foyer* : il
+    Le code vérifie aussi que le fragment emploie **chacun** des mots de la qualité. « Un vase a
+    basculé sur le tapis » ne contient ni *violent*, ni *direct*, ni *immédiat* : il
     n'établit aucune de ces qualités, et le citer trois fois pour trois qualités différentes les fait
     toutes tomber. Un mot partagé ne suffit pas non plus : « la chaleur a agi lentement » parle bien
     de la *chaleur*, mais il dit le contraire de l'*action subite de la chaleur* — il ne l'établit
@@ -123,9 +123,9 @@ qualités d'une clause qui, elle, vise le cas.
     précisément ce qu'il faut faire préciser au client.
 
   Une qualité que tu n'as pas trouvée dans les faits déclarés n'y figure pas — ne l'infère jamais des
-  circonstances : « une bougie est tombée sur le canapé » ne dit pas que l'action de la chaleur ait
-  été *subite* au sens de la clause, et « le mobilier a brûlé » ne dit pas que la chaleur ait agi de
-  façon *subite*. Dans le doute, **ne l'y mets pas** : une qualité laissée à confirmer coûte moins
+  circonstances : « un vase a basculé sur le tapis » ne dit pas que le choc ait été *violent* au
+  sens de la clause, et « le tapis est abîmé » ne dit pas qu'il ait été atteint de façon *directe*.
+  Dans le doute, **ne l'y mets pas** : une qualité laissée à confirmer coûte moins
   cher qu'une qualité tenue pour acquise.
 
 Le code appelant fait la différence des deux listes : toute qualité exigée qui n'est pas établie —

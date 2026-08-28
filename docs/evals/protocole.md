@@ -26,7 +26,7 @@ Le plancher importe **sans diminution** :
   publié tel quel**, jamais retiré du plancher ;
 - la règle trusted (`automation/plancher.yaml` du dépôt parent) : producteur de preuve =
   **orchestrateur** (un run de builder est un diagnostic, jamais une preuve), 1 série baseline +
-  1 série finale par témoin nommé, `LIVE_BUDGET_EUR` défaut **0,50 €**, refus de budget = rouge
+  1 série finale par témoin nommé, `LIVE_BUDGET_EUR` défaut **1,00 €**, refus de budget = rouge
   chiffré sans question humaine.
 
 Chaque témoin porte plancher, `N >= 3`, numérateur, dénominateur et règle d'incident. Règles
@@ -60,24 +60,24 @@ par les témoins live (familles de formulations du golden set, série baseline).
 
 ## Budgets
 
-- Budget effectif d'un run : `min(--max-cost, LIVE_BUDGET_EUR)` ; `LIVE_BUDGET_EUR` défaut 0,50 €
-  (`server/app/config.py::live_budget_eur`). C'est **la borne dure** : appliquée avant chaque
-  appel par le client (`LlmClient.campaign_budget_eur`) et entre les exécutions par le runner,
-  acquis conservés, répétitions manquantes rouges au dénominateur.
-- **Préflight** (campagnes payantes seulement : `--repeat` ≥ 2, cache désarmé) : refus **avant le
+- `LIVE_BUDGET_EUR` (défaut **1,00 €**) est le plafond global agrégé de la campagne identifiée par
+  `LIVE_CAMPAIGN_ID`. Le ledger sous `.cache/evals/campaigns/`, verrouillé entre processus, conserve
+  le coût fournisseur réel entre invocations. Une nouvelle invocation relit donc
+  `accrued_cost_eur` ; elle ne réinitialise ni le cumul ni le compteur de séries.
+- `--max-cost` est obligatoire sous `--producer orchestrator` et reste une borne **locale par run**,
+  distincte. Le budget effectif du run est le minimum de cette borne et du reste global.
+- **Préflight** (tout run payant, cache froid compris) : refus **avant le
   premier appel** quand le **majorant de référence** — plafond par requête de production (AD-9)
   × exécutions payantes — dépasse le budget effectif. Code de sortie 4, chiffres publiés
   (`configured_budget_eur`, `accrued_cost_eur`, `refused_cost_eur`). Ce majorant est une
   référence, pas une borne du chemin évals : une exécution y reçoit le restant du plafond de run
   (AD-9) et peut coûter jusqu'à ce restant — c'est le budget effectif qui borne. Un run simple
-  adossé au cache n'est pas refusé au préflight : il reste borné par l'arrêt en cours de run et
-  par le budget de campagne du client.
+  adossé à un cache froid est donc refusé lui aussi quand son majorant dépasse une borne.
 - **En campagne** : le runner s'arrête avant l'exécution qui déborderait ; le client refuse
   l'appel qui déborderait. Les deux publient les mêmes trois chiffres. Jamais une question
   humaine.
-- Divergence documentée : la prose d'`epics.md` mentionne 1,00 € ; la règle trusted dit **0,50 €**
-  — **la règle trusted fait foi**. Relever un plafond exige la mesure de distribution que l'AC
-  demande (p50/p95/max publiés par le rapport), jamais un ajustement silencieux.
+- `automation/plancher.yaml`, `epics.md`, la copie figée produit et ce protocole convergent à
+  **1,00 €**. Relever ce plafond exige la distribution p50/p95/max, jamais un ajustement silencieux.
 
 ## Matrice baseline (série A, orchestrateur)
 
@@ -90,9 +90,10 @@ Comparées : uniquement des variantes **existantes**.
 | tier par étape (`COMPRENDRE_TIER`, `REDIGER_TIER`, `VERIFIER_TIER`) | `micro`, `reason` |
 | `RELANCE_SUR_NON_PERTINENCE` | `0`, `1` |
 
-`full_context` n'existe pas et n'est pas simulé. Chaque point de la matrice est un run
-`--repeat 3` à paramètres épinglés (les tiers actifs entrent dans `thresholds()`, donc dans
-l'identité de cache et le `run_digest`). La série est **tirée par l'orchestrateur après
+`full_context` n'existe pas et n'est pas simulé. Les points d'un même témoin partagent une seule
+identité `--series-id` et une seule phase `--series-kind baseline`; le ledger autorise au plus un
+identifiant baseline puis un identifiant final par témoin, tout en agrégeant les coûts de chaque
+invocation. Chaque point utilise `--repeat 3` à paramètres épinglés. La série est **tirée après
 passation, sur HEAD figé — jamais par le builder** ; les résultats sont consignés dans
 `docs/evals/latest.md` et `docs/tests-live.md` quel que soit le résultat.
 

@@ -24,7 +24,7 @@ from server.app.domain.retrieval import RetrievalResult
 from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, STEP_TIERS, model_for
+from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, model_for
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 
@@ -89,7 +89,7 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
     """
     t0 = time.monotonic()
     # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
-    tier = getattr(settings, "rediger_tier", None) or STEP_TIERS["rediger"]
+    tier = settings.rediger_tier
     step = StepTrace(name="rediger", tier=tier,
                      opened_block_ids=[b.block_id for b in retrieval.blocs])
     etrangers = [b.block_id for b in retrieval.blocs if index.doc_of(b.block_id) != doc_id]

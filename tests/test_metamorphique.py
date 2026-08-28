@@ -92,6 +92,40 @@ def test_lapplicabilite_est_invariante_sous_permutation() -> None:
     assert statuts_1 == statuts_2
 
 
+def test_decision_et_applicabilite_resistent_aux_reformulations() -> None:
+    """AC 4.2b : synonymes et ordre des mots ne changent pas les champs typés décisionnels."""
+    original = _corpus_synthetique()
+    reformule = [
+        claim.model_copy(update={
+            "champs": claim.champs.model_copy(update={
+                "fait_manquant": ("moment précis du fait"
+                                   if claim.champs.fait_manquant else None),
+            })
+        })
+        for claim in reversed(original)
+    ]
+    assert decider(original, ask_client_max=8).value == decider(
+        reformule, ask_client_max=8).value
+    statuts_original = sorted((a or "", r or "")
+                              for a, r in applicabilites_des_claims(original).values())
+    statuts_reformules = sorted((a or "", r or "")
+                                for a, r in applicabilites_des_claims(reformule).values())
+    assert statuts_original == statuts_reformules
+
+
+def test_controle_negatif_un_decideur_branche_sur_block_id_est_detecte() -> None:
+    """Le contrôle prouve que la permutation ferait bien rougir un branchement interdit."""
+    original = _corpus_synthetique()
+    permute = _permuter(_corpus_synthetique(), prefixe="miroir", pages=11)
+
+    def mauvais_decideur(claims: list[ClaimJugee]) -> bool:
+        return any(clause.block_id == "doc-neutre:p3:1"
+                   for claim in claims for clause in claim.clauses)
+
+    assert mauvais_decideur(original) is True
+    assert mauvais_decideur(permute) is False
+
+
 def test_une_exclusion_applicable_reste_applicable_sous_permutation() -> None:
     """La branche `non_couvert` aussi : l'exclusion qui couvre le cas le couvre sous tout renommage."""
     def _dossier(prefixe: str) -> list[ClaimJugee]:

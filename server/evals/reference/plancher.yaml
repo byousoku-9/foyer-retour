@@ -35,10 +35,11 @@ splits:
 
 budget:
   environment_variable: LIVE_BUDGET_EUR
-  default_eur: 0.50
+  default_eur: 1.00
   enforced_by:
     - anthropic_client
     - eval_runner
+    - campaign_ledger
   on_exceeded:
     status: red
     report:
@@ -62,6 +63,8 @@ regles_incident:
 imports:
   floor_4_2a:
     source: "automation/runs/20260827-181634-story-4.2a/control/floor.yaml"
+    snapshot: "floor-4.2a.yaml"
+    snapshot_digest: "c324e188682d486281515f71d43da39dab5c3f1ead68f66c0c77dddca4c3dc55"
     n_minimum: 3
     thresholds:
       offline_tests_pass_rate: 1.0
@@ -70,11 +73,13 @@ imports:
       decision_claim_rate: 1.0
   regle_trusted:
     source: "automation/plancher.yaml"
+    snapshot: "trusted-automation-plancher.yaml"
+    snapshot_digest: "d19003ddb3a4a934b21cba1b5b745de439ec327b2a3444f2428fb1ed95235f5c"
     schema_version: 2
     proof_producer: orchestrator
     baseline_per_named_witness: 1
     final_per_named_witness: 1
-    live_budget_default_eur: 0.50
+    live_budget_default_eur: 1.00
 
 temoins:
   - metric: offline_tests_pass_rate

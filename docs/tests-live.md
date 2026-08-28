@@ -3434,7 +3434,7 @@ couvert par la suite hors ligne finale : **2515 tests réussis**, Ruff et `git d
 
 Le protocole est désormais pré-enregistré **avant** toute mesure : `server/evals/reference/plancher.yaml`
 (digest inscrit dans l'identité de chaque run), splits A/B/C, budget de campagne
-(`LIVE_BUDGET_EUR`, défaut 0,50 €, budget effectif = `min(--max-cost, LIVE_BUDGET_EUR)`),
+(`LIVE_BUDGET_EUR`, défaut 1,00 €, ledger persistant identifié par `LIVE_CAMPAIGN_ID`),
 `--repeat N` sans cache avec publication complète par répétition et agrégat de stabilité
 (`{doc_id, block_id, kind, quote_hash}` + verdict côté sinistre ; statut/`found`/`complete`/label/fiches
 côté guide). Le refus de budget est un rouge chiffré (code de sortie 4), jamais une question.
@@ -3460,21 +3460,21 @@ Commande par document (orchestrateur, HEAD figé — `--repeat 3` obligatoire : 
 sous-échantillonné, ses décisions `stabilite_*` rouges, et il ne remplacerait pas le vert). Le
 fichier `<preuves-trusted.json>` est produit par l'orchestrateur à partir des tests hors ligne et,
 pour les sinistres, d'A16/`decision_claim`; sans ces mesures applicables le gate reste rouge :
-`LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --gate <doc_id> --profile vertical --repeat 3 --producer orchestrator --orchestrator-evidence <preuves-trusted.json> --max-cost 0.50`
-(relever `LIVE_BUDGET_EUR` et `--max-cost` explicitement si le préflight refuse — le refus publie
-les trois chiffres).
+`LIVE_CAMPAIGN_ID=<story-candidate-sha> LIVE_BUDGET_EUR=1.00 uv run python -m server.evals.run --gate <doc_id> --profile vertical --repeat 3 --producer orchestrator --series-kind final --series-id final-A-<temoin> --orchestrator-evidence <preuves-trusted.json> --max-cost <borne-locale>`
+(si le préflight refuse, conserver le rouge chiffré ; aucun relèvement sans distribution préalable).
 
 ### Série baseline A due (orchestrateur, post-passation)
 
-Un run par témoin nommé et par point de la matrice (`micro`/`reason` par étape via
-`COMPRENDRE_TIER`/`REDIGER_TIER`/`VERIFIER_TIER`, `RELANCE_SUR_NON_PERTINENCE` 0/1), `--repeat 3`,
-budget explicite par run :
+Une campagne par story/candidat, une seule identité baseline par témoin ; tous les points de matrice
+partagent cette identité et le même ledger persistant. `--max-cost` borne chaque run localement :
 
 ```bash
-LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --suite sinistre --case s-bougie-canape \
-  --repeat 3 --producer orchestrator --max-cost 0.50
-LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --suite guide --case g-luxtrust-prix \
-  --repeat 3 --producer orchestrator --max-cost 0.50
+LIVE_CAMPAIGN_ID=<story-candidate-sha> LIVE_BUDGET_EUR=1.00 uv run python -m server.evals.run \
+  --suite sinistre --case s-bougie-canape --repeat 3 --producer orchestrator \
+  --series-kind baseline --series-id baseline-A-s-bougie-canape --max-cost <borne-locale>
+LIVE_CAMPAIGN_ID=<story-candidate-sha> LIVE_BUDGET_EUR=1.00 uv run python -m server.evals.run \
+  --suite guide --case g-luxtrust-prix --repeat 3 --producer orchestrator \
+  --series-kind baseline --series-id baseline-A-g-luxtrust-prix --max-cost <borne-locale>
 ```
 
 Les résultats — verts ou rouges, A16 compris (0/3 publié rouge tant que 4.2a l'est) — seront

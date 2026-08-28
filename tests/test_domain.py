@@ -600,7 +600,7 @@ def test_ingest_models() -> None:
     # optionnelles pour que les gates antérieurs restent lisibles.
     assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
                                    "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash", "cases",
-                                   "countersigned", "decisions", "run_digest"}
+                                   "countersigned", "decisions", "run_digest", "pipeline_settings"}
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
     assert fields(ingest.GateDecision) == {"metric", "producer", "threshold", "scope", "n",
                                            "run_digest", "value", "status", "reason"}

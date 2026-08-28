@@ -1,57 +1,7 @@
 # Allowlist juridique de la garde anti-rustine (story 4.2b), versionnée.
 #
-# Chaque entrée autorise des occurrences précises d'un vocabulaire qui *ressemble* à un cas d'éval
-# mais qui porte une **règle générique** — jamais un branchement sur un cas. Une entrée n'est valide
-# que si elle nomme la règle générique qu'elle sert et **au moins deux cas indépendants** couverts
-# par cette règle : une « règle » qu'un seul cas exerce est une rustine déguisée.
-#
-# `tests/test_anti_rustine.py` charge ce fichier ; toute occurrence d'un motif interdit hors de ces
-# entrées fait échouer la suite (bloquant).
+# Toute future entrée devra prouver une règle générique sur au moins deux cas indépendants qui
+# portent réellement son vocabulaire. Les exemples de prompts actuels vivent hors golden set ;
+# aucune exception n'est donc nécessaire.
 schema_version: 1
-entrees:
-  - id: exemple-negatif-qualites
-    # Le prompt de *vérifier* (sinistre) enseigne la règle générique « n'infère jamais une qualité
-    # des circonstances : le fragment cité doit employer les mots de la qualité » en s'appuyant sur
-    # un contre-exemple tiré du run réel mesuré en 1.8. C'est un exemple **négatif** : il rend le
-    # cas témoin plus dur (le modèle ne peut plus auto-certifier), jamais plus facile, et la règle
-    # s'applique à toute clause à qualificatifs de tout contrat. La correspondance est stricte
-    # (revue 4.2b, HIGH 3) : chaque motif est le token exact autorisé — ni l'id `s-bougie-canape`,
-    # ni une question d'éval entière ne sont couverts par cette entrée.
-    regle_generique: >-
-      Une qualité exigée par une clause n'est établie que si le fragment des faits déclarés emploie
-      chacun de ses mots porteurs ; aucune qualité n'est inférée des circonstances.
-    fichiers:
-      - server/app/llm/prompts/verifier_sinistre.md
-    motifs:
-      - "bougie"
-      - "canapé"
-      - "allumee"
-      - "commencement"
-      - "une bougie allumee"
-      - "une bougie est"
-      - "bougie est tombee"
-      - "est tombee sur"
-    cas_independants:
-      - s-bougie-canape
-      - b-bougie-canape
-      - s-ado-baie-volontaire
-  - id: reformulation-dommage-en-clause
-    # Le prompt de *comprendre* (sinistre) enseigne « nomme le dommage subi tel que le contrat le
-    # nomme, pas l'objet ni le verbe anecdotique » avec un contre-exemple (« un meuble mâchonné par
-    # un chien appelle "dégâts mobiliers", pas "mâchonnement" ») et la question canonique de
-    # l'outil (« [ce] sinistre est-il couvert ? »). La règle vaut pour tout dommage de tout
-    # contrat ; le contre-exemple n'oriente vers aucune clause. **Réserve consignée** : le
-    # vocabulaire recoupe le témoin `s-animal-table` — l'architecte du checkpoint 4.2b doit statuer
-    # si l'exemple doit être remplacé par un dommage hors golden set au prochain re-gate.
-    regle_generique: >-
-      La reformulation d'un dommage déclaré emploie la catégorie contractuelle du dommage, jamais
-      l'objet ou le verbe anecdotique des faits ; la question canonique de l'outil est neutre.
-    fichiers:
-      - server/app/llm/prompts/comprendre_sinistre.md
-    motifs:
-      - "machonne"
-      - "sinistre est-il couvert"
-    cas_independants:
-      - s-animal-table
-      - s-bougie-canape
-      - s-contradictoire-vol
+entrees: []

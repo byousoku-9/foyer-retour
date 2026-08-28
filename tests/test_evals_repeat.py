@@ -19,7 +19,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.text import normalize
 from server.app.domain.answer import Answer, AnswerSegment, ClaimStatus, VerifiedClaim, VerifiedQuote
 from server.app.domain.document import Document, Node
-from server.app.domain.errors import LlmUnavailable
+from server.app.domain.errors import LlmUnavailable, TruncatedRead
 from server.app.domain.ingest import Gate, GateDecision, ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.evals import run as runner
@@ -248,6 +248,21 @@ def test_une_interruption_laisse_les_repetitions_manquantes_rouges_au_denominate
     assert decisions["executions_completes"]["status"] == "red"
 
 
+def test_une_lecture_tronquee_est_rouge_et_les_repetitions_continuent() -> None:
+    erreurs = []
+    for _ in range(3):
+        erreur = TruncatedRead("aucune claim après lecture bornée")
+        erreur.trace = _trace()
+        erreurs.append(erreur)
+    ctx = _contexte([])
+    ctx._guide = DoublePipeline(erreurs)  # type: ignore[attr-defined]
+    resultats = _executer(ctx, [_cas()], repeat=3)
+    assert len(resultats) == 3
+    assert [r.repetition for r in resultats] == [1, 2, 3]
+    assert all(r.label == "claim_non_soutenu" and r.http == 503 and not r.ok
+               for r in resultats)
+
+
 # --- préflight de budget (main) --------------------------------------------------------------------
 
 def _interdit(*args: Any, **kw: Any) -> Any:
@@ -269,14 +284,14 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     assert code == 4
     err = capsys.readouterr().err
     assert "refus de budget avant le premier appel" in err
-    assert "configured_budget_eur=0.2000" in err
+    assert "configured_budget_eur=1.0000" in err
     assert "accrued_cost_eur=0.0000" in err
     assert "refused_cost_eur=0.3000" in err
     rapport = json.loads((tmp_path / "refus.json").read_text(encoding="utf-8"))
     assert rapport["complete"] is False and rapport["executions_completed"] == 0
     assert rapport["preflight"] == {
         **rapport["preflight"],
-        "configured_budget_eur": 0.2,
+        "configured_budget_eur": 1.0,
         "accrued_cost_eur": 0.0,
         "refused_cost_eur": 0.3,
     }
@@ -308,7 +323,7 @@ def test_dry_run_publie_plancher_digest_et_majorant(
     sortie = capsys.readouterr().out
     assert "plancher_digest=" in sortie
     assert "majorant_estime=" in sortie
-    assert "budget_effectif=0.5000" in sortie
+    assert "budget_effectif=1.0000" in sortie
 
 
 # --- identité de run et décisions ------------------------------------------------------------------
@@ -363,6 +378,7 @@ def _gate(evals_ok: bool, **kw: Any) -> Gate:
         profile="vertical", source_hash="s", ingest_fingerprint="f", overlay_hash=None,
         cases_hash="c", cases=1, countersigned=False, pipeline_digest="pd", prompts_digest="pp",
         model_ids={}, evals_ok=evals_ok, date="2026-08-28",
+        run_digest="r" * 64,
         decisions=[GateDecision(metric="cases_ok_rate", producer="orchestrator", threshold=1.0,
                                 scope="run", n=3, run_digest="r" * 64,
                                 value=1.0 if evals_ok else 0.0,

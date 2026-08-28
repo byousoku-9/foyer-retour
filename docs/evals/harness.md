@@ -93,11 +93,11 @@ sinistre = même preuve et même verdict admissible ; guide = même statut, `fou
 et ensemble de fiches. Une répétition manquante (interruption) reste **rouge au dénominateur** et
 le rapport partiel est toujours écrit — sur tout incident, budget ou non.
 
-**Budget de campagne.** Le budget effectif d'un run est `min(--max-cost, LIVE_BUDGET_EUR)`
-(`live_budget_eur`, défaut 0,50 €, règle trusted) — c'est la **borne dure**, appliquée avant
-chaque appel par le client (`LlmClient.campaign_budget_eur`) et entre les exécutions par le
-runner, acquis conservés et répétitions manquantes rouges au dénominateur. Le préflight, lui, est
-réservé aux **campagnes payantes** (`--repeat` ≥ 2, cache désarmé) : il refuse en code 4, avant le
+**Budget de campagne.** `LIVE_BUDGET_EUR` (défaut 1,00 €) est agrégé dans un ledger persistant,
+verrouillé et identifié par `LIVE_CAMPAIGN_ID`; `--max-cost` reste la borne locale obligatoire de
+chaque run orchestrateur. Le client persiste le coût réel après chaque appel, et une invocation
+suivante repart de cet `accrued_cost_eur`. Le préflight s'applique à **tout run payant** : il refuse
+en code 4, avant le
 premier appel, quand le **majorant de référence** (plafond par requête de production × exécutions
 payantes — une référence d'estimation, pas une borne du chemin évals où chaque exécution reçoit le
 restant du run) dépasse le budget effectif, avec `configured_budget_eur`, `accrued_cost_eur` et

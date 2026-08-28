@@ -44,11 +44,6 @@ PROMPTS_DIR = APP_DIR / "llm" / "prompts"
 CASES_DIR = REPO_ROOT / "server" / "evals" / "cases"
 ALLOWLIST = REPO_ROOT / "server" / "evals" / "reference" / "allowlist-juridique.yaml"
 
-# Motifs de départ hérités de la vérification 4.2a (`verify-4.2a.toml:41`) : un branchement
-# conditionnel à moins de 80 caractères d'un token du cas témoin.
-MOTIFS_CONDITIONNELS = [
-    re.compile(r"(?i)(if|elif).{0,80}(s-bougie-canape|p34:12|bougie|canap[eé])"),
-]
 # Longueur minimale d'une formulation de question comparée (normalisée) : en dessous, une phrase
 # banale (« comment faire ? ») collisionnerait avec n'importe quel prompt.
 QUESTION_MIN_CHARS = 25
@@ -106,6 +101,50 @@ def _chaines_statiques_hors_docstrings(source: str) -> str:
         if isinstance(noeud, ast.BinOp) and isinstance(noeud.op, ast.Add):
             gauche, droite = _evaluer(noeud.left), _evaluer(noeud.right)
             return gauche + droite if gauche is not None and droite is not None else None
+        if isinstance(noeud, ast.JoinedStr):
+            morceaux: list[str] = []
+            for valeur in noeud.values:
+                cible = valeur.value if isinstance(valeur, ast.FormattedValue) else valeur
+                rendu = _evaluer(cible)
+                if rendu is None:
+                    return None
+                morceaux.append(rendu)
+            return "".join(morceaux)
+        if isinstance(noeud, (ast.List, ast.Tuple)):
+            valeurs = [_evaluer(item) for item in noeud.elts]
+            return "\0".join(valeurs) if all(v is not None for v in valeurs) else None
+        if isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Attribute):
+            base = _evaluer(noeud.func.value)
+            args = [_evaluer(arg) for arg in noeud.args]
+            if base is None or any(arg is None for arg in args):
+                return None
+            try:
+                if noeud.func.attr == "format":
+                    return base.format(*args)
+                if noeud.func.attr == "replace" and len(args) in (2, 3):
+                    return base.replace(*args)  # type: ignore[arg-type]
+                if noeud.func.attr == "join" and len(args) == 1:
+                    return base.join(args[0].split("\0"))
+            except (IndexError, KeyError, ValueError):
+                return None
+        if isinstance(noeud, ast.Subscript):
+            base = _evaluer(noeud.value)
+            if base is not None and isinstance(noeud.slice, ast.Slice):
+                def entier(valeur: ast.AST | None) -> int | None:
+                    if valeur is None:
+                        return None
+                    if isinstance(valeur, ast.Constant) and isinstance(valeur.value, int):
+                        return valeur.value
+                    if (isinstance(valeur, ast.UnaryOp) and isinstance(valeur.op, ast.USub)
+                            and isinstance(valeur.operand, ast.Constant)
+                            and isinstance(valeur.operand.value, int)):
+                        return -valeur.operand.value
+                    raise ValueError
+                try:
+                    return base[slice(entier(noeud.slice.lower), entier(noeud.slice.upper),
+                                      entier(noeud.slice.step))]
+                except ValueError:
+                    return None
         return None
 
     valeurs: list[str] = []
@@ -232,6 +271,12 @@ def _valider_entree(entree: dict) -> None:
         f"allowlist : l'entrée {entree.get('id')!r} cite des cas inexistants : {inconnus}"
     assert entree.get("fichiers"), f"allowlist : l'entrée {entree.get('id')!r} doit cibler des fichiers"
     assert entree.get("motifs"), f"allowlist : l'entrée {entree.get('id')!r} doit nommer ses motifs"
+    motifs = [normalize(str(motif)) for motif in entree["motifs"]]
+    for case_id in cas:
+        brut = yaml.safe_load(next(CASES_DIR.rglob(f"{case_id}.yaml")).read_text(encoding="utf-8"))
+        texte = normalize(f"{brut.get('question', '')} {_texte_des_faits(brut)}")
+        assert any(motif in texte for motif in motifs), \
+            f"allowlist : le cas {case_id!r} n'exerce aucun motif de l'entrée {entree.get('id')!r}"
 
 
 def _autorisee(relatif: str, token: str, allowlist: list[dict]) -> bool:
@@ -271,9 +316,16 @@ def balayer(app_dir: Path, cases_dir: Path, allowlist: list[dict],
         except ValueError:
             relatif = fichier.as_posix()
         norme = normalize(texte)
-        mots = set(norme.split())
+        tokens = re.findall(r"[a-z0-9]+", norme)
+        mots = set(tokens)
+
+        def contient_sequence(token: str) -> bool:
+            attendus = re.findall(r"[a-z0-9]+", normalize(token))
+            return bool(attendus) and any(
+                tokens[index:index + len(attendus)] == attendus
+                for index in range(len(tokens) - len(attendus) + 1))
         for token in sorted(ids | blocks):
-            if token.lower() in texte.lower() and not _autorisee(relatif, token, allowlist):
+            if contient_sequence(token) and not _autorisee(relatif, token, allowlist):
                 constats.append(f"{relatif} : identifiant d'éval {token!r} dans le runtime")
         for question in sorted(questions):
             if question in norme and not _autorisee(relatif, question, allowlist):
@@ -289,8 +341,12 @@ def balayer(app_dir: Path, cases_dir: Path, allowlist: list[dict],
             if trigramme in norme and not _autorisee(relatif, trigramme, allowlist):
                 constats.append(f"{relatif} : formulation de témoin {trigramme!r}")
         if est_code:
-            for motif in MOTIFS_CONDITIONNELS:
-                trouve = motif.search(texte)
+            motifs_conditionnels = [
+                re.compile(rf"(?i)(if|elif).{{0,80}}{re.escape(normalize(token))}")
+                for token in sorted(ids | blocks | distinctifs) if len(normalize(token)) >= 5
+            ]
+            for motif in motifs_conditionnels:
+                trouve = motif.search(norme)
                 if trouve is not None and not _autorisee(relatif, trouve.group(0), allowlist):
                     constats.append(f"{relatif} : branchement conditionnel sur un cas témoin "
                                     f"({trouve.group(0)[:80]!r})")
@@ -339,6 +395,29 @@ def test_un_identifiant_assemble_par_python_reste_detecte(tmp_path: Path) -> Non
         encoding="utf-8")
     constats = balayer(app, tmp_path / "cases", [], repo_root=tmp_path)
     assert any("s-bougie-canape" in constat for constat in constats)
+
+
+@pytest.mark.parametrize("expression", [
+    'f"s-bougie{\'-canape\'}"',
+    '"s-{}-canape".format("bougie")',
+    '"s-bougie_canape".replace("_", "-")',
+    '"epanac-eiguob-s"[::-1]',
+    'r"s-bougie.canape"',
+])
+def test_les_compositions_statiques_ne_contournent_pas_la_garde(
+        tmp_path: Path, expression: str) -> None:
+    app = tmp_path / "app"
+    (app / "steps").mkdir(parents=True)
+    (app / "steps" / "verifier.py").write_text(
+        f"CIBLE = {expression}\ndef juger(case_id):\n    return case_id == CIBLE\n",
+        encoding="utf-8")
+    cas = tmp_path / "cases" / "sinistre"
+    cas.mkdir(parents=True)
+    (cas / "s-bougie-canape.yaml").write_text(
+        "id: s-bougie-canape\nquestion: une bougie est tombée sur le canapé du salon\n",
+        encoding="utf-8")
+    assert any("identifiant d'éval" in constat
+               for constat in balayer(app, tmp_path / "cases", [], repo_root=tmp_path))
 
 
 def test_un_block_id_deval_dans_un_prompt_est_detecte(tmp_path: Path) -> None:
@@ -461,3 +540,7 @@ def test_l_allowlist_exige_regle_generique_et_deux_cas_independants() -> None:
         _valider_entree({"id": "sans-regle", "regle_generique": "  ",
                          "fichiers": ["x.md"], "motifs": ["y"],
                          "cas_independants": ["s-bougie-canape", "b-bougie-canape"]})
+    with pytest.raises(AssertionError, match="n'exerce aucun motif"):
+        _valider_entree({"id": "cas-sans-lien", "regle_generique": "une règle",
+                         "fichiers": ["x.md"], "motifs": ["bougie"],
+                         "cas_independants": ["s-bougie-canape", "s-ado-baie-volontaire"]})

@@ -174,8 +174,9 @@ def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
             assert gate[champ] == attendu, (
                 f"{doc_id} : le gate porte un {champ} qui n'est plus celui de l'image — le serveur "
                 f"le servira avec l'alerte `gate_perime` pendant que `/` annoncera son profil. "
-                f"Relancer : `LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --gate {doc_id} "
-                f"--profile vertical --repeat 3 --producer orchestrator --max-cost 0.50` (clé "
+                f"Relancer : `LIVE_CAMPAIGN_ID=<id> LIVE_BUDGET_EUR=1.00 uv run python -m "
+                f"server.evals.run --gate {doc_id} --profile vertical --repeat 3 "
+                f"--producer orchestrator --series-kind final --series-id <id> --max-cost <€>` (clé "
                 f"requise), ou déclarer la dette dans docs/tests-live.md — `gate-a-relancer: "
                 f"{doc_id} pipeline_digest={gate['pipeline_digest']}` — si le re-gate revient à "
                 f"l'orchestrateur ; l'excuse tombe dès que le gate change de digest.")

@@ -81,7 +81,6 @@ from server.app.domain.verdict import (
 )
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import STEP_TIERS
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 # Un `claim_id` produit par le modèle n'entre dans un motif que s'il ressemble à ce que le prompt
@@ -497,7 +496,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     """
     t0 = time.monotonic()
     # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
-    tier = getattr(settings, "verifier_tier", None) or STEP_TIERS["verifier"]
+    tier = settings.verifier_tier
     step = StepTrace(name="verifier", tier=tier)
     sinistre = faits is not None
 
@@ -929,7 +928,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
              "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
     content = "\n\n".join(parts)
     try:
-        result = await client.parse(tier=getattr(settings, "verifier_tier", None) or STEP_TIERS["verifier"],
+        result = await client.parse(tier=step.tier,
                                     system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}],
                                     output_model=SortieVerifierSinistre if sinistre else SortieVerifier,

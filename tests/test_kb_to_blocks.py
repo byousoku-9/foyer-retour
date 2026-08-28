@@ -134,7 +134,9 @@ def test_manifest_merge_keeps_other_docs_and_existing_gate(data_dir: Path) -> No
     # Story 4.2b : `Gate` porte deux champs optionnels de plus (`decisions`, `run_digest`) ; la
     # revalidation du manifest les matérialise à leurs défauts sans rien changer au gate certifié.
     assert m["autre-doc"] == other
-    assert m["lux-guide"]["gate"] == {**gate, "decisions": [], "run_digest": None}
+    assert m["lux-guide"]["gate"] == {
+        **gate, "decisions": [], "run_digest": None, "pipeline_settings": {},
+    }
     assert m["lux-guide"]["status"] == "servi"
 
 

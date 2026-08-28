@@ -72,7 +72,7 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError
+from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
 from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
@@ -85,6 +85,7 @@ from server.app.pipelines import sinistre as pipeline_sinistre
 from server.app.pipelines.guide import VARIANTS as VARIANTES_GUIDE
 from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
+from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.plancher import ChargePlancher, PlancherInvalide, charger_plancher
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
@@ -95,7 +96,10 @@ MANIFEST = "manifest.json"
 # (chargé et figé par `server/evals/plancher.py`, digest dans l'identité de run) et l'allowlist
 # juridique de la garde anti-rustine (`tests/test_anti_rustine.py`). Ce ne sont pas des compagnons
 # de cas : `charger_references` les ignore, leurs autorités et leurs digests sont ailleurs.
-PROTOCOLE_FILES = frozenset({"plancher.yaml", "allowlist-juridique.yaml"})
+PROTOCOLE_FILES = frozenset({
+    "plancher.yaml", "allowlist-juridique.yaml", "floor-4.2a.yaml",
+    "trusted-automation-plancher.yaml",
+})
 
 # AD-14, mot pour mot : « labels fixes ». Un vocabulaire qu'une story élargit n'est plus fixe — ce
 # qu'ils ne couvrent pas s'appelle `ecarts` et ne porte pas de nom de label (D2).
@@ -1119,7 +1123,9 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
 
 def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
                  variant: str | None, references_digest: str | None = None,
-                 plancher_digest: str | None = None, repeat: int = 1) -> dict[str, Any]:
+                 plancher_digest: str | None = None, repeat: int = 1,
+                 campaign_id: str | None = None, series_kind: str | None = None,
+                 series_id: str | None = None) -> dict[str, Any]:
     """Identité publiable de l'image mesurée et du périmètre exact du run.
 
     Les digests de namespace par cas englobent aussi document, dictionnaire, seuils et entrée. Ils
@@ -1162,6 +1168,9 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
             "suites": sorted({c.suite for c in cas}),
             "variants": variantes,
             "references_digest": references_digest,
+            "campaign_id": campaign_id,
+            "series_kind": series_kind,
+            "series_id": series_id,
         },
         "documents": dict(sorted(documents.items())),
         "cache_namespace_digests": namespaces,
@@ -1377,7 +1386,27 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                     latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
             except PipelineError as exc:
                 cout_engage = exc.eval_cost_eur
-                cout_total = round(cumul + cout_engage, 4)
+                cout_total = cumul + cout_engage
+                if isinstance(exc, TruncatedRead):
+                    trace = exc.trace
+                    resultat = Resultat(
+                        id=c.id, suite=c.suite, label="claim_non_soutenu",
+                        variant=(trace.variant if trace is not None else variante),
+                        ecarts=[f"lecture tronquée : {exc.message}"], cost_eur=cout_engage,
+                        cost_eur_original=(_cout_original(trace) if trace is not None else 0.0),
+                        ms=int((time.monotonic() - depart) * 1000), found=False,
+                        expected_found=c.expected.found,
+                        expected_block_ids=list(c.expected.block_ids),
+                        expected_fiche_ids=list(c.expected.fiche_ids), repetition=repetition,
+                        doc_id=doc_id, complete=False,
+                        reason_kind="lecture_tronquee",
+                        opened_block_ids=(_blocs_ouverts(trace) if trace is not None else []),
+                        steps=(_etapes(trace) if trace is not None else []),
+                        http=HTTP_STATUS[exc.code])
+                    resultats.append(resultat)
+                    cumul = cout_total
+                    _ligne(resultat, sortie, repeat=repeat)
+                    continue
                 if exc.code is ErrorCode.budget_exceeded:
                     # Le plafond atteint pendant un cas est le même rouge que l'arrêt avant le
                     # suivant, vu une étape plus tôt.
@@ -1529,6 +1558,11 @@ def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
         raisons: list[str] = []
         if len(reps) < repeat:
             raisons.append(f"répétitions manquantes : {repeat - len(reps)} sur {repeat}")
+        numeros = {r.repetition for r in reps}
+        attendus = set(range(1, repeat + 1))
+        if numeros != attendus:
+            raisons.append(
+                f"numéros de répétition invalides : {sorted(numeros)}, attendus {sorted(attendus)}")
         if signatures and any(s != signatures[0] for s in signatures[1:]):
             raisons.append("signatures divergentes entre répétitions")
         c = par_cas.get(case_id)
@@ -1668,11 +1702,11 @@ def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher:
 
     ok = sum(1 for r in resultats if r.ok)
     _decision("cases_ok_rate", value=(ok / planifiees) if planifiees else 0.0,
-              n=planifiees, scope="run")
+              n=repeat, scope="run")
     # LOW 13 : le seuil d'`executions_completes` vit dans le plancher, jamais en dur ici.
     _decision("executions_completes",
               value=round((planifiees - manquantes) / planifiees, 4) if planifiees else 0.0,
-              n=planifiees, scope="run")
+              n=repeat, scope="run")
     stabilite = agreger_stabilite(resultats, cas, repeat=repeat, non_executes=non_executes)
     for metric, prefixe in (("stabilite_sinistre", "sinistre"), ("stabilite_guide", "guide")):
         taux = _taux_stabilite(stabilite, prefixe)
@@ -1739,10 +1773,17 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
     sinistres_planifies = len(sinistres) + sum(
         1 for c in manquants_cas if c.suite.startswith("sinistre"))
     cout_interrompu = max(0.0, round(cout_total - cout_cas_termines, 4))
-    couts = sorted([r.cost_eur for r in resultats]
-                   + ([cout_interrompu] if cout_interrompu > 0 else []))
-    latences = sorted([r.ms for r in resultats]
-                      + ([stop_latency_ms] if stop_latency_ms is not None else []))
+    couts_observes = ([r.cost_eur for r in resultats]
+                      + ([cout_interrompu] if cout_interrompu > 0 else []))
+    couts = sorted(couts_observes + [0.0] * max(0, executions_planifiees - len(couts_observes)))
+    latences_observees = ([r.ms for r in resultats]
+                          + ([stop_latency_ms] if stop_latency_ms is not None else []))
+    latences = sorted(latences_observees
+                      + [0] * max(0, executions_planifiees - len(latences_observees)))
+    repetitions_par_cas = {
+        c.id: {r.repetition for r in resultats if r.id == c.id}
+        for c in cas
+    }
 
     def _p95(valeurs: list[Any]) -> Any:
         return valeurs[max(0, math.ceil(0.95 * len(valeurs)) - 1)] if valeurs else 0
@@ -1762,7 +1803,8 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
         "unexecuted_cases": manquantes_ids,
         "cases_hash": snapshot.cases_hash,
         "cases_planned": len(cas),
-        "cases_completed": len({r.id for r in resultats}),
+        "cases_completed": sum(
+            1 for c in cas if repetitions_par_cas[c.id] == set(range(1, repeat + 1))),
         "repeat": repeat,
         "executions_planned": executions_planifiees,
         "executions_completed": len(resultats),
@@ -1774,8 +1816,9 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
             "labels": labels,
             "variants": variants,
             "recall": _recall(resultats, manquants_cas),
-            "average_cost_eur": round(statistics.mean(couts), 4) if couts else 0.0,
-            "latency_p50_ms": int(statistics.median(r.ms for r in resultats)) if resultats else 0,
+            "average_cost_eur": round(cout_total / executions_planifiees, 4)
+            if executions_planifiees else 0.0,
+            "latency_p50_ms": int(statistics.median(latences)) if latences else 0,
             # Story 4.2b : la comparaison majorant estimé vs coût réel exige la queue de la
             # distribution, pas seulement la médiane (reprises différées 1.8/1.9).
             "cost_p50_eur": round(statistics.median(couts), 4) if couts else 0.0,
@@ -1943,7 +1986,7 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
         cases_hash=snapshot.cases_hash, cases=len(cas),
         countersigned=all(c.truth.countersigned_by is not None for c in cas),
         pipeline_digest=ctx.pipeline_digest_hex, prompts_digest=ctx.prompts_digest_hex,
-        model_ids=dict(TIERS), evals_ok=evals_ok,
+        model_ids=dict(TIERS), pipeline_settings=ctx.settings.thresholds(), evals_ok=evals_ok,
         decisions=list(decisions or []), run_digest=run_digest,
         date=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"))
 
@@ -2121,7 +2164,9 @@ def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
 
 def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | None = None,
                         pile: Any = None, cache_dir: Path | None = None,
-                        campaign_budget_eur: float | None = None) -> Contexte:
+                        campaign_budget_eur: float | None = None,
+                        campaign_accrued_eur: float = 0.0,
+                        campaign_cost_recorder: Any = None) -> Contexte:
     """Corpus, index et client — le même assemblage qu'`api/etat.construire_etat` (AD-7, AD-9).
 
     `allow_ungated=True` **toujours**, et ce n'est pas une dérogation : c'est ce runner qui écrit le
@@ -2145,7 +2190,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     document, et pour la lecture seulement, il est traité comme absent.
     """
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS))
+                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
     lecture = data_dir
     if regate is not None and pile is not None:
         entree_brute = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8")) \
@@ -2155,6 +2200,12 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
         gate_a_refaire = False
         if isinstance(brut_gate, dict):
             gate_a_refaire = brut_gate.get("evals_ok") is False
+            if (not gate_a_refaire and brut_gate.get("profile") == "full"
+                    and (brut_gate.get("pipeline_digest"), brut_gate.get("prompts_digest"),
+                         brut_gate.get("model_ids"), brut_gate.get("pipeline_settings", {})) != (
+                         contexte_gate.pipeline_digest, contexte_gate.prompts_digest,
+                         contexte_gate.model_ids, contexte_gate.pipeline_settings)):
+                gate_a_refaire = True
             if not gate_a_refaire:
                 try:
                     Gate.model_validate(brut_gate)
@@ -2173,7 +2224,9 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     response_cache = PersistentResponseCache(cache_dir) if cache_dir is not None else None
     return Contexte(settings=settings, index=Index(corpus),
                     client=LlmClient(settings, cache=response_cache,
-                                     campaign_budget_eur=campaign_budget_eur),
+                                     campaign_budget_eur=campaign_budget_eur,
+                                     campaign_accrued_eur=campaign_accrued_eur,
+                                     campaign_cost_recorder=campaign_cost_recorder),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest,
                     # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
@@ -2185,7 +2238,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
 def construire_contexte_parsing(settings: Settings, data_dir: Path) -> Contexte:
     """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit."""
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS))
+                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
     corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
                          raison_max_chars=settings.raison_publiable_max_chars)
@@ -2257,6 +2310,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--producer", choices=("builder", "orchestrator"), default="builder",
                    help="qui produit ce run : la règle trusted ne reconnaît que l'orchestrateur "
                         "comme producteur de preuve ; un run de builder est un diagnostic")
+    p.add_argument("--series-kind", choices=("baseline", "final"),
+                   help="phase de la série orchestrateur ; obligatoire avec --producer orchestrator")
+    p.add_argument("--series-id",
+                   help="identité stable partagée par les points d'une même série orchestrateur")
     p.add_argument("--orchestrator-evidence", type=Path,
                    help="mesures externes trusted (tests hors ligne, A16, decision_claim) ; "
                         "réservé à --producer orchestrator et --gate")
@@ -2310,6 +2367,12 @@ def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Ferme toujours les ressources persistantes, quel que soit le code de sortie de la CLI."""
+    with ExitStack() as lifecycle:
+        return _main(argv, lifecycle=lifecycle)
+
+
+def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
     args = _parser().parse_args(argv)
     sortie = sys.stdout
     cas: list[Cas] = []
@@ -2321,11 +2384,24 @@ def main(argv: list[str] | None = None) -> int:
     decisions_orchestrateur: list[GateDecision] = []
     references = ReferencesSnapshot(empreinte_canonique([]))
     reference_dir = args.cases_dir.parent / "reference"
+    campaign: CampaignLedger | None = None
+
+    def noter_campaign(status: str) -> None:
+        if campaign is not None:
+            campaign.record_run(
+                run_digest=(str(run_identity.get("run_digest")) if run_identity else None),
+                status=status)
     try:
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
                         cases_dir=args.cases_dir, reference_dir=reference_dir,
                         data_dir=args.data_dir, cache_dir=cache_dir)
-        settings = Settings()
+        try:
+            settings = Settings()
+        except ValidationError as exc:
+            premier = exc.errors()[0]
+            champ = ".".join(str(p) for p in premier.get("loc", ())) or "configuration"
+            raise RefusDeTourner(
+                f"configuration invalide ({champ}) : {premier.get('msg', '')}") from exc
         max_cost = settings.evals_max_cost_eur if args.max_cost is None else args.max_cost
         if not math.isfinite(max_cost) or max_cost <= 0:
             # `argparse(type=float)` accepte « inf » et « nan », et `nan <= 0` est **faux** : sans
@@ -2338,22 +2414,36 @@ def main(argv: list[str] | None = None) -> int:
         # Story 4.2b : le protocole précède toute mesure. Sans plancher chargé — donc sans digest —
         # aucun run ne part : il n'y aurait rien contre quoi comparer le résultat.
         try:
-            charge_plancher = charger_plancher()
+            charge_plancher = charger_plancher(producer=args.producer)
         except PlancherInvalide as exc:
             raise RefusDeTourner(str(exc)) from exc
         if args.repeat > charge_plancher.plancher.series.max_repeat:
             raise RefusDeTourner(
                 f"--repeat {args.repeat} dépasse la borne pré-enregistrée "
                 f"{charge_plancher.plancher.series.max_repeat}")
+        if args.producer == "orchestrator":
+            if args.max_cost is None:
+                raise RefusDeTourner(
+                    "--producer orchestrator exige --max-cost explicite (borne locale par run)")
+            if args.repeat < charge_plancher.plancher.n_minimum:
+                raise RefusDeTourner(
+                    f"--producer orchestrator exige --repeat >= "
+                    f"{charge_plancher.plancher.n_minimum}")
+            if not args.dry_run and (args.series_kind is None or not args.series_id):
+                raise RefusDeTourner(
+                    "--producer orchestrator exige --series-kind et --series-id")
+            if not args.dry_run and not settings.live_campaign_id:
+                raise RefusDeTourner(
+                    "--producer orchestrator exige LIVE_CAMPAIGN_ID : preuve non vérifiable")
+        elif args.series_kind is not None or args.series_id is not None:
+            raise RefusDeTourner(
+                "--series-kind/--series-id sont réservés à --producer orchestrator")
         if args.orchestrator_evidence is not None:
             if args.producer != "orchestrator" or args.gate is None:
                 raise RefusDeTourner(
                     "--orchestrator-evidence exige --producer orchestrator et --gate")
             decisions_orchestrateur = charger_decisions_orchestrateur(
                 args.orchestrator_evidence, plancher=charge_plancher)
-        # Budget effectif de campagne : min(--max-cost, LIVE_BUDGET_EUR). La règle trusted fait
-        # foi — 0,50 € par défaut, surchargé par l'environnement, jamais relevé en silence.
-        budget_effectif = round(min(max_cost, settings.live_budget_eur), 4)
         # 1. Le profil, avant tout le reste.
         if args.profile not in PROFILS_LIVRES:
             raise RefusDeTourner(f"profil `{args.profile}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
@@ -2424,6 +2514,26 @@ def main(argv: list[str] | None = None) -> int:
             c.suite == "guide" for c in cas) else None
         references_digest = references.digest if references_du_run else None
         snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
+        accrued_cost_eur = 0.0
+        if args.producer == "orchestrator" and not args.dry_run:
+            try:
+                campaign = lifecycle.enter_context(CampaignLedger(
+                    cache_dir / "campaigns",
+                    campaign_id=str(settings.live_campaign_id),
+                    budget_eur=settings.live_budget_eur))
+                max_series = (charge_plancher.plancher.series.baseline_per_named_witness
+                              if args.series_kind == "baseline"
+                              else charge_plancher.plancher.series.final_per_named_witness)
+                campaign.register_series(
+                    kind=args.series_kind, series_id=str(args.series_id),
+                    witnesses=[c.id for c in cas], max_series=max_series)
+                accrued_cost_eur = campaign.accrued_cost_eur
+            except CampaignLedgerError as exc:
+                raise RefusDeTourner(str(exc)) from exc
+        budget_restant_global = max(settings.live_budget_eur - accrued_cost_eur, 0.0)
+        # Deux bornes distinctes : `--max-cost` limite ce run ; le ledger limite la campagne.
+        # Aucun arrondi ne peut transformer un petit budget positif en zéro silencieux.
+        budget_effectif = min(max_cost, budget_restant_global)
         # Story 4.2b — préflight : le majorant de la campagne est estimé **avant le premier appel**
         # (agrégat du majorant par requête d'AD-9, `max_cost_eur_per_request`, sur les exécutions
         # payantes). Une campagne payante (`--repeat` ≥ 2 : cache désarmé, chaque exécution est
@@ -2432,10 +2542,14 @@ def main(argv: list[str] | None = None) -> int:
         executions_payantes = sum(1 for c in cas if c.suite != "parsing") * args.repeat
         majorant_estime = estimate_run_majorant(executions_payantes, settings)
         preflight = {
-            "configured_budget_eur": budget_effectif,
-            "accrued_cost_eur": 0.0,
+            "campaign_id": settings.live_campaign_id,
+            "series_kind": args.series_kind,
+            "series_id": args.series_id,
+            "configured_budget_eur": settings.live_budget_eur,
+            "accrued_cost_eur": accrued_cost_eur,
             "live_budget_eur": settings.live_budget_eur,
             "max_cost_eur": max_cost,
+            "effective_run_budget_eur": budget_effectif,
             "majorant_estime_eur": majorant_estime,
             "refused_cost_eur": majorant_estime,
             "executions_payantes": executions_payantes,
@@ -2452,7 +2566,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"majorant_estime={majorant_estime:.4f} EUR "
                   f"budget_effectif={budget_effectif:.4f} EUR", file=sortie)
             return 0
-        if args.repeat > 1 and majorant_estime > budget_effectif:
+        if executions_payantes and majorant_estime > budget_effectif:
             non_executes = [
                 c.id if args.repeat == 1 else f"{c.id}#r{repetition}"
                 for c in cas for repetition in range(1, args.repeat + 1)
@@ -2473,6 +2587,9 @@ def main(argv: list[str] | None = None) -> int:
                     "suites": sorted({c.suite for c in cas}),
                     "variants": {c.id: variante_du_cas(c, args.variant) for c in cas},
                     "references_digest": references_digest,
+                    "campaign_id": settings.live_campaign_id,
+                    "series_kind": args.series_kind,
+                    "series_id": args.series_id,
                 },
                 "documents": {},
                 "cache_namespace_digests": {},
@@ -2489,12 +2606,15 @@ def main(argv: list[str] | None = None) -> int:
                 decisions_orchestrateur=decisions_orchestrateur)
             ecrire_rapports(rapport_refus, output_json, output_markdown)
             print("refus de budget avant le premier appel : "
-                  f"configured_budget_eur={budget_effectif:.4f} "
-                  "accrued_cost_eur=0.0000 "
+                  f"configured_budget_eur={settings.live_budget_eur:.4f} "
+                  f"accrued_cost_eur={accrued_cost_eur:.4f} "
                   f"refused_cost_eur={majorant_estime:.4f} "
                   f"({executions_payantes} exécutions payantes × majorant par requête) — "
                   "rouge chiffré, rapport écrit, acquis conservés, manifest non modifié",
                   file=sys.stderr)
+            if campaign is not None:
+                campaign.record_run(
+                    run_digest=str(identite_refus["run_digest"]), status="budget_refused")
             return 4
         # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
@@ -2505,11 +2625,24 @@ def main(argv: list[str] | None = None) -> int:
                 # ni la stabilité ni le coût (story 4.2b).
                 ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
                                           cache_dir=None if args.repeat > 1 else cache_dir,
-                                          campaign_budget_eur=budget_effectif)
-            run_identity = identite_run(
-                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
-                references_digest=references_digest,
-                plancher_digest=charge_plancher.digest, repeat=args.repeat)
+                                          campaign_budget_eur=(settings.live_budget_eur
+                                                               if campaign is not None
+                                                               else budget_effectif),
+                                          campaign_accrued_eur=accrued_cost_eur,
+                                          campaign_cost_recorder=(campaign.record_cost
+                                                                  if campaign is not None else None))
+            try:
+                run_identity = identite_run(
+                    cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
+                    references_digest=references_digest,
+                    plancher_digest=charge_plancher.digest, repeat=args.repeat,
+                    campaign_id=settings.live_campaign_id, series_kind=args.series_kind,
+                    series_id=args.series_id)
+            except Exception:
+                fermer = getattr(ctx.client, "aclose", None)
+                if fermer is not None:
+                    asyncio.run(fermer())
+                raise
             # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
             # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
             # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
@@ -2520,6 +2653,7 @@ def main(argv: list[str] | None = None) -> int:
                 variant=args.variant, repeat=args.repeat))
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
+        noter_campaign("refused")
         return 2
     except IncidentTechnique as exc:
         # AD-16 : l'échec est terminal et **dit**. Le manifest n'a pas été touché.
@@ -2542,9 +2676,11 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
                 print(f"incident de rapport partiel : {type(rapport_exc).__name__}: {rapport_exc} "
                       "— manifest non modifié", file=sys.stderr)
+                noter_campaign("incident_report")
                 return 3
         print(f"incident : {exc} — manifest non modifié (un incident n'est pas un verdict)",
               file=sys.stderr)
+        noter_campaign("incident")
         return 3
     except Exception as exc:  # noqa: BLE001 — voir ci-dessous
         # Tout le reste (`TypeError` d'une signature qui a bougé, `KeyError`, `OSError`) sortait en
@@ -2553,6 +2689,7 @@ def main(argv: list[str] | None = None) -> int:
         # manifest intact, et la trace part sur stderr pour être diagnosticable.
         traceback.print_exc()
         print(f"incident : {type(exc).__name__}: {exc} — manifest non modifié", file=sys.stderr)
+        noter_campaign("internal")
         return 3
     try:
         resume(resultats, max_cost_eur=budget_effectif, sortie=sortie)
@@ -2569,6 +2706,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques
         print(f"incident de rapport : {type(exc).__name__}: {exc} — manifest non modifié",
               file=sys.stderr)
+        noter_campaign("incident_report")
         return 3
     tous_ok = all(r.ok for r in resultats)
     if args.gate:
@@ -2610,7 +2748,9 @@ def main(argv: list[str] | None = None) -> int:
                   "`truth.countersigned_by` n'est pas rempli, et le gate devra être relancé",
                   file=sys.stderr)
     gate_ok = not args.gate or (gate_ecrit and gate.evals_ok)
-    return 0 if tous_ok and gate_ok else 1
+    code = 0 if tous_ok and gate_ok else 1
+    noter_campaign("green" if code == 0 else "red")
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover — point d'entrée
