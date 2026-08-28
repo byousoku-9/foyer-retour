@@ -86,7 +86,7 @@ Comparées : uniquement des variantes **existantes**.
 | Axe | Valeurs |
 |---|---|
 | variante guide | `outils` (défaut), `deterministe` |
-| variante sinistre | `deterministe` |
+| variante sinistre | `outils` (défaut), `deterministe` |
 | tier par étape (`COMPRENDRE_TIER`, `REDIGER_TIER`, `VERIFIER_TIER`) | `micro`, `reason` |
 | `RELANCE_SUR_NON_PERTINENCE` | `0`, `1` |
 
