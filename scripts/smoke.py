@@ -669,22 +669,27 @@ def verifier_sinistre(corps: Any, *, cas: CasTemoin, source_hash: str) -> list[s
         # (`schemas.py` : str) : sa forme est validée, sa valeur exacte (`verifiee`) appartient au
         # prédicat lui-même.
         illisibles: list[str] = []
+        # Recheck tour 2 (I1) : `isinstance(..., str)` précède **tout** test de vocabulaire — une
+        # liste ou un objet JSON dans `kind` ou `applicable` est un écart nommé, jamais un
+        # TypeError (l'appartenance à un frozenset lèverait sur une valeur non hashable).
         for rang, source in enumerate(sources):
+            kind = source.get("kind") if isinstance(source, dict) else None
             if not (isinstance(source, dict)
                     and isinstance(source.get("block_id"), str) and source["block_id"].strip()
-                    and source.get("kind") in KINDS_DE_BLOC
+                    and isinstance(kind, str) and kind in KINDS_DE_BLOC
                     and isinstance(source.get("kind_confirmed"), bool)
                     and isinstance(source.get("status"), str) and source["status"].strip()):
                 illisibles.append(f"sources[{rang}]")
         for rang, claim in enumerate(claims):
             status = claim.get("status") if isinstance(claim, dict) else None
             quotes = claim.get("quotes") if isinstance(claim, dict) else None
+            applicable = status.get("applicable") if isinstance(status, dict) else None
             if not (isinstance(claim, dict)
                     and isinstance(status, dict)
                     and isinstance(status.get("retrouvee"), bool)
                     and isinstance(status.get("pertinente"), bool)
-                    and (status.get("applicable") is None
-                         or status.get("applicable") in APPLICABLES)
+                    and (applicable is None
+                         or (isinstance(applicable, str) and applicable in APPLICABLES))
                     and isinstance(quotes, list) and quotes
                     and all(isinstance(quote, dict)
                             and isinstance(quote.get("block_id"), str)

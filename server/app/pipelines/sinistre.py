@@ -163,13 +163,15 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
     fusionnés et dédupliqués, limites acquises d'abord. `Answer.unknown` est rempli depuis les
     seuls segments `limite` (AD-4) : perdre une limite acquise que la relance ne répète pas
     abaisserait `nb_manques` avant la dominance et ferait passer pour plus complète une réponse qui
-    a oublié une réserve. La place des limites de la première ébauche est donc **réservée
+    a oublié une réserve. La place des limites **acquises** — celles de `acquise.unknown`,
+    l'autorité AD-4 de ce qui a survécu au contrôle (recheck tour 2, N1) — est donc **réservée
     structurellement** : les corrections de la relance ne peuvent pas saturer
     `draft_max_segments` au point d'en chasser une — l'appelant refuse d'ailleurs de lancer la
-    relance quand acquis + limites + une correction ne tiennent pas sous la borne
-    (`relance_sans_place_pour_les_limites`). Seules les limites **nouvelles** de la relance peuvent
-    encore être bornées, et c'est tracé (`limites_non_reconduites`). La seconde vérification relit
-    ensuite tout ce résultat et la dominance reste l'autorité d'adoption.
+    relance quand acquis + limites acquises + une correction ne tiennent pas sous la borne
+    (`relance_sans_place_pour_les_limites`). Une limite du draft rejetée par le contrôle n'est ni
+    réservée ni reconduite ; seules les limites **nouvelles** de la relance peuvent encore être
+    bornées, et c'est tracé (`limites_non_reconduites`). La seconde vérification relit ensuite
+    tout ce résultat et la dominance reste l'autorité d'adoption.
     """
     acquis_ids = {claim.claim_id for claim in acquise.claims}
     claims: list[Claim] = [claim for claim in draft.claims if claim.claim_id in acquis_ids]
@@ -185,15 +187,18 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
                 return candidate
         raise ValueError("aucun identifiant de claim libre sous la borne de rédaction")
 
-    # La borne effective des factuels réserve la place des limites de la première ébauche : une
-    # correction de plus ne vaut jamais une réserve acquise de moins. Les acquis eux-mêmes ne sont
-    # jamais rognés par cette réserve (une première ébauche légale tenait déjà claims + limites
-    # sous `draft_max_segments`).
-    limites_du_draft = {s.text.strip() for s in draft.segments
-                        if s.kind == "limite" and s.text.strip()}
+    # La borne effective des factuels réserve la place des limites **acquises** : une correction de
+    # plus ne vaut jamais une réserve acquise de moins. Recheck tour 2 (N1) : les limites acquises
+    # se dérivent de `acquise.unknown` — l'autorité AD-4 de ce qui a survécu au contrôle —, jamais
+    # du draft brut : une limite rejetée (`soutenu=false`) n'est ni réservée ni ressuscitée. Les
+    # textes d'`unknown` sont déjà normalisés à la source (`_rattacher_claims_sinistre`, B2) : la
+    # multiplicité comparée par `nb_manques` est stable des deux côtés. Les acquis eux-mêmes ne
+    # sont jamais rognés par cette réserve (une première ébauche légale tenait déjà claims +
+    # limites sous `draft_max_segments`).
+    limites_acquises = {u.strip() for u in acquise.unknown if u.strip()}
     borne_factuels = max(len(claims),
                          min(settings.draft_max_claims,
-                             settings.draft_max_segments - len(limites_du_draft)))
+                             settings.draft_max_segments - len(limites_acquises)))
 
     ecartees = 0
     for claim in relance.claims:
@@ -229,9 +234,12 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
     factuels = [AnswerSegment(text=claim.text, kind="factuel", claim_ids=[claim.claim_id])
                 for claim in claims]
     place = settings.draft_max_segments - len(factuels)
-    # Limites d'abord — celles de la première ébauche avant celles de la relance —, transitions
-    # ensuite : sous une place bornée, une réserve vaut plus qu'une liaison.
-    par_priorite = ([s for s in draft.segments if s.kind == "limite"]
+    # Limites d'abord — les acquises (celles d'`unknown`) avant les nouvelles de la relance —,
+    # transitions ensuite : sous une place bornée, une réserve vaut plus qu'une liaison. Une
+    # limite du draft **rejetée** par le contrôle (`soutenu=false`, absente d'`unknown`) n'est pas
+    # reconduite : la fusion ne ressuscite pas ce que la vérification a écarté (N1).
+    par_priorite = ([s for s in draft.segments
+                     if s.kind == "limite" and s.text.strip() in limites_acquises]
                     + [s for s in relance.segments if s.kind == "limite"]
                     + [s for s in relance.segments if s.kind == "transition"]
                     + [s for s in draft.segments if s.kind == "transition"])
@@ -533,8 +541,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # dominance. Elle n'est pas lancée : l'état est nommé, la réponse acquise — limites
             # comprises — est servie avec la lacune de relance abandonnée, jamais donnée pour
             # complète. La dominance ne voit ainsi jamais un candidat amputé.
-            limites_acquises = {s.text.strip() for s in draft.segments
-                                if s.kind == "limite" and s.text.strip()}
+            # Recheck tour 2 (N1) : les limites **acquises** sont celles de `Verification.unknown`
+            # — l'autorité AD-4 de ce qui a survécu au contrôle —, jamais celles du draft brut :
+            # une limite rejetée (`soutenu=false`) ne compte pas, et ne peut plus interdire à tort
+            # une relance qui tient réellement sous la borne.
+            limites_acquises = [u.strip() for u in verification.unknown if u.strip()]
             if len(verification.claims) + 1 + len(limites_acquises) > settings.draft_max_segments:
                 step_verifier.checks.append(CheckResult(
                     name="relance_sans_place_pour_les_limites", ok=False,

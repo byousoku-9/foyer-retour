@@ -109,8 +109,22 @@ def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[
     factuels = [AnswerSegment(text=par_id[cid].text.strip(), kind="factuel", claim_ids=[cid])
                 for cid in ordre]
     place = settings.draft_max_segments - len(factuels)
-    non_factuels = [AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[])
-                    for segment in draft.segments if segment.kind != "factuel"][:place]
+    # Recheck Codex 4.2a (B2, tour 2) : les segments non factuels sont **normalisés une seule
+    # fois, ici, avant la première `Verification`** — deux limites byte-identiques ne disent pas
+    # deux réserves. `nb_manques` devient ainsi une métrique stable des deux côtés de la dominance
+    # (première vérification, fusion de relance, seconde vérification passent toutes par cette
+    # même projection) : aucune déduplication ultérieure ne peut plus l'abaisser artificiellement.
+    vus_non_factuels: set[tuple[str, str]] = set()
+    non_factuels: list[AnswerSegment] = []
+    for segment in draft.segments:
+        if segment.kind == "factuel":
+            continue
+        cle = (segment.kind, segment.text.strip())
+        if cle in vus_non_factuels:
+            continue
+        vus_non_factuels.add(cle)
+        non_factuels.append(AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[]))
+    non_factuels = non_factuels[:place]
     segments = [*factuels, *non_factuels]
     claims = ([claim for claim in draft.claims if claim.claim_id not in set(hors_borne)]
               if hors_borne else draft.claims)

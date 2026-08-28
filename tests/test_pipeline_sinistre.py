@@ -168,7 +168,8 @@ QUALITES_FIDELES = ([SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN), (SUBITE, FR
 
 
 def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True,
-              facettes: list[list[str]] | None = None) -> dict:
+              facettes: list[list[str]] | None = None,
+              segments: dict[int, bool] | None = None) -> dict:
     """`(claim_id, pertinente, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
     éventuellement suivi de `(qualites_exigees, qualites_etablies)` — revue Codex 1.8 (B3).
 
@@ -197,7 +198,9 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True,
                       for entree in entrees],
         "facettes": [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(
             facettes if facettes is not None else [[c for c, p, *_ in entrees if p]])],
-        "segments": [{"segment": i, "soutenu": True} for i in range(nb_segments)],
+        "segments": [{"segment": i, "soutenu": ok}
+                      for i, ok in sorted(({i: True for i in range(nb_segments)}
+                                           | (segments or {})).items())],
         "applicabilite": applicabilite}))
 
 
@@ -1015,6 +1018,62 @@ async def test_la_reproduction_codex_deux_acquis_bornes_et_une_limite_reste_enti
                for step in trace.steps for check in step.checks)
 
 
+async def test_une_limite_rejetee_ne_bloque_pas_la_relance_fondatrice(index: Index) -> None:
+    """Recheck Codex tour 2 (N1) : les limites acquises se dérivent de `Verification.unknown`.
+
+    La limite initiale est rejetée par le contrôle (`soutenu=false`) : elle n'a **pas** survécu,
+    ne compte pas dans le pré-contrôle et libère sa place — la relance fondatrice qui tient
+    réellement sous `draft_max_segments=3` part et aboutit. La fusion ne la ressuscite pas.
+    """
+    limite = "Le contrat ne précise pas la franchise applicable."
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=["définition du bien", "condition d'occupation"]),
+        _rediger_avec_limites(DEF, COND, limites=[limite]),
+        _verifier(("c2", True, False, False, False, None),
+                  ("c5", True, False, False, False, "occupation permanente du bien"),
+                  facettes=[["c2"], ["c5"]], segments={2: False}),
+        _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c2", True, False, False, False, None),
+                  ("c5", True, False, False, False, "occupation permanente du bien"),
+                  facettes=[["c1", "c2"], ["c5"]])],
+        settings=_settings(draft_max_claims=3, draft_max_segments=3))
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
+    assert {c.claim_id for c in answer.claims} == {"c1", "c2", "c5"}
+    assert not any(check.name == "relance_sans_place_pour_les_limites"
+                   for step in trace.steps for check in step.checks)
+    assert answer.unknown == []  # la limite rejetée n'est pas ressuscitée par la fusion
+
+
+async def test_des_limites_dupliquees_sont_normalisees_avant_la_premiere_verification(
+        index: Index) -> None:
+    """Recheck Codex tour 2 (B2), cas saturé avec doublons : `nb_manques` est stable.
+
+    Deux limites byte-identiques sont normalisées **une seule fois, à la sortie de *rédiger*** —
+    avant la première `Verification`. Le pré-contrôle et la fusion comptent donc la même réserve
+    que la dominance : rien ne baisse artificiellement, et le cas saturé reste refusé avec son
+    état nommé.
+    """
+    limite = "Le contrat ne précise pas la franchise applicable."
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=["définition du bien", "condition d'occupation"]),
+        _rediger_avec_limites(DEF, COND, limites=[limite, limite]),
+        _verifier(("c2", True, False, False, False, None),
+                  ("c5", True, False, False, False, "occupation permanente du bien"),
+                  facettes=[["c2"], ["c5"]])],
+        settings=_settings(draft_max_claims=3, draft_max_segments=3))
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
+    # Normalisée à la source : une seule réserve, des deux côtés de toute comparaison (le second
+    # élément d'`unknown` est la lacune projetée de la relance abandonnée, pas un doublon).
+    assert answer.unknown.count(limite) == 1
+    assert any(check.name == "relance_sans_place_pour_les_limites"
+               for step in trace.steps for check in step.checks)
+    assert answer.complete is False
+
+
 def test_la_fusion_reserve_la_place_des_limites_acquises() -> None:
     """Recheck Codex (B2) : une correction de plus ne vaut jamais une réserve acquise de moins.
 
@@ -1037,7 +1096,8 @@ def test_la_fusion_reserve_la_place_des_limites_acquises() -> None:
         claims=[{"claim_id": cid, "text": f"Clause {cid}.",
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}
                 for cid in ("c", "d", "e")])
-    acquise = Verification.model_construct(claims=list(draft.claims))
+    # N1 : l'autorité des limites acquises est `Verification.unknown`, pas le draft brut.
+    acquise = Verification.model_construct(claims=list(draft.claims), unknown=[limite])
     step = StepTrace(name="rediger")
 
     fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=step)
@@ -1139,7 +1199,8 @@ def test_la_reconduction_refuse_de_tronquer_des_claims_verifiees() -> None:
         "claims": [{"claim_id": f"c{i}", "text": f"Clause c{i}.",
                     "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}
                    for i in range(1, 4)]})
-    acquise = SimpleNamespace(claims=[SimpleNamespace(claim_id=f"c{i}") for i in range(1, 4)])
+    acquise = SimpleNamespace(claims=[SimpleNamespace(claim_id=f"c{i}") for i in range(1, 4)],
+                              unknown=[])
     bornes = SimpleNamespace(draft_max_claims=3, draft_max_segments=2)
     with pytest.raises(ValueError, match="draft_max_claims <= draft_max_segments"):
         sinistre._reconduire_acquis(draft, draft, acquise, bornes, step=StepTrace(name="rediger"))

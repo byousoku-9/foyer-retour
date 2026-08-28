@@ -717,6 +717,18 @@ def test_des_structures_presentes_mais_invalides_sont_des_ecarts_nommes() -> Non
          lambda corps: corps["sources"][0].__setitem__("kind", "clause")),
         ("block_id de source vide",
          lambda corps: corps["sources"][0].__setitem__("block_id", " ")),
+        # Recheck tour 2 (I1) : une valeur non hashable ne lève jamais un TypeError — l'écart
+        # nommé est rendu pour une liste comme pour un objet JSON, sur les deux champs.
+        ("kind de source liste",
+         lambda corps: corps["sources"][0].__setitem__("kind", ["garantie"])),
+        ("kind de source objet",
+         lambda corps: corps["sources"][0].__setitem__("kind", {"valeur": "garantie"})),
+        ("applicable liste",
+         lambda corps: corps["answer"]["claims"][0]["status"].__setitem__(
+             "applicable", ["humain"])),
+        ("applicable objet",
+         lambda corps: corps["answer"]["claims"][0]["status"].__setitem__(
+             "applicable", {"valeur": "humain"})),
     ]
     for label, muter in cas_invalides:
         corps = sinistre_nominal()
