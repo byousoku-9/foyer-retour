@@ -243,8 +243,10 @@ class SinistreRequest(RequeteAvecLangue):
     # **Pas de `variant`** (revue Codex 1.9, tour 1, I3). Le champ existait pour AD-1 (« un
     # `pipeline.variant` inconnu ⇒ 400 »), mais AD-11 ne l'énumère pas dans le corps de cette route,
     # et la story a refusé `dossier` **en invoquant cette énumération** : le garder revenait à
-    # opposer AD-11 à un champ et à l'ignorer pour un autre. Il était de surcroît inutile — le
-    # littéral n'a qu'une valeur, si bien qu'il ne permettait de choisir que le défaut. AD-1 reste
+    # opposer AD-11 à un champ et à l'ignorer pour un autre. Depuis la story 4.2d le pipeline en
+    # connaît deux (`outils` par défaut, `deterministe` en baseline) : ce corps ne les expose
+    # toujours pas, et c'est ce qui fait du **défaut du pipeline** la variante servie en HTTP —
+    # une baseline se compare en éval, pas par une requête publique. AD-1 reste
     # servi, et mieux : `extra="forbid"` rend `variant="agentique"` — comme toute variante, connue
     # ou non — en 400 `invalid_request`, avant le premier appel facturé. La sélection de variante
     # reste au pipeline, pour les évals et l'usage programmatique (`pipelines.sinistre.run(variant=…)`),

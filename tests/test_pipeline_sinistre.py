@@ -9,6 +9,10 @@ vérifie sans compter les appels à la main.
 from __future__ import annotations
 
 import json
+from typing import Any
+
+import anthropic
+import httpx
 import pytest
 
 from server.app.config import Settings
@@ -18,12 +22,18 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft, Verification
 from server.app.domain.document import Document, Node
-from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, InvalidRequest
+from server.app.domain.errors import (
+    BudgetExceeded,
+    CorpusUnavailable,
+    InvalidRequest,
+    LlmUnavailable,
+)
 from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.question import Faits
 from server.app.domain.retrieval import RetrievalResult
-from server.app.domain.trace import StepTrace
+from server.app.domain.trace import CheckResult, StepTrace
 from server.app.domain.verdict import (
+    KINDS_DECISIONNELS,
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
@@ -34,6 +44,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
+from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -144,6 +155,25 @@ def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
         **champs}))
 
 
+def _outils(*, termes: list[str] | None = None, node_id: str | None = None,
+            stop_reason: str = "tool_use", **fenetre) -> dict:
+    """Un tour de navigation par outils : une recherche, puis l'ouverture d'un nœud.
+
+    Le même motif de scriptage qu'au guide (`tests/test_pipeline_guide.py`) : `FakeAnthropic` rend
+    un message `tool_use`, et *retrouver* exécute réellement les outils sur l'index synthétique. Sans
+    `termes` ni `node_id`, le tour ne demande rien — la navigation est alors tronquée sans bloc, ce
+    qui est exactement l'état qui arme le repli déterministe.
+    """
+    contenu: list[dict] = []
+    if termes is not None:
+        contenu.append({"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+                        "input": {"termes": termes}})
+    if node_id is not None:
+        contenu.append({"type": "tool_use", "id": "toolu_ouvrir", "name": "ouvrir_noeud",
+                        "input": {"node_id": node_id, **fenetre}})
+    return fake_message(model=TIERS["micro"], stop_reason=stop_reason, content=contenu)
+
+
 def _rediger(*claims: tuple[str, str, list[tuple[str, str]]]) -> dict:
     return fake_message(model=TIERS["reason"], text=json.dumps({
         "segments": [{"text": f"Clause {cid}.", "kind": "factuel", "claim_ids": [cid]}
@@ -204,18 +234,25 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True,
         "applicabilite": applicabilite}))
 
 
+# Sentinelle : « n'envoie pas `variant` du tout » — le seul moyen d'éprouver le **défaut** du
+# pipeline (story 4.2d). Le défaut du helper reste `deterministe` : tous les tests écrits avant
+# cette story demandent donc explicitement la baseline, et continuent de mesurer ce qu'ils mesuraient.
+SANS_VARIANTE = object()
+
+
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
-               variant: str = "deterministe", dossier: MissingPackage | None = None,
+               variant: object = "deterministe", dossier: MissingPackage | None = None,
                lang: str | None = None, question: str = QUESTION,
                dictionnaire: Dictionnaire | None = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
+    variante = {} if variant is SANS_VARIANTE else {"variant": variant}
     answer, trace = await sinistre.run(doc_id, question, faits, corpus=index.corpus, index=index,
                                        client=client, settings=settings, request_id="req-sinistre",
-                                       variant=variant, budget=budget or _budget(), dossier=dossier,
-                                       lang=lang, dictionnaire=dictionnaire)
+                                       budget=budget or _budget(), dossier=dossier,
+                                       lang=lang, dictionnaire=dictionnaire, **variante)
     return answer, trace, fake
 
 
@@ -301,8 +338,12 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
 
     from server.app.api.main import create_app
 
+    # La route ne transporte pas `variant` : c'est le **défaut du pipeline** qui est servi, et
+    # depuis la story 4.2d c'est la navigation par outils — d'où le tour d'outils dans le script.
     script = [
-        _comprendre(), _rediger(GAR),
+        _comprendre(), _outils(termes=["mobilier", "chaleur", "contenu"],
+                               node_id=f"{DOC_ID}:socle"),
+        _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
     fake = FakeAnthropic(script)
@@ -325,6 +366,8 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
     corps = reponse.json()
     assert fake.remaining_script == 0
     assert corps["trace"]["pipeline"] == "sinistre"
+    # Story 4.2d : le corps ne porte pas `variant`, donc la requête HTTP sert le défaut du pipeline.
+    assert corps["trace"]["variant"] == "outils"
     assert corps["trace"]["gate"] == {
         "profile": "vertical", "cases": 1, "countersigned": False, "alerts": []}
     resolus = {bloc["block_id"]: bloc for bloc in corps["trace"]["blocs"]}
@@ -344,6 +387,7 @@ def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
     script = [
         _comprendre(cause="fuite progressive depuis des mois",
                     evenement="effondrement soudain du plafond", moment="hier"),
+        _outils(termes=["mobilier", "chaleur", "contenu"], node_id=f"{DOC_ID}:socle"),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -1313,6 +1357,219 @@ def test_la_fusion_saute_un_acquis_reconduit_a_lidentique() -> None:
     assert len(fusion.segments) == 1
 
 
+# --- variantes de *retrouver* (story 4.2d) -------------------------------------
+# AD-1, amendement du 25/08/2026 : « la navigation par outils est le mode par défaut de *retrouver* ;
+# la variante `deterministe` devient la baseline de comparaison des évals et le repli ». Le sinistre
+# ne connaissait qu'une variante — donc **toute** requête `POST /api/v1/sinistre`, dont le corps ne
+# porte pas de `variant`, empruntait encore le chemin déterministe.
+
+TERMES_DU_SINISTRE = ["mobilier", "chaleur", "contenu"]
+# Le tour qui ouvre exactement ce que l'index déterministe classe : les deux nœuds du mini-contrat.
+NAVIGATION_COMPLETE = dict(termes=TERMES_DU_SINISTRE, node_id=f"{DOC_ID}:socle")
+
+
+def _navigation_des_deux_noeuds() -> dict:
+    return fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
+        {"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+         "input": {"termes": TERMES_DU_SINISTRE}},
+        {"type": "tool_use", "id": "toolu_socle", "name": "ouvrir_noeud",
+         "input": {"node_id": f"{DOC_ID}:socle"}},
+        {"type": "tool_use", "id": "toolu_ext", "name": "ouvrir_noeud",
+         "input": {"node_id": f"{DOC_ID}:ext"}},
+    ])
+
+
+def _script_nominal_outils() -> list:
+    return [_comprendre(), _outils(**NAVIGATION_COMPLETE), _rediger(GAR),
+            _verifier(("c1", True, True, False, False, None))]
+
+
+def _tier_de_navigation() -> str:
+    """Le tier de navigation vient de la configuration (AD-9), jamais d'un littéral recopié ici."""
+    return _settings().retrouver_outils_tier
+
+
+async def test_sans_variante_le_sinistre_navigue_par_outils(index: Index) -> None:
+    """AC : `run` **sans** `variant` fait tourner la navigation par outils, chaîne inchangée."""
+    answer, trace, fake = await _run(index, _script_nominal_outils(), variant=SANS_VARIANTE)
+
+    assert fake.remaining_script == 0
+    assert trace.pipeline == "sinistre" and trace.variant == "outils"
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    retrouver = trace.steps[1]
+    # Le tier **réellement** appelé est publié (AD-10) : la navigation a bien eu lieu ici, là où le
+    # chemin déterministe n'appelait aucun modèle.
+    assert retrouver.tier == _tier_de_navigation() and len(retrouver.calls) == 1
+    assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
+               for call in retrouver.calls)
+    assert f"{DOC_ID}:p1:2" in retrouver.opened_block_ids
+    assert answer.found and answer.verdict is not None
+
+
+async def test_la_variante_outils_explicite_est_le_meme_chemin_que_le_defaut(index: Index) -> None:
+    """AC : `variant="outils"` et l'absence de variante ne sont pas deux chemins."""
+    _defaut, trace_defaut, _f1 = await _run(index, _script_nominal_outils(), variant=SANS_VARIANTE)
+    _explicite, trace_explicite, _f2 = await _run(index, _script_nominal_outils(), variant="outils")
+
+    assert trace_defaut.variant == trace_explicite.variant == "outils"
+    assert ([s.name for s in trace_defaut.steps] == [s.name for s in trace_explicite.steps])
+    assert (trace_defaut.steps[1].opened_block_ids
+            == trace_explicite.steps[1].opened_block_ids)
+    assert [c.name for c in trace_defaut.steps[1].checks] == [
+        c.name for c in trace_explicite.steps[1].checks]
+
+
+async def test_la_variante_deterministe_reste_la_baseline_en_code_pur(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC : `variant="deterministe"` garde le chemin code pur **et** son départage de la story 1.8."""
+    recus: list[dict[str, Any]] = []
+    reel = sinistre.retrouver_deterministe
+
+    def capture(*args: Any, **kw: Any):
+        recus.append(kw)
+        return reel(*args, **kw)
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
+    _answer, trace, fake = await _run(index, [
+        _comprendre(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None))], variant="deterministe")
+
+    assert fake.remaining_script == 0
+    assert trace.variant == "deterministe"
+    assert trace.steps[1].calls == []  # aucun appel modèle : la baseline reste comparable
+    assert len(recus) == 1 and recus[0]["kinds_prioritaires"] == KINDS_DECISIONNELS
+
+
+async def test_les_deux_variantes_rendent_le_meme_contrat_sous_le_meme_budget(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC : même `RetrievalResult`, mêmes blocs atteignables, même `RetrievalBudget`."""
+    resultats: dict[str, RetrievalResult] = {}
+    bornes: dict[str, Any] = {}
+    reel_outils, reel_deterministe = sinistre.retrouver_outils, sinistre.retrouver_deterministe
+
+    async def capture_outils(*args: Any, **kw: Any):
+        resultat, step = await reel_outils(*args, **kw)
+        resultats["outils"], bornes["outils"] = resultat, kw["budget"]
+        return resultat, step
+
+    def capture_deterministe(*args: Any, **kw: Any):
+        resultat, step = reel_deterministe(*args, **kw)
+        resultats["deterministe"], bornes["deterministe"] = resultat, kw["budget"]
+        return resultat, step
+
+    monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture_deterministe)
+
+    verdicts = _verifier(("c1", True, True, False, False, None))
+    await _run(index, [_comprendre(), _navigation_des_deux_noeuds(), _rediger(GAR), verdicts],
+               variant=SANS_VARIANTE)
+    await _run(index, [_comprendre(), _rediger(GAR), verdicts], variant="deterministe")
+
+    outils, deterministe = resultats["outils"], resultats["deterministe"]
+    # Même contrat : mêmes champs, même type — `RetrievalResult` n'a pas de variante d'un côté.
+    assert set(outils.model_dump()) == set(deterministe.model_dump())
+    # Même borne, à l'octet des seuils près : c'est `retrieval_budget(settings)` des deux côtés.
+    assert bornes["outils"] == bornes["deterministe"]
+    # Mêmes blocs atteignables : sur ce corpus, la navigation ouvre ce que l'index classe.
+    assert sorted(outils.opened_block_ids) == sorted(deterministe.opened_block_ids)
+    assert (sorted(b.block_id for b in outils.blocs)
+            == sorted(b.block_id for b in deterministe.blocs))
+    assert outils.truncated is deterministe.truncated is False
+
+
+async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC : repli **unique**, borné, sous le même budget, et nommé dans la trace."""
+    appels: list[dict[str, Any]] = []
+    reel = sinistre.retrouver_deterministe
+
+    def capture(*args: Any, **kw: Any):
+        appels.append(kw)
+        return reel(*args, **kw)
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _outils(), _rediger(GAR),
+        _verifier(("c1", True, True, False, False, None))], variant=SANS_VARIANTE)
+
+    assert fake.remaining_script == 0 and answer.found
+    retrouver = trace.steps[1]
+    # Une seule tentative de repli, et elle garde le départage décisionnel de la story 1.8.
+    assert len(appels) == 1 and appels[0]["kinds_prioritaires"] == KINDS_DECISIONNELS
+    # Sous **la même** borne, littéralement le même objet : le repli ne repart pas sur un budget neuf.
+    assert appels[0]["budget"] == retrieval_budget(_settings())
+    assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
+    # Un seul appel modèle : le repli est du code pur, il n'ajoute aucun tour.
+    assert len(retrouver.calls) == 1 and retrouver.tier == _tier_de_navigation()
+    assert f"{DOC_ID}:p1:2" in retrouver.opened_block_ids
+
+
+async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AD-10 : les candidats écartés des **deux** passes sont publiés, et les checks fusionnés."""
+    reel = sinistre.retrouver_deterministe
+
+    def repli_marque(*args: Any, **kw: Any):
+        resultat, step = reel(*args, **kw)
+        step.checks.append(CheckResult(name="controle_deterministe", ok=True, detail="fusionné"))
+        return resultat, step
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", repli_marque)
+    candidats_outils = [b for b, _ in index.chercher(TERMES_DU_SINISTRE,
+                                                     limit=_settings().search_limit, doc_id=DOC_ID)]
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _outils(termes=TERMES_DU_SINISTRE), _outils(stop_reason="end_turn"),
+        _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
+        variant=SANS_VARIANTE, settings=_settings(retrieval_max_blocks=4))
+
+    assert fake.remaining_script == 0 and answer.found
+    retrouver = trace.steps[1]
+    assert [c.name for c in retrouver.checks] == [
+        "candidats_non_ouverts", "repli_deterministe", "controle_deterministe"]
+    ouverts = set(retrouver.opened_block_ids)
+    assert retrouver.discarded_block_ids == [b for b in candidats_outils if b not in ouverts]
+    assert retrouver.discarded_block_ids and not answer.complete
+
+
+async def test_des_blocs_outils_partiels_ne_declenchent_aucun_repli(index: Index) -> None:
+    """AC : `truncated` avec au moins un bloc admis reste un contexte honnête, publié `complete=False`."""
+    answer, trace, fake = await _run(index, [
+        _comprendre(), _outils(stop_reason="max_tokens", **NAVIGATION_COMPLETE),
+        _rediger(GAR), _verifier(("c1", True, True, False, False, None))], variant=SANS_VARIANTE)
+
+    assert fake.remaining_script == 0
+    retrouver = trace.steps[1]
+    assert retrouver.opened_block_ids  # des blocs partiels, donc un contexte
+    assert not any(c.name == "repli_deterministe" for c in retrouver.checks)
+    assert trace.truncations == 1 and answer.found and not answer.complete
+
+
+async def test_un_repli_lui_aussi_vide_laisse_remonter_le_budget_exceeded(index: Index) -> None:
+    """AC : aucune absence du contrat n'est affirmée à partir d'une borne qui est la nôtre."""
+    with pytest.raises(BudgetExceeded, match="aucune absence du contrat n'est affirmée") as capture:
+        await _run(index, [_comprendre(), _outils()], variant=SANS_VARIANTE,
+                   settings=_settings(retrieval_max_tokens=1))
+
+    trace = capture.value.trace  # AD-16 : la trace partielle voyage avec l'erreur
+    assert trace is not None and trace.variant == "outils"
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
+    assert any(c.name == "repli_deterministe" for c in trace.steps[1].checks)
+
+
+async def test_un_echec_de_navigation_voyage_avec_son_etape_partielle(index: Index) -> None:
+    """AC : `PipelineError` pendant *retrouver* ⇒ 503 typé et trace partielle, comme au guide."""
+    panne = anthropic.APIStatusError("529", response=httpx.Response(
+        529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
+    with pytest.raises(LlmUnavailable) as capture:
+        await _run(index, [_comprendre(), panne], variant=SANS_VARIANTE)
+
+    trace = capture.value.trace
+    assert trace is not None and trace.variant == "outils"
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
+    assert len(trace.steps[-1].calls) == 1
+
+
 # --- bornes d'entrée : rien de facturé -----------------------------------------
 async def test_an_unknown_document_is_refused_before_any_billed_call(index: Index) -> None:
     with pytest.raises(CorpusUnavailable):
@@ -1320,8 +1577,11 @@ async def test_an_unknown_document_is_refused_before_any_billed_call(index: Inde
 
 
 async def test_an_unknown_variant_is_refused_before_any_billed_call(index: Index) -> None:
-    with pytest.raises(InvalidRequest, match="variante"):
-        await _run(index, [], variant="autre")
+    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », et le message énumère les variantes connues."""
+    with pytest.raises(InvalidRequest, match="variante") as capture:
+        await _run(index, [], variant="agentique")
+    assert all(connue in capture.value.message for connue in sinistre.VARIANTES)
+    assert sinistre.VARIANTES == {"outils", "deterministe"} and sinistre.VARIANT == "outils"
 
 
 async def test_an_oversized_description_is_rejected_never_truncated(index: Index) -> None:

@@ -83,7 +83,10 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         # contractuel est réputé inconnu, annoncé par `missing` et réclamé par `ask_client`. C'est
         # ce que « au regard des conditions générales seules » veut dire, et c'est écrit.
         # `variant` n'est pas transmis non plus (revue Codex 1.9, tour 1) : le corps ne le porte
-        # plus, AD-11 ne l'énumère pas, et le défaut du pipeline est la seule variante existante.
+        # plus et AD-11 ne l'énumère pas. Le pipeline en connaît deux depuis la story 4.2d, et c'est
+        # précisément parce que la route n'en choisit aucune que son **défaut** — la navigation par
+        # outils, mode par défaut d'AD-1 — est la variante servie ici ; `deterministe` reste la
+        # baseline de comparaison des évals, jamais un chemin sélectionnable par une requête.
         # AD-1 (« un `pipeline.variant` inconnu ⇒ 400 ») est servi par `extra="forbid"` du schéma,
         # avant le premier appel facturé.
         pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex)
