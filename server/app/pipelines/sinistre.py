@@ -202,9 +202,15 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
         utilises.add(claim.claim_id)
         claims.append(claim)
 
+    if len(claims) > settings.draft_max_segments:
+        # Même invariant que `_rattacher_claims_sinistre` : aucune claim vérifiée ne disparaît
+        # sans trace. `Settings._coherence` garantit draft_max_claims <= draft_max_segments ; si
+        # une borne effective plus basse rendait la fusion tronquante, elle refuse plutôt que de
+        # faire disparaître silencieusement un acquis.
+        raise ValueError("plus de claims que de segments autorisés : la configuration doit garantir "
+                         "draft_max_claims <= draft_max_segments")
     factuels = [AnswerSegment(text=claim.text, kind="factuel", claim_ids=[claim.claim_id])
-                for claim in claims[:settings.draft_max_segments]]
-    claims = claims[:len(factuels)]
+                for claim in claims]
     place = settings.draft_max_segments - len(factuels)
     non_factuels = [AnswerSegment(text=segment.text, kind=segment.kind, claim_ids=[])
                     for segment in relance.segments if segment.kind != "factuel"][:place]

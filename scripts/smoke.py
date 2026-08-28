@@ -77,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
+from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
 
 VIA_ATTENDU = "api/v1"
 
@@ -643,32 +644,42 @@ def verifier_sinistre(corps: Any, *, cas: CasTemoin, source_hash: str) -> list[s
             ecarts.append(_manquant("sources"))
         if claims is _ABSENT or sources is _ABSENT:
             return ecarts
+        # Même esprit que le corps amputé : un champ présent mais mal formé n'est pas une absence
+        # légitime de claim décisionnelle — `decisionnelle=False` passerait par accident quand le
+        # cas attend `false`. L'écart est nommé avant tout calcul du prédicat.
+        if not isinstance(claims, list):
+            ecarts.append(f"sinistre/{cas.id} : answer.claims n'est pas une liste "
+                          f"({type(claims).__name__})")
+        if not isinstance(sources, list):
+            ecarts.append(f"sinistre/{cas.id} : sources n'est pas une liste "
+                          f"({type(sources).__name__})")
+        if not isinstance(claims, list) or not isinstance(sources, list):
+            return ecarts
         blocs_decisionnels = {
             source.get("block_id")
             for source in sources
             if isinstance(source, dict)
-            and source.get("kind") in {"garantie", "exclusion"}
+            and source.get("kind") in KINDS_FONDATEURS
             and source.get("kind_confirmed") is True
             and source.get("status") == "verifiee"
             and isinstance(source.get("block_id"), str)
-        } if isinstance(sources, list) else set()
+        }
         decisionnelle = False
-        if isinstance(claims, list):
-            for claim in claims:
-                if not isinstance(claim, dict):
-                    continue
-                status = claim.get("status")
-                quotes = claim.get("quotes")
-                if not isinstance(status, dict) or not isinstance(quotes, list):
-                    continue
-                calculee = status.get("applicable") in {"oui", "non", "humain"}
-                retenue = status.get("retrouvee") is True and status.get("pertinente") is True
-                cite_decisionnelle = any(
-                    isinstance(quote, dict) and quote.get("block_id") in blocs_decisionnels
-                    for quote in quotes)
-                if calculee and retenue and cite_decisionnelle:
-                    decisionnelle = True
-                    break
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            status = claim.get("status")
+            quotes = claim.get("quotes")
+            if not isinstance(status, dict) or not isinstance(quotes, list):
+                continue
+            calculee = status.get("applicable") in {"oui", "non", "humain"}
+            retenue = status.get("retrouvee") is True and status.get("pertinente") is True
+            cite_decisionnelle = any(
+                isinstance(quote, dict) and quote.get("block_id") in blocs_decisionnels
+                for quote in quotes)
+            if calculee and retenue and cite_decisionnelle:
+                decisionnelle = True
+                break
         if decisionnelle is not cas.decision_claim_attendue:
             ecarts.append(
                 f"sinistre/{cas.id} : claim décisionnelle confirmée avec applicabilité calculée="

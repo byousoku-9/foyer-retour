@@ -641,6 +641,22 @@ def test_un_corps_ampute_ne_prouve_jamais_labsence_de_claim_decisionnelle() -> N
     assert any("sources" in e for e in ecarts)
 
 
+def test_un_corps_mal_forme_ne_prouve_jamais_labsence_de_claim_decisionnelle() -> None:
+    """Revue post-4.2a : un champ présent mais qui n'est pas une liste n'est pas plus une preuve
+    qu'un champ absent — `decisionnelle=False` passerait par accident quand le cas attend `false`.
+    L'écart est nommé avant tout calcul du prédicat."""
+    import dataclasses
+
+    inverse = dataclasses.replace(CAS_SINISTRE, decision_claim_attendue=False)
+    corps = sinistre_nominal()
+    corps["answer"]["claims"] = {"c1": {}}
+    corps["sources"] = "axa-lu-optihome-2017:p34:12"
+    ecarts = verifier_sinistre(corps, cas=inverse, source_hash=HASH_AXA)
+    assert any("answer.claims n'est pas une liste" in e for e in ecarts)
+    assert any("sources n'est pas une liste" in e for e in ecarts)
+    assert not any("claim décisionnelle confirmée" in e for e in ecarts)
+
+
 def test_un_cas_sans_verdict_attendu_ne_juge_pas_le_verdict() -> None:
     """Un cas qui ne dit rien du verdict n'en fait pas juger un : `expected.verdict` vide = muet."""
     muet = CasTemoin(id="x", doc_id="axa-lu-optihome-2017", question="…", verdicts_admissibles=())

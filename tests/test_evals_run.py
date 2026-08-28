@@ -807,7 +807,7 @@ def test_une_reponse_conforme_est_une_bonne_reponse() -> None:
     assert (label, ecarts) == ("bonne_reponse", [])
 
 
-def test_le_predicat_decisionnel_exige_kind_confirme_et_applicabilite_calculee() -> None:
+def test_le_predicat_decision_claim_exige_kind_confirme_et_applicabilite_calculee() -> None:
     _corpus_, index = _corpus()
     citation = _citation(index, f"{CONTRAT}:p34:1", "mobilier assuré")
     cas = _cas(suite="sinistre", faits={"description": "x"},
@@ -824,6 +824,30 @@ def test_le_predicat_decisionnel_exige_kind_confirme_et_applicabilite_calculee()
     bloc = index.corpus.documents[CONTRAT].block(f"{CONTRAT}:p34:1")
     bloc.kind_source = None
     _label, ecarts = runner.juger(cas, decisionnelle, doc_id=CONTRAT, index=index)
+    assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
+
+
+def test_la_definition_confirmee_ne_satisfait_jamais_le_predicat_decision_claim() -> None:
+    """Miroir runner du smoke : un bloc confirmé mais non décisionnel ne fonde rien.
+
+    Le kind-set du prédicat est `KINDS_FONDATEURS` — élargir le set à `definition` dans `juger`
+    doit faire rougir ce test : une définition confirmée, citée avec une applicabilité calculée,
+    ne satisfait jamais `expected.decision_claim: true`.
+    """
+    docs = {GUIDE: _document(GUIDE, "guide", TEXTE_GUIDE, "ffiche"),
+            CONTRAT: _document(CONTRAT, "contrat", TEXTE_CONTRAT, "p34",
+                               block_kind="definition", kind_source="manual")}
+    manifest = {d: ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                                 document_hash="d", edition="2020") for d in docs}
+    corpus = Corpus(documents=docs, manifest=manifest,
+                    summaries={d: f"# {d}" for d in docs}, alerts={d: [] for d in docs})
+    index = Index(corpus)
+    assert index.corpus.documents[CONTRAT].block(f"{CONTRAT}:p34:1").kind_confirmed
+    cas = _cas(suite="sinistre", faits={"description": "x"},
+               expected={"found": True, "decision_claim": True})
+    reponse = _reponse([_claim(_citation(index, f"{CONTRAT}:p34:1", "mobilier assuré"),
+                               applicable="humain")])
+    _label, ecarts = runner.juger(cas, reponse, doc_id=CONTRAT, index=index)
     assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
 
 

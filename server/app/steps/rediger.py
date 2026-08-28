@@ -22,6 +22,7 @@ from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion, Turn
 from server.app.domain.retrieval import RetrievalResult
+from server.app.domain.verdict import KINDS_FONDATEURS
 from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -149,7 +150,7 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                  "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
         fondatrices_confirmees: list[str] = []
         for bloc in retrieval.blocs:
-            if bloc.kind not in {"garantie", "exclusion"} or not bloc.kind_confirmed:
+            if bloc.kind not in KINDS_FONDATEURS or not bloc.kind_confirmed:
                 continue
             description = f"{bloc.block_id}={bloc.kind}"
             if not _clause_autonome(bloc.text):

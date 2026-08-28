@@ -952,6 +952,27 @@ async def test_un_segment_limite_de_la_relance_atterrit_dans_unknown(index: Inde
     assert answer.complete is False
 
 
+def test_la_reconduction_refuse_de_tronquer_des_claims_verifiees() -> None:
+    """Revue post-4.2a : aucune claim vérifiée ne disparaît sans trace de la fusion de relance.
+
+    `Settings._coherence` garantit draft_max_claims <= draft_max_segments ; si une borne effective
+    plus basse rendait la fusion tronquante, `_reconduire_acquis` refuse — même invariant et même
+    message que `_rattacher_claims_sinistre` — plutôt que de faire disparaître un acquis vérifié.
+    """
+    from types import SimpleNamespace
+
+    draft = AnswerDraft.model_validate({
+        "segments": [{"text": f"Clause c{i}.", "kind": "factuel", "claim_ids": [f"c{i}"]}
+                     for i in range(1, 4)],
+        "claims": [{"claim_id": f"c{i}", "text": f"Clause c{i}.",
+                    "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}
+                   for i in range(1, 4)]})
+    acquise = SimpleNamespace(claims=[SimpleNamespace(claim_id=f"c{i}") for i in range(1, 4)])
+    bornes = SimpleNamespace(draft_max_claims=3, draft_max_segments=2)
+    with pytest.raises(ValueError, match="draft_max_claims <= draft_max_segments"):
+        sinistre._reconduire_acquis(draft, draft, acquise, bornes)
+
+
 async def test_une_relance_qui_trouve_la_clause_nest_pas_annulee_par_ses_manques(index: Index) -> None:
     """Campagne B 2.7, garde reconduite en 4.2a : une clause vérifiée bat toujours zéro clause.
 

@@ -78,6 +78,7 @@ from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEn
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
+from server.app.domain.verdict import KINDS_FONDATEURS
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -981,7 +982,7 @@ def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, 
         and claim.status.applicable in {"oui", "non", "humain"}
         and any(
             (bloc := _bloc(index, quote.block_id)) is not None
-            and bloc.kind in {"garantie", "exclusion"}
+            and bloc.kind in KINDS_FONDATEURS
             and bloc.kind_confirmed
             for quote in claim.quotes
         )
