@@ -67,6 +67,18 @@ def report_from_validation_error(doc_id: str, exc: ValidationError) -> Report:
     return Report(doc_id=doc_id, checks=[Check(name="invariants_arbre", level="bloquant", detail=detail)])
 
 
+def structure_check(motif: str | None, detail: str) -> Check:
+    """`structure_proposee` (story 4.2c) : bloquant sur refus nommé, info sinon.
+
+    Fail-closed : un refus du vérificateur met le document en quarantaine et le motif est publié tel
+    quel. Il n'existe **pas** de niveau intermédiaire — retomber sur l'heuristique numérique après un
+    refus servirait un arbre que personne n'a prouvé en laissant croire le contraire (AD-16).
+    """
+    if motif is None:
+        return Check(name="structure_proposee", level="info", detail=detail[:2000])
+    return Check(name="structure_proposee", level="bloquant", detail=f"{motif} : {detail}"[:2000])
+
+
 def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *,
                  parcours_ignorees: int, parcours_alertes: list[str], summary: str = "") -> Report:
     """Checks statiques calculés sans pipeline ; `doc` a déjà passé les invariants du modèle.
@@ -181,6 +193,26 @@ def _quality(pages: list[Any]) -> tuple[list[int], list[int], list[str]]:
     return foreign, gibberish, residues
 
 
+_NODE_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?(?:\s|$)")
+
+
+def numero_de_noeud(doc_id: str, node_id: str, title: str) -> str | None:
+    """Numéro d'article d'un nœud, **quel que soit le chemin qui a bâti l'arbre** (story 4.2c).
+
+    L'heuristique numérique encode le numéro dans l'identifiant (`{doc_id}:a3.1`) ; une proposition
+    vérifiée le laisse là où l'imprimeur l'a mis, dans le **titre** relu au registre, et calcule un
+    chemin positionnel (`{doc_id}:s1.2`). Les deux contrôles de table des matières lisent donc cet
+    index plutôt qu'une convention d'identifiant qu'un seul des deux chemins respecte — sans quoi un
+    document ingéré avec proposition publiait « signets sans nœud correspondant » et « numéros
+    annoncés absents de l'arbre » pour **tous** ses numéros, alertes toutes fausses.
+    """
+    prefix = f"{doc_id}:a"
+    if node_id.startswith(prefix):
+        return node_id[len(prefix):].split("-", 1)[0]
+    match = _NODE_NUMBER_RE.match(title.strip())
+    return match.group(1) if match else None
+
+
 def _normalized_article_title(title: str) -> str:
     return normalize(re.sub(r"^\d+(?:\.\d+)*\.?\s*", "", title)).strip()
 
@@ -200,11 +232,10 @@ def _printed_toc_check(doc: Document, entries: list[tuple[str, str]], pages_toc:
         return Check(name="tdm_imprimee", level="alerte",
                      detail="TdM imprimée détectée, mais aucune entrée numérotée exploitable")
     expected: dict[str, str] = {}
-    prefix = f"{doc.doc_id}:a"
     for node in doc.nodes:
-        if not node.node_id.startswith(prefix):
+        numero = numero_de_noeud(doc.doc_id, node.node_id, node.title)
+        if numero is None or node.node_id == doc.doc_id:
             continue
-        numero = node.node_id[len(prefix):].split("-", 1)[0]
         expected.setdefault(numero, _normalized_article_title(node.title))
     titles_by_number: dict[str, list[str]] = {}
     printed: dict[str, str] = {}
@@ -247,10 +278,18 @@ def _printed_toc_check(doc: Document, entries: list[tuple[str, str]], pages_toc:
 
 def build_pdf_report(doc: Document, previous: Document | None, *, pages: list[Any], numbers: list[str],
                      duplicates: list[str], continues: int, toc: list[Any], toc_gaps: list[str] | None = None,
-                     printed_toc: list[tuple[str, str]] | None = None, summary: str = "") -> Report:
+                     printed_toc: list[tuple[str, str]] | None = None, summary: str = "",
+                     structure: str | None = None) -> Report:
     """Checks statiques d'un contrat PDF (AD-8) : `page_sans_texte` bloquant (page sans texte mais portant une image
-    ou un tracé vectoriel), numérotation non monotone, pages mixtes et écart avec les signets du PDF en alerte."""
+    ou un tracé vectoriel), numérotation non monotone, pages mixtes et écart avec les signets du PDF en alerte.
+
+    `structure` n'est renseigné que lorsqu'une proposition est **en jeu** : sans elle, aucun check
+    `structure_proposee` n'est émis, et le rapport d'un document ingéré par la seule heuristique
+    reste exactement celui d'avant la story 4.2c.
+    """
     checks: list[Check] = [Check(name="invariants_arbre", level="info", detail="ok")]
+    if structure is not None:
+        checks.append(structure_check(None, structure))
     kinds = Counter(b.kind for b in doc.blocks)
     pages_with_blocks = {b.page for b in doc.blocks}
     no_text = [p.page for p in pages if not p.lines and not getattr(p, "tables", [])]

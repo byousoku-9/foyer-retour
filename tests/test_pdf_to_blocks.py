@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pymupdf
@@ -17,6 +18,43 @@ from server.ingest.report import _printed_toc_check, _quality, _tree_category, r
 
 DOC = "doc-a"
 FONT_BODY, FONT_TITLE = "helv", "hebo"
+ROOT = Path(__file__).resolve().parents[1]
+# Marqueur déclaratif lu dans `docs/choix-et-limites.md` : « l'empreinte committée de ce document
+# est périmée, et on le sait ». C'est la seule tolérance admise par la garde ci-dessous.
+DECLARATION_EMPREINTE = re.compile(r"empreinte-committee-perimee:\s*([a-z0-9-]+)")
+
+
+def empreintes_perimees_declarees() -> set[str]:
+    """Les `doc_id` dont `docs/choix-et-limites.md` déclare l'empreinte committée périmée."""
+    return set(DECLARATION_EMPREINTE.findall(
+        (ROOT / "docs" / "choix-et-limites.md").read_text("utf-8")))
+
+
+def assert_empreinte_committee_declaree(doc_id: str, committee: str) -> None:
+    """Garde **toujours exécutée** : une empreinte committée périmée est tolérée, mais **déclarée**.
+
+    « Le parseur courant reproduirait cet artefact » ne se prouve qu'à la réingestion, qui exige les
+    PDF réels — non committés, donc absents de ce dépôt : le test qui en portait l'égalité est
+    `skipif`. Sans garde toujours jouée, la divergence n'avait plus aucun témoin : elle pouvait
+    s'installer, s'aggraver ou s'étendre à un troisième document sans que rien ne rougisse.
+
+    La tolérance est donc déclarative, et symétrique. Tant que le document est nommé dans
+    `docs/choix-et-limites.md`, la divergence est un état publié. Une divergence **non** déclarée
+    rougit. Et le jour où la réingestion rétablit l'égalité, c'est la déclaration devenue fausse qui
+    rougit à son tour — pour qu'elle soit retirée, et non oubliée là pour toujours. Aucune empreinte
+    n'est écrite en dur : les deux valeurs comparées sont lues, l'une dans l'artefact, l'autre au
+    parseur courant.
+    """
+    courante = p.ingest_fingerprint()
+    declaree = doc_id in empreintes_perimees_declarees()
+    if committee == courante:
+        assert not declaree, (
+            f"{doc_id} : l'empreinte committée vaut désormais celle du parseur courant — retirer sa "
+            f"déclaration « empreinte-committee-perimee » de docs/choix-et-limites.md")
+    else:
+        assert declaree, (
+            f"{doc_id} : l'empreinte committée diverge du parseur courant sans être déclarée. "
+            f"Réingérer avec le PDF réel, ou publier la limite dans docs/choix-et-limites.md")
 
 
 def _page(doc: pymupdf.Document, items: list[tuple[float, float, str, float, str]], page_no: int) -> None:
@@ -44,6 +82,15 @@ def _para(items: list, y: float, lines: list[str]) -> float:
         items.append((122, y, t, 10.0, FONT_BODY))
         y += 13
     return y + 11
+
+
+def _fake_lines(registry, page_no: int, items: list[tuple[str, list[float], float]]) -> list:
+    """Double d'extraction : il alimente le registre comme le vrai `_raw_lines` (story 4.2c)."""
+    out = []
+    for text, bbox, size in items:
+        uids = [registry.add(page=page_no, text=text, bbox=bbox).uid] if registry is not None else []
+        out.append(p.PageLine(text, bbox, size, source_uids=uids))
+    return out
 
 
 def _write_sha(path: Path) -> None:
@@ -323,9 +370,9 @@ def test_empty_table_is_ignored_and_only_line_center_inside_excludes_text() -> N
                 "spans": [{"text": "ligne chevauchée", "font": "helv", "size": 10}],
             }]}]}
 
-    lines, _ = p._raw_lines(TextPage(), excluded=[[95, 0, 110, 10]])
+    lines, _ = p._raw_lines(TextPage(), tables=[p.PageTable([95, 0, 110, 10], [["cellule"]])])
     assert [line.text for line in lines] == ["ligne chevauchée"]  # légende qui ne fait que frôler la table
-    lines, _ = p._raw_lines(TextPage(), excluded=[[40, 0, 110, 10]])
+    lines, _ = p._raw_lines(TextPage(), tables=[p.PageTable([40, 0, 110, 10], [["cellule"]])])
     assert lines == []  # texte de cellule atomique : centre contenu, donc pas de doublon
 
 
@@ -351,11 +398,11 @@ def test_targeted_ocr_is_marked_and_preserves_geometry(tmp_path: Path, monkeypat
     doc.save(d)
     native = p._raw_lines
 
-    def fake_raw(page, *, textpage=None, excluded=None):
+    def fake_raw(page, *, page_no=1, textpage=None, tables=None, registry=None):
         if textpage is None:
             return [], 1
-        return [p.PageLine("1", [56, 80, 70, 96], 17),
-                p.PageLine("Lexique OCR", [122, 80, 210, 96], 17)], 1
+        return _fake_lines(registry, page_no, [("1", [56, 80, 70, 96], 17),
+                                               ("Lexique OCR", [122, 80, 210, 96], 17)]), 1
 
     calls: list[dict] = []
 
@@ -393,10 +440,10 @@ def test_visual_page_ocr_runs_after_native_band_removal_and_empty_result_keeps_d
     page.draw_rect(pymupdf.Rect(100, 100, 300, 300), fill=(0.5, 0.5, 0.5))
     doc.save(pdf)
 
-    def fake_raw(page, *, textpage=None, excluded=None):
+    def fake_raw(page, *, page_no=1, textpage=None, tables=None, registry=None):
         if textpage is None:
-            return [p.PageLine("EN-TÊTE", [56, 10, 150, 24], 9)], 0
-        return [p.PageLine("1", [530, 810, 540, 824], 9)], 0
+            return _fake_lines(registry, page_no, [("EN-TÊTE", [56, 10, 150, 24], 9)]), 0
+        return _fake_lines(registry, page_no, [("1", [530, 810, 540, 824], 9)]), 0
 
     monkeypatch.setattr(p, "_raw_lines", fake_raw)
     monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", lambda self, **kwargs: object())

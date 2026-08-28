@@ -370,6 +370,80 @@ class Settings(BaseSettings):
     toc_line_gap_ratio: float = Field(1.5, gt=0)
     toc_title_prefix_min_chars: int = Field(20, ge=1)
 
+    # Colonnes du corps (story 4.2c, AD-2 / AD-8). La table des matières avait déjà sa géométrie de
+    # colonne (`toc_column_tolerance_pt`) ; le **corps** n'en avait aucune, si bien que l'ordre de
+    # `get_text(sort=True)` entrelaçait deux colonnes en une seule suite de lignes. Ces trois bornes
+    # décrivent une gouttière, jamais une mise en page particulière : elles n'ont ni nombre de
+    # colonnes, ni position, ni document dans leur énoncé. Elles entrent dans `ingest_fingerprint`
+    # parce qu'elles changent l'ordre de lecture, donc `seq`, donc les `block_id` (AD-2, stabilité).
+    # Aucune gouttière retenue ⇒ l'ordre de lecture reste l'ordre d'extraction, à l'octet.
+    # Largeur minimale du blanc vertical qui sépare deux colonnes. Une gouttière imprimée fait
+    # couramment 20 à 40 pt ; 18 pt (≈ 6 mm) reste sous toute gouttière réelle et très au-dessus
+    # d'une espace entre deux mots, qui ne peut donc jamais être prise pour une séparation.
+    column_gutter_min_pt: float = Field(18.0, gt=0)
+    # Nombre minimal de lignes **entièrement** d'un côté de la gouttière, de chaque côté. Deux
+    # étiquettes isolées de part et d'autre d'un blanc ne font pas deux colonnes.
+    column_min_lines: int = Field(4, ge=2)
+    # Part de la hauteur écrite que chaque côté doit couvrir. Une colonne est haute ; un encadré
+    # local, un pied de tableau ou une paire de légendes ne le sont pas.
+    column_min_span_ratio: float = Field(0.35, gt=0, le=1)
+    # Appariement maximal des lignes de base entre les deux côtés d'une gouttière, au-delà duquel
+    # celle-ci n'est **pas** retenue. Mesuré en revue : une liste « libellé … montant » — huit
+    # libellés à gauche, huit montants à droite, sur les **mêmes** lignes de base, que
+    # `find_tables()` ne voit pas — satisfaisait les trois critères précédents et se lisait comme
+    # deux colonnes, séparant chaque montant de son libellé. Un appariement mutuel des lignes de
+    # base est la signature d'une **rangée**, pas d'une colonne de lecture : deux colonnes de texte
+    # dérivent l'une de l'autre dès qu'un paragraphe s'achève.
+    # `[HYPOTHÈSE]` — la tolérance verticale de l'appariement est `baseline_tolerance_pt`, déjà la
+    # définition de « même ligne de base » ailleurs dans le parseur. Cette part **ne suffit pas** à
+    # elle seule à écarter une gouttière : une mise en page professionnelle à deux colonnes partage
+    # très souvent la même grille de lignes de base d'un bout à l'autre, si bien qu'un appariement
+    # élevé y est la règle, pas l'exception. Employée seule, la garde annulait donc la correction
+    # sur les documents mêmes qu'elle vise. Elle n'est retenue qu'en **conjonction** avec
+    # `column_min_fill_ratio` ci-dessous, qui sépare la rangée de la colonne sur un autre axe.
+    column_row_pairing_max_ratio: float = Field(0.5, gt=0, le=1)
+    # Remplissage minimal du côté le **moins** rempli d'une gouttière : la part de la largeur dont ce
+    # côté dispose qu'il occupe réellement. La largeur disponible va de la marge de texte de la page
+    # au bord **opposé** de la gouttière — jamais l'étendue des lignes du côté lui-même, qui vaudrait
+    # 1 par construction et ne mesurerait rien. Une colonne de texte remplit sa largeur utile ; une
+    # colonne de montants alignés à droite n'en occupe qu'une fraction. Avec une gouttière de 20 à
+    # 60 pt sur une largeur de texte A4, une vraie colonne se remplit à 0,73 – 0,92 (le blanc de la
+    # gouttière est le seul creux qu'elle laisse), là où une colonne de montants tombe sous 0,3 :
+    # 0,6 sépare les deux familles avec de la marge de chaque côté. Le critère est géométrique et
+    # sans énoncé propre à un document ; il entre dans `ingest_fingerprint` au même titre que les
+    # autres bornes de colonne.
+    column_min_fill_ratio: float = Field(0.6, gt=0, le=1)
+
+    # Structure proposée puis vérifiée (story 4.2c, AD-2 / AD-7 / AD-16). Le tier `ingest` propose
+    # une hiérarchie **sur des uid de lignes source** ; le code la prouve ou la refuse. Ces bornes
+    # sont appliquées par le vérificateur, hors réseau : elles ne dépendent d'aucun document et un
+    # refus est bloquant (quarantaine), jamais un repli silencieux vers l'heuristique numérique.
+    # Profondeur maximale d'un arbre proposé. Au-delà, la « hiérarchie » n'est plus une structure
+    # lisible mais une chaîne que rien ne peut vérifier à l'œil.
+    structure_max_depth: int = Field(6, ge=1)
+    # Part minimale des lignes du registre que les intervalles proposés doivent couvrir. L'AC exige
+    # une borne de couverture **explicite** : elle est nommée ici, publiée par `thresholds()` et
+    # documentée. Son défaut est `1.0` parce que l'AC exige aussi que « toute ligne omise » mette le
+    # document en quarantaine — une proposition qui laisse une ligne hors de tout nœud ne structure
+    # pas le document, elle en structure un extrait, et le reste serait servi sous un nœud voisin que
+    # personne n'a prouvé. Mesuré en revue : à 0,9, dix lignes dont neuf couvertes rendaient
+    # `accepte=True`. Ce réglage ne peut donc que **durcir** la règle par uid du vérificateur, jamais
+    # la desserrer : l'abaisser ne rouvre aucun trou, chaque ligne non couverte reste un refus
+    # `ligne_omise` (prouvé par `test_abaisser_la_borne_de_couverture_ne_rouvre_pas_la_ligne_omise`).
+    structure_min_coverage: float = Field(1.0, ge=0, le=1)
+    # Bornes de la seule requête : la charge utile est le registre de lignes du document entier,
+    # et la réponse ne porte que des uid et des liens — jamais du texte.
+    # **Mesuré, et non supposé** (revue 4.2c) : les deux contrats déjà ingérés rendent 4 214 lignes
+    # pour 710 081 caractères et 4 802 lignes pour 655 999. La première valeur écrite ici, 300 000,
+    # fermait donc la CLI sur les deux — `demande()` levait « aucun appel soumis » et il n'existe
+    # aucun découpage possible, la proposition portant sur le document entier. La borne est réglée
+    # au-dessus du maximum mesuré avec ~25 % de marge ; au-delà, c'est le plafond de coût qui
+    # arrête le run, avant toute construction de client.
+    structure_max_input_chars: int = Field(900000, ge=1)
+    structure_max_output_tokens: int = Field(16000, ge=1)
+    # Majorant vérifié **avant** toute construction de client (idiome `type_clauses`).
+    structure_max_cost_eur: float = Field(5.0, gt=0)
+
     # Dictionnaire enrichi (story 2.1, AD-5 / AD-7). Toutes ces bornes s'appliquent **par le code**
     # à ce que le modèle d'ingestion rend : AD-5 et AD-7 disent qu'il ne renvoie jamais de texte de
     # bloc, et le code le vérifie plutôt que de le croire. Une chaîne hors borne est **écartée**,
@@ -624,6 +698,19 @@ class Settings(BaseSettings):
             "toc_indent_tolerance_pt": self.toc_indent_tolerance_pt,
             "toc_line_gap_ratio": self.toc_line_gap_ratio,
             "toc_title_prefix_min_chars": self.toc_title_prefix_min_chars,
+            # Story 4.2c : la géométrie des colonnes du corps et les bornes du vérificateur de
+            # structure se publient comme les autres (convention Seuils). Les trois premières
+            # entrent aussi dans `ingest_fingerprint` : elles changent l'ordre de lecture.
+            "column_gutter_min_pt": self.column_gutter_min_pt,
+            "column_min_lines": self.column_min_lines,
+            "column_min_span_ratio": self.column_min_span_ratio,
+            "column_row_pairing_max_ratio": self.column_row_pairing_max_ratio,
+            "column_min_fill_ratio": self.column_min_fill_ratio,
+            "structure_max_depth": self.structure_max_depth,
+            "structure_min_coverage": self.structure_min_coverage,
+            "structure_max_input_chars": self.structure_max_input_chars,
+            "structure_max_output_tokens": self.structure_max_output_tokens,
+            "structure_max_cost_eur": self.structure_max_cost_eur,
             # Story 2.1 : les bornes du dictionnaire enrichi et celle du périmètre dérivé du corpus.
             # Elles sont publiées comme les autres (convention Seuils) — `/api/v1/sante` et
             # `Trace.thresholds` se lisent avec la même règle, y compris pour ce que l'ingestion a

@@ -156,7 +156,12 @@ def test_document_shape(doc: Document) -> None:
     assert gate["ingest_fingerprint"] == manifest["ingest_fingerprint"]
     assert gate["source_hash"] == manifest["source_hash"] and gate["overlay_hash"] is None
     assert manifest["overlay_hash"] is None
-    assert manifest["ingest_fingerprint"] == doc.ingest_fingerprint == p.ingest_fingerprint()
+    # Cohérence artefact ↔ manifest : c'est exactement ce que le loader vérifie pour servir le
+    # document. L'égalité avec `p.ingest_fingerprint()` — « le parseur *courant* reproduirait cet
+    # artefact » — appartient au test de régénération, qui seul dispose du PDF : depuis la story
+    # 4.2c, les règles de segmentation ont changé et l'artefact committé attend une réingestion
+    # avec les sources réelles (voir `docs/choix-et-limites.md`).
+    assert manifest["ingest_fingerprint"] == doc.ingest_fingerprint
     assert manifest["document_hash"] == hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest()
     assert manifest["source_hash"] == (REAL / "source.sha256").read_text("utf-8").strip()
 
@@ -194,6 +199,18 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     assert all(raw_by_id[block_id]["kind_source"] == "model_verified" for block_id in golden_ids)
 
 
+def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> None:
+    """Garde toujours exécutée de l'égalité `document.json` ↔ parseur courant (voir le helper).
+
+    L'égalité elle-même appartient au test de régénération, seul à disposer du PDF ; ce qui restait
+    sans témoin, c'est la **divergence** : elle est désormais tolérée uniquement tant qu'elle est
+    déclarée dans `docs/choix-et-limites.md`.
+    """
+    from tests.test_pdf_to_blocks import assert_empreinte_committee_declaree
+
+    assert_empreinte_committee_declaree(DOC, doc.ingest_fingerprint)
+
+
 def test_revue_3_1_records_the_measured_id_reassignment() -> None:
     """Revue 3.1 M1 : une réingestion idempotente ne doit pas effacer la preuve historique d'AD-2."""
     journal = (ROOT / "docs" / "tests-live.md").read_text("utf-8")
@@ -210,6 +227,9 @@ def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
     assert pdf.is_file(), "source.pdf AXA requis par la porte de déploiement"
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
     assert source_hash == (REAL / "source.sha256").read_text("utf-8").strip()
+    # C'est ici, et seulement ici, que « le parseur courant reproduit l'artefact servi » se prouve :
+    # les deux empreintes se rejoignent après réingestion, jamais avant (AD-2, AD-7).
+    assert doc.ingest_fingerprint == p.ingest_fingerprint()
     pages, toc = p.extract_pages(pdf)
     built, meta = p.build_document(pages, edition=p.DEFAULT_EDITION, source_hash=source_hash, toc=toc,
                                    source_url=(REAL / "source.url").read_text("utf-8").strip())
