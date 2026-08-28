@@ -11,10 +11,21 @@ page, boîte et rang d'extraction — posé au **seul** point d'extraction du pa
 fusion des numéros, avant le retrait des bandes récurrentes et avant l'exclusion des lignes de table.
 L'`uid` ne dérive d'aucun `block_id` : une proposition ne peut donc pas s'ancrer sur le découpage
 qu'elle prétend décider. L'ingestion prouve à chaque exécution que chaque ligne du registre est soit
-portée par **exactement un** bloc, soit retirée sous un motif explicite (`bande_recurrente`,
-`ligne_de_table`) — union complète, intersection vide. Le registre reste **interne à l'ingestion** :
-il ne traverse ni `Document`, ni `document.json`, ni le loader, et le serveur continue de surligner
-par `Block.lines`.
+portée par **exactement un** bloc, soit retirée sous un motif explicite — union complète,
+intersection vide. Le registre reste **interne à l'ingestion** : il ne traverse ni `Document`, ni
+`document.json`, ni le loader, et le serveur continue de surligner par `Block.lines`.
+
+**Un motif de retrait ne couvre que du contenu réellement non servi.** Une ligne dont le centre tombe
+dans la boîte d'une table sort du flux des paragraphes — son texte serait sinon publié deux fois —,
+mais elle n'est pas perdue pour autant : son contenu **est** servi, dans le bloc `table` reconstruit
+à partir des rangées détectées. Elle est donc confiée à sa table, qui la porte exactement une fois
+dans ce bloc, et elle figure au registre présenté au proposant, à la position de la table dans
+l'ordre de lecture. La compter « retirée » revenait à servir du texte qu'aucun bloc ne réclamait :
+l'invariant validait alors une ligne servie **sans liaison ligne/bloc**, c'est-à-dire le seul chemin
+par lequel la bijection pouvait être contournée. Il ne reste qu'un cas de retrait par absorption, et
+il est nommé : une table détectée qui ne rend finalement aucune rangée ne produit aucun bloc, et ses
+lignes sont alors inscrites sous `table_sans_bloc`. Les deux motifs de retrait sont donc
+`bande_recurrente` et `table_sans_bloc`, tous deux réservés à du contenu que rien ne publie.
 
 **Les colonnes se détectent par la gouttière, pas par une mise en page supposée.** Le corps d'un
 contrat à deux colonnes était lu entrelacé, parce que `get_text(sort=True)` ne connaît pas les
@@ -57,7 +68,8 @@ chemin positionnel (`{doc_id}:s1.2`) calculé par le code : renommer les intitul
 identifiant. Le vérificateur est en code pur, hors réseau, et rend un refus **nommé** :
 `proposition_illisible`, `document_different`, `ligne_inconnue`, `titre_duplique`, `titre_ambigu`,
 `cycle`, `profondeur_excessive`, `ordre_impossible`, `intervalles_croises`,
-`parent_non_contenant`, `couverture_insuffisante`, `proposition_vide`, `noeud_non_construit`. Un
+`parent_non_contenant`, `ligne_omise`, `affectation_non_prouvee`, `proposition_vide`,
+`noeud_non_construit`. Un
 nœud prouvé que l'arbre bâti ne porte pas est donc un refus, pas une note : annoncer « proposition
 vérifiée » sur un arbre qui n'en contient qu'une partie serait le même mensonge que le repli
 silencieux. Un refus est un check `bloquant` `structure_proposee` : le manifest passe
@@ -65,6 +77,44 @@ en `quarantaine` et `document.json`/`summary.md` sont purgés. Il n'existe **pas
 vers l'heuristique — servir un arbre que personne n'a prouvé en laissant croire que la proposition a
 été honorée est exactement ce qu'AD-16 interdit. Sans `structure.json`, l'heuristique reste le chemin
 nominal, inchangée.
+
+**« Présent mais illisible » n'est pas « absent ».** La seule chose qui rend la main à l'heuristique
+est l'absence de `structure.json` au sens du système de fichiers. Un répertoire portant ce nom, un
+lien pendant, un lien vers un répertoire, un tube : tous *existent*, aucun n'est lisible, et tous
+sont le refus nommé `proposition_illisible`, donc la quarantaine. Le test de présence est donc
+`lexists` — qui voit aussi le lien pendant, lequel n'existe pas au sens de sa cible — et non
+« est-ce un fichier régulier », qui répondait « non » pour chacun de ces artefacts et faisait
+retomber l'ingestion sur l'heuristique **en silence**, sur le chemin même bâti pour l'interdire. La
+nature de l'entrée est ensuite jugée avant toute ouverture : un tube serait sinon lu jusqu'à ce qu'un
+écrivain se présente, et un refus doit être rendu, jamais attendu.
+
+**La couverture est totale, et la borne qui la nomme ne peut que la durcir.** L'AC exige une borne
+explicite de couverture *et* que « toute ligne inconnue, dupliquée, omise » mette le document en
+quarantaine : les deux ensemble n'admettent qu'une lecture, la couverture entière. La règle est donc
+appliquée **ligne par ligne** — toute ligne du registre hors de tout intervalle proposé est un refus
+`ligne_omise` qui nomme les `uid` concernés — et `STRUCTURE_MIN_COVERAGE` reste la borne publiée,
+réglée à `1.0`. Elle ne peut que durcir cette règle, jamais la desserrer : l'abaisser ne rouvre aucun
+trou, et un test le prouve. Mesuré en revue avec l'ancienne valeur `0.9` : dix lignes dont neuf
+couvertes rendaient « proposition vérifiée », et la dixième était ensuite rattachée au nœud du groupe
+voisin — l'arbre servi portait une affectation que la proposition n'avait ni portée ni prouvée. Cet
+héritage a disparu : le nœud d'un bloc est déterminé par ses seules lignes source. Un bloc qui n'en
+porterait aucune de prouvée, ou qui serait servi à cheval sur deux nœuds prouvés — une table atomique
+que la proposition scinde, une ligne fusionnée dont les deux `uid` tombent de part et d'autre d'une
+frontière —, est le refus `affectation_non_prouvee` : un bloc servi ne peut pas être moins prouvé que
+la proposition qui l'annonce.
+
+**L'appel suit la convention LLM du spine, et le plafond ne se neutralise pas.** L'unique appel du
+tier `ingest` passe par `messages.parse(..., output_config={"format": …})` **sans** `output_format`,
+et la réponse est validée localement par un `TypeAdapter` sur la forme filaire, avant les contrôles
+d'`uid` qu'il ne remplace pas. La raison est celle du spine : avec `output_format`, le SDK valide le
+texte avant de rendre la réponse et lève, si bien que `usage`, `stop_reason` et le texte reçu — donc
+le coût réel d'un appel pourtant facturé — seraient perdus. Ici, un refus de forme les porte tous les
+trois. Le plafond, lui, est résolu et validé **avant** toute extraction et toute construction de
+client : une valeur non finie ou nulle est refusée d'entrée, quelle que soit sa source. `nan` rendrait
+la comparaison au majorant toujours fausse et `inf` ne bloquerait jamais — le plafond annoncé serait
+neutralisé juste avant l'appel le plus cher du projet. Le réglage `STRUCTURE_MAX_COST_EUR` est borné
+strictement positif par `Settings`, ce qui écarte `nan` mais laisse passer l'infini : la garde porte
+donc sur la valeur résolue, pas sur le seul argument de ligne de commande.
 
 **La proposition est un artefact, jamais un appel à chaud.** AD-2 exige que `source_hash` +
 `ingest_fingerprint` égaux rendent les mêmes identifiants : rejouer le modèle à chaque ingestion
@@ -99,7 +149,9 @@ Géométrie des colonnes du corps :
 Structure proposée puis vérifiée :
 
 - `STRUCTURE_MAX_DEPTH=6` — profondeur maximale de l'arbre proposé.
-- `STRUCTURE_MIN_COVERAGE=0.9` — part des lignes du registre que les intervalles doivent couvrir.
+- `STRUCTURE_MIN_COVERAGE=1.0` — part des lignes du registre que les intervalles doivent couvrir. La
+  borne est nommée et publiée parce que l'AC l'exige ; la règle appliquée est par `uid` et
+  inconditionnelle, si bien qu'abaisser ce réglage ne rend aucune ligne omise acceptable.
 - `STRUCTURE_MAX_INPUT_CHARS=900000` — la charge utile est le registre du document entier et part en
   une seule requête : aucun découpage n'est possible pour un arbre qui porte sur tout le document.
 - `STRUCTURE_MAX_OUTPUT_TOKENS=16000` — la réponse ne porte que des `uid` et des liens.
