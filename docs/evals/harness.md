@@ -10,7 +10,7 @@ ANTHROPIC_API_KEY= uv run python -m server.evals.run --suite parsing --profile f
 uv run python -m server.evals.run --help
 ```
 
-`full` inclut les cas `vertical` et `full`. `--quick` choisit de façon stable le premier identifiant de chaque suite documentaire sélectionnée ; il est incompatible avec `--gate`, car un gate doit porter sur toute sa suite. Le guide accepte `outils` et `deterministe`; le sinistre accepte seulement `deterministe`; le parsing porte la variante `local`. Un couple incompatible est refusé avant tout appel.
+`full` inclut les cas `vertical` et `full`. `--quick` choisit de façon stable le premier identifiant de chaque suite documentaire sélectionnée ; il est incompatible avec `--gate`, car un gate doit porter sur toute sa suite. Le guide accepte `outils` et `deterministe`; le sinistre accepte `outils` et `deterministe` depuis la story 4.2d; le parsing porte la variante `local`. Sans `--variant`, les deux suites documentaires tournent la variante par défaut de leur pipeline, `outils` — ce que la production sert (AD-1, amendement du 25/08/2026) ; `deterministe` reste la baseline de comparaison, demandée explicitement. Un couple incompatible est refusé avant tout appel.
 
 Sur un lot qui mêle plusieurs suites, `--variant` ne peut pas désigner une variante commune quand
 les vocabulaires diffèrent. Il faut d'abord sélectionner la suite, par exemple

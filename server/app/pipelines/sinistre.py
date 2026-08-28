@@ -10,8 +10,10 @@ Trois différences avec `guide.py`, et rien d'autre :
 
 - **les faits** : `Faits` est une entrée de plein droit (AD-5 les nomme déjà), bornée par le domaine
   (`description ≤ 2 000` caractères) et rejetée, jamais tronquée ;
-- **la recherche** : *retrouver* reçoit `kinds_prioritaires` — à score égal, les blocs
-  `garantie|exclusion|condition|franchise` passent devant (AC de la story) ;
+- **la recherche** : la variante `deterministe` reçoit `kinds_prioritaires` — à score égal, les blocs
+  `garantie|exclusion|condition|franchise` passent devant (AC de la story 1.8). Ce départage est un
+  tri *dans l'index* ; la variante `outils`, devenue le mode par défaut (AD-1, amendement du
+  25/08/2026), ne classe pas : elle laisse le modèle choisir ses termes puis ses nœuds ;
 - **le refus** : AD-16 interdit tout repli côté sinistre, et un refus sinistre porte donc un verdict
   `ne_tranche_pas` composé par le code, jamais un verdict vide. `ne_tranche_pas` n'est pas un repli :
   c'est le résultat d'une table qui n'a rien trouvé à trancher, et il est dit comme tel.
@@ -68,15 +70,19 @@ from server.app.pipelines.commun import (
 from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
-from server.app.steps.retrouver import retrouver_deterministe
+from server.app.steps.retrouver import retrouver_deterministe, retrouver_outils
 from server.app.steps.verifier import verifier
 
 PIPELINE = "sinistre"
-# AD-1 : *retrouver* a deux variantes (déterministe en code pur, agentique en epic 4). À J+1 le
-# sinistre n'en connaît qu'une, et une variante inconnue est refusée **avant** tout appel facturé
-# plutôt que traitée comme la déterministe (AD-16 : jamais de dégradé silencieux).
-VARIANTES = frozenset({"deterministe"})
-VARIANT = "deterministe"
+# AD-1, amendement du 25/08/2026 : « la navigation par outils est le mode par défaut de *retrouver* »,
+# et la variante `deterministe` (index + ouverture groupée) « devient la baseline de comparaison des
+# évals et le repli quand le budget de tours est épuisé ». Le sinistre sert donc la même variante que
+# le guide, par la **même** fonction d'étape (`steps.retrouver.retrouver_outils`) et le même repli.
+# Une variante inconnue reste refusée **avant** tout appel facturé plutôt que traitée comme l'une des
+# deux (AD-16 : jamais de dégradé silencieux).
+VARIANT = "outils"
+VARIANT_DETERMINISTE = "deterministe"
+VARIANTES = frozenset({VARIANT, VARIANT_DETERMINISTE})
 
 # Ce que le refus d'un sinistre annonce, par `AbsenceProof.kind`. Composé par le **code**, comme les
 # phrases de `restituer.PHRASES_DE_REFUS` : aucune de ces situations n'est une lecture du contrat.
@@ -323,7 +329,7 @@ def _faits(faits: Faits | Mapping[str, Any]) -> Faits:
 
 async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any], *, corpus: Any,
               index: Any, client: Any, settings: Settings, request_id: str,
-              variant: str = "deterministe", lang: str | None = None, deadline_s: float | None = None,
+              variant: str = VARIANT, lang: str | None = None, deadline_s: float | None = None,
               budget: Any = None, dossier: MissingPackage | None = None,
               dictionnaire: Any = None,
               pipeline_digest_hex: str | None = None,
@@ -480,12 +486,58 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             return refuser("hors_perimetre", None, language=parsed.language,
                            lang_fallback=parsed.lang_fallback, scope=parsed.scope)
 
-        # --- retrouver (code pur) -------------------------------------------
+        # --- retrouver -------------------------------------------------------
         echeance("retrouver")
-        retrieval, step_retrouver = retrouver_deterministe(
-            parsed, corpus=corpus, index=index, budget=retrieval_budget(settings), settings=settings,
-            doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
-            dictionnaire=dictionnaire)
+        # Une seule borne pour l'étape entière, repli compris (AD-1 : « un `RetrievalBudget` borne
+        # **toute** l'étape »). La hisser dans une variable est ce qui empêche le repli de repartir
+        # sur une borne neuve, c'est-à-dire de ne plus être borné.
+        borne_retrieval = retrieval_budget(settings)
+        if variant == VARIANT:
+            # AD-1 : la navigation par outils est le mode par défaut. `kinds_prioritaires` n'y est
+            # pas porté — le départage de la story 1.8 est un tri à score égal **dans l'index**, et
+            # la variante outils ne classe pas : elle laisse le modèle choisir ses termes puis ses
+            # nœuds. L'ajouter serait un mécanisme de rappel de plus, pas le câblage de cette story.
+            candidats_outils: list[str] = []
+            try:
+                retrieval, step_retrouver = await retrouver_outils(
+                    parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
+                    client=client, request_budget=budget, doc_id=doc_id,
+                    dictionnaire=dictionnaire, candidats_out=candidats_outils)
+            except PipelineError as exc:
+                # AD-16, comme au guide : l'étape partielle voyage avec l'erreur. Sans cela, un
+                # échec pendant la navigation ressortirait en 503 sans dire ce qui avait été appelé.
+                if exc.step is not None:
+                    steps.append(exc.step)
+                exc.trace = tracer()
+                raise
+        else:
+            retrieval, step_retrouver = retrouver_deterministe(
+                parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
+                doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
+                dictionnaire=dictionnaire)
+        if variant == VARIANT and retrieval.truncated and not retrieval.blocs:
+            # Le repli du guide, à la condition près de rien : `truncated ∧ aucun bloc`. Des blocs
+            # outils **partiels** restent un contexte honnête, que la suite de la chaîne publiera
+            # avec `complete=False` ; les remplacer par une sélection déterministe coûterait plus et
+            # masquerait la lecture bornée. Une seule tentative, sous la même borne, sans tour modèle
+            # supplémentaire — et `kinds_prioritaires` décisionnels, comme l'appel déterministe
+            # qu'elle remplace : la baseline sinistre reste ce qu'elle était (story 1.8).
+            candidats_deterministes: list[str] = []
+            fallback, fallback_step = retrouver_deterministe(
+                parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
+                doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
+                dictionnaire=dictionnaire, candidats_out=candidats_deterministes)
+            step_retrouver.checks.append(CheckResult(
+                name="repli_deterministe", ok=False,
+                detail="navigation par outils tronquée sans bloc ; repli déterministe borné transmis"))
+            step_retrouver.checks.extend(fallback_step.checks)
+            step_retrouver.ms += fallback_step.ms
+            step_retrouver.opened_block_ids = list(fallback.opened_block_ids)
+            finaux = set(fallback.opened_block_ids)
+            candidats = [*candidats_outils, *candidats_deterministes]
+            discarded = list(dict.fromkeys(b for b in candidats if b not in finaux))
+            step_retrouver.discarded_block_ids = discarded
+            retrieval = fallback.model_copy(update={"discarded_block_ids": discarded})
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:

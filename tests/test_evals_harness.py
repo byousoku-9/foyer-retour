@@ -270,7 +270,8 @@ def test_snapshot_mixte_garde_les_octets_disque_dans_son_identite(tmp_path: Path
 
 def test_recall_compte_les_fiches_attendues_et_pas_seulement_found() -> None:
     resultat = Resultat(
-        id="g", suite="guide", label="doc_manque", found=True, expected_found=True,
+        id="g", suite="guide", label="doc_manque", variant=runner.DEFAUT_PAR_SUITE["guide"],
+        found=True, expected_found=True,
         expected_fiche_ids=["guide:attendue"], cited_fiche_ids=["guide:autre"],
     )
     assert runner._recall([resultat]) == 0.0
@@ -278,15 +279,32 @@ def test_recall_compte_les_fiches_attendues_et_pas_seulement_found() -> None:
     assert runner._recall([resultat]) == 1.0
 
 
-def test_variante_incompatible_est_refusee_au_preflight() -> None:
-    cas = Cas.model_validate({
+def _cas_sinistre() -> Cas:
+    return Cas.model_validate({
         "id": "s-un", "suite": "sinistre", "profile": "vertical", "question": "couvert ?",
         "faits": {"description": "un dégât"}, "expected": {"found": True},
         "truth": {"source": "lecture_humaine", "validated_by_expert": False},
         "mode_attendu": "bonne_reponse",
     })
+
+
+def test_variante_incompatible_est_refusee_au_preflight() -> None:
+    # `local` est la variante du seul parsing : demandée sur un sinistre, elle reste un couple
+    # impossible, refusé avant tout appel facturé.
     with pytest.raises(RefusDeTourner, match="incompatible"):
-        variante_du_cas(cas, "outils")
+        variante_du_cas(_cas_sinistre(), "local")
+
+
+def test_la_suite_sinistre_tourne_outils_par_defaut_et_garde_deterministe_en_baseline() -> None:
+    """Story 4.2d : deux runs ne sont comparables qu'à variante égale — le harness mesure le défaut.
+
+    AD-1, amendement du 25/08/2026 : la navigation par outils est le mode de production, la variante
+    `deterministe` reste la baseline **explicitement** demandée.
+    """
+    cas = _cas_sinistre()
+    assert variante_du_cas(cas, None) == "outils" == runner.pipeline_sinistre.VARIANT
+    assert variante_du_cas(cas, "deterministe") == "deterministe"
+    assert variante_du_cas(cas, "outils") == "outils"
 
 
 @pytest.mark.parametrize("field", ["block_ids", "fiche_ids"])

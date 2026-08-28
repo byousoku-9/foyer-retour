@@ -45,6 +45,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.question import Faits, QuestionScope
 from server.app.domain.trace import StepTrace, Trace
 from server.app.domain.verdict import MissingPackage, Verdict
+from server.app.pipelines import sinistre
 
 XFF = {"X-Forwarded-For": "198.51.100.9"}
 DOC_ID = "cg-mini"
@@ -163,7 +164,9 @@ def _refus(kind: str = "zero_hit") -> Answer:
 
 def _trace(**kw: Any) -> Trace:
     defauts: dict[str, Any] = {
-        "request_id": "à-remplacer", "pipeline": "sinistre", "variant": "deterministe",
+        # La variante que la route peut réellement produire : elle ne transporte pas `variant`, donc
+        # c'est le défaut du pipeline (story 4.2d), lu sur lui et jamais recopié ici.
+        "request_id": "à-remplacer", "pipeline": "sinistre", "variant": sinistre.VARIANT,
         "intent": "question", "total_cost_eur": 0.0336,
         "steps": [StepTrace(name="comprendre", tier="micro"), StepTrace(name="restituer")],
     }
@@ -1065,15 +1068,17 @@ def test_les_bornes_du_contrat_sont_appliquees_avant_la_route(prod: TestClient, 
 
 # --- ligne « Variante inconnue » -----------------------------------------
 
-@pytest.mark.parametrize("valeur", ["agentique", "deterministe"])
+@pytest.mark.parametrize("valeur", ["agentique", "deterministe", "outils"])
 def test_une_variante_postee_est_refusee_avant_tout_appel(prod: TestClient, valeur: str) -> None:
     """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 » — et AD-11 n'en énumère aucune dans ce corps.
 
     Le champ a existé (story 1.9) puis a été retiré par la revue Codex tour 1 (I3) : AD-11 énumère
     `doc_id, question, faits, lang?`, et la story refusait `dossier` **en invoquant** cette
-    énumération. `extra="forbid"` rend donc les deux formes en 400, avant le premier appel facturé —
-    la variante inconnue qu'AD-1 vise, et la variante connue qu'aucune règle n'autorise à choisir
-    par HTTP (elle se choisit en éval, `pipelines.sinistre.run(variant=…)`).
+    énumération. `extra="forbid"` rend donc les trois formes en 400, avant le premier appel facturé —
+    la variante inconnue qu'AD-1 vise, et les **deux** variantes connues qu'aucune règle n'autorise à
+    choisir par HTTP (elles se choisissent en éval, `pipelines.sinistre.run(variant=…)`). Depuis la
+    story 4.2d, `outils` est la troisième valeur, et c'est celle qu'un client tenterait de poster : le
+    défaut du pipeline se sert parce que le corps ne le nomme pas, jamais parce qu'il le demande.
     """
     double = _brancher(prod, Double(erreur=AssertionError("le pipeline ne doit pas être appelé")))
     r = _poster(prod, _corps(variant=valeur))

@@ -67,11 +67,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Le mobilier de salon (canapé et table basse) endommagé par brûlure suite à la chute d'une bougie allumée le 1er août 2026 au salon du domicile est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"brûlure\", \"dégât du feu\", \"bougie\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier par brûlure accidentelle\"], \"bien\": \"mobilier de salon (canapé, table basse)\", \"evenement\": \"brûlure accidentelle sans propagation d'incendie\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute d'une bougie allumée\", \"moment\": \"1er août 2026\"}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Le mobilier de salon (canapé et table basse) endommagé par brûlure suite à la chute d'une bougie allumée le 1er août 2026 est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"brûlure\", \"incendie partiel\", \"dégât mobilier\", \"chaleur\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier de salon causé par brûlure\"], \"bien\": \"mobilier de salon (canapé, table basse)\", \"evenement\": \"brûlure sans propagation de flammes ni embrasement\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute accidentelle d'une bougie allumée\", \"moment\": \"1er août 2026\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeVYpZSotTJ5iEuXig7bq",
+      "id": "msg_011CeVq39AHXTgjdYhM69gsb",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -87,7 +87,132 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 3431,
-        "output_tokens": 234,
+        "output_tokens": 232,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:948117bffda8e996": {
+    "request": "claude-haiku-4-5-20251001:948117bffda8e996",
+    "response": {
+      "content": [
+        {
+          "text": "Je vais rechercher les passages pertinents du contrat d'assurance habitation concernant la couverture du mobilier endommagé par brûlure.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01PvrKTN9iauJ5aw9wttSxAA",
+          "input": {
+            "termes": [
+              "mobilier de salon",
+              "brûlure",
+              "incendie partiel",
+              "dégât mobilier",
+              "chaleur"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeVq3KsTiqBgLMGwxAC74",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4882
+        },
+        "cache_creation_input_tokens": 4882,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 536,
+        "output_tokens": 121,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:9b748ef187b4c1c3": {
+    "request": "claude-haiku-4-5-20251001:9b748ef187b4c1c3",
+    "response": {
+      "content": [
+        {
+          "text": "Maintenant, je vais ouvrir les passages les plus pertinents pour comprendre la couverture du mobilier et les garanties relatives aux dommages par brûlure :",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_011mjPuDZURqiRpnxP9tUTpL",
+          "input": {
+            "focus_block_id": "axa-lu-optihome-2017:p34:12",
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1.6"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01YQqioYZjsxhxEUU1GnDX8L",
+          "input": {
+            "focus_block_id": "axa-lu-optihome-2017:p46:1",
+            "node_id": "axa-lu-optihome-2017:a3.1.8"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01XmA86A5cxkiLTqAMuW3pEL",
+          "input": {
+            "focus_block_id": "axa-lu-optihome-2017:p11:8",
+            "node_id": "axa-lu-optihome-2017:a1.27"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01BQh4PLqizcMXzjSL7o71oo",
+          "input": {
+            "focus_block_id": "axa-lu-optihome-2017:p22:5",
+            "node_id": "axa-lu-optihome-2017:a2.10"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeVq3TA1bHwR9ZYGehKwj",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4882,
+        "inference_geo": "not_available",
+        "input_tokens": 1706,
+        "output_tokens": 440,
         "service_tier": "standard"
       }
     }

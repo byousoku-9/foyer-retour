@@ -3527,3 +3527,81 @@ C'est un **état produit non bloquant** pour le verdict mono-cause de 4.2a-bis (
 segment/claim, prouvée hors réseau). Comme critère de promotion, ce rouge appartient
 **exclusivement au gate 4.5**. Aucune promotion n'est exécutée, le dernier vert et son trafic sont
 inchangés, et rien ici ne prétend le candidat E2E vert.
+
+## Story 4.2d — comparaison sinistre `deterministe` vs `outils` (2026-08-28, orchestrateur)
+
+### Ce que le builder a fait au live : rien
+
+Aucun appel live, aucun gate, aucune promotion, aucun merge, aucun push depuis le builder. La cause
+de 4.2d — la navigation par outils devient la variante sinistre servie par défaut — est prouvée
+**hors réseau** par des tests synthétiques neutres, corpus permuté compris. Tout ce qui suit a été
+tiré par l'orchestrateur après passation, sur le SHA figé `b765e886c46a5f38b52494b3c10dbff83258061f`.
+
+### Cadre de la campagne
+
+Campagne `20260828-4.2d-b765e88`, deux séries `--repeat 3` sans cache de réponse sur le cas
+`s-bougie-canape` : baseline `4.2d-baseline-deterministe-b765e88`, finale
+`4.2d-final-outils-b765e88`. Transport Anthropic Messages **standard** uniquement, **aucun Batch**,
+aucun parallélisme, **aucune correction entre répétitions**. `LIVE_BUDGET_EUR=0.9`, `--max-cost 0.3`
+par série, majorant certifié au préflight `0,3000 €` chacune. Les deux séries sont complètes :
+3/3 répétitions, aucune interruption. Digests communs :
+`pipeline_digest=ca04ac18…`, `prompts_digest=87e23934…`, `plancher_digest=d6df020a…`,
+`cases_hash=0b521262f9d9e4ed5da3923df9985e416f4ab6de6c911e959facf2b36eaa57e0`.
+
+### Ré-enregistrement de la fixture sinistre
+
+Un seul essai, arrêté **rouge** sur `BudgetExceeded` **avant l'appel de rédaction** :
+`0,0149 €` engagés + `0,0945 €` estimés > `0,1000 €` de plafond par requête. Trois réponses réelles
+ont malgré tout été conservées (une clé mise à jour, deux ajoutées), **aucun retry**. La fixture est
+committée telle quelle : le replay hors réseau reste donc rouge sur ce `BudgetExceeded`, et c'est
+consigné comme un état produit, pas corrigé. C'est aussi la première mesure directe du risque déjà
+consigné en différé : la chaîne sinistre gagne un tour de navigation sans que son plafond par requête
+ait jamais été arbitré (AD-1, `target_story: 4.5`).
+
+### Résultats, publiés tels quels
+
+Baseline `deterministe` — `run_digest=a8aa84c5c1c6be723e36c2891861d4190427c62e7e34de16e17a5f0281be625a` :
+
+| Répétition | Label | HTTP | Verdict | Preuve | Coût (€) | Latence (ms) |
+|---:|---|---:|---|---|---:|---:|
+| 1 | `bonne_reponse` | 200 | `ne_tranche_pas` | `p50:18` `exclusion` `63ab6213…` | 0,0738 | 12 678 |
+| 2 | `claim_non_soutenu` | 503 | — | aucune | 0,0640 | 34 370 |
+| 3 | `bonne_reponse` | 200 | `ne_tranche_pas` | `p50:18` `exclusion` `63ab6213…` | 0,0271 | 14 243 |
+
+Agrégat : 2/3, coût de série **0,1649 €** (moyen 0,0550 €, p95 0,0738 €), latence p50 **14 243 ms**,
+p95 **34 370 ms**. Stabilité **rouge** (signatures divergentes, verdict absent sur la répétition 2).
+
+Finale `outils` — `run_digest=a20f53cd63a224ce239ccd54c94ab2b7b2c397971374a04eaf59fe4b431ddf0b` :
+
+| Répétition | Label | HTTP | Verdict | Preuve | Coût (€) | Latence (ms) |
+|---:|---|---:|---|---|---:|---:|
+| 1 | `claim_non_soutenu` | 503 | — | aucune | 0,0138 | 11 156 |
+| 2 | `bonne_reponse` | 200 | `ne_tranche_pas` | `p34:12` `garantie` `2bc6b03a…` | 0,0232 | 15 342 |
+| 3 | `bonne_reponse` | 200 | `ne_tranche_pas` | `p35:1` `garantie` `88043521…` + `p35:2` `exclusion` `095959be…` | 0,0333 | 17 853 |
+
+Agrégat : 2/3, coût de série **0,0703 €** (moyen 0,0234 €, p95 0,0333 €), latence p50 **15 342 ms**,
+p95 **17 853 ms**. Stabilité **rouge**, et par un mécanisme différent de la baseline : ce sont les
+**preuves** qui divergent entre répétitions, là où la baseline reproduisait `p50:18` à l'identique.
+
+Décisions de plancher, identiques sur les deux séries : `executions_completes=1,0` verte ;
+`cases_ok_rate=0,6667`, `stabilite_sinistre=0,0`, `bougie_post_success_rate=0,6667` rouges.
+
+### Ce que la comparaison dit
+
+À **justesse égale** (2/3 des deux côtés), la variante servie coûte **moins de la moitié** de la
+baseline (0,0703 € contre 0,1649 € de série ; 0,0234 € contre 0,0550 € en moyen) et resserre la
+queue de latence (p95 17 853 ms contre 34 370 ms). Elle est en revanche instable **pour une raison
+qui lui est propre** : ses preuves changent d'une répétition à l'autre. C'est la comparaison que la
+story 4.2d devait produire, et celle que 4.4 réutilisera tant que `cases_hash` et digests sont
+inchangés.
+
+Ledger de la campagne : **0,2352 €** pour les deux séries, sous `0,9000 €`. Coût live réel global de
+la story, fixture comprise : **0,2501 €**. Aucun autre appel live pour 4.2d.
+
+### Ce que ces mesures décident : rien ici
+
+Ce sont des **états produit non bloquants** pour le verdict mono-cause de 4.2d, lequel reste
+**vert** : le câblage de la variante, le repli borné et nommé, l'identité du contrat `RetrievalResult`
+et l'indépendance à l'identité du corpus sont prouvés hors réseau. Comme critères de promotion, ces
+rouges appartiennent **exclusivement au gate 4.5**. Aucune promotion n'est exécutée, le dernier vert
+et son trafic sont inchangés, et rien ici ne prétend le candidat E2E vert.

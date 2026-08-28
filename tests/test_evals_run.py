@@ -121,7 +121,9 @@ def _trace(pipeline: str = "guide", *, variant: str | None = None,
     calls = ([LLMCall(model="modele-test", usage=Usage(
         cost_eur=cost_eur_original, cost_eur_original=cost_eur_original))]
         if cost_eur_original else [])
-    variant = variant or ("outils" if pipeline == "guide" else "deterministe")
+    # La variante par défaut de la suite, lue sur le runner : depuis la story 4.2d le sinistre navigue
+    # lui aussi par outils, et un double qui trace `deterministe` mentirait à la garde de cohérence.
+    variant = variant or runner.DEFAUT_PAR_SUITE[pipeline]
     return Trace(request_id="eval", pipeline=pipeline, variant=variant, total_cost_eur=0.01,
                  steps=[StepTrace(name="comprendre", tier="micro", calls=calls)])
 
@@ -933,7 +935,8 @@ def test_une_attente_inassouvie_sous_un_bon_label_fait_echouer_le_cas() -> None:
     label, ecarts = runner.juger(cas, answer, doc_id=GUIDE, index=index)
     assert label == "bonne_reponse"
     assert ecarts and any("complete=True" in e for e in ecarts)
-    assert runner.Resultat(id="c", suite="guide", label=label, ecarts=ecarts).ok is False
+    assert runner.Resultat(id="c", suite="guide", label=label,
+                           variant=runner.DEFAUT_PAR_SUITE["guide"], ecarts=ecarts).ok is False
 
 
 def test_un_refus_attendu_et_obtenu_na_aucun_ecart() -> None:
@@ -971,7 +974,8 @@ def test_un_label_different_du_mode_attendu_est_un_ecart() -> None:
     label, ecarts = runner.juger(cas, _refus(), doc_id=GUIDE, index=index)
     assert label == "bonne_reponse"
     assert ecarts == ["label bonne_reponse (mode_attendu faux_refus)"]
-    assert runner.Resultat(id="c", suite="guide", label=label, ecarts=ecarts).ok is False
+    assert runner.Resultat(id="c", suite="guide", label=label,
+                           variant=runner.DEFAUT_PAR_SUITE["guide"], ecarts=ecarts).ok is False
 
 
 # --- exécution : la matrice d'E/S ----------------------------------------
@@ -1161,6 +1165,35 @@ def test_une_trace_de_variante_differente_est_un_incident_et_purge_sa_namespace(
     with pytest.raises(runner.IncidentTechnique, match="TraceVariantMismatch"):
         _executer(ctx, [_cas(id="g-mismatch")], variant="outils")
     assert purges == [True]
+
+
+@pytest.mark.parametrize("suite", ["guide", "sinistre"])
+def test_executer_cas_sans_variante_attend_le_defaut_du_pipeline_de_la_suite(suite: str) -> None:
+    """Revue 4.2d : la garde de cohérence lit `DEFAUT_PAR_SUITE`, jamais une table recopiée.
+
+    `executer_cas` est une coroutine publique dont la signature annonce `variant: str | None = None`.
+    Appelée sans variante, elle comparait la trace à une table locale qui affirmait `deterministe`
+    pour le sinistre : un faux `TraceVariantMismatch` **après** les appels facturés, qui jetait de
+    surcroît la namespace de cache d'une trace pourtant conforme. Le cas guide est là pour prouver
+    que le correctif n'a pas déplacé le défaut de l'autre suite.
+    """
+    import asyncio
+
+    _corpus_, index = _corpus()
+    bloc = f"{GUIDE}:ffiche:1" if suite == "guide" else f"{CONTRAT}:p34:1"
+    citation = "LuxTrust" if suite == "guide" else "mobilier assuré"
+    answer = _reponse([_claim(_citation(index, bloc, citation))])
+    reponse = (answer, _trace(suite))  # trace étiquetée du défaut de la suite
+    ctx = _armer(_contexte([reponse] if suite == "guide" else [],
+                           [reponse] if suite == "sinistre" else None))
+    cas = _cas(id=f"{suite[0]}-defaut", suite=suite,
+               **({"faits": {"description": "x"}} if suite == "sinistre" else {}))
+    doc_id = GUIDE if suite == "guide" else CONTRAT
+
+    _answer, trace, _cout = asyncio.run(runner.executer_cas(
+        cas, ctx, doc_id=doc_id, budget_restant_eur=1.0))  # aucune variante passée
+
+    assert trace.variant == runner.DEFAUT_PAR_SUITE[suite] == "outils"
 
 
 def test_le_budget_dun_cas_est_le_reste_du_plafond_de_run() -> None:
