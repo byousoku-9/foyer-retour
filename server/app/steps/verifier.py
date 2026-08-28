@@ -658,7 +658,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         forme_segment = normalize(s.text)
         identiques = {cid for cid in s.claim_ids if cid in claims_du_draft
                       and normalize(claims_du_draft[cid].text) == forme_segment}
-        if forme_segment and identiques:
+        # Revue Codex 4.2a-bis (B1) : l'identité est l'égalité des formes normalisées, sans
+        # exception — `normalize()` peut vider un texte (« • »), et deux formes vides restent
+        # byte-identiques. Exiger une forme non vide rouvrait le second jugement contradictoire
+        # sur exactement cette classe.
+        if identiques:
             derives[i] = identiques
     a_juger = [(i, s) for i, s in enumerate(draft.segments)
                if i not in derives

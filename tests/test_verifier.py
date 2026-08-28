@@ -809,6 +809,30 @@ async def test_la_derivation_absorbe_ce_que_normalize_absorbe(mini: Index) -> No
     assert v.found is True
 
 
+async def test_une_forme_normalisee_vide_reste_byte_identique_et_derivee(mini: Index) -> None:
+    """Revue Codex 4.2a-bis (B1) : `normalize("•") == ""` — deux formes normalisées vides sont
+    byte-identiques. L'identité ne connaît aucune exception : le segment n'est pas soumis au
+    second jugement, et son affichage dérive de la pertinence de la claim — retenue ⇒ affiché
+    (un `soutenu=false` scripté est inerte), rejetée ⇒ masqué (le `soutenu=true` par défaut ne
+    le ressuscite pas). Sans cela, la contradiction centrale renaissait sur cette classe."""
+    draft = _draft_libre(
+        ("•", "factuel", ["c1"]),
+        claims=[("c1", "•", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={0: False})])
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert envoyes == []  # aucun second jugement, même quand la normalisation vide le texte
+    assert [s.text for s in v.segments] == ["•"]
+    assert v.found is True and [c.claim_id for c in v.claims] == ["c1"]
+    assert v.rejected_claims == []  # jamais `non_citee`
+    assert [c.name for c in step.checks if c.name == "segments_derives"]
+    # La même identité, claim rejetée : masqué fail-closed, sans résurrection.
+    v2, step2, _fake2 = await _verifier(mini, draft, [_verdicts(("c1", False))])
+    assert v2.segments == [] and v2.claims == [] and v2.found is False
+    assert [c.rejection_kind for c in v2.rejected_claims] == ["non_pertinente"]
+    assert [c.name for c in step2.checks if c.name == "segments_derives_masques"]
+
+
 async def test_un_segment_identique_a_une_claim_rejetee_nest_pas_ressuscite_par_un_pointeur(
         mini: Index) -> None:
     """`claim_ids=[c1, c2]`, identité avec `c1` seule : `c1` rejetée ⇒ masqué, même si `c2` distincte
