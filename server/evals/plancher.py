@@ -92,6 +92,17 @@ class BudgetPlancher(BaseModel):
     on_exceeded: dict[str, Any]
 
 
+class SeriesPlancher(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    baseline_per_named_witness: int = Field(ge=1)
+    final_per_named_witness: int = Field(ge=1)
+    repeat_required: bool
+    max_cost_required: bool
+    # Borne de sûreté de la CLI : elle vit dans le protocole versionné, jamais dans le runtime.
+    max_repeat: int = Field(ge=3)
+
+
 class Plancher(BaseModel):
     """Le protocole entier, tel que figé — validé strictement, jamais complété par défaut."""
 
@@ -104,7 +115,7 @@ class Plancher(BaseModel):
     n_minimum: int = Field(ge=3)
     splits: dict[str, dict[str, Any]]
     budget: BudgetPlancher
-    series: dict[str, Any]
+    series: SeriesPlancher
     regles_incident: list[str] = Field(min_length=1)
     imports: Imports
     temoins: list[Temoin] = Field(min_length=1)
@@ -133,6 +144,10 @@ class Plancher(BaseModel):
                 f"{trusted.live_budget_default_eur} : la règle trusted fait foi")
         if self.budget.environment_variable != "LIVE_BUDGET_EUR":
             raise ValueError("la règle trusted nomme LIVE_BUDGET_EUR : la variable ne se renomme pas")
+        if self.series.baseline_per_named_witness != trusted.baseline_per_named_witness:
+            raise ValueError("series.baseline_per_named_witness diverge de la règle trusted")
+        if self.series.final_per_named_witness != trusted.final_per_named_witness:
+            raise ValueError("series.final_per_named_witness diverge de la règle trusted")
         stabilite = [t for t in self.temoins if t.famille == "stabilite"]
         if not stabilite:
             raise ValueError("au moins un témoin de stabilité est requis (répétitions N>=3 sans cache)")
@@ -157,6 +172,61 @@ class ChargePlancher(BaseModel):
     digest: str
 
 
+def _racine_autorite() -> Path:
+    """Trouve le dépôt de contrôle qui porte les deux sources trusted du protocole.
+
+    Le runner de preuve est exécuté depuis le worktree orchestré. Une copie autonome du produit
+    peut lire le plancher, mais ne peut pas produire de preuve si ses sources d'autorité ne sont pas
+    présentes : mieux vaut un refus explicite qu'une recopie auto-certifiée dans le même YAML.
+    """
+    for parent in PLANCHER_PATH.parents:
+        if ((parent / "automation" / "plancher.yaml").is_file()
+                and (parent / "automation" / "runs" / "20260827-181634-story-4.2a"
+                     / "control" / "floor.yaml").is_file()):
+            return parent
+    raise PlancherInvalide("sources d'autorité 4.2a/trusted introuvables dans le dépôt de contrôle")
+
+
+def _yaml_objet(path: Path) -> dict[str, Any]:
+    try:
+        valeur = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise PlancherInvalide(
+            f"source d'autorité {path} illisible ({type(exc).__name__})") from exc
+    if not isinstance(valeur, dict):
+        raise PlancherInvalide(f"source d'autorité {path} : un objet YAML est attendu")
+    return valeur
+
+
+def _valider_sources_autorite(plancher: Plancher) -> None:
+    """Compare les imports déclarés aux fichiers d'autorité, hors du YAML qui les recopie."""
+    racine = _racine_autorite()
+    floor_relatif = Path("automation/runs/20260827-181634-story-4.2a/control/floor.yaml")
+    trusted_relatif = Path("automation/plancher.yaml")
+    floor = _yaml_objet(racine / floor_relatif)
+    trusted = _yaml_objet(racine / trusted_relatif)
+    importe_floor = plancher.imports.floor_4_2a
+    importe_trusted = plancher.imports.regle_trusted
+    if importe_floor.source != floor_relatif.as_posix():
+        raise PlancherInvalide("la source du floor 4.2a ne peut pas être redirigée")
+    if importe_trusted.source != trusted_relatif.as_posix():
+        raise PlancherInvalide("la source de la règle trusted ne peut pas être redirigée")
+    if (importe_floor.n_minimum != floor.get("n_minimum")
+            or importe_floor.thresholds != floor.get("thresholds")):
+        raise PlancherInvalide("l'import floor 4.2a diverge de sa source d'autorité")
+    attendu_trusted = {
+        "schema_version": trusted.get("schema_version"),
+        "proof_producer": (trusted.get("live") or {}).get("proof_producer"),
+        "baseline_per_named_witness": ((trusted.get("live") or {}).get("series") or {}).get(
+            "baseline_per_named_witness"),
+        "final_per_named_witness": ((trusted.get("live") or {}).get("series") or {}).get(
+            "final_per_named_witness"),
+        "live_budget_default_eur": (trusted.get("budget") or {}).get("default_eur"),
+    }
+    if importe_trusted.model_dump() != {"source": trusted_relatif.as_posix(), **attendu_trusted}:
+        raise PlancherInvalide("l'import trusted diverge de sa source d'autorité")
+
+
 def charger_plancher(path: Path = PLANCHER_PATH) -> ChargePlancher:
     """Charge, valide et fige le plancher — sinon `PlancherInvalide`, jamais un défaut silencieux."""
     try:
@@ -174,6 +244,7 @@ def charger_plancher(path: Path = PLANCHER_PATH) -> ChargePlancher:
         raise PlancherInvalide(f"{path} : champ {champ} — {premier.get('msg', '')}") from exc
     except ValueError as exc:
         raise PlancherInvalide(f"{path} : {exc}") from exc
+    _valider_sources_autorite(plancher)
     return ChargePlancher(plancher=plancher, digest=hashlib.sha256(octets).hexdigest())
 
 

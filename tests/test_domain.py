@@ -603,7 +603,7 @@ def test_ingest_models() -> None:
                                    "countersigned", "decisions", "run_digest"}
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
     assert fields(ingest.GateDecision) == {"metric", "producer", "threshold", "scope", "n",
-                                           "run_digest", "value", "status"}
+                                           "run_digest", "value", "status", "reason"}
     assert literal_values(ingest.GateDecision, "status") == {"green", "red"}
     assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
                                             "overlay_hash", "gate"}

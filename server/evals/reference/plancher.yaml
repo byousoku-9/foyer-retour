@@ -52,6 +52,7 @@ series:
   final_per_named_witness: 1
   repeat_required: true
   max_cost_required: true
+  max_repeat: 1000
 
 regles_incident:
   - "toute repetition manquante d'un run interrompu est rouge et reste au denominateur"
@@ -151,9 +152,20 @@ temoins:
     famille: run
     criticite: bloquant
     plancher: 1.0
-    n: 1
+    n: 3
     numerateur: "executions ok (cas x repetition, label et attentes tenus)"
     denominateur: "executions planifiees (cas x repetitions), interruptions comprises"
     incident: "execution manquante = rouge au denominateur"
+    scope: run
+    mesure_par: eval_runner
+  - metric: executions_completes
+    pipeline: all
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions terminees"
+    denominateur: "executions planifiees (cas x repetitions)"
+    incident: "toute execution manquante est rouge : un run interrompu ne devient jamais vert"
     scope: run
     mesure_par: eval_runner

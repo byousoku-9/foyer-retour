@@ -41,6 +41,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
+from server.evals.plancher import charger_plancher
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -1460,20 +1461,20 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     return runner.main(argv + ["--cases-dir", str(cases), "--data-dir", str(data)])
 
 
-def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
-                                                 monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC : deux `--gate` successifs ⇒ `manifest.gate` renseigné, code 0."""
+def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """Les suites tournent, mais la provenance builder ne peut produire aucune preuve verte."""
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
     sinistre = (_reponse([_claim(_citation(index, f"{CONTRAT}:p34:1", "mobilier assuré"))],
                          verdict=Verdict(value="sous_conditions", reason="r")), _trace("sinistre"))
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
-    assert _main(tmp_path, ["--gate", CONTRAT], monkeypatch, reponses_sinistre=[sinistre]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
+    assert _main(tmp_path, ["--gate", CONTRAT], monkeypatch, reponses_sinistre=[sinistre]) == 1
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
     dernier_rapport = json.loads((tmp_path / "eval-results.json").read_text(encoding="utf-8"))
     for doc_id in (GUIDE, CONTRAT):
         gate = manifest[doc_id]["gate"]
-        assert gate["evals_ok"] is True and gate["profile"] == "vertical" and gate["cases"] == 1
+        assert gate["evals_ok"] is False and gate["profile"] == "vertical" and gate["cases"] == 1
         assert set(gate) >= {"profile", "source_hash", "ingest_fingerprint", "cases_hash",
                              "pipeline_digest", "prompts_digest", "model_ids", "evals_ok", "date",
                              "overlay_hash", "cases", "countersigned"}
@@ -1481,16 +1482,41 @@ def test_gate_nominal_ecrit_le_gate_et_rend_zero(tmp_path: Path,
     assert dernier_rapport["identity"]["image"]["pipeline_digest"]
     assert dernier_rapport["identity"]["scope"]["case_ids"] == ["s-bougie"]
     assert CONTRAT in dernier_rapport["identity"]["documents"]
-    # …et le corpus se recharge sans `sans_gate` ni `gate_perime` (AC).
+    # Le corpus refuse honnêtement ces diagnostics non probants.
     from server.app.domain.ingest import GateContext
     contexte = GateContext(pipeline_digest=manifest[GUIDE]["gate"]["pipeline_digest"],
                            prompts_digest=manifest[GUIDE]["gate"]["prompts_digest"],
                            model_ids=manifest[GUIDE]["gate"]["model_ids"])
     corpus = load_corpus(tmp_path / "data", allow_ungated=False, current=contexte)
-    assert sorted(corpus.documents) == sorted([GUIDE, CONTRAT])
-    # `allow_ungated=False` : les deux documents ne sont servis que parce que leur gate suffit (AC).
-    for doc_id, alertes in corpus.alerts.items():
-        assert "sans_gate" not in alertes and "gate_perime" not in alertes, (doc_id, alertes)
+    assert corpus.documents == {}
+    assert corpus.quarantine == {GUIDE: "gate_echoue", CONTRAT: "gate_echoue"}
+
+
+def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé."""
+    charge = charger_plancher()
+    preuve = tmp_path / "preuve-orchestrateur.json"
+    preuve.write_text(json.dumps({
+        "plancher_digest": charge.digest,
+        "decisions": [{
+            "metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
+            "run_digest": "a" * 64,
+        }],
+    }), encoding="utf-8")
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    code = _main(
+        tmp_path,
+        ["--gate", GUIDE, "--repeat", "3", "--producer", "orchestrator",
+         "--orchestrator-evidence", str(preuve)],
+        monkeypatch, reponses_guide=[guide, guide, guide])
+    assert code == 0
+    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    gate = manifest[GUIDE]["gate"]
+    assert gate["evals_ok"] is True
+    assert {d["metric"] for d in gate["decisions"]} >= {
+        "offline_tests_pass_rate", "cases_ok_rate", "stabilite_guide", "executions_completes"}
 
 
 def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_bout_en_bout(
@@ -1539,7 +1565,7 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
 
     code = runner.main(["--gate", TROISIEME, "--cases-dir", str(cases),
                         "--data-dir", str(data)])
-    assert code == 0 and len(double.appels) == 1
+    assert code == 1 and len(double.appels) == 1
     appel = double.appels[0]
     assert appel["args"][0] == TROISIEME
     dictionnaire = appel["kw"]["dictionnaire"]
@@ -1552,7 +1578,7 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
     cas_charge = runner.charger_cas(cases, suites=(f"sinistre/{TROISIEME}",))
     fichiers = [cas.case_path for cas in cas_charge if cas.case_path is not None]
     from server.app.digests import cases_hash
-    assert gate["cases"] == 1 and gate["evals_ok"] is True
+    assert gate["cases"] == 1 and gate["evals_ok"] is False
     assert gate["cases_hash"] == cases_hash(fichiers, cases)
 
 
@@ -1935,16 +1961,16 @@ def test_un_gate_rouge_peut_etre_repris(tmp_path: Path, monkeypatch: pytest.Monk
     # 1. un run rouge écrit `evals_ok: false` et le document part en quarantaine.
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[(_refus(), _trace())]) == 1
     assert load_corpus(data, allow_ungated=True).quarantine.get(GUIDE) == "gate_echoue"
-    # 2. le run suivant peut malgré tout mesurer ce document, et écrire un gate vert.
+    # 2. le run suivant peut malgré tout mesurer ce document ; sa provenance builder reste rouge.
     _corpus_, index = _corpus()
     bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 1
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest[GUIDE]["gate"]["evals_ok"] is True
-    # Ce document redevient servi **sans dérogation** ; l'autre reste `sans_gate` (il n'a pas été
-    # mesuré), ce qui montre que la reprise n'a dérogé qu'au gate rouge du document visé.
+    assert manifest[GUIDE]["gate"]["evals_ok"] is False
+    # La reprise a bien exécuté le document sans élargir la dérogation, puis le service reste fermé.
     corpus = load_corpus(data, allow_ungated=False)
-    assert corpus.served == [GUIDE] and corpus.quarantine == {CONTRAT: "sans_gate"}
+    assert corpus.served == [] and corpus.quarantine == {
+        GUIDE: "gate_echoue", CONTRAT: "sans_gate"}
     # …et `data/` n'a pas été touché autrement : le second document garde son entrée d'origine.
     assert manifest[CONTRAT]["gate"] is None
 
@@ -2088,7 +2114,7 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
     """
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
     data = tmp_path / "data"
     restes = sorted(p.name for p in data.iterdir() if p.name.startswith("manifest.json."))
     assert restes == [], restes
@@ -2103,8 +2129,8 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
         return fd, nom
 
     monkeypatch.setattr(runner.tempfile, "mkstemp", espion)
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
-    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 0
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
+    assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
     ecritures = [n for n in vus if Path(n).name.startswith("manifest.json.") and n.endswith(".tmp")]
     assert len(ecritures) == 2 and len(set(ecritures)) == 2, ecritures
     assert all(Path(n).parent == data for n in ecritures), ecritures
@@ -2163,10 +2189,10 @@ def test_le_client_se_ferme_sur_la_boucle_qui_la_servi(tmp_path: Path,
 
     code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
 
-    assert code == 0, "le client a été fermé sur une autre boucle que celle qui l'a servi"
+    assert code == 1, "le rouge de provenance ne doit pas masquer la fermeture correcte du client"
     assert client.fermetures == 1
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest[GUIDE]["gate"] is not None and manifest[GUIDE]["gate"]["evals_ok"] is True
+    assert manifest[GUIDE]["gate"] is not None and manifest[GUIDE]["gate"]["evals_ok"] is False
 
 
 def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,

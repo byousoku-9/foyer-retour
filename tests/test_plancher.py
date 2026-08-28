@@ -34,7 +34,7 @@ def test_le_plancher_livre_se_charge_et_porte_son_digest() -> None:
     assert charge.plancher.n_minimum >= 3
     assert charge.plancher.producer_de_preuve == "orchestrator"
     for temoin in charge.plancher.temoins:
-        assert temoin.plancher >= 0 and temoin.n >= 1
+        assert temoin.plancher >= 0 and temoin.n >= charge.plancher.n_minimum
         assert temoin.numerateur.strip() and temoin.denominateur.strip() and temoin.incident.strip()
     # Le floor 4.2a est importé sans diminution : les quatre témoins existent, au moins à 1.0 / n>=3.
     for metric in ("offline_tests_pass_rate", "bougie_post_success_rate",
@@ -83,6 +83,18 @@ def test_retirer_un_temoin_du_floor_est_refuse(tmp_path: Path) -> None:
 
     with pytest.raises(PlancherInvalide, match="retirer un témoin est interdit"):
         charger_plancher(_plancher_modifie(tmp_path, _retire))
+
+
+def test_abaisser_import_et_temoin_ensemble_reste_refuse(tmp_path: Path) -> None:
+    """L'import n'est pas sa propre autorité : la source parent reste le plancher de comparaison."""
+    def _abaisse_les_deux(brut: dict) -> None:
+        brut["imports"]["floor_4_2a"]["thresholds"]["bougie_post_success_rate"] = 0.2
+        for temoin in brut["temoins"]:
+            if temoin["metric"] == "bougie_post_success_rate":
+                temoin["plancher"] = 0.2
+
+    with pytest.raises(PlancherInvalide, match="source d'autorité"):
+        charger_plancher(_plancher_modifie(tmp_path, _abaisse_les_deux))
 
 
 def test_diminuer_le_budget_trusted_est_refuse(tmp_path: Path) -> None:

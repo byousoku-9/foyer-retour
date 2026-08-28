@@ -10,7 +10,7 @@ lui-même est machine-lisible dans `server/evals/reference/plancher.yaml`, figé
 | Split | Rôle | Localisation | Règles |
 |---|---|---|---|
 | A | développement | `server/evals/cases/` | public, exécuté librement, publié |
-| B | holdout scellé | `~/foyer-retour-holdout/B/` (hors dépôt) | **jamais lu ni matérialisé par le builder** ; un seul verdict B par candidat ; publié avec ses résultats au run final |
+| B | holdout scellé | `~/foyer-retour-holdout/B/` (hors dépôt) | **jamais lu ni matérialisé par le builder** ; un seul verdict B par candidat ; la promotion ne publie **ni questions, ni réponses brutes, ni détail par cas** — uniquement le verdict et les agrégats ; création et scellement (`cases_hash` figé avant tout réglage) : action orchestrateur |
 | C | réserve | hors dépôt | **jamais exécuté** |
 
 Risque accepté et documenté : le split B vit sur le poste de travail, hors contrôle
@@ -47,17 +47,34 @@ dénominateur. Abaisser un seuil ou retirer un témoin est refusé au chargement
 Tout écart ⇒ cas instable, rouge au plancher `stabilite` ; la dispersion (signatures, coûts,
 latences par répétition) est publiée, jamais masquée.
 
+Les cas de la suite `parsing` sont **exclus des métriques** `stabilite_*` : la suite est locale
+et déterministe, sa « stabilité » ne mesure rien du modèle. L'exclusion est explicite dans le
+rapport (`stability.exclusions`, `comptabilise: false` par cas) — leur détail reste publié.
+
+**Frontière des gardes métamorphiques** (`tests/test_metamorphique.py`) : elles prouvent, hors
+réseau, que les **décisions déterministes** (table du verdict, applicabilité, corroboration
+lexicale, empreintes de preuve) sont invariantes sous permutation d'identifiants, d'ordre et de
+formulations sur corpus synthétiques neutres. Les étages **LLM** — rappel, prompts, rédaction —
+ne sont pas couverts par ces gardes : leur robustesse au changement de formulation est mesurée
+par les témoins live (familles de formulations du golden set, série baseline).
+
 ## Budgets
 
 - Budget effectif d'un run : `min(--max-cost, LIVE_BUDGET_EUR)` ; `LIVE_BUDGET_EUR` défaut 0,50 €
-  (`server/app/config.py::live_budget_eur`).
-- **Préflight** : majorant estimé de la campagne (exécutions payantes × majorant par requête
-  d'AD-9) refusé **avant le premier appel** quand il dépasse le budget effectif — code de sortie
-  4, chiffres publiés (`configured_budget_eur`, `accrued_cost_eur`, `refused_cost_eur`), acquis
-  conservés.
-- **En campagne** : le runner s'arrête avant l'exécution qui déborderait ; le client
-  (`LlmClient.campaign_budget_eur`) refuse l'appel qui déborderait. Les deux publient les mêmes
-  trois chiffres. Jamais une question humaine.
+  (`server/app/config.py::live_budget_eur`). C'est **la borne dure** : appliquée avant chaque
+  appel par le client (`LlmClient.campaign_budget_eur`) et entre les exécutions par le runner,
+  acquis conservés, répétitions manquantes rouges au dénominateur.
+- **Préflight** (campagnes payantes seulement : `--repeat` ≥ 2, cache désarmé) : refus **avant le
+  premier appel** quand le **majorant de référence** — plafond par requête de production (AD-9)
+  × exécutions payantes — dépasse le budget effectif. Code de sortie 4, chiffres publiés
+  (`configured_budget_eur`, `accrued_cost_eur`, `refused_cost_eur`). Ce majorant est une
+  référence, pas une borne du chemin évals : une exécution y reçoit le restant du plafond de run
+  (AD-9) et peut coûter jusqu'à ce restant — c'est le budget effectif qui borne. Un run simple
+  adossé au cache n'est pas refusé au préflight : il reste borné par l'arrêt en cours de run et
+  par le budget de campagne du client.
+- **En campagne** : le runner s'arrête avant l'exécution qui déborderait ; le client refuse
+  l'appel qui déborderait. Les deux publient les mêmes trois chiffres. Jamais une question
+  humaine.
 - Divergence documentée : la prose d'`epics.md` mentionne 1,00 € ; la règle trusted dit **0,50 €**
   — **la règle trusted fait foi**. Relever un plafond exige la mesure de distribution que l'AC
   demande (p50/p95/max publiés par le rapport), jamais un ajustement silencieux.
@@ -83,6 +100,11 @@ passation, sur HEAD figé — jamais par le builder** ; les résultats sont cons
 
 Le gate d'un document porte des **décisions chiffrées**
 `{metric, producer, threshold, scope, n, run_digest, value, status}` — jamais un booléen écrasé.
+Un run builder est toujours diagnostique et rouge. Pour un run orchestrateur, les témoins que le
+runner ne mesure pas lui-même (tests hors ligne, A16, `decision_claim`) arrivent par
+`--orchestrator-evidence <json>` ; le code dérive leur statut du plancher et garde rouge toute
+preuve applicable absente. Le fichier porte le digest du plancher et seulement les mesures
+`{metric, n, value, run_digest}` : il ne choisit ni seuil ni statut.
 Un candidat rouge **ne mute jamais** le dernier vert : gate, révision et trafic du dernier vert
 restent intacts ; le verdict candidat est publié dans le rapport avec raison et limites. Sous gate
 `full`, des digests non concordants mettent le document en **quarantaine**. Le checkpoint de

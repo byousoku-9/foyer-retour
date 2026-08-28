@@ -112,13 +112,18 @@ def _text_len(content: Any) -> int:
 
 
 def estimate_run_majorant(executions_payantes: int, settings: Settings) -> float:
-    """Majorant estimé d'une campagne d'évals, **avant le premier appel** (story 4.2b).
+    """Majorant **de référence** d'une campagne d'évals, avant le premier appel (story 4.2b).
 
-    `estimate_cost` majore un appel ; ce majorant-ci agrège, par exécution payante (cas ×
-    répétition), le **pire chemin d'une requête avec relance** : le plafond par requête d'AD-9
-    (`max_cost_eur_per_request`), sous lequel `estimate_cost` refuse déjà l'appel qui déborderait
-    en production. C'est une estimation de refus, pas une facture : le rapport publie ensuite la
-    comparaison avec le coût froid réel (p50/p95/max par exécution).
+    Par exécution payante (cas × répétition), la référence est le plafond par requête de
+    **production** (AD-9, `max_cost_eur_per_request`) — le pire chemin avec relance sous lequel
+    `estimate_cost` refuse l'appel qui déborderait. Ce n'est **pas** une borne dure du chemin
+    évals : là, chaque exécution reçoit le restant du plafond de run (AD-9, « remplacé par un
+    plafond par run ») et peut donc coûter jusqu'à ce restant. La borne dure d'une campagne est le
+    budget effectif (`min(--max-cost, LIVE_BUDGET_EUR)`), appliqué avant chaque appel par le
+    client et entre les exécutions par le runner — acquis conservés, répétitions manquantes rouges
+    au dénominateur. Le préflight refuse sur cette référence les campagnes payantes
+    (`--repeat` ≥ 2, cache désarmé) ; le rapport publie ensuite la comparaison avec le coût froid
+    réel (p50/p95/max par exécution). Revue 4.2b, MEDIUM 4.
     """
     return _round4(executions_payantes * settings.max_cost_eur_per_request)
 

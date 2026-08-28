@@ -175,6 +175,19 @@ def test_repeat_3_publie_trois_resultats_complets_et_payants() -> None:
         assert r.opened_block_ids == [f"{GUIDE}:ffiche:1"]
         assert r.steps and r.steps[0]["tier"] == "micro"
 
+    rapport = runner.construire_rapport(
+        resultats, [_cas()], cases_dir=Path("/inexistant"), profile="vertical",
+        max_cost_eur=0.5, complete=True, repeat=3,
+        snapshot=runner.CasesSnapshot(cases_hash="h"))
+    assert all(r["expected_blocks_not_opened"] == [] for r in rapport["results"])
+    resultats[0].opened_block_ids = []
+    rapport_manquant = runner.construire_rapport(
+        resultats, [_cas()], cases_dir=Path("/inexistant"), profile="vertical",
+        max_cost_eur=0.5, complete=True, repeat=3,
+        snapshot=runner.CasesSnapshot(cases_hash="h"))
+    assert rapport_manquant["results"][0]["expected_blocks_not_opened"] == [
+        f"{GUIDE}:ffiche:1"]
+
 
 def test_repeat_refuse_un_cache_arme() -> None:
     """AC 4.2b : aucun cache de réponse n'est consulté sous --repeat."""
@@ -242,30 +255,45 @@ def _interdit(*args: Any, **kw: Any) -> Any:
 
 
 def test_le_refus_de_budget_survient_avant_le_premier_appel(
-        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """AC 4.2b : majorant estimé > budget effectif ⇒ refus avant tout appel, trois chiffres, code 4."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
     monkeypatch.delenv("LIVE_BUDGET_EUR", raising=False)
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
     monkeypatch.setattr(runner, "construire_contexte_parsing", _interdit)
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
-                        "--repeat", "3", "--max-cost", "0.2"])
+                        "--repeat", "3", "--max-cost", "0.2",
+                        "--output-json", str(tmp_path / "refus.json"),
+                        "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
     err = capsys.readouterr().err
     assert "refus de budget avant le premier appel" in err
     assert "configured_budget_eur=0.2000" in err
     assert "accrued_cost_eur=0.0000" in err
     assert "refused_cost_eur=0.3000" in err
+    rapport = json.loads((tmp_path / "refus.json").read_text(encoding="utf-8"))
+    assert rapport["complete"] is False and rapport["executions_completed"] == 0
+    assert rapport["preflight"] == {
+        **rapport["preflight"],
+        "configured_budget_eur": 0.2,
+        "accrued_cost_eur": 0.0,
+        "refused_cost_eur": 0.3,
+    }
+    assert rapport["decisions"] and all(d["status"] == "red" for d in rapport["decisions"])
 
 
 def test_live_budget_env_borne_aussi_le_max_cost(
-        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """Le budget effectif est min(--max-cost, LIVE_BUDGET_EUR) : la règle trusted fait foi."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
     monkeypatch.setenv("LIVE_BUDGET_EUR", "0.15")
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
-                        "--repeat", "3", "--max-cost", "5.0"])
+                        "--repeat", "3", "--max-cost", "5.0",
+                        "--output-json", str(tmp_path / "refus.json"),
+                        "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
     assert "configured_budget_eur=0.1500" in capsys.readouterr().err
 
@@ -300,7 +328,7 @@ def test_le_plancher_digest_entre_dans_lidentite_et_le_run_digest_existe() -> No
     assert autre["run_digest"] != identite["run_digest"]
 
 
-def test_les_decisions_chiffrees_sont_vertes_quand_le_plancher_est_tenu() -> None:
+def test_les_decisions_du_runner_sont_vertes_et_les_preuves_externes_restent_rouges() -> None:
     ctx = _contexte([])
     ctx._guide = DoublePipeline([_bonne(ctx.index) for _ in range(3)])  # type: ignore[attr-defined]
     resultats = _executer(ctx, [_cas()], repeat=3)
@@ -310,9 +338,22 @@ def test_les_decisions_chiffrees_sont_vertes_quand_le_plancher_est_tenu() -> Non
     assert par_metric["cases_ok_rate"].status == "green"
     assert par_metric["cases_ok_rate"].n == 3
     assert par_metric["stabilite_guide"].status == "green"
+    assert par_metric["offline_tests_pass_rate"].status == "red"
+    assert "orchestrateur" in (par_metric["offline_tests_pass_rate"].reason or "")
     for d in decisions:
         assert d.producer == "orchestrator" and d.run_digest == "d" * 64
         assert d.threshold == 1.0
+
+
+def test_un_run_builder_ne_peut_produire_aucune_decision_verte() -> None:
+    ctx = _contexte([])
+    ctx._guide = DoublePipeline([_bonne(ctx.index) for _ in range(3)])  # type: ignore[attr-defined]
+    resultats = _executer(ctx, [_cas()], repeat=3)
+    decisions = runner.construire_decisions(
+        resultats, [_cas()], plancher=charger_plancher(), repeat=3,
+        run_digest="d" * 64, producer="builder")
+    assert decisions and all(d.status == "red" for d in decisions)
+    assert any("producteur non probant" in (d.reason or "") for d in decisions)
 
 
 # --- non-mutation du dernier vert ------------------------------------------------------------------

@@ -154,19 +154,28 @@ def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
                 "model_ids": dict(TIERS)}
     # Story 4.2b : la règle trusted interdit au builder de produire la preuve live — le re-gate
     # d'un document dont l'image a bougé est tiré par l'**orchestrateur** après passation. Un
-    # périmage **déclaré** (ligne `gate-a-relancer: {doc_id}` dans `docs/tests-live.md`) n'est donc
-    # pas un périmage silencieux : le serveur sert avec l'alerte `gate_perime` (AD-7), la dette est
-    # écrite et datée, et ce test rougit toujours sur un périmage que personne n'a déclaré.
+    # périmage **déclaré** n'est donc pas un périmage silencieux : le serveur sert avec l'alerte
+    # `gate_perime` (AD-7) et la dette est écrite. Mais `docs/tests-live.md` est append-only : une
+    # déclaration nue désarmerait ce contrôle **à jamais** (revue 4.2b, HIGH 2). La déclaration
+    # épingle donc le digest excusé — `gate-a-relancer: {doc_id} pipeline_digest={digest périmé que
+    # le gate porte encore}` — et l'excuse ne vaut que tant que le gate porte exactement ce digest :
+    # le re-gate la rend caduque, et toute dérive **nouvelle** rougit à nouveau.
+    import re
+
     tests_live = (REPO_ROOT / "docs" / "tests-live.md").read_text("utf-8")
     for doc_id in (reglages.guide_doc_id, reglages.sinistre_doc_id):
         gate = manifest[doc_id]["gate"]
         assert gate is not None, f"{doc_id} n'a pas de gate"
-        if f"gate-a-relancer: {doc_id}" in tests_live:
+        declaration = re.search(
+            rf"gate-a-relancer: {re.escape(doc_id)} pipeline_digest=([0-9a-f]{{64}})", tests_live)
+        if declaration is not None and gate["pipeline_digest"] == declaration.group(1):
             continue
         for champ, attendu in attendus.items():
             assert gate[champ] == attendu, (
                 f"{doc_id} : le gate porte un {champ} qui n'est plus celui de l'image — le serveur "
                 f"le servira avec l'alerte `gate_perime` pendant que `/` annoncera son profil. "
-                f"Relancer : `uv run python -m server.evals.run --gate {doc_id} --profile vertical` "
-                f"(≈ 0,05 € par document, clé requise), ou déclarer la dette dans docs/tests-live.md "
-                f"(`gate-a-relancer: {doc_id}`) si le re-gate revient à l'orchestrateur.")
+                f"Relancer : `LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --gate {doc_id} "
+                f"--profile vertical --repeat 3 --producer orchestrator --max-cost 0.50` (clé "
+                f"requise), ou déclarer la dette dans docs/tests-live.md — `gate-a-relancer: "
+                f"{doc_id} pipeline_digest={gate['pipeline_digest']}` — si le re-gate revient à "
+                f"l'orchestrateur ; l'excuse tombe dès que le gate change de digest.")

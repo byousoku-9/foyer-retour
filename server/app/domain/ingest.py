@@ -57,6 +57,10 @@ class GateDecision(DomainModel):
     run_digest: str
     value: float
     status: Literal["green", "red"]
+    # Pourquoi la décision est rouge quand la valeur seule ne le dit pas : une preuve
+    # sous-échantillonnée (`n < N` du témoin pré-enregistré) ou un témoin bloquant que le run n'a
+    # pas prouvé. `None` quand le statut se lit sur `value` contre `threshold` (revue 4.2b, HIGH 1).
+    reason: str | None = None
 
 
 class Gate(DomainModel):

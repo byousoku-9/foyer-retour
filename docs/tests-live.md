@@ -3448,14 +3448,21 @@ et les re-gates ci-dessous reviennent à l'orchestrateur, sur HEAD figé, après
 Les surfaces `domain`, `corpus`, `llm` et `steps` ont bougé (décisions chiffrées du gate,
 quarantaine `full`, budget de campagne, tiers par étape) : le `pipeline_digest` de l'image n'est
 plus celui des gates du dépôt. AD-7 sert ces documents avec l'alerte `gate_perime` ; la dette est
-déclarée ici — jamais silencieuse — et se solde par un re-gate live orchestrateur :
+déclarée ici — jamais silencieuse — **épinglée sur le digest périmé que les gates portent
+encore** (l'excuse de `tests/test_digests.py` tombe dès qu'un gate change de digest : toute
+dérive nouvelle rougit) et se solde par un re-gate live orchestrateur :
 
-- gate-a-relancer: lux-guide
-- gate-a-relancer: axa-lu-optihome-2017
-- gate-a-relancer: baloise-lu-home-2-2024
+- gate-a-relancer: lux-guide pipeline_digest=23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e
 
-Commande par document (orchestrateur, HEAD figé) :
-`LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --gate <doc_id> --profile vertical --producer orchestrator --max-cost 0.50`
+Commande par document (orchestrateur, HEAD figé — `--repeat 3` obligatoire : un gate n=1 serait
+sous-échantillonné, ses décisions `stabilite_*` rouges, et il ne remplacerait pas le vert). Le
+fichier `<preuves-trusted.json>` est produit par l'orchestrateur à partir des tests hors ligne et,
+pour les sinistres, d'A16/`decision_claim`; sans ces mesures applicables le gate reste rouge :
+`LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --gate <doc_id> --profile vertical --repeat 3 --producer orchestrator --orchestrator-evidence <preuves-trusted.json> --max-cost 0.50`
+(relever `LIVE_BUDGET_EUR` et `--max-cost` explicitement si le préflight refuse — le refus publie
+les trois chiffres).
 
 ### Série baseline A due (orchestrateur, post-passation)
 
@@ -3473,3 +3480,10 @@ LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --suite guide --case g-lu
 Les résultats — verts ou rouges, A16 compris (0/3 publié rouge tant que 4.2a l'est) — seront
 consignés ici et dans `docs/evals/latest.md` **quel que soit le résultat**, avec modèles,
 paramètres, digests (`plancher_digest`, `run_digest`), coût et latence.
+
+### Holdout B : création et scellement dus (orchestrateur)
+
+Le split B (`~/foyer-retour-holdout/B/`) reste à créer et à sceller par l'orchestrateur —
+`cases_hash` figé **avant** tout réglage sur la série A. Le builder ne le lit ni ne le
+matérialise jamais ; un seul verdict B par candidat ; la promotion ne publie que le verdict et
+les agrégats, jamais les questions, réponses brutes ou détail par cas.

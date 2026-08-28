@@ -452,3 +452,34 @@ async def test_blocks_from_another_document_than_the_summary_are_refused(mini_in
         await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=reel,
                       doc_id="lux-guide", settings=_settings())
     assert fake.requests == []  # refusé avant tout appel : aucun euro dépensé
+
+
+async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(mini_index: Index) -> None:
+    """Story 4.2b (revue, MEDIUM 8) : `rediger_tier="micro"` part réellement sur le modèle `micro`
+    — la requête envoyée et `StepTrace.tier` le prouvent. Une régression vers `STEP_TIERS`
+    figerait la matrice baseline sans qu'aucun test rougisse."""
+    reglages = _settings(rediger_tier="micro")
+    client, fake = _client([fake_message(text=_draft(), model=TIERS["micro"])])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+    _draft_obj, step = await rediger(_parsed(), retrieval, [], client=client, budget=_budget(),
+                                     index=mini_index, doc_id="lux-guide", settings=reglages)
+    assert fake.requests[0]["model"] == TIERS["micro"]
+    assert step.tier == "micro"
+    assert step.calls[0].model == TIERS["micro"]
+
+
+async def test_rediger_sinistre_sous_tier_micro_ne_porte_aucun_effort_et_aboutit(
+        mini_index: Index) -> None:
+    """Story 4.2b (revue, MEDIUM 9) : le point de matrice `REDIGER_TIER=micro` sur la suite
+    sinistre ne doit pas crasher — Haiku n'accepte pas `effort`, la dérogation `rediger_sinistre`
+    (`low`) est donc supprimée de la requête, qui aboutit."""
+    reglages = _settings(rediger_tier="micro")
+    client, fake = _client([fake_message(text=_draft(), model=TIERS["micro"])])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+    draft, step = await rediger(_parsed(), retrieval, [], client=client, budget=_budget(),
+                                index=mini_index, doc_id="lux-guide", settings=reglages,
+                                prompt="rediger_sinistre")
+    (req,) = fake.requests
+    assert req["model"] == TIERS["micro"]
+    assert "effort" not in req["output_config"]
+    assert isinstance(draft, AnswerDraft) and step.tier == "micro"

@@ -72,7 +72,7 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.app.domain.errors import ErrorCode, PipelineError
+from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError
 from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
@@ -153,12 +153,17 @@ class IncidentTechnique(Exception):
 
     def __init__(self, message: str, *, resultats: list[Resultat] | None = None,
                  non_executes: list[str] | None = None, arret_budget: bool = False,
-                 cost_eur_engaged: float | None = None) -> None:
+                 cost_eur_engaged: float | None = None, http: int | None = None,
+                 latency_ms_engaged: int | None = None) -> None:
         super().__init__(message)
         self.resultats = list(resultats or [])
         self.non_executes = list(non_executes or [])
         self.arret_budget = arret_budget
         self.cost_eur_engaged = cost_eur_engaged
+        # Statut AD-16 de l'exécution qui a interrompu le run (503/500) — publié `stop_http` dans
+        # le rapport partiel (revue 4.2b, LOW 15). `None` quand l'incident n'est pas une exécution.
+        self.http = http
+        self.latency_ms_engaged = latency_ms_engaged
 
 
 def _valider_doc_id(doc_id: str) -> str:
@@ -730,6 +735,10 @@ class Resultat:
     opened_block_ids: list[str] = field(default_factory=list)
     steps: list[dict[str, Any]] = field(default_factory=list)
     proofs: list[dict[str, Any]] = field(default_factory=list)
+    # AD-11 : toute réponse du pipeline (refus compris) est un 200 ; une exécution interrompue
+    # n'a pas de `Resultat` et son statut AD-16 part dans `stop_http`. `None` pour la suite
+    # `parsing`, locale — aucune sémantique HTTP (revue 4.2b, LOW 15).
+    http: int | None = 200
 
     @property
     def ok(self) -> bool:
@@ -1297,6 +1306,7 @@ def executer_parsing(cas: Cas, ctx: Contexte, *, doc_id: str) -> Resultat:
         # `ms` mesure la latence fournisseur dans les rapports comparatifs : il n'y en a aucune.
         ms=0, found=found,
         expected_found=True, expected_block_ids=[block_id],
+        http=None,  # comparaison locale : aucune sémantique HTTP (LOW 15)
     )
 
 
@@ -1316,78 +1326,86 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
     if repeat > 1 and ctx.response_cache is not None:
         raise RefusDeTourner("--repeat exige un cache désarmé : une répétition servie du cache "
                              "ne mesure pas la stabilité (story 4.2b)")
-    plan: list[tuple[Cas, int]] = [(c, repetition) for c in cas
-                                   for repetition in range(1, repeat + 1)]
-
-    def _restants(depuis: int) -> list[str]:
-        return [(c.id if repeat == 1 else f"{c.id}#r{repetition}")
-                for c, repetition in plan[depuis:]]
+    def _restants(index_cas: int, repetition_courante: int) -> list[str]:
+        restants: list[str] = []
+        for suivant_index in range(index_cas, len(cas)):
+            debut = repetition_courante if suivant_index == index_cas else 1
+            for suivante_repetition in range(debut, repeat + 1):
+                identifiant = cas[suivant_index].id
+                restants.append(identifiant if repeat == 1 else
+                                 f"{identifiant}#r{suivante_repetition}")
+        return restants
 
     resultats: list[Resultat] = []
     cumul = 0.0
-    for position, (c, repetition) in enumerate(plan):
-        doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
-        if c.suite == "parsing":
-            resultat = executer_parsing(c, ctx, doc_id=doc_id)
-            resultat.repetition = repetition
-            resultats.append(resultat)
-            _ligne(resultat, sortie, repeat=repeat)
-            continue
-        restant = round(max_cost_eur - cumul, 4)
-        if restant <= 0 and ctx.response_cache is None:
-            raise IncidentTechnique(
-                f"plafond de run atteint ({cumul:.4f} € sur {max_cost_eur:.4f} €) avant "
-                f"l'exécution {c.id} (répétition {repetition}) : "
-                f"{len(plan) - position} exécutions non exécutées",
-                resultats=resultats, non_executes=_restants(position),
-                arret_budget=True, cost_eur_engaged=cumul)
-        variante = variante_du_cas(c, variant)
-        if ctx.response_cache is not None:
-            ctx.response_cache.set_namespace(namespace_cache(c, ctx, doc_id=doc_id, variant=variante))
-        depart = time.monotonic()
-        try:
-            answer, trace, cout = await executer_cas(
-                c, ctx, doc_id=doc_id, budget_restant_eur=restant, variant=variante)
-        except _ErreurInterneFacturee as exc:
-            cout_total = round(cumul + exc.cout_eur, 4)
-            # Story 4.2b : l'incident n'efface plus les acquis — les résultats terminés et le plan
-            # restant partent avec l'exception, et le rapport partiel est écrit (l'exécution en
-            # échec reste au dénominateur, rouge, dans `non_executes`).
-            raise IncidentTechnique(
-                f"cas {c.id} (répétition {repetition}) : internal ({exc.type_erreur}) — "
-                f"coût engagé {cout_total:.4f} €",
-                resultats=resultats, non_executes=_restants(position),
-                cost_eur_engaged=cout_total) from exc
-        except PipelineError as exc:
-            cout_engage = exc.eval_cost_eur
-            cout_total = round(cumul + cout_engage, 4)
-            if exc.code is ErrorCode.budget_exceeded:
-                # Le plafond de run **atteint pendant** un cas, et non avant lui : le budget de la
-                # requête est réglé sur ce qui reste du run (AD-9), donc `BudgetExceeded` ici veut
-                # dire « ce cas déborderait le plafond », pas « le fournisseur est en panne ». C'est
-                # la même condition prévue que l'arrêt avant le cas suivant, vue une étape plus tard.
+    for index_cas, c in enumerate(cas):
+        for repetition in range(1, repeat + 1):
+            doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
+            if c.suite == "parsing":
+                resultat = executer_parsing(c, ctx, doc_id=doc_id)
+                resultat.repetition = repetition
+                resultats.append(resultat)
+                _ligne(resultat, sortie, repeat=repeat)
+                continue
+            restant = round(max_cost_eur - cumul, 4)
+            if restant <= 0 and ctx.response_cache is None:
+                non_executes = _restants(index_cas, repetition)
                 raise IncidentTechnique(
-                    f"plafond de run atteint pendant le cas {c.id} (répétition {repetition}, "
-                    f"{cout_total:.4f} € engagés sur {max_cost_eur:.4f} €) : {exc.message}",
-                    resultats=resultats,
-                    non_executes=_restants(position), arret_budget=True,
-                    cost_eur_engaged=cout_total) from exc
-            if exc.code in CODES_INCIDENT:
-                # D4 : un incident ne dit rien du système mesuré. Le manifest n'est pas touché —
-                # mais les acquis sont conservés et le rapport partiel écrit (story 4.2b).
+                    f"plafond de run atteint ({cumul:.4f} € sur {max_cost_eur:.4f} €) avant "
+                    f"l'exécution {c.id} (répétition {repetition}) : "
+                    f"{len(non_executes)} exécutions non exécutées",
+                    resultats=resultats, non_executes=non_executes,
+                    arret_budget=True, cost_eur_engaged=cumul)
+            variante = variante_du_cas(c, variant)
+            if ctx.response_cache is not None:
+                ctx.response_cache.set_namespace(namespace_cache(
+                    c, ctx, doc_id=doc_id, variant=variante))
+            depart = time.monotonic()
+            try:
+                answer, trace, cout = await executer_cas(
+                    c, ctx, doc_id=doc_id, budget_restant_eur=restant, variant=variante)
+            except _ErreurInterneFacturee as exc:
+                cout_total = round(cumul + exc.cout_eur, 4)
+                # Story 4.2b : l'incident n'efface plus les acquis — les résultats terminés et le
+                # plan restant partent avec l'exception, et le rapport partiel est écrit.
                 raise IncidentTechnique(
-                    f"cas {c.id} (répétition {repetition}) : {exc.code.value} — {exc.message} — "
+                    f"cas {c.id} (répétition {repetition}) : internal ({exc.type_erreur}) — "
                     f"coût engagé {cout_total:.4f} €",
-                    resultats=resultats, non_executes=_restants(position),
-                    cost_eur_engaged=cout_total) from exc
-            # `invalid_request` : le cas est hors des bornes du pipeline. C'est une faute d'écriture
-            # du cas, pas une mesure ; refus, et rien n'est écrit non plus.
-            raise RefusDeTourner(
-                f"cas {c.id} refusé par le pipeline : {exc.message} — coût engagé "
-                f"{cout_total:.4f} €") from exc
-        cumul = round(cumul + cout, 4)
-        label, ecarts = juger(c, answer, doc_id=doc_id, index=ctx.index)
-        resultat = Resultat(id=c.id, suite=c.suite, label=label, variant=trace.variant,
+                    resultats=resultats, non_executes=_restants(index_cas, repetition),
+                    cost_eur_engaged=cout_total,
+                    http=HTTP_STATUS[ErrorCode.internal],
+                    latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
+            except PipelineError as exc:
+                cout_engage = exc.eval_cost_eur
+                cout_total = round(cumul + cout_engage, 4)
+                if exc.code is ErrorCode.budget_exceeded:
+                    # Le plafond atteint pendant un cas est le même rouge que l'arrêt avant le
+                    # suivant, vu une étape plus tôt.
+                    raise IncidentTechnique(
+                        f"plafond de run atteint pendant le cas {c.id} (répétition {repetition}, "
+                        f"{cout_total:.4f} € engagés sur {max_cost_eur:.4f} €) : {exc.message}",
+                        resultats=resultats,
+                        non_executes=_restants(index_cas, repetition), arret_budget=True,
+                        cost_eur_engaged=cout_total,
+                        http=HTTP_STATUS[ErrorCode.budget_exceeded],
+                        latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
+                if exc.code in CODES_INCIDENT:
+                    # D4 : un incident ne dit rien du système mesuré. Le manifest n'est pas touché,
+                    # mais les acquis sont conservés et le rapport partiel écrit.
+                    raise IncidentTechnique(
+                        f"cas {c.id} (répétition {repetition}) : {exc.code.value} — {exc.message} — "
+                        f"coût engagé {cout_total:.4f} €",
+                        resultats=resultats, non_executes=_restants(index_cas, repetition),
+                        cost_eur_engaged=cout_total, http=HTTP_STATUS[exc.code],
+                        latency_ms_engaged=int((time.monotonic() - depart) * 1000)) from exc
+                # `invalid_request` : le cas est hors des bornes du pipeline. C'est une faute
+                # d'écriture du cas, pas une mesure ; refus, et rien n'est écrit non plus.
+                raise RefusDeTourner(
+                    f"cas {c.id} refusé par le pipeline : {exc.message} — coût engagé "
+                    f"{cout_total:.4f} €") from exc
+            cumul = round(cumul + cout, 4)
+            label, ecarts = juger(c, answer, doc_id=doc_id, index=ctx.index)
+            resultat = Resultat(id=c.id, suite=c.suite, label=label, variant=trace.variant,
                             ecarts=ecarts, cost_eur=cout, cost_eur_original=_cout_original(trace),
                             ms=int((time.monotonic() - depart) * 1000), found=answer.found,
                             verdict=answer.verdict.value if answer.verdict is not None else None,
@@ -1406,8 +1424,8 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                             opened_block_ids=_blocs_ouverts(trace),
                             steps=_etapes(trace),
                             proofs=_preuves(answer, ctx.index))
-        resultats.append(resultat)
-        _ligne(resultat, sortie, repeat=repeat)
+            resultats.append(resultat)
+            _ligne(resultat, sortie, repeat=repeat)
     return resultats
 
 
@@ -1494,6 +1512,10 @@ def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
     est une interruption : rouge) et rendent la même signature — et, pour un sinistre dont le cas
     borne les verdicts admissibles, un verdict admissible. La dispersion est publiée, jamais
     masquée.
+
+    Les cas `parsing` sont **exclus des métriques** `stabilite_*` — et l'exclusion est dite, pas
+    tue (revue 4.2b, LOW 14) : la suite est locale et déterministe, sa « stabilité » ne mesure
+    rien du modèle. Leur détail reste publié avec `comptabilise: false`.
     """
     par_cas = {c.id: c for c in cas}
     manquantes: dict[str, int] = {}
@@ -1513,17 +1535,23 @@ def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
         if (c is not None and reps and reps[0].suite.startswith("sinistre") and c.expected.verdict
                 and any(r.verdict not in c.expected.verdict for r in reps)):
             raisons.append("verdict hors des valeurs admissibles sur au moins une répétition")
+        suite = reps[0].suite if reps else (c.suite if c is not None else "")
         detail[case_id] = {
-            "suite": reps[0].suite if reps else (c.suite if c is not None else ""),
+            "suite": suite,
             "stable": not raisons,
             "raisons": raisons,
+            "comptabilise": suite != "parsing",
             "repetitions_completed": len(reps),
             "repetitions_planned": repeat,
             "signatures": signatures,
             "cost_eur": [r.cost_eur for r in reps],
             "latency_ms": [r.ms for r in reps],
         }
-    return {"n": repeat, "cases": detail}
+    agregat: dict[str, Any] = {"n": repeat, "cases": detail}
+    if any(not v["comptabilise"] for v in detail.values()):
+        agregat["exclusions"] = {
+            "parsing": "suite locale déterministe : hors métriques stabilite_* (détail publié)"}
+    return agregat
 
 
 def _taux_stabilite(stabilite: dict[str, Any], prefixe_suite: str) -> tuple[float, int] | None:
@@ -1534,16 +1562,86 @@ def _taux_stabilite(stabilite: dict[str, Any], prefixe_suite: str) -> tuple[floa
     return round(stables / len(cases), 4), len(cases)
 
 
+def _temoin_applicable(temoin: Any, cas: list[Cas]) -> bool:
+    """Le témoin porte-t-il sur ce lot, même si sa mesure appartient à l'orchestrateur ?"""
+    if temoin.scope in ("repo", "run"):
+        return True
+    if temoin.scope == "suite":
+        return any(c.suite.split("/", 1)[0] == temoin.pipeline for c in cas)
+    if temoin.scope == "case":
+        return temoin.case_id is not None and any(c.id == temoin.case_id for c in cas)
+    if temoin.scope == "live_http":
+        return any(c.suite.split("/", 1)[0] == temoin.pipeline for c in cas)
+    return False
+
+
+def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher) -> list[GateDecision]:
+    """Charge une preuve externe mesurée par l'orchestrateur, sans lui faire déclarer son statut.
+
+    Le fichier ne fournit que les mesures : seuil, producteur et statut sont recalculés depuis le
+    plancher versionné. Ainsi A16, `decision_claim` et les tests hors ligne peuvent rejoindre le
+    gate sans être simulés par le runner ni auto-certifiés par le JSON d'entrée.
+    """
+    try:
+        brut = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise RefusDeTourner(
+            f"preuve orchestrateur {path} illisible ({type(exc).__name__})") from exc
+    if not isinstance(brut, dict) or brut.get("plancher_digest") != plancher.digest:
+        raise RefusDeTourner("preuve orchestrateur : plancher_digest divergent")
+    mesures = brut.get("decisions")
+    if not isinstance(mesures, list):
+        raise RefusDeTourner("preuve orchestrateur : decisions doit être une liste")
+    decisions: list[GateDecision] = []
+    deja: set[str] = set()
+    for mesure in mesures:
+        if not isinstance(mesure, dict) or set(mesure) != {"metric", "n", "value", "run_digest"}:
+            raise RefusDeTourner(
+                "preuve orchestrateur : chaque mesure porte metric, n, value et run_digest")
+        metric = mesure["metric"]
+        temoin = plancher.plancher.temoin(metric) if isinstance(metric, str) else None
+        if temoin is None or temoin.mesure_par != "orchestrator":
+            raise RefusDeTourner(f"preuve orchestrateur : métrique externe inconnue {metric!r}")
+        if metric in deja:
+            raise RefusDeTourner(f"preuve orchestrateur : métrique dupliquée {metric!r}")
+        deja.add(metric)
+        n, value, run_digest = mesure["n"], mesure["value"], mesure["run_digest"]
+        if (isinstance(n, bool) or not isinstance(n, int) or n < 0
+                or isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) or not 0 <= float(value) <= 1
+                or not isinstance(run_digest, str) or len(run_digest) != 64
+                or any(c not in "0123456789abcdef" for c in run_digest)):
+            raise RefusDeTourner(f"preuve orchestrateur : mesure invalide pour {metric!r}")
+        status = "green" if n >= temoin.n and float(value) >= temoin.plancher else "red"
+        raison = None if status == "green" else (
+            f"sous-échantillonné n={n} < N={temoin.n}" if n < temoin.n
+            else f"valeur {float(value):.4f} < plancher {temoin.plancher:.4f}")
+        scope = (f"case:{temoin.case_id}" if temoin.scope == "case" and temoin.case_id
+                 else temoin.scope)
+        decisions.append(GateDecision(
+            metric=metric, producer="orchestrator", threshold=temoin.plancher, scope=scope,
+            n=n, run_digest=run_digest, value=round(float(value), 4), status=status,
+            reason=raison))
+    return decisions
+
+
 def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher: ChargePlancher,
                          repeat: int, run_digest: str, producer: str,
-                         non_executes: list[str] | None = None) -> list[GateDecision]:
+                         non_executes: list[str] | None = None,
+                         decisions_orchestrateur: list[GateDecision] | None = None,
+                         ) -> list[GateDecision]:
     """Les décisions chiffrées du run contre le plancher pré-enregistré (story 4.2b).
 
     Seules les métriques que **ce runner** mesure produisent une décision (`mesure_par:
     eval_runner`) : les témoins de l'orchestrateur (tests hors ligne, A16 HTTP, prédicat
     `decision_claim` de la branche 4.2a) restent les siens — les dupliquer ici serait une seconde
-    autorité sur la même mesure. Toute interruption reste au dénominateur : `aucun résultat` n'est
-    jamais un vert.
+    autorité sur la même mesure. Trois règles ferment le vert par vacuité (revue 4.2b, HIGH 1) :
+
+    - une décision dont `n` est sous le `N` du témoin pré-enregistré est **rouge**
+      (`sous-échantillonné`) — un `--gate` sans `--repeat 3` ne prouve rien ;
+    - tout témoin **bloquant** du runner dont le scope couvre ce lot produit une décision, même
+      quand le run ne l'a pas mesuré : absente = non prouvée = rouge explicite ;
+    - toute interruption reste au dénominateur (`executions_completes`, témoin du plancher).
     """
     decisions: list[GateDecision] = []
     planifiees = len(cas) * repeat
@@ -1553,20 +1651,35 @@ def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher:
         temoin = plancher.plancher.temoin(metric)
         if temoin is None:
             return
+        raison: str | None = None
+        status = "green"
+        if producer != plancher.plancher.producer_de_preuve:
+            status = "red"
+            raison = (f"producteur non probant {producer!r} ; attendu "
+                      f"{plancher.plancher.producer_de_preuve!r}")
+        elif n < temoin.n:
+            status = "red"
+            raison = f"sous-échantillonné n={n} < N={temoin.n}"
+        elif value < temoin.plancher:
+            status = "red"
         decisions.append(GateDecision(
             metric=metric, producer=producer, threshold=temoin.plancher, scope=scope,
-            n=n, run_digest=run_digest, value=round(value, 4),
-            status="green" if value >= temoin.plancher else "red"))
+            n=n, run_digest=run_digest, value=round(value, 4), status=status, reason=raison))
 
     ok = sum(1 for r in resultats if r.ok)
     _decision("cases_ok_rate", value=(ok / planifiees) if planifiees else 0.0,
               n=planifiees, scope="run")
-    if repeat > 1:
-        stabilite = agreger_stabilite(resultats, cas, repeat=repeat, non_executes=non_executes)
-        for metric, prefixe in (("stabilite_sinistre", "sinistre"), ("stabilite_guide", "guide")):
-            taux = _taux_stabilite(stabilite, prefixe)
-            if taux is not None:
-                _decision(metric, value=taux[0], n=repeat, scope=f"suite:{prefixe}")
+    # LOW 13 : le seuil d'`executions_completes` vit dans le plancher, jamais en dur ici.
+    _decision("executions_completes",
+              value=round((planifiees - manquantes) / planifiees, 4) if planifiees else 0.0,
+              n=planifiees, scope="run")
+    stabilite = agreger_stabilite(resultats, cas, repeat=repeat, non_executes=non_executes)
+    for metric, prefixe in (("stabilite_sinistre", "sinistre"), ("stabilite_guide", "guide")):
+        taux = _taux_stabilite(stabilite, prefixe)
+        if taux is not None:
+            # Sous `repeat=1` le taux est trivialement 1.0 : la décision existe quand même, et le
+            # sous-échantillonnage la rend rouge — jamais un vert par absence de mesure.
+            _decision(metric, value=taux[0], n=repeat, scope=f"suite:{prefixe}")
     for temoin in plancher.plancher.temoins:
         if temoin.mesure_par != "eval_runner" or temoin.case_id is None:
             continue
@@ -1575,13 +1688,21 @@ def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher:
         reps_ok = sum(1 for r in resultats if r.id == temoin.case_id and r.ok)
         _decision(temoin.metric, value=reps_ok / repeat, n=repeat,
                   scope=f"case:{temoin.case_id}")
-    if manquantes:
-        # Redondant avec les dénominateurs, mais dit en clair : un run interrompu est rouge.
+    for decision in decisions_orchestrateur or []:
+        temoin = plancher.plancher.temoin(decision.metric)
+        if temoin is not None and _temoin_applicable(temoin, cas):
+            decisions.append(decision)
+    emises = {d.metric for d in decisions}
+    for temoin in plancher.plancher.temoins:
+        if (temoin.criticite != "bloquant" or temoin.metric in emises
+                or not _temoin_applicable(temoin, cas)):
+            continue
         decisions.append(GateDecision(
-            metric="executions_completes", producer=producer, threshold=1.0, scope="run",
-            n=planifiees, run_digest=run_digest,
-            value=round((planifiees - manquantes) / planifiees, 4) if planifiees else 0.0,
-            status="red"))
+            metric=temoin.metric, producer=producer, threshold=temoin.plancher,
+            scope=temoin.scope, n=0, run_digest=run_digest, value=0.0, status="red",
+            reason=("témoin orchestrateur applicable absent de ce run"
+                    if temoin.mesure_par == "orchestrator"
+                    else "témoin bloquant applicable non prouvé par ce run")))
     return decisions
 
 
@@ -1595,7 +1716,10 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                        repeat: int = 1,
                        plancher: ChargePlancher | None = None,
                        producer: str = "builder",
-                       preflight: dict[str, Any] | None = None) -> dict[str, Any]:
+                       preflight: dict[str, Any] | None = None,
+                       stop_http: int | None = None,
+                       stop_latency_ms: int | None = None,
+                       decisions_orchestrateur: list[GateDecision] | None = None) -> dict[str, Any]:
     snapshot = snapshot or snapshot_cas(cas, cases_dir)
     verifier_snapshot_cas(snapshot)
     labels = {label: sum(1 for r in resultats if r.label == label) for label in LABELS}
@@ -1614,8 +1738,11 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                      if _cas_de_lexecution(execution_id) in par_cas]
     sinistres_planifies = len(sinistres) + sum(
         1 for c in manquants_cas if c.suite.startswith("sinistre"))
-    couts = sorted(r.cost_eur for r in resultats)
-    latences = sorted(r.ms for r in resultats)
+    cout_interrompu = max(0.0, round(cout_total - cout_cas_termines, 4))
+    couts = sorted([r.cost_eur for r in resultats]
+                   + ([cout_interrompu] if cout_interrompu > 0 else []))
+    latences = sorted([r.ms for r in resultats]
+                      + ([stop_latency_ms] if stop_latency_ms is not None else []))
 
     def _p95(valeurs: list[Any]) -> Any:
         return valeurs[max(0, math.ceil(0.95 * len(valeurs)) - 1)] if valeurs else 0
@@ -1629,6 +1756,9 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
         },
         "complete": complete,
         "stop_reason": stop_reason,
+        # Statut AD-16 de l'exécution qui a interrompu le run (`None` sur un run complet) : les
+        # exécutions jamais démarrées n'ont pas de statut, elles sont dans `unexecuted_cases`.
+        "stop_http": stop_http,
         "unexecuted_cases": manquantes_ids,
         "cases_hash": snapshot.cases_hash,
         "cases_planned": len(cas),
@@ -1644,11 +1774,11 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
             "labels": labels,
             "variants": variants,
             "recall": _recall(resultats, manquants_cas),
-            "average_cost_eur": (round(cout_cas_termines / executions_planifiees, 4)
-                                 if executions_planifiees else 0.0),
+            "average_cost_eur": round(statistics.mean(couts), 4) if couts else 0.0,
             "latency_p50_ms": int(statistics.median(r.ms for r in resultats)) if resultats else 0,
             # Story 4.2b : la comparaison majorant estimé vs coût réel exige la queue de la
             # distribution, pas seulement la médiane (reprises différées 1.8/1.9).
+            "cost_p50_eur": round(statistics.median(couts), 4) if couts else 0.0,
             "cost_p95_eur": _p95(couts),
             "cost_max_eur": couts[-1] if couts else 0.0,
             "latency_p95_ms": _p95(latences),
@@ -1672,6 +1802,7 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                 "cost_eur": r.cost_eur,
                 "cost_eur_original": r.cost_eur_original,
                 "latency_ms": r.ms,
+                "http": r.http,
                 "found": r.found,
                 "complete": r.complete,
                 "reason_kind": r.reason_kind,
@@ -1698,7 +1829,8 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
         run_digest = str((run_identity or {}).get("run_digest", ""))
         decisions = construire_decisions(resultats, cas, plancher=plancher, repeat=repeat,
                                          run_digest=run_digest, producer=producer,
-                                         non_executes=manquantes_ids)
+                                         non_executes=manquantes_ids,
+                                         decisions_orchestrateur=decisions_orchestrateur)
         rapport["plancher_digest"] = plancher.digest
         rapport["decisions"] = [d.model_dump(mode="json") for d in decisions]
     return rapport
@@ -1845,6 +1977,14 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
         print(f"gate candidat rouge sur {doc_id!r} : le gate vert existant n'est pas modifié "
               "(le verdict candidat, ses raisons et ses limites sont publiés dans le rapport)",
               file=sys.stderr)
+        return False
+    if (gate.evals_ok and not gate.decisions and isinstance(gate_existant, dict)
+            and gate_existant.get("evals_ok") is True and gate_existant.get("decisions")):
+        # HIGH 1 : un vert **sans décisions** — écrit à la main ou par un chemin antérieur au
+        # protocole — ne remplace pas un vert qui porte sa preuve chiffrée. Ce serait troquer une
+        # preuve contre un booléen.
+        print(f"gate candidat sans décisions sur {doc_id!r} : le gate vert existant, qui porte "
+              "ses décisions chiffrées, n'est pas modifié", file=sys.stderr)
         return False
     # Un gate **périmé au sens du schéma** n'empêche pas d'en écrire un neuf (revue Codex 1.10
     # tour 2). Quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
@@ -2117,6 +2257,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--producer", choices=("builder", "orchestrator"), default="builder",
                    help="qui produit ce run : la règle trusted ne reconnaît que l'orchestrateur "
                         "comme producteur de preuve ; un run de builder est un diagnostic")
+    p.add_argument("--orchestrator-evidence", type=Path,
+                   help="mesures externes trusted (tests hors ligne, A16, decision_claim) ; "
+                        "réservé à --producer orchestrator et --gate")
     p.add_argument("--max-cost", type=float, default=None,
                    help="plafond de coût du run en euros (défaut : evals_max_cost_eur de config.py ; "
                         "le budget effectif est min(--max-cost, LIVE_BUDGET_EUR))")
@@ -2175,6 +2318,7 @@ def main(argv: list[str] | None = None) -> int:
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
+    decisions_orchestrateur: list[GateDecision] = []
     references = ReferencesSnapshot(empreinte_canonique([]))
     reference_dir = args.cases_dir.parent / "reference"
     try:
@@ -2197,6 +2341,16 @@ def main(argv: list[str] | None = None) -> int:
             charge_plancher = charger_plancher()
         except PlancherInvalide as exc:
             raise RefusDeTourner(str(exc)) from exc
+        if args.repeat > charge_plancher.plancher.series.max_repeat:
+            raise RefusDeTourner(
+                f"--repeat {args.repeat} dépasse la borne pré-enregistrée "
+                f"{charge_plancher.plancher.series.max_repeat}")
+        if args.orchestrator_evidence is not None:
+            if args.producer != "orchestrator" or args.gate is None:
+                raise RefusDeTourner(
+                    "--orchestrator-evidence exige --producer orchestrator et --gate")
+            decisions_orchestrateur = charger_decisions_orchestrateur(
+                args.orchestrator_evidence, plancher=charge_plancher)
         # Budget effectif de campagne : min(--max-cost, LIVE_BUDGET_EUR). La règle trusted fait
         # foi — 0,50 € par défaut, surchargé par l'environnement, jamais relevé en silence.
         budget_effectif = round(min(max_cost, settings.live_budget_eur), 4)
@@ -2279,9 +2433,11 @@ def main(argv: list[str] | None = None) -> int:
         majorant_estime = estimate_run_majorant(executions_payantes, settings)
         preflight = {
             "configured_budget_eur": budget_effectif,
+            "accrued_cost_eur": 0.0,
             "live_budget_eur": settings.live_budget_eur,
             "max_cost_eur": max_cost,
             "majorant_estime_eur": majorant_estime,
+            "refused_cost_eur": majorant_estime,
             "executions_payantes": executions_payantes,
         }
         if args.dry_run:
@@ -2297,12 +2453,48 @@ def main(argv: list[str] | None = None) -> int:
                   f"budget_effectif={budget_effectif:.4f} EUR", file=sortie)
             return 0
         if args.repeat > 1 and majorant_estime > budget_effectif:
+            non_executes = [
+                c.id if args.repeat == 1 else f"{c.id}#r{repetition}"
+                for c in cas for repetition in range(1, args.repeat + 1)
+            ]
+            identite_refus = {
+                "image": {
+                    "pipeline_digest": pipeline_digest(),
+                    "prompts_digest": prompts_digest(),
+                    "model_ids": dict(TIERS),
+                    "normalize_version": normalize_version,
+                    "plancher_digest": charge_plancher.digest,
+                },
+                "scope": {
+                    "profile": args.profile,
+                    "quick": args.quick,
+                    "repeat": args.repeat,
+                    "case_ids": [c.id for c in cas],
+                    "suites": sorted({c.suite for c in cas}),
+                    "variants": {c.id: variante_du_cas(c, args.variant) for c in cas},
+                    "references_digest": references_digest,
+                },
+                "documents": {},
+                "cache_namespace_digests": {},
+                "preflight_refused": True,
+            }
+            identite_refus["run_digest"] = empreinte_canonique(identite_refus)
+            rapport_refus = construire_rapport(
+                [], cas, cases_dir=args.cases_dir, profile=args.profile,
+                max_cost_eur=budget_effectif, complete=False,
+                stop_reason="refus de budget avant le premier appel",
+                non_executes=non_executes, cost_eur_engaged=0.0,
+                snapshot=snapshot, run_identity=identite_refus, repeat=args.repeat,
+                plancher=charge_plancher, producer=args.producer, preflight=preflight,
+                decisions_orchestrateur=decisions_orchestrateur)
+            ecrire_rapports(rapport_refus, output_json, output_markdown)
             print("refus de budget avant le premier appel : "
                   f"configured_budget_eur={budget_effectif:.4f} "
                   "accrued_cost_eur=0.0000 "
                   f"refused_cost_eur={majorant_estime:.4f} "
                   f"({executions_payantes} exécutions payantes × majorant par requête) — "
-                  "rouge chiffré, acquis conservés, manifest non modifié", file=sys.stderr)
+                  "rouge chiffré, rapport écrit, acquis conservés, manifest non modifié",
+                  file=sys.stderr)
             return 4
         # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
@@ -2342,7 +2534,9 @@ def main(argv: list[str] | None = None) -> int:
                     max_cost_eur=budget_effectif, complete=False, stop_reason=str(exc),
                     non_executes=exc.non_executes, cost_eur_engaged=exc.cost_eur_engaged,
                     snapshot=snapshot, run_identity=run_identity, repeat=args.repeat,
-                    plancher=charge_plancher, producer=args.producer, preflight=preflight)
+                    plancher=charge_plancher, producer=args.producer, preflight=preflight,
+                    stop_http=exc.http, stop_latency_ms=exc.latency_ms_engaged,
+                    decisions_orchestrateur=decisions_orchestrateur)
                 ecrire_rapports(rapport, output_json, output_markdown)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
@@ -2368,7 +2562,8 @@ def main(argv: list[str] | None = None) -> int:
                                      max_cost_eur=budget_effectif, complete=True, snapshot=snapshot,
                                      run_identity=run_identity, repeat=args.repeat,
                                      plancher=charge_plancher, producer=args.producer,
-                                     preflight=preflight)
+                                     preflight=preflight,
+                                     decisions_orchestrateur=decisions_orchestrateur)
         ecrire_rapports(rapport, output_json, output_markdown)
         print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques
@@ -2384,8 +2579,9 @@ def main(argv: list[str] | None = None) -> int:
             decisions = construire_decisions(
                 resultats, cas, plancher=charge_plancher, repeat=args.repeat,
                 run_digest=str(run_identity.get("run_digest", "")) if run_identity else "",
-                producer=args.producer)
-            evals_ok = tous_ok and all(d.status == "green" for d in decisions)
+                producer=args.producer, decisions_orchestrateur=decisions_orchestrateur)
+            # HIGH 1 : une liste de décisions vide serait un vert par vacuité (`all([])` est vrai).
+            evals_ok = tous_ok and bool(decisions) and all(d.status == "green" for d in decisions)
             gate = construire_gate(entry, ctx, profil=args.profile, cas=cas,
                                    cases_dir=args.cases_dir, evals_ok=evals_ok, snapshot=snapshot,
                                    decisions=decisions,
@@ -2413,7 +2609,8 @@ def main(argv: list[str] | None = None) -> int:
                   f"({manquants}) — l'accueil n'écrira pas « relus à la main » tant que "
                   "`truth.countersigned_by` n'est pas rempli, et le gate devra être relancé",
                   file=sys.stderr)
-    return 0 if tous_ok else 1
+    gate_ok = not args.gate or (gate_ecrit and gate.evals_ok)
+    return 0 if tous_ok and gate_ok else 1
 
 
 if __name__ == "__main__":  # pragma: no cover — point d'entrée

@@ -94,18 +94,27 @@ et ensemble de fiches. Une répétition manquante (interruption) reste **rouge a
 le rapport partiel est toujours écrit — sur tout incident, budget ou non.
 
 **Budget de campagne.** Le budget effectif d'un run est `min(--max-cost, LIVE_BUDGET_EUR)`
-(`live_budget_eur`, défaut 0,50 €, règle trusted). Avant le premier appel, le majorant de la
-campagne est estimé (exécutions payantes × majorant par requête) ; une campagne payante
-(`--repeat` ≥ 2) qui le dépasse est refusée en code 4 avec `configured_budget_eur`,
-`accrued_cost_eur` et `refused_cost_eur` — jamais une question. Le client applique le même budget
-en cours de campagne (`LlmClient.campaign_budget_eur`) : l'appel qui déborderait est refusé avant
-l'envoi. Un run simple adossé au cache reste borné par l'arrêt en cours de run.
+(`live_budget_eur`, défaut 0,50 €, règle trusted) — c'est la **borne dure**, appliquée avant
+chaque appel par le client (`LlmClient.campaign_budget_eur`) et entre les exécutions par le
+runner, acquis conservés et répétitions manquantes rouges au dénominateur. Le préflight, lui, est
+réservé aux **campagnes payantes** (`--repeat` ≥ 2, cache désarmé) : il refuse en code 4, avant le
+premier appel, quand le **majorant de référence** (plafond par requête de production × exécutions
+payantes — une référence d'estimation, pas une borne du chemin évals où chaque exécution reçoit le
+restant du run) dépasse le budget effectif, avec `configured_budget_eur`, `accrued_cost_eur` et
+`refused_cost_eur` — jamais une question. Un run simple adossé au cache n'est pas refusé au
+préflight : il reste borné par l'arrêt en cours de run et par le budget de campagne du client.
 
 **Décisions chiffrées du gate.** `--gate` n'écrit plus un booléen nu : `Gate.decisions[]` porte
-`{metric, producer, threshold, scope, n, run_digest, value, status}` pour chaque témoin que le
-runner mesure (`cases_ok_rate`, `stabilite_guide`/`stabilite_sinistre` sous `--repeat`, témoins à
-`case_id`). `evals_ok` est la conjonction. Un gate candidat **rouge ne remplace jamais** un gate
+`{metric, producer, threshold, scope, n, run_digest, value, status}`. Le runner mesure
+`cases_ok_rate`, `stabilite_guide`/`stabilite_sinistre` et les témoins à `case_id` qui lui
+appartiennent. Les mesures trusted externes (tests hors ligne, A16, `decision_claim`) sont injectées
+par l'orchestrateur avec `--orchestrator-evidence <json>` ; le runner recalcule leurs seuils et
+statuts depuis le plancher, et toute mesure applicable absente reste rouge. Un `builder` reste rouge
+même si ses valeurs tiennent les seuils. `evals_ok` est la conjonction. Un gate candidat **rouge ne
+remplace jamais** un gate
 `evals_ok: true` : le verdict candidat est publié dans le rapport, le manifest reste intact. Sous
 gate `full`, des digests pipeline/prompts/modèles non concordants mettent le document en
 quarantaine au chargement au lieu d'une simple alerte. `--producer orchestrator` déclare la
-provenance ; la règle trusted ne reconnaît que l'orchestrateur comme producteur de preuve.
+provenance ; la règle trusted ne reconnaît que l'orchestrateur comme producteur de preuve. Le JSON
+d'évidence porte `plancher_digest` et une liste `decisions` de
+`{metric, n, value, run_digest}` — jamais un statut auto-déclaré.

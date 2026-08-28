@@ -1459,3 +1459,16 @@ async def test_complete_se_reduit_a_found_et_manques_vides(mini: Index) -> None:
         v, _s, _f = await _verifier(mini, _draft_simple(), script, **kwargs)
         assert v.complete is attendu
         assert v.complete == (v.found and v.nb_manques == 0)
+
+
+async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(mini: Index) -> None:
+    """Story 4.2b (revue, MEDIUM 8) : `verifier_tier="reason"` part réellement sur le modèle
+    `reason` — la requête envoyée et `StepTrace.tier` le prouvent. Une régression vers
+    `STEP_TIERS` figerait la matrice baseline sans qu'aucun test rougisse."""
+    draft = _draft_simple()
+    _verification, step, fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True))],
+        settings=_settings(verifier_tier="reason"))
+    assert fake.messages.requests[0]["model"] == TIERS["reason"]
+    assert fake.messages.requests[0]["output_config"]["effort"] == "medium"
+    assert step.tier == "reason"
