@@ -784,6 +784,7 @@ window.CHAT = (function () {
     relance_abandonnee: "relance de la rédaction abandonnée faute de budget",
     relance_moins_bonne: "relance rendue moins bonne que le premier essai : écartée",
     relance_fondatrice_sans_place: "clause décisionnelle jamais citée : aucune place pour une relance qui conserve les acquis",
+    relance_sans_place_pour_les_limites: "relance non lancée : elle aurait tronqué une réserve acquise",
     relance_sans_effet: "relance sans effet sur la réponse",
     segment_contradictoire: "deux verdicts opposés pour une même phrase",
     segments_non_soutenus: "des phrases avancent plus que les passages joints",
