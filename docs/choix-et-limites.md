@@ -1,5 +1,76 @@
 # Choix et limites mesurées
 
+## Story 4.2c — colonnes géométriques et structure proposée puis vérifiée
+
+Trois limites de l'ingestion sont levées ensemble, et une quatrième est publiée avant d'être mesurée.
+
+**Un registre de lignes source, figé avant toute mutation.** L'extraction produisait des lignes de
+travail qu'elle mutait puis jetait ; plus rien n'était adressable en amont du découpage. Chaque ligne
+visuelle retenue reçoit désormais un `SourceLine` immuable — `uid` (`p{page}:l{rang}`), texte extrait,
+page, boîte et rang d'extraction — posé au **seul** point d'extraction du parseur, donc avant la
+fusion des numéros, avant le retrait des bandes récurrentes et avant l'exclusion des lignes de table.
+L'`uid` ne dérive d'aucun `block_id` : une proposition ne peut donc pas s'ancrer sur le découpage
+qu'elle prétend décider. L'ingestion prouve à chaque exécution que chaque ligne du registre est soit
+portée par **exactement un** bloc, soit retirée sous un motif explicite (`bande_recurrente`,
+`ligne_de_table`) — union complète, intersection vide. Le registre reste **interne à l'ingestion** :
+il ne traverse ni `Document`, ni `document.json`, ni le loader, et le serveur continue de surligner
+par `Block.lines`.
+
+**Les colonnes se détectent par la gouttière, pas par une mise en page supposée.** Le corps d'un
+contrat à deux colonnes était lu entrelacé, parce que `get_text(sort=True)` ne connaît pas les
+colonnes. La détection retenue est purement géométrique : une frontière candidate partage les lignes
+en trois — entièrement à gauche, entièrement à droite, et celles qui la traversent — et la gouttière
+mesurée entre les deux côtés n'est retenue que si elle dépasse `column_gutter_min_pt`, si chaque côté
+porte au moins `column_min_lines` lignes et si chaque côté couvre au moins `column_min_span_ratio` de
+la hauteur écrite. Une ligne qui traverse une gouttière est **pleine largeur** : elle ouvre une bande
+et se lit au-dessus des colonnes qu'elle coiffe. La clé de lecture devient
+`(bande, colonne, y0, x0)`, les continuations de paragraphe et de liste se rompent au changement de
+colonne ou de bande, et les tables sont replacées dans la colonne de leur propre boîte. La règle
+s'applique par récursion, donc à trois colonnes comme à deux, sans cas particulier.
+
+**Aucune gouttière retenue ⇒ rien ne bouge.** C'est la garantie qui rend la détection sûre : sur une
+page mono-colonne, l'ordre de lecture est l'ordre d'extraction, à l'identique, jusqu'aux octets des
+blocs, des identifiants, des boîtes et du sommaire. Le test qui le prouve rejoue l'ingestion complète
+avec la détection rendue impossible et compare les artefacts.
+
+**Le modèle propose une structure, le code la prouve — ou le document part en quarantaine.**
+L'heuristique numérique (`_NUMBER_RE`) ne reconnaît que les décimaux pointés, et un contrat à titres
+visuels non numérotés ressortait avec une hiérarchie plate. `server/ingest/structure.py` ouvre au
+tier `ingest` une surface de proposition qui ne porte **que** des `uid` de lignes et des liens
+parent/enfant : le schéma fournisseur énumère les `uid` autorisés, la réponse n'a ni champ de texte,
+ni `kind`, ni portée, ni verdict, et le code revérifie l'appartenance « même si le schéma l'impose ».
+Les titres servis sont **relus dans le registre** à partir de l'`uid` désigné et les `node_id` sont un
+chemin positionnel (`{doc_id}:s1.2`) calculé par le code : renommer les intitulés ne déplace aucun
+identifiant. Le vérificateur est en code pur, hors réseau, et rend un refus **nommé** :
+`proposition_illisible`, `document_different`, `ligne_inconnue`, `titre_duplique`, `titre_ambigu`,
+`cycle`, `profondeur_excessive`, `ordre_impossible`, `intervalles_croises`,
+`couverture_insuffisante`. Un refus est un check `bloquant` `structure_proposee` : le manifest passe
+en `quarantaine` et `document.json`/`summary.md` sont purgés. Il n'existe **pas** de repli silencieux
+vers l'heuristique — servir un arbre que personne n'a prouvé en laissant croire que la proposition a
+été honorée est exactement ce qu'AD-16 interdit. Sans `structure.json`, l'heuristique reste le chemin
+nominal, inchangée.
+
+**La proposition est un artefact, jamais un appel à chaud.** AD-2 exige que `source_hash` +
+`ingest_fingerprint` égaux rendent les mêmes identifiants : rejouer le modèle à chaque ingestion
+rendrait l'arbre instable et mettrait le document en quarantaine à chaque démarrage.
+`data/{doc_id}/structure.json` est donc écrit **une fois**, hors ligne, par
+`uv run python -m server.ingest.structure <doc_id>`, puis relu et revérifié à chaque ingestion. Sa
+liaison cryptographique au manifest reste hors périmètre (différé, `target_story: 4.5`).
+
+### Limite assumée : les artefacts committés attendent une réingestion
+
+Corriger l'entrelacement change l'ordre de lecture d'un document réellement à deux colonnes, donc ses
+`seq`, donc ses `block_id`. Les trois seuils géométriques entrent dans `ingest_fingerprint`, et
+`PARSER_VERSION` passe de `9` à `10` : l'empreinte du parseur courant diffère donc de celle inscrite
+dans les `document.json` committés. Les PDF sources ne sont pas versionnés ; **aucune mesure n'a donc
+été prise sur un contrat réel dans cette story**, et aucun chiffre d'ingestion réelle n'est publié
+ici. Les artefacts servis restent cohérents entre eux — `document.json` et son manifest portent la
+même empreinte, ce que le loader vérifie —, mais ils ne sont plus reproductibles par le parseur
+courant. Les deux tests de régénération sur PDF réels (`tests/test_parsing_axa.py`,
+`tests/test_parsing_baloise.py`) sont `skip` sans les sources et rougiront à la porte de déploiement
+(`REAL_PDF_TESTS_REQUIRED=1`) tant que l'ingestion n'aura pas été rejouée avec les PDF réels, suivie
+du typage. C'est un état de la donnée servie, pas un verdict sur la règle.
+
 ## Story 3.6 — second contrat luxembourgeois
 
 Le choix prioritaire est Baloise Luxembourg HOME, plutôt qu'un contrat de repli. La source officielle
