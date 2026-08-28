@@ -732,7 +732,10 @@ class Resultat:
     id: str
     suite: str
     label: str
-    variant: str = "deterministe"
+    # Sans défaut, délibérément (revue 4.2d) : un résultat dit quelle variante l'a produit, et aucune
+    # valeur n'est plus « celle qu'on peut supposer ». Les trois sites de construction la passent
+    # déjà — `variant="local"` pour le parsing, `trace.variant` pour les deux pipelines.
+    variant: str
     ecarts: list[str] = field(default_factory=list)
     cost_eur: float = 0.0
     cost_eur_original: float = 0.0
@@ -1294,7 +1297,11 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
         # un appel facturé. Ne pas la laisser sortir brute (ni remettre son coût à zéro) : le runner
         # la convertira en incident, sans inventer de verdict.
         raise _ErreurInterneFacturee(type(exc).__name__, round(budget.cost_eur, 4)) from exc
-    variante_attendue = variant or ("outils" if cas.suite == "guide" else "deterministe")
+    # La même source que partout ailleurs (`DEFAUT_PAR_SUITE`, via `variante_du_cas`) : une table
+    # recopiée ici vieillirait seule, et cette garde-là refuse **après** les appels facturés — elle
+    # jetterait alors la namespace de cache d'une trace pourtant conforme. `variante_du_cas` sait
+    # aussi qu'une suite peut porter un sous-dossier documentaire (`sinistre/axa-…`).
+    variante_attendue = variant or variante_du_cas(cas, None)
     if trace.variant != variante_attendue:
         if ctx.response_cache is not None:
             ctx.response_cache.discard_namespace()
@@ -2337,8 +2344,12 @@ def _parser() -> argparse.ArgumentParser:
                    help="profil exécuté : vertical, ou full (inclut les cas vertical et full)")
     p.add_argument("--quick", action="store_true",
                    help="sous-ensemble CI stable : premier identifiant de chaque suite sélectionnée")
+    # Le défaut annoncé est **dérivé** de `DEFAUT_PAR_SUITE`, jamais réécrit à la main : c'est la
+    # seule description que lit un opérateur avant de lancer une campagne, et deux runs ne sont
+    # comparables qu'à variante égale.
     p.add_argument("--variant", choices=VARIANTES_LIVREES,
-                   help="variante (défaut : outils pour guide, déterministe pour sinistre, local pour parsing)")
+                   help="variante (défaut : " + ", ".join(
+                       f"{suite} → {defaut}" for suite, defaut in DEFAUT_PAR_SUITE.items()) + ")")
     p.add_argument("--gate", metavar="DOC_ID",
                    help="écrire `manifest.gate` pour ce document depuis la suite qui le sert")
     p.add_argument("--repeat", type=int, default=1, metavar="N",

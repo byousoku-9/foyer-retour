@@ -270,7 +270,8 @@ def test_snapshot_mixte_garde_les_octets_disque_dans_son_identite(tmp_path: Path
 
 def test_recall_compte_les_fiches_attendues_et_pas_seulement_found() -> None:
     resultat = Resultat(
-        id="g", suite="guide", label="doc_manque", found=True, expected_found=True,
+        id="g", suite="guide", label="doc_manque", variant=runner.DEFAUT_PAR_SUITE["guide"],
+        found=True, expected_found=True,
         expected_fiche_ids=["guide:attendue"], cited_fiche_ids=["guide:autre"],
     )
     assert runner._recall([resultat]) == 0.0

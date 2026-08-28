@@ -431,6 +431,7 @@ def _resultat_sinistre(repetition: int, *, verdict: str = "sous_conditions",
                        hash_preuve: str = "h1") -> runner.Resultat:
     return runner.Resultat(
         id="s-stable", suite="sinistre:contrat-test", label="bonne_reponse",
+        variant=runner.DEFAUT_PAR_SUITE["sinistre"],
         found=True, verdict=verdict, repetition=repetition, doc_id="contrat-test",
         proofs=[{"doc_id": "contrat-test", "block_id": "contrat-test:p1:1",
                  "kind": "garantie", "quote_hash": hash_preuve}])
