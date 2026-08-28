@@ -74,3 +74,38 @@ sur la commande pytest. `ANTHROPIC_API_KEY` reste la clé fournisseur explicite.
 sauvegardé même après un échec de mesure, sauf lorsqu'une restauration a trouvé la clé exacte.
 
 Le holdout de 4.3, les baselines publiées de 4.4 et l'API/page d'accueil de 4.5 ne font pas partie de ce livrable.
+
+## Protocole 4.2b : plancher, répétitions, budget de campagne, décisions
+
+Le protocole complet vit dans `docs/evals/protocole.md` ; le harness en applique quatre mécanismes.
+
+**Plancher pré-enregistré.** `server/evals/reference/plancher.yaml` fige par témoin le plancher,
+`N`, numérateur, dénominateur et règles d'incident. `server/evals/plancher.py` le charge, refuse
+toute diminution du floor 4.2a ou de la règle trusted, et calcule son digest — inscrit dans
+`identity.image.plancher_digest` et couvert par `identity.run_digest` (empreinte canonique de
+l'identité du run). Sans plancher lisible, aucun run ne part.
+
+**Répétitions sans cache.** `--repeat N` répète chaque cas `N` fois, cache de réponse désarmé :
+chaque répétition est payée et publiée en entier (rapport `schema_version: 3` — blocs lus,
+claims + applicabilité, `found`/`complete`, coût, latence, tiers/coût par étape, preuves
+normalisées `{doc_id, block_id, kind, quote_hash}`). L'agrégat `stability` compare les répétitions :
+sinistre = même preuve et même verdict admissible ; guide = même statut, `found`/`complete`, label
+et ensemble de fiches. Une répétition manquante (interruption) reste **rouge au dénominateur** et
+le rapport partiel est toujours écrit — sur tout incident, budget ou non.
+
+**Budget de campagne.** Le budget effectif d'un run est `min(--max-cost, LIVE_BUDGET_EUR)`
+(`live_budget_eur`, défaut 0,50 €, règle trusted). Avant le premier appel, le majorant de la
+campagne est estimé (exécutions payantes × majorant par requête) ; une campagne payante
+(`--repeat` ≥ 2) qui le dépasse est refusée en code 4 avec `configured_budget_eur`,
+`accrued_cost_eur` et `refused_cost_eur` — jamais une question. Le client applique le même budget
+en cours de campagne (`LlmClient.campaign_budget_eur`) : l'appel qui déborderait est refusé avant
+l'envoi. Un run simple adossé au cache reste borné par l'arrêt en cours de run.
+
+**Décisions chiffrées du gate.** `--gate` n'écrit plus un booléen nu : `Gate.decisions[]` porte
+`{metric, producer, threshold, scope, n, run_digest, value, status}` pour chaque témoin que le
+runner mesure (`cases_ok_rate`, `stabilite_guide`/`stabilite_sinistre` sous `--repeat`, témoins à
+`case_id`). `evals_ok` est la conjonction. Un gate candidat **rouge ne remplace jamais** un gate
+`evals_ok: true` : le verdict candidat est publié dans le rapport, le manifest reste intact. Sous
+gate `full`, des digests pipeline/prompts/modèles non concordants mettent le document en
+quarantaine au chargement au lieu d'une simple alerte. `--producer orchestrator` déclare la
+provenance ; la règle trusted ne reconnaît que l'orchestrateur comme producteur de preuve.

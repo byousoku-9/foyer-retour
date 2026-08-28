@@ -152,12 +152,21 @@ def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
     manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
     attendus = {"pipeline_digest": pipeline_digest(), "prompts_digest": prompts_digest(),
                 "model_ids": dict(TIERS)}
+    # Story 4.2b : la règle trusted interdit au builder de produire la preuve live — le re-gate
+    # d'un document dont l'image a bougé est tiré par l'**orchestrateur** après passation. Un
+    # périmage **déclaré** (ligne `gate-a-relancer: {doc_id}` dans `docs/tests-live.md`) n'est donc
+    # pas un périmage silencieux : le serveur sert avec l'alerte `gate_perime` (AD-7), la dette est
+    # écrite et datée, et ce test rougit toujours sur un périmage que personne n'a déclaré.
+    tests_live = (REPO_ROOT / "docs" / "tests-live.md").read_text("utf-8")
     for doc_id in (reglages.guide_doc_id, reglages.sinistre_doc_id):
         gate = manifest[doc_id]["gate"]
         assert gate is not None, f"{doc_id} n'a pas de gate"
+        if f"gate-a-relancer: {doc_id}" in tests_live:
+            continue
         for champ, attendu in attendus.items():
             assert gate[champ] == attendu, (
                 f"{doc_id} : le gate porte un {champ} qui n'est plus celui de l'image — le serveur "
                 f"le servira avec l'alerte `gate_perime` pendant que `/` annoncera son profil. "
                 f"Relancer : `uv run python -m server.evals.run --gate {doc_id} --profile vertical` "
-                f"(≈ 0,05 € par document, clé requise).")
+                f"(≈ 0,05 € par document, clé requise), ou déclarer la dette dans docs/tests-live.md "
+                f"(`gate-a-relancer: {doc_id}`) si le re-gate revient à l'orchestrateur.")

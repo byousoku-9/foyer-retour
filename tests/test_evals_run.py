@@ -1050,7 +1050,10 @@ def test_le_plafond_de_run_arrete_avant_le_cas_suivant() -> None:
         _executer(ctx, [_cas(id="a"), _cas(id="b"), _cas(id="c")], max_cost=0.05)
     message = str(exc.value)
     assert "plafond de run" in message and "0.0500" in message
-    assert "2 cas non exécutés" in message
+    # Story 4.2b : le plan se compte en **exécutions** (cas × répétitions), et l'incident emporte
+    # les acquis pour que le rapport partiel les publie.
+    assert "2 exécutions non exécutées" in message
+    assert exc.value.non_executes == ["b", "c"]
     # Un seul cas a démarré : l'arrêt est **avant** le suivant, pas au milieu.
     assert len(ctx._guide.appels) == 1   # type: ignore[attr-defined]
 

@@ -596,10 +596,15 @@ def test_ingest_models() -> None:
     # `countersigned` (revue Codex 1.10 tour 2) : les cas exécutés sont-ils tous contresignés par un
     # humain ? AD-14 définit `vertical` comme « relus à la main » — c'est ce booléen, et non le nom du
     # profil, qui autorise `/` à l'écrire.
+    # `decisions` et `run_digest` (story 4.2b) : les décisions chiffrées qui fondent `evals_ok`,
+    # optionnelles pour que les gates antérieurs restent lisibles.
     assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
                                    "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash", "cases",
-                                   "countersigned"}
+                                   "countersigned", "decisions", "run_digest"}
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
+    assert fields(ingest.GateDecision) == {"metric", "producer", "threshold", "scope", "n",
+                                           "run_digest", "value", "status"}
+    assert literal_values(ingest.GateDecision, "status") == {"green", "red"}
     assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
                                             "overlay_hash", "gate"}
     assert literal_values(ingest.ManifestEntry, "status") == {"servi", "quarantaine"}

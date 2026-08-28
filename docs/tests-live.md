@@ -3427,3 +3427,49 @@ Le coût total est **0,2600 EUR**. Les trois manifests portent le digest pipelin
 `23699bbe…`, `evals_ok=true` et `countersigned=false`. Aucun autre appel live, gate, fixture LLM,
 Batch ou push n'a été exécuté. L'alignement mécanique de la preuve Baloise sur ce nouvel artefact est
 couvert par la suite hors ligne finale : **2515 tests réussis**, Ruff et `git diff --check` verts.
+
+## Story 4.2b — protocole, harness de preuve, anti-rustine, baseline
+
+### Ce que cette story change au live (aucun appel exécuté par le builder)
+
+Le protocole est désormais pré-enregistré **avant** toute mesure : `server/evals/reference/plancher.yaml`
+(digest inscrit dans l'identité de chaque run), splits A/B/C, budget de campagne
+(`LIVE_BUDGET_EUR`, défaut 0,50 €, budget effectif = `min(--max-cost, LIVE_BUDGET_EUR)`),
+`--repeat N` sans cache avec publication complète par répétition et agrégat de stabilité
+(`{doc_id, block_id, kind, quote_hash}` + verdict côté sinistre ; statut/`found`/`complete`/label/fiches
+côté guide). Le refus de budget est un rouge chiffré (code de sortie 4), jamais une question.
+
+La règle trusted (`automation/plancher.yaml`, parent) fait foi : **le builder ne produit jamais la
+preuve live**. Aucun appel fournisseur n'a donc été exécuté pendant cette story ; la série baseline
+et les re-gates ci-dessous reviennent à l'orchestrateur, sur HEAD figé, après passation.
+
+### Dette déclarée : gates à relancer par l'orchestrateur
+
+Les surfaces `domain`, `corpus`, `llm` et `steps` ont bougé (décisions chiffrées du gate,
+quarantaine `full`, budget de campagne, tiers par étape) : le `pipeline_digest` de l'image n'est
+plus celui des gates du dépôt. AD-7 sert ces documents avec l'alerte `gate_perime` ; la dette est
+déclarée ici — jamais silencieuse — et se solde par un re-gate live orchestrateur :
+
+- gate-a-relancer: lux-guide
+- gate-a-relancer: axa-lu-optihome-2017
+- gate-a-relancer: baloise-lu-home-2-2024
+
+Commande par document (orchestrateur, HEAD figé) :
+`LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --gate <doc_id> --profile vertical --producer orchestrator --max-cost 0.50`
+
+### Série baseline A due (orchestrateur, post-passation)
+
+Un run par témoin nommé et par point de la matrice (`micro`/`reason` par étape via
+`COMPRENDRE_TIER`/`REDIGER_TIER`/`VERIFIER_TIER`, `RELANCE_SUR_NON_PERTINENCE` 0/1), `--repeat 3`,
+budget explicite par run :
+
+```bash
+LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --suite sinistre --case s-bougie-canape \
+  --repeat 3 --producer orchestrator --max-cost 0.50
+LIVE_BUDGET_EUR=0.50 uv run python -m server.evals.run --suite guide --case g-luxtrust-prix \
+  --repeat 3 --producer orchestrator --max-cost 0.50
+```
+
+Les résultats — verts ou rouges, A16 compris (0/3 publié rouge tant que 4.2a l'est) — seront
+consignés ici et dans `docs/evals/latest.md` **quel que soit le résultat**, avec modèles,
+paramètres, digests (`plancher_digest`, `run_digest`), coût et latence.
