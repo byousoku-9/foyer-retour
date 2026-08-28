@@ -667,8 +667,10 @@ def test_un_cas_sans_verdict_attendu_ne_juge_pas_le_verdict() -> None:
 
 def test_un_sinistre_sans_claim_retrouvee_est_un_ecart() -> None:
     corps = sinistre_nominal()
-    corps["answer"]["claims"] = [{"claim_id": "c1", "quotes": [],
-                                  "status": {"retrouvee": False, "edition": "juin 2017"}}]
+    corps["answer"]["claims"] = [{"claim_id": "c1",
+                                  "quotes": [{"block_id": "axa-lu-optihome-2017:p34:12"}],
+                                  "status": {"retrouvee": False, "pertinente": False,
+                                             "edition": "juin 2017"}}]
     ecarts = ecarts_sinistre(corps)
     assert any("aucune claim `retrouvee`" in ecart for ecart in ecarts)
     assert any("claim décisionnelle confirmée" in ecart for ecart in ecarts)
@@ -688,6 +690,40 @@ def test_des_elements_internes_illisibles_ne_prouvent_jamais_labsence_de_claim()
     assert any("sources[0]" in e for e in ecarts)
     assert any("answer.claims[0]" in e for e in ecarts)
     assert not any("claim décisionnelle confirmée" in e for e in ecarts)
+
+
+def test_des_structures_presentes_mais_invalides_sont_des_ecarts_nommes() -> None:
+    """Recheck Codex (I1) : présent ne veut pas dire lisible.
+
+    Un `status` vide, des `quotes` vides, un `applicable` hors vocabulaire, un `block_id` vide ou
+    un `kind` hors vocabulaire sont des écarts nommés **avant** le prédicat, même quand le cas
+    attend `decision_claim=false` — jamais une absence « légitime » de claim décisionnelle.
+    """
+    import dataclasses
+
+    inverse = dataclasses.replace(CAS_SINISTRE, decision_claim_attendue=False)
+    cas_invalides = [
+        ("status vide",
+         lambda corps: corps["answer"]["claims"][0].__setitem__("status", {})),
+        ("quotes vides",
+         lambda corps: corps["answer"]["claims"][0].__setitem__("quotes", [])),
+        ("applicable hors vocabulaire",
+         lambda corps: corps["answer"]["claims"][0]["status"].__setitem__("applicable", "peut-etre")),
+        ("block_id de quote vide",
+         lambda corps: corps["answer"]["claims"][0]["quotes"][0].__setitem__("block_id", "")),
+        ("retrouvee non booléenne",
+         lambda corps: corps["answer"]["claims"][0]["status"].__setitem__("retrouvee", "true")),
+        ("kind de source hors vocabulaire",
+         lambda corps: corps["sources"][0].__setitem__("kind", "clause")),
+        ("block_id de source vide",
+         lambda corps: corps["sources"][0].__setitem__("block_id", " ")),
+    ]
+    for label, muter in cas_invalides:
+        corps = sinistre_nominal()
+        muter(corps)
+        ecarts = verifier_sinistre(corps, cas=inverse, source_hash=HASH_AXA)
+        assert any("élément(s) illisible(s) pour le prédicat" in e for e in ecarts), label
+        assert not any("claim décisionnelle confirmée" in e for e in ecarts), label
 
 
 def test_la_definition_seule_ne_satisfait_jamais_le_predicat_decisionnel() -> None:

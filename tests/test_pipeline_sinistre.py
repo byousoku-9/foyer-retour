@@ -971,6 +971,83 @@ async def test_une_fondatrice_omise_sans_place_ne_lance_pas_de_relance_tronquant
     assert answer.complete is False
 
 
+async def test_une_relance_saturee_nest_pas_lancee_quand_une_limite_acquise_tomberait(
+        index: Index) -> None:
+    """Recheck Codex (B2), cas saturé : acquis sous la borne de claims, mais acquis + limite
+    acquise + une correction ne tiennent pas sous draft_max_segments. La relance n'est pas lancée —
+    la dominance ne voit jamais un candidat amputé, la réserve reste dans `unknown` et `nb_manques`
+    ne baisse pas. La longueur du script est l'assertion (aucun 4e appel)."""
+    limite = "Le contrat ne précise pas la franchise applicable."
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=["définition du bien", "condition d'occupation"]),
+        _rediger_avec_limites(DEF, COND, limites=[limite]),
+        _verifier(("c2", True, False, False, False, None),
+                  ("c5", True, False, False, False, "occupation permanente du bien"),
+                  facettes=[["c2"], ["c5"]])],
+        settings=_settings(draft_max_claims=3, draft_max_segments=3))
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
+    assert any("franchise" in u for u in answer.unknown)
+    assert any(check.name == "relance_sans_place_pour_les_limites"
+               for step in trace.steps for check in step.checks)
+    assert answer.complete is False
+
+
+async def test_la_reproduction_codex_deux_acquis_bornes_et_une_limite_reste_entiere(
+        index: Index) -> None:
+    """Recheck Codex (B2), reproduction du verdict : deux acquis sous une borne de deux claims et
+    une limite acquise. Aucune relance ne tronque : la garde « borne occupée » arrête avant, la
+    réserve reste comptée."""
+    limite = "Le contrat ne précise pas la franchise applicable."
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=["définition du bien", "condition d'occupation"]),
+        _rediger_avec_limites(DEF, COND, limites=[limite]),
+        _verifier(("c2", True, False, False, False, None),
+                  ("c5", True, False, False, False, "occupation permanente du bien"),
+                  facettes=[["c2"], ["c5"]])],
+        settings=_settings(draft_max_claims=2, draft_max_segments=4))
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
+    assert any("franchise" in u for u in answer.unknown)
+    assert any(check.name == "relance_fondatrice_sans_place"
+               for step in trace.steps for check in step.checks)
+
+
+def test_la_fusion_reserve_la_place_des_limites_acquises() -> None:
+    """Recheck Codex (B2) : une correction de plus ne vaut jamais une réserve acquise de moins.
+
+    La borne effective des factuels réserve structurellement la place des limites de la première
+    ébauche : les corrections excédentaires sont tracées, la réserve acquise reste dans la fusion.
+    """
+    settings = _settings(draft_max_claims=4, draft_max_segments=4)
+    limite = "La franchise applicable n'est pas précisée."
+    draft = AnswerDraft(
+        segments=[{"text": "Clause a.", "kind": "factuel", "claim_ids": ["a"]},
+                  {"text": "Clause b.", "kind": "factuel", "claim_ids": ["b"]},
+                  {"text": limite, "kind": "limite", "claim_ids": []}],
+        claims=[{"claim_id": "a", "text": "Clause a.",
+                 "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]},
+                {"claim_id": "b", "text": "Clause b.",
+                 "quotes": [{"block_id": f"{DOC_ID}:p1:3", "quote": Q_CONDITION}]}])
+    relance = AnswerDraft(
+        segments=[{"text": f"Clause {cid}.", "kind": "factuel", "claim_ids": [cid]}
+                  for cid in ("c", "d", "e")],
+        claims=[{"claim_id": cid, "text": f"Clause {cid}.",
+                 "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}
+                for cid in ("c", "d", "e")])
+    acquise = Verification.model_construct(claims=list(draft.claims))
+    step = StepTrace(name="rediger")
+
+    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=step)
+
+    assert [c.claim_id for c in fusion.claims] == ["a", "b", "c"]
+    assert [s.text for s in fusion.segments if s.kind == "limite"] == [limite]
+    assert any(c.name == "corrections_non_retenues" and not c.ok for c in step.checks)
+    assert not any(c.name == "limites_non_reconduites" for c in step.checks)
+
+
 async def test_une_limite_acquise_survit_a_une_relance_qui_lomet(index: Index) -> None:
     """Revue Codex 4.2a (B2) : la première ébauche porte une limite que la relance ne répète pas.
 

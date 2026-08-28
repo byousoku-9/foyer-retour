@@ -66,7 +66,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import yaml
 
@@ -77,7 +77,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
+from server.app.domain.document import BlockKind  # noqa: E402 — idem
 from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
+
+# Le vocabulaire fermé des kinds de bloc (AD-2), relu du domaine : une source dont le `kind` sort
+# de ce vocabulaire est un corps hors contrat, jamais une absence légitime de claim décisionnelle.
+KINDS_DE_BLOC = frozenset(get_args(BlockKind))
+APPLICABLES = frozenset({"oui", "non", "humain"})
 
 VIA_ATTENDU = "api/v1"
 
@@ -658,20 +664,32 @@ def verifier_sinistre(corps: Any, *, cas: CasTemoin, source_hash: str) -> list[s
         # Revue Codex 4.2a (I1) : la forme minimale de **chaque** élément est validée avant le
         # prédicat, quelle que soit la valeur attendue — une liste d'éléments illisibles rendrait
         # `decisionnelle=False` par accident quand le cas attend `false`.
+        # Recheck Codex (I1) : la présence structurelle ne suffit pas — les champs, leurs types et
+        # leurs vocabulaires sont exigés. `status` de source reste une chaîne libre du contrat v1
+        # (`schemas.py` : str) : sa forme est validée, sa valeur exacte (`verifiee`) appartient au
+        # prédicat lui-même.
         illisibles: list[str] = []
         for rang, source in enumerate(sources):
             if not (isinstance(source, dict)
-                    and isinstance(source.get("block_id"), str)
-                    and isinstance(source.get("kind"), str)
+                    and isinstance(source.get("block_id"), str) and source["block_id"].strip()
+                    and source.get("kind") in KINDS_DE_BLOC
                     and isinstance(source.get("kind_confirmed"), bool)
-                    and isinstance(source.get("status"), str)):
+                    and isinstance(source.get("status"), str) and source["status"].strip()):
                 illisibles.append(f"sources[{rang}]")
         for rang, claim in enumerate(claims):
+            status = claim.get("status") if isinstance(claim, dict) else None
+            quotes = claim.get("quotes") if isinstance(claim, dict) else None
             if not (isinstance(claim, dict)
-                    and isinstance(claim.get("status"), dict)
-                    and isinstance(claim.get("quotes"), list)
-                    and all(isinstance(quote, dict) and isinstance(quote.get("block_id"), str)
-                            for quote in claim.get("quotes", []))):
+                    and isinstance(status, dict)
+                    and isinstance(status.get("retrouvee"), bool)
+                    and isinstance(status.get("pertinente"), bool)
+                    and (status.get("applicable") is None
+                         or status.get("applicable") in APPLICABLES)
+                    and isinstance(quotes, list) and quotes
+                    and all(isinstance(quote, dict)
+                            and isinstance(quote.get("block_id"), str)
+                            and quote["block_id"].strip()
+                            for quote in quotes)):
                 illisibles.append(f"answer.claims[{rang}]")
         if illisibles:
             ecarts.append(f"sinistre/{cas.id} : élément(s) illisible(s) pour le prédicat "

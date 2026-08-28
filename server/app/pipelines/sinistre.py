@@ -159,13 +159,17 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
     lancer une relance fondatrice, et toute correction que la borne écarte quand même est tracée
     (`corrections_non_retenues`) — jamais jetée en silence.
 
-    Revue Codex 4.2a (B2) : les segments non factuels des **deux** ébauches sont fusionnés et
-    dédupliqués, limites acquises d'abord. `Answer.unknown` est rempli depuis les seuls segments
-    `limite` (AD-4) : perdre une limite acquise que la relance ne répète pas abaisserait
-    `nb_manques` avant la dominance et ferait passer pour plus complète une réponse qui a oublié
-    une réserve. Une limite qui ne tient pas sous `draft_max_segments` est tracée
-    (`limites_non_reconduites`). La seconde vérification relit ensuite tout ce résultat et la
-    dominance reste l'autorité d'adoption.
+    Revue Codex 4.2a (B2, durci au recheck) : les segments non factuels des **deux** ébauches sont
+    fusionnés et dédupliqués, limites acquises d'abord. `Answer.unknown` est rempli depuis les
+    seuls segments `limite` (AD-4) : perdre une limite acquise que la relance ne répète pas
+    abaisserait `nb_manques` avant la dominance et ferait passer pour plus complète une réponse qui
+    a oublié une réserve. La place des limites de la première ébauche est donc **réservée
+    structurellement** : les corrections de la relance ne peuvent pas saturer
+    `draft_max_segments` au point d'en chasser une — l'appelant refuse d'ailleurs de lancer la
+    relance quand acquis + limites + une correction ne tiennent pas sous la borne
+    (`relance_sans_place_pour_les_limites`). Seules les limites **nouvelles** de la relance peuvent
+    encore être bornées, et c'est tracé (`limites_non_reconduites`). La seconde vérification relit
+    ensuite tout ce résultat et la dominance reste l'autorité d'adoption.
     """
     acquis_ids = {claim.claim_id for claim in acquise.claims}
     claims: list[Claim] = [claim for claim in draft.claims if claim.claim_id in acquis_ids]
@@ -181,6 +185,16 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
                 return candidate
         raise ValueError("aucun identifiant de claim libre sous la borne de rédaction")
 
+    # La borne effective des factuels réserve la place des limites de la première ébauche : une
+    # correction de plus ne vaut jamais une réserve acquise de moins. Les acquis eux-mêmes ne sont
+    # jamais rognés par cette réserve (une première ébauche légale tenait déjà claims + limites
+    # sous `draft_max_segments`).
+    limites_du_draft = {s.text.strip() for s in draft.segments
+                        if s.kind == "limite" and s.text.strip()}
+    borne_factuels = max(len(claims),
+                         min(settings.draft_max_claims,
+                             settings.draft_max_segments - len(limites_du_draft)))
+
     ecartees = 0
     for claim in relance.claims:
         if claim.claim_id in utilises:
@@ -189,11 +203,11 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
             ancienne = next(c for c in claims if c.claim_id == claim.claim_id)
             if ancienne.text == claim.text and ancienne.quotes == claim.quotes:
                 continue
-            if len(claims) >= settings.draft_max_claims:
+            if len(claims) >= borne_factuels:
                 ecartees += 1
                 continue
             claim = claim.model_copy(update={"claim_id": identifiant_libre()})
-        elif len(claims) >= settings.draft_max_claims:
+        elif len(claims) >= borne_factuels:
             ecartees += 1
             continue
         utilises.add(claim.claim_id)
@@ -201,9 +215,9 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
     if ecartees:
         step.checks.append(CheckResult(
             name="corrections_non_retenues", ok=False,
-            detail=f"{ecartees} correction(s) de la relance au-delà de draft_max_claims, "
-                   "écartée(s) après la reconduction des acquis : borne mécanique tracée, "
-                   "jamais muette"))
+            detail=f"{ecartees} correction(s) de la relance au-delà de la borne effective "
+                   "(draft_max_claims, place des réserves acquises réservée), écartée(s) après "
+                   "la reconduction des acquis : borne mécanique tracée, jamais muette"))
 
     if len(claims) > settings.draft_max_segments:
         # Même invariant que `_rattacher_claims_sinistre` : aucune claim vérifiée ne disparaît
@@ -507,10 +521,30 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                        "acquis et ajouter la clause"))
             verification = relance_abandonnee(verification)
             omises = []
-        if (verification.motif and (
+        relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
             or _fondatrice_rejetee(verification, corpus=corpus, index=index)
-        )) or omises:
+        )) or omises)
+        if relance_due:
+            # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.
+            # La fusion doit reconduire tous les acquis, **toutes leurs limites** et au moins une
+            # correction ; si `draft_max_segments` ne le permet pas, la relance produirait un
+            # candidat amputé dont `nb_manques` aurait baissé artificiellement **avant** la
+            # dominance. Elle n'est pas lancée : l'état est nommé, la réponse acquise — limites
+            # comprises — est servie avec la lacune de relance abandonnée, jamais donnée pour
+            # complète. La dominance ne voit ainsi jamais un candidat amputé.
+            limites_acquises = {s.text.strip() for s in draft.segments
+                                if s.kind == "limite" and s.text.strip()}
+            if len(verification.claims) + 1 + len(limites_acquises) > settings.draft_max_segments:
+                step_verifier.checks.append(CheckResult(
+                    name="relance_sans_place_pour_les_limites", ok=False,
+                    detail=f"les {len(verification.claims)} affirmation(s) retenue(s), leurs "
+                           f"{len(limites_acquises)} réserve(s) acquise(s) et une correction ne "
+                           "tiennent pas sous draft_max_segments : la relance tronquerait une "
+                           "limite acquise avant la dominance — acquis servi, réserves comprises"))
+                verification = relance_abandonnee(verification)
+                relance_due = False
+        if relance_due:
             motif_relance = verification.motif
             if omises:
                 # Composé par le code, comme tout motif (AD-15) : les identifiants viennent du
