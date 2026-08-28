@@ -28,6 +28,19 @@ et se lit au-dessus des colonnes qu'elle coiffe. La clé de lecture devient
 colonne ou de bande, et les tables sont replacées dans la colonne de leur propre boîte. La règle
 s'applique par récursion, donc à trois colonnes comme à deux, sans cas particulier.
 
+**Une rangée « libellé … montant » n'est pas une colonne, et il faut deux signaux pour le dire.**
+Une liste de libellés à gauche et de montants à droite laisse un blanc vertical franc que rien
+n'oppose, géométriquement, à une gouttière : elle satisfait les trois bornes ci-dessus, et la lire
+comme deux colonnes séparerait chaque montant de son libellé. Deux critères la refusent, et
+seulement lorsqu'ils sont vrais **ensemble** : les deux côtés sont appariés ligne de base à ligne de
+base au-delà de `column_row_pairing_max_ratio` — la signature d'une rangée — *et* le côté le moins
+rempli occupe moins de `column_min_fill_ratio` de la largeur dont il dispose, mesurée de la marge de
+texte de la page au bord opposé de la gouttière. L'appariement seul ne suffirait pas : une mise en
+page professionnelle à deux colonnes partage très souvent la même grille de lignes de base, et
+l'écarter pour cela annulerait la correction sur les documents mêmes qu'elle vise. Le remplissage
+seul ne suffirait pas non plus : une colonne courte reste une colonne. C'est leur conjonction qui
+distingue la rangée de la colonne.
+
 **Aucune gouttière retenue ⇒ rien ne bouge.** C'est la garantie qui rend la détection sûre : sur une
 page mono-colonne, l'ordre de lecture est l'ordre d'extraction, à l'identique, jusqu'aux octets des
 blocs, des identifiants, des boîtes et du sommaire. Le test qui le prouve rejoue l'ingestion complète
@@ -70,6 +83,18 @@ courant. Les deux tests de régénération sur PDF réels (`tests/test_parsing_a
 `tests/test_parsing_baloise.py`) sont `skip` sans les sources et rougiront à la porte de déploiement
 (`REAL_PDF_TESTS_REQUIRED=1`) tant que l'ingestion n'aura pas été rejouée avec les PDF réels, suivie
 du typage. C'est un état de la donnée servie, pas un verdict sur la règle.
+
+La divergence est **déclarée ici, document par document**, et une garde toujours exécutée la
+confronte à l'empreinte du parseur courant (`assert_empreinte_committee_declaree`, jouée par
+`tests/test_parsing_axa.py` et `tests/test_parsing_baloise.py`) :
+
+- `empreinte-committee-perimee: axa-lu-optihome-2017`
+- `empreinte-committee-perimee: baloise-lu-home-2-2024`
+
+Une empreinte committée qui divergerait **sans** figurer dans cette liste fait rougir la garde ; et
+le jour où la réingestion rétablit l'égalité, c'est la ligne restée ici qui la fait rougir, pour
+qu'elle soit retirée plutôt qu'oubliée. Les deux valeurs comparées sont lues — l'une dans
+`document.json`, l'autre au parseur — et aucune n'est écrite en dur dans un test.
 
 ## Story 3.6 — second contrat luxembourgeois
 
