@@ -1,0 +1,159 @@
+# Plancher pré-enregistré des évals (story 4.2b) — le protocole précède toute mesure.
+#
+# Ce fichier est figé par digest : `server/evals/plancher.py` le charge, en calcule l'empreinte
+# SHA-256, et le runner l'inscrit dans l'identité de chaque run (`identity.image.plancher_digest`).
+# Deux runs ne se comparent qu'à digest égal. Abaisser un seuil ou retirer un témoin est un
+# changement de protocole : il se voit, il ne se glisse pas.
+#
+# Sources importées **sans diminution** (la section `imports` en recopie les valeurs ; le chargeur
+# refuse tout témoin dont le plancher descend sous elles) :
+# - floor 4.2a : automation/runs/20260827-181634-story-4.2a/control/floor.yaml (dépôt parent) ;
+# - règle trusted : automation/plancher.yaml (dépôt parent, schema_version 2).
+schema_version: 1
+story: "4.2b"
+effective_from: "2026-08-28"
+
+# Le producteur de preuve est l'orchestrateur : un run lancé par le builder est un diagnostic,
+# jamais une preuve (règle trusted). Le refus de budget est un rouge chiffré, jamais une question.
+producer_de_preuve: orchestrator
+n_minimum: 3
+
+splits:
+  A:
+    role: developpement
+    localisation: "server/evals/cases/"
+    publie: true
+  B:
+    role: holdout
+    localisation: "~/foyer-retour-holdout/B/"
+    lecture_builder: interdit
+    materialisation_builder: interdit
+    verdicts_par_candidat: 1
+  C:
+    role: reserve
+    execution: interdite
+
+budget:
+  environment_variable: LIVE_BUDGET_EUR
+  default_eur: 0.50
+  enforced_by:
+    - anthropic_client
+    - eval_runner
+  on_exceeded:
+    status: red
+    report:
+      - configured_budget_eur
+      - accrued_cost_eur
+      - refused_cost_eur
+    ask_first: false
+
+series:
+  baseline_per_named_witness: 1
+  final_per_named_witness: 1
+  repeat_required: true
+  max_cost_required: true
+
+regles_incident:
+  - "toute repetition manquante d'un run interrompu est rouge et reste au denominateur"
+  - "aucun_admissible est un resultat rouge, jamais un incident a retirer du denominateur"
+  - "un refus de budget est un rouge chiffre (configured_budget_eur, accrued_cost_eur, refused_cost_eur), sans question humaine"
+
+imports:
+  floor_4_2a:
+    source: "automation/runs/20260827-181634-story-4.2a/control/floor.yaml"
+    n_minimum: 3
+    thresholds:
+      offline_tests_pass_rate: 1.0
+      bougie_post_success_rate: 1.0
+      a16_post_success_rate: 1.0
+      decision_claim_rate: 1.0
+  regle_trusted:
+    source: "automation/plancher.yaml"
+    schema_version: 2
+    proof_producer: orchestrator
+    baseline_per_named_witness: 1
+    final_per_named_witness: 1
+    live_budget_default_eur: 0.50
+
+temoins:
+  - metric: offline_tests_pass_rate
+    pipeline: harness
+    famille: tests_hors_ligne
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "commandes pytest hors reseau vertes"
+    denominateur: "commandes pytest lancees, interruptions comprises"
+    incident: "une suite interrompue compte rouge au denominateur"
+    scope: repo
+    mesure_par: orchestrator
+  - metric: bougie_post_success_rate
+    pipeline: sinistre
+    famille: temoin_nomme
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    case_id: s-bougie-canape
+    numerateur: "repetitions ok (label et attentes tenus)"
+    denominateur: "repetitions planifiees, interruptions comprises"
+    incident: "repetition manquante = rouge au denominateur"
+    scope: case
+    mesure_par: eval_runner
+  - metric: a16_post_success_rate
+    pipeline: sinistre
+    famille: temoin_nomme
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "reponses HTTP 200 conformes du temoin A16 (POST /api/v1/sinistre)"
+    denominateur: "requetes planifiees, interruptions comprises"
+    incident: "requete interrompue = rouge au denominateur"
+    scope: live_http
+    mesure_par: orchestrator
+    note: "actuellement 0/3 (story 4.2a) : rouge, publie tel quel, jamais retire du plancher"
+  - metric: decision_claim_rate
+    pipeline: sinistre
+    famille: temoin_nomme
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    case_id: s-bougie-canape
+    numerateur: "repetitions dont la reponse porte la claim decisionnelle attendue (predicat 4.2a)"
+    denominateur: "repetitions planifiees, interruptions comprises"
+    incident: "repetition manquante = rouge au denominateur"
+    scope: case
+    mesure_par: orchestrator
+    note: "le predicat decision_claim vit sur la branche 4.2a (non fusionnee) : ce runner ne le duplique pas"
+  - metric: stabilite_sinistre
+    pipeline: sinistre
+    famille: stabilite
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "cas dont les N repetitions rendent la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible"
+    denominateur: "cas sinistre repetes, interruptions comprises"
+    incident: "repetition manquante ou preuve divergente = cas instable, rouge"
+    scope: suite
+    mesure_par: eval_runner
+  - metric: stabilite_guide
+    pipeline: guide
+    famille: stabilite
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "cas dont les N repetitions rendent le meme statut, found/complete, label et ensemble de fiches"
+    denominateur: "cas guide repetes, interruptions comprises"
+    incident: "repetition manquante ou statut divergent = cas instable, rouge"
+    scope: suite
+    mesure_par: eval_runner
+  - metric: cases_ok_rate
+    pipeline: all
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 1
+    numerateur: "executions ok (cas x repetition, label et attentes tenus)"
+    denominateur: "executions planifiees (cas x repetitions), interruptions comprises"
+    incident: "execution manquante = rouge au denominateur"
+    scope: run
+    mesure_par: eval_runner

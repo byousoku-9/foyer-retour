@@ -1,0 +1,29 @@
+# Allowlist juridique de la garde anti-rustine (story 4.2b), versionnée.
+#
+# Chaque entrée autorise des occurrences précises d'un vocabulaire qui *ressemble* à un cas d'éval
+# mais qui porte une **règle générique** — jamais un branchement sur un cas. Une entrée n'est valide
+# que si elle nomme la règle générique qu'elle sert et **au moins deux cas indépendants** couverts
+# par cette règle : une « règle » qu'un seul cas exerce est une rustine déguisée.
+#
+# `tests/test_anti_rustine.py` charge ce fichier ; toute occurrence d'un motif interdit hors de ces
+# entrées fait échouer la suite (bloquant).
+schema_version: 1
+entrees:
+  - id: exemple-negatif-qualites
+    # Le prompt de *vérifier* (sinistre) enseigne la règle générique « n'infère jamais une qualité
+    # des circonstances : le fragment cité doit employer les mots de la qualité » en s'appuyant sur
+    # un contre-exemple tiré du run réel mesuré en 1.8. C'est un exemple **négatif** : il rend le
+    # cas témoin plus dur (le modèle ne peut plus auto-certifier), jamais plus facile, et la règle
+    # s'applique à toute clause à qualificatifs de tout contrat.
+    regle_generique: >-
+      Une qualité exigée par une clause n'est établie que si le fragment des faits déclarés emploie
+      chacun de ses mots porteurs ; aucune qualité n'est inférée des circonstances.
+    fichiers:
+      - server/app/llm/prompts/verifier_sinistre.md
+    motifs:
+      - "bougie"
+      - "canapé"
+    cas_independants:
+      - s-bougie-canape
+      - b-bougie-canape
+      - s-ado-baie-volontaire
