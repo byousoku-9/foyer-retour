@@ -724,9 +724,11 @@ async def test_a_transition_that_states_a_fact_is_never_displayed(mini: Index) -
 
 async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> None:
     """Même règle que pour `pertinente` : une phrase que le contrôle n'a pas jugée n'est pas affichée.
-    Ici c'est la seule phrase factuelle : plus rien ne cite `c1`, qui devient `non_citee` (AD-4)."""
+    Ici c'est la seule phrase factuelle : plus rien ne cite `c1`, qui devient `non_citee` (AD-4).
+    Story 4.2a-bis : le texte du segment est **distinct** de celui de la claim (un octet normalisé
+    suffit) — c'est le chemin fail-closed des passages réellement distincts qui reste prouvé ici."""
     draft = _draft_libre(
-        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("La déclaration doit intervenir sous huit jours.", "factuel", ["c1"]),
         claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
     v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={}, nb_segments=0)])
     assert v.segments == [] and v.claims == [] and v.found is False
@@ -734,24 +736,210 @@ async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> Non
     assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
 
 
-async def test_sinistre_respecte_un_segment_explicitement_non_soutenu_meme_identique_a_sa_claim(
+# --- story 4.2a-bis : un segment byte-identique à sa claim est dérivé, jamais rejugé ---------------
+QUOTE_HUIT_JOURS = "huit jours pour déclarer votre arrivée"
+
+
+async def test_un_segment_byte_identique_a_sa_claim_retenue_est_affiche_sans_second_jugement(
+        mini: Index) -> None:
+    """La contradiction d'origine : `pertinente=true` et `soutenu=false` scripté sur le même octet.
+    Le segment n'est pas soumis (le payload le prouve), il est affiché, la claim n'est pas
+    orphanisée, `found=true`."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={0: False})])
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert envoyes == []  # aucun second jugement demandé sur le même octet
+    assert [s.text for s in v.segments] == ["Le délai est de huit jours."]
+    assert v.found is True and [c.claim_id for c in v.claims] == ["c1"]
+    assert v.rejected_claims == []  # jamais `non_citee`
+    (check,) = [c for c in step.checks if c.name == "segments_derives"]
+    assert check.ok is True and "1 segment(s)" in check.detail
+    assert "Le délai" not in check.detail  # AD-10 : des comptes, jamais le texte
+
+
+async def test_un_segment_derive_dune_claim_rejetee_est_masque_sans_resurrection(mini: Index) -> None:
+    """Claim rejetée ⇒ segment masqué par dérivation : un `soutenu=true` scripté (le défaut du
+    harnais) ne le réaffiche pas, et la claim rejetée suit la relance existante."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", False))])
+    assert v.segments == [] and v.claims == [] and v.found is False
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_pertinente"]
+    assert v.motif is not None  # la relance existante reste alimentée par le rejet de pertinence
+    (check,) = [c for c in step.checks if c.name == "segments_derives_masques"]
+    assert check.ok is False and "1 segment(s)" in check.detail
+    assert not [c for c in step.checks if c.name == "segments_non_soutenus"]
+
+
+async def test_un_segment_derive_dune_claim_sans_verdict_est_masque(mini: Index) -> None:
+    """`pertinente=None` (contrôle incomplet ou borne `verifier_max_claims`) vaut masquage :
+    le même fail-closed que pour une claim non jugée."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("La caution vaut deux mois.", "factuel", ["c2"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)]),
+                ("c2", "La caution vaut deux mois.",
+                 [("mini:p1:3", "caution est plafonnée à deux mois de loyer")])])
+    # `c1` sans verdict de pertinence ; `c2` retenue — les deux segments sont dérivés
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c2", True), facettes=[["c2"]])])
+    assert [s.text for s in v.segments] == ["La caution vaut deux mois."]
+    assert [c.claim_id for c in v.claims] == ["c2"]
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_pertinente"]
+    assert [c for c in step.checks if c.name == "segments_derives_masques"]
+    # le dérivé masqué ampute la réponse : lacune `phrases_ecartees`, donc jamais `complete`
+    assert v.complete is False
+    assert {"kind": "phrases_ecartees", "n": 1} in [lacune.model_dump() for lacune in v.lacunes]
+
+
+async def test_la_derivation_absorbe_ce_que_normalize_absorbe(mini: Index) -> None:
+    """Casse, accents et espaces différents mais formes `normalize()` identiques ⇒ identité
+    constatée, dérivation — le segment n'est pas soumis et suit la pertinence de la claim."""
+    draft = _draft_libre(
+        ("LE  DÉLAI EST DE HUIT JOURS.", "factuel", ["c1"]),
+        claims=[("c1", "Le delai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={0: False})])
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert envoyes == []
+    assert [s.text for s in v.segments] == ["LE  DÉLAI EST DE HUIT JOURS."]
+    assert v.found is True
+
+
+async def test_un_segment_identique_a_une_claim_rejetee_nest_pas_ressuscite_par_un_pointeur(
+        mini: Index) -> None:
+    """`claim_ids=[c1, c2]`, identité avec `c1` seule : `c1` rejetée ⇒ masqué, même si `c2` distincte
+    est retenue — la dérivation ne se lit que sur la claim byte-identique."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1", "c2"]),
+        ("La caution vaut deux mois.", "factuel", ["c2"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)]),
+                ("c2", "La caution vaut deux mois.",
+                 [("mini:p1:3", "caution est plafonnée à deux mois de loyer")])])
+    v, _step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", False), ("c2", True), facettes=[["c2"]])])
+    assert [s.text for s in v.segments] == ["La caution vaut deux mois."]
+    assert [c.claim_id for c in v.claims] == ["c2"]
+    assert {c.claim_id for c in v.rejected_claims} == {"c1"}
+
+
+async def test_un_segment_identique_a_deux_claims_dont_une_retenue_est_affiche(mini: Index) -> None:
+    """Cas dégénéré (design note) : identité avec deux claims référencées, l'une retenue, l'autre
+    rejetée ⇒ affiché — le texte affiché est celui que la claim retenue soutient déjà, et la rejetée
+    n'est pas « ressuscitée » ni la retenue orphanisée."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1", "c2"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)]),
+                ("c2", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    v, _step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", False), ("c2", True), facettes=[["c2"]])])
+    assert [s.text for s in v.segments] == ["Le délai est de huit jours."]
+    assert [c.claim_id for c in v.claims] == ["c2"] and v.found is True
+    assert {c.claim_id for c in v.rejected_claims} == {"c1"}
+
+
+async def test_un_segment_identique_a_une_claim_non_citable_nest_pas_reaffiche_par_un_pointeur_frere(
+        mini: Index) -> None:
+    """La dérivation se calcule sur `draft.claims` **entier**, pas sur les seules claims citables :
+    un segment identique à une claim dont la citation a échoué (`non_retrouvee`) est dérivé — donc
+    masqué avec elle — et le `soutenu=true` par défaut d'un pointeur frère citable ne le ressuscite
+    pas. La calculer sur `evaluees` rouvrirait exactement cette classe."""
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1", "c2"]),
+        ("La caution est plafonnée.", "factuel", ["c2"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "quote inventée par le modèle")]),
+                ("c2", "La caution vaut deux mois.",
+                 [("mini:p1:3", "caution est plafonnée à deux mois de loyer")])])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c2", True), facettes=[["c2"]])])
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert all("Le délai" not in t for t in envoyes)  # le segment identique n'est pas soumis
+    assert [s.text for s in v.segments] == ["La caution est plafonnée."]
+    assert v.found is True and [c.claim_id for c in v.claims] == ["c2"]
+    assert [c.rejection_kind for c in v.rejected_claims] == ["non_retrouvee"]
+    assert [c for c in step.checks if c.name == "segments_derives_masques"]
+    # éligible via son pointeur citable `c2` : le masquage ampute une réponse voulue, il se dit
+    assert {"kind": "phrases_ecartees", "n": 1} in [lacune.model_dump() for lacune in v.lacunes]
+    assert v.complete is False
+
+
+async def test_un_segment_identique_a_une_claim_excedentaire_est_masque_non_soumis_et_compte(
+        mini: Index) -> None:
+    """Borne `verifier_max_claims` : la claim identique excédentaire n'a pas de verdict ⇒ masquage
+    du segment dérivé (fail-closed), sans soumission, et la lacune est comptée (claim citable)."""
+    settings = _settings(verifier_max_claims=1, draft_max_claims=1)
+    draft = _draft_libre(
+        ("La déclaration se fait au Biergercenter.", "factuel", ["c1"]),
+        ("La caution vaut deux mois.", "factuel", ["c2"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)]),
+                ("c2", "La caution vaut deux mois.",
+                 [("mini:p1:3", "caution est plafonnée à deux mois de loyer")])])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))], settings=settings)
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert all("caution" not in t for t in envoyes)  # le dérivé n'est pas soumis
+    assert [s.text for s in v.segments] == ["La déclaration se fait au Biergercenter."]
+    assert v.found is True and [c.claim_id for c in v.claims] == ["c1"]
+    assert [c for c in step.checks if c.name == "segments_derives_masques"]
+    assert {"kind": "phrases_ecartees", "n": 1} in [lacune.model_dump() for lacune in v.lacunes]
+
+
+async def test_un_derive_dont_la_seule_claim_nest_pas_citable_est_masque_sans_lacune_nouvelle(
+        mini: Index) -> None:
+    """Verrou de la symétrie (revue 4.2a-bis, P1) : un segment dont **aucune** claim n'était citable
+    n'était pas affichable avant la dérivation non plus — son jumeau paraphrasé ne créait aucune
+    lacune, l'identique n'en crée pas davantage. Masqué, non compté, `complete` intact."""
+    draft = _draft_libre(
+        ("Vous avez huit jours pour vous déclarer.", "factuel", ["c1"]),
+        ("La caution ne sera jamais citée.", "factuel", ["c2"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)]),
+                ("c2", "La caution ne sera jamais citée.", [("mini:p1:3", "quote absente du bloc")])])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    # le dérivé n'est pas soumis : seule la phrase distincte part au contrôle groupé
+    assert [json.loads(t)["texte"] for t in envoyes] == ["Vous avez huit jours pour vous déclarer."]
+    assert [s.text for s in v.segments] == ["Vous avez huit jours pour vous déclarer."]
+    assert v.found is True and [c.rejection_kind for c in v.rejected_claims] == ["non_retrouvee"]
+    assert not [c for c in step.checks if c.name == "segments_derives_masques"]
+    assert "phrases_ecartees" not in [lacune.kind for lacune in v.lacunes]
+    assert v.complete is True
+    # le check de dérivation est émis là où la dérivation s'applique (appel groupé rendu)
+    (check,) = [c for c in step.checks if c.name == "segments_derives"]
+    assert "1 segment(s)" in check.detail
+
+
+async def test_sinistre_derive_un_segment_byte_identique_de_la_pertinence_de_sa_claim(
         contrat: Index) -> None:
-    """AD-3 : `pertinente` ne renverse jamais le contrôle distinct du texte affiché."""
+    """Story 4.2a-bis : un texte, un seul jugement. Le segment byte-identique à sa claim n'est pas
+    soumis au jugement de soutien ; un `soutenu=false` scripté pour sa position est ignoré (position
+    non soumise), le segment est affiché, la claim n'est jamais `non_citee` et `found=true`."""
     draft = _draft_libre(
         ("La garantie couvre le mobilier.", "factuel", ["c1"]),
         claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
     sortie = _applicabilite(
         ("c1", True, False, False, None), verdicts=[("c1", True)], segments={0: False})
-    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
+    v, step, fake = await _verifier_sinistre(contrat, draft, [sortie])
 
-    assert v.segments == [] and v.claims == [] and v.found is False
-    assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
-    assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
+    # le payload de l'appel groupé ne contient pas ce segment : aucun second jugement du même octet
+    envoyes = [texte for kind, texte in UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+               if kind == "segment"]
+    assert envoyes == []
+    assert [s.text for s in v.segments] == ["La garantie couvre le mobilier."]
+    assert [c.claim_id for c in v.claims] == ["c1"] and v.found is True
+    assert all(c.rejection_kind != "non_citee" for c in v.rejected_claims)
+    assert [c.name for c in step.checks if c.name == "segments_derives"]
+    assert not [c.name for c in step.checks if c.name == "segments_non_soutenus"]
 
 
 async def test_sinistre_ne_devine_pas_un_verdict_de_segment_absent(contrat: Index) -> None:
+    """Passages réellement distincts (4.2a-bis) : le texte du segment diffère d'un octet normalisé
+    de celui de la claim — le chemin fail-closed existant reste entier, pas de verdict ⇒ masqué."""
     draft = _draft_libre(
-        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("La garantie du contrat couvre le mobilier.", "factuel", ["c1"]),
         claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
     sortie = _applicabilite(
         ("c1", True, False, False, None), verdicts=[("c1", True)], nb_segments=0)
@@ -764,7 +952,7 @@ async def test_sinistre_ne_devine_pas_un_verdict_de_segment_absent(contrat: Inde
 
 async def test_sinistre_ne_repare_pas_une_position_de_segment_contradictoire(contrat: Index) -> None:
     draft = _draft_libre(
-        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("La garantie du contrat couvre le mobilier.", "factuel", ["c1"]),
         claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
     sortie = fake_message(text=json.dumps({
         "verdicts": [{"claim_id": "c1", "pertinente": True}],
@@ -785,7 +973,7 @@ async def test_sinistre_ne_repare_pas_une_position_de_segment_contradictoire(con
 async def test_sinistre_ne_repare_pas_deux_verdicts_identiques_sur_la_meme_position(
         contrat: Index) -> None:
     draft = _draft_libre(
-        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("La garantie du contrat couvre le mobilier.", "factuel", ["c1"]),
         claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
     sortie = fake_message(text=json.dumps({
         "verdicts": [{"claim_id": "c1", "pertinente": True}],

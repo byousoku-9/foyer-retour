@@ -800,6 +800,39 @@ async def test_a_truncated_read_with_no_surviving_clause_never_proves_an_absence
                                              "rediger", "verifier"]
 
 
+async def test_une_contradiction_sur_un_segment_identique_ne_vide_plus_une_lecture_tronquee(
+        index: Index) -> None:
+    """Story 4.2a-bis, la surface de l'incident : sous lecture tronquée, un `soutenu=false` scripté
+    sur un segment byte-identique à sa claim retenue ne vide plus la réponse — le segment est dérivé
+    de la pertinence, affiché, `found=true`, et ni `TruncatedRead`/503 ni refus `claims_rejetes`.
+    Le vrai zéro-claim tronqué, lui, lève toujours `TruncatedRead` (test ci-dessus).
+
+    `retrieval_max_blocks=4` : la lecture est bien tronquée (l'exclusion `p2:1` reste fermée,
+    `trace.truncations == 1`) **et** la clause citée `p1:2` est fournie — c'est la configuration de
+    l'incident : la seule anomalie est la contradiction, pas la citation."""
+    settings = _settings(retrieval_max_blocks=4)
+    texte = "Les dégâts au mobilier par action subite de la chaleur sont couverts."
+    identique = fake_message(model=TIERS["reason"], text=json.dumps({
+        "segments": [{"text": texte, "kind": "factuel", "claim_ids": ["c1"]}],
+        "claims": [{"claim_id": "c1", "text": texte,
+                    "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}]}))
+    answer, trace, fake = await _run(index, [
+        _comprendre(), identique,
+        _verifier(("c1", True, True, False, False, None), segments={0: False})],
+        settings=settings)
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and answer.reason is None
+    assert [c.claim_id for c in answer.claims] == ["c1"]
+    assert answer.rejected_claims == []
+    assert texte in answer.texte
+    assert answer.verdict is not None and answer.verdict.value == "couvert"
+    # la lecture reste bornée : la réponse est servie, mais jamais donnée pour complète
+    assert answer.complete is False and trace.truncations >= 1
+    step_verifier = next(s for s in trace.steps if s.name == "verifier")
+    assert any(c.name == "segments_derives" for c in step_verifier.checks)
+
+
 async def test_the_rejected_claims_branch_bounds_the_understood_facts_too(index: Index) -> None:
     """Et elle les **borne** : la troisième branche n'échappe pas à la règle de D8 (revue 1.9)."""
     settings = _settings()
