@@ -41,8 +41,10 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
                                      read_manifest, write_atomic)
 from server.ingest.fetch_source import GS_URL_RE
-from server.ingest.report import build_pdf_report, report_from_validation_error, structure_check
-from server.ingest.structure import (NoeudVerifie, StructureProposee, StructureRefusee, arbre, charger,
+from server.ingest.report import (build_pdf_report, numero_de_noeud, report_from_validation_error,
+                                  structure_check)
+from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
+                                     StructureRefusee, arbre, charger, empreinte_proposition,
                                      registre_lignes, verifier)
 
 DOC_ID = "axa-lu-optihome-2017"
@@ -68,6 +70,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "toc:get_toc()=>titres manquants+tdm_pdf_ecart;"
                       "colonnes:gouttiere>=column_gutter_min_pt&cotes>=column_min_lines"
                       "&hauteur>=column_min_span_ratio=>lecture(bande,colonne,y0,x0);"
+                      "rangee:appariement>column_row_pairing_max_ratio"
+                      "&remplissage<column_min_fill_ratio=>gouttiere_ecartee;"
                       "sans_gouttiere=>ordre_lecture=ordre_source;traversante=>colonne0+bande;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
                       "structure:proposition_verifiee(line_uid)=>noeuds positionnels+titres du registre;"
@@ -87,10 +91,20 @@ _TERMINAL = (".", ";", ":")
 logger = logging.getLogger(__name__)
 
 
-def ingest_fingerprint() -> str:
+def ingest_fingerprint(structure: StructureProposee | None = None) -> str:
+    """Empreinte des règles **et** de la proposition de structure effectivement appliquée (AD-2).
+
+    Le loader ne dispose que de `source_hash` et de cette empreinte pour décider que deux artefacts
+    portent les mêmes identifiants. Un `structure.json` déposé à côté du même PDF change tous les
+    `node_id` : il doit donc changer l'empreinte, exactement comme un seuil géométrique le fait.
+    Son absence est un état nommé, pas un trou — sans quoi « aucune proposition » et « une
+    proposition qui ne structure rien » se confondraient.
+    """
     s = get_settings()
     payload = json.dumps({"parser": PARSER_VERSION, "schema": SCHEMA_VERSION, "segmentation": SEGMENTATION_RULES,
                           "flags": FLAGS, "normalize_version": normalize_version,
+                          "structure_rules": STRUCTURE_RULES_VERSION,
+                          "structure": empreinte_proposition(structure),
                           "thresholds": {"header_band_pt": s.header_band_pt, "footer_band_pt": s.footer_band_pt,
                                          "header_min_pages_ratio": s.header_min_pages_ratio,
                                          "para_gap_ratio": s.para_gap_ratio,
@@ -119,6 +133,8 @@ def ingest_fingerprint() -> str:
                                          "column_gutter_min_pt": s.column_gutter_min_pt,
                                          "column_min_lines": s.column_min_lines,
                                          "column_min_span_ratio": s.column_min_span_ratio,
+                                         "column_row_pairing_max_ratio": s.column_row_pairing_max_ratio,
+                                         "column_min_fill_ratio": s.column_min_fill_ratio,
                                          # story 1.3 (revue P1) : le niveau de coupe du sommaire change summary.md
                                          "summary_max_level": s.summary_max_level}},
                          sort_keys=True, ensure_ascii=False)
@@ -445,8 +461,18 @@ def _ocr_error_category(exc: Exception) -> str:
 
 
 def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
-    """« 1.12 » seul sur sa ligne + « Contenu » sur la même ligne de base ⇒ une seule `Line` « 1.12 Contenu »."""
+    """« 1.12 » seul sur sa ligne + « Contenu » sur la même ligne de base ⇒ une seule `Line` « 1.12 Contenu ».
+
+    La fusion ne franchit **jamais** une gouttière : un numéro en bas d'une colonne et une ligne de
+    la colonne voisine partagent souvent une ligne de base, et les réunir fabriquait une ligne
+    pleine largeur factice — donc une bande parasite, un titre faux et un bloc à cheval sur deux
+    colonnes. Les frontières sont recalculées ici sur la géométrie d'**avant** fusion, la seule que
+    la fusion puisse consulter (`_column_boundaries` est défini plus bas ; Python le résout à
+    l'appel).
+    """
     s = get_settings()
+    written_height = (max(line.bbox[3] for line in lines) - min(line.bbox[1] for line in lines)) if lines else 0.0
+    boundaries = _column_boundaries(lines, written_height) if lines else []
     out: list[PageLine] = []
     i = 0
     while i < len(lines):
@@ -457,7 +483,8 @@ def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
             cur.text = m.group(1)
             nxt = lines[i + 1] if i + 1 < len(lines) else None
             if nxt and not nxt.bullet and abs(nxt.bbox[1] - cur.bbox[1]) <= s.baseline_tolerance_pt \
-                    and nxt.bbox[0] >= cur.bbox[2] - s.number_gap_tolerance_pt:
+                    and nxt.bbox[0] >= cur.bbox[2] - s.number_gap_tolerance_pt \
+                    and not any(cur.bbox[2] <= frontiere <= nxt.bbox[0] for frontiere in boundaries):
                 cur.text = f"{cur.text}{FLAGS['merge_number_sep']}{nxt.text}"
                 cur.bbox = [min(cur.bbox[0], nxt.bbox[0]), min(cur.bbox[1], nxt.bbox[1]),
                             max(cur.bbox[2], nxt.bbox[2]), max(cur.bbox[3], nxt.bbox[3])]
@@ -490,6 +517,44 @@ def _without_running_bands(page: PageText, lines: list[PageLine], band_texts: di
     return kept
 
 
+def _appariement_des_lignes_de_base(left: list[PageLine], right: list[PageLine]) -> float:
+    """Part **mutuelle** des lignes qui trouvent une partenaire sur leur ligne de base de l'autre côté.
+
+    Une rangée « libellé … montant » apparie ses deux côtés un pour un : chaque montant est posé sur
+    la ligne de base de son libellé. Deux colonnes de lecture, elles, dérivent l'une de l'autre dès
+    qu'un paragraphe s'achève. Le minimum des deux parts évite qu'un seul côté très peuplé dilue le
+    signal. La tolérance verticale est `baseline_tolerance_pt`, qui définit déjà « même ligne de
+    base » ailleurs dans le parseur : aucune notion nouvelle n'est introduite.
+    """
+    tolerance = get_settings().baseline_tolerance_pt
+
+    def part(cote: list[PageLine], autre: list[PageLine]) -> float:
+        apparies = sum(1 for line in cote
+                       if any(abs(other.bbox[1] - line.bbox[1]) <= tolerance for other in autre))
+        return apparies / len(cote) if cote else 0.0
+
+    return min(part(left, right), part(right, left))
+
+
+def _remplissage_minimal(lines: list[PageLine], left: list[PageLine], right: list[PageLine]) -> float:
+    """Part de sa largeur **disponible** qu'occupe le côté le moins rempli d'une gouttière.
+
+    La largeur disponible d'un côté va de la marge de texte de la page — mesurée sur *toutes* les
+    lignes de ce niveau, traversantes comprises — jusqu'au bord **opposé** de la gouttière. La
+    mesurer contre l'étendue des lignes du côté lui-même rendrait 1 par construction et ne
+    distinguerait rien. Une colonne de texte remplit sa largeur utile ; une colonne de montants
+    alignés à droite n'en occupe qu'une fraction, et c'est cette fraction qui la trahit.
+    """
+    marge_gauche = min(line.bbox[0] for line in lines)
+    marge_droite = max(line.bbox[2] for line in lines)
+    parts: list[float] = []
+    for cote, disponible in ((left, min(line.bbox[0] for line in right) - marge_gauche),
+                             (right, marge_droite - max(line.bbox[2] for line in left))):
+        occupe = max(line.bbox[2] for line in cote) - min(line.bbox[0] for line in cote)
+        parts.append(occupe / disponible if disponible > 0 else 1.0)
+    return min(parts)
+
+
 def _best_boundary(lines: list[PageLine], written_height: float) -> float | None:
     """Meilleure gouttière d'un ensemble de lignes, ou `None` — géométrie seule, aucun cas particulier.
 
@@ -498,6 +563,11 @@ def _best_boundary(lines: list[PageLine], written_height: float) -> float | None
     sont pleine largeur et n'invalident pas la gouttière. La gouttière est le blanc réellement mesuré
     entre les deux colonnes, `[max(x1 des gauches), min(x0 des droites)]` ; elle n'est retenue que si
     elle est assez large, si chaque côté porte assez de lignes et si chaque côté est assez haut.
+    Elle est écartée en dernier ressort par la conjonction de **deux** signaux, jamais par un seul :
+    les deux côtés appariés ligne de base à ligne de base **et** un côté qui ne remplit pas la
+    largeur dont il dispose — la signature d'une rangée « libellé … montant ». L'appariement seul ne
+    suffirait pas : une mise en page à deux colonnes partage très souvent la même grille de lignes
+    de base, et l'écarter pour cela annulerait la correction sur les documents mêmes qu'elle vise.
     Elle est intérieure par construction : elle a du texte des deux côtés, donc jamais une marge.
     """
     s = get_settings()
@@ -515,6 +585,9 @@ def _best_boundary(lines: list[PageLine], written_height: float) -> float | None
         minimum_span = s.column_min_span_ratio * written_height
         if any(max(line.bbox[3] for line in side) - min(line.bbox[1] for line in side) < minimum_span
                for side in (left, right)):
+            continue
+        if _appariement_des_lignes_de_base(left, right) > s.column_row_pairing_max_ratio \
+                and _remplissage_minimal(lines, left, right) < s.column_min_fill_ratio:
             continue
         # À partition égale, la gouttière la plus large gagne ; à largeur égale, la frontière la plus
         # à gauche — deux règles totales, donc un résultat indépendant de l'ordre d'itération.
@@ -557,15 +630,25 @@ def _assign_reading_order(pt: PageText) -> None:
         return
     for line in lines:
         line.colonne = layout.colonne(line.bbox)
+    # Les tables participent au bandage **comme les lignes** : une table qui traverse une gouttière
+    # est pleine largeur et ouvre donc une bande. Sans elle dans ce parcours, une table traversante
+    # gardait `colonne=0` sans jamais ouvrir de bande, et `0 < 1` dans la clé de tri la faisait
+    # remonter en tête de sa bande — devant tout le texte des colonnes qu'elle suit pourtant à l'œil.
+    items: list[tuple[float, float, int, PageLine | None]] = [
+        (line.bbox[1], line.bbox[0], line.colonne, line) for line in lines
+    ]
+    items += [(table.bbox[1], table.bbox[0], layout.colonne(table.bbox), None) for table in pt.tables]
+    items.sort(key=lambda item: (item[0], item[1]))
     band = 0
     previous_full = True  # un bandeau de tête n'ouvre pas de bande : il est déjà dans la première
     band_starts: list[tuple[float, int]] = []
-    for line in sorted(lines, key=lambda l: (l.bbox[1], l.bbox[0])):
-        full = line.colonne == 0
+    for y0, _x0, colonne, line in items:
+        full = colonne == 0
         if full and not previous_full:
             band += 1
-            band_starts.append((line.bbox[1], band))
-        line.bande = band
+            band_starts.append((y0, band))
+        if line is not None:
+            line.bande = band
         previous_full = full
     layout.band_starts = band_starts
     pt.layout = layout
@@ -811,17 +894,31 @@ def _is_heading(line: PageLine, nxt: PageLine | None) -> bool:
     return nxt is None or nxt.number is not None or nxt.bullet or nxt.text[:1].isupper()
 
 
-def _segment_page(pt: PageText) -> list[tuple[str, list[PageLine]]]:
-    """Découpe une page en (kind, lignes) : heading / para / list, dans l'ordre de lecture."""
+def _noeud_de_ligne(line: PageLine, node_of_uid: dict[str, str]) -> str | None:
+    """Nœud proposé qui couvre cette ligne, s'il y en a un."""
+    return next((node_of_uid[uid] for uid in line.source_uids if uid in node_of_uid), None)
+
+
+def _segment_page(pt: PageText, node_of_uid: dict[str, str] | None = None,
+                  ) -> list[tuple[str, list[PageLine]]]:
+    """Découpe une page en (kind, lignes) : heading / para / list, dans l'ordre de lecture.
+
+    Avec `node_of_uid`, un groupe ne peut pas franchir une frontière de nœud prouvé : une section
+    dont le titre suit son voisin à interligne serré serait sinon collée dans le même paragraphe, le
+    bloc entier partirait sous le premier nœud, et le second nœud — pourtant accepté et annoncé par
+    le rapport — n'existerait dans aucun arbre.
+    """
     groups: list[tuple[str, list[PageLine]]] = []
     s = get_settings()
     lines = pt.lines
+    noeuds = node_of_uid or {}
     for i, line in enumerate(lines):
         prev = lines[i - 1] if i else None
         nxt = lines[i + 1] if i + 1 < len(lines) else None
-        # Story 4.2c : aucune continuation ne franchit une colonne ou une bande. Sur une page
-        # mono-colonne, `contigu` vaut toujours « même colonne, même bande » : rien ne change.
-        contigu = prev is not None and (prev.colonne, prev.bande) == (line.colonne, line.bande)
+        # Story 4.2c : aucune continuation ne franchit une colonne, une bande ou un nœud prouvé. Sur
+        # une page mono-colonne sans proposition, `contigu` vaut toujours vrai : rien ne change.
+        contigu = prev is not None and (prev.colonne, prev.bande) == (line.colonne, line.bande) \
+            and (not noeuds or _noeud_de_ligne(prev, noeuds) == _noeud_de_ligne(line, noeuds))
         if line.number is not None:
             if _is_heading(line, nxt):
                 groups.append(("heading", [line]))
@@ -879,6 +976,38 @@ def _segment_page(pt: PageText) -> list[tuple[str, list[PageLine]]]:
     return [(kind, lines) for _, _, _, _, kind, lines in ordered]
 
 
+def _noeuds_des_groupes(groups: list[tuple[str, list[PageLine]]], node_of_uid: dict[str, str],
+                        ) -> list[str | None]:
+    """Nœud de chaque groupe d'une page, **déterminé par la page seule**.
+
+    Un groupe couvert prend le nœud de sa première ligne couverte. Un groupe qui ne porte aucune
+    ligne du registre (une table : ses cellules ne sont pas des lignes source) ou que la marge de
+    couverture a laissé hors de tout intervalle prend le nœud du groupe couvert qui le précède sur
+    la page, à défaut celui qui le suit. Rien n'est donc hérité de l'état courant du constructeur —
+    un même groupe se rattache au même nœud quel que soit ce qui a été bâti avant lui.
+    """
+    directs = [_noeud_de_groupe(lines, node_of_uid) for _kind, lines in groups]
+    out: list[str | None] = list(directs)
+    precedent: str | None = None
+    for index, node_id in enumerate(directs):
+        if node_id is not None:
+            precedent = node_id
+        else:
+            out[index] = precedent
+    suivant: str | None = None
+    for index in range(len(directs) - 1, -1, -1):
+        if directs[index] is not None:
+            suivant = directs[index]
+        elif out[index] is None:
+            out[index] = suivant
+    return out
+
+
+def _noeud_de_groupe(lines: list[PageLine], node_of_uid: dict[str, str]) -> str | None:
+    return next((node_of_uid[uid] for line in lines for uid in line.source_uids
+                 if uid in node_of_uid), None)
+
+
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
                    doc_id: str = DOC_ID, title: str = TITLE, source_url: str | None = None,
                    structure: StructureProposee | None = None) -> tuple[Document, dict[str, Any]]:
@@ -903,6 +1032,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     b = _Builder(doc_id, title, plan=plan)
     toc_node: Node | None = None
     last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
+    precedent_noeud: str | None = None  # nœud proposé qui le portait, pour ne pas continuer à travers
     article_seen = False
     document_has_articles = any(line.number is not None for page in pages for line in page.lines)
     document_has_toc = any(page.is_toc for page in pages)
@@ -931,7 +1061,33 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         flush()
 
     for pt in pages:
-        groups = _segment_page(pt)
+        groups = _segment_page(pt, node_of_uid)
+        if structure is not None:
+            # Une proposition vérifiée gouverne **tout** le rattachement. Les branches TdM et
+            # « préliminaire » sont écrites pour l'heuristique numérique : elles rattachent à la
+            # racine ou au nœud `:tdm` des lignes que la proposition place ailleurs, et faisaient
+            # disparaître des nœuds pourtant acceptés — jusqu'à trouer le chemin positionnel servi.
+            page_last = None
+            for index, (node_id, (kind, lines)) in enumerate(
+                    zip(_noeuds_des_groupes(groups, node_of_uid), groups)):
+                b.current = b.root if node_id is None else b.node_propose(node_id)
+                continues = None
+                # Scission de page (AD-2), inchangée, mais jamais à travers un nœud : deux sections
+                # différentes ne se continuent pas l'une l'autre.
+                if index == 0 and kind in ("para", "list") and last_text_block is not None \
+                        and last_text_block.kind == kind and node_id == precedent_noeud \
+                        and not last_text_block.text.rstrip().endswith(_TERMINAL):
+                    continues = last_text_block.block_id
+                blk = b.add_block(pt.page, lines, kind, continues=continues,
+                                  source_field="ocr" if pt.ocr_succeeded else None)
+                if kind in ("para", "list"):
+                    page_last = blk
+                    precedent_noeud = node_id
+            if page_last is not None:
+                last_text_block = page_last
+            elif groups:
+                last_text_block = None
+            continue
         if pt.is_toc:
             if toc_node is None:
                 toc_node = Node(node_id=f"{doc_id}:tdm", level=1, title="Table des matières")
@@ -973,15 +1129,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                     and last_text_block.kind == kind and not last_text_block.text.rstrip().endswith(_TERMINAL):
                 continues = last_text_block.block_id
             first = False
-            if structure is not None:
-                # Le modèle a proposé, le code a prouvé : la numérotation ne décide plus rien, et
-                # aucun titre ne vient d'ailleurs que du registre. Un groupe hors de tout intervalle
-                # (une table, typiquement) reste sous le nœud courant plutôt que de se réattacher.
-                target = next((node_of_uid[uid] for line in lines for uid in line.source_uids
-                               if uid in node_of_uid), None)
-                if target is not None:
-                    b.current = b.node_propose(target)
-            elif lines[0].number is not None:
+            if lines[0].number is not None:
                 if future_numbers and future_numbers[0] == lines[0].number:
                     future_numbers.pop(0)
                 elif lines[0].number in future_numbers:
@@ -1000,17 +1148,25 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                               source_field="ocr" if pt.ocr_succeeded else None)
             if kind in ("para", "list"):
                 page_last = blk
-            if structure is None and lines[0].number is not None and kind == "para":
+            if lines[0].number is not None and kind == "para":
                 b.current.title = lines[0].text[:80]
         last_text_block = page_last
     anomalies = anomalies_registre(pages, b.block_uids)
     if anomalies:
         raise ValueError("registre de lignes source incohérent : " + " ; ".join(anomalies[:20]))
+    # Réconciliation : un nœud prouvé que l'arbre bâti ne porte pas est un refus, jamais un `info`.
+    # Sans elle, `run()` pouvait publier « proposition vérifiée : N nœud(s) » sur un arbre qui n'en
+    # contient qu'une partie — exactement le « dégradé en silence » qu'AD-16 nomme.
+    manquants = sorted(node_id for node_id in plan if node_id not in b.nodes)
+    if manquants:
+        raise StructureRefusee(
+            "noeud_non_construit",
+            f"{len(manquants)} nœud(s) prouvé(s) absent(s) de l'arbre bâti : {', '.join(manquants[:20])}")
     toc_gaps = _apply_toc(b, toc)
     nodes = [b.nodes[nid] for nid in b.order]
     doc = Document(doc_id=doc_id, kind="contrat", title=title, edition=edition, lang="fr", nodes=nodes,
                    blocks=b.blocks, source_url=source_url, source_hash=source_hash,
-                   ingest_fingerprint=ingest_fingerprint())
+                   ingest_fingerprint=ingest_fingerprint(structure))
     printed_toc = _printed_toc_entries(pages)
     meta = {"numbers": b.numbers, "duplicates": b.duplicates, "continues": b.continues, "toc": toc,
             "toc_gaps": toc_gaps, "printed_toc": printed_toc,
@@ -1107,16 +1263,25 @@ def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
     """Signets du PDF (`get_toc()` : [niveau, titre, page]) : un signet « 1.12 Contenu » donne son titre au nœud
     `a1.12` s'il n'en a pas ; un signet numéroté sans nœud correspondant est un écart (alerte `tdm_pdf_ecart`)."""
     gaps: list[str] = []
+    # Index des numéros réellement servis : `{doc_id}:a3.1` sur le chemin heuristique, le numéro lu
+    # dans le titre d'un nœud positionnel `{doc_id}:s1.2` sur le chemin proposé (story 4.2c).
+    par_numero: dict[str, Node] = {}
+    for node_id, node in b.nodes.items():
+        numero = numero_de_noeud(b.doc_id, node_id, node.title)
+        if numero is not None and node_id != b.doc_id:
+            par_numero.setdefault(numero, node)
     for item in toc:
         if not isinstance(item, (list, tuple)) or len(item) < 3:
             continue
         m = _TOC_NUMBER_RE.match(str(item[1]).strip())
         if not m:
             continue
-        node = b.nodes.get(f"{b.doc_id}:a{m.group(1)}")
+        node = par_numero.get(m.group(1))
         if node is None:
             gaps.append(f"{m.group(1)} (p. {item[2]})")
         elif not node.title:
+            # Un nœud d'une proposition vérifiée a toujours son titre — relu au registre. Le signet
+            # ne complète donc que les nœuds numérotés que l'heuristique a laissés sans intitulé.
             node.title = f"{m.group(1)} {m.group(2)}".strip()
     return gaps
 
@@ -1215,10 +1380,13 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         # chaque ingestion et son refus met le document en quarantaine.
         structure_path = data_dir / "structure.json"
         structure = charger(structure_path) if structure_path.is_file() else None
+        # La proposition appliquée entre dans l'empreinte : deux ingestions du même PDF qui rendent
+        # des `node_id` différents ne peuvent pas porter la même (AD-2, lu par le loader).
+        fingerprint = ingest_fingerprint(structure)
         doc, meta = build_document(pages, edition=resolved_edition, source_hash=source_hash, toc=toc, doc_id=doc_id,
                                    title=document_title, source_url=source_url, structure=structure)
         summary = build_summary(doc)
-        detail = ("aucune proposition : arbre par numérotation" if structure is None else
+        detail = (None if structure is None else
                   f"proposition vérifiée : {len(structure.noeuds)} nœud(s) sur lignes source")
         report = build_pdf_report(doc, previous, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
                                   continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],

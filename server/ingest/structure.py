@@ -23,6 +23,7 @@ rendrait l'arbre instable. Ce module écrit `data/{doc_id}/structure.json` une f
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
@@ -44,9 +45,10 @@ MODEL = TIERS[TIER]
 STRUCTURE_RULES_VERSION = "4.2c-1"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
-MOTIFS = ("proposition_illisible", "document_different", "ligne_inconnue", "titre_duplique",
-          "titre_ambigu", "cycle", "profondeur_excessive", "ordre_impossible", "intervalles_croises",
-          "couverture_insuffisante")
+MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
+          "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive", "ordre_impossible",
+          "intervalles_croises", "parent_non_contenant", "couverture_insuffisante",
+          "noeud_non_construit")
 
 
 class StrictModel(BaseModel):
@@ -70,7 +72,12 @@ class StructureProposee(StrictModel):
 
 @dataclass(frozen=True)
 class Entree:
-    """Ce que le modèle voit d'une ligne : sa position et son texte, en lecture seule."""
+    """Ce que le modèle voit d'une ligne : sa position et son texte, en lecture seule.
+
+    `texte` est le texte **du registre**, immuable. `texte_porte` est celui de la ligne de travail
+    qui porte cet uid : les deux ne diffèrent que lorsque `_merge_number_lines` a réuni un numéro et
+    son intitulé, et c'est alors `texte_porte` qui dit ce qu'un lecteur voit — donc le titre servi.
+    """
 
     uid: str
     page: int
@@ -78,6 +85,11 @@ class Entree:
     ordre: int  # rang dans l'ordre de lecture du document entier, 1-indexé
     bbox: tuple[float, float, float, float]
     texte: str
+    texte_porte: str = ""
+
+    @property
+    def titre(self) -> str:
+        return self.texte_porte or self.texte
 
 
 @dataclass(frozen=True)
@@ -108,6 +120,20 @@ class StructureRefusee(ValueError):
         self.detail = detail
 
 
+def empreinte_proposition(proposition: StructureProposee | None) -> str:
+    """Digest de la proposition **effectivement appliquée**, ou le marqueur de son absence.
+
+    AD-2 : « mêmes `source_hash` et `ingest_fingerprint` ⇒ mêmes IDs », et le loader n'a que ces deux
+    valeurs. Sans ce digest dans l'empreinte, le même PDF rendait `{doc}:a1…` ou `{doc}:s1…` selon la
+    présence d'un `structure.json` sans qu'aucune des deux valeurs ne bouge.
+    """
+    if proposition is None:
+        return "absente"
+    encoded = json.dumps(proposition.model_dump(), ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
     """Registre adressable : les lignes source qu'un bloc peut porter, dans l'ordre de lecture.
 
@@ -126,14 +152,20 @@ def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
                     continue
                 rang += 1
                 out[uid] = Entree(uid=uid, page=source.page, colonne=line.colonne, ordre=rang,
-                                  bbox=source.bbox, texte=source.text)
+                                  bbox=source.bbox, texte=source.text, texte_porte=line.text)
     return out
 
 
 def demande(registre: dict[str, Entree], settings: Settings) -> str:
-    """Charge utile : uid, page, colonne, ordre, bbox et texte. Rien d'autre, aucune clé de sortie."""
+    """Charge utile : uid, page, colonne, ordre, bbox et texte. Rien d'autre, aucune clé de sortie.
+
+    Le `texte` publié est celui de la ligne **portée** — c'est-à-dire ce qu'un lecteur voit à cette
+    position, numéro d'article fusionné compris. Les deux uid d'une ligne fusionnée montrent donc la
+    même chaîne : ils désignent la même ligne visuelle, et désigner l'un ou l'autre comme titre rend
+    le même intitulé.
+    """
     lignes = [{"uid": entree.uid, "page": entree.page, "colonne": entree.colonne,
-               "ordre": entree.ordre, "bbox": list(entree.bbox), "texte": entree.texte}
+               "ordre": entree.ordre, "bbox": list(entree.bbox), "texte": entree.titre}
               for entree in sorted(registre.values(), key=lambda e: e.ordre)]
     payload = json.dumps({"lignes": lignes}, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > settings.structure_max_input_chars:
@@ -226,6 +258,10 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
     """
     if proposition.doc_id != doc_id:
         return _refus("document_different", f"proposition pour {proposition.doc_id!r}, document {doc_id!r}")
+    if not proposition.noeuds:
+        # Une proposition sans nœud passerait la couverture dès que `structure_min_coverage` vaut 0,
+        # servirait un arbre plat et désarmerait l'heuristique en annonçant « proposition vérifiée ».
+        return _refus("proposition_vide", "aucun nœud proposé : rien n'est structuré ni prouvé")
     noeuds = proposition.noeuds
     titres: dict[str, NoeudPropose] = {}
     for noeud in noeuds:
@@ -295,6 +331,21 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
             courant = titres[courant].parent_line_uid
         return False
 
+    # Un enfant **doit** tenir dans l'intervalle de son parent déclaré. Le contrôle de croisement
+    # ci-dessous ne peut pas y suppléer : il s'arrête au premier intervalle disjoint, si bien que
+    # deux nœuds disjoints ne sont jamais confrontés — et qu'une section « 5 à 8 » pouvait se
+    # déclarer sous-section d'une section « 1 à 4 » sans qu'aucun invariant ne l'en empêche.
+    for uid, noeud in titres.items():
+        parent = noeud.parent_line_uid
+        if parent is None:
+            continue
+        a_enfant, b_enfant = bornes[uid]
+        a_parent, b_parent = bornes[parent]
+        if not (a_parent <= a_enfant and b_enfant <= b_parent) or (a_parent, b_parent) == (a_enfant, b_enfant):
+            return _refus("parent_non_contenant",
+                          f"{uid!r} [{a_enfant},{b_enfant}] se déclare sous {parent!r} "
+                          f"[{a_parent},{b_parent}] sans y être strictement contenu")
+
     ordonnes = sorted(titres, key=lambda uid: (bornes[uid][0], bornes[uid][1], uid))
     for index, gauche in enumerate(ordonnes):
         a1, b1 = bornes[gauche]
@@ -342,7 +393,9 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
             node_ids[uid] = node_id
             noeud = titres[uid]
             plan[node_id] = NoeudVerifie(
-                node_id=node_id, level=len(position), title=registre[uid].texte,
+                # Le titre est celui de la ligne **portée** : un intitulé que l'extracteur scinde en
+                # « 1 » puis « Objet … » est servi entier, comme sur le chemin heuristique.
+                node_id=node_id, level=len(position), title=registre[uid].titre,
                 premiere=registre[noeud.premiere_line_uid].ordre,
                 derniere=registre[noeud.derniere_line_uid].ordre,
                 parent_id=None if parent_uid is None else node_ids[parent_uid],
@@ -361,11 +414,17 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
 
 
 def charger(path: Path) -> StructureProposee:
-    """Lit `structure.json`. Un fichier hors schéma est un refus, jamais une trace Python."""
+    """Lit `structure.json`. Un fichier illisible ou hors schéma est un refus **nommé**.
+
+    `OSError` compte au même titre que le hors-schéma : un fichier aux droits refusés ou remplacé par
+    un répertoire donnait sinon une quarantaine sous motif générique, alors que le check promet un
+    motif du vocabulaire fermé.
+    """
     try:
         return StructureProposee.model_validate_json(path.read_bytes())
-    except (ValidationError, ValueError) as exc:
-        raise StructureRefusee("proposition_illisible", f"{path.name} hors schéma : {exc}"[:1000]) from exc
+    except (ValidationError, ValueError, OSError, UnicodeDecodeError) as exc:
+        raise StructureRefusee("proposition_illisible",
+                               f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc
 
 
 def _texte(message: Any, settings: Settings) -> tuple[str, float]:
@@ -385,7 +444,12 @@ def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
              settings: Settings) -> tuple[StructureProposee, float]:
     """Un seul appel structuré du tier `ingest`, client **injecté** : ce module n'en construit pas."""
     params = requete(registre, doc_id, settings)
-    message = client.messages.create(**params)
+    try:
+        message = client.messages.create(**params)
+    except Exception as exc:  # noqa: BLE001 - toute panne fournisseur est un refus, pas une trace
+        # Réseau coupé, 429, 5xx, authentification : l'appelant reçoit un refus contrôlé et la
+        # promesse « rien n'a été écrit », jamais un traceback brut sorti du SDK.
+        raise ValueError(f"appel refusé ({type(exc).__name__}); rien n'a été écrit") from exc
     raw, cost = _texte(message, settings)
     return parse_proposition(raw, registre, doc_id), cost
 
