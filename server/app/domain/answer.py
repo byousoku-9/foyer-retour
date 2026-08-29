@@ -266,22 +266,31 @@ class LecturePartielle(DomainModel):
 
     D'où un type à part, qui ne dit **que** ce qui a été lu :
 
-    - `nodes_read` — les nœuds distincts d'où viennent les blocs transmis (jamais le nombre
-      d'ouvertures tentées : une ouverture refusée par le quota n'a rien fait lire) ;
+    - `nodes_read` — les nœuds distincts d'où viennent les blocs transmis, **au moins un** (jamais le
+      nombre d'ouvertures tentées : une ouverture refusée par le quota n'a rien fait lire) ;
     - `blocks_read` — les blocs effectivement transmis au modèle, **au moins un** ;
     - `documents` — le ou les documents lus, comme `AbsenceProof.documents`.
 
-    `blocks_read ≥ 1` n'est pas une précaution de forme : zéro bloc transmis est exactement le cas
-    qu'AD-1/NFR2 gardent en échec terminal (`BudgetExceeded`, « le budget de retrieval n'a laissé
-    passer aucun bloc »), avant même *rédiger*. Une lecture partielle qui annoncerait n'avoir rien lu
-    n'aurait rien à chiffrer et se confondrait avec cette panne-là.
+    Les deux planchers ne sont pas des précautions de forme, et ils se lisent ensemble.
+
+    `blocks_read ≥ 1` : zéro bloc transmis est exactement le cas qu'AD-1/NFR2 gardent en échec
+    terminal (`BudgetExceeded`, « le budget de retrieval n'a laissé passer aucun bloc »), avant même
+    *rédiger*. Une lecture partielle qui annoncerait n'avoir rien lu n'aurait rien à chiffrer et se
+    confondrait avec cette panne-là.
+
+    `nodes_read ≥ 1` en découle : le compteur est défini comme les nœuds **des blocs transmis**,
+    résolus par `Document.node_of`, et AD-2 rend cette résolution **totale** — « chaque bloc rattaché
+    à exactement un nœud », vérifié par les invariants d'arbre au chargement. `blocks_read ≥ 1 ⟹
+    nodes_read ≥ 1` est donc un théorème des deux producteurs, que le type laissait contourner :
+    publier zéro section pour au moins un passage n'est pas un cas rare, c'est un état impossible, et
+    l'écran y lirait deux chiffres qui se contredisent.
 
     Ce n'est délibérément **pas** un cinquième `AbsenceKind` : `AbsenceKind` reste fermé à ses quatre
     valeurs, et réutiliser `AbsenceProof` en y ajoutant un kind rouvrirait le défaut par la porte du
     vocabulaire — l'objet continuerait de porter les champs d'un balayage exhaustif.
     """
 
-    nodes_read: int = Field(ge=0)
+    nodes_read: int = Field(ge=1)
     blocks_read: int = Field(ge=1)
     documents: list[str] = Field(default_factory=list)
 
@@ -344,12 +353,19 @@ class Answer(DomainModel):
         if not self.found and len(porteurs) != 1:
             raise ValueError("found=False exige exactement un porteur : une preuve d'absence (reason) "
                              "ou une lecture partielle (lecture_partielle), jamais les deux, jamais aucun")
-        if self.found and self.lecture_partielle is not None:
-            # Une réponse retenue n'est pas une lecture restée sans conclusion : si la lecture a été
-            # bornée **et** qu'une affirmation a survécu, la borne se dit dans `unknown[]` par la
-            # lacune `lecture_bornee`, et `complete=False` la publie. Ce porteur-ci n'a rien à y faire.
-            raise ValueError("found=True n'admet pas de lecture partielle (la borne se dit alors "
-                             "dans unknown[] et complete=False)")
+        if self.found and porteurs:
+            # L'autre moitié de la règle, et elle porte sur **les deux** : « `found=True` n'en porte
+            # aucun ». Une réponse retenue n'est ni une absence prouvée ni une lecture restée sans
+            # conclusion — si la lecture a été bornée et qu'une affirmation a survécu, la borne se
+            # dit dans `unknown[]` par la lacune `lecture_bornee`, que `complete=False` publie.
+            #
+            # Ne fermer que `lecture_partielle` laissait passer un `found=True` muni d'une
+            # `AbsenceProof` : *restituer* le refusait côté producteur, mais c'est **ce validateur**
+            # que les deux lecteurs stricts rejouent, et une page pouvait donc peindre en même temps
+            # une réponse « sûre » et la preuve chiffrée d'une absence.
+            raise ValueError("found=True n'admet aucun porteur d'absence : ni preuve d'absence "
+                             "(reason), ni lecture partielle (lecture_partielle) — une borne se dit "
+                             "dans unknown[] avec complete=False")
         if self.lecture_partielle is not None and not self.unknown:
             # Symétrique de l'invariant « partiel dit ce qui lui manque » : une réponse qui chiffre
             # ce qu'elle a lu doit dire pourquoi cela n'a pas suffi — au minimum la lacune

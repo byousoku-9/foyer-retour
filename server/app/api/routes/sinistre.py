@@ -173,6 +173,12 @@ async def suivi(request: Request, demande: SinistreFollowupRequest) -> SinistreC
     request.state.log_fields.update(
         intent="suivi", found=answer.found,
         verdict=answer.verdict.value if answer.verdict is not None else None,
+        # Story 4.2f : le **même** vocabulaire que les deux routes initiales. Un tour de suivi
+        # reconduit le porteur de l'état signé — il ne relit rien —, donc la cause typée vaut encore
+        # à chaque tour. L'omettre ici faisait disparaître `lecture_tronquee` de l'analytique au
+        # simple changement de route, alors qu'AD-10 fait de ces champs le support de l'analyse des
+        # échecs : le fil restait ouvert, la cause devenait invisible.
+        **champs_de_journal(answer),
         cost_eur=0.0, conversation_turn=updated.turn)
     return SinistreConversationResponse(
         answer=answer, sources=sources, via=VIA, trace=trace,
