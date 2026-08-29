@@ -1514,8 +1514,13 @@ window.CHAT = (function () {
     exigerObjet(lp, nom);
     if (lp.nodes_read === undefined) throw illisible(nom + ".nodes_read");
     if (lp.blocks_read === undefined) throw illisible(nom + ".blocks_read");
-    entierDefaut(lp.nodes_read, nom + ".nodes_read");
-    entierDefaut(lp.blocks_read, nom + ".blocks_read");
+    // Les deux compteurs ont un **plancher a 1**, comme le domaine : zero passage transmis est
+    // l'erreur terminale d'AD-1/NFR2 (le budget n'a rien laisse passer), et zero section pour au
+    // moins un passage est un etat impossible — AD-2 rattache chaque bloc a exactement un nœud.
+    // Les accepter peignait « 0 section lue, N passages transmis » : deux chiffres qui se
+    // contredisent, sous le porteur qui n'existe que pour chiffrer.
+    if (entierDefaut(lp.nodes_read, nom + ".nodes_read") < 1) throw illisible(nom + ".nodes_read");
+    if (entierDefaut(lp.blocks_read, nom + ".blocks_read") < 1) throw illisible(nom + ".blocks_read");
     listeDeChaines(lp.documents, nom + ".documents");
   }
 
@@ -1619,7 +1624,11 @@ window.CHAT = (function () {
     if (estObjet(a.reason) && estObjet(a.lecture_partielle)) {
       throw illisible("answer.lecture_partielle");
     }
+    // Et sur `found=true`, **aucun** des deux : ni preuve d'absence, ni lecture partielle. Ne
+    // fermer que le second laissait peindre en meme temps une reponse « sûre » et la preuve
+    // chiffree d'une absence, que `preuveAbsence()` rend juste sous les segments.
     if (a.found && estObjet(a.lecture_partielle)) throw illisible("answer.lecture_partielle");
+    if (a.found && estObjet(a.reason)) throw illisible("answer.reason");
     // « Une lecture partielle dit ce qui lui manque » : le domaine l'exige, donc aucune route ne
     // peut servir ce corps. Peindre un compteur de lecture sans la moindre réserve donnerait à lire
     // « je n'ai pas tout lu » sans jamais dire ce qui manque — la moitié muette de la réponse.
