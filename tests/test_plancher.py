@@ -17,13 +17,40 @@ from server.app.domain.errors import BudgetExceeded
 from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.llm.client import LlmClient
 from server.app.domain.trace import Usage
-from server.evals.plancher import (Configuration, PlancherInvalide, charger_plancher,
-                                   classer_configurations, PLANCHER_PATH)
+from server.evals.plancher import (ClassementInvalide, Configuration, PlancherInvalide,
+                                   charger_plancher, classer_configurations, PLANCHER_PATH)
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 
 
 def _settings(**kw: object) -> Settings:
     return Settings(_env_file=None, **kw)  # type: ignore[arg-type]
+
+
+# La révision candidate commune des tables de classement de ce fichier. Neutre, synthétique, et
+# **portée par toutes les configurations** : depuis la revue B1 du cycle de récupération, un
+# classement n'accepte que des configurations dont l'identité est complète et cohérente.
+REVISION_CLASSEE = "a" * 40
+
+
+def _config(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
+            candidate_revision: str | None = REVISION_CLASSEE,
+            run_digest: str | None = None,
+            report_digest: str | None = None) -> Configuration:
+    """Une configuration candidate complète — l'identité est dérivée du nom, jamais absente.
+
+    Dériver `run_digest` et `report_digest` du nom garde les tables lisibles tout en donnant à
+    chaque configuration une identité **distincte** et bien formée : deux configurations d'un même
+    classement viennent de deux runs différents.
+    """
+    import hashlib
+
+    empreinte = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    return Configuration(
+        name=name, admissible=admissible, cost_eur=cost_eur, latency_ms=latency_ms,
+        candidate_revision=candidate_revision,
+        run_digest=run_digest if run_digest is not None else empreinte,
+        report_digest=(report_digest if report_digest is not None
+                       else hashlib.sha256(empreinte.encode("utf-8")).hexdigest()))
 
 
 # --- chargement et digest --------------------------------------------------------------------------
@@ -129,10 +156,10 @@ def test_un_plancher_illisible_est_un_refus(tmp_path: Path) -> None:
 
 def test_le_classement_est_admissible_puis_moins_cher_puis_plus_rapide() -> None:
     configurations = [
-        Configuration(name="chere-rapide", admissible=True, cost_eur=0.09, latency_ms=100),
-        Configuration(name="inadmissible-gratuite", admissible=False, cost_eur=0.0, latency_ms=1),
-        Configuration(name="economique-lente", admissible=True, cost_eur=0.03, latency_ms=900),
-        Configuration(name="economique-rapide", admissible=True, cost_eur=0.03, latency_ms=200),
+        _config("chere-rapide", admissible=True, cost_eur=0.09, latency_ms=100),
+        _config("inadmissible-gratuite", admissible=False, cost_eur=0.0, latency_ms=1),
+        _config("economique-lente", admissible=True, cost_eur=0.03, latency_ms=900),
+        _config("economique-rapide", admissible=True, cost_eur=0.03, latency_ms=200),
     ]
     classement = [c.name for c in classer_configurations(configurations)]
     assert classement == ["economique-rapide", "economique-lente", "chere-rapide",
@@ -142,7 +169,7 @@ def test_le_classement_est_admissible_puis_moins_cher_puis_plus_rapide() -> None
 def test_aucun_admissible_est_un_rouge_publie() -> None:
     """Boundaries 4.2b : `aucun_admissible` est un résultat rouge, jamais une question humaine."""
     classement = classer_configurations([
-        Configuration(name="seule", admissible=False, cost_eur=0.01, latency_ms=10)])
+        _config("seule", admissible=False, cost_eur=0.01, latency_ms=10)])
     assert not any(c.admissible for c in classement)
 
 
@@ -272,12 +299,12 @@ def test_un_gate_full_preprotocole_est_mis_en_quarantaine() -> None:
 # pour que **chaque** ordre naïf se trompe : la moins chère et la plus rapide du lot sont toutes deux
 # inadmissibles, et l'admissible la moins chère est aussi la plus lente des admissibles.
 TABLE_MESUREE = [
-    Configuration(name="a-sous-plancher-gratuite", admissible=False, cost_eur=0.000, latency_ms=1),
-    Configuration(name="b-admissible-lente", admissible=True, cost_eur=0.010, latency_ms=9_000),
-    Configuration(name="c-sous-plancher-instantanee", admissible=False, cost_eur=0.001, latency_ms=2),
-    Configuration(name="d-admissible-rapide", admissible=True, cost_eur=0.050, latency_ms=100),
-    Configuration(name="e-sous-plancher-chere", admissible=False, cost_eur=9.999, latency_ms=99_000),
-    Configuration(name="f-admissible-egale", admissible=True, cost_eur=0.010, latency_ms=8_000),
+    _config("a-sous-plancher-gratuite", admissible=False, cost_eur=0.000, latency_ms=1),
+    _config("b-admissible-lente", admissible=True, cost_eur=0.010, latency_ms=9_000),
+    _config("c-sous-plancher-instantanee", admissible=False, cost_eur=0.001, latency_ms=2),
+    _config("d-admissible-rapide", admissible=True, cost_eur=0.050, latency_ms=100),
+    _config("e-sous-plancher-chere", admissible=False, cost_eur=9.999, latency_ms=99_000),
+    _config("f-admissible-egale", admissible=True, cost_eur=0.010, latency_ms=8_000),
 ]
 
 
@@ -855,3 +882,119 @@ def test_un_rapport_sans_unexecuted_cases_ne_contribue_pas_a_une_promotion(tmp_p
         _configuration_depuis_rapport({"name": "c", "report": chemin.name}, base=tmp_path,
                                       plancher_digest=courant, image_courante=_image_candidate(),
                                       candidate_revision=REVISION_A_candidate_revision)
+
+
+# --- B1, cycle de récupération : la voie **bibliothèque** du classement ----------------------------
+#
+# Les tours précédents avaient fermé la voie CLI — `--candidate-revision` requis,
+# `_configuration_depuis_rapport` opposant l'identité du rapport. Le recheck a montré que la voie
+# bibliothèque restait ouverte : n'importe quel appelant pouvait construire une `Configuration`
+# `admissible=True` sans révision, sans `run_digest` ni `report_digest`, et `classer_configurations`
+# la rendait **en tête**. Une décision de promotion anonyme reste une décision de promotion.
+#
+# Les contre-exemples ci-dessous sont rouges sur `b9db3c1` (le classement y rendait sagement son tri)
+# et verts ici. Ils ne passent par aucun paramètre : il n'y a pas de voie opt-in à désarmer.
+
+def _sans_identite(name: str = "anonyme", *, admissible: bool = True) -> Configuration:
+    """Une configuration **sans identité**, construite en contournant le modèle.
+
+    `model_construct` est la voie bibliothèque exacte que le recheck décrit : elle saute la
+    validation pydantic, comme le ferait n'importe quel code qui assemblerait l'objet autrement.
+    C'est donc bien le **classement** — et non le seul constructeur — qui doit refuser.
+    """
+    return Configuration.model_construct(
+        name=name, admissible=admissible, cost_eur=0.0, latency_ms=0,
+        candidate_revision=None, run_digest=None, report_digest=None)
+
+
+def test_une_configuration_admissible_sans_identite_est_refusee_par_le_modele() -> None:
+    """B1 : `Configuration` rend **impossible** de porter un verdict d'admissibilité anonyme."""
+    for absent in ("candidate_revision", "run_digest", "report_digest"):
+        champs = {"candidate_revision": REVISION_CLASSEE, "run_digest": "b" * 64,
+                  "report_digest": "c" * 64}
+        champs[absent] = None  # type: ignore[assignment]
+        with pytest.raises(ValueError, match=absent):
+            Configuration(name="x", admissible=True, cost_eur=0.0, latency_ms=0, **champs)
+    # Une identité **mal formée** ferme, admissible ou non : ce n'est pas une empreinte.
+    for champ, mauvaise in (("candidate_revision", "a" * 39), ("candidate_revision", "z" * 40),
+                            ("run_digest", "b" * 63), ("report_digest", "Z" * 64)):
+        champs = {"candidate_revision": REVISION_CLASSEE, "run_digest": "b" * 64,
+                  "report_digest": "c" * 64}
+        champs[champ] = mauvaise
+        with pytest.raises(ValueError, match=champ):
+            Configuration(name="x", admissible=False, cost_eur=0.0, latency_ms=0, **champs)
+    # Le nominal se construit, et ne se laisse plus dépouiller ensuite (`frozen`).
+    nominale = _config("x", admissible=True, cost_eur=0.0, latency_ms=0)
+    with pytest.raises(ValueError):
+        nominale.candidate_revision = None  # type: ignore[misc]
+
+
+def test_le_classement_refuse_une_configuration_sans_identite() -> None:
+    """B1, contre-exemple du recheck : `classer_configurations` ne classe pas un anonyme.
+
+    Le refus est **une exception nommée**, dite à l'appelant — jamais un classement dégradé, jamais
+    une tête par défaut. Et il ne dépend pas de l'admissibilité : une liste où l'on ne sait pas ce
+    qui serait promu ne se classe pas.
+    """
+    anonyme = _sans_identite()
+    with pytest.raises(ClassementInvalide, match="candidate_revision"):
+        classer_configurations([anonyme])
+    # Mêlée à des configurations complètes, elle ferme le classement entier — rien n'est rendu.
+    with pytest.raises(ClassementInvalide, match="anonyme"):
+        classer_configurations([*TABLE_MESUREE, anonyme])
+    # Y compris inadmissible : ce n'est pas le verdict qui exige l'identité, c'est le classement.
+    with pytest.raises(ClassementInvalide, match="run_digest|candidate_revision"):
+        classer_configurations([_sans_identite("muette", admissible=False)])
+    # Chacun des trois champs, pris isolément, suffit à fermer.
+    for absent in ("candidate_revision", "run_digest", "report_digest"):
+        amputee = _config("partielle", admissible=True, cost_eur=0.0,
+                          latency_ms=0).model_copy(update={absent: None})
+        with pytest.raises(ClassementInvalide, match=absent):
+            classer_configurations([amputee])
+
+
+def test_le_classement_refuse_une_identite_mal_formee() -> None:
+    """B1 : « longueur ou alphabet » — une chaîne qui ressemble à une empreinte n'en est pas une."""
+    for champ, mauvaise in (("candidate_revision", "a" * 39), ("candidate_revision", "A" * 40),
+                            ("run_digest", "b" * 65), ("report_digest", "zz" + "c" * 62)):
+        malformee = _config("malformee", admissible=True, cost_eur=0.0,
+                            latency_ms=0).model_copy(update={champ: mauvaise})
+        with pytest.raises(ClassementInvalide, match=champ):
+            classer_configurations([malformee])
+
+
+def test_le_classement_refuse_deux_revisions_candidates_dans_la_meme_liste() -> None:
+    """B1 : « deux révisions candidates différentes dans un même classement ne sont pas un classement ».
+
+    Comparer les coûts de deux commits et en promouvoir un n'est pas une règle mécanique, c'est une
+    confusion — et l'artefact de promotion serait inauditable, puisqu'il porte **une** révision.
+    """
+    autre = _config("autre-commit", admissible=True, cost_eur=0.0, latency_ms=0,
+                    candidate_revision="b" * 40)
+    with pytest.raises(ClassementInvalide, match="deux révisions candidates"):
+        classer_configurations([*TABLE_MESUREE, autre])
+    # La table homogène, elle, se classe : le refus ne mord que sur l'incohérence.
+    assert len(classer_configurations(TABLE_MESUREE)) == len(TABLE_MESUREE)
+
+
+def test_la_cli_de_classement_dit_le_refus_au_lieu_de_promouvoir(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """B1 : le refus remonte jusqu'à l'opérateur — code 2, message nommé, aucun classement imprimé."""
+    import json as _json
+
+    from server.evals import plancher as plancher_mod
+
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([{"name": "c", "report": "peu-importe.json"}]),
+                       encoding="utf-8")
+    # Le lecteur de rapport est neutralisé : ce qui est éprouvé ici est le **classement**, pas la
+    # lecture. Un appelant bibliothèque qui construirait ses configurations autrement produirait
+    # exactement cet objet-là.
+    monkeypatch.setattr(plancher_mod, "_configuration_depuis_rapport",
+                        lambda *a, **k: _sans_identite())
+    assert plancher_mod._main(["--classer", str(configs),
+                               "--candidate-revision", REVISION_CLASSEE]) == 2
+    capture = capsys.readouterr()
+    assert "refus" in capture.err and "candidate_revision" in capture.err
+    assert "aucun_admissible" not in capture.out

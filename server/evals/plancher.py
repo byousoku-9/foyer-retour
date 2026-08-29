@@ -496,10 +496,40 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
 
 # --- la règle mécanique du checkpoint (trois rôles, rôle 1) ---------------------------------------
 
-class Configuration(BaseModel):
-    """Une configuration candidate au checkpoint : son admissibilité et ses deux coûts."""
+# Les trois champs qui font l'identité d'une configuration classée, et leur longueur exacte. La
+# liste est ici, en un seul endroit, parce que la faute que le cycle de récupération ferme est
+# d'avoir contrôlé cette identité à un endroit (la CLI) et pas aux deux autres (le modèle et le
+# classement lui-même).
+IDENTITE_CLASSEMENT: tuple[tuple[str, int], ...] = (
+    ("candidate_revision", 40), ("run_digest", 64), ("report_digest", 64),
+)
 
-    model_config = ConfigDict(extra="forbid")
+
+class ClassementInvalide(Exception):
+    """Un classement a été demandé sur des configurations qu'on ne peut pas opposer.
+
+    Story 4.5, cycle de récupération, revue B1. Les tours précédents avaient fermé la voie **CLI** —
+    `--candidate-revision` exigé, `_configuration_depuis_rapport` opposant l'identité du rapport —
+    mais laissé la voie **bibliothèque** grande ouverte : n'importe quel appelant pouvait construire
+    `Configuration(name=…, admissible=True, cost_eur=…, latency_ms=…)` et obtenir un classement qui
+    le rendait **en tête**, sans révision candidate, sans `run_digest`, sans `report_digest`. Une
+    décision de promotion anonyme reste une décision de promotion.
+
+    Le refus est donc porté par le **classement lui-même**, pas par ce que l'appelant a bien voulu
+    fournir : il n'y a pas de paramètre pour le désarmer, et il n'y en aura pas — un contrôle
+    optionnel n'est pas un contrôle, c'est une option.
+    """
+
+
+class Configuration(BaseModel):
+    """Une configuration candidate au checkpoint : son admissibilité, son identité et ses deux coûts.
+
+    **`frozen`** (revue B1, voie bibliothèque) : sans cela, une configuration validée à la
+    construction pouvait être dépouillée de son identité juste avant d'être classée. Un artefact de
+    promotion ne se modifie pas après avoir été constitué.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
     admissible: bool
@@ -511,6 +541,30 @@ class Configuration(BaseModel):
     candidate_revision: str | None = None
     run_digest: str | None = None
     report_digest: str | None = None
+
+    @model_validator(mode="after")
+    def _identite_opposable(self) -> Configuration:
+        """Une identité fournie est bien formée ; une configuration **admissible** en a forcément une.
+
+        Deux règles, et la seconde est celle que la revue a rouverte : `admissible=True` est un
+        verdict d'admissibilité au plancher, c'est-à-dire la moitié d'une promotion. Le porter sans
+        dire de quelle révision, de quel run et de quel rapport il est tiré, c'est promouvoir un
+        anonyme — et rien, ensuite, ne permet de retrouver ce qui a été promu.
+        """
+        for champ, longueur in IDENTITE_CLASSEMENT:
+            valeur = getattr(self, champ)
+            if valeur is None:
+                if self.admissible:
+                    raise ValueError(
+                        f"configuration {self.name!r} : admissible=True sans {champ} — un verdict "
+                        "d'admissibilité qui ne nomme ni sa révision, ni son run, ni son rapport "
+                        "n'est pas opposable")
+                continue
+            if not _hex_exact(valeur, longueur):
+                raise ValueError(
+                    f"configuration {self.name!r} : {champ} doit être {longueur} caractères "
+                    f"hexadécimaux (reçu {valeur!r})")
+        return self
 
 
 def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str,
@@ -594,6 +648,45 @@ def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str
         report_digest=hashlib.sha256(octets).hexdigest())
 
 
+def verifier_identite_classement(configurations: list[Configuration]) -> None:
+    """Un classement se fait entre configurations **du même candidat**, toutes identifiées.
+
+    Story 4.5, cycle de récupération, revue B1 — même forme que `verifier_liaison_preuve` et
+    `verifier_identite_externe`, et pour la même raison : exiger la présence, puis le type, puis
+    l'égalité. Trois refus, et ils sont tous des refus de classer :
+
+    - une configuration dont l'identité **manque** : rien ne dit ce qui serait promu ;
+    - une configuration dont l'identité est **mal formée** (longueur ou alphabet) : ce n'est pas une
+      empreinte, c'est une chaîne qui y ressemble ;
+    - deux **révisions candidates** différentes dans la même liste : comparer les coûts de deux
+      commits et en promouvoir un n'est pas un classement, c'est une confusion.
+
+    Ne rend rien : c'est un garde-fou, pas une lecture. Il est appelé par `classer_configurations`,
+    et exposé pour qu'un futur chemin de promotion puisse s'y adosser au lieu d'en réinventer un.
+    """
+    revisions: set[str] = set()
+    for configuration in configurations:
+        if not isinstance(configuration, Configuration):
+            raise ClassementInvalide(
+                "classement : chaque élément doit être une Configuration "
+                f"({type(configuration).__name__} reçu)")
+        for champ, longueur in IDENTITE_CLASSEMENT:
+            valeur = getattr(configuration, champ, None)
+            if valeur is None:
+                raise ClassementInvalide(
+                    f"classement : la configuration {configuration.name!r} n'a pas de {champ} — "
+                    "une liste où l'on ne sait pas ce qui serait promu ne se classe pas")
+            if not _hex_exact(valeur, longueur):
+                raise ClassementInvalide(
+                    f"classement : la configuration {configuration.name!r} porte un {champ} mal "
+                    f"formé ({valeur!r}, attendu {longueur} caractères hexadécimaux)")
+        revisions.add(str(configuration.candidate_revision))
+    if len(revisions) > 1:
+        raise ClassementInvalide(
+            f"classement : deux révisions candidates dans la même liste ({sorted(revisions)}) — "
+            "classer des mesures de commits différents ne compare rien")
+
+
 def classer_configurations(configurations: list[Configuration]) -> list[Configuration]:
     """Classement mécanique : admissibles au plancher d'abord, puis la moins chère, puis la plus rapide.
 
@@ -601,7 +694,14 @@ def classer_configurations(configurations: list[Configuration]) -> list[Configur
     Une configuration inadmissible n'est jamais promue devant une admissible, quel que soit son
     coût ; `aucun_admissible` (liste sans admissible) est un résultat rouge que l'appelant publie
     tel quel, jamais une question humaine.
+
+    **Le classement refuse avant de classer** (revue B1, voie bibliothèque). Il ne rendait
+    auparavant qu'un tri : n'importe quelle liste passait, y compris une configuration `admissible`
+    sans révision ni digests, qu'il plaçait alors **en tête**. Le tri est la partie facile ; ce qui
+    décide d'une promotion, c'est de savoir ce qu'on promeut. `ClassementInvalide` est donc levée
+    avant qu'aucun ordre ne soit rendu — jamais un classement partiel, jamais une tête par défaut.
     """
+    verifier_identite_classement(configurations)
     return sorted(configurations,
                   key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name))
 
@@ -656,13 +756,22 @@ def _main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError, ValidationError) as exc:
             print(f"refus : configurations illisibles ({type(exc).__name__}: {exc})", file=sys.stderr)
             return 2
-        classement = classer_configurations(configurations)
+        try:
+            classement = classer_configurations(configurations)
+        except ClassementInvalide as exc:
+            # Le refus du classement est **dit à l'appelant**, jamais rabattu sur un classement
+            # dégradé : une promotion qu'on ne peut pas auditer ne se rend pas « au mieux ».
+            print(f"refus : {exc}", file=sys.stderr)
+            return 2
         aucun_admissible = not any(c.admissible for c in classement)
         print(json.dumps({
             "plancher_digest": charge.digest,
             # L'artefact de promotion dit **à quel candidat** il se rapporte, à la racine comme par
-            # configuration : sans cela il est inauditable après coup (revue B1).
-            "candidate_revision": args.candidate_revision,
+            # configuration : sans cela il est inauditable après coup (revue B1). La racine porte la
+            # révision **que le classement a effectivement opposée** — `classer_configurations` a
+            # vérifié qu'elles étaient toutes égales —, pas seulement celle que l'opérateur a tapée.
+            "candidate_revision": (classement[0].candidate_revision if classement
+                                   else args.candidate_revision),
             "aucun_admissible": aucun_admissible,
             "classement": [c.model_dump() for c in classement],
         }, ensure_ascii=False, indent=2))
