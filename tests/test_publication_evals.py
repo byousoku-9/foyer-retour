@@ -1456,6 +1456,55 @@ def _lot_prepare(racine: Path, noms: tuple[str, ...]) -> list[tuple[Path, Path]]
 
 
 @pytest.mark.parametrize("rang", [0, 1, 2])
+def test_une_interruption_pendant_la_restauration_ne_masque_pas_la_cause(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rang: int) -> None:
+    """P2 : le **second** Ctrl-C est le scénario nominal, et il effaçait tout.
+
+    La restauration réécrit et `fsync` chaque cible : c'est là qu'une interruption tombe. Une
+    `KeyboardInterrupt` qui traversait `_restaurer` abandonnait les restaurations restantes,
+    **effaçait la cause d'origine** — l'`OSError` de la bascule — et court-circuitait
+    `BasculePartielle`, si bien que plus rien ne nommait les cibles laissées dans le nouvel état.
+    Mesuré sur `9082428` : `{'a': 'nouveau-a', 'b': 'nouveau-b', 'c': 'ancien-c'}` sous une sortie
+    `KeyboardInterrupt` muette. L'injection porte ici sur les écritures de **restauration**, à
+    chacun de leurs rangs — quatre cibles, la bascule échoue à la dernière, donc trois
+    restaurations à interrompre.
+    """
+    noms = ("a", "b", "c", "d")
+    prepares = _lot_prepare(tmp_path, noms)
+    temporaires = {str(tmp) for tmp, _cible in prepares}
+    vrai_replace = os.replace
+    compte = {"bascules": 0, "restaurations": 0}
+
+    def replace_faillible(src: Any, dst: Any) -> Any:
+        if str(src) in temporaires:
+            compte["bascules"] += 1
+            # La bascule échoue au dernier rang : les deux premières cibles sont donc à restaurer.
+            if compte["bascules"] == len(noms):
+                raise OSError("panne au dernier renommage (injectée)")
+        else:
+            compte["restaurations"] += 1
+            if compte["restaurations"] == rang + 1:
+                raise KeyboardInterrupt()
+        return vrai_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace_faillible)
+    with pytest.raises(runner.BasculePartielle) as leve:
+        runner._basculer(prepares)
+    monkeypatch.undo()
+
+    # La cause d'origine n'est pas perdue : elle est chaînée sous la `BasculePartielle`.
+    assert isinstance(leve.value.__cause__, OSError)
+    # Et les cibles qui n'ont pas pu être remises sont **nommées**, une par une.
+    assert leve.value.non_restaurees, "une restauration a échoué : elle doit être nommée"
+    etat = {nom: (tmp_path / nom).read_text(encoding="utf-8") for nom in noms}
+    for nom in noms:
+        cible = str(tmp_path / nom)
+        attendu = f"nouveau-{nom}" if cible in leve.value.non_restaurees else f"ancien-{nom}"
+        assert etat[nom] == attendu, f"{nom} n'est ni restauré ni signalé comme non restauré"
+    assert _temporaires(tmp_path) == []
+
+
+@pytest.mark.parametrize("rang", [0, 1, 2])
 @pytest.mark.parametrize("exception", [OSError("panne d'écriture injectée"),
                                        RuntimeError("panne injectée hors OSError"),
                                        KeyboardInterrupt()],

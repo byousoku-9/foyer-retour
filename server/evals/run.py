@@ -2591,9 +2591,17 @@ def _restaurer(avant: list[tuple[Path, bytes | None]],
     """Défait les bascules déjà faites, en ordre inverse. Rend `(restaurées, non restaurées)`.
 
     Une restauration qui échoue est **isolée** : elle nomme sa cible, laisse les autres se faire, et
-    ne remplace jamais la cause d'origine par sa propre panne. `Exception` et non `OSError` :
-    l'écriture de restauration peut échouer autrement qu'en entrée-sortie, et cette fonction ne doit
-    en aucun cas lever — sans quoi elle remplacerait la cause d'origine par sa propre panne.
+    ne remplace jamais la cause d'origine par sa propre panne.
+
+    `BaseException` et non `Exception` (revue P2), parce que le second Ctrl-C est le scénario
+    nominal : la restauration réécrit et `fsync` chaque cible, donc elle prend du temps, donc c'est
+    précisément là qu'une interruption tombe. Une `KeyboardInterrupt` qui traversait cette boucle
+    abandonnait les restaurations restantes, **effaçait la cause d'origine** — l'`OSError` de la
+    bascule — et court-circuitait `BasculePartielle`, si bien que plus rien ne nommait les cibles
+    laissées dans le nouvel état. Mesuré : `{'a': 'nouveau-a', 'b': 'nouveau-b', 'c': 'ancien-c'}`
+    sous une sortie `KeyboardInterrupt` muette. Avaler une interruption est un choix, et c'est le
+    bon ici : le seul travail restant est de remettre des octets déjà lus en mémoire, et l'appelant
+    la reverra sous la forme d'un `BasculePartielle` qui dit ce qui n'a pas pu l'être.
 
     Elle ne touche **aucun** temporaire : leur abandon appartient au `finally` de `_basculer`, qui
     couvre tous les chemins de sortie, y compris l'échec de la capture initiale.
@@ -2607,7 +2615,7 @@ def _restaurer(avant: list[tuple[Path, bytes | None]],
                 cible.unlink(missing_ok=True)
             else:
                 _ecrire_atomique_octets(cible, octets)
-        except Exception:  # noqa: BLE001 — voir la docstring : elle ne masque jamais la cause
+        except BaseException:  # noqa: BLE001 — voir la docstring : elle ne masque jamais la cause
             non_restaurees.append(str(cible))
         else:
             restaurees.append(str(cible))
