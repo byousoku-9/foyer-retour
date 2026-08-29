@@ -154,10 +154,12 @@ cas.preuves = PREUVES.map((r) => ({
 // d'absence (D8 : les pages `tools/` n'importent rien de `web/app/`), donc amarré ici.
 const LECTURES = [
   { nodes_read: 3, blocks_read: 12, documents: [] },
-  // Le plancher du domaine : `blocks_read >= 1` (zéro bloc transmis est un `BudgetExceeded`
-  // terminal), `nodes_read` reste `ge=0` — la page ne fabrique aucun nombre à sa place.
+  // Le plancher du domaine, sur les **deux** compteurs : `blocks_read >= 1` (zéro bloc transmis est
+  // un `BudgetExceeded` terminal) et `nodes_read >= 1` (AD-2 rend la résolution bloc → nœud totale,
+  // donc au moins un passage vient d'au moins une section). La table ne joue que des valeurs
+  // légales : un cas de rendu sur une valeur impossible bénirait ce que le domaine refuse.
   { nodes_read: 1, blocks_read: 1, documents: [] },
-  { nodes_read: 0, blocks_read: 1, documents: [] },
+  { nodes_read: 2, blocks_read: 9, documents: [] },
   null,
 ];
 cas.lectures = LECTURES.map((l) => ({

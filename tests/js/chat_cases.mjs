@@ -557,7 +557,7 @@ async function main() {
     cas.lecture_textes = {
       pluriel: CHAT.lectureLue({ nodes_read: 3, blocks_read: 12, documents: [] }),
       singulier: CHAT.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
-      sans_section: CHAT.lectureLue({ nodes_read: 0, blocks_read: 1, documents: [] }),
+      plancher: CHAT.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
       absente: CHAT.lectureLue(null),
     };
     cas.phrases_lecture_partielle = {
@@ -847,6 +847,22 @@ async function main() {
         texte: "x", trace: TRACE,
         answer: { found: false, complete: false, unknown: [],
                   lecture_partielle: { nodes_read: 2, blocks_read: 5, documents: [] } } },
+      // I1 : « `found=True` n'en porte aucun » vaut pour **les deux** porteurs. Un `found: true`
+      // muni d'une preuve d'absence peindrait en même temps une réponse « sûre » et la preuve
+      // chiffrée d'une absence.
+      answer_reason_sur_reponse_trouvee: {
+        texte: "x", trace: TRACE,
+        answer: { found: true, complete: true, claims: [CLAIM], reason: REASON } },
+      // I2 : zéro section pour au moins un passage est un état **impossible** (AD-2 rend la
+      // résolution bloc → nœud totale), et zéro bloc reste une erreur terminale d'AD-1/NFR2.
+      answer_lecture_sans_section: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  lecture_partielle: { nodes_read: 0, blocks_read: 5, documents: [] } } },
+      answer_lecture_sans_passage: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  lecture_partielle: { nodes_read: 2, blocks_read: 0, documents: [] } } },
       answer_lecture_sur_reponse_trouvee: {
         texte: "x", trace: TRACE,
         answer: { found: true, complete: false, claims: [CLAIM],

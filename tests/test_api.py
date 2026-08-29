@@ -1516,6 +1516,55 @@ def test_une_lecture_partielle_est_publiee_en_200_avec_ses_compteurs(prod: TestC
     assert j["unknown"] == manques and j["answer"]["unknown"] == manques
 
 
+def test_lenveloppe_dune_reponse_trouvee_ne_porte_aucun_porteur(prod: TestClient) -> None:
+    """AD-4 amendé : `found=True` n'a **rien** à porter — ni preuve d'absence, ni lecture partielle.
+
+    Servi, le corps d'une réponse trouvée doit publier les deux champs à `null` : c'est de là que les
+    deux fronts tirent leur état, et un `reason` sous un `found=true` leur ferait peindre en même
+    temps une réponse « sûre » et la preuve chiffrée d'une absence.
+    """
+    corpus, _ = _mini_corpus()
+    claim = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    answer = Answer(found=True, complete=True, texte="A",
+                    segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert j["answer"]["found"] is True
+    assert j["answer"]["reason"] is None and j["answer"]["lecture_partielle"] is None
+
+
+def test_la_mutation_dune_reponse_trouvee_portant_une_preuve_natteint_pas_la_serialisation() -> None:
+    """Le contre-exemple, opposé au bord du contrat HTTP : il ne doit **jamais** se sérialiser.
+
+    Ni par le domaine (l'`Answer` ne se monte pas), ni par l'enveloppe (`ChatResponse` la valide en
+    la montant). C'est cette seconde moitié qui compte ici : `sources[]` n'énumère que
+    `answer.claims`, donc rien dans la projection ne remarquerait la contradiction.
+    """
+    from server.app.api.schemas import ChatResponse
+
+    corpus, _ = _mini_corpus()
+    claim = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        Answer(found=True, complete=True, texte="A",
+               segments=[AnswerSegment(text="A", kind="factuel", claim_ids=["c1"])],
+               claims=[claim], reason=AbsenceProof(kind="claims_rejetes"))
+    # Et le corps équivalent, écrit à la main comme un serveur cassé l'écrirait, ne passe pas non
+    # plus l'enveloppe : le front n'a donc aucun corps servable à peindre sur ce chemin.
+    corps = {
+        "texte": "A",
+        "answer": {"found": True, "complete": True,
+                   "claims": [claim.model_dump(mode="json")],
+                   "reason": {"kind": "claims_rejetes", "terms_searched": [],
+                              "variants_count": 0, "blocks_scanned": 0, "documents": []}},
+        "trace": {"request_id": "r-x", "pipeline": "guide"},
+    }
+    with pytest.raises(ValidationError):
+        ChatResponse.model_validate(corps)
+
+
 def test_lenveloppe_refuse_les_deux_porteurs_a_la_fois() -> None:
     """L'invariant d'AD-4 amendé, vérifié au bord du contrat HTTP : rien ne peut publier un refus qui
     dise à la fois « le corpus n'en parle pas » et « je n'ai pas fini de le lire »."""

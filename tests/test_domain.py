@@ -413,9 +413,14 @@ def test_une_lecture_partielle_chiffre_ce_qui_a_ete_lu() -> None:
     # annoncerait n'avoir rien lu n'aurait rien à chiffrer et se confondrait avec cette panne.
     with pytest.raises(ValidationError):
         answer.LecturePartielle(nodes_read=0, blocks_read=0)
-    # `nodes_read`, lui, reste `ge=0` : le domaine n'exige pas d'un producteur qu'il sache résoudre
-    # les nœuds de ses blocs.
-    assert answer.LecturePartielle(nodes_read=0, blocks_read=1).documents == []
+    # `nodes_read >= 1` pour la même raison, et elle est symétrique : le compteur est défini comme
+    # les nœuds **des blocs transmis**, résolus par `Document.node_of`, et AD-2 rend cette
+    # résolution **totale** (« chaque bloc rattaché à exactement un nœud », vérifié au chargement).
+    # `blocks_read >= 1 ⟹ nodes_read >= 1` est donc un théorème des deux producteurs : publier zéro
+    # section pour au moins un passage n'est pas un cas rare, c'est un état impossible.
+    with pytest.raises(ValidationError):
+        answer.LecturePartielle(nodes_read=0, blocks_read=1)
+    assert answer.LecturePartielle(nodes_read=1, blocks_read=1).documents == []
     # `LecturePartielle` n'est **pas** un `AbsenceKind` : la liste reste fermée à quatre valeurs, et
     # `AbsenceProof` garde les champs d'un balayage exhaustif que la troncature dément.
     assert "lecture_partielle" not in literal_values(answer.AbsenceProof, "kind")
@@ -441,18 +446,49 @@ def test_exactement_un_porteur_sur_une_reponse_non_trouvee() -> None:
     with pytest.raises(ValidationError, match="exactement un porteur"):
         answer.Answer(found=False, complete=False, reason={"kind": "claims_rejetes"},
                       lecture_partielle=lue, unknown=manque)
-    # Une réponse retenue n'est pas une lecture restée sans conclusion.
+    # Une réponse retenue n'est pas une lecture restée sans conclusion — et le message nomme
+    # désormais **les deux** porteurs (le voisin `test_une_reponse_trouvee_ne_porte_aucun_porteur_
+    # dabsence` tient l'autre moitié, `reason`).
     claim = {"claim_id": "c", "text": "t",
              "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1,
                          "text_start": 0, "text_end": 1}],
              "status": {"retrouvee": True, "pertinente": True, "edition": "e"}}
-    with pytest.raises(ValidationError, match="found=True n'admet pas"):
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
         answer.Answer(found=True, complete=False, claims=[claim], lecture_partielle=lue,
                       unknown=manque)
     # Et elle dit ce qui lui manque : sans lacune, elle chiffrerait sa lecture sans dire pourquoi
     # celle-ci n'a pas suffi.
     with pytest.raises(ValidationError, match="lecture partielle dit ce qui lui manque"):
         answer.Answer(found=False, complete=False, lecture_partielle=lue)
+
+
+def test_une_reponse_trouvee_ne_porte_aucun_porteur_dabsence() -> None:
+    """AD-4 amendé, seconde moitié : « `found=True` n'en porte **aucun** » — ni l'un ni l'autre.
+
+    Le domaine ne fermait que la moitié `lecture_partielle` : `found=True` avec une `AbsenceProof`
+    passait la construction **et** la sérialisation, si bien qu'une page pouvait peindre en même
+    temps une réponse « sûre » et la preuve chiffrée d'une absence. *restituer* le refusait déjà côté
+    producteur, mais c'est le domaine que les deux lecteurs stricts rejouent : tant qu'il l'acceptait,
+    ils l'acceptaient aussi.
+    """
+    claim = {"claim_id": "c", "text": "t",
+             "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1,
+                         "text_start": 0, "text_end": 1}],
+             "status": {"retrouvee": True, "pertinente": True, "edition": "e"}}
+    lue = {"nodes_read": 1, "blocks_read": 3}
+    # Le cas de référence : une réponse trouvée n'a **rien** à porter.
+    servie = answer.Answer(found=True, complete=True, claims=[claim])
+    assert servie.reason is None and servie.lecture_partielle is None
+    # Les trois mutations, toutes refusées, et le message les nomme toutes les deux.
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=True, claims=[claim],
+                      reason={"kind": "claims_rejetes"})
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=False, claims=[claim], unknown=["il manque"],
+                      lecture_partielle=lue)
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=False, claims=[claim], unknown=["il manque"],
+                      reason={"kind": "claims_rejetes"}, lecture_partielle=lue)
 
 
 # AD-6

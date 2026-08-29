@@ -578,6 +578,66 @@ def test_api_un_fil_ouvert_sur_une_lecture_partielle_ne_casse_a_aucun_tour() -> 
         assert second.json()["answer"]["lecture_partielle"] is not None
 
 
+def test_api_le_journal_du_suivi_nomme_letat_partiel_a_chaque_tour(
+        caplog: pytest.LogCaptureFixture) -> None:
+    """I3 : le chemin frère de `/chat` et `/sinistre` — la même règle, sur `/sinistre/suivi`.
+
+    Le tour de suivi **reconduit** le porteur : la cause typée vaut donc encore à chaque tour. Ne la
+    journaliser qu'au premier appel faisait disparaître `lecture_tronquee` de l'analytique au
+    changement de route, alors que l'état, lui, n'avait pas changé — AD-10 fait pourtant de ces
+    champs le support de « l'analytique des échecs ».
+    """
+    import json as _json
+    import logging
+
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        answer = Answer(
+            found=False, complete=False,
+            texte="Ma lecture du contrat s'est arrêtée avant de conclure.",
+            lecture_partielle=LecturePartielle(nodes_read=1, blocks_read=4,
+                                               documents=["cg-mini"]),
+            unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre."],
+            verdict=decider([], ask_client_max=3, missing=MissingPackage()),
+            faits_compris=QuestionScope(bien="canapé"))
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = Double((answer, _trace()))
+
+        with caplog.at_level(logging.INFO, logger="foyer.request"):
+            first = client.post("/api/v1/sinistre", json=_corps(),
+                                headers={**XFF, "X-Sinistre-Conversation": "1"})
+            assert first.status_code == 200
+            corps = first.json()
+            # **Deux** tours de suivi, pas un : c'est au second que l'omission se voyait le moins.
+            for _ in range(2):
+                question = next(q for q in corps["conversation"]["questions"]
+                                if q["status"] == "active")
+                reponse = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+                    "doc_id": "cg-mini", "token": corps["conversation"]["token"],
+                    "question_id": question["question_id"], "value": "non",
+                })
+                assert reponse.status_code == 200, reponse.text
+                corps = reponse.json()
+                assert corps["answer"]["lecture_partielle"] is not None
+
+    lignes = [_json.loads(r.message) for r in caplog.records if r.name == "foyer.request"]
+    initial = [l for l in lignes if l.get("path") == "/api/v1/sinistre"]
+    suivis = [l for l in lignes if l.get("path") == "/api/v1/sinistre/suivi"]
+    assert len(initial) == 1 and len(suivis) == 2
+    # Le même vocabulaire à chaque tour, initial compris : l'état n'a pas changé de nom en changeant
+    # de route.
+    for ligne in [*initial, *suivis]:
+        assert ligne["found"] is False, ligne
+        assert ligne["reason_kind"] == "lecture_tronquee", ligne
+        assert ligne["variants_count"] is None and ligne["blocks_scanned"] is None, ligne
+    # Deux tours **distincts** ont bien été journalisés : la ligne n'est pas la même relue deux fois.
+    assert len({l["request_id"] for l in suivis}) == 2
+    # `conversation_turn` n'y figure pas, et ce n'est pas l'objet de ce test : AD-10 clôt la liste
+    # des champs logués (`request_id.CHAMPS_DE_LOG`), et il n'y est pas — comportement antérieur.
+
+
 def test_api_refuse_un_digest_perime_avant_le_pipeline() -> None:
     app = create_app(_settings(env="dev", allow_ungated=True))
     with TestClient(app) as client:

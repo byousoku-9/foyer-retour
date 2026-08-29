@@ -1109,6 +1109,9 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("deux_porteurs", "answer.lecture_partielle"),
     ("aucun_porteur", "answer.reason"),
     ("lecture_sans_manque", "answer.unknown"),
+    ("reason_sur_reponse_trouvee", "answer.reason"),
+    ("lecture_sans_section", "answer.lecture_partielle.nodes_read"),
+    ("lecture_sans_passage", "answer.lecture_partielle.blocks_read"),
     ("lecture_sur_reponse_trouvee", "answer.lecture_partielle"),
 ])
 def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
@@ -1596,5 +1599,5 @@ def test_le_chiffre_de_la_lecture_est_le_meme_texte_que_sur_le_guide(cas: dict[s
     textes = cas["lecture_textes"]
     assert textes["pluriel"].startswith("Lecture partielle : 3 sections lues, 12 passages")
     assert textes["singulier"].startswith("Lecture partielle : 1 section lue, 1 passage")
-    assert textes["sans_section"].startswith("Lecture partielle : 0 section lue, 1 passage")
+    assert textes["plancher"] == textes["singulier"]
     assert textes["absente"] == ""

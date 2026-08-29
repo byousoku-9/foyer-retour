@@ -574,6 +574,12 @@ CONTRATS_INCOMPLETS = [
     ("answer_deux_porteurs", "answer.lecture_partielle"),
     ("answer_lecture_sans_manque", "answer.unknown"),
     ("answer_lecture_sur_reponse_trouvee", "answer.lecture_partielle"),
+    # « `found=True` n'en porte **aucun** » : les deux porteurs, pas seulement le second.
+    ("answer_reason_sur_reponse_trouvee", "answer.reason"),
+    # Les deux compteurs ont un plancher à 1 : zéro section pour au moins un passage est un état
+    # impossible (AD-2), zéro passage est l'erreur terminale d'AD-1/NFR2.
+    ("answer_lecture_sans_section", "answer.lecture_partielle.nodes_read"),
+    ("answer_lecture_sans_passage", "answer.lecture_partielle.blocks_read"),
 ]
 
 
@@ -2327,7 +2333,9 @@ def test_les_compteurs_lus_saffichent_meme_a_zero(cas: dict[str, Any]) -> None:
     # `blocks_read` a un plancher à 1 dans le domaine — zéro bloc transmis est un `BudgetExceeded`
     # terminal, pas une lecture partielle. `nodes_read`, lui, reste `ge=0` : la page l'affiche tel
     # quel plutôt que d'inventer un nombre.
-    assert textes["sans_section"].startswith("Lecture partielle : 0 section lue, 1 passage")
+    # Le plancher légal des deux compteurs, et non une valeur que le domaine refuse : un cas de
+    # rendu sur « 0 section lue » bénirait exactement ce que l'invariant interdit.
+    assert textes["plancher"] == textes["singulier"]
     assert textes["absente"] == ""
 
 

@@ -809,7 +809,7 @@ async function main() {
     cas.lecture_textes = {
       pluriel: SINISTRE.lectureLue({ nodes_read: 3, blocks_read: 12, documents: [] }),
       singulier: SINISTRE.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
-      sans_section: SINISTRE.lectureLue({ nodes_read: 0, blocks_read: 1, documents: [] }),
+      plancher: SINISTRE.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
       absente: SINISTRE.lectureLue(null),
     };
     cas.etats_lecture_partielle = {
@@ -1686,6 +1686,23 @@ async function main() {
       })(),
       lecture_sans_manque: (() => {
         const r = reponseLecturePartielle(); r.answer.unknown = []; return r;
+      })(),
+      // I1 : les deux porteurs sont interdits sous `found: true`, pas seulement le second.
+      reason_sur_reponse_trouvee: (() => {
+        const r = reponseVerdict();
+        r.answer.reason = { kind: "claims_rejetes", terms_searched: [], variants_count: 0,
+                            blocks_scanned: 3, documents: [DOC_ID] };
+        return r;
+      })(),
+      // I2 : les deux compteurs ont un plancher à 1 — zéro section pour au moins un passage est un
+      // état impossible, zéro passage est une erreur terminale d'AD-1/NFR2.
+      lecture_sans_section: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.nodes_read = 0; return r;
+      })(),
+      lecture_sans_passage: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.blocks_read = 0; return r;
       })(),
       lecture_sur_reponse_trouvee: (() => {
         const r = reponseVerdict();

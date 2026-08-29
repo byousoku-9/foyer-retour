@@ -335,11 +335,11 @@ def test_le_chiffre_de_la_lecture_bornee_est_le_meme_des_deux_cotes(cas: dict[st
     petit = par_entree[json.dumps({"nodes_read": 1, "blocks_read": 1, "documents": []},
                                   sort_keys=True)]
     assert petit.startswith("Lecture partielle : 1 section lue, 1 passage")
-    # `blocks_read` plancher à 1 (zéro bloc transmis reste un `BudgetExceeded` terminal) ;
-    # `nodes_read` reste `ge=0`, et la page l'affiche tel quel plutôt que d'inventer un nombre.
-    sans_section = par_entree[json.dumps({"nodes_read": 0, "blocks_read": 1, "documents": []},
-                                         sort_keys=True)]
-    assert sans_section.startswith("Lecture partielle : 0 section lue, 1 passage")
+    # Les deux compteurs ont un plancher à 1 dans le domaine : la table ne joue que des valeurs
+    # légales, faute de quoi elle consacrerait un rendu que l'invariant interdit.
+    moyen = par_entree[json.dumps({"nodes_read": 2, "blocks_read": 9, "documents": []},
+                                  sort_keys=True)]
+    assert moyen.startswith("Lecture partielle : 2 sections lues, 9 passages")
     assert par_entree["null"] == ""
     for entree in cas["lectures"]:
         for mot in ("guide", "contrat", "conditions générales"):
