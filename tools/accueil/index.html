@@ -124,6 +124,17 @@ porte.</p>
 <div id="etat" role="status" aria-live="polite"></div>
 <noscript><p class="reserve">JavaScript est désactivé&nbsp;: le niveau de validation n'a pas pu être
 lu. Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
+
+<h2>Résultats des questions-témoins</h2>
+<p class="reserve">Le dernier run publié, lu à l'instant sur <code>/api/v1/evals/latest</code> —
+rouge compris, et jamais réécrit ici. Le même artefact alimente
+<code>docs/evals/latest.md</code> et le résumé de la CI. Aucun verdict n'est validé par un expert
+assurance.</p>
+<!-- Rempli par `accueil.js` après la seconde sonde. Un run absent est rendu comme une absence :
+     aucun chiffre n'est affiché à la place. -->
+<div id="evals" role="status" aria-live="polite"></div>
+<noscript><p class="reserve">JavaScript est désactivé&nbsp;: les résultats se lisent directement sur
+<code>/api/v1/evals/latest</code>.</p></noscript>
 </section>
 
 <footer>
