@@ -565,6 +565,21 @@ CONTRATS_INCOMPLETS = [
     ("trace_cout_infini", "trace.total_cost_eur"),
     ("trace_seuil_chaine", "trace.thresholds.max_opens"),
     ("trace_seuil_booleen", "trace.thresholds.max_opens"),
+    # Story 4.2f : le second porteur d'un `found=false` est lu aussi strictement que le premier.
+    # Ses deux compteurs sont **affichés** ; absents ou négatifs, la page peindrait une lecture que
+    # rien n'a mesurée. Et « exactement un porteur » vaut ici comme dans le domaine.
+    ("answer_lecture_sans_compteur", "answer.lecture_partielle.nodes_read"),
+    ("answer_lecture_compteur_negatif", "answer.lecture_partielle.nodes_read"),
+    ("answer_lecture_compteur_fractionnaire", "answer.lecture_partielle.nodes_read"),
+    ("answer_deux_porteurs", "answer.lecture_partielle"),
+    ("answer_lecture_sans_manque", "answer.unknown"),
+    ("answer_lecture_sur_reponse_trouvee", "answer.lecture_partielle"),
+    # « `found=True` n'en porte **aucun** » : les deux porteurs, pas seulement le second.
+    ("answer_reason_sur_reponse_trouvee", "answer.reason"),
+    # Les deux compteurs ont un plancher à 1 : zéro section pour au moins un passage est un état
+    # impossible (AD-2), zéro passage est l'erreur terminale d'AD-1/NFR2.
+    ("answer_lecture_sans_section", "answer.lecture_partielle.nodes_read"),
+    ("answer_lecture_sans_passage", "answer.lecture_partielle.blocks_read"),
 ]
 
 
@@ -695,12 +710,26 @@ def _corps_servis() -> list[dict[str, Any]]:
                    segments=[AnswerSegment(text=phrase, kind="limite")],
                    reason=AbsenceProof(kind="hors_perimetre", terms_searched=["météo"],
                                        variants_count=4, blocks_scanned=312))
+    # Story 4.2f : la quatrième issue servable. Son corps n'est pas écrit à la main non plus — il
+    # passe par `Answer` (donc par « exactement un porteur » et « une lecture partielle dit ce qui
+    # lui manque ») puis par `ChatResponse`, c'est-à-dire par le code même de la route.
+    from server.app.domain.answer import LecturePartielle
+
+    borne = "Je n'ai pas pu lire tout ce qui pouvait concerner votre question."
+    lecture = Answer(
+        found=False, complete=False, texte="Ma lecture s'est arrêtée avant de conclure.",
+        segments=[AnswerSegment(text="Ma lecture s'est arrêtée avant de conclure.", kind="limite")],
+        lecture_partielle=LecturePartielle(nodes_read=2, blocks_read=5,
+                                           documents=["lux-guide"]),
+        unknown=[borne])
     reponses = [
         ChatResponse(texte=sure.texte, segments=sure.segments, sources=[source], fiches=["arrivee"],
                      unknown=[], answer=sure, trace=trace),
         ChatResponse(texte=partielle.texte, segments=partielle.segments, sources=[source],
                      fiches=["arrivee"], unknown=partielle.unknown, answer=partielle, trace=trace),
         ChatResponse(texte=refus.texte, segments=refus.segments, answer=refus, trace=trace),
+        ChatResponse(texte=lecture.texte, segments=lecture.segments, unknown=lecture.unknown,
+                     answer=lecture, trace=trace),
     ]
     return [r.model_dump(mode="json") for r in reponses]
 
@@ -718,12 +747,20 @@ def test_le_front_lit_les_reponses_que_le_serveur_sert_vraiment(tmp_path: Path) 
 
     releves = _lancer(HARNAIS_CORPS, str(fichier))
 
-    assert [r["lu"] for r in releves] == [True, True, True], releves
-    sure, partielle, refus = releves
+    assert [r["lu"] for r in releves] == [True, True, True, True], releves
+    sure, partielle, refus, lecture = releves
     assert sure["etat"]["cle"] == "sur" and sure["citations_par_segment"] == [1]
     assert sure["sources"] == ["lux-guide:farrivee:2"] and sure["via"] == "api/v1"
     assert partielle["etat"]["cle"] == "partiel"
     assert refus["etat"]["cle"] == "inconnu" and refus["sources"] == []
+    # Story 4.2f : le corps que la story fait naître est lu, badgé et **chiffré** — pas refusé.
+    assert lecture["etat"]["cle"] == "lecture-partielle"
+    assert lecture["etat"]["texte"] == "lecture partielle"
+    assert lecture["sources"] == []
+    assert lecture["lecture"] == ("Lecture partielle : 2 sections lues, 5 passages transmis au "
+                                  "modèle — le reste n'a pas été lu, et rien n'en est affirmé")
+    assert lecture["inconnus"] == [
+        "Je n'ai pas pu lire tout ce qui pouvait concerner votre question."]
 
 
 # --- l'appariement citation ↔ segment -------------------------------------
@@ -2240,3 +2277,90 @@ def test_le_harnais_vit_dans_le_depot_et_ne_depend_de_rien() -> None:
     # dépôt, pas une dépendance — c'est précisément ce qui permet aux deux lecteurs d'être confrontés
     # aux mêmes corps sans que rien ne s'installe.
     assert imports <= {"node:fs", "node:path", "node:url", "node:vm", "./sante_corpus.mjs"}, imports
+
+
+# --- story 4.2f : la lecture partielle, lue puis peinte -------------------
+
+def test_une_lecture_partielle_est_lue_comme_une_reponse(cas: dict[str, Any]) -> None:
+    """AC : le corps servi sur ce chemin est **peint**, jamais traité comme une indisponibilité.
+
+    Avant la story, la page recevait un 503 et affichait « L'assistant est indisponible pour le
+    moment. » avec son bouton de repli — alors que rien n'était en panne. Ici : la phrase du serveur,
+    le chiffre de ce qui a été lu, la lacune, et zéro lecture du moteur lexical (donc aucun repli
+    ouvert, même en coulisses).
+    """
+    vu = cas["lecture_partielle"]
+    assert vu["segments_kind"] == ["limite"] and vu["sources"] == 0
+    assert vu["etat"] == {"cle": "lecture-partielle", "texte": "lecture partielle"}
+    # Un porteur, et un seul : la preuve chiffrée d'un refus n'a rien à dire ici.
+    assert vu["preuve"] == ""
+    assert vu["lecture"] == ("Lecture partielle : 2 sections lues, 5 passages transmis au modèle "
+                             "— le reste n'a pas été lu, et rien n'en est affirmé")
+    assert vu["unknown"] and vu["rejetees"] == ["non_retrouvee"]
+    assert vu["lectures_du_moteur_lexical"] == 0
+
+
+def test_letat_de_lecture_partielle_ne_se_confond_pas_avec_inconnu(cas: dict[str, Any]) -> None:
+    """« inconnu » est un refus fondé sur une recherche menée à son terme ; « lecture partielle » dit
+    que la lecture s'est arrêtée avant de conclure. Un seul badge pour les deux redonnerait à
+    l'utilisateur l'exhaustivité que la troncature dément."""
+    etats = cas["etats_lecture_partielle"]
+    assert etats["porteur"]["texte"] == "lecture partielle"
+    assert etats["sans_porteur"]["texte"] == "inconnu"
+    phrases = cas["phrases_lecture_partielle"]
+    assert phrases["avec_liste"].startswith("ma lecture s'est arrêtée avant de conclure")
+    assert "Ce que je ne sais pas" in phrases["avec_liste"]
+    assert "Ce que je ne sais pas" not in phrases["sans_liste"]
+    # La phrase ne décrit que ce que la vue a **peint** : elle ne promet le chiffre « ci-dessus »
+    # que s'il y est, comme les trois autres états le font pour la liste et pour la preuve.
+    assert "chiffré ci-dessus" in phrases["sans_liste"]
+    assert "chiffré ci-dessus" not in phrases["sans_chiffre"]
+    assert "Ce que je ne sais pas" in phrases["sans_chiffre"]
+    assert "chiffré ci-dessus" not in phrases["sans_rien"]
+    assert "Ce que je ne sais pas" not in phrases["sans_rien"]
+    # Aucune des quatre phrases n'affirme une absence ni une panne.
+    assert len(set(phrases.values())) == 4
+    for phrase in phrases.values():
+        assert "indisponible" not in phrase and "rien n'a été retenu" not in phrase
+
+
+def test_les_compteurs_lus_saffichent_meme_a_zero(cas: dict[str, Any]) -> None:
+    """Comme la preuve chiffrée d'un refus : « la navigation n'a rien fait entrer » et « douze
+    passages sont partis au modèle » sont deux situations différentes, que l'omission confondrait."""
+    textes = cas["lecture_textes"]
+    assert textes["pluriel"].startswith("Lecture partielle : 3 sections lues, 12 passages")
+    assert textes["singulier"].startswith("Lecture partielle : 1 section lue, 1 passage")
+    # `blocks_read` a un plancher à 1 dans le domaine — zéro bloc transmis est un `BudgetExceeded`
+    # terminal, pas une lecture partielle. `nodes_read`, lui, reste `ge=0` : la page l'affiche tel
+    # quel plutôt que d'inventer un nombre.
+    # Le plancher légal des deux compteurs, et non une valeur que le domaine refuse : un cas de
+    # rendu sur « 0 section lue » bénirait exactement ce que l'invariant interdit.
+    assert textes["plancher"] == textes["singulier"]
+    assert textes["absente"] == ""
+
+
+def test_la_vue_dune_lecture_partielle_montre_le_chiffre_et_les_affirmations_ecartees(
+        cas: dict[str, Any]) -> None:
+    """AC : « une réponse partielle chiffrée avec ses affirmations écartées, sans message
+    d'indisponibilité, sans bouton de repli et sans état sûr »."""
+    vue = cas["vue_lecture_partielle"]
+    assert vue["ordre_des_blocs"] == ["seg", "lecture-partielle", "inconnu", "pied", "pourquoi"]
+    assert vue["etat"] == "etat etat-lecture-partielle"
+    assert vue["etat_texte"] == "lecture partielle"
+    assert vue["preuve"] is None  # aucune absence n'est affirmée
+    assert vue["inconnus"] and vue["actions"] == []  # aucun bouton de repli
+    assert vue["pied"] == ["etat etat-lecture-partielle", "etat-phrase", "cout"]
+    # Les affirmations écartées deviennent enfin visibles : le bloc était écrit, jamais atteint.
+    assert [r["texte"] for r in vue["pourquoi"]["rejetees"]] == [
+        "Une affirmation que la vérification a écartée."]
+    # Et la citation d'une claim écartée n'apparaît nulle part (AD-3/AD-11).
+    assert "CETTE QUOTE" not in json.dumps(vue, ensure_ascii=False)
+
+
+def test_un_corps_de_lecture_partielle_mal_forme_nest_pas_peint(cas: dict[str, Any]) -> None:
+    """Un compteur en chaîne est accepté par pydantic (lecture permissive) mais **affiché** tel quel
+    par la page : c'est elle qui doit le refuser, comme pour les compteurs de la preuve d'absence."""
+    vu = cas["contrat_incomplet"]["answer_lecture_compteur_chaine"]
+    assert vu["a_repondu"] is False
+    assert (vu["kind"], vu["code"]) == ("requete", "reponse_illisible")
+    assert vu["lectures_du_moteur_lexical"] == 0

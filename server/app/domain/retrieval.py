@@ -41,6 +41,18 @@ class RetrievalBudget(DomainModel):
 class RetrievalResult(DomainModel):
     blocs: list[Block] = Field(default_factory=list)
     opened_block_ids: list[str] = Field(default_factory=list)
+    # Story 4.2f : les nœuds distincts d'où viennent les **blocs transmis**, dans leur ordre
+    # d'apparition. Aucune variante ne publiait ce nombre, si bien qu'une réponse ne pouvait pas
+    # dire combien elle avait lu.
+    #
+    # Deux bornes, et elles se lisent ensemble. « Transmis » et non « ouvert » : une ouverture dont
+    # le budget de blocs a écarté toute la fenêtre n'a rien fait lire, et la compter gonflerait le
+    # chiffre rendu à l'utilisateur. Mais **tous** les blocs transmis comptent, pas seulement ceux
+    # d'une fenêtre : un bloc entré par `definitions` ou comme dépendance directe a bien été lu, et
+    # AD-2 lui donne exactement un nœud propriétaire. Ne compter que les fenêtres laissait la
+    # variante `outils` — celle qui est servie — annoncer « 0 section lue, N passages transmis »,
+    # deux chiffres qui se contredisent sous les yeux de l'utilisateur.
+    opened_node_ids: list[str] = Field(default_factory=list)
     # Dépendances directes effectivement admises avec une garantie/exclusion primaire. *rédiger*
     # peut ainsi rendre visibles les résolutions utiles sans exiger une claim pour tout le contexte.
     decision_dependency_block_ids: list[str] = Field(default_factory=list)

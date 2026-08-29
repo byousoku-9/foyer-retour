@@ -167,6 +167,7 @@ def declaration(feuille: str, selecteur: str, propriete: str) -> str | None:
 ETATS_DU_CHAT = [
     (".msg .etat-sur", "--surface-2"),
     (".msg .etat-partiel", "--surface-2"),
+    (".msg .etat-lecture-partielle", "--surface-2"),
     (".msg .etat-inconnu", "--surface-2"),
     (".msg .etat-local", "--surface-2"),
     (".msg .langue-repli", "--surface-2"),
@@ -271,7 +272,7 @@ def test_la_teinte_de_fond_dun_badge_detat_ne_mange_pas_son_contraste(
     """Le fond teinté d'un badge est un aplat de **sa propre couleur** : il rapproche le fond du
     texte, donc il retire du contraste. Mesuré : `.etat-partiel` à 14 % tombait à 4,42:1 en thème
     clair. Ce test garde la marge, pour qu'un « 14 % » remis par habitude rougisse."""
-    for selecteur in (".msg .etat-sur", ".msg .etat-partiel"):
+    for selecteur in (".msg .etat-sur", ".msg .etat-partiel", ".msg .etat-lecture-partielle"):
         fond = declaration(feuille, selecteur, "background")
         assert fond and "color-mix" in fond, selecteur
         part = float(re.search(r"([\d.]+)%", fond).group(1))

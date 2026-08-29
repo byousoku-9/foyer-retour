@@ -17,14 +17,17 @@ from server.app.domain.answer import (
     ClaimStatus,
     Lacune,
     LacuneKind,
+    LecturePartielle,
     RejectedClaim,
     Verification,
     VerifiedClaim,
     VerifiedQuote,
 )
+from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.question import QuestionScope
 from server.app.domain.verdict import Verdict
 from server.app.steps.restituer import (
+    PHRASES_DE_LECTURE_PARTIELLE,
     PHRASES_DE_REFUS,
     PHRASES_DE_REFUS_SINISTRE,
     PHRASES_DE_LACUNE,
@@ -488,3 +491,122 @@ def test_les_deux_canaux_sont_affiches_dans_une_seule_liste() -> None:
         PHRASES_DE_LACUNE["fr"]["lecture_bornee"],
         PHRASES_DE_LACUNE["fr"]["renvoi_non_resolu"],
     ]
+
+
+# --- story 4.2f : le troisième porteur, et sa phrase dans les deux registres ----------------------
+
+def _lecture_partielle(nodes: int = 2, blocs: int = 5) -> LecturePartielle:
+    return LecturePartielle(nodes_read=nodes, blocks_read=blocs, documents=["doc-synthetique"])
+
+
+def _refus_verification() -> Verification:
+    """Ce que *vérifier* rend sur ce chemin : rien de retenu, une claim écartée, sa lacune de borne."""
+    return Verification(claims=[], rejected_claims=[_rejet()], found=False, complete=False,
+                        lacunes=[Lacune(kind="lecture_bornee")])
+
+
+def test_une_lecture_partielle_est_une_reponse_et_non_un_refus() -> None:
+    """AD-4 : *restituer* reste la fabrique unique de l'`Answer`, et cette issue en est une troisième.
+
+    Elle ne porte **aucune** preuve d'absence — c'est tout l'objet de la story — mais elle porte ses
+    compteurs, ses affirmations écartées et sa lacune, et sa trace la nomme.
+    """
+    answer, step = restituer(language="fr", verification=_refus_verification(),
+                             lecture_partielle=_lecture_partielle())
+    assert answer.found is False and answer.complete is False and answer.reason is None
+    assert answer.lecture_partielle is not None
+    assert (answer.lecture_partielle.nodes_read, answer.lecture_partielle.blocks_read) == (2, 5)
+    assert answer.texte == PHRASES_DE_LECTURE_PARTIELLE["guide"]["fr"]
+    assert [s.kind for s in answer.segments] == ["limite"]
+    assert answer.unknown == [PHRASES_DE_LACUNE["fr"]["lecture_bornee"]]
+    assert [c.claim_id for c in answer.rejected_claims] == ["c2"]
+    assert [c.name for c in step.checks] == ["lecture_partielle"]
+    assert step.checks[0].ok is False and "2 nœud(s) lu(s)" in step.checks[0].detail
+    assert step.tier is None and step.calls == []
+
+
+@pytest.mark.parametrize("registre", ["guide", REGISTRE_SINISTRE])
+@pytest.mark.parametrize("langue", ["fr", "en", "de", "pt"])
+def test_la_phrase_de_lecture_partielle_existe_dans_les_deux_registres_et_les_quatre_langues(
+        registre: str, langue: str) -> None:
+    """Un registre neuf doit apporter sa garde : celle-ci est vérifiée servie, pas seulement chargée."""
+    answer, _step = restituer(language=langue, registre=registre,
+                              verification=_refus_verification(),
+                              lecture_partielle=_lecture_partielle(),
+                              verdict=Verdict(value="ne_tranche_pas", reason="r")
+                              if registre == REGISTRE_SINISTRE else None)
+    assert answer.lang == langue
+    assert answer.texte == PHRASES_DE_LECTURE_PARTIELLE[registre][langue]
+    assert answer.texte.strip() and answer.unknown == [PHRASES_DE_LACUNE[langue]["lecture_bornee"]]
+
+
+def test_les_deux_registres_ne_disent_pas_la_meme_chose() -> None:
+    """Le guide parle du guide, le sinistre parle du contrat : c'est la règle de la story 1.8, et un
+    registre neuf ne l'échappe pas."""
+    for langue in ("fr", "en", "de", "pt"):
+        guide = PHRASES_DE_LECTURE_PARTIELLE["guide"][langue]
+        contrat = PHRASES_DE_LECTURE_PARTIELLE[REGISTRE_SINISTRE][langue]
+        assert guide != contrat, langue
+    assert "guide" in PHRASES_DE_LECTURE_PARTIELLE["guide"]["fr"]
+    assert "contrat" in PHRASES_DE_LECTURE_PARTIELLE[REGISTRE_SINISTRE]["fr"]
+
+
+def test_le_registre_de_lecture_partielle_couvre_exactement_les_registres_de_refus() -> None:
+    """L'invariant de chargement, vérifié aussi comme propriété : aucun registre en trop ni en moins,
+    et les quatre langues servies pour chacun. Sans lui, un `KeyError` sur le chemin le plus exposé."""
+    assert set(PHRASES_DE_LECTURE_PARTIELLE) == set(REGISTRES)
+    for phrases in PHRASES_DE_LECTURE_PARTIELLE.values():
+        assert set(phrases) == set(LANGUES_SERVIES)
+        assert all(isinstance(p, str) and p.strip() for p in phrases.values())
+
+
+def test_un_verdict_de_sinistre_traverse_la_lecture_partielle_sans_etre_recalcule() -> None:
+    """AD-16 : jamais un sinistre sans verdict — et AD-6 : jamais un verdict de remplacement."""
+    verdict = Verdict(value="ne_tranche_pas", reason="aucune clause retenue")
+    answer, _step = restituer(language="fr", registre=REGISTRE_SINISTRE,
+                              verification=_refus_verification(),
+                              lecture_partielle=_lecture_partielle(),
+                              verdict=verdict,
+                              faits_compris=QuestionScope(bien="registre commun"))
+    assert answer.verdict is verdict
+    assert answer.faits_compris is not None and answer.faits_compris.bien == "registre commun"
+
+
+def test_les_deux_porteurs_ensemble_sont_refuses() -> None:
+    """« Exactement un porteur » : deux comptes rendus du même refus, dont l'un annonce
+    l'exhaustivité que l'autre dément."""
+    with pytest.raises(ValueError, match="deux porteurs d'absence"):
+        restituer(language="fr", verification=_refus_verification(),
+                  reason=AbsenceProof(kind="claims_rejetes"),
+                  lecture_partielle=_lecture_partielle())
+
+
+def test_une_reponse_retenue_nadmet_pas_de_lecture_partielle() -> None:
+    """Une réponse retenue dont la lecture a été bornée dit sa borne dans `unknown[]`, pas ici."""
+    verification = Verification(
+        segments=[AnswerSegment(text="Une affirmation.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=False, lacunes=[Lacune(kind="lecture_bornee")])
+    with pytest.raises(ValueError, match="n'admet pas de LecturePartielle"):
+        restituer(language="fr", verification=verification,
+                  lecture_partielle=_lecture_partielle())
+
+
+def test_sans_reponse_et_sans_porteur_restituer_refuse_toujours() -> None:
+    with pytest.raises(ValueError, match="AbsenceProof.*ou une"):
+        restituer(language="fr", verification=_refus_verification())
+
+
+def test_une_lecture_partielle_sans_borne_dite_est_une_erreur_de_contrat_explicite() -> None:
+    """P11 : la fabrique dit ses contradictions avec ses mots, jamais par une `ValidationError`.
+
+    Le domaine refuserait de toute façon (« une lecture partielle dit ce qui lui manque »), mais il
+    le ferait par pydantic — donc un 500 générique sur le chemin que la story vient d'ouvrir. Les
+    deux autres contradictions de contrat de cette fonction (deux porteurs, un porteur sous une
+    réponse retenue) lèvent déjà un `ValueError` nommé ; celle-ci le fait aussi.
+    """
+    muette = Verification(claims=[], rejected_claims=[_rejet()], found=False, complete=False)
+    with pytest.raises(ValueError, match="exige une vérification qui dise sa borne"):
+        restituer(language="fr", verification=muette, lecture_partielle=_lecture_partielle())
+    # Et sans vérification du tout : même contrat, même message.
+    with pytest.raises(ValueError, match="exige une vérification qui dise sa borne"):
+        restituer(language="fr", lecture_partielle=_lecture_partielle())

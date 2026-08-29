@@ -124,6 +124,21 @@ _MOTS_OUTILS_LIMITES = frozenset({
 })
 
 
+def _noeuds_des_blocs(block_ids: list[str], *, corpus: Corpus, index: Index) -> list[str]:
+    """Story 4.2f — les nœuds distincts d'où viennent ces blocs, dans l'ordre de première apparition.
+
+    AD-2 le rend total : « chaque bloc rattaché à exactement un nœud », vérifié par les invariants
+    d'arbre au chargement du modèle. Il n'y a donc rien à deviner, et aucun bloc transmis ne peut
+    rester sans section d'origine — c'est ce qui empêche le compteur publié de contredire celui des
+    blocs.
+
+    Partagé par les deux variantes : deux calculs auraient divergé au premier amendement, et c'est
+    un chiffre que l'utilisateur lit.
+    """
+    return list(dict.fromkeys(
+        corpus.documents[index.doc_of(b)].node_of(b) for b in block_ids))
+
+
 def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: list[str],
                           doc_id: str | None, search_candidates: Iterable[str],
                           related_limit: int, related_max: int, proximity_min: float,
@@ -496,6 +511,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         candidats_out.extend(b for b in search_candidates if b not in candidats_out)
     result = RetrievalResult(
         blocs=[block(b) for b in admitted], opened_block_ids=list(admitted),
+        # Story 4.2f : les nœuds d'où viennent les blocs **transmis**, tous, y compris ceux entrés
+        # par `definitions` ou comme dépendance directe — `primary_node_by_block` n'en connaît que
+        # les blocs de fenêtre, et s'y limiter laissait la variante servie annoncer « 0 section lue,
+        # N passages transmis ».
+        opened_node_ids=_noeuds_des_blocs(admitted, corpus=corpus, index=index),
         decision_dependency_block_ids=[b for b in decision_dependencies if b in admitted_set],
         discarded_block_ids=discarded, truncated=truncated)
     step.ms = int((time.monotonic() - t0) * 1000)
@@ -767,7 +787,12 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # transmis au modèle, et rien d'autre. Un bloc voisin écarté par le budget n'est pas un candidat
     # de recherche : c'est `truncated` qui porte cette information (revue Codex 1.4, B5).
     discarded = [b for b, _ in hits if b not in set(ordre)]
-    result = RetrievalResult(blocs=blocs, opened_block_ids=opened, discarded_block_ids=discarded,
+    # Story 4.2f : la même règle que côté outils, sur `ordre` — donc **après** le budget de blocs et
+    # de tokens. Un nœud dont toute la fenêtre a été écartée n'a rien fait lire ; un bloc entré hors
+    # fenêtre (définition autonome, renvoi direct) a bien été lu, et son nœud compte.
+    result = RetrievalResult(blocs=blocs, opened_block_ids=opened,
+                             opened_node_ids=_noeuds_des_blocs(ordre, corpus=corpus, index=index),
+                             discarded_block_ids=discarded,
                              decision_dependency_block_ids=dependances_decisionnelles,
                              truncated=truncated)
     step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"], ms=int((time.monotonic() - t0) * 1000),

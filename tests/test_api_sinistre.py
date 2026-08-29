@@ -29,6 +29,7 @@ from server.app.domain.answer import (
     Answer,
     AnswerSegment,
     ClaimStatus,
+    LecturePartielle,
     Quote,
     RejectedClaim,
     VerifiedClaim,
@@ -1299,6 +1300,101 @@ def test_la_ligne_de_log_porte_des_champs_jamais_du_texte(prod: TestClient,
     assert "mobilier" not in brut
 
 
+def _pipeline_sinistre_reel(script: list[dict], **reglages: Any) -> Any:
+    """Le **vrai** `pipelines.sinistre.run`, avec un modèle scripté et des seuils resserrés.
+
+    Le pendant de `_pipeline_reel` du guide : la route reste la vraie, le pipeline reste le vrai, et
+    seule la borne de retrieval de cette requête change — c'est elle qui produit la lecture bornée.
+    """
+    from server.app.llm.client import LlmClient
+    from tests.llm_fake import FakeAnthropic
+
+    anthropic_fake = FakeAnthropic(script)
+
+    async def appeler(doc_id: Any, question: str, faits: Any, **kw: Any):
+        reglage = kw.pop("settings").model_copy(update=reglages)
+        kw["client"] = LlmClient(reglage, anthropic_client=anthropic_fake)
+        return await sinistre.run(doc_id, question, faits, settings=reglage, **kw)
+
+    return appeler
+
+
+def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: TestClient) -> None:
+    """Story 4.2f, la surface **composée** côté sinistre : pipeline réel → route → 200 typé.
+
+    C'est le pipeline où l'affirmation d'absence coûte le plus cher, et donc celui où la jonction
+    mérite d'être prouvée : la borne du retrieval, la vérification qui ne retient rien, le verdict
+    calculé par la table d'AD-6 sur zéro clause et la projection HTTP, sur une seule requête.
+    """
+    import json as _json
+
+    from server.app.llm.models import TIERS
+    from tests.llm_fake import fake_message
+
+    corpus, index = _mini_corpus()
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+    comprendre = fake_message(model=TIERS["micro"], text=_json.dumps({
+        "intent": "question", "question_resolue": QUESTION, "clarification": None, "language": "fr",
+        "terms": ["chaleur"], "themes": [], "facettes": ["couverture du sinistre"],
+        "bien": "mobilier", "evenement": None, "lieu": None, "cause": None, "moment": None}))
+    # Une clause **réelle mais non transmise** : la citation ne peut pas être retenue.
+    ebauche = {"segments": [{"text": "Une clause.", "kind": "factuel", "claim_ids": ["c1"]}],
+               "claims": [{"claim_id": "c1", "text": "Une clause.",
+                           "quotes": [{"block_id": f"{DOC_ID}:p46:1", "quote": EXCLUSION[:40]}]}]}
+    # La variante n'est pas choisie par HTTP (`SinistreRequest` est `extra="forbid"`) : la requête
+    # emprunte donc le **défaut d'AD-1**, `outils`, c'est-à-dire le chemin réellement servi. Le tour
+    # de navigation est scripté ; les outils, eux, s'exécutent pour de bon sur l'index.
+    navigation = fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
+        {"type": "tool_use", "id": "t-chercher", "name": "chercher",
+         "input": {"termes": ["chaleur"]}},
+        {"type": "tool_use", "id": "t-ouvrir", "name": "ouvrir_noeud",
+         "input": {"node_id": f"{DOC_ID}:socle", "focus_block_id": f"{DOC_ID}:p9:2"}}])
+    script = [comprendre, navigation,
+              fake_message(model=TIERS["reason"], text=_json.dumps(ebauche)),
+              fake_message(model=TIERS["reason"], text=_json.dumps(ebauche))]
+    etat.pipeline_sinistre = _pipeline_sinistre_reel(script, retrieval_max_blocks=1)
+
+    r = _poster(prod)
+
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["answer"]["found"] is False and j["answer"]["complete"] is False
+    assert j["answer"]["reason"] is None  # aucune absence du contrat n'est affirmée
+    lue = j["answer"]["lecture_partielle"]
+    ouverts = [b for s in j["trace"]["steps"] for b in s.get("opened_block_ids", [])]
+    assert lue["blocks_read"] == len(set(ouverts)) >= 1
+    assert 1 <= lue["nodes_read"] <= lue["blocks_read"]
+    assert lue["documents"] == [DOC_ID]
+    assert j["trace"]["truncations"] == 1
+    assert j["trace"]["variant"] == "outils"  # le chemin réellement servi
+    # AD-16 : jamais un sinistre sans verdict — et il vient de la table, pas d'un remplacement.
+    assert j["answer"]["verdict"]["value"] == "ne_tranche_pas"
+    assert j["sources"] == [] and j["answer"]["rejected_claims"]
+    assert j["answer"]["unknown"]
+
+
+def test_le_journal_du_sinistre_nomme_aussi_une_lecture_partielle(
+        prod: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Le site frère de `routes/chat.py`, sous la même règle : les deux écrivent le même champ."""
+    import json
+    import logging
+
+    answer = Answer(
+        found=False, complete=False, texte="Ma lecture du contrat s'est arrêtée avant de conclure.",
+        lecture_partielle=LecturePartielle(nodes_read=1, blocks_read=4, documents=[DOC_ID]),
+        verdict=_verdict("ne_tranche_pas", ask_client=[], escalate=[]),
+        unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre."])
+    _brancher(prod, Double((answer, _trace())))
+    with caplog.at_level(logging.INFO, logger="foyer.request"):
+        assert _poster(prod).status_code == 200
+    lignes = [json.loads(r.message) for r in caplog.records if r.name == "foyer.request"]
+    ligne = next(l for l in lignes if l.get("path") == "/api/v1/sinistre")
+    assert ligne["found"] is False and ligne["reason_kind"] == "lecture_tronquee"
+    assert ligne["variants_count"] is None and ligne["blocks_scanned"] is None
+    assert ligne["verdict"] == "ne_tranche_pas"
+
+
 # --- l'état « partiel » traverse l'enveloppe (story 2.3, revue coordonnée A8) ---
 def test_une_reponse_partielle_traverse_lenveloppe_avec_ce_qui_lui_manque(prod: TestClient) -> None:
     """Le contrat sinistre ne publie pas de champ plat `unknown` : c'est l'`Answer` entier qui le
@@ -1318,3 +1414,42 @@ def test_une_reponse_partielle_traverse_lenveloppe_avec_ce_qui_lui_manque(prod: 
     assert j["answer"]["unknown"] == ["La franchise applicable n'est pas dite."]
     # Partielle ne veut pas dire non sourcée : la clause retenue est publiée, et le verdict avec elle.
     assert j["sources"] and j["answer"]["verdict"] is not None
+
+
+# --- story 4.2f : une lecture partielle traverse l'enveloppe en 200 typé ---
+def test_une_lecture_partielle_est_publiee_en_200_avec_son_verdict(prod: TestClient) -> None:
+    """AD-11 : « toute sortie du pipeline est un 200 ». Le gestionnaire recevait « L'analyse est
+    indisponible pour le moment » alors que rien n'était en panne.
+
+    Le contrat sinistre publie `answer` entier : le nouveau porteur traverse sans modification de
+    schéma, et c'est cela que ce test garde. `sources[]` reste vide — aucune clause n'a été retenue —
+    tandis que les clauses écartées voyagent dans `answer`, où la page les affiche.
+    """
+    phrase = "Ma lecture du contrat s'est arrêtée avant de conclure."
+    answer = Answer(
+        found=False, complete=False, texte=phrase,
+        segments=[AnswerSegment(text=phrase, kind="limite")],
+        rejected_claims=[RejectedClaim(
+            claim_id="c2", text="Une clause écartée par la vérification.",
+            quotes=[Quote(block_id=f"{DOC_ID}:p46:1", quote="phrase que le modèle a inventée")],
+            status=ClaimStatus(retrouvee=False, edition="juin 2017"),
+            rejection_kind="non_retrouvee", motif="citation introuvable")],
+        lecture_partielle=LecturePartielle(nodes_read=1, blocks_read=4, documents=[DOC_ID]),
+        verdict=_verdict("ne_tranche_pas", ask_client=[], escalate=[]),
+        faits_compris=QuestionScope(bien="mobilier de salon"),
+        unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre."])
+    _brancher(prod, Double((answer, _trace())))
+
+    r = _poster(prod)
+    j = r.json()
+
+    assert r.status_code == 200
+    assert j["answer"]["found"] is False and j["answer"]["complete"] is False
+    assert j["answer"]["reason"] is None  # aucune absence du contrat n'est affirmée
+    assert j["answer"]["lecture_partielle"] == {"nodes_read": 1, "blocks_read": 4,
+                                                "documents": [DOC_ID]}
+    # AD-16 : jamais un sinistre sans verdict — et jamais un verdict de remplacement.
+    assert j["answer"]["verdict"]["value"] == "ne_tranche_pas"
+    assert j["sources"] == []
+    assert [c["rejection_kind"] for c in j["answer"]["rejected_claims"]] == ["non_retrouvee"]
+    assert j["answer"]["unknown"]

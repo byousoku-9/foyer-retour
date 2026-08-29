@@ -436,6 +436,29 @@ def _describe(event: FactEvent) -> str:
     return f"{event.key} = {event.value} ({source})"
 
 
+def _inconnues_du_tour(initial: Answer, *, found: bool, complete: bool) -> list[str]:
+    """Ce que le tour de suivi déclare ne pas savoir — story 4.2f.
+
+    **Le suivi ne relit rien.** Il n'ouvre aucun nœud, n'appelle aucun modèle et rejoue la table
+    d'AD-6 sur l'état signé du premier tour. Quand ce premier tour était une **lecture partielle**,
+    sa borne vaut donc encore, mot pour mot : le porteur est reconduit par le `model_copy` ci-dessous
+    (il n'y a rien qui l'aurait levée), et il doit l'être **avec ce qu'il annonçait manquer** — le
+    domaine exige qu'une `LecturePartielle` dise ce qui lui manque, et rien ici ne l'apprend.
+
+    Ne pas reconduire le porteur n'était pas une option : `found` reste faux (les affirmations
+    vérifiées du suivi sont celles du premier tour, et une lecture partielle n'en a aucune), et
+    `found=False` exige exactement un porteur. Le retirer aurait laissé un refus sans rien pour
+    l'expliquer ; le garder en vidant `unknown[]` faisait lever pydantic, donc un 400 portant un
+    message de validation interne à chaque tour du fil. Les phrases reconduites sont celles que
+    *restituer* a projetées dans la langue de la réponse : rien n'est réécrit ici.
+    """
+    if initial.lecture_partielle is not None:
+        return list(initial.unknown)
+    if complete or not found:
+        return []
+    return ["Le verdict conserve des conditions, des pièces ou des faits non établis."]
+
+
 def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict) -> Answer:
     """Restitution sans modèle dont aucun texte figé ne peut contredire le verdict courant."""
     labels = {
@@ -474,8 +497,7 @@ def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict
         "segments": [AnswerSegment(text=texte, kind="limite")],
         "claims": verified,
         "rejected_claims": rejected,
-        "unknown": ([] if complete or not found else [
-            "Le verdict conserve des conditions, des pièces ou des faits non établis."]),
+        "unknown": _inconnues_du_tour(initial, found=found, complete=complete),
         "verdict": verdict,
     }, deep=True)
     answer._decision_claims = [claim.model_copy(deep=True) for claim in claims]

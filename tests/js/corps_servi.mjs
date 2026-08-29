@@ -67,6 +67,10 @@ async function principal() {
       // `null` quand l'appariement a été abandonné (liste plate) — à ne pas confondre avec `[]`,
       // qui est une réponse sans segment.
       citations_par_segment: r ? apparier(CHAT, r) : null,
+      // Story 4.2f : le chiffre de la lecture bornée, tel que la page le compose depuis le corps
+      // **sérialisé par le serveur** — et non depuis un littéral écrit dans le harnais.
+      lecture: r ? CHAT.lectureLue(r.answer.lecture_partielle) : null,
+      inconnus: r ? r.unknown : null,
     });
   }
   return releves;

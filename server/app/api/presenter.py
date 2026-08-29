@@ -203,3 +203,32 @@ def clauses_de(answer: Answer, index: Any, corpus: Any) -> list[ClauseSource]:
     return [_clause_item(quote, index=index, corpus=corpus)
             for claim in answer.claims  # AD-4 : retrouvées, pertinentes, et citées par un segment
             for quote in claim.quotes]
+
+
+# AD-10, story 4.2f — les champs d'état que **les deux routes** posent au journal.
+#
+# `reason_kind` est écrit à l'identique par `routes/chat.py` et `routes/sinistre.py` ; le lire sur la
+# seule `AbsenceProof` laissait une lecture partielle servie sortir en `found=false,
+# reason_kind=null, variants_count=null, blocks_scanned=null`, indistinguable de n'importe quel
+# autre 200 — alors que ces requêtes-là étaient, avant la bascule, des lignes d'erreur
+# `budget_exceeded` parfaitement repérables. AD-10 fait de ces champs le support de « l'analytique
+# des échecs » : perdre la cause au moment où elle cesse d'être une erreur, c'est perdre la seule
+# trace de ce que le système fait sur ce chemin.
+#
+# Le mot est celui que le harness d'évals pose déjà sur le même fait (`lecture_tronquee`,
+# `server/evals/run.py`) : le vocabulaire ne change ni avec le code HTTP, ni avec le lecteur.
+# Les deux compteurs restent `None` — ce sont ceux d'un balayage qui n'a pas eu lieu, et le
+# nombre de sections et de passages **lus** n'est pas la même mesure que le nombre de passages
+# parcourus ; les publier sous les mêmes noms mélangerait deux grandeurs dans la même colonne.
+LECTURE_TRONQUEE = "lecture_tronquee"
+
+
+def champs_de_journal(answer: Answer) -> dict[str, Any]:
+    """Les champs d'AD-10 qui décrivent l'issue : jamais un terme cherché, jamais du texte."""
+    if answer.lecture_partielle is not None:
+        return {"reason_kind": LECTURE_TRONQUEE, "variants_count": None, "blocks_scanned": None}
+    if answer.reason is not None:
+        return {"reason_kind": answer.reason.kind,
+                "variants_count": answer.reason.variants_count,
+                "blocks_scanned": answer.reason.blocks_scanned}
+    return {"reason_kind": None, "variants_count": None, "blocks_scanned": None}

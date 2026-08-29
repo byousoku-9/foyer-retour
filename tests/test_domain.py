@@ -210,9 +210,14 @@ def test_answer_models() -> None:
     # `faits_compris` amende AD-4 (story 1.9, D4) : « les faits compris » que l'AC de la story fait
     # afficher sont `ParsedQuestion.scope`, et aucun canal ne les publiait. Ils voyagent donc dans
     # l'unique `Answer`, comme le verdict, et *restituer* est le seul à les y poser.
+    # `lecture_partielle` amende AD-4 (story 4.2f) : le troisième porteur d'état d'une réponse, à
+    # côté de `reason`. Il ne dit pas ce qui n'existe pas — il chiffre ce qui a été lu —, et c'est
+    # précisément pourquoi il n'est **pas** un cinquième `AbsenceKind` : la liste ci-dessus reste
+    # fermée à quatre valeurs, et `AbsenceProof` garde ses cinq champs de balayage exhaustif.
+    assert fields(answer.LecturePartielle) == {"nodes_read", "blocks_read", "documents"}
     assert fields(answer.Answer) == {
         "found", "complete", "lang", "lang_fallback", "texte", "segments", "claims", "rejected_claims",
-        "reason", "verdict", "faits_compris", "unknown", "clarification",
+        "reason", "lecture_partielle", "verdict", "faits_compris", "unknown", "clarification",
     }
 
 
@@ -388,6 +393,104 @@ def test_answer_found_coherence() -> None:
     assert answer.Answer(found=False, complete=False, reason={"kind": "zero_hit"}).unknown == []
 
 
+# AD-4 amendé, story 4.2f — le troisième porteur d'état
+def test_une_lecture_partielle_chiffre_ce_qui_a_ete_lu() -> None:
+    """Les deux compteurs sont **obligatoires** et positifs : ce porteur n'existe que pour chiffrer.
+
+    Un compteur absent le laisserait valoir zéro par défaut, c'est-à-dire annoncer « rien n'a été
+    lu » sur une lecture qui a bien eu lieu — le contraire de ce qu'il promet.
+    """
+    lue = answer.LecturePartielle(nodes_read=2, blocks_read=7, documents=["doc-synthetique"])
+    assert (lue.nodes_read, lue.blocks_read, lue.documents) == (2, 7, ["doc-synthetique"])
+    for absent in ({"blocks_read": 1}, {"nodes_read": 1}):
+        with pytest.raises(ValidationError):
+            answer.LecturePartielle(**absent)
+    for negatif in ({"nodes_read": -1, "blocks_read": 1}, {"nodes_read": 1, "blocks_read": -1}):
+        with pytest.raises(ValidationError):
+            answer.LecturePartielle(**negatif)
+    # `blocks_read >= 1` : zéro bloc transmis n'est pas une lecture partielle, c'est exactement le
+    # cas qu'AD-1/NFR2 gardent en `BudgetExceeded` terminal, **avant** *rédiger*. Un porteur qui
+    # annoncerait n'avoir rien lu n'aurait rien à chiffrer et se confondrait avec cette panne.
+    with pytest.raises(ValidationError):
+        answer.LecturePartielle(nodes_read=0, blocks_read=0)
+    # `nodes_read >= 1` pour la même raison, et elle est symétrique : le compteur est défini comme
+    # les nœuds **des blocs transmis**, résolus par `Document.node_of`, et AD-2 rend cette
+    # résolution **totale** (« chaque bloc rattaché à exactement un nœud », vérifié au chargement).
+    # `blocks_read >= 1 ⟹ nodes_read >= 1` est donc un théorème des deux producteurs : publier zéro
+    # section pour au moins un passage n'est pas un cas rare, c'est un état impossible.
+    with pytest.raises(ValidationError):
+        answer.LecturePartielle(nodes_read=0, blocks_read=1)
+    assert answer.LecturePartielle(nodes_read=1, blocks_read=1).documents == []
+    # `LecturePartielle` n'est **pas** un `AbsenceKind` : la liste reste fermée à quatre valeurs, et
+    # `AbsenceProof` garde les champs d'un balayage exhaustif que la troncature dément.
+    assert "lecture_partielle" not in literal_values(answer.AbsenceProof, "kind")
+    assert "lecture_bornee" not in literal_values(answer.AbsenceProof, "kind")
+
+
+def test_exactement_un_porteur_sur_une_reponse_non_trouvee() -> None:
+    """AD-4 amendé (4.2f) : `reason` **ou** `lecture_partielle`, jamais les deux, jamais aucun.
+
+    C'est la ligne « found=False exige une preuve d'absence » qui condamnait une lecture bornée sans
+    claim survivante au 503 : le seul objet disponible annonçait l'exhaustivité. Elle n'est pas
+    assouplie — le domaine exige toujours un porteur —, elle est typée.
+    """
+    lue = {"nodes_read": 1, "blocks_read": 3}
+    manque = ["il manque des passages"]
+    # Le porteur seul, avec sa lacune : c'est la réponse que la story rend.
+    partielle = answer.Answer(found=False, complete=False, lecture_partielle=lue, unknown=manque)
+    assert partielle.reason is None and partielle.lecture_partielle is not None
+    # Aucun porteur : le dégradé muet d'AD-16.
+    with pytest.raises(ValidationError, match="exactement un porteur"):
+        answer.Answer(found=False, complete=False)
+    # Les deux : deux comptes rendus du même refus, dont l'un ment.
+    with pytest.raises(ValidationError, match="exactement un porteur"):
+        answer.Answer(found=False, complete=False, reason={"kind": "claims_rejetes"},
+                      lecture_partielle=lue, unknown=manque)
+    # Une réponse retenue n'est pas une lecture restée sans conclusion — et le message nomme
+    # désormais **les deux** porteurs (le voisin `test_une_reponse_trouvee_ne_porte_aucun_porteur_
+    # dabsence` tient l'autre moitié, `reason`).
+    claim = {"claim_id": "c", "text": "t",
+             "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1,
+                         "text_start": 0, "text_end": 1}],
+             "status": {"retrouvee": True, "pertinente": True, "edition": "e"}}
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=False, claims=[claim], lecture_partielle=lue,
+                      unknown=manque)
+    # Et elle dit ce qui lui manque : sans lacune, elle chiffrerait sa lecture sans dire pourquoi
+    # celle-ci n'a pas suffi.
+    with pytest.raises(ValidationError, match="lecture partielle dit ce qui lui manque"):
+        answer.Answer(found=False, complete=False, lecture_partielle=lue)
+
+
+def test_une_reponse_trouvee_ne_porte_aucun_porteur_dabsence() -> None:
+    """AD-4 amendé, seconde moitié : « `found=True` n'en porte **aucun** » — ni l'un ni l'autre.
+
+    Le domaine ne fermait que la moitié `lecture_partielle` : `found=True` avec une `AbsenceProof`
+    passait la construction **et** la sérialisation, si bien qu'une page pouvait peindre en même
+    temps une réponse « sûre » et la preuve chiffrée d'une absence. *restituer* le refusait déjà côté
+    producteur, mais c'est le domaine que les deux lecteurs stricts rejouent : tant qu'il l'acceptait,
+    ils l'acceptaient aussi.
+    """
+    claim = {"claim_id": "c", "text": "t",
+             "quotes": [{"block_id": "d:p1:1", "quote": "q", "start": 0, "end": 1,
+                         "text_start": 0, "text_end": 1}],
+             "status": {"retrouvee": True, "pertinente": True, "edition": "e"}}
+    lue = {"nodes_read": 1, "blocks_read": 3}
+    # Le cas de référence : une réponse trouvée n'a **rien** à porter.
+    servie = answer.Answer(found=True, complete=True, claims=[claim])
+    assert servie.reason is None and servie.lecture_partielle is None
+    # Les trois mutations, toutes refusées, et le message les nomme toutes les deux.
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=True, claims=[claim],
+                      reason={"kind": "claims_rejetes"})
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=False, claims=[claim], unknown=["il manque"],
+                      lecture_partielle=lue)
+    with pytest.raises(ValidationError, match="found=True n'admet aucun porteur"):
+        answer.Answer(found=True, complete=False, claims=[claim], unknown=["il manque"],
+                      reason={"kind": "claims_rejetes"}, lecture_partielle=lue)
+
+
 # AD-6
 def test_verdict_models() -> None:
     assert fields(verdict.Verdict) == {"value", "reason", "missing", "ask_client", "escalate"}
@@ -549,9 +652,12 @@ def test_question_and_retrieval() -> None:
     assert clarification.language == "fr" and clarification.lang_fallback is True
     assert {"meteo", "bavardage", "hors_perimetre"} <= literal_values(question.ParsedQuestion, "intent")
     assert fields(question.Faits) == {"date", "lieu", "montant_eur", "description"}
+    # `opened_node_ids` (story 4.2f) : les nœuds ayant réellement contribué aux blocs transmis. La
+    # donnée existait dans les deux variantes de *retrouver* sans être publiée, si bien qu'une
+    # réponse ne pouvait pas dire combien elle avait lu.
     assert fields(retrieval.RetrievalResult) == {
-        "blocs", "opened_block_ids", "decision_dependency_block_ids", "discarded_block_ids",
-        "truncated",
+        "blocs", "opened_block_ids", "opened_node_ids", "decision_dependency_block_ids",
+        "discarded_block_ids", "truncated",
     }
     assert {"max_opens", "node_window", "search_limit", "max_llm_turns"} <= fields(retrieval.RetrievalBudget)
     with pytest.raises(ValidationError):

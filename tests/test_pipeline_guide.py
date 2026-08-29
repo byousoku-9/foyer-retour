@@ -375,28 +375,60 @@ async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None
 async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: Index) -> None:
     """Reprise 1.4 : `max_blocks`/`max_tokens` existaient sans que personne ne les renseigne.
 
-    **Revue Codex 2.3 (B3) : ce test verrouillait la contradiction que l'AC 2.3 nomme.** La borne
-    mord au point que le bloc cité par BONNE n'est plus transmis, la claim est rejetée (« bloc non
-    fourni »), la relance rejoue la même ébauche — et le pipeline publiait alors un `AbsenceProof`
-    (`claims_rejetes`) au terme d'une lecture qu'il avait lui-même tronquée. Une preuve d'absence
-    annonce des termes cherchés et un compte de blocs parcourus : elle affirme l'exhaustivité que la
-    troncature dément. « Budget de retrieval épuisé ou troncature non résolue ⇒ `complete=False` et
-    **jamais** d'`AbsenceProof` » (AC 2.3, NFR2, AD-1) — c'est un échec terminal, avec son code.
+    **Revue Codex 2.3 (B3), puis story 4.2f.** La borne mord au point que le bloc cité par BONNE
+    n'est plus transmis, la claim est rejetée (« bloc non fourni »), la relance rejoue la même
+    ébauche. La 2.3 avait fermé le mensonge — publier un `AbsenceProof` au terme d'une lecture
+    tronquée affirme l'exhaustivité que la troncature dément — par un échec terminal 503. La 4.2f
+    ferme le même mensonge **sans la panne** : la chaîne s'achève, *restituer* rend un `Answer`
+    `found=false` qui ne prouve aucune absence mais chiffre ce qui a été lu.
     """
     settings = _settings(retrieval_max_blocks=1)
-    with pytest.raises(BudgetExceeded, match="aucune absence du corpus n'est affirmée") as capture:
-        await _run(index, [_comprendre(), _rediger(BONNE), _rediger(BONNE)], settings=settings)
-    trace = capture.value.trace  # AD-16 : la trace partielle voyage avec l'erreur
-    assert trace is not None
+    answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE), _rediger(BONNE)],
+                                      settings=settings)
     retrouver = trace.steps[1]
     assert retrouver.name == "retrouver"
     assert len(retrouver.opened_block_ids) == 1  # sans la borne, plusieurs blocs partaient
     assert trace.truncations == 1
     # toute la chaîne a bien tourné, relance comprise (la seconde ébauche est identique, donc pas
-    # de seconde vérification) : ce n'est pas un court-circuit de retrieval, et *restituer* n'a
-    # jamais été atteint — donc aucun `Answer`, donc aucune preuve d'absence n'a pu être publiée.
+    # de seconde vérification), et *restituer* la termine désormais au lieu d'une exception.
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
-                                             "rediger"]
+                                             "rediger", "restituer"]
+    # Aucune absence affirmée : `reason` reste vide, c'est le porteur typé de 4.2f qui parle.
+    assert answer.found is False and answer.complete is False and answer.reason is None
+    assert answer.lecture_partielle is not None
+    assert answer.lecture_partielle.blocks_read == 1
+    assert answer.lecture_partielle.nodes_read == 1
+    assert answer.lecture_partielle.documents == [DOC_ID]
+    # La réponse dit ce qui lui manque, et ce qui a été écarté reste visible.
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    assert answer.rejected_claims
+    assert any(c.name == "lecture_partielle" for c in trace.steps[-1].checks)
+
+
+async def test_sous_lecture_bornee_une_relance_qui_trouve_bat_un_acquis_vide(index: Index) -> None:
+    """Conséquence assumée de la story 4.2f sur la dominance d'AD-3, épinglée pour être visible.
+
+    `domine()` exige que la relance ne laisse pas **plus de manques** que l'acquis. Tant qu'un refus
+    sous lecture bornée ne portait aucune lacune, son `nb_manques` valait zéro : une relance qui
+    trouvait réellement une affirmation vérifiée — et portait donc la lacune `lecture_bornee` — ne
+    dominait pas, l'acquis vide faisait foi, et la requête ressortait en 503. Un acquis vide n'a
+    pourtant rien à perdre : c'est exactement le raisonnement que `sinistre.relance_trouve_clause`
+    écrivait déjà pour l'autre pipeline (« une clause vérifiée bat zéro claim […] seul l'axe des
+    manques peut reculer, ce qui est exactement le vide qu'une lecture tronquée transformait en
+    503 »). Depuis que *vérifier* nomme la borne sur ce refus, les deux pipelines se comportent
+    pareil, sans qu'aucune règle de dominance ait été touchée.
+    """
+    settings = _settings(retrieval_max_blocks=2)  # f2:1 reste fermé : la lecture est bornée
+    answer, trace, fake = await _run(
+        index, [_comprendre(), _rediger(MAUVAISE), _rediger(BONNE), _verdicts(("c1", True))],
+        settings=settings)
+    assert fake.remaining_script == 0 and trace.truncations == 1
+    # La relance a été adoptée : la réponse vérifiée est servie, jamais jetée au profit d'un refus.
+    assert answer.found is True and answer.reason is None and answer.lecture_partielle is None
+    assert [c.claim_id for c in answer.claims] == ["c1"]
+    # La borne se dit alors où AD-4 la veut : dans `unknown[]`, avec `complete=False`.
+    assert answer.complete is False
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
 
 
 async def test_a_refusal_without_truncation_stays_a_served_answer(index: Index) -> None:

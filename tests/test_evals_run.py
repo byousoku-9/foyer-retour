@@ -28,6 +28,7 @@ from server.app.domain.answer import (
     Answer,
     AnswerSegment,
     ClaimStatus,
+    LecturePartielle,
     VerifiedClaim,
     VerifiedQuote,
 )
@@ -890,6 +891,56 @@ def test_un_refus_attendu_trouve_est_un_faux_refus() -> None:
     label, ecarts = runner.juger(_cas(), _refus(), doc_id=GUIDE, index=index)
     assert label == "faux_refus"
     assert any("found=False" in e for e in ecarts)
+
+
+# --- story 4.2f : le 200 typé d'une lecture partielle, dans le vocabulaire du harness -------------
+
+def _lecture_partielle() -> Answer:
+    """Ce que le pipeline rend désormais là où il levait `TruncatedRead` : un 200 sans absence."""
+    return Answer(found=False, complete=False, texte="Ma lecture s'est arrêtée avant de conclure.",
+                  lecture_partielle=LecturePartielle(nodes_read=2, blocks_read=6,
+                                                     documents=[GUIDE]),
+                  unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner la question."])
+
+
+def test_une_lecture_partielle_est_un_claim_non_soutenu_jamais_une_bonne_reponse() -> None:
+    """La bascule du code HTTP ne doit pas verdir la mesure.
+
+    L'ancienne branche d'exception classait la lecture bornée en `claim_non_soutenu` ; le 200 qui la
+    remplace doit produire **le même** label, à la même précédence — avant `faux_refus`, que le
+    `found=False` déclencherait sinon, et loin de `bonne_reponse`, qui est le défaut de `juger()`.
+    """
+    _corpus_, index = _corpus()
+    label, ecarts = runner.juger(_cas(), _lecture_partielle(), doc_id=GUIDE, index=index)
+    assert label == "claim_non_soutenu"
+    assert any("lecture partielle" in e and "2 nœud(s) lu(s)" in e for e in ecarts)
+    # Même sur un cas qui attend un refus, ce n'est pas une bonne réponse : rien n'a été prouvé.
+    attendu_refus = _cas(expected={"found": False, "refusal": True})
+    label_refus, _ = runner.juger(attendu_refus, _lecture_partielle(), doc_id=GUIDE, index=index)
+    assert label_refus == "claim_non_soutenu"
+
+
+def test_le_reason_kind_dune_lecture_partielle_reste_lecture_tronquee() -> None:
+    """Deux campagnes ne restent comparables que si le vocabulaire du harness ne change pas avec le
+    code HTTP : `lecture_tronquee` est le mot que la branche `TruncatedRead` posait déjà.
+
+    Le `Resultat` est produit par **l'exécution** (`runner.executer`), jamais construit ici : c'est
+    la seule façon que ce test rougisse si la branche de production disparaît. Un test qui recopie
+    l'expression du runner dans son propre corps assert sur lui-même et reste vert quel que soit le
+    code — le défaut exact que cette réécriture ferme.
+    """
+    ctx = _armer(_contexte([(_lecture_partielle(), _trace())]))
+    cas = _cas(id="g-lecture-partielle", expected={"found": True})
+
+    resultats, _sortie = _executer(ctx, [cas])
+
+    assert len(resultats) == 1
+    resultat = resultats[0]
+    assert resultat.reason_kind == "lecture_tronquee"
+    assert resultat.label == "claim_non_soutenu"
+    # Un 200, et pas une erreur : c'est la bascule que la story opère, vue depuis le harness.
+    assert resultat.http == 200 and resultat.found is False and resultat.complete is False
+    assert resultat.ok is False  # jamais confondu avec une bonne réponse
 
 
 def test_un_ne_tranche_pas_hors_des_valeurs_admissibles_est_un_faux_refus() -> None:

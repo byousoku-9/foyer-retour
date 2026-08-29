@@ -1,5 +1,65 @@
 # Choix et limites mesurées
 
+## Story 4.2f — une lecture partielle est un état, pas une panne
+
+Quand la chaîne a réellement lu une partie **bornée** du corpus et qu'aucune affirmation ne survit à
+la vérification, la réponse servie est désormais un 200 typé et non un 503. Ce n'était pas un
+mauvais choix au départ : le seul objet disponible sous `found=False` était l'`AbsenceProof`, et il
+publie `blocks_scanned = len(document.blocks)` — l'annonce d'un balayage exhaustif que la troncature
+dément. Opposer cette preuve à l'utilisateur, c'était lui affirmer que le corpus ne dit rien de ce
+que nous n'avions pas lu ; le 503 fermait ce mensonge, au prix d'un écran « assistant indisponible »
+pendant que rien n'était en panne.
+
+**L'état a maintenant son propre type.** `Answer.lecture_partielle` porte `nodes_read`,
+`blocks_read` et `documents` : les nœuds d'où viennent les blocs transmis, les blocs *effectivement*
+transmis, et le document lu. Jamais la taille du document. Deux bornes se lisent ensemble. Un nœud
+dont le budget de blocs a écarté toute la fenêtre n'est pas compté — un compteur d'ouvertures aurait
+gonflé le chiffre rendu à l'écran. Mais **tous** les blocs transmis comptent, y compris ceux entrés
+par une définition ou une dépendance directe : AD-2 leur donne exactement un nœud propriétaire, et
+ne compter que les fenêtres laissait le chemin servi annoncer « 0 section lue, N passages
+transmis ». Enfin `blocks_read ≥ 1` : zéro bloc transmis n'est pas une lecture partielle, c'est
+l'échec terminal qu'AD-1/NFR2 gardent en `BudgetExceeded`, levé avant *rédiger*.
+
+**Le journal et le fil de conversation parlent la même langue.** Les deux routes nomment l'issue
+`lecture_tronquee` — le mot que le harness d'évals posait déjà —, sans quoi ces requêtes, qui
+sortaient auparavant en lignes d'erreur `budget_exceeded`, seraient devenues indistinguables de
+n'importe quel autre 200 au moment même où elles cessaient d'être des erreurs. Et un tour de suivi
+(story 3.7) reconduit le porteur **avec** ce qu'il annonçait manquer : le suivi ne relit rien, donc
+la borne du premier tour vaut encore à chaque tour.
+
+**Trois frontières, et elles sont vérifiables.**
+
+- *Avec la preuve d'absence.* `AbsenceKind` reste fermé à ses quatre valeurs et `AbsenceProof` est
+  inchangé : une lecture bornée n'en produit jamais. Le domaine exige **exactement un** porteur sur
+  `found=False` — `reason` ou `lecture_partielle`, jamais les deux, jamais aucun —, et les deux
+  fronts refont l'invariant à la lecture. Un refus dont la lecture était complète continue de porter
+  sa preuve, inchangée.
+- *Avec la panne.* Un retrieval vidé par le budget, un appel de relance commencé puis échoué, un
+  corpus indisponible, un délai dépassé, un plafond de coût, un parse invalide : tous gardent leur
+  exception, leur code et leur 503. La ligne de partage n'est pas une opinion — le zéro-bloc lève
+  avant *rédiger*, le partage « un appel a-t-il démarré ? » décide des relances, et l'enveloppe
+  d'erreur n'a pas changé d'une ligne.
+- *Avec la réponse partielle.* Une réponse **retenue** dont la lecture a été bornée n'a pas ce
+  porteur : sa borne se dit dans `unknown[]` par la lacune `lecture_bornee`, et `complete=False` la
+  publie, comme avant. Le porteur n'existe que là où il n'y a rien à montrer.
+
+**Ce que la réponse dit.** Elle ne dit pas ce qui n'existe pas, elle chiffre ce qui a été lu : une
+phrase composée par le code (deux registres, quatre langues), les compteurs, les affirmations
+écartées par la vérification — enfin visibles, le bloc qui les affiche n'ayant jamais été atteint
+sous troncature — et un `unknown[]` qui porte au moins la lacune de lecture bornée. En sinistre, le
+verdict reste le `ne_tranche_pas` que la table d'AD-6 rend sur zéro clause affichée : aucun verdict
+de remplacement n'est fabriqué, et AD-6 est inchangée.
+
+**Limite assumée, publiée avant d'être mesurée.** Cette story change un **état produit**, pas une
+qualité mesurée. Les cas qui rendaient 503 sur ce chemin rendront un 200 typé ; ce n'est ni une
+amélioration du rappel ni du jugement, et rien ici ne prétend qu'une réponse de plus est juste. Le
+harness d'évals le dit d'ailleurs dans les mêmes mots qu'avant la bascule : label
+`claim_non_soutenu`, `reason_kind = lecture_tronquee`, jamais `bonne_reponse`. `TruncatedRead` est
+conservée sans producteur pour cette raison précise — elle reste le contrat qui distingue, côté
+harness, une lecture bornée d'un plafond financier, lequel interrompt la campagne. Combien de cas
+basculent, et si la réponse partielle sert mieux l'utilisateur que le message d'indisponibilité,
+relève d'une mesure à part, avec son SHA.
+
 ## Story 4.2c — colonnes géométriques et structure proposée puis vérifiée
 
 Trois limites de l'ingestion sont levées ensemble, et une quatrième est publiée avant d'être mesurée.

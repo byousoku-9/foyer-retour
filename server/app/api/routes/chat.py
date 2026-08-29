@@ -28,7 +28,7 @@ import re
 
 from fastapi import APIRouter, Depends, Request
 
-from server.app.api.presenter import fiches_de, sources_de
+from server.app.api.presenter import champs_de_journal, fiches_de, sources_de
 from server.app.api.schemas import VIA, ChatRequest, ChatResponse
 from server.app.corpus.text import normalize
 from server.app.domain.errors import PipelineError
@@ -91,9 +91,9 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
     request.state.log_fields.update(
         intent=trace.intent, found=answer.found,
         verdict=answer.verdict.value if answer.verdict is not None else None,
-        reason_kind=answer.reason.kind if answer.reason is not None else None,
-        variants_count=answer.reason.variants_count if answer.reason is not None else None,
-        blocks_scanned=answer.reason.blocks_scanned if answer.reason is not None else None,
+        # Story 4.2f : la cause de l'issue, nommée par `presenter.champs_de_journal` — une seule
+        # règle pour les deux routes, qui écrivent le même champ.
+        **champs_de_journal(answer),
         cost_eur=trace.total_cost_eur)
     return ChatResponse(texte=answer.texte, segments=answer.segments, sources=sources,
                         fiches=fiches_de(sources), unknown=answer.unknown,

@@ -343,6 +343,45 @@ function reponseRefus() {
   };
 }
 
+/**
+ * Story 4.2f : une **lecture partielle** — 200, `found=false`, aucune preuve d'absence, mais des
+ * compteurs, une clause écartée, la lacune qui dit la borne et le `ne_tranche_pas` calculé par
+ * AD-6. C'est le corps que le pipeline rend là où il levait `TruncatedRead`, et que la page
+ * recevait en 503 « L'analyse est indisponible pour le moment ».
+ */
+function reponseLecturePartielle() {
+  const phrase = "Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre, et aucune des "
+    + "clauses citées n'a passé la vérification.";
+  const manque = "Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a "
+    + "été bornée, et des passages sont restés fermés.";
+  return {
+    answer: {
+      found: false, complete: false, lang: "fr", texte: phrase,
+      segments: [{ text: phrase, kind: "limite", claim_ids: [] }],
+      claims: [],
+      rejected_claims: [{
+        claim_id: "c9", text: "Une clause que la vérification a écartée.",
+        quotes: [{ block_id: "cg-mini:p46:1", quote: "CETTE QUOTE NE DOIT JAMAIS S'AFFICHER" }],
+        status: { retrouvee: false, edition: "juin 2017" },
+        rejection_kind: "non_retrouvee", motif: "citation introuvable",
+      }],
+      reason: null,
+      lecture_partielle: { nodes_read: 1, blocks_read: 4, documents: [DOC_ID] },
+      verdict: { value: "ne_tranche_pas",
+                 reason: "Aucune clause vérifiée (au regard des conditions générales seules)",
+                 missing: { conditions_particulieres: true, options_souscrites: true,
+                            avenants: true, date_effet: true, faits: [] },
+                 ask_client: [], escalate: [] },
+      faits_compris: { themes: [], bien: "mobilier de salon", evenement: null, lieu: null,
+                       cause: null, moment: null },
+      unknown: [manque], clarification: null,
+    },
+    sources: [], via: "api/v1",
+    trace: { request_id: "r-4-2f", pipeline: "sinistre", variant: "deterministe",
+             total_cost_eur: 0.0181, steps: [] },
+  };
+}
+
 /** AD-5 : `ClarificationRequise` — le seul chemin où le système **pose une question** en retour. */
 function reponseClarification() {
   const phrase = "Je n'ai pas pu déterminer sur quoi porte la demande ; précisez-la et je "
@@ -740,6 +779,51 @@ async function main() {
         .map((n) => n.texte),
       faits_compris: aplatirVue(vueClarif).filter((n) => n.cls === "fc-ligne").length,
       clauses: aplatirVue(vueClarif).filter((n) => n.cls === "clause").length,
+    };
+
+    // Story 4.2f : la lecture partielle — badge, phrase, compteurs, clauses écartées, et surtout
+    // aucun message d'indisponibilité ni bouton de repli.
+    const vueLecture = SINISTRE.vueVerdict(reponseLecturePartielle());
+    const platLecture = aplatirVue(vueLecture);
+    cas.verdict_lecture_partielle = {
+      badge: platLecture.filter((n) => n.cls && n.cls.indexOf("badge") === 0)
+        .map((n) => ({ cls: n.cls, texte: n.texte })),
+      analyse: textesDe(vueLecture, "analyse-txt"),
+      preuve: textesDe(vueLecture, "preuve"),
+      lecture: textesDe(vueLecture, "lecture-partielle"),
+      inconnu: platLecture.filter((n) => n.cls === "inconnu-liste")
+        .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      clauses: platLecture.filter((n) => n.cls === "clause").length,
+      rejetees: platLecture.filter((n) => n.cls === "rejetee")
+        .map((n) => aplatirVue(n).map((x) => x.texte).filter((t) => t)),
+      etat: platLecture.filter((n) => (n.cls || "").split(" ")[0] === "etat").map((n) => n.cls),
+      etat_texte: platLecture.filter((n) => (n.cls || "").split(" ")[0] === "etat")
+        .map((n) => n.texte),
+      etat_phrase: textesDe(vueLecture, "etat-phrase"),
+      faits_compris: platLecture.filter((n) => n.cls === "fc-ligne")
+        .map((n) => n.enfants.map((e) => e.texte)),
+      boutons: platLecture.filter((n) => n.tag === "button").length,
+      actions: platLecture.filter((n) => n.action).length,
+      texte_entier: texteEntier(vueLecture),
+    };
+    cas.lecture_textes = {
+      pluriel: SINISTRE.lectureLue({ nodes_read: 3, blocks_read: 12, documents: [] }),
+      singulier: SINISTRE.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
+      plancher: SINISTRE.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
+      absente: SINISTRE.lectureLue(null),
+    };
+    cas.etats_lecture_partielle = {
+      porteur: SINISTRE.etatReponse({ found: false, complete: false,
+                                      lecture_partielle: { nodes_read: 1, blocks_read: 1 } }),
+      sans_porteur: SINISTRE.etatReponse({ found: false, complete: false }),
+    };
+    cas.phrases_lecture_partielle = {
+      avec_liste: SINISTRE.phraseEtat({ cle: "lecture-partielle" }, { liste: true, lecture: true }),
+      sans_liste: SINISTRE.phraseEtat({ cle: "lecture-partielle" }, { liste: false, lecture: true }),
+      sans_chiffre: SINISTRE.phraseEtat({ cle: "lecture-partielle" },
+                                        { liste: true, lecture: false }),
+      sans_rien: SINISTRE.phraseEtat({ cle: "lecture-partielle" },
+                                     { liste: false, lecture: false }),
     };
 
     // Un verdict dont la valeur n'est pas au contrat : dit, jamais traduit en valeur connue.
@@ -1570,6 +1654,61 @@ async function main() {
       trace_seuil_infini: (() => {
         const r = reponseVerdict(); r.trace.thresholds = { max_opens: Infinity }; return r;
       })(),
+      // Story 4.2f : le second porteur d'un `found=false`, lu aussi strictement que le premier.
+      lecture_sans_compteur: (() => {
+        const r = reponseLecturePartielle();
+        delete r.answer.lecture_partielle.nodes_read; return r;
+      })(),
+      lecture_compteur_negatif: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.blocks_read = -1; return r;
+      })(),
+      lecture_compteur_chaine: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.nodes_read = "2"; return r;
+      })(),
+      lecture_non_objet: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle = "partielle"; return r;
+      })(),
+      lecture_documents_nuls: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.documents = null; return r;
+      })(),
+      deux_porteurs: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.reason = { kind: "claims_rejetes", terms_searched: [], variants_count: 0,
+                            blocks_scanned: 3, documents: [DOC_ID] };
+        return r;
+      })(),
+      aucun_porteur: (() => {
+        const r = reponseRefus(); r.answer.reason = null; return r;
+      })(),
+      lecture_sans_manque: (() => {
+        const r = reponseLecturePartielle(); r.answer.unknown = []; return r;
+      })(),
+      // I1 : les deux porteurs sont interdits sous `found: true`, pas seulement le second.
+      reason_sur_reponse_trouvee: (() => {
+        const r = reponseVerdict();
+        r.answer.reason = { kind: "claims_rejetes", terms_searched: [], variants_count: 0,
+                            blocks_scanned: 3, documents: [DOC_ID] };
+        return r;
+      })(),
+      // I2 : les deux compteurs ont un plancher à 1 — zéro section pour au moins un passage est un
+      // état impossible, zéro passage est une erreur terminale d'AD-1/NFR2.
+      lecture_sans_section: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.nodes_read = 0; return r;
+      })(),
+      lecture_sans_passage: (() => {
+        const r = reponseLecturePartielle();
+        r.answer.lecture_partielle.blocks_read = 0; return r;
+      })(),
+      lecture_sur_reponse_trouvee: (() => {
+        const r = reponseVerdict();
+        r.answer.lecture_partielle = { nodes_read: 1, blocks_read: 2, documents: [DOC_ID] };
+        return r;
+      })(),
     };
     cas.illisibles = {};
     for (const [nom, corps] of Object.entries(incomplets)) {
@@ -1629,6 +1768,9 @@ async function main() {
         r.trace.steps = [{ name: "restituer", tier: null, ms: 1, checks: [] }];
         return r;
       })(),
+      // Story 4.2f : le corps que la story fait naître **est** un corps servable. Un lecteur qui le
+      // refuserait remplacerait le 503 par un écran illisible — une régression pire encore.
+      lecture_partielle: reponseLecturePartielle(),
     };
     cas.lisibles = {};
     for (const [nom, corps] of Object.entries(conformes)) {

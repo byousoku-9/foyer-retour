@@ -24,10 +24,10 @@ from typing import Any
 
 from server.app.config import Settings
 from server.app.digests import pipeline_digest, prompts_digest
-from server.app.domain.answer import Lacune, Verification
+from server.app.domain.answer import Lacune, LecturePartielle, Verification
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.langue import normaliser_langue_forcee
-from server.app.domain.retrieval import RetrievalBudget
+from server.app.domain.retrieval import RetrievalBudget, RetrievalResult
 from server.app.domain.trace import BlocTrace, DictionnaireTrace, GateTrace, StepTrace
 
 # AD-5 : les intents qui se tranchent sur la seule sortie de *comprendre*, avant tout appel `reason`.
@@ -44,6 +44,22 @@ APPELS_DE_LA_RELANCE = 2
 # pas une phrase : *restituer* seul la projette dans la langue de la réponse. Elle vit ici parce que
 # seul le pipeline sait qu'une relance a été empêchée.
 LACUNE_RELANCE_ABANDONNEE = Lacune(kind="relance_abandonnee")
+
+
+def lecture_partielle_de(retrieval: RetrievalResult, *, doc_id: str) -> LecturePartielle:
+    """Story 4.2f — ce que la lecture a **effectivement** couvert, chiffré depuis le retrieval.
+
+    Les deux compteurs se lisent sur ce qui est parti au modèle, jamais sur la taille du document :
+    `AbsenceProof.blocks_scanned` publie `len(document.blocks)`, c'est-à-dire l'annonce d'un balayage
+    exhaustif — exactement ce qu'une lecture bornée ne peut pas promettre. `opened_node_ids` est déjà
+    filtré par *retrouver* sur les nœuds ayant réellement contribué aux blocs transmis.
+
+    Partagé par les deux pipelines : deux copies auraient divergé au premier amendement, et c'est un
+    chiffre que l'utilisateur lit.
+    """
+    return LecturePartielle(nodes_read=len(retrieval.opened_node_ids),
+                            blocks_read=len(retrieval.blocs),
+                            documents=[doc_id])
 
 
 def normaliser_langue_pipeline(lang: str | None) -> str | None:
