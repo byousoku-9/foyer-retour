@@ -370,7 +370,8 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
     canonique les tient désormais à leurs vocabulaires fixes et à leur forme d'empreinte (revue B5),
     si bien qu'ils ne peuvent plus porter de caractère dangereux. Les six champs restants sont ceux
     qui restent **réellement** libres — profil, motif d'arrêt, identifiants de cas, variantes —, et
-    l'échappement se prouve sur eux.
+    l'échappement se prouve sur eux. Les trois autres cellules gardent leur preuve, par une autre
+    voie : `test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege`.
     """
     rapport = {
         "complete": False, "profile": "p|`\nligne", "cases_completed": 0,
@@ -399,6 +400,47 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
         assert brut not in markdown
     assert "<code>" in markdown and "&#124;" in markdown and "&#96;" in markdown and "<br>" in markdown
     assert "`i&#124;" not in markdown, "une entité ne doit pas être enfermée dans un code span"
+
+
+def test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue P13 : la couverture d'échappement ne rétrécit pas parce qu'un vocabulaire s'est fermé.
+
+    `suite`, `label` et `cases_hash` sont désormais inoffensifs **par construction** — la validation
+    canonique les refuse hors vocabulaire ou hors forme d'empreinte. C'est vrai, et c'est une
+    meilleure défense ; mais la couche de rendu doit continuer à les échapper, sans quoi la
+    réouverture d'un vocabulaire rouvrirait aussi l'injection.
+
+    La validation est donc neutralisée ici — et **seulement** ici — pour que `rendre_markdown`
+    s'exécute réellement sur les trois cellules dangereuses. L'assertion porte sur le texte que la
+    fonction rend, jamais sur une reconstitution de ce qu'elle est censée faire.
+    """
+    from server.app.domain.evals import (CoutPublie, LatencePubliee, PublicationEvals,
+                                         StabilitePubliee)
+
+    monkeypatch.setattr(runner, "valider_rapport_publiable", lambda rapport: rapport)
+    rapport = {
+        "complete": True, "profile": "p", "cases_completed": 1, "cases_planned": 1,
+        "stop_reason": None, "cases_hash": "h|`\nligne",
+        "unexecuted_cases": [], "identity": {}, "decisions": [], "repeat": 1, "cost_eur": 0.0,
+        "metrics": {"recall": 0.0, "average_cost_eur": 0.0, "latency_p50_ms": 0,
+                    "latency_p95_ms": 0, "cost_p95_eur": 0.0, "ne_tranche_pas_rate": 0.0,
+                    "labels": {label: 0 for label in runner.LABELS}, "variants": {}},
+        "results": [{"id": "i", "suite": "s|`\nligne", "variant": "v",
+                     "label": "l|`\nligne", "cost_eur": 0.0, "cost_eur_original": 0.0,
+                     "latency_ms": 0}],
+    }
+    # Une publication valide est fournie : `rendre_markdown` ne construit alors rien, et ce test
+    # porte bien sur le **journal du run**, la seule moitié qui rend ces trois cellules.
+    publication = PublicationEvals(
+        profile="p", recall=0.0, stabilite=StabilitePubliee(n=1, cas_stables=0,
+                                                            cas_comptabilises=0),
+        cout=CoutPublie(froid_eur=0.0, moyen_eur=0.0, p95_eur=0.0),
+        latence=LatencePubliee(p50_ms=0, p95_ms=0), ne_tranche_pas_rate=0.0)
+    rendu = rendre_markdown(rapport, publication)
+    for brut in ("h|`", "s|`", "l|`"):
+        assert brut not in rendu, f"{brut!r} rendu sans échappement"
+    assert "&#124;" in rendu and "&#96;" in rendu and "<br>" in rendu
 
 
 def test_ladaptateur_ci_transmet_quick_et_tous_ses_chemins(

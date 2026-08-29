@@ -94,6 +94,11 @@ DOMAINES_MESURES: dict[str, tuple[float | None, float | None]] = {
     # Une décision se lit contre son plancher : les deux vivent dans `[0, 1]` comme les témoins.
     "threshold": (0.0, 1.0),
     "value": (0.0, 1.0),
+    # `n` était le **seul** champ de `CHAMPS_DECISION` sans domaine (revue P3) : `n = -5` passait la
+    # validation canonique, puis sortait en `ValidationError` pydantic nue à la construction de
+    # `GateDecision` — donc en « incident de rapport », code 3, alors que le défaut est dans les
+    # données. C'est la ligne de partage d'AD-8, franchie dans le sens que la spec interdit.
+    "n": (0, None),
 }
 # Les clés que **chaque exécution** du journal de run indexe (`run.rendre_markdown`), avec le type
 # qu'elle doit porter. Une clé manquante y levait un `KeyError` nu (revue R1).
@@ -117,6 +122,12 @@ CHAMPS_DECISION: tuple[tuple[str, str], ...] = (
     ("run_digest", "empreinte"), ("status", "texte"),
 )
 STATUTS_DECISION: frozenset[str] = frozenset({"green", "red"})
+# Les clés qu'une décision peut porter, **exactement** : les huit obligatoires plus `reason`, qui
+# vaut `None` quand le statut se lit sur la valeur. `GateDecision` est `extra="forbid"`, si bien
+# qu'une clé en trop y levait une `ValidationError` nue — donc un code 3 (revue P3). `decisions[i]`
+# était la seule structure fermée du module contrôlée sans égalité d'ensemble, alors que
+# `metrics.labels`, `CLES_PREUVE_TRUSTED`, `CandidatClassement` et `Configuration` le sont tous.
+CLES_DECISION: frozenset[str] = frozenset({champ for champ, _forme in CHAMPS_DECISION} | {"reason"})
 # Le vocabulaire de `--producer` : la règle trusted ne reconnaît que l'orchestrateur comme
 # producteur de preuve, un run de builder est un diagnostic. Il n'y en a pas de troisième.
 PRODUCTEURS_DECISION: frozenset[str] = frozenset({"builder", "orchestrator"})
@@ -409,6 +420,15 @@ def _valider_stabilite(rapport: dict[str, Any]) -> None:
     if not isinstance(cases, dict):
         raise RapportInexploitable(
             f"rapport : 'stability.cases' doit être un objet ({type(cases).__name__} reçu)")
+    if not cases:
+        # Le tour précédent avait fermé l'**absence** de `cases` et laissé le **vide** ouvert
+        # (revue P4) : `{"n": 3, "cases": {}}` publiait `0/0`, le chiffre fabriqué exact que ce
+        # module refuse. Un agrégat de stabilité n'est écrit que sous `repeat > 1`, et
+        # `agreger_stabilite` y range une entrée par cas : sans aucune entrée, il n'y a pas
+        # d'agrégat, il y a un agrégat qu'on n'a pas su écrire.
+        raise RapportInexploitable(
+            "rapport : 'stability.cases' est vide — publier « 0/0 » dirait « aucun cas n'était "
+            "stable » là où le rapport n'a mesuré aucun cas du tout")
     for case_id, detail in cases.items():
         if not isinstance(detail, dict):
             raise RapportInexploitable(
@@ -436,19 +456,41 @@ def _valider_decisions(rapport: dict[str, Any]) -> None:
     par pydantic à la construction de `GateDecision`, et le `run_digest` d'une décision n'était
     opposé à rien.
 
-    L'opposition du `run_digest` a une nuance que le code doit dire exactement, sous peine de
-    refuser un chemin légitime : une décision **mesurée par ce run** porte l'empreinte de ce run.
-    Une décision qui vient d'une preuve externe (`--orchestrator-evidence`) porte celle du run que
-    la preuve mesure — `plancher.verifier_liaison_preuve` l'a déjà opposée à ses propres octets. Le
-    rapport déclare donc ces empreintes étrangères dans `external_run_digests`, et **rien d'autre**
-    n'est admis : une empreinte ni celle du run, ni déclarée, est un refus dit.
+    Sur le `run_digest` d'une décision, ce module dit **exactement ce qu'il peut établir**, et pas
+    un mot de plus (revue P5). Ce qu'il voit est un rapport, c'est-à-dire une entrée non fiable :
+    la liaison cryptographique d'une preuve externe à ce candidat n'a pas lieu ici, elle a lieu à
+    l'**ingestion** de la preuve — `plancher.verifier_liaison_preuve`, appelée par
+    `run.charger_decisions_orchestrateur` avant qu'aucune décision externe n'existe. Écrire que
+    `external_run_digests` est « adossé » à cette vérification serait annoncer une liaison qui n'a
+    pas lieu à cet endroit.
+
+    Ce que la validation établit est donc une **cohérence interne**, et elle est stricte :
+
+    - une décision porte l'empreinte de ce run, ou l'une de celles que le rapport déclare dans
+      `external_run_digests` — c'est le chemin `--orchestrator-evidence`, où une décision porte
+      légitimement l'empreinte du run que la preuve mesure ;
+    - une empreinte étrangère n'est admise que sur une décision `producer="orchestrator"` : le
+      runner n'écrit jamais autre chose que sa propre empreinte pour ses propres mesures, donc une
+      décision `builder` portant une empreinte étrangère est incohérente quoi qu'il arrive ;
+    - toute empreinte déclarée doit être **effectivement portée** par au moins une décision : une
+      déclaration qui ne sert à rien est une porte laissée ouverte, pas une donnée.
     """
+    identite = rapport.get("identity")
+    propre = (identite or {}).get("run_digest") if isinstance(identite, dict) else None
+    # **Validé inconditionnellement** (revue P5, chemin frère) : le retour anticipé « pas de
+    # décisions » sautait ce contrôle, si bien qu'un `external_run_digests` mal formé passait dès
+    # que le rapport n'avait aucune décision.
+    externes = rapport.get("external_run_digests", [])
+    if not isinstance(externes, list) or any(not _est_empreinte(d, 64) for d in externes):
+        raise RapportInexploitable(
+            f"rapport : 'external_run_digests' doit être une liste d'empreintes 64 hexadécimales "
+            f"({externes!r} reçu)")
     if rapport.get("plancher_digest") is not None:
         decisions = _exiger(rapport, "decisions", (list,))
     else:
         decisions = rapport.get("decisions")
         if decisions is None:
-            return
+            decisions = []
         if not isinstance(decisions, list):
             raise RapportInexploitable(
                 f"rapport : 'decisions' doit être une liste ({type(decisions).__name__} reçu)")
@@ -461,19 +503,18 @@ def _valider_decisions(rapport: dict[str, Any]) -> None:
         raise RapportInexploitable(
             f"rapport : 'plancher_digest' doit être 64 caractères hexadécimaux "
             f"({rapport.get('plancher_digest')!r} reçu)")
-    identite = rapport.get("identity")
-    propre = (identite or {}).get("run_digest") if isinstance(identite, dict) else None
-    externes = rapport.get("external_run_digests", [])
-    if not isinstance(externes, list) or any(not _est_empreinte(d, 64) for d in externes):
-        raise RapportInexploitable(
-            f"rapport : 'external_run_digests' doit être une liste d'empreintes 64 hexadécimales "
-            f"({externes!r} reçu)")
-    opposables = {str(d) for d in externes} | ({str(propre)} if _est_empreinte(propre, 64) else set())
+    etrangeres_portees: set[str] = set()
     for rang, decision in enumerate(decisions):
         chemin = f"decisions[{rang}]"
         if not isinstance(decision, dict):
             raise RapportInexploitable(
                 f"rapport : {chemin} doit être un objet ({type(decision).__name__} reçu)")
+        superflues = sorted(set(decision) - CLES_DECISION)
+        if superflues:
+            raise RapportInexploitable(
+                f"rapport : {chemin} porte des clés inconnues {superflues} — le vocabulaire d'une "
+                f"décision est fermé ({sorted(CLES_DECISION)}), et une clé en trop sortirait en "
+                "ValidationError nue plutôt qu'en refus dit")
         for champ, forme in CHAMPS_DECISION:
             if forme == "texte":
                 vocabulaire = {"status": STATUTS_DECISION,
@@ -489,11 +530,24 @@ def _valider_decisions(rapport: dict[str, Any]) -> None:
             raise RapportInexploitable(
                 f"rapport : {chemin}.reason doit être une chaîne ou null "
                 f"({type(decision['reason']).__name__} reçu)")
-        if decision["run_digest"] not in opposables:
+        if decision["run_digest"] == propre:
+            continue
+        if decision["run_digest"] not in externes:
             raise RapportInexploitable(
                 f"rapport : {chemin}.run_digest vaut {decision['run_digest']!r} — ce n'est ni "
                 f"l'empreinte de ce run ({propre!r}), ni une empreinte déclarée dans "
                 "'external_run_digests' : cette décision n'est opposée à aucun run")
+        if decision["producer"] != "orchestrator":
+            raise RapportInexploitable(
+                f"rapport : {chemin} porte l'empreinte d'un autre run alors que son producteur est "
+                f"{decision['producer']!r} — seule une mesure venue d'une preuve orchestrateur peut "
+                "avoir été prise ailleurs que dans ce run")
+        etrangeres_portees.add(str(decision["run_digest"]))
+    orphelines = sorted(set(map(str, externes)) - etrangeres_portees)
+    if orphelines:
+        raise RapportInexploitable(
+            f"rapport : 'external_run_digests' déclare {orphelines} qu'aucune décision ne porte — "
+            "une empreinte déclarée sans usage n'est pas une donnée, c'est une porte ouverte")
 
 
 class ArchivePrecedenteIllisible(Exception):

@@ -2358,11 +2358,17 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
         rapport["decisions"] = [d.model_dump(mode="json") for d in decisions]
         # **Les empreintes de run étrangères sont déclarées**, jamais implicites (revue B5, tour
         # correctif 1/3). Une décision venue d'une preuve trusted porte le `run_digest` du run que
-        # cette preuve mesure — `verifier_liaison_preuve` l'a opposé à ses propres octets —, et non
-        # celui de ce run-ci. Sans cette liste, la validation canonique n'avait aucun moyen de
-        # distinguer cette empreinte légitime d'une empreinte arbitraire : elle n'était opposée à
-        # rien. Elle n'est écrite que lorsqu'il y en a — un rapport sans preuve externe ne déclare
-        # pas une liste vide qu'il faudrait ensuite interpréter.
+        # cette preuve mesure, et non celui de ce run-ci. Sans cette liste, la validation canonique
+        # n'avait aucun moyen de distinguer cette empreinte légitime d'une empreinte arbitraire.
+        #
+        # Ce que la liste établit et ce qu'elle n'établit pas (revue P5) : elle rend le rapport
+        # **cohérent avec lui-même** — chaque empreinte étrangère est portée par au moins une
+        # décision `producer="orchestrator"`, et réciproquement. La liaison cryptographique de la
+        # preuve à ce candidat, elle, a déjà eu lieu **en amont**, dans
+        # `charger_decisions_orchestrateur` → `verifier_liaison_preuve`, avant qu'aucune de ces
+        # décisions n'existe : un lecteur de rapport ne peut ni la voir ni la refaire. Elle n'est
+        # écrite que lorsqu'il y en a — un rapport sans preuve externe ne déclare pas une liste vide
+        # qu'il faudrait ensuite interpréter.
         etrangeres = sorted({d.run_digest for d in decisions if d.run_digest != run_digest})
         if etrangeres:
             rapport["external_run_digests"] = etrangeres
