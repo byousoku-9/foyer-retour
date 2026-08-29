@@ -133,9 +133,14 @@ def test_manifest_merge_keeps_other_docs_and_existing_gate(data_dir: Path) -> No
     m = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
     # Story 4.2b : `Gate` porte deux champs optionnels de plus (`decisions`, `run_digest`) ; la
     # revalidation du manifest les matérialise à leurs défauts sans rien changer au gate certifié.
+    # Story 4.5 : quatre de plus (`plancher_digest`, `candidate_revision`, `report_digest`,
+    # `structure_hash`), tous `null` sur un gate `vertical` — c'est bien le sujet du test :
+    # l'ingestion **normalise** l'entrée au schéma en vigueur sans jamais changer une valeur.
     assert m["autre-doc"] == other
     assert m["lux-guide"]["gate"] == {
         **gate, "decisions": [], "run_digest": None, "pipeline_settings": {},
+        "plancher_digest": None, "candidate_revision": None, "report_digest": None,
+        "structure_hash": None,
     }
     assert m["lux-guide"]["status"] == "servi"
 
@@ -355,3 +360,59 @@ def test_une_condition_inexploitable_est_une_alerte_jamais_un_bloquant(
     assert [c.node_id for c in doc.parcours] == ["lux-guide:fbail_test", "lux-guide:farrivee"]
     # Le compte du rapport ne gonfle pas d'une condition que rien ne pourra jamais satisfaire.
     assert report.stats["parcours_fiches"] == 2 and report.stats["parcours_etapes_ignorees"] == 2
+
+
+def test_lingestion_declare_la_structure_presente_et_le_loader_sert_toujours(data_dir: Path) -> None:
+    """Revue 4.5, P1 : l'écrivain d'ingestion renseigne `structure_hash` comme `overlay_hash`.
+
+    Sans cela, le contrôle « déclaré ⟺ présent » du loader était un cul-de-sac : déposer un
+    `structure.json` mettait le document en quarantaine avec « relancer l'ingestion », et la
+    réingestion réécrivait l'entrée **sans** le champ — l'action indiquée ne corrigeait rien.
+    """
+    import hashlib
+
+    from server.app.corpus.loader import load_corpus
+
+    k.run(data_dir, edition="git:test")
+    manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
+    assert manifest["lux-guide"]["structure_hash"] is None  # aucun artefact : rien n'est déclaré
+
+    structure = data_dir / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    _report, entry = k.run(data_dir, edition="git:test")
+    attendu = hashlib.sha256(structure.read_bytes()).hexdigest()
+    assert entry.structure_hash == attendu
+    manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
+    assert manifest["lux-guide"]["structure_hash"] == attendu
+    # Et le document reste **servi** : c'est toute la différence avec le cul-de-sac.
+    corpus = load_corpus(data_dir.parent, allow_ungated=True)
+    assert corpus.quarantine == {} and "lux-guide" in corpus.documents
+
+
+def test_une_structure_qui_bouge_ne_conserve_pas_le_gate(data_dir: Path) -> None:
+    """`merged_manifest` compare les trois empreintes certifiées, `structure_hash` comprise.
+
+    Conserver un gate qui certifie une autre structure ferait servir un document sous une validation
+    qui ne le décrit plus — le loader le neutraliserait ensuite en `sans_gate`, mais l'ingestion ne
+    doit pas produire cette incohérence en premier lieu.
+    """
+    structure = data_dir / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    k.run(data_dir, edition="git:test")
+    current = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"]
+    gate = {"profile": "vertical", "source_hash": current["source_hash"],
+            "ingest_fingerprint": current["ingest_fingerprint"], "cases_hash": "c",
+            "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {}, "evals_ok": True,
+            "date": "2026-08-29", "overlay_hash": None, "cases": 1, "countersigned": False,
+            "structure_hash": current["structure_hash"]}
+    (data_dir.parent / "manifest.json").write_text(
+        json.dumps({"lux-guide": {**current, "gate": gate}}), "utf-8")
+    # Réingestion à structure **identique** : le gate est conservé.
+    k.run(data_dir, edition="git:test")
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8")
+                      )["lux-guide"]["gate"] is not None
+    # Réingestion après un changement de structure : le gate ne survit pas.
+    structure.write_text('{"doc_id": "lux-guide", "note": "autre"}\n', "utf-8")
+    k.run(data_dir, edition="git:test")
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8")
+                      )["lux-guide"]["gate"] is None

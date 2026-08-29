@@ -30,11 +30,29 @@ def document_json(doc: Document) -> str:
 
 
 OVERLAY_FILE = "typing.manual.json"
+STRUCTURE_FILE = "structure.json"
 
 
 def overlay_hash(doc_dir: Path) -> str | None:
     """sha256 de `typing.manual.json` s'il existe (écrit dans le manifest, vérifié par le loader), sinon None."""
     path = doc_dir / OVERLAY_FILE
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
+def structure_hash(doc_dir: Path) -> str | None:
+    """sha256 de `structure.json` s'il existe, sinon `None` — le patron exact d'`overlay_hash`.
+
+    Story 4.5. La proposition de structure de 4.2c était le seul artefact d'ingestion qu'aucune
+    empreinte du manifest ne couvrait, alors qu'elle décide de l'arbre que le rappel parcourt : une
+    main sur le fichier ne se voyait nulle part. Le loader contrôle désormais « déclaré ⟺ présent »
+    puis la valeur, et il ne peut le faire que si **les écrivains d'ingestion renseignent le champ**.
+
+    Sans cette fonction, déposer un `structure.json` mettait le document en quarantaine avec « relancer
+    l'ingestion » — et la réingestion réécrivait l'entrée sans le champ, donc ne corrigeait rien : un
+    cul-de-sac où la dette 4.2c sortait le document du service et `structure_prouvee_rate` ne pouvait
+    jamais devenir vert.
+    """
+    path = doc_dir / STRUCTURE_FILE
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
@@ -65,9 +83,14 @@ def read_manifest(manifest_path: Path) -> dict[str, Any]:
 def merged_manifest(raw: dict[str, Any], doc_id: str, entry: ManifestEntry) -> tuple[str, ManifestEntry]:
     """Prépare le manifest fusionné sans écrire.
 
-    Le gate ne couvre pas seulement la source : il certifie le `document.json` et l'overlay qui ont
-    été relus. Il n'est donc conservé que si leurs deux empreintes sont byte-identiques. Le schéma
-    autoritaire du gate reste inchangé ; cette comparaison appartient à l'ingestion.
+    Le gate ne couvre pas seulement la source : il certifie le `document.json`, l'overlay **et**, depuis
+    la story 4.5, la proposition de structure qui ont été relus. Il n'est donc conservé que si leurs
+    trois empreintes sont byte-identiques. Le schéma autoritaire du gate reste inchangé ; cette
+    comparaison appartient à l'ingestion.
+
+    `structure_hash` entre dans la comparaison pour la même raison qu'`overlay_hash` y était déjà :
+    le loader compare le gate à l'entrée, et conserver un gate qui certifie une autre structure
+    ferait servir un document sous une validation qui ne le décrit plus.
     """
     adapter = TypeAdapter(ManifestEntry)
     previous = raw.get(doc_id)
@@ -75,8 +98,9 @@ def merged_manifest(raw: dict[str, Any], doc_id: str, entry: ManifestEntry) -> t
     if previous:
         try:
             previous_entry = adapter.validate_python(previous)
-            if (previous_entry.document_hash, previous_entry.overlay_hash) == (
-                    entry.document_hash, entry.overlay_hash):
+            if (previous_entry.document_hash, previous_entry.overlay_hash,
+                    previous_entry.structure_hash) == (
+                    entry.document_hash, entry.overlay_hash, entry.structure_hash):
                 gate = previous_entry.gate  # jamais écrit par l'ingestion (AD-7), seulement préservé
         except ValidationError as exc:
             print(f"avertissement : entrée {doc_id} précédente invalide, gate ignoré ({exc.errors()[0].get('msg', '')})",

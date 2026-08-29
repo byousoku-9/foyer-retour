@@ -455,3 +455,66 @@ def test_la_borne_de_nombre_des_listes_de_comprendre_vit_ici_et_se_publie() -> N
     corps = [ligne for ligne in source.splitlines()
              if not ligne.lstrip().startswith("#") and "= LISTE_MAX_ITEMS" not in ligne]
     assert not [ligne for ligne in corps if re.search(r"=\s*\d{2,}\s*$", ligne)], corps
+
+
+# --- story 4.5 : la disjonction d'AD-7 a trois termes (dette D1) ------------
+
+def test_en_dev_allow_ungated_false_explicite_sert_quand_meme_un_document_sans_gate(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AD-7, mot pour mot : « servi ssi aucun bloquant statique **et** (`gate.evals_ok` **ou**
+    `ENV=dev` **ou** `ALLOW_UNGATED`) ».
+
+    C'est la **seule** configuration où l'ancienne expression et la nouvelle diffèrent, et c'est
+    pourquoi ce test existe : `bool(self.allow_ungated)` restait vert partout ailleurs, si bien que
+    le correctif D1 n'était épinglé par rien et qu'un revert littéral serait passé inaperçu.
+
+    Ici l'opérateur écrit explicitement « non » à la dérogation, en dev. L'AD la lui accorde tout de
+    même — par son deuxième terme —, et le document sans gate est servi avec l'alerte `sans_gate`.
+    """
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("ALLOW_UNGATED", "false")
+    reglages = Settings(_env_file=None)
+    # Les deux faits restent distincts : ce que l'opérateur a demandé, et ce que la règle décide.
+    assert reglages.allow_ungated is False
+    assert reglages.deroger_au_gate is True
+
+
+def test_en_prod_la_disjonction_est_fausse_par_ses_trois_termes(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """La fermeture de l'AC 1.10 est intacte : en `prod`, aucun des trois termes ne tient.
+
+    Le pendant du test précédent, et il compte autant : un correctif qui honore le deuxième terme
+    partout aurait rouvert en production la dérogation que la story 1.10 a fermée.
+    """
+    monkeypatch.setenv("ENV", "prod")
+    for demande in ("true", "false"):
+        monkeypatch.setenv("ALLOW_UNGATED", demande)
+        reglages = Settings(_env_file=None)
+        assert reglages.allow_ungated is False
+        assert reglages.deroger_au_gate is False
+    # Sans la variable non plus.
+    monkeypatch.delenv("ALLOW_UNGATED", raising=False)
+    assert Settings(_env_file=None).deroger_au_gate is False
+
+
+def test_le_nom_du_fichier_de_publication_ne_peut_pas_sortir_de_data(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue 4.5, P12 : une seule autorité pour ce nom, et un motif qui interdit tout chemin.
+
+    Le nom est composé avec `data_dir` par le lecteur **et** par l'écrivain : une valeur portant un
+    séparateur ou `..` ferait lire — et écrire — hors de `data/`. Un réglage d'environnement ne doit
+    pas pouvoir choisir un chemin.
+    """
+    from server.app.config import EVALS_PUBLICATION_FILE
+    from server.evals.publication import PUBLICATION_JSON
+
+    # Une seule autorité, partagée par l'écrivain (`evals`) et le lecteur (`api`).
+    assert PUBLICATION_JSON == EVALS_PUBLICATION_FILE
+    assert Settings(_env_file=None).evals_publication_file == EVALS_PUBLICATION_FILE
+    for hostile in ("../../etc/passwd", "sous/dossier.json", "/absolu.json", "..", ".",
+                    "avec espace.json"):
+        monkeypatch.setenv("EVALS_PUBLICATION_FILE", hostile)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+    monkeypatch.setenv("EVALS_PUBLICATION_FILE", "autre-nom.json")
+    assert Settings(_env_file=None).evals_publication_file == "autre-nom.json"

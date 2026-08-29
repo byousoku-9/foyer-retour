@@ -11,6 +11,11 @@ from .document import DomainModel
 CheckLevel = Literal["bloquant", "alerte", "info"]
 GateProfile = Literal["vertical", "full"]
 ManifestStatus = Literal["servi", "quarantaine"]
+_HEX = frozenset("0123456789abcdef")
+
+
+def _hexadecimal(valeur: str, longueur: int) -> bool:
+    return len(valeur) == longueur and all(c in _HEX for c in valeur)
 
 
 class Check(DomainModel):
@@ -111,11 +116,56 @@ class Gate(DomainModel):
     decisions: list[GateDecision] = Field(default_factory=list)
     run_digest: str | None = None
     pipeline_settings: dict[str, int | float | str | bool] = Field(default_factory=dict)
+    # Story 4.5 — **ce qu'un gate `full` doit porter pour être relisible**. Optionnels au schéma
+    # (les gates `vertical` déjà écrits restent valides), obligatoires sous `profile: "full"` :
+    #
+    # - `plancher_digest` : le protocole contre lequel les décisions ont été prises. Sans lui, une
+    #   décision `value >= threshold` ne dit pas *quel* threshold, et deux gates de plancher
+    #   différents se compareraient comme s'ils étaient de même mesure.
+    # - `candidate_revision` : le commit mesuré. C'est ce qui empêche un gate d'être réutilisé par
+    #   une révision qu'il n'a jamais vue.
+    # - `report_digest` : l'empreinte du rapport de run, pour qu'on puisse retrouver — et vérifier —
+    #   les chiffres derrière `evals_ok`.
+    # - `structure_hash` : l'empreinte de `structure.json` **au moment du run**, recopiée de l'entrée
+    #   du manifest, sur le patron d'`overlay_hash`.
+    plancher_digest: str | None = None
+    candidate_revision: str | None = None
+    report_digest: str | None = None
+    structure_hash: str | None = None
 
     @model_validator(mode="after")
     def _decision_coherente(self) -> Gate:
         if self.decisions and self.evals_ok != all(d.status == "green" for d in self.decisions):
             raise ValueError("evals_ok diverge des décisions chiffrées")
+        return self
+
+    @model_validator(mode="after")
+    def _full_porte_son_protocole(self) -> Gate:
+        """Sous `full`, le protocole, la révision et le rapport sont **exigés et bien formés**.
+
+        Ce que ce validateur ne fait pas, et pourquoi : il n'exige **pas** `structure_hash`. Cette
+        empreinte n'existe que si l'ingestion a produit un `structure.json` (story 4.2c) ; l'exiger
+        rendrait impossible d'écrire le moindre gate `full` tant que la réingestion réelle est due, et
+        un gate impossible à écrire n'est pas un gate fail-closed, c'est un gate absent. L'état réel
+        se dit ailleurs, et il se dit en rouge : le témoin `structure_prouvee_rate` du plancher rend
+        la décision rouge exactement quand l'artefact manque. Une exigence de schéma aurait remplacé
+        un rouge chiffré et publiable par une exception. Quand elle est là, en revanche, elle est
+        contrôlée comme les autres.
+        """
+        if self.profile != "full":
+            return self
+        for champ, longueur in (("plancher_digest", 64), ("candidate_revision", 40),
+                                ("report_digest", 64)):
+            valeur = getattr(self, champ)
+            if valeur is None:
+                raise ValueError(
+                    f"un gate `full` porte {champ} : la politique complète se réclame de son "
+                    "protocole, de sa révision et de son rapport")
+            if not _hexadecimal(valeur, longueur):
+                raise ValueError(
+                    f"gate `full` : {champ} doit être {longueur} caractères hexadécimaux")
+        if self.structure_hash is not None and not _hexadecimal(self.structure_hash, 64):
+            raise ValueError("gate `full` : structure_hash doit être 64 caractères hexadécimaux")
         return self
 
 
@@ -137,6 +187,12 @@ class ManifestEntry(DomainModel):
     # sha256 de `typing.manual.json` (None si absent à l'ingestion) : l'overlay est couvert par le manifest et par
     # le gate comme `document.json` l'est par `document_hash` (amendement AD-7, revue Codex 1.2).
     overlay_hash: str | None = None
+    # sha256 de `structure.json` (None si absent à l'ingestion), sur le patron exact d'`overlay_hash`
+    # (story 4.5, dette `deferred-work.md` « structure.json au manifest »). La proposition de
+    # structure de 4.2c était le seul artefact d'ingestion que le manifest ne couvrait pas : une main
+    # sur `data/{doc_id}/structure.json` ne se voyait donc nulle part, alors que c'est lui qui décide
+    # de l'arbre que le rappel parcourt. Le loader contrôle déclaré ⟺ présent, puis la valeur.
+    structure_hash: str | None = None
     gate: Gate | None = None
 
 

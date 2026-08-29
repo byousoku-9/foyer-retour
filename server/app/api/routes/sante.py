@@ -36,6 +36,9 @@ async def sante(request: Request) -> SanteResponse:
         gate_profile=etat.gate_profile,
         gate_cases=etat.gate_cases,
         gate_countersigned=etat.gate_countersigned,
+        # AC 4.5 : les trois réserves sont lisibles ici — la contresignature humaine, la validation
+        # par un expert (toujours fausse, AD-14), et `dictionary.validated` juste en dessous.
+        gate_validated_by_expert=etat.gate_validated_by_expert,
         # AD-5 : les deux faits (une main a signé ; les empreintes décrivent le corpus servi) **et**
         # la règle qu'ils décident. `refus_zero_hit_actif` est publié par le serveur parce que la
         # règle n'a qu'une autorité : la page d'accueil l'affiche au lieu de refaire la conjonction.

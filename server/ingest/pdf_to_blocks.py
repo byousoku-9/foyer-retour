@@ -40,7 +40,7 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
-                                     read_manifest, write_atomic)
+                                     read_manifest, structure_hash, write_atomic)
 from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import (build_pdf_report, numero_de_noeud, report_from_validation_error,
                                   structure_check)
@@ -1594,7 +1594,10 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
     entry = merge_manifest(manifest_path, raw_manifest, doc_id,
                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
                                          document_hash=document_hash, edition=resolved_edition,
-                                         overlay_hash=overlay_hash(data_dir), gate=None))
+                                         overlay_hash=overlay_hash(data_dir),
+                                         # Story 4.5 : la proposition de structure est couverte par
+                                         # le manifest, exactement comme l'overlay l'est.
+                                         structure_hash=structure_hash(data_dir), gate=None))
     return report, entry
 
 

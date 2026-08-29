@@ -802,14 +802,20 @@ def test_sante_publie_les_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
 
 def _avec_gate(corpus: Corpus, doc_id: str, profil: str, *, coherent: bool = True,
                cases: int = 1, countersigned: bool = True) -> None:
-    """Pose un gate sur une entrée du manifest. `coherent=False` = un gate que le loader neutralise."""
+    """Pose un gate sur une entrée du manifest. `coherent=False` = un gate que le loader neutralise.
+
+    Story 4.5 : un gate `full` porte son protocole, sa révision et son rapport (`Gate`
+    l'exige au schéma) — un gate `full` sans eux n'est plus une entrée de manifest valide.
+    """
     entree = corpus.manifest[doc_id]
+    complet = {"plancher_digest": "0" * 64, "candidate_revision": "1" * 40,
+               "report_digest": "2" * 64} if profil == "full" else {}
     entree.gate = Gate(
         profile=profil, evals_ok=True, cases_hash="c", date="2026-08-24", cases=cases,
         countersigned=countersigned,
         source_hash=entree.source_hash if coherent else "autre",
         ingest_fingerprint=entree.ingest_fingerprint, overlay_hash=entree.overlay_hash,
-        pipeline_digest="p", prompts_digest="q", model_ids={})
+        pipeline_digest="p", prompts_digest="q", model_ids={}, **complet)
 
 
 def test_sante_publie_le_profil_quand_tous_les_documents_servis_en_ont_un(prod: TestClient) -> None:
@@ -1824,3 +1830,59 @@ async def test_une_trace_partielle_derreur_garde_le_gate_de_son_document() -> No
     assert trace.gate is not None and trace.gate.profile == "vertical"
     assert trace.blocs == []  # aucune étape n'a ouvert de bloc : vide, jamais deviné (AD-16)
     assert trace.dictionnaire is None  # aucun dictionnaire ne lui a été passé
+
+
+# --- story 4.5 : les trois réserves et la route des résultats -----------------
+
+def test_sante_publie_la_troisieme_reserve_a_cote_des_deux_autres(prod: TestClient) -> None:
+    """AC 4.5 : « les trois sont lisibles dans `/sante` ».
+
+    `gate_countersigned` (la relecture humaine), `gate_validated_by_expert` (AD-14 : jamais vraie)
+    et `dictionary.validated` (AD-5). Les trois disent ce que le service **ne** garantit pas ; les
+    taire serait exactement l'invention qu'AD-16 interdit, et les rendre bloquantes ferait refuser
+    de servir pour une signature manquante.
+    """
+    j = prod.get("/api/v1/sante", headers=XFF).json()
+    assert j["gate_countersigned"] is False
+    assert j["gate_validated_by_expert"] is False
+    assert j["dictionary"]["validated"] is False
+    # Strictement adossé à `gate_profile`, comme `gate_cases` et `gate_countersigned`.
+    assert (j["gate_profile"] is None) == (j["gate_validated_by_expert"] is None)
+
+
+def test_gate_validated_by_expert_est_nul_sans_profil_et_jamais_vrai(prod: TestClient) -> None:
+    """AD-14 : rien dans ce dépôt ne peut établir une validation par un expert assurance."""
+    etat = prod.app.state.foyer
+    corpus, index = _mini_corpus()
+    etat.corpus, etat.index = corpus, index
+    # Aucun gate : le profil est nul, la réserve aussi — il n'y a aucun verdict à qualifier.
+    assert etat.gate_profile is None and etat.gate_validated_by_expert is None
+    _avec_gate(corpus, DOC_ID, "vertical")
+    assert etat.gate_validated_by_expert is False
+
+
+def test_la_route_des_resultats_publie_un_etat_type_sans_run(prod: TestClient) -> None:
+    """FR41 : `publie: false` est un état **typé**, jamais un 5xx et jamais un chiffre inventé."""
+    r = prod.get("/api/v1/evals/latest", headers=XFF)
+    assert r.status_code == 200
+    corps = r.json()
+    assert set(corps) == {"publie", "raison", "publication"}
+    assert corps["publie"] is False and corps["publication"] is None
+    assert corps["raison"] in ("absent", "illisible", "hors_schema")
+
+
+def test_la_route_des_resultats_ne_lit_pas_data_par_requete(prod: TestClient) -> None:
+    """AD-7 : chargé une fois au démarrage, comme `report.json` et `dictionary.json`.
+
+    Le contrôle est direct : la réponse suit l'état du process, pas le disque. On remplace l'état
+    en mémoire et la route change ; le fichier, lui, n'a pas bougé.
+    """
+    from server.app.domain.evals import EtatPublication
+
+    etat = prod.app.state.foyer
+    avant = etat.publication_evals
+    etat.publication_evals = EtatPublication(publie=False, raison="illisible")
+    try:
+        assert prod.get("/api/v1/evals/latest", headers=XFF).json()["raison"] == "illisible"
+    finally:
+        etat.publication_evals = avant

@@ -105,7 +105,7 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
     import json
 
     from server.app.config import REPO_ROOT, Settings
-    from server.evals.run import CASES_DIR, charger_cas, selection_profil, suite_du_document
+    from server.evals.run import CASES_DIR, charger_cas, selection_profil, suites_du_gate
 
     reglages = Settings(_env_file=None)
     manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
@@ -113,13 +113,14 @@ def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
              if isinstance(entree, dict) and isinstance(entree.get("gate"), dict)]
     assert gates, "le manifest livré ne porte aucun gate"
     for doc_id, gate in gates:
-        suite = suite_du_document(reglages, doc_id, cases_dir=CASES_DIR)
-        # **Le même filtre que `main()`**, sinon les deux calculs de `cases_hash` divergeraient dès
-        # qu'un cas d'un autre profil existerait (4.1) : le gate est écrit sur les cas du profil
-        # demandé, ce test recalculerait sur toute la suite, et il rougirait sans qu'il y ait de
-        # défaut. `selection_profil` est l'autorité commune : `full` couvre vertical + full, tandis
-        # que `vertical` reste strictement vertical.
-        cas = selection_profil(charger_cas(CASES_DIR, suites=(suite,)), gate["profile"])
+        # **Le même périmètre que `main()`**, sinon les deux calculs de `cases_hash` divergeraient.
+        # `suites_du_gate` est l'autorité commune (story 4.5) : sous `vertical`, la seule suite qui
+        # sert le document ; sous `full`, sa suite `parsing` en plus. `selection_profil` filtre
+        # ensuite les profils — `full` couvre vertical + full, `vertical` reste strictement vertical.
+        # Deux calculs séparés du périmètre d'un gate divergeraient au premier profil ajouté.
+        suites = suites_du_gate(reglages, doc_id, gate["profile"], cases_dir=CASES_DIR)
+        suite = suites[0]
+        cas = selection_profil(charger_cas(CASES_DIR, suites=suites), gate["profile"])
         assert cas, f"aucun cas au profil {gate['profile']} pour la suite {suite}"
         assert all(c.case_path is not None for c in cas), (
             f"la suite {suite} contient un cas sans chemin certifiable")

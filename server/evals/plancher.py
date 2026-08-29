@@ -56,6 +56,16 @@ class Temoin(BaseModel):
     mesure_par: Literal["eval_runner", "orchestrator"]
     case_id: str | None = None
     note: str | None = None
+    # **Quand** ce témoin est applicable (story 4.5). `toujours` est le comportement historique des
+    # huit témoins de 4.2b ; `gate_full` réserve le témoin au seul gate qui revendique la politique
+    # complète — `--gate {doc_id} --profile full`.
+    #
+    # Pourquoi ce champ, et pas un scope de plus : un `--profile full` **sans** `--gate` est un
+    # diagnostic (c'est ce que la CI lance à chaque PR), et un gate `vertical` n'affirme que deux cas
+    # relus à la main. Faire porter à l'un ou à l'autre les exigences de `full` rendrait rouge une
+    # mesure qui ne les revendique pas — et rougir pour une raison qui n'a rien à voir avec le
+    # candidat est la façon la plus sûre de faire ignorer un gate.
+    arme_par: Literal["toujours", "gate_full"] = "toujours"
 
 
 class ImportFloor(BaseModel):
@@ -286,6 +296,95 @@ def charger_plancher(path: Path = PLANCHER_PATH, *, producer: str = "builder") -
         raise PlancherInvalide(
             "preuve non vérifiable : sources d'autorité 4.2a/trusted absentes du dépôt de contrôle")
     return ChargePlancher(plancher=plancher, digest=hashlib.sha256(octets).hexdigest())
+
+
+# --- M2 : la preuve trusted est liée à la révision qu'elle mesure ---------------------------------
+
+# Les clés racine d'un fichier de preuve orchestrateur — **exactement** celles-ci, ni plus ni moins.
+# Un contrôle « au moins celles-ci » laisserait passer un fichier qui porte en plus son propre
+# `status`, `evals_ok` ou `note` : le lecteur en ignorerait la moitié, et l'auteur du fichier croirait
+# l'avoir dit. Un vocabulaire fermé se contrôle par égalité (même règle que `Cas` et `Temoin`).
+CLES_PREUVE_TRUSTED = frozenset({
+    "plancher_digest", "candidate_revision", "report_digest", "run_digest", "decisions",
+})
+_HEX = frozenset("0123456789abcdef")
+
+
+def _hex_exact(valeur: Any, longueur: int) -> bool:
+    return (isinstance(valeur, str) and len(valeur) == longueur
+            and all(c in _HEX for c in valeur))
+
+
+def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revision: str,
+                            report_bytes: bytes | None) -> str:
+    """Relie une preuve externe à **ce** candidat, et rend son `run_digest` racine.
+
+    Intention M2 (`deferred-work.md`) : « une modification produit rend la réutilisation d'une preuve
+    invalide ». Une preuve orchestrateur est un fichier JSON que le runner croit sur parole pour les
+    mesures qu'il ne fait pas lui-même (tests hors ligne, A16, gardes anti-rustine et métamorphique).
+    Sans lien, la même preuve pouvait être rejouée sur n'importe quel commit ultérieur : elle
+    validerait alors un code qu'elle n'a jamais vu.
+
+    Quatre liens, et les quatre sont exigés :
+
+    - le **protocole** (`plancher_digest`) — deux runs ne se comparent qu'à plancher égal ;
+    - la **révision candidate** (`candidate_revision`) — la preuve nomme le commit qu'elle mesure ;
+    - le **rapport** (`report_digest` = sha256 des octets du rapport) — un rapport modifié après coup
+      détache la preuve de ce qu'elle prétend résumer ;
+    - le **run** (`run_digest` racine, et le même sur chaque décision) — une preuve dont les mesures
+      viennent de runs différents n'est pas une preuve, c'est une compilation.
+
+    Lève `PlancherInvalide` au premier écart, avec le chiffre en cause. L'appelant en fait un refus
+    de tourner (code 2) : aucun gate n'est écrit.
+    """
+    if not isinstance(brut, dict):
+        raise PlancherInvalide("preuve orchestrateur : un objet JSON est attendu")
+    presentes = set(brut)
+    if presentes != CLES_PREUVE_TRUSTED:
+        manquantes = sorted(CLES_PREUVE_TRUSTED - presentes)
+        superflues = sorted(presentes - CLES_PREUVE_TRUSTED)
+        raise PlancherInvalide(
+            "preuve orchestrateur : clés racine exactes attendues "
+            f"{sorted(CLES_PREUVE_TRUSTED)}"
+            + (f" — manquantes : {manquantes}" if manquantes else "")
+            + (f" — en trop : {superflues}" if superflues else ""))
+    if brut["plancher_digest"] != plancher_digest:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : plancher_digest divergent "
+            f"({brut['plancher_digest']!r}, attendu {plancher_digest})")
+    if not _hex_exact(brut["candidate_revision"], 40):
+        raise PlancherInvalide(
+            "preuve orchestrateur : candidate_revision doit être 40 caractères hexadécimaux")
+    if brut["candidate_revision"] != candidate_revision:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : candidate_revision {brut['candidate_revision']} ≠ révision du "
+            f"run {candidate_revision} — une preuve d'une autre révision ne mesure pas ce candidat")
+    if not _hex_exact(brut["report_digest"], 64):
+        raise PlancherInvalide(
+            "preuve orchestrateur : report_digest doit être 64 caractères hexadécimaux")
+    if report_bytes is None:
+        raise PlancherInvalide(
+            "preuve orchestrateur : le rapport qu'elle référence est absent ou illisible")
+    observe = hashlib.sha256(report_bytes).hexdigest()
+    if observe != brut["report_digest"]:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : rapport modifié — sha256 observé {observe}, report_digest "
+            f"annoncé {brut['report_digest']}")
+    if not _hex_exact(brut["run_digest"], 64):
+        raise PlancherInvalide(
+            "preuve orchestrateur : run_digest doit être 64 caractères hexadécimaux")
+    decisions = brut["decisions"]
+    if not isinstance(decisions, list) or not decisions:
+        raise PlancherInvalide(
+            "preuve orchestrateur : decisions doit être une liste non vide")
+    for mesure in decisions:
+        if not isinstance(mesure, dict):
+            raise PlancherInvalide("preuve orchestrateur : chaque mesure est un objet")
+        if mesure.get("run_digest") != brut["run_digest"]:
+            raise PlancherInvalide(
+                f"preuve orchestrateur : la mesure {mesure.get('metric')!r} porte un run_digest "
+                "différent de celui de la preuve — les mesures d'une preuve viennent d'un run")
+    return str(brut["run_digest"])
 
 
 # --- la règle mécanique du checkpoint (trois rôles, rôle 1) ---------------------------------------

@@ -792,3 +792,98 @@ def test_le_perimetre_reel_du_guide_garde_une_marge_sous_son_seuil() -> None:
     assert corpus.perimetres[reglages.guide_doc_id] == load_corpus(
         REPO_ROOT / "data", allow_ungated=True,
         perimetre_max_chars=reglages.perimetre_max_chars).perimetres[reglages.guide_doc_id]
+
+
+# --- story 4.5 : `structure.json` couverte par le manifest, gate compris ---------------------------
+
+def test_une_structure_declaree_et_concordante_laisse_le_document_servi(data: Path) -> None:
+    """Revue 4.5, P1 : le patron exact d'`overlay_hash`, écrivains d'ingestion compris.
+
+    Le loader exige « `structure.json` déclaré ⟺ présent ». Sans écrivain qui renseigne le champ,
+    déposer l'artefact mettait le document en quarantaine avec « relancer l'ingestion » — une action
+    qui ne corrigeait rien, puisque la réingestion réécrivait l'entrée **sans** le champ. La dette
+    4.2c sortait alors le document du service, et `structure_prouvee_rate` ne pouvait jamais verdir.
+    """
+    structure = data / "lux-guide" / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    # Déclarée et concordante : servie.
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = _sha(structure)
+    _write_manifest(data, m)
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.quarantine == {} and "lux-guide" in corpus.documents
+    # L'artefact bouge sans réingestion ⇒ quarantaine nommée.
+    structure.write_text('{"doc_id": "lux-guide", "note": "modifie"}\n', "utf-8")
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        "lux-guide": "structure_hash différent du manifest (relancer l'ingestion)"}
+    # Présente mais non déclarée ⇒ quarantaine nommée.
+    m = _manifest(data)
+    m["lux-guide"].pop("structure_hash")
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        "lux-guide": "structure : structure.json présent mais non déclaré dans le manifest "
+                     "(relancer l'ingestion)"}
+    # Déclarée mais absente ⇒ quarantaine nommée.
+    structure.unlink()
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = "a" * 64
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        "lux-guide": "structure : déclarée dans le manifest mais absente"}
+
+
+def test_un_gate_qui_certifie_une_autre_structure_est_neutralise(data: Path) -> None:
+    """Revue 4.5, P3 : `gate.structure_hash` est recoupé avec l'entrée, comme `overlay_hash`.
+
+    Écrire l'empreinte dans le gate sans jamais la comparer laissait servir, **sans une alerte**, un
+    document réingéré avec une autre structure sous un gate qui certifie l'ancienne.
+    """
+    structure = data / "lux-guide" / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = _sha(structure)
+    gate = _gate(m["lux-guide"])
+    gate["structure_hash"] = _sha(structure)
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}
+    # Réingestion : l'entrée porte une nouvelle structure, le gate certifie l'ancienne.
+    structure.write_text('{"doc_id": "lux-guide", "note": "reingere"}\n', "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = _sha(structure)
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).quarantine == {"lux-guide": "sans_gate"}
+
+
+def test_un_gate_full_preprotocole_est_nomme_et_non_confondu_avec_un_manifest_casse(
+        data: Path) -> None:
+    """Revue 4.5, P15 : un gate `full` d'avant le protocole rend `gate_preprotocole`, pas un message
+    qui accuse le manifest.
+
+    Le validateur `Gate` refuse un `full` sans `plancher_digest`/`candidate_revision`, ce qui rendait
+    **toute l'entrée** invalide : le document partait en quarantaine « entrée de manifest invalide »,
+    un diagnostic qui parle du manifest alors que le manifest va bien, et qui masque exactement le
+    correctif que `gate_preprotocole` existe pour donner — refaire le gate.
+    """
+    m = _manifest(data)
+    gate = _gate(m["lux-guide"])
+    gate.update({"profile": "full", "decisions": [], "run_digest": None})
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {"lux-guide": "gate_preprotocole"}
+    # Une entrée réellement abîmée garde son message générique : le détour ne blanchit rien.
+    m = _manifest(data)
+    m["lux-guide"].pop("document_hash")
+    _write_manifest(data, m)
+    raison = load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    assert raison.startswith("entrée de manifest invalide :")
+    # Un gate `vertical` invalide pour une autre raison n'est pas requalifié non plus : le détour
+    # ne vaut que pour le protocole d'un gate `full`, jamais comme fourre-tout.
+    m = _manifest(data)
+    m["lux-guide"]["document_hash"] = _sha(data / "lux-guide" / "document.json")
+    gate = _gate(m["lux-guide"])
+    gate["cases"] = 0
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine["lux-guide"].startswith(
+        "entrée de manifest invalide :")

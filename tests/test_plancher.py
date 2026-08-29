@@ -211,13 +211,16 @@ def test_les_tiers_par_etape_sont_pilotables_et_publies() -> None:
 # --- digests non concordants sous gate full : quarantaine ------------------------------------------
 
 def _entry(profile: str) -> ManifestEntry:
+    """Une entrée de manifest gatée. Sous `full`, le gate porte son protocole (story 4.5)."""
     digest = "a" * 64
+    complet = {"plancher_digest": "b" * 64, "candidate_revision": "c" * 40,
+               "report_digest": "d" * 64} if profile == "full" else {}
     return ManifestEntry(
         status="servi", source_hash="s", ingest_fingerprint="f", document_hash="d", edition="e",
         gate=Gate(profile=profile, source_hash="s", ingest_fingerprint="f", overlay_hash=None,
                   cases_hash="c", cases=1, countersigned=False, pipeline_digest="ancien",
                   prompts_digest="ancien", model_ids={"micro": "m"}, evals_ok=True,
-                  date="2026-08-28", run_digest=digest,
+                  date="2026-08-28", run_digest=digest, **complet,
                   decisions=[GateDecision(
                       metric="temoin", producer="orchestrator", threshold=1.0,
                       scope="run", n=3, run_digest=digest, value=1.0, status="green")]))
@@ -325,3 +328,164 @@ def test_le_classement_ne_depend_pas_de_lordre_dentree() -> None:
     for depart in range(len(TABLE_MESUREE)):
         permutee = TABLE_MESUREE[depart:] + TABLE_MESUREE[:depart]
         assert [c.name for c in classer_configurations(permutee)] == attendu
+
+
+# --- M2 (story 4.5) : la preuve trusted est liée à la révision qu'elle mesure ----------------------
+#
+# Reproduction demandée mot pour mot par l'entrée différée : « construire un rapport orchestrateur
+# pour une révision A, modifier la révision produit sans changer les autres digests, puis vérifier
+# que `pytest -q tests/test_plancher.py -k candidate_revision` refuse sa réutilisation ».
+#
+# Sans ce lien, une preuve externe — qui porte des mesures que le runner ne fait pas lui-même :
+# tests hors ligne, A16, gardes anti-rustine et métamorphique — pouvait être rejouée sur n'importe
+# quel commit ultérieur. Elle validait alors un code qu'elle n'avait jamais vu, et les digests de
+# protocole seuls n'y voyaient rien : ils décrivent le plancher, pas le produit.
+
+REVISION_A_candidate_revision = "a" * 40
+REVISION_B_candidate_revision = "b" * 40
+
+
+def _preuve_candidate_revision(rapport: Path, **kw: object) -> dict:
+    import hashlib
+
+    base = {
+        "plancher_digest": charger_plancher().digest,
+        "candidate_revision": REVISION_A_candidate_revision,
+        "report_digest": hashlib.sha256(rapport.read_bytes()).hexdigest(),
+        "run_digest": "c" * 64,
+        "decisions": [{"metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
+                       "run_digest": "c" * 64}],
+    }
+    base.update(kw)  # type: ignore[arg-type]
+    return base
+
+
+@pytest.fixture
+def rapport_candidate_revision(tmp_path: Path) -> Path:
+    chemin = tmp_path / "rapport.json"
+    chemin.write_text('{"schema_version": 3, "decisions": []}\n', encoding="utf-8")
+    return chemin
+
+
+def test_la_preuve_nominale_liee_a_la_candidate_revision_est_acceptee(
+        rapport_candidate_revision: Path) -> None:
+    """Le cas nominal : protocole, révision, rapport et run concordent — la preuve est utilisable."""
+    from server.evals.plancher import verifier_liaison_preuve
+
+    preuve = _preuve_candidate_revision(rapport_candidate_revision)
+    run_digest = verifier_liaison_preuve(
+        preuve, plancher_digest=charger_plancher().digest,
+        candidate_revision=REVISION_A_candidate_revision,
+        report_bytes=rapport_candidate_revision.read_bytes())
+    assert run_digest == "c" * 64
+
+
+def test_une_preuve_dune_autre_candidate_revision_est_refusee(
+        rapport_candidate_revision: Path) -> None:
+    """La reproduction M2 : même rapport, même plancher, **autre** révision produit ⇒ refus."""
+    from server.evals.plancher import verifier_liaison_preuve
+
+    preuve = _preuve_candidate_revision(rapport_candidate_revision)
+    with pytest.raises(PlancherInvalide, match="candidate_revision"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_B_candidate_revision,
+            report_bytes=rapport_candidate_revision.read_bytes())
+    # Une révision mal formée est refusée avant même la comparaison.
+    with pytest.raises(PlancherInvalide, match="hexadécimaux"):
+        verifier_liaison_preuve(
+            _preuve_candidate_revision(rapport_candidate_revision, candidate_revision="court"),
+            plancher_digest=charger_plancher().digest,
+            candidate_revision="court", report_bytes=b"")
+
+
+def test_un_report_digest_non_concordant_est_refuse_pour_la_candidate_revision(
+        rapport_candidate_revision: Path) -> None:
+    """Un rapport modifié après coup détache la preuve de ce qu'elle prétend résumer."""
+    from server.evals.plancher import verifier_liaison_preuve
+
+    preuve = _preuve_candidate_revision(rapport_candidate_revision)
+    with pytest.raises(PlancherInvalide, match="rapport modifié"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=rapport_candidate_revision.read_bytes() + b"\n")
+    # Un rapport absent n'est pas « pas de contrainte » : c'est un refus.
+    with pytest.raises(PlancherInvalide, match="absent ou illisible"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision, report_bytes=None)
+
+
+def test_une_cle_racine_en_trop_est_refusee_pour_la_candidate_revision(
+        rapport_candidate_revision: Path) -> None:
+    """Vocabulaire fermé : un fichier qui déclare en plus son propre `status` serait à moitié lu.
+
+    Le lecteur en ignorerait la moitié, et l'auteur du fichier croirait l'avoir dit. Un vocabulaire
+    fermé se contrôle par **égalité**, comme `Cas` et `Temoin`.
+    """
+    from server.evals.plancher import CLES_PREUVE_TRUSTED, verifier_liaison_preuve
+
+    assert CLES_PREUVE_TRUSTED == {"plancher_digest", "candidate_revision", "report_digest",
+                                   "run_digest", "decisions"}
+    preuve = _preuve_candidate_revision(rapport_candidate_revision, status="green")
+    with pytest.raises(PlancherInvalide, match="en trop"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=rapport_candidate_revision.read_bytes())
+    manquante = _preuve_candidate_revision(rapport_candidate_revision)
+    manquante.pop("run_digest")
+    with pytest.raises(PlancherInvalide, match="manquantes"):
+        verifier_liaison_preuve(
+            manquante, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=rapport_candidate_revision.read_bytes())
+
+
+def test_un_run_digest_divergent_est_refuse_pour_la_candidate_revision(
+        rapport_candidate_revision: Path) -> None:
+    """Les mesures d'une preuve viennent d'**un** run : une compilation n'est pas une preuve."""
+    from server.evals.plancher import verifier_liaison_preuve
+
+    preuve = _preuve_candidate_revision(rapport_candidate_revision)
+    preuve["decisions"][0]["run_digest"] = "d" * 64
+    with pytest.raises(PlancherInvalide, match="run_digest différent"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=rapport_candidate_revision.read_bytes())
+    vide = _preuve_candidate_revision(rapport_candidate_revision, decisions=[])
+    with pytest.raises(PlancherInvalide, match="liste non vide"):
+        verifier_liaison_preuve(
+            vide, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=rapport_candidate_revision.read_bytes())
+
+
+def test_le_runner_refuse_avant_toute_decision_sur_une_candidate_revision_divergente(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC 5 : « le run refuse avant toute décision, message chiffré, et aucun gate n'est écrit ».
+
+    Le chemin complet, du fichier de preuve au code de sortie : `charger_decisions_orchestrateur`
+    passe par `verifier_liaison_preuve` **avant** de lire la moindre mesure.
+    """
+    import json as _json
+
+    from server.evals import run as runner
+
+    rapport = tmp_path / "rapport.json"
+    rapport.write_text('{"schema_version": 3}\n', encoding="utf-8")
+    preuve = tmp_path / "preuve.json"
+    preuve.write_text(_json.dumps(_preuve_candidate_revision(rapport)), encoding="utf-8")
+    with pytest.raises(runner.RefusDeTourner, match="candidate_revision"):
+        runner.charger_decisions_orchestrateur(
+            preuve, plancher=charger_plancher(),
+            candidate_revision=REVISION_B_candidate_revision, report_path=rapport)
+    # Et le cas nominal traverse bien : la liaison n'est pas un refus systématique.
+    decisions = runner.charger_decisions_orchestrateur(
+        preuve, plancher=charger_plancher(),
+        candidate_revision=REVISION_A_candidate_revision, report_path=rapport)
+    assert [d.metric for d in decisions] == ["offline_tests_pass_rate"]
+    assert decisions[0].status == "green" and decisions[0].producer == "orchestrator"

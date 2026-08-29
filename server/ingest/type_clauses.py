@@ -35,7 +35,7 @@ from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, 
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
-from server.ingest.artifacts import document_json, merged_manifest, read_manifest
+from server.ingest.artifacts import document_json, merged_manifest, read_manifest, structure_hash
 from server.ingest.report import enrich_typing_report, pages_charabia
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
@@ -1439,6 +1439,10 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         document_hash=document_hash,
         edition=old_entry.edition,
         overlay_hash=None,
+        # Story 4.5 : `structure.json` n'est ni écrit ni supprimé ici — l'empreinte est donc relue
+        # du disque, comme partout ailleurs, plutôt que recopiée de l'ancienne entrée (qui pourrait
+        # décrire un fichier qui a bougé depuis).
+        structure_hash=structure_hash(doc_dir),
         gate=None,
     )
     manifest_text, merged_entry = merged_manifest(raw_manifest, doc.doc_id, new_entry)

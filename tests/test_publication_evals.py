@@ -1,0 +1,517 @@
+"""Story 4.5 — « Le même artefact », prouvé par la comparaison des quatre surfaces.
+
+FR41 demande que les résultats soient publiés ; FR42 que `/` les reprenne. Le piège, dans un projet
+qui écrit du Markdown **et** du JSON **et** du HTML, est de publier quatre fois la même chose de
+quatre façons qui divergent au premier arrondi. L'AC 4 le ferme en exigeant que « les mêmes valeurs
+des douze champs se retrouvent, à l'octet des chiffres près » dans :
+
+1. `docs/evals/latest.md` — le rendu lisible du dépôt ;
+2. le Markdown que la CI concatène dans `$GITHUB_STEP_SUMMARY` ;
+3. la réponse de `GET /api/v1/evals/latest` ;
+4. la vue composée par `/`.
+
+Ces tests ne comparent donc pas quatre textes attendus : ils construisent **un** objet, le publient,
+et vérifient que les quatre surfaces en portent les mêmes chiffres. La quatrième passe par le vrai
+`tools/accueil/accueil.js`, alimenté par le corps que la route rend réellement — une composition
+nourrie d'un corps fabriqué à la main ne prouverait rien.
+
+Aucun réseau, aucune clé, aucun appel de modèle.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from server.app.api.main import create_app
+from server.app.config import REPO_ROOT, Settings
+from server.app.domain.evals import (PublicationEvals, ReservesPubliees, SecondeLecturePubliee)
+from server.app.domain.ingest import Gate, GateDecision
+from server.evals import publication as pub_mod
+from server.evals import run as runner
+
+HARNAIS_VUE = REPO_ROOT / "tests" / "js" / "evals_vue.mjs"
+REQUIS = os.environ.get("FRONT_TESTS_REQUIS", "") not in ("", "0")
+REVISION = "9" * 40
+
+
+# --- un rapport de run synthétique et neutre -------------------------------------------------------
+
+def _rapport(*, complete: bool = True, decisions: list[dict[str, Any]] | None = None,
+             non_executes: list[str] | None = None,
+             labels: dict[str, int] | None = None,
+             results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {
+        "schema_version": 3,
+        "profile": "full",
+        "identity": {"run_digest": "a" * 64},
+        "complete": complete,
+        "stop_reason": None if complete else "incident technique pendant la seconde répétition",
+        "unexecuted_cases": list(non_executes or []),
+        "cases_hash": "d" * 64,
+        "cases_planned": 2,
+        "cases_completed": 2,
+        "repeat": 3,
+        "cost_eur": 0.055,
+        "plancher_digest": "c" * 64,
+        "metrics": {
+            "labels": labels or {"bonne_reponse": 3, "parsing": 1},
+            "variants": {"outils": 3, "local": 3},
+            # Volontairement « rondes » : sans formatage partagé, chaque surface les rendrait à sa
+            # façon (`1` contre `1.0000`, `0.02` contre `0.0200`) et la comparaison des quatre
+            # surfaces ne verrait rien — c'est le défaut relevé par la revue (P5).
+            "recall": 1.0,
+            "average_cost_eur": 0.02,
+            "latency_p50_ms": 14243,
+            "latency_p95_ms": 34370,
+            "cost_p95_eur": 0.5,
+            "ne_tranche_pas_rate": 0,
+        },
+        # Les résultats portent ce que **les deux** rendus lisent : `limites_du_rapport` n'a besoin
+        # que d'`id` et `label`, `rendre_markdown` publie aussi la ligne complète du cas.
+        "results": results if results is not None else [
+            {"id": "s-cas-neutre", "label": "bonne_reponse", "suite": "sinistre",
+             "variant": "outils", "cost_eur": 0.02, "cost_eur_original": 0.02, "latency_ms": 14243},
+            {"id": "p-cas-neutre", "label": "parsing", "suite": "parsing",
+             "variant": "local", "cost_eur": 0.0, "cost_eur_original": 0.0, "latency_ms": 0},
+        ],
+        "stability": {"n": 3, "cases": {
+            "s-cas-neutre": {"suite": "sinistre", "stable": False, "comptabilise": True},
+            "p-cas-neutre": {"suite": "parsing", "stable": True, "comptabilise": False},
+        }},
+        "decisions": decisions if decisions is not None else [{
+            "metric": "stabilite_sinistre", "producer": "orchestrator", "threshold": 1.0,
+            "scope": "suite:sinistre", "n": 3, "run_digest": "a" * 64, "value": 0.0,
+            "status": "red", "reason": None,
+        }, {
+            "metric": "executions_completes", "producer": "orchestrator", "threshold": 1.0,
+            "scope": "run", "n": 3, "run_digest": "a" * 64, "value": 1.0, "status": "green",
+            "reason": None,
+        }],
+    }
+
+
+def _tous_les_labels() -> dict[str, int]:
+    """`rendre_markdown` publie **les sept** labels du vocabulaire fixe d'AD-14, zéros compris."""
+    return {label: 0 for label in runner.LABELS} | {"bonne_reponse": 3, "parsing": 1}
+
+
+def _gate(*, evals_ok: bool = False) -> Gate:
+    return Gate(profile="full", source_hash="s", ingest_fingerprint="f", overlay_hash=None,
+                cases_hash="d" * 64, cases=2, countersigned=False, pipeline_digest="p",
+                prompts_digest="q", model_ids={}, evals_ok=evals_ok, date="2026-08-29T00:00:00Z",
+                run_digest="a" * 64, plancher_digest="c" * 64, candidate_revision=REVISION,
+                report_digest="b" * 64,
+                decisions=[] if evals_ok else [])
+
+
+def _publication(**kw: Any) -> PublicationEvals:
+    defauts: dict[str, Any] = {
+        "rapport": _rapport(),
+        "gate": _gate(),
+        "reserves": ReservesPubliees(countersigned=False, validated_by_expert=False,
+                                     dictionary_validated=False),
+        "relecture": SecondeLecturePubliee(statut="planifiee", blocs_planifies=2,
+                                           blocs_verifies=0),
+        "report_digest": "b" * 64,
+        "candidate_revision": REVISION,
+    }
+    defauts.update(kw)
+    rapport = defauts.pop("rapport")
+    gate = defauts.pop("gate")
+    return pub_mod.construire_publication(rapport, gate, **defauts)
+
+
+# --- les douze champs publiés ----------------------------------------------------------------------
+
+def test_les_douze_champs_publies_viennent_du_rapport_et_du_gate() -> None:
+    """AC 4 : les douze champs que les quatre surfaces comparent existent, et viennent du run."""
+    pub = _publication()
+    assert pub.profile == "full"
+    assert pub.candidate_revision == REVISION
+    assert pub.run_digest == "a" * 64 and pub.report_digest == "b" * 64
+    assert pub.plancher_digest == "c" * 64 and pub.cases_hash == "d" * 64
+    assert pub.evals_ok is False
+    assert pub.labels == {"bonne_reponse": 3, "parsing": 1}
+    assert pub.variantes == {"outils": 3, "local": 3}
+    assert pub.recall == 1.0
+    # Les cas `parsing` restent hors comptage de stabilité, comme au plancher : la suite est locale
+    # et déterministe, sa « stabilité » ne mesure rien du modèle.
+    assert (pub.stabilite.n, pub.stabilite.cas_stables, pub.stabilite.cas_comptabilises) == (3, 0, 1)
+    assert (pub.cout.froid_eur, pub.cout.moyen_eur, pub.cout.p95_eur) == (0.055, 0.02, 0.5)
+    assert (pub.latence.p50_ms, pub.latence.p95_ms) == (14243, 34370)
+    assert pub.ne_tranche_pas_rate == 0.0
+    assert pub.reserves.model_dump() == {"countersigned": False, "validated_by_expert": False,
+                                         "dictionary_validated": False}
+    assert [d.metric for d in pub.decisions] == ["stabilite_sinistre", "executions_completes"]
+    assert pub.seconde_lecture.statut == "planifiee"
+
+
+def test_les_limites_sont_derivees_du_run_et_jamais_redigees() -> None:
+    """Boundaries : « les limites publiées sont **dérivées mécaniquement** ; aucune prose fabriquée ».
+
+    Cinq sources, et chacune doit apparaître **parce qu'un fait du run l'a produite** : une décision
+    rouge chiffrée, une exécution manquante, un écart de parsing, une réserve à faux, un run
+    incomplet. Une limite qu'aucun chiffre ne produit serait une limite qu'aucun chiffre ne peut
+    démentir.
+    """
+    pub = _publication(rapport=_rapport(complete=False, non_executes=["s-cas-neutre#r3"]))
+    limites = "\n".join(pub.limites)
+    # 1. la décision rouge, avec sa valeur, son plancher, son n et son scope.
+    assert ("décision rouge stabilite_sinistre : 0.0000 < plancher 1.0000 (n=3, "
+            "scope suite:sinistre, producteur orchestrator)") in pub.limites
+    # La décision **verte** n'apporte aucune limite.
+    assert "executions_completes" not in limites
+    # 2. l'état incomplet, avec la raison d'arrêt telle que le runner l'a écrite.
+    assert any(l.startswith("run incomplet : incident technique") for l in pub.limites)
+    # 3. les exécutions manquantes, nommées.
+    assert any("1 exécution(s) planifiée(s) non exécutée(s)" in l and "s-cas-neutre#r3" in l
+               for l in pub.limites)
+    # 4. l'écart de parsing, dérivé des labels du run.
+    assert any("écart de parsing" in l and "p-cas-neutre" in l for l in pub.limites)
+    # 5. les trois réserves.
+    assert any("contresignature humaine" in l for l in pub.limites)
+    assert any("expert assurance" in l for l in pub.limites)
+    assert any("dictionnaire des variantes non validé" in l for l in pub.limites)
+    # Un run complet, vert, tout signé : les limites correspondantes disparaissent.
+    propre = _publication(
+        rapport=_rapport(decisions=[], labels={"bonne_reponse": 4},
+                         results=[{"id": "s-cas-neutre", "label": "bonne_reponse"}]),
+        gate=_gate(evals_ok=True),
+        reserves=ReservesPubliees(countersigned=True, validated_by_expert=True,
+                                  dictionary_validated=True),
+        relecture=SecondeLecturePubliee(statut="concordante", blocs_planifies=2,
+                                        blocs_verifies=2))
+    assert propre.limites == []
+
+
+def test_un_resultat_rouge_est_publie_comme_les_autres(tmp_path: Path) -> None:
+    """FR41 : la publication est **inconditionnelle** — publier ne promeut rien (AD-8)."""
+    pub = _publication()
+    assert pub.evals_ok is False
+    json_path, md_path = _ecrire(pub, tmp_path)
+    assert json_path.is_file() and md_path.is_file()
+    lu = PublicationEvals.model_validate_json(json_path.read_bytes())
+    assert lu == pub
+    rendu = md_path.read_text(encoding="utf-8")
+    assert "Gate **rouge**" in rendu
+    assert "Publié, jamais promu" in rendu
+
+
+# --- les quatre surfaces portent les mêmes chiffres ------------------------------------------------
+
+# Les valeurs de la fixture **ne tombent pas** sur quatre décimales : c'est ce qui rend cette
+# comparaison capable de voir une divergence de formatage (revue P5). Avec `0.6667` partout, les
+# quatre surfaces s'accordaient par accident.
+CHIFFRES = {
+    "recall": "1.0000",
+    "cout_froid": "0.0550",
+    "cout_moyen": "0.0200",
+    "cout_p95": "0.5000",
+    "latence_p50": "14243",
+    "latence_p95": "34370",
+    "ne_tranche_pas": "0.0000",
+    "run_digest": "a" * 64,
+    "cases_hash": "d" * 64,
+}
+
+
+def test_les_quatre_surfaces_portent_les_memes_chiffres(tmp_path: Path) -> None:
+    """AC 4, mot pour mot : « à l'octet des chiffres près », sur les quatre surfaces.
+
+    Le Markdown de `docs/evals/latest.md` et celui que la CI concatène sont **la même chaîne** —
+    c'est ce que garantit `rendre_publication_markdown`, appelé une fois et écrit deux fois. Les
+    deux autres surfaces sont vérifiées par égalité de valeurs, pas de mise en forme : un JSON et
+    une page ne s'écrivent pas comme une table Markdown.
+    """
+    pub = _publication()
+    json_path, md_path = _ecrire(pub, tmp_path)
+
+    # Surface 1 : `docs/evals/latest.md`.
+    markdown = md_path.read_text(encoding="utf-8")
+    # Surface 2 : le rendu appendu au rapport de CI — **identique**, pas seulement équivalent.
+    rendu_ci = pub_mod.rendre_publication_markdown(
+        pub, valeur=runner._markdown_value, code=runner._markdown_code)
+    assert markdown == rendu_ci
+
+    # Surface 3 : la réponse HTTP.
+    corps = _servir(tmp_path)
+    assert corps["publie"] is True
+    p = corps["publication"]
+
+    # Surface 4 : la composition de `/`, par le vrai `accueil.js`.
+    vue = _composer(corps)
+    textes = "\n".join(vue["textes"])
+
+    for nom, chiffre in CHIFFRES.items():
+        assert chiffre in markdown, f"{nom} absent du Markdown"
+        assert chiffre in textes, f"{nom} absent de la composition de `/`"
+    assert f"{p['recall']:.4f}" == CHIFFRES["recall"]
+    assert f"{p['cout']['froid_eur']:.4f}" == CHIFFRES["cout_froid"]
+    assert f"{p['cout']['moyen_eur']:.4f}" == CHIFFRES["cout_moyen"]
+    assert f"{p['cout']['p95_eur']:.4f}" == CHIFFRES["cout_p95"]
+    assert str(p["latence"]["p50_ms"]) == CHIFFRES["latence_p50"]
+    assert str(p["latence"]["p95_ms"]) == CHIFFRES["latence_p95"]
+    assert f"{p['ne_tranche_pas_rate']:.4f}" == CHIFFRES["ne_tranche_pas"]
+    assert p["run_digest"] == CHIFFRES["run_digest"] and p["cases_hash"] == CHIFFRES["cases_hash"]
+
+    # La stabilité « N/N » se lit identiquement des quatre côtés.
+    assert "0/1 (N=3)" in markdown
+    assert "0/1 cas stables sur N=3 répétitions" in textes
+    assert (p["stabilite"]["cas_stables"], p["stabilite"]["cas_comptabilises"],
+            p["stabilite"]["n"]) == (0, 1, 3)
+
+    # Les trois réserves, sur les quatre surfaces.
+    assert "## Réserves" in markdown and "<code>False</code>" in markdown
+    assert "réserves — contresignature humaine : non" in textes
+    assert p["reserves"] == {"countersigned": False, "validated_by_expert": False,
+                             "dictionary_validated": False}
+
+    # Les limites, mot pour mot : la page les reprend, elle ne les compose pas.
+    for limite in pub.limites:
+        assert limite in textes
+
+
+def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None:
+    """I/O matrix : artefact absent ou illisible ⇒ `publie: false`, **jamais** 5xx, aucun chiffre.
+
+    Les trois causes sont distinguées — absent, illisible, hors schéma — parce qu'elles n'ont pas
+    le même correctif, et qu'une seule d'entre elles est un état normal.
+    """
+    vide = tmp_path / "vide"
+    vide.mkdir()
+    (vide / "manifest.json").write_text("{}", encoding="utf-8")
+    assert _servir(vide) == {"publie": False, "raison": "absent", "publication": None}
+
+    # P14 : `illisible` et `hors_schema` sont **réellement** distingués, par un `json.loads` avant
+    # la validation. `model_validate_json` les confondait, si bien qu'un JSON cassé — la cause que
+    # le libellé nomme — ressortait `hors_schema`, et qu'`illisible` n'était atteignable que par une
+    # erreur d'entrée-sortie. Un état publié qui ne peut pas décrire sa propre cause ne vaut guère
+    # mieux qu'un silence.
+    illisible = tmp_path / "illisible"
+    illisible.mkdir()
+    (illisible / "manifest.json").write_text("{}", encoding="utf-8")
+    (illisible / "evals-latest.json").write_text("{ pas du json", encoding="utf-8")
+    assert _servir(illisible)["raison"] == "illisible"
+
+    hors_schema = tmp_path / "hors-schema"
+    hors_schema.mkdir()
+    (hors_schema / "manifest.json").write_text("{}", encoding="utf-8")
+    (hors_schema / "evals-latest.json").write_text(
+        json.dumps({"profile": "full"}), encoding="utf-8")
+    corps = _servir(hors_schema)
+    assert corps == {"publie": False, "raison": "hors_schema", "publication": None}
+    # Et `/` le rend comme une **absence**, sans inventer un chiffre.
+    vue = _composer(corps)
+    assert any("aucun run publié" in t for t in vue["textes"])
+    assert not any(re.search(r"\d", t) for t in vue["textes"] if "rappel" in t)
+
+
+def test_la_route_vit_sous_api_v1_et_na_pas_dalias_racine(tmp_path: Path) -> None:
+    """AD-11 : toute route neuve vit sous `/api/v1` ; rien d'ancien n'attend `/evals` à la racine."""
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    with TestClient(create_app(_reglages(), data_dir=tmp_path)) as client:
+        assert client.get("/api/v1/evals/latest").status_code == 200
+        assert client.get("/evals/latest").status_code == 404
+
+
+def test_lartefact_servi_vit_sous_un_chemin_que_limage_copie() -> None:
+    """Design Note : `Dockerfile` copie `server data web tools` — **jamais** `docs/`.
+
+    Un `docs/evals/latest.json` serait absent de l'image, et la route rendrait `publie: false` en
+    production, exactement là où FR41 la demande. Le contrôle est statique : il relit le Dockerfile.
+    """
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    copies = {ligne.split()[1] for ligne in dockerfile.splitlines()
+              if ligne.startswith("COPY ") and len(ligne.split()) >= 3
+              and not ligne.startswith("COPY --")}
+    assert "data" in copies, "l'image doit copier `data/`, où vit l'artefact servi"
+    assert "docs" not in copies, (
+        "`docs/` n'est pas dans l'image : l'artefact **servi** ne peut pas y vivre")
+    assert Settings(_env_file=None).evals_publication_file == "evals-latest.json"
+    assert pub_mod.PUBLICATION_JSON == "evals-latest.json"
+    assert pub_mod.DOCS_LATEST == ("docs", "evals", "latest.md")
+
+
+def test_la_reserve_non_experte_ouvre_le_rendu_avant_tout_chiffre(tmp_path: Path) -> None:
+    """AD-14 : la première chose qu'un lecteur voit est ce qui n'est pas validé."""
+    pub = _publication()
+    _, md_path = _ecrire(pub, tmp_path)
+    lignes = md_path.read_text(encoding="utf-8").splitlines()
+    tete = "\n".join(lignes[:6]).casefold()
+    assert "avertissement non expert" in tete and "expert assurance" in tete
+    # Aucun chiffre du run avant la réserve.
+    assert not any(c.isdigit() for c in lignes[0])
+
+
+# --- outillage local ------------------------------------------------------------------------------
+
+def _reglages() -> Settings:
+    return Settings(_env_file=None, anthropic_api_key="", env="dev")
+
+
+def _ecrire(pub: PublicationEvals, racine: Path) -> tuple[Path, Path]:
+    data = racine / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    return pub_mod.ecrire_publication(
+        pub, data_dir=data, repo_root=racine, ecrire=runner._ecrire_atomique,
+        valeur=runner._markdown_value, code=runner._markdown_code)
+
+
+def _servir(data_dir: Path) -> dict[str, Any]:
+    """Le corps que `GET /api/v1/evals/latest` rend **réellement**, pour ce `data/`."""
+    dossier = data_dir / "data" if (data_dir / "data").is_dir() else data_dir
+    if not (dossier / "manifest.json").is_file():
+        (dossier / "manifest.json").write_text("{}", encoding="utf-8")
+    with TestClient(create_app(_reglages(), data_dir=dossier)) as client:
+        reponse = client.get("/api/v1/evals/latest")
+    assert reponse.status_code == 200, reponse.text
+    return reponse.json()
+
+
+def _composer(corps: dict[str, Any]) -> dict[str, Any]:
+    """La vue que `tools/accueil/accueil.js` compose pour ce corps — le vrai fichier, pas un double."""
+    node = shutil.which("node")
+    if node is None:
+        motif = "node absent : la composition de `/` ne peut pas être vérifiée"
+        if REQUIS:
+            pytest.fail("FRONT_TESTS_REQUIS=1 mais " + motif)
+        pytest.skip(motif)
+    fini = subprocess.run([node, str(HARNAIS_VUE)], input=json.dumps(corps), capture_output=True,
+                          text=True, timeout=120, cwd=str(REPO_ROOT), check=False)
+    assert fini.returncode == 0, fini.stderr
+    charge = json.loads(fini.stdout)
+    assert charge.get("ok") is True, charge.get("erreur")
+    assert charge["cas"]["lisible"] is True, "le corps servi n'est pas lisible par `/`"
+    return charge["cas"]
+
+
+# --- revue 4.5 : les correctifs, épinglés ---------------------------------------------------------
+
+def test_une_decision_rouge_qui_porte_sa_raison_ne_publie_pas_une_inegalite_fausse() -> None:
+    """Revue P11 : `1.0000 < plancher 1.0000` est une inégalité fausse, et un mauvais diagnostic.
+
+    Une décision « producteur non probant » ou « sous-échantillonné » a une valeur qui **tient** le
+    plancher : c'est sa raison qui la rend rouge. Publier la comparaison faisait chercher un défaut
+    de mesure là où il n'y en a pas.
+    """
+    rouge_par_raison = _rapport(decisions=[{
+        "metric": "cases_ok_rate", "producer": "builder", "threshold": 1.0, "scope": "run",
+        "n": 3, "run_digest": "a" * 64, "value": 1.0, "status": "red",
+        "reason": "producteur non probant 'builder' ; attendu 'orchestrator'",
+    }])
+    limites = _publication(rapport=rouge_par_raison).limites
+    assert any("producteur non probant" in limite for limite in limites)
+    assert not any("1.0000 < plancher 1.0000" in limite for limite in limites)
+    # La valeur et le plancher restent publiés — mais comme un constat, pas comme une inégalité.
+    assert any("valeur 1.0000, plancher 1.0000" in limite for limite in limites)
+    # Une décision rouge **sans** raison garde l'inégalité, qui est alors vraie et explicative.
+    rouge_par_valeur = _rapport(decisions=[{
+        "metric": "cases_ok_rate", "producer": "orchestrator", "threshold": 1.0, "scope": "run",
+        "n": 3, "run_digest": "a" * 64, "value": 0.5, "status": "red", "reason": None,
+    }])
+    assert any("0.5000 < plancher 1.0000" in limite
+               for limite in _publication(rapport=rouge_par_valeur).limites)
+
+
+def test_le_rendu_de_ci_porte_les_champs_que_lac_exige(tmp_path: Path) -> None:
+    """Revue P6 : `$GITHUB_STEP_SUMMARY` gardait le rendu d'avant le diff.
+
+    La publication n'est appendue au rapport que sous `--gate ... --profile full`, or la CI lance
+    `--profile full` **sans** `--gate` (et `tests/test_workflows.py` épingle cette absence). Le
+    résumé de CI restait donc celui dont l'Intent de la spec dit qu'il n'a « ni stabilité, ni p95,
+    ni digest, ni limites » — c'est-à-dire la surface que l'AC 4 exige.
+
+    Les champs viennent du **même rapport** et du **même formatage** que la publication.
+    """
+    rapport = _rapport(labels=_tous_les_labels())
+    rapport["reserves"] = {"countersigned": False, "validated_by_expert": False,
+                           "dictionary_validated": False}
+    rendu = runner.rendre_markdown(rapport)
+    assert "stabilité N/N" in rendu and "0/1 (N=3)" in rendu
+    assert "coût froid (€)" in rendu and pub_mod.nombre(0.055) in rendu
+    assert "latence p95 (ms)" in rendu and "34370" in rendu
+    assert "a" * 64 in rendu, "le digest du run doit être lisible dans le résumé de CI"
+    assert "contresignature humaine" in rendu
+    assert "Limites dérivées de ce run :" in rendu
+    # Les limites sont **la même dérivation** que celle de la publication, mot pour mot.
+    attendues = pub_mod.limites_du_rapport(
+        rapport, [GateDecision.model_validate(d) for d in rapport["decisions"]],
+        reserves=ReservesPubliees(countersigned=False, validated_by_expert=False,
+                                  dictionary_validated=False))
+    for limite in attendues:
+        # Rendues par l'échappement durci du runner : une limite dérivée reste une valeur
+        # dynamique, et ne peut ni ouvrir du code ni casser une cellule.
+        assert runner._markdown_value(limite) in rendu, limite
+    # Et le formatage des chiffres est celui de la publication, y compris sur une valeur ronde :
+    # le recall vaut `1.0` dans la fixture et doit se lire `1.0000`, comme dans la publication.
+    assert f"| {pub_mod.nombre(1.0)} |" in rendu
+
+
+def test_un_rapport_sans_reserves_ne_les_invente_pas(tmp_path: Path) -> None:
+    """Un run de diagnostic n'établit ni contresignature ni seconde lecture : il n'en dit rien."""
+    rendu = runner.rendre_markdown(_rapport(labels=_tous_les_labels()))
+    assert "contresignature humaine" not in rendu
+    assert "stabilité N/N" in rendu  # ce que le rapport établit reste publié
+
+
+def test_le_latest_precedent_est_archive_avant_detre_remplace(tmp_path: Path) -> None:
+    """Revue P7 : « latest » veut dire « le dernier », pas « le seul ».
+
+    Le premier gate `full` écrasait sans retour le registre manuel de la campagne 4.2d — que la
+    story 4.4 référence, et qui contient des mesures live que personne ne peut reproduire sans
+    repayer. Un journal de campagnes qui perd les précédentes ne prouve plus rien sur la durée.
+    """
+    racine = tmp_path
+    ancien = racine.joinpath(*pub_mod.DOCS_LATEST)
+    ancien.parent.mkdir(parents=True)
+    ancien.write_text("# Campagne précédente\n\nDes mesures live irremplaçables.\n",
+                      encoding="utf-8")
+    avant = ancien.read_text(encoding="utf-8")
+    _ecrire(_publication(), racine)
+    archives = sorted(racine.joinpath(*pub_mod.DOCS_ARCHIVES).glob("*.md"))
+    assert len(archives) == 1, "le rendu précédent doit être archivé"
+    assert archives[0].read_text(encoding="utf-8") == avant
+    assert ancien.read_text(encoding="utf-8") != avant  # remplacé par le run
+    # Deux publications successives n'accumulent pas de copies du même contenu.
+    contenu_archive = archives[0].read_text(encoding="utf-8")
+    _ecrire(_publication(), racine)
+    assert len(sorted(racine.joinpath(*pub_mod.DOCS_ARCHIVES).glob("*.md"))) == 2
+    assert archives[0].read_text(encoding="utf-8") == contenu_archive
+    # Rien à archiver quand il n'y a rien : aucune archive vide n'est créée.
+    vierge = tmp_path / "vierge"
+    vierge.mkdir()
+    _ecrire(_publication(), vierge)
+    assert not sorted(vierge.joinpath(*pub_mod.DOCS_ARCHIVES).glob("*.md"))
+
+
+def test_lecrivain_et_le_lecteur_lisent_le_meme_reglage(tmp_path: Path) -> None:
+    """Revue P12 : une seule autorité, **jusqu'au réglage** — pas seulement jusqu'au défaut.
+
+    Un écrivain figé sur la constante et un lecteur sur `Settings.evals_publication_file` auraient
+    pu diverger dès qu'un environnement pose la variable : la route serait restée `publie: false`
+    pour toujours, sans que rien ne le dise.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}", encoding="utf-8")
+    pub_mod.ecrire_publication(_publication(), data_dir=data, repo_root=tmp_path,
+                               ecrire=runner._ecrire_atomique, nom="autre-nom.json",
+                               valeur=runner._markdown_value, code=runner._markdown_code)
+    assert (data / "autre-nom.json").is_file()
+    reglages = Settings(_env_file=None, anthropic_api_key="", env="dev",
+                        evals_publication_file="autre-nom.json")
+    with TestClient(create_app(reglages, data_dir=data)) as client:
+        assert client.get("/api/v1/evals/latest").json()["publie"] is True
+    # Et sous le nom par défaut, ce même `data/` n'a rien à publier : les deux se suivent.
+    with TestClient(create_app(_reglages(), data_dir=data)) as client:
+        assert client.get("/api/v1/evals/latest").json() == {
+            "publie": False, "raison": "absent", "publication": None}

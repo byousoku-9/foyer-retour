@@ -20,6 +20,10 @@ from .text import normalize
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
 REPORT_FILE = "report.json"  # AD-8 : checks statiques d'ingestion ; seul le niveau `bloquant` décide ici
 OVERLAY_FILE = "typing.manual.json"  # typage manuel (FR20) fusionné avant validation ; `document.json` intact
+# Proposition de structure de la story 4.2c, couverte par le manifest depuis 4.5 (`structure_hash`),
+# exactement comme l'overlay l'est. Elle n'est pas fusionnée au chargement — l'arbre est déjà dans
+# `document.json` — mais un artefact qui a bougé sans réingestion doit se voir.
+STRUCTURE_FILE = "structure.json"
 OVERLAY_SCHEMA_VERSION = "1"
 OVERLAY_FIELDS = ("kind", "defines", "scope_node_id", "scope_node_ids", "kind_source")
 OVERLAY_TOP_LEVEL = ("schema_version", "doc_id", "note", "blocks")
@@ -85,21 +89,33 @@ def _read_error(exc: OSError | UnicodeDecodeError | ValueError) -> str:
 def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ungated: bool) -> tuple[str, list[str]]:
     """Règle du gate (AD-7) : (raison de quarantaine, alertes).
 
-    - pas de gate, ou gate dont `source_hash`/`ingest_fingerprint`/`overlay_hash` ≠ l'entrée ⇒ gate invalide :
-      `sans_gate`
+    - pas de gate, ou gate dont `source_hash`/`ingest_fingerprint`/`overlay_hash`/`structure_hash` ≠
+      l'entrée ⇒ gate invalide : `sans_gate`
       (quarantaine, sauf `allow_ungated` ⇒ alerte) ;
     - `evals_ok=False` ⇒ `gate_echoue`, jamais servi ;
     - `pipeline_digest`/`prompts_digest`/`model_ids` ≠ `current` (si fourni) ⇒ servi avec l'alerte `gate_perime`.
     """
     gate = entry.gate
-    if gate is not None and (gate.source_hash, gate.ingest_fingerprint, gate.overlay_hash) != (
-            entry.source_hash, entry.ingest_fingerprint, entry.overlay_hash):
-        gate = None  # le typage manuel (overlay) fait partie de ce que les témoins ont validé
+    if gate is not None and (gate.source_hash, gate.ingest_fingerprint, gate.overlay_hash,
+                             gate.structure_hash) != (
+            entry.source_hash, entry.ingest_fingerprint, entry.overlay_hash,
+            entry.structure_hash):
+        # Le typage manuel (overlay) **et** la proposition de structure (story 4.5) font partie de
+        # ce que les témoins ont validé. Écrire `structure_hash` dans le gate sans jamais le
+        # recouper avec l'entrée aurait laissé servir, sans une alerte, un document réingéré avec
+        # une autre structure sous un gate qui certifie l'ancienne.
+        gate = None
     if gate is None:
         return ("", ["sans_gate"]) if allow_ungated else ("sans_gate", [])
     if not gate.evals_ok:
         return "gate_echoue", []
-    if gate.profile == "full" and (not gate.decisions or not gate.run_digest):
+    if gate.profile == "full" and (not gate.decisions or not gate.run_digest
+                                   or not gate.plancher_digest or not gate.candidate_revision):
+        # Story 4.5 : la sévérité `full` couvre aussi les champs neufs. Un gate `full` sans
+        # `plancher_digest` ne dit pas contre quel protocole il a été vert ; sans
+        # `candidate_revision`, il ne dit pas quel commit il a mesuré. Servir sous le label de la
+        # politique complète un gate qui ne sait ni l'un ni l'autre serait affirmer une mesure dont
+        # on a perdu la référence — le même défaut que `gate_preprotocole` nomme depuis 4.2b.
         return "gate_preprotocole", []
     if current is not None and (
             gate.pipeline_digest, gate.prompts_digest, gate.model_ids, gate.pipeline_settings) != (
@@ -114,6 +130,47 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
             return "gate_perime", []
         return "", ["gate_perime"]
     return "", []
+
+
+def _gate_full_preprotocole(brut: object) -> bool:
+    """Le gate brut est-il un `full` **antérieur au protocole** de la story 4.5 ?
+
+    C'est-à-dire : il se déclare `full`, et il ne porte pas — ou porte mal formé — le protocole
+    (`plancher_digest`) ou la révision (`candidate_revision`) que ce profil exige désormais. La
+    lecture est faite sur le **brut**, sans passer par le modèle, précisément parce que le modèle
+    vient de le refuser.
+    """
+    if not isinstance(brut, dict):
+        return False
+    gate = brut.get("gate")
+    if not isinstance(gate, dict) or gate.get("profile") != "full":
+        return False
+    return not all(isinstance(gate.get(champ), str) and gate.get(champ)
+                   for champ in ("plancher_digest", "candidate_revision"))
+
+
+def _raison_entree_invalide(brut: object, exc: ValueError) -> str:
+    """La raison de quarantaine d'une entrée refusée — **nommée** quand c'est le gate qui pèche.
+
+    Sans ce détour, un gate `full` écrit avant la story 4.5 rendait toute son entrée invalide au
+    schéma, et le document partait en quarantaine « entrée de manifest invalide : … » — un message
+    qui parle du manifest alors que le manifest va bien, et qui masque exactement le diagnostic que
+    `gate_preprotocole` existe pour donner (« ce gate a été obtenu avant le protocole en vigueur, il
+    doit être refait »). Le symptôme est le même que celui qu'`ecrire_gate` a rencontré au tour 2 de
+    la story 1.10, et le remède est le sien : **revalider sans le gate**.
+
+    Le détour ne vaut que si l'entrée est **par ailleurs valide** — un `document_hash` manquant reste
+    une entrée invalide — et que si le gate est un `full` pré-protocole. Toute autre invalidité du
+    gate (un `cases: 0`, un `evals_ok` incohérent) garde le message générique : elle n'a pas de nom.
+    """
+    if _gate_full_preprotocole(brut) and isinstance(brut, dict):
+        try:
+            ManifestEntry.model_validate({**brut, "gate": None})
+        except ValueError:
+            pass  # l'entrée pèche ailleurs qu'au gate : le message générique est le bon
+        else:
+            return "gate_preprotocole"
+    return f"entrée de manifest invalide : {_first_error(exc)}"
 
 
 def _bloquant_statique(doc_dir: Path) -> str:
@@ -288,6 +345,18 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
             reason = _apply_overlay(raw_doc, overlay) if isinstance(raw_doc, dict) else ""
             if reason:
                 return None, reason, []
+        # `structure.json` sur le patron exact d'`overlay_hash` (story 4.5) : déclaré ⟺ présent,
+        # puis la valeur. La proposition de structure décide de l'arbre que le rappel parcourt ; un
+        # fichier remplacé sans réingestion changerait ce que les questions-témoins ont validé, sans
+        # qu'une seule empreinte du manifest ne bouge.
+        structure_path = doc_dir / STRUCTURE_FILE
+        if structure_path.is_file() != (entry.structure_hash is not None):
+            return None, ("structure : structure.json présent mais non déclaré dans le manifest "
+                          "(relancer l'ingestion)"
+                          if structure_path.is_file()
+                          else "structure : déclarée dans le manifest mais absente"), []
+        if structure_path.is_file() and _sha256(structure_path) != entry.structure_hash:
+            return None, "structure_hash différent du manifest (relancer l'ingestion)", []
         doc = Document.model_validate(raw_doc)
     except ValueError as exc:  # ValidationError et JSONDecodeError en héritent
         return None, f"document.json invalide : {_first_error(exc)}", []
@@ -351,7 +420,7 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
         try:
             entry = ManifestEntry.model_validate(raw[doc_id])
         except ValueError as exc:
-            corpus.quarantine[doc_id] = f"entrée de manifest invalide : {_first_error(exc)}"
+            corpus.quarantine[doc_id] = _raison_entree_invalide(raw[doc_id], exc)
             continue
         corpus.manifest[doc_id] = entry
         doc_dir = data_dir / doc_id

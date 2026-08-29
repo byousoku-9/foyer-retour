@@ -13,6 +13,10 @@ from __future__ import annotations
 from server.app.corpus.text import normalize
 from server.app.domain.verdict import (ChampsApplicabilite, ClaimJugee, ClauseCitee,
                                        applicabilites_des_claims, decider)
+from server.evals.plancher import charger_plancher as _charger_plancher_4_5
+from server.evals.run import Cas as _Cas4_5
+from server.evals.run import Resultat as _Resultat4_5
+from server.evals.run import construire_decisions as _decisions4_5
 from server.evals.run import quote_hash
 
 # Vocabulaire volontairement neutre : aucun assureur réel, aucun cas du golden set.
@@ -240,3 +244,116 @@ def test_le_vocabulaire_des_corpus_synthetiques_est_neutre() -> None:
                      "bougie", "canape", "mobilier", "soudain", "chaleur"):
         assert interdit not in source, \
             f"vocabulaire non neutre dans les corpus synthétiques : {interdit!r}"
+
+
+# --- story 4.5 : les **décisions de gate** ne dépendent d'aucun identifiant ------------------------
+#
+# La garde métamorphique gardait les verdicts du domaine ; la story 4.5 lui donne neuf témoins de
+# plus à garder — parsing, blocs ouverts, citations, 5xx, typage, structure, stabilité de la claim
+# décisionnelle et les deux gardes de dépôt. Une garde anti-rustine s'étend avec la surface qu'elle
+# garde : sans cela, un branchement sur un `block_id` **dans le calcul d'un témoin** passerait
+# exactement là où la story prétend fermer la porte.
+#
+# Les corpus restent synthétiques et neutres, et la permutation est la même que ci-dessus :
+# bijection des identifiants, renumérotation des pages, inversion de l'ordre, reformulation.
+
+DOC_NEUTRE_4_5 = "doc-neutre"
+
+
+def _cas_neutre_4_5(doc: str) -> list[_Cas4_5]:
+    sinistre = _Cas4_5.model_validate({
+        "id": "s-neutre", "suite": "sinistre", "profile": "vertical",
+        "question": "Cette situation entre-t-elle dans la garantie decrite ?",
+        "faits": {"description": "Un bien decrit au contrat a subi une atteinte."},
+        "expected": {"found": True, "block_ids": [f"{doc}:p3:1"],
+                     "verdict": ["sous_conditions", "ne_tranche_pas"]},
+        "truth": {"source": "lecture_humaine", "validated_by_expert": False, "note": "relu"},
+        "mode_attendu": "bonne_reponse",
+    })
+    parsing = _Cas4_5.model_validate({
+        "id": "p-neutre", "suite": "parsing", "profile": "full",
+        "question": "Le texte du bloc est-il celui du document imprime ?",
+        "famille": "garantie",
+        "expected": {"found": True, "block_ids": [f"{doc}:p3:1"],
+                     "text_norm": normalize("Le bien decrit est garanti selon les conditions.")},
+        "truth": {"source": "lecture_humaine", "validated_by_expert": False, "note": "relu"},
+        "mode_attendu": "bonne_reponse",
+    })
+    parsing._doc_id = doc
+    return [sinistre, parsing]
+
+
+def _resultats_neutres_4_5(doc: str, *, prefixe: str = "") -> list[_Resultat4_5]:
+    bloc = f"{doc}:p3:1"
+    sinistres = [
+        _Resultat4_5(
+            id="s-neutre", suite="sinistre", label="bonne_reponse", variant="outils",
+            repetition=r, doc_id=doc, found=True, verdict="sous_conditions", http=200,
+            expected_block_ids=[bloc], opened_block_ids=[bloc],
+            proofs=[{"doc_id": doc, "block_id": bloc, "kind": "garantie",
+                     "quote_hash": f"{prefixe}h", "kind_confirmed": True}],
+            decision_claim=True)
+        for r in (1, 2, 3)
+    ]
+    parsings = [
+        _Resultat4_5(id="p-neutre", suite="parsing", label="bonne_reponse", variant="local",
+                     repetition=r, doc_id=doc, found=True, http=None,
+                     expected_block_ids=[bloc])
+        for r in (1, 2, 3)
+    ]
+    return sinistres + parsings
+
+
+def _table_de_decisions_4_5(doc: str, *, prefixe: str = "",
+                            ordre_inverse: bool = False) -> dict[str, tuple[float, str, int]]:
+    cas = _cas_neutre_4_5(doc)
+    resultats = _resultats_neutres_4_5(doc, prefixe=prefixe)
+    if ordre_inverse:
+        cas = list(reversed(cas))
+        resultats = list(reversed(resultats))
+    decisions = _decisions4_5(
+        resultats, cas, plancher=_charger_plancher_4_5(), repeat=3, run_digest="a" * 64,
+        producer="orchestrator", exigences_full=True, structure=(1, 1))
+    return {d.metric: (d.value, d.status, d.n) for d in decisions}
+
+
+def test_les_decisions_de_gate_sont_invariantes_sous_permutation() -> None:
+    """AC 4.5 : les neuf témoins ne dépendent ni d'un `doc_id`, ni d'une page, ni d'un ordre.
+
+    Un témoin qui bougerait sous renommage prouverait un branchement sur l'identité — la définition
+    d'une rustine, vue depuis le côté de ce qui mesure.
+    """
+    original = _table_de_decisions_4_5(DOC_NEUTRE_4_5)
+    permute = _table_de_decisions_4_5("autre-doc-neutre", prefixe="z", ordre_inverse=True)
+    assert original == permute
+    # Et les neuf témoins de la story sont bien dans la table gardée.
+    assert {"parsing_ok_rate", "blocs_attendus_ouverts_rate", "citations_retrouvees_rate",
+            "zero_5xx_technique_rate", "typage_confirme_rate", "structure_prouvee_rate",
+            "stabilite_claim_decisionnelle", "anti_rustine_pass_rate",
+            "metamorphique_pass_rate"} <= set(original)
+
+
+def test_controle_negatif_un_temoin_branche_sur_un_identifiant_est_detecte() -> None:
+    """Le contrôle prouve que la permutation ferait rougir un témoin branché sur l'identité.
+
+    Sans lui, l'invariance ci-dessus pourrait tenir parce que rien n'est mesuré — un test vert qui
+    ne protège rien.
+    """
+    def mauvais_temoin(resultats: list[_Resultat4_5]) -> float:
+        cibles = [r for r in resultats
+                  if any(p["block_id"] == f"{DOC_NEUTRE_4_5}:p3:1" for p in r.proofs)]
+        return len(cibles) / max(1, len(resultats))
+
+    assert mauvais_temoin(_resultats_neutres_4_5(DOC_NEUTRE_4_5)) > 0.0
+    assert mauvais_temoin(_resultats_neutres_4_5("autre-doc-neutre")) == 0.0
+
+
+def test_le_vocabulaire_des_corpus_de_gate_est_neutre() -> None:
+    """Never : aucun identifiant, aucune formulation et aucune page d'un témoin réel."""
+    import inspect
+    source = (inspect.getsource(_cas_neutre_4_5) + inspect.getsource(_resultats_neutres_4_5)
+              + inspect.getsource(_table_de_decisions_4_5)).lower()
+    for interdit in ("axa", "baloise", "optihome", "s-bougie", "b-bougie", "p34:12",
+                     "bougie", "canape", "mobilier", "soudain", "chaleur", "congelateur"):
+        assert interdit not in source, \
+            f"vocabulaire non neutre dans les corpus de gate : {interdit!r}"

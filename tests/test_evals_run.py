@@ -381,11 +381,40 @@ def test_lacte_volontaire_refuse_lexquive_ne_tranche_pas() -> None:
 
 
 def test_latest_ouvre_sur_la_reserve_non_experte_sans_inventer_de_run() -> None:
+    """`docs/evals/latest.md` : la réserve d'abord, et **aucun chiffre sans son identité de run**.
+
+    Ce test épinglait deux chaînes d'état transitoire — « aucun résultat live » et « ne fabrique donc
+    aucun résultat courant ». Elles décrivaient un dépôt qui n'avait encore rien mesuré ; la mesure
+    produite en 4.2a-bis puis 4.2d les a légitimement rendues fausses, et le test est resté rouge
+    depuis, à épingler une absence que le projet avait le devoir de combler (dette 4.2d, propriété de
+    cette story).
+
+    L'invariant **durable** n'est pas « ce document ne contient aucun résultat » : c'est
+
+    1. la **réserve non experte en tête** — la première chose qu'un lecteur voit, avant tout chiffre,
+       est qu'aucun verdict n'a été validé par un expert assurance (AD-14) ;
+    2. l'**identité de campagne présente** — un chiffre publié dit de quel run il vient ;
+    3. **aucun résultat sans `run_digest`** — un document qui affiche un recall, un coût ou une
+       stabilité sans l'empreinte du run qui les a produits invite à croire une mesure que personne
+       ne peut retrouver. C'est exactement ce que la story interdit, et c'est ce qui est vérifié ici.
+
+    Plus fort que les deux chaînes d'origine, et vrai avant comme après une campagne.
+    """
     latest = (runner.REPO_ROOT / "docs" / "evals" / "latest.md").read_text(encoding="utf-8")
-    tete = "\n".join(latest.splitlines()[:6]).casefold()
-    assert "avertissement non expert" in tete
-    assert "aucun résultat live" in latest.casefold()
-    assert "ne fabrique donc aucun résultat courant" in latest.casefold()
+    tete = "\n".join(latest.splitlines()[:8]).casefold()
+    assert "avertissement non expert" in tete, (
+        "la réserve d'AD-14 doit ouvrir le document, avant tout chiffre")
+    assert "expert assurance" in tete
+    corps = latest.casefold()
+    # **Inconditionnel** : un `latest.md` sans le moindre chiffre ne serait pas « prudent », il
+    # serait vide — et le rendre acceptable affaiblirait précisément l'invariant que cette
+    # réécriture prétend renforcer. Ce document publie un run, et un run se chiffre.
+    assert any(mot in corps for mot in ("recall", "rappel", "coût", "stabilité", "latence")), (
+        "ce document publie un run : il doit en porter les chiffres")
+    assert "run_digest" in corps, (
+        "des chiffres sont publiés sans l'empreinte du run qui les a produits")
+    assert any(mot in corps for mot in ("campagne", "identité")), (
+        "des chiffres sont publiés sans identité de campagne")
 
 
 def test_quick_porte_les_ids_exacts_et_stables_du_depot() -> None:
@@ -593,7 +622,9 @@ def test_les_compagnons_ont_un_digest_distinct_et_sont_figes_pendant_le_run(tmp_
         ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="i",
                       document_hash="d", edition="2026"),
         _contexte([]), profil="full", cas=cas, cases_dir=runner.CASES_DIR,
-        evals_ok=True, snapshot=avant)
+        evals_ok=True, snapshot=avant,
+        # Story 4.5 : un gate `full` porte son protocole, sa révision et son rapport.
+        plancher_digest="a" * 64, candidate_revision="b" * 40, report_digest="c" * 64)
     from server.app.digests import cases_hash
     assert gate.cases_hash == avant.cases_hash == cases_hash(
         [c.case_path for c in cas if c.case_path is not None], runner.CASES_DIR)
@@ -1392,8 +1423,12 @@ def test_ecrire_le_gate_ne_touche_que_lentree_visee(tmp_path: Path) -> None:
     assert apres[CONTRAT] == avant[CONTRAT]
     assert apres[GUIDE]["gate"]["profile"] == "vertical"
     assert apres[GUIDE]["gate"]["cases"] == 1
-    assert {k: v for k, v in apres[GUIDE].items() if k != "gate"} == \
-        {k: v for k, v in avant[GUIDE].items() if k != "gate"}
+    # Story 4.5 : l'entrée réécrite se **normalise** au schéma en vigueur, `structure_hash` compris
+    # (`null` tant qu'aucune `structure.json` n'a été ingérée). Aucune **valeur** existante ne
+    # bouge — c'est ce que ce test protège : un `--gate` n'a le droit de toucher qu'au gate.
+    assert apres[GUIDE].get("structure_hash") is None
+    assert {k: v for k, v in apres[GUIDE].items() if k not in ("gate", "structure_hash")} == \
+        {k: v for k, v in avant[GUIDE].items() if k not in ("gate", "structure_hash")}
     # Le fichier reste lisible par le loader.
     assert ManifestEntry.model_validate(apres[GUIDE]).gate is not None
 
@@ -1637,11 +1672,22 @@ def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,
 
 def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé."""
+    """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé.
+
+    Story 4.5 (M2) : la preuve porte désormais aussi la **révision candidate** et l'empreinte du
+    rapport dont elle dérive. Les cinq clés racine sont exigées exactement — voir
+    `tests/test_plancher.py -k candidate_revision` pour les quatre façons de ne pas concorder.
+    """
     charge = charger_plancher()
+    revision = "1" * 40
+    rapport_source = tmp_path / "rapport-orchestrateur.json"
+    rapport_source.write_text('{"schema_version": 3}\n', encoding="utf-8")
     preuve = tmp_path / "preuve-orchestrateur.json"
     preuve.write_text(json.dumps({
         "plancher_digest": charge.digest,
+        "candidate_revision": revision,
+        "report_digest": hashlib.sha256(rapport_source.read_bytes()).hexdigest(),
+        "run_digest": "a" * 64,
         "decisions": [{
             "metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
             "run_digest": "a" * 64,
@@ -1654,7 +1700,9 @@ def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
         tmp_path,
         ["--gate", GUIDE, "--repeat", "3", "--producer", "orchestrator",
          "--series-kind", "final", "--series-id", "final-guide", "--max-cost", "1.0",
-         "--orchestrator-evidence", str(preuve)],
+         "--candidate-revision", revision,
+         "--orchestrator-evidence", str(preuve),
+         "--orchestrator-report", str(rapport_source)],
         monkeypatch, reponses_guide=[guide, guide, guide])
     assert code == 0
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))

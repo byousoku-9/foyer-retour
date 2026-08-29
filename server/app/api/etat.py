@@ -33,6 +33,7 @@ from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
 from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
 from server.app.digests import pipeline_digest, prompts_digest
+from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
 from server.app.api.page_renderer import PageRenderer, VerifiedSource
 from server.app.llm.client import LlmClient
@@ -322,6 +323,10 @@ class EtatApp:
     pdf_sources: dict[str, VerifiedSource] = field(default_factory=dict)
     page_renderer: PageRenderer | None = None
     alerts: list[Alerte] = field(default_factory=list)
+    # FR41 — le dernier run d'évals publié, lu une fois au démarrage. `publie: false` est un état
+    # normal (aucun run publié dans cette image), jamais une erreur : la route le rend tel quel.
+    publication_evals: EtatPublication = field(
+        default_factory=lambda: EtatPublication(publie=False, raison="absent"))
 
     @property
     def documents_servis(self) -> list[str]:
@@ -394,6 +399,22 @@ class EtatApp:
             if not entree.gate.countersigned:
                 return False
         return True
+
+    @property
+    def gate_validated_by_expert(self) -> bool | None:
+        """Un expert assurance a-t-il validé les verdicts qui fondent ce profil ? — `null` ou `False`.
+
+        Jamais `True`, et ce n'est pas une omission : AD-14 pose que « les verdicts ne sont pas
+        validés par un expert assurance » et le schéma des cas contraint
+        `truth.validated_by_expert` à `False`. Rien dans ce dépôt ne peut donc établir le contraire,
+        et un champ qui pourrait valoir `True` laisserait croire qu'un chemin existe.
+
+        Il est publié malgré cela — c'est le point de l'AC 3 : la réserve doit être **lisible** là où
+        le service dit son niveau de validation, et pas seulement dans un document que personne
+        n'ouvre. Comme `gate_cases` et `gate_countersigned`, il est strictement adossé à
+        `gate_profile` : sans gate publié, il n'y a aucun verdict à qualifier.
+        """
+        return None if self.gate_profile is None else False
 
 
 def _alertes(corpus: Corpus, *, raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> list[Alerte]:
@@ -625,6 +646,54 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     return urls
 
 
+def _publication_evals(data_dir: Path, nom: str) -> EtatPublication:
+    """L'artefact des résultats d'évals, lu **une fois au démarrage** — ou un état typé « aucun ».
+
+    Trois façons de ne pas avoir de run publié, et les trois se disent (AD-16) :
+
+    - **absent** — aucun fichier ; c'est l'état normal d'une image où aucun gate `full` n'a tourné ;
+    - **illisible** — les octets ne se lisent pas, ou ne sont pas du JSON (permissions, fichier
+      tronqué en cours d'écriture, encodage) ;
+    - **hors schéma** — c'est du JSON, mais pas cet objet-là (version antérieure, champ manquant,
+      valeur hors bornes).
+
+    Les deux dernières sont **réellement** distinguées, par un `json.loads` avant la validation :
+    `model_validate_json` les confondait, si bien qu'un JSON cassé — la cause que le libellé nomme —
+    ressortait `hors_schema` et qu'`illisible` n'était atteignable que par une erreur d'entrée-sortie.
+    Un état publié qui ne peut pas décrire sa propre cause ne vaut guère mieux qu'un silence.
+
+    Aucune ne rend 5xx, aucune n'invente un chiffre, et aucune n'est confondue avec « un run vert
+    sans limites ». Comme `report.json` et `dictionary.json` : lu au démarrage, jamais par requête
+    (AD-7).
+    """
+    import json
+
+    chemin = data_dir / nom
+    if not chemin.is_file():
+        return EtatPublication(publie=False, raison="absent")
+    try:
+        brut = json.loads(chemin.read_bytes())
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        LOG.warning("publication d'évals illisible : %s", type(exc).__name__)
+        return EtatPublication(publie=False, raison="illisible")
+    try:
+        publication = PublicationEvals.model_validate(brut)
+    except ValueError as exc:
+        LOG.warning("publication d'évals hors schéma : %s", _first_error_public(exc))
+        return EtatPublication(publie=False, raison="hors_schema")
+    return EtatPublication(publie=True, publication=publication)
+
+
+def _first_error_public(exc: ValueError) -> str:
+    """Premier message de validation, sans jamais publier un chemin de `data/`."""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        items = errors()
+        if items:
+            return str(items[0].get("msg", ""))
+    return type(exc).__name__
+
+
 def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
     """Projette les PDF déjà validés par le loader, sans toucher au cœur du corpus.
 
@@ -657,7 +726,10 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
                            model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
-    corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte,
+    # Dette D1 refermée (story 4.5) : la disjonction d'AD-7 a **trois** termes, et c'est
+    # `Settings.deroger_au_gate` qui les combine — `ALLOW_UNGATED` **ou** `ENV=dev`. En `prod`, les
+    # deux sont faux et la fermeture de l'AC 1.10 est intacte.
+    corpus = load_corpus(data_dir, allow_ungated=settings.deroger_au_gate, current=contexte,
                          perimetre_max_chars=settings.perimetre_max_chars,
                          raison_max_chars=settings.raison_publiable_max_chars)
     # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
@@ -709,6 +781,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         dictionnaires=dictionnaires,
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
+        publication_evals=_publication_evals(data_dir, settings.evals_publication_file),
         alerts=_alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)
         + alertes_rapports + alertes_ungated
         + _alertes_dictionnaire(

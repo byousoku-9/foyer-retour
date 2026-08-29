@@ -712,3 +712,30 @@ def test_le_readme_conditionne_le_passage_a_2_8_a_une_mesure() -> None:
     readme = (WORKFLOWS.parents[1] / "README.md").read_text("utf-8")
     assert "--max-instances=2 --concurrency=8" in readme
     assert "test mémoire/latence" in readme
+
+
+def test_la_ci_reste_un_diagnostic_full_sans_gate_ni_repetition() -> None:
+    """AC 4.5 : « la CI telle qu'elle est configurée … le comportement est celui d'avant le diff ».
+
+    Le contrôle est double, et les deux moitiés se tiennent :
+
+    1. le **workflow** lance bien `EVALS_PROFILE: full` **sans** `--gate` ni `--repeat` — c'est un
+       diagnostic, pas un gate, et c'est pourquoi les exigences de `full` s'arment sur `--gate` et
+       non sur le profil (Design Notes 4.5). L'inverse aurait rendu la CI rouge à chaque PR pour une
+       raison étrangère au candidat ;
+    2. l'**adaptateur d'arguments** (`tests/test_evals_live.py::arguments_evals`) ne compose ni
+       `--gate`, ni `--repeat`, ni `--candidate-revision` : aucune garde neuve ne peut s'y déclencher.
+    """
+    from tests.test_evals_live import arguments_evals
+
+    pas = etapes(lire(CI), "verifier")
+    evals = pas[_index_par_nom(pas, "Questions-témoins quick")]
+    assert evals["env"]["EVALS_PROFILE"] == "full"
+    assert "--gate" not in evals["run"] and "--repeat" not in evals["run"]
+    assert "--candidate-revision" not in evals["run"]
+
+    args, _json, _md = arguments_evals(0.5, Path("/tmp/inexistant-pour-le-test"))
+    assert "--profile" in args and args[args.index("--profile") + 1] == "full"
+    for neuf in ("--gate", "--repeat", "--candidate-revision", "--orchestrator-evidence",
+                 "--orchestrator-report"):
+        assert neuf not in args, f"la CI ne doit pas composer {neuf}"

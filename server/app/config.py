@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -34,6 +34,14 @@ LISTE_MAX_ITEMS = 32
 # l'emploie, afin que les consommateurs n'aient pas à introspecter ``Settings.model_fields`` à
 # l'import (une couture fragile aux changements de Pydantic).
 RAISON_PUBLIABLE_MAX_DEFAULT = 500
+# Story 4.5 (FR41) — **l'unique autorité** du nom de l'artefact machine des résultats d'évals.
+#
+# L'écrivain vit dans `server/evals/publication.py`, le lecteur dans `server/app/api/etat.py`, et la
+# table des couches interdit à `api` d'importer `evals` : sans un nom partagé, les deux auraient eu
+# leur propre littéral, et un caractère de différence aurait fait rendre `publie: false` à la route
+# pour toujours — un défaut muet, exactement ce qu'AD-16 interdit. `config` est la seule couche que
+# les deux peuvent lire.
+EVALS_PUBLICATION_FILE = "evals-latest.json"
 
 
 class Settings(BaseSettings):
@@ -252,6 +260,35 @@ class Settings(BaseSettings):
     # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
     # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
     evals_max_cost_eur: float = Field(1.0, ge=0)
+    # Story 4.5 (FR41) — **où vit l'artefact machine des résultats publiés**, relativement à `data/`.
+    #
+    # Le **nom** est l'unique autorité partagée par l'écrivain (`server/evals/publication.py`) et le
+    # lecteur (`server/app/api/etat.py`) : il vit dans `EVALS_PUBLICATION_FILE`, ci-dessus, et les
+    # deux le lisent. Deux constantes séparées auraient pu diverger d'un caractère, et la route
+    # aurait rendu `publie: false` pour toujours sans que rien ne le dise.
+    #
+    # Le motif est strict — `[A-Za-z0-9._-]+` — et interdit donc tout séparateur de chemin. Sans
+    # lui, `EVALS_PUBLICATION_FILE=../../etc/passwd` ou `sous/dossier.json` faisait lire (et écrire)
+    # hors de `data/` : un réglage d'environnement ne doit pas pouvoir choisir un chemin.
+    #
+    # Il est dans `data/` et non dans `docs/` pour une raison mécanique : `Dockerfile` copie
+    # `server data web tools` et **pas** `docs/`. Un `docs/evals/latest.json` serait absent de
+    # l'image, et `GET /api/v1/evals/latest` rendrait `publie: false` en production — exactement là
+    # où FR41 demande qu'il publie. `data/dictionary.json` est le précédent d'un artefact `data/` qui
+    # n'appartient à aucun document. Le rendu **lisible** (`docs/evals/latest.md`) reste dérivé du
+    # même objet, pour qui lit le dépôt plutôt que le service.
+    #
+    # C'est un nom de fichier, pas un seuil : il n'entre pas dans `thresholds()`.
+    evals_publication_file: str = Field(EVALS_PUBLICATION_FILE, min_length=1,
+                                        pattern=r"^[A-Za-z0-9._-]+$")
+
+    @field_validator("evals_publication_file")
+    @classmethod
+    def _nom_de_fichier_seul(cls, valeur: str) -> str:
+        """`.` et `..` passent le motif mais ne nomment aucun fichier : ils désignent un dossier."""
+        if valeur in (".", ".."):
+            raise ValueError("evals_publication_file doit nommer un fichier, pas un répertoire")
+        return valeur
     # Story 4.2b corrective — plafond **agrégé persistant** de story/campagne : 1,00 € par défaut,
     # surchargé par `LIVE_BUDGET_EUR`. `--max-cost` reste une borne locale distincte par run.
     # L'orchestrateur fournit `LIVE_CAMPAIGN_ID`; le ledger inter-processus conserve le coût réel
@@ -631,6 +668,26 @@ class Settings(BaseSettings):
         elif self.allow_ungated is None:
             self.allow_ungated = True
         return self
+
+    @property
+    def deroger_au_gate(self) -> bool:
+        """La disjonction d'AD-7, **ses trois termes** (dette D1, refermée par la story 4.5).
+
+        AD-7 écrit la règle de service ainsi : « servi ssi aucun bloquant statique **et**
+        (`gate.evals_ok` **ou** `ENV=dev` **ou** `ALLOW_UNGATED`) ». Le code n'en honorait que
+        deux : `config.py` absorbait `ENV=dev` **dans** `ALLOW_UNGATED` (la dérogation ne valait
+        `True` que lorsque la variable était absente), si bien que poser explicitement
+        `ALLOW_UNGATED=false` en dev mettait en quarantaine un document sans gate — alors que le
+        deuxième terme de la disjonction, `ENV=dev`, le sert. Un opérateur qui écrivait « non » à
+        une dérogation en obtenait une **autre** règle que celle de l'AD.
+
+        Les deux faits restent donc distincts, et c'est ce qui les rend lisibles : `allow_ungated`
+        dit ce que l'opérateur a demandé (et vaut `False` de force en `prod`), cette propriété dit
+        ce que la règle décide. La fermeture en production est intacte : `allow_ungated` y est
+        forcé à `False` et `env` n'y vaut pas `dev`, donc la disjonction est fausse par ses trois
+        termes à la fois.
+        """
+        return bool(self.allow_ungated) or self.env == "dev"
 
     def thresholds(self) -> dict[str, float | int]:
         """Seuils actifs, tels qu'exposés dans `Trace.thresholds`."""

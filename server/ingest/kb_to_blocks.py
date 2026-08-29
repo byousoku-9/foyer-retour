@@ -26,7 +26,7 @@ from server.app.domain.profil import PROFIL_KEYS
 from server.app.domain import (Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, ParcoursCondition, Report,
                                Source)
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash, read_manifest,
-                                     write_atomic)
+                                     structure_hash, write_atomic)
 from server.ingest.jsobject import parse_js_object
 from server.ingest.report import build_report, report_from_validation_error
 
@@ -336,7 +336,9 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     entry = merge_manifest(manifest_path, raw_manifest, DOC_ID,
                             ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=ingest_fingerprint(),
                                           document_hash=document_hash, edition=edition,
-                                          overlay_hash=overlay_hash(data_dir), gate=None))
+                                          overlay_hash=overlay_hash(data_dir),
+                                          # Story 4.5 : couverte par le manifest comme l'overlay.
+                                          structure_hash=structure_hash(data_dir), gate=None))
     return report, entry
 
 
