@@ -140,6 +140,15 @@ suite documentaire. Un `cases_hash` de gate `full` n'est donc pas celui d'un gat
 document — deux profils, deux périmètres, deux hashes, ce que `cases_hash` existe précisément pour
 dire.
 
+**La révision est une valeur complète, jamais un préfixe** (story 4.5, revue B2). `deploy.yml` pose
+`GIT_SHA=<sha40>` sur le service ; `GET /api/v1/sante` continue de publier le `sha7` qu'AD-11
+promet, mais comme **projection** de cette valeur (`Settings.version_publiee`) — une seule source de
+vérité, une forme d'affichage. La comparaison qu'un gate `full` subit au chargement est donc une
+identité stricte : comparée à sept caractères, elle ne discriminait que 16⁷ classes, et un gate d'un
+**autre** commit partageant le sha7 était servi sans alerte. En production, une révision inconnue,
+tronquée ou ambiguë met le document en quarantaine (`gate_perime`) ; hors production, elle ne
+conclut rien.
+
 Trois gardes de plus ferment la **liaison à la révision** et la **composition du lot** :
 
 - la révision annoncée doit être celle du checkout (`git rev-parse HEAD`, ou `GIT_SHA` en 40 hex
