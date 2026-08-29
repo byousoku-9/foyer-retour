@@ -122,7 +122,7 @@ d'évidence porte `plancher_digest` et une liste `decisions` de
 ## Story 4.5 — le gate `full` décide, et les résultats sont publiés
 
 **Le profil `full` s'exécute sur un gate, et pas ailleurs.** `--gate {doc_id} --profile full` arme
-neuf témoins de plus ; `--profile full` sans `--gate` — ce que la CI lance à chaque PR — reste ce
+**dix** témoins de plus ; `--profile full` sans `--gate` — ce que la CI lance à chaque PR — reste ce
 qu'il était : un **diagnostic**. Le plancher le dit par témoin (`arme_par: gate_full`), et non le
 code : un gate `vertical` n'affirme que deux cas relus à la main, et lui opposer la politique
 complète ferait rougir une mesure qui ne la revendique pas.
@@ -140,7 +140,23 @@ suite documentaire. Un `cases_hash` de gate `full` n'est donc pas celui d'un gat
 document — deux profils, deux périmètres, deux hashes, ce que `cases_hash` existe précisément pour
 dire.
 
-### Les neuf témoins ajoutés
+Trois gardes de plus ferment la **liaison à la révision** et la **composition du lot** :
+
+- la révision annoncée doit être celle du checkout (`git rev-parse HEAD`, ou `GIT_SHA` en 40 hex
+  quand il n'y a pas de dépôt), sur un arbre sans modification non commise. Un arbre que
+  `git status` n'a pas su décrire est traité **comme un arbre sale** : un garde-fou qui ne peut pas
+  conclure refuse, il n'affirme pas ;
+- le document gaté doit porter une **source sur le disque** : sans elle, la règle `SOURCE_FILES` ne
+  dit pas ce qu'il est, aucun des deux témoins de structure ne le compte, et le loader le sert
+  pourtant (alerte `source_absente`). C'est l'état d'un checkout frais, où les `source.pdf` sont
+  téléchargés au build ;
+- le témoin de structure qui couvre X doit être **armé par le lot**. Un document ingéré depuis un PDF
+  sans cas `parsing` ne peut prouver ni son extraction ni sa structure ; un document qui n'en est pas
+  issu doit être mesuré par la suite qui le sert.
+
+Sans ces gardes, un lot mal composé aurait produit un gate `full` sans aucune exigence de structure.
+
+### Les dix témoins ajoutés
 
 Tous `criticite: bloquant`, `plancher: 1.0`, `n: 3`, et tous dans
 `server/evals/reference/plancher.yaml` — jamais en dur. Le mécanisme de fermeture par vacuité les
@@ -153,8 +169,9 @@ rend fail-closed : un témoin bloquant applicable qu'un run n'émet pas produit 
 | `blocs_attendus_ouverts_rate` | `run` | `eval_runner` | `expected_block_ids ⊄ opened_block_ids` |
 | `citations_retrouvees_rate` | `run` | `eval_runner` | une exécution porte `citation_introuvable`, **même si `mode_attendu` le prévoyait** |
 | `zero_5xx_technique_rate` | `run` | `eval_runner` | une exécution porte `http >= 500` (branche `TruncatedRead` comprise) |
-| `typage_confirme_rate` | `run` | `eval_runner` | une preuve cite un bloc dont `kind_confirmed` est faux |
-| `structure_prouvee_rate` | `run` | `eval_runner` | aucun `structure_hash` au manifest, artefact non concordant, ou bloquant `structure_proposee` au rapport |
+| `typage_confirme_rate` | `suite:sinistre` | `eval_runner` | une exécution sinistre cite une **clause fondatrice** (`garantie`, `exclusion`) dont `kind_confirmed` est faux |
+| `structure_prouvee_rate` | `suite:parsing` | `eval_runner` | un document **issu d'un PDF** n'a pas de `structure_hash` au manifest, un artefact non concordant, un rapport absent/illisible/étranger, ou pas d'attestation `structure_proposee` affirmative rattachée |
+| `arbre_prouve_rate` | `suite:guide` | `eval_runner` | un document **non issu d'un PDF** n'a pas de rapport d'ingestion portant une attestation `invariants_arbre` affirmative rattachée (`document_hash` **et** `ingest_fingerprint` de l'entrée du manifest) |
 | `stabilite_claim_decisionnelle` | `suite:sinistre` | `eval_runner` | les N répétitions divergent sur le prédicat décisionnel |
 | `anti_rustine_pass_rate` | `repo` | `orchestrator` | la garde n'est pas fournie par une preuve trusted |
 | `metamorphique_pass_rate` | `repo` | `orchestrator` | idem |
@@ -162,6 +179,30 @@ rend fail-closed : un témoin bloquant applicable qu'un run n'émet pas produit 
 `_signature_stabilite` n'est **pas** touchée : son numérateur est écrit dans le plancher importé
 (« la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible »). La stabilité
 du prédicat décisionnel est un témoin **distinct**, additif, dont le rouge se lit séparément.
+
+**Deux périmètres, deux preuves, aucune branche par document.** `typage_confirme_rate`,
+`structure_prouvee_rate` et `arbre_prouve_rate` ne s'appliquent pas au même univers, et c'est ce qui
+les rend satisfaisables plutôt que décoratifs :
+
+- le **typage juridique** qu'AD-6 exige est celui des clauses fondatrices, l'univers exact du
+  prédicat décisionnel. Le guide n'a aucune clause à typer — aucun de ses blocs ne porte de
+  `kind_source` —, et lui opposer ce témoin l'aurait rendu **structurellement rouge** quelle que soit
+  la qualité du candidat. Ce que le guide prouve, il le prouve par `citations_retrouvees_rate`,
+  `blocs_attendus_ouverts_rate` et sa preuve de structure ;
+- la **preuve de structure** se partage par la règle `SOURCE_FILES` du loader (première source
+  présente) : `structure_prouvee_rate` pour un document issu d'un PDF — la proposition de structure
+  de 4.2c —, `arbre_prouve_rate` pour une copie de site, dont l'ingestion émet le même contrôle
+  déterministe d'arbre. Les deux dénominateurs sont **complémentaires** : aucun périmètre servi n'est
+  laissé sans exigence de structure, et aucun document n'en subit deux.
+
+**Une attestation, pas une déclaration.** Les deux preuves de structure exigent que le rapport
+d'ingestion **affirme** et **rattache** : `structure acceptee document_hash=… structure_hash=…`, ou
+`arbre atteste document_hash=… ingest_fingerprint=…`, et le couple doit être celui de l'entrée du
+manifest. Un `structure.json` arbitraire, un `report.json` écrit à la main, ou la forme historique
+`invariants_arbre: ok` ne verdissent rien. Les attestations sont écrites par les deux ingestions
+(`kb_to_blocks`, `pdf_to_blocks`) et **renouvelées** — jamais fabriquées — par le typage, qui réécrit
+`report.json` après avoir changé `document.json` : sans ce renouvellement, un document typé perdrait
+sa preuve de structure sans que rien ne le dise.
 
 ### Le format de preuve trusted, lié à la révision
 
@@ -178,16 +219,38 @@ refusée, parce qu'un vocabulaire fermé se contrôle par égalité :
 }
 ```
 
-Quatre liens sont exigés (`server/evals/plancher.py::verifier_liaison_preuve`) : le protocole, la
-révision candidate, les octets du rapport, et l'égalité du `run_digest` racine avec celui de chaque
-mesure. Un écart refuse **avant toute décision** — aucun gate n'est écrit. C'est l'intention M2 :
-une modification produit rend la réutilisation d'une preuve invalide.
+Sept recoupements sont exigés (`server/evals/plancher.py::verifier_liaison_preuve`), et le premier
+écart refuse **avant toute décision** — aucun gate n'est écrit :
+
+1. les cinq clés racine, exactement ;
+2. `plancher_digest` = celui du plancher chargé par ce run ;
+3. `candidate_revision` = celle du run (elle-même recoupée avec la révision réellement exécutée) ;
+4. `sha256(octets du rapport)` = `report_digest` ;
+5. `identity.run_digest` du rapport référencé = `run_digest` racine = celui de chaque décision — le
+   rapport doit **se reconnaître** dans la preuve, sans quoi une preuve pouvait référencer le rapport
+   d'un autre run et passer ;
+6. `identity.run_digest` **recalculé** depuis l'identité privée de sa propre clé (la définition
+   d'`identite_run`) = la valeur annoncée — un `run_digest` cru sur parole n'est qu'une chaîne, et un
+   rapport fabriqué peut toujours être auto-cohérent ;
+7. `identity.candidate_revision`, `plancher_digest` (racine **et** `identity.image`) et
+   `identity.image.{pipeline_digest, prompts_digest, model_ids}` = ceux du run courant — deux runs ne
+   se comparent qu'à code, prompts, modèles et protocole égaux.
+
+C'est l'intention M2 : une modification produit rend la réutilisation d'une preuve invalide. Le
+`candidate_revision` fait partie de l'identité canonique du run, donc de son `run_digest` : deux runs
+de deux commits ne peuvent plus porter la même empreinte. Toute preuve produite avant la story 4.5
+est invalide.
 
 ### L'artefact de publication et ses quatre surfaces
 
 Un seul objet — `server/app/domain/evals.py::PublicationEvals` — construit par le runner et publié
 **inconditionnellement**, rouge compris (FR41). Publier ne promeut rien : seul `gate.evals_ok`
 décide de ce qui est servi (AD-8).
+
+**Publication et promotion basculent ensemble** : les trois surfaces *et* l'entrée de manifest sont
+préparées dans des temporaires de leurs répertoires cibles, puis basculées en une seule file de
+`os.replace`. Il ne reste rien d'échouable après la première bascule, donc aucun état où une surface
+affirme un verdict que le manifest ne porte pas — ni l'inverse.
 
 | surface | chemin | dans l'image ? |
 |---|---|---|
@@ -206,6 +269,14 @@ chiffre inventé.
 
 `server/evals/relecture.py` produit le **plan** déterministe (par bloc clé : `doc_id`, `block_id`,
 page, bbox, `text_norm`, URL de l'image de page servie par la route de la story 3.4) et **contrôle**
-le verdict rempli (`concordant|divergent`, `image_sha256`, `candidate_revision`, empreinte du plan,
-couverture exacte). Il ne rasterise rien et n'appelle aucun modèle : l'image vient de la route qui la
+le verdict rempli. Il ne rasterise rien et n'appelle aucun modèle : l'image vient de la route qui la
 sert déjà, et le verdict vient de l'orchestrateur.
+
+Le contrôle porte **cinq** liens, et les cinq sont exigés : schéma exact (aucune clé en trop),
+`candidate_revision`, `plan_digest`, couverture exacte du plan (chaque bloc une fois), et l'égalité
+de chaque `image_sha256` avec l'empreinte **recalculée** des octets réellement regardés. Ce dernier
+lien porte tout le poids de FR47 : sans lui, une empreinte inventée était acceptée puis publiée
+« seconde lecture concordante » sur les quatre surfaces. `--relecture-verdict` exige donc
+`--relecture-images <dossier>` (un fichier par bloc, nommé `{block_id}` dont les `:` sont remplacés
+par `_`, suffixé `.png`) ; une image manquante est un refus — un bloc qu'on n'a pas pu regarder ne
+peut pas avoir été relu. La commande complète est dans `docs/tests-live.md`, section « Story 4.5 ».

@@ -3616,12 +3616,31 @@ hors réseau, `ANTHROPIC_API_KEY=` vide, sur cas et corpus synthétiques neutres
 
 ### Le protocole a changé : aucun run antérieur n'est comparable
 
-`server/evals/reference/plancher.yaml` porte neuf témoins de plus (`parsing_ok_rate`,
+`server/evals/reference/plancher.yaml` porte **dix** témoins de plus (`parsing_ok_rate`,
 `blocs_attendus_ouverts_rate`, `citations_retrouvees_rate`, `zero_5xx_technique_rate`,
-`typage_confirme_rate`, `structure_prouvee_rate`, `stabilite_claim_decisionnelle`,
-`anti_rustine_pass_rate`, `metamorphique_pass_rate`), tous bloquants à `1.0` / `n: 3`, tous
-`arme_par: gate_full`. Aucun témoin importé n'est abaissé ni retiré, et les `snapshot_digest` des
-imports 4.2a/trusted sont inchangés — `charger_plancher` refuserait de charger sinon.
+`typage_confirme_rate`, `structure_prouvee_rate`, `arbre_prouve_rate`,
+`stabilite_claim_decisionnelle`, `anti_rustine_pass_rate`, `metamorphique_pass_rate`), tous bloquants
+à `1.0` / `n: 3`, tous `arme_par: gate_full`. Aucun témoin importé n'est abaissé ni retiré, et les
+`snapshot_digest` des imports 4.2a/trusted sont inchangés — `charger_plancher` refuserait de charger
+sinon.
+
+**Deux preuves de structure, deux périmètres complémentaires.** `structure_prouvee_rate` ne compte
+que les documents issus d'un PDF (règle `SOURCE_FILES` du loader : première source présente) et leur
+oppose la proposition de structure de la story 4.2c. `arbre_prouve_rate` est son pendant pour les
+documents qui n'en sont pas issus — la copie de site : leur ingestion émet le même contrôle
+déterministe d'arbre (`invariants_arbre`), et c'est **son attestation** que le gate leur oppose.
+Aucune branche par `doc_id` : les deux dénominateurs partagent le lot par ce que chaque document
+*est*. Un gate `full` dont le témoin couvrant ne serait pas armé par le lot est refusé **avant tout
+appel** (code 2) — un périmètre sans exigence de structure serait un plancher abaissé en silence.
+
+Depuis cette story, une preuve de structure n'est plus une *déclaration* mais une **attestation
+rattachée** : le rapport d'ingestion porte `structure acceptee document_hash=… structure_hash=…` (PDF)
+ou `arbre atteste document_hash=… ingest_fingerprint=…` (copie de site), et le gate exige que le
+couple soit celui de l'entrée du manifest. Un `report.json` écrit à la main, un `structure.json`
+arbitraire ou la forme historique `invariants_arbre: ok` ne verdissent rien. Le typage
+(`server/ingest/type_clauses.py`) **ré-atteste** après avoir réécrit `document.json` — sans quoi un
+document typé perdrait sa preuve de structure sans que rien ne le dise — mais il n'en **fabrique**
+jamais : une attestation absente le reste.
 
 Conséquences, à consigner avant toute campagne :
 
@@ -3652,9 +3671,8 @@ uv run python -m server.evals.run \
   --max-cost <borne-locale>
 ```
 
-Le fichier `<preuves-trusted.json>` porte **exactement** cinq clés racine, et les quatre liens sont
-recoupés avant toute décision (une clé en trop, une révision d'un autre commit, un rapport modifié ou
-un `run_digest` divergent refusent le run en code 2, sans écrire de gate) :
+Le fichier `<preuves-trusted.json>` porte **exactement** cinq clés racine — une clé en trop, une clé
+manquante, et le run est refusé en code 2 sans écrire de gate :
 
 ```json
 {
@@ -3676,15 +3694,75 @@ Sans ces mesures applicables, les décisions correspondantes restent **rouges** 
 orchestrateur applicable absent de ce run ») et le gate ne peut pas devenir vert. C'est le
 comportement voulu : une preuve absente est rouge, jamais neutre.
 
+**Six refus précèdent tout appel** (code 2, manifest intact) et il faut les avoir purgés avant de
+lancer la campagne : `--repeat < 3` ; `--candidate-revision` absente ou mal formée ; une révision
+annoncée qui n'est pas celle du checkout, **ou** un arbre de travail sale, **ou** un arbre que
+`git status` n'a pas su décrire (les trois sont traités pareil — un garde-fou qui ne peut pas
+conclure refuse) ; `--orchestrator-report` absent alors qu'une preuve trusted est fournie ; un
+document dont **aucune source n'est présente** sur le disque (`uv run python -m
+server.ingest.fetch_source --all --data data` avant le gate — les `source.pdf` ne sont pas
+committés) ; et un lot dont le témoin de structure couvrant le document n'est pas armé.
+
+**La publication et le gate basculent ensemble.** Les trois surfaces *et* l'entrée de manifest sont
+préparées dans des temporaires de leurs répertoires cibles, puis basculées en une seule file de
+`os.replace`. Un échec de préparation ne laisse **ni** publication **ni** gate : le manifest est
+byte-identique et aucune surface n'a bougé. Il n'existe donc aucun état où `GET /api/v1/evals/latest`
+affirme un `evals_ok: true` que le manifest ne porte pas.
+
+**Le contrat est durci depuis la revue** : recouper les seuls octets du rapport prouvait qu'il
+n'avait pas bougé, jamais qu'il décrivait *ce* run. Le rapport référencé par `report_digest` doit
+donc **se reconnaître** dans la preuve. Sept recoupements sont faits avant la moindre décision, et
+chacun refuse en code 2 :
+
+| ce qui est recoupé | contre quoi | ce qu'un écart voudrait dire |
+|---|---|---|
+| les cinq clés racine, exactement | le schéma ci-dessus | une preuve d'un autre format |
+| `plancher_digest` | le plancher chargé par ce run | des seuils qui ne disent pas la même chose |
+| `candidate_revision` | `--candidate-revision`, et la révision réellement exécutée | une preuve d'un autre commit |
+| `sha256(octets du rapport)` | `report_digest` | un rapport modifié après coup |
+| `identity.run_digest` du rapport | `run_digest` racine, et celui de chaque décision | une preuve qui ne décrit pas ce rapport |
+| `identity.run_digest` **recalculé** depuis l'identité privée de sa propre clé | la valeur annoncée | un rapport fabriqué, fût-il auto-cohérent |
+| `identity.candidate_revision`, `plancher_digest` (racine et `identity.image`), `identity.image.{pipeline_digest, prompts_digest, model_ids}` | le run courant | une mesure prise sur une autre image |
+
+Le rapport référencé est donc un **rapport de run réel** (`.evals/results.json` d'une série
+orchestrateur), pas un fichier de circonstance. Sa forme minimale :
+
+```json
+{
+  "schema_version": 3,
+  "plancher_digest": "<le même que la racine de la preuve>",
+  "identity": {
+    "candidate_revision": "<sha40-du-candidat>",
+    "image": {
+      "pipeline_digest": "<celui du code courant>",
+      "prompts_digest": "<celui des prompts courants>",
+      "model_ids": {"…": "…"},
+      "plancher_digest": "<le même>"
+    },
+    "scope": {"…": "…"},
+    "run_digest": "<empreinte canonique de `identity` privée de `run_digest`>"
+  }
+}
+```
+
+`run_digest` n'est **jamais** cru sur parole : il est recalculé exactement comme
+`server/evals/run.py::identite_run` le calcule. Toute preuve produite avant cette story est invalide.
+
 ### Ce que le premier gate `full` rendra rouge, et pourquoi c'est l'état réel
 
 Deux témoins sont rouges **par construction du dépôt**, indépendamment de la qualité du candidat, et
 il faut s'y attendre plutôt que les prendre pour une régression :
 
-- `structure_prouvee_rate = 0` — aucun `structure.json` n'existe sur le corpus servi, aucun
-  `report.json` livré ne porte de check `structure_proposee`. La story 4.2c n'a jamais été exercée
-  sur ce corpus ; la réingestion PDF réelle est une dette `[high]` de l'orchestrateur (les PDF ne
-  sont pas dans le dépôt) ;
+- `structure_prouvee_rate = 0` (gate d'un contrat) — aucun `structure.json` n'existe sur le corpus
+  servi, aucun `report.json` livré ne porte de check `structure_proposee`. La story 4.2c n'a jamais
+  été exercée sur ce corpus ; la réingestion PDF réelle est une dette `[high]` de l'orchestrateur
+  (les PDF ne sont pas dans le dépôt) ;
+- `arbre_prouve_rate = 0` (gate du guide) — `data/lux-guide/report.json` porte `invariants_arbre`
+  sous sa forme antérieure à cette story (`detail: "ok"`, sans empreinte). La preuve existe, mais
+  elle n'est pas *rattachée* ; le témoin le dit en rouge plutôt que de croire une déclaration. Il
+  redevient vert dès la réingestion du guide, qui est **locale, déterministe et sans réseau** :
+  `uv run python -m server.ingest.kb_to_blocks --data data/lux-guide --edition <edition du manifest>`,
+  à faire sur HEAD figé avant le gate, puis à consigner ;
 - `a16_post_success_rate = 0/3` — inchangé depuis 4.2a, publié tel quel.
 
 ### Entrées dues, reconduites explicitement
@@ -3718,7 +3796,31 @@ surlignage sur les `Line.bbox` exactes). Les blocs clés sont ceux que les preuv
 les blocs attendus que le rappel n'a pas ouverts. Le code de sortie est `1` quand le plan est vide —
 il n'y a alors rien à relire, et il faut le savoir.
 
-**2. Remplir le verdict**, un objet par bloc du plan, puis le repasser au gate :
+**2. Récupérer les octets des images de pages** — c'est l'étape que la revue B5 a rendue
+obligatoire. `image_sha256` était auparavant recopié du verdict sans jamais être recoupé : une
+empreinte **inventée** était acceptée, puis publiée « seconde lecture concordante » sur les quatre
+surfaces. Désormais le validateur recalcule lui-même l'empreinte des octets qu'on lui donne, et
+`--relecture-verdict` **exige** `--relecture-images`.
+
+Un fichier par bloc du plan, dans un dossier plat, nommé `{block_id avec ':' remplacé par '_'}.png`
+(`server/evals/relecture.py::nom_image`) — exactement les octets que la route de la story 3.4 sert,
+et rien d'autre :
+
+```bash
+# Service local déjà lancé sur le HEAD figé (même révision que --candidate-revision).
+mkdir -p .evals/relecture-images
+uv run python - <<'PY'
+import json, pathlib, urllib.request
+plan = json.loads(pathlib.Path(".evals/relecture-plan.json").read_text("utf-8"))
+sortie = pathlib.Path(".evals/relecture-images"); sortie.mkdir(parents=True, exist_ok=True)
+for bloc in plan["blocs"]:
+    octets = urllib.request.urlopen("http://127.0.0.1:8080" + bloc["image_url"]).read()
+    (sortie / (bloc["block_id"].replace(":", "_") + ".png")).write_bytes(octets)
+PY
+```
+
+**3. Remplir le verdict**, un objet par bloc du plan, `image_sha256` étant le sha256 des octets
+téléchargés ci-dessus, puis le repasser au gate :
 
 ```json
 {
@@ -3735,14 +3837,18 @@ il n'y a alors rien à relire, et il faut le savoir.
 ```bash
 … uv run python -m server.evals.run --gate <doc_id> --profile full --repeat 3 \
   --candidate-revision <sha40-du-candidat> \
-  --relecture-verdict .evals/relecture-verdict.json …
+  --relecture-verdict .evals/relecture-verdict.json \
+  --relecture-images .evals/relecture-images …
 ```
 
-Le verdict est recoupé avec le plan **dérivé du rapport de ce run** — schéma exact,
-`candidate_revision`, `plan_digest`, couverture exacte du plan, un `image_sha256` par bloc. Un écart
-fait **échouer la publication** (le run ne peut pas être vert) : aucune seconde lecture n'est publiée
-au rabais. Sans `--relecture-verdict`, le statut publié reste `planifiee` — jamais « concordante par
-défaut ».
+Le verdict est recoupé avec le plan **dérivé du rapport de ce run** — **cinq** liens, et les cinq
+sont exigés : schéma exact (aucune clé en trop), `candidate_revision`, `plan_digest`, couverture
+exacte du plan (chaque bloc une fois), et l'égalité de chaque `image_sha256` avec l'empreinte
+**recalculée** des octets fournis. Une image manquante est un refus : un bloc qu'on n'a pas pu
+regarder ne peut pas avoir été relu. Passer `--relecture-verdict` sans `--relecture-images` est
+refusé avant tout appel. Un écart fait **échouer la publication** (le run ne peut pas être vert) :
+aucune seconde lecture n'est publiée au rabais. Sans `--relecture-verdict`, le statut publié reste
+`planifiee` — jamais « concordante par défaut ».
 
 Aucune rasterisation n'est faite côté `evals` : aucun `source.pdf` n'est présent dans ce worktree, et
 dupliquer PyMuPDF y aurait ajouté une seconde recette de rendu non testable sur le corpus réel.

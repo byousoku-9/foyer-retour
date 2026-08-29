@@ -125,27 +125,62 @@ configuration précédente et rend la story suivante non promouvable — sans in
 
 ## Story 4.5 — ce que le gate `full` exige, et ce qui est publié
 
-Le profil `full` ne s'arme que sur `--gate {doc_id} --profile full`. Il ajoute **neuf témoins
+Le profil `full` ne s'arme que sur `--gate {doc_id} --profile full`. Il ajoute **dix témoins
 bloquants** au plancher (`parsing_ok_rate`, `blocs_attendus_ouverts_rate`,
 `citations_retrouvees_rate`, `zero_5xx_technique_rate`, `typage_confirme_rate`,
-`structure_prouvee_rate`, `stabilite_claim_decisionnelle`, `anti_rustine_pass_rate`,
-`metamorphique_pass_rate`), tous à `plancher: 1.0` et `n: 3`, tous marqués `arme_par: gate_full`.
-Aucun n'abaisse ni ne retire un témoin importé, et les digests des snapshots figés sont inchangés.
+`structure_prouvee_rate`, `arbre_prouve_rate`, `stabilite_claim_decisionnelle`,
+`anti_rustine_pass_rate`, `metamorphique_pass_rate`), tous à `plancher: 1.0` et `n: 3`, tous marqués
+`arme_par: gate_full`. Aucun n'abaisse ni ne retire un témoin importé, et les digests des snapshots
+figés sont inchangés.
 
-Trois refus **avant tout appel** (code 2, manifest intact) : `--repeat < n_minimum`,
-`--candidate-revision` absente ou mal formée, `--orchestrator-report` absent alors qu'une preuve
-trusted est fournie. Sous `full`, la suite `parsing` du document entre dans le lot : le `cases_hash`
-d'un gate `full` diffère de celui d'un gate `vertical` du même document.
+**Chaque périmètre servi a son exigence de structure, et aucun n'en a deux.** La règle est celle du
+loader (`SOURCE_FILES`, première source présente), jamais un `doc_id` : un document issu d'un PDF
+prouve sa proposition de structure (4.2c, `structure_prouvee_rate`) ; un document qui n'en est pas
+issu — la copie de site — prouve l'arbre que son ingestion a construit (`arbre_prouve_rate`). De
+même, `typage_confirme_rate` ne porte que sur les clauses fondatrices du parcours sinistre, l'univers
+exact qu'AD-6 vise : l'opposer au guide, dont aucun bloc ne porte de `kind_source`, aurait été un mur
+et non une exigence.
 
-La preuve trusted porte désormais **exactement** `{plancher_digest, candidate_revision,
-report_digest, run_digest, decisions}` et est recoupée sur les quatre : une preuve d'une autre
-révision, un rapport modifié, ou un `run_digest` divergent refusent le run sans écrire de gate
-(reproduction : `pytest -q tests/test_plancher.py -k candidate_revision`).
+Une preuve de structure est une **attestation rattachée**, pas une déclaration : le rapport
+d'ingestion nomme le `document_hash` (et le `structure_hash` ou l'`ingest_fingerprint`) de l'entrée
+du manifest. Un artefact arbitraire ou un rapport écrit à la main ne verdit rien. Les deux ingestions
+l'écrivent ; le typage la **renouvelle** après avoir changé `document.json`, mais n'en fabrique
+jamais.
 
-Le résultat est **publié quel qu'il soit** (FR41) dans un artefact unique — `data/evals-latest.json`,
-`docs/evals/latest.md`, le résumé de CI et `GET /api/v1/evals/latest`, que `/` compose (FR42). Les
-limites y sont dérivées du run ; les trois réserves (contresignature humaine, validation par un
-expert assurance, dictionnaire validé) y sont publiées sans qu'aucune décision n'en dépende.
+Six refus **avant tout appel** (code 2, manifest intact) : `--repeat < n_minimum`,
+`--candidate-revision` absente ou mal formée, une **révision annoncée qui n'est pas celle réellement
+exécutée** — ou un arbre de travail sale, ou un arbre que `git status` n'a pas su décrire, les trois
+étant traités pareil —, `--orchestrator-report` absent alors qu'une preuve trusted est fournie, un
+document **sans source sur le disque** (rien ne dit alors ce qu'il est ni quelle preuve de structure
+lui opposer ; le refus nomme `server.ingest.fetch_source`), et un **lot mal composé** — celui dont le
+témoin de structure couvrant le document gaté n'est pas armé (un document PDF sans cas `parsing`, ou
+un document mesuré par une suite qui n'oppose pas sa preuve). Sous `full`, la suite `parsing` du
+document entre dans le lot : le `cases_hash` d'un gate `full` diffère de celui d'un gate `vertical`
+du même document.
+
+La preuve trusted porte **exactement** `{plancher_digest, candidate_revision, report_digest,
+run_digest, decisions}`, et le rapport qu'elle référence doit **se reconnaître** en elle. Sept
+recoupements précèdent toute décision : les cinq clés racine, le plancher, la révision candidate
+(elle-même comparée à la révision réellement exécutée), les octets du rapport, l'égalité du
+`run_digest` racine avec celui du rapport et de chaque mesure, le **recalcul** de ce `run_digest`
+depuis l'identité du rapport, et l'égalité de l'image mesurée (`pipeline_digest`, `prompts_digest`,
+`model_ids`, `plancher_digest`). Un écart refuse le run sans écrire de gate — un `run_digest` cru sur
+parole n'est qu'une chaîne, et un rapport fabriqué peut toujours être auto-cohérent (reproduction :
+`pytest -q tests/test_plancher.py -k candidate_revision`). Toute preuve produite avant cette story
+est invalide.
+
+**Publication et promotion basculent ensemble.** Ni « publier puis promouvoir » ni l'inverse ne
+suffisent : dans un sens un échec d'écriture du manifest laisse des surfaces affirmant un verdict que
+le manifest ne porte pas, dans l'autre un échec de publication laisse un vert déjà servable. La règle
+est donc qu'**il ne reste rien d'échouable après la première bascule** : les trois surfaces *et*
+l'entrée de manifest sont préparées et validées dans des temporaires de leurs répertoires cibles,
+puis basculées en une seule file de `os.replace`. Un échec de préparation ne laisse ni publication ni
+gate — le manifest est byte-identique et aucune surface n'a bougé. Le résultat est **publié quel qu'il soit** (FR41) dans un
+artefact unique — `data/evals-latest.json`, `docs/evals/latest.md`, le résumé de CI et
+`GET /api/v1/evals/latest`, que `/` compose (FR42). Publier ne promeut rien : seul `gate.evals_ok`
+décide de ce qui est servi (AD-8). Les limites y sont dérivées du run ; les trois réserves
+(contresignature humaine, validation par un expert assurance, dictionnaire validé) y sont publiées
+sans qu'aucune décision n'en dépende.
 
 ### Archivage du rendu lisible
 
@@ -162,7 +197,10 @@ durée : les mesures live qu'il contient ne se reproduisent qu'en repayant.
 
 Le plan se produit par `python -m server.evals.relecture --report … --candidate-revision … --out …`
 (déterministe, hors réseau, sans clé) ; le verdict rempli se repasse au gate par
-`--relecture-verdict`. Il est recoupé avec le plan dérivé du rapport du run — schéma exact, révision,
-`plan_digest`, couverture exacte — et un écart fait échouer la publication. Sans verdict déposé, le
-statut publié est `planifiee`, jamais « concordante ». Les commandes exactes sont dans
-`docs/tests-live.md`.
+`--relecture-verdict`, qui **exige** `--relecture-images <dossier>`. Il est recoupé avec le plan
+dérivé du rapport du run sur **cinq** liens — schéma exact, révision, `plan_digest`, couverture
+exacte, et l'égalité de chaque `image_sha256` avec l'empreinte recalculée des octets réellement
+regardés — et un écart fait échouer la publication. Sans ce dernier lien, une empreinte inventée
+était acceptée puis publiée « concordante » sur les quatre surfaces. Sans verdict déposé, le statut
+publié est `planifiee`, jamais « concordante ». Les commandes exactes — y compris la récupération des
+octets d'images par la route de la story 3.4 — sont dans `docs/tests-live.md`.
