@@ -1984,6 +1984,10 @@ def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> 
     peut reproduire sans repayer ».
 
     Le contrôle porte sur un fichier réellement illisible (`chmod 000`), pas sur un double.
+
+    Cycle de récupération (B7) : la décision d'archivage est passée dans `_archive_a_ecrire`, qui la
+    prend **sans rien écrire**, si bien qu'elle peut lever avant le premier temporaire. La preuve
+    est la même, sur la fonction qui porte désormais la lecture.
     """
     from server.evals import publication as pub_mod
 
@@ -1995,8 +1999,7 @@ def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> 
     try:
         if runner._lire_ou_absent.__module__ and latest.exists():
             with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
-                pub_mod._preparer_archive(latest, repo_root=tmp_path,
-                                          preparer=runner._preparer_atomique)
+                pub_mod._archive_a_ecrire(latest, repo_root=tmp_path)
             with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
                 pub_mod.archiver_latest(latest, repo_root=tmp_path,
                                         ecrire=runner._ecrire_atomique)
@@ -2006,8 +2009,7 @@ def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> 
     assert latest.read_bytes() == avant
     # Et une absence reste une absence : rien à archiver, aucune exception.
     absent = tmp_path / "docs" / "evals" / "jamais.md"
-    assert pub_mod._preparer_archive(absent, repo_root=tmp_path,
-                                     preparer=runner._preparer_atomique) is None
+    assert pub_mod._archive_a_ecrire(absent, repo_root=tmp_path) is None
     assert pub_mod.archiver_latest(absent, repo_root=tmp_path,
                                    ecrire=runner._ecrire_atomique) is None
 

@@ -368,6 +368,9 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
         "complete": False, "profile": "p|`\nligne", "cases_completed": 0,
         "cases_planned": 1, "stop_reason": "diag|`\nligne", "cases_hash": "h|`\n",
         "unexecuted_cases": ["c|`\nligne"], "identity": {}, "decisions": [], "repeat": 1,
+        # `cost_eur` fait partie de ce que la validation canonique exige depuis le cycle de
+        # récupération (B5) : le coût froid d'un run ne se publie pas à zéro faute d'être écrit.
+        "cost_eur": 0.0,
         # Les six mesures que la publication **exige** : depuis la revue B5, une mesure absente
         # n'est plus publiée à zéro, elle ferme. Le rendu reste celui qu'on teste ici — l'échappement
         # de toute valeur dynamique.

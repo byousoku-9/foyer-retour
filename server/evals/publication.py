@@ -22,6 +22,8 @@ lorsque tout est vert ferait de l'absence de nouvelle une bonne nouvelle.
 from __future__ import annotations
 
 import hashlib
+import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +32,6 @@ from server.app.domain.evals import (CoutPublie, LatencePubliee, PublicationEval
                                      SecondeLecturePubliee, StabilitePubliee)
 from server.app.domain.ingest import Gate, GateDecision
 
-# **Une seule autorité** pour le nom du fichier servi : `config.EVALS_PUBLICATION_FILE`, que le
-# lecteur (`api/etat.py`) lit aussi. Deux littéraux auraient pu diverger sans bruit.
 class RapportInexploitable(Exception):
     """Le rapport n'a pas les structures qu'une publication exige : elle ne peut pas être fabriquée.
 
@@ -61,10 +61,170 @@ def _exiger(rapport: dict[str, Any], cle: str, types: tuple[type, ...]) -> Any:
     return valeur
 
 
+# Les mesures que la publication rend en **réels** et celles qu'elle rend en **entiers**. La
+# distinction n'est pas cosmétique : `int(14243.7)` tronquerait une latence, c'est-à-dire
+# publierait un chiffre que personne n'a mesuré — la faute même que ce module refuse.
+MESURES_REELLES: tuple[str, ...] = (
+    "recall", "average_cost_eur", "cost_p95_eur", "ne_tranche_pas_rate",
+)
+MESURES_ENTIERES: tuple[str, ...] = ("latency_p50_ms", "latency_p95_ms")
+# Les deux tables de comptage : jamais `None` rabattu sur `{}`, sous peine de publier « aucun label
+# observé » pour un rapport qui n'a simplement pas su les écrire.
+TABLES_METRICS: tuple[str, ...] = ("labels", "variants")
+
+
+def _mesure(conteneur: dict[str, Any], cle: str, *, chemin: str, entier: bool) -> int | float:
+    """Une mesure : **présente, non booléenne, du bon type, finie** — sinon un refus qui la nomme.
+
+    Story 4.5, cycle de récupération, revue B5. Le tour précédent avait fermé la *présence* de la
+    clé et laissé sa *valeur* libre : `metrics.recall = None` passait le contrôle, puis
+    `float(metrics.get("recall") or 0.0)` le publiait à `0.0000` — un rappel nul, présenté comme une
+    mesure, sur les quatre surfaces. `True` passait aussi, et se publiait `1.0000`.
+
+    Le booléen est exclu explicitement parce que Python en fait un entier : sans ce test,
+    `isinstance(True, int)` suffit à faire d'un drapeau une latence.
+    """
+    if cle not in conteneur:
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} est absent — le publier à zéro serait présenter une absence "
+            "de mesure comme une mesure")
+    valeur = conteneur[cle]
+    if valeur is None:
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} vaut None — « pas de mesure » n'est pas « une mesure à "
+            "zéro », et les quatre surfaces publieraient le second")
+    if isinstance(valeur, bool):
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} est un booléen — ce n'est pas une mesure")
+    if entier:
+        if not isinstance(valeur, int):
+            raise RapportInexploitable(
+                f"rapport : {chemin}.{cle} doit être un entier ({type(valeur).__name__} reçu) — "
+                "arrondir une mesure pour la publier reviendrait à en inventer une")
+        return valeur
+    if not isinstance(valeur, (int, float)) or not math.isfinite(valeur):
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} doit être un nombre fini ({valeur!r} reçu)")
+    return valeur
+
+
+def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
+    """**La** validation canonique d'un rapport avant publication — un seul contrôle, quatre surfaces.
+
+    Story 4.5, cycle de récupération, revue B5. Le défaut fermé ici n'est pas un oubli local : c'est
+    une politique de lecture. Chaque surface lisait le rapport à sa façon, avec ses propres replis
+    (`or 0.0`, `or {}`, `or 0`), si bien qu'une donnée invalide ne produisait jamais un refus mais
+    toujours un **chiffre plausible** — `recall` nul, tables vides, `0/0` de stabilité — que rien ne
+    distinguait ensuite d'une mesure réelle.
+    Cette fonction est donc appelée par **tous** les chemins qui alimentent les quatre surfaces
+    (`construire_publication`, `stabilite_du_rapport`, `limites_du_rapport`, et
+    `run.rendre_markdown` pour le résumé que la CI concatène), et elle refuse **avant** qu'aucune
+    surface n'affiche quoi que ce soit.
+
+    Ce qui peut légitimement manquer reste distinct de ce qui manque à tort, et c'est tout l'objet
+    de la nuance :
+
+    - `stability` **absent** est normal (il n'est écrit que sous `repeat > 1`) — mais `stability`
+      présent *sans* `cases` ne l'est pas : il produirait un `0/0` fabriqué ;
+    - `reserves` absentes sont normales sur un diagnostic — le rapport ne les établit pas ;
+    - `decisions` vides sont normales sans plancher — mais des décisions **non vides** sans
+      `plancher_digest` racine ne le sont pas : elles ne diraient contre quels seuils elles ont été
+      prises.
+
+    Rend le rapport tel quel (pour chaîner), ou lève `RapportInexploitable` en nommant la clé
+    fautive et sa raison typée.
+    """
+    if not isinstance(rapport, dict):
+        raise RapportInexploitable(
+            f"rapport : un objet est attendu ({type(rapport).__name__} reçu)")
+    profil = _exiger(rapport, "profile", (str,))
+    if not profil:
+        raise RapportInexploitable(
+            "rapport : 'profile' est vide — un run qui ne dit pas ce qu'il a mesuré ne se publie pas")
+    _exiger(rapport, "complete", (bool,))
+    _exiger(rapport, "unexecuted_cases", (list,))
+    _exiger(rapport, "identity", (dict,))
+    resultats = _exiger(rapport, "results", (list,))
+    if any(not isinstance(r, dict) for r in resultats):
+        raise RapportInexploitable("rapport : chaque entrée de 'results' doit être un objet")
+    # Le coût **froid** du run : c'est le chiffre que la publication présente comme « ce qu'une
+    # campagne paie réellement ». `float(rapport.get("cost_eur") or 0.0)` en faisait un run gratuit.
+    _mesure(rapport, "cost_eur", chemin="rapport", entier=False)
+    metrics = _exiger(rapport, "metrics", (dict,))
+    for champ in MESURES_REELLES:
+        _mesure(metrics, champ, chemin="metrics", entier=False)
+    for champ in MESURES_ENTIERES:
+        _mesure(metrics, champ, chemin="metrics", entier=True)
+    for champ in TABLES_METRICS:
+        if champ not in metrics:
+            raise RapportInexploitable(
+                f"rapport : metrics.{champ} est absent — publier une table vide dirait « rien "
+                "n'a été observé » là où le rapport n'a rien su écrire")
+        if not isinstance(metrics[champ], dict):
+            raise RapportInexploitable(
+                f"rapport : metrics.{champ} doit être un objet "
+                f"({type(metrics[champ]).__name__} reçu)")
+    _valider_stabilite(rapport)
+    _valider_decisions(rapport)
+    return rapport
+
+
+def _valider_stabilite(rapport: dict[str, Any]) -> None:
+    """`stability` absent est légitime ; `stability` présent et creux ne l'est pas (revue B5)."""
+    agregat = rapport.get("stability")
+    if agregat is None and "stability" not in rapport:
+        # Un run sans répétition n'écrit pas d'agrégat : le `repeat` du rapport donne alors le N,
+        # et il est **exigé** plutôt que fabriqué à 1.
+        repeat = _exiger(rapport, "repeat", (int,))
+        if isinstance(repeat, bool) or repeat < 1:
+            raise RapportInexploitable(
+                f"rapport : 'repeat' doit être un entier >= 1 ({repeat!r} reçu)")
+        return
+    if not isinstance(agregat, dict):
+        raise RapportInexploitable(
+            f"rapport : 'stability' doit être un objet ({type(agregat).__name__} reçu)")
+    if "cases" not in agregat:
+        raise RapportInexploitable(
+            "rapport : 'stability' est présent sans 'cases' — publier « 0/0 » dirait « aucun cas "
+            "n'était stable » là où le rapport ne dit rien du tout")
+    cases = agregat["cases"]
+    if not isinstance(cases, dict):
+        raise RapportInexploitable(
+            f"rapport : 'stability.cases' doit être un objet ({type(cases).__name__} reçu)")
+    if any(not isinstance(v, dict) for v in cases.values()):
+        raise RapportInexploitable(
+            "rapport : chaque entrée de 'stability.cases' doit être un objet")
+    n = agregat.get("n")
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise RapportInexploitable(
+            f"rapport : 'stability.n' doit être un entier >= 1 ({n!r} reçu) — le N d'une stabilité "
+            "ne se devine pas")
+
+
+def _valider_decisions(rapport: dict[str, Any]) -> None:
+    """Des décisions non vides disent contre quels seuils elles ont été prises (revue B5)."""
+    if rapport.get("plancher_digest") is not None:
+        _exiger(rapport, "decisions", (list,))
+        return
+    decisions = rapport.get("decisions")
+    if decisions is None:
+        return
+    if not isinstance(decisions, list):
+        raise RapportInexploitable(
+            f"rapport : 'decisions' doit être une liste ({type(decisions).__name__} reçu)")
+    if decisions:
+        raise RapportInexploitable(
+            "rapport : 'decisions' est non vide alors que 'plancher_digest' est absent de la "
+            "racine — une décision qui ne nomme pas son protocole ne dit pas contre quel seuil "
+            "elle a été prise, et la publier la présenterait comme opposable")
+
+
 class ArchivePrecedenteIllisible(Exception):
     """Le rendu précédent existe mais ne se lit pas : l'écraser le perdrait sans archive."""
 
 
+# **Une seule autorité** pour le nom du fichier servi : `config.EVALS_PUBLICATION_FILE`, que le
+# lecteur (`api/etat.py`) lit aussi. Deux littéraux auraient pu diverger sans bruit.
 PUBLICATION_JSON = EVALS_PUBLICATION_FILE
 DOCS_LATEST = ("docs", "evals", "latest.md")
 # Où le rendu lisible **précédent** est archivé avant d'être remplacé (revue 4.5, P7).
@@ -127,18 +287,17 @@ def stabilite_du_rapport(rapport: dict[str, Any]) -> StabilitePubliee:
 
     `stability` n'est écrit que sous `repeat > 1` : **son absence est légitime** et se lit alors
     « aucun cas comptabilisé », avec le `repeat` du rapport pour N. Ce qui ne l'est pas, c'est de
-    fabriquer `N=1` quand le rapport ne dit même pas combien de répétitions il a planifiées : le
-    `repeat` est donc exigé (revue B5, chemin frère).
+    fabriquer `N=1` quand le rapport ne dit même pas combien de répétitions il a planifiées, ni de
+    publier `0/0` pour un `stability` présent mais sans `cases` : les deux passent désormais par
+    `valider_rapport_publiable` (revue B5), et se refusent avant toute surface.
     """
+    valider_rapport_publiable(rapport)
     agregat = rapport.get("stability")
-    if agregat is not None and not isinstance(agregat, dict):
-        raise RapportInexploitable(
-            f"rapport : 'stability' doit être un objet ({type(agregat).__name__} reçu)")
-    agregat = agregat or {}
-    cases = agregat.get("cases") or {}
-    comptabilises = [v for v in cases.values() if v.get("comptabilise")]
+    if not isinstance(agregat, dict):
+        return StabilitePubliee(n=int(rapport["repeat"]), cas_stables=0, cas_comptabilises=0)
+    comptabilises = [v for v in agregat["cases"].values() if v.get("comptabilise")]
     return StabilitePubliee(
-        n=int(agregat.get("n") or _exiger(rapport, "repeat", (int,))),
+        n=int(agregat["n"]),
         cas_stables=sum(1 for v in comptabilises if v.get("stable")),
         cas_comptabilises=len(comptabilises))
 
@@ -159,6 +318,7 @@ def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
     sans `--gate`) n'établit ni contresignature ni seconde lecture, et inventer leur état serait pire
     que de ne rien en dire.
     """
+    valider_rapport_publiable(rapport)
     limites: list[str] = []
     for d in decisions:
         if d.status != "green":
@@ -175,18 +335,16 @@ def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
                 limites.append(
                     f"décision rouge {d.metric} : {nombre(d.value)} < plancher "
                     f"{nombre(d.threshold)} (n={d.n}, scope {d.scope}, producteur {d.producer})")
-    if not _exiger(rapport, "complete", (bool,)):
+    if not rapport["complete"]:
         limites.append(
             "run incomplet : " + str(rapport.get("stop_reason") or "interruption non qualifiée"))
-    non_executes = list(_exiger(rapport, "unexecuted_cases", (list,)))
+    non_executes = list(rapport["unexecuted_cases"])
     if non_executes:
         limites.append(
             f"{len(non_executes)} exécution(s) planifiée(s) non exécutée(s), rouges au "
             f"dénominateur : {', '.join(non_executes)}")
-    resultats = _exiger(rapport, "results", (list,))
-    if any(not isinstance(r, dict) for r in resultats):
-        raise RapportInexploitable("rapport : chaque entrée de 'results' doit être un objet")
-    ecarts_parsing = sorted({str(r["id"]) for r in resultats if r.get("label") == "parsing"})
+    ecarts_parsing = sorted({str(r["id"]) for r in rapport["results"]
+                             if r.get("label") == "parsing"})
     if ecarts_parsing:
         limites.append(
             "écart de parsing (le texte extrait diverge de la lecture visuelle) sur : "
@@ -232,32 +390,17 @@ def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
     recalculé sur une re-sérialisation, qui pourrait différer d'un espace et rendre invérifiable ce
     que la publication prétend résumer. Il est `None` tant que le rapport n'est pas figé.
     """
+    # **La validation canonique d'abord**, et elle est la seule (revue B5). Tout ce qui suit lit le
+    # rapport par indexation directe : plus aucun `or 0.0`, `or {}` ni `or 0` ne peut transformer
+    # une donnée absente, nulle ou mal typée en un chiffre plausible sur les quatre surfaces.
+    valider_rapport_publiable(rapport)
     reserves = reserves if reserves is not None else _reserves_du_rapport(rapport)
-    # **Les structures obligatoires sont exigées**, jamais remplacées par un défaut : sans elles la
-    # publication inventerait les chiffres qu'elle prétend rapporter (revue B5, chemins frères).
-    metrics = _exiger(rapport, "metrics", (dict,))
-    for champ in ("recall", "average_cost_eur", "latency_p50_ms", "latency_p95_ms",
-                  "cost_p95_eur", "ne_tranche_pas_rate"):
-        if champ not in metrics:
-            raise RapportInexploitable(
-                f"rapport : metrics.{champ} est absent — le publier à zéro serait présenter une "
-                "absence de mesure comme une mesure")
-    # `decisions` n'est écrit que lorsqu'un plancher a été chargé — un rapport qui ne nomme aucun
-    # protocole n'a rien contre quoi décider, et l'exiger interdirait un diagnostic légitime. Mais
-    # **un rapport qui nomme son protocole doit nommer ses décisions** : sans cette conditionnelle,
-    # un rapport amputé de ses décisions se publierait comme un rapport sans décision rouge.
-    if rapport.get("plancher_digest") is not None:
-        brut_decisions = _exiger(rapport, "decisions", (list,))
-    else:
-        brut_decisions = rapport.get("decisions") or []
-        if not isinstance(brut_decisions, list):
-            raise RapportInexploitable(
-                f"rapport : 'decisions' doit être une liste ({type(brut_decisions).__name__} reçu)")
-    decisions = [GateDecision.model_validate(d) for d in brut_decisions]
+    metrics = rapport["metrics"]
+    decisions = [GateDecision.model_validate(d) for d in (rapport.get("decisions") or [])]
     limites = limites_du_rapport(rapport, decisions, reserves, relecture)
-    identite = _exiger(rapport, "identity", (dict,))
+    identite = rapport["identity"]
     return PublicationEvals(
-        profile=str(rapport.get("profile") or (gate.profile if gate else "")),
+        profile=str(rapport["profile"]),
         candidate_revision=_empreinte(
             candidate_revision or (gate.candidate_revision if gate else None)
             or identite.get("candidate_revision"), 40),
@@ -268,18 +411,18 @@ def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
         cases_hash=_empreinte(rapport.get("cases_hash") or (gate.cases_hash if gate else None)),
         date=str(gate.date if gate else (rapport.get("generated_at") or "")),
         evals_ok=(gate.evals_ok if gate else None),
-        variantes=dict(metrics.get("variants") or {}),
-        labels=dict(metrics.get("labels") or {}),
-        recall=float(metrics.get("recall") or 0.0),
+        variantes=dict(metrics["variants"]),
+        labels=dict(metrics["labels"]),
+        recall=float(metrics["recall"]),
         stabilite=stabilite_du_rapport(rapport),
         cout=CoutPublie(
             # Le gate désarme le cache sous `--repeat` : le coût du run **est** le coût froid.
-            froid_eur=float(rapport.get("cost_eur") or 0.0),
-            moyen_eur=float(metrics.get("average_cost_eur") or 0.0),
-            p95_eur=float(metrics.get("cost_p95_eur") or 0.0)),
-        latence=LatencePubliee(p50_ms=int(metrics.get("latency_p50_ms") or 0),
-                               p95_ms=int(metrics.get("latency_p95_ms") or 0)),
-        ne_tranche_pas_rate=float(metrics.get("ne_tranche_pas_rate") or 0.0),
+            froid_eur=float(rapport["cost_eur"]),
+            moyen_eur=float(metrics["average_cost_eur"]),
+            p95_eur=float(metrics["cost_p95_eur"])),
+        latence=LatencePubliee(p50_ms=int(metrics["latency_p50_ms"]),
+                               p95_ms=int(metrics["latency_p95_ms"])),
+        ne_tranche_pas_rate=float(metrics["ne_tranche_pas_rate"]),
         reserves=reserves,
         decisions=decisions,
         limites=limites,
@@ -336,18 +479,22 @@ def rendre_publication_markdown(pub: PublicationEvals,
     lignes += ["", "| Variante | Nombre |", "|---|---:|"]
     lignes += [f"| {code(variante)} | {nombre} |"
                for variante, nombre in sorted(pub.variantes.items())]
-    lignes += [
-        "",
-        "## Décisions du plancher",
-        "",
-        "| metric | producteur | scope | n | valeur | plancher | statut |",
-        "|---|---|---|---:|---:|---:|---|",
-    ]
-    lignes += [
-        f"| {code(d.metric)} | {code(d.producer)} | {code(d.scope)} | {d.n} | "
-        f"{nombre(d.value)} | {nombre(d.threshold)} | {code(d.status)} |"
-        for d in sorted(pub.decisions, key=lambda d: d.metric)
-    ] or [f"| — | — | — | 0 | {nombre(0.0)} | {nombre(0.0)} | — |"]
+    lignes += ["", "## Décisions du plancher", ""]
+    if not pub.decisions:
+        # **Aucune ligne fabriquée** (revue B5). Une ligne `| — | — | — | 0 | 0.0000 | 0.0000 | — |`
+        # publiait un `n` et deux seuils qu'aucune décision n'avait produits : « il n'y a pas de
+        # décision » se dit en toutes lettres, pas avec des zéros dans un tableau de décisions.
+        lignes += ["Ce run n'a pris aucune décision de plancher.", ""]
+    else:
+        lignes += [
+            "| metric | producteur | scope | n | valeur | plancher | statut |",
+            "|---|---|---|---:|---:|---:|---|",
+        ]
+        lignes += [
+            f"| {code(d.metric)} | {code(d.producer)} | {code(d.scope)} | {d.n} | "
+            f"{nombre(d.value)} | {nombre(d.threshold)} | {code(d.status)} |"
+            for d in sorted(pub.decisions, key=lambda d: d.metric)
+        ]
     lignes += ["", "## Réserves", ""]
     if pub.reserves is None:
         # Un diagnostic n'établit aucune réserve : le dire vaut mieux que de fabriquer trois `false`.
@@ -396,36 +543,68 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
     """
     import json
 
+    # **Tout ce qui peut lever est lu et décidé avant le premier temporaire** (revue B7). La lecture
+    # de l'archive précédente venait après la création du temporaire de `data/evals-latest.json` :
+    # quand elle levait `ArchivePrecedenteIllisible`, la fonction sortait sans rendre `a_basculer`,
+    # l'appelant gardait une liste vide, et le temporaire échappait à son nettoyage — les refus
+    # répétés polluaient `data/` jusqu'à remplir le disque.
     rendu = rendre_publication_markdown(pub, valeur=valeur, code=code)
-    a_basculer: list[tuple[Path, Path]] = [
-        (preparer(data_dir / nom,
-                  json.dumps(pub.model_dump(mode="json"), indent=2, ensure_ascii=False,
-                             sort_keys=True) + "\n"),
-         data_dir / nom),
-    ]
     markdown_path = repo_root.joinpath(*DOCS_LATEST)
-    archive = _preparer_archive(markdown_path, repo_root=repo_root, preparer=preparer)
-    if archive is not None:
-        a_basculer.append(archive)
-    a_basculer.append((preparer(markdown_path, rendu), markdown_path))
-    if markdown_run is not None and chemin_run is not None:
-        # Le journal du run **et** l'artefact publié, dans le fichier que la CI concatène : un seul
-        # renderer, une seule bascule.
-        a_basculer.append((preparer(chemin_run, markdown_run), chemin_run))
+    archive = _archive_a_ecrire(markdown_path, repo_root=repo_root)
+    contenu_json = json.dumps(pub.model_dump(mode="json"), indent=2, ensure_ascii=False,
+                              sort_keys=True) + "\n"
+    a_basculer: list[tuple[Path, Path]] = []
+    # **Et un rollback local par-dessus**, parce que « lire avant d'écrire » ferme la cause connue
+    # mais pas la classe : `preparer` peut échouer à n'importe quel **rang** (disque plein sur le
+    # deuxième, permission sur le dernier) et laisserait alors derrière lui les temporaires déjà
+    # accumulés. La garantie tenue est donc : sur **toute** exception de préparation, zéro
+    # temporaire résiduel et zéro cible modifiée.
+    try:
+        a_basculer.append((preparer(data_dir / nom, contenu_json), data_dir / nom))
+        if archive is not None:
+            chemin_archive, contenu_archive = archive
+            a_basculer.append((preparer(chemin_archive, contenu_archive), chemin_archive))
+        a_basculer.append((preparer(markdown_path, rendu), markdown_path))
+        if markdown_run is not None and chemin_run is not None:
+            # Le journal du run **et** l'artefact publié, dans le fichier que la CI concatène : un
+            # seul renderer, une seule bascule.
+            a_basculer.append((preparer(chemin_run, markdown_run), chemin_run))
+    except BaseException:
+        supprimer_temporaires(a_basculer)
+        raise
     return a_basculer
 
 
-def _preparer_archive(markdown_path: Path, *, repo_root: Path,
-                      preparer: Any) -> tuple[Path, Path] | None:
-    """Prépare l'archive du `latest.md` existant, ou `None` s'il n'y a **rien** à archiver.
+def supprimer_temporaires(prepares: list[tuple[Path, Path]]) -> None:
+    """Supprime des temporaires préparés mais jamais basculés — aucune cible n'est touchée.
+
+    Le pendant local de `run._abandonner`, présent ici pour que `preparer_publication` puisse
+    défaire **sa propre** préparation sans dépendre de son appelant : c'est précisément parce que le
+    nettoyage était délégué à l'appelant, qui n'avait encore rien reçu, que le temporaire de la
+    revue B7 devenait inaccessible.
+    """
+    for temporaire, _cible in prepares:
+        try:
+            os.unlink(temporaire)
+        except OSError:
+            continue
+
+
+def _archive_a_ecrire(markdown_path: Path, *, repo_root: Path) -> tuple[Path, str] | None:
+    """Décide **sans rien écrire** ce que l'archivage du `latest.md` existant doit produire.
+
+    Rend `(chemin de l'archive, contenu)`, ou `None` s'il n'y a rien à archiver — fichier absent,
+    vide, ou déjà archivé à l'identique. Lève `ArchivePrecedenteIllisible` si le rendu précédent
+    existe mais ne se lit pas.
+
+    C'est **l'unique** autorité de cette décision : `preparer_publication` et `archiver_latest` en
+    dérivent tous deux, et la séparer de l'écriture est ce qui permet à la première de lever avant
+    d'avoir créé le moindre temporaire (revue B7).
 
     Story 4.5, revue B3/B6 (chemin frère, et plus grave que le défaut lui-même) : `except OSError:
     return None` disait « rien à archiver » quand la vraie réponse était « je n'ai pas pu lire ». Le
     rendu précédent n'était alors pas archivé **puis écrasé** par le nouveau — et ce chemin détruit
-    même lorsque la bascule réussit. C'est le registre de campagne que la docstring d'`archiver_latest`
-    décrit comme des mesures live que personne ne peut reproduire sans repayer.
-
-    Seule l'absence est une absence.
+    même lorsque la bascule réussit. Seule l'absence est une absence.
     """
     import datetime
 
@@ -439,13 +618,18 @@ def _preparer_archive(markdown_path: Path, *, repo_root: Path,
             "serait écrasé sans avoir été archivé") from exc
     if not octets.strip():
         return None
-    horodatage = datetime.datetime.fromtimestamp(
-        markdown_path.stat().st_mtime, tz=datetime.UTC).strftime("%Y%m%d")
+    try:
+        horodatage = datetime.datetime.fromtimestamp(
+            markdown_path.stat().st_mtime, tz=datetime.UTC).strftime("%Y%m%d")
+    except OSError as exc:
+        raise ArchivePrecedenteIllisible(
+            f"{markdown_path} : l'horodatage du rendu précédent n'a pas pu être lu "
+            f"({type(exc).__name__}) — son archive ne peut pas être nommée") from exc
     empreinte = hashlib.sha256(octets).hexdigest()[:12]
     archive = repo_root.joinpath(*DOCS_ARCHIVES) / f"{horodatage}-{empreinte}.md"
     if archive.is_file():
         return None
-    return preparer(archive, octets.decode("utf-8", errors="replace")), archive
+    return archive, octets.decode("utf-8", errors="replace")
 
 
 def ecrire_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Path,
@@ -475,7 +659,10 @@ def ecrire_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Path
 
 
 def archiver_latest(markdown_path: Path, *, repo_root: Path, ecrire: Any) -> Path | None:
-    """Archive le `latest.md` **existant** avant de le remplacer, et rend le chemin de l'archive.
+    """Archive le `latest.md` **existant** avant de le remplacer.
+
+    Rend le chemin de l'archive **écrite**, ou `None` quand il n'y avait rien à écrire : fichier
+    absent, vide, ou déjà archivé à l'identique.
 
     Sans cela, le premier gate `full` écrasait sans retour le registre manuel de la campagne 4.2d —
     celui que la story 4.4 référence, et qui contient des mesures live que personne ne peut
@@ -487,26 +674,16 @@ def archiver_latest(markdown_path: Path, *, repo_root: Path, ecrire: Any) -> Pat
     sur le même fichier au lieu d'en accumuler des copies, et l'ordre chronologique reste lisible
     dans le nom. Rien n'est archivé si le fichier n'existe pas, ou s'il est déjà archivé à
     l'identique.
-    """
-    import datetime
 
-    try:
-        octets = markdown_path.read_bytes()
-    except FileNotFoundError:
+    La décision — quoi archiver, sous quel nom — vient de `_archive_a_ecrire`, la **même** autorité
+    que `preparer_publication` : deux recettes de nommage auraient fini par diverger, et l'une des
+    deux aurait alors écrasé ce que l'autre croyait avoir archivé.
+    """
+    a_ecrire = _archive_a_ecrire(markdown_path, repo_root=repo_root)
+    if a_ecrire is None:
         return None
-    except OSError as exc:
-        raise ArchivePrecedenteIllisible(
-            f"{markdown_path} : le rendu précédent n'a pas pu être lu ({type(exc).__name__}) — il "
-            "serait écrasé sans avoir été archivé") from exc
-    if not octets.strip():
-        return None
-    horodatage = datetime.datetime.fromtimestamp(
-        markdown_path.stat().st_mtime, tz=datetime.UTC).strftime("%Y%m%d")
-    empreinte = hashlib.sha256(octets).hexdigest()[:12]
-    archive = repo_root.joinpath(*DOCS_ARCHIVES) / f"{horodatage}-{empreinte}.md"
-    if archive.is_file():
-        return archive
-    ecrire(archive, octets.decode("utf-8", errors="replace"))
+    archive, contenu = a_ecrire
+    ecrire(archive, contenu)
     return archive
 
 

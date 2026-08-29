@@ -106,7 +106,8 @@ from server.evals.plancher import (ChargePlancher, PlancherInvalide, charger_pla
                                    verifier_liaison_preuve)
 from server.evals.publication import (ArchivePrecedenteIllisible, RapportInexploitable,
                                       construire_publication, digest_octets,
-                                      preparer_publication, rendre_publication_markdown)
+                                      preparer_publication, rendre_publication_markdown,
+                                      valider_rapport_publiable)
 from server.evals.publication import nombre as nombre_publie
 from server.evals.relecture import (RelectureInvalide, blocs_cles_du_rapport, charger_images,
                                     plan_de_relecture, statut_du_verdict, valider_verdict)
@@ -2388,6 +2389,12 @@ def rendre_markdown(rapport: dict[str, Any],
     gate — ce que la CI produit à chaque PR. Les champs qu'un diagnostic n'établit pas restent
     absents, jamais fabriqués.
     """
+    # **La même validation canonique que la publication**, appelée avant la première ligne rendue
+    # (revue B5, cycle de récupération). Ce journal est l'une des quatre surfaces — c'est lui que la
+    # CI concatène dans `$GITHUB_STEP_SUMMARY` —, et il lisait le rapport par une seconde lecture,
+    # plus permissive : un `metrics.recall` nul y serait sorti en `TypeError` nue, ou pire, en
+    # chiffre. Un seul contrôle, quatre surfaces, un seul refus dit.
+    valider_rapport_publiable(rapport)
     m = rapport["metrics"]
     etat = "complet" if rapport["complete"] else "partiel"
     lignes = [
@@ -2620,12 +2627,16 @@ def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Pat
     gate se réclame de son rapport. Un lot mêlé ici se propage jusque dans le gate.
 
     La même mécanique que la publication : préparer, puis basculer avec restauration.
+
+    **La préparation est accumulée sous son propre rollback** (revue B7, chemin frère). Écrite en
+    littéral de liste, elle laissait le temporaire du JSON derrière elle dès que la préparation du
+    Markdown échouait : la liste n'était jamais liée, donc `_abandonner` ne pouvait rien recevoir.
+    C'est la faute exacte que `preparer_publication` portait, sous une autre forme syntaxique.
     """
-    prepares = [
-        (_preparer_atomique(json_path, json_canonique(rapport) + "\n"), json_path),
-        (_preparer_atomique(markdown_path, rendre_markdown(rapport)), markdown_path),
-    ]
+    prepares: list[tuple[Path, Path]] = []
     try:
+        prepares.append((_preparer_atomique(json_path, json_canonique(rapport) + "\n"), json_path))
+        prepares.append((_preparer_atomique(markdown_path, rendre_markdown(rapport)), markdown_path))
         _basculer(prepares)
     except BaseException:
         _abandonner(prepares)
@@ -2927,14 +2938,22 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, P
             sortie.write(json.dumps(dict(sorted(brut.items())), indent=2, ensure_ascii=False) + "\n")
             sortie.flush()
             os.fsync(sortie.fileno())
-    except OSError as exc:
+    except BaseException as exc:
         # Disque plein, `data/` en lecture seule, conteneur sans droit d'écriture : un refus dit,
         # pas une trace de pile. Le manifest est intact — rien n'a été écrit ailleurs que dans le
         # fichier temporaire, qui est effacé.
+        #
+        # `except BaseException` et non `except OSError` (revue B7, chemin frère) : le nettoyage
+        # doit couvrir **toute** cause d'échec postérieure à la création du temporaire, sérialisation
+        # comprise, sinon la garantie « aucun temporaire résiduel » ne vaut que pour les pannes
+        # d'entrée-sortie. Seule l'`OSError` devient un refus dit ; le reste remonte tel quel, mais
+        # sans laisser de trace dans `data/`.
         if tmp is not None:
             tmp.unlink(missing_ok=True)
-        raise RefusDeTourner(f"{manifest_path} : écriture impossible ({type(exc).__name__}) — "
-                             "le manifest n'a pas été modifié") from exc
+        if isinstance(exc, OSError):
+            raise RefusDeTourner(f"{manifest_path} : écriture impossible ({type(exc).__name__}) — "
+                                 "le manifest n'a pas été modifié") from exc
+        raise
     return tmp, manifest_path
 
 

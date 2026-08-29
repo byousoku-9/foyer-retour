@@ -458,7 +458,10 @@ def test_un_diagnostic_sans_gate_nabuse_daucun_champ_du_gate() -> None:
     Ces champs sont **absents**, jamais fabriqués : publier `evals_ok: false` pour un run qui n'a
     rien jugé serait aussi faux que publier `true`.
     """
-    rapport = _rapport(labels=_tous_les_labels())
+    # Un diagnostic n'a **ni** protocole **ni** décisions : `construire_rapport` écrit les deux
+    # ensemble ou aucun des deux. Les séparer produirait un état qu'aucun run ne peut atteindre —
+    # et que la validation canonique refuse désormais, à raison (cycle de récupération, B5).
+    rapport = _rapport(labels=_tous_les_labels(), decisions=[])
     rapport.pop("plancher_digest")
     rapport["identity"] = {"run_digest": "a" * 64}
     pub = pub_mod.construire_publication(rapport)
@@ -625,3 +628,263 @@ def test_un_results_mal_type_est_un_refus_pas_une_erreur_nue() -> None:
         pub_mod.construire_publication(rapport)
     with pytest.raises(pub_mod.RapportInexploitable, match="results"):
         pub_mod.construire_publication({**rapport, "results": {"id": "x"}})
+
+
+# --- B5, cycle de récupération : la valeur d'une mesure, pas seulement sa présence -----------------
+#
+# Le tour précédent avait fermé la **présence** des clés et laissé leur **valeur** libre. Le recheck
+# a reproduit ce qui restait : `metrics.recall = None` et `metrics.latency_p50_ms = None` étaient
+# acceptés puis publiés à zéro, `labels`/`variants` à `None` devenaient des tables vides,
+# `stability` présent sans `cases` publiait `0/0`, et des décisions non vides sans `plancher_digest`
+# racine passaient. Une structure mal formée redevenait ainsi un « résultat honnêtement vide » ou un
+# chiffre fabriqué, sur les quatre surfaces.
+#
+# Les contre-exemples ci-dessous sont rouges sur `b9db3c1` et verts ici. Ils portent tous sur la
+# **validation canonique unique**, celle que tous les chemins des quatre surfaces appellent.
+
+def _rapport_publiable() -> dict[str, Any]:
+    """Le rapport nominal, complet et publiable — le témoin que chaque mutation doit faire rougir."""
+    rapport = _rapport(labels=_tous_les_labels())
+    rapport["repeat"] = 3
+    rapport["reserves"] = {"countersigned": False, "validated_by_expert": False,
+                           "dictionary_validated": False}
+    return rapport
+
+
+@pytest.mark.parametrize("champ", ["recall", "average_cost_eur", "cost_p95_eur",
+                                    "ne_tranche_pas_rate", "latency_p50_ms", "latency_p95_ms"])
+def test_une_mesure_nulle_ferme_au_lieu_detre_publiee_a_zero(champ: str) -> None:
+    """B5 : `None` n'est pas `0`. Le contre-exemple exact du recheck, mesure par mesure."""
+    nominal = _rapport_publiable()
+    assert pub_mod.construire_publication(nominal) is not None
+    for valeur in (None, True, "0"):
+        casse = {**nominal, "metrics": {**nominal["metrics"], champ: valeur}}
+        with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+            pub_mod.construire_publication(casse)
+    # Un non-fini n'est pas davantage une mesure.
+    casse = {**nominal, "metrics": {**nominal["metrics"], champ: float("nan")}}
+    with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+        pub_mod.construire_publication(casse)
+
+
+def test_un_cost_eur_nul_ou_absent_ferme_au_lieu_de_publier_un_run_gratuit() -> None:
+    """B5 : le coût froid est **la** mesure que la publication présente comme ce qu'une campagne paie."""
+    nominal = _rapport_publiable()
+    for valeur in (None, True, "0.055"):
+        with pytest.raises(pub_mod.RapportInexploitable, match="cost_eur"):
+            pub_mod.construire_publication({**nominal, "cost_eur": valeur})
+    with pytest.raises(pub_mod.RapportInexploitable, match="cost_eur"):
+        pub_mod.construire_publication({c: v for c, v in nominal.items() if c != "cost_eur"})
+
+
+@pytest.mark.parametrize("table", ["labels", "variants"])
+def test_une_table_de_comptage_nulle_ne_devient_pas_une_table_vide(table: str) -> None:
+    """B5 : `dict(metrics.get(x) or {})` faisait dire « rien n'a été observé » à « rien n'a été écrit »."""
+    nominal = _rapport_publiable()
+    for valeur in (None, [], "aucun"):
+        casse = {**nominal, "metrics": {**nominal["metrics"], table: valeur}}
+        with pytest.raises(pub_mod.RapportInexploitable, match=table):
+            pub_mod.construire_publication(casse)
+    ampute = {**nominal,
+              "metrics": {c: v for c, v in nominal["metrics"].items() if c != table}}
+    with pytest.raises(pub_mod.RapportInexploitable, match=table):
+        pub_mod.construire_publication(ampute)
+
+
+def test_une_stabilite_presente_sans_cases_ne_publie_pas_zero_sur_zero() -> None:
+    """B5 : « `stability` présent sans `cases` » publiait `0/0` — un dénominateur inventé."""
+    nominal = _rapport_publiable()
+    sans_cases = {**nominal, "stability": {"n": 3}}
+    with pytest.raises(pub_mod.RapportInexploitable, match="cases"):
+        pub_mod.construire_publication(sans_cases)
+    # `cases` mal typé, et `n` absent ou mal typé, ferment de la même façon.
+    with pytest.raises(pub_mod.RapportInexploitable, match="cases"):
+        pub_mod.construire_publication({**nominal, "stability": {"n": 3, "cases": []}})
+    with pytest.raises(pub_mod.RapportInexploitable, match="stability.n"):
+        pub_mod.construire_publication({**nominal, "stability": {"cases": {}}})
+    with pytest.raises(pub_mod.RapportInexploitable, match="stability.n"):
+        pub_mod.construire_publication({**nominal, "stability": {"n": 0, "cases": {}}})
+    # Ce qui manque **légitimement** reste distinct : `stability` absent sous un run sans répétition.
+    sans_stabilite = {c: v for c, v in nominal.items() if c != "stability"}
+    assert pub_mod.stabilite_du_rapport(sans_stabilite).n == 3
+
+
+def test_des_decisions_non_vides_sans_plancher_digest_sont_refusees() -> None:
+    """B5 : une décision qui ne nomme pas son protocole ne dit pas contre quel seuil elle est prise."""
+    nominal = _rapport_publiable()
+    orphelines = {c: v for c, v in nominal.items() if c != "plancher_digest"}
+    assert orphelines["decisions"], "le contre-exemple exige des décisions non vides"
+    with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
+        pub_mod.construire_publication(orphelines)
+    with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
+        pub_mod.construire_publication({**orphelines, "plancher_digest": None})
+    # Décisions vides **et** plancher absent : c'est un diagnostic, et il se publie.
+    assert pub_mod.construire_publication({**orphelines, "decisions": []}) is not None
+
+
+def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: Path) -> None:
+    """B5 : « une validation canonique unique, appelée par tous les chemins ».
+
+    Le point du finding n'est pas qu'un chemin refuse, c'est que **tous** refusent, et **avant**
+    qu'aucune surface n'affiche quoi que ce soit. Les trois chemins qui partent d'un rapport sont
+    donc éprouvés sur le même rapport cassé ; la quatrième surface (`/`) ne lit pas un rapport mais
+    l'artefact publié, et le test vérifie qu'aucun artefact n'a pu être écrit.
+    """
+    casse = {**_rapport_publiable(),
+             "metrics": {**_rapport_publiable()["metrics"], "recall": None}}
+    for chemin in (
+            lambda: pub_mod.construire_publication(casse),
+            lambda: pub_mod.stabilite_du_rapport(casse),
+            lambda: pub_mod.limites_du_rapport(casse, []),
+            lambda: runner.rendre_markdown(casse)):
+        with pytest.raises(pub_mod.RapportInexploitable, match="recall"):
+            chemin()
+    # Et aucune des surfaces sur disque n'a été touchée : il n'y a rien à afficher.
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}", encoding="utf-8")
+    assert _servir(tmp_path) == {"publie": False, "raison": "absent", "publication": None}
+
+
+def test_aucune_ligne_de_decision_nest_fabriquee_quand_il_ny_en_a_pas() -> None:
+    """B5, rendu Markdown partagé : `| — | — | — | 0 | 0.0000 | 0.0000 | — |` publiait trois chiffres.
+
+    Un `n` et deux seuils qu'aucune décision n'avait produits, dans un tableau intitulé « Décisions
+    du plancher ». « Il n'y a pas de décision » se dit en toutes lettres.
+    """
+    rapport = _rapport_publiable()
+    rapport["decisions"] = []
+    rapport.pop("plancher_digest")
+    rendu = pub_mod.rendre_publication_markdown(
+        pub_mod.construire_publication(rapport),
+        valeur=runner._markdown_value, code=runner._markdown_code)
+    assert "aucune décision de plancher" in rendu
+    assert "| 0 | 0.0000 | 0.0000 |" not in rendu
+
+
+# --- B7, cycle de récupération : zéro temporaire résiduel sur refus de préparation -----------------
+#
+# `preparer_publication` créait le temporaire de `data/evals-latest.json` **avant** de lire l'archive
+# à remplacer. Quand cette lecture levait `ArchivePrecedenteIllisible`, la fonction sortait sans
+# rendre `a_basculer` : l'appelant gardait `prepares = []`, `_abandonner` ne recevait rien, et le
+# temporaire échappait à tout nettoyage. Les refus répétés polluaient `data/`.
+#
+# La fermeture porte sur la **classe** du défaut, pas sur la sonde : lecture et validation avant le
+# premier temporaire, **et** rollback local couvrant tous les rangs de préparation.
+
+def _temporaires(racine: Path) -> list[str]:
+    """Tous les temporaires laissés sous `racine`, quel que soit le répertoire."""
+    return sorted(str(p.relative_to(racine)) for p in racine.rglob(".*.tmp"))
+
+
+def test_une_archive_illisible_ne_laisse_aucun_temporaire(tmp_path: Path) -> None:
+    """B7, le contre-exemple exact du recheck : l'échec vient **après** le premier temporaire."""
+    data = tmp_path / "data"
+    data.mkdir()
+    latest = tmp_path.joinpath(*pub_mod.DOCS_LATEST)
+    latest.parent.mkdir(parents=True)
+    latest.write_text("# campagne précédente\n", encoding="utf-8")
+    avant = latest.read_bytes()
+    latest.chmod(0o000)
+    try:
+        if latest.exists():
+            with pytest.raises(pub_mod.ArchivePrecedenteIllisible):
+                pub_mod.preparer_publication(
+                    _publication(), data_dir=data, repo_root=tmp_path,
+                    preparer=runner._preparer_atomique,
+                    valeur=runner._markdown_value, code=runner._markdown_code)
+    finally:
+        latest.chmod(0o644)
+    assert _temporaires(tmp_path) == [], "un refus de préparation ne laisse aucun temporaire"
+    # Aucune cible n'a bougé non plus.
+    assert latest.read_bytes() == avant
+    assert not list(data.glob("*.json"))
+    assert not list(tmp_path.joinpath(*pub_mod.DOCS_ARCHIVES).glob("*.md")) if \
+        tmp_path.joinpath(*pub_mod.DOCS_ARCHIVES).is_dir() else True
+
+
+@pytest.mark.parametrize("rang", [0, 1, 2, 3])
+def test_un_echec_a_nimporte_quel_rang_de_preparation_ne_laisse_aucun_temporaire(
+        tmp_path: Path, rang: int) -> None:
+    """B7 : « vérifier les rangs (échec au 1ᵉʳ, au 2ᵉ, au dernier temporaire) ».
+
+    Quatre temporaires sont préparés dans le cas complet — le JSON servi, l'archive du rendu
+    précédent, le rendu lisible, et le Markdown que la CI concatène. L'échec est injecté à chacun
+    des quatre rangs, et la garantie doit tenir aux quatre.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    latest = tmp_path.joinpath(*pub_mod.DOCS_LATEST)
+    latest.parent.mkdir(parents=True)
+    latest.write_text("# campagne précédente\n", encoding="utf-8")
+    avant = latest.read_bytes()
+    appels = {"n": 0}
+
+    def preparer(cible: Path, contenu: str) -> Path:
+        if appels["n"] == rang:
+            appels["n"] += 1
+            raise OSError("disque plein (injecté)")
+        appels["n"] += 1
+        return runner._preparer_atomique(cible, contenu)
+
+    with pytest.raises(OSError, match="injecté"):
+        pub_mod.preparer_publication(
+            _publication(), data_dir=data, repo_root=tmp_path, preparer=preparer,
+            markdown_run="# journal du run\n", chemin_run=tmp_path / "eval-results.md",
+            valeur=runner._markdown_value, code=runner._markdown_code)
+    assert appels["n"] == rang + 1, "l'échec doit survenir au rang visé"
+    assert _temporaires(tmp_path) == []
+    # Et aucune cible n'a été modifiée : rien ne bascule tant que tout n'est pas préparé.
+    assert latest.read_bytes() == avant
+    assert not list(data.glob("*.json"))
+    assert not (tmp_path / "eval-results.md").exists()
+
+
+def test_ecrire_rapports_ne_laisse_aucun_temporaire_si_le_second_echoue(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B7, chemin frère : le littéral de liste d'`ecrire_rapports` portait la même faute.
+
+    La liste n'était liée qu'après ses deux appels : quand le second échouait, le temporaire du
+    premier n'avait jamais été remis à personne.
+    """
+    rapport = _rapport_publiable()
+    json_path = tmp_path / "eval-results.json"
+    md_path = tmp_path / "eval-results.md"
+    vrai = runner._preparer_atomique
+    appels = {"n": 0}
+
+    def preparer(cible: Path, contenu: str) -> Path:
+        appels["n"] += 1
+        if appels["n"] == 2:
+            raise OSError("disque plein (injecté)")
+        return vrai(cible, contenu)
+
+    monkeypatch.setattr(runner, "_preparer_atomique", preparer)
+    with pytest.raises(OSError, match="injecté"):
+        runner.ecrire_rapports(rapport, json_path, md_path)
+    assert _temporaires(tmp_path) == []
+    assert not json_path.exists() and not md_path.exists()
+
+
+def test_preparer_gate_ne_laisse_aucun_temporaire_sur_une_serialisation_impossible(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B7, chemin frère : la préparation de l'entrée de manifest ne nettoyait que sur `OSError`.
+
+    Toute autre cause d'échec postérieure à `mkstemp` — une sérialisation impossible, par exemple —
+    laissait le temporaire dans `data/`.
+    """
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "doc": {"status": "servi", "source_hash": "s", "ingest_fingerprint": "f",
+                "document_hash": "d", "edition": "e"}}), encoding="utf-8")
+    avant = manifest.read_bytes()
+
+    def dumps_casse(*a: Any, **k: Any) -> str:
+        raise TypeError("sérialisation impossible (injectée)")
+
+    monkeypatch.setattr(runner.json, "dumps", dumps_casse)
+    with pytest.raises(TypeError, match="injectée"):
+        runner.preparer_gate(manifest, "doc", _gate())
+    assert _temporaires(tmp_path) == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["manifest.json"]
+    assert manifest.read_bytes() == avant
