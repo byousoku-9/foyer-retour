@@ -122,3 +122,47 @@ configuration précédente et rend la story suivante non promouvable — sans in
   versionnée `server/evals/reference/allowlist-juridique.yaml` — règle générique + ≥ 2 cas
   indépendants).
 - Toute campagne live directe par le builder.
+
+## Story 4.5 — ce que le gate `full` exige, et ce qui est publié
+
+Le profil `full` ne s'arme que sur `--gate {doc_id} --profile full`. Il ajoute **neuf témoins
+bloquants** au plancher (`parsing_ok_rate`, `blocs_attendus_ouverts_rate`,
+`citations_retrouvees_rate`, `zero_5xx_technique_rate`, `typage_confirme_rate`,
+`structure_prouvee_rate`, `stabilite_claim_decisionnelle`, `anti_rustine_pass_rate`,
+`metamorphique_pass_rate`), tous à `plancher: 1.0` et `n: 3`, tous marqués `arme_par: gate_full`.
+Aucun n'abaisse ni ne retire un témoin importé, et les digests des snapshots figés sont inchangés.
+
+Trois refus **avant tout appel** (code 2, manifest intact) : `--repeat < n_minimum`,
+`--candidate-revision` absente ou mal formée, `--orchestrator-report` absent alors qu'une preuve
+trusted est fournie. Sous `full`, la suite `parsing` du document entre dans le lot : le `cases_hash`
+d'un gate `full` diffère de celui d'un gate `vertical` du même document.
+
+La preuve trusted porte désormais **exactement** `{plancher_digest, candidate_revision,
+report_digest, run_digest, decisions}` et est recoupée sur les quatre : une preuve d'une autre
+révision, un rapport modifié, ou un `run_digest` divergent refusent le run sans écrire de gate
+(reproduction : `pytest -q tests/test_plancher.py -k candidate_revision`).
+
+Le résultat est **publié quel qu'il soit** (FR41) dans un artefact unique — `data/evals-latest.json`,
+`docs/evals/latest.md`, le résumé de CI et `GET /api/v1/evals/latest`, que `/` compose (FR42). Les
+limites y sont dérivées du run ; les trois réserves (contresignature humaine, validation par un
+expert assurance, dictionnaire validé) y sont publiées sans qu'aucune décision n'en dépende.
+
+### Archivage du rendu lisible
+
+`docs/evals/latest.md` est le rendu du **dernier** run publié. Avant d'être remplacé, son contenu
+précédent est archivé sous `docs/evals/campagnes/<date>-<empreinte courte>.md`, où la date est celle
+de sa dernière modification et l'empreinte les douze premiers caractères du sha256 de ses octets.
+Deux archivages du même contenu retombent sur le même fichier : rien ne s'accumule inutilement, et
+rien ne se perd.
+
+La règle existe parce qu'un journal de campagnes qui perd les précédentes ne prouve plus rien sur la
+durée : les mesures live qu'il contient ne se reproduisent qu'en repayant.
+
+### Seconde lecture (FR47)
+
+Le plan se produit par `python -m server.evals.relecture --report … --candidate-revision … --out …`
+(déterministe, hors réseau, sans clé) ; le verdict rempli se repasse au gate par
+`--relecture-verdict`. Il est recoupé avec le plan dérivé du rapport du run — schéma exact, révision,
+`plan_digest`, couverture exacte — et un écart fait échouer la publication. Sans verdict déposé, le
+statut publié est `planifiee`, jamais « concordante ». Les commandes exactes sont dans
+`docs/tests-live.md`.

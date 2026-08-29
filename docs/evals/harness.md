@@ -118,3 +118,94 @@ quarantaine au chargement au lieu d'une simple alerte. `--producer orchestrator`
 provenance ; la règle trusted ne reconnaît que l'orchestrateur comme producteur de preuve. Le JSON
 d'évidence porte `plancher_digest` et une liste `decisions` de
 `{metric, n, value, run_digest}` — jamais un statut auto-déclaré.
+
+## Story 4.5 — le gate `full` décide, et les résultats sont publiés
+
+**Le profil `full` s'exécute sur un gate, et pas ailleurs.** `--gate {doc_id} --profile full` arme
+neuf témoins de plus ; `--profile full` sans `--gate` — ce que la CI lance à chaque PR — reste ce
+qu'il était : un **diagnostic**. Le plancher le dit par témoin (`arme_par: gate_full`), et non le
+code : un gate `vertical` n'affirme que deux cas relus à la main, et lui opposer la politique
+complète ferait rougir une mesure qui ne la revendique pas.
+
+Trois gardes s'arment alors, **avant tout appel** (code 2, manifest intact) :
+
+- `--repeat >= n_minimum` (3) — une politique complète prouvée sur une exécution ne prouve pas la
+  stabilité ;
+- `--candidate-revision <40 hex>` — un gate qui ne nomme pas la révision qu'il mesure peut être
+  réutilisé par une révision qu'il n'a jamais vue ;
+- `--orchestrator-report <rapport.json>` dès que `--orchestrator-evidence` est donné.
+
+**Le périmètre change sous `full`** : la suite `parsing` du document entre dans le lot, à côté de sa
+suite documentaire. Un `cases_hash` de gate `full` n'est donc pas celui d'un gate `vertical` du même
+document — deux profils, deux périmètres, deux hashes, ce que `cases_hash` existe précisément pour
+dire.
+
+### Les neuf témoins ajoutés
+
+Tous `criticite: bloquant`, `plancher: 1.0`, `n: 3`, et tous dans
+`server/evals/reference/plancher.yaml` — jamais en dur. Le mécanisme de fermeture par vacuité les
+rend fail-closed : un témoin bloquant applicable qu'un run n'émet pas produit sa décision rouge
+`n=0, value=0.0`.
+
+| témoin | scope | mesuré par | rouge quand |
+|---|---|---|---|
+| `parsing_ok_rate` | `suite:parsing` | `eval_runner` | un cas `parsing` rend `label=parsing` |
+| `blocs_attendus_ouverts_rate` | `run` | `eval_runner` | `expected_block_ids ⊄ opened_block_ids` |
+| `citations_retrouvees_rate` | `run` | `eval_runner` | une exécution porte `citation_introuvable`, **même si `mode_attendu` le prévoyait** |
+| `zero_5xx_technique_rate` | `run` | `eval_runner` | une exécution porte `http >= 500` (branche `TruncatedRead` comprise) |
+| `typage_confirme_rate` | `run` | `eval_runner` | une preuve cite un bloc dont `kind_confirmed` est faux |
+| `structure_prouvee_rate` | `run` | `eval_runner` | aucun `structure_hash` au manifest, artefact non concordant, ou bloquant `structure_proposee` au rapport |
+| `stabilite_claim_decisionnelle` | `suite:sinistre` | `eval_runner` | les N répétitions divergent sur le prédicat décisionnel |
+| `anti_rustine_pass_rate` | `repo` | `orchestrator` | la garde n'est pas fournie par une preuve trusted |
+| `metamorphique_pass_rate` | `repo` | `orchestrator` | idem |
+
+`_signature_stabilite` n'est **pas** touchée : son numérateur est écrit dans le plancher importé
+(« la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible »). La stabilité
+du prédicat décisionnel est un témoin **distinct**, additif, dont le rouge se lit séparément.
+
+### Le format de preuve trusted, lié à la révision
+
+Le fichier `--orchestrator-evidence` porte **exactement** cinq clés racine — une clé en trop est
+refusée, parce qu'un vocabulaire fermé se contrôle par égalité :
+
+```json
+{
+  "plancher_digest": "<64 hex>",
+  "candidate_revision": "<40 hex>",
+  "report_digest": "<sha256 des octets de --orchestrator-report>",
+  "run_digest": "<64 hex>",
+  "decisions": [{"metric": "...", "n": 3, "value": 1.0, "run_digest": "<le même>"}]
+}
+```
+
+Quatre liens sont exigés (`server/evals/plancher.py::verifier_liaison_preuve`) : le protocole, la
+révision candidate, les octets du rapport, et l'égalité du `run_digest` racine avec celui de chaque
+mesure. Un écart refuse **avant toute décision** — aucun gate n'est écrit. C'est l'intention M2 :
+une modification produit rend la réutilisation d'une preuve invalide.
+
+### L'artefact de publication et ses quatre surfaces
+
+Un seul objet — `server/app/domain/evals.py::PublicationEvals` — construit par le runner et publié
+**inconditionnellement**, rouge compris (FR41). Publier ne promeut rien : seul `gate.evals_ok`
+décide de ce qui est servi (AD-8).
+
+| surface | chemin | dans l'image ? |
+|---|---|---|
+| artefact machine servi | `data/evals-latest.json` | oui (`COPY data`) |
+| rendu lisible du dépôt | `docs/evals/latest.md` | non (`docs/` n'est pas copié) |
+| résumé de CI | appendu à `eval-results.md`, concaténé dans `$GITHUB_STEP_SUMMARY` | — |
+| API | `GET /api/v1/evals/latest` | oui |
+| accueil | `/` sonde la route et compose la vue | oui |
+
+Les **limites** publiées sont *dérivées* du run — décisions rouges chiffrées, réserves à `false`,
+exécutions manquantes, écarts de parsing, état incomplet — jamais rédigées. Un artefact absent,
+illisible ou hors schéma rend un état typé `publie: false` avec sa raison : jamais 5xx, jamais un
+chiffre inventé.
+
+### La seconde lecture (FR47)
+
+`server/evals/relecture.py` produit le **plan** déterministe (par bloc clé : `doc_id`, `block_id`,
+page, bbox, `text_norm`, URL de l'image de page servie par la route de la story 3.4) et **contrôle**
+le verdict rempli (`concordant|divergent`, `image_sha256`, `candidate_revision`, empreinte du plan,
+couverture exacte). Il ne rasterise rien et n'appelle aucun modèle : l'image vient de la route qui la
+sert déjà, et le verdict vient de l'orchestrateur.

@@ -1,5 +1,87 @@
 # Choix et limites mesurées
 
+## Story 4.5 — le gate `full` décide de ce qui est servi, et l'accueil publie
+
+### Ce qui a changé, et pourquoi ce n'est pas une seconde plomberie
+
+Le profil `full` existait comme valeur et n'était **inerte** : il élargissait la sélection des cas,
+et rien de plus. Aucune des preuves que l'AC exige ne pouvait rougir un gate — le parsing n'était
+jamais sélectionné sous `--gate`, `expected_blocks_not_opened` était calculé puis publié sans jamais
+décider, un 5xx technique se confondait avec un refus de budget, structure et typage ne remontaient à
+aucune décision.
+
+Le correctif n'ajoute pas de branches au runner : chaque preuve manquante devient un **témoin du
+plancher**. `construire_decisions` rend déjà rouge tout témoin bloquant applicable non émis ; un
+témoin ajouté est donc gratuitement fail-closed, porte son seuil hors du code (règle du projet), et
+apparaît dans `decisions` avec les huit champs que l'AC exige. Écrire les mêmes conditions en `if`
+aurait produit des rouges sans `{metric, threshold, scope, n, value}` — c'est-à-dire des rouges
+qu'on ne peut pas publier.
+
+### Les trois décisions de conception qui méritent d'être dites
+
+**Les gardes de `full` s'arment sur `--gate`, pas sur `--profile`.** La CI lance `EVALS_PROFILE:
+full` sans `--gate` ni `--repeat` à chaque PR. Exiger `--repeat >= 3` sur le profil seul l'aurait
+rendue rouge pour une raison étrangère au candidat. L'AC formule d'ailleurs sa condition sur la
+commande complète. Un `full` sans gate reste un diagnostic.
+
+**`_signature_stabilite` n'est pas touchée.** Son numérateur est écrit *dans le plancher figé*
+(« la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible »). Y ajouter le
+prédicat décisionnel aurait changé le sens d'un témoin importé sans diminution — un changement de
+protocole déguisé, après lequel deux campagnes de même `plancher_digest` n'auraient plus mesuré la
+même chose. La stabilité de la claim décisionnelle est donc un témoin **distinct**, additif, dont le
+rouge se lit séparément.
+
+**L'artefact servi vit dans `data/`, pas dans `docs/`.** Le `Dockerfile` copie `server data web
+tools` : un `docs/evals/latest.json` serait absent de l'image et `GET /api/v1/evals/latest` rendrait
+`publie: false` en production, exactement là où FR41 la demande. `data/dictionary.json` est le
+précédent d'un artefact `data/` qui n'appartient à aucun document. `docs/evals/latest.md` reste le
+rendu lisible, dérivé du même objet.
+
+### Limite assumée : la structure n'est pas prouvée, et le gate le dit en rouge
+
+Aucun `structure.json` n'existe sur le corpus servi, et les rapports d'ingestion livrés ne portent
+aucun check `structure_proposee` : la story 4.2c n'a jamais été exercée sur ce corpus, et la
+réingestion PDF réelle est une dette de l'orchestrateur (les PDF ne sont pas dans le dépôt).
+« Structure insuffisamment prouvée » est donc **l'état réel** ; `structure_prouvee_rate` le publie
+en rouge chiffré au lieu de le contourner. Le manifest gagne au passage `structure_hash`, sur le
+patron exact d'`overlay_hash` : l'artefact de structure était le seul qu'aucune empreinte ne
+couvrait, alors qu'il décide de l'arbre que le rappel parcourt.
+
+### Limite assumée : les deux gardes de dépôt sont rouges par construction
+
+`anti_rustine_pass_rate` et `metamorphique_pass_rate` portent sur le **dépôt**, pas sur un run : le
+runner ne peut pas les mesurer sans devenir juge et partie. Elles arrivent par la preuve trusted de
+l'orchestrateur ; tant qu'elle n'est pas fournie, les deux décisions sont rouges avec la raison
+« témoin orchestrateur applicable absent de ce run ». C'est le comportement voulu — une preuve
+absente est rouge, jamais neutre.
+
+### Ce que le changement déplace, et qui appartient à l'orchestrateur
+
+`plancher_digest` bouge (neuf témoins) : **aucun run antérieur n'est comparable**, et tous les gates
+doivent être refaits. `cases_hash` d'un gate `full` change aussi, puisque la suite `parsing` du
+document y entre. `pipeline_digest` bouge également, parce que `domain/` et `corpus/` sont deux des
+cinq couches qu'il couvre : toutes les campagnes repartent froides. `prompts_digest`, lui, ne bouge
+pas — aucun prompt n'est touché. Coût, latence, dispersion, bougie N=3, A16, réingestion PDF et
+seconde lecture sont des **états produits**, tirés par l'orchestrateur sur le HEAD figé (commandes
+dans `docs/tests-live.md`).
+
+### Dette D1 refermée : la disjonction d'AD-7 a trois termes
+
+AD-7 écrit « servi ssi aucun bloquant statique **et** (`gate.evals_ok` **ou** `ENV=dev` **ou**
+`ALLOW_UNGATED`) ». `config.py` n'en honorait que deux : il absorbait `ENV=dev` dans `ALLOW_UNGATED`
+en ne posant la dérogation que lorsque la variable était **absente**. Poser explicitement
+`ALLOW_UNGATED=false` en dev mettait donc en quarantaine un document sans gate, alors que le
+deuxième terme le sert. Les deux faits sont désormais distincts : `Settings.allow_ungated` dit ce que
+l'opérateur a demandé, `Settings.deroger_au_gate` dit ce que la règle décide. La fermeture en `prod`
+est intacte — la dérogation y est forcée à `False` et `env` n'y vaut pas `dev`.
+
+### Ce qui n'est pas refermable ici
+
+Le libellé « guide » de `retrouver.md` et l'arbitrage du plafond sinistre sous `outils` changent tous
+deux le corps de requête, donc la clé des fixtures : les toucher rendrait la suite hors réseau rouge
+sans qu'aucun ré-enregistrement soit possible pour un builder. Ils restent différés, avec leur
+commande de résolution écrite dans la passation.
+
 ## Story 4.2e — le contrôle demande le contexte qui lui manque, une fois
 
 Un tour de vérification pouvait manquer d'une définition, d'un renvoi ou d'une qualité pour contrôler

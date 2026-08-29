@@ -3605,3 +3605,163 @@ Ce sont des **états produit non bloquants** pour le verdict mono-cause de 4.2d,
 et l'indépendance à l'identité du corpus sont prouvés hors réseau. Comme critères de promotion, ces
 rouges appartiennent **exclusivement au gate 4.5**. Aucune promotion n'est exécutée, le dernier vert
 et son trafic sont inchangés, et rien ici ne prétend le candidat E2E vert.
+
+## Story 4.5 — gate `full`, publication des résultats, seconde lecture (2026-08-29, builder)
+
+### Ce que le builder a fait au live : rien
+
+Aucun appel fournisseur n'a été lancé pendant cette story. La règle trusted (`automation/plancher.yaml`,
+parent) fait foi : **le builder ne produit jamais la preuve live**. Tout ce qui est vérifié ici l'est
+hors réseau, `ANTHROPIC_API_KEY=` vide, sur cas et corpus synthétiques neutres.
+
+### Le protocole a changé : aucun run antérieur n'est comparable
+
+`server/evals/reference/plancher.yaml` porte neuf témoins de plus (`parsing_ok_rate`,
+`blocs_attendus_ouverts_rate`, `citations_retrouvees_rate`, `zero_5xx_technique_rate`,
+`typage_confirme_rate`, `structure_prouvee_rate`, `stabilite_claim_decisionnelle`,
+`anti_rustine_pass_rate`, `metamorphique_pass_rate`), tous bloquants à `1.0` / `n: 3`, tous
+`arme_par: gate_full`. Aucun témoin importé n'est abaissé ni retiré, et les `snapshot_digest` des
+imports 4.2a/trusted sont inchangés — `charger_plancher` refuserait de charger sinon.
+
+Conséquences, à consigner avant toute campagne :
+
+- **`plancher_digest` bouge** : deux rapports ne se comparent qu'à protocole égal, donc aucun run
+  antérieur à cette story n'est comparable à un run postérieur ;
+- **`pipeline_digest` bouge** (`domain/` et `corpus/` sont deux des cinq couches qu'il couvre) :
+  toutes les campagnes repartent **froides**, et les gates du dépôt sont périmés ;
+- **`prompts_digest` ne bouge pas** : aucun prompt n'est touché, aucune fixture n'est invalidée ;
+- le **`cases_hash` d'un gate `full`** n'est plus celui d'un gate `vertical` du même document : la
+  suite `parsing` du document entre dans le lot sous `full`.
+
+### Gates à relancer, en profil `full`, par l'orchestrateur
+
+La dette de re-gate déjà déclarée plus haut reste due et **s'élargit** : la commande n'est plus la
+même, parce qu'un gate `full` porte désormais sa révision, son protocole et son rapport, et parce
+que trois gardes refusent avant tout appel (`--repeat >= 3`, `--candidate-revision`,
+`--orchestrator-report` avec toute preuve trusted).
+
+```bash
+# Pour chaque doc_id servi, sur HEAD figé, après passation.
+LIVE_CAMPAIGN_ID=<story-candidate-sha> LIVE_BUDGET_EUR=1.00 \
+uv run python -m server.evals.run \
+  --gate <doc_id> --profile full --repeat 3 \
+  --candidate-revision <sha40-du-candidat> \
+  --producer orchestrator --series-kind final --series-id final-4.5-<doc_id> \
+  --orchestrator-evidence <preuves-trusted.json> \
+  --orchestrator-report <rapport-de-la-serie.json> \
+  --max-cost <borne-locale>
+```
+
+Le fichier `<preuves-trusted.json>` porte **exactement** cinq clés racine, et les quatre liens sont
+recoupés avant toute décision (une clé en trop, une révision d'un autre commit, un rapport modifié ou
+un `run_digest` divergent refusent le run en code 2, sans écrire de gate) :
+
+```json
+{
+  "plancher_digest": "<64 hex, celui du plancher chargé>",
+  "candidate_revision": "<sha40-du-candidat, identique à --candidate-revision>",
+  "report_digest": "<sha256 des octets de --orchestrator-report>",
+  "run_digest": "<64 hex>",
+  "decisions": [
+    {"metric": "offline_tests_pass_rate",  "n": 3, "value": 1.0, "run_digest": "<le même>"},
+    {"metric": "anti_rustine_pass_rate",   "n": 3, "value": 1.0, "run_digest": "<le même>"},
+    {"metric": "metamorphique_pass_rate",  "n": 3, "value": 1.0, "run_digest": "<le même>"},
+    {"metric": "a16_post_success_rate",    "n": 3, "value": 0.0, "run_digest": "<le même>"},
+    {"metric": "decision_claim_rate",      "n": 3, "value": 1.0, "run_digest": "<le même>"}
+  ]
+}
+```
+
+Sans ces mesures applicables, les décisions correspondantes restent **rouges** (« témoin
+orchestrateur applicable absent de ce run ») et le gate ne peut pas devenir vert. C'est le
+comportement voulu : une preuve absente est rouge, jamais neutre.
+
+### Ce que le premier gate `full` rendra rouge, et pourquoi c'est l'état réel
+
+Deux témoins sont rouges **par construction du dépôt**, indépendamment de la qualité du candidat, et
+il faut s'y attendre plutôt que les prendre pour une régression :
+
+- `structure_prouvee_rate = 0` — aucun `structure.json` n'existe sur le corpus servi, aucun
+  `report.json` livré ne porte de check `structure_proposee`. La story 4.2c n'a jamais été exercée
+  sur ce corpus ; la réingestion PDF réelle est une dette `[high]` de l'orchestrateur (les PDF ne
+  sont pas dans le dépôt) ;
+- `a16_post_success_rate = 0/3` — inchangé depuis 4.2a, publié tel quel.
+
+### Entrées dues, reconduites explicitement
+
+| story | ce qui est dû | qui |
+|---|---|---|
+| 4.2c | réingestion PDF réelle, puis `structure.json` déclaré au manifest (`structure_hash`) | orchestrateur |
+| 4.2e | consignation de la campagne de la demande de contexte sur HEAD figé | orchestrateur |
+| 4.2f | consignation de la campagne de la lecture partielle sur HEAD figé | orchestrateur |
+| 4.2a | `a16_post_success_rate` : série A16 sur HEAD figé (0/3 tant qu'elle n'est pas verte) | orchestrateur |
+| 4.2d | libellé « guide » de `retrouver.md` et arbitrage du plafond sinistre sous `outils` — les deux changent le corps de requête, donc la clé des fixtures | orchestrateur |
+| 4.5 | seconde lecture : verdict rempli sur le plan produit par `server/evals/relecture.py` | orchestrateur |
+
+### Seconde lecture (FR47) — les deux commandes exactes
+
+Le builder livre le **plan** déterministe et son **contrôle** ; l'orchestrateur produit le verdict.
+
+**1. Écrire le plan** (hors réseau, sans clé, depuis le rapport du run et le corpus servi) :
+
+```bash
+uv run python -m server.evals.relecture \
+  --report .evals/results.json \
+  --candidate-revision <sha40-du-candidat> \
+  --data-dir data \
+  --out .evals/relecture-plan.json
+```
+
+Le plan porte, par bloc clé, `doc_id`, `block_id`, page, bbox, `text_norm` et l'URL de l'image :
+`GET /api/v1/documents/{doc_id}/pages/{page}.png?blocks={block_id}` (route de la story 3.4, avec son
+surlignage sur les `Line.bbox` exactes). Les blocs clés sont ceux que les preuves du run citent, plus
+les blocs attendus que le rappel n'a pas ouverts. Le code de sortie est `1` quand le plan est vide —
+il n'y a alors rien à relire, et il faut le savoir.
+
+**2. Remplir le verdict**, un objet par bloc du plan, puis le repasser au gate :
+
+```json
+{
+  "schema_version": 1,
+  "candidate_revision": "<sha40-du-candidat>",
+  "plan_digest": "<plan_digest rendu par la commande ci-dessus>",
+  "verdicts": [
+    {"block_id": "<doc>:<loc>:<seq>", "verdict": "concordant",
+     "image_sha256": "<sha256 des octets de l'image regardée>", "note": ""}
+  ]
+}
+```
+
+```bash
+… uv run python -m server.evals.run --gate <doc_id> --profile full --repeat 3 \
+  --candidate-revision <sha40-du-candidat> \
+  --relecture-verdict .evals/relecture-verdict.json …
+```
+
+Le verdict est recoupé avec le plan **dérivé du rapport de ce run** — schéma exact,
+`candidate_revision`, `plan_digest`, couverture exacte du plan, un `image_sha256` par bloc. Un écart
+fait **échouer la publication** (le run ne peut pas être vert) : aucune seconde lecture n'est publiée
+au rabais. Sans `--relecture-verdict`, le statut publié reste `planifiee` — jamais « concordante par
+défaut ».
+
+Aucune rasterisation n'est faite côté `evals` : aucun `source.pdf` n'est présent dans ce worktree, et
+dupliquer PyMuPDF y aurait ajouté une seconde recette de rendu non testable sur le corpus réel.
+
+### Publication des résultats
+
+À partir de cette story, tout gate `full` écrit **inconditionnellement** — rouge compris —
+`data/evals-latest.json` (servi, copié par l'image), `docs/evals/latest.md` (lisible, hors image), et
+appose le même rendu Markdown au rapport que la CI concatène dans `$GITHUB_STEP_SUMMARY`. La route
+`GET /api/v1/evals/latest` le sert, et `/` le compose. Publier ne promeut rien : seul
+`gate.evals_ok` décide de ce qui est servi (AD-8). Tant qu'aucun gate `full` n'a tourné, la route
+rend l'état typé `publie: false, raison: "absent"` — ni 5xx, ni chiffre inventé.
+
+Le rendu **précédent** de `docs/evals/latest.md` est archivé avant d'être remplacé, sous
+`docs/evals/campagnes/<date>-<empreinte courte>.md` : « latest » veut dire « le dernier », pas « le
+seul », et le registre de la campagne 4.2d que la story 4.4 référence contient des mesures live que
+personne ne peut reproduire sans repayer.
+
+Le résumé que la CI concatène dans `$GITHUB_STEP_SUMMARY` porte désormais les mêmes champs que la
+publication — stabilité N/N, coût froid, coût p95, latence p95, `run_digest`, réserves et limites —
+tirés du même rapport et du même formatage. La CI tourne sans `--gate` : elle ne produit donc aucune
+publication, et c'est le rendu de rapport lui-même qui devait porter ces champs.
