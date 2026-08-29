@@ -1139,6 +1139,47 @@ def _noeud_de_groupe(lines: list[PageLine], node_of_uid: dict[str, str], *, page
         f"({', '.join(sorted(noeuds))}) : {apercu!r}")
 
 
+def reconcilier_affectation(nodes: dict[str, Node], block_uids: dict[str, list[str]],
+                            node_of_uid: dict[str, str]) -> None:
+    """Le **propriétaire effectif** de chaque uid dans l'arbre bâti est-il celui que la proposition prescrit ?
+
+    `_noeud_de_groupe` l'impose groupe par groupe **au moment de l'ajout** ; c'est une garde du
+    chemin, pas une preuve du résultat. Rien ne le revérifiait sur le document construit, si bien
+    qu'un chemin qui la contournerait — un rattachement futur, un appel programmatique, une branche
+    ajoutée à `build_document` — servirait une affectation divergente sous l'annonce « proposition
+    vérifiée ». La réconciliation se fait donc ici sur ce qui est réellement bâti : les `BlockRef` des
+    nœuds, et non la seule présence des `node_id`.
+
+    Trois refus, tous `affectation_non_prouvee`, parce que c'est un seul défaut vu de trois côtés :
+    un bloc servi sans aucune ligne source prouvée n'est comparable à rien, un bloc qu'aucun nœud ne
+    réclame n'a pas de propriétaire à confronter, et un bloc dont le propriétaire diverge de
+    `node_of_uid` est servi ailleurs que là où la proposition le place.
+    """
+    proprietaire: dict[str, str] = {}
+    for node_id, node in nodes.items():
+        for block_id in node.blocks:
+            proprietaire[block_id] = node_id
+    for block_id in sorted(block_uids):
+        uids = block_uids[block_id]
+        if not uids:
+            raise StructureRefusee(
+                "affectation_non_prouvee",
+                f"{block_id} serait servi sans aucune ligne source : rien n'y est prouvé")
+        node_id = proprietaire.get(block_id)
+        if node_id is None:
+            raise StructureRefusee(
+                "affectation_non_prouvee",
+                f"{block_id} n'est réclamé par aucun nœud de l'arbre bâti : son affectation "
+                "n'est confrontable à rien")
+        for uid in uids:
+            prescrit = node_of_uid.get(uid)
+            if prescrit != node_id:
+                raise StructureRefusee(
+                    "affectation_non_prouvee",
+                    f"{block_id} est servi sous {node_id} alors que la proposition place {uid} "
+                    f"sous {prescrit or 'aucun nœud'}")
+
+
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
                    doc_id: str = DOC_ID, title: str = TITLE, source_url: str | None = None,
                    structure: StructureProposee | None = None) -> tuple[Document, dict[str, Any]]:
@@ -1293,6 +1334,11 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         raise StructureRefusee(
             "noeud_non_construit",
             f"{len(manquants)} nœud(s) prouvé(s) absent(s) de l'arbre bâti : {', '.join(manquants[:20])}")
+    if structure is not None:
+        # Et l'inverse : que chaque nœud prouvé existe ne dit rien de **qui porte quoi**. La
+        # réconciliation compare le propriétaire effectif de chaque uid à celui que `node_of_uid`
+        # prescrit, sur le document réellement bâti.
+        reconcilier_affectation(b.nodes, b.block_uids, node_of_uid)
     toc_gaps = _apply_toc(b, toc)
     nodes = [b.nodes[nid] for nid in b.order]
     doc = Document(doc_id=doc_id, kind="contrat", title=title, edition=edition, lang="fr", nodes=nodes,

@@ -228,9 +228,10 @@ def _page_avec_table(rows: list[list[str]]) -> tuple[p.PageText, list[p.SourceLi
 def test_une_table_scindee_entre_deux_noeuds_proposes_est_refusee() -> None:
     """Le bloc `table` est atomique : il ne peut pas être servi à cheval sur deux nœuds prouvés.
 
-    La proposition est **acceptée par le vérificateur** — intervalles disjoints, ordre croissant,
-    couverture totale — et pourtant l'arbre servi placerait les deux cellules sous un seul nœud. Le
-    bloc serait donc moins prouvé que la proposition qui l'annonce : c'est un refus.
+    Une table est une **unité de portage** au même titre qu'une ligne fusionnée : le bloc `table`
+    porte toutes ses lignes absorbées d'un seul tenant. La même règle générique les couvre donc, et
+    le refus est rendu **par le vérificateur** — l'écrire seulement dans `build_document` laissait la
+    CLI produire un `structure.json` que l'ingestion ne pourrait jamais accepter.
     """
     page, sources = _page_avec_table([["Cellule 1"], ["Cellule 2"]])
     entete, premiere, seconde, corps = sources
@@ -253,12 +254,126 @@ def test_une_table_scindee_entre_deux_noeuds_proposes_est_refusee() -> None:
         s.NoeudPropose(titre_line_uid=seconde.uid, premiere_line_uid=seconde.uid,
                        derniere_line_uid=corps.uid),
     ])
-    assert s.verifier(scindee, registre, doc_id=DOC, settings=get_settings()).accepte
+    verdict = s.verifier(scindee, registre, doc_id=DOC, settings=get_settings())
+    assert not verdict.accepte and verdict.motif == "affectation_non_prouvee"
+    assert "unité de portage" in verdict.detail
     with pytest.raises(s.StructureRefusee) as capture:
         p.build_document([page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
                          title="Contrat", structure=scindee)
     assert capture.value.motif == "affectation_non_prouvee"
-    assert capture.value.motif in s.MOTIFS and "à cheval" in capture.value.detail
+    assert capture.value.motif in s.MOTIFS
+
+
+def test_le_groupe_a_cheval_reste_refuse_au_build_meme_si_le_verificateur_est_contourne() -> None:
+    """La garde de `_noeud_de_groupe` demeure : elle ne dépend pas du vérificateur pour exister.
+
+    Le refus à l'acceptation ne remplace pas celui du build — il le précède. Un appel programmatique
+    direct, un chemin futur, une proposition bâtie hors du modèle : le bloc servi doit rester refusé
+    ligne à ligne.
+    """
+    lignes = [p.PageLine("Une rangee | Une valeur", [50.0, 90.0, 350.0, 180.0], 0.0,
+                         source_uids=["p1:l2", "p1:l3"])]
+    with pytest.raises(s.StructureRefusee) as capture:
+        p._noeud_de_groupe(lignes, {"p1:l2": f"{DOC}:s1", "p1:l3": f"{DOC}:s2"}, page=1)
+    assert capture.value.motif == "affectation_non_prouvee" and "à cheval" in capture.value.detail
+    with pytest.raises(s.StructureRefusee) as vide:
+        p._noeud_de_groupe(lignes, {"p9:l1": f"{DOC}:s1"}, page=1)
+    assert "aucune ligne source prouvée" in vide.value.detail
+
+
+def _page_avec_ligne_fusionnee() -> tuple[p.PageText, list[p.SourceLine]]:
+    """Une page dont l'extracteur a scindé un intitulé — « 1.4 » puis « Objet … » — puis réuni.
+
+    La ligne de travail porte donc **deux** uid : c'est une *unité de portage*, l'ensemble des lignes
+    source qu'un même bloc portera nécessairement ensemble. L'autre cas est la table, dont le bloc
+    `table` porte toutes les lignes absorbées ; une seule règle les couvre.
+    """
+    registre = p.SourceRegistry()
+    avant = registre.add(page=1, text="Avant la section.", bbox=[56.0, 60.0, 356.0, 72.0])
+    numero = registre.add(page=1, text="1.4", bbox=[56.0, 100.0, 76.0, 112.0])
+    intitule = registre.add(page=1, text="Objet de la section", bbox=[122.0, 100.0, 300.0, 112.0])
+    apres = registre.add(page=1, text="Corps de la section.", bbox=[56.0, 140.0, 356.0, 152.0])
+    fusionnee = p.PageLine("1.4 Objet de la section", [56.0, 100.0, 300.0, 112.0], 10.0,
+                           source_uids=[numero.uid, intitule.uid])
+    lignes = [p.PageLine(avant.text, list(avant.bbox), 10.0, source_uids=[avant.uid]),
+              fusionnee,
+              p.PageLine(apres.text, list(apres.bbox), 10.0, source_uids=[apres.uid])]
+    page = p.PageText(page=1, width=595, height=842, lines=lignes, source=registre)
+    return page, [avant, numero, intitule, apres]
+
+
+def test_le_registre_publie_lunite_de_portage_de_chaque_ligne() -> None:
+    """L'unité est une propriété du registre, dérivée de la position — jamais d'un document.
+
+    Deux uid réunis par `_merge_number_lines` partagent une unité ; les lignes ordinaires sont
+    chacune la leur. C'est cette donnée-là que `verifier()` a besoin de connaître pour refuser une
+    proposition qui scinde ce qu'un bloc portera de toute façon d'un seul tenant.
+    """
+    page, (avant, numero, intitule, apres) = _page_avec_ligne_fusionnee()
+    registre = _registre([page])
+    assert registre[numero.uid].portage == registre[intitule.uid].portage
+    assert registre[avant.uid].portage != registre[numero.uid].portage
+    assert registre[apres.uid].portage not in {registre[avant.uid].portage,
+                                              registre[numero.uid].portage}
+    # Le titre servi de l'un est celui de l'autre : la ligne portée est la même.
+    assert registre[numero.uid].titre == registre[intitule.uid].titre == "1.4 Objet de la section"
+
+
+def test_verifier_refuse_une_ligne_fusionnee_scindee_entre_deux_noeuds() -> None:
+    """(1) Le refus est **à l'acceptation**, pas seulement au build.
+
+    Sonde de la revue : deux uid fusionnés, séparés entre deux intervalles par ailleurs valides —
+    disjoints, croissants, couverture totale — donnaient `accepte=True`, et seul `build_document`
+    refusait ensuite. La CLI `python -m server.ingest.structure` écrivait donc un `structure.json`
+    que l'ingestion ne pourrait jamais accepter, contre la promesse « le code accepte la proposition
+    uniquement s'il prouve ».
+    """
+    page, (avant, numero, intitule, apres) = _page_avec_ligne_fusionnee()
+    registre = _registre([page])
+    assert [registre[source.uid].ordre for source in (avant, numero, intitule, apres)] == [1, 2, 3, 4]
+    scindee = _proposition(noeuds=[
+        s.NoeudPropose(titre_line_uid=avant.uid, premiere_line_uid=avant.uid,
+                       derniere_line_uid=numero.uid),
+        s.NoeudPropose(titre_line_uid=intitule.uid, premiere_line_uid=intitule.uid,
+                       derniere_line_uid=apres.uid),
+    ])
+    verdict = s.verifier(scindee, registre, doc_id=DOC, settings=get_settings())
+    assert not verdict.accepte and verdict.motif == "affectation_non_prouvee"
+    assert verdict.motif in s.MOTIFS and "unité de portage" in verdict.detail
+    with pytest.raises(s.StructureRefusee) as capture:
+        p.build_document([page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+                         title="Contrat", structure=scindee)
+    assert capture.value.motif == "affectation_non_prouvee"
+    # Et l'appel programmatique direct, qui contourne le vérificateur : `arbre()` rendrait sinon un
+    # `node_of_uid` scindant l'unité, sur lequel toute la suite raisonnerait.
+    with pytest.raises(s.StructureRefusee) as direct:
+        s.arbre(scindee, registre, DOC)
+    assert direct.value.motif == "affectation_non_prouvee"
+
+
+def test_verifier_refuse_deux_uid_dune_meme_unite_comme_titres_distincts() -> None:
+    """(2) Deux uid d'une même unité intitulent deux nœuds, et le titre servi est le même.
+
+    `titre_ambigu` comparait `(page, bbox)` des lignes **source**, qui diffèrent avant fusion — un
+    numéro et son intitulé n'ont pas la même boîte. Le titre servi, lui, est relu sur la ligne
+    **portée** : les deux nœuds afficheraient le même intitulé et l'arbre inspectable répondrait deux
+    fois la même chose pour le même endroit de la page.
+
+    Ici la frontière de nœud ne tombe **pas** à l'intérieur de l'unité — le contrôle (1) ne voit donc
+    rien —, et pourtant les deux nœuds sont intitulés par la même ligne portée.
+    """
+    page, (avant, numero, intitule, apres) = _page_avec_ligne_fusionnee()
+    registre = _registre([page])
+    proposition = _proposition(noeuds=[
+        s.NoeudPropose(titre_line_uid=numero.uid, premiere_line_uid=avant.uid,
+                       derniere_line_uid=apres.uid),
+        s.NoeudPropose(titre_line_uid=intitule.uid, premiere_line_uid=numero.uid,
+                       derniere_line_uid=apres.uid, parent_line_uid=numero.uid),
+    ])
+    assert registre[numero.uid].bbox != registre[intitule.uid].bbox  # (page, bbox) ne dit rien ici
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+    assert not verdict.accepte and verdict.motif == "titre_ambigu"
+    assert "unité de portage" in verdict.detail
 
 
 def test_une_table_sans_rangee_ne_fait_pas_disparaitre_ses_lignes_en_silence() -> None:
@@ -804,6 +919,58 @@ def test_build_document_leve_sur_un_refus_plutot_que_de_replier_sur_la_numerotat
         p.build_document(_corpus(), edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
                          title="Contrat", structure=invalide)
     assert capture.value.motif == "ligne_omise"
+
+
+def test_la_reconciliation_finale_compare_le_proprietaire_effectif_de_chaque_uid() -> None:
+    """(3) L'arbre bâti est reconfronté à `node_of_uid`, pas seulement à la présence des `node_id`.
+
+    `_noeud_de_groupe` impose le propriétaire groupe par groupe **au moment de l'ajout** ; rien ne le
+    revérifiait ensuite sur le document construit, si bien qu'un chemin qui le contournerait servirait
+    une affectation divergente sous l'annonce « proposition vérifiée ». Le détournement posé ici est
+    exactement ce chemin : il laisse tous les nœuds prouvés exister — `noeud_non_construit` ne voit
+    donc rien — et ne déplace qu'un seul bloc.
+    """
+    pages = _corpus()
+    original = p._noeud_de_groupe
+
+    def detournement(lines: list[p.PageLine], node_of_uid: dict[str, str], *, page: int) -> str:
+        node_id = original(lines, node_of_uid, page=page)
+        uids = {uid for line in lines for uid in line.source_uids}
+        return f"{DOC}:s1" if "p1:l4" in uids else node_id
+
+    p._noeud_de_groupe = detournement  # type: ignore[assignment]
+    try:
+        with pytest.raises(s.StructureRefusee) as capture:
+            p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+                             title="Contrat", structure=_proposition())
+    finally:
+        p._noeud_de_groupe = original  # type: ignore[assignment]
+    assert capture.value.motif == "affectation_non_prouvee"
+    assert "p1:l4" in capture.value.detail and f"{DOC}:s1.1" in capture.value.detail
+
+
+def test_la_reconciliation_voit_aussi_un_bloc_sans_uid_et_un_bloc_sans_noeud() -> None:
+    """Les deux angles morts d'une réconciliation qui ne regarderait que les uid déjà rattachés.
+
+    Un bloc servi sans aucune ligne source prouvée n'est comparable à rien — c'est le trou par lequel
+    du texte non prouvé serait servi —, et un bloc qu'aucun nœud ne réclame n'a pas de propriétaire
+    à confronter. Les deux sont des refus, jamais un silence.
+    """
+    from server.app.domain.document import BlockRef, Node
+
+    noeuds = {f"{DOC}:s1": Node(node_id=f"{DOC}:s1", level=1, title="S1",
+                                items=[BlockRef(block_id="b1"), BlockRef(block_id="b2")])}
+    with pytest.raises(s.StructureRefusee) as sans_uid:
+        p.reconcilier_affectation(noeuds, {"b1": ["p1:l1"], "b2": []}, {"p1:l1": f"{DOC}:s1"})
+    assert sans_uid.value.motif == "affectation_non_prouvee"
+    assert "aucune ligne source" in sans_uid.value.detail and "b2" in sans_uid.value.detail
+    with pytest.raises(s.StructureRefusee) as orphelin:
+        p.reconcilier_affectation(noeuds, {"b1": ["p1:l1"], "b3": ["p1:l2"]},
+                                  {"p1:l1": f"{DOC}:s1", "p1:l2": f"{DOC}:s1"})
+    assert "b3" in orphelin.value.detail and "aucun nœud" in orphelin.value.detail
+    # Témoin positif : la même réconciliation, honorée, ne dit rien.
+    p.reconcilier_affectation(noeuds, {"b1": ["p1:l1"], "b2": ["p1:l2"]},
+                              {"p1:l1": f"{DOC}:s1", "p1:l2": f"{DOC}:s1"})
 
 
 # --- Largeur bornée : nombre de nœuds, nombre d'enfants -----------------------------------------

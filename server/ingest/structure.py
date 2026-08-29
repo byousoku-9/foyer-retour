@@ -52,11 +52,13 @@ from server.ingest.artifacts import write_atomic
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
 MODEL = TIERS[TIER]
-# `-3` : la largeur de l'arbre est bornée à son tour (`structure_max_nodes`,
+# `-4` : l'unité de portage est devenue une donnée du registre, et le vérificateur refuse lui-même
+# une proposition qui la scinde ou qui en fait deux titres distincts — ce que seul `build_document`
+# refusait. `-3` : la largeur de l'arbre est bornée à son tour (`structure_max_nodes`,
 # `structure_max_children`). `-2` : la couverture est devenue totale et les lignes d'une table sont
 # entrées au registre. Une proposition acceptée sous les règles précédentes ne l'est plus forcément,
 # et le registre qu'elle adresse a changé : l'empreinte doit le dire (AD-2, lu par le loader).
-STRUCTURE_RULES_VERSION = "4.2c-3"
+STRUCTURE_RULES_VERSION = "4.2c-4"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
 MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
@@ -179,6 +181,13 @@ class Entree:
     `texte` est le texte **du registre**, immuable. `texte_porte` est celui de la ligne de travail
     qui porte cet uid : les deux ne diffèrent que lorsque `_merge_number_lines` a réuni un numéro et
     son intitulé, et c'est alors `texte_porte` qui dit ce qu'un lecteur voit — donc le titre servi.
+
+    `unite` nomme l'**unité de portage** : l'ensemble des uid qu'un même bloc portera nécessairement
+    ensemble. Deux cas la produisent, et une seule règle générique les couvre — les uid réunis par
+    `_merge_number_lines` sur une même ligne de travail, et les uid d'une table, que le bloc `table`
+    porte en entier. L'identifiant est **positionnel** (l'uid de la première ligne de l'unité dans
+    l'ordre de lecture, lui-même `p{page}:l{rang}`) : il ne nomme ni assureur, ni document, ni page
+    particulière, ni titre, ni numérotation. Vide = l'entrée est sa propre unité.
     """
 
     uid: str
@@ -188,10 +197,16 @@ class Entree:
     bbox: tuple[float, float, float, float]
     texte: str
     texte_porte: str = ""
+    unite: str = ""
 
     @property
     def titre(self) -> str:
         return self.texte_porte or self.texte
+
+    @property
+    def portage(self) -> str:
+        """Identifiant de l'unité indivisible dont cette entrée fait partie — elle-même par défaut."""
+        return self.unite or self.uid
 
 
 @dataclass(frozen=True)
@@ -273,13 +288,19 @@ def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
     for page in pages:
         par_uid = {source.uid: source for source in page.source.lines}
         for uids, colonne, texte_porte in _porteurs(page):
+            # Un porteur **est** une unité de portage : ce que ce bloc-là portera d'un seul tenant.
+            # L'unité est nommée par son premier uid retenu, donc par sa position de lecture ; les
+            # rangs qu'elle reçoit ici sont consécutifs, ce dont `_unite_scindee` tire son span.
+            unite = ""
             for uid in uids:
                 source = par_uid.get(uid)
                 if source is None or uid in out:
                     continue
                 rang += 1
+                unite = unite or uid
                 out[uid] = Entree(uid=uid, page=source.page, colonne=colonne, ordre=rang,
-                                  bbox=source.bbox, texte=source.text, texte_porte=texte_porte)
+                                  bbox=source.bbox, texte=source.text, texte_porte=texte_porte,
+                                  unite=unite)
     return out
 
 
@@ -392,6 +413,43 @@ def _refus(motif: str, detail: str) -> Verdict:
     return Verdict(accepte=False, motif=motif, detail=detail[:1000])
 
 
+def unite_scindee(registre: dict[str, Entree],
+                  intervalles: Sequence[tuple[int, int]]) -> str | None:
+    """Une frontière d'intervalle proposé tombe-t-elle **à l'intérieur** d'une unité de portage ?
+
+    Une unité est indivisible : ses uid seront portés par un seul et même bloc, quel que soit le
+    découpage proposé. Une frontière de nœud posée en son milieu demande donc de servir ce bloc sous
+    deux nœuds à la fois — ce que `_noeud_de_groupe` refuse au build, et qu'il faut refuser dès
+    l'acceptation, sans quoi la CLI écrit un `structure.json` que l'ingestion ne pourra jamais
+    accepter.
+
+    La règle est **générique** : ligne fusionnée ou table, l'unité est la même chose et se juge
+    pareil. Aucune règle propre à un assureur, une page, un titre ou une numérotation.
+
+    Le coût est en O(lignes + nœuds) : les frontières sont l'ensemble des ordres où un intervalle
+    s'ouvre (`premiere`) ou vient de se fermer (`derniere + 1`), et une unité n'est parcourue que
+    lorsqu'elle porte au moins deux uid. Comparer deux à deux les nœuds effectifs de chaque uid
+    coûterait O(lignes × nœuds) sur un chemin dont toute la valeur est de refuser vite.
+    """
+    frontieres: set[int] = set()
+    for premiere, derniere in intervalles:
+        frontieres.add(premiere)
+        frontieres.add(derniere + 1)
+    spans: dict[str, list[int]] = {}
+    for entree in registre.values():
+        spans.setdefault(entree.portage, []).append(entree.ordre)
+    for unite, ordres in sorted(spans.items()):
+        if len(ordres) < 2:
+            continue
+        debut, fin = min(ordres), max(ordres)
+        coupures = sorted(borne for borne in frontieres if debut < borne <= fin)
+        if coupures:
+            return (f"unité de portage {unite!r} — {len(ordres)} ligne(s) source d'ordre {debut} à "
+                    f"{fin}, qu'un même bloc portera d'un seul tenant — scindée par une frontière de "
+                    f"nœud à l'ordre {coupures[0]}")
+    return None
+
+
 def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc_id: str,
              settings: Settings) -> Verdict:
     """Prouve les invariants d'une proposition, en code pur et hors réseau. Un refus est nommé.
@@ -432,13 +490,28 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
 
     # (page, bbox) est l'identité visuelle d'un titre : deux titres au même endroit rendraient
     # l'arbre inspectable à deux réponses différentes pour la même page surlignée.
+    #
+    # L'unité de portage est la **seconde** identité d'un même endroit, et il en faut deux : les bbox
+    # source d'un numéro et de son intitulé diffèrent — l'extracteur les a vus séparément —, alors
+    # que le titre servi est relu sur la ligne *portée*, la même pour les deux. Deux nœuds intitulés
+    # par une même unité afficheraient donc le même intitulé et répondraient deux fois la même chose
+    # pour le même endroit de la page : c'est exactement ce que `titre_ambigu` nomme déjà, et lui
+    # ajouter un motif dirait le même défaut sous deux mots. Aucune des deux clés ne subsume l'autre :
+    # deux lignes source distinctes peuvent partager (page, bbox) sans partager d'unité.
     positions: dict[tuple[int, tuple[float, float, float, float]], str] = {}
+    unites: dict[str, str] = {}
     for uid in titres:
         entree = registre[uid]
         cle = (entree.page, entree.bbox)
         if cle in positions:
             return _refus("titre_ambigu", f"{positions[cle]!r} et {uid!r} partagent (page, bbox) {cle}")
         positions[cle] = uid
+        if entree.portage in unites:
+            return _refus("titre_ambigu",
+                          f"{unites[entree.portage]!r} et {uid!r} partagent l'unité de portage "
+                          f"{entree.portage!r} : les deux nœuds seraient intitulés par la même ligne "
+                          f"portée, {entree.titre!r}")
+        unites[entree.portage] = uid
 
     profondeurs: dict[str, int] = {}
     for uid in titres:
@@ -527,6 +600,15 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                       f"{len(omises)}/{len(registre)} ligne(s) du registre hors de tout intervalle "
                       f"proposé (borne STRUCTURE_MIN_COVERAGE={settings.structure_min_coverage:.0%}, "
                       f"jamais desserrée ligne à ligne) : {', '.join(omises[:20])}")
+
+    # Dernière famille, parce qu'elle suppose les précédentes : les intervalles sont emboîtés et la
+    # couverture est totale, si bien qu'une frontière posée à l'intérieur d'une unité de portage est
+    # bien une demande de servir un bloc indivisible sous deux nœuds. Le verdict `accepte=True`
+    # promet que l'ingestion honorera la proposition ; il ne peut pas être rendu sur une proposition
+    # que `build_document` refusera à coup sûr.
+    detail = unite_scindee(registre, list(bornes.values()))
+    if detail is not None:
+        return _refus("affectation_non_prouvee", detail)
     return Verdict(accepte=True,
                    detail=f"{len(noeuds)} nœud(s), couverture totale de {len(registre)} ligne(s)")
 
@@ -569,6 +651,12 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
             parcourir(uid, position)
 
     parcourir(None, ())
+    # Même exigence, même raison que la borne de largeur ci-dessus : `arbre()` est documenté « sur une
+    # proposition déjà vérifiée », et un appel programmatique direct rendrait sinon un `node_of_uid`
+    # qui scinde une unité indivisible. Le coût est en O(lignes + nœuds), payé une fois.
+    detail = unite_scindee(registre, [(spec.premiere, spec.derniere) for spec in plan.values()])
+    if detail is not None:
+        raise StructureRefusee("affectation_non_prouvee", detail)
     profondeur = {node_id: spec.level for node_id, spec in plan.items()}
     par_uid: dict[str, str] = {}
     for entree in registre.values():

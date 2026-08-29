@@ -134,6 +134,33 @@ que la proposition scinde, une ligne fusionnée dont les deux `uid` tombent de p
 frontière —, est le refus `affectation_non_prouvee` : un bloc servi ne peut pas être moins prouvé que
 la proposition qui l'annonce.
 
+**Ce qui sera porté ensemble est refusé ensemble, dès l'acceptation.** Le registre publie l'*unité de
+portage* de chaque ligne : l'ensemble des `uid` qu'un même bloc portera nécessairement d'un seul
+tenant. Deux cas la produisent — les `uid` réunis en une seule ligne de travail par la fusion d'un
+numéro et de son intitulé, et les `uid` d'une table, que le bloc `table` porte en entier — et une
+seule règle générique les couvre ; l'identifiant de l'unité est positionnel, jamais le nom d'un
+assureur, d'un document, d'une page, d'un titre ou d'une numérotation. Une frontière de nœud posée
+**à l'intérieur** d'une unité demande de servir un bloc indivisible sous deux nœuds : c'est le refus
+`affectation_non_prouvee`, rendu par le vérificateur lui-même et non plus seulement au moment de
+bâtir. La distinction compte : `verifier()` rendait « accepté » sur une proposition que
+`build_document` refusait à coup sûr, si bien que la CLI hors ligne écrivait un `structure.json` que
+l'ingestion ne pourrait jamais accepter — le contraire de « le code accepte la proposition uniquement
+s'il prouve ». Deux `uid` d'une même unité ne peuvent pas non plus intituler deux nœuds distincts :
+le titre servi est relu sur la ligne *portée*, la même pour les deux, si bien que les deux nœuds
+afficheraient le même intitulé et que l'arbre inspectable répondrait deux fois la même chose pour le
+même endroit de la page. C'est ce que `titre_ambigu` nomme déjà — le contrôle par `(page, bbox)` ne
+suffisait pas, un numéro et son intitulé n'ayant pas la même boîte **avant** fusion — et le
+vocabulaire de refus reste donc fermé sur les mêmes mots.
+
+**L'arbre bâti est reconfronté à la proposition, pas seulement compté.** Vérifier que chaque nœud
+prouvé existe dans l'arbre (`noeud_non_construit`) ne dit rien de *qui porte quoi*. La réconciliation
+finale compare, sur le document réellement construit, le **propriétaire effectif** de chaque `uid` —
+le nœud du bloc qui le porte — à celui que la proposition prescrit ; un bloc servi sans aucune ligne
+source, un bloc qu'aucun nœud ne réclame et un bloc dont le propriétaire diverge sont les trois faces
+du même refus `affectation_non_prouvee`. La garde qui rompt les groupes à la frontière d'un nœud
+demeure : elle protège le chemin, la réconciliation prouve le résultat, et tout chemin futur qui
+contournerait la première serait arrêté par la seconde.
+
 **La largeur est bornée comme la profondeur, et refusée au plus tôt.** La profondeur de l'arbre
 proposé était bornée ; sa largeur ne l'était pas. Le vérificateur porte une boucle en O(n²) sur les
 intervalles : une proposition très large faisait donc travailler indéfiniment un chemin dont toute la
