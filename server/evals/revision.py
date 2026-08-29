@@ -47,6 +47,12 @@ def sorties_du_run(publication: str = EVALS_PUBLICATION_FILE) -> tuple[str, ...]
     """
     return (
         "data/manifest.json",
+        # L'espace de publication (story 4.5, B7) : le bundle et son pointeur sont les sorties
+        # réelles d'un run depuis que les cibles du lot se résolvent à travers `courant`. Sans cette
+        # exclusion, le **second** gate d'une campagne serait refusé « arbre sale » par les sorties
+        # du premier — exactement ce que cette liste existe pour éviter, et le seul point où la
+        # nouvelle disposition change ce que `git status` montre après une publication.
+        "data/.publie/",
         f"data/{publication}",
         "docs/evals/latest.md",
         "docs/evals/campagnes/",

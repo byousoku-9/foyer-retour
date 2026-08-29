@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import os
 from pathlib import Path
 from typing import Any
 
@@ -67,9 +68,24 @@ def load_previous(path: Path) -> Document | None:
 
 
 def write_atomic(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".tmp")
+    """Écrit `path` atomiquement, **à travers** un lien symbolique plutôt qu'en le remplaçant.
+
+    Story 4.5, B7. `data/manifest.json` est désormais une entrée de l'espace de publication : un
+    lien statique vers `data/.publie/courant/data/manifest.json`, committé une fois, que l'unique
+    `os.replace` du pointeur fait basculer avec les autres surfaces. Un `tmp.replace(path)` nu
+    détruirait ce lien et le remplacerait par un fichier ordinaire — silencieusement, et une seule
+    fois suffirait : la bascule suivante déplacerait le pointeur sans que `data/manifest.json` en
+    voie rien, et le run publierait quatre surfaces sur cinq en annonçant un succès. C'est un faux
+    vert, et c'est le chemin frère le plus dangereux de tout ce changement.
+
+    On résout donc la destination avant de renommer, et le temporaire est créé **dans le répertoire
+    résolu** pour que le `rename` reste sur le même système de fichiers.
+    """
+    cible = Path(os.path.realpath(path)) if path.is_symlink() else path
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cible.with_name(cible.name + ".tmp")
     tmp.write_text(text, "utf-8")
-    tmp.replace(path)
+    tmp.replace(cible)
 
 
 def read_manifest(manifest_path: Path) -> dict[str, Any]:

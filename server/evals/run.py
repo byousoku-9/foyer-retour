@@ -25,8 +25,10 @@ Codes de sortie, et pourquoi ils sont quatre (D4) :
 | 0 | tous les cas `ok` | gate écrit `evals_ok: true` (avec `--gate`) |
 | 1 | le run ne rend pas un vert : mauvais label, attente inassouvie, décision de plancher rouge,
 publication FR41 en échec, ou rapport non publiable (`RapportInexploitable`) | gate écrit tel qu'il a
-été mesuré (`evals_ok: false`), **sauf** si la préparation de la publication a échoué : rien n'est
-alors publié ni écrit |
+été mesuré (`evals_ok: false`), **sauf** si la publication a échoué : le gate appartient alors au
+même lot atomique que les surfaces, donc rien n'est publié **ni** écrit (story 4.5, B7) — c'est aussi
+le cas d'un manifest qu'on ne peut pas écrire, qui était un refus 2 tant qu'il avait son écriture à
+lui |
 | 2 | refus de tourner : pas de clé, profil ou suite non livrés, cas invalide, document non servi | **non modifié** |
 | 3 | incident technique : `Timeout`, `LlmUnavailable`, `BudgetExceeded`, plafond de run atteint | **non modifié** |
 | 4 | refus de budget **avant le premier appel** (story 4.2b) : majorant estimé d'une campagne
@@ -106,6 +108,9 @@ from server.app.pipelines.guide import VARIANTS as VARIANTES_GUIDE
 from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
+from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
+from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
+                                 LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
                                    charger_plancher, verifier_liaison_preuve)
 from server.evals.publication import (ArchivePrecedenteIllisible,
@@ -2375,201 +2380,14 @@ def rendre_markdown(rapport: dict[str, Any],
         pub, valeur=_markdown_value, code=_markdown_code)
 
 
-def _preparer_atomique(path: Path, contenu: str) -> Path:
-    """Écrit `contenu` dans un temporaire **du répertoire cible**, vidé sur disque, et rend son chemin.
+def espace_du_data_dir(data_dir: Path) -> EspacePublie:
+    """L'espace de publication d'un `data/` — **l'autorité unique** du couple (racine, bundle).
 
-    Story 4.5, revue B3 puis A : la première moitié de `_ecrire_atomique`. La séparer permet de
-    préparer **toutes** les sorties d'un gate `full` — les publications et l'entrée de manifest —
-    avant d'en rendre la moindre visible, puis de les basculer ensemble ; l'`os.replace` d'un fichier
-    déjà écrit, sur le même système de fichiers, est la seule opération qui ne peut plus échouer à
-    moitié.
+    La racine est `data_dir.parent`, exactement comme `output_json`, `output_markdown` et le cache
+    en dérivent déjà dans `main()`. Deux dérivations auraient fini par diverger, et un run pointé
+    ailleurs aurait basculé le `data/` du dépôt.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporaire = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(contenu)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except BaseException:
-        try:
-            os.unlink(temporaire)
-        except FileNotFoundError:
-            pass
-        raise
-    return Path(temporaire)
-
-
-class BasculePartielle(Exception):
-    """Une bascule a échoué **et** la restauration n'a pas tout remis en place.
-
-    Ce n'est pas la même chose qu'un échec de bascule : celui-là est rattrapé et ne laisse rien
-    voir. Celui-ci laisse des cibles dans un état mêlé, et la seule chose honnête à faire est de
-    **nommer lesquelles**, dans quel état, plutôt que d'affirmer que rien n'a été publié.
-    """
-
-    def __init__(self, message: str, *, restaurees: list[str], non_restaurees: list[str]) -> None:
-        super().__init__(message)
-        self.restaurees = restaurees
-        self.non_restaurees = non_restaurees
-
-
-class EtatPrecedentIllisible(Exception):
-    """L'état d'avant d'une cible n'a pas pu être lu : on ne peut donc pas promettre de le rendre."""
-
-
-def _lire_ou_absent(path: Path) -> bytes | None:
-    """Les octets actuels d'une cible, ou `None` **si et seulement si** elle n'existe pas.
-
-    Story 4.5, revue B3/B6. `except OSError: return None` faisait dire « il n'y avait rien » à
-    « je n'ai pas pu lire ». La conséquence était pire que l'imprécision : la restauration croyait
-    la cible absente d'avant, exécutait `unlink()` — donc **supprimait** le fichier qui venait
-    d'être publié —, réussissait, et ne signalait donc aucune restauration manquée. Le contenu
-    d'avant n'était jamais réécrit, et le message affirmait « rien n'a été publié » : le fichier
-    avait été publié, puis supprimé, et son état d'avant était perdu.
-
-    **Seule `FileNotFoundError` signifie l'absence.** Toute autre erreur de lecture interrompt la
-    préparation, avant le premier `os.replace` — un garde-fou qui ne peut pas lire refuse, il ne
-    devine pas.
-    """
-    try:
-        return path.read_bytes()
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        raise EtatPrecedentIllisible(
-            f"{path} : l'état actuel n'a pas pu être lu ({type(exc).__name__}) — la bascule est "
-            "abandonnée avant toute écriture, car rien ne pourrait la défaire") from exc
-
-
-def _basculer(prepares: list[tuple[Path, Path]]) -> None:
-    """Rend le nouveau lot visible **en entier**, ou laisse le précédent visible en entier.
-
-    Ce n'est **pas** une opération atomique, et le dire autrement serait mentir : POSIX n'offre
-    l'atomicité que sur un seul `rename`, et cette file en compte jusqu'à cinq
-    (`data/evals-latest.json`, l'archive de campagne, `docs/evals/latest.md`, `eval-results.md`,
-    puis `data/manifest.json`). La propriété obtenue est plus faible et suffit : **tout ou rien sous
-    échec de renommage, par restauration**.
-
-    Comment. Avant de renommer quoi que ce soit, l'état courant de chaque cible est capturé (ses
-    octets, ou son absence). Au premier `os.replace` qui échoue, les cibles déjà basculées sont
-    remises dans leur état d'avant, **en ordre inverse** — le manifest, qui promeut, est la dernière
-    cible, donc la première défaite.
-
-    Ce que cela ne couvre pas, et qui n'est pas couvrable ici : une panne matérielle entre deux
-    renommages laisse le lot mêlé, comme n'importe quelle séquence de renommages. Ce qui est fermé,
-    c'est le défaut qu'on a mesuré — un `os.replace` qui échoue en publiant `evals-latest.json`
-    seul, avec un `latest.md` inexistant et un manifest sans gate, pendant que le message affirmait
-    « rien n'a été publié ».
-
-    Si une restauration échoue à son tour, `BasculePartielle` nomme précisément quelles cibles ont
-    été remises et lesquelles ne l'ont pas été.
-
-    **La garantie porte sur toute la durée de la fonction, et sur toute exception** (revue B7, tour
-    correctif 1/3). Trois trous la laissaient inexacte. La capture des états précédents se faisait
-    *hors* de toute garde de nettoyage : un `EtatPrecedentIllisible` laissait derrière lui les
-    temporaires déjà préparés par l'appelant — c'est le cas d'`ecrire_gate`, qui n'a pas de
-    `finally` à lui. La restauration n'était tentée que sur `OSError` : une `RuntimeError` ou une
-    interruption après la première bascule laissait la première cible dans le **nouvel** état
-    (mesuré : `{'a': 'nouveau-a', 'b': 'ancien-b'}`). Et le nettoyage des temporaires vivait dans la
-    restauration, donc dans ce seul chemin. Désormais : capture sous garde, restauration sur
-    `BaseException`, nettoyage en `finally`. Toute exception levée *par la restauration elle-même*
-    est traitée cible par cible et ne masque jamais la cause d'origine.
-    """
-    faites: list[int] = []
-    avant: list[tuple[Path, bytes | None]] = []
-    try:
-        # **Avant le premier renommage** : si un état précédent est illisible, on ne pourra pas le
-        # restaurer, donc on ne commence pas. `EtatPrecedentIllisible` remonte à l'appelant, qui la
-        # traite comme un refus de publier — jamais comme une absence. Le `finally` en dessous
-        # abandonne alors les temporaires : c'est ce qui couvre `ecrire_gate`, dont le temporaire de
-        # manifest est préparé avant cet appel et n'était nettoyé par personne.
-        avant = [(cible, _lire_ou_absent(cible)) for _tmp, cible in prepares]
-        for index, (temporaire, cible) in enumerate(prepares):
-            try:
-                os.replace(temporaire, cible)
-            except BaseException as echec:
-                restaurees, non_restaurees = _restaurer(avant, faites)
-                if non_restaurees:
-                    raise BasculePartielle(
-                        f"bascule interrompue sur {cible} ({echec!r}) et restauration incomplète — "
-                        f"remises en état : {restaurees or ['aucune']} ; "
-                        f"laissées dans le nouvel état : {non_restaurees}",
-                        restaurees=restaurees, non_restaurees=non_restaurees) from echec
-                raise
-            faites.append(index)
-    finally:
-        # Les temporaires que la bascule n'a pas consommés n'ont plus de raison d'être — y compris
-        # quand la capture initiale a levé, et quel que soit le rang atteint. `_abandonner` ignore
-        # ceux qu'`os.replace` a déjà déplacés.
-        _abandonner(prepares)
-
-
-def _restaurer(avant: list[tuple[Path, bytes | None]],
-               faites: list[int]) -> tuple[list[str], list[str]]:
-    """Défait les bascules déjà faites, en ordre inverse. Rend `(restaurées, non restaurées)`.
-
-    Une restauration qui échoue est **isolée** : elle nomme sa cible, laisse les autres se faire, et
-    ne remplace jamais la cause d'origine par sa propre panne.
-
-    `BaseException` et non `Exception` (revue P2), parce que le second Ctrl-C est le scénario
-    nominal : la restauration réécrit et `fsync` chaque cible, donc elle prend du temps, donc c'est
-    précisément là qu'une interruption tombe. Une `KeyboardInterrupt` qui traversait cette boucle
-    abandonnait les restaurations restantes, **effaçait la cause d'origine** — l'`OSError` de la
-    bascule — et court-circuitait `BasculePartielle`, si bien que plus rien ne nommait les cibles
-    laissées dans le nouvel état. Mesuré : `{'a': 'nouveau-a', 'b': 'nouveau-b', 'c': 'ancien-c'}`
-    sous une sortie `KeyboardInterrupt` muette. Avaler une interruption est un choix, et c'est le
-    bon ici : le seul travail restant est de remettre des octets déjà lus en mémoire, et l'appelant
-    la reverra sous la forme d'un `BasculePartielle` qui dit ce qui n'a pas pu l'être.
-
-    Elle ne touche **aucun** temporaire : leur abandon appartient au `finally` de `_basculer`, qui
-    couvre tous les chemins de sortie, y compris l'échec de la capture initiale.
-    """
-    restaurees: list[str] = []
-    non_restaurees: list[str] = []
-    for index in reversed(faites):
-        cible, octets = avant[index]
-        try:
-            if octets is None:
-                cible.unlink(missing_ok=True)
-            else:
-                _ecrire_atomique_octets(cible, octets)
-        except BaseException:  # noqa: BLE001 — voir la docstring : elle ne masque jamais la cause
-            non_restaurees.append(str(cible))
-        else:
-            restaurees.append(str(cible))
-    return restaurees, non_restaurees
-
-
-def _abandonner(prepares: list[tuple[Path, Path]]) -> None:
-    """Supprime les temporaires non basculés. Ceux que `os.replace` a consommés n'existent plus."""
-    for temporaire, _cible in prepares:
-        try:
-            os.unlink(temporaire)
-        except OSError:
-            continue
-
-
-def _ecrire_atomique_octets(path: Path, octets: bytes) -> None:
-    """Le pendant binaire de `_ecrire_atomique` : la restauration remet des **octets**, pas du texte.
-
-    Repasser par `str` obligerait à deviner un encodage pour restituer un fichier qu'on n'a fait que
-    déplacer — et à échouer sur celui qui n'était pas de l'UTF-8.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporaire = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(octets)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporaire, path)
-    except BaseException:
-        try:
-            os.unlink(temporaire)
-        except FileNotFoundError:
-            pass
-        raise
+    return EspacePublie(data_dir.parent, data_dir)
 
 
 def _ecrire_atomique(path: Path, contenu: str) -> None:
@@ -2590,7 +2408,7 @@ def _ecrire_atomique(path: Path, contenu: str) -> None:
 
 
 def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path, *,
-                    preuve_externe: PreuveExterneVerifiee | None) -> None:
+                    preuve_externe: PreuveExterneVerifiee | None, espace: EspacePublie) -> None:
     """Le rapport JSON **et** sa table Markdown, ou aucun des deux (revue B3, chemin frère).
 
     Deux `_ecrire_atomique` enchaînés laissaient, si le second échouait, un `eval-results.json` neuf
@@ -2598,22 +2416,17 @@ def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Pat
     `digest_octets(output_json)` qui alimente `gate.report_digest`, donc l'empreinte par laquelle un
     gate se réclame de son rapport. Un lot mêlé ici se propage jusque dans le gate.
 
-    La même mécanique que la publication : préparer, puis basculer avec restauration.
-
-    **La préparation est accumulée sous son propre rollback** (revue B7, chemin frère). Écrite en
-    littéral de liste, elle laissait le temporaire du JSON derrière elle dès que la préparation du
-    Markdown échouait : la liste n'était jamais liée, donc `_abandonner` ne pouvait rien recevoir.
-    C'est la faute exacte que `preparer_publication` portait, sous une autre forme syntaxique.
+    **Ce couple est un lot comme un autre** (story 4.5, B7) : il passe par le même unique pointeur
+    atomique que la publication. Les deux rendus sont construits d'abord — c'est là que
+    `RapportInexploitable` tombe, avant qu'aucune surface ne bouge — puis remis ensemble à
+    `EspacePublie.basculer`, qui les publie en un seul `os.replace` ou pas du tout. Il n'y a plus ni
+    préparation à nettoyer, ni restauration à tenter : rien n'a été modifié tant que l'atome n'a pas
+    eu lieu.
     """
-    prepares: list[tuple[Path, Path]] = []
-    try:
-        prepares.append((_preparer_atomique(json_path, json_canonique(rapport) + "\n"), json_path))
-        prepares.append((_preparer_atomique(
-            markdown_path, rendre_markdown(rapport, preuve_externe=preuve_externe)), markdown_path))
-        _basculer(prepares)
-    except BaseException:
-        _abandonner(prepares)
-        raise
+    espace.basculer([
+        (json_path, json_canonique(rapport) + "\n"),
+        (markdown_path, rendre_markdown(rapport, preuve_externe=preuve_externe)),
+    ])
 
 
 # --- les preuves de structure d'ingestion (lues par le gate `full`) --------------------------------
@@ -2810,11 +2623,17 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
         date=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"))
 
 
-def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, Path] | None:
-    """Prépare `manifest[doc_id].gate` dans un temporaire, et rend `(temporaire, manifest)`.
+def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, str] | None:
+    """Sérialise `manifest[doc_id].gate` et rend `(manifest, contenu)` — **sans rien écrire**.
 
     Rend `None` — sans rien préparer — quand le gate **ne doit pas** être écrit : c'est la
     non-mutation du dernier vert, et elle se décide ici, avant toute écriture.
+
+    **Story 4.5, B7 : plus aucun temporaire n'est créé ici.** La fonction ne fait que lire, valider
+    et sérialiser ; l'écriture appartient entièrement à `EspacePublie.basculer`, qui écrit tous les
+    slots du lot dans une génération inactive puis publie le tout par un unique `os.replace`. Le
+    temporaire de manifest qui échappait à son nettoyage n'existe plus : il n'y a plus de
+    temporaire de manifest.
 
     Le manifest entier est relu et **validé** avant la moindre écriture : un fichier illisible ou une
     entrée hors schéma arrête tout sans rien modifier sur disque. Le contenu final est sérialisé dans
@@ -2829,7 +2648,7 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, P
     raison qu'un renommage — validation, sérialisation, écriture du temporaire — se produit donc
     **avant** la première bascule ; ne restent ensuite que des `os.replace` sur des fichiers déjà
     écrits, dans le même système de fichiers, dont l'échec est rattrapé par la restauration de
-    `_basculer`.
+    `EspacePublie.basculer`.
 
     **Non-mutation du dernier vert (story 4.2b).** Un gate candidat **rouge** ne remplace jamais un
     gate `evals_ok: true` : le verdict candidat est publié dans le rapport (décisions chiffrées,
@@ -2894,63 +2713,40 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, P
                              f"({exc.errors()[0].get('msg', '') if exc.errors() else 'hors schéma'})"
                              ) from exc
     brut[doc_id] = entree.model_dump(mode="json")
-    # Nom temporaire **unique**, dans le répertoire du manifest (revue Codex 1.10, M1) : un
-    # `manifest.json.tmp` fixe était partagé par deux `--gate` concurrents, qui se marchaient dessus
-    # jusqu'à faire échouer un `replace` sur un fichier déjà déplacé. Le même répertoire garde le
-    # `replace` atomique (même système de fichiers). Ce qui reste ouvert — deux écrivains qui relisent
-    # le même manifest et perdent l'un des deux gates — demande un verrou sur toute la séquence :
-    # entrée différée (`target_story: 4.1`), avec les deux écrivains de `data/` à réunir.
-    # La création du temporaire est **dans** le `try` : sur un `data/` en lecture seule, c'est
-    # `mkstemp` qui échoue le premier, et le laisser hors du garde faisait sortir une trace de pile
-    # là où la docstring promet un refus dit.
-    tmp: Path | None = None
-    try:
-        fd, nom = tempfile.mkstemp(prefix=manifest_path.name + ".", suffix=".tmp",
-                                   dir=str(manifest_path.parent))
-        tmp = Path(nom)
-        with os.fdopen(fd, "w", encoding="utf-8") as sortie:
-            sortie.write(json.dumps(dict(sorted(brut.items())), indent=2, ensure_ascii=False) + "\n")
-            sortie.flush()
-            os.fsync(sortie.fileno())
-    except BaseException as exc:
-        # Disque plein, `data/` en lecture seule, conteneur sans droit d'écriture : un refus dit,
-        # pas une trace de pile. Le manifest est intact — rien n'a été écrit ailleurs que dans le
-        # fichier temporaire, qui est effacé.
-        #
-        # `except BaseException` et non `except OSError` (revue B7, chemin frère) : le nettoyage
-        # doit couvrir **toute** cause d'échec postérieure à la création du temporaire, sérialisation
-        # comprise, sinon la garantie « aucun temporaire résiduel » ne vaut que pour les pannes
-        # d'entrée-sortie. Seule l'`OSError` devient un refus dit ; le reste remonte tel quel, mais
-        # sans laisser de trace dans `data/`.
-        if tmp is not None:
-            tmp.unlink(missing_ok=True)
-        if isinstance(exc, OSError):
-            raise RefusDeTourner(f"{manifest_path} : écriture impossible ({type(exc).__name__}) — "
-                                 "le manifest n'a pas été modifié") from exc
-        raise
-    return tmp, manifest_path
+    # La forme des autres écrivains de `data/` — clés triées, `indent=2`, `ensure_ascii=False`, saut
+    # de ligne final — pour qu'un `git diff` de gate ne montre qu'un gate.
+    #
+    # Ce qui reste ouvert — deux écrivains qui relisent le même manifest et perdent l'un des deux
+    # gates — demandait un verrou sur toute la séquence, entrée différée (`target_story: 4.1`). B7
+    # l'a **payé** : `EspacePublie.basculer` prend un `flock` exclusif sur l'espace, parce que le
+    # ping-pong à deux générations ne peut pas s'en passer. La lecture du manifest reste néanmoins
+    # hors du verrou ici, donc la course de perte de gate n'est fermée qu'au moment de la bascule ;
+    # l'entrée différée reste due pour l'ingestion, qui écrit `data/manifest.json` par son propre
+    # chemin (`server/ingest/artifacts.py`).
+    return manifest_path, json.dumps(dict(sorted(brut.items())), indent=2,
+                                     ensure_ascii=False) + "\n"
 
 
 def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
-    """Prépare puis bascule, en une fois — l'unique écriture de `data/` de tout ce module (AD-7).
+    """Sérialise puis bascule, en une fois — l'unique écriture de `data/` de tout ce module (AD-7).
 
     C'est `preparer_gate` suivi de sa bascule : la sémantique est mot pour mot celle d'avant la revue
     A (rend `True` quand le gate a été écrit, `False` quand la non-mutation du dernier vert
     s'applique, lève `RefusDeTourner` sur un manifest qu'on ne peut ni lire ni écrire). Le gate
-    `full` de `main()`, lui, n'appelle pas cette fonction : il prépare le manifest **avec** ses
-    publications et bascule tout ensemble, pour qu'aucune surface ne puisse affirmer un verdict que
+    `full` de `main()`, lui, n'appelle pas cette fonction : il remet le manifest **avec** ses
+    publications au même appel de bascule, pour qu'aucune surface ne puisse affirmer un verdict que
     le manifest ne porte pas.
 
-    **Le contrat de `_basculer` couvre ce chemin** (revue B7, tour correctif 1/3). Le temporaire
-    préparé ci-dessous n'est protégé par aucun `finally` local : c'est `_basculer` qui abandonne les
-    temporaires en sortie, y compris quand sa **capture initiale** lève `EtatPrecedentIllisible` —
-    exactement le cas d'un `data/manifest.json` illisible en seconde lecture. Aucun `.tmp` ne reste
-    donc dans `data/` sur un refus, quel que soit le rang atteint.
+    **Le contrat de l'espace couvre ce chemin** (story 4.5, B7). Il n'y a plus de temporaire préparé
+    avant l'appel, donc plus de temporaire à oublier : la sérialisation est en mémoire, l'écriture
+    et la publication appartiennent à `EspacePublie.basculer`. L'espace est dérivé du manifest par
+    l'autorité unique `espace_du_data_dir`, de sorte qu'un appelant ne puisse pas en désigner un
+    autre que celui où vit le manifest qu'il écrit.
     """
     prepare = preparer_gate(manifest_path, doc_id, gate)
     if prepare is None:
         return False
-    _basculer([prepare])
+    espace_du_data_dir(manifest_path.parent).basculer([prepare])
     return True
 
 
@@ -3078,7 +2874,7 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
         report_digest=report_digest, candidate_revision=candidate_revision,
         preuve_externe=preuve_externe)
     prepares = preparer_publication(
-        publication, data_dir=data_dir, repo_root=repo_root, preparer=_preparer_atomique,
+        publication, data_dir=data_dir, repo_root=repo_root,
         nom=ctx.settings.evals_publication_file,
         markdown_run=rendre_markdown(rapport, publication, preuve_externe=preuve_externe),
         chemin_run=output_markdown,
@@ -3371,14 +3167,26 @@ def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path
             raise RefusDeTourner(
                 f"chemins en collision : {nom}={sortie.resolve()} existe comme répertoire")
     reference_dir = reference_dir or cases_dir.parent / "reference"
+    # **La résolution s'arrête à l'espace de publication** (story 4.5, B7). `resolve()` suit les
+    # liens, et toutes les cibles publiées se résolvent désormais *dans* `data/.publie/<gen>/…` :
+    # comparées là, `eval-results.json` et `data_dir` se chevauchent toujours, et tout run serait
+    # refusé pour une collision qui n'en est pas une — c'est l'indirection du pointeur unique, pas
+    # un alias d'argument. Hors de l'espace, `resolve()` garde son rôle : détecter deux arguments
+    # qui désignent le même fichier par des chemins différents.
+    espace_chemin = Path(os.path.abspath(data_dir / _REPERTOIRE_ESPACE))
+
+    def _pour_collision(chemin: Path) -> Path:
+        resolu = chemin.resolve()
+        return Path(os.path.abspath(chemin)) if resolu.is_relative_to(espace_chemin) else resolu
+
     chemins = {
-        "sortie JSON": output_json.resolve(),
-        "sortie Markdown": output_markdown.resolve(),
-        "cases_dir": cases_dir.resolve(),
-        "reference_dir": reference_dir.resolve(),
-        "data_dir": data_dir.resolve(),
-        "cache": cache_dir.resolve(),
-        "manifest": (data_dir / MANIFEST).resolve(),
+        "sortie JSON": _pour_collision(output_json),
+        "sortie Markdown": _pour_collision(output_markdown),
+        "cases_dir": _pour_collision(cases_dir),
+        "reference_dir": _pour_collision(reference_dir),
+        "data_dir": _pour_collision(data_dir),
+        "cache": _pour_collision(cache_dir),
+        "manifest": _pour_collision(data_dir / MANIFEST),
     }
     items = list(chemins.items())
     for index, (nom_a, chemin_a) in enumerate(items):
@@ -3405,6 +3213,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
     output_json = args.output_json or args.data_dir.parent / "eval-results.json"
     output_markdown = args.output_markdown or args.data_dir.parent / "eval-results.md"
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
+    # **L'espace de publication du run** (story 4.5, B7) : bundle immuable et pointeur unique. Il est
+    # dérivé de `--data-dir` par l'autorité unique, comme les sorties et le cache le sont déjà, et il
+    # n'est **jamais posé ici** : une bascule qui installerait sa propre disposition changerait le
+    # type de ses cibles une par une, ce que l'invariant interdit. Un espace absent est un refus dit.
+    espace = espace_du_data_dir(args.data_dir)
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
     decisions_orchestrateur: list[GateDecision] = []
@@ -3777,7 +3590,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 plancher=charge_plancher, producer=args.producer, preflight=preflight,
                 decisions_orchestrateur=decisions_orchestrateur,
                 exigences_full=exigences_full)
-            ecrire_rapports(rapport_refus, output_json, output_markdown,
+            ecrire_rapports(rapport_refus, output_json, output_markdown, espace=espace,
                             preuve_externe=preuve_externe)
             print("refus de budget avant le premier appel : "
                   f"configured_budget_eur={settings.live_budget_eur:.4f} "
@@ -3857,7 +3670,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                     decisions_orchestrateur=decisions_orchestrateur,
                     exigences_full=exigences_full, structure=structure_lot, arbre=arbre_lot,
                     dictionary_validated=dictionary_validated)
-                ecrire_rapports(rapport, output_json, output_markdown,
+                ecrire_rapports(rapport, output_json, output_markdown, espace=espace,
                                 preuve_externe=preuve_externe)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
@@ -3891,12 +3704,13 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                      exigences_full=exigences_full, structure=structure_lot,
                                      arbre=arbre_lot,
                                      dictionary_validated=dictionary_validated)
-        ecrire_rapports(rapport, output_json, output_markdown, preuve_externe=preuve_externe)
+        ecrire_rapports(rapport, output_json, output_markdown, espace=espace,
+                        preuve_externe=preuve_externe)
         print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
-    except EtatPrecedentIllisible as exc:
-        # **Nommer la cause** (revue B3/B6) : ce n'est pas une panne du writer, c'est un état
-        # précédent qu'on n'a pas pu lire — donc qu'on n'aurait pas pu restaurer. Rien n'a été
-        # écrit, et le code 3 tient sa promesse (« manifest non modifié »).
+    except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible) as exc:
+        # **Nommer la cause** (revue B3/B6, forme B7) : ce n'est pas une panne du writer, c'est
+        # l'espace de publication qui n'est pas posé ou pas lisible — donc un lot qu'aucun pointeur
+        # unique ne couvrirait. Rien n'a été écrit, et le code 3 tient sa promesse.
         print(f"refus d'écrire les rapports : {exc} — aucune bascule n'a eu lieu, manifest non "
               "modifié", file=sys.stderr)
         noter_campaign("incident_report")
@@ -3919,7 +3733,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
         return 3
     tous_ok = all(r.ok for r in resultats)
     if args.gate:
-        prepares: list[tuple[Path, Path]] = []
+        prepares: list[tuple[Path, str]] = []
         # `False` tant que le gate n'est pas écrit : depuis la revue B3, un échec de publication
         # sort de la séquence **avant** `ecrire_gate`, et `gate_ok` doit alors se lire faux.
         gate_ecrit = False
@@ -3957,8 +3771,9 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 # défaut symétrique. La fermeture est donc en deux temps : tout ce qui peut échouer
                 # **pour une autre raison qu'un renommage** se produit ici, rien n'est encore
                 # visible ; et la file de `os.replace` qui suit est rattrapée par la restauration de
-                # `_basculer`, parce qu'un renommage peut toujours échouer — l'affirmer autrement
-                # serait promettre plus que le code ne tient.
+                # l'unique `os.replace` de l'espace de publication : il publie le lot entier ou
+                # rien. Aucune cible n'est modifiée tant que cet atome n'a pas eu lieu, donc il n'y
+                # a rien à défaire — et rien qui puisse échouer ou être interrompu en défaisant.
                 prepares = preparer_la_publication(
                     rapport, gate, ctx, cas,
                     data_dir=args.data_dir, output_markdown=output_markdown,
@@ -3968,21 +3783,20 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                     relecture_images=args.relecture_images,
                     repo_root=args.data_dir.parent,
                     preuve_externe=preuve_externe)
-            cibles = [cible for _tmp, cible in prepares]
+            cibles = [cible for cible, _contenu in prepares]
             # `None` quand la non-mutation du dernier vert s'applique : les publications sont alors
             # basculées quand même — un rouge est un **résultat**, publié —, et le manifest ne bouge
             # pas. C'est exactement ce que l'AC 2 demande.
             prepare_gate = preparer_gate(args.data_dir / MANIFEST, args.gate, gate)
             if prepare_gate is not None:
                 prepares.append(prepare_gate)
-            _basculer(prepares)
+            espace.basculer(prepares)
             prepares = []
             gate_ecrit = prepare_gate is not None
             if cibles:
                 print("publication écrite : " + ", ".join(str(cible) for cible in cibles),
                       file=sortie)
         except RefusDeTourner as exc:
-            _abandonner(prepares)
             print(f"refus : {exc}", file=sys.stderr)
             return 2
         except (RelectureInvalide, RapportInexploitable) as exc:
@@ -3992,16 +3806,15 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # qui désignaient une panne là où le défaut est dans les données. Le même handler couvre
             # le verdict de seconde lecture qui ne se recoupe pas : les deux sont des refus de
             # publier, aucun n'a fait bouger le disque.
-            _abandonner(prepares)
             publication_ok = False
             print(f"échec de publication : rapport ou seconde lecture inexploitable — {exc} — "
                   "aucune bascule n'a eu lieu, aucun gate n'a été écrit, le manifest est inchangé",
                   file=sys.stderr)
-        except (EtatPrecedentIllisible, ArchivePrecedenteIllisible) as exc:
+        except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible,
+                ArchivePrecedenteIllisible) as exc:
             # **« Je n'ai pas pu lire » n'est pas « il n'y avait rien »** (revue B3/B6). L'échec
             # survient avant le premier `os.replace` : rien n'a bougé, et c'est vrai de le dire.
             # Publier quand même écraserait un état qu'on ne saurait ni archiver ni restaurer.
-            _abandonner(prepares)
             publication_ok = False
             print(f"refus de publier : {exc} — aucune bascule n'a eu lieu, aucun gate n'a été "
                   "écrit, le manifest est inchangé et rien n'a été publié", file=sys.stderr)
@@ -4015,21 +3828,15 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # (qui promet « manifest non modifié » — vrai ici, mais 3 dit « incident technique »
             # alors que le verdict *a* été mesuré), ni 4. C'est donc **1**, le code des verdicts non
             # tenus.
-            _abandonner(prepares)
             publication_ok = False
             print(f"échec de publication : {type(exc).__name__}: {exc} — aucun gate n'a été "
                   "écrit, le manifest est inchangé et rien n'a été publié", file=sys.stderr)
-        except BasculePartielle as exc:
-            # **La seule chose honnête à dire ici est laquelle est dans quel état.** Une bascule a
-            # échoué *et* sa restauration n'a pas tout remis en place : affirmer « rien n'a été
-            # publié » serait faux, et c'est précisément le mensonge que la revue a mesuré.
-            publication_ok = False
-            print(f"publication dans un état MÊLÉ : {exc}", file=sys.stderr)
-            print("  → vérifier ces cibles à la main avant tout redéploiement ; le gate n'a pas "
-                  "été promu si `data/manifest.json` figure parmi les cibles remises en état.",
-                  file=sys.stderr)
+        # **Il n'y a plus de handler d'« état mêlé », parce qu'il n'y a plus d'état mêlé** (story
+        # 4.5, B7). `BasculePartielle` nommait les cibles laissées dans le nouvel état après une
+        # restauration incomplète ; l'espace de publication ne restaure rien, parce qu'il ne modifie
+        # rien avant l'unique `os.replace` qui publie tout le lot. Un meilleur signalement d'un état
+        # mêlé n'était pas l'invariant : le rendre inatteignable l'est.
         except Exception as exc:  # noqa: BLE001 — un gate cassé n'est jamais un verdict d'éval
-            _abandonner(prepares)
             print(f"incident de gate : {type(exc).__name__}: {exc} — manifest non modifié",
                   file=sys.stderr)
             return 3

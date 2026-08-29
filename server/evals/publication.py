@@ -14,11 +14,12 @@ Quatre fonctions, et la frontière entre elles est le point de la story :
    `docs/evals/latest.md` et par le résumé que la CI concatène dans `$GITHUB_STEP_SUMMARY`. Deux
    rendus séparés auraient divergé au premier arrondi, et l'AC compare les quatre surfaces « à
    l'octet des chiffres près ».
-3. `preparer_publication(...)` — **l'unique** écrivain : il prépare toutes les sorties dans des
-   temporaires de leurs répertoires cibles et rend `[(tmp, cible)]` à basculer avec l'entrée de
-   manifest. Il n'y a pas de second écrivain « plus simple » (revue R6) : une seconde plomberie
-   sans la garantie tout-ou-rien finit par laisser une surface affirmer un verdict que l'autre ne
-   porte pas — c'est précisément ce que les revues B3 et B7 ont eu à fermer sur celle-ci.
+3. `preparer_publication(...)` — **l'unique** constructeur du lot : il rend `[(cible, contenu)]` et
+   **n'écrit rien**. C'est `server/evals/espace.py` qui l'écrit, avec l'entrée de manifest, dans une
+   génération inactive, puis publie le tout par un unique `os.replace` du pointeur (story 4.5, B7).
+   Il n'y a pas de second constructeur « plus simple » (revue R6) : une seconde plomberie sans la
+   garantie tout-ou-rien finit par laisser une surface affirmer un verdict que l'autre ne porte
+   pas — c'est précisément ce que les revues B3 et B7 ont eu à fermer sur celle-ci.
 
 **La publication est inconditionnelle.** Un run rouge est publié avec ses limites : publier ne promeut
 rien, et seul `gate.evals_ok` décide de ce qui est servi (AD-8). Un artefact qui n'apparaîtrait que
@@ -29,7 +30,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 from pathlib import Path
 from typing import Any
 
@@ -928,38 +928,28 @@ def rendre_publication_markdown(pub: PublicationEvals,
 
 
 def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Path,
-                         preparer: Any, nom: str = PUBLICATION_JSON,
+                         nom: str = PUBLICATION_JSON,
                          markdown_run: str | None = None,
                          chemin_run: Path | None = None,
-                         valeur: Any = None, code: Any = None) -> list[tuple[Path, Path]]:
-    """Écrit **toutes** les sorties de publication dans des temporaires, et rend `[(tmp, cible)]`.
+                         valeur: Any = None, code: Any = None) -> list[tuple[Path, str]]:
+    """Rend le lot de publication : `[(cible, contenu)]`, **sans écrire un seul octet**.
 
     Story 4.5, revue B3. Le gate était persisté **avant** la publication : un échec d'écriture
     laissait un `evals_ok: true` déjà promu et immédiatement servable, avec des surfaces
     divergentes — le manifest disait « vert », et personne ne pouvait lire sur quoi.
 
-    La séquence est donc celle-ci, et c'est la seule qui tienne (revue A) : tout est écrit et vidé
-    sur disque ici, **puis** l'entrée de manifest est préparée de la même façon, **puis** chaque
-    temporaire bascule par `os.replace` (même système de fichiers, sur un fichier déjà écrit).
+    Story 4.5, B7 : cette fonction **ne touche plus le disque du tout**. Elle rend le lot complet —
+    l'artefact servi, l'archive de campagne s'il y en a une, le rendu lisible du dépôt, et le
+    journal que la CI concatène — et c'est `EspacePublie.basculer` qui l'écrit dans une génération
+    inactive puis le publie par un unique `os.replace`. Il n'y a donc plus ni temporaire à nettoyer,
+    ni rang de préparation où un résidu pourrait rester : une exception ici n'a rien écrit.
 
-    Ce que cela garantit, exactement (revue B7, tour correctif 1/3) : tout ce qui peut échouer
-    *pour une autre raison qu'un renommage* survient avant la première bascule — validation,
-    sérialisation, écriture, `fsync`. Un `os.replace` peut encore échouer, et le dire autrement
-    serait suraffirmer : ce qui le rattrape est la restauration de `run._basculer`, qui remet les
-    cibles déjà basculées dans leur état d'avant, en ordre inverse. La propriété obtenue est donc
-    « tout ou rien sous échec de renommage, par restauration », et non l'atomicité forte que POSIX
-    n'offre que sur un seul `rename`.
-
-    `preparer(cible, contenu) -> tmp` est la recette d'écriture temporaire de l'appelant ; une
-    seconde recette ici laisserait un fichier à moitié écrit le jour où le disque est plein.
+    Tout ce qui peut lever — validation canonique du rapport, rendu, décision d'archivage — se
+    produit **avant** que l'appelant ne remette le lot à la bascule, donc avant que la moindre
+    surface ne bouge. C'était déjà l'intention ; c'est maintenant une propriété du type de retour.
     """
     import json
 
-    # **Tout ce qui peut lever est lu et décidé avant le premier temporaire** (revue B7). La lecture
-    # de l'archive précédente venait après la création du temporaire de `data/evals-latest.json` :
-    # quand elle levait `ArchivePrecedenteIllisible`, la fonction sortait sans rendre `a_basculer`,
-    # l'appelant gardait une liste vide, et le temporaire échappait à son nettoyage — les refus
-    # répétés polluaient `data/` jusqu'à remplir le disque.
     # **Le couple `markdown_run` / `chemin_run` est indivisible** (revue R11) : n'en fournir qu'un
     # faisait disparaître silencieusement de la bascule la surface que la CI concatène, sans qu'un
     # seul appelant l'apprenne. Une surface qu'on croit publier et qui ne l'est pas est pire qu'une
@@ -973,41 +963,15 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
     archive = _archive_a_ecrire(markdown_path, repo_root=repo_root)
     contenu_json = json.dumps(pub.model_dump(mode="json"), indent=2, ensure_ascii=False,
                               sort_keys=True) + "\n"
-    a_basculer: list[tuple[Path, Path]] = []
-    # **Et un rollback local par-dessus**, parce que « lire avant d'écrire » ferme la cause connue
-    # mais pas la classe : `preparer` peut échouer à n'importe quel **rang** (disque plein sur le
-    # deuxième, permission sur le dernier) et laisserait alors derrière lui les temporaires déjà
-    # accumulés. La garantie tenue est donc : sur **toute** exception de préparation, zéro
-    # temporaire résiduel et zéro cible modifiée.
-    try:
-        a_basculer.append((preparer(data_dir / nom, contenu_json), data_dir / nom))
-        if archive is not None:
-            chemin_archive, contenu_archive = archive
-            a_basculer.append((preparer(chemin_archive, contenu_archive), chemin_archive))
-        a_basculer.append((preparer(markdown_path, rendu), markdown_path))
-        if markdown_run is not None and chemin_run is not None:
-            # Le journal du run **et** l'artefact publié, dans le fichier que la CI concatène : un
-            # seul renderer, une seule bascule.
-            a_basculer.append((preparer(chemin_run, markdown_run), chemin_run))
-    except BaseException:
-        supprimer_temporaires(a_basculer)
-        raise
-    return a_basculer
-
-
-def supprimer_temporaires(prepares: list[tuple[Path, Path]]) -> None:
-    """Supprime des temporaires préparés mais jamais basculés — aucune cible n'est touchée.
-
-    Le pendant local de `run._abandonner`, présent ici pour que `preparer_publication` puisse
-    défaire **sa propre** préparation sans dépendre de son appelant : c'est précisément parce que le
-    nettoyage était délégué à l'appelant, qui n'avait encore rien reçu, que le temporaire de la
-    revue B7 devenait inaccessible.
-    """
-    for temporaire, _cible in prepares:
-        try:
-            os.unlink(temporaire)
-        except OSError:
-            continue
+    lot: list[tuple[Path, str]] = [(data_dir / nom, contenu_json)]
+    if archive is not None:
+        lot.append(archive)
+    lot.append((markdown_path, rendu))
+    if markdown_run is not None and chemin_run is not None:
+        # Le journal du run **et** l'artefact publié, dans le fichier que la CI concatène : un
+        # seul renderer, une seule bascule.
+        lot.append((chemin_run, markdown_run))
+    return lot
 
 
 def _archive_a_ecrire(markdown_path: Path, *, repo_root: Path) -> tuple[Path, str] | None:
