@@ -261,3 +261,67 @@ def test_un_gate_full_preprotocole_est_mis_en_quarantaine() -> None:
     entree.gate.decisions = []
     entree.gate.run_digest = None
     assert _gate_alerts(entree, None, allow_ungated=False) == ("gate_preprotocole", [])
+
+
+# --- story 4.2e : la règle de classement, prouvée sur une table synthétique de mesures -------------
+
+# Six configurations mesurées, dont deux seulement passent le plancher. Les chiffres sont choisis
+# pour que **chaque** ordre naïf se trompe : la moins chère et la plus rapide du lot sont toutes deux
+# inadmissibles, et l'admissible la moins chère est aussi la plus lente des admissibles.
+TABLE_MESUREE = [
+    Configuration(name="a-sous-plancher-gratuite", admissible=False, cost_eur=0.000, latency_ms=1),
+    Configuration(name="b-admissible-lente", admissible=True, cost_eur=0.010, latency_ms=9_000),
+    Configuration(name="c-sous-plancher-instantanee", admissible=False, cost_eur=0.001, latency_ms=2),
+    Configuration(name="d-admissible-rapide", admissible=True, cost_eur=0.050, latency_ms=100),
+    Configuration(name="e-sous-plancher-chere", admissible=False, cost_eur=9.999, latency_ms=99_000),
+    Configuration(name="f-admissible-egale", admissible=True, cost_eur=0.010, latency_ms=8_000),
+]
+
+
+def test_une_configuration_sous_le_plancher_nest_jamais_devant_une_admissible() -> None:
+    """Aucune dépense ni aucune latence ne rachète le plancher — c'est la première clé du tri.
+
+    La preuve porte sur la **table**, pas sur un exemple : la plus rapide *et* la moins chère du lot
+    sont inadmissibles, si bien qu'un classement qui commencerait par le coût ou par la latence les
+    remonterait en tête.
+    """
+    classement = classer_configurations(TABLE_MESUREE)
+    admissibles = [c.name for c in classement if c.admissible]
+    inadmissibles = [c.name for c in classement if not c.admissible]
+    positions = {c.name: rang for rang, c in enumerate(classement)}
+
+    assert len(admissibles) == 3 and len(inadmissibles) == 3
+    assert max(positions[n] for n in admissibles) < min(positions[n] for n in inadmissibles)
+    # La moins chère du lot et la plus rapide du lot sont inadmissibles : elles restent derrière.
+    moins_chere = min(TABLE_MESUREE, key=lambda c: c.cost_eur)
+    plus_rapide = min(TABLE_MESUREE, key=lambda c: c.latency_ms)
+    assert not moins_chere.admissible and not plus_rapide.admissible
+    assert positions[moins_chere.name] >= len(admissibles)
+    assert positions[plus_rapide.name] >= len(admissibles)
+
+
+def test_le_departage_economique_nopere_quentre_admissibles() -> None:
+    """Coût puis latence, et seulement au sein du groupe admissible : aucune pondération croisée."""
+    classement = classer_configurations(TABLE_MESUREE)
+    admissibles = [c for c in classement if c.admissible]
+
+    # Coût croissant d'abord ; à coût égal, latence croissante ; à égalité parfaite, le nom.
+    assert [c.name for c in admissibles] == ["f-admissible-egale", "b-admissible-lente",
+                                             "d-admissible-rapide"]
+    assert [c.cost_eur for c in admissibles] == sorted(c.cost_eur for c in admissibles)
+    # L'admissible la moins chère est la plus lente des deux à coût égal : elle passe quand même
+    # devant la plus rapide du groupe, qui coûte cinq fois plus.
+    assert admissibles[0].latency_ms > admissibles[-1].latency_ms
+
+    # Le classement des inadmissibles entre eux suit la même règle — il ne les promeut jamais.
+    inadmissibles = [c.name for c in classement if not c.admissible]
+    assert inadmissibles == ["a-sous-plancher-gratuite", "c-sous-plancher-instantanee",
+                             "e-sous-plancher-chere"]
+
+
+def test_le_classement_ne_depend_pas_de_lordre_dentree() -> None:
+    """Une règle mécanique : la même table, mélangée, rend le même classement (départage par nom)."""
+    attendu = [c.name for c in classer_configurations(TABLE_MESUREE)]
+    for depart in range(len(TABLE_MESUREE)):
+        permutee = TABLE_MESUREE[depart:] + TABLE_MESUREE[:depart]
+        assert [c.name for c in classer_configurations(permutee)] == attendu

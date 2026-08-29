@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
@@ -37,13 +37,34 @@ LacuneKind = Literal[
     "phrases_ecartees",
     "segments_retires",
     "relance_abandonnee",
+    # Story 4.2e : le contrôle a **demandé** le contexte qui lui manquait et ne l'a pas relu — demande
+    # mal formée, non satisfaite, sans place sous le budget, ou renouvelée une seconde fois. La cause
+    # est distincte de `renvoi_non_resolu` (un renvoi que le corpus n'a pas résolu, constaté sur le
+    # bloc) et de `lecture_bornee` (une lecture coupée par le budget, avant tout jugement) : ici, la
+    # lecture a eu lieu, le jugement a nommé ce qui lui manquait, et ce manque est resté ouvert.
+    "contexte_non_relu",
 ]
 # Ces deux causes sont les seules dont la phrase porte un cardinal. Cette donnée appartient au
 # domaine : tous les producteurs et toutes les projections doivent partager la même définition.
+# `contexte_non_relu` n'en est pas : une demande de contexte est unique par vérification (bornage
+# strict de la story 4.2e), donc son cardinal est toujours `n == 0`.
 LACUNES_PLURALISEES: frozenset[LacuneKind] = frozenset({
     "facettes_sans_reponse",
     "phrases_ecartees",
 })
+
+# Story 4.2e — le vocabulaire **fermé** d'une demande de contexte. Il vit ici, avec le type qui le
+# porte, et non dans l'étape : `steps/verifier.py` construit le schéma envoyé au modèle à partir de
+# ces mêmes littéraux (comme `Applicable` ci-dessus, deux copies auraient divergé au premier
+# amendement, et le schéma du fournisseur aurait alors accepté ce que le domaine refuse).
+#
+# `definition` : le contrôle ne sait pas ce qu'un terme du texte transmis désigne dans ce contrat.
+# `renvoi`     : un bloc fourni renvoie ailleurs, et la cible du renvoi n'a pas été lue.
+# `qualite`    : une qualité que le modèle a lui-même énumérée ne peut pas être confrontée aux faits.
+DemandeKind = Literal["definition", "renvoi", "qualite"]
+DemandeRaison = Literal["definition_manquante", "renvoi_non_lu", "qualite_non_verifiable"]
+DEMANDE_KINDS: tuple[str, ...] = get_args(DemandeKind)
+DEMANDE_RAISONS: tuple[str, ...] = get_args(DemandeRaison)
 
 
 class Quote(DomainModel):
@@ -201,6 +222,35 @@ class Lacune(DomainModel):
         return self
 
 
+class DemandeContexte(DomainModel):
+    """Story 4.2e — ce qui manquait au contrôle pour juger une affirmation, dit en vocabulaire fermé.
+
+    Un tour de vérification peut buter sur une définition qu'il n'a pas lue, sur un renvoi dont il n'a
+    pas la cible, ou sur une qualité qu'il ne peut pas confronter aux faits. Jusqu'ici son contrat ne
+    savait pas exprimer ce manque : le jugement tranchait alors sur un contexte qu'il n'avait pas
+    relu. Le manque devient donc un **fait typé du domaine**, et ses invariants se posent une fois :
+
+    - `kind` et `raison` sont deux vocabulaires **fermés** ; aucun texte libre n'entre ici ;
+    - `cible` et `claim_id` sont non vides, et l'objet est composé **par le code** de *vérifier*
+      après avoir vérifié que la cible désigne quelque chose qui était déjà dans l'entrée du modèle
+      (un bloc fourni, un terme du texte transmis, une qualité que le modèle a lui-même énumérée) ;
+    - `frozen=True`, comme `Lacune` : une demande ne se corrige pas en route, elle est satisfaite ou
+      elle échoue fermée.
+
+    Ce type ne dit **pas** ce qu'il faut faire du manque : le pipeline en décide (AD-1 — *vérifier*
+    ne touche aucun outil), au plus une satisfaction et au plus une reprise.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: DemandeKind
+    # Ce que la demande vise, dans l'univers de l'entrée : un `block_id` fourni (`renvoi`), un terme
+    # présent dans le texte transmis (`definition`), une qualité énumérée par le modèle (`qualite`).
+    cible: str = Field(min_length=1)
+    claim_id: str = Field(min_length=1)
+    raison: DemandeRaison
+
+
 class Verification(DomainModel):
     """Sortie de *vérifier* (AD-3/AD-4) : ce qui survit, ce qui est rejeté, et pourquoi.
 
@@ -235,6 +285,15 @@ class Verification(DomainModel):
     # guide — AD-4 : « `Verdict` voyage dans l'unique `Answer` », il n'y a pas de second objet de
     # réponse, et une question du guide n'a pas de verdict à porter.
     verdict: Verdict | None = None
+    # Story 4.2e : ce que le contrôle a **demandé** et n'a pas eu. Composé par le code de *vérifier*
+    # à partir d'un champ typé de la sortie sinistre, une fois sa cible retrouvée dans l'entrée
+    # réellement envoyée au modèle — jamais recopié tel quel. `None` en guide (le schéma du guide ne
+    # porte pas ce champ) et sur toute sortie invalide : une demande mal formée n'est pas une demande.
+    #
+    # Le champ est **lu par le pipeline**, seul propriétaire de la chaîne, jamais par *vérifier* :
+    # AD-1 fait de *retrouver* le seul détenteur des outils, et une étape qui satisferait elle-même
+    # sa demande rouvrirait le corpus depuis le contrôle des citations.
+    demande_contexte: DemandeContexte | None = None
     # Story 3.7 : état exact qui a alimenté AD-6. Il voyage seulement entre *vérifier*, le pipeline
     # et la fabrique du jeton signé ; il n'est jamais sérialisé dans l'ancien contrat ``Answer``.
     _decision_claims: list[ClaimJugee] = PrivateAttr(default_factory=list)

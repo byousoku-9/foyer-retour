@@ -50,6 +50,7 @@ from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.domain import Block, RetrievalBudget, RetrievalResult
+from server.app.domain.answer import DemandeContexte
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace
@@ -846,3 +847,107 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             name="dictionnaire", ok=True,
             detail=f"{ajoutees} variante(s) ajoutée(s) à {touches} terme(s)"))
     return result, step
+
+
+def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, corpus: Corpus,
+                       index: Index, budget: RetrievalBudget, settings: Settings,
+                       doc_id: str) -> tuple[RetrievalResult, StepTrace]:
+    """Story 4.2e — rouvre **exactement** ce qu'une demande de contexte vise, en code pur, un niveau.
+
+    Aucune entrée publique de cette étape n'acceptait un état déjà ouvert à compléter : c'était le
+    seul manque. Cette fonction le comble sans rien ajouter au vocabulaire de l'étape.
+
+    **Pourquoi ici et pas dans le pipeline.** AD-1 : « une étape ne peut appeler que `corpus` et
+    `llm` », et les quatre outils d'AD-1 appartiennent à *retrouver*. Un pipeline qui appellerait
+    `Index.definitions` lui-même déplacerait les outils hors de leur propriétaire. Ce n'est donc pas
+    un composant nouveau : c'est la fermeture **déjà écrite** (`_dependances_directes`, « commune aux
+    deux variantes ») exposée sur un état ouvert.
+
+    **Aucun tour modèle.** La demande dit ce qui manque ; la satisfaire est une résolution du corpus,
+    pas une navigation. Le coût en appels est donc nul, et `StepTrace.calls == []` le dit — la même
+    convention que la variante déterministe.
+
+    **Un niveau, jamais deux.** Pour un `renvoi`, les `refs` du bloc visé et les définitions des
+    termes qu'il emploie ; leurs propres `refs` ne sont pas suivis. Pour une `definition` ou une
+    `qualite`, les définitions applicables du terme demandé, résolues **dans la portée** des blocs
+    déjà ouverts (AD-2, `Index.definitions(..., blocs_ouverts=…)`) — c'est ce qui donne à un contrat
+    la définition de sa branche plutôt que celle d'une autre.
+
+    **Le budget est celui de l'étape, pas celui de la passe** (AD-1 : « un `RetrievalBudget` borne
+    **toute** l'étape »). Les compteurs sont donc amorcés avec ce que la passe initiale a déjà fait
+    lire : sans cela, une seconde passe repartie de zéro pourrait admettre `max_blocks` blocs de
+    plus, c'est-à-dire ne plus être bornée du tout. Le budget lui-même n'est jamais muté.
+
+    Rend `(RetrievalResult augmenté, StepTrace)`. Aucun bloc neuf ⇒ résultat identique à l'entrée sur
+    ses blocs, et le check le dit : c'est au pipeline de fermer sur une demande insatisfaite.
+    """
+    t0 = time.monotonic()
+    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"])
+    if doc_id not in corpus.documents:
+        raise KeyError(doc_id)
+
+    def bloc(block_id: str) -> Block:
+        if index.doc_of(block_id) != doc_id:
+            raise KeyError(block_id)
+        return corpus.documents[doc_id].block(block_id)
+
+    ouverts = [b.block_id for b in retrieval.blocs]
+    deja = set(ouverts)
+    candidats: list[str] = []
+    if demande.kind == "renvoi":
+        # La cible a été validée par *vérifier* contre les blocs fournis ; la garde reste, parce que
+        # cette entrée est publique et qu'un appelant futur n'aura pas fait ce contrôle.
+        if demande.cible in deja:
+            candidats = _dependances_directes(
+                demande.cible, block=bloc, index=index, terms=[], doc_id=doc_id,
+                search_candidates=(), related_limit=budget.search_limit, related_max=0,
+                proximity_min=settings.limite_liee_proximite_min,
+                related_cache={}, search_related=False)
+    else:
+        # Le libellé entier **et** ses mots : `Index.definitions` apparie `defines` et terme en mots
+        # entiers, si bien qu'une qualité nommée « caractère X de l'événement » ne trouverait la
+        # définition de « X » par aucun autre chemin. Aucun mot n'est ajouté ni traduit.
+        termes = list(dict.fromkeys([demande.cible, *forme(demande.cible).split()]))
+        candidats = [b for b, _node_id in index.definitions(termes, doc_id=doc_id,
+                                                            blocs_ouverts=ouverts)]
+    candidats = [b for b in dict.fromkeys(candidats)
+                 if b not in deja and index.doc_of(b) == doc_id]
+
+    blocs_utilises = len(retrieval.blocs)
+    tokens_utilises = sum(estimate_tokens(f"{b.block_id}\n{b.text}", settings)
+                          for b in retrieval.blocs)
+    retenus: list[str] = []
+    ecartes: list[str] = []
+    tronque = False
+    for candidate in candidats:
+        cout = estimate_tokens(f"{candidate}\n{bloc(candidate).text}", settings)
+        if ((budget.max_blocks is not None and blocs_utilises + 1 > budget.max_blocks)
+                or (budget.max_tokens is not None and tokens_utilises + cout > budget.max_tokens)):
+            # Un candidat que le budget écarte est un candidat non lu, pas une absence du corpus :
+            # il rejoint `discarded_block_ids` et marque la lecture comme tronquée (AD-1).
+            ecartes.append(candidate)
+            tronque = True
+            continue
+        blocs_utilises += 1
+        tokens_utilises += cout
+        retenus.append(candidate)
+
+    blocs = [*retrieval.blocs, *(bloc(b) for b in retenus)]
+    ids = list(dict.fromkeys([*retrieval.opened_block_ids, *retenus]))
+    resultat = retrieval.model_copy(update={
+        "blocs": blocs,
+        "opened_block_ids": ids,
+        "opened_node_ids": _noeuds_des_blocs([b.block_id for b in blocs], corpus=corpus, index=index),
+        "discarded_block_ids": list(dict.fromkeys([*retrieval.discarded_block_ids, *ecartes])),
+        "truncated": retrieval.truncated or tronque,
+    })
+    step.ms = int((time.monotonic() - t0) * 1000)
+    step.opened_block_ids = list(retenus)
+    step.discarded_block_ids = list(ecartes)
+    # AD-10 : des comptes et notre propre vocabulaire fermé, jamais la cible reçue du modèle.
+    step.checks.append(CheckResult(
+        name="satisfaction_demande", ok=bool(retenus),
+        detail=f"demande de contexte de catégorie `{demande.kind}` : {len(candidats)} bloc(s) "
+               f"candidat(s), {len(retenus)} rouvert(s), {len(ecartes)} écarté(s) par le budget "
+               "de l'étape — aucun appel modèle"))
+    return resultat, step

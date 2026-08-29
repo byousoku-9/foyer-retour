@@ -282,7 +282,7 @@ class LlmClient:
                     raise LlmParse(f"entrée de cache d'évals invalide : {type(exc).__name__}") from exc
                 usage = Usage(cached_response=True, cost_eur=0.0, cost_eur_original=hit["cost_eur"])
                 call = LLMCall(model=message.model, ms=0, usage=usage)
-                self._note_call(step, call)
+                self._note_call(step, call, tier)
                 return LlmResult(parsed=parsed_hit, usage=usage, call=call)
 
             if budget.attempts >= budget.max_attempts:
@@ -314,7 +314,8 @@ class LlmClient:
                 # AD-10 : l'appel en échec est tracé aussi — modèle demandé, durée, usage nul
                 # (l'API n'a rien renvoyé : timeout, 429, 529, réseau…).
                 ms = int((time.monotonic() - t0) * 1000)
-                self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names))
+                self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names),
+                                tier)
                 raise map_provider_error(exc) from exc
             ms = int((time.monotonic() - t0) * 1000)
 
@@ -333,7 +334,7 @@ class LlmClient:
             call = LLMCall(model=message.model, ms=ms, usage=usage,
                            cache_read=usage.cached, cache_write=cache_write,
                            tools=tool_names)
-            self._note_call(step, call)
+            self._note_call(step, call, tier)
             # AD-10 (revue Codex 1.3, I1) : le seuil porte sur le coût cumulé de la requête — un appel
             # cher isolé le franchit aussi ; le check n'est ajouté qu'une fois, au franchissement.
             if budget.cost_eur > settings.cost_alert_eur and not budget.cost_alerted:
@@ -444,7 +445,7 @@ class LlmClient:
                 raise LlmParse(f"entrée de cache d'évals invalide : {type(exc).__name__}") from exc
             call = LLMCall(model=message.model, ms=0, usage=usage,
                            tools=[str(t.get("name", "")) for t in tools])
-            self._note_call(step, call)
+            self._note_call(step, call, tier)
             return ToolTurnResult(message=message, usage=usage, call=call)
 
         if budget.attempts >= budget.max_attempts:
@@ -471,7 +472,8 @@ class LlmClient:
             message = await self._anthropic.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 — même mapping total que `parse`
             ms = int((time.monotonic() - t0) * 1000)
-            self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names))
+            self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names),
+                            tier)
             raise map_provider_error(exc) from exc
         ms = int((time.monotonic() - t0) * 1000)
         usage = cost_from_usage(model, message.usage, settings.usd_eur)
@@ -482,7 +484,7 @@ class LlmClient:
             budget.note_prefix(prefix_digest)
         call = LLMCall(model=message.model, ms=ms, usage=usage,
                        cache_read=usage.cached, cache_write=cache_write, tools=tool_names)
-        self._note_call(step, call)
+        self._note_call(step, call, tier)
         if budget.cost_eur > settings.cost_alert_eur and not budget.cost_alerted:
             budget.cost_alerted = True
             step.checks.append(CheckResult(
@@ -549,7 +551,15 @@ class LlmClient:
         return int(getattr(api_usage, "cache_creation_input_tokens", 0) or 0)
 
     @staticmethod
-    def _note_call(step: StepTrace, call: LLMCall) -> None:
+    def _note_call(step: StepTrace, call: LLMCall, tier: Tier | None = None) -> None:
+        """Point unique qui pousse un `LLMCall` — donc le seul endroit où le tier employé s'écrit.
+
+        Story 4.2e : `parse()` et `tool_turn()` reçoivent déjà le `tier` ; il n'était publié nulle
+        part par appel. Le renseigner ici plutôt qu'à chaque construction garantit qu'aucun chemin
+        (succès, échec, réponse rejouée depuis le cache d'évals) ne publie un appel sans son tier.
+        """
+        if tier is not None:
+            call.tier = tier
         step.calls.append(call)
         u, s = call.usage, step.usage
         s.input += u.input

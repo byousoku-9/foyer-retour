@@ -1,5 +1,47 @@
 # Choix et limites mesurées
 
+## Story 4.2e — le contrôle demande le contexte qui lui manque, une fois
+
+Un tour de vérification pouvait manquer d'une définition, d'un renvoi ou d'une qualité pour contrôler
+une affirmation, sans avoir aucun moyen de le dire : son contrat ne portait que des jugements. Le
+jugement tranchait alors sur un contexte qu'il n'avait pas relu, et rien, ni dans la réponse ni dans
+la trace, ne le signalait. Le tour sémantique **sinistre** peut désormais rendre une *demande de
+contexte* : une catégorie (`definition`, `renvoi`, `qualite`), une cible, l'affirmation concernée et
+une raison — quatre valeurs, deux vocabulaires fermés.
+
+**Ce qui borne la demande, et pourquoi ces bornes-là.**
+
+- *La cible ne peut désigner que ce qui était déjà dans l'entrée du modèle* : un bloc parmi ceux qui
+  lui ont été fournis, un terme présent dans le message qu'il a reçu, ou une qualité qu'il a
+  lui-même énumérée pour cette affirmation. Sans ce contrôle, la demande serait une porte vers un
+  rappel neuf, choisi par le modèle, hors de toute borne — c'est-à-dire le contraire de ce que la
+  story cherche.
+- *Une satisfaction, une reprise, jamais deux.* Le pipeline — jamais l'étape de vérification, qui ne
+  touche aucun outil (AD-1) — transmet la demande à *retrouver*, qui la satisfait en **code pur**,
+  sur un niveau, sans aucun appel modèle, puis reprend la vérification **une seule fois**. Une
+  seconde demande est refusée sans être satisfaite : il n'y a pas de boucle à ouvrir.
+- *La passe de satisfaction reçoit le même objet `RetrievalBudget` que la passe initiale*, compteurs
+  amorcés avec ce qui a déjà été lu. AD-1 borne l'étape, pas la passe : une borne reconstruite à
+  l'identique aurait doublé le rappel sans que rien ne bouge dans la trace.
+- *Tout cas fermé l'est vers l'humain.* Demande mal formée, cible inconnue, contexte introuvable,
+  place insuffisante sous le budget, seconde demande : l'affirmation visée vaut `humain` par le
+  mécanisme qui existait déjà, la réponse porte `complete=False` et une lacune `contexte_non_relu`,
+  et le verdict `ne_tranche_pas` est **calculé par la table d'AD-6**, inchangée. Aucun verdict n'est
+  fabriqué ni substitué.
+
+**Sa frontière avec la relance d'AD-3.** Ce sont deux mécanismes distincts, et le second n'est pas
+une variante du premier. La relance corrige une **rédaction** — une citation mal recopiée, une clause
+décisionnelle omise — et coûte deux appels : rédiger, puis vérifier. La demande de contexte ne
+reproche rien au rédacteur : elle dit que le **contrôle** n'avait pas de quoi juger. Elle ne rédige
+donc pas une seconde fois, ne consomme aucun appel pour se satisfaire, et n'en coûte qu'un pour sa
+relecture. Le bloc du pipeline se pose **après** la relance, inchangée, et ne s'y mêle jamais.
+
+**Ce qui n'est pas mesuré ici.** Le tour sinistre peut gagner une passe `retrouver` de code pur (coût
+nul en appels) et au plus un appel `micro` de reprise ; `pipeline_digest` et `prompts_digest` bougent,
+donc la campagne sinistre repart froide. Coût, latence, justesse et dispersion sont des **états
+produits** : ils se mesurent hors de cette story, avec le SHA, et ne deviennent des critères qu'au
+gate 4.5. Le libellé `guide` de `retrouver.md` reste différé.
+
 ## Story 4.2f — une lecture partielle est un état, pas une panne
 
 Quand la chaîne a réellement lu une partie **bornée** du corpus et qu'aucune affirmation ne survit à

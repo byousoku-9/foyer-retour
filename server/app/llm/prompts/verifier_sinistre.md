@@ -192,3 +192,39 @@ affirmation est ignoré et la clause est renvoyée à un humain.
 
 Dans le doute, réponds `fait_requis_present = false` en nommant le `fait_manquant` : une clause
 laissée à l'appréciation d'un humain coûte moins cher qu'une clause appliquée à tort.
+
+### `demande_contexte` : dire ce qui te manque plutôt que juger sans
+
+Il arrive que tu ne puisses pas contrôler une affirmation parce qu'un élément du texte te manque :
+un mot employé par la clause dont tu n'as pas la définition, un renvoi dont tu n'as pas la cible, ou
+une qualité que tu viens d'énumérer et que rien de ce que tu as sous les yeux ne permet de confronter
+aux faits déclarés. **Ne devine pas.** Rends le champ `demande_contexte` et laisse tous tes autres
+jugements inchangés.
+
+Le code appelant ira chercher lui-même, dans le contrat, ce que tu auras nommé, puis te fera relire
+une fois — et une seule. Il ne te posera aucune question et n'attend de toi aucune conclusion.
+L'affirmation visée est, entre-temps, renvoyée à un humain : demander du contexte n'est jamais un
+moyen de faire passer une clause, c'est un moyen de ne pas la trancher à l'aveugle.
+
+Quatre champs, tous obligatoires :
+
+- `kind` : `definition` (il te manque ce qu'un terme désigne dans ce contrat), `renvoi` (un passage
+  qui t'a été fourni renvoie ailleurs et tu n'as pas lu la cible), `qualite` (tu ne peux pas vérifier
+  qu'une qualité exigée est établie). Aucune autre valeur n'existe.
+- `cible` : **reprise de ce qui t'a été soumis**, et de rien d'autre.
+  - `definition` → le terme, recopié du texte que tu as reçu ;
+  - `renvoi` → le `block_id` d'un passage joint à une affirmation, tel quel ;
+  - `qualite` → une qualité que tu as toi-même écrite dans `qualites_exigees` de cette affirmation,
+    mot pour mot.
+
+  Une cible que le code ne retrouve pas dans ce qu'il t'a envoyé ne peut pas être satisfaite : la
+  demande entière est ignorée et l'affirmation reste renvoyée à un humain. N'invente donc rien, ne
+  reformule pas, et ne nomme aucun identifiant que tu n'as pas reçu.
+- `claim_id` : l'affirmation que ce manque empêche de contrôler, reprise **telle quelle**.
+- `raison` : `definition_manquante`, `renvoi_non_lu` ou `qualite_non_verifiable`. Aucune autre valeur
+  n'existe.
+
+**Une seule demande pour toute la réponse, et une seule pour toute la requête.** Si la relecture ne
+suffit pas, n'en redemande pas : le code refuse la seconde, sans la satisfaire. Si rien ne te manque,
+**omets le champ** — une demande sans manque réel coûte une lecture et laisse une affirmation
+incertaine pour rien.

@@ -51,12 +51,18 @@ from pydantic import BaseModel, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from server.app.config import Settings
+from server.app.corpus.dictionary import forme
 from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.answer import (
+    DEMANDE_KINDS,
+    DEMANDE_RAISONS,
     AnswerDraft,
     AnswerSegment,
     Claim,
     ClaimStatus,
+    DemandeContexte,
+    DemandeKind,
+    DemandeRaison,
     Lacune,
     Quote,
     RejectedClaim,
@@ -296,6 +302,57 @@ class ChampsApplicabiliteRendus(BaseModel):
     qualites_etablies: list[QualiteEtablie] | None = None
 
 
+class DemandeRendue(BaseModel):
+    """Story 4.2e — la demande de contexte **telle que le modèle la rend**, avant tout contrôle.
+
+    Le pendant de `VerdictPertinence` pour un manque plutôt que pour un jugement, et il emploie le
+    **même idiome** (revue 4.2a, B2) : le schéma envoyé au fournisseur reste fermé (`Literal`), et
+    une valeur brute hors vocabulaire est détectée **avant** la coercition pydantic puis marquée par
+    une sentinelle interne que `SkipJsonSchema` retire du schéma. Rien ne peut donc la renseigner de
+    l'extérieur, et une demande mal formée ne fait pas échouer le lot entier : elle ne produit
+    simplement aucune demande, et la trace le dit.
+
+    Deux différences avec `VerdictPertinence`, et elles tiennent au même principe :
+
+    - `cible` et `claim_id` sont ramenés à la chaîne vide dès qu'ils ne sont pas du texte. Le type du
+      domaine (`DemandeContexte`) les exige non vides, mais c'est le **code** qui compose cet
+      objet-là : laisser pydantic rejeter ici ferait échouer la sortie entière — donc les verdicts de
+      pertinence du même appel — sur un champ facultatif ;
+    - `kind` et `raison` sont annulés ensemble : une catégorie sans raison, ou l'inverse, n'est pas
+      une demande à moitié valide. Une demande ne se répare pas, elle est refusée.
+    """
+
+    kind: DemandeKind | None = None
+    cible: str = ""
+    claim_id: str = ""
+    raison: DemandeRaison | None = None
+    # Sentinelle interne, hors du schéma envoyé au modèle : le vocabulaire reste fermé côté
+    # fournisseur, et le validateur ci-dessous l'écrase quoi qu'il arrive.
+    hors_vocabulaire: SkipJsonSchema[bool] = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _invalidite_brute(cls, data: Any) -> Any:
+        """Catégorie, raison ou forme hors contrat ⇒ aucune demande, jamais une exception.
+
+        Le contrôle porte sur les valeurs **brutes**, avant coercition : c'est la seule position d'où
+        l'on distingue « le modèle n'a rien demandé » de « le modèle a demandé quelque chose que le
+        contrat ne nomme pas ». Ramener silencieusement la seconde à la première était l'anti-modèle
+        exact de la revue 4.2a.
+        """
+        if isinstance(data, dict):
+            kind, raison = data.get("kind"), data.get("raison")
+            hors_vocabulaire = kind not in DEMANDE_KINDS or raison not in DEMANDE_RAISONS
+            data = {**data, "hors_vocabulaire": hors_vocabulaire}
+            if hors_vocabulaire:
+                data["kind"] = None
+                data["raison"] = None
+            for champ in ("cible", "claim_id"):
+                valeur = data.get(champ)
+                data[champ] = valeur.strip() if isinstance(valeur, str) else ""
+        return data
+
+
 class SortieVerifierSinistre(SortieVerifier):
     """Mode sinistre : le **même et unique** appel `micro` rend en plus l'applicabilité (AD-9 amendé).
 
@@ -308,6 +365,11 @@ class SortieVerifierSinistre(SortieVerifier):
     """
 
     applicabilite: list[ChampsApplicabiliteRendus] = []
+    # Story 4.2e — **une seule** demande par sortie, et seulement en sinistre. Une liste rouvrirait
+    # la porte à un rappel déguisé (autant de passes que d'entrées) ; le bornage — une satisfaction,
+    # une reprise — se lit donc déjà dans le type. Le guide garde `SortieVerifier` et son préfixe
+    # inchangés, donc ses fixtures : ce champ, comme `applicabilite`, ne touche pas son schéma.
+    demande_contexte: DemandeRendue | None = None
 
 
 def _lignes_du_bloc(block: Block) -> tuple[list[tuple[int, int, str]], bool]:
@@ -671,12 +733,20 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     couverture: dict[int, list[str]] = {}
     soutiens: dict[int, bool] = {}
     applicabilites: dict[str, ChampsApplicabilite] = {}
+    # Story 4.2e : la demande de contexte composée par le code (mode sinistre seulement), et le fait
+    # qu'une demande **invalide** a été reçue — deux choses distinctes, et c'est tout l'objet du
+    # bornage : une demande valide part au pipeline, une demande invalide ne part nulle part mais
+    # laisse tout de même la réponse incomplète, parce que le contrôle a dit qu'il lui manquait
+    # quelque chose et que ce quelque chose n'a pas été relu.
+    demande: DemandeContexte | None = None
+    demande_refusee = False
     if evaluees:
         try:
-            verdicts, raisons, couverture, soutiens, applicabilites = await _pertinence(
+            (verdicts, raisons, couverture, soutiens, applicabilites, demande,
+             demande_refusee) = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step, faits=faits,
-                clauses=clauses_par_claim)
+                clauses=clauses_par_claim, fournis=fournis)
         except PipelineError:
             step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
             raise
@@ -935,7 +1005,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # court-circuitent avant), et le retrieval vidé par le budget lève avant *rédiger*.
     lacunes = _lacunes(retrieval=retrieval, parsed=parsed, facettes_couvertes=facettes_couvertes,
                        renvois_ouverts=renvois_ouverts, contradiction=contradiction,
-                       ecartes=ecartes) if found or retrieval.truncated else []
+                       ecartes=ecartes,
+                       contexte_non_relu=demande_refusee) if found or retrieval.truncated else []
     # Une phrase écartée faute de soutien est une part de la réponse que l'ébauche voulait donner et
     # qui n'est pas montrée — y compris une limite retirée. La réponse servie est alors amputée :
     # elle n'est pas donnée pour complète (AD-4, « aucune troncature »). Les six conditions d'AD-4
@@ -947,6 +1018,10 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,
         complete=complete, unknown=unknown, lacunes=lacunes,
         facettes_couvertes=facettes_couvertes, verdict=verdict,
+        # Story 4.2e : posée par le code, jamais recopiée du modèle, et seulement quand sa cible a
+        # été retrouvée dans l'entrée réellement envoyée. C'est le pipeline — pas cette étape — qui
+        # décidera de la satisfaire (AD-1 : *retrouver* est seul propriétaire des outils).
+        demande_contexte=demande,
         motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
     )
     verification._decision_claims = affichables
@@ -958,7 +1033,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
 
 
 def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_couvertes: list[int],
-             renvois_ouverts: bool, contradiction: bool, ecartes: int) -> list[Lacune]:
+             renvois_ouverts: bool, contradiction: bool, ecartes: int,
+             contexte_non_relu: bool = False) -> list[Lacune]:
     """Les causes typées d'une réponse trouvée mais incomplète, dans l'ordre du pipeline.
 
     Une cause par fait, dans l'ordre où ils se produisent le long de la chaîne : ce qui n'a pas
@@ -989,6 +1065,12 @@ def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_cou
         lacunes.append(Lacune(kind="contradiction_non_resolue"))
     if ecartes:
         lacunes.append(Lacune(kind="phrases_ecartees", n=ecartes))
+    if contexte_non_relu:
+        # Story 4.2e : le contrôle a demandé un contexte que sa demande ne permet pas d'aller
+        # chercher — catégorie hors vocabulaire, cible étrangère à ce qui lui a été soumis. Le
+        # pipeline ne tentera donc rien, et cette réponse-là ne peut pas être donnée pour complète :
+        # elle a été rendue sur un contexte que le contrôle a lui-même déclaré manquant.
+        lacunes.append(Lacune(kind="contexte_non_relu"))
     return lacunes
 
 
@@ -997,8 +1079,9 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                       client: LlmClient, budget: RequestBudget, settings: Settings, step: StepTrace,
                       faits: Faits | None = None,
                       clauses: dict[str, list[ClauseCitee]] | None = None,
+                      fournis: set[str] | None = None,
                       ) -> tuple[dict[str, bool], dict[str, str], dict[int, list[str]], dict[int, bool],
-                                 dict[str, ChampsApplicabilite]]:
+                                 dict[str, ChampsApplicabilite], DemandeContexte | None, bool]:
     """L'unique appel `micro` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
 
     Tout sort du **même** appel (AD-9 amendé : « un seul appel groupé, qui rend pertinence, phrases
@@ -1164,6 +1247,9 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     # d'applicabilité à recevoir, et deux réponses pour la même affirmation ne s'arbitrent pas par
     # l'ordre d'arrivée — elles sont **écartées**, ce qui rendra `humain` (jamais deviné).
     applicabilites: dict[str, ChampsApplicabilite] = {}
+    # Story 4.2e : l'univers des cibles `qualite`, rempli par la boucle ci-dessous — les qualités que
+    # **le modèle** a énumérées pour chaque affirmation, sous la normalisation des citations.
+    qualites_rendues: dict[str, set[str]] = {}
     if sinistre and isinstance(result.parsed, SortieVerifierSinistre):
         doublons: set[str] = set()
         # Les faits déclarés, normalisés une fois : c'est le seul texte contre lequel une qualité
@@ -1215,6 +1301,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                            f"de {settings.qualites_exigees_max} qualités sont rendues : le jeu de "
                            "champs typés est ignoré (l'affirmation est traitée comme `humain`)"))
                 continue
+            # Story 4.2e : ce que le modèle a **lui-même** énuméré pour cette affirmation, et rien
+            # d'autre, est l'univers dans lequel une demande `qualite` peut choisir sa cible. Les
+            # libellés que le code ajoute plus bas (`_qualites_de_la_clause`) n'en font pas partie :
+            # le modèle ne les a jamais vus, il ne peut donc pas les avoir demandés.
+            qualites_rendues.setdefault(a.claim_id, set()).update(
+                forme(q) for q in a.qualites_exigees if q.strip())
             # B3 : le **code** compare, le modèle n'a fait qu'énumérer. La comparaison passe par
             # `normalize()` — la même normalisation que les citations — pour qu'une majuscule ou un
             # accent ne fasse pas croire à une qualité non établie.
@@ -1287,4 +1379,96 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     name="qualite_exigee_non_etablie", ok=False,
                     detail=f"{len(non_etablies)} qualité(s) exigée(s) par une clause citée ne sont pas "
                            "établies par les faits déclarés : l'affirmation est traitée comme `humain`"))
-    return verdicts, raisons, couverture, soutiens, applicabilites
+
+    demande, demande_refusee = _demande_de_contexte(
+        result.parsed, attendus=attendus, fournis=fournis or set(), texte_envoye=content,
+        qualites_rendues=qualites_rendues, applicabilites=applicabilites, step=step)
+    return verdicts, raisons, couverture, soutiens, applicabilites, demande, demande_refusee
+
+
+def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis: set[str],
+                         texte_envoye: str, qualites_rendues: dict[str, set[str]],
+                         applicabilites: dict[str, ChampsApplicabilite],
+                         step: StepTrace) -> tuple[DemandeContexte | None, bool]:
+    """Story 4.2e — la demande rendue par le modèle, validée **contre l'entrée qu'il a reçue**.
+
+    Rend `(demande retenue, demande refusée)`. Les deux ne sont jamais vraies ensemble, et les deux
+    peuvent être fausses (le cas nominal : le modèle n'a rien demandé).
+
+    Trois contrôles, dans cet ordre, et chacun ferme sur un `CheckResult` plutôt que sur une
+    exception :
+
+    1. **le vocabulaire** — catégorie ou raison hors des deux `Literal` fermés, ou forme invalide.
+       La sentinelle de `DemandeRendue` l'a déjà constaté avant la coercition pydantic ;
+    2. **la claim** — un `claim_id` qui n'a pas été envoyé ne désigne rien. Le modèle ne peut pas
+       demander du contexte pour une affirmation dont on ne lui a pas parlé ;
+    3. **la cible, par catégorie** — et c'est le contrôle qui donne son sens à la story. Une demande
+       n'est actionnable que si elle vise quelque chose qui était **déjà dans l'entrée du modèle** :
+       un `block_id` parmi les blocs fournis (même univers que `_controler_quote`, AD-1 « les blocs
+       effectivement passés au modèle »), un terme présent dans le texte transmis, ou une qualité
+       qu'il a lui-même énumérée pour cette affirmation. Une cible libre serait une porte ouverte
+       vers un rappel neuf, décidé par le modèle, hors de toute borne — exactement ce que la story
+       interdit.
+
+    **Dans tous les cas où une demande a été rendue, l'affirmation visée perd ses champs typés.** Le
+    modèle vient de dire qu'il lui manquait de quoi juger ; garder son applicabilité reviendrait à
+    retenir un jugement qu'il a lui-même déclaré non fondé. Le mécanisme est celui qui existe
+    (`applicabilite_incomplete`) : la claim vaut `humain`, jamais une valeur devinée, et AD-6 en
+    déduit seule `ne_tranche_pas`. Aucun verdict n'est fabriqué ici.
+
+    Les détails de trace ne portent que des **comptes** et notre propre vocabulaire fermé (AD-10 /
+    AD-15) : ni la cible, ni l'identifiant reçus n'y sont recopiés.
+    """
+    rendue = getattr(parsed, "demande_contexte", None)
+    if rendue is None:
+        return None, False
+
+    def bloquer(claim_id: str) -> None:
+        """La claim visée retombe sur le chemin `humain` déjà écrit, si elle a été envoyée."""
+        if claim_id in attendus:
+            applicabilites.pop(claim_id, None)
+
+    if rendue.hors_vocabulaire:
+        bloquer(rendue.claim_id)
+        step.checks.append(CheckResult(
+            name="demande_hors_vocabulaire", ok=False,
+            detail="une demande de contexte porte une catégorie ou une raison hors vocabulaire "
+                   "fermé : aucune demande n'est formée (l'affirmation visée, si elle a été "
+                   "soumise, est traitée comme `humain`)"))
+        return None, True
+    if rendue.claim_id not in attendus or not rendue.cible:
+        step.checks.append(CheckResult(
+            name="demande_cible_inconnue", ok=False,
+            detail="une demande de contexte ne désigne aucune affirmation soumise, ou ne nomme "
+                   "aucune cible : aucune demande n'est formée"))
+        return None, True
+
+    # `forme()` et non `normalize()` seul : c'est la clé de comparaison des **termes** du projet
+    # (convention Texte, `Index.chercher` et `Index.definitions` la partagent), et la ponctuation du
+    # message envoyé — JSON, guillemets, points — ne doit pas décider qu'un terme n'y figure pas.
+    cible = forme(rendue.cible)
+    connue = bool(cible) and {
+        "renvoi": rendue.cible in fournis,
+        # Mots entiers, dans le **message réellement envoyé** : c'est le seul texte que le modèle a
+        # lu (question résolue, faits, facettes, claims et citations relues, segments).
+        "definition": f" {cible} " in f" {forme(texte_envoye)} ",
+        "qualite": cible in qualites_rendues.get(rendue.claim_id, set()),
+    }[rendue.kind]
+    if not connue:
+        bloquer(rendue.claim_id)
+        step.checks.append(CheckResult(
+            name="demande_cible_inconnue", ok=False,
+            detail=f"une demande de contexte de catégorie `{rendue.kind}` vise une cible absente de "
+                   "ce qui a été soumis au contrôle : aucune demande n'est formée (l'affirmation "
+                   "visée est traitée comme `humain`)"))
+        return None, True
+
+    bloquer(rendue.claim_id)
+    step.checks.append(CheckResult(
+        name="demande_contexte", ok=True,
+        detail=f"le contrôle demande le contexte manquant d'une affirmation (catégorie "
+               f"`{rendue.kind}`, raison `{rendue.raison}`) : elle est traitée comme `humain` tant "
+               "que ce contexte n'a pas été relu"))
+    assert rendue.kind is not None and rendue.raison is not None  # garanti par la sentinelle
+    return DemandeContexte(kind=rendue.kind, cible=rendue.cible, claim_id=rendue.claim_id,
+                           raison=rendue.raison), False

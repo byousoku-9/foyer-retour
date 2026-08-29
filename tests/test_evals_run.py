@@ -2430,3 +2430,40 @@ def test_le_dictionnaire_du_contexte_part_au_pipeline_du_guide() -> None:
     _executer(ctx, [_cas(id="g-luxtrust", expected={"found": True})])
     kw = ctx._guide.appels[0]["kw"]      # type: ignore[attr-defined]
     assert kw["dictionnaire"] is ctx.dictionnaire
+
+
+# --- story 4.2e : la namespace de cache épingle les tiers, et deux réglages ne se confondent pas ---
+
+def test_deux_configurations_de_tiers_ne_partagent_jamais_une_namespace_de_cache() -> None:
+    """AC : « deux configurations de tiers produisent deux namespaces distincts ».
+
+    La `namespace_cache` est **lue** ici, jamais modifiée : elle épingle déjà les tiers deux fois —
+    la table `models` (tier → modèle servi) et les seuils actifs, qui portent chaque surcharge par
+    étape. Ce test le prouve plutôt que de le supposer : sans lui, une campagne mesurée sous un
+    réglage pourrait resservir les réponses d'un autre, et le rapport comparerait deux images.
+    """
+    cas = _cas(id="g-tiers")
+    micro = _contexte([], settings=_settings(verifier_tier="micro"))
+    reason = _contexte([], settings=_settings(verifier_tier="reason"))
+
+    espace_micro = runner.namespace_cache(cas, micro, doc_id=GUIDE, variant="outils")
+    espace_reason = runner.namespace_cache(cas, reason, doc_id=GUIDE, variant="outils")
+
+    assert espace_micro != espace_reason
+    assert (runner.empreinte_canonique(espace_micro)
+            != runner.empreinte_canonique(espace_reason))
+    # La surcharge se lit dans les seuils actifs, et la table des modèles servis est épinglée aussi.
+    assert espace_micro["parameters"]["thresholds"]["verifier_tier_reason"] == 0
+    assert espace_reason["parameters"]["thresholds"]["verifier_tier_reason"] == 1
+    assert espace_micro["models"] == dict(runner.TIERS)
+
+    # Le tier de navigation, l'autre surcharge par étape, sépare pareillement deux images.
+    navigation = _contexte([], settings=_settings(retrouver_outils_tier="reason"))
+    assert (runner.empreinte_canonique(runner.namespace_cache(
+        cas, navigation, doc_id=GUIDE, variant="outils"))
+        != runner.empreinte_canonique(espace_micro))
+
+    # Et à réglages identiques, la namespace est stable : le cache reste utile.
+    jumeau = _contexte([], settings=_settings(verifier_tier="micro"))
+    assert runner.empreinte_canonique(runner.namespace_cache(
+        cas, jumeau, doc_id=GUIDE, variant="outils")) == runner.empreinte_canonique(espace_micro)

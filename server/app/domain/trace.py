@@ -44,7 +44,21 @@ class CheckResult(DomainModel):
 
 
 class LLMCall(DomainModel):
+    """Un appel modèle **réellement émis**, avec le modèle servi et le tier qui l'a choisi.
+
+    Story 4.2e : `StepTrace.tier` est le tier **demandé de l'étape** — celui que la configuration a
+    fixé avant qu'elle ne commence. Il ne dit pas ce qu'un appel donné a employé : une étape peut en
+    faire plusieurs (les tours d'outils de *retrouver*), et un appelant peut passer un tier qui n'est
+    pas celui de l'étape. `model` ne le dit pas non plus — il n'existe aucune table inverse
+    modèle → tier, et deux tiers peuvent parfaitement pointer le même modèle dans une matrice de
+    réglages. Le tier employé est donc publié ici, à l'endroit qui le connaît.
+
+    `None` n'est pas un défaut mais une absence de mesure (AD-16) : un `LLMCall` construit hors du
+    client ne prétend pas connaître son tier.
+    """
+
     model: str
+    tier: str | None = None
     ms: int = 0
     usage: Usage = Field(default_factory=Usage)
     cache_read: int = 0
