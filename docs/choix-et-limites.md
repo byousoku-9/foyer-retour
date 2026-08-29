@@ -36,11 +36,21 @@ reproche rien au rédacteur : elle dit que le **contrôle** n'avait pas de quoi 
 donc pas une seconde fois, ne consomme aucun appel pour se satisfaire, et n'en coûte qu'un pour sa
 relecture. Le bloc du pipeline se pose **après** la relance, inchangée, et ne s'y mêle jamais.
 
-**Ce qui n'est pas mesuré ici.** Le tour sinistre peut gagner une passe `retrouver` de code pur (coût
-nul en appels) et au plus un appel `micro` de reprise ; `pipeline_digest` et `prompts_digest` bougent,
-donc la campagne sinistre repart froide. Coût, latence, justesse et dispersion sont des **états
-produits** : ils se mesurent hors de cette story, avec le SHA, et ne deviennent des critères qu'au
-gate 4.5. Le libellé `guide` de `retrouver.md` reste différé.
+**Ce que la reprise coûte, et quand elle n'a pas lieu.** Le tour sinistre peut gagner une passe
+`retrouver` de code pur — aucun appel modèle — et au plus un appel `micro` de reprise. Cet appel
+entre en concurrence avec le plafond d'appels par requête, que cette story ne relève pas : sur le
+pire chemin, une navigation par outils **et** une relance d'AD-3, la place manque et la reprise est
+refusée avant tout appel. La réponse acquise est alors servie sans être donnée pour complète, et la
+trace le nomme. C'est le comportement voulu — la borne se dit, elle ne se contourne pas — mais c'est
+aussi la limite la plus concrète du mécanisme : il relit le moins souvent là où le tour a déjà
+beaucoup travaillé.
+
+**Ce qui n'est pas mesuré ici.** `pipeline_digest` et `prompts_digest` bougent tous les deux, et ils
+sont globaux : ils entrent dans l'identité de cache de **toutes** les suites, pas seulement du
+sinistre. Les campagnes guide et parsing repartent donc froides elles aussi, avec le coût
+correspondant. Coût, latence, justesse et dispersion sont des **états produits** : ils se mesurent
+hors de cette story, avec le SHA, et ne deviennent des critères qu'au gate 4.5. Le libellé `guide` de
+`retrouver.md` reste différé.
 
 ## Story 4.2f — une lecture partielle est un état, pas une panne
 

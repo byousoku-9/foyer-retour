@@ -198,6 +198,14 @@ class Settings(BaseSettings):
     # `max_cost_eur_per_request`, qui s'applique **avant** qu'un appel démarre (AD-1).
     # Story 2.6 : pire chemin = deux tours de navigation, comprendre, rédiger, vérifier,
     # relance rédiger+vérifier et un retry de parse. Le plafond de coût reste inchangé.
+    # Story 4.2e : la reprise d'une demande de contexte coûte **un** appel de plus (la satisfaction,
+    # elle, est du code pur). Le pire chemin nominal du sinistre en demande donc neuf, et cette
+    # valeur n'est **pas** relevée — les budgets et limites sont hors périmètre de 4.2e. Conséquence
+    # assumée et dite : sur le pire chemin, c'est-à-dire une navigation par outils **et** une relance
+    # d'AD-3, la reprise est refusée avant tout appel (`reprise_sans_place`) et la réponse acquise
+    # est servie sans être donnée pour complète. Le mécanisme reste fail-closed ; ce qu'il perd, ce
+    # n'est jamais une garantie, c'est une chance de relire. Relever ce plafond est une décision de
+    # coût, mesurable par l'orchestrateur, qui appartient au gate 4.5.
     max_llm_attempts: int = Field(8, ge=1)
     max_llm_turns: int = Field(2, ge=1, le=2)
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
