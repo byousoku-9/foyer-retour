@@ -364,9 +364,17 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
 
 
 def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
+    """Toute valeur **libre** rendue dans le Markdown est échappée — cellule, ligne, code inline.
+
+    `suite`, `label` et `cases_hash` ont quitté cette fixture au tour correctif 1/3 : la validation
+    canonique les tient désormais à leurs vocabulaires fixes et à leur forme d'empreinte (revue B5),
+    si bien qu'ils ne peuvent plus porter de caractère dangereux. Les six champs restants sont ceux
+    qui restent **réellement** libres — profil, motif d'arrêt, identifiants de cas, variantes —, et
+    l'échappement se prouve sur eux.
+    """
     rapport = {
         "complete": False, "profile": "p|`\nligne", "cases_completed": 0,
-        "cases_planned": 1, "stop_reason": "diag|`\nligne", "cases_hash": "h|`\n",
+        "cases_planned": 1, "stop_reason": "diag|`\nligne", "cases_hash": "a" * 64,
         "unexecuted_cases": ["c|`\nligne"], "identity": {}, "decisions": [], "repeat": 1,
         # `cost_eur` fait partie de ce que la validation canonique exige depuis le cycle de
         # récupération (B5) : le coût froid d'un run ne se publie pas à zéro faute d'être écrit.
@@ -381,13 +389,13 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
             "variants": {"v|`\nligne": 1},
         },
         "results": [{
-            "id": "i|`\nligne", "suite": "s|`\nligne", "variant": "v|`\nligne",
-            "label": "l|`\nligne", "cost_eur": 0.0, "cost_eur_original": 0.0,
+            "id": "i|`\nligne", "suite": "sinistre", "variant": "v|`\nligne",
+            "label": "bonne_reponse", "cost_eur": 0.0, "cost_eur_original": 0.0,
             "latency_ms": 0,
         }],
     }
     markdown = rendre_markdown(rapport)
-    for brut in ("p|`", "diag|`", "c|`", "i|`", "s|`", "v|`", "l|`"):
+    for brut in ("p|`", "diag|`", "c|`", "i|`", "v|`"):
         assert brut not in markdown
     assert "<code>" in markdown and "&#124;" in markdown and "&#96;" in markdown and "<br>" in markdown
     assert "`i&#124;" not in markdown, "une entité ne doit pas être enfermée dans un code span"

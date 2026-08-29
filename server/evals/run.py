@@ -87,7 +87,7 @@ from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.app.domain.evals import (LABELS, Label, PublicationEvals, ReservesPubliees,
-                                     SecondeLecturePubliee)
+                                     SecondeLecturePubliee, Suite)
 from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
 from server.app.domain.ingest import (STRUCTURE_CHECK, TREE_CHECK, Gate, GateContext,
                                       GateDecision, ManifestEntry, Report,
@@ -132,9 +132,9 @@ PROTOCOLE_FILES = frozenset({
 # AD-14, mot pour mot : « labels fixes ». La définition vit dans `server/app/domain/evals.py` depuis
 # la revue R1 : la validation canonique de la publication doit exiger **les sept**, et elle ne peut
 # pas importer ce module (c'est l'inverse qui a lieu). Les noms d'usage restent `run.LABELS` et
-# `run.Label` — une seule définition, deux endroits d'où la lire.
-
-Suite = Literal["guide", "sinistre", "parsing"]
+# `run.Label` — une seule définition, deux endroits d'où la lire. `Suite` l'a rejointe au tour
+# correctif 1/3, pour la même raison : la validation canonique doit exiger le vocabulaire littéral
+# des suites, et elle ne peut pas lire ce module.
 
 GateProfile = Literal["vertical", "full"]
 PROFILS_LIVRES: tuple[str, ...] = ("vertical", "full")
@@ -2356,6 +2356,16 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                                          arbre=arbre)
         rapport["plancher_digest"] = plancher.digest
         rapport["decisions"] = [d.model_dump(mode="json") for d in decisions]
+        # **Les empreintes de run étrangères sont déclarées**, jamais implicites (revue B5, tour
+        # correctif 1/3). Une décision venue d'une preuve trusted porte le `run_digest` du run que
+        # cette preuve mesure — `verifier_liaison_preuve` l'a opposé à ses propres octets —, et non
+        # celui de ce run-ci. Sans cette liste, la validation canonique n'avait aucun moyen de
+        # distinguer cette empreinte légitime d'une empreinte arbitraire : elle n'était opposée à
+        # rien. Elle n'est écrite que lorsqu'il y en a — un rapport sans preuve externe ne déclare
+        # pas une liste vide qu'il faudrait ensuite interpréter.
+        etrangeres = sorted({d.run_digest for d in decisions if d.run_digest != run_digest})
+        if etrangeres:
+            rapport["external_run_digests"] = etrangeres
     return rapport
 
 

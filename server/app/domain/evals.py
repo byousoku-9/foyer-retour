@@ -46,6 +46,13 @@ Label = Literal["bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu
 LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu",
                            "faux_refus", "citation_introuvable", "parsing")
 
+# Les trois suites livrées, ici pour la même raison que `LABELS` (revue B1/B5, tour correctif 1/3) :
+# le runner les écrit dans chaque exécution du rapport, et la validation canonique de la publication
+# doit les exiger **littéralement** — un `suite` hors vocabulaire s'imprimait tel quel dans le
+# journal que la CI concatène. `run.Suite` reste le nom d'usage.
+Suite = Literal["guide", "sinistre", "parsing"]
+SUITES: tuple[str, ...] = ("guide", "sinistre", "parsing")
+
 
 class FrozenModel(DomainModel):
     """Un artefact publié ne se modifie pas après construction."""

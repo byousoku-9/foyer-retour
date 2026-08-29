@@ -1156,3 +1156,179 @@ def test_il_ny_a_quun_ecrivain_de_publication() -> None:
     """
     assert not hasattr(pub_mod, "ecrire_publication")
     assert "ecrire_publication" not in (pub_mod.__doc__ or "")
+
+
+# --- B5, tour correctif 1/3 : le **domaine** des valeurs, pas seulement leur présence --------------
+#
+# Les tours précédents avaient fermé la présence d'une clé, puis son type. Le verdict Codex a montré
+# la couche manquante : la **valeur**. Un rapport dont toutes les clés sont là, toutes bien typées,
+# passait la validation, la construction *et* le rendu avec un `label` hors vocabulaire, des coûts
+# négatifs, une latence négative, une stabilité en chaînes et une décision dont les nombres étaient
+# coercés par pydantic. Le journal que la CI concatène imprimait littéralement
+# `| cas-1 | vertical | v | LABEL_INCONNU | -12.5000 | -9.0000 | -7 |`.
+#
+# Les contre-exemples ci-dessous portent donc sur des **valeurs invalides**, pas sur des clés
+# absentes : c'est ce que le tour précédent n'avait pas prouvé.
+
+def _resultat(**surcharges: Any) -> dict[str, Any]:
+    base = {"id": "cas-1", "suite": "sinistre", "variant": "outils", "label": "bonne_reponse",
+            "cost_eur": 0.02, "cost_eur_original": 0.02, "latency_ms": 14243}
+    base.update(surcharges)
+    return base
+
+
+def _rapport_fabrique() -> dict[str, Any]:
+    """Le rapport exact de la sonde Codex : toutes les clés présentes, quatre valeurs impossibles."""
+    rapport = _rapport(results=[_resultat(suite="vertical", label="LABEL_INCONNU",
+                                          cost_eur=-12.5, cost_eur_original=-9.0,
+                                          latency_ms=-7)])
+    rapport["stability"] = {"n": 3, "cases": {"cas-1": {"stable": "oui", "comptabilise": "oui"}}}
+    rapport["decisions"] = [{
+        "metric": "m", "producer": "orchestrator", "threshold": "1.0", "scope": "run",
+        "n": "3", "run_digest": "f" * 64, "value": "0.5", "status": "red", "reason": None,
+    }]
+    return rapport
+
+
+def test_le_rapport_fabrique_du_verdict_ne_traverse_aucune_des_quatre_surfaces() -> None:
+    """B1/B5 du tour correctif : la sonde du reviewer, refusée avant toute surface visible.
+
+    Trois chemins sont éprouvés parce que trois chemins produisaient une surface : la validation
+    canonique, la construction de l'artefact publié, et le rendu du journal de CI — c'est ce
+    dernier qui imprimait les valeurs négatives (`run.rendre_markdown`, pas
+    `rendre_publication_markdown`, qui ne porte pas les coûts par exécution).
+    """
+    for appel in (pub_mod.valider_rapport_publiable,
+                  pub_mod.construire_publication,
+                  runner.rendre_markdown):
+        with pytest.raises(pub_mod.RapportInexploitable):
+            appel(_rapport_fabrique())
+    # Et la ligne littérale du verdict n'apparaît nulle part : le rendu n'a rien produit du tout.
+    with pytest.raises(pub_mod.RapportInexploitable):
+        runner.rendre_markdown(_rapport_fabrique())
+
+
+@pytest.mark.parametrize("champ,valeur,motif", [
+    ("suite", "vertical", "vocabulaire"),
+    ("label", "LABEL_INCONNU", "vocabulaire"),
+    ("id", "", "vide"),
+    ("variant", "", "vide"),
+    ("cost_eur", -12.5, "domaine"),
+    ("cost_eur_original", -9.0, "domaine"),
+    ("latency_ms", -7, "domaine"),
+    ("latency_ms", 3.5, "entier"),
+])
+def test_une_execution_hors_domaine_est_un_refus_dit(champ: str, valeur: Any, motif: str) -> None:
+    """Chaque valeur que le journal du run imprime est refusée séparément, et le refus la nomme."""
+    rapport = _rapport(results=[_resultat(**{champ: valeur})])
+    with pytest.raises(pub_mod.RapportInexploitable, match=f"results\\[0\\]\\.{champ}"):
+        pub_mod.valider_rapport_publiable(rapport)
+    with pytest.raises(pub_mod.RapportInexploitable, match=motif):
+        runner.rendre_markdown(rapport)
+
+
+@pytest.mark.parametrize("drapeau", ["stable", "comptabilise"])
+def test_une_stabilite_en_chaines_nest_jamais_rendue_un_sur_un(drapeau: str) -> None:
+    """B5 : `"oui"` est vrai en Python, jamais dans une mesure — et `1/1` serait fabriqué."""
+    rapport = _rapport()
+    rapport["stability"]["cases"]["s-cas-neutre"][drapeau] = "oui"
+    with pytest.raises(pub_mod.RapportInexploitable, match=drapeau):
+        pub_mod.stabilite_du_rapport(rapport)
+    with pytest.raises(pub_mod.RapportInexploitable, match=drapeau):
+        pub_mod.construire_publication(rapport)
+
+
+@pytest.mark.parametrize("drapeau", ["stable", "comptabilise"])
+def test_un_drapeau_de_stabilite_absent_ferme(drapeau: str) -> None:
+    rapport = _rapport()
+    del rapport["stability"]["cases"]["s-cas-neutre"][drapeau]
+    with pytest.raises(pub_mod.RapportInexploitable, match=drapeau):
+        pub_mod.valider_rapport_publiable(rapport)
+
+
+def test_une_stabilite_mesuree_sur_un_autre_n_que_le_repeat_ferme() -> None:
+    """L'invariant de dénominateur : la stabilité se mesure sur les répétitions **planifiées**."""
+    rapport = _rapport()
+    rapport["stability"]["n"] = 1
+    with pytest.raises(pub_mod.RapportInexploitable, match="repeat"):
+        pub_mod.valider_rapport_publiable(rapport)
+
+
+@pytest.mark.parametrize("champ,valeur", [
+    ("threshold", "1.0"), ("n", "3"), ("value", "0.5"),
+    ("threshold", True), ("n", 1.5), ("value", None),
+    ("status", "peut-etre"), ("producer", "quelquun"), ("metric", ""),
+    ("value", 1.5), ("threshold", -0.1),
+])
+def test_une_decision_coercible_ou_hors_domaine_est_refusee(champ: str, valeur: Any) -> None:
+    """B5 : pydantic convertissait `"3"` en `3` — le refus dit s'arrêtait donc au type de l'entrée."""
+    rapport = _rapport()
+    rapport["decisions"][0][champ] = valeur
+    with pytest.raises(pub_mod.RapportInexploitable, match=f"decisions\\[0\\]\\.{champ}"):
+        pub_mod.valider_rapport_publiable(rapport)
+
+
+def test_le_run_digest_dune_decision_est_oppose_a_lidentite_du_run() -> None:
+    """B5 : « son `run_digest` arbitraire n'est opposé à rien ».
+
+    Deux cas, et la distinction est le point : une décision **mesurée par ce run** porte l'empreinte
+    de ce run ; une décision venue d'une preuve trusted porte celle du run que la preuve mesure, et
+    le rapport la **déclare** dans `external_run_digests`. Une empreinte ni l'une ni l'autre n'est
+    opposée à rien, et ferme.
+    """
+    rapport = _rapport()
+    rapport["decisions"][0]["run_digest"] = "f" * 64
+    with pytest.raises(pub_mod.RapportInexploitable, match="opposée à aucun run"):
+        pub_mod.valider_rapport_publiable(rapport)
+    # Déclarée, la même empreinte étrangère est légitime — c'est le chemin `--orchestrator-evidence`.
+    rapport["external_run_digests"] = ["f" * 64]
+    assert pub_mod.valider_rapport_publiable(rapport) is rapport
+    # Mais la déclaration doit elle-même être une liste d'empreintes.
+    rapport["external_run_digests"] = "f" * 64
+    with pytest.raises(pub_mod.RapportInexploitable, match="external_run_digests"):
+        pub_mod.valider_rapport_publiable(rapport)
+
+
+@pytest.mark.parametrize("champ,valeur,motif", [
+    ("cases_hash", "pas-une-empreinte", "cases_hash"),
+    ("cases_hash", True, "cases_hash"),
+    ("cases_planned", -1, "domaine"),
+    ("cases_completed", 3, "dépasse"),
+    ("stop_reason", "", "stop_reason"),
+    ("stop_reason", 7, "stop_reason"),
+    ("unexecuted_cases", [""], "unexecuted_cases"),
+    ("unexecuted_cases", [7], "unexecuted_cases"),
+])
+def test_un_compteur_ou_une_liste_racine_incoherente_est_un_refus_dit(
+        champ: str, valeur: Any, motif: str) -> None:
+    """« listes et compteurs racine stricts et cohérents entre eux » — chacun pris séparément."""
+    rapport = _rapport()
+    rapport[champ] = valeur
+    with pytest.raises(pub_mod.RapportInexploitable, match=motif):
+        pub_mod.valider_rapport_publiable(rapport)
+
+
+def test_la_table_de_labels_nadmet_aucune_cle_supplementaire() -> None:
+    """AD-14 : « labels fixes ». Une clé en trop serait un huitième label publié sans en être un."""
+    rapport = _rapport(labels=_tous_les_labels() | {"label_maison": 4})
+    with pytest.raises(pub_mod.RapportInexploitable, match="en trop"):
+        pub_mod.valider_rapport_publiable(rapport)
+
+
+def test_une_empreinte_presente_mais_invalide_ferme_au_lieu_de_setre_rabattue_sur_none() -> None:
+    """B5 : `_empreinte` ne rabat plus silencieusement — absent reste absent, invalide ferme."""
+    assert pub_mod._empreinte(None) is None
+    assert pub_mod._empreinte("") is None
+    assert pub_mod._empreinte("a" * 64) == "a" * 64
+    with pytest.raises(pub_mod.RapportInexploitable, match="empreinte"):
+        pub_mod._empreinte("pas-une-empreinte")
+    with pytest.raises(pub_mod.RapportInexploitable, match="empreinte"):
+        pub_mod._empreinte("A" * 64)
+
+
+def test_un_plancher_digest_racine_mal_forme_ferme() -> None:
+    rapport = _rapport()
+    rapport["plancher_digest"] = "pas-une-empreinte"
+    with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
+        pub_mod.valider_rapport_publiable(rapport)
+

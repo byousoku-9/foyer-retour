@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from server.app.config import EVALS_PUBLICATION_FILE
-from server.app.domain.evals import (LABELS, CoutPublie, LatencePubliee, PublicationEvals,
+from server.app.domain.evals import (LABELS, SUITES, CoutPublie, LatencePubliee, PublicationEvals,
                                      ReservesPubliees, SecondeLecturePubliee, StabilitePubliee)
 from server.app.domain.ingest import Gate, GateDecision
 
@@ -87,8 +87,13 @@ DOMAINES_MESURES: dict[str, tuple[float | None, float | None]] = {
     "average_cost_eur": (0.0, None),
     "cost_p95_eur": (0.0, None),
     "cost_eur": (0.0, None),
+    "cost_eur_original": (0.0, None),
     "latency_p50_ms": (0, None),
     "latency_p95_ms": (0, None),
+    "latency_ms": (0, None),
+    # Une décision se lit contre son plancher : les deux vivent dans `[0, 1]` comme les témoins.
+    "threshold": (0.0, 1.0),
+    "value": (0.0, 1.0),
 }
 # Les clés que **chaque exécution** du journal de run indexe (`run.rendre_markdown`), avec le type
 # qu'elle doit porter. Une clé manquante y levait un `KeyError` nu (revue R1).
@@ -102,6 +107,19 @@ CHAMPS_RESULTAT: tuple[tuple[str, str], ...] = (
 CHAMPS_JOURNAL: tuple[tuple[str, type | None], ...] = (
     ("cases_hash", str), ("cases_planned", int), ("cases_completed", int), ("stop_reason", None),
 )
+# Les huit champs de `GateDecision` que les rendus lisent, et la forme exigée avant que pydantic
+# n'ait la moindre occasion de **coercer** (revue B1/B5, tour correctif 1/3) : `threshold`, `n` et
+# `value` en chaînes étaient convertis en silence, et le refus dit s'arrêtait donc au type de
+# l'entrée. `reason` est facultatif (`None` quand le statut se lit sur la valeur).
+CHAMPS_DECISION: tuple[tuple[str, str], ...] = (
+    ("metric", "texte"), ("producer", "texte"), ("scope", "texte"),
+    ("threshold", "reel"), ("value", "reel"), ("n", "entier"),
+    ("run_digest", "empreinte"), ("status", "texte"),
+)
+STATUTS_DECISION: frozenset[str] = frozenset({"green", "red"})
+# Le vocabulaire de `--producer` : la règle trusted ne reconnaît que l'orchestrateur comme
+# producteur de preuve, un run de builder est un diagnostic. Il n'y en a pas de troisième.
+PRODUCTEURS_DECISION: frozenset[str] = frozenset({"builder", "orchestrator"})
 
 
 def _mesure(conteneur: dict[str, Any], cle: str, *, chemin: str, entier: bool) -> int | float:
@@ -206,10 +224,36 @@ def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
             raise RapportInexploitable(
                 f"rapport : la clé obligatoire {champ!r} est absente — le journal du run l'indexe, "
                 "et son absence sortirait en panne technique au lieu d'un refus dit")
-        if type_attendu is not None and not isinstance(rapport[champ], type_attendu):
+        if type_attendu is not None and (isinstance(rapport[champ], bool)
+                                         or not isinstance(rapport[champ], type_attendu)):
             raise RapportInexploitable(
                 f"rapport : {champ!r} doit être {type_attendu.__name__} "
                 f"({type(rapport[champ]).__name__} reçu)")
+    # **Les compteurs racine sont dans leur domaine et cohérents entre eux** (revue B5, tour
+    # correctif 1/3). `cases_completed > cases_planned` décrirait un run ayant terminé plus de cas
+    # qu'il n'en a planifié : le journal l'imprimait tel quel, `2/1`, sans que rien ne le voie.
+    for champ in ("cases_planned", "cases_completed"):
+        if rapport[champ] < 0:
+            raise RapportInexploitable(
+                f"rapport : {champ!r} vaut {rapport[champ]}, hors du domaine (>= 0)")
+    if rapport["cases_completed"] > rapport["cases_planned"]:
+        raise RapportInexploitable(
+            f"rapport : 'cases_completed' ({rapport['cases_completed']}) dépasse 'cases_planned' "
+            f"({rapport['cases_planned']}) — un run ne termine pas plus de cas qu'il n'en planifie")
+    if not _est_empreinte(rapport["cases_hash"], 64):
+        raise RapportInexploitable(
+            f"rapport : 'cases_hash' doit être 64 caractères hexadécimaux "
+            f"({rapport['cases_hash']!r} reçu) — c'est l'identité du lot mesuré, pas une étiquette")
+    if rapport["stop_reason"] is not None and not (isinstance(rapport["stop_reason"], str)
+                                                   and rapport["stop_reason"]):
+        raise RapportInexploitable(
+            f"rapport : 'stop_reason' doit être une chaîne non vide ou null "
+            f"({rapport['stop_reason']!r} reçu)")
+    for rang, execution in enumerate(rapport["unexecuted_cases"]):
+        if not isinstance(execution, str) or not execution:
+            raise RapportInexploitable(
+                f"rapport : unexecuted_cases[{rang}] doit être un identifiant non vide "
+                f"({execution!r} reçu) — les limites publiées les énumèrent")
     # Le coût **froid** du run : c'est le chiffre que la publication présente comme « ce qu'une
     # campagne paie réellement ». `float(rapport.get("cost_eur") or 0.0)` en faisait un run gratuit.
     _dans_le_domaine(_mesure(rapport, "cost_eur", chemin="rapport", entier=False),
@@ -231,18 +275,25 @@ def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
                 f"rapport : metrics.{champ} doit être un objet "
                 f"({type(metrics[champ]).__name__} reçu)")
         for nom, compte in metrics[champ].items():
+            if not isinstance(nom, str) or not nom:
+                raise RapportInexploitable(
+                    f"rapport : metrics.{champ} porte une clé vide ou non textuelle ({nom!r})")
             if isinstance(compte, bool) or not isinstance(compte, int) or compte < 0:
                 raise RapportInexploitable(
                     f"rapport : metrics.{champ}[{nom!r}] doit être un entier >= 0 "
                     f"({compte!r} reçu)")
-    # **Le vocabulaire fixe d'AD-14 est complet**, ou ce n'est pas la table que les surfaces
-    # publient : le journal de CI indexe `metrics.labels[label]` sur **les sept**, et un label
-    # manquant y levait un `KeyError` nu.
-    manquants = [label for label in LABELS if label not in metrics["labels"]]
-    if manquants:
+    # **Le vocabulaire fixe d'AD-14 est la table entière**, ni plus ni moins : le journal de CI
+    # indexe `metrics.labels[label]` sur **les sept** — un label manquant y levait un `KeyError` nu
+    # —, et une clé **en trop** serait un huitième label publié sans en être un (AD-14 : « labels
+    # fixes »). Un vocabulaire fermé se contrôle par égalité, comme `Temoin` et les clés de preuve.
+    if set(metrics["labels"]) != set(LABELS):
+        manquants = sorted(set(LABELS) - set(metrics["labels"]))
+        superflus = sorted(set(metrics["labels"]) - set(LABELS))
         raise RapportInexploitable(
-            f"rapport : metrics.labels n'est pas le vocabulaire fixe d'AD-14 (manquants : "
-            f"{manquants}) — un zéro absent n'est pas un zéro observé")
+            "rapport : metrics.labels n'est pas le vocabulaire fixe d'AD-14"
+            + (f" — manquants : {manquants}" if manquants else "")
+            + (f" — en trop : {superflus}" if superflus else "")
+            + " ; un zéro absent n'est pas un zéro observé, et un label inconnu n'est pas un label")
     _valider_resultats(rapport["results"])
     _valider_stabilite(rapport)
     _valider_decisions(rapport)
@@ -250,37 +301,102 @@ def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
     return rapport
 
 
+def _texte(conteneur: dict[str, Any], cle: str, *, chemin: str,
+           vocabulaire: frozenset[str] | tuple[str, ...] | None = None) -> str:
+    """Une chaîne **présente, non vide, et dans son vocabulaire quand il est fermé**.
+
+    Story 4.5, tour correctif 1/3, revue B5. Le tour précédent avait fermé le *type* — « c'est bien
+    une chaîne » — et laissé le **domaine** libre : un `label` hors des sept d'AD-14 et un `suite`
+    hors des trois livrées passaient, et le journal que la CI concatène les imprimait littéralement.
+    Un domaine de valeur n'est pas un type, et une table de comptage indexée sur un vocabulaire fixe
+    ne se lit pas avec des valeurs qui n'en font pas partie.
+    """
+    if cle not in conteneur:
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} est absent — le journal du run l'indexe")
+    valeur = conteneur[cle]
+    if not isinstance(valeur, str):
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} doit être une chaîne ({type(valeur).__name__} reçu)")
+    if not valeur:
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} est vide — une identité vide ne désigne rien")
+    if vocabulaire is not None and valeur not in vocabulaire:
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} vaut {valeur!r}, hors du vocabulaire fixe "
+            f"{sorted(vocabulaire)} — publier une valeur inconnue la présenterait comme mesurée")
+    return valeur
+
+
+def _booleen(conteneur: dict[str, Any], cle: str, *, chemin: str) -> bool:
+    """Un booléen **présent et vraiment booléen** — `"oui"` n'est pas `True`.
+
+    Revue B5, tour correctif 1/3 : `stability.cases[x] = {"stable": "oui", "comptabilise": "oui"}`
+    produisait une stabilité **1/1**, parce que la vérité de Python sur une chaîne non vide n'est
+    pas une mesure. Une stabilité fabriquée est le pire des chiffres publiés : elle dit « ce run est
+    reproductible » sans que rien ne l'ait été.
+    """
+    if cle not in conteneur:
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} est absent — un cas dont on ne sait pas s'il est stable ne "
+            "se compte ni au numérateur ni au dénominateur")
+    valeur = conteneur[cle]
+    if not isinstance(valeur, bool):
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} doit être un booléen ({valeur!r} reçu) — une chaîne non vide "
+            "est vraie en Python, jamais dans une mesure")
+    return valeur
+
+
+def _empreinte_exigee(conteneur: dict[str, Any], cle: str, *, chemin: str, longueur: int) -> str:
+    """Une empreinte **présente et bien formée** — sinon un refus qui la nomme."""
+    valeur = conteneur.get(cle)
+    if not _est_empreinte(valeur, longueur):
+        raise RapportInexploitable(
+            f"rapport : {chemin}.{cle} doit être {longueur} caractères hexadécimaux "
+            f"({valeur!r} reçu) — une chaîne qui ressemble à une empreinte n'en est pas une")
+    return str(valeur)
+
+
 def _valider_resultats(resultats: list[Any]) -> None:
-    """Chaque exécution porte les clés que le journal du run indexe (revue R1)."""
+    """Chaque exécution porte les clés que le journal du run indexe, **dans leur domaine**.
+
+    Revue R1 pour la présence des sept clés ; revue B5 du tour correctif 1/3 pour leur **valeur** :
+    `suite` et `label` dans leurs vocabulaires littéraux, `id` et `variant` non vides, coûts finis
+    `>= 0` et latence entière `>= 0`. Sans ce dernier point, le journal de CI publiait littéralement
+    `| cas-1 | vertical | v | LABEL_INCONNU | -12.5000 | -9.0000 | -7 |` — quatre valeurs
+    impossibles, rendues comme des mesures.
+    """
+    vocabulaires: dict[str, tuple[str, ...]] = {"suite": SUITES, "label": LABELS}
     for rang, resultat in enumerate(resultats):
+        chemin = f"results[{rang}]"
         if not isinstance(resultat, dict):
             raise RapportInexploitable(
-                f"rapport : results[{rang}] doit être un objet "
-                f"({type(resultat).__name__} reçu)")
+                f"rapport : {chemin} doit être un objet ({type(resultat).__name__} reçu)")
         for champ, forme in CHAMPS_RESULTAT:
-            if champ not in resultat:
-                raise RapportInexploitable(
-                    f"rapport : results[{rang}].{champ} est absent — le journal du run l'indexe")
-            valeur = resultat[champ]
             if forme == "texte":
-                if not isinstance(valeur, str):
-                    raise RapportInexploitable(
-                        f"rapport : results[{rang}].{champ} doit être une chaîne "
-                        f"({type(valeur).__name__} reçu)")
+                _texte(resultat, champ, chemin=chemin, vocabulaire=vocabulaires.get(champ))
             else:
-                _mesure(resultat, champ, chemin=f"results[{rang}]", entier=(forme == "entier"))
+                _dans_le_domaine(
+                    _mesure(resultat, champ, chemin=chemin, entier=(forme == "entier")),
+                    champ, chemin=chemin)
 
 
 def _valider_stabilite(rapport: dict[str, Any]) -> None:
-    """`stability` absent est légitime ; `stability` présent et creux ne l'est pas (revue B5)."""
+    """`stability` absent est légitime ; `stability` présent et creux ne l'est pas (revue B5).
+
+    Le `repeat` du rapport est exigé **dans les deux cas** : c'est le N d'un run sans agrégat, et
+    c'est le dénominateur qu'un agrégat doit retrouver. `stability.n != repeat` est un rapport qui
+    se contredit lui-même — la stabilité y serait mesurée sur un nombre de répétitions que le run
+    n'a pas planifié.
+    """
+    repeat = _exiger(rapport, "repeat", (int,))
+    if isinstance(repeat, bool) or repeat < 1:
+        raise RapportInexploitable(
+            f"rapport : 'repeat' doit être un entier >= 1 ({repeat!r} reçu)")
     agregat = rapport.get("stability")
     if agregat is None and "stability" not in rapport:
-        # Un run sans répétition n'écrit pas d'agrégat : le `repeat` du rapport donne alors le N,
-        # et il est **exigé** plutôt que fabriqué à 1.
-        repeat = _exiger(rapport, "repeat", (int,))
-        if isinstance(repeat, bool) or repeat < 1:
-            raise RapportInexploitable(
-                f"rapport : 'repeat' doit être un entier >= 1 ({repeat!r} reçu)")
+        # Un run sans répétition n'écrit pas d'agrégat : le `repeat` du rapport donne alors le N.
         return
     if not isinstance(agregat, dict):
         raise RapportInexploitable(
@@ -293,22 +409,39 @@ def _valider_stabilite(rapport: dict[str, Any]) -> None:
     if not isinstance(cases, dict):
         raise RapportInexploitable(
             f"rapport : 'stability.cases' doit être un objet ({type(cases).__name__} reçu)")
-    if any(not isinstance(v, dict) for v in cases.values()):
-        raise RapportInexploitable(
-            "rapport : chaque entrée de 'stability.cases' doit être un objet")
+    for case_id, detail in cases.items():
+        if not isinstance(detail, dict):
+            raise RapportInexploitable(
+                f"rapport : stability.cases[{case_id!r}] doit être un objet "
+                f"({type(detail).__name__} reçu)")
+        # **Les deux drapeaux que le numérateur et le dénominateur lisent**, en booléens vrais.
+        _booleen(detail, "stable", chemin=f"stability.cases[{case_id!r}]")
+        _booleen(detail, "comptabilise", chemin=f"stability.cases[{case_id!r}]")
     n = agregat.get("n")
     if isinstance(n, bool) or not isinstance(n, int) or n < 1:
         raise RapportInexploitable(
             f"rapport : 'stability.n' doit être un entier >= 1 ({n!r} reçu) — le N d'une stabilité "
             "ne se devine pas")
+    if n != repeat:
+        raise RapportInexploitable(
+            f"rapport : 'stability.n' vaut {n} alors que 'repeat' vaut {repeat} — la stabilité "
+            "serait publiée sur un nombre de répétitions que le run n'a pas planifié")
 
 
 def _valider_decisions(rapport: dict[str, Any]) -> None:
-    """Des décisions non vides disent contre quels seuils elles ont été prises (revue B5).
+    """Des décisions non vides disent contre quels seuils elles ont été prises, et **avec quoi**.
 
-    Et **chaque entrée est un objet** (revue R7) : `decisions=[42]` passait la validation canonique
-    et n'était refusé qu'en `ValidationError` pydantic nue, à la construction de `GateDecision` —
-    un refus, mais qui ne nomme ni la clé du rapport ni sa raison typée.
+    Revue B5 pour le `plancher_digest` racine ; revue R7 pour « chaque entrée est un objet » ; revue
+    B5 du tour correctif 1/3 pour le reste : `threshold`, `n` et `value` en chaînes étaient coercés
+    par pydantic à la construction de `GateDecision`, et le `run_digest` d'une décision n'était
+    opposé à rien.
+
+    L'opposition du `run_digest` a une nuance que le code doit dire exactement, sous peine de
+    refuser un chemin légitime : une décision **mesurée par ce run** porte l'empreinte de ce run.
+    Une décision qui vient d'une preuve externe (`--orchestrator-evidence`) porte celle du run que
+    la preuve mesure — `plancher.verifier_liaison_preuve` l'a déjà opposée à ses propres octets. Le
+    rapport déclare donc ces empreintes étrangères dans `external_run_digests`, et **rien d'autre**
+    n'est admis : une empreinte ni celle du run, ni déclarée, est un refus dit.
     """
     if rapport.get("plancher_digest") is not None:
         decisions = _exiger(rapport, "decisions", (list,))
@@ -324,11 +457,43 @@ def _valider_decisions(rapport: dict[str, Any]) -> None:
                 "rapport : 'decisions' est non vide alors que 'plancher_digest' est absent de la "
                 "racine — une décision qui ne nomme pas son protocole ne dit pas contre quel seuil "
                 "elle a été prise, et la publier la présenterait comme opposable")
+    if decisions and not _est_empreinte(rapport.get("plancher_digest"), 64):
+        raise RapportInexploitable(
+            f"rapport : 'plancher_digest' doit être 64 caractères hexadécimaux "
+            f"({rapport.get('plancher_digest')!r} reçu)")
+    identite = rapport.get("identity")
+    propre = (identite or {}).get("run_digest") if isinstance(identite, dict) else None
+    externes = rapport.get("external_run_digests", [])
+    if not isinstance(externes, list) or any(not _est_empreinte(d, 64) for d in externes):
+        raise RapportInexploitable(
+            f"rapport : 'external_run_digests' doit être une liste d'empreintes 64 hexadécimales "
+            f"({externes!r} reçu)")
+    opposables = {str(d) for d in externes} | ({str(propre)} if _est_empreinte(propre, 64) else set())
     for rang, decision in enumerate(decisions):
+        chemin = f"decisions[{rang}]"
         if not isinstance(decision, dict):
             raise RapportInexploitable(
-                f"rapport : decisions[{rang}] doit être un objet "
-                f"({type(decision).__name__} reçu)")
+                f"rapport : {chemin} doit être un objet ({type(decision).__name__} reçu)")
+        for champ, forme in CHAMPS_DECISION:
+            if forme == "texte":
+                vocabulaire = {"status": STATUTS_DECISION,
+                               "producer": PRODUCTEURS_DECISION}.get(champ)
+                _texte(decision, champ, chemin=chemin, vocabulaire=vocabulaire)
+            elif forme == "empreinte":
+                _empreinte_exigee(decision, champ, chemin=chemin, longueur=64)
+            else:
+                _dans_le_domaine(
+                    _mesure(decision, champ, chemin=chemin, entier=(forme == "entier")),
+                    champ, chemin=chemin)
+        if "reason" in decision and not isinstance(decision["reason"], (str, type(None))):
+            raise RapportInexploitable(
+                f"rapport : {chemin}.reason doit être une chaîne ou null "
+                f"({type(decision['reason']).__name__} reçu)")
+        if decision["run_digest"] not in opposables:
+            raise RapportInexploitable(
+                f"rapport : {chemin}.run_digest vaut {decision['run_digest']!r} — ce n'est ni "
+                f"l'empreinte de ce run ({propre!r}), ni une empreinte déclarée dans "
+                "'external_run_digests' : cette décision n'est opposée à aucun run")
 
 
 class ArchivePrecedenteIllisible(Exception):
@@ -363,16 +528,33 @@ DECIMALES = 4
 _HEX = frozenset("0123456789abcdef")
 
 
-def _empreinte(valeur: Any, longueur: int = 64) -> str | None:
-    """La valeur si c'est bien une empreinte, `None` sinon — **jamais** une chaîne recopiée.
+def _est_empreinte(valeur: Any, longueur: int = 64) -> bool:
+    """`valeur` est-elle exactement `longueur` caractères hexadécimaux minuscules ?"""
+    return (isinstance(valeur, str) and len(valeur) == longueur
+            and all(c in _HEX for c in valeur))
 
-    Le rapport et le gate sont des entrées : rien ne garantit qu'un `cases_hash` bricolé à la main y
-    ressemble à une empreinte. Le publier tel quel ferait afficher aux quatre surfaces une identité
-    qui n'en est pas ; refuser la publication entière serait pire — un rapport lisible cesserait
-    d'être publiable. « Ce champ n'est pas une empreinte » se dit donc par son absence.
+
+def _empreinte(valeur: Any, longueur: int = 64) -> str | None:
+    """L'empreinte, ou `None` **si et seulement si** elle est absente — jamais un repli silencieux.
+
+    Story 4.5, tour correctif 1/3, revue B5. La version précédente rabattait sur `None` une valeur
+    *présente mais invalide* : un `cases_hash` bricolé à la main s'affichait `—` sur les quatre
+    surfaces, c'est-à-dire exactement comme un rapport qui n'en porte pas. C'est la faute que tout
+    ce cycle ferme, sous sa dernière forme : « je n'ai pas su la lire » rendu comme « il n'y en
+    avait pas ».
+
+    Absent (`None`, ou chaîne vide côté gate) reste une absence — un diagnostic n'a ni révision
+    candidate ni rapport certifié, et l'inventer serait pire. Présent et mal formé est un
+    `RapportInexploitable` qui nomme le champ.
     """
-    texte = "" if valeur is None else str(valeur)
-    return texte if len(texte) == longueur and all(c in _HEX for c in texte) else None
+    if valeur is None or valeur == "":
+        return None
+    if not _est_empreinte(valeur, longueur):
+        raise RapportInexploitable(
+            f"publication : {valeur!r} n'est pas une empreinte de {longueur} caractères "
+            "hexadécimaux — la publier telle quelle afficherait sur les quatre surfaces une "
+            "identité qui n'en est pas une")
+    return str(valeur)
 
 
 def nombre(valeur: float) -> str:
@@ -676,10 +858,15 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
 
     La séquence est donc celle-ci, et c'est la seule qui tienne (revue A) : tout est écrit et vidé
     sur disque ici, **puis** l'entrée de manifest est préparée de la même façon, **puis** chaque
-    temporaire bascule par `os.replace` (atomique, même système de fichiers, sur un fichier déjà
-    écrit). Tout ce qui peut échouer survient ainsi avant la **première** bascule : le manifest reste
-    byte-identique, aucune publication partielle n'est visible, et il ne subsiste aucun état où les
-    surfaces affirment un verdict que le manifest ne porte pas.
+    temporaire bascule par `os.replace` (même système de fichiers, sur un fichier déjà écrit).
+
+    Ce que cela garantit, exactement (revue B7, tour correctif 1/3) : tout ce qui peut échouer
+    *pour une autre raison qu'un renommage* survient avant la première bascule — validation,
+    sérialisation, écriture, `fsync`. Un `os.replace` peut encore échouer, et le dire autrement
+    serait suraffirmer : ce qui le rattrape est la restauration de `run._basculer`, qui remet les
+    cibles déjà basculées dans leur état d'avant, en ordre inverse. La propriété obtenue est donc
+    « tout ou rien sous échec de renommage, par restauration », et non l'atomicité forte que POSIX
+    n'offre que sur un seul `rename`.
 
     `preparer(cible, contenu) -> tmp` est la recette d'écriture temporaire de l'appelant ; une
     seconde recette ici laisserait un fichier à moitié écrit le jour où le disque est plein.
