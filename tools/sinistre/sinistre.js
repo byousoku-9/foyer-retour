@@ -1516,8 +1516,12 @@
   function lireLecturePartielle(lecture, champ) {
     if (lecture === undefined || lecture === null) return;
     exiger(estObjet(lecture), champ);
-    exiger(estCompteur(lecture.nodes_read), champ + ".nodes_read");
-    exiger(estCompteur(lecture.blocks_read), champ + ".blocks_read");
+    // Plancher à 1 sur les **deux** compteurs, comme le domaine : zéro passage transmis est
+    // l'erreur terminale d'AD-1/NFR2, et zéro section pour au moins un passage est un état
+    // impossible (AD-2 rattache chaque bloc à exactement un nœud). Les accepter affichait au
+    // gestionnaire deux chiffres qui se contredisent.
+    exiger(estCompteur(lecture.nodes_read) && lecture.nodes_read >= 1, champ + ".nodes_read");
+    exiger(estCompteur(lecture.blocks_read) && lecture.blocks_read >= 1, champ + ".blocks_read");
     exigerListe(lecture.documents, estChaine, champ + ".documents");
   }
 
@@ -1591,8 +1595,12 @@
                    (estObjet(o.answer.lecture_partielle) ? 1 : 0);
     exiger(porteurs <= 1, "answer.lecture_partielle");
     exiger(o.answer.found === true || porteurs === 1, "answer.reason");
+    // Sur `found=true`, **aucun** des deux : une clause retenue n'est ni une absence prouvée ni une
+    // lecture restée sans conclusion. Ne fermer que le second laissait afficher un verdict fondé
+    // sur des clauses **et** la preuve chiffrée qu'aucune n'existe.
     exiger(o.answer.found !== true || !estObjet(o.answer.lecture_partielle),
            "answer.lecture_partielle");
+    exiger(o.answer.found !== true || !estObjet(o.answer.reason), "answer.reason");
     // « Une lecture partielle dit ce qui lui manque » : aucune route ne peut servir ce corps, et le
     // peindre donnerait un compteur de lecture sans la moindre réserve en face.
     exiger(!estObjet(o.answer.lecture_partielle) || o.answer.unknown.length > 0, "answer.unknown");
