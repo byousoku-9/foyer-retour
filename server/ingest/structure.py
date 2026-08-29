@@ -34,12 +34,14 @@ import json
 import math
 import os
 import sys
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import anthropic
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
@@ -50,16 +52,21 @@ from server.ingest.artifacts import write_atomic
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
 MODEL = TIERS[TIER]
-# `-2` : la couverture est devenue totale et les lignes d'une table sont entrées au registre. Une
-# proposition acceptée sous les règles précédentes ne l'est plus forcément, et le registre qu'elle
-# adresse a changé : l'empreinte doit le dire (AD-2, lu par le loader).
-STRUCTURE_RULES_VERSION = "4.2c-2"
+# `-3` : la largeur de l'arbre est bornée à son tour (`structure_max_nodes`,
+# `structure_max_children`). `-2` : la couverture est devenue totale et les lignes d'une table sont
+# entrées au registre. Une proposition acceptée sous les règles précédentes ne l'est plus forcément,
+# et le registre qu'elle adresse a changé : l'empreinte doit le dire (AD-2, lu par le loader).
+STRUCTURE_RULES_VERSION = "4.2c-3"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
 MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
-          "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive", "ordre_impossible",
-          "intervalles_croises", "parent_non_contenant", "ligne_omise",
+          "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive", "largeur_excessive",
+          "ordre_impossible", "intervalles_croises", "parent_non_contenant", "ligne_omise",
           "affectation_non_prouvee", "noeud_non_construit")
+# Longueur maximale d'un `line_uid`. Ce n'est pas un réglage mais la **forme** d'un identifiant du
+# registre — `p{page}:l{rang}`, idiome de `DOC_ID_MAX` —, et c'est elle qui empêche un artefact de
+# concentrer tout son poids dans un seul `uid` que le vérificateur comparerait ensuite au registre.
+LINE_UID_MAX = 64
 
 
 class StrictModel(BaseModel):
@@ -69,16 +76,86 @@ class StrictModel(BaseModel):
 class NoeudPropose(StrictModel):
     """Un nœud proposé : quatre ancres de lignes, et rien d'autre — ni titre, ni kind, ni portée."""
 
-    titre_line_uid: str
-    premiere_line_uid: str
-    derniere_line_uid: str
-    parent_line_uid: str | None = None
+    titre_line_uid: str = Field(max_length=LINE_UID_MAX)
+    premiere_line_uid: str = Field(max_length=LINE_UID_MAX)
+    derniere_line_uid: str = Field(max_length=LINE_UID_MAX)
+    parent_line_uid: str | None = Field(default=None, max_length=LINE_UID_MAX)
+
+
+def _trop_de_noeuds(total: int, settings: Settings) -> str | None:
+    """Le compte total, jugé en O(1) — avant même de parcourir les nœuds une première fois."""
+    if total > settings.structure_max_nodes:
+        return (f"{total} nœud(s) proposé(s) > borne STRUCTURE_MAX_NODES="
+                f"{settings.structure_max_nodes}")
+    return None
+
+
+def _fratrie_trop_large(fratries: Counter[Any], settings: Settings) -> str | None:
+    """La plus large fratrie, racines comprises (clé `None`).
+
+    Une proposition « plate » de N nœuds sans parent est une largeur de N : compter par parent
+    déclaré **sans** les racines laisserait passer exactement le cas le plus simple à fabriquer.
+    """
+    if not fratries:
+        return None
+    parent, largeur = fratries.most_common(1)[0]
+    if largeur > settings.structure_max_children:
+        return (f"{largeur} enfant(s) sous {'la racine' if parent is None else repr(parent)} > "
+                f"borne STRUCTURE_MAX_CHILDREN={settings.structure_max_children}")
+    return None
+
+
+def largeur_hors_borne(noeuds: Sequence[NoeudPropose], settings: Settings) -> str | None:
+    """Détail du dépassement de largeur, ou `None` si la proposition tient dans ses deux bornes.
+
+    Une seule règle pour les cinq points où elle s'applique — schéma fournisseur, modèle Pydantic,
+    parse local, chargement depuis le disque, vérificateur —, si bien qu'aucun d'eux ne peut dériver
+    d'un autre. Le compte total est jugé le premier : il refuse sans rien parcourir.
+    """
+    return (_trop_de_noeuds(len(noeuds), settings)
+            or _fratrie_trop_large(Counter(noeud.parent_line_uid for noeud in noeuds), settings))
+
+
+def _largeur_brute(charge: Any, settings: Settings) -> str | None:
+    """La même largeur, lue sur la charge **brute** d'un `structure.json`, avant tout modèle bâti.
+
+    Compter avant de construire est ce qui permet au motif dédié de sortir : bâtir d'abord ferait
+    rendre `proposition_illisible` par le modèle, un motif qui ne dit pas ce qui est en cause. Une
+    forme aberrante n'est pas jugée ici — c'est l'affaire du modèle —, seule la largeur l'est.
+    """
+    noeuds = charge.get("noeuds") if isinstance(charge, dict) else None
+    if not isinstance(noeuds, list):
+        return None
+    trop = _trop_de_noeuds(len(noeuds), settings)
+    if trop is not None:
+        return trop  # le compte suffit : la liste n'est même pas parcourue
+    fratries: Counter[Any] = Counter()
+    for noeud in noeuds:
+        parent = noeud.get("parent_line_uid") if isinstance(noeud, dict) else None
+        # Un parent qui n'est ni une chaîne ni `null` est hors schéma : il est compté à part, sous une
+        # clé qui ne peut pas être un `uid`, et le modèle le refusera juste après.
+        fratries[parent if parent is None or isinstance(parent, str) else "?"] += 1
+    return _fratrie_trop_large(fratries, settings)
 
 
 class StructureProposee(StrictModel):
     schema_version: Literal["1"] = "1"
     doc_id: str = Field(max_length=DOC_ID_MAX)
     noeuds: list[NoeudPropose] = Field(default_factory=list)
+
+    @field_validator("noeuds")
+    @classmethod
+    def _borner_la_largeur(cls, noeuds: list[NoeudPropose]) -> list[NoeudPropose]:
+        """Aucune proposition hors borne ne peut seulement être **bâtie**, d'où qu'elle vienne.
+
+        La borne n'est pas un `Field(max_length=…)` parce qu'elle est un seuil, pas une forme : elle
+        vit dans `server/app/config.py` et se règle, quand un littéral figé ici serait précisément le
+        seuil en dur que la convention interdit.
+        """
+        detail = largeur_hors_borne(noeuds, get_settings())
+        if detail is not None:
+            raise ValueError(f"largeur_excessive : {detail}")
+        return noeuds
 
 
 class PropositionFilaire(StrictModel):
@@ -230,8 +307,13 @@ def _prompt() -> str:
     return (PROMPTS_DIR / "structure.md").read_text("utf-8")
 
 
-def _schema(uids: tuple[str, ...]) -> dict[str, Any]:
-    """Le schéma fournisseur énumère les `uid` autorisés : rien d'autre ne peut être écrit."""
+def _schema(uids: tuple[str, ...], settings: Settings) -> dict[str, Any]:
+    """Le schéma fournisseur énumère les `uid` autorisés : rien d'autre ne peut être écrit.
+
+    `maxItems` y borne la largeur dès la surface d'écriture. Le nombre d'enfants d'un parent n'est
+    pas exprimable en JSON Schema ; `maxItems` le borne transitivement — une fratrie ne compte jamais
+    plus de nœuds que l'arbre entier —, et `parse_proposition` le revérifie exactement.
+    """
     uid_schema = {"type": "string", "enum": list(uids)}
     noeud = {
         "type": "object",
@@ -246,7 +328,8 @@ def _schema(uids: tuple[str, ...]) -> dict[str, Any]:
     }
     schema = {
         "type": "object",
-        "properties": {"noeuds": {"type": "array", "items": noeud}},
+        "properties": {"noeuds": {"type": "array", "items": noeud,
+                                  "maxItems": settings.structure_max_nodes}},
         "required": ["noeuds"],
         "additionalProperties": False,
     }
@@ -260,7 +343,8 @@ def requete(registre: dict[str, Entree], doc_id: str, settings: Settings) -> dic
         "max_tokens": settings.structure_max_output_tokens,
         "system": [{"type": "text", "text": _prompt()}],
         "messages": [{"role": "user", "content": demande(registre, settings)}],
-        "output_config": {"format": _schema(tuple(sorted(registre, key=lambda u: registre[u].ordre))),
+        "output_config": {"format": _schema(tuple(sorted(registre, key=lambda u: registre[u].ordre)),
+                                            settings),
                           "effort": EFFORT[TIER]},
     }
 
@@ -272,7 +356,8 @@ def majorant_eur(params: dict[str, Any], settings: Settings) -> float:
                                output_schema=params["output_config"]["format"]), 4)
 
 
-def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str) -> StructureProposee:
+def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
+                      settings: Settings | None = None) -> StructureProposee:
     """Défense locale, **même si le schéma l'impose** : tout `uid` étranger est refusé avant usage.
 
     Deux temps, dans cet ordre. D'abord la **forme filaire**, validée localement par
@@ -285,6 +370,10 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str) -> Str
         noeuds = _FILAIRE.validate_json(raw).noeuds
     except (ValidationError, ValueError, TypeError) as exc:
         raise ValueError(f"proposition hors schéma strict ({type(exc).__name__})") from exc
+    # La largeur d'abord : elle borne le travail de tout ce qui suit, ici comme dans `verifier`.
+    detail = largeur_hors_borne(noeuds, settings or get_settings())
+    if detail is not None:
+        raise ValueError(f"largeur_excessive : {detail}")
     vus: set[str] = set()
     for noeud in noeuds:
         for champ, uid in (("titre_line_uid", noeud.titre_line_uid),
@@ -312,6 +401,12 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
     """
     if proposition.doc_id != doc_id:
         return _refus("document_different", f"proposition pour {proposition.doc_id!r}, document {doc_id!r}")
+    # La largeur est jugée **avant toute boucle** : celle des intervalles est en O(n²), et le modèle
+    # Pydantic ne suffit pas — `model_construct` et tout appel programmatique direct le contournent.
+    # Une proposition trop large est refusée en O(n), sans être parcourue une seule fois de plus.
+    detail = largeur_hors_borne(proposition.noeuds, settings)
+    if detail is not None:
+        return _refus("largeur_excessive", detail)
     if not proposition.noeuds:
         # Refusée pour ce qu'elle est, avant même la couverture : « aucun nœud » est un état du
         # proposant, pas une liste de lignes omises. Le motif dit donc qu'il n'y a rien à prouver,
@@ -436,13 +531,20 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                    detail=f"{len(noeuds)} nœud(s), couverture totale de {len(registre)} ligne(s)")
 
 
-def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: str,
-          ) -> tuple[dict[str, NoeudVerifie], dict[str, str]]:
+def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: str, *,
+          settings: Settings | None = None) -> tuple[dict[str, NoeudVerifie], dict[str, str]]:
     """Nœuds dérivés d'une proposition **déjà vérifiée**, et la ligne → nœud le plus profond.
 
     Le `node_id` est un chemin positionnel (`{doc_id}:s1.2`) calculé par le code, et le titre est
     relu dans le registre : le modèle n'écrit ni l'un ni l'autre.
+
+    « Déjà vérifiée » est ici **imposé**, pas supposé, pour la seule borne dont le coût se paierait
+    sur-le-champ : l'affectation ligne → nœud est en O(lignes × nœuds), et un appel programmatique
+    direct sur une proposition non bornée referait le travail que `verifier` refuse.
     """
+    detail = largeur_hors_borne(proposition.noeuds, settings or get_settings())
+    if detail is not None:
+        raise StructureRefusee("largeur_excessive", detail)
     titres = {noeud.titre_line_uid: noeud for noeud in proposition.noeuds}
     enfants: dict[str | None, list[str]] = {}
     for noeud in proposition.noeuds:
@@ -491,15 +593,26 @@ def presente(path: Path) -> bool:
     return os.path.lexists(path)
 
 
-def charger(path: Path) -> StructureProposee:
-    """Lit `structure.json`. Un artefact illisible ou hors schéma est un refus **nommé**.
+def charger(path: Path, *, settings: Settings | None = None) -> StructureProposee:
+    """Lit `structure.json`. Un artefact illisible, hors schéma ou trop large est un refus **nommé**.
 
     La nature de l'entrée est jugée **avant** toute ouverture : ce qui n'est pas un fichier régulier
     est refusé sans être lu. Un répertoire ou un lien pendant lèveraient bien une `OSError`, mais un
     tube, lui, ferait bloquer l'ingestion jusqu'à ce qu'un écrivain se présente — un refus doit être
     rendu, jamais attendu.
 
-    `OSError` compte ensuite au même titre que le hors-schéma : un fichier aux droits refusés donnait
+    Sa **taille** est jugée juste après, toujours sans lecture : un artefact ne peut pas peser plus
+    que la charge utile qui l'a produit (`structure_max_input_chars`), puisqu'il ne fait que nommer
+    des `uid` que cette charge portait déjà, chacun accompagné là-bas de sa page, de sa colonne, de
+    son ordre, de sa boîte et de son texte. Sans cette borne d'entrée, un `structure.json` de dix
+    millions de nœuds était entièrement désérialisé, puis vérifié, avant d'être rejeté — la borne de
+    sortie (`structure_max_output_tokens`) ne borne, elle, que la réponse du réseau.
+
+    La largeur est ensuite comptée sur la charge **brute**, avant que le moindre modèle soit bâti :
+    c'est ce qui permet à `largeur_excessive` de sortir plutôt qu'un `proposition_illisible` qui ne
+    dirait pas ce qui est en cause.
+
+    `OSError` compte enfin au même titre que le hors-schéma : un fichier aux droits refusés donnait
     sinon une quarantaine sous motif générique, alors que le check promet un motif du vocabulaire
     fermé.
     """
@@ -507,9 +620,45 @@ def charger(path: Path) -> StructureProposee:
         raise StructureRefusee(
             "proposition_illisible",
             f"{path.name} présent mais illisible : ni fichier régulier, ni absent")
+    settings = settings or get_settings()
     try:
-        return StructureProposee.model_validate_json(path.read_bytes())
-    except (ValidationError, ValueError, OSError, UnicodeDecodeError) as exc:
+        taille = path.stat().st_size
+    except OSError as exc:
+        raise StructureRefusee("proposition_illisible",
+                               f"{path.name} illisible : {type(exc).__name__}") from exc
+    if taille > settings.structure_max_input_chars:
+        raise StructureRefusee(
+            "largeur_excessive",
+            f"{path.name} pèse {taille} octet(s) > borne STRUCTURE_MAX_INPUT_CHARS="
+            f"{settings.structure_max_input_chars} : refusé sans être lu")
+    try:
+        with path.open("rb") as flux:
+            # La taille annoncée n'est pas crue sur parole : la lecture s'arrête d'elle-même un octet
+            # au-delà de la borne. Un fichier qui grandit entre l'appel et la lecture, ou dont
+            # l'entrée de répertoire a changé de cible, ne fait donc pas entrer plus que la borne.
+            brut = flux.read(settings.structure_max_input_chars + 1)
+    except (OSError, ValueError) as exc:
+        raise StructureRefusee("proposition_illisible",
+                               f"{path.name} illisible : {type(exc).__name__}") from exc
+    if len(brut) > settings.structure_max_input_chars:
+        raise StructureRefusee(
+            "largeur_excessive",
+            f"{path.name} dépasse la borne STRUCTURE_MAX_INPUT_CHARS="
+            f"{settings.structure_max_input_chars} : jamais lu au-delà")
+    try:
+        # `RecursionError` compte comme le hors-schéma : un artefact profondément imbriqué la lève
+        # dans l'analyseur JSON, et elle sortirait sinon du filet — le rapport publierait alors un
+        # motif générique là où le check promet un mot du vocabulaire fermé.
+        charge = json.loads(brut)
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+        raise StructureRefusee("proposition_illisible",
+                               f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc
+    detail = _largeur_brute(charge, settings)
+    if detail is not None:
+        raise StructureRefusee("largeur_excessive", f"{path.name} : {detail}")
+    try:
+        return StructureProposee.model_validate(charge)
+    except (ValidationError, ValueError, TypeError) as exc:
         raise StructureRefusee("proposition_illisible",
                                f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc
 
@@ -546,7 +695,7 @@ def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
         raise ValueError(f"appel refusé ({type(exc).__name__}); rien n'a été écrit") from exc
     raw, cost = _texte(message, settings)
     try:
-        return parse_proposition(raw, registre, doc_id), cost
+        return parse_proposition(raw, registre, doc_id, settings=settings), cost
     except ValueError as exc:
         stop_reason = getattr(message, "stop_reason", None)
         raise ValueError(f"{exc} (coût réel {cost:.4f} €, stop_reason={stop_reason!r}, "

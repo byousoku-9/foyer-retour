@@ -25,6 +25,7 @@ import json
 import logging
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from math import ceil
 from pathlib import Path
@@ -52,13 +53,18 @@ TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
 DEFAULT_EDITION = "juin 2017"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
-PARSER_VERSION = "10"  # story 4.2c : registre de lignes source, colonnes géométriques, structure vérifiée
+# story 4.2c : registre de lignes source, colonnes géométriques (lignes **et** tables), structure
+# vérifiée. La génération reste `10` : elle nomme la story, dont les artefacts committés sont déjà
+# déclarés périmés dans `docs/choix-et-limites.md`, et c'est `SEGMENTATION_RULES` — lui aussi dans
+# l'empreinte — qui porte l'énoncé exact de la règle et change dès qu'elle change.
+PARSER_VERSION = "10"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
                       "gap>para_gap_ratio*h=>para;"
                       "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
-                      "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_portees_une_fois;"
+                      "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_portees_une_fois"
+                      "&geometrie_dans_la_detection(rangees a l'aplomb de la boite,sans_bloc=>ignoree);"
                       "ocr:page_visuelle_sans_texte_retenu=>get_textpage_ocr(fra)&source_field=ocr;"
                       "tdm:entrees_structurees(numero+page|points_de_conduite+page)|intitule_autonome_visible"
                       "=>continuation_si_entrees_structurees;sans_rearmement_apres_corps;"
@@ -68,9 +74,10 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "dedent:dernier_frere_reel+item_num_compact+alignement_corps_parent=>parent;"
                       "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
                       "toc:get_toc()=>titres manquants+tdm_pdf_ecart;"
-                      "colonnes:gouttiere>=column_gutter_min_pt&cotes>=column_min_lines"
+                      "colonnes:gouttiere>=column_gutter_min_pt"
+                      "&cotes>=column_min_lines(lignes+rangees_de_table)"
                       "&hauteur>=column_min_span_ratio=>lecture(bande,colonne,y0,x0);"
-                      "rangee:appariement>column_row_pairing_max_ratio"
+                      "rangee(lignes_seules):appariement>column_row_pairing_max_ratio"
                       "&remplissage<column_min_fill_ratio=>gouttiere_ecartee;"
                       "sans_gouttiere=>ordre_lecture=ordre_source;traversante=>colonne0+bande;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
@@ -100,12 +107,28 @@ def ingest_fingerprint(structure: StructureProposee | None = None) -> str:
     `node_id` : il doit donc changer l'empreinte, exactement comme un seuil géométrique le fait.
     Son absence est un état nommé, pas un trou — sans quoi « aucune proposition » et « une
     proposition qui ne structure rien » se confondraient.
+
+    Les règles de vérification et leurs bornes n'entrent dans l'empreinte que dans la branche où une
+    proposition est **effectivement appliquée**. Elles peuvent y faire basculer accepté/refusé, donc
+    changer l'arbre servi : c'est le critère. Un document sans `structure.json` n'est en revanche
+    concerné par aucune d'elles, et les y faire entrer quand même périmerait ses artefacts pour un
+    réglage qui ne décide rien chez lui — une invalidation abusive, que le loader paierait en
+    quarantaine. Restent dehors dans les deux cas `structure_max_output_tokens` et
+    `structure_max_cost_eur` : ils bornent la fabrication hors ligne de l'artefact, jamais son
+    acceptation. `structure_max_input_chars`, lui, y entre : il borne aussi la taille de l'artefact
+    relu du disque, donc son admission.
     """
     s = get_settings()
+    regles: dict[str, Any] = {"structure": empreinte_proposition(structure)}
+    if structure is not None:
+        regles["structure_rules"] = STRUCTURE_RULES_VERSION
+        regles["structure_thresholds"] = {"structure_max_depth": s.structure_max_depth,
+                                          "structure_min_coverage": s.structure_min_coverage,
+                                          "structure_max_nodes": s.structure_max_nodes,
+                                          "structure_max_children": s.structure_max_children,
+                                          "structure_max_input_chars": s.structure_max_input_chars}
     payload = json.dumps({"parser": PARSER_VERSION, "schema": SCHEMA_VERSION, "segmentation": SEGMENTATION_RULES,
-                          "flags": FLAGS, "normalize_version": normalize_version,
-                          "structure_rules": STRUCTURE_RULES_VERSION,
-                          "structure": empreinte_proposition(structure),
+                          "flags": FLAGS, "normalize_version": normalize_version, **regles,
                           "thresholds": {"header_band_pt": s.header_band_pt, "footer_band_pt": s.footer_band_pt,
                                          "header_min_pages_ratio": s.header_min_pages_ratio,
                                          "para_gap_ratio": s.para_gap_ratio,
@@ -482,19 +505,22 @@ def _ocr_error_category(exc: Exception) -> str:
     return "echec_moteur"
 
 
-def _merge_number_lines(lines: list[PageLine]) -> list[PageLine]:
+def _merge_number_lines(lines: list[PageLine], tables: Sequence[PageTable] = ()) -> list[PageLine]:
     """« 1.12 » seul sur sa ligne + « Contenu » sur la même ligne de base ⇒ une seule `Line` « 1.12 Contenu ».
 
     La fusion ne franchit **jamais** une gouttière : un numéro en bas d'une colonne et une ligne de
     la colonne voisine partagent souvent une ligne de base, et les réunir fabriquait une ligne
     pleine largeur factice — donc une bande parasite, un titre faux et un bloc à cheval sur deux
     colonnes. Les frontières sont recalculées ici sur la géométrie d'**avant** fusion, la seule que
-    la fusion puisse consulter (`_column_boundaries` est défini plus bas ; Python le résout à
-    l'appel).
+    la fusion puisse consulter (`_boites` et `_column_boundaries` sont définis plus bas ; Python les
+    résout à l'appel), et sur la **même** géométrie que la lecture — tables comprises : une gouttière que
+    seules les tables révèlent doit arrêter la fusion comme les autres, sans quoi la page se
+    corrigerait à la lecture après s'être abîmée à la fusion.
     """
     s = get_settings()
-    written_height = (max(line.bbox[3] for line in lines) - min(line.bbox[1] for line in lines)) if lines else 0.0
-    boundaries = _column_boundaries(lines, written_height) if lines else []
+    boites = _boites(lines, tables)
+    written_height = (max(b.bbox[3] for b in boites) - min(b.bbox[1] for b in boites)) if boites else 0.0
+    boundaries = _column_boundaries(boites, written_height) if boites else []
     out: list[PageLine] = []
     i = 0
     while i < len(lines):
@@ -539,6 +565,58 @@ def _without_running_bands(page: PageText, lines: list[PageLine], band_texts: di
     return kept
 
 
+@dataclass(frozen=True)
+class _Boite:
+    """Contribution géométrique d'un objet de page à la détection des gouttières (story 4.2c).
+
+    `ligne` porte la `PageLine` d'origine quand la boîte en est une, et `None` quand elle représente
+    une rangée de table : la garde « libellé … montant » a besoin de faire la différence, la
+    géométrie des gouttières non.
+    """
+
+    bbox: tuple[float, float, float, float]
+    ligne: PageLine | None
+
+
+def _boites(lines: list[PageLine], tables: Sequence[PageTable] = ()) -> list[_Boite]:
+    """Géométrie observée par la détection de colonnes : les lignes **et** les tables.
+
+    Une table est un bloc atomique : une gouttière ne peut pas la couper — elle est soit entièrement
+    d'un côté, soit traversante, donc pleine largeur et ouvrant une bande, exactement comme une ligne
+    traversante. Cette atomicité est **structurelle** ici, jamais un contrôle ajouté après coup :
+    chaque rangée entre à l'aplomb de la boîte de sa table (les `x` de la table, les `y` de la
+    rangée), si bien qu'aucune frontière ne peut passer entre deux rangées d'une même table sans les
+    traverser toutes. Les `y` sont bornés par la boîte de la table : une rangée mal publiée par
+    l'extracteur ne peut donc pas dilater la hauteur écrite de la page.
+
+    Les rangées, et non la seule boîte, parce qu'une table est du **contenu écrit** : la compter pour
+    un objet unique la laissait sous `column_min_lines`, et une colonne entièrement tabulaire restait
+    invisible. À défaut de `row_bboxes` — un extracteur qui ne les publie pas —, la boîte compte pour
+    une : c'est la seule géométrie disponible, jamais une supposition sur les rangées.
+
+    Sans table sur la page, la liste rendue est exactement celle des lignes : une page sans table ne
+    peut donc pas changer de comportement, et l'invariant « aucune gouttière retenue ⇒ rien ne bouge »
+    y reste vrai à l'octet.
+    """
+    boites = [_Boite(bbox=(line.bbox[0], line.bbox[1], line.bbox[2], line.bbox[3]), ligne=line)
+              for line in lines]
+    for table in tables:
+        if not table.sert_un_bloc:
+            # Une table détectée qui ne rend aucune rangée ne produit aucun bloc (`table_sans_bloc`) :
+            # elle ne sert rien, donc elle ne pèse rien. La laisser voter aurait fait naître une
+            # colonne d'un contenu que l'ingestion s'apprête justement à déclarer non servi.
+            continue
+        x0, y0, x1, y1 = table.bbox[0], table.bbox[1], table.bbox[2], table.bbox[3]
+        if not table.row_bboxes:
+            boites.append(_Boite(bbox=(x0, y0, x1, y1), ligne=None))
+            continue
+        for row in table.row_bboxes:
+            haut = min(max(row[1], y0), y1)
+            bas = min(max(row[3], y0), y1)
+            boites.append(_Boite(bbox=(x0, haut, x1, bas), ligne=None))
+    return boites
+
+
 def _appariement_des_lignes_de_base(left: list[PageLine], right: list[PageLine]) -> float:
     """Part **mutuelle** des lignes qui trouvent une partenaire sur leur ligne de base de l'autre côté.
 
@@ -577,39 +655,58 @@ def _remplissage_minimal(lines: list[PageLine], left: list[PageLine], right: lis
     return min(parts)
 
 
-def _best_boundary(lines: list[PageLine], written_height: float) -> float | None:
-    """Meilleure gouttière d'un ensemble de lignes, ou `None` — géométrie seule, aucun cas particulier.
+def _best_boundary(boites: list[_Boite], written_height: float) -> float | None:
+    """Meilleure gouttière d'un ensemble de boîtes, ou `None` — géométrie seule, aucun cas particulier.
 
-    Une frontière candidate `c` partage les lignes en trois : celles **entièrement** à gauche
+    Une frontière candidate `c` partage les boîtes en trois : celles **entièrement** à gauche
     (`x1 <= c`), celles entièrement à droite (`x0 >= c`) et celles qui la traversent — ces dernières
     sont pleine largeur et n'invalident pas la gouttière. La gouttière est le blanc réellement mesuré
     entre les deux colonnes, `[max(x1 des gauches), min(x0 des droites)]` ; elle n'est retenue que si
-    elle est assez large, si chaque côté porte assez de lignes et si chaque côté est assez haut.
+    elle est assez large, si chaque côté porte assez de boîtes et si chaque côté est assez haut. Les
+    boîtes sont les lignes **et** les rangées des tables (`_boites`) : une page dominée par des
+    tables se lisait sinon en rangées, faute de la moindre géométrie tabulaire dans ce parcours.
+
     Elle est écartée en dernier ressort par la conjonction de **deux** signaux, jamais par un seul :
     les deux côtés appariés ligne de base à ligne de base **et** un côté qui ne remplit pas la
     largeur dont il dispose — la signature d'une rangée « libellé … montant ». L'appariement seul ne
     suffirait pas : une mise en page à deux colonnes partage très souvent la même grille de lignes
     de base, et l'écarter pour cela annulerait la correction sur les documents mêmes qu'elle vise.
-    Elle est intérieure par construction : elle a du texte des deux côtés, donc jamais une marge.
+
+    Cette garde ne porte que sur les **lignes**, jamais sur les rangées de table, et ce n'est pas une
+    commodité. Elle existe contre une rangée « libellé … montant » que `find_tables()` **n'a pas
+    vue** : la lire comme deux colonnes séparerait chaque montant de son libellé, parce que rien
+    d'autre ne les tient ensemble. Une rangée que `find_tables()` a vue est déjà un bloc atomique —
+    son libellé et son montant sont les cellules d'une même ligne du même bloc `table`, qu'aucune
+    gouttière ne peut disjoindre. Lui donner voix ici l'aurait fait voter contre des gouttières
+    qu'elle ne risque rien à voir retenues, et la grille régulière d'un tableau, appariée par
+    construction, aurait écarté les colonnes voisines. La garde reste donc armée à l'identique sur
+    les lignes d'une page qui porte aussi des tables ; elle se tait quand un côté n'a aucune ligne,
+    n'ayant alors aucune paire à observer.
+    Elle est intérieure par construction : elle a du contenu des deux côtés, donc jamais une marge.
     """
     s = get_settings()
-    if len(lines) < 2 * s.column_min_lines:
+    if len(boites) < 2 * s.column_min_lines:
         return None
+    lignes = [b.ligne for b in boites if b.ligne is not None]
     best: tuple[float, float] | None = None  # (largeur de gouttière, frontière)
-    for candidate in sorted({line.bbox[0] for line in lines}):
-        left = [line for line in lines if line.bbox[2] <= candidate]
-        right = [line for line in lines if line.bbox[0] >= candidate]
+    for candidate in sorted({b.bbox[0] for b in boites}):
+        left = [b for b in boites if b.bbox[2] <= candidate]
+        right = [b for b in boites if b.bbox[0] >= candidate]
         if len(left) < s.column_min_lines or len(right) < s.column_min_lines:
             continue
-        gutter = min(line.bbox[0] for line in right) - max(line.bbox[2] for line in left)
+        gutter = min(b.bbox[0] for b in right) - max(b.bbox[2] for b in left)
         if gutter < s.column_gutter_min_pt:
             continue
         minimum_span = s.column_min_span_ratio * written_height
-        if any(max(line.bbox[3] for line in side) - min(line.bbox[1] for line in side) < minimum_span
+        if any(max(b.bbox[3] for b in side) - min(b.bbox[1] for b in side) < minimum_span
                for side in (left, right)):
             continue
-        if _appariement_des_lignes_de_base(left, right) > s.column_row_pairing_max_ratio \
-                and _remplissage_minimal(lines, left, right) < s.column_min_fill_ratio:
+        lignes_gauche = [b.ligne for b in left if b.ligne is not None]
+        lignes_droite = [b.ligne for b in right if b.ligne is not None]
+        if lignes_gauche and lignes_droite \
+                and _appariement_des_lignes_de_base(lignes_gauche, lignes_droite) \
+                > s.column_row_pairing_max_ratio \
+                and _remplissage_minimal(lignes, lignes_gauche, lignes_droite) < s.column_min_fill_ratio:
             continue
         # À partition égale, la gouttière la plus large gagne ; à largeur égale, la frontière la plus
         # à gauche — deux règles totales, donc un résultat indépendant de l'ordre d'itération.
@@ -618,13 +715,13 @@ def _best_boundary(lines: list[PageLine], written_height: float) -> float | None
     return None if best is None else best[1]
 
 
-def _column_boundaries(lines: list[PageLine], written_height: float) -> list[float]:
+def _column_boundaries(boites: list[_Boite], written_height: float) -> list[float]:
     """Frontières retenues, triées. La récursion sur chaque côté couvre trois colonnes et plus."""
-    boundary = _best_boundary(lines, written_height)
+    boundary = _best_boundary(boites, written_height)
     if boundary is None:
         return []
-    left = [line for line in lines if line.bbox[2] <= boundary]
-    right = [line for line in lines if line.bbox[0] >= boundary]
+    left = [b for b in boites if b.bbox[2] <= boundary]
+    right = [b for b in boites if b.bbox[0] >= boundary]
     return sorted([*_column_boundaries(left, written_height), boundary,
                    *_column_boundaries(right, written_height)])
 
@@ -633,17 +730,25 @@ def _assign_reading_order(pt: PageText) -> None:
     """Pose `colonne`, `bande` et `ordre_lecture`, et réordonne la page colonne par colonne.
 
     **Aucune gouttière retenue ⇒ rien ne bouge** : `colonne=1`, `bande=0`, et `ordre_lecture` est
-    l'ordre d'extraction, à l'identique — un document mono-colonne ne peut donc pas régresser.
+    l'ordre d'extraction, à l'identique — un document mono-colonne ne peut donc pas régresser, et
+    une page qui ne porte que des tables non plus.
     Sinon la clé de lecture est `(bande, colonne, y0, x0, ordre source)` : une ligne qui traverse une
     gouttière est pleine largeur (`colonne=0`), ouvre une bande et se lit avant les colonnes qu'elle
     coiffe. Idempotent : rejouée sur la même page, la fonction rend le même ordre.
+
+    La géométrie observée est celle des lignes **et** des tables (`_boites`) : sans elles, une page
+    dominée par des tables ne portait aucune gouttière et se lisait en rangées — les tables ne
+    participaient qu'au bandage, et seulement une fois qu'une gouttière avait déjà été trouvée par les
+    lignes. La sortie anticipée porte donc sur les deux : une page sans ligne mais avec des tables a
+    bien un `layout`, sans quoi `_segment_page` trierait ses tables sur un `layout` vide.
     """
     lines = pt.lines
-    if not lines:
+    boites = _boites(lines, pt.tables)
+    if not boites:
         pt.layout = PageLayout()
         return
-    written_height = max(line.bbox[3] for line in lines) - min(line.bbox[1] for line in lines)
-    boundaries = _column_boundaries(lines, written_height)
+    written_height = max(b.bbox[3] for b in boites) - min(b.bbox[1] for b in boites)
+    boundaries = _column_boundaries(boites, written_height)
     layout = PageLayout(boundaries=boundaries)
     if not boundaries:
         pt.layout = layout
@@ -717,7 +822,7 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
                                               tables=pt.tables, registry=ocr_registry)
                     retained_ocr = _without_running_bands(pt, ocr_lines, band_texts, min_pages,
                                                           registry=ocr_registry)
-                    pt.lines = _merge_number_lines(retained_ocr)
+                    pt.lines = _merge_number_lines(retained_ocr, pt.tables)
                     # Le registre servi est celui de la couche réellement retenue : la couche native
                     # de cette page n'a rien laissé passer, ses lignes n'ancreraient donc aucun bloc.
                     pt.source = ocr_registry
@@ -730,7 +835,7 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
                     pt.ocr_error = f"ocr_exception:{type(exc).__name__}:{category}"
                     logger.exception("Échec OCR page %s (%s)", pt.page, category)
             else:
-                pt.lines = _merge_number_lines(native_kept)
+                pt.lines = _merge_number_lines(native_kept, pt.tables)
     finally:
         doc.close()
     _mark_toc_pages(pages)

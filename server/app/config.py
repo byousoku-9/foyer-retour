@@ -381,11 +381,16 @@ class Settings(BaseSettings):
     # couramment 20 à 40 pt ; 18 pt (≈ 6 mm) reste sous toute gouttière réelle et très au-dessus
     # d'une espace entre deux mots, qui ne peut donc jamais être prise pour une séparation.
     column_gutter_min_pt: float = Field(18.0, gt=0)
-    # Nombre minimal de lignes **entièrement** d'un côté de la gouttière, de chaque côté. Deux
-    # étiquettes isolées de part et d'autre d'un blanc ne font pas deux colonnes.
+    # Nombre minimal de boîtes **entièrement** d'un côté de la gouttière, de chaque côté. Deux
+    # étiquettes isolées de part et d'autre d'un blanc ne font pas deux colonnes. Une boîte est une
+    # ligne de texte **ou** une rangée de table : une table est du contenu écrit, et la compter pour
+    # un objet unique laissait une colonne entièrement tabulaire sous ce seuil — la page se lisait
+    # alors en rangées. La table reste un bloc atomique : ses rangées entrent à l'aplomb de sa boîte,
+    # si bien qu'aucune frontière ne peut la couper (elle est d'un côté, ou traversante).
     column_min_lines: int = Field(4, ge=2)
     # Part de la hauteur écrite que chaque côté doit couvrir. Une colonne est haute ; un encadré
-    # local, un pied de tableau ou une paire de légendes ne le sont pas.
+    # local, un pied de tableau ou une paire de légendes ne le sont pas. La hauteur écrite compte
+    # les tables : un côté qui ne couvre pas une page dominée par un tableau n'est pas une colonne.
     column_min_span_ratio: float = Field(0.35, gt=0, le=1)
     # Appariement maximal des lignes de base entre les deux côtés d'une gouttière, au-delà duquel
     # celle-ci n'est **pas** retenue. Mesuré en revue : une liste « libellé … montant » — huit
@@ -412,6 +417,11 @@ class Settings(BaseSettings):
     # 0,6 sépare les deux familles avec de la marge de chaque côté. Le critère est géométrique et
     # sans énoncé propre à un document ; il entre dans `ingest_fingerprint` au même titre que les
     # autres bornes de colonne.
+    # Cette garde à deux signaux ne s'applique qu'aux **lignes**, jamais aux rangées d'une table :
+    # elle protège une rangée que `find_tables()` n'a pas vue, dont rien d'autre ne tient ensemble le
+    # libellé et le montant. Une rangée détectée est déjà un bloc atomique — ses cellules sont dans
+    # le même bloc `table`, qu'aucune gouttière ne disjoint — et la grille régulière d'un tableau,
+    # appariée par construction, aurait écarté les colonnes voisines si on l'y avait fait voter.
     column_min_fill_ratio: float = Field(0.6, gt=0, le=1)
 
     # Structure proposée puis vérifiée (story 4.2c, AD-2 / AD-7 / AD-16). Le tier `ingest` propose
@@ -421,6 +431,19 @@ class Settings(BaseSettings):
     # Profondeur maximale d'un arbre proposé. Au-delà, la « hiérarchie » n'est plus une structure
     # lisible mais une chaîne que rien ne peut vérifier à l'œil.
     structure_max_depth: int = Field(6, ge=1)
+    # Largeur de l'arbre proposé : nombre total de nœuds, et nombre d'enfants d'un même parent —
+    # **racines comprises**, une proposition « plate » de N nœuds sans parent étant une largeur de N.
+    # La profondeur était bornée, la largeur ne l'était pas : `verifier()` porte une boucle en O(n²)
+    # sur les intervalles, et un `structure.json` très large faisait donc travailler indéfiniment un
+    # chemin dont toute la valeur est d'être fail-closed et déterministe. Un refus est nommé et
+    # bloquant (quarantaine), jamais un rognage silencieux de la proposition.
+    # **Mesuré, et non supposé** : les trois documents déjà ingérés portent 751, 88 et 2 nœuds
+    # (`data/*/document.json`), et leur fratrie la plus large en compte 87 (les racines du guide),
+    # puis 54. Les deux bornes sont réglées à ~2,7 fois le maximum mesuré ; elles restent en deçà du
+    # nombre de lignes source d'un contrat réel (4 214 et 4 802 mesurées), ce qui est voulu : un
+    # document dont la moitié des lignes seraient des titres n'est pas une hiérarchie.
+    structure_max_nodes: int = Field(2000, ge=1)
+    structure_max_children: int = Field(256, ge=1)
     # Part minimale des lignes du registre que les intervalles proposés doivent couvrir. L'AC exige
     # une borne de couverture **explicite** : elle est nommée ici, publiée par `thresholds()` et
     # documentée. Son défaut est `1.0` parce que l'AC exige aussi que « toute ligne omise » mette le
@@ -707,6 +730,8 @@ class Settings(BaseSettings):
             "column_row_pairing_max_ratio": self.column_row_pairing_max_ratio,
             "column_min_fill_ratio": self.column_min_fill_ratio,
             "structure_max_depth": self.structure_max_depth,
+            "structure_max_nodes": self.structure_max_nodes,
+            "structure_max_children": self.structure_max_children,
             "structure_min_coverage": self.structure_min_coverage,
             "structure_max_input_chars": self.structure_max_input_chars,
             "structure_max_output_tokens": self.structure_max_output_tokens,
