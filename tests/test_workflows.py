@@ -330,6 +330,13 @@ def test_la_ci_lance_quick_sur_pr_full_sur_main_et_resume_en_markdown() -> None:
     assert evals["env"]["EVALS_QUICK"] == "${{ github.ref == 'refs/heads/main' && '0' || '1' }}"
     assert "pytest -m evals" in evals["run"] and "--evals-max-cost" in evals["run"]
     assert 'cat .evals/results.md >> "$GITHUB_STEP_SUMMARY"' in evals["run"]
+    # Story 4.5, B7 : la disposition de publication des sorties de run est posée par la CI, avant
+    # le run, parce que `.evals/` est ignoré par git et que la bascule n'installe jamais ses cibles.
+    # La ligne épinglée ci-dessus est inchangée : `cat` suit un lien symbolique.
+    assert "python -m server.evals.espace" in evals["run"]
+    assert "--cible .evals/results.md" in evals["run"]
+    assert evals["run"].index("server.evals.espace") < evals["run"].index("pytest -m evals"), \
+        "la disposition se pose avant le run, jamais pendant une bascule"
     restauration = pas[index_de(pas, "actions/cache/restore@v4")]
     sauvegarde = pas[index_de(pas, "actions/cache/save@v4")]
     assert restauration["id"] == "evals_cache"

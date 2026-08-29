@@ -182,7 +182,12 @@ def test_la_reingestion_reelle_du_guide_rend_son_arbre_prouvable(tmp_path: Path)
 
     doc_id = _guide_doc_id()
     data = tmp_path / "data"
-    shutil.copytree(DATA, data)
+    # `symlinks=True` : `data/manifest.json` et `data/evals-latest.json` sont désormais des liens
+    # vers l'espace de publication (`server/evals/espace.py`, story 4.5, B7). Les suivre les
+    # déréférencerait — et `evals-latest.json` n'a pas de cible tant qu'aucun run ne l'a publié
+    # (un lien pendant, l'équivalent d'une absence) : `shutil.copytree` par défaut lève alors une
+    # `Error`. Copier le lien préserve exactement la même disposition, pendante comprise.
+    shutil.copytree(DATA, data, symlinks=True)
     manifest_path = data / "manifest.json"
     edition = json.loads(manifest_path.read_text(encoding="utf-8"))[doc_id]["edition"]
 

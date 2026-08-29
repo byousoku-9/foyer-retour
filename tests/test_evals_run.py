@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,9 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
+from server.evals.espace import GENERATIONS, REPERTOIRE_ESPACE
 from server.evals.plancher import charger_plancher
+from tests.helpers_espace import poser_espace
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -589,9 +592,17 @@ def test_parsing_reel_tourne_sans_cle_client_ni_fournisseur(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(runner, "LlmClient", _interdit)
+    # Une copie du corpus servi réel (story 4.5, B7) : la suite `parsing` mesure les 11 cas contre
+    # les vrais documents ingérés, mais l'écriture des rapports doit rester hors de `data/` du dépôt.
+    # `symlinks=True` préserve la disposition de l'espace de publication telle quelle — la suivre la
+    # déréférencerait, et `evals-latest.json` n'a pas encore de cible tant qu'aucun run ne l'a publié.
+    data = tmp_path / "data"
+    shutil.copytree(runner.DATA_DIR, data, symlinks=True)
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("parsing.json"), Path("parsing.md")))
     sortie = tmp_path / "parsing.json"
     code = runner.main([
         "--suite", "parsing", "--profile", "full", "--max-cost", "0.01",
+        "--data-dir", str(data),
         "--output-json", str(sortie), "--output-markdown", str(tmp_path / "parsing.md"),
     ])
     assert code == 1
@@ -1299,6 +1310,9 @@ def _data_dir(tmp_path: Path) -> Path:
                    "document_hash": "d", "edition": "2020", "overlay_hash": None, "gate": None}
                for d in (GUIDE, CONTRAT)}
     (racine / "manifest.json").write_text(json.dumps(entrees, indent=2) + "\n", encoding="utf-8")
+    # Story 4.5, B7 : `ecrire_gate` bascule par l'espace de publication, qui refuse une cible que le
+    # pointeur unique ne résout pas — la disposition est posée ici, hors de tout run.
+    poser_espace(tmp_path, data_dir=racine)
     return racine
 
 
@@ -1631,6 +1645,17 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     data.mkdir(exist_ok=True)
     if not (data / "manifest.json").is_file():
         _corpus_sur_disque(data)
+    # Story 4.5, B7 : le runner bascule ses sorties (rapports, gate) par l'espace de publication,
+    # qui refuse une cible non résolue par le pointeur unique — posée ici, hors de tout run, et
+    # idempotente pour les appels successifs de `_main` sur le même `tmp_path`. Un `--output-json`
+    # / `--output-markdown` explicite ajoute sa propre cible au lot standard.
+    cibles_supplementaires = []
+    for drapeau in ("--output-json", "--output-markdown"):
+        if drapeau in argv:
+            valeur = Path(argv[argv.index(drapeau) + 1])
+            cibles_supplementaires.append(
+                valeur.relative_to(tmp_path) if valeur.is_absolute() else valeur)
+    poser_espace(tmp_path, data_dir=data, cibles=cibles_supplementaires)
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
@@ -1757,6 +1782,7 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
         "overlay_hash": None, "gate": None,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    poser_espace(tmp_path, data_dir=data)
     autres_avant = {doc_id: entree for doc_id, entree in manifest.items() if doc_id != TROISIEME}
 
     cases = _cases_dir(tmp_path, autres={
@@ -2056,8 +2082,14 @@ def test_un_case_parsing_sans_suite_resout_avant_la_cle(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(runner, "LlmClient", _interdit)
+    # Copie du corpus servi réel (story 4.5, B7) : `p-axa-chaleur` se juge contre le vrai document
+    # ingéré, et les rapports doivent basculer par un espace de publication, pas par `data/` du dépôt.
+    data = tmp_path / "data"
+    shutil.copytree(runner.DATA_DIR, data, symlinks=True)
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("p.json"), Path("p.md")))
     code = runner.main([
         "--case", "p-axa-chaleur", "--profile", "full", "--max-cost", "0.01",
+        "--data-dir", str(data),
         "--output-json", str(tmp_path / "p.json"),
         "--output-markdown", str(tmp_path / "p.md"),
     ])
@@ -2075,6 +2107,7 @@ def test_execution_full_mixte_hors_ligne_et_digest_references_reel(
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("mixte.json"), Path("mixte.md")))
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     parsing_dir = cases / "parsing" / GUIDE
     parsing_dir.mkdir(parents=True)
@@ -2330,7 +2363,15 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
 
     Deux `--gate` concurrents écrivaient le même fichier temporaire ; le second pouvait déplacer un
     fichier que le premier avait déjà déplacé (`replace` en échec, `FileNotFoundError`). Le nom est
-    désormais unique et créé dans le répertoire du manifest — le `replace` reste atomique.
+    désormais unique et créé dans le répertoire du fichier qu'il remplace — le `replace` reste
+    atomique.
+
+    Story 4.5, B7 : le fichier remplacé n'est plus `data/manifest.json` lui-même (un lien vers le
+    bundle), mais son slot dans la génération inactive de l'espace de publication
+    (`data/.publie/<a|b>/data/manifest.json`, `EspacePublie._ecrire_dans_bundle`) — et son préfixe
+    porte désormais un point (fichier caché), comme les autres temporaires du bundle. Le nom n'en
+    reste pas moins non dérivable, unique par écriture, et créé dans le répertoire exact du fichier
+    qu'il remplace : c'est la même propriété, à l'endroit où elle vit désormais.
     """
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
@@ -2351,9 +2392,10 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
     monkeypatch.setattr(runner.tempfile, "mkstemp", espion)
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
-    ecritures = [n for n in vus if Path(n).name.startswith("manifest.json.") and n.endswith(".tmp")]
+    ecritures = [n for n in vus if Path(n).name.startswith(".manifest.json.") and n.endswith(".tmp")]
     assert len(ecritures) == 2 and len(set(ecritures)) == 2, ecritures
-    assert all(Path(n).parent == data for n in ecritures), ecritures
+    generations = {data / REPERTOIRE_ESPACE / gen / "data" for gen in GENERATIONS}
+    assert all(Path(n).parent in generations for n in ecritures), ecritures
 
 
 class ClientLieASaBoucle:
@@ -2400,6 +2442,7 @@ def test_le_client_se_ferme_sur_la_boucle_qui_la_servi(tmp_path: Path,
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    poser_espace(tmp_path, data_dir=data)
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())

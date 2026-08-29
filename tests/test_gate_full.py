@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -38,6 +39,8 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import StepTrace, Trace
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
+from server.evals.espace import POINTEUR
+from tests.helpers_espace import poser_espace
 from server.evals.plancher import charger_plancher
 
 DOC = "contrat-neutre"
@@ -950,6 +953,9 @@ def _data_dir(racine: Path, *, source: str | None = "source.pdf") -> Path:
                   "ingest_fingerprint": "f",
                   "document_hash": hashlib.sha256(octets).hexdigest(), "edition": "2020",
                   "overlay_hash": None, "gate": None}}, indent=2) + "\n", encoding="utf-8")
+    # **La disposition de publication est posée ici, hors de tout run** (story 4.5, B7) : la bascule
+    # refuse une cible que le pointeur unique ne résout pas, et ne l'installe jamais elle-même.
+    poser_espace(racine, data_dir=data)
     return data
 
 
@@ -977,6 +983,39 @@ def _cli(racine: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str], *,
 def _manifest_intact(racine: Path) -> None:
     manifest = json.loads((racine / "data" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest[DOC]["gate"] is None, "un refus de tourner ne touche jamais le manifest"
+
+
+def _temporaires(racine: Path) -> list[str]:
+    """Tous les temporaires laissés sous `racine` — **quelle que soit la convention de nommage**.
+
+    Le glob des tours précédents était `rglob(".*.tmp")`, avec point initial obligatoire : il ne
+    correspondait qu'à l'un des écrivains, si bien que l'assertion « aucun temporaire » ne pouvait
+    pas échouer sur les chemins frères. La sonde porte donc sur le **suffixe**, que `tempfile.mkstemp`
+    reçoit identiquement partout, et elle balaie tout l'arbre, bundle de publication compris.
+    """
+    return sorted(str(p.relative_to(racine)) for p in racine.rglob("*")
+                  if p.is_file() and p.name.endswith(".tmp"))
+
+
+def _etat_du_lot(cibles: list[Path]) -> dict[str, tuple[bytes | None, int | None]]:
+    """Contenu **et** type d'entrée (`lstat`) de chaque cible d'un lot — l'état observable entier.
+
+    L'interdiction 7 définit « modifiée » par l'état observable : contenu, type d'entrée, présence ou
+    absence. Comparer les seuls contenus laisserait passer une migration de type, qui est exactement
+    la substitution qu'un candidat précédent avait employée pour paraître tout-ou-rien.
+    """
+    etat: dict[str, tuple[bytes | None, int | None]] = {}
+    for cible in cibles:
+        try:
+            octets: bytes | None = cible.read_bytes()
+        except OSError:
+            octets = None
+        try:
+            marque: int | None = os.lstat(cible).st_mode >> 12
+        except OSError:
+            marque = None
+        etat[str(cible)] = (octets, marque)
+    return etat
 
 
 # --- de bout en bout : un gate `full` réel, hors réseau -------------------------------------------
@@ -1185,21 +1224,27 @@ def test_une_publication_impossible_nempeche_pas_seulement_le_vert_elle_empeche_
 
     L'ordre est désormais : préparer → basculer la publication → écrire le gate. Un échec de
     publication survient donc **avant** que le manifest ne bouge d'un octet.
+
+    Story 4.5, B7 : `_preparer_atomique` n'existe plus, parce qu'il n'y a plus de préparation par
+    cible. L'injection porte donc là où **toute** écriture passe désormais — `os.replace` —, sur
+    l'écriture du slot `evals-latest.json` dans la génération inactive. La propriété prouvée est la
+    même, et le chemin est celui de production.
     """
-    ecrire_reel = runner._preparer_atomique
-
-    def _preparer(path: Path, contenu: str) -> Path:
-        if path.name == "evals-latest.json":
-            raise OSError("répertoire de publication en lecture seule")
-        return ecrire_reel(path, contenu)
-
     data = _data_dir(tmp_path)
     avant = (data / "manifest.json").read_bytes()
-    monkeypatch.setattr(runner, "_preparer_atomique", _preparer)
+    replace_reel = runner.os.replace
+
+    def _replace(source: Any, cible: Any) -> None:
+        if Path(cible).name == "evals-latest.json":
+            raise OSError("répertoire de publication en lecture seule")
+        replace_reel(source, cible)
+
+    monkeypatch.setattr(runner.os, "replace", _replace)
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION])
+    monkeypatch.setattr(runner.os, "replace", replace_reel)
     assert code != 0
     assert "échec de publication" in capsys.readouterr().err
     # **Aucun gate n'a été écrit**, et le manifest est byte-identique.
@@ -1208,6 +1253,8 @@ def test_une_publication_impossible_nempeche_pas_seulement_le_vert_elle_empeche_
     # Et rien n'a été publié à moitié : ni artefact servi, ni rendu lisible.
     assert not (data / "evals-latest.json").exists()
     assert not (tmp_path / "docs" / "evals" / "latest.md").exists()
+    # Ni le moindre temporaire, nulle part — y compris dans le bundle abandonné.
+    assert _temporaires(tmp_path) == []
 
 
 def test_un_gate_impossible_a_ecrire_ne_publie_rien(
@@ -1222,11 +1269,17 @@ def test_un_gate_impossible_a_ecrire_ne_publie_rien(
     La fermeture est de **ne plus rien laisser d'échouable après la première bascule** : le manifest
     est préparé comme les publications, et tout bascule ensemble. On double donc l'environnement —
     l'écriture du temporaire du manifest échoue — jamais la règle.
+
+    Story 4.5, B7 : il n'y a plus de temporaire de manifest **dans `data/`**, parce qu'il n'y a plus
+    de préparation par cible ; le manifest est un slot du lot, écrit dans la génération inactive
+    comme les autres, et rendu visible par l'unique bascule du pointeur. L'environnement doublé est
+    donc l'écriture de ce slot-là. La propriété est **plus forte** qu'avant : le manifest n'est plus
+    seulement écrit avant les publications, il est publié **par le même atome** qu'elles.
     """
     mkstemp_reel = runner.tempfile.mkstemp
 
     def _mkstemp(*args: Any, **kw: Any) -> Any:
-        if str(kw.get("prefix", "")).startswith("manifest.json"):
+        if str(kw.get("prefix", "")).startswith(".manifest.json"):
             raise OSError("data/ en lecture seule")
         return mkstemp_reel(*args, **kw)
 
@@ -1237,14 +1290,16 @@ def test_un_gate_impossible_a_ecrire_ne_publie_rien(
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION])
-    assert code == 2
-    assert "écriture impossible" in capsys.readouterr().err
+    monkeypatch.setattr(runner.tempfile, "mkstemp", mkstemp_reel)
+    assert code == 1
+    assert "échec de publication" in capsys.readouterr().err
     assert (data / "manifest.json").read_bytes() == avant
     # **Aucune surface n'a publié un verdict que le manifest ne porte pas.**
     assert not (data / "evals-latest.json").exists()
     assert not (tmp_path / "docs" / "evals" / "latest.md").exists()
-    # Et aucun temporaire n'est resté derrière.
+    # Et aucun temporaire n'est resté derrière — nulle part, pas seulement dans `data/`.
     assert not list(data.glob("*.tmp")) and not list(data.glob(".*.tmp"))
+    assert _temporaires(tmp_path) == []
 
 
 def test_un_manifest_hors_schema_ne_publie_rien_non_plus(
@@ -1275,33 +1330,55 @@ def test_un_gate_full_publie_et_promeut_en_une_seule_sequence(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Revue A, versant nominal : après la préparation, plus rien ne peut échouer à moitié.
 
-    On observe la séquence réelle : au moment où la **première** bascule a lieu, le temporaire du
-    manifest est déjà écrit et n'attend plus qu'un `os.replace`. Autrement dit, il n'existe aucun
-    instant où une surface affirme un verdict que le manifest ne porte pas — ni l'inverse.
+    On observe la séquence réelle : au moment où la bascule de publication a lieu, **aucune** de ses
+    cibles ne porte encore son nouveau contenu. Autrement dit, il n'existe aucun instant où une
+    surface affirme un verdict que le manifest ne porte pas — ni l'inverse.
+
+    Story 4.5, B7 : la propriété observée est **plus forte** qu'au tour précédent, pas plus faible.
+    Elle portait alors sur l'**ordre** de la file (« le manifest en dernier »), qui n'était qu'un
+    palliatif : entre le premier et le dernier `os.replace`, il existait un instant où une surface
+    avait basculé sans le manifest. Ici les quatre surfaces **et** `manifest.json` sont remises au
+    **même** appel de `EspacePublie.basculer`, donc publiées par un unique `os.replace` de pointeur :
+    il n'y a plus d'ordre à vérifier parce qu'il n'y a plus de fenêtre à ordonner.
     """
-    basculer_reel = runner._basculer
+    basculer_reel = runner.EspacePublie.basculer
     observees: list[list[str]] = []
+    deja_publiees: list[list[str]] = []
 
-    def _basculer(prepares: list[Any]) -> None:
-        observees.append([cible.name for _tmp, cible in prepares])
-        for temporaire, _cible in prepares:
-            assert temporaire.is_file(), f"{temporaire.name} n'est pas encore écrit"
-        basculer_reel(prepares)
+    def _basculer(self: Any, lot: list[tuple[Path, str]]) -> None:
+        observees.append([Path(cible).name for cible, _contenu in lot])
+        # **Rien du lot n'est encore visible** : aucune cible ne porte déjà son nouveau contenu au
+        # moment où la bascule commence. C'est ce que garantissait autrefois « les temporaires sont
+        # tous écrits » — en plus fort, puisque la garantie porte ici sur les cibles elles-mêmes.
+        deja_publiees.append([
+            Path(cible).name for cible, contenu in lot
+            if Path(cible).is_file() and Path(cible).read_text(encoding="utf-8") == contenu])
+        basculer_reel(self, lot)
 
-    monkeypatch.setattr(runner, "_basculer", _basculer)
+    monkeypatch.setattr(runner.EspacePublie, "basculer", _basculer)
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION]) == 1
     # Le rapport de run bascule en premier, dans **sa** séquence (`ecrire_rapports`, dont les deux
-    # fichiers sont eux aussi tout-ou-rien depuis la revue B3) ; la publication et le gate basculent
-    # ensuite dans **une seule** séquence.
+    # fichiers sont eux aussi un lot tout-ou-rien) ; la publication et le gate basculent ensuite
+    # dans **une seule** séquence, `manifest.json` compris.
     assert [set(lot) for lot in observees] == [
         {"eval-results.json", "eval-results.md"},
         {"evals-latest.json", "latest.md", "eval-results.md", "manifest.json"},
     ], observees
-    # Le manifest est la **dernière** cible : ce qui promeut bascule après ce qui documente.
-    assert observees[-1][-1] == "manifest.json"
+    # Le manifest n'est pas « la dernière cible » : il est **du même lot** que les publications, et
+    # il n'existe aucune bascule supplémentaire pour l'écrire à part.
+    assert len(observees) == 2, observees
+    assert "manifest.json" in observees[-1]
+    assert deja_publiees == [[], []], deja_publiees
+    # Et le lot entier est bien visible à la sortie : promouvoir et publier sont un seul geste.
+    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    publie = json.loads(
+        (tmp_path / "data" / "evals-latest.json").read_text(encoding="utf-8"))
+    assert manifest[DOC]["gate"] is not None
+    assert (tmp_path / "docs" / "evals" / "latest.md").is_file()
+    assert publie["report_digest"] == manifest[DOC]["gate"]["report_digest"]
 
 
 def test_un_second_gate_consecutif_nest_pas_refuse_par_les_sorties_du_premier(
@@ -1670,31 +1747,43 @@ def test_un_verdict_dont_les_images_ne_concordent_pas_empeche_le_vert(
 
 # --- B3 : tout ou rien sous échec de renommage, à **chaque** étape ---------------------------------
 
-def _empreintes_des_cibles(racine: Path) -> dict[str, str | None]:
-    """L'état observable des surfaces **durables** : leur empreinte, ou `None` si absentes.
+def _empreintes_des_cibles(racine: Path) -> dict[str, tuple[str | None, int | None]]:
+    """L'état observable des surfaces **durables** : empreinte **et** type d'entrée (`lstat`).
 
     `eval-results.md` n'en fait pas partie : c'est le journal du run courant, réécrit à chaque run
     par `ecrire_rapports` **avant** que le gate n'existe, et ignoré par git. Ce que la revue exige
     de préserver, c'est le dernier lot **publié** — l'artefact servi, le rendu lisible et le
-    manifest qui promeut.
+    manifest qui promeut. Le lot complet, `eval-results.md` compris, est couvert cible par cible par
+    `_etat_du_lot`, au moment même de la bascule.
+
+    Story 4.5, B7 : le type d'entrée entre dans l'état comparé. L'interdiction 7 définit « modifiée »
+    par l'état observable, et une comparaison de seules empreintes laisserait passer une migration de
+    type — un fichier ordinaire devenu lien, ou l'inverse — qui est précisément la substitution qu'un
+    candidat précédent avait employée pour paraître tout-ou-rien.
     """
     cibles = {
         "evals-latest.json": racine / "data" / "evals-latest.json",
         "latest.md": racine / "docs" / "evals" / "latest.md",
         "manifest.json": racine / "data" / "manifest.json",
     }
-    etat: dict[str, str | None] = {}
+    etat: dict[str, tuple[str | None, int | None]] = {}
     for nom, chemin in cibles.items():
         try:
-            etat[nom] = hashlib.sha256(chemin.read_bytes()).hexdigest()
+            empreinte: str | None = hashlib.sha256(chemin.read_bytes()).hexdigest()
         except OSError:
-            etat[nom] = None
+            empreinte = None
+        try:
+            marque: int | None = os.lstat(chemin).st_mode >> 12
+        except OSError:
+            marque = None
+        etat[nom] = (empreinte, marque)
     return etat
 
 
-@pytest.mark.parametrize("rang", [0, 1, 2, 3])
+@pytest.mark.parametrize("rang", [0, 1, 2, 3, "atome"])
 def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel(
-        rang: int, tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        rang: int | str, tmp_path: Path, capsys: Any,
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """B3 : « le dernier lot visible est préservé intégralement, ou le nouveau est rendu en entier ».
 
     Contre-exemple reproduit par la revue : un échec sur le **deuxième** `os.replace` publiait
@@ -1702,9 +1791,13 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
     et un manifest sans gate — pendant que le message affirmait littéralement « rien n'a été
     publié ». `_abandonner` ne restaurait rien.
 
-    La propriété n'est pas l'atomicité — POSIX ne l'offre que sur un seul `rename` — mais **tout ou
-    rien sous échec de renommage, par restauration**. Elle est vérifiée ici à **chaque** étape de la
-    file, pas seulement à la deuxième.
+    Story 4.5, B7 : la propriété **est** désormais l'atomicité, et non plus « tout ou rien par
+    restauration ». Aucune cible n'est modifiée tant que l'unique `os.replace` du pointeur n'a pas
+    eu lieu, donc il n'y a rien à défaire — et rien qui puisse échouer ou être interrompu en
+    défaisant. L'injection porte sur `os.replace` : les rangs 0 à 3 sont des écritures de slots dans
+    la génération inactive, le rang `atome` est la bascule du pointeur elle-même. L'invariant est le
+    même aux cinq rangs, et il porte sur l'état observable **entier** — contenu et type d'entrée —
+    de **toutes** les cibles du lot, `eval-results.md` et l'archive de campagne comprises.
     """
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     # Un premier gate complet : c'est le « dernier lot visible » que l'échec ne doit pas entamer.
@@ -1712,25 +1805,37 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION]) == 1
     avant = _empreintes_des_cibles(tmp_path)
-    assert all(v is not None for v in avant.values()), avant
+    assert all(v != (None, None) for v in avant.values()), avant
 
     # Le second run mesure une **autre** révision : sans cela, sa publication serait octet pour
     # octet celle du premier, et une bascule partielle passerait inaperçue — un test qui ne peut
     # pas voir le défaut ne le ferme pas.
     autre_revision = "c" * 40
 
-    # L'injection vise **la file de publication** (celle qui porte le manifest), et elle seule :
-    # `ecrire_rapports` a la sienne, éprouvée à part.
-    basculer_reel = runner._basculer
+    # L'injection vise **le lot de publication** (celui qui porte le manifest), et lui seul :
+    # `ecrire_rapports` a le sien, éprouvé à part.
+    basculer_reel = runner.EspacePublie.basculer
     replace_reel = runner.os.replace
+    # L'état observable du lot **entier**, relevé au moment même où la bascule commence : c'est lui
+    # que l'invariant protège, et il couvre des cibles que `_empreintes_des_cibles` n'a pas à
+    # suivre d'un run à l'autre (le journal du run, l'archive de campagne).
+    lots: list[tuple[list[Path], dict[str, tuple[bytes | None, int | None]]]] = []
 
-    def _basculer(prepares: list[Any]) -> None:
-        if not any(Path(cible).name == "manifest.json" for _tmp, cible in prepares):
-            basculer_reel(prepares)
+    def _basculer(self: Any, lot: list[tuple[Path, str]]) -> None:
+        if not any(Path(cible).name == "manifest.json" for cible, _contenu in lot):
+            basculer_reel(self, lot)
             return
+        cibles = [Path(cible) for cible, _contenu in lot]
+        lots.append((cibles, _etat_du_lot(cibles)))
         compteur = {"n": 0}
 
         def _replace(source: Any, cible: Any) -> None:
+            if Path(cible).name == POINTEUR:
+                # L'atome : le seul pas qui porte l'ancien état vers le nouveau.
+                if rang == "atome":
+                    raise OSError(28, "No space left on device (injecté par le test)")
+                replace_reel(source, cible)
+                return
             if compteur["n"] == rang:
                 compteur["n"] += 1
                 raise OSError(28, "No space left on device (injecté par le test)")
@@ -1739,11 +1844,11 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
 
         monkeypatch.setattr(runner.os, "replace", _replace)
         try:
-            basculer_reel(prepares)
+            basculer_reel(self, lot)
         finally:
             monkeypatch.setattr(runner.os, "replace", replace_reel)
 
-    monkeypatch.setattr(runner, "_basculer", _basculer)
+    monkeypatch.setattr(runner.EspacePublie, "basculer", _basculer)
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", autre_revision], revision=autre_revision)
@@ -1751,53 +1856,81 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
     # **Aucune surface n'a bougé** : le lot précédent est intégralement préservé.
     assert _empreintes_des_cibles(tmp_path) == avant, (
         f"échec injecté à l'étape {rang} : lot partiel visible")
+    # Et cela vaut de **toutes** les cibles du lot, pas seulement des trois surfaces durables :
+    # contenu et type d'entrée identiques à ce qu'ils étaient à l'entrée de la bascule.
+    assert lots, "la bascule de publication n'a pas été atteinte : le test ne prouve rien"
+    for cibles, etat in lots:
+        assert _etat_du_lot(cibles) == etat, (
+            f"échec injecté à l'étape {rang} : une cible du lot a été modifiée")
     # Et le journal du run reste un document entier, jamais un fichier à moitié écrit.
     journal = (tmp_path / "eval-results.md").read_text(encoding="utf-8")
     assert journal.startswith("# Résultat des questions-témoins") and journal.endswith("\n")
     err = capsys.readouterr().err
     assert "échec de publication" in err
-    # Aucun temporaire résiduel dans les répertoires cibles.
-    residus = [p.name for p in tmp_path.rglob(".*.tmp")]
-    assert not residus, residus
+    # Aucun temporaire résiduel, où que ce soit — bundle de publication compris.
+    assert _temporaires(tmp_path) == []
 
 
-def test_une_restauration_impossible_est_dite_cible_par_cible(tmp_path: Path, capsys: Any,
-                                                              monkeypatch: pytest.MonkeyPatch) -> None:
-    """B3, exigence de probité : quand la restauration échoue, **on nomme** ce qui est dans quel état.
+def test_aucun_etat_mele_nest_atteignable_donc_il_ny_a_rien_a_nommer(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B3 → B7 : ce test exigeait qu'un état mêlé soit **nommé** ; il exige maintenant qu'il n'existe pas.
 
-    « Rien n'a été publié » serait alors un mensonge. `BasculePartielle` porte les deux listes, et le
-    runner les imprime plutôt que de rassurer.
+    Sous l'ancien protocole, une panne au deuxième renommage laissait `data/evals-latest.json`
+    publié et le reste non ; la restauration pouvait échouer par-dessus, et l'exigence de probité
+    était que le runner **dise** quelle cible était dans quel état plutôt que d'affirmer « rien n'a
+    été publié ». Mieux signaler un état mêlé n'était pas l'invariant de l'AC : le rendre
+    inatteignable l'est. Ce test est donc devenu la contre-sonde de sa propre ancienne exigence.
+
+    Deux choses sont prouvées ici, et il faut les deux :
+
+    1. **l'API qui nommait l'état mêlé n'existe plus, et rien ne l'a remplacée** — ni
+       `BasculePartielle`, ni la file de renommages, ni la restauration qui la rattrapait ;
+    2. **le comportement suit** : la même injection qu'autrefois (panne sur `latest.md`, la
+       deuxième cible de l'ancienne file) ne laisse aucune cible dans le nouvel état, et la phrase
+       « rien n'a été publié » — qui était alors un mensonge — est cette fois **vraie**, ce que
+       l'état sur disque vérifie ligne suivante.
     """
+    # 1. Aucune de ces surfaces ne subsiste : un état mêlé n'a plus de vocabulaire parce qu'il n'a
+    #    plus de lieu où survenir.
+    for disparu in ("BasculePartielle", "EtatPrecedentIllisible", "_basculer", "_restaurer",
+                    "_abandonner", "_preparer_atomique", "_ecrire_atomique_octets",
+                    "_lire_ou_absent"):
+        assert not hasattr(runner, disparu), (
+            f"runner.{disparu} est revenu : la file de renommages et sa restauration sont "
+            "précisément ce que l'invariant interdit de réintroduire")
+
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION]) == 1
+    avant = _empreintes_des_cibles(tmp_path)
+    capsys.readouterr()
 
     replace_reel = runner.os.replace
-    etat = {"basculees": 0}
 
     def _replace(source: Any, cible: Any) -> None:
         nom = Path(cible).name
-        if nom == "latest.md":  # la deuxième cible de la file de publication
+        if nom == "latest.md":  # la deuxième cible de l'ancienne file de publication
             raise OSError(28, "No space left on device (injecté par le test)")
         replace_reel(source, cible)
 
-    def _restauration_impossible(path: Path, octets: bytes) -> None:
-        raise OSError(13, "Permission denied (injecté par le test)")
-
     monkeypatch.setattr(runner.os, "replace", _replace)
-    monkeypatch.setattr(runner, "_ecrire_atomique_octets", _restauration_impossible)
+    # Le second run mesure une **autre** révision : sans cela sa publication serait octet pour octet
+    # celle du premier, et une cible restée dans le nouvel état passerait inaperçue.
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
-                 "--candidate-revision", REVISION])
+                 "--candidate-revision", "c" * 40], revision="c" * 40)
+    monkeypatch.setattr(runner.os, "replace", replace_reel)
     assert code != 0
     err = capsys.readouterr().err
-    assert "état MÊLÉ" in err
-    assert "evals-latest.json" in err
-    assert "rien n'a été publié" not in err, (
-        "affirmer que rien n'a été publié alors qu'une cible a basculé est le mensonge que la "
-        "revue a mesuré")
-    del etat
+    # 2. Plus aucun message d'état mêlé, parce que plus aucun état mêlé.
+    assert "état MÊLÉ" not in err, err
+    assert "rien n'a été publié" in err
+    # Et la phrase est **vraie** : aucune cible du lot n'est dans le nouvel état, ni en contenu ni
+    # en type d'entrée. C'est ce que l'ancien test ne pouvait pas asserter — il asserait l'inverse.
+    assert _empreintes_des_cibles(tmp_path) == avant, (
+        "une cible est restée dans le nouvel état : c'est l'état mêlé lui-même")
+    assert _temporaires(tmp_path) == []
 
 
 def test_le_rapport_et_sa_table_basculent_ensemble(tmp_path: Path,
@@ -1807,12 +1940,21 @@ def test_le_rapport_et_sa_table_basculent_ensemble(tmp_path: Path,
     Ce n'est pas un couple anodin : `digest_octets(output_json)` alimente `gate.report_digest`, donc
     l'empreinte par laquelle un gate se réclame de son rapport. Un JSON neuf à côté d'un Markdown
     périmé se propage jusque dans le gate.
+
+    Story 4.5, B7 : ce couple est un lot comme un autre, remis au **même** appel de
+    `EspacePublie.basculer`. L'injection porte donc sur `os.replace` — l'écriture du slot
+    `rapport.md` dans la génération inactive —, et l'invariant vérifié est plus fort qu'une simple
+    égalité de contenus : le type d'entrée des deux cibles est comparé lui aussi.
     """
     json_path = tmp_path / "rapport.json"
     md_path = tmp_path / "rapport.md"
     json_path.write_text('{"ancien": true}\n', encoding="utf-8")
     md_path.write_text("# ancien\n", encoding="utf-8")
+    # La disposition de publication est posée **hors** de tout run : la bascule refuse une cible
+    # qu'aucun pointeur ne résout, et ne l'installe jamais elle-même.
+    espace = poser_espace(tmp_path, cibles=[Path("rapport.json"), Path("rapport.md")])
     avant = (json_path.read_bytes(), md_path.read_bytes())
+    etat_avant = _etat_du_lot([json_path, md_path])
 
     rapport = {
         "schema_version": 3, "profile": "full", "complete": True, "stop_reason": None,
@@ -1834,10 +1976,17 @@ def test_le_rapport_et_sa_table_basculent_ensemble(tmp_path: Path,
 
     monkeypatch.setattr(runner.os, "replace", _replace)
     with pytest.raises(OSError):
-        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
+        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None, espace=espace)
+    monkeypatch.setattr(runner.os, "replace", replace_reel)
     # Les deux fichiers sont restés dans leur état d'avant : aucun lot mêlé.
     assert (json_path.read_bytes(), md_path.read_bytes()) == avant
+    assert _etat_du_lot([json_path, md_path]) == etat_avant
     assert not [p.name for p in tmp_path.glob(".*.tmp")]
+    assert _temporaires(tmp_path) == []
+    # Et le chemin nominal publie bien **les deux ensemble**, par le même unique atome.
+    runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None, espace=espace)
+    assert json.loads(json_path.read_text(encoding="utf-8"))["cases_hash"] == "d" * 64
+    assert md_path.read_text(encoding="utf-8").startswith("# Résultat des questions-témoins")
 
 
 # --- B5 : ce que la publication affirme quand une clé attendue est improjetable --------------------
@@ -1909,37 +2058,58 @@ def test_un_run_sans_bloc_cle_ne_se_confond_pas_avec_un_run_dont_tout_est_perdu(
 
 # --- B3/B6 : « je n'ai pas pu lire » n'est jamais « il n'y avait rien » ----------------------------
 
-def test_seule_labsence_est_une_absence() -> None:
+def test_seule_labsence_est_une_absence(tmp_path: Path) -> None:
     """B3/B6, l'invariant lui-même : `FileNotFoundError` seule signifie « il n'y avait rien ».
 
     `except OSError: return None` faisait dire « absent » à « illisible ». La conséquence n'était pas
     l'imprécision : la restauration croyait la cible absente d'avant, exécutait `unlink()` — donc
     **supprimait** le fichier qui venait d'être publié —, réussissait, et ne signalait donc aucune
     restauration manquée.
-    """
-    import tempfile as _tempfile
 
-    with _tempfile.TemporaryDirectory() as dossier:
-        racine = Path(dossier)
-        assert runner._lire_ou_absent(racine / "jamais-cree") is None
-        present = racine / "present.md"
-        present.write_bytes(b"contenu")
-        assert runner._lire_ou_absent(present) == b"contenu"
-        # Un répertoire n'est pas un fichier absent : le lire lève `IsADirectoryError` (une
-        # `OSError`), et c'est un refus, pas une absence.
-        with pytest.raises(runner.EtatPrecedentIllisible, match="n'a pas pu être lu"):
-            runner._lire_ou_absent(racine)
+    Story 4.5, B7 : `runner._lire_ou_absent` n'existe plus, parce que le protocole ne capture plus
+    d'état précédent — il n'a rien à défaire, donc rien à relire. L'invariant, lui, n'a pas disparu :
+    il vit dans le seul lecteur qui subsiste, `_archive_a_ecrire`, et c'est le lecteur **le plus
+    grave** des deux, puisque celui-là détruit même quand la bascule réussit (un rendu non archivé
+    est ensuite écrasé). La distinction se prouve donc là, dans ses trois cas, un pour un.
+    """
+    from server.evals import publication as pub_mod
+
+    docs = tmp_path.joinpath(*pub_mod.DOCS_LATEST).parent
+    docs.mkdir(parents=True)
+    # Absent : « il n'y avait rien », et rien à archiver.
+    assert pub_mod._archive_a_ecrire(docs / "jamais-cree.md", repo_root=tmp_path) is None
+    present = docs / "present.md"
+    present.write_bytes(b"contenu")
+    a_ecrire = pub_mod._archive_a_ecrire(present, repo_root=tmp_path)
+    assert a_ecrire is not None and a_ecrire[1] == "contenu"
+    # Un répertoire n'est pas un fichier absent : le lire lève `IsADirectoryError` (une
+    # `OSError`), et c'est un refus, pas une absence.
+    with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
+        pub_mod._archive_a_ecrire(docs, repo_root=tmp_path)
+    # Et l'ancien vocabulaire du repli silencieux n'est pas revenu par une autre porte.
+    assert not hasattr(runner, "_lire_ou_absent")
 
 
 @pytest.mark.parametrize("rang", [0, 1, 2, 3])
-def test_un_etat_precedent_illisible_refuse_avant_toute_bascule(
+def test_une_cible_illisible_ne_produit_jamais_de_lot_partiel(
         rang: int, tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """B3/B6 : un état d'avant illisible **arrête la préparation**, il ne se lit pas comme absent.
+    """B3/B6 → B7 : une cible qu'on ne peut pas lire ne peut pas produire une publication partielle.
 
-    Un test par rang de la file, comme exigé : la propriété ne dépend pas de l'endroit où l'échec
-    survient. L'injection porte sur la lecture d'état de la bascule, et sur elle seule — patcher
-    `Path.read_bytes` globalement aurait aussi cassé le chargement du corpus, et le test aurait
-    mesuré autre chose.
+    Ce test exigeait qu'un état d'avant illisible **arrête la préparation**. Cette exigence était
+    celle d'un protocole qui, pour pouvoir défaire ce qu'il avait fait, devait d'abord relire chaque
+    cible : ne pas pouvoir la relire, c'était ne pas pouvoir la restaurer, donc devoir refuser. Le
+    protocole de B7 ne capture aucun état précédent, parce qu'il n'a rien à défaire — la lecture
+    dont dépendait ce refus n'existe plus, et il serait malhonnête d'en simuler une.
+
+    Ce qu'elle protégeait, elle, tient toujours, et se prouve directement : **quoi qu'il arrive à
+    une cible, l'état observable du lot reste entier**. Le second run tourne avec l'une des quatre
+    cibles réellement illisible (`chmod 000`, pas un double), et l'issue admissible est l'une des
+    deux issues *entières* — le lot précédent intégralement préservé, ou le nouveau intégralement
+    rendu. Jamais un mélange, jamais une cible seule.
+
+    Le rang `latest.md` est en outre un refus **déterministe**, éprouvé avec ses messages par
+    `test_un_rendu_precedent_illisible_refuse_de_publier_avant_toute_bascule` : celui-là est le
+    lecteur qui subsiste, et le seul dont l'illisibilité doit encore arrêter la publication.
     """
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     assert _cli(tmp_path, monkeypatch,
@@ -1947,32 +2117,87 @@ def test_un_etat_precedent_illisible_refuse_avant_toute_bascule(
                  "--candidate-revision", REVISION]) == 1
     avant = _empreintes_des_cibles(tmp_path)
 
-    lire_reel = runner._lire_ou_absent
+    chemins = {
+        "evals-latest.json": tmp_path / "data" / "evals-latest.json",
+        "latest.md": tmp_path / "docs" / "evals" / "latest.md",
+        "eval-results.md": tmp_path / "eval-results.md",
+        "manifest.json": tmp_path / "data" / "manifest.json",
+    }
     ordre = ["evals-latest.json", "latest.md", "eval-results.md", "manifest.json"]
-    illisible = ordre[rang]
+    illisible = chemins[ordre[rang]]
 
-    def _lire(path: Path) -> bytes | None:
-        if path.name == illisible:
-            raise runner.EtatPrecedentIllisible(
-                f"{path} : l'état actuel n'a pas pu être lu (PermissionError) — la bascule est "
-                "abandonnée avant toute écriture, car rien ne pourrait la défaire")
-        return lire_reel(path)
+    illisible.chmod(0o000)
+    try:
+        code = _cli(tmp_path, monkeypatch,
+                    ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                     "--candidate-revision", "c" * 40], revision="c" * 40)
+    finally:
+        # Rendue lisible **avant** toute observation : une cible qu'on ne sait pas relire se
+        # comparerait à elle-même par un `None`, et le test ne pourrait plus voir ce qui a bougé.
+        illisible.chmod(0o644)
+    assert code != 0
+    apres = _empreintes_des_cibles(tmp_path)
+    # **Aucun lot partiel** : les trois surfaces durables ont toutes bougé, ou aucune. Une seule
+    # d'entre elles dans le nouvel état est exactement l'état mêlé que l'AC interdit.
+    #
+    # L'issue entière attendue est **nommée** rang par rang, plutôt que laissée à un « l'une ou
+    # l'autre » : deux de ces cibles sont lues avant toute bascule — le rendu précédent, qui doit
+    # être archivé avant d'être remplacé, et le manifest, que le chargement du corpus relit — donc
+    # leur illisibilité refuse et rien ne bouge ; les deux autres ne sont lues par personne, donc le
+    # lot bascule en entier. Les deux issues sont entières, et c'est cela l'invariant.
+    issue_entiere = {"evals-latest.json": "publie", "latest.md": "intact",
+                     "eval-results.md": "publie", "manifest.json": "intact"}
+    bouge = {nom for nom in avant if apres[nom] != avant[nom]}
+    attendu = set(avant) if issue_entiere[ordre[rang]] == "publie" else set()
+    assert bouge == attendu, (
+        f"rang {rang} ({ordre[rang]}) : lot partiel visible, cibles déplacées = {sorted(bouge)}")
+    # Et le lot visible est **cohérent** : l'artefact servi et le manifest qui promeut se réclament
+    # du même rapport. C'est la propriété qu'un état mêlé briserait en premier.
+    publie = json.loads((tmp_path / "data" / "evals-latest.json").read_text(encoding="utf-8"))
+    gate = json.loads(
+        (tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))[DOC]["gate"]
+    assert publie["report_digest"] == gate["report_digest"], (
+        "une surface affirme un verdict que le manifest ne porte pas")
+    assert publie["candidate_revision"] == gate["candidate_revision"]
+    capsys.readouterr()
+    assert _temporaires(tmp_path) == []
 
-    monkeypatch.setattr(runner, "_lire_ou_absent", _lire)
-    code = _cli(tmp_path, monkeypatch,
+
+def test_un_rendu_precedent_illisible_refuse_de_publier_avant_toute_bascule(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B3/B6 : « je n'ai pas pu lire » n'est jamais « il n'y avait rien », de bout en bout.
+
+    C'est la moitié déterministe de l'ancien test paramétré, conservée mot pour mot dans ses
+    assertions : la cause est **nommée**, le diagnostic dit qu'aucune bascule n'a eu lieu, et le lot
+    précédent est intégralement préservé. Le lecteur d'état qui subsiste est celui de l'archive du
+    rendu précédent — le plus grave des deux, puisque lui détruit même quand la bascule réussit —,
+    et son illisibilité arrête toujours la publication avant le premier octet écrit.
+    """
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
-                 "--candidate-revision", "c" * 40], revision="c" * 40)
+                 "--candidate-revision", REVISION]) == 1
+    avant = _empreintes_des_cibles(tmp_path)
+    capsys.readouterr()
+
+    latest = tmp_path / "docs" / "evals" / "latest.md"
+    latest.chmod(0o000)
+    try:
+        code = _cli(tmp_path, monkeypatch,
+                    ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                     "--candidate-revision", "c" * 40], revision="c" * 40)
+        err = capsys.readouterr().err
+    finally:
+        latest.chmod(0o644)
     assert code != 0
     # **Aucune bascule** : le lot précédent est intégralement préservé, rien n'a été supprimé.
-    assert _empreintes_des_cibles(tmp_path) == avant, f"rang {rang} : une cible a bougé"
-    err = capsys.readouterr().err
+    assert _empreintes_des_cibles(tmp_path) == avant, "une cible a bougé"
     # La cause est **nommée**, et le diagnostic dit qu'aucune bascule n'a eu lieu — jamais que
-    # « il n'y avait rien ». Selon le rang, l'arrêt survient dans la file de publication ou dans
-    # celle des rapports ; les deux refusent avant d'écrire.
+    # « il n'y avait rien ».
     assert "n'a pas pu être lu" in err
     assert "refus de publier" in err or "refus d'écrire les rapports" in err
     assert "aucune bascule n'a eu lieu" in err
-    assert not [p.name for p in tmp_path.rglob(".*.tmp")]
+    assert _temporaires(tmp_path) == []
 
 
 def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> None:
@@ -1997,12 +2222,14 @@ def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> 
     avant = latest.read_bytes()
     latest.chmod(0o000)
     try:
-        if runner._lire_ou_absent.__module__ and latest.exists():
-            with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
-                pub_mod._archive_a_ecrire(latest, repo_root=tmp_path)
-            with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
-                pub_mod.archiver_latest(latest, repo_root=tmp_path,
-                                        ecrire=runner._ecrire_atomique)
+        # Sans garde : le refus est **inconditionnel**. La condition précédente s'appuyait sur
+        # `runner._lire_ou_absent`, qui n'existe plus, et elle rendait de surcroît le contrôle
+        # sautable — un test qui peut ne rien vérifier ne ferme rien.
+        with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
+            pub_mod._archive_a_ecrire(latest, repo_root=tmp_path)
+        with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
+            pub_mod.archiver_latest(latest, repo_root=tmp_path,
+                                    ecrire=runner._ecrire_atomique)
     finally:
         latest.chmod(0o644)
     # Le rendu précédent est **intact** : ni archivé à moitié, ni écrasé.
@@ -2014,14 +2241,31 @@ def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> 
                                    ecrire=runner._ecrire_atomique) is None
 
 
-def test_ecrire_rapports_refuse_un_etat_precedent_illisible(tmp_path: Path,
-                                                            monkeypatch: pytest.MonkeyPatch) -> None:
-    """B3/B6 sur le chemin frère `ecrire_rapports` : même règle, même preuve."""
+def test_ecrire_rapports_ne_laisse_jamais_le_couple_mele(tmp_path: Path,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """B3/B6 → B7 sur le chemin frère `ecrire_rapports` : le couple ne se mêle jamais.
+
+    Ce test exigeait un refus (`EtatPrecedentIllisible`) devant une cible illisible. Ce refus était
+    la conséquence d'un besoin qui n'existe plus : pour pouvoir défaire, il fallait d'abord relire.
+    Le couple rapport/table est maintenant un lot remis au même appel de `EspacePublie.basculer`, et
+    rien n'est modifié tant que l'unique `os.replace` du pointeur n'a pas eu lieu.
+
+    Ce que le refus protégeait — jamais un `eval-results.json` neuf à côté d'un `eval-results.md`
+    périmé, puisque `digest_octets(output_json)` alimente `gate.report_digest` — est prouvé ici
+    **directement**, et deux fois :
+
+    1. avec la cible réellement illisible (`chmod 000`, pas un double), l'issue est entière ;
+    2. avec une `KeyboardInterrupt` levée sur l'atome lui-même — le cas que l'ancien protocole ne
+       pouvait pas tenir, puisqu'une interruption pendant la restauration laissait l'état mêlé —,
+       **aucune** des deux cibles n'a bougé, ni en contenu ni en type d'entrée.
+    """
     json_path = tmp_path / "rapport.json"
     md_path = tmp_path / "rapport.md"
     json_path.write_text('{"ancien": true}\n', encoding="utf-8")
     md_path.write_text("# ancien\n", encoding="utf-8")
+    espace = poser_espace(tmp_path, cibles=[Path("rapport.json"), Path("rapport.md")])
     avant = (json_path.read_bytes(), md_path.read_bytes())
+    etat_avant = _etat_du_lot([json_path, md_path])
     rapport = {
         "schema_version": 3, "profile": "full", "complete": True, "stop_reason": None,
         "unexecuted_cases": [], "cases_hash": "d" * 64, "cases_planned": 1, "cases_completed": 1,
@@ -2031,11 +2275,37 @@ def test_ecrire_rapports_refuse_un_etat_precedent_illisible(tmp_path: Path,
                     "latency_p95_ms": 0, "cost_p95_eur": 0.0, "ne_tranche_pas_rate": 0.0},
         "results": [],
     }
+    # 2. L'interruption sur l'atome : le rang qui n'a jamais eu de réparation possible.
+    replace_reel = runner.os.replace
+
+    def _replace(source: Any, cible: Any) -> None:
+        if Path(cible).name == POINTEUR:
+            raise KeyboardInterrupt()
+        replace_reel(source, cible)
+
+    monkeypatch.setattr(runner.os, "replace", _replace)
+    with pytest.raises(KeyboardInterrupt):
+        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None, espace=espace)
+    monkeypatch.setattr(runner.os, "replace", replace_reel)
+    assert (json_path.read_bytes(), md_path.read_bytes()) == avant
+    assert _etat_du_lot([json_path, md_path]) == etat_avant, (
+        "une interruption sur l'atome a laissé une cible dans le nouvel état")
+    assert not [p.name for p in tmp_path.glob(".*.tmp")]
+    assert _temporaires(tmp_path) == []
+
+    # 1. La cible réellement illisible : l'issue reste entière — les deux cibles portent le nouveau
+    #    rendu, ou aucune. Un `eval-results.json` neuf à côté d'un `.md` périmé est le seul état
+    #    interdit, et c'est celui-là que l'assertion nomme.
     md_path.chmod(0o000)
     try:
-        with pytest.raises(runner.EtatPrecedentIllisible):
-            runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
+        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None, espace=espace)
     finally:
         md_path.chmod(0o644)
-    assert (json_path.read_bytes(), md_path.read_bytes()) == avant
-    assert not [p.name for p in tmp_path.glob(".*.tmp")]
+    apres = (json_path.read_bytes(), md_path.read_bytes())
+    bouge = {nom for nom, ancien, neuf in (("json", avant[0], apres[0]),
+                                           ("md", avant[1], apres[1])) if ancien != neuf}
+    assert bouge == {"json", "md"}, (
+        f"couple mêlé : {sorted(bouge)} — le rapport et sa table basculent ensemble ou pas du tout")
+    assert json.loads(json_path.read_text(encoding="utf-8"))["cases_hash"] == "d" * 64
+    assert md_path.read_text(encoding="utf-8").startswith("# Résultat des questions-témoins")
+    assert _temporaires(tmp_path) == []

@@ -24,6 +24,7 @@ from server.app.domain.ingest import Gate, GateDecision, ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.evals import run as runner
 from server.evals.plancher import charger_plancher
+from tests.helpers_espace import poser_espace
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -278,8 +279,11 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     monkeypatch.delenv("LIVE_BUDGET_EUR", raising=False)
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
     monkeypatch.setattr(runner, "construire_contexte_parsing", _interdit)
+    poser_espace(tmp_path, data_dir=tmp_path / "data",
+                cibles=(Path("refus.json"), Path("refus.md")))
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
                         "--repeat", "3", "--max-cost", "0.2",
+                        "--data-dir", str(tmp_path / "data"),
                         "--output-json", str(tmp_path / "refus.json"),
                         "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
@@ -306,8 +310,11 @@ def test_live_budget_env_borne_aussi_le_max_cost(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
     monkeypatch.setenv("LIVE_BUDGET_EUR", "0.15")
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
+    poser_espace(tmp_path, data_dir=tmp_path / "data",
+                cibles=(Path("refus.json"), Path("refus.md")))
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
                         "--repeat", "3", "--max-cost", "5.0",
+                        "--data-dir", str(tmp_path / "data"),
                         "--output-json", str(tmp_path / "refus.json"),
                         "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
@@ -388,12 +395,17 @@ def _gate(evals_ok: bool, **kw: Any) -> Gate:
     return Gate(**defauts)
 
 
-def _manifest(tmp_path: Path, gate: Gate | None) -> Path:
-    chemin = tmp_path / "manifest.json"
+def _manifest(racine: Path, gate: Gate | None) -> Path:
+    data = racine / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    chemin = data / "manifest.json"
     entree = {"status": "servi", "source_hash": "s", "ingest_fingerprint": "f",
               "document_hash": "d", "edition": "e", "overlay_hash": None,
               "gate": gate.model_dump(mode="json") if gate is not None else None}
     chemin.write_text(json.dumps({GUIDE: entree}), "utf-8")
+    # `ecrire_gate` dérive l'espace de `manifest_path.parent` (story 4.5, B7) : la disposition doit
+    # être posée avant tout appel, comme un opérateur ou la CI la posent.
+    poser_espace(racine, data_dir=data)
     return chemin
 
 

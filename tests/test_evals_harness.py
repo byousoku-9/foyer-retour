@@ -20,6 +20,7 @@ from server.evals.cache import CacheCorrompu, PersistentResponseCache, empreinte
 from server.evals import run as runner
 from server.evals.run import (Cas, RefusDeTourner, Resultat, construire_rapport, ecrire_rapports,
                               namespace_cache, rendre_markdown, variante_du_cas)
+from tests.helpers_espace import poser_espace
 from tests.llm_fake import FakeAnthropic, fake_message
 
 
@@ -357,7 +358,8 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
                     "<code>bonne_reponse</code>", "<code>outils</code>", "Cas non exécutés"):
         assert attendu in md
     json_path, md_path = tmp_path / "out" / "result.json", tmp_path / "out" / "result.md"
-    ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
+    espace = poser_espace(tmp_path, cibles=(Path("out") / "result.json", Path("out") / "result.md"))
+    ecrire_rapports(rapport, json_path, md_path, preuve_externe=None, espace=espace)
     assert json.loads(json_path.read_text("utf-8"))["complete"] is False
     assert md_path.read_text("utf-8") == md
     assert not list(tmp_path.rglob("*.tmp"))

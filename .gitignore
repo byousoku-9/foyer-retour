@@ -52,3 +52,8 @@ data/*/.type-clauses.lock
 .evals/
 eval-results.json
 eval-results.md
+
+# Story 4.5, B7 : le verrou de l'espace de publication est un état de processus, pas un artefact.
+# Le bundle lui-même (`data/.publie/<gen>/`) et son pointeur sont **suivis** : ils portent le
+# contenu servi de `data/manifest.json`, que l'image copie et qu'un checkout doit trouver.
+data/.publie/.verrou

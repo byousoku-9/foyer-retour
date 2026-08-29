@@ -38,6 +38,8 @@ from server.app.domain.evals import (PublicationEvals, ReservesPubliees, Seconde
 from server.app.domain.ingest import Gate
 from server.evals import publication as pub_mod
 from server.evals import run as runner
+from server.evals.espace import EspaceNonInstalle, EspacePublie
+from tests.helpers_espace import poser_espace
 
 HARNAIS_VUE = REPO_ROOT / "tests" / "js" / "evals_vue.mjs"
 REQUIS = os.environ.get("FRONT_TESTS_REQUIS", "") not in ("", "0")
@@ -380,10 +382,10 @@ def _ecrire(pub: PublicationEvals, racine: Path, *,
     """
     data = racine / "data"
     data.mkdir(parents=True, exist_ok=True)
-    prepares = pub_mod.preparer_publication(
-        pub, data_dir=data, repo_root=racine, preparer=runner._preparer_atomique, nom=nom,
+    lot = pub_mod.preparer_publication(
+        pub, data_dir=data, repo_root=racine, nom=nom,
         valeur=runner._markdown_value, code=runner._markdown_code)
-    runner._basculer(prepares)
+    poser_espace(racine, data_dir=data, cibles=[Path("data") / nom]).basculer(lot)
     return data / nom, racine.joinpath(*pub_mod.DOCS_LATEST)
 
 
@@ -788,7 +790,6 @@ def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: P
     with pytest.raises(pub_mod.RapportInexploitable, match="recall"):
         pub_mod.preparer_publication(
             pub_mod.construire_publication(casse, preuve_externe=None), data_dir=data, repo_root=tmp_path,
-            preparer=runner._preparer_atomique,
             valeur=runner._markdown_value, code=runner._markdown_code)
 
     # La quatrième surface porte toujours le run valide : rien de la donnée cassée n'y est arrivé,
@@ -840,7 +841,12 @@ def _temporaires(racine: Path) -> list[str]:
 
 
 def test_une_archive_illisible_ne_laisse_aucun_temporaire(tmp_path: Path) -> None:
-    """B7, le contre-exemple exact du recheck : l'échec vient **après** le premier temporaire."""
+    """B7 : un refus de préparation ne laisse rien — désormais parce qu'il n'écrit rien du tout.
+
+    La cause nommée par le cycle de récupération (le temporaire créé avant la lecture de l'archive)
+    ne peut plus exister : `preparer_publication` ne touche plus le disque, elle rend le lot et
+    c'est la bascule qui l'écrit, dans une génération inactive.
+    """
     data = tmp_path / "data"
     data.mkdir()
     latest = tmp_path.joinpath(*pub_mod.DOCS_LATEST)
@@ -853,7 +859,6 @@ def test_une_archive_illisible_ne_laisse_aucun_temporaire(tmp_path: Path) -> Non
             with pytest.raises(pub_mod.ArchivePrecedenteIllisible):
                 pub_mod.preparer_publication(
                     _publication(), data_dir=data, repo_root=tmp_path,
-                    preparer=runner._preparer_atomique,
                     valeur=runner._markdown_value, code=runner._markdown_code)
     finally:
         latest.chmod(0o644)
@@ -865,65 +870,67 @@ def test_une_archive_illisible_ne_laisse_aucun_temporaire(tmp_path: Path) -> Non
         tmp_path.joinpath(*pub_mod.DOCS_ARCHIVES).is_dir() else True
 
 
-@pytest.mark.parametrize("rang", [0, 1, 2, 3])
-def test_un_echec_a_nimporte_quel_rang_de_preparation_ne_laisse_aucun_temporaire(
-        tmp_path: Path, rang: int) -> None:
-    """B7 : « vérifier les rangs (échec au 1ᵉʳ, au 2ᵉ, au dernier temporaire) ».
+@pytest.mark.parametrize("rang", [1, 2, 3, 4, 5])
+def test_un_echec_a_nimporte_quel_rang_de_publication_ne_laisse_aucun_temporaire(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rang: int) -> None:
+    """B7 : « vérifier les rangs (échec au 1ᵉʳ, au 2ᵉ, au dernier) », sur le lot de publication réel.
 
-    Quatre temporaires sont préparés dans le cas complet — le JSON servi, l'archive du rendu
-    précédent, le rendu lisible, et le Markdown que la CI concatène. L'échec est injecté à chacun
-    des quatre rangs, et la garantie doit tenir aux quatre.
+    Quatre surfaces sont publiées dans le cas complet — le JSON servi, l'archive du rendu précédent,
+    le rendu lisible, et le Markdown que la CI concatène —, écrites dans la génération inactive puis
+    publiées par l'atome. L'échec est injecté à chacun des rangs, atome compris, et l'invariant doit
+    tenir à tous : aucune surface visible, aucun temporaire.
     """
     data = tmp_path / "data"
     data.mkdir()
     latest = tmp_path.joinpath(*pub_mod.DOCS_LATEST)
     latest.parent.mkdir(parents=True)
     latest.write_text("# campagne précédente\n", encoding="utf-8")
+    espace = poser_espace(tmp_path, data_dir=data)
     avant = latest.read_bytes()
-    appels = {"n": 0}
+    lot = pub_mod.preparer_publication(
+        _publication(), data_dir=data, repo_root=tmp_path,
+        markdown_run="# journal du run\n", chemin_run=tmp_path / "eval-results.md",
+        valeur=runner._markdown_value, code=runner._markdown_code)
+    vrai = os.replace
+    compte = {"n": 0}
 
-    def preparer(cible: Path, contenu: str) -> Path:
-        if appels["n"] == rang:
-            appels["n"] += 1
+    def replace_faillible(src: Any, dst: Any) -> Any:
+        compte["n"] += 1
+        if compte["n"] == rang:
             raise OSError("disque plein (injecté)")
-        appels["n"] += 1
-        return runner._preparer_atomique(cible, contenu)
+        return vrai(src, dst)
 
+    monkeypatch.setattr(os, "replace", replace_faillible)
     with pytest.raises(OSError, match="injecté"):
-        pub_mod.preparer_publication(
-            _publication(), data_dir=data, repo_root=tmp_path, preparer=preparer,
-            markdown_run="# journal du run\n", chemin_run=tmp_path / "eval-results.md",
-            valeur=runner._markdown_value, code=runner._markdown_code)
-    assert appels["n"] == rang + 1, "l'échec doit survenir au rang visé"
+        espace.basculer(lot)
+    monkeypatch.undo()
     assert _temporaires(tmp_path) == []
-    # Et aucune cible n'a été modifiée : rien ne bascule tant que tout n'est pas préparé.
+    # Et aucune cible n'a été modifiée : rien ne bascule tant que l'atome n'a pas eu lieu.
     assert latest.read_bytes() == avant
-    assert not list(data.glob("*.json"))
+    assert not (data / pub_mod.PUBLICATION_JSON).exists()
     assert not (tmp_path / "eval-results.md").exists()
 
 
 def test_ecrire_rapports_ne_laisse_aucun_temporaire_si_le_second_echoue(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """B7, chemin frère : le littéral de liste d'`ecrire_rapports` portait la même faute.
-
-    La liste n'était liée qu'après ses deux appels : quand le second échouait, le temporaire du
-    premier n'avait jamais été remis à personne.
-    """
+    """B7, chemin frère : le couple rapport/table est un lot, publié par le même unique atome."""
     rapport = _rapport_publiable()
     json_path = tmp_path / "eval-results.json"
     md_path = tmp_path / "eval-results.md"
-    vrai = runner._preparer_atomique
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data")
+    vrai = os.replace
     appels = {"n": 0}
 
-    def preparer(cible: Path, contenu: str) -> Path:
+    def replace_faillible(src: Any, dst: Any) -> Any:
         appels["n"] += 1
         if appels["n"] == 2:
             raise OSError("disque plein (injecté)")
-        return vrai(cible, contenu)
+        return vrai(src, dst)
 
-    monkeypatch.setattr(runner, "_preparer_atomique", preparer)
+    monkeypatch.setattr(os, "replace", replace_faillible)
     with pytest.raises(OSError, match="injecté"):
-        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
+        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None, espace=espace)
+    monkeypatch.undo()
     assert _temporaires(tmp_path) == []
     assert not json_path.exists() and not md_path.exists()
 
@@ -1029,7 +1036,8 @@ def test_un_rapport_inexploitable_hors_gate_est_un_refus_dit_pas_un_incident(
     json_path, md_path = tmp_path / "r.json", tmp_path / "r.md"
     ampute = {c: v for c, v in _rapport_publiable().items() if c != "cases_completed"}
     with pytest.raises(pub_mod.RapportInexploitable, match="cases_completed"):
-        runner.ecrire_rapports(ampute, json_path, md_path, preuve_externe=None)
+        runner.ecrire_rapports(ampute, json_path, md_path, preuve_externe=None,
+                               espace=poser_espace(tmp_path, data_dir=tmp_path / "data"))
     # Rien n'a été écrit, et aucun temporaire ne subsiste : le refus précède toute bascule.
     assert not json_path.exists() and not md_path.exists()
     assert _temporaires(tmp_path) == []
@@ -1142,16 +1150,16 @@ def test_le_couple_markdown_run_et_chemin_run_est_indivisible(tmp_path: Path) ->
         with pytest.raises(ValueError, match="vont ensemble"):
             pub_mod.preparer_publication(
                 _publication(), data_dir=data, repo_root=tmp_path,
-                preparer=runner._preparer_atomique,
-                valeur=runner._markdown_value, code=runner._markdown_code, **kw)  # type: ignore[arg-type]
+                    valeur=runner._markdown_value, code=runner._markdown_code, **kw)  # type: ignore[arg-type]
     assert _temporaires(tmp_path) == []
     # Le couple complet prépare bien quatre cibles, dont celle de la CI.
     prepares = pub_mod.preparer_publication(
-        _publication(), data_dir=data, repo_root=tmp_path, preparer=runner._preparer_atomique,
+        _publication(), data_dir=data, repo_root=tmp_path,
         markdown_run="# journal\n", chemin_run=tmp_path / "eval-results.md",
         valeur=runner._markdown_value, code=runner._markdown_code)
-    assert (tmp_path / "eval-results.md") in [cible for _tmp, cible in prepares]
-    pub_mod.supprimer_temporaires(prepares)
+    assert (tmp_path / "eval-results.md") in [cible for cible, _contenu in prepares]
+    # Rien n'a été écrit : la préparation ne touche plus le disque du tout.
+    assert _temporaires(tmp_path) == [] and not (tmp_path / "eval-results.md").exists()
 
 
 # --- R6 : il n'y a qu'un écrivain ------------------------------------------------------------------
@@ -1224,10 +1232,20 @@ def test_le_rapport_fabrique_du_verdict_ne_traverse_aucune_des_quatre_surfaces(
     sortie = tmp_path / "sortie"
     try:
         runner.ecrire_rapports(fabrique, sortie / "eval-results.json",
-                               sortie / "eval-results.md", preuve_externe=None)
+                               sortie / "eval-results.md", preuve_externe=None,
+                               espace=poser_espace(
+                                   sortie, data_dir=sortie / "data",
+                                   cibles=[Path("eval-results.json"), Path("eval-results.md")]))
     except pub_mod.RapportInexploitable:
         pass  # le refus dit — mais ce n'est pas lui que cette assertion regarde
-    assert not sortie.exists() or not any(sortie.iterdir()), "le journal de CI a été écrit"
+    # L'assertion porte sur les **surfaces**, pas sur le répertoire : depuis B7, la disposition de
+    # publication (le bundle et son pointeur) vit sous `sortie/data/.publie`, et sa présence ne dit
+    # rien de ce qui a été publié. Ce qui doit rester vide, c'est ce qu'un lecteur lit — et rien de
+    # ce que la génération porte ne doit contenir le rapport fabriqué.
+    assert not (sortie / "eval-results.json").exists(), "le rapport de CI a été écrit"
+    assert not (sortie / "eval-results.md").exists(), "le journal de CI a été écrit"
+    assert not [p for p in (sortie / "data" / ".publie").rglob("*") if p.is_file()], (
+        "le rapport fabriqué a atteint le bundle")
 
     # 1 et 2. Le journal de CI et l'artefact publié : les deux chemins de rendu refusent.
     for appel in (pub_mod.valider_rapport_publiable, pub_mod.construire_publication,
@@ -1532,130 +1550,175 @@ def test_un_plancher_digest_racine_mal_forme_ferme() -> None:
         pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
-# --- B7, tour correctif 1/3 : la bascule tient sa garantie sur **toute** exception -----------------
+# --- B7 : l'invariant autoritaire de la bascule ----------------------------------------------------
 #
-# `_basculer` ne restaurait que sur `OSError`, et la capture des états précédents se faisait hors de
-# toute garde de nettoyage. Sonde reproduite sur `4d0abb4` : une `RuntimeError` injectée au second
-# rang laissait `{'a': 'nouveau-a', 'b': 'ancien-b'}` **et** un temporaire `.b.tmp` orphelin. Le
-# chemin frère `ecrire_gate` appelle `_basculer` directement : quand la capture levait
-# `EtatPrecedentIllisible`, son temporaire de manifest n'était abandonné par aucun `finally`.
-
-def _lot_prepare(racine: Path, noms: tuple[str, ...]) -> list[tuple[Path, Path]]:
-    """Trois cibles portant leur état d'avant, et leurs trois temporaires prêts à basculer."""
-    prepares = []
-    for nom in noms:
-        cible = racine / nom
-        cible.write_text(f"ancien-{nom}", encoding="utf-8")
-        prepares.append((runner._preparer_atomique(cible, f"nouveau-{nom}"), cible))
-    return prepares
+# Ces tests étaient, aux tours précédents, des **consécrations** de l'état mêlé : ils exigeaient que
+# `BasculePartielle` nomme les cibles laissées dans le nouvel état, et acceptaient donc qu'une cible
+# de rang antérieur reste publiée. Ils sont devenus les contre-sondes de l'invariant autoritaire :
+#
+#     après toute exception, à n'importe quel rang, `BaseException` et interruption comprises,
+#     **zéro cible du lot** n'est modifiée ni visible dans le nouvel état.
+#
+# La contre-sonde exacte du recheck — un lot d'au moins trois cibles remises **au même appel**, panne
+# au deuxième renommage, puis `KeyboardInterrupt` pendant ce qui était la restauration — est
+# `test_la_contre_sonde_du_recheck_ne_laisse_aucune_cible_publiee`. Elle est rouge sur `24569cc`
+# (`a` y vaut `'nouveau-a'`) et verte ici.
 
 
-@pytest.mark.parametrize("rang", [0, 1, 2])
-def test_une_interruption_pendant_la_restauration_ne_masque_pas_la_cause(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rang: int) -> None:
-    """P2 : le **second** Ctrl-C est le scénario nominal, et il effaçait tout.
+def _espace_de_lot(racine: Path, noms: tuple[str, ...]) -> tuple[EspacePublie, list[Path]]:
+    """Un espace posé et un lot d'au moins trois cibles, dont le manifest, à l'état « ancien ».
 
-    La restauration réécrit et `fsync` chaque cible : c'est là qu'une interruption tombe. Une
-    `KeyboardInterrupt` qui traversait `_restaurer` abandonnait les restaurations restantes,
-    **effaçait la cause d'origine** — l'`OSError` de la bascule — et court-circuitait
-    `BasculePartielle`, si bien que plus rien ne nommait les cibles laissées dans le nouvel état.
-    Mesuré sur `9082428` : `{'a': 'nouveau-a', 'b': 'nouveau-b', 'c': 'ancien-c'}` sous une sortie
-    `KeyboardInterrupt` muette. L'injection porte ici sur les écritures de **restauration**, à
-    chacun de leurs rangs — quatre cibles, la bascule échoue à la dernière, donc trois
-    restaurations à interrompre.
+    Le manifest fait partie du lot, littéralement : la sixième substitution interdite est de l'en
+    sortir pour le basculer à part. Les cibles vivent dans trois racines différentes — `data/`,
+    `docs/` et une sortie de run — pour que la sonde porte sur le cas réel et pas sur un lot
+    commodément rassemblé dans un seul répertoire.
     """
-    noms = ("a", "b", "c", "d")
-    prepares = _lot_prepare(tmp_path, noms)
-    temporaires = {str(tmp) for tmp, _cible in prepares}
-    vrai_replace = os.replace
-    compte = {"bascules": 0, "restaurations": 0}
+    cibles = [Path("data") / "manifest.json", Path("docs") / "evals" / "latest.md",
+              Path("out") / "results.md", *(Path("out") / nom for nom in noms)]
+    espace = EspacePublie(racine)
+    espace.installer(cibles)
+    espace.basculer([(racine / c, f"ancien-{c.name}") for c in cibles])
+    return espace, [racine / c for c in cibles]
+
+
+def _etat_observable(cibles: list[Path]) -> dict[str, tuple[str, int]]:
+    """Contenu **et** type d'entrée (`lstat`) de chaque cible.
+
+    L'interdiction 7 définit « modifiée » par l'état observable : contenu, type d'entrée, cible de
+    lien, présence ou absence. Comparer les seuls contenus laisserait passer une migration de type,
+    qui est exactement la substitution qu'un candidat précédent avait employée.
+    """
+    etat = {}
+    for cible in cibles:
+        marque = os.lstat(cible).st_mode >> 12
+        etat[str(cible)] = (cible.read_text(encoding="utf-8"), marque)
+    return etat
+
+
+def test_la_contre_sonde_du_recheck_ne_laisse_aucune_cible_publiee(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La sonde exacte du recheck : panne au **deuxième** renommage, puis interruption ensuite.
+
+    Sur `24569cc`, elle rendait `BasculePartielle`, `non_restaurees=['…/a']` et laissait la cible du
+    premier rang à `'nouveau-a'` — et le test d'alors restait vert *précisément parce qu'il
+    acceptait cet état*. Ici, aucune cible n'a bougé, parce qu'aucune n'est modifiée tant que
+    l'unique `os.replace` du pointeur n'a pas eu lieu : il n'y a rien à défaire, donc rien qui
+    puisse échouer ou être interrompu en défaisant.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b", "c"))
+    avant = _etat_observable(cibles)
+    vrai = os.replace
+    compte = {"n": 0}
 
     def replace_faillible(src: Any, dst: Any) -> Any:
-        if str(src) in temporaires:
-            compte["bascules"] += 1
-            # La bascule échoue au dernier rang : les deux premières cibles sont donc à restaurer.
-            if compte["bascules"] == len(noms):
-                raise OSError("panne au dernier renommage (injectée)")
-        else:
-            compte["restaurations"] += 1
-            if compte["restaurations"] == rang + 1:
-                raise KeyboardInterrupt()
-        return vrai_replace(src, dst)
+        compte["n"] += 1
+        if compte["n"] == 2:
+            raise OSError("panne au deuxième renommage (injectée)")
+        if compte["n"] == 3:
+            raise KeyboardInterrupt()
+        return vrai(src, dst)
 
     monkeypatch.setattr(os, "replace", replace_faillible)
-    with pytest.raises(runner.BasculePartielle) as leve:
-        runner._basculer(prepares)
+    with pytest.raises(BaseException):  # noqa: B017, PT011 — l'identité de la cause est éprouvée ailleurs
+        espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
     monkeypatch.undo()
 
-    # La cause d'origine n'est pas perdue : elle est chaînée sous la `BasculePartielle`.
-    assert isinstance(leve.value.__cause__, OSError)
-    # Et les cibles qui n'ont pas pu être remises sont **nommées**, une par une.
-    assert leve.value.non_restaurees, "une restauration a échoué : elle doit être nommée"
-    etat = {nom: (tmp_path / nom).read_text(encoding="utf-8") for nom in noms}
-    for nom in noms:
-        cible = str(tmp_path / nom)
-        attendu = f"nouveau-{nom}" if cible in leve.value.non_restaurees else f"ancien-{nom}"
-        assert etat[nom] == attendu, f"{nom} n'est ni restauré ni signalé comme non restauré"
-    assert _temporaires(tmp_path) == []
+    assert _etat_observable(cibles) == avant, (
+        "aucune cible du lot n'est modifiée ni visible dans le nouvel état")
+    assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
 
 
-@pytest.mark.parametrize("rang", [0, 1, 2])
-@pytest.mark.parametrize("exception", [OSError("panne d'écriture injectée"),
+@pytest.mark.parametrize("rang", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("exception", [OSError("panne injectée"),
                                        RuntimeError("panne injectée hors OSError"),
                                        KeyboardInterrupt()],
                          ids=["oserror", "runtimeerror", "interruption"])
 def test_une_bascule_interrompue_a_nimporte_quel_rang_ne_laisse_ni_cible_ni_temporaire(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rang: int,
         exception: BaseException) -> None:
-    """Chaque rang, trois causes : le seul état admissible à la sortie est « rien n'a bougé »."""
-    noms = ("a", "b", "c")
-    prepares = _lot_prepare(tmp_path, noms)
-    temporaires = {str(tmp) for tmp, _cible in prepares}
-    vrai_replace = os.replace
+    """Chaque rang, trois causes : le seul état admissible à la sortie est « rien n'a bougé ».
+
+    Le dernier rang est l'atome lui-même. Y échouer laisse le pointeur sur l'ancienne génération,
+    donc le lot entier dans son état d'avant : c'est le même invariant, à la frontière.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b"))
+    avant = _etat_observable(cibles)
+    vrai = os.replace
     compte = {"n": 0}
 
     def replace_faillible(src: Any, dst: Any) -> Any:
-        # Seules les bascules du lot sont comptées : les écritures de **restauration** passent par
-        # leurs propres temporaires et doivent aboutir, sans quoi la sonde mesurerait l'échec de la
-        # restauration au lieu de celui de la bascule.
-        if str(src) in temporaires:
-            compte["n"] += 1
-            if compte["n"] == rang + 1:
-                raise exception
-        return vrai_replace(src, dst)
+        compte["n"] += 1
+        if compte["n"] == rang:
+            raise exception
+        return vrai(src, dst)
 
     monkeypatch.setattr(os, "replace", replace_faillible)
     with pytest.raises(type(exception)):
-        runner._basculer(prepares)
+        espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
     monkeypatch.undo()
 
-    assert {nom: (tmp_path / nom).read_text(encoding="utf-8") for nom in noms} == {
-        nom: f"ancien-{nom}" for nom in noms}, "aucune cible ne reste dans le nouvel état"
+    assert _etat_observable(cibles) == avant, "aucune cible ne reste dans le nouvel état"
     assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
 
 
-def test_une_capture_detat_precedent_impossible_nabandonne_pas_ses_temporaires(
+def test_la_bascule_ne_cree_ne_migre_ni_ne_change_le_type_daucune_cible(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """La capture se fait **sous garde** : un état illisible ferme sans rien laisser derrière."""
-    prepares = _lot_prepare(tmp_path, ("a", "b"))
+    """La distinction que l'interdiction 7 trace, **prouvée** et non affirmée.
 
-    def capture_impossible(path: Path) -> bytes | None:
-        raise runner.EtatPrecedentIllisible(f"{path} : illisible (injecté)")
+    Ce qu'elle proscrit est la pose séquentielle à l'exécution : des liens installés cible par cible
+    avant la bascule, où une exception en cours de pose laisse des cibles modifiées. La disposition
+    de ce protocole est statique — committée dans le dépôt, posée par `installer()` hors de toute
+    transaction — et la bascule n'appelle jamais `os.symlink`, `os.unlink` ni `shutil.move` sur une
+    cible. Ici on l'observe : aucun appel de pose ne vise une cible du lot, et le type d'entrée de
+    chacune est le même avant et après une bascule **réussie**.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b"))
+    types_avant = {str(c): os.lstat(c).st_mode >> 12 for c in cibles}
+    vises: list[str] = []
+    vrai_symlink, vrai_unlink, vrai_move = os.symlink, os.unlink, shutil.move
+    noms = {str(c) for c in cibles}
 
-    monkeypatch.setattr(runner, "_lire_ou_absent", capture_impossible)
-    with pytest.raises(runner.EtatPrecedentIllisible):
-        runner._basculer(prepares)
+    def _noter(fn: Any, nom: str) -> Any:
+        def _piste(src: Any, dst: Any = None, *a: Any, **k: Any) -> Any:
+            for candidat in (src, dst):
+                if candidat is not None and str(candidat) in noms:
+                    vises.append(f"{nom}({candidat})")
+            return fn(src, dst, *a, **k) if dst is not None else fn(src)
+        return _piste
+
+    monkeypatch.setattr(os, "symlink", _noter(vrai_symlink, "symlink"))
+    monkeypatch.setattr(os, "unlink", _noter(vrai_unlink, "unlink"))
+    monkeypatch.setattr(shutil, "move", _noter(vrai_move, "move"))
+    espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
     monkeypatch.undo()
+
+    assert vises == [], f"la bascule a posé ou retiré une cible : {vises}"
+    assert {str(c): os.lstat(c).st_mode >> 12 for c in cibles} == types_avant, (
+        "le type d'entrée d'une cible a changé pendant une bascule")
+    assert all(c.read_text(encoding="utf-8") == f"nouveau-{c.name}" for c in cibles), (
+        "la bascule réussie publie bien tout le lot")
+
+
+def test_une_cible_hors_de_lespace_est_un_refus_avant_toute_ecriture(tmp_path: Path) -> None:
+    """La bascule n'installe jamais ce qui manque : elle refuse, et nomme la commande qui l'installe."""
+    espace, cibles = _espace_de_lot(tmp_path, ("a",))
+    avant = _etat_observable(cibles)
+    etrangere = tmp_path / "hors-espace.md"
+    etrangere.write_text("intact", encoding="utf-8")
+    with pytest.raises(EspaceNonInstalle, match="n'est pas résolue"):
+        espace.basculer([(c, "neuf") for c in cibles] + [(etrangere, "neuf")])
+    assert _etat_observable(cibles) == avant, "un refus ne publie rien du lot"
+    assert etrangere.read_text(encoding="utf-8") == "intact"
+    assert not etrangere.is_symlink(), "un refus n'installe pas la cible qu'il refuse"
     assert _temporaires(tmp_path) == []
-    assert (tmp_path / "a").read_text(encoding="utf-8") == "ancien-a"
 
 
-def test_ecrire_gate_est_couvert_par_le_meme_contrat(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """B7, chemin frère : `ecrire_gate` n'a aucun `finally` — c'est `_basculer` qui le couvre.
+def test_ecrire_gate_est_couvert_par_le_meme_contrat(tmp_path: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """B7, chemin frère : `ecrire_gate` passe par le même unique pointeur atomique.
 
-    Le temporaire de `data/manifest.json` est préparé par `preparer_gate` **avant** l'appel ; quand
-    la capture de l'état précédent lève, personne ne le nettoyait.
+    Il n'a plus de temporaire à lui — `preparer_gate` ne fait que lire, valider et sérialiser —,
+    donc plus de temporaire à oublier. Une panne de renommage laisse le manifest byte-identique.
     """
     data = tmp_path / "data"
     data.mkdir()
@@ -1664,14 +1727,21 @@ def test_ecrire_gate_est_couvert_par_le_meme_contrat(
               "document_hash": "d", "edition": "2020", "overlay_hash": None,
               "structure_hash": None, "gate": None}
     manifest.write_text(json.dumps({"doc-neutre": entree}, indent=2) + "\n", encoding="utf-8")
+    poser_espace(tmp_path, data_dir=data)
     avant = manifest.read_bytes()
 
-    def capture_impossible(path: Path) -> bytes | None:
-        raise runner.EtatPrecedentIllisible(f"{path} : illisible (injecté)")
+    vrai = os.replace
 
-    monkeypatch.setattr(runner, "_lire_ou_absent", capture_impossible)
-    with pytest.raises(runner.EtatPrecedentIllisible):
+    def replace_faillible(src: Any, dst: Any) -> Any:
+        raise OSError("panne de renommage (injectée)")
+
+    monkeypatch.setattr(os, "replace", replace_faillible)
+    with pytest.raises(OSError, match="injectée"):
         runner.ecrire_gate(manifest, "doc-neutre", _gate())
-    monkeypatch.undo()
+    monkeypatch.setattr(os, "replace", vrai)
     assert _temporaires(tmp_path) == [], "aucun `.tmp` ne reste dans data/"
     assert manifest.read_bytes() == avant, "le manifest est byte-identique"
+
+    # Et le chemin nominal publie bien, par le même unique atome.
+    assert runner.ecrire_gate(manifest, "doc-neutre", _gate()) is True
+    assert json.loads(manifest.read_text(encoding="utf-8"))["doc-neutre"]["gate"] is not None
