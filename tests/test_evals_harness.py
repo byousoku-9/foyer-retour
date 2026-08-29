@@ -352,12 +352,12 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
     assert rapport["executions_planned"] == 2
     assert rapport["executions_completed"] == 1
     assert rapport["executions_interrupted"] == 1
-    md = rendre_markdown(rapport)
+    md = rendre_markdown(rapport, preuve_externe=None)
     for attendu in ("cases_hash", "recall", "coût moyen", "latence p50", "ne_tranche_pas",
                     "<code>bonne_reponse</code>", "<code>outils</code>", "Cas non exécutés"):
         assert attendu in md
     json_path, md_path = tmp_path / "out" / "result.json", tmp_path / "out" / "result.md"
-    ecrire_rapports(rapport, json_path, md_path)
+    ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
     assert json.loads(json_path.read_text("utf-8"))["complete"] is False
     assert md_path.read_text("utf-8") == md
     assert not list(tmp_path.rglob("*.tmp"))
@@ -366,15 +366,16 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
 def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
     """Toute valeur **libre** rendue dans le Markdown est échappée — cellule, ligne, code inline.
 
-    `suite`, `label` et `cases_hash` ont quitté cette fixture au tour correctif 1/3 : la validation
-    canonique les tient désormais à leurs vocabulaires fixes et à leur forme d'empreinte (revue B5),
-    si bien qu'ils ne peuvent plus porter de caractère dangereux. Les six champs restants sont ceux
-    qui restent **réellement** libres — profil, motif d'arrêt, identifiants de cas, variantes —, et
-    l'échappement se prouve sur eux. Les trois autres cellules gardent leur preuve, par une autre
-    voie : `test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege`.
+    `suite`, `label` et `cases_hash` ont quitté cette fixture au tour correctif 1/3, `profile` au
+    tour correctif 2/3 : la validation canonique les tient désormais à leurs vocabulaires fixes et à
+    leur forme d'empreinte (revue B5), si bien qu'ils ne peuvent plus porter de caractère dangereux.
+    Les champs restants sont ceux qui restent **réellement** libres — motif d'arrêt, identifiants de
+    cas et d'exécution, variantes —, et l'échappement se prouve sur eux. Les quatre autres cellules
+    gardent leur preuve, par une autre voie :
+    `test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege`.
     """
     rapport = {
-        "complete": False, "profile": "p|`\nligne", "cases_completed": 0,
+        "complete": False, "profile": "full", "cases_completed": 0,
         "cases_planned": 1, "stop_reason": "diag|`\nligne", "cases_hash": "a" * 64,
         "unexecuted_cases": ["c|`\nligne"], "identity": {}, "decisions": [], "repeat": 1,
         # `cost_eur` fait partie de ce que la validation canonique exige depuis le cycle de
@@ -395,8 +396,8 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
             "latency_ms": 0,
         }],
     }
-    markdown = rendre_markdown(rapport)
-    for brut in ("p|`", "diag|`", "c|`", "i|`", "v|`"):
+    markdown = rendre_markdown(rapport, preuve_externe=None)
+    for brut in ("diag|`", "c|`", "i|`", "v|`"):
         assert brut not in markdown
     assert "<code>" in markdown and "&#124;" in markdown and "&#96;" in markdown and "<br>" in markdown
     assert "`i&#124;" not in markdown, "une entité ne doit pas être enfermée dans un code span"
@@ -406,8 +407,9 @@ def test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Revue P13 : la couverture d'échappement ne rétrécit pas parce qu'un vocabulaire s'est fermé.
 
-    `suite`, `label` et `cases_hash` sont désormais inoffensifs **par construction** — la validation
-    canonique les refuse hors vocabulaire ou hors forme d'empreinte. C'est vrai, et c'est une
+    `suite`, `label`, `cases_hash` et — depuis le tour correctif 2/3 — `profile` sont désormais
+    inoffensifs **par construction** : la validation canonique les refuse hors vocabulaire ou hors
+    forme d'empreinte. C'est vrai, et c'est une
     meilleure défense ; mais la couche de rendu doit continuer à les échapper, sans quoi la
     réouverture d'un vocabulaire rouvrirait aussi l'injection.
 
@@ -418,9 +420,10 @@ def test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege(
     from server.app.domain.evals import (CoutPublie, LatencePubliee, PublicationEvals,
                                          StabilitePubliee)
 
-    monkeypatch.setattr(runner, "valider_rapport_publiable", lambda rapport: rapport)
+    monkeypatch.setattr(runner, "valider_rapport_publiable",
+                        lambda rapport, **_kw: rapport)
     rapport = {
-        "complete": True, "profile": "p", "cases_completed": 1, "cases_planned": 1,
+        "complete": True, "profile": "p|`\nligne", "cases_completed": 1, "cases_planned": 1,
         "stop_reason": None, "cases_hash": "h|`\nligne",
         "unexecuted_cases": [], "identity": {}, "decisions": [], "repeat": 1, "cost_eur": 0.0,
         "metrics": {"recall": 0.0, "average_cost_eur": 0.0, "latency_p50_ms": 0,
@@ -433,12 +436,12 @@ def test_le_rendu_echappe_encore_les_cellules_que_le_vocabulaire_protege(
     # Une publication valide est fournie : `rendre_markdown` ne construit alors rien, et ce test
     # porte bien sur le **journal du run**, la seule moitié qui rend ces trois cellules.
     publication = PublicationEvals(
-        profile="p", recall=0.0, stabilite=StabilitePubliee(n=1, cas_stables=0,
+        profile="full", recall=0.0, stabilite=StabilitePubliee(n=1, cas_stables=0,
                                                             cas_comptabilises=0),
         cout=CoutPublie(froid_eur=0.0, moyen_eur=0.0, p95_eur=0.0),
         latence=LatencePubliee(p50_ms=0, p95_ms=0), ne_tranche_pas_rate=0.0)
-    rendu = rendre_markdown(rapport, publication)
-    for brut in ("h|`", "s|`", "l|`"):
+    rendu = rendre_markdown(rapport, publication, preuve_externe=None)
+    for brut in ("h|`", "s|`", "l|`", "p|`"):
         assert brut not in rendu, f"{brut!r} rendu sans échappement"
     assert "&#124;" in rendu and "&#96;" in rendu and "<br>" in rendu
 

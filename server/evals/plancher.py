@@ -30,10 +30,12 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from server.app.config import REPO_ROOT
 from server.app.corpus.text import normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.llm.models import TIERS
 from server.evals.cache import empreinte_canonique
+from server.evals.revision import ARBRE_NON_VERIFIABLE, revision_executee
 
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 PLANCHER_PATH = REFERENCE_DIR / "plancher.yaml"
@@ -380,9 +382,64 @@ def verifier_identite_externe(rapport: dict[str, Any], *, plancher_digest: str,
                 f"le run courant {image_courante[champ]!r} — la preuve ne mesure pas cette image")
 
 
+# Le jeton qui distingue « cet objet vient de la vérification » de « cet objet a été construit ».
+# Python n'offre pas d'objet infalsifiable, et prétendre le contraire serait le genre
+# d'affirmation que ce cycle passe son temps à retirer : un appelant déterminé peut lire
+# `plancher._JETON_LIAISON`. Ce que le jeton ferme est la voie **commode** — celle qu'on emprunte
+# sans y penser, c'est-à-dire celle qui produit les défauts : construire une preuve « vérifiée » à
+# partir de ce qu'on a sous la main, ou laisser un rapport se déclarer lui-même digne de confiance.
+_JETON_LIAISON = object()
+
+
+class PreuveExterneVerifiee:
+    """Ce que la liaison cryptographique a **réellement établi** — et rien de plus.
+
+    Story 4.5, tour correctif 2/3, revue B5. `valider_rapport_publiable` admettait une décision au
+    `run_digest` étranger dès que **le rapport lui-même** l'ajoutait à `external_run_digests` : la
+    liste des empreintes « légitimes » était lue dans l'entrée non fiable qu'on est précisément en
+    train de valider. Une auto-déclaration ne peut jamais être son propre ancrage de confiance.
+
+    Cet objet est donc le seul ancrage admis : il n'existe que si `verifier_liaison_preuve` a
+    recoupé, sur des octets réels, le protocole, la révision candidate, le rapport et le
+    `run_digest` recalculé depuis l'identité de ce rapport. Le porter de l'ingestion de la preuve
+    jusqu'à la validation du rapport est le travail que le tour précédent avait écarté ; c'est
+    justement lui qui manquait.
+
+    Il n'y a **pas** de valeur par défaut permissive : un appelant qui n'a pas de preuve vérifiée
+    passe `None`, ce qui veut dire « aucune empreinte étrangère n'est publiable », jamais « aucune
+    contrainte ».
+    """
+
+    __slots__ = ("run_digest", "candidate_revision", "report_digest", "plancher_digest")
+
+    def __init__(self, jeton: object, *, run_digest: str, candidate_revision: str,
+                 report_digest: str, plancher_digest: str) -> None:
+        if jeton is not _JETON_LIAISON:
+            raise PlancherInvalide(
+                "PreuveExterneVerifiee ne se construit que par `verifier_liaison_preuve` : une "
+                "preuve qu'on se donne à soi-même n'est pas une preuve")
+        object.__setattr__(self, "run_digest", run_digest)
+        object.__setattr__(self, "candidate_revision", candidate_revision)
+        object.__setattr__(self, "report_digest", report_digest)
+        object.__setattr__(self, "plancher_digest", plancher_digest)
+
+    def __setattr__(self, nom: str, valeur: Any) -> None:  # pragma: no cover — garde de forme
+        raise AttributeError("une preuve vérifiée ne se modifie pas après coup")
+
+    @property
+    def run_digests(self) -> frozenset[str]:
+        """Les empreintes de run qu'une décision étrangère peut légitimement porter."""
+        return frozenset({self.run_digest})
+
+    def __repr__(self) -> str:  # pragma: no cover — confort de diagnostic
+        return (f"PreuveExterneVerifiee(run_digest={self.run_digest!r}, "
+                f"candidate_revision={self.candidate_revision!r})")
+
+
 def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revision: str,
                             report_bytes: bytes | None,
-                            image_courante: dict[str, Any] | None = None) -> str:
+                            image_courante: dict[str, Any] | None = None,
+                            ) -> PreuveExterneVerifiee:
     """Relie une preuve externe à **ce** candidat, et rend son `run_digest` racine.
 
     Intention M2 (`deferred-work.md`) : « une modification produit rend la réutilisation d'une preuve
@@ -406,6 +463,11 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
 
     Lève `PlancherInvalide` au premier écart, avec le chiffre en cause. L'appelant en fait un refus
     de tourner (code 2) : aucun gate n'est écrit.
+
+    Rend une `PreuveExterneVerifiee` — pas une chaîne (revue B5, tour correctif 2/3). Le
+    `run_digest` seul se recopiait dans un rapport, qui pouvait ensuite le déclarer légitime
+    lui-même ; l'objet, lui, ne peut pas être fabriqué par le lecteur de rapport, et c'est
+    exactement la propriété qui manquait à la validation de publication.
     """
     if not isinstance(brut, dict):
         raise PlancherInvalide("preuve orchestrateur : un objet JSON est attendu")
@@ -491,7 +553,10 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
             raise PlancherInvalide(
                 f"preuve orchestrateur : la mesure {mesure.get('metric')!r} porte un run_digest "
                 "différent de celui de la preuve — les mesures d'une preuve viennent d'un run")
-    return str(brut["run_digest"])
+    return PreuveExterneVerifiee(
+        _JETON_LIAISON, run_digest=str(brut["run_digest"]),
+        candidate_revision=str(brut["candidate_revision"]),
+        report_digest=str(brut["report_digest"]), plancher_digest=plancher_digest)
 
 
 # --- la règle mécanique du checkpoint (trois rôles, rôle 1) ---------------------------------------
@@ -699,7 +764,70 @@ def image_du_depot(plancher_digest: str) -> dict[str, Any]:
     }
 
 
-def classer_configurations(candidats: Any, *, candidate_revision: str) -> list[Configuration]:
+def _opposer_au_checkout(candidate_revision: str) -> None:
+    """La révision demandée est-elle celle que **ce checkout** porte ? — sinon on ne classe pas.
+
+    Story 4.5, tour correctif 2/3, revue B1. Tout ce que le classement recoupait jusqu'ici restait
+    **à l'intérieur** du rapport : les empreintes se recalculaient depuis ses octets, l'image et le
+    plancher venaient du processus, et la révision… n'était opposée qu'à ce que le rapport en
+    disait. Un rapport auto-cohérent fabriqué pour un commit inexistant (`git cat-file -e` échoue)
+    était donc classé en tête. C'est la dernière couche du même défaut : présence → syntaxe →
+    recalcul → ancrage **externe**.
+
+    L'autorité est celle que le runner emploie déjà (`revision.revision_executee`) : `git rev-parse
+    HEAD`, repli `GIT_SHA` seulement en l'absence de dépôt, et `ARBRE_NON_VERIFIABLE` quand l'état
+    de l'arbre n'a pas pu être lu. Ne pas pouvoir conclure ferme, comme partout ailleurs dans ce
+    module.
+    """
+    if not _hex_exact(candidate_revision, 40):
+        raise ClassementInvalide(
+            "classement : la révision candidate est obligatoire et doit être 40 caractères "
+            f"hexadécimaux (reçu {candidate_revision!r})")
+    reelle, arbre = revision_executee(REPO_ROOT)
+    if reelle is None:
+        raise ClassementInvalide(
+            "classement : la révision réellement exécutée n'a pu être établie (ni "
+            "`git rev-parse HEAD`, ni GIT_SHA en 40 hexadécimaux) — un classement qui ne sait pas "
+            "quel code il regarde ne promeut rien")
+    if ARBRE_NON_VERIFIABLE in arbre:
+        raise ClassementInvalide(
+            f"classement : {ARBRE_NON_VERIFIABLE} — un arbre qu'on n'a pas pu lire ne prouve pas "
+            "que le checkout est celui du commit annoncé")
+    if reelle != candidate_revision:
+        raise ClassementInvalide(
+            f"classement : la révision candidate {candidate_revision} n'est pas celle du checkout "
+            f"réellement exécuté ({reelle}) — un rapport peut se réclamer d'un commit qui n'existe "
+            "nulle part, un classement ne le peut pas")
+
+
+class ClassementOppose(BaseModel):
+    """Le classement **et l'identité contre laquelle il a été opposé**, indissociables.
+
+    Story 4.5, tour correctif 2/3, revue B1 (volet TOCTOU). La CLI chargeait le plancher pour son
+    propre compte **avant** d'appeler le classement, puis publiait *ce* digest-là dans l'artefact de
+    promotion — alors que le classement, depuis P1, dérive sa propre référence du processus. Deux
+    lectures, donc deux valeurs possibles, et c'est la seconde qui décidait pendant que la première
+    était publiée. Un artefact de promotion doit porter la référence **effectivement opposée**, pas
+    une relecture indépendante qui lui ressemble.
+
+    Le classement rend donc son identité avec son ordre, et la CLI n'a plus rien à relire.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # La révision **opposée au checkout réellement exécuté**, et mesurée par chaque rapport.
+    candidate_revision: str
+    # Le protocole que le classement a lui-même chargé et opposé à chaque rapport.
+    plancher_digest: str
+    configurations: list[Configuration]
+
+    @property
+    def aucun_admissible(self) -> bool:
+        """Un rouge publié tel quel, jamais une question humaine (Boundaries 4.2b)."""
+        return not any(c.admissible for c in self.configurations)
+
+
+def classer_configurations(candidats: Any, *, candidate_revision: str) -> ClassementOppose:
     """Classement mécanique : admissibles au plancher d'abord, puis la moins chère, puis la plus rapide.
 
     C'est la règle du checkpoint de finalisation (spec 4.2b) : aucun jugement, aucune pondération.
@@ -725,10 +853,29 @@ def classer_configurations(candidats: Any, *, candidate_revision: str) -> list[C
        les remplacer, ni de voie « pour les tests » : un test qui a besoin d'un autre plancher
        n'exerce pas ce chemin.
 
-    Reste `candidate_revision`, et c'est délibéré : c'est la **question** posée — « classe les
-    configurations de ce commit » —, pas une référence de confiance. Elle n'ouvre rien, puisque
-    chaque rapport doit l'avoir mesurée ; le classement d'un commit fantôme ne rend simplement aucune
-    configuration. Ce que le dépôt exécute réellement est opposé ailleurs, par `revision_executee`.
+    4. `candidate_revision` reste un **paramètre**, parce que c'est la question posée — « classe les
+       configurations de ce commit ». Mais elle n'est plus crue sur parole : le tour précédent
+       affirmait qu'« un commit fantôme ne rend aucune configuration », et c'était **faux**. Un
+       rapport auto-cohérent fabriqué pour `'a'*40` — une révision qui n'existe dans aucun dépôt —
+       était accepté, admissible, et classé **en tête** : la révision n'était opposée qu'à
+       elle-même, à travers l'identité d'un rapport que l'appelant venait d'écrire. Une
+       auto-cohérence n'est pas une vérité.
+
+       Elle est donc opposée au **checkout réellement exécuté** (`revision.revision_executee`, la
+       même autorité que le runner emploie déjà pour `--candidate-revision`). Trois façons de
+       fermer, et aucune n'est optionnelle : la révision du checkout n'a pas pu être établie ; l'état
+       de l'arbre n'a pas pu être lu ; la révision demandée n'est pas celle du checkout.
+
+       Ce que ce contrôle **ne** fait pas, et il faut le dire plutôt que le laisser croire : il ne
+       refuse pas un arbre de travail **sale**. Ce qu'un classement peut établir, c'est que la
+       révision nommée est bien celle que ce checkout porte ; la propreté de l'arbre au moment du
+       classement ne dit rien de l'arbre qui a produit les rapports — c'est la production du rapport
+       qui la contrôle (`run._main` refuse un gate `full` sur un arbre sale). Ce qui protège ici est
+       l'image : `pipeline_digest` et `prompts_digest` sont recalculés depuis les sources sur
+       disque, et un rapport mesuré sous une autre image ferme.
+
+    Rend un `ClassementOppose` : l'ordre **et** les deux références effectivement opposées, pour que
+    l'appelant n'ait aucune raison d'en relire une seconde (revue B1, volet TOCTOU).
 
     Lève `ClassementInvalide` au premier écart, avant qu'aucun ordre ne soit rendu — jamais un
     classement partiel, jamais une tête par défaut.
@@ -754,6 +901,11 @@ def classer_configurations(candidats: Any, *, candidate_revision: str) -> list[C
         raise ClassementInvalide(
             "classement : les noms de configurations doivent être uniques "
             f"({sorted(nom for nom in set(noms) if noms.count(nom) > 1)} en double)")
+    # **La révision candidate est opposée au checkout**, avant toute lecture de rapport (revue B1,
+    # tour correctif 2/3). C'est le seul contrôle du module qui sorte du processus pour aller
+    # regarder un objet du monde : les autres établissent des cohérences, celui-ci établit une
+    # existence.
+    _opposer_au_checkout(candidate_revision)
     # **Les deux références sont dérivées ici**, pas reçues (revue P1). `PlancherInvalide` et les
     # erreurs de lecture des sources deviennent un refus de classer : un classement qui ne sait pas
     # contre quel protocole ni contre quelle image il oppose ne se rend pas « au mieux ».
@@ -777,8 +929,10 @@ def classer_configurations(candidats: Any, *, candidate_revision: str) -> list[C
     # construction. Un `verifier_identite_classement` posé après cette boucle n'aurait plus aucune
     # branche atteignable — un contrôle qu'aucun chemin ne peut faire échouer donne l'apparence
     # d'une garantie sans en être une.
-    return sorted(configurations,
-                  key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name))
+    return ClassementOppose(
+        candidate_revision=candidate_revision, plancher_digest=plancher_digest,
+        configurations=sorted(configurations,
+                              key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name)))
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -826,21 +980,22 @@ def _main(argv: list[str] | None = None) -> int:
             # dégradé : une promotion qu'on ne peut pas auditer ne se rend pas « au mieux ».
             print(f"refus : {exc}", file=sys.stderr)
             return 2
-        aucun_admissible = not any(c.admissible for c in classement)
         print(json.dumps({
-            "plancher_digest": charge.digest,
+            # **Les deux références publiées sont celles que le classement a opposées**, jamais une
+            # seconde lecture (revue B1, volet TOCTOU). `charge.digest` — le plancher que cette CLI
+            # avait chargé pour son propre compte, avant le classement — n'apparaît plus ici : rien
+            # ne garantissait qu'il soit celui contre lequel les rapports ont réellement été
+            # opposés, et publier l'un pendant que l'autre décide est la définition d'un artefact de
+            # promotion inauditable.
+            "plancher_digest": classement.plancher_digest,
             # L'artefact de promotion dit **à quel candidat** il se rapporte, à la racine comme par
-            # configuration : sans cela il est inauditable après coup (revue B1). La racine porte la
-            # révision **que le classement a effectivement opposée** — chaque rapport l'a mesurée,
-            # et le classement l'a recalculée depuis son identité —, pas seulement celle que
-            # l'opérateur a tapée.
-            "candidate_revision": (classement[0].candidate_revision if classement
-                                   else args.candidate_revision),
-            "aucun_admissible": aucun_admissible,
-            "classement": [c.model_dump() for c in classement],
+            # configuration : sans cela il est inauditable après coup (revue B1).
+            "candidate_revision": classement.candidate_revision,
+            "aucun_admissible": classement.aucun_admissible,
+            "classement": [c.model_dump() for c in classement.configurations],
         }, ensure_ascii=False, indent=2))
         # `aucun_admissible` est un rouge publié, jamais une question (Boundaries 4.2b).
-        return 1 if aucun_admissible else 0
+        return 1 if classement.aucun_admissible else 0
     print(f"plancher_digest={charge.digest} temoins={len(charge.plancher.temoins)} "
           f"n_minimum={charge.plancher.n_minimum}")
     return 0

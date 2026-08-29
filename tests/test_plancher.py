@@ -18,9 +18,11 @@ from server.app.domain.errors import BudgetExceeded
 from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.llm.client import LlmClient
 from server.app.domain.trace import Usage
-from server.evals.plancher import (CandidatClassement, ClassementInvalide, Configuration,
-                                   PlancherInvalide, charger_plancher, classer_configurations,
-                                   PLANCHER_PATH)
+from server.app.config import REPO_ROOT
+from server.evals.plancher import (CandidatClassement, ClassementInvalide, ClassementOppose,
+                                   Configuration, PlancherInvalide, charger_plancher,
+                                   classer_configurations, PLANCHER_PATH)
+from server.evals.revision import ARBRE_NON_VERIFIABLE, revision_executee
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 
 
@@ -28,10 +30,31 @@ def _settings(**kw: object) -> Settings:
     return Settings(_env_file=None, **kw)  # type: ignore[arg-type]
 
 
-# La révision candidate commune des tables de classement de ce fichier. Neutre, synthétique, et
-# **portée par toutes les configurations** : depuis la revue B1 du cycle de récupération, un
-# classement n'accepte que des configurations dont l'identité est complète et cohérente.
-REVISION_CLASSEE = "a" * 40
+# La révision candidate commune des tables de classement de ce fichier — **celle du checkout**.
+#
+# Elle valait `"a" * 40` jusqu'au tour correctif 2/3, et les fixtures consacraient donc exactement le
+# défaut B1 : un rapport auto-cohérent fabriqué pour un commit qui n'existe dans aucun dépôt était
+# accepté, admissible et classé en tête. Depuis, `classer_configurations` oppose la révision au
+# checkout réellement exécuté ; une table de classement ne peut donc plus se réclamer d'un commit
+# fantôme, et ces fixtures sont **refaites**, pas complétées.
+REVISION_DU_CHECKOUT, ARBRE_DU_CHECKOUT = revision_executee(REPO_ROOT)
+REVISION_CLASSEE = REVISION_DU_CHECKOUT or "a" * 40
+
+
+def _exige_un_checkout_opposable() -> None:
+    """Le classement n'est exerçable que là où une révision de checkout peut être établie.
+
+    Ce n'est pas une assertion affaiblie mais une **condition d'environnement** : une copie extraite
+    par `git archive`, ou une image sans `.git` ni `GIT_SHA`, ne porte aucune révision à opposer, et
+    `classer_configurations` y refuse — à juste titre. Le dire par un `skip` explicite vaut mieux
+    que de faire passer la sonde par un refus qui ne mesure pas ce qu'elle vise.
+    """
+    if REVISION_DU_CHECKOUT is None:
+        pytest.skip("aucune révision de checkout à opposer (dépôt absent) : le classement refuse "
+                    "ici pour une raison d'environnement, pas pour celle que ce test mesure")
+    if ARBRE_NON_VERIFIABLE in ARBRE_DU_CHECKOUT:
+        pytest.skip("l'état de l'arbre n'a pas pu être lu : le classement refuse ici pour une "
+                    "raison d'environnement")
 
 # Sentinelle des fabriques : « ce champ n'est pas fourni » se distingue de « ce champ vaut None ».
 _ABSENT = object()
@@ -134,9 +157,18 @@ def _candidat(name: str, **kw: object) -> CandidatClassement:
     return CandidatClassement(name=name, report_bytes=_octets_de_rapport(nom=name, **kw))  # type: ignore[arg-type]
 
 
-def _classer(candidats: object, *, revision: str = REVISION_CLASSEE) -> list[Configuration]:
-    """Le classement, tel que le produit l'appelle : **aucune référence n'est passée** (revue P1)."""
+def _classement(candidats: object, *, revision: str = REVISION_CLASSEE) -> ClassementOppose:
+    """Le classement, tel que le produit l'appelle : **aucune référence n'est passée** (revue P1).
+
+    Il rend son ordre **et** l'identité qu'il a effectivement opposée (revue B1, volet TOCTOU).
+    """
+    _exige_un_checkout_opposable()
     return classer_configurations(candidats, candidate_revision=revision)
+
+
+def _classer(candidats: object, *, revision: str = REVISION_CLASSEE) -> list[Configuration]:
+    """Le seul ordre, pour les tests qui n'éprouvent que la règle de tri."""
+    return _classement(candidats, revision=revision).configurations
 
 
 # --- chargement et digest --------------------------------------------------------------------------
@@ -553,12 +585,18 @@ def test_la_preuve_nominale_liee_a_la_candidate_revision_est_acceptee(
     from server.evals.plancher import verifier_liaison_preuve
 
     preuve = _preuve_candidate_revision(rapport_candidate_revision)
-    run_digest = verifier_liaison_preuve(
+    verifiee = verifier_liaison_preuve(
         preuve, plancher_digest=charger_plancher().digest,
         candidate_revision=REVISION_A_candidate_revision,
         report_bytes=rapport_candidate_revision.read_bytes(),
         image_courante=_image_candidate())
-    assert run_digest == preuve["run_digest"] and len(run_digest) == 64
+    # Ce que la vérification rend n'est plus une chaîne mais l'**ancrage** que la publication
+    # exigera pour admettre une décision portant l'empreinte d'un autre run (revue B5, tour
+    # correctif 2/3) : un `run_digest` nu se recopiait dans un rapport, qui pouvait ensuite se
+    # déclarer lui-même digne de confiance.
+    assert verifiee.run_digest == preuve["run_digest"] and len(verifiee.run_digest) == 64
+    assert verifiee.run_digests == frozenset({preuve["run_digest"]})
+    assert verifiee.candidate_revision == REVISION_A_candidate_revision
 
 
 def test_une_preuve_dune_autre_candidate_revision_est_refusee(
@@ -673,12 +711,15 @@ def test_le_runner_refuse_avant_toute_decision_sur_une_candidate_revision_diverg
             candidate_revision=REVISION_B_candidate_revision, report_path=rapport,
             image_courante=_image_candidate())
     # Et le cas nominal traverse bien : la liaison n'est pas un refus systématique.
-    decisions = runner.charger_decisions_orchestrateur(
+    decisions, verifiee = runner.charger_decisions_orchestrateur(
         preuve, plancher=charger_plancher(),
         candidate_revision=REVISION_A_candidate_revision, report_path=rapport,
         image_courante=_image_candidate())
     assert [d.metric for d in decisions] == ["offline_tests_pass_rate"]
     assert decisions[0].status == "green" and decisions[0].producer == "orchestrator"
+    # La preuve vérifiée remonte au runner : c'est elle, et rien du rapport, qui autorisera la
+    # publication d'une décision portant l'empreinte du run mesuré par la preuve.
+    assert verifiee.run_digests == {d.run_digest for d in decisions}
 
 
 def test_un_rapport_qui_ne_se_reconnait_pas_dans_la_preuve_est_refuse(
@@ -1191,6 +1232,92 @@ def test_le_classement_nominal_sort_en_zero_et_porte_la_revision_opposee(
         assert len(configuration["report_digest"]) == 64
     # Deux runs distincts, deux `run_digest` distincts : l'identité n'est pas un copier-coller.
     assert len({c["run_digest"] for c in artefact["classement"]}) == 3
+
+
+# --- B1, tour correctif 2/3 : la révision candidate est opposée au **checkout**, pas à elle-même ---
+#
+# Sonde exacte du recheck sur `2ba74ae` : un rapport auto-cohérent fabriqué pour la révision
+# `'a' * 40` — qui n'existe dans aucun dépôt (`git cat-file -e` échoue) — était accepté, admissible,
+# et classé **en tête**. Les empreintes étaient recalculées depuis ses octets, le plancher et
+# l'image venaient du processus, mais la révision n'était opposée qu'à ce que le rapport en disait.
+# Une auto-cohérence n'est pas une vérité : c'est la quatrième couche du même défaut — présence,
+# syntaxe, recalcul, puis **ancrage externe**.
+
+def test_un_rapport_fabrique_pour_une_revision_inexistante_ne_se_classe_pas() -> None:
+    """Le contre-exemple du recheck : rouge sur `2ba74ae`, vert ici.
+
+    La révision `'a' * 40` n'est celle d'aucun checkout. Le rapport, lui, est parfaitement
+    auto-cohérent — même plancher, même image, `run_digest` recalculable depuis son identité : tout
+    ce que les tours précédents savaient vérifier passe. Ce qui ferme, c'est l'opposition au
+    checkout réellement exécuté.
+    """
+    _exige_un_checkout_opposable()
+    fantome = "a" * 40
+    assert fantome != REVISION_DU_CHECKOUT, "la sonde suppose une révision qui n'est pas le HEAD"
+    with pytest.raises(ClassementInvalide, match="checkout"):
+        classer_configurations([_candidat("fantome", revision=fantome)],
+                               candidate_revision=fantome)
+
+
+def test_un_checkout_illisible_ferme_le_classement(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ne pas pouvoir conclure ferme — la règle du module, appliquée au dernier contrôle qui manquait.
+
+    Deux façons de ne pas conclure : aucune révision établissable (ni `git rev-parse HEAD`, ni
+    `GIT_SHA`), et un arbre que `git status --porcelain` n'a pas su lire. Les deux refusent, et
+    aucune ne se rabat sur « c'est sans doute la bonne ».
+    """
+    from server.evals import plancher as plancher_mod
+
+    monkeypatch.setattr(plancher_mod, "revision_executee", lambda *a, **k: (None, []))
+    with pytest.raises(ClassementInvalide, match="n'a pu être établie"):
+        classer_configurations([_candidat("c")], candidate_revision=REVISION_CLASSEE)
+
+    monkeypatch.setattr(plancher_mod, "revision_executee",
+                        lambda *a, **k: (REVISION_CLASSEE, [ARBRE_NON_VERIFIABLE]))
+    with pytest.raises(ClassementInvalide, match="non vérifiable"):
+        classer_configurations([_candidat("c")], candidate_revision=REVISION_CLASSEE)
+
+
+def test_la_cli_publie_lidentite_que_le_classement_a_opposee(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """B1, volet TOCTOU : la CLI ne relit plus une seconde référence.
+
+    Elle chargeait le plancher pour son propre compte **avant** le classement, puis publiait ce
+    premier digest — alors que le classement dérive le sien du processus. Deux lectures, donc deux
+    valeurs possibles, et c'est la seconde qui décidait pendant que la première était publiée.
+
+    La sonde : le classement rend une identité, et c'est **elle** qui doit sortir dans l'artefact.
+    On fait diverger la lecture indépendante de la CLI ; si l'artefact suivait encore cette
+    lecture-là, il publierait un plancher contre lequel rien n'a été opposé.
+    """
+    import json as _json
+
+    from server.evals import plancher as plancher_mod
+    from server.evals.plancher import _main
+
+    _exige_un_checkout_opposable()
+    _rapport_classable(tmp_path / "seule.json", cout=0.01, latence=10, admissible=True)
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([{"name": "seule", "report": "seule.json"}]), encoding="utf-8")
+
+    reel = plancher_mod.charger_plancher
+    appels = {"n": 0}
+
+    def _charger(*a: object, **kw: object):
+        appels["n"] += 1
+        charge = reel(*a, **kw)
+        # La **première** lecture — celle de la CLI — rend un digest différent ; les suivantes,
+        # dont celle du classement, rendent le digest réel.
+        if appels["n"] == 1:
+            return charge.model_copy(update={"digest": "0" * 64})
+        return charge
+
+    monkeypatch.setattr(plancher_mod, "charger_plancher", _charger)
+    assert _main(["--classer", str(configs), "--candidate-revision", REVISION_CLASSEE]) == 0
+    artefact = _json.loads(capsys.readouterr().out)
+    assert artefact["plancher_digest"] == reel().digest
+    assert artefact["plancher_digest"] != "0" * 64, (
+        "l'artefact publie la lecture indépendante de la CLI, pas celle que le classement a opposée")
 
 
 def test_aucun_admissible_sort_en_un_et_reste_un_rouge_publie(

@@ -315,7 +315,7 @@ journal de CI lit sans que la validation l'exige produirait un `KeyError` nu, qu
 
 | donnée | refus |
 |---|---|
-| `profile` | absent, non-chaîne, ou vide |
+| `profile` | absent, non-chaîne, vide, ou **hors du vocabulaire autoritaire** `{vertical, full}` (`server/app/domain/evals.py::PROFILS_LIVRES`, la même définition que celle du runner) |
 | `complete`, `unexecuted_cases`, `identity`, `results` | absents ou mal typés |
 | `cases_hash`, `cases_planned`, `cases_completed` | absents ou mal typés (le journal les indexe) |
 | `stop_reason` | **absent** ; `None` est une valeur légitime — « pas d'arrêt » — mais la clé doit être là |
@@ -330,8 +330,8 @@ journal de CI lit sans que la validation l'exige produirait un `KeyError` nu, qu
 | `stability` présent | sans `cases`, `cases` non-objet **ou vide**, `n` absent/non entier ≥ 1, `n ≠ repeat`, ou une entrée dont `stable`/`comptabilise` manque ou n'est pas un **booléen** (`"oui"` n'est pas `True`) — jamais un `0/0` ni un `1/1` fabriqué |
 | `decisions` | non vides sans `plancher_digest` racine ; absentes alors que `plancher_digest` est présent ; mal typées ; ou une entrée non-objet |
 | chaque entrée de `decisions` | une **clé inconnue** (le vocabulaire est fermé), `metric`/`producer`/`scope`/`status` non-chaînes ou vides, `status` hors `{green, red}`, `producer` hors `{builder, orchestrator}`, `threshold`/`value` non finis ou hors `[0, 1]`, `n` non entier ou `< 0`, `run_digest` mal formé, `reason` ni chaîne ni `null` — **aucune coercition** : `"3"` n'est pas `3` |
-| `decisions[i].run_digest` | ni l'empreinte de ce run, ni une empreinte déclarée dans `external_run_digests` ; ou une empreinte étrangère sur une décision qui n'est pas `producer="orchestrator"` |
-| `external_run_digests` | non-liste, empreinte mal formée, ou empreinte déclarée qu'aucune décision ne porte — contrôlée **même quand le rapport n'a aucune décision** |
+| `decisions[i].run_digest` | ni l'empreinte de ce run, ni celle qu'une **preuve externe vérifiée** établit ; ou une empreinte étrangère sur une décision qui n'est pas `producer="orchestrator"` |
+| `external_run_digests` | non-liste, empreinte mal formée, empreinte qu'**aucune preuve vérifiée n'établit**, ou empreinte déclarée qu'aucune décision ne porte — contrôlée **même quand le rapport n'a aucune décision** |
 | `reserves` présentes | non-objet, champ absent, ou champ non booléen — une réserve illisible n'est pas une réserve absente |
 
 Ce qui peut **légitimement** manquer reste distinct de ce qui manque à tort : `stability` sous un run
@@ -359,14 +359,24 @@ sienne : celles des décisions venues d'une preuve `--orchestrator-evidence`. Le
 lorsqu'il y en a — une liste vide qu'il faudrait ensuite interpréter serait la faute même que ce
 module refuse.
 
-**Ce que cette déclaration établit, et ce qu'elle n'établit pas.** `valider_rapport_publiable` lit un
-rapport, c'est-à-dire une entrée non fiable : elle ne peut donc pas vérifier qu'une empreinte
-étrangère vient d'une preuve réelle, et prétendre le contraire annoncerait une liaison qui n'a pas
-lieu ici. Ce qu'elle établit est une **cohérence interne**, stricte : une empreinte étrangère n'est
-admise que sur une décision `producer="orchestrator"` — le runner n'écrit jamais que sa propre
-empreinte pour ses propres mesures —, et toute empreinte déclarée doit être **portée** par au moins
-une décision, faute de quoi c'est une porte ouverte et non une donnée. La liaison cryptographique de
-la preuve à ce candidat a lieu **en amont**, dans `charger_decisions_orchestrateur` →
+**L'ancrage vient d'ailleurs que du rapport.** `valider_rapport_publiable(rapport, *,
+preuve_externe)` exige à l'appel — sans valeur par défaut — l'objet `PreuveExterneVerifiee` que
+`plancher.verifier_liaison_preuve` a construit sur les **octets** de la preuve et du rapport qu'elle
+référence. Avant, une empreinte étrangère redevenait acceptable dès que **le rapport lui-même**
+l'inscrivait dans `external_run_digests` : la liste des empreintes « légitimes » était lue dans
+l'entrée non fiable qu'on validait, et `'f' * 64` passait. Une auto-déclaration ne peut jamais être
+son propre ancrage de confiance.
+
+`preuve_externe=None` ne veut pas dire « pas de contrainte » mais « aucune preuve externe n'a été
+vérifiée, donc **aucune** empreinte étrangère n'est publiable » — un chemin de diagnostic qui n'a
+légitimement aucune preuve externe n'a pas non plus de décision externe à publier. Ce que le rapport
+déclare est alors **confronté** à ce que la preuve établit, et l'écart ferme.
+
+Deux contrôles de cohérence interne s'y ajoutent : une empreinte étrangère n'est admise que sur une
+décision `producer="orchestrator"` — le runner n'écrit jamais que sa propre empreinte pour ses
+propres mesures —, et toute empreinte déclarée doit être **portée** par au moins une décision, faute
+de quoi c'est une porte ouverte et non une donnée. La liaison cryptographique elle-même a lieu
+**en amont**, dans `charger_decisions_orchestrateur` →
 `verifier_liaison_preuve`, avant qu'aucune décision externe n'existe ; un refus y sort en code 2 et
 aucun gate n'est écrit.
 

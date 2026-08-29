@@ -34,9 +34,11 @@ from pathlib import Path
 from typing import Any
 
 from server.app.config import EVALS_PUBLICATION_FILE
-from server.app.domain.evals import (LABELS, SUITES, CoutPublie, LatencePubliee, PublicationEvals,
-                                     ReservesPubliees, SecondeLecturePubliee, StabilitePubliee)
+from server.app.domain.evals import (LABELS, PROFILS_LIVRES, SUITES, CoutPublie, LatencePubliee,
+                                     PublicationEvals, ReservesPubliees, SecondeLecturePubliee,
+                                     StabilitePubliee)
 from server.app.domain.ingest import Gate, GateDecision
+from server.evals.plancher import PreuveExterneVerifiee
 
 class RapportInexploitable(Exception):
     """Le rapport n'a pas les structures qu'une publication exige : elle ne peut pas être fabriquée.
@@ -188,7 +190,8 @@ def _dans_le_domaine(valeur: int | float, cle: str, *, chemin: str) -> None:
             f"rapport : {chemin}.{cle} vaut {valeur!r}, hors du domaine (<= {haut})")
 
 
-def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
+def valider_rapport_publiable(rapport: Any, *,
+                              preuve_externe: PreuveExterneVerifiee | None) -> dict[str, Any]:
     """**La** validation canonique d'un rapport avant publication — un seul contrôle, quatre surfaces.
 
     Story 4.5, cycle de récupération, revue B5. Le défaut fermé ici n'est pas un oubli local : c'est
@@ -211,16 +214,25 @@ def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
       `plancher_digest` racine ne le sont pas : elles ne diraient contre quels seuils elles ont été
       prises.
 
+    `preuve_externe` est **obligatoire à l'appel** et n'a pas de valeur par défaut (revue B5, tour
+    correctif 2/3). C'est la seule chose qui rende publiable une décision portant l'empreinte d'un
+    *autre* run : celle que `plancher.verifier_liaison_preuve` a réellement établie sur des octets.
+    `None` ne veut pas dire « pas de contrainte » mais « aucune preuve externe n'a été vérifiée,
+    donc aucune empreinte étrangère n'est publiable » — un chemin de diagnostic qui n'a légitimement
+    aucune preuve externe n'a pas non plus de décision externe à publier. Un paramètre par défaut
+    vide aurait replacé l'auto-déclaration un niveau plus haut, ce que la spec interdit nommément.
+
     Rend le rapport tel quel (pour chaîner), ou lève `RapportInexploitable` en nommant la clé
     fautive et sa raison typée.
     """
     if not isinstance(rapport, dict):
         raise RapportInexploitable(
             f"rapport : un objet est attendu ({type(rapport).__name__} reçu)")
-    profil = _exiger(rapport, "profile", (str,))
-    if not profil:
-        raise RapportInexploitable(
-            "rapport : 'profile' est vide — un run qui ne dit pas ce qu'il a mesuré ne se publie pas")
+    # **Le vocabulaire autoritaire, pas « une chaîne non vide »** (revue B5, tour correctif 2/3) :
+    # `profile='hors-domaine'` était publié tel quel sur les quatre surfaces. `PROFILS_LIVRES` vit
+    # dans `domain`, d'où le runner le lit aussi — recopier le littéral ici aurait fait deux
+    # autorités.
+    _texte(rapport, "profile", chemin="rapport", vocabulaire=PROFILS_LIVRES)
     _exiger(rapport, "complete", (bool,))
     _exiger(rapport, "unexecuted_cases", (list,))
     _exiger(rapport, "identity", (dict,))
@@ -307,7 +319,7 @@ def valider_rapport_publiable(rapport: Any) -> dict[str, Any]:
             + " ; un zéro absent n'est pas un zéro observé, et un label inconnu n'est pas un label")
     _valider_resultats(rapport["results"])
     _valider_stabilite(rapport)
-    _valider_decisions(rapport)
+    _valider_decisions(rapport, preuve_externe)
     _valider_reserves(rapport)
     return rapport
 
@@ -448,7 +460,8 @@ def _valider_stabilite(rapport: dict[str, Any]) -> None:
             "serait publiée sur un nombre de répétitions que le run n'a pas planifié")
 
 
-def _valider_decisions(rapport: dict[str, Any]) -> None:
+def _valider_decisions(rapport: dict[str, Any],
+                       preuve_externe: PreuveExterneVerifiee | None) -> None:
     """Des décisions non vides disent contre quels seuils elles ont été prises, et **avec quoi**.
 
     Revue B5 pour le `plancher_digest` racine ; revue R7 pour « chaque entrée est un objet » ; revue
@@ -456,35 +469,46 @@ def _valider_decisions(rapport: dict[str, Any]) -> None:
     par pydantic à la construction de `GateDecision`, et le `run_digest` d'une décision n'était
     opposé à rien.
 
-    Sur le `run_digest` d'une décision, ce module dit **exactement ce qu'il peut établir**, et pas
-    un mot de plus (revue P5). Ce qu'il voit est un rapport, c'est-à-dire une entrée non fiable :
-    la liaison cryptographique d'une preuve externe à ce candidat n'a pas lieu ici, elle a lieu à
-    l'**ingestion** de la preuve — `plancher.verifier_liaison_preuve`, appelée par
-    `run.charger_decisions_orchestrateur` avant qu'aucune décision externe n'existe. Écrire que
-    `external_run_digests` est « adossé » à cette vérification serait annoncer une liaison qui n'a
-    pas lieu à cet endroit.
+    Sur le `run_digest` d'une décision, l'ancrage vient **d'ailleurs que du rapport** (revue B5,
+    tour correctif 2/3). Le tour précédent admettait une empreinte étrangère dès que le rapport
+    l'inscrivait lui-même dans `external_run_digests` avec `producer='orchestrator'` : la liste des
+    empreintes « légitimes » était donc lue dans l'entrée non fiable qu'on est en train de valider,
+    et `'f'*64` passait. Une liste auto-déclarée par ce qu'on valide ne peut jamais être son propre
+    ancrage de confiance — c'était le volet initial « run_digest arbitraire non opposé », déplacé
+    d'un cran.
 
-    Ce que la validation établit est donc une **cohérence interne**, et elle est stricte :
+    L'ancrage est donc `preuve_externe`, l'objet que `plancher.verifier_liaison_preuve` a établi sur
+    les **octets** de la preuve et du rapport qu'elle référence, avant qu'aucune décision externe
+    n'existe. Les règles :
 
-    - une décision porte l'empreinte de ce run, ou l'une de celles que le rapport déclare dans
-      `external_run_digests` — c'est le chemin `--orchestrator-evidence`, où une décision porte
-      légitimement l'empreinte du run que la preuve mesure ;
+    - une décision porte l'empreinte de ce run, ou celle qu'une **preuve vérifiée** établit ;
+    - sans preuve vérifiée, aucune empreinte étrangère n'est publiable — un chemin de diagnostic
+      n'ayant légitimement aucune preuve externe n'a pas non plus de décision externe à publier ;
     - une empreinte étrangère n'est admise que sur une décision `producer="orchestrator"` : le
-      runner n'écrit jamais autre chose que sa propre empreinte pour ses propres mesures, donc une
-      décision `builder` portant une empreinte étrangère est incohérente quoi qu'il arrive ;
-    - toute empreinte déclarée doit être **effectivement portée** par au moins une décision : une
-      déclaration qui ne sert à rien est une porte laissée ouverte, pas une donnée.
+      runner n'écrit jamais autre chose que sa propre empreinte pour ses propres mesures ;
+    - `external_run_digests`, que le rapport écrit pour rester lisible hors contexte, doit
+      **concorder** avec la preuve : ce que le rapport déclare et ce que la preuve établit sont deux
+      choses, et leur écart est un refus. Le rapport ne décide plus, il est confronté.
     """
     identite = rapport.get("identity")
     propre = (identite or {}).get("run_digest") if isinstance(identite, dict) else None
     # **Validé inconditionnellement** (revue P5, chemin frère) : le retour anticipé « pas de
     # décisions » sautait ce contrôle, si bien qu'un `external_run_digests` mal formé passait dès
     # que le rapport n'avait aucune décision.
-    externes = rapport.get("external_run_digests", [])
-    if not isinstance(externes, list) or any(not _est_empreinte(d, 64) for d in externes):
+    declarees = rapport.get("external_run_digests", [])
+    if not isinstance(declarees, list) or any(not _est_empreinte(d, 64) for d in declarees):
         raise RapportInexploitable(
             f"rapport : 'external_run_digests' doit être une liste d'empreintes 64 hexadécimales "
-            f"({externes!r} reçu)")
+            f"({declarees!r} reçu)")
+    # **Les empreintes admises viennent de la preuve, pas du rapport.** La déclaration du rapport
+    # n'est plus qu'une affirmation à confronter.
+    externes = preuve_externe.run_digests if preuve_externe is not None else frozenset()
+    ecart = sorted(set(map(str, declarees)) - externes)
+    if ecart:
+        raise RapportInexploitable(
+            f"rapport : 'external_run_digests' déclare {ecart} qu'aucune preuve externe vérifiée "
+            "n'établit — une liste écrite par le rapport qu'on valide ne peut pas être son propre "
+            "ancrage de confiance")
     if rapport.get("plancher_digest") is not None:
         decisions = _exiger(rapport, "decisions", (list,))
     else:
@@ -535,15 +559,15 @@ def _valider_decisions(rapport: dict[str, Any]) -> None:
         if decision["run_digest"] not in externes:
             raise RapportInexploitable(
                 f"rapport : {chemin}.run_digest vaut {decision['run_digest']!r} — ce n'est ni "
-                f"l'empreinte de ce run ({propre!r}), ni une empreinte déclarée dans "
-                "'external_run_digests' : cette décision n'est opposée à aucun run")
+                f"l'empreinte de ce run ({propre!r}), ni celle qu'une preuve externe vérifiée "
+                "établit : cette décision n'est opposée à aucun run")
         if decision["producer"] != "orchestrator":
             raise RapportInexploitable(
                 f"rapport : {chemin} porte l'empreinte d'un autre run alors que son producteur est "
                 f"{decision['producer']!r} — seule une mesure venue d'une preuve orchestrateur peut "
                 "avoir été prise ailleurs que dans ce run")
         etrangeres_portees.add(str(decision["run_digest"]))
-    orphelines = sorted(set(map(str, externes)) - etrangeres_portees)
+    orphelines = sorted(set(map(str, declarees)) - etrangeres_portees)
     if orphelines:
         raise RapportInexploitable(
             f"rapport : 'external_run_digests' déclare {orphelines} qu'aucune décision ne porte — "
@@ -661,7 +685,8 @@ def _valider_reserves(rapport: dict[str, Any]) -> None:
                 f"rapport : reserves.{champ} doit être un booléen ({brut[champ]!r} reçu)")
 
 
-def stabilite_du_rapport(rapport: dict[str, Any]) -> StabilitePubliee:
+def stabilite_du_rapport(rapport: dict[str, Any], *,
+                         preuve_externe: PreuveExterneVerifiee | None) -> StabilitePubliee:
     """N/N depuis l'agrégat du run ; les cas `parsing` restent hors comptage, comme au plancher.
 
     `stability` n'est écrit que sous `repeat > 1` : **son absence est légitime** et se lit alors
@@ -670,7 +695,7 @@ def stabilite_du_rapport(rapport: dict[str, Any]) -> StabilitePubliee:
     publier `0/0` pour un `stability` présent mais sans `cases` : les deux passent désormais par
     `valider_rapport_publiable` (revue B5), et se refusent avant toute surface.
     """
-    valider_rapport_publiable(rapport)
+    valider_rapport_publiable(rapport, preuve_externe=preuve_externe)
     agregat = rapport.get("stability")
     if not isinstance(agregat, dict):
         return StabilitePubliee(n=int(rapport["repeat"]), cas_stables=0, cas_comptabilises=0)
@@ -683,7 +708,8 @@ def stabilite_du_rapport(rapport: dict[str, Any]) -> StabilitePubliee:
 
 def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
                        reserves: ReservesPubliees | None = None,
-                       seconde_lecture: SecondeLecturePubliee | None = None) -> list[str]:
+                       seconde_lecture: SecondeLecturePubliee | None = None, *,
+                       preuve_externe: PreuveExterneVerifiee | None) -> list[str]:
     """Les limites du run, **dérivées** — cinq sources, aucune prose.
 
     L'ordre est celui de la gravité décroissante pour qui lit : ce qui a été mesuré rouge, ce qui n'a
@@ -697,7 +723,7 @@ def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
     sans `--gate`) n'établit ni contresignature ni seconde lecture, et inventer leur état serait pire
     que de ne rien en dire.
     """
-    valider_rapport_publiable(rapport)
+    valider_rapport_publiable(rapport, preuve_externe=preuve_externe)
     limites: list[str] = []
     for d in decisions:
         if d.status != "green":
@@ -755,7 +781,8 @@ def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
                            reserves: ReservesPubliees | None = None,
                            relecture: SecondeLecturePubliee | None = None,
                            report_digest: str | None = None,
-                           candidate_revision: str | None = None) -> PublicationEvals:
+                           candidate_revision: str | None = None,
+                           preuve_externe: PreuveExterneVerifiee | None) -> PublicationEvals:
     """L'objet publié : les chiffres du rapport, l'identité du gate, les limites dérivées.
 
     **`gate` est facultatif** (correctif P6 du tour de revue précédent). Un `--profile full` sans `--gate` — ce que la CI lance à
@@ -772,11 +799,12 @@ def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
     # **La validation canonique d'abord**, et elle est la seule (revue B5). Tout ce qui suit lit le
     # rapport par indexation directe : plus aucun `or 0.0`, `or {}` ni `or 0` ne peut transformer
     # une donnée absente, nulle ou mal typée en un chiffre plausible sur les quatre surfaces.
-    valider_rapport_publiable(rapport)
+    valider_rapport_publiable(rapport, preuve_externe=preuve_externe)
     reserves = reserves if reserves is not None else _reserves_du_rapport(rapport)
     metrics = rapport["metrics"]
     decisions = [GateDecision.model_validate(d) for d in (rapport.get("decisions") or [])]
-    limites = limites_du_rapport(rapport, decisions, reserves, relecture)
+    limites = limites_du_rapport(rapport, decisions, reserves, relecture,
+                                 preuve_externe=preuve_externe)
     identite = rapport["identity"]
     return PublicationEvals(
         profile=str(rapport["profile"]),
@@ -793,7 +821,7 @@ def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
         variantes=dict(metrics["variants"]),
         labels=dict(metrics["labels"]),
         recall=float(metrics["recall"]),
-        stabilite=stabilite_du_rapport(rapport),
+        stabilite=stabilite_du_rapport(rapport, preuve_externe=preuve_externe),
         cout=CoutPublie(
             # Le gate désarme le cache sous `--repeat` : le coût du run **est** le coût froid.
             froid_eur=float(rapport["cost_eur"]),

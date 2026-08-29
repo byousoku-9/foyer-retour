@@ -77,7 +77,7 @@ import yaml
 from pydantic import (BaseModel, ConfigDict, Field, PrivateAttr, StrictBool, ValidationError,
                       field_validator, model_validator)
 
-from server.app.config import EVALS_PUBLICATION_FILE, REPO_ROOT, Settings
+from server.app.config import REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
@@ -86,8 +86,8 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.app.domain.evals import (LABELS, Label, PublicationEvals, ReservesPubliees,
-                                     SecondeLecturePubliee, Suite)
+from server.app.domain.evals import (LABELS, PROFILS_LIVRES, GateProfile, Label, PublicationEvals,
+                                     ReservesPubliees, SecondeLecturePubliee, Suite)
 from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
 from server.app.domain.ingest import (STRUCTURE_CHECK, TREE_CHECK, Gate, GateContext,
                                       GateDecision, ManifestEntry, Report,
@@ -106,15 +106,18 @@ from server.app.pipelines.guide import VARIANTS as VARIANTES_GUIDE
 from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
-from server.evals.plancher import (ChargePlancher, PlancherInvalide, charger_plancher,
-                                   verifier_liaison_preuve)
-from server.evals.publication import (ArchivePrecedenteIllisible, RapportInexploitable,
-                                      construire_publication, digest_octets,
+from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
+                                   charger_plancher, verifier_liaison_preuve)
+from server.evals.publication import (ArchivePrecedenteIllisible,
+                                      RapportInexploitable, construire_publication, digest_octets,
                                       preparer_publication, rendre_publication_markdown,
                                       valider_rapport_publiable)
 from server.evals.publication import nombre as nombre_publie
 from server.evals.relecture import (RelectureInvalide, blocs_cles_du_rapport, charger_images,
                                     plan_de_relecture, statut_du_verdict, valider_verdict)
+from server.evals.revision import ARBRE_NON_VERIFIABLE as _ARBRE_NON_VERIFIABLE
+from server.evals.revision import SORTIES_DU_RUN as _SORTIES_DU_RUN
+from server.evals.revision import est_revision, revision_executee, sorties_du_run
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
@@ -136,8 +139,10 @@ PROTOCOLE_FILES = frozenset({
 # correctif 1/3, pour la même raison : la validation canonique doit exiger le vocabulaire littéral
 # des suites, et elle ne peut pas lire ce module.
 
-GateProfile = Literal["vertical", "full"]
-PROFILS_LIVRES: tuple[str, ...] = ("vertical", "full")
+# `GateProfile` et `PROFILS_LIVRES` vivent dans `server/app/domain/evals.py` depuis le tour
+# correctif 2/3 (revue B5), pour la même raison que `LABELS` et `SUITES` : la validation canonique de
+# la publication doit fermer `profile` sur ce vocabulaire, et elle ne peut pas importer ce module.
+# Les noms d'usage restent `run.GateProfile` et `run.PROFILS_LIVRES`.
 
 FAMILLES_FULL: dict[str, frozenset[str]] = {
     "guide": frozenset({
@@ -1160,109 +1165,15 @@ def suite_du_document(settings: Settings, doc_id: str, *, cases_dir: Path = CASE
 
 
 # --- la révision réellement exécutée (story 4.5, revue B1) -----------------------------------------
-
-
-def sorties_du_run(publication: str = EVALS_PUBLICATION_FILE) -> tuple[str, ...]:
-    """Les préfixes, relatifs à la racine du dépôt, que le contrôle d'arbre **ignore**.
-
-    Ce sont les chemins qu'un run écrit lui-même : sans cette exclusion, le second gate d'une
-    campagne serait toujours refusé par les sorties du premier. Les quatre premiers sont **suivis par
-    git** — ce sont eux qui comptent ; les trois derniers (rapports et caches) sont déjà dans
-    `.gitignore` et n'apparaîtraient de toute façon pas dans `git status --porcelain`. Les y garder
-    rend la règle lisible sans dépendre du contenu de `.gitignore`.
-
-    La liste ne dit rien de ce que le run écrit **hors** du dépôt (`--data-dir` pointé ailleurs) :
-    le contrôle d'arbre ne porte que sur le dépôt produit.
-    """
-    return (
-        "data/manifest.json",
-        f"data/{publication}",
-        "docs/evals/latest.md",
-        "docs/evals/campagnes/",
-        "eval-results.json",
-        "eval-results.md",
-        ".evals/",
-    )
-
-
-# Calculé **une fois**, depuis l'autorité unique du nom de l'artefact publié (`config.py`) : une
-# liste recopiée aurait vieilli le jour où la publication change de nom, et le second gate d'une
-# campagne aurait été refusé pour un fichier que le premier venait d'écrire.
-SORTIES_DU_RUN: tuple[str, ...] = sorties_du_run()
-_HEX40 = frozenset("0123456789abcdef")
-# Ce que `revision_executee` rend **à la place** d'une liste de fichiers modifiés lorsqu'elle n'a pas
-# pu contrôler l'arbre (revue B). Un garde-fou qui ne peut pas conclure doit refuser : l'appelant ne
-# distingue donc pas « arbre sale » de « arbre non vérifiable », et refuse dans les deux cas.
-ARBRE_NON_VERIFIABLE = "(état de l'arbre non vérifiable : `git status --porcelain` a échoué)"
-
-
-def _est_revision(valeur: str | None) -> bool:
-    return bool(valeur) and len(valeur or "") == 40 and all(c in _HEX40 for c in valeur or "")
-
-
-def revision_executee(repo_root: Path, *, sorties: tuple[str, ...] | None = None,
-                      ) -> tuple[str | None, list[str]]:
-    """`(révision du checkout, fichiers modifiés hors sorties du run)` — la révision **réelle**.
-
-    Story 4.5, revue B1. `--candidate-revision` n'était comparée qu'à elle-même : le runner recopiait
-    l'argument dans le gate et dans la preuve, et la preuve était recoupée avec… ce même argument.
-    Un opérateur pouvait donc annoncer `aaaa…aaaa` sur un checkout tout autre, et les trois surfaces
-    se seraient accordées sur une révision que personne n'a exécutée.
-
-    La révision vient donc du **checkout** : `git rev-parse HEAD`, avec repli sur `GIT_SHA` quand
-    l'environnement le pose en 40 hexadécimaux. Si aucune des deux ne la donne, la fonction rend
-    `None` — et l'appelant refuse : une liaison qu'on ne peut pas prouver n'est pas une liaison.
-
-    L'arbre est aussi contrôlé, car une révision ne décrit un code que si le code est celui du
-    commit : un gate mesuré sur des modifications non commises se réclamerait d'un arbre qui n'existe
-    nulle part. Les sorties que le run écrit lui-même en sont exclues, sans quoi le second gate d'une
-    campagne serait toujours refusé par le premier.
-
-    **Ne pas pouvoir contrôler, c'est refuser** (revue B). Deux chemins affirmaient un arbre propre
-    qu'ils n'avaient pas regardé : un `git status` sortant en code non nul — un `index.lock` tenu
-    suffit — laissait `modifies` vide, et une exception rabattait sur `GIT_SHA` un dépôt bien présent
-    mais jamais interrogé. Désormais un contrôle d'arbre qui n'aboutit pas rend
-    `ARBRE_NON_VERIFIABLE`, indiscernable d'un arbre sale pour l'appelant ; et le repli `GIT_SHA` ne
-    vaut que lorsqu'il n'y a réellement **pas de dépôt** à interroger (`.git` absent — une image).
-    """
-    import subprocess
-
-    sorties = sorties if sorties is not None else SORTIES_DU_RUN
-    depot = (repo_root / ".git").exists()
-    revision: str | None = None
-    try:
-        fini = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "HEAD"],
-                              capture_output=True, text=True, timeout=30, check=False)
-        if fini.returncode == 0:
-            candidate = fini.stdout.strip()
-            revision = candidate if _est_revision(candidate) else None
-    except (OSError, ValueError, subprocess.SubprocessError):
-        revision = None
-    if revision is not None:
-        modifies: list[str] = []
-        try:
-            statut = subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain"],
-                                    capture_output=True, text=True, timeout=30, check=False)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            return revision, [ARBRE_NON_VERIFIABLE]
-        if statut.returncode != 0:
-            return revision, [ARBRE_NON_VERIFIABLE]
-        for ligne in statut.stdout.splitlines():
-            chemin = ligne[3:].strip().strip('"')
-            chemin = chemin.split(" -> ")[-1]
-            if not chemin or any(chemin.startswith(s) for s in sorties):
-                continue
-            modifies.append(chemin)
-        return revision, sorted(modifies)
-    if not depot:
-        depuis_env = os.environ.get("GIT_SHA", "").strip()
-        if _est_revision(depuis_env):
-            # **Pas de dépôt du tout** — une image sans `.git` : il n'y a aucun arbre à interroger,
-            # `GIT_SHA` est la seule révision établissable, et il n'existe pas de modification locale
-            # à y chercher. Quand `.git` existe mais n'a rien pu dire, ce repli ne s'applique pas :
-            # ce serait affirmer un arbre propre sur un dépôt qu'on n'a pas su lire.
-            return depuis_env, []
-    return None, []
+#
+# La définition vit dans `server/evals/revision.py` depuis le tour correctif 2/3 : le **classement**
+# du plancher doit opposer la révision candidate au checkout réellement exécuté, et `plancher.py` ne
+# peut pas lire ce module — c'est ce module qui l'importe. Une seconde recette côté plancher aurait
+# fait deux définitions de « la révision qu'on exécute », donc aucune. Les noms d'usage
+# (`run.revision_executee`, `run.SORTIES_DU_RUN`, `run.sorties_du_run`) sont conservés ici.
+_est_revision = est_revision
+ARBRE_NON_VERIFIABLE = _ARBRE_NON_VERIFIABLE
+SORTIES_DU_RUN = _SORTIES_DU_RUN
 
 
 def _source_du_document(data_dir: Path, doc_id: str) -> str | None:
@@ -1962,7 +1873,7 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher,
                                     candidate_revision: str,
                                     report_path: Path,
                                     image_courante: dict[str, Any] | None = None,
-                                    ) -> list[GateDecision]:
+                                    ) -> tuple[list[GateDecision], PreuveExterneVerifiee]:
     """Charge une preuve externe mesurée par l'orchestrateur, sans lui faire déclarer son statut.
 
     Le fichier ne fournit que les mesures : seuil, producteur et statut sont recalculés depuis le
@@ -1983,6 +1894,12 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher,
     Une preuve d'une autre révision, d'une autre image, ou dont le rapport a bougé, est refusée
     **avant toute décision** (code 2), et aucun gate n'est écrit. C'est la différence entre « une
     preuve existe » et « cette preuve mesure ceci ».
+
+    Rend `(décisions, preuve vérifiée)` (revue B5, tour correctif 2/3). La `PreuveExterneVerifiee`
+    n'est pas un ornement : c'est le **seul** ancrage qui autorisera ensuite
+    `valider_rapport_publiable` à publier une décision portant l'empreinte d'un autre run. Sans
+    elle, la validation devait croire ce que le rapport déclarait sur lui-même. La faire suivre
+    d'ici jusqu'aux quatre surfaces est précisément le travail que le tour précédent avait écarté.
     """
     try:
         brut = json.loads(path.read_text(encoding="utf-8"))
@@ -1994,10 +1911,10 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher,
     except OSError:
         octets_rapport = None
     try:
-        verifier_liaison_preuve(brut, plancher_digest=plancher.digest,
-                                candidate_revision=candidate_revision,
-                                report_bytes=octets_rapport,
-                                image_courante=image_courante)
+        preuve = verifier_liaison_preuve(brut, plancher_digest=plancher.digest,
+                                         candidate_revision=candidate_revision,
+                                         report_bytes=octets_rapport,
+                                         image_courante=image_courante)
     except PlancherInvalide as exc:
         raise RefusDeTourner(str(exc)) from exc
     mesures = brut.get("decisions")
@@ -2033,7 +1950,7 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher,
             metric=metric, producer="orchestrator", threshold=temoin.plancher, scope=scope,
             n=n, run_digest=run_digest, value=round(float(value), 4), status=status,
             reason=raison))
-    return decisions
+    return decisions, preuve
 
 
 def _blocs_attendus_ouverts(r: Resultat) -> bool:
@@ -2391,7 +2308,8 @@ def _markdown_code(value: Any) -> str:
 
 
 def rendre_markdown(rapport: dict[str, Any],
-                    publication: PublicationEvals | None = None) -> str:
+                    publication: PublicationEvals | None = None, *,
+                    preuve_externe: PreuveExterneVerifiee | None) -> str:
     """La table Markdown du run — **le fichier que la CI concatène dans `$GITHUB_STEP_SUMMARY`**.
 
     Story 4.5, correctif P6 du tour de revue précédent : **un seul renderer**. Le détail par cas
@@ -2412,7 +2330,7 @@ def rendre_markdown(rapport: dict[str, Any],
     # CI concatène dans `$GITHUB_STEP_SUMMARY` —, et il lisait le rapport par une seconde lecture,
     # plus permissive : un `metrics.recall` nul y serait sorti en `TypeError` nue, ou pire, en
     # chiffre. Un seul contrôle, quatre surfaces, un seul refus dit.
-    valider_rapport_publiable(rapport)
+    valider_rapport_publiable(rapport, preuve_externe=preuve_externe)
     m = rapport["metrics"]
     etat = "complet" if rapport["complete"] else "partiel"
     lignes = [
@@ -2451,7 +2369,8 @@ def rendre_markdown(rapport: dict[str, Any],
     journal = "\n".join(lignes).rstrip() + "\n"
     # L'artefact publié, rendu par **sa** fonction, appendu au journal du run : c'est ce que la CI
     # concatène, et c'est littéralement la même chaîne que `docs/evals/latest.md`.
-    pub = publication if publication is not None else construire_publication(rapport)
+    pub = publication if publication is not None else construire_publication(
+        rapport, preuve_externe=preuve_externe)
     return journal + "\n---\n\n" + rendre_publication_markdown(
         pub, valeur=_markdown_value, code=_markdown_code)
 
@@ -2670,7 +2589,8 @@ def _ecrire_atomique(path: Path, contenu: str) -> None:
         raise
 
 
-def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path) -> None:
+def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path, *,
+                    preuve_externe: PreuveExterneVerifiee | None) -> None:
     """Le rapport JSON **et** sa table Markdown, ou aucun des deux (revue B3, chemin frère).
 
     Deux `_ecrire_atomique` enchaînés laissaient, si le second échouait, un `eval-results.json` neuf
@@ -2688,7 +2608,8 @@ def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Pat
     prepares: list[tuple[Path, Path]] = []
     try:
         prepares.append((_preparer_atomique(json_path, json_canonique(rapport) + "\n"), json_path))
-        prepares.append((_preparer_atomique(markdown_path, rendre_markdown(rapport)), markdown_path))
+        prepares.append((_preparer_atomique(
+            markdown_path, rendre_markdown(rapport, preuve_externe=preuve_externe)), markdown_path))
         _basculer(prepares)
     except BaseException:
         _abandonner(prepares)
@@ -3126,6 +3047,7 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
                             relecture_verdict: Path | None = None,
                             relecture_images: Path | None = None,
                             repo_root: Path | None = None,
+                            preuve_externe: PreuveExterneVerifiee | None,
                             ) -> list[tuple[Path, Path]]:
     """Construit l'artefact unique et **prépare** ses écritures — sans rien publier encore.
 
@@ -3153,11 +3075,12 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
         relecture=etat_seconde_lecture(ctx, rapport, candidate_revision=candidate_revision,
                                        verdict_path=relecture_verdict,
                                        images_dir=relecture_images),
-        report_digest=report_digest, candidate_revision=candidate_revision)
+        report_digest=report_digest, candidate_revision=candidate_revision,
+        preuve_externe=preuve_externe)
     prepares = preparer_publication(
         publication, data_dir=data_dir, repo_root=repo_root, preparer=_preparer_atomique,
         nom=ctx.settings.evals_publication_file,
-        markdown_run=rendre_markdown(rapport, publication),
+        markdown_run=rendre_markdown(rapport, publication, preuve_externe=preuve_externe),
         chemin_run=output_markdown,
         valeur=_markdown_value, code=_markdown_code)
     return prepares
@@ -3485,6 +3408,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
     decisions_orchestrateur: list[GateDecision] = []
+    # **L'ancrage des empreintes de run étrangères**, porté d'ici jusqu'aux quatre surfaces (revue
+    # B5, tour correctif 2/3). `None` ne veut pas dire « pas de contrainte » mais « aucune preuve
+    # externe n'a été vérifiée, donc aucune décision étrangère n'est publiable » — un diagnostic
+    # sans preuve externe n'a pas non plus de décision externe à publier.
+    preuve_externe: PreuveExterneVerifiee | None = None
     references = ReferencesSnapshot(empreinte_canonique([]))
     reference_dir = args.cases_dir.parent / "reference"
     campaign: CampaignLedger | None = None
@@ -3611,7 +3539,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 raise RefusDeTourner(
                     "--orchestrator-evidence exige --candidate-revision : une preuve trusted se "
                     "réclame de la révision qu'elle mesure (M2)")
-            decisions_orchestrateur = charger_decisions_orchestrateur(
+            decisions_orchestrateur, preuve_externe = charger_decisions_orchestrateur(
                 args.orchestrator_evidence, plancher=charge_plancher,
                 candidate_revision=args.candidate_revision,
                 report_path=args.orchestrator_report,
@@ -3849,7 +3777,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 plancher=charge_plancher, producer=args.producer, preflight=preflight,
                 decisions_orchestrateur=decisions_orchestrateur,
                 exigences_full=exigences_full)
-            ecrire_rapports(rapport_refus, output_json, output_markdown)
+            ecrire_rapports(rapport_refus, output_json, output_markdown,
+                            preuve_externe=preuve_externe)
             print("refus de budget avant le premier appel : "
                   f"configured_budget_eur={settings.live_budget_eur:.4f} "
                   f"accrued_cost_eur={accrued_cost_eur:.4f} "
@@ -3928,7 +3857,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                     decisions_orchestrateur=decisions_orchestrateur,
                     exigences_full=exigences_full, structure=structure_lot, arbre=arbre_lot,
                     dictionary_validated=dictionary_validated)
-                ecrire_rapports(rapport, output_json, output_markdown)
+                ecrire_rapports(rapport, output_json, output_markdown,
+                                preuve_externe=preuve_externe)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
                 print(f"incident de rapport partiel : {type(rapport_exc).__name__}: {rapport_exc} "
@@ -3961,7 +3891,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                      exigences_full=exigences_full, structure=structure_lot,
                                      arbre=arbre_lot,
                                      dictionary_validated=dictionary_validated)
-        ecrire_rapports(rapport, output_json, output_markdown)
+        ecrire_rapports(rapport, output_json, output_markdown, preuve_externe=preuve_externe)
         print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
     except EtatPrecedentIllisible as exc:
         # **Nommer la cause** (revue B3/B6) : ce n'est pas une panne du writer, c'est un état
@@ -4036,7 +3966,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                     candidate_revision=args.candidate_revision,
                     relecture_verdict=args.relecture_verdict,
                     relecture_images=args.relecture_images,
-                    repo_root=args.data_dir.parent)
+                    repo_root=args.data_dir.parent,
+                    preuve_externe=preuve_externe)
             cibles = [cible for _tmp, cible in prepares]
             # `None` quand la non-mutation du dernier vert s'applique : les publications sont alors
             # basculées quand même — un rouge est un **résultat**, publié —, et le manifest ne bouge

@@ -20,6 +20,7 @@ Aucun réseau, aucune clé, aucun appel de modèle.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -131,7 +132,7 @@ def _publication(**kw: Any) -> PublicationEvals:
     defauts.update(kw)
     rapport = defauts.pop("rapport")
     gate = defauts.pop("gate")
-    return pub_mod.construire_publication(rapport, gate, **defauts)
+    return pub_mod.construire_publication(rapport, gate, **defauts, preuve_externe=None)
 
 
 # --- les douze champs publiés ----------------------------------------------------------------------
@@ -456,10 +457,10 @@ def test_le_rendu_de_ci_est_celui_de_la_publication(tmp_path: Path) -> None:
     rapport = _rapport(labels=_tous_les_labels())
     rapport["reserves"] = {"countersigned": False, "validated_by_expert": False,
                            "dictionary_validated": False}
-    rendu = runner.rendre_markdown(rapport)
+    rendu = runner.rendre_markdown(rapport, preuve_externe=None)
     # Le rendu de publication est **littéralement** celui de la fonction autoritaire.
     attendu = pub_mod.rendre_publication_markdown(
-        pub_mod.construire_publication(rapport),
+        pub_mod.construire_publication(rapport, preuve_externe=None),
         valeur=runner._markdown_value, code=runner._markdown_code)
     assert attendu in rendu
     # Et il porte ce que l'Intent reprochait au résumé de CI de taire.
@@ -484,7 +485,7 @@ def test_un_diagnostic_sans_gate_nabuse_daucun_champ_du_gate() -> None:
     rapport = _rapport(labels=_tous_les_labels(), decisions=[])
     rapport.pop("plancher_digest")
     rapport["identity"] = {"run_digest": "a" * 64}
-    pub = pub_mod.construire_publication(rapport)
+    pub = pub_mod.construire_publication(rapport, preuve_externe=None)
     assert pub.evals_ok is None
     assert pub.candidate_revision is None
     assert pub.plancher_digest is None
@@ -604,10 +605,10 @@ def test_une_structure_obligatoire_absente_ferme_au_lieu_de_publier_des_zeros(cl
     rapport["reserves"] = {"countersigned": False, "validated_by_expert": False,
                            "dictionary_validated": False}
     rapport["repeat"] = 3
-    assert pub_mod.construire_publication(rapport) is not None  # le nominal se publie
+    assert pub_mod.construire_publication(rapport, preuve_externe=None) is not None  # le nominal se publie
     ampute = {c: v for c, v in rapport.items() if c != cle}
     with pytest.raises(pub_mod.RapportInexploitable, match=cle):
-        pub_mod.construire_publication(ampute)
+        pub_mod.construire_publication(ampute, preuve_externe=None)
 
 
 @pytest.mark.parametrize("champ", ["recall", "average_cost_eur", "latency_p50_ms",
@@ -618,7 +619,7 @@ def test_une_mesure_absente_nest_jamais_publiee_a_zero(champ: str) -> None:
     rapport["repeat"] = 3
     rapport["metrics"] = {c: v for c, v in rapport["metrics"].items() if c != champ}
     with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-        pub_mod.construire_publication(rapport)
+        pub_mod.construire_publication(rapport, preuve_externe=None)
 
 
 def test_une_liste_vide_reste_un_resultat_honnete() -> None:
@@ -626,17 +627,17 @@ def test_une_liste_vide_reste_un_resultat_honnete() -> None:
     rapport = _rapport(labels=_tous_les_labels(), decisions=[], results=[])
     rapport["repeat"] = 3
     rapport["unexecuted_cases"] = []
-    publication = pub_mod.construire_publication(rapport)
+    publication = pub_mod.construire_publication(rapport, preuve_externe=None)
     assert publication.decisions == [] and publication.limites == []
     # Et la stabilité : `stability` absent est **légitime** (écrit seulement sous `repeat > 1`),
     # mais le `repeat` du rapport est exigé dans tous les cas, plutôt que fabriqué à 1.
     sans_stabilite = {c: v for c, v in rapport.items() if c != "stability"}
-    assert pub_mod.stabilite_du_rapport(sans_stabilite).n == 3
+    assert pub_mod.stabilite_du_rapport(sans_stabilite, preuve_externe=None).n == 3
     with pytest.raises(pub_mod.RapportInexploitable, match="repeat"):
-        pub_mod.stabilite_du_rapport({c: v for c, v in sans_stabilite.items() if c != "repeat"})
+        pub_mod.stabilite_du_rapport({c: v for c, v in sans_stabilite.items() if c != "repeat"}, preuve_externe=None)
     # Un `stability` mal typé n'est pas un `stability` vide.
     with pytest.raises(pub_mod.RapportInexploitable, match="stability"):
-        pub_mod.stabilite_du_rapport({**rapport, "stability": []})
+        pub_mod.stabilite_du_rapport({**rapport, "stability": []}, preuve_externe=None)
 
 
 def test_un_results_mal_type_est_un_refus_pas_une_erreur_nue() -> None:
@@ -645,9 +646,9 @@ def test_un_results_mal_type_est_un_refus_pas_une_erreur_nue() -> None:
     rapport["repeat"] = 3
     rapport["results"] = ["pas-un-objet"]
     with pytest.raises(pub_mod.RapportInexploitable, match="results"):
-        pub_mod.construire_publication(rapport)
+        pub_mod.construire_publication(rapport, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="results"):
-        pub_mod.construire_publication({**rapport, "results": {"id": "x"}})
+        pub_mod.construire_publication({**rapport, "results": {"id": "x"}}, preuve_externe=None)
 
 
 # --- B5, cycle de récupération : la valeur d'une mesure, pas seulement sa présence -----------------
@@ -676,15 +677,15 @@ def _rapport_publiable() -> dict[str, Any]:
 def test_une_mesure_nulle_ferme_au_lieu_detre_publiee_a_zero(champ: str) -> None:
     """B5 : `None` n'est pas `0`. Le contre-exemple exact du recheck, mesure par mesure."""
     nominal = _rapport_publiable()
-    assert pub_mod.construire_publication(nominal) is not None
+    assert pub_mod.construire_publication(nominal, preuve_externe=None) is not None
     for valeur in (None, True, "0"):
         casse = {**nominal, "metrics": {**nominal["metrics"], champ: valeur}}
         with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-            pub_mod.construire_publication(casse)
+            pub_mod.construire_publication(casse, preuve_externe=None)
     # Un non-fini n'est pas davantage une mesure.
     casse = {**nominal, "metrics": {**nominal["metrics"], champ: float("nan")}}
     with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-        pub_mod.construire_publication(casse)
+        pub_mod.construire_publication(casse, preuve_externe=None)
 
 
 def test_un_cost_eur_nul_ou_absent_ferme_au_lieu_de_publier_un_run_gratuit() -> None:
@@ -692,9 +693,9 @@ def test_un_cost_eur_nul_ou_absent_ferme_au_lieu_de_publier_un_run_gratuit() -> 
     nominal = _rapport_publiable()
     for valeur in (None, True, "0.055"):
         with pytest.raises(pub_mod.RapportInexploitable, match="cost_eur"):
-            pub_mod.construire_publication({**nominal, "cost_eur": valeur})
+            pub_mod.construire_publication({**nominal, "cost_eur": valeur}, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="cost_eur"):
-        pub_mod.construire_publication({c: v for c, v in nominal.items() if c != "cost_eur"})
+        pub_mod.construire_publication({c: v for c, v in nominal.items() if c != "cost_eur"}, preuve_externe=None)
 
 
 @pytest.mark.parametrize("table", ["labels", "variants"])
@@ -704,11 +705,11 @@ def test_une_table_de_comptage_nulle_ne_devient_pas_une_table_vide(table: str) -
     for valeur in (None, [], "aucun"):
         casse = {**nominal, "metrics": {**nominal["metrics"], table: valeur}}
         with pytest.raises(pub_mod.RapportInexploitable, match=table):
-            pub_mod.construire_publication(casse)
+            pub_mod.construire_publication(casse, preuve_externe=None)
     ampute = {**nominal,
               "metrics": {c: v for c, v in nominal["metrics"].items() if c != table}}
     with pytest.raises(pub_mod.RapportInexploitable, match=table):
-        pub_mod.construire_publication(ampute)
+        pub_mod.construire_publication(ampute, preuve_externe=None)
 
 
 def test_une_stabilite_presente_sans_cases_ne_publie_pas_zero_sur_zero() -> None:
@@ -716,24 +717,24 @@ def test_une_stabilite_presente_sans_cases_ne_publie_pas_zero_sur_zero() -> None
     nominal = _rapport_publiable()
     sans_cases = {**nominal, "stability": {"n": 3}}
     with pytest.raises(pub_mod.RapportInexploitable, match="cases"):
-        pub_mod.construire_publication(sans_cases)
+        pub_mod.construire_publication(sans_cases, preuve_externe=None)
     # `cases` mal typé, et `n` absent ou mal typé, ferment de la même façon.
     with pytest.raises(pub_mod.RapportInexploitable, match="cases"):
-        pub_mod.construire_publication({**nominal, "stability": {"n": 3, "cases": []}})
+        pub_mod.construire_publication({**nominal, "stability": {"n": 3, "cases": []}}, preuve_externe=None)
     un_cas = {"c": {"stable": True, "comptabilise": True}}
     with pytest.raises(pub_mod.RapportInexploitable, match="stability.n"):
-        pub_mod.construire_publication({**nominal, "stability": {"cases": un_cas}})
+        pub_mod.construire_publication({**nominal, "stability": {"cases": un_cas}}, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="stability.n"):
-        pub_mod.construire_publication({**nominal, "stability": {"n": 0, "cases": un_cas}})
+        pub_mod.construire_publication({**nominal, "stability": {"n": 0, "cases": un_cas}}, preuve_externe=None)
     # **`cases` vide** ferme aussi (revue P4) : l'absence avait été fermée, pas le vide, et
     # `{"n": 3, "cases": {}}` publiait le `0/0` fabriqué que tout ce module refuse.
     with pytest.raises(pub_mod.RapportInexploitable, match="est vide"):
-        pub_mod.construire_publication({**nominal, "stability": {"n": 3, "cases": {}}})
+        pub_mod.construire_publication({**nominal, "stability": {"n": 3, "cases": {}}}, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="est vide"):
-        pub_mod.stabilite_du_rapport({**nominal, "stability": {"n": 3, "cases": {}}})
+        pub_mod.stabilite_du_rapport({**nominal, "stability": {"n": 3, "cases": {}}}, preuve_externe=None)
     # Ce qui manque **légitimement** reste distinct : `stability` absent sous un run sans répétition.
     sans_stabilite = {c: v for c, v in nominal.items() if c != "stability"}
-    assert pub_mod.stabilite_du_rapport(sans_stabilite).n == 3
+    assert pub_mod.stabilite_du_rapport(sans_stabilite, preuve_externe=None).n == 3
 
 
 def test_des_decisions_non_vides_sans_plancher_digest_sont_refusees() -> None:
@@ -742,11 +743,11 @@ def test_des_decisions_non_vides_sans_plancher_digest_sont_refusees() -> None:
     orphelines = {c: v for c, v in nominal.items() if c != "plancher_digest"}
     assert orphelines["decisions"], "le contre-exemple exige des décisions non vides"
     with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
-        pub_mod.construire_publication(orphelines)
+        pub_mod.construire_publication(orphelines, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
-        pub_mod.construire_publication({**orphelines, "plancher_digest": None})
+        pub_mod.construire_publication({**orphelines, "plancher_digest": None}, preuve_externe=None)
     # Décisions vides **et** plancher absent : c'est un diagnostic, et il se publie.
-    assert pub_mod.construire_publication({**orphelines, "decisions": []}) is not None
+    assert pub_mod.construire_publication({**orphelines, "decisions": []}, preuve_externe=None) is not None
 
 
 def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: Path) -> None:
@@ -766,10 +767,10 @@ def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: P
     casse = {**_rapport_publiable(),
              "metrics": {**_rapport_publiable()["metrics"], "recall": None}}
     for chemin in (
-            lambda: pub_mod.construire_publication(casse),
-            lambda: pub_mod.stabilite_du_rapport(casse),
-            lambda: pub_mod.limites_du_rapport(casse, []),
-            lambda: runner.rendre_markdown(casse)):
+            lambda: pub_mod.construire_publication(casse, preuve_externe=None),
+            lambda: pub_mod.stabilite_du_rapport(casse, preuve_externe=None),
+            lambda: pub_mod.limites_du_rapport(casse, [], preuve_externe=None),
+            lambda: runner.rendre_markdown(casse, preuve_externe=None)):
         with pytest.raises(pub_mod.RapportInexploitable, match="recall"):
             chemin()
 
@@ -786,7 +787,7 @@ def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: P
     # Puis le rapport cassé, par l'écrivain de production : il refuse **avant** la première bascule.
     with pytest.raises(pub_mod.RapportInexploitable, match="recall"):
         pub_mod.preparer_publication(
-            pub_mod.construire_publication(casse), data_dir=data, repo_root=tmp_path,
+            pub_mod.construire_publication(casse, preuve_externe=None), data_dir=data, repo_root=tmp_path,
             preparer=runner._preparer_atomique,
             valeur=runner._markdown_value, code=runner._markdown_code)
 
@@ -808,7 +809,7 @@ def test_aucune_ligne_de_decision_nest_fabriquee_quand_il_ny_en_a_pas() -> None:
     rapport["decisions"] = []
     rapport.pop("plancher_digest")
     rendu = pub_mod.rendre_publication_markdown(
-        pub_mod.construire_publication(rapport),
+        pub_mod.construire_publication(rapport, preuve_externe=None),
         valeur=runner._markdown_value, code=runner._markdown_code)
     assert "aucune décision de plancher" in rendu
     assert "| 0 | 0.0000 | 0.0000 |" not in rendu
@@ -922,7 +923,7 @@ def test_ecrire_rapports_ne_laisse_aucun_temporaire_si_le_second_echoue(
 
     monkeypatch.setattr(runner, "_preparer_atomique", preparer)
     with pytest.raises(OSError, match="injecté"):
-        runner.ecrire_rapports(rapport, json_path, md_path)
+        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
     assert _temporaires(tmp_path) == []
     assert not json_path.exists() and not md_path.exists()
 
@@ -964,23 +965,23 @@ def test_preparer_gate_ne_laisse_aucun_temporaire_sur_une_serialisation_impossib
 def test_une_cle_du_journal_absente_est_un_refus_dit_pas_un_keyerror(cle: str) -> None:
     """R1 : les clés que `rendre_markdown` indexe à la racine sont exigées par la validation."""
     nominal = _rapport_publiable()
-    assert runner.rendre_markdown(dict(nominal))  # le nominal se rend
+    assert runner.rendre_markdown(dict(nominal), preuve_externe=None)  # le nominal se rend
     ampute = {c: v for c, v in nominal.items() if c != cle}
     with pytest.raises(pub_mod.RapportInexploitable, match=cle):
-        pub_mod.valider_rapport_publiable(ampute)
+        pub_mod.valider_rapport_publiable(ampute, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match=cle):
-        runner.rendre_markdown(ampute)
+        runner.rendre_markdown(ampute, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match=cle):
-        pub_mod.construire_publication(ampute)
+        pub_mod.construire_publication(ampute, preuve_externe=None)
 
 
 def test_stop_reason_nulle_est_legitime_mais_absente_ne_lest_pas() -> None:
     """R1 : « la clé n'est pas là » n'est pas « il n'y a pas eu d'arrêt » — la nuance de tout ce cycle."""
     nominal = _rapport_publiable()
-    assert pub_mod.valider_rapport_publiable({**nominal, "stop_reason": None}) is not None
-    assert pub_mod.valider_rapport_publiable({**nominal, "stop_reason": "plafond atteint"})
+    assert pub_mod.valider_rapport_publiable({**nominal, "stop_reason": None}, preuve_externe=None) is not None
+    assert pub_mod.valider_rapport_publiable({**nominal, "stop_reason": "plafond atteint"}, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="stop_reason"):
-        pub_mod.valider_rapport_publiable({c: v for c, v in nominal.items() if c != "stop_reason"})
+        pub_mod.valider_rapport_publiable({c: v for c, v in nominal.items() if c != "stop_reason"}, preuve_externe=None)
 
 
 def test_le_vocabulaire_de_labels_incomplet_ferme_au_lieu_de_lever_un_keyerror() -> None:
@@ -988,15 +989,15 @@ def test_le_vocabulaire_de_labels_incomplet_ferme_au_lieu_de_lever_un_keyerror()
     nominal = _rapport_publiable()
     partiel = {**nominal, "metrics": {**nominal["metrics"], "labels": {"bonne_reponse": 1}}}
     with pytest.raises(pub_mod.RapportInexploitable, match="AD-14|labels"):
-        runner.rendre_markdown(partiel)
+        runner.rendre_markdown(partiel, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="AD-14|labels"):
-        pub_mod.construire_publication(partiel)
+        pub_mod.construire_publication(partiel, preuve_externe=None)
     # Un comptage négatif ou non entier n'est pas un comptage.
     for mauvais in (-1, 1.5, True, None):
         casse = {**nominal,
                  "metrics": {**nominal["metrics"], "labels": _tous_les_labels() | {"parsing": mauvais}}}
         with pytest.raises(pub_mod.RapportInexploitable, match="labels"):
-            pub_mod.valider_rapport_publiable(casse)
+            pub_mod.valider_rapport_publiable(casse, preuve_externe=None)
 
 
 @pytest.mark.parametrize("champ", ["id", "suite", "variant", "label", "cost_eur",
@@ -1007,14 +1008,14 @@ def test_une_execution_amputee_est_un_refus_dit(champ: str) -> None:
     ampute = {**nominal,
               "results": [{c: v for c, v in nominal["results"][0].items() if c != champ}]}
     with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-        runner.rendre_markdown(ampute)
+        runner.rendre_markdown(ampute, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-        pub_mod.construire_publication(ampute)
+        pub_mod.construire_publication(ampute, preuve_externe=None)
     # Et le type est exigé, pas seulement la présence.
     mauvais = 42 if champ in ("id", "suite", "variant", "label") else "beaucoup"
     casse = {**nominal, "results": [{**nominal["results"][0], champ: mauvais}]}
     with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-        pub_mod.valider_rapport_publiable(casse)
+        pub_mod.valider_rapport_publiable(casse, preuve_externe=None)
 
 
 def test_un_rapport_inexploitable_hors_gate_est_un_refus_dit_pas_un_incident(
@@ -1028,7 +1029,7 @@ def test_un_rapport_inexploitable_hors_gate_est_un_refus_dit_pas_un_incident(
     json_path, md_path = tmp_path / "r.json", tmp_path / "r.md"
     ampute = {c: v for c, v in _rapport_publiable().items() if c != "cases_completed"}
     with pytest.raises(pub_mod.RapportInexploitable, match="cases_completed"):
-        runner.ecrire_rapports(ampute, json_path, md_path)
+        runner.ecrire_rapports(ampute, json_path, md_path, preuve_externe=None)
     # Rien n'a été écrit, et aucun temporaire ne subsiste : le refus précède toute bascule.
     assert not json_path.exists() and not md_path.exists()
     assert _temporaires(tmp_path) == []
@@ -1050,7 +1051,7 @@ def test_des_reserves_mal_formees_ferment_au_lieu_de_publier_un_diagnostic() -> 
     """
     nominal = _rapport_publiable()
     # Le nominal : les réserves sont lues, et leurs trois limites sont publiées.
-    pub = pub_mod.construire_publication(nominal)
+    pub = pub_mod.construire_publication(nominal, preuve_externe=None)
     assert pub.reserves is not None
     assert sum(1 for l in pub.limites
                if "contresignature" in l or "expert assurance" in l or "dictionnaire" in l) == 3
@@ -1062,10 +1063,10 @@ def test_des_reserves_mal_formees_ferment_au_lieu_de_publier_un_diagnostic() -> 
             ("aucune", "reserves"),
             ([], "reserves")):
         with pytest.raises(pub_mod.RapportInexploitable, match=motif):
-            pub_mod.construire_publication({**nominal, "reserves": reserves})
+            pub_mod.construire_publication({**nominal, "reserves": reserves}, preuve_externe=None)
     # L'absence de la clé reste un diagnostic légitime : rien n'est inventé, rien n'est refusé.
     diagnostic = {c: v for c, v in nominal.items() if c != "reserves"}
-    assert pub_mod.construire_publication(diagnostic).reserves is None
+    assert pub_mod.construire_publication(diagnostic, preuve_externe=None).reserves is None
 
 
 # --- R7 : le domaine des mesures et le type des décisions, dans le refus dit ----------------------
@@ -1075,7 +1076,7 @@ def test_une_decision_mal_typee_est_un_refus_dit_pas_une_validationerror_nue() -
     nominal = _rapport_publiable()
     for decisions in ([42], ["texte"], [None]):
         with pytest.raises(pub_mod.RapportInexploitable, match="decisions"):
-            pub_mod.construire_publication({**nominal, "decisions": decisions})
+            pub_mod.construire_publication({**nominal, "decisions": decisions}, preuve_externe=None)
 
 
 @pytest.mark.parametrize(("champ", "valeur"), [
@@ -1089,13 +1090,13 @@ def test_une_mesure_hors_domaine_est_un_refus_dit(champ: str, valeur: float) -> 
     nominal = _rapport_publiable()
     casse = {**nominal, "metrics": {**nominal["metrics"], champ: valeur}}
     with pytest.raises(pub_mod.RapportInexploitable, match=champ):
-        pub_mod.valider_rapport_publiable(casse)
+        pub_mod.valider_rapport_publiable(casse, preuve_externe=None)
 
 
 def test_un_cout_froid_negatif_est_un_refus_dit() -> None:
     """R7 : `cost_eur` est une mesure comme les autres — son domaine aussi."""
     with pytest.raises(pub_mod.RapportInexploitable, match="cost_eur"):
-        pub_mod.valider_rapport_publiable({**_rapport_publiable(), "cost_eur": -0.01})
+        pub_mod.valider_rapport_publiable({**_rapport_publiable(), "cost_eur": -0.01}, preuve_externe=None)
 
 
 # --- R8 : le contrat de retour d'`archiver_latest`, fixé ------------------------------------------
@@ -1223,7 +1224,7 @@ def test_le_rapport_fabrique_du_verdict_ne_traverse_aucune_des_quatre_surfaces(
     sortie = tmp_path / "sortie"
     try:
         runner.ecrire_rapports(fabrique, sortie / "eval-results.json",
-                               sortie / "eval-results.md")
+                               sortie / "eval-results.md", preuve_externe=None)
     except pub_mod.RapportInexploitable:
         pass  # le refus dit — mais ce n'est pas lui que cette assertion regarde
     assert not sortie.exists() or not any(sortie.iterdir()), "le journal de CI a été écrit"
@@ -1232,7 +1233,7 @@ def test_le_rapport_fabrique_du_verdict_ne_traverse_aucune_des_quatre_surfaces(
     for appel in (pub_mod.valider_rapport_publiable, pub_mod.construire_publication,
                   runner.rendre_markdown):
         with pytest.raises(pub_mod.RapportInexploitable):
-            appel(fabrique)
+            appel(fabrique, preuve_externe=None)
 
     # 3 et 4. La route et la page ne peuvent porter que ce qui a été publié — et rien ne l'a été.
     # On publie donc un artefact **valide et différent**, puis on vérifie qu'aucune des quatre
@@ -1244,7 +1245,7 @@ def test_le_rapport_fabrique_du_verdict_ne_traverse_aucune_des_quatre_surfaces(
     textes = "\n".join(_composer(corps)["textes"])
     servi = json.dumps(corps, ensure_ascii=False)
     markdown = md_path.read_text(encoding="utf-8")
-    rendu_ci = runner.rendre_markdown(_rapport(), pub)
+    rendu_ci = runner.rendre_markdown(_rapport(), pub, preuve_externe=None)
     for surface in (markdown, servi, textes, rendu_ci):
         assert LIGNE_DU_VERDICT not in surface
         for fabriquee in ("LABEL_INCONNU", "-12.5000", "-9.0000", "vertical"):
@@ -1269,9 +1270,9 @@ def test_une_execution_hors_domaine_est_un_refus_dit(champ: str, valeur: Any, mo
     """Chaque valeur que le journal du run imprime est refusée séparément, et le refus la nomme."""
     rapport = _rapport(results=[_resultat(**{champ: valeur})])
     with pytest.raises(pub_mod.RapportInexploitable, match=f"results\\[0\\]\\.{champ}"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match=motif):
-        runner.rendre_markdown(rapport)
+        runner.rendre_markdown(rapport, preuve_externe=None)
 
 
 @pytest.mark.parametrize("drapeau", ["stable", "comptabilise"])
@@ -1280,9 +1281,9 @@ def test_une_stabilite_en_chaines_nest_jamais_rendue_un_sur_un(drapeau: str) -> 
     rapport = _rapport()
     rapport["stability"]["cases"]["s-cas-neutre"][drapeau] = "oui"
     with pytest.raises(pub_mod.RapportInexploitable, match=drapeau):
-        pub_mod.stabilite_du_rapport(rapport)
+        pub_mod.stabilite_du_rapport(rapport, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match=drapeau):
-        pub_mod.construire_publication(rapport)
+        pub_mod.construire_publication(rapport, preuve_externe=None)
 
 
 @pytest.mark.parametrize("drapeau", ["stable", "comptabilise"])
@@ -1290,7 +1291,7 @@ def test_un_drapeau_de_stabilite_absent_ferme(drapeau: str) -> None:
     rapport = _rapport()
     del rapport["stability"]["cases"]["s-cas-neutre"][drapeau]
     with pytest.raises(pub_mod.RapportInexploitable, match=drapeau):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
 def test_une_stabilite_mesuree_sur_un_autre_n_que_le_repeat_ferme() -> None:
@@ -1298,7 +1299,7 @@ def test_une_stabilite_mesuree_sur_un_autre_n_que_le_repeat_ferme() -> None:
     rapport = _rapport()
     rapport["stability"]["n"] = 1
     with pytest.raises(pub_mod.RapportInexploitable, match="repeat"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
 @pytest.mark.parametrize("champ,valeur", [
@@ -1314,57 +1315,151 @@ def test_une_decision_coercible_ou_hors_domaine_est_refusee(champ: str, valeur: 
     rapport = _rapport()
     rapport["decisions"][0][champ] = valeur
     with pytest.raises(pub_mod.RapportInexploitable, match=f"decisions\\[0\\]\\.{champ}"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
+
+
+def _preuve_verifiee(*, candidate_revision: str = "a" * 40,
+                     plancher_digest: str = "9" * 64):
+    """Une preuve externe **réellement vérifiée**, obtenue par le seul chemin qui en produit.
+
+    Story 4.5, tour correctif 2/3, revue B5. La validation admettait une décision au `run_digest`
+    étranger dès que le rapport l'inscrivait lui-même dans `external_run_digests` : la liste des
+    empreintes « légitimes » était donc lue dans l'entrée non fiable qu'on validait, et `'f' * 64`
+    passait. L'ancrage est désormais l'objet que `plancher.verifier_liaison_preuve` construit sur
+    des octets — impossible à fabriquer par le lecteur d'un rapport, ce qui est toute la propriété.
+
+    Le rapport de preuve est synthétique et neutre ; son `run_digest` est **recalculé** par la
+    vérification, donc il n'est pas choisi ici : le test le lit sur la preuve rendue.
+    """
+    from server.evals.cache import empreinte_canonique
+    from server.evals.plancher import CHAMPS_IMAGE, verifier_liaison_preuve
+
+    image = {champ: f"image-{champ}" for champ in CHAMPS_IMAGE}
+    image["plancher_digest"] = plancher_digest
+    identite: dict[str, Any] = {"candidate_revision": candidate_revision, "image": image}
+    identite["run_digest"] = empreinte_canonique(identite)
+    octets = json.dumps({"identity": identite, "plancher_digest": plancher_digest},
+                        sort_keys=True).encode("utf-8")
+    brut = {
+        "plancher_digest": plancher_digest,
+        "candidate_revision": candidate_revision,
+        "report_digest": hashlib.sha256(octets).hexdigest(),
+        "run_digest": identite["run_digest"],
+        "decisions": [{"metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
+                       "run_digest": identite["run_digest"]}],
+    }
+    return verifier_liaison_preuve(brut, plancher_digest=plancher_digest,
+                                   candidate_revision=candidate_revision,
+                                   report_bytes=octets, image_courante=image)
 
 
 def test_le_run_digest_dune_decision_est_oppose_a_lidentite_du_run() -> None:
     """B5 : « son `run_digest` arbitraire n'est opposé à rien ».
 
-    Deux cas, et la distinction est le point : une décision **mesurée par ce run** porte l'empreinte
-    de ce run ; une décision venue d'une preuve trusted porte celle du run que la preuve mesure, et
-    le rapport la **déclare** dans `external_run_digests`. Une empreinte ni l'une ni l'autre n'est
-    opposée à rien, et ferme.
+    Trois cas, et la distinction est le point. Une décision **mesurée par ce run** porte l'empreinte
+    de ce run. Une décision venue d'une preuve trusted porte celle du run que la preuve mesure — et
+    ce qui l'autorise est la **preuve vérifiée**, pas ce que le rapport déclare sur lui-même. Une
+    empreinte qui n'est ni l'une ni l'autre ferme.
     """
     rapport = _rapport()
     rapport["decisions"][0]["run_digest"] = "f" * 64
     with pytest.raises(pub_mod.RapportInexploitable, match="opposée à aucun run"):
-        pub_mod.valider_rapport_publiable(rapport)
-    # Déclarée, la même empreinte étrangère est légitime — c'est le chemin `--orchestrator-evidence`,
-    # dont la liaison cryptographique a eu lieu **en amont**, à l'ingestion de la preuve.
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
+    # **La sonde exacte du recheck** : le rapport se déclare lui-même digne de confiance. Sur
+    # `2ba74ae`, cette ligne suffisait à faire accepter et publier `'f' * 64`.
     rapport["external_run_digests"] = ["f" * 64]
-    assert pub_mod.valider_rapport_publiable(rapport) is rapport
+    rapport["decisions"][0]["producer"] = "orchestrator"
+    with pytest.raises(pub_mod.RapportInexploitable, match="preuve externe vérifiée"):
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
+    # Et elle ne devient pas légitime parce qu'une preuve existe : la preuve établit **une**
+    # empreinte, et ce n'est pas celle-là.
+    verifiee = _preuve_verifiee()
+    with pytest.raises(pub_mod.RapportInexploitable, match="preuve externe vérifiée"):
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=verifiee)
+    # Le chemin légitime : l'empreinte que la preuve a réellement établie, portée par une décision
+    # `orchestrator`. C'est `--orchestrator-evidence`, et il n'est pas sacrifié à une règle plus
+    # simple que la réalité.
+    legitime = _rapport()
+    legitime["decisions"][0]["run_digest"] = verifiee.run_digest
+    legitime["decisions"][0]["producer"] = "orchestrator"
+    legitime["external_run_digests"] = [verifiee.run_digest]
+    assert pub_mod.valider_rapport_publiable(legitime, preuve_externe=verifiee) is legitime
     # Mais la déclaration doit elle-même être une liste d'empreintes.
-    rapport["external_run_digests"] = "f" * 64
+    legitime["external_run_digests"] = verifiee.run_digest
     with pytest.raises(pub_mod.RapportInexploitable, match="external_run_digests"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(legitime, preuve_externe=verifiee)
+
+
+@pytest.mark.parametrize("profil", ["hors-domaine", "", "FULL", "vertical ", 3, None])
+def test_un_profil_hors_du_vocabulaire_autoritaire_ne_se_publie_pas(profil: object) -> None:
+    """B5, tour correctif 2/3 : la sonde exacte du recheck.
+
+    `profile` n'était contrôlé que comme « chaîne non vide », et `profile='hors-domaine'` était
+    publié tel quel sur les quatre surfaces. Le vocabulaire autoritaire existait pourtant déjà et
+    n'a que deux valeurs ; il vit désormais dans `server/app/domain/evals.py`, d'où le runner **et**
+    la validation le lisent — recopier le littéral dans la validation aurait fait deux autorités,
+    c'est-à-dire aucune.
+    """
+    rapport = _rapport()
+    rapport["profile"] = profil
+    with pytest.raises(pub_mod.RapportInexploitable, match="profile"):
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
+    with pytest.raises(pub_mod.RapportInexploitable, match="profile"):
+        pub_mod.construire_publication(rapport, preuve_externe=None)
+    with pytest.raises(pub_mod.RapportInexploitable, match="profile"):
+        runner.rendre_markdown(rapport, preuve_externe=None)
+
+
+def test_le_vocabulaire_des_profils_a_une_seule_autorite() -> None:
+    """Le runner et la validation lisent la **même** définition, jamais deux littéraux jumeaux."""
+    from server.app.domain import evals as domaine
+
+    assert runner.PROFILS_LIVRES is domaine.PROFILS_LIVRES
+    assert set(domaine.PROFILS_LIVRES) == {"vertical", "full"}
+
+
+def test_une_preuve_verifiee_ne_se_fabrique_pas_par_lappelant() -> None:
+    """B5 : l'ancrage n'existe que s'il a été **établi**, jamais parce qu'on l'a construit.
+
+    Python n'offre pas d'objet infalsifiable, et ce test ne prétend pas le contraire : ce qu'il
+    prouve est que la voie **commode** — se donner à soi-même la preuve qu'on n'a pas — est fermée.
+    """
+    from server.evals.plancher import PlancherInvalide, PreuveExterneVerifiee
+
+    with pytest.raises(PlancherInvalide, match="ne se construit que par"):
+        PreuveExterneVerifiee(object(), run_digest="a" * 64, candidate_revision="b" * 40,
+                              report_digest="c" * 64, plancher_digest="d" * 64)
+    verifiee = _preuve_verifiee()
+    with pytest.raises(AttributeError):
+        verifiee.run_digest = "0" * 64  # type: ignore[misc]
 
 
 def test_une_empreinte_etrangere_declaree_reste_liee_a_ce_que_le_rapport_montre() -> None:
-    """P5 : la déclaration n'est pas un blanc-seing — elle doit être cohérente avec les décisions.
+    """P5 : la preuve n'est pas un blanc-seing — la cohérence avec les décisions reste exigée.
 
-    `valider_rapport_publiable` lit un rapport, c'est-à-dire une entrée non fiable : elle ne peut
-    pas vérifier qu'une empreinte étrangère vient d'une preuve réelle, et le prétendre annoncerait
-    une liaison qui n'a pas lieu ici. Ce qu'elle peut établir, elle l'établit : une empreinte
-    étrangère n'est admise que sur une décision `producer="orchestrator"`, et une empreinte déclarée
-    qu'aucune décision ne porte est une porte ouverte, pas une donnée.
+    Ce que la preuve établit, c'est **quelle** empreinte étrangère est légitime. Elle ne dit rien de
+    la façon dont le rapport s'en sert : une empreinte étrangère portée par une décision `builder`
+    reste incohérente — le runner n'écrit jamais autre chose que sa propre empreinte pour ses
+    propres mesures —, et une déclaration qu'aucune décision ne porte reste une porte ouverte.
     """
+    verifiee = _preuve_verifiee()
     rapport = _rapport()
-    rapport["decisions"][0]["run_digest"] = "f" * 64
+    rapport["decisions"][0]["run_digest"] = verifiee.run_digest
     rapport["decisions"][0]["producer"] = "builder"
-    rapport["external_run_digests"] = ["f" * 64]
+    rapport["external_run_digests"] = [verifiee.run_digest]
     with pytest.raises(pub_mod.RapportInexploitable, match="producteur"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=verifiee)
     # Une déclaration orpheline ferme, même quand toutes les décisions sont par ailleurs valides.
     orpheline = _rapport()
-    orpheline["external_run_digests"] = ["f" * 64]
+    orpheline["external_run_digests"] = [verifiee.run_digest]
     with pytest.raises(pub_mod.RapportInexploitable, match="qu'aucune décision ne porte"):
-        pub_mod.valider_rapport_publiable(orpheline)
+        pub_mod.valider_rapport_publiable(orpheline, preuve_externe=verifiee)
     # Et le contrôle a lieu **même sans décisions** : le retour anticipé le sautait entièrement.
     sans_decisions = {c: v for c, v in _rapport().items()
                       if c not in ("decisions", "plancher_digest")}
     sans_decisions["external_run_digests"] = ["pas-une-empreinte"]
     with pytest.raises(pub_mod.RapportInexploitable, match="external_run_digests"):
-        pub_mod.valider_rapport_publiable(sans_decisions)
+        pub_mod.valider_rapport_publiable(sans_decisions, preuve_externe=None)
 
 
 def test_une_cle_inconnue_dans_une_decision_est_un_refus_dit() -> None:
@@ -1378,9 +1473,9 @@ def test_une_cle_inconnue_dans_une_decision_est_un_refus_dit() -> None:
     rapport = _rapport()
     rapport["decisions"][0]["inconnu"] = 1
     with pytest.raises(pub_mod.RapportInexploitable, match="clés inconnues"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
     with pytest.raises(pub_mod.RapportInexploitable, match="clés inconnues"):
-        pub_mod.construire_publication(rapport)
+        pub_mod.construire_publication(rapport, preuve_externe=None)
 
 
 @pytest.mark.parametrize("table", ["labels", "variants"])
@@ -1390,7 +1485,7 @@ def test_une_cle_vide_ou_non_textuelle_de_table_de_comptage_ferme(table: str, cl
     rapport = _rapport()
     rapport["metrics"][table] = dict(rapport["metrics"][table]) | {cle: 3}
     with pytest.raises(pub_mod.RapportInexploitable, match=f"metrics.{table}"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
 @pytest.mark.parametrize("champ,valeur,motif", [
@@ -1409,14 +1504,14 @@ def test_un_compteur_ou_une_liste_racine_incoherente_est_un_refus_dit(
     rapport = _rapport()
     rapport[champ] = valeur
     with pytest.raises(pub_mod.RapportInexploitable, match=motif):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
 def test_la_table_de_labels_nadmet_aucune_cle_supplementaire() -> None:
     """AD-14 : « labels fixes ». Une clé en trop serait un huitième label publié sans en être un."""
     rapport = _rapport(labels=_tous_les_labels() | {"label_maison": 4})
     with pytest.raises(pub_mod.RapportInexploitable, match="en trop"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
 def test_une_empreinte_presente_mais_invalide_ferme_au_lieu_de_setre_rabattue_sur_none() -> None:
@@ -1434,7 +1529,7 @@ def test_un_plancher_digest_racine_mal_forme_ferme() -> None:
     rapport = _rapport()
     rapport["plancher_digest"] = "pas-une-empreinte"
     with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
-        pub_mod.valider_rapport_publiable(rapport)
+        pub_mod.valider_rapport_publiable(rapport, preuve_externe=None)
 
 
 # --- B7, tour correctif 1/3 : la bascule tient sa garantie sur **toute** exception -----------------

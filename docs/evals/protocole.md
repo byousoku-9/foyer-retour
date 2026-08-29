@@ -117,7 +117,7 @@ configuration précédente et rend la story suivante non promouvable — sans in
 
 ### Un classement n'accepte que des rapports, et recalcule leurs empreintes
 
-`classer_configurations(candidats, *, plancher_digest, image_courante, candidate_revision)` ne prend
+`classer_configurations(candidats, *, candidate_revision)` ne prend
 plus de `Configuration` déclaratives : chaque `CandidatClassement` porte un **nom** et les **octets**
 de son rapport, et rien d'autre. Ce que l'appelant annonçait — admissibilité, coût, latence,
 `candidate_revision`, `run_digest`, `report_digest` — est désormais **lu ou recalculé** :
@@ -141,10 +141,31 @@ réels.
 **Les deux références sont ancrées, pas reçues.** `classer_configurations` dérive elle-même le
 `plancher_digest` (`charger_plancher()`) et l'image (`image_du_depot()`, miroir de
 `run.image_du_run`) du processus qui l'exécute. Il n'existe **aucun paramètre** pour les remplacer,
-ni de voie « pour les tests ». Ce qui reste un paramètre est `candidate_revision`, et c'est la
-question posée — « classe les configurations de ce commit » —, pas une référence de confiance : elle
-n'ouvre rien, puisque chaque rapport doit l'avoir mesurée. Ce que le dépôt exécute réellement est
-opposé ailleurs, par `revision_executee`.
+ni de voie « pour les tests ».
+
+**Et la révision candidate est opposée au checkout réellement exécuté.** `candidate_revision` reste
+un paramètre parce que c'est la **question** posée — « classe les configurations de ce commit » —,
+mais elle n'est plus crue sur parole. Le texte précédent affirmait qu'« un commit fantôme ne rend
+aucune configuration » : c'était faux. Un rapport auto-cohérent fabriqué pour `'a' * 40`, révision
+qui n'existe dans aucun dépôt, était accepté, admissible, et classé **en tête** — la révision
+n'était opposée qu'à ce que le rapport en disait, et une auto-cohérence n'est pas une vérité.
+
+Le classement interroge donc `server/evals/revision.py::revision_executee`, l'autorité **unique**
+que le runner emploie déjà pour `--candidate-revision` (`git rev-parse HEAD`, repli `GIT_SHA`
+seulement en l'absence de dépôt). Trois refus, et aucun n'est optionnel :
+
+| ce qui ferme | pourquoi |
+|---|---|
+| aucune révision établissable | un classement qui ne sait pas quel code il regarde ne promeut rien |
+| état de l'arbre non lisible (`ARBRE_NON_VERIFIABLE`) | ne pas pouvoir conclure, c'est refuser |
+| révision demandée ≠ révision du checkout | un rapport peut se réclamer d'un commit qui n'existe nulle part, un classement ne le peut pas |
+
+Ce que ce contrôle **ne** fait pas, et il vaut mieux le lire que le supposer : il ne refuse pas un
+arbre de travail **sale**. Ce qu'un classement peut établir est que la révision nommée est celle que
+ce checkout porte ; la propreté de l'arbre au moment du classement ne dit rien de l'arbre qui a
+produit les rapports — c'est la **production** du rapport qui la contrôle (`run._main` refuse un gate
+`full` sur un arbre sale), et l'image opposée à chaque rapport (`pipeline_digest`, `prompts_digest`)
+ferme dès qu'une source mesurée a bougé.
 
 `Configuration` est le **résultat**, pas l'entrée : ses trois empreintes y sont obligatoires et bien
 formées, et leur valeur vient du recalcul, jamais d'un appelant. Il n'y a plus de garde d'identité
@@ -152,9 +173,14 @@ après la construction — toutes les empreintes viennent d'être recalculées e
 pour toutes par construction, donc aucune branche d'un tel garde ne serait atteignable, et un
 contrôle qu'aucun chemin ne peut faire échouer donne l'apparence d'une garantie sans en être une.
 
-L'artefact de promotion porte, à sa racine, le `plancher_digest` et la révision **effectivement
-opposée** par le classement ; il sort en code 0, en code 1 quand aucune configuration n'est
-admissible — un rouge publié, jamais une question —, et en code 2 sur un refus de classer.
+**Le classement rend son identité avec son ordre, et la CLI n'en relit aucune.** Il rend un
+`ClassementOppose` — `candidate_revision`, `plancher_digest`, `configurations`. La CLI chargeait
+jusqu'ici le plancher pour son propre compte **avant** le classement, puis publiait ce premier
+digest dans l'artefact de promotion, alors que le classement dérive le sien du processus : deux
+lectures, donc deux valeurs possibles, et c'est la seconde qui décidait pendant que la première
+était publiée. L'artefact porte désormais la référence **effectivement opposée**, à la racine comme
+par configuration ; il sort en code 0, en code 1 quand aucune configuration n'est admissible — un
+rouge publié, jamais une question —, et en code 2 sur un refus de classer.
 
 Quatre couches ont été nécessaires, et les trois premières ne suffisaient pas : la voie CLI
 (`--candidate-revision` requis), puis la présence et la **syntaxe** des trois empreintes, puis leur
@@ -162,8 +188,10 @@ Quatre couches ont été nécessaires, et les trois premières ne suffisaient pa
 un appelant qui fabriquait un rapport auto-cohérent — `empreinte_canonique` est publique — et
 passait le même `plancher_digest` et la même `image_courante` obtenait toujours une tête
 `admissible: true`, sur un plancher et une image qui n'existent nulle part. Ancrer les références au
-processus est ce qui ferme la cause. Reproduction :
-`pytest -q tests/test_plancher.py -k classement`.
+processus a fermé cette couche-là ; il en restait une, la dernière et la seule qui sorte du
+processus : rien n'obligeait encore la révision candidate à **correspondre à un commit qui existe**.
+L'opposer au checkout réellement exécuté est ce qui ferme la cause. Reproduction :
+`pytest -q tests/test_plancher.py -k "classement or checkout"`.
 
 ## Interdits
 

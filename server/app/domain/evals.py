@@ -53,6 +53,16 @@ LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_
 Suite = Literal["guide", "sinistre", "parsing"]
 SUITES: tuple[str, ...] = ("guide", "sinistre", "parsing")
 
+# Les deux profils livrés, ici pour exactement la même raison que `LABELS` et `SUITES` (revue B5,
+# tour correctif 2/3). `profile` n'était contrôlé que comme « chaîne non vide » : un rapport portant
+# `profile: "hors-domaine"` était publié tel quel sur les quatre surfaces, alors que le vocabulaire
+# autoritaire existe et n'a que deux valeurs. `run.PROFILS_LIVRES` était cette autorité, mais
+# `server/evals/publication.py` ne peut pas importer `server/evals/run.py` — c'est l'inverse qui a
+# lieu. La définition descend donc ici, d'où le runner **et** la validation la lisent ; recopier le
+# littéral dans la validation aurait fait deux autorités, c'est-à-dire aucune.
+GateProfile = Literal["vertical", "full"]
+PROFILS_LIVRES: tuple[str, ...] = ("vertical", "full")
+
 
 class FrozenModel(DomainModel):
     """Un artefact publié ne se modifie pas après construction."""
@@ -132,7 +142,10 @@ class PublicationEvals(FrozenModel):
     """
 
     schema_version: Literal[1] = 1
-    profile: str = Field(min_length=1)
+    # **Le vocabulaire autoritaire, pas une chaîne** (revue B5, tour correctif 2/3) : l'artefact
+    # servi est relu au démarrage par `api/etat.py`, et un profil hors domaine y devient
+    # `publie: false, raison: hors_schema` au lieu d'être affiché.
+    profile: GateProfile
     candidate_revision: str | None = Field(default=None, pattern=REVISION)
     # `None` quand le rapport n'a pas encore d'identité de run (rapport partiel d'un incident
     # survenu avant sa construction) : une empreinte fabriquée serait pire qu'une absence.

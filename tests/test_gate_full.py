@@ -1834,7 +1834,7 @@ def test_le_rapport_et_sa_table_basculent_ensemble(tmp_path: Path,
 
     monkeypatch.setattr(runner.os, "replace", _replace)
     with pytest.raises(OSError):
-        runner.ecrire_rapports(rapport, json_path, md_path)
+        runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
     # Les deux fichiers sont restés dans leur état d'avant : aucun lot mêlé.
     assert (json_path.read_bytes(), md_path.read_bytes()) == avant
     assert not [p.name for p in tmp_path.glob(".*.tmp")]
@@ -2034,7 +2034,7 @@ def test_ecrire_rapports_refuse_un_etat_precedent_illisible(tmp_path: Path,
     md_path.chmod(0o000)
     try:
         with pytest.raises(runner.EtatPrecedentIllisible):
-            runner.ecrire_rapports(rapport, json_path, md_path)
+            runner.ecrire_rapports(rapport, json_path, md_path, preuve_externe=None)
     finally:
         md_path.chmod(0o644)
     assert (json_path.read_bytes(), md_path.read_bytes()) == avant
