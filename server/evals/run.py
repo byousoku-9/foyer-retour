@@ -24,8 +24,9 @@ Codes de sortie, et pourquoi ils sont quatre (D4) :
 |---|---|---|
 | 0 | tous les cas `ok` | gate écrit `evals_ok: true` (avec `--gate`) |
 | 1 | le run ne rend pas un vert : mauvais label, attente inassouvie, décision de plancher rouge,
-ou publication FR41 en échec | gate écrit tel qu'il a été mesuré (`evals_ok: false`), **sauf** si la
-préparation de la publication a échoué : rien n'est alors publié ni écrit |
+publication FR41 en échec, ou rapport non publiable (`RapportInexploitable`) | gate écrit tel qu'il a
+été mesuré (`evals_ok: false`), **sauf** si la préparation de la publication a échoué : rien n'est
+alors publié ni écrit |
 | 2 | refus de tourner : pas de clé, profil ou suite non livrés, cas invalide, document non servi | **non modifié** |
 | 3 | incident technique : `Timeout`, `LlmUnavailable`, `BudgetExceeded`, plafond de run atteint | **non modifié** |
 | 4 | refus de budget **avant le premier appel** (story 4.2b) : majorant estimé d'une campagne
@@ -35,7 +36,9 @@ question | **non modifié** |
 La ligne de partage entre 1 et 3 est celle d'AD-8 : un mauvais label est un **résultat** — le gate le
 consigne et le document part en `gate_echoue` au prochain démarrage, ce que le gate est fait pour
 faire. Un incident réseau ne dit rien du système mesuré, et le laisser retirer un document du service
-serait une panne inventée.
+serait une panne inventée. **Un rapport que la validation canonique refuse tombe du côté 1**, pas du
+côté 3 (revue R1) : c'est un défaut de données, pas une panne, et l'étiqueter « incident technique »
+enverrait chercher un bug de réseau là où une clé manque.
 
 **Ce que 1 dit d'un gate `full` dont la publication a échoué** (story 4.5, revue A) : la publication
 et le gate sont préparés ensemble puis basculés ensemble, si bien qu'un échec de préparation ne laisse
@@ -83,7 +86,8 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.app.domain.evals import PublicationEvals, ReservesPubliees, SecondeLecturePubliee
+from server.app.domain.evals import (LABELS, Label, PublicationEvals, ReservesPubliees,
+                                     SecondeLecturePubliee)
 from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
 from server.app.domain.ingest import (STRUCTURE_CHECK, TREE_CHECK, Gate, GateContext,
                                       GateDecision, ManifestEntry, Report,
@@ -125,12 +129,10 @@ PROTOCOLE_FILES = frozenset({
     "trusted-automation-plancher.yaml",
 })
 
-# AD-14, mot pour mot : « labels fixes ». Un vocabulaire qu'une story élargit n'est plus fixe — ce
-# qu'ils ne couvrent pas s'appelle `ecarts` et ne porte pas de nom de label (D2).
-Label = Literal["bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu", "faux_refus",
-                "citation_introuvable", "parsing"]
-LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu",
-                           "faux_refus", "citation_introuvable", "parsing")
+# AD-14, mot pour mot : « labels fixes ». La définition vit dans `server/app/domain/evals.py` depuis
+# la revue R1 : la validation canonique de la publication doit exiger **les sept**, et elle ne peut
+# pas importer ce module (c'est l'inverse qui a lieu). Les noms d'usage restent `run.LABELS` et
+# `run.Label` — une seule définition, deux endroits d'où la lire.
 
 Suite = Literal["guide", "sinistre", "parsing"]
 
@@ -3912,6 +3914,17 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
               "modifié", file=sys.stderr)
         noter_campaign("incident_report")
         return 3
+    except RapportInexploitable as exc:
+        # **Un défaut de données n'est pas une panne technique** (revue R1). Le journal du run est
+        # l'une des quatre surfaces, et il indexait des clés que rien n'exigeait : un rapport
+        # amputé y levait un `KeyError` — qui n'est pas une `ValueError` — et ressortait par le
+        # dernier `except Exception` en « incident », code 3. C'est la ligne de partage d'AD-8
+        # franchie dans le mauvais sens : le verdict *a* été mesuré, c'est le rapport qui n'est pas
+        # publiable. Code 1, refus dit, manifest intact (aucun gate n'est écrit sur ce chemin).
+        print(f"refus d'écrire les rapports : {exc} — le rapport du run n'est pas publiable, "
+              "aucune bascule n'a eu lieu, manifest non modifié", file=sys.stderr)
+        noter_campaign("red")
+        return 1
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques
         print(f"incident de rapport : {type(exc).__name__}: {exc} — manifest non modifié",
               file=sys.stderr)

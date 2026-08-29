@@ -2531,3 +2531,54 @@ def test_deux_configurations_de_tiers_ne_partagent_jamais_une_namespace_de_cache
     jumeau = _contexte([], settings=_settings(verifier_tier="micro"))
     assert runner.empreinte_canonique(runner.namespace_cache(
         cas, jumeau, doc_id=GUIDE, variant="outils")) == runner.empreinte_canonique(espace_micro)
+
+
+# --- R1 : un rapport que la validation canonique refuse est un **résultat**, pas un incident -------
+
+def test_un_rapport_inexploitable_sort_en_un_et_non_en_trois(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """La ligne de partage d'AD-8, éprouvée de bout en bout par `main()`.
+
+    Le journal du run indexait des clés que rien n'exigeait — `cases_completed`, `cases_hash`, les
+    sept labels d'AD-14, les sept champs de chaque exécution. Un rapport amputé y levait un
+    `KeyError`, qui n'est pas une `ValueError` : il traversait tous les handlers nommés et
+    ressortait par le dernier `except Exception` en « incident », **code 3**. Un défaut de données
+    étiqueté panne technique — et code 3 promet « manifest non modifié » pour une raison qui n'est
+    pas la bonne, ce qui envoie chercher un problème de réseau là où une clé manque.
+
+    Ce test tient la promesse dans les deux sens : le code **et** la cause nommée sur `stderr`.
+    """
+    from server.evals.publication import RapportInexploitable
+
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    vrai_construire = runner.construire_rapport
+
+    def rapport_ampute(*a: Any, **k: Any) -> dict[str, Any]:
+        rapport = vrai_construire(*a, **k)
+        # Le rapport est complet et cohérent, à une clé près — celle que le journal indexe.
+        return {cle: valeur for cle, valeur in rapport.items() if cle != "cases_completed"}
+
+    monkeypatch.setattr(runner, "construire_rapport", rapport_ampute)
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_bytes()
+
+    code = _main(tmp_path, ["--suite", "guide"], monkeypatch, reponses_guide=[bonne])
+
+    assert code == 1, "un défaut de données est un résultat (1), jamais un incident technique (3)"
+    err = capsys.readouterr().err
+    assert "refus d'écrire les rapports" in err
+    assert "cases_completed" in err, "le refus doit nommer la clé fautive"
+    assert "manifest non modifié" in err
+    # Et il dit vrai : le manifest est byte-identique, rien n'a été écrit.
+    assert (data / "manifest.json").read_bytes() == avant
+    assert not [p.name for p in tmp_path.rglob("*.tmp")]
+    # Le refus vient bien du contrôle canonique, nommé : `RapportInexploitable` est le seul chemin
+    # par lequel ce message peut sortir (les autres handlers nomment d'autres causes).
+    assert issubclass(RapportInexploitable, Exception)
+    assert not issubclass(RapportInexploitable, ValueError), (
+        "si c'était une ValueError, elle serait absorbée par le handler d'échec de publication "
+        "du chemin gate, et la cause nommée ici disparaîtrait")

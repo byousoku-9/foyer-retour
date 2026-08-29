@@ -63,7 +63,11 @@ def _rapport(*, complete: bool = True, decisions: list[dict[str, Any]] | None = 
         "cost_eur": 0.055,
         "plancher_digest": "c" * 64,
         "metrics": {
-            "labels": labels or {"bonne_reponse": 3, "parsing": 1},
+            # **Les sept labels d'AD-14, zéros compris** (revue R1). Une table partielle n'est
+            # produite par aucun run — `construire_rapport` compte sur `LABELS` — et la validation
+            # canonique la refuse désormais, parce que le journal de CI l'indexe sur les sept : un
+            # label manquant y levait un `KeyError` nu au lieu d'un refus dit.
+            "labels": labels if labels is not None else _tous_les_labels(),
             "variants": {"outils": 3, "local": 3},
             # Volontairement « rondes » : sans formatage partagé, chaque surface les rendrait à sa
             # façon (`1` contre `1.0000`, `0.02` contre `0.0200`) et la comparaison des quatre
@@ -140,7 +144,10 @@ def test_les_douze_champs_publies_viennent_du_rapport_et_du_gate() -> None:
     assert pub.run_digest == "a" * 64 and pub.report_digest == "b" * 64
     assert pub.plancher_digest == "c" * 64 and pub.cases_hash == "d" * 64
     assert pub.evals_ok is False
-    assert pub.labels == {"bonne_reponse": 3, "parsing": 1}
+    # Les sept labels d'AD-14, zéros compris : c'est ce que `construire_rapport` écrit, et depuis
+    # la revue R1 c'est ce que la validation canonique exige (le journal de CI les indexe tous).
+    assert pub.labels == _tous_les_labels()
+    assert {label: n for label, n in pub.labels.items() if n} == {"bonne_reponse": 3, "parsing": 1}
     assert pub.variantes == {"outils": 3, "local": 3}
     assert pub.recall == 1.0
     # Les cas `parsing` restent hors comptage de stabilité, comme au plancher : la suite est locale
@@ -183,8 +190,11 @@ def test_les_limites_sont_derivees_du_run_et_jamais_redigees() -> None:
     assert any("dictionnaire des variantes non validé" in l for l in pub.limites)
     # Un run complet, vert, tout signé : les limites correspondantes disparaissent.
     propre = _publication(
-        rapport=_rapport(decisions=[], labels={"bonne_reponse": 4},
-                         results=[{"id": "s-cas-neutre", "label": "bonne_reponse"}]),
+        rapport=_rapport(decisions=[],
+                         labels=_tous_les_labels() | {"bonne_reponse": 4, "parsing": 0},
+                         results=[{"id": "s-cas-neutre", "label": "bonne_reponse",
+                                   "suite": "sinistre", "variant": "outils", "cost_eur": 0.02,
+                                   "cost_eur_original": 0.02, "latency_ms": 14243}]),
         gate=_gate(evals_ok=True),
         reserves=ReservesPubliees(countersigned=True, validated_by_expert=True,
                                   dictionary_validated=True),
@@ -358,12 +368,22 @@ def _reglages() -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", env="dev")
 
 
-def _ecrire(pub: PublicationEvals, racine: Path) -> tuple[Path, Path]:
+def _ecrire(pub: PublicationEvals, racine: Path, *,
+            nom: str = pub_mod.PUBLICATION_JSON) -> tuple[Path, Path]:
+    """Publie par **l'écrivain de production** : préparer, puis basculer (revue R6).
+
+    L'ancien `ecrire_publication` était une seconde plomberie — trois écritures indépendantes, sans
+    rollback — que rien n'appelait hors de ces tests. La supprimer valait mieux que la maintenir en
+    parallèle, et les tests y gagnent : ils exercent désormais le chemin que le gate emprunte
+    réellement, garantie tout-ou-rien comprise.
+    """
     data = racine / "data"
     data.mkdir(parents=True, exist_ok=True)
-    return pub_mod.ecrire_publication(
-        pub, data_dir=data, repo_root=racine, ecrire=runner._ecrire_atomique,
+    prepares = pub_mod.preparer_publication(
+        pub, data_dir=data, repo_root=racine, preparer=runner._preparer_atomique, nom=nom,
         valeur=runner._markdown_value, code=runner._markdown_code)
+    runner._basculer(prepares)
+    return data / nom, racine.joinpath(*pub_mod.DOCS_LATEST)
 
 
 def _servir(data_dir: Path) -> dict[str, Any]:
@@ -549,9 +569,7 @@ def test_lecrivain_et_le_lecteur_lisent_le_meme_reglage(tmp_path: Path) -> None:
     data = tmp_path / "data"
     data.mkdir()
     (data / "manifest.json").write_text("{}", encoding="utf-8")
-    pub_mod.ecrire_publication(_publication(), data_dir=data, repo_root=tmp_path,
-                               ecrire=runner._ecrire_atomique, nom="autre-nom.json",
-                               valeur=runner._markdown_value, code=runner._markdown_code)
+    _ecrire(_publication(), tmp_path, nom="autre-nom.json")
     assert (data / "autre-nom.json").is_file()
     reglages = Settings(_env_file=None, anthropic_api_key="", env="dev",
                         evals_publication_file="autre-nom.json")
@@ -726,9 +744,15 @@ def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: P
     """B5 : « une validation canonique unique, appelée par tous les chemins ».
 
     Le point du finding n'est pas qu'un chemin refuse, c'est que **tous** refusent, et **avant**
-    qu'aucune surface n'affiche quoi que ce soit. Les trois chemins qui partent d'un rapport sont
-    donc éprouvés sur le même rapport cassé ; la quatrième surface (`/`) ne lit pas un rapport mais
-    l'artefact publié, et le test vérifie qu'aucun artefact n'a pu être écrit.
+    qu'aucune surface n'affiche quoi que ce soit.
+
+    Revue R4 : la quatrième surface était vérifiée **à vide**. Les trois premiers chemins opèrent en
+    mémoire et aucun ne reçoit de `data_dir`, si bien que l'assertion finale portait sur un
+    répertoire où rien n'avait jamais tenté d'écrire — vraie avant comme après le correctif, donc
+    incapable de rougir. C'est la « preuve qui ne peut pas échouer » que le correctif P5 du premier
+    tour avait déjà eu à fermer. L'assertion porte désormais sur un chemin qui **écrit réellement** :
+    on publie d'abord un artefact valide, on tente de republier le rapport cassé, et on vérifie que
+    la surface servie n'a pas bougé d'un octet.
     """
     casse = {**_rapport_publiable(),
              "metrics": {**_rapport_publiable()["metrics"], "recall": None}}
@@ -739,11 +763,30 @@ def test_la_validation_canonique_est_la_meme_sur_les_quatre_surfaces(tmp_path: P
             lambda: runner.rendre_markdown(casse)):
         with pytest.raises(pub_mod.RapportInexploitable, match="recall"):
             chemin()
-    # Et aucune des surfaces sur disque n'a été touchée : il n'y a rien à afficher.
+
+    # Une première publication **valide**, réellement écrite et réellement servie.
     data = tmp_path / "data"
     data.mkdir()
     (data / "manifest.json").write_text("{}", encoding="utf-8")
-    assert _servir(tmp_path) == {"publie": False, "raison": "absent", "publication": None}
+    _ecrire(_publication(), tmp_path)
+    servi_avant = _servir(tmp_path)
+    assert servi_avant["publie"] is True
+    octets_avant = (data / pub_mod.PUBLICATION_JSON).read_bytes()
+    md_avant = tmp_path.joinpath(*pub_mod.DOCS_LATEST).read_bytes()
+
+    # Puis le rapport cassé, par l'écrivain de production : il refuse **avant** la première bascule.
+    with pytest.raises(pub_mod.RapportInexploitable, match="recall"):
+        pub_mod.preparer_publication(
+            pub_mod.construire_publication(casse), data_dir=data, repo_root=tmp_path,
+            preparer=runner._preparer_atomique,
+            valeur=runner._markdown_value, code=runner._markdown_code)
+
+    # La quatrième surface porte toujours le run valide : rien de la donnée cassée n'y est arrivé,
+    # et aucun temporaire n'a survécu au refus.
+    assert (data / pub_mod.PUBLICATION_JSON).read_bytes() == octets_avant
+    assert tmp_path.joinpath(*pub_mod.DOCS_LATEST).read_bytes() == md_avant
+    assert _servir(tmp_path) == servi_avant
+    assert _temporaires(tmp_path) == []
 
 
 def test_aucune_ligne_de_decision_nest_fabriquee_quand_il_ny_en_a_pas() -> None:
@@ -773,8 +816,17 @@ def test_aucune_ligne_de_decision_nest_fabriquee_quand_il_ny_en_a_pas() -> None:
 # premier temporaire, **et** rollback local couvrant tous les rangs de préparation.
 
 def _temporaires(racine: Path) -> list[str]:
-    """Tous les temporaires laissés sous `racine`, quel que soit le répertoire."""
-    return sorted(str(p.relative_to(racine)) for p in racine.rglob(".*.tmp"))
+    """Tous les temporaires laissés sous `racine` — **quelle que soit la convention de nommage**.
+
+    Revue R5 : le glob précédent était `rglob(".*.tmp")`, avec point initial obligatoire. Il
+    correspondait à `_preparer_atomique` (`prefix=f".{path.name}."`) mais **pas** à `preparer_gate`
+    (`prefix=manifest_path.name + "."`, sans point) — si bien que l'assertion « aucun temporaire »
+    ne pouvait tout simplement pas échouer sur ce chemin frère. Une sonde liée au nommage d'un seul
+    écrivain ne prouve rien du suivant : la sonde porte donc sur le **suffixe**, que
+    `tempfile.mkstemp` reçoit identiquement dans les deux écrivains.
+    """
+    return sorted(str(p.relative_to(racine)) for p in racine.rglob("*")
+                  if p.is_file() and p.name.endswith(".tmp"))
 
 
 def test_une_archive_illisible_ne_laisse_aucun_temporaire(tmp_path: Path) -> None:
@@ -888,3 +940,219 @@ def test_preparer_gate_ne_laisse_aucun_temporaire_sur_une_serialisation_impossib
     assert _temporaires(tmp_path) == []
     assert sorted(p.name for p in tmp_path.iterdir()) == ["manifest.json"]
     assert manifest.read_bytes() == avant
+
+
+# --- R1 : la validation canonique couvre ce que les rendus partagés indexent réellement -----------
+#
+# Le tour précédent avait fermé les *mesures* et laissé les clés de structure que le journal du run
+# indexe : `cases_hash`, `cases_completed`, `cases_planned`, `stop_reason`, les sept labels d'AD-14,
+# et les sept champs de chaque exécution. Un rapport amputé de l'une d'elles levait un `KeyError`
+# nu — qui n'est pas une `ValueError` — et ressortait de `run._main` en « incident de gate »,
+# code 3 : un défaut de données étiqueté panne technique, franchissant la ligne de partage des codes
+# de sortie que la spec interdit de bouger.
+
+@pytest.mark.parametrize("cle", ["cases_hash", "cases_planned", "cases_completed", "stop_reason"])
+def test_une_cle_du_journal_absente_est_un_refus_dit_pas_un_keyerror(cle: str) -> None:
+    """R1 : les clés que `rendre_markdown` indexe à la racine sont exigées par la validation."""
+    nominal = _rapport_publiable()
+    assert runner.rendre_markdown(dict(nominal))  # le nominal se rend
+    ampute = {c: v for c, v in nominal.items() if c != cle}
+    with pytest.raises(pub_mod.RapportInexploitable, match=cle):
+        pub_mod.valider_rapport_publiable(ampute)
+    with pytest.raises(pub_mod.RapportInexploitable, match=cle):
+        runner.rendre_markdown(ampute)
+    with pytest.raises(pub_mod.RapportInexploitable, match=cle):
+        pub_mod.construire_publication(ampute)
+
+
+def test_stop_reason_nulle_est_legitime_mais_absente_ne_lest_pas() -> None:
+    """R1 : « la clé n'est pas là » n'est pas « il n'y a pas eu d'arrêt » — la nuance de tout ce cycle."""
+    nominal = _rapport_publiable()
+    assert pub_mod.valider_rapport_publiable({**nominal, "stop_reason": None}) is not None
+    assert pub_mod.valider_rapport_publiable({**nominal, "stop_reason": "plafond atteint"})
+    with pytest.raises(pub_mod.RapportInexploitable, match="stop_reason"):
+        pub_mod.valider_rapport_publiable({c: v for c, v in nominal.items() if c != "stop_reason"})
+
+
+def test_le_vocabulaire_de_labels_incomplet_ferme_au_lieu_de_lever_un_keyerror() -> None:
+    """R1 : le journal indexe `metrics.labels[label]` sur **les sept** labels fixes d'AD-14."""
+    nominal = _rapport_publiable()
+    partiel = {**nominal, "metrics": {**nominal["metrics"], "labels": {"bonne_reponse": 1}}}
+    with pytest.raises(pub_mod.RapportInexploitable, match="AD-14|labels"):
+        runner.rendre_markdown(partiel)
+    with pytest.raises(pub_mod.RapportInexploitable, match="AD-14|labels"):
+        pub_mod.construire_publication(partiel)
+    # Un comptage négatif ou non entier n'est pas un comptage.
+    for mauvais in (-1, 1.5, True, None):
+        casse = {**nominal,
+                 "metrics": {**nominal["metrics"], "labels": _tous_les_labels() | {"parsing": mauvais}}}
+        with pytest.raises(pub_mod.RapportInexploitable, match="labels"):
+            pub_mod.valider_rapport_publiable(casse)
+
+
+@pytest.mark.parametrize("champ", ["id", "suite", "variant", "label", "cost_eur",
+                                    "cost_eur_original", "latency_ms"])
+def test_une_execution_amputee_est_un_refus_dit(champ: str) -> None:
+    """R1 : les sept clés que le journal indexe par exécution sont exigées, avec leur type."""
+    nominal = _rapport_publiable()
+    ampute = {**nominal,
+              "results": [{c: v for c, v in nominal["results"][0].items() if c != champ}]}
+    with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+        runner.rendre_markdown(ampute)
+    with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+        pub_mod.construire_publication(ampute)
+    # Et le type est exigé, pas seulement la présence.
+    mauvais = 42 if champ in ("id", "suite", "variant", "label") else "beaucoup"
+    casse = {**nominal, "results": [{**nominal["results"][0], champ: mauvais}]}
+    with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+        pub_mod.valider_rapport_publiable(casse)
+
+
+def test_un_rapport_inexploitable_hors_gate_est_un_refus_dit_pas_un_incident(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """R1, chemin `ecrire_rapports` hors gate : code 1 et cause nommée, jamais « incident », code 3.
+
+    La ligne de partage d'AD-8 : un rapport que la validation refuse est un **défaut de données**.
+    L'étiqueter incident technique enverrait chercher une panne réseau là où une clé manque, et le
+    code 3 promet « manifest non modifié » pour une raison qui n'est pas la bonne.
+    """
+    json_path, md_path = tmp_path / "r.json", tmp_path / "r.md"
+    ampute = {c: v for c, v in _rapport_publiable().items() if c != "cases_completed"}
+    with pytest.raises(pub_mod.RapportInexploitable, match="cases_completed"):
+        runner.ecrire_rapports(ampute, json_path, md_path)
+    # Rien n'a été écrit, et aucun temporaire ne subsiste : le refus précède toute bascule.
+    assert not json_path.exists() and not md_path.exists()
+    assert _temporaires(tmp_path) == []
+    # Le handler de `_main` traite bien cette exception comme un refus dit (code 1), pas comme un
+    # incident (code 3) : la table des codes de sortie du module le dit désormais aussi.
+    table = runner.__doc__ or ""
+    assert "RapportInexploitable" in table
+    assert "tombe du côté 1" in table
+
+
+# --- R3 : des réserves présentes mais illisibles ne sont pas des réserves absentes ----------------
+
+def test_des_reserves_mal_formees_ferment_au_lieu_de_publier_un_diagnostic() -> None:
+    """R3 : la faute exacte que B5 ferme ailleurs, restée ouverte sur `_reserves_du_rapport`.
+
+    Rabattre sur `None` faisait écrire « ce run est un diagnostic : il n'établit ni contresignature,
+    ni validation par un expert, ni signature du dictionnaire » sur un run qui *a* établi ses
+    réserves — et faisait **disparaître les trois limites de réserve** des limites publiées.
+    """
+    nominal = _rapport_publiable()
+    # Le nominal : les réserves sont lues, et leurs trois limites sont publiées.
+    pub = pub_mod.construire_publication(nominal)
+    assert pub.reserves is not None
+    assert sum(1 for l in pub.limites
+               if "contresignature" in l or "expert assurance" in l or "dictionnaire" in l) == 3
+    # Un champ mal typé, un champ absent, un objet qui n'en est pas un : trois refus nommés.
+    for reserves, motif in (
+            ({"countersigned": "oui", "validated_by_expert": True, "dictionary_validated": True},
+             "countersigned"),
+            ({"countersigned": True, "validated_by_expert": True}, "dictionary_validated"),
+            ("aucune", "reserves"),
+            ([], "reserves")):
+        with pytest.raises(pub_mod.RapportInexploitable, match=motif):
+            pub_mod.construire_publication({**nominal, "reserves": reserves})
+    # L'absence de la clé reste un diagnostic légitime : rien n'est inventé, rien n'est refusé.
+    diagnostic = {c: v for c, v in nominal.items() if c != "reserves"}
+    assert pub_mod.construire_publication(diagnostic).reserves is None
+
+
+# --- R7 : le domaine des mesures et le type des décisions, dans le refus dit ----------------------
+
+def test_une_decision_mal_typee_est_un_refus_dit_pas_une_validationerror_nue() -> None:
+    """R7 : `decisions=[42]` n'était refusé que par pydantic, sans nommer la clé du rapport."""
+    nominal = _rapport_publiable()
+    for decisions in ([42], ["texte"], [None]):
+        with pytest.raises(pub_mod.RapportInexploitable, match="decisions"):
+            pub_mod.construire_publication({**nominal, "decisions": decisions})
+
+
+@pytest.mark.parametrize(("champ", "valeur"), [
+    ("recall", -5.0), ("recall", 2.0),
+    ("ne_tranche_pas_rate", 2.0), ("ne_tranche_pas_rate", -0.5),
+    ("latency_p50_ms", -3), ("latency_p95_ms", -1),
+    ("average_cost_eur", -0.01), ("cost_p95_eur", -1.0),
+])
+def test_une_mesure_hors_domaine_est_un_refus_dit(champ: str, valeur: float) -> None:
+    """R7 : le domaine est refusé par la validation canonique, pas seulement par le modèle publié."""
+    nominal = _rapport_publiable()
+    casse = {**nominal, "metrics": {**nominal["metrics"], champ: valeur}}
+    with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+        pub_mod.valider_rapport_publiable(casse)
+
+
+def test_un_cout_froid_negatif_est_un_refus_dit() -> None:
+    """R7 : `cost_eur` est une mesure comme les autres — son domaine aussi."""
+    with pytest.raises(pub_mod.RapportInexploitable, match="cost_eur"):
+        pub_mod.valider_rapport_publiable({**_rapport_publiable(), "cost_eur": -0.01})
+
+
+# --- R8 : le contrat de retour d'`archiver_latest`, fixé ------------------------------------------
+
+def test_archiver_latest_ne_rend_un_chemin_que_lorsquil_a_ecrit(tmp_path: Path) -> None:
+    """R8 : `None` veut dire « rien n'a été écrit », dans les trois cas où rien ne l'est.
+
+    La sémantique a changé avec `_archive_a_ecrire` (le cas idempotent rendait le chemin, il rend
+    `None`) sans qu'aucun test ne fixe l'un ou l'autre contrat. Celui-ci le fixe : **le retour est
+    le chemin de ce qui vient d'être écrit**, et rien d'autre — un appelant peut donc s'en servir
+    pour dire « archivé » sans se tromper.
+    """
+    latest = tmp_path.joinpath(*pub_mod.DOCS_LATEST)
+    latest.parent.mkdir(parents=True)
+
+    # 1. absent → rien à écrire.
+    assert pub_mod.archiver_latest(latest, repo_root=tmp_path,
+                                   ecrire=runner._ecrire_atomique) is None
+    # 2. vide → rien à écrire (une archive vide ne prouve rien).
+    latest.write_text("   \n", encoding="utf-8")
+    assert pub_mod.archiver_latest(latest, repo_root=tmp_path,
+                                   ecrire=runner._ecrire_atomique) is None
+    assert not list(tmp_path.joinpath(*pub_mod.DOCS_ARCHIVES).glob("*.md")) \
+        if tmp_path.joinpath(*pub_mod.DOCS_ARCHIVES).is_dir() else True
+    # 3. contenu neuf → le chemin **écrit** est rendu, et il porte le contenu remplacé.
+    latest.write_text("# campagne à conserver\n", encoding="utf-8")
+    archive = pub_mod.archiver_latest(latest, repo_root=tmp_path, ecrire=runner._ecrire_atomique)
+    assert archive is not None and archive.is_file()
+    assert archive.read_text(encoding="utf-8") == "# campagne à conserver\n"
+    # 4. déjà archivé à l'identique → rien n'est réécrit, donc `None`.
+    assert pub_mod.archiver_latest(latest, repo_root=tmp_path,
+                                   ecrire=runner._ecrire_atomique) is None
+    assert len(list(tmp_path.joinpath(*pub_mod.DOCS_ARCHIVES).glob("*.md"))) == 1
+
+
+# --- R11 : la surface de CI ne disparaît pas en silence de la bascule -----------------------------
+
+def test_le_couple_markdown_run_et_chemin_run_est_indivisible(tmp_path: Path) -> None:
+    """R11 : n'en fournir qu'un retirait de la bascule la surface que la CI concatène, sans le dire."""
+    data = tmp_path / "data"
+    data.mkdir()
+    for kw in ({"markdown_run": "# journal\n"}, {"chemin_run": tmp_path / "eval-results.md"}):
+        with pytest.raises(ValueError, match="vont ensemble"):
+            pub_mod.preparer_publication(
+                _publication(), data_dir=data, repo_root=tmp_path,
+                preparer=runner._preparer_atomique,
+                valeur=runner._markdown_value, code=runner._markdown_code, **kw)  # type: ignore[arg-type]
+    assert _temporaires(tmp_path) == []
+    # Le couple complet prépare bien quatre cibles, dont celle de la CI.
+    prepares = pub_mod.preparer_publication(
+        _publication(), data_dir=data, repo_root=tmp_path, preparer=runner._preparer_atomique,
+        markdown_run="# journal\n", chemin_run=tmp_path / "eval-results.md",
+        valeur=runner._markdown_value, code=runner._markdown_code)
+    assert (tmp_path / "eval-results.md") in [cible for _tmp, cible in prepares]
+    pub_mod.supprimer_temporaires(prepares)
+
+
+# --- R6 : il n'y a qu'un écrivain ------------------------------------------------------------------
+
+def test_il_ny_a_quun_ecrivain_de_publication() -> None:
+    """R6 : la seconde plomberie est supprimée, pas maintenue en parallèle.
+
+    `ecrire_publication` n'avait aucun appelant de production et enchaînait trois écritures sans
+    rollback : un échec sur la troisième laissait `data/evals-latest.json` sur le nouveau verdict et
+    `docs/evals/latest.md` sur l'ancien — « une surface affirme un verdict que l'autre ne porte
+    pas », le défaut que B3 et B7 ont fermé sur l'écrivain de production.
+    """
+    assert not hasattr(pub_mod, "ecrire_publication")
+    assert "ecrire_publication" not in (pub_mod.__doc__ or "")

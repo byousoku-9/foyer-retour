@@ -31,6 +31,21 @@ from .ingest import GateDecision
 SHA256 = r"^[0-9a-f]{64}$"
 REVISION = r"^[0-9a-f]{40}$"
 
+# AD-14, mot pour mot : « labels fixes ». Un vocabulaire qu'une story élargit n'est plus fixe — ce
+# qu'ils ne couvrent pas s'appelle `ecarts` et ne porte pas de nom de label (D2).
+#
+# **Pourquoi ici** (revue R1) : ce vocabulaire est à la fois ce que le runner compte
+# (`construire_rapport`) et ce que la validation canonique de la publication doit exiger — la table
+# de labels du journal de CI est indexée sur **les sept**, si bien qu'un rapport n'en portant que
+# deux faisait lever un `KeyError` nu au lieu d'un refus dit. `server/evals/publication.py` ne peut
+# pas importer `server/evals/run.py` (c'est l'inverse qui a lieu), et `domain` est le seul endroit
+# d'où les deux peuvent lire la même définition — comme `PublicationEvals` lui-même. `run.py` la
+# réexporte, si bien que `run.LABELS` et `run.Label` restent les noms d'usage.
+Label = Literal["bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu", "faux_refus",
+                "citation_introuvable", "parsing"]
+LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu",
+                           "faux_refus", "citation_introuvable", "parsing")
+
 
 class FrozenModel(DomainModel):
     """Un artefact publié ne se modifie pas après construction."""
