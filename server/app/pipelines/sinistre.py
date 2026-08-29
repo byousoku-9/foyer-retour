@@ -808,12 +808,19 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     "truncated": truncated,
                     "discarded_block_ids": list(complement.discarded_block_ids)})
                 neufs = len(complement.blocs) - len(retrieval.blocs)
-                if neufs <= 0:
+                # Revue croisée 4.2e (I1) : **rouvrir ne suffit pas, il faut avoir tout rouvert.**
+                # Une passe qui ouvre une cible et en écarte une autre sous la borne de l'étape n'a
+                # relu le contexte demandé qu'à moitié. Reprendre là-dessus faisait juger sur un
+                # contexte incomplet, et la reprise pouvait rendre un verdict décisoire : la place
+                # insuffisante ne fermait plus vers `humain`. Une satisfaction partielle est donc
+                # traitée exactement comme une satisfaction nulle — c'est la même phrase de trace,
+                # parce que c'est la même conséquence pour qui lit la réponse.
+                if neufs <= 0 or step_satisfaire.discarded_block_ids:
                     step_de_la_verification.checks.append(CheckResult(
                         name="demande_insatisfaite", ok=False,
                         detail="le contexte demandé n'existe pas dans le contrat lu, ou le budget "
-                               "de l'étape ne laissait pas la place de le rouvrir : aucune reprise, "
-                               "la vérification acquise fait foi"))
+                               "de l'étape ne laissait pas la place de le rouvrir en entier : "
+                               "aucune reprise, la vérification acquise fait foi"))
                     verification = _contexte_non_relu(acquise, lecture_bornee=truncated or retrieval.truncated)
                 else:
                     step_de_la_verification.checks.append(CheckResult(

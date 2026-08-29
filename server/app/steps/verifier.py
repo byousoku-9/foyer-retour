@@ -1447,25 +1447,40 @@ def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis:
         return None, False
 
     def bloquer(claim_id: str) -> None:
-        """La claim visée retombe sur le chemin `humain` déjà écrit, si elle a été envoyée."""
+        """Ce dont le jugement ne peut plus être retenu retombe sur le chemin `humain` déjà écrit.
+
+        **Fail-closed sur l'identité de la cible** (revue croisée 4.2e, B1). Le contrôle vient de
+        déclarer qu'il lui manquait de quoi juger. Quand il désigne exactement une affirmation
+        soumise, c'est celle-là qu'on écarte. Quand il n'en désigne aucune — forme non-objet, qui ne
+        porte aucun identifiant exploitable, ou identifiant jamais soumis — on ne sait **pas**
+        laquelle il s'est déclaré incapable de juger : les écarter toutes est alors la seule lecture
+        de « toute demande mal formée échoue fermée ».
+
+        Ne rien écarter était le pire des trois : la réponse annonçait un renvoi à une personne et
+        AD-6, lisant une applicabilité intacte, rendait un verdict décisoire dans le même corps.
+        C'est le mécanisme existant qui fait le travail (`applicabilite_incomplete` ⇒ `humain`), et
+        AD-6 en déduit seule `ne_tranche_pas` : rien n'est écrit dans le verdict ici.
+        """
         if claim_id in attendus:
             applicabilites.pop(claim_id, None)
+        else:
+            applicabilites.clear()
 
     if rendue.hors_vocabulaire:
         bloquer(rendue.claim_id)
         step.checks.append(CheckResult(
             name="demande_hors_vocabulaire", ok=False,
-            detail="une demande de contexte porte une catégorie ou une raison hors vocabulaire "
-                   "fermé : aucune demande n'est formée (l'affirmation visée, si elle a été "
-                   "soumise, est traitée comme `humain`)"))
+            detail="une demande de contexte porte une catégorie, une raison ou une forme hors "
+                   "vocabulaire fermé : aucune demande n'est formée, et les affirmations qu'elle "
+                   "peut viser sont traitées comme `humain`"))
         return None, True
     if rendue.claim_id not in attendus:
-        # Rien à écarter : le contrôle n'a pas jugé cette affirmation-là, il n'a pas pu en former de
-        # champs typés. Un identifiant inventé ne décide de rien, ici comme partout.
+        bloquer(rendue.claim_id)
         step.checks.append(CheckResult(
             name="demande_cible_inconnue", ok=False,
             detail="une demande de contexte ne désigne aucune affirmation soumise au contrôle : "
-                   "aucune demande n'est formée"))
+                   "aucune demande n'est formée, et faute de cible fiable les affirmations jugées "
+                   "sont traitées comme `humain`"))
         return None, True
     if not rendue.cible:
         # Revue 4.2e (B) : `cible` est facultatif dans le schéma envoyé — une cible omise ou faite

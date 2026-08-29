@@ -994,8 +994,14 @@ def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, 
     step.opened_block_ids = list(retenus)
     step.discarded_block_ids = list(ecartes)
     # AD-10 : des comptes et notre propre vocabulaire fermé, jamais la cible reçue du modèle.
+    #
+    # `ok` exige d'avoir rouvert **et** de n'avoir rien écarté (revue croisée 4.2e, I1). Une passe
+    # qui ouvre une cible et en laisse une autre dehors sous la borne de l'étape n'a relu le
+    # contexte demandé qu'à moitié — et « à moitié » n'est pas une réponse à « il me manque ceci
+    # pour juger ». La déclarer satisfaite laissait une reprise juger sur un contexte incomplet et
+    # rendre un verdict décisoire, c'est-à-dire exactement ce que la borne devait empêcher.
     step.checks.append(CheckResult(
-        name="satisfaction_demande", ok=bool(retenus),
+        name="satisfaction_demande", ok=bool(retenus) and not ecartes,
         detail=f"demande de contexte de catégorie `{demande.kind}` : {len(candidats)} bloc(s) "
                f"candidat(s), {len(retenus)} rouvert(s), {len(ecartes)} écarté(s) par le budget "
                "de l'étape — aucun appel modèle"))
