@@ -518,8 +518,26 @@ def espace_couvrant(cible: Path) -> EspacePublie | None:
     `None`, et son écrivain garde son chemin d'avant.
 
     La reconnaissance est **structurelle**, jamais nominale : le chemin résolu d'une cible couverte
-    est `<data_dir>/.publie/<génération>/<slot>`, donc `data_dir` est le parent du répertoire
-    d'espace, et la racine son parent — exactement la dérivation unique de `espace_du_data_dir`.
+    est `<data_dir>/.publie/<génération>/<slot>`, donc le **slot** s'y lit directement, `data_dir`
+    est le parent du répertoire d'espace, et la racine son parent — exactement la dérivation unique
+    de `espace_du_data_dir`.
+
+    **L'espace est rendu dans le repère de l'appelant, pas dans celui du chemin résolu** (défaut
+    trouvé à la vérification indépendante du tour 3/3). Dériver la racine de `os.path.realpath` puis
+    interroger `resolue_dans_lespace` avec le chemin **non résolu** mêlait deux repères : `slot()`
+    compare par `os.path.abspath`, qui ne résout pas les liens, donc toute cible atteinte par un
+    préfixe lié — `/tmp` en est un sur macOS — faisait lever `LotHorsEspace` là où la docstring
+    annonçait un repli, et `basculer` aurait levé de la même façon.
+
+    La correction dérive le slot du chemin résolu, puis **retire ce slot du chemin donné** pour
+    obtenir la racine telle que l'appelant l'exprime. Les deux moitiés de la comparaison vivent alors
+    dans le même repère, et `slot()` reste inchangée : son `os.path.abspath` sur la cible est
+    délibéré (résoudre la cible elle-même rendrait un slot imbriqué dans le bundle, et l'archive de
+    campagne, qui vit sous un répertoire lié, en serait la première victime).
+
+    Attraper `LotHorsEspace` pour rendre `None` aurait été le faux correctif : une cible réellement
+    **dans** l'espace, atteinte par un préfixe lié, serait retombée sur l'écriture à travers le
+    lien — c'est-à-dire la réouverture, sous un autre chemin, du défaut que ce tour ferme.
     """
     chemin = Path(cible)
     if not chemin.is_symlink():
@@ -528,8 +546,18 @@ def espace_couvrant(cible: Path) -> EspacePublie | None:
     for parent in resolu.parents:
         if parent.name != REPERTOIRE_ESPACE:
             continue
-        data_dir = parent.parent
-        espace = EspacePublie(data_dir.parent, data_dir)
+        generation = resolu.relative_to(parent).parts[0]
+        if generation not in GENERATIONS:
+            return None
+        slot = resolu.relative_to(parent / generation)
+        donne = Path(os.path.abspath(chemin))
+        # Le chemin donné doit se terminer par le slot : sinon les deux repères ne décrivent pas la
+        # même cible, et rien ne permet d'en déduire une racine.
+        if donne.parts[-len(slot.parts):] != slot.parts:
+            return None
+        racine = Path(*donne.parts[:-len(slot.parts)])
+        sous_racine = parent.parent.relative_to(parent.parent.parent)
+        espace = EspacePublie(racine, racine / sous_racine)
         return espace if espace.resolue_dans_lespace(chemin) else None
     return None
 

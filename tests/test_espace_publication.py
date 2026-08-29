@@ -284,6 +284,61 @@ def test_lingestion_du_manifest_prend_le_meme_verrou_que_la_bascule(tmp_path: Pa
     assert json.loads(manifest.read_text(encoding="utf-8")) == {"doc": 1}
 
 
+def test_une_racine_atteinte_par_un_prefixe_lie_est_reconnue_et_basculee(tmp_path: Path) -> None:
+    """Le texte promettait un repli là où le code levait — trouvé à la vérification indépendante.
+
+    `espace_couvrant` dérivait la racine de `os.path.realpath`, puis interrogeait
+    `resolue_dans_lespace` avec le chemin **non résolu**. `slot()` compare par `os.path.abspath`,
+    qui ne résout pas les liens : toute cible atteinte par un préfixe lié — `/tmp` en est un sur
+    macOS — faisait donc lever `LotHorsEspace` là où `write_atomic` annonçait « elle garde
+    l'écriture atomique d'avant », et `basculer` aurait levé de la même façon.
+
+    Le `tmp_path` de pytest est déjà résolu (`/private/var/…`), ce qui rendait toute la suite aveugle
+    à ce chemin. La sonde construit donc son propre préfixe lié, et éprouve les **deux** cas :
+
+    1. une cible **couverte** doit être reconnue et basculée — attraper `LotHorsEspace` pour rendre
+       `None` la ferait retomber sur l'écriture à travers le lien, c'est-à-dire la réouverture du
+       défaut d'immutabilité que ce tour ferme ;
+    2. une cible **ordinaire** doit rendre `None` et garder son écriture d'avant.
+    """
+    from server.evals.espace import espace_couvrant
+    from server.ingest.artifacts import write_atomic
+
+    reel = tmp_path / "reel"
+    reel.mkdir()
+    racine = tmp_path / "lien"
+    os.symlink(reel.name, racine)
+    assert Path(os.path.realpath(racine)) != racine, "le préfixe doit être un lien"
+
+    espace = EspacePublie(racine)
+    espace.installer([Path("data") / "manifest.json"])
+    manifest = racine / "data" / "manifest.json"
+    espace.basculer([(manifest, '{"doc": 0}\n')])
+
+    # 1. La cible couverte est reconnue, **dans le repère de l'appelant**, et passe par le protocole.
+    couvrant = espace_couvrant(manifest)
+    assert couvrant is not None, "une cible couverte atteinte par un préfixe lié doit l'être encore"
+    assert couvrant.racine == racine and couvrant.data_dir == racine / "data"
+    generation_avant = espace.generation()
+    slot_avant = espace.chemin / generation_avant / "data" / "manifest.json"
+    octets_avant, inode_avant = slot_avant.read_bytes(), os.stat(slot_avant).st_ino
+
+    write_atomic(manifest, '{"doc": 1}\n')
+
+    assert espace.generation() != generation_avant, "l'écriture doit publier, jamais muter"
+    assert slot_avant.read_bytes() == octets_avant, "la génération publiée a été mutée en place"
+    assert os.stat(slot_avant).st_ino == inode_avant
+    assert manifest.is_symlink() and json.loads(manifest.read_text(encoding="utf-8")) == {"doc": 1}
+
+    # 2. La cible ordinaire, sous la même racine liée, garde son écriture d'avant.
+    ordinaire = racine / "structure.json"
+    assert espace_couvrant(ordinaire) is None
+    write_atomic(ordinaire, '{"b": 2}\n')
+    assert not ordinaire.is_symlink()
+    assert json.loads(ordinaire.read_text(encoding="utf-8")) == {"b": 2}
+    assert espace.residus() == []
+
+
 def test_une_cible_hors_espace_garde_son_ecriture_atomique_ordinaire(tmp_path: Path) -> None:
     """Tout n'est pas dans un bundle : `document.json` et consorts gardent leur chemin d'écriture.
 
