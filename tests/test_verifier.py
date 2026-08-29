@@ -25,6 +25,7 @@ from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.verifier import (
     BLOC_INCONNU,
     ChampsApplicabiliteRendus,
+    DemandeRendue,
     SortieVerifierSinistre,
     _lignes_du_bloc,
     verifier,
@@ -1136,7 +1137,8 @@ QUALITES_FIDELES = ([SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN), (SUBITE, FR
 def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
                    nb_segments: int = 8, segments: dict[int, bool] | None = None,
                    doublon: bool = False, enumere: bool = True,
-                   raisons: dict[str, str | None] | None = None) -> dict:
+                   raisons: dict[str, str | None] | None = None,
+                   demande: dict | None = None) -> dict:
     """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité.
 
     Une entrée est `(claim_id, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
@@ -1165,12 +1167,15 @@ def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
     if doublon and champs:
         champs.append(dict(champs[0]))
     soutiens = {i: True for i in range(nb_segments)} | (segments or {})
-    return fake_message(text=json.dumps({
+    charge: dict = {
         "verdicts": [{"claim_id": c, "pertinente": p,
                        "raison": (raisons or {}).get(c)} for c, p in verdicts],
         "facettes": [{"facette": 0, "claim_ids": [c for c, ok in verdicts if ok]}],
         "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())],
-        "applicabilite": champs}), model=HAIKU)
+        "applicabilite": champs}
+    if demande is not None:  # story 4.2e : le champ n'existe que sur le schéma sinistre
+        charge["demande_contexte"] = demande
+    return fake_message(text=json.dumps(charge), model=HAIKU)
 
 
 async def _verifier_sinistre(index: Index, draft: AnswerDraft, script: list, *,
@@ -1305,7 +1310,8 @@ async def test_a_quote_missing_the_claimed_operator_is_rejected_as_non_soutenue(
 async def test_the_model_never_returns_a_verdict_field(contrat: Index) -> None:
     """AD-6 : « le modèle n'effectue aucun calcul ». Le schéma de sortie ne lui offre pas la place."""
     champs = SortieVerifierSinistre.model_json_schema()["properties"]
-    assert set(champs) == {"verdicts", "facettes", "segments", "applicabilite"}
+    # Story 4.2e : `demande_contexte` ne rend aucun jugement — il dit ce qui manque **pour** juger.
+    assert set(champs) == {"verdicts", "facettes", "segments", "applicabilite", "demande_contexte"}
     rendus = ChampsApplicabiliteRendus.model_json_schema()["properties"]
     assert set(rendus) == {"claim_id", "fait_requis_present", "option_requise", "cp_requise",
                            "fait_manquant", "qualites_exigees", "qualites_etablies"}
@@ -1890,3 +1896,134 @@ async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(mini: I
     assert fake.messages.requests[0]["model"] == TIERS["reason"]
     assert fake.messages.requests[0]["output_config"]["effort"] == "medium"
     assert step.tier == "reason"
+
+
+# --- story 4.2e : la demande de contexte, validée par catégorie contre l'entrée envoyée -----------
+
+def test_une_demande_hors_vocabulaire_est_neutralisee_avant_la_coercition() -> None:
+    """L'idiome de la revue 4.2a, appliqué à la demande : la sentinelle est posée **avant** pydantic.
+
+    Le schéma envoyé au fournisseur reste fermé (`Literal`), et il n'expose pas la sentinelle : le
+    modèle ne peut donc ni la lire ni la renseigner. Une valeur brute inconnue ne fait pas échouer la
+    sortie entière — elle serait alors capable d'annuler les verdicts de pertinence du même appel.
+    """
+    assert "hors_vocabulaire" not in DemandeRendue.model_json_schema()["properties"]
+
+    hors = DemandeRendue.model_validate(
+        {"kind": "relecture_libre", "cible": "t", "claim_id": "c1", "raison": "definition_manquante"})
+    assert hors.hors_vocabulaire is True and hors.kind is None and hors.raison is None
+    # Une raison inconnue neutralise la demande entière : elle ne se répare pas à moitié.
+    raison = DemandeRendue.model_validate(
+        {"kind": "definition", "cible": "t", "claim_id": "c1", "raison": "parce_que"})
+    assert raison.hors_vocabulaire is True and raison.kind is None
+    # Une forme invalide (champ absent, valeur non textuelle) ferme aussi, sans lever.
+    forme_invalide = DemandeRendue.model_validate({"cible": 12, "claim_id": None})
+    assert forme_invalide.hors_vocabulaire is True
+    assert forme_invalide.cible == "" and forme_invalide.claim_id == ""
+    # Le cas nominal traverse intact, sentinelle à faux.
+    bonne = DemandeRendue.model_validate(
+        {"kind": "renvoi", "cible": " cg:p1:1 ", "claim_id": " c1 ", "raison": "renvoi_non_lu"})
+    assert bonne.hors_vocabulaire is False and bonne.cible == "cg:p1:1" and bonne.claim_id == "c1"
+
+
+def test_la_sentinelle_ne_peut_pas_etre_posee_de_lexterieur() -> None:
+    """Le validateur l'écrase quoi qu'il arrive : rien de ce que le modèle rend ne l'atteint."""
+    menteuse = DemandeRendue.model_validate(
+        {"kind": "definition", "cible": "t", "claim_id": "c1", "raison": "definition_manquante",
+         "hors_vocabulaire": True})
+    assert menteuse.hors_vocabulaire is False
+
+
+async def test_une_demande_de_renvoi_ne_vise_que_les_blocs_fournis(contrat: Index) -> None:
+    """`renvoi` → un `block_id ∈ fournis`, le même univers que le contrôle des citations."""
+    draft = _draft(("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]))
+    sortie = _applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)],
+                            demande={"kind": "renvoi", "cible": "cg:p1:1", "claim_id": "c1",
+                                     "raison": "renvoi_non_lu"})
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie], blocs=["cg:p1:1"])
+
+    assert v.demande_contexte is not None and v.demande_contexte.kind == "renvoi"
+    assert [c.name for c in step.checks if c.name == "demande_contexte"]
+    # La claim visée perd ses champs typés : le modèle a dit qu'il lui manquait de quoi juger.
+    assert [c.name for c in step.checks if c.name == "applicabilite_incomplete"]
+    assert v.claims[0].status.applicable == "humain"
+
+
+async def test_un_renvoi_vers_un_bloc_non_fourni_ne_produit_aucune_demande(contrat: Index) -> None:
+    """Un identifiant réel mais jamais transmis n'est pas plus visable qu'un identifiant inventé."""
+    draft = _draft(("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]))
+    sortie = _applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)],
+                            demande={"kind": "renvoi", "cible": "cg:p1:2", "claim_id": "c1",
+                                     "raison": "renvoi_non_lu"})
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie], blocs=["cg:p1:1"])
+
+    assert v.demande_contexte is None
+    assert [c.name for c in step.checks if c.name == "demande_cible_inconnue"]
+    # AD-10 / AD-15 : le détail ne recopie ni la cible reçue, ni l'identifiant de l'affirmation.
+    detail = next(c.detail for c in step.checks if c.name == "demande_cible_inconnue")
+    assert "cg:p1:2" not in detail and "c1" not in detail
+
+
+async def test_une_definition_demandee_doit_etre_un_terme_du_texte_envoye(contrat: Index) -> None:
+    """`definition` → un terme **présent dans le message soumis**, jamais un mot libre."""
+    draft = _draft(("c1", "La garantie couvre le mobilier de jardin.", [("cg:p1:1", Q_GARANTIE)]))
+    presente = _applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)],
+                              demande={"kind": "definition", "cible": "mobilier de jardin",
+                                       "claim_id": "c1", "raison": "definition_manquante"})
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [presente], blocs=["cg:p1:1"])
+    assert v.demande_contexte is not None and v.demande_contexte.cible == "mobilier de jardin"
+    assert [c.name for c in step.checks if c.name == "demande_contexte"]
+
+    absente = _applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)],
+                             demande={"kind": "definition", "cible": "prime de reconduction",
+                                      "claim_id": "c1", "raison": "definition_manquante"})
+    v2, step2, _f2 = await _verifier_sinistre(contrat, draft, [absente], blocs=["cg:p1:1"])
+    assert v2.demande_contexte is None
+    assert [c.name for c in step2.checks if c.name == "demande_cible_inconnue"]
+
+
+async def test_une_qualite_demandee_doit_avoir_ete_enumeree_par_le_modele(contrat: Index) -> None:
+    """`qualite` → une qualité que **le modèle** a écrite dans `qualites_exigees` de cette claim."""
+    draft = _draft(("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]))
+    enumeree = _applicabilite(
+        ("c1", True, False, False, None, [SOUDAIN, SUBITE], [(SOUDAIN, FRAGMENT_SOUDAIN)]),
+        verdicts=[("c1", True)],
+        demande={"kind": "qualite", "cible": SUBITE, "claim_id": "c1",
+                 "raison": "qualite_non_verifiable"})
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [enumeree], blocs=["cg:p1:1"])
+    assert v.demande_contexte is not None and v.demande_contexte.kind == "qualite"
+    assert [c.name for c in step.checks if c.name == "demande_contexte"]
+
+    # La même qualité, jamais énumérée pour cette affirmation : elle ne désigne rien.
+    jamais = _applicabilite(("c1", True, False, False, None, [SOUDAIN], [(SOUDAIN, FRAGMENT_SOUDAIN)]),
+                            verdicts=[("c1", True)],
+                            demande={"kind": "qualite", "cible": SUBITE, "claim_id": "c1",
+                                     "raison": "qualite_non_verifiable"})
+    v2, step2, _f2 = await _verifier_sinistre(contrat, draft, [jamais], blocs=["cg:p1:1"])
+    assert v2.demande_contexte is None
+    assert [c.name for c in step2.checks if c.name == "demande_cible_inconnue"]
+
+
+async def test_une_demande_invalide_laisse_la_reponse_incomplete(contrat: Index) -> None:
+    """Le contrôle a dit qu'il lui manquait quelque chose : la réponse ne peut pas être complète."""
+    draft = _draft(("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]))
+    sortie = _applicabilite(("c1", True, False, False, None), verdicts=[("c1", True)],
+                            demande={"kind": "relecture_libre", "cible": "mobilier",
+                                     "claim_id": "c1", "raison": "definition_manquante"})
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie], blocs=["cg:p1:1"])
+
+    assert v.demande_contexte is None
+    assert [c.name for c in step.checks if c.name == "demande_hors_vocabulaire"]
+    assert v.found is True and v.complete is False
+    assert [lacune.kind for lacune in v.lacunes] == ["contexte_non_relu"]
+    assert all(lacune.n == 0 for lacune in v.lacunes)  # jamais pluralisée : une demande, une seule
+
+
+async def test_le_guide_ne_connait_pas_la_demande_de_contexte(mini: Index) -> None:
+    """Le schéma du guide et son préfixe restent inchangés — donc ses fixtures (Design Notes)."""
+    draft = _draft_simple()
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    assert v.demande_contexte is None
+    assert not [c.name for c in step.checks if c.name.startswith("demande_")]
+    schema = json.dumps(fake.requests[0]["output_config"]["format"])
+    assert "demande_contexte" not in schema

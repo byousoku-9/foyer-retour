@@ -50,6 +50,7 @@ from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.domain import Block, RetrievalBudget, RetrievalResult
+from server.app.domain.answer import DemandeContexte
 from server.app.domain.errors import PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace
@@ -846,3 +847,162 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             name="dictionnaire", ok=True,
             detail=f"{ajoutees} variante(s) ajoutée(s) à {touches} terme(s)"))
     return result, step
+
+
+def _definitions_de_la_cible(trouvees: list[tuple[str, str]], *, cible: str,
+                             bloc: Any) -> list[str]:
+    """Parmi les définitions rendues par l'index, celles qui définissent **la cible demandée**.
+
+    Le filtre n'est pas une précaution de style : `Index.definitions(..., blocs_ouverts=…)` rend
+    aussi, par sa branche « terme rencontré dans un bloc ouvert », toute définition dont le
+    `defines` figure dans le texte d'un bloc déjà lu — **indépendamment des termes demandés**. C'est
+    exactement ce que veut la fermeture d'un niveau des deux variantes ; ce n'est pas ce que veut la
+    satisfaction d'une demande. Sans le filtre, une demande portant sur un terme que le contrat ne
+    définit nulle part rendait quand même « un bloc neuf » : le pipeline la déclarait satisfaite,
+    payait un appel de reprise, et la fermeture `humain` / `contexte_non_relu` n'avait pas lieu —
+    la garantie fail-closed de la story tombait sur son cas le plus fréquent.
+
+    Deux groupes, du plus précis au moins précis, et **le second ne sert que si le premier est
+    vide** — c'est ce qui borne l'élargissement en mots isolés :
+
+    1. les définitions qui **nomment** la cible (`defines` la contient en mots entiers) : « jardin »
+       trouve « mobilier de jardin », la règle même de `Index.definitions` ;
+    2. à défaut, celles dont le `defines` est une **sous-expression** de la cible en mots entiers :
+       une qualité « caractère X de l'événement » n'est définie nulle part sous ce libellé, et la
+       définition de « X » est alors le seul contexte que la demande puisse viser.
+
+    Une définition étrangère aux deux groupes n'est jamais rouverte, quel que soit le bloc ouvert
+    qui emploie son terme.
+    """
+    forme_cible = f" {forme(cible)} "
+    if not forme_cible.strip():
+        return []
+    nomment: list[str] = []
+    sous_expressions: list[str] = []
+    for block_id, _node_id in trouvees:
+        defini = f" {forme(bloc(block_id).defines or '')} "
+        if not defini.strip():
+            continue
+        if forme_cible in defini:
+            nomment.append(block_id)
+        elif defini in forme_cible:
+            sous_expressions.append(block_id)
+    return nomment or sous_expressions
+
+
+def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, corpus: Corpus,
+                       index: Index, budget: RetrievalBudget, settings: Settings,
+                       doc_id: str) -> tuple[RetrievalResult, StepTrace]:
+    """Story 4.2e — rouvre **exactement** ce qu'une demande de contexte vise, en code pur, un niveau.
+
+    Aucune entrée publique de cette étape n'acceptait un état déjà ouvert à compléter : c'était le
+    seul manque. Cette fonction le comble sans rien ajouter au vocabulaire de l'étape.
+
+    **Pourquoi ici et pas dans le pipeline.** AD-1 : « une étape ne peut appeler que `corpus` et
+    `llm` », et les quatre outils d'AD-1 appartiennent à *retrouver*. Un pipeline qui appellerait
+    `Index.definitions` lui-même déplacerait les outils hors de leur propriétaire. Ce n'est donc pas
+    un composant nouveau : c'est la fermeture **déjà écrite** (`_dependances_directes`, « commune aux
+    deux variantes ») exposée sur un état ouvert.
+
+    **Aucun tour modèle.** La demande dit ce qui manque ; la satisfaire est une résolution du corpus,
+    pas une navigation. Le coût en appels est donc nul, et `StepTrace.calls == []` le dit — la même
+    convention que la variante déterministe.
+
+    **Un niveau, jamais deux, et rien que la cible.** Pour un `renvoi`, les `refs` du bloc visé ;
+    leurs propres `refs` ne sont pas suivis, et les définitions des termes que ce bloc emploie n'en
+    font pas partie — elles relèvent de la fermeture automatique d'AD-1, que la passe initiale a
+    déjà faite, pas du renvoi demandé. Pour une `definition` ou une
+    `qualite`, les définitions applicables du terme demandé, résolues **dans la portée** des blocs
+    déjà ouverts (AD-2, `Index.definitions(..., blocs_ouverts=…)`) — c'est ce qui donne à un contrat
+    la définition de sa branche plutôt que celle d'une autre.
+
+    **Le budget est celui de l'étape, pas celui de la passe** (AD-1 : « un `RetrievalBudget` borne
+    **toute** l'étape »). Les compteurs sont donc amorcés avec ce que la passe initiale a déjà fait
+    lire : sans cela, une seconde passe repartie de zéro pourrait admettre `max_blocks` blocs de
+    plus, c'est-à-dire ne plus être bornée du tout. Le budget lui-même n'est jamais muté.
+
+    Rend `(RetrievalResult augmenté, StepTrace)`. Aucun bloc neuf ⇒ résultat identique à l'entrée sur
+    ses blocs, et le check le dit : c'est au pipeline de fermer sur une demande insatisfaite.
+    """
+    t0 = time.monotonic()
+    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"])
+    if doc_id not in corpus.documents:
+        raise KeyError(doc_id)
+
+    def bloc(block_id: str) -> Block:
+        if index.doc_of(block_id) != doc_id:
+            raise KeyError(block_id)
+        return corpus.documents[doc_id].block(block_id)
+
+    ouverts = [b.block_id for b in retrieval.blocs]
+    deja = set(ouverts)
+    candidats: list[str] = []
+    if demande.kind == "renvoi":
+        # La cible a été validée par *vérifier* contre les blocs fournis ; la garde reste, parce que
+        # cette entrée est publique et qu'un appelant futur n'aura pas fait ce contrôle.
+        #
+        # Revue 4.2e (C, chemin `renvoi`) : **les `refs` du bloc visé, et rien d'autre.** La
+        # fermeture commune `_dependances_directes` ajoute aussi les définitions des termes que ce
+        # bloc emploie — c'est la fermeture automatique d'un niveau d'AD-1, déjà appliquée par la
+        # passe initiale, et ce n'est pas ce qu'une demande de renvoi vise. L'y laisser rouvrait un
+        # bloc étranger au renvoi demandé, que le pipeline comptait ensuite comme « un bloc neuf » :
+        # la demande était déclarée satisfaite, un appel de reprise était payé, et la fermeture
+        # `humain` / `contexte_non_relu` n'avait pas lieu — le même défaut fail-closed que le filtre
+        # des définitions ferme sur l'autre chemin.
+        if demande.cible in deja:
+            candidats = [ref for ref in bloc(demande.cible).refs if ref != demande.cible]
+    else:
+        # Le libellé entier **et** ses mots : `Index.definitions` apparie `defines` et terme en mots
+        # entiers, si bien qu'une qualité nommée « caractère X de l'événement » ne trouverait la
+        # définition de « X » par aucun autre chemin. Aucun mot n'est ajouté ni traduit.
+        termes = list(dict.fromkeys([demande.cible, *forme(demande.cible).split()]))
+        candidats = _definitions_de_la_cible(
+            index.definitions(termes, doc_id=doc_id, blocs_ouverts=ouverts),
+            cible=demande.cible, bloc=bloc)
+    candidats = [b for b in dict.fromkeys(candidats)
+                 if b not in deja and index.doc_of(b) == doc_id]
+
+    blocs_utilises = len(retrieval.blocs)
+    tokens_utilises = sum(estimate_tokens(f"{b.block_id}\n{b.text}", settings)
+                          for b in retrieval.blocs)
+    retenus: list[str] = []
+    ecartes: list[str] = []
+    tronque = False
+    for candidate in candidats:
+        cout = estimate_tokens(f"{candidate}\n{bloc(candidate).text}", settings)
+        if ((budget.max_blocks is not None and blocs_utilises + 1 > budget.max_blocks)
+                or (budget.max_tokens is not None and tokens_utilises + cout > budget.max_tokens)):
+            # Un candidat que le budget écarte est un candidat non lu, pas une absence du corpus :
+            # il rejoint `discarded_block_ids` et marque la lecture comme tronquée (AD-1).
+            ecartes.append(candidate)
+            tronque = True
+            continue
+        blocs_utilises += 1
+        tokens_utilises += cout
+        retenus.append(candidate)
+
+    blocs = [*retrieval.blocs, *(bloc(b) for b in retenus)]
+    ids = list(dict.fromkeys([*retrieval.opened_block_ids, *retenus]))
+    resultat = retrieval.model_copy(update={
+        "blocs": blocs,
+        "opened_block_ids": ids,
+        "opened_node_ids": _noeuds_des_blocs([b.block_id for b in blocs], corpus=corpus, index=index),
+        "discarded_block_ids": list(dict.fromkeys([*retrieval.discarded_block_ids, *ecartes])),
+        "truncated": retrieval.truncated or tronque,
+    })
+    step.ms = int((time.monotonic() - t0) * 1000)
+    step.opened_block_ids = list(retenus)
+    step.discarded_block_ids = list(ecartes)
+    # AD-10 : des comptes et notre propre vocabulaire fermé, jamais la cible reçue du modèle.
+    #
+    # `ok` exige d'avoir rouvert **et** de n'avoir rien écarté (revue croisée 4.2e, I1). Une passe
+    # qui ouvre une cible et en laisse une autre dehors sous la borne de l'étape n'a relu le
+    # contexte demandé qu'à moitié — et « à moitié » n'est pas une réponse à « il me manque ceci
+    # pour juger ». La déclarer satisfaite laissait une reprise juger sur un contexte incomplet et
+    # rendre un verdict décisoire, c'est-à-dire exactement ce que la borne devait empêcher.
+    step.checks.append(CheckResult(
+        name="satisfaction_demande", ok=bool(retenus) and not ecartes,
+        detail=f"demande de contexte de catégorie `{demande.kind}` : {len(candidats)} bloc(s) "
+               f"candidat(s), {len(retenus)} rouvert(s), {len(ecartes)} écarté(s) par le budget "
+               "de l'étape — aucun appel modèle"))
+    return resultat, step

@@ -610,3 +610,34 @@ def test_une_lecture_partielle_sans_borne_dite_est_une_erreur_de_contrat_explici
     # Et sans vérification du tout : même contrat, même message.
     with pytest.raises(ValueError, match="exige une vérification qui dise sa borne"):
         restituer(language="fr", lecture_partielle=_lecture_partielle())
+
+
+# --- story 4.2e : la phrase de la demande de contexte restée ouverte ------------------------------
+
+@pytest.mark.parametrize("language", ["fr", "en", "de", "pt"])
+def test_la_lacune_de_contexte_non_relu_se_dit_dans_les_quatre_langues(language: str) -> None:
+    """Une lacune sans phrase casserait l'invariant de chargement du registre (AD-16).
+
+    Elle n'est **pas** pluralisée : le bornage de la story rend une demande unique par vérification,
+    donc son cardinal vaut toujours zéro — et le domaine refuse l'autre cas.
+    """
+    verification = Verification(
+        segments=[AnswerSegment(text="Réponse.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=False,
+        lacunes=[Lacune(kind="contexte_non_relu")])
+    answer, _step = restituer(language=language, verification=verification)
+
+    patron = PHRASES_DE_LACUNE[language]["contexte_non_relu"]
+    assert isinstance(patron, str) and patron.strip()
+    assert answer.unknown == [patron]
+    assert answer.complete is False
+    assert "contexte_non_relu" not in LACUNES_PLURALISEES
+
+
+def test_la_phrase_de_contexte_non_relu_ne_se_confond_avec_aucune_autre() -> None:
+    """« un renvoi non résolu » et « ma lecture a été bornée » disent autre chose : trois causes."""
+    for langue, phrases in PHRASES_DE_LACUNE.items():
+        rendues = [p for kind, p in phrases.items() if isinstance(p, str)]
+        assert len(set(rendues)) == len(rendues), langue
+        assert phrases["contexte_non_relu"] != phrases["renvoi_non_resolu"]
+        assert phrases["contexte_non_relu"] != phrases["lecture_bornee"]

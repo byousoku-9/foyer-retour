@@ -2216,7 +2216,10 @@ def test_le_contexte_rag_et_ses_vingt_kilo_octets_ont_disparu() -> None:
     champ que le serveur, `extra="ignore"`, ne lit jamais."""
     chat = (REPO_ROOT / "web" / "app" / "chat.js").read_text("utf-8")
     assert "contexteRag" not in chat
-    assert "contexte:" not in chat
+    # Le champ `contexte` du corps envoyé, et lui seul : la borne du mot évite qu'une clé qui se
+    # **termine** par `contexte` (un libellé de contrôle, story 4.2e) fasse rougir la garde pour un
+    # nom, alors que la règle porte sur ce que la page envoie au serveur.
+    assert re.search(r"(?<![A-Za-z0-9_])contexte:", chat) is None
 
 
 def test_le_repli_silencieux_a_disparu_du_point_dentree() -> None:

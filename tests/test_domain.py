@@ -243,9 +243,12 @@ def test_verified_quote_carries_the_occurrence() -> None:
 
 def test_verification_fields() -> None:
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
-                                           "unknown", "lacunes", "facettes_couvertes", "verdict", "motif"}
+                                           "unknown", "lacunes", "facettes_couvertes", "verdict",
+                                           "demande_contexte", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None
+    # Story 4.2e : aucune demande de contexte par défaut — le manque est un fait, pas un état neutre.
+    assert v.demande_contexte is None
     # Story 2.3 : deux canaux de lacune, une seule liste affichée. `unknown` est ce que le **modèle**
     # a déclaré hors de sa portée (dans la langue de la réponse) ; `lacunes` est ce que le **code**
     # constate sous forme de faits typés. Leur cardinal est indépendant de leur projection.
@@ -506,7 +509,11 @@ def test_trace_models() -> None:
     assert fields(trace.StepTrace) == {"name", "tier", "ms", "usage", "opened_block_ids", "discarded_block_ids", "checks", "calls"}
     assert fields(trace.Usage) == {"input", "cached", "output", "cost_eur", "cached_response", "cost_eur_original"}
     assert {"name", "ok", "detail"} == fields(trace.CheckResult)
-    assert {"model", "ms", "usage", "cache_read", "cache_write", "tools"} == fields(trace.LLMCall)
+    # Story 4.2e : `tier` publie le tier **réellement employé** par cet appel-là. `StepTrace.tier`
+    # reste le tier *demandé* de l'étape, et `model` ne suffit pas — il n'existe aucune table
+    # inverse modèle → tier, et deux tiers peuvent pointer le même modèle.
+    assert {"model", "tier", "ms", "usage", "cache_read", "cache_write",
+            "tools"} == fields(trace.LLMCall)
 
 
 # AD-10 (story 2.5) — les trois résolutions de la trace

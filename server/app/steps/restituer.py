@@ -135,6 +135,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         ),
         "segments_retires": "J'ai retiré de ma réponse ce que je ne pouvais pas sourcer : les affirmations qui la portaient n'ont pas passé la vérification.",
         "relance_abandonnee": "Je n'ai pas pu reprendre ma réponse pour l'améliorer : je la donne telle que je l'avais vérifiée du premier coup.",
+        "contexte_non_relu": "Il me manquait un élément du texte pour contrôler une de mes affirmations, et je n'ai pas pu le relire : je la laisse à vérifier par une personne.",
     },
     "en": {
         "lecture_bornee": "I could not read everything that might concern your question: my reading was limited, and some passages remained unopened.",
@@ -148,6 +149,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         ),
         "segments_retires": "I removed what I could not source from my answer: the supporting claims did not pass verification.",
         "relance_abandonnee": "I could not revise my answer to improve it, so I am giving it as it was verified the first time.",
+        "contexte_non_relu": "I was missing part of the text needed to check one of my statements, and I could not read it again: I am leaving that statement for a person to verify.",
     },
     "de": {
         "lecture_bornee": "Ich konnte nicht alles lesen, was Ihre Frage betreffen könnte: Meine Lektüre war begrenzt, und einige Passagen blieben ungeöffnet.",
@@ -161,6 +163,9 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         ),
         "segments_retires": "Ich habe aus meiner Antwort entfernt, was ich nicht belegen konnte: Die zugehörigen Aussagen haben die Prüfung nicht bestanden.",
         "relance_abandonnee": "Ich konnte meine Antwort nicht überarbeiten, um sie zu verbessern, und gebe sie daher in der zuerst geprüften Fassung wieder.",
+        "contexte_non_relu": ("Mir fehlte ein Teil des Textes, um eine meiner Aussagen zu prüfen, "
+                               "und ich konnte ihn nicht erneut lesen: Ich überlasse diese Aussage "
+                               "einer Person zur Prüfung."),
     },
     "pt": {
         "lecture_bornee": "Não consegui ler tudo o que poderia dizer respeito à sua pergunta: a minha leitura foi limitada e algumas passagens ficaram por abrir.",
@@ -174,6 +179,7 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
         ),
         "segments_retires": "Retirei da minha resposta o que não consegui fundamentar: as afirmações correspondentes não passaram na verificação.",
         "relance_abandonnee": "Não consegui rever a minha resposta para a melhorar, por isso apresento-a tal como foi verificada da primeira vez.",
+        "contexte_non_relu": "Faltava-me uma parte do texto para verificar uma das minhas afirmações e não consegui relê-la: deixo essa afirmação para uma pessoa verificar.",
     },
 }
 
