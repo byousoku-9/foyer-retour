@@ -1057,3 +1057,17 @@ def archiver_latest(markdown_path: Path, *, repo_root: Path, ecrire: Any) -> Pat
 def digest_octets(path: Path) -> str:
     """sha256 des octets **réellement écrits** — l'empreinte que la publication référence."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def digest_contenu(contenu: str) -> str:
+    """sha256 des octets **à écrire** — la même empreinte, avant que la bascule ne les publie.
+
+    Tour correctif 3/3. `gate.report_digest` était l'empreinte du fichier relu **après** une
+    première bascule : c'est ce qui forçait l'opération de production à avoir deux atomes — publier
+    le rapport, puis le lire pour écrire le gate. Depuis les octets en mémoire, l'ordre disparaît :
+    le gate se réclame du rapport que le **même** commit publiera, et il n'y a plus qu'un commit.
+
+    L'empreinte est identique à celle de `digest_octets` sur le fichier écrit, parce que la bascule
+    écrit exactement ces octets, en UTF-8 — c'est éprouvé de bout en bout, pas supposé.
+    """
+    return hashlib.sha256(contenu.encode("utf-8")).hexdigest()

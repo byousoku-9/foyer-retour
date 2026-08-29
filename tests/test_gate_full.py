@@ -1340,6 +1340,13 @@ def test_un_gate_full_publie_et_promeut_en_une_seule_sequence(
     avait basculé sans le manifest. Ici les quatre surfaces **et** `manifest.json` sont remises au
     **même** appel de `EspacePublie.basculer`, donc publiées par un unique `os.replace` de pointeur :
     il n'y a plus d'ordre à vérifier parce qu'il n'y a plus de fenêtre à ordonner.
+
+    Tour correctif 3/3 : la propriété est encore renforcée, et ce test est devenu la contre-sonde de
+    sa propre version précédente. Il exigeait alors **deux** bascules — le couple `eval-results.*`
+    d'abord, la publication et le manifest ensuite —, c'est-à-dire deux atomes dans une même
+    opération de production : entre eux, `eval-results.md` avait déjà changé alors qu'il appartient
+    au lot final. L'AC porte sur l'opération, pas sur l'appel : il n'y a donc plus qu'**une** seule
+    bascule, et elle porte les cinq cibles.
     """
     basculer_reel = runner.EspacePublie.basculer
     observees: list[list[str]] = []
@@ -1360,18 +1367,18 @@ def test_un_gate_full_publie_et_promeut_en_une_seule_sequence(
     assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION]) == 1
-    # Le rapport de run bascule en premier, dans **sa** séquence (`ecrire_rapports`, dont les deux
-    # fichiers sont eux aussi un lot tout-ou-rien) ; la publication et le gate basculent ensuite
-    # dans **une seule** séquence, `manifest.json` compris.
+    # **Un seul commit pour toute l'opération de production** : le rapport, sa table, les surfaces
+    # publiées et le manifest sont remis au même appel. Deux bascules seraient deux atomes, donc un
+    # état mêlé entre eux — c'est exactement ce que ce test exigeait avant le tour correctif 3/3.
     assert [set(lot) for lot in observees] == [
-        {"eval-results.json", "eval-results.md"},
-        {"evals-latest.json", "latest.md", "eval-results.md", "manifest.json"},
+        {"eval-results.json", "eval-results.md", "evals-latest.json", "latest.md",
+         "manifest.json"},
     ], observees
-    # Le manifest n'est pas « la dernière cible » : il est **du même lot** que les publications, et
-    # il n'existe aucune bascule supplémentaire pour l'écrire à part.
-    assert len(observees) == 2, observees
+    # Le manifest n'est pas « la dernière cible » : il est **du même lot** que tout le reste, et il
+    # n'existe aucune bascule supplémentaire pour l'écrire à part.
+    assert len(observees) == 1, observees
     assert "manifest.json" in observees[-1]
-    assert deja_publiees == [[], []], deja_publiees
+    assert deja_publiees == [[]], deja_publiees
     # Et le lot entier est bien visible à la sortie : promouvoir et publier sont un seul geste.
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
     publie = json.loads(
@@ -1747,37 +1754,82 @@ def test_un_verdict_dont_les_images_ne_concordent_pas_empeche_le_vert(
 
 # --- B3 : tout ou rien sous échec de renommage, à **chaque** étape ---------------------------------
 
-def _empreintes_des_cibles(racine: Path) -> dict[str, tuple[str | None, int | None]]:
-    """L'état observable des surfaces **durables** : empreinte **et** type d'entrée (`lstat`).
+def _empreintes_des_cibles(
+        racine: Path) -> dict[str, tuple[bool, int | None, str | None, str | None]]:
+    """L'état observable de **toutes** les cibles du lot, sur les quatre dimensions de l'AC.
 
-    `eval-results.md` n'en fait pas partie : c'est le journal du run courant, réécrit à chaque run
-    par `ecrire_rapports` **avant** que le gate n'existe, et ignoré par git. Ce que la revue exige
-    de préserver, c'est le dernier lot **publié** — l'artefact servi, le rendu lisible et le
-    manifest qui promeut. Le lot complet, `eval-results.md` compris, est couvert cible par cible par
-    `_etat_du_lot`, au moment même de la bascule.
+    Tour correctif 3/3 : `eval-results.json` et `eval-results.md` y **entrent**. Les en exclure au
+    motif qu'ils sont le journal du run courant était le rétrécissement de frontière que l'AC
+    interdit : ils appartiennent au lot que l'opération de production publie, et le recheck a montré
+    qu'ils avaient déjà changé quand le second atome échouait. Aucune cible n'est retirée de la
+    comparaison ; et la comparaison se fait **depuis l'entrée de l'opération de production**, pas
+    depuis l'entrée du dernier appel de bascule.
 
-    Story 4.5, B7 : le type d'entrée entre dans l'état comparé. L'interdiction 7 définit « modifiée »
-    par l'état observable, et une comparaison de seules empreintes laisserait passer une migration de
-    type — un fichier ordinaire devenu lien, ou l'inverse — qui est précisément la substitution qu'un
-    candidat précédent avait employée pour paraître tout-ou-rien.
+    Story 4.5, B7, et l'interdiction 7 qui définit « modifiée » par l'état observable : les quatre
+    dimensions sont capturées littéralement — présence de l'entrée, type d'entrée (`lstat`), cible
+    de lien, contenu —, dans cet ordre. Une comparaison de seules empreintes laisserait passer une
+    migration de type ou une cible repointée ailleurs.
     """
     cibles = {
         "evals-latest.json": racine / "data" / "evals-latest.json",
         "latest.md": racine / "docs" / "evals" / "latest.md",
         "manifest.json": racine / "data" / "manifest.json",
+        "eval-results.json": racine / "eval-results.json",
+        "eval-results.md": racine / "eval-results.md",
     }
-    etat: dict[str, tuple[str | None, int | None]] = {}
+    etat: dict[str, tuple[bool, int | None, str | None, str | None]] = {}
     for nom, chemin in cibles.items():
+        try:
+            marque = os.lstat(chemin).st_mode >> 12
+        except OSError:
+            etat[nom] = (False, None, None, None)
+            continue
+        lien = os.readlink(chemin) if os.path.islink(chemin) else None
         try:
             empreinte: str | None = hashlib.sha256(chemin.read_bytes()).hexdigest()
         except OSError:
             empreinte = None
-        try:
-            marque: int | None = os.lstat(chemin).st_mode >> 12
-        except OSError:
-            marque = None
-        etat[nom] = (empreinte, marque)
+        etat[nom] = (True, marque, lien, empreinte)
     return etat
+
+
+def test_loperation_de_production_dun_gate_full_na_quun_seul_point_de_commit(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B7, tour correctif 3/3 : « un atome tout-ou-rien » n'est pas « une opération tout-ou-rien ».
+
+    Le run de gate appelait `EspacePublie.basculer` **deux** fois : une première pour le couple
+    `eval-results.*`, une seconde pour le gate, la publication et le manifest. Chaque appel était
+    tout-ou-rien, l'opération ne l'était pas : si le second échouait, `eval-results.md` — pourtant
+    membre du lot final — avait déjà changé. L'AC porte sur l'opération, pas sur l'appel.
+
+    La sonde compte les **points de commit** de l'opération, c'est-à-dire les `os.replace` qui
+    remplacent le pointeur. Il doit y en avoir exactement un, quel que soit le nombre de surfaces.
+    """
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    # La disposition est posée **hors** du comptage : `installer()` remplace elle aussi le pointeur,
+    # une fois, et c'est un geste d'opérateur, pas un commit de l'opération de production.
+    _data_dir(tmp_path)
+    replace_reel = runner.os.replace
+    commits: list[str] = []
+
+    def _replace(source: Any, cible: Any) -> None:
+        if Path(cible).name == POINTEUR:
+            commits.append(str(cible))
+        replace_reel(source, cible)
+
+    monkeypatch.setattr(runner.os, "replace", _replace)
+    assert _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION]) == 1
+    monkeypatch.setattr(runner.os, "replace", replace_reel)
+
+    assert len(commits) == 1, (
+        f"l'opération de production a {len(commits)} points de commit : entre deux, l'état est "
+        "mêlé, quand bien même chacun serait tout-ou-rien")
+    # Et le commit unique a bien tout publié : le rapport, sa table, les surfaces et le manifest.
+    apres = _empreintes_des_cibles(tmp_path)
+    assert all(present and empreinte is not None
+               for present, _marque, _lien, empreinte in apres.values()), apres
 
 
 @pytest.mark.parametrize("rang", [0, 1, 2, 3, "atome"])
@@ -1805,7 +1857,8 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION]) == 1
     avant = _empreintes_des_cibles(tmp_path)
-    assert all(v != (None, None) for v in avant.values()), avant
+    assert all(present and empreinte is not None
+               for present, _marque, _lien, empreinte in avant.values()), avant
 
     # Le second run mesure une **autre** révision : sans cela, sa publication serait octet pour
     # octet celle du premier, et une bascule partielle passerait inaperçue — un test qui ne peut

@@ -114,7 +114,7 @@ from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePubli
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
                                    charger_plancher, verifier_liaison_preuve)
 from server.evals.publication import (ArchivePrecedenteIllisible,
-                                      RapportInexploitable, construire_publication, digest_octets,
+                                      RapportInexploitable, construire_publication, digest_contenu,
                                       preparer_publication, rendre_publication_markdown,
                                       valider_rapport_publiable)
 from server.evals.publication import nombre as nombre_publie
@@ -2407,26 +2407,47 @@ def _ecrire_atomique(path: Path, contenu: str) -> None:
         raise
 
 
+def preparer_les_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path, *,
+                          preuve_externe: PreuveExterneVerifiee | None,
+                          contenu_json: str | None = None) -> list[tuple[Path, str]]:
+    """Le couple `(rapport JSON, table Markdown)` en **lot**, sans écrire un seul octet.
+
+    Tour correctif 3/3. Le couple n'est plus basculé par lui-même sur le chemin du gate : il entre
+    dans le **même** lot que la publication et le manifest, pour qu'il n'y ait qu'un seul point de
+    commit dans toute l'opération de production. Le séparer en atome propre était exactement la
+    frontière que le recheck a nommée — chaque atome était tout-ou-rien, l'opération ne l'était pas.
+
+    `contenu_json` permet à l'appelant de fournir les octets **déjà sérialisés**, ceux-là mêmes dont
+    il a tiré `gate.report_digest` : deux sérialisations du même rapport seraient identiques, mais
+    « seraient » n'est pas « sont », et l'empreinte publiée doit désigner les octets publiés.
+    """
+    return [
+        (json_path, contenu_json if contenu_json is not None else json_canonique(rapport) + "\n"),
+        (markdown_path, rendre_markdown(rapport, preuve_externe=preuve_externe)),
+    ]
+
+
 def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path, *,
                     preuve_externe: PreuveExterneVerifiee | None, espace: EspacePublie) -> None:
     """Le rapport JSON **et** sa table Markdown, ou aucun des deux (revue B3, chemin frère).
 
     Deux `_ecrire_atomique` enchaînés laissaient, si le second échouait, un `eval-results.json` neuf
-    à côté d'un `eval-results.md` périmé — et ce n'est pas un couple anodin : c'est
-    `digest_octets(output_json)` qui alimente `gate.report_digest`, donc l'empreinte par laquelle un
-    gate se réclame de son rapport. Un lot mêlé ici se propage jusque dans le gate.
+    à côté d'un `eval-results.md` périmé — et ce n'est pas un couple anodin : c'est l'empreinte du
+    rapport qui alimente `gate.report_digest`, donc celle par laquelle un gate se réclame de son
+    rapport. Un lot mêlé ici se propage jusque dans le gate.
 
     **Ce couple est un lot comme un autre** (story 4.5, B7) : il passe par le même unique pointeur
     atomique que la publication. Les deux rendus sont construits d'abord — c'est là que
     `RapportInexploitable` tombe, avant qu'aucune surface ne bouge — puis remis ensemble à
-    `EspacePublie.basculer`, qui les publie en un seul `os.replace` ou pas du tout. Il n'y a plus ni
-    préparation à nettoyer, ni restauration à tenter : rien n'a été modifié tant que l'atome n'a pas
-    eu lieu.
+    `EspacePublie.basculer`, qui les publie en un seul `os.replace` ou pas du tout.
+
+    C'est **l'opération de production entière** des chemins qui n'écrivent pas de gate : un run de
+    diagnostic, un refus de budget, un rapport partiel d'incident. Un run de gate, lui, ne passe
+    plus par ici : son opération comprend aussi la publication et le manifest, et elle n'a qu'un
+    commit (tour correctif 3/3).
     """
-    espace.basculer([
-        (json_path, json_canonique(rapport) + "\n"),
-        (markdown_path, rendre_markdown(rapport, preuve_externe=preuve_externe)),
-    ])
+    espace.basculer(preparer_les_rapports(rapport, json_path, markdown_path,
+                                          preuve_externe=preuve_externe))
 
 
 # --- les preuves de structure d'ingestion (lues par le gate `full`) --------------------------------
@@ -2636,19 +2657,16 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, s
     temporaire de manifest.
 
     Le manifest entier est relu et **validé** avant la moindre écriture : un fichier illisible ou une
-    entrée hors schéma arrête tout sans rien modifier sur disque. Le contenu final est sérialisé dans
-    un temporaire **du répertoire du manifest**, à la forme des autres écrivains de `data/` — clés
-    triées, `indent=2`, `ensure_ascii=False`, saut de ligne final —, pour qu'un `git diff` de gate ne
-    soit qu'un gate.
+    entrée hors schéma arrête tout sans rien modifier sur disque. Le contenu final est sérialisé **en
+    mémoire**, à la forme des autres écrivains de `data/` — clés triées, `indent=2`,
+    `ensure_ascii=False`, saut de ligne final —, pour qu'un `git diff` de gate ne soit qu'un gate.
 
     **Pourquoi une préparation séparée** (revue A). Publier puis écrire le gate déplaçait la fenêtre
     de la revue B3 au lieu de la fermer : `ecrire_gate` peut encore refuser (manifest illisible,
-    entrée absente ou hors schéma) ou échouer en écriture, et les trois surfaces auraient alors
-    publié `evals_ok: true` sans qu'aucun gate n'existe. Tout ce qui peut échouer pour une autre
-    raison qu'un renommage — validation, sérialisation, écriture du temporaire — se produit donc
-    **avant** la première bascule ; ne restent ensuite que des `os.replace` sur des fichiers déjà
-    écrits, dans le même système de fichiers, dont l'échec est rattrapé par la restauration de
-    `EspacePublie.basculer`.
+    entrée absente ou hors schéma), et les trois surfaces auraient alors publié `evals_ok: true` sans
+    qu'aucun gate n'existe. Tout ce qui peut échouer — lecture, validation, sérialisation — se
+    produit donc **avant** la bascule ; ne reste ensuite que l'unique `os.replace` du pointeur, qui
+    publie le lot entier ou rien.
 
     **Non-mutation du dernier vert (story 4.2b).** Un gate candidat **rouge** ne remplace jamais un
     gate `evals_ok: true` : le verdict candidat est publié dans le rapport (décisions chiffrées,
@@ -2844,20 +2862,23 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
                             relecture_images: Path | None = None,
                             repo_root: Path | None = None,
                             preuve_externe: PreuveExterneVerifiee | None,
-                            ) -> list[tuple[Path, Path]]:
+                            ) -> list[tuple[Path, str]]:
     """Construit l'artefact unique et **prépare** ses écritures — sans rien publier encore.
 
-    Rend la liste `[(temporaire, cible)]` à basculer. Les quatre surfaces de l'AC 4 tiennent en
+    Rend la liste `[(cible, contenu)]` à basculer. Les quatre surfaces de l'AC 4 tiennent en
     **trois écritures** — `data/evals-latest.json` (que `GET /api/v1/evals/latest` sert et que `/`
     compose), `docs/evals/latest.md`, et le **même** rendu dans `eval-results.md`, le fichier que la
     CI concatène dans `$GITHUB_STEP_SUMMARY` —, plus une quatrième cible quand le
     `docs/evals/latest.md` précédent doit être archivé avant d'être remplacé. « Le même artefact » ne
     peut pas être deux rendus divergents : c'est littéralement la même chaîne, rendue une fois.
 
-    Rien n'est visible à la sortie de cette fonction (revue B3) : tout est dans des temporaires des
-    répertoires cibles. L'appelant prépare ensuite le manifest de la **même** façon, puis bascule le
-    tout en une seule file de `os.replace` (revue A) — de sorte qu'aucune surface ne puisse affirmer
-    un verdict que le manifest ne porte pas, ni l'inverse.
+    Le journal du run (`eval-results.md`) est rendu **ici**, publication comprise : c'est l'autorité
+    unique de cette surface. Le rapport JSON, le manifest et ce lot sont ensuite remis au **même**
+    appel de bascule — un seul point de commit pour toute l'opération de production (tour correctif
+    3/3) —, de sorte qu'aucune surface ne puisse affirmer un verdict que le manifest ne porte pas,
+    ni l'inverse, ni qu'un journal de run survive à un gate qui n'a pas été écrit.
+
+    Rien n'est visible à la sortie de cette fonction (revue B3) : rien n'est écrit du tout.
 
     `repo_root` est **dérivé de `data_dir`** par l'appelant, exactement comme `output_json` et le
     cache le sont déjà. Le figer sur `REPO_ROOT` ferait écrire le `docs/evals/latest.md` du dépôt
@@ -3704,9 +3725,18 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                      exigences_full=exigences_full, structure=structure_lot,
                                      arbre=arbre_lot,
                                      dictionary_validated=dictionary_validated)
-        ecrire_rapports(rapport, output_json, output_markdown, espace=espace,
-                        preuve_externe=preuve_externe)
-        print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
+        # **Les octets du rapport, une fois pour toute l'opération** (tour correctif 3/3).
+        # `gate.report_digest` s'en déduit sans relire le disque, donc sans exiger que le rapport
+        # ait déjà été publié : c'est ce qui permet au rapport, à la publication et au manifest de
+        # n'avoir qu'un seul point de commit.
+        contenu_rapport = json_canonique(rapport) + "\n"
+        report_digest = digest_contenu(contenu_rapport)
+        if not args.gate:
+            # Hors gate, l'opération de production **est** ce couple : un lot, un commit.
+            espace.basculer(preparer_les_rapports(rapport, output_json, output_markdown,
+                                                  preuve_externe=preuve_externe,
+                                                  contenu_json=contenu_rapport))
+            print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
     except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible) as exc:
         # **Nommer la cause** (revue B3/B6, forme B7) : ce n'est pas une panne du writer, c'est
         # l'espace de publication qui n'est pas posé ou pas lisible — donc un lot qu'aucun pointeur
@@ -3756,34 +3786,42 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                    plancher_digest=(charge_plancher.digest if exigences_full
                                                     else None),
                                    candidate_revision=args.candidate_revision,
-                                   # L'empreinte des **octets écrits** du rapport, pas d'une
-                                   # re-sérialisation : c'est ce fichier-là qu'on pourra rouvrir
-                                   # pour vérifier les chiffres derrière `evals_ok`.
-                                   report_digest=(digest_octets(output_json)
-                                                  if exigences_full else None))
+                                   # L'empreinte des octets **que ce commit publiera**, tirée d'eux
+                                   # et non d'un fichier déjà écrit : c'est ce rapport-là qu'on
+                                   # pourra rouvrir pour vérifier les chiffres derrière `evals_ok`.
+                                   report_digest=report_digest if exigences_full else None)
+            # **Une seule opération de production, un seul commit** (tour correctif 3/3).
+            #
+            # Le rapport et sa table étaient publiés dans un premier atome, puis la publication et
+            # le manifest dans un second : chaque atome était tout-ou-rien, l'opération ne l'était
+            # pas — si le second échouait, `eval-results.*`, pourtant membres du lot, avaient déjà
+            # changé. Tout est donc préparé ici, depuis les mêmes octets en mémoire, et remis en une
+            # fois à l'unique pointeur atomique.
+            #
+            # Ce qui doit rester distinct le reste, et se décide **avant** ce commit : un rapport
+            # inexploitable est refusé sans qu'aucune surface bouge, un incident technique sort en
+            # code 3 sans gate écrit, et la non-mutation du dernier vert retire le manifest du lot
+            # sans retirer la publication (un rouge est un résultat, publié — AC 2).
+            publications: list[tuple[Path, str]] = []
             if exigences_full:
-                # **FR41 et le gate sont préparés ensemble, puis basculés ensemble** (revue A).
-                #
-                # Publier d'abord puis écrire le gate ne fermait pas la fenêtre de la revue B3, elle
-                # la déplaçait : `preparer_gate` peut encore refuser (manifest illisible, entrée
-                # absente ou hors schéma) ou échouer en écriture, et les trois surfaces auraient
-                # alors publié `evals_ok: true` sans qu'aucun gate n'existe. L'ordre inverse avait le
-                # défaut symétrique. La fermeture est donc en deux temps : tout ce qui peut échouer
-                # **pour une autre raison qu'un renommage** se produit ici, rien n'est encore
-                # visible ; et la file de `os.replace` qui suit est rattrapée par la restauration de
-                # l'unique `os.replace` de l'espace de publication : il publie le lot entier ou
-                # rien. Aucune cible n'est modifiée tant que cet atome n'a pas eu lieu, donc il n'y
-                # a rien à défaire — et rien qui puisse échouer ou être interrompu en défaisant.
-                prepares = preparer_la_publication(
+                publications = preparer_la_publication(
                     rapport, gate, ctx, cas,
                     data_dir=args.data_dir, output_markdown=output_markdown,
-                    report_digest=digest_octets(output_json),
+                    report_digest=report_digest,
                     candidate_revision=args.candidate_revision,
                     relecture_verdict=args.relecture_verdict,
                     relecture_images=args.relecture_images,
                     repo_root=args.data_dir.parent,
                     preuve_externe=preuve_externe)
-            cibles = [cible for cible, _contenu in prepares]
+                # Le journal du run porte la publication : c'est `preparer_la_publication` qui le
+                # rend, et il n'entre donc pas une seconde fois par `preparer_les_rapports` — deux
+                # contenus au même slot sont un refus, et ce serait le bon (une seule autorité).
+                prepares = [(output_json, contenu_rapport), *publications]
+            else:
+                prepares = preparer_les_rapports(rapport, output_json, output_markdown,
+                                                 preuve_externe=preuve_externe,
+                                                 contenu_json=contenu_rapport)
+            cibles = [cible for cible, _contenu in publications]
             # `None` quand la non-mutation du dernier vert s'applique : les publications sont alors
             # basculées quand même — un rouge est un **résultat**, publié —, et le manifest ne bouge
             # pas. C'est exactement ce que l'AC 2 demande.
@@ -3793,6 +3831,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             espace.basculer(prepares)
             prepares = []
             gate_ecrit = prepare_gate is not None
+            print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
             if cibles:
                 print("publication écrite : " + ", ".join(str(cible) for cible in cibles),
                       file=sortie)
@@ -3808,8 +3847,9 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # publier, aucun n'a fait bouger le disque.
             publication_ok = False
             print(f"échec de publication : rapport ou seconde lecture inexploitable — {exc} — "
-                  "aucune bascule n'a eu lieu, aucun gate n'a été écrit, le manifest est inchangé",
-                  file=sys.stderr)
+                  "aucune bascule n'a eu lieu, aucun gate n'a été écrit, le manifest est inchangé "
+                  "et les rapports du run n'ont pas été écrits (un seul commit pour toute "
+                  "l'opération)", file=sys.stderr)
         except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible,
                 ArchivePrecedenteIllisible) as exc:
             # **« Je n'ai pas pu lire » n'est pas « il n'y avait rien »** (revue B3/B6). L'échec
@@ -3817,7 +3857,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # Publier quand même écraserait un état qu'on ne saurait ni archiver ni restaurer.
             publication_ok = False
             print(f"refus de publier : {exc} — aucune bascule n'a eu lieu, aucun gate n'a été "
-                  "écrit, le manifest est inchangé et rien n'a été publié", file=sys.stderr)
+                  "écrit, le manifest est inchangé et rien n'a été publié, rapports du run "
+                  "compris", file=sys.stderr)
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             # **FR41 : rien n'est promu si rien ne peut être publié** (revue B3, durcie par A).
             # L'échec survient pendant la **préparation**, donc avant la première bascule : aucun
@@ -3830,7 +3871,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # tenus.
             publication_ok = False
             print(f"échec de publication : {type(exc).__name__}: {exc} — aucun gate n'a été "
-                  "écrit, le manifest est inchangé et rien n'a été publié", file=sys.stderr)
+                  "écrit, le manifest est inchangé et rien n'a été publié, rapports du run "
+                  "compris", file=sys.stderr)
         # **Il n'y a plus de handler d'« état mêlé », parce qu'il n'y a plus d'état mêlé** (story
         # 4.5, B7). `BasculePartielle` nommait les cibles laissées dans le nouvel état après une
         # restauration incomplète ; l'espace de publication ne restaure rien, parce qu'il ne modifie
