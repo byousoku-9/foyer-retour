@@ -1275,6 +1275,23 @@ def _source_du_document(data_dir: Path, doc_id: str) -> str | None:
     return None
 
 
+def image_du_run(plancher_digest: str) -> dict[str, Any]:
+    """L'identité d'image du run courant — **les cinq champs** qu'`identite_run` publie.
+
+    Une seule construction, partagée par l'identité de run et par la confrontation des preuves
+    externes : deux listes séparées auraient divergé, et c'est exactement ce qui s'est produit —
+    l'appelant en opposait trois, le rapport en portait cinq, et les deux manquants n'étaient
+    comparés nulle part.
+    """
+    return {
+        "pipeline_digest": pipeline_digest(),
+        "prompts_digest": prompts_digest(),
+        "model_ids": dict(TIERS),
+        "normalize_version": normalize_version,
+        "plancher_digest": plancher_digest,
+    }
+
+
 def document_parse_depuis_un_pdf(data_dir: Path, doc_id: str) -> bool:
     """Ce document est-il **réellement parsé**, c'est-à-dire ingéré depuis un PDF ?
 
@@ -1409,13 +1426,14 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
         # donc de `run_digest`. Sans elle, deux runs de deux commits différents pouvaient porter le
         # même digest — et une preuve trusted pouvait s'y raccrocher indifféremment.
         "candidate_revision": candidate_revision,
+        # Les cinq champs de `image_du_run`, écrits ici avec les digests **du contexte** (les
+        # doubles de test en posent d'autres). Story 4.2b : le protocole fait partie de l'identité —
+        # deux runs ne se comparent qu'à plancher égal, comme à corpus égal.
         "image": {
             "pipeline_digest": ctx.pipeline_digest_hex,
             "prompts_digest": ctx.prompts_digest_hex,
             "model_ids": dict(TIERS),
             "normalize_version": normalize_version,
-            # Story 4.2b : le protocole (plancher pré-enregistré) fait partie de l'identité — deux
-            # runs ne se comparent qu'à plancher égal, comme à corpus égal.
             "plancher_digest": plancher_digest,
         },
         "scope": {
@@ -2426,18 +2444,119 @@ def _preparer_atomique(path: Path, contenu: str) -> Path:
     return Path(temporaire)
 
 
+class BasculePartielle(Exception):
+    """Une bascule a échoué **et** la restauration n'a pas tout remis en place.
+
+    Ce n'est pas la même chose qu'un échec de bascule : celui-là est rattrapé et ne laisse rien
+    voir. Celui-ci laisse des cibles dans un état mêlé, et la seule chose honnête à faire est de
+    **nommer lesquelles**, dans quel état, plutôt que d'affirmer que rien n'a été publié.
+    """
+
+    def __init__(self, message: str, *, restaurees: list[str], non_restaurees: list[str]) -> None:
+        super().__init__(message)
+        self.restaurees = restaurees
+        self.non_restaurees = non_restaurees
+
+
+def _lire_ou_none(path: Path) -> bytes | None:
+    """Les octets actuels d'une cible, ou `None` si elle n'existe pas encore."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def _basculer(prepares: list[tuple[Path, Path]]) -> None:
-    """Bascule chaque temporaire sur sa cible. Aucun contenu n'est écrit ici, seulement renommé."""
-    for temporaire, cible in prepares:
-        os.replace(temporaire, cible)
+    """Rend le nouveau lot visible **en entier**, ou laisse le précédent visible en entier.
+
+    Ce n'est **pas** une opération atomique, et le dire autrement serait mentir : POSIX n'offre
+    l'atomicité que sur un seul `rename`, et cette file en compte jusqu'à cinq
+    (`data/evals-latest.json`, l'archive de campagne, `docs/evals/latest.md`, `eval-results.md`,
+    puis `data/manifest.json`). La propriété obtenue est plus faible et suffit : **tout ou rien sous
+    échec de renommage, par restauration**.
+
+    Comment. Avant de renommer quoi que ce soit, l'état courant de chaque cible est capturé (ses
+    octets, ou son absence). Au premier `os.replace` qui échoue, les cibles déjà basculées sont
+    remises dans leur état d'avant, **en ordre inverse** — le manifest, qui promeut, est la dernière
+    cible, donc la première défaite.
+
+    Ce que cela ne couvre pas, et qui n'est pas couvrable ici : une panne matérielle entre deux
+    renommages laisse le lot mêlé, comme n'importe quelle séquence de renommages. Ce qui est fermé,
+    c'est le défaut qu'on a mesuré — un `os.replace` qui échoue en publiant `evals-latest.json`
+    seul, avec un `latest.md` inexistant et un manifest sans gate, pendant que le message affirmait
+    « rien n'a été publié ».
+
+    Si une restauration échoue à son tour, `BasculePartielle` nomme précisément quelles cibles ont
+    été remises et lesquelles ne l'ont pas été.
+    """
+    avant: list[tuple[Path, bytes | None]] = [(cible, _lire_ou_none(cible))
+                                              for _tmp, cible in prepares]
+    faites: list[int] = []
+    for index, (temporaire, cible) in enumerate(prepares):
+        try:
+            os.replace(temporaire, cible)
+        except OSError as echec:
+            restaurees, non_restaurees = _restaurer(prepares, avant, faites)
+            if non_restaurees:
+                raise BasculePartielle(
+                    f"bascule interrompue sur {cible} ({echec}) et restauration incomplète — "
+                    f"remises en état : {restaurees or ['aucune']} ; "
+                    f"laissées dans le nouvel état : {non_restaurees}",
+                    restaurees=restaurees, non_restaurees=non_restaurees) from echec
+            raise
+        faites.append(index)
+
+
+def _restaurer(prepares: list[tuple[Path, Path]], avant: list[tuple[Path, bytes | None]],
+               faites: list[int]) -> tuple[list[str], list[str]]:
+    """Défait les bascules déjà faites, en ordre inverse. Rend `(restaurées, non restaurées)`."""
+    restaurees: list[str] = []
+    non_restaurees: list[str] = []
+    for index in reversed(faites):
+        cible, octets = avant[index]
+        try:
+            if octets is None:
+                cible.unlink(missing_ok=True)
+            else:
+                _ecrire_atomique_octets(cible, octets)
+        except OSError:
+            non_restaurees.append(str(cible))
+        else:
+            restaurees.append(str(cible))
+    # Les temporaires que la bascule n'a pas consommés n'ont plus de raison d'être.
+    _abandonner([prepares[i] for i in range(len(prepares)) if i not in set(faites)])
+    return restaurees, non_restaurees
 
 
 def _abandonner(prepares: list[tuple[Path, Path]]) -> None:
+    """Supprime les temporaires non basculés. Ceux que `os.replace` a consommés n'existent plus."""
     for temporaire, _cible in prepares:
         try:
             os.unlink(temporaire)
         except OSError:
             continue
+
+
+def _ecrire_atomique_octets(path: Path, octets: bytes) -> None:
+    """Le pendant binaire de `_ecrire_atomique` : la restauration remet des **octets**, pas du texte.
+
+    Repasser par `str` obligerait à deviner un encodage pour restituer un fichier qu'on n'a fait que
+    déplacer — et à échouer sur celui qui n'était pas de l'UTF-8.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporaire = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(octets)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporaire, path)
+    except BaseException:
+        try:
+            os.unlink(temporaire)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _ecrire_atomique(path: Path, contenu: str) -> None:
@@ -2458,8 +2577,24 @@ def _ecrire_atomique(path: Path, contenu: str) -> None:
 
 
 def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path) -> None:
-    _ecrire_atomique(json_path, json_canonique(rapport) + "\n")
-    _ecrire_atomique(markdown_path, rendre_markdown(rapport))
+    """Le rapport JSON **et** sa table Markdown, ou aucun des deux (revue B3, chemin frère).
+
+    Deux `_ecrire_atomique` enchaînés laissaient, si le second échouait, un `eval-results.json` neuf
+    à côté d'un `eval-results.md` périmé — et ce n'est pas un couple anodin : c'est
+    `digest_octets(output_json)` qui alimente `gate.report_digest`, donc l'empreinte par laquelle un
+    gate se réclame de son rapport. Un lot mêlé ici se propage jusque dans le gate.
+
+    La même mécanique que la publication : préparer, puis basculer avec restauration.
+    """
+    prepares = [
+        (_preparer_atomique(json_path, json_canonique(rapport) + "\n"), json_path),
+        (_preparer_atomique(markdown_path, rendre_markdown(rapport)), markdown_path),
+    ]
+    try:
+        _basculer(prepares)
+    except BaseException:
+        _abandonner(prepares)
+        raise
 
 
 # --- les preuves de structure d'ingestion (lues par le gate `full`) --------------------------------
@@ -2835,10 +2970,18 @@ def etat_seconde_lecture(ctx: Contexte, rapport: dict[str, Any], *,
         return SecondeLecturePubliee(statut="absente", blocs_planifies=0, blocs_verifies=0)
     plan = plan_de_relecture(ctx.index, blocs_cles_du_rapport(rapport),
                              candidate_revision=candidate_revision)
+    attendues = len(plan.cles_attendues)
+    if plan.non_projetables:
+        # **Rouge, jamais concordante** (revue B5) : des clés attendues n'ont pas pu être projetées.
+        # Le statut le dit, la limite dérivée le publie, et `valider_verdict` refuserait de toute
+        # façon un verdict déposé sur un tel plan. « Aucun bloc clé » et « tous improjetables »
+        # cessent d'être indiscernables.
+        return SecondeLecturePubliee(statut="impossible", blocs_planifies=attendues,
+                                     blocs_verifies=0,
+                                     blocs_non_projetables=len(plan.non_projetables))
     if verdict_path is None:
         statut = "planifiee" if plan.blocs else "absente"
-        return SecondeLecturePubliee(statut=statut, blocs_planifies=len(plan.blocs),
-                                     blocs_verifies=0)
+        return SecondeLecturePubliee(statut=statut, blocs_planifies=attendues, blocs_verifies=0)
     try:
         brut = json.loads(verdict_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
@@ -2853,7 +2996,7 @@ def etat_seconde_lecture(ctx: Contexte, rapport: dict[str, Any], *,
     verdict = valider_verdict(brut, plan, candidate_revision=candidate_revision,
                               images=charger_images(images_dir, plan))
     return SecondeLecturePubliee(statut=statut_du_verdict(verdict),
-                                 blocs_planifies=len(plan.blocs),
+                                 blocs_planifies=attendues,
                                  blocs_verifies=len(verdict.verdicts))
 
 
@@ -3353,9 +3496,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 candidate_revision=args.candidate_revision,
                 report_path=args.orchestrator_report,
                 # Deux runs ne se comparent qu'à image égale : la preuve doit décrire **ce** code.
-                image_courante={"pipeline_digest": pipeline_digest(),
-                                "prompts_digest": prompts_digest(),
-                                "model_ids": dict(TIERS)})
+                # **Les cinq champs** qu'`identite_run` écrit, sans exception : la comparaison itère
+                # sur ce dictionnaire, donc un champ omis ici est un champ jamais opposé. C'était le
+                # cas de `normalize_version` — dont dépendent tous les `text_norm`, donc tous les
+                # `quote_hash` — et de `plancher_digest` (revue B1).
+                image_courante=image_du_run(charge_plancher.digest))
         elif args.orchestrator_report is not None:
             raise RefusDeTourner(
                 "--orchestrator-report n'a de sens qu'avec --orchestrator-evidence")
@@ -3783,6 +3928,15 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             publication_ok = False
             print(f"échec de publication : {type(exc).__name__}: {exc} — aucun gate n'a été "
                   "écrit, le manifest est inchangé et rien n'a été publié", file=sys.stderr)
+        except BasculePartielle as exc:
+            # **La seule chose honnête à dire ici est laquelle est dans quel état.** Une bascule a
+            # échoué *et* sa restauration n'a pas tout remis en place : affirmer « rien n'a été
+            # publié » serait faux, et c'est précisément le mensonge que la revue a mesuré.
+            publication_ok = False
+            print(f"publication dans un état MÊLÉ : {exc}", file=sys.stderr)
+            print("  → vérifier ces cibles à la main avant tout redéploiement ; le gate n'a pas "
+                  "été promu si `data/manifest.json` figure parmi les cibles remises en état.",
+                  file=sys.stderr)
         except Exception as exc:  # noqa: BLE001 — un gate cassé n'est jamais un verdict d'éval
             _abandonner(prepares)
             print(f"incident de gate : {type(exc).__name__}: {exc} — manifest non modifié",

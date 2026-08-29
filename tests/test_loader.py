@@ -887,3 +887,60 @@ def test_un_gate_full_preprotocole_est_nomme_et_non_confondu_avec_un_manifest_ca
     _write_manifest(data, m)
     assert load_corpus(data, allow_ungated=True).quarantine["lux-guide"].startswith(
         "entrée de manifest invalide :")
+
+
+def test_un_gate_full_dun_autre_commit_partageant_le_sha7_ne_passe_plus(data: Path) -> None:
+    """B2 : la collision **asymétrique** de production — gate en sha40, service en sha7.
+
+    Contre-exemple reproduit : `deploy.yml` posait `GIT_SHA=<sha7>`, le gate portait 40 hex, et la
+    comparaison par préfixe commun retombait sur sept caractères. Un gate `full` d'un **autre**
+    commit partageant le sha7 était donc servi sans alerte — 16⁷ classes d'équivalence, quelle que
+    soit la longueur écrite dans le gate.
+
+    La cause corrigée n'est pas la comparaison mais l'ambiguïté : le service porte désormais la
+    révision complète, et la comparaison est une identité stricte.
+    """
+    commit_a = "abc1234" + "0" * 33
+    commit_b = "abc1234" + "f" * 33
+    m = _manifest(data)
+    gate = _gate(m["lux-guide"])
+    gate.update({"profile": "full", "candidate_revision": commit_a,
+                 "plancher_digest": "b" * 64, "report_digest": "c" * 64,
+                 "run_digest": "a" * 64,
+                 "decisions": [{"metric": "m", "producer": "orchestrator", "threshold": 1.0,
+                                "scope": "run", "n": 3, "run_digest": "a" * 64, "value": 1.0,
+                                "status": "green"}]})
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+
+    def _raison(git_sha: str, env: str) -> str:
+        courant = GateContext(pipeline_digest=gate["pipeline_digest"],
+                              prompts_digest=gate["prompts_digest"],
+                              model_ids=gate["model_ids"],
+                              pipeline_settings=gate.get("pipeline_settings", {}),
+                              candidate_revision=git_sha, env=env)
+        return load_corpus(data, allow_ungated=False, current=courant).quarantine.get(
+            "lux-guide", "")
+
+    # Le sha7 du **même** commit : ce n'est plus une révision comparable — en production, ferme.
+    assert _raison(commit_a[:7], "prod") == "gate_perime"
+    # Un autre commit qui partageait le sha7 : fermé aussi (c'était le contre-exemple).
+    assert _raison(commit_b[:7], "prod") == "gate_perime"
+    assert _raison(commit_b, "prod") == "gate_perime"
+    # La révision exacte : servi.
+    assert _raison(commit_a, "prod") == ""
+    # Une révision inconnue ferme en production, et ne conclut rien hors production.
+    assert _raison("dev", "prod") == "gate_perime"
+    assert _raison("dev", "dev") == ""
+    assert _raison("", "prod") == "gate_perime"
+
+
+def test_la_revision_comparable_exige_une_revision_entiere() -> None:
+    """Une révision **identifie** un commit, ou elle n'en est pas une : quarante hexadécimaux."""
+    from server.app.corpus.loader import REVISION_LONGUEUR, revision_comparable
+
+    assert REVISION_LONGUEUR == 40
+    assert revision_comparable("a" * 40) == "a" * 40
+    assert revision_comparable("A" * 40) == "a" * 40  # la casse ne change pas un commit
+    for refuse in (None, "", "dev", "a" * 7, "a" * 39, "a" * 41, "z" * 40):
+        assert revision_comparable(refuse) is None, refuse

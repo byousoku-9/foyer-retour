@@ -1687,10 +1687,10 @@ def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
     # `run_digest` est l'empreinte canonique de l'identité **privée de sa propre clé**.
     identite: dict[str, Any] = {
         "candidate_revision": revision,
-        "image": {"pipeline_digest": runner.pipeline_digest(),
-                  "prompts_digest": runner.prompts_digest(),
-                  "model_ids": dict(runner.TIERS),
-                  "plancher_digest": charge.digest},
+        # **Les cinq champs** que `identite_run` publie : depuis la revue B1, une identité d'image
+        # incomplète ferme au lieu de laisser les champs manquants hors comparaison. C'est
+        # `image_du_run` qui en est l'autorité, des deux côtés.
+        "image": runner.image_du_run(charge.digest),
         "scope": {"profile": "full", "repeat": 3},
     }
     identite["run_digest"] = runner.empreinte_canonique(identite)

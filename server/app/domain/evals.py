@@ -87,9 +87,17 @@ class SecondeLecturePubliee(FrozenModel):
     `statut` dit lequel des trois états est le vrai, sans jamais en fabriquer un quatrième.
     """
 
-    statut: Literal["absente", "planifiee", "concordante", "divergente"]
+    # `impossible` (story 4.5, revue B5) : des clés attendues n'ont pas pu être projetées en image.
+    # Ce n'est ni « absente » — il y avait bien des blocs clés — ni « planifiee », puisque la
+    # relecture ne peut pas avoir lieu telle quelle. Les confondre rendait indiscernables un run sans
+    # aucun bloc clé et un run dont **tous** les blocs clés étaient improjetables.
+    statut: Literal["absente", "planifiee", "impossible", "concordante", "divergente"]
+    # `blocs_planifies` compte **les clés attendues**, projetables ou non : c'est le dénominateur
+    # honnête. Le compter sur le seul résidu projetable donnait des ratios parfaits sur des
+    # dénominateurs que le planificateur avait lui-même réduits.
     blocs_planifies: int = Field(ge=0)
     blocs_verifies: int = Field(ge=0)
+    blocs_non_projetables: int = Field(default=0, ge=0)
 
 
 class PublicationEvals(FrozenModel):

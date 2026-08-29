@@ -141,33 +141,33 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
     return "", []
 
 
-# Longueur minimale d'un préfixe de révision comparable. `deploy.yml` pose `GIT_SHA=<sha7>` : sept
-# est donc la plus courte révision qu'un service porte réellement. En dessous, un préfixe ne
-# discrimine plus rien — `GIT_SHA=a` correspondrait à un seizième des révisions possibles, et
-# `GIT_SHA` posé par erreur à une lettre ferait « concorder » n'importe quel gate.
-REVISION_PREFIXE_MIN = 7
+# Une révision **identifie un commit**, ou elle n'est pas une révision : quarante hexadécimaux,
+# jamais un préfixe. C'est la même exigence que `plancher.verifier_liaison_preuve` oppose déjà à une
+# preuve trusted ; les deux moitiés du même invariant doivent demander la même chose.
+REVISION_LONGUEUR = 40
 
 
 def revision_comparable(valeur: str | None) -> str | None:
     """La révision utilisable pour une comparaison, ou `None` si elle n'en est pas une.
 
-    `dev` (le défaut hors conteneur), une chaîne vide, ou un préfixe trop court pour discriminer :
-    ce sont trois façons de ne pas savoir quelle révision tourne, et aucune n'est une révision.
+    `dev` (le défaut hors conteneur), une chaîne vide, ou une forme **tronquée** : ce sont trois
+    façons de ne pas savoir exactement quelle révision tourne, et aucune n'est une révision.
+
+    Story 4.5, revue B2 : la version précédente acceptait un préfixe de sept caractères et comparait
+    par préfixe commun. C'est la forme même de la production — le gate porte 40 hexadécimaux, le
+    service en portait 7 — et la comparaison ne discriminait donc plus que 16⁷ classes : un gate
+    `full` d'un **autre** commit partageant le sha7 était servi sans alerte. On ne relâche pas la
+    comparaison pour absorber l'ambiguïté ; on lève l'ambiguïté (`GIT_SHA` porte la révision
+    complète, `Settings.version_publiee` en projette la forme courte pour l'affichage).
     """
     texte = (valeur or "").strip().lower()
-    if len(texte) < REVISION_PREFIXE_MIN or any(c not in "0123456789abcdef" for c in texte):
+    if len(texte) != REVISION_LONGUEUR or any(c not in "0123456789abcdef" for c in texte):
         return None
     return texte
 
 
 def _meme_revision(gate_revision: str | None, courante: str, *, env: str = "dev") -> bool:
-    """Le gate décrit-il la révision qui tourne ? — comparaison par **préfixe commun**.
-
-    En production, `deploy.yml` pose `GIT_SHA=<sha7>` : la révision courante est plus courte que
-    celle qu'un gate porte (40 hexadécimaux). Exiger l'égalité aurait mis tout le corpus en
-    quarantaine à chaque déploiement — une panne inventée, exactement ce qu'AD-16 interdit dans
-    l'autre sens. Le préfixe comparé doit valoir au moins `REVISION_PREFIXE_MIN` caractères : plus
-    court, il ne discrimine plus rien et « concorderait » avec presque tout.
+    """Le gate décrit-il la révision qui tourne ? — **identité stricte**, jamais un préfixe.
 
     **Quand la révision est inconnue, la réponse dépend de l'environnement**, et c'est le patron
     qu'AD-7 applique déjà à `allow_ungated` :
@@ -175,16 +175,15 @@ def _meme_revision(gate_revision: str | None, courante: str, *, env: str = "dev"
     - hors production, ne rien pouvoir conclure n'est pas une raison de refuser de servir : un poste
       de développement ne se nomme pas, et mettre son corpus en quarantaine n'apprendrait rien à
       personne ;
-    - en **production**, sous un gate `full`, une révision inconnue est une **preuve manquante**. Le
-      profil promet que le servi est exactement le mesuré ; ne pas pouvoir l'établir, c'est ne pas
-      pouvoir tenir la promesse. Quarantaine.
+    - en **production**, sous un gate `full`, une révision inconnue, tronquée ou ambiguë est une
+      **preuve manquante**. Le profil promet que le servi est exactement le mesuré ; ne pas pouvoir
+      l'établir, c'est ne pas pouvoir tenir la promesse. Quarantaine.
     """
     gate_lue = revision_comparable(gate_revision)
     courante_lue = revision_comparable(courante)
     if gate_lue is None or courante_lue is None:
         return env != "prod"
-    commun = min(len(gate_lue), len(courante_lue))
-    return gate_lue[:commun] == courante_lue[:commun]
+    return gate_lue == courante_lue
 
 
 def _gate_full_preprotocole(brut: object) -> bool:

@@ -38,19 +38,25 @@ TEXTE = "Le mobilier garni de la residence est garanti lors d un evenement souda
 REVISION = "7" * 40
 
 
-def _index_de_test(*, avec_page: bool = True) -> Index:
+def _index_de_test(*, avec_page: bool = True, bloc_sans_image: bool = False) -> Index:
     doc = Document(
         doc_id=DOC, kind="contrat", title="Contrat neutre", edition="2020",
         source_hash="s", ingest_fingerprint="f",
         nodes=[Node(node_id=f"{DOC}:n1", level=1, title="N1",
-                    items=[{"block_id": f"{DOC}:p3:1"}, {"block_id": f"{DOC}:p3:2"}])],
+                    items=[{"block_id": f"{DOC}:p3:1"}, {"block_id": f"{DOC}:p3:2"}]
+                    + ([{"block_id": f"{DOC}:p3:9"}] if bloc_sans_image else []))],
         blocks=[
             {"block_id": f"{DOC}:p3:1", "loc": "p3", "seq": 1, "kind": "garantie",
              "page": 3 if avec_page else None,
              "bbox": [10.0, 20.0, 300.0, 40.0] if avec_page else None, "text": TEXTE},
             {"block_id": f"{DOC}:p3:2", "loc": "p3", "seq": 2, "kind": "exclusion",
              "page": 3, "bbox": [10.0, 60.0, 300.0, 80.0], "text": TEXTE + " Sauf usure."},
-        ])
+        ] + ([
+            # Servi par le corpus, mais l'ingestion n'en a retenu ni page ni bbox : aucune image de
+            # page ne peut le montrer. C'est le cas que le plan perdait en silence (revue B5).
+            {"block_id": f"{DOC}:p3:9", "loc": "p3", "seq": 9, "kind": "exclusion",
+             "page": None, "bbox": None, "text": TEXTE + " Sans reperage visuel."},
+        ] if bloc_sans_image else []))
     for b in doc.blocks:
         b.text_norm = normalize(b.text)
     corpus = Corpus(documents={DOC: doc},
@@ -287,8 +293,15 @@ def test_les_blocs_cles_dun_run_sont_ses_preuves_et_ses_attentes_non_ouvertes() 
 
     assert blocs_cles_du_rapport(_rapport_de_run()) == [f"{DOC}:p3:1", f"{DOC}:p3:2"]
     assert blocs_cles_du_rapport({}) == []
-    # Robuste à un rapport partiel : ce qui n'est pas une liste de preuves n'en devient pas une.
-    assert blocs_cles_du_rapport({"results": [None, {"proofs": [{"block_id": 12}]}]}) == []
+    # **Rien n'est écarté en silence** (revue B5, chemin frère) : un rapport corrompu est refusé,
+    # jamais rétréci à ce qui reste lisible. Bâtir un plan sur le résidu, puis le publier comme
+    # complet, est exactement la faute que `plan_de_relecture` commettait plus bas.
+    with pytest.raises(RelectureInvalide, match="n'est pas un objet"):
+        blocs_cles_du_rapport({"results": [None]})
+    with pytest.raises(RelectureInvalide, match="block_id lisible"):
+        blocs_cles_du_rapport({"results": [{"id": "x", "proofs": [{"block_id": 12}]}]})
+    with pytest.raises(RelectureInvalide, match="non textuelle"):
+        blocs_cles_du_rapport({"results": [{"id": "x", "expected_blocks_not_opened": [7]}]})
 
 
 def test_la_cli_ecrit_un_plan_deterministe_sans_reseau(tmp_path: Path,
@@ -413,3 +426,73 @@ def test_les_images_se_chargent_par_un_nom_deterministe_sans_separateur(tmp_path
     # Une image absente du répertoire n'entre pas dans la table : l'absence n'est pas du vide.
     (dossier / nom_image(plan.blocs[0].block_id)).unlink()
     assert plan.blocs[0].block_id not in charger_images(dossier, plan)
+
+
+# --- B5 : aucune clé attendue ne disparaît en silence ---------------------------------------------
+
+def test_le_plan_publie_ce_quil_na_pas_pu_projeter_avec_une_raison_typee() -> None:
+    """B5, propriété 1 : **rien ne disparaît**, et ce qui manque dit pourquoi.
+
+    Contre-exemple reproduit : sur trois clés — une projetable, une servie sans page ni bbox, une
+    inconnue de l'index — le plan n'en gardait qu'une, et n'avait aucun champ où loger les deux
+    autres. Le vocabulaire des raisons est fermé : « perdu pour une raison qu'on ne sait pas
+    nommer » n'existe pas.
+    """
+    attendues = [f"{DOC}:p3:1", f"{DOC}:p3:9", "autre-doc:p1:1"]
+    plan = plan_de_relecture(_index_sans_bbox(), attendues, candidate_revision=REVISION)
+    assert [b.block_id for b in plan.blocs] == [f"{DOC}:p3:1"]
+    assert [(n.block_id, n.raison) for n in plan.non_projetables] == [
+        ("autre-doc:p1:1", "inconnu_de_lindex"),
+        (f"{DOC}:p3:9", "sans_page_ou_bbox"),
+    ]
+    # Propriété 2 : la couverture se mesure sur **toutes** les clés attendues.
+    assert plan.cles_attendues == sorted(attendues)
+    # Les pertes entrent dans l'empreinte : deux plans qui perdent différemment diffèrent.
+    complet = plan_de_relecture(_index_sans_bbox(), [f"{DOC}:p3:1"], candidate_revision=REVISION)
+    assert complet.plan_digest != plan.plan_digest
+
+
+def test_une_cle_improjetable_rend_la_preuve_rouge_jamais_concordante() -> None:
+    """B5, propriété 3 : une preuve amputée n'est pas une preuve.
+
+    Le verdict portait sur le résidu et concluait `concordante` — un ratio parfait sur un
+    dénominateur que le planificateur avait lui-même réduit. Aucun verdict ne peut couvrir une clé
+    qu'on n'a pas pu regarder : le refus est la seule issue honnête.
+    """
+    plan = plan_de_relecture(_index_sans_bbox(), [f"{DOC}:p3:1", f"{DOC}:p3:9"],
+                             candidate_revision=REVISION)
+    assert plan.non_projetables
+    brut = {
+        "schema_version": 1, "candidate_revision": REVISION, "plan_digest": plan.plan_digest,
+        "verdicts": [{"block_id": b.block_id, "verdict": "concordant",
+                      "image_sha256": empreinte_image(_octets(b.block_id)), "note": ""}
+                     for b in plan.blocs],
+    }
+    with pytest.raises(RelectureInvalide, match="n'ont pas pu être projetées"):
+        valider_verdict(brut, plan, candidate_revision=REVISION, images=_images(plan))
+    # Et un verdict qui prétendrait couvrir la clé perdue n'a pas d'image à opposer non plus.
+    brut["verdicts"].append({"block_id": f"{DOC}:p3:9", "verdict": "concordant",
+                             "image_sha256": "a" * 64, "note": ""})
+    with pytest.raises(RelectureInvalide, match="n'ont pas pu être projetées"):
+        valider_verdict(brut, plan, candidate_revision=REVISION, images=_images(plan))
+
+
+def test_aucun_bloc_cle_reste_distinct_de_tous_improjetables() -> None:
+    """B5, propriété 4 : deux situations opposées cessent d'être indiscernables.
+
+    Un plan vide parce qu'il n'y avait rien à relire, et un plan vide parce que **tout** était
+    improjetable, rendaient le même `statut='absente'`. La première est un run sans blocs clés ; la
+    seconde est une preuve que personne ne peut fournir.
+    """
+    rien = plan_de_relecture(_index_de_test(), [], candidate_revision=REVISION)
+    assert rien.blocs == [] and rien.non_projetables == [] and rien.cles_attendues == []
+    tous_perdus = plan_de_relecture(_index_sans_bbox(), [f"{DOC}:p3:9"],
+                                    candidate_revision=REVISION)
+    assert tous_perdus.blocs == [] and len(tous_perdus.non_projetables) == 1
+    assert tous_perdus.cles_attendues == [f"{DOC}:p3:9"]
+    assert rien.plan_digest != tous_perdus.plan_digest
+
+
+def _index_sans_bbox() -> Index:
+    """Le corpus de test, plus un bloc **servi** dont l'ingestion n'a retenu ni page ni bbox."""
+    return _index_de_test(bloc_sans_image=True)

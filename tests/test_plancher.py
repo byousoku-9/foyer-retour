@@ -363,6 +363,23 @@ def _preuve_candidate_revision(rapport: Path, **kw: object) -> dict:
     return base
 
 
+IMAGE_CANDIDATE = {
+    "pipeline_digest": "1" * 64,
+    "prompts_digest": "2" * 64,
+    "model_ids": {"fast": "modele-test"},
+    "normalize_version": "v-test",
+    "plancher_digest": None,  # renseigné à l'appel : c'est le plancher chargé
+}
+
+
+def _image_candidate(**surcharges: object) -> dict:
+    """L'image **complète** du run courant : cinq champs, jamais un sous-ensemble (revue B1)."""
+    image = dict(IMAGE_CANDIDATE)
+    image["plancher_digest"] = charger_plancher().digest
+    image.update(surcharges)
+    return image
+
+
 def _identite_candidate_revision(**champs: object) -> dict:
     """Une identité de run **cohérente** : son `run_digest` est celui que le runner calculerait.
 
@@ -373,19 +390,23 @@ def _identite_candidate_revision(**champs: object) -> dict:
     from server.evals.cache import empreinte_canonique
 
     identite: dict = {"candidate_revision": REVISION_A_candidate_revision,
-                      "image": {}, "scope": {}}
+                      "image": _image_candidate(), "scope": {}}
     identite.update(champs)
     identite["run_digest"] = empreinte_canonique(
         {cle: valeur for cle, valeur in identite.items() if cle != "run_digest"})
     return identite
 
 
-def _ecrire_rapport_candidate_revision(chemin: Path, **champs: object) -> dict:
+def _ecrire_rapport_candidate_revision(chemin: Path, *, plancher_racine: str | None = None,
+                                       **champs: object) -> dict:
     import json as _json
 
     identite = _identite_candidate_revision(**champs)
     chemin.write_text(_json.dumps({
-        "schema_version": 3, "decisions": [], "identity": identite}) + "\n", encoding="utf-8")
+        "schema_version": 3, "decisions": [], "identity": identite,
+        "plancher_digest": plancher_racine if plancher_racine is not None
+        else charger_plancher().digest,
+    }) + "\n", encoding="utf-8")
     return identite
 
 
@@ -410,7 +431,8 @@ def test_la_preuve_nominale_liee_a_la_candidate_revision_est_acceptee(
     run_digest = verifier_liaison_preuve(
         preuve, plancher_digest=charger_plancher().digest,
         candidate_revision=REVISION_A_candidate_revision,
-        report_bytes=rapport_candidate_revision.read_bytes())
+        report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
     assert run_digest == preuve["run_digest"] and len(run_digest) == 64
 
 
@@ -424,13 +446,14 @@ def test_une_preuve_dune_autre_candidate_revision_est_refusee(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_B_candidate_revision,
-            report_bytes=rapport_candidate_revision.read_bytes())
+            report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
     # Une révision mal formée est refusée avant même la comparaison.
     with pytest.raises(PlancherInvalide, match="hexadécimaux"):
         verifier_liaison_preuve(
             _preuve_candidate_revision(rapport_candidate_revision, candidate_revision="court"),
             plancher_digest=charger_plancher().digest,
-            candidate_revision="court", report_bytes=b"")
+            candidate_revision="court", report_bytes=b"", image_courante=_image_candidate())
 
 
 def test_un_report_digest_non_concordant_est_refuse_pour_la_candidate_revision(
@@ -443,12 +466,14 @@ def test_un_report_digest_non_concordant_est_refuse_pour_la_candidate_revision(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=rapport_candidate_revision.read_bytes() + b"\n")
+            report_bytes=rapport_candidate_revision.read_bytes() + b"\n",
+            image_courante=_image_candidate())
     # Un rapport absent n'est pas « pas de contrainte » : c'est un refus.
     with pytest.raises(PlancherInvalide, match="absent ou illisible"):
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
-            candidate_revision=REVISION_A_candidate_revision, report_bytes=None)
+            candidate_revision=REVISION_A_candidate_revision, report_bytes=None,
+            image_courante=_image_candidate())
 
 
 def test_une_cle_racine_en_trop_est_refusee_pour_la_candidate_revision(
@@ -467,14 +492,16 @@ def test_une_cle_racine_en_trop_est_refusee_pour_la_candidate_revision(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=rapport_candidate_revision.read_bytes())
+            report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
     manquante = _preuve_candidate_revision(rapport_candidate_revision)
     manquante.pop("run_digest")
     with pytest.raises(PlancherInvalide, match="manquantes"):
         verifier_liaison_preuve(
             manquante, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=rapport_candidate_revision.read_bytes())
+            report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
 
 
 def test_un_run_digest_divergent_est_refuse_pour_la_candidate_revision(
@@ -488,13 +515,15 @@ def test_un_run_digest_divergent_est_refuse_pour_la_candidate_revision(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=rapport_candidate_revision.read_bytes())
+            report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
     vide = _preuve_candidate_revision(rapport_candidate_revision, decisions=[])
     with pytest.raises(PlancherInvalide, match="liste non vide"):
         verifier_liaison_preuve(
             vide, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=rapport_candidate_revision.read_bytes())
+            report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
 
 
 def test_le_runner_refuse_avant_toute_decision_sur_une_candidate_revision_divergente(
@@ -516,11 +545,13 @@ def test_le_runner_refuse_avant_toute_decision_sur_une_candidate_revision_diverg
     with pytest.raises(runner.RefusDeTourner, match="candidate_revision"):
         runner.charger_decisions_orchestrateur(
             preuve, plancher=charger_plancher(),
-            candidate_revision=REVISION_B_candidate_revision, report_path=rapport)
+            candidate_revision=REVISION_B_candidate_revision, report_path=rapport,
+            image_courante=_image_candidate())
     # Et le cas nominal traverse bien : la liaison n'est pas un refus systématique.
     decisions = runner.charger_decisions_orchestrateur(
         preuve, plancher=charger_plancher(),
-        candidate_revision=REVISION_A_candidate_revision, report_path=rapport)
+        candidate_revision=REVISION_A_candidate_revision, report_path=rapport,
+        image_courante=_image_candidate())
     assert [d.metric for d in decisions] == ["offline_tests_pass_rate"]
     assert decisions[0].status == "green" and decisions[0].producer == "orchestrator"
 
@@ -545,7 +576,7 @@ def test_un_rapport_qui_ne_se_reconnait_pas_dans_la_preuve_est_refuse(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=autre_run.read_bytes())
+            report_bytes=autre_run.read_bytes(), image_courante=_image_candidate())
 
     autre_revision = rapport_candidate_revision.parent / "autre-revision.json"
     _ecrire_rapport_candidate_revision(autre_revision,
@@ -555,7 +586,7 @@ def test_un_rapport_qui_ne_se_reconnait_pas_dans_la_preuve_est_refuse(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=autre_revision.read_bytes())
+            report_bytes=autre_revision.read_bytes(), image_courante=_image_candidate())
 
     # Un rapport sans identité de run ne prouve rien non plus.
     muet = rapport_candidate_revision.parent / "muet.json"
@@ -563,7 +594,8 @@ def test_un_rapport_qui_ne_se_reconnait_pas_dans_la_preuve_est_refuse(
     with pytest.raises(PlancherInvalide, match="identité de run"):
         verifier_liaison_preuve(
             _preuve_candidate_revision(muet), plancher_digest=charger_plancher().digest,
-            candidate_revision=REVISION_A_candidate_revision, report_bytes=muet.read_bytes())
+            candidate_revision=REVISION_A_candidate_revision, report_bytes=muet.read_bytes(),
+            image_courante=_image_candidate())
 
 
 def test_un_run_digest_fabrique_est_refuse_meme_sil_est_auto_coherent(
@@ -595,16 +627,18 @@ def test_un_run_digest_fabrique_est_refuse_meme_sil_est_auto_coherent(
         verifier_liaison_preuve(
             preuve, plancher_digest=charger_plancher().digest,
             candidate_revision=REVISION_A_candidate_revision,
-            report_bytes=fabrique.read_bytes())
+            report_bytes=fabrique.read_bytes(), image_courante=_image_candidate())
 
 
-def test_un_rapport_dun_autre_plancher_ou_dune_autre_image_est_refuse(
+def test_une_identite_externe_amputee_ferme_au_lieu_de_passer(
         rapport_candidate_revision: Path) -> None:
-    """B1 : deux runs ne se comparent qu'à protocole et image égaux.
+    """B1 : **toute identité obligatoire absente, vide ou mal formée ferme.**
 
-    Le rapport porte son `plancher_digest` à **deux** emplacements (racine et `identity.image`) et
-    les digests de l'image mesurée. Ni l'un ni l'autre n'était confronté au run courant : une preuve
-    tirée d'un autre plancher, ou d'un autre code, passait.
+    Contre-exemple reproduit par la revue : un rapport auto-cohérent **sans `plancher_digest`
+    racine** et avec **`identity.image = {}`** était accepté alors que l'image opposée était
+    complète et entièrement différente — zéro des cinq champs n'était comparé. La règle disait « si
+    le champ est présent, je le compare » ; quatre façons d'obtenir le vide suffisaient donc à tout
+    contourner.
     """
     import hashlib
     import json as _json
@@ -613,36 +647,123 @@ def test_un_rapport_dun_autre_plancher_ou_dune_autre_image_est_refuse(
 
     courant = charger_plancher().digest
 
-    def _verifier(chemin: Path, **kw: object) -> None:
+    def _refuse(chemin: Path, motif: str, **kw: object) -> None:
         preuve = _preuve_candidate_revision(chemin)
         preuve["report_digest"] = hashlib.sha256(chemin.read_bytes()).hexdigest()
-        verifier_liaison_preuve(preuve, plancher_digest=courant,
-                                candidate_revision=REVISION_A_candidate_revision,
-                                report_bytes=chemin.read_bytes(), **kw)  # type: ignore[arg-type]
+        with pytest.raises(PlancherInvalide, match=motif):
+            verifier_liaison_preuve(
+                preuve, plancher_digest=courant,
+                candidate_revision=REVISION_A_candidate_revision,
+                report_bytes=chemin.read_bytes(),
+                image_courante=kw.get("image_courante", _image_candidate()))  # type: ignore[arg-type]
 
-    # 1. Plancher divergent à la racine du rapport.
-    racine = rapport_candidate_revision.parent / "autre-plancher.json"
+    dossier = rapport_candidate_revision.parent
+
+    def _ecrire(nom: str, rapport: dict) -> Path:
+        chemin = dossier / nom
+        chemin.write_text(_json.dumps(rapport) + "\n", encoding="utf-8")
+        return chemin
+
+    # CE-1 : plancher racine absent **et** image vide — le contre-exemple exact de la revue.
+    identite = _identite_candidate_revision(image={})
+    _refuse(_ecrire("ce1.json", {"schema_version": 3, "decisions": [], "identity": identite}),
+            "ne porte pas de plancher_digest")
+
+    # CE-2 : aucune clé `image`.
     identite = _identite_candidate_revision()
-    racine.write_text(_json.dumps({
-        "schema_version": 3, "decisions": [], "identity": identite,
-        "plancher_digest": "f" * 64}) + "\n", encoding="utf-8")
-    with pytest.raises(PlancherInvalide, match="racine du rapport"):
-        _verifier(racine)
+    identite.pop("image")
+    identite["run_digest"] = __import__(
+        "server.evals.cache", fromlist=["empreinte_canonique"]).empreinte_canonique(
+        {k: v for k, v in identite.items() if k != "run_digest"})
+    _refuse(_ecrire("ce2.json", {"schema_version": 3, "decisions": [], "identity": identite,
+                                 "plancher_digest": courant}),
+            "ne porte pas d'identité d'image")
 
-    # 2. Plancher divergent dans l'identité d'image.
-    image = rapport_candidate_revision.parent / "autre-plancher-image.json"
-    identite = _identite_candidate_revision(image={"plancher_digest": "f" * 64})
-    image.write_text(_json.dumps({
-        "schema_version": 3, "decisions": [], "identity": identite}) + "\n", encoding="utf-8")
-    with pytest.raises(PlancherInvalide, match="identity.image"):
-        _verifier(image)
+    # CE-3 : les cinq champs présents mais à `None` — « absent » déguisé en « présent ».
+    identite = _identite_candidate_revision(image={champ: None for champ in _image_candidate()})
+    _refuse(_ecrire("ce3.json", {"schema_version": 3, "decisions": [], "identity": identite,
+                                 "plancher_digest": courant}),
+            "identité d'image du rapport est incomplète")
 
-    # 3. Image divergente : un autre code, d'autres prompts, d'autres modèles.
-    autre_code = rapport_candidate_revision.parent / "autre-code.json"
-    identite = _identite_candidate_revision(image={"pipeline_digest": "1" * 64})
-    autre_code.write_text(_json.dumps({
-        "schema_version": 3, "decisions": [], "identity": identite}) + "\n", encoding="utf-8")
-    with pytest.raises(PlancherInvalide, match="ne mesure pas cette image"):
-        _verifier(autre_code, image_courante={"pipeline_digest": "2" * 64})
-    # La même image : accepté.
-    _verifier(autre_code, image_courante={"pipeline_digest": "1" * 64})
+    # CE-4 : `image` non-dict, autrefois rabattu sur `{}`.
+    identite = _identite_candidate_revision(image=[])
+    _refuse(_ecrire("ce4.json", {"schema_version": 3, "decisions": [], "identity": identite,
+                                 "plancher_digest": courant}),
+            "ne porte pas d'identité d'image")
+
+    # Frère : une `image_courante` **amputée** est refusée à la source. Sans cela, un appelant qui
+    # n'oppose que trois des cinq champs retire les deux autres du contrôle en silence.
+    _refuse(rapport_candidate_revision, "image du run courant est incomplète",
+            image_courante={"pipeline_digest": "1" * 64})
+
+    # Et le champ qui manquait vraiment : `normalize_version`. Une preuve issue d'une autre recette
+    # de normalisation décrit d'autres `text_norm`, donc d'autres `quote_hash`.
+    divergent = dossier / "normalize.json"
+    _ecrire_rapport_candidate_revision(
+        divergent, image=_image_candidate(normalize_version="v-DIVERGENT"))
+    _refuse(divergent, "normalize_version")
+
+    # Le plancher racine divergent reste refusé, et le nominal reste accepté.
+    _refuse(_ecrire("autre-plancher.json",
+                    {"schema_version": 3, "decisions": [],
+                     "identity": _identite_candidate_revision(), "plancher_digest": "f" * 64}),
+            "racine du rapport")
+    preuve = _preuve_candidate_revision(rapport_candidate_revision)
+    assert verifier_liaison_preuve(
+        preuve, plancher_digest=courant, candidate_revision=REVISION_A_candidate_revision,
+        report_bytes=rapport_candidate_revision.read_bytes(),
+        image_courante=_image_candidate())
+
+
+def test_le_classement_du_checkpoint_oppose_le_rapport_avant_de_le_croire(tmp_path: Path) -> None:
+    """B1, chemin frère : `_configuration_depuis_rapport` décide de ce qui est promu.
+
+    Elle **lisait** `identity.run_digest` sans jamais le recalculer, et ne contrôlait ni plancher,
+    ni révision, ni image : un rapport au `run_digest` arbitraire et sans `plancher_digest` racine
+    rendait `admissible=True`. C'est plus grave que la preuve trusted — c'est la fonction qui classe
+    les candidats du checkpoint.
+    """
+    import json as _json
+
+    from server.evals.plancher import _configuration_depuis_rapport
+
+    courant = charger_plancher().digest
+    image = _image_candidate()
+
+    def _rapport(nom: str, **surcharges: object) -> Path:
+        identite = _identite_candidate_revision(**surcharges.pop("identite", {}))  # type: ignore[arg-type]
+        if "run_digest" in surcharges:
+            identite["run_digest"] = surcharges.pop("run_digest")
+        corps = {"schema_version": 3, "complete": True, "unexecuted_cases": [],
+                 "cost_eur": 0.0, "metrics": {"latency_p50_ms": 1},
+                 "decisions": [{"status": "green", "producer": "orchestrator"}],
+                 "identity": identite, "plancher_digest": courant}
+        corps.update(surcharges)  # type: ignore[arg-type]
+        chemin = tmp_path / nom
+        chemin.write_text(_json.dumps(corps) + "\n", encoding="utf-8")
+        return chemin
+
+    # Le contre-exemple : digest arbitraire, plancher racine absent.
+    fabrique = _rapport("fabrique.json", run_digest="e" * 64, plancher_digest=None)
+    with pytest.raises(ValueError, match="plancher_digest"):
+        _configuration_depuis_rapport({"name": "candidat-fabrique", "report": fabrique.name},
+                                      base=tmp_path, plancher_digest=courant,
+                                      image_courante=image, candidate_revision=None)
+    # Plancher présent mais digest non recalculable : refusé aussi.
+    fabrique = _rapport("fabrique2.json", run_digest="e" * 64)
+    with pytest.raises(ValueError, match="ne se recalcule pas"):
+        _configuration_depuis_rapport({"name": "c", "report": fabrique.name},
+                                      base=tmp_path, plancher_digest=courant,
+                                      image_courante=image, candidate_revision=None)
+    # Révision divergente : refusée quand le classement en nomme une.
+    nominal = _rapport("nominal.json")
+    with pytest.raises(ValueError, match="révision"):
+        _configuration_depuis_rapport({"name": "c", "report": nominal.name},
+                                      base=tmp_path, plancher_digest=courant,
+                                      image_courante=image,
+                                      candidate_revision=REVISION_B_candidate_revision)
+    # Le nominal, lui, se classe.
+    configuration = _configuration_depuis_rapport(
+        {"name": "c", "report": nominal.name}, base=tmp_path, plancher_digest=courant,
+        image_courante=image, candidate_revision=REVISION_A_candidate_revision)
+    assert configuration.admissible is True

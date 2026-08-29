@@ -151,7 +151,12 @@ def test_le_workflow_est_lautorite_sur_les_variables_du_service() -> None:
     """
     avec = deploiement()
     assert avec["env_vars_update_strategy"] == "overwrite"
-    assert "GIT_SHA=${{ steps.sha.outputs.sha7 }}" in avec["env_vars"]
+    # Story 4.5 (revue B2) : le service porte la révision **complète**. `/api/v1/sante` continue de
+    # publier le `sha7` qu'AD-11 promet, mais comme **projection** de celle-ci — une seule source de
+    # vérité. Un `GIT_SHA` court rendait la comparaison de gate incapable de distinguer deux commits
+    # partageant sept caractères.
+    assert "GIT_SHA=${{ steps.sha.outputs.sha40 }}" in avec["env_vars"]
+    assert "GIT_SHA=${{ steps.sha.outputs.sha7 }}" not in avec["env_vars"]
     assert "ALLOW_UNGATED" not in avec["env_vars"]
 
 

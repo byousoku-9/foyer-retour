@@ -42,6 +42,15 @@ RAISON_PUBLIABLE_MAX_DEFAULT = 500
 # pour toujours — un défaut muet, exactement ce qu'AD-16 interdit. `config` est la seule couche que
 # les deux peuvent lire.
 EVALS_PUBLICATION_FILE = "evals-latest.json"
+# Longueur de la forme **publiée** d'une révision (AD-11 : « `version: sha7` »). C'est une projection
+# d'affichage, jamais une valeur de comparaison : le gate se compare sur la révision complète.
+SHA_COURT = 7
+_HEX = frozenset("0123456789abcdef")
+
+
+def _est_revision_complete(valeur: str) -> bool:
+    """40 hexadécimaux — la seule forme qui identifie un commit sans ambiguïté."""
+    return len(valeur) == 40 and all(c in _HEX for c in valeur.lower())
 
 
 class Settings(BaseSettings):
@@ -63,14 +72,35 @@ class Settings(BaseSettings):
     ungated_demande_en_prod: bool = False
     anthropic_api_key: str = ""
     usd_eur: float = Field(0.92, gt=0)
-    # AD-11 : `GET /api/v1/sante` publie `version: sha7`. En production, il vient de la
-    # **configuration du service** Cloud Run — `deploy.yml` pose `GIT_SHA=<sha7>`, ce que
-    # `gcloud run deploy --source` sait faire alors qu'il n'accepte aucun `--build-arg` —, et cette
-    # variable recouvre le `ENV GIT_SHA` que le `Dockerfile` laisse à `dev`. Hors conteneur, `dev`.
-    # C'est cette valeur que le smoke de déploiement compare au SHA du commit qui l'a déclenché : sans
-    # elle, il mesurerait une révision qu'il n'a pas construite. Ce n'est pas un seuil numérique : il
-    # n'entre pas dans `thresholds()`.
+    # **La révision produit qui tourne, en entier.** En production elle vient de la configuration
+    # du service Cloud Run — `deploy.yml` pose `GIT_SHA=<sha40>`, ce que `gcloud run deploy --source`
+    # sait faire alors qu'il n'accepte aucun `--build-arg` —, et cette variable recouvre le
+    # `ENV GIT_SHA` que le `Dockerfile` laisse à `dev`. Hors conteneur, `dev`.
+    #
+    # **Pourquoi la révision complète, et non le `sha7` d'avant** (story 4.5, revue B2) : un gate
+    # `full` porte 40 hexadécimaux et affirme avoir mesuré *ce* commit. Comparé à un `sha7`, le
+    # contrôle ne discriminait plus que 16⁷ classes — un gate d'un **autre** commit partageant les
+    # sept premiers caractères était servi sans alerte, et les deux moitiés du même invariant
+    # n'avaient pas la même exigence (`plancher.py` exige 40 hex exacts côté preuve). La cause
+    # n'était pas la comparaison, c'était l'ambiguïté de ce que le service sait de lui-même : c'est
+    # donc elle qu'on lève.
+    #
+    # AD-11 continue de promettre `GET /api/v1/sante` → `version: sha7` : la valeur **publiée** est
+    # une projection courte de celle-ci (`version_publiee`), pas une seconde source de vérité. Le
+    # smoke de déploiement compare cette projection au sha7 du commit qui l'a déclenchée.
+    #
+    # Ce n'est pas un seuil numérique : il n'entre pas dans `thresholds()`.
     git_sha: str = "dev"
+
+    @property
+    def version_publiee(self) -> str:
+        """La forme **courte** publiée par `/api/v1/sante` — AD-11, `scripts/smoke.py`, README.
+
+        Une seule source de vérité (`git_sha`, complète), une projection pour l'affichage. L'inverse
+        — publier la valeur brute et tronquer ailleurs — laisserait deux endroits décider de ce
+        qu'est « la version », et c'est exactement la divergence que la revue B2 a trouvée.
+        """
+        return self.git_sha[:SHA_COURT] if _est_revision_complete(self.git_sha) else self.git_sha
 
     # Temps (AD-1, AD-9)
     deadline_s: float = Field(55.0, gt=0)

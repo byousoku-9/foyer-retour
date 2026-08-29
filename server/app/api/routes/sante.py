@@ -31,7 +31,9 @@ async def sante(request: Request) -> SanteResponse:
         # `ok` répond à la seule question que le front pose : « puis-je poser ma question ? ». Le
         # guide en quarantaine, la réponse est non, même si le serveur tourne parfaitement.
         ok=etat.settings.guide_doc_id in etat.corpus.documents,
-        version=etat.settings.git_sha,
+        # AD-11 : `version: sha7`. C'est une **projection** de `git_sha`, qui porte la
+        # révision complète depuis la story 4.5 — une seule source de vérité.
+        version=etat.settings.version_publiee,
         documents_servis=etat.documents_servis,
         gate_profile=etat.gate_profile,
         gate_cases=etat.gate_cases,

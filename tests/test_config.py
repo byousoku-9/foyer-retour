@@ -518,3 +518,25 @@ def test_le_nom_du_fichier_de_publication_ne_peut_pas_sortir_de_data(
             Settings(_env_file=None)
     monkeypatch.setenv("EVALS_PUBLICATION_FILE", "autre-nom.json")
     assert Settings(_env_file=None).evals_publication_file == "autre-nom.json"
+
+
+def test_la_revision_publiee_est_une_projection_de_la_revision_complete() -> None:
+    """B2 : une seule source de vérité (`git_sha`), une projection pour l'affichage.
+
+    AD-11 promet `GET /api/v1/sante` → `version: sha7`, et `scripts/smoke.py` compare cette valeur
+    au sha7 du commit déployé. Mais le **gate** se compare sur la révision complète : servir la
+    valeur brute des deux côtés obligeait à choisir, et le choix fait — sept caractères partout —
+    rendait la comparaison de gate incapable de distinguer deux commits.
+    """
+    from server.app.config import SHA_COURT
+
+    complete = "0123456789abcdef" * 2 + "01234567"
+    assert len(complete) == 40
+    reglages = Settings(_env_file=None, git_sha=complete)
+    assert reglages.git_sha == complete
+    assert reglages.version_publiee == complete[:SHA_COURT]
+    assert len(reglages.version_publiee) == 7
+    # Hors conteneur, la valeur n'est pas une révision : elle est publiée telle quelle.
+    assert Settings(_env_file=None).version_publiee == "dev"
+    # Une valeur déjà courte n'est pas retronquée en silence : elle n'est pas une révision.
+    assert Settings(_env_file=None, git_sha="abc1234").version_publiee == "abc1234"

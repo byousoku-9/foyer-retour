@@ -159,9 +159,13 @@ def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
             limites.append(
                 "dictionnaire des variantes non validé : le refus « zéro hit » d'AD-5 est désarmé")
     if seconde_lecture is not None and seconde_lecture.statut != "concordante":
+        improjetables = (f", dont {seconde_lecture.blocs_non_projetables} clé(s) attendue(s) "
+                         "impossibles à projeter en image"
+                         if seconde_lecture.blocs_non_projetables else "")
         limites.append(
             f"seconde lecture sur images de pages : {seconde_lecture.statut} "
-            f"({seconde_lecture.blocs_verifies}/{seconde_lecture.blocs_planifies} bloc(s) relu(s))")
+            f"({seconde_lecture.blocs_verifies}/{seconde_lecture.blocs_planifies} bloc(s) "
+            f"relu(s){improjetables})")
     return limites
 
 

@@ -30,6 +30,9 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from server.app.corpus.text import normalize_version
+from server.app.digests import pipeline_digest, prompts_digest
+from server.app.llm.models import TIERS
 from server.evals.cache import empreinte_canonique
 
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
@@ -317,6 +320,66 @@ def _hex_exact(valeur: Any, longueur: int) -> bool:
             and all(c in _HEX for c in valeur))
 
 
+# Les cinq champs que `run.identite_run` écrit dans `identity.image`, et que **tout** rapport
+# externe doit porter pour être opposable. La liste est ici, en un seul endroit, parce que la faute
+# qu'elle ferme est précisément d'en avoir comparé un sous-ensemble : trois champs côté appelant,
+# cinq côté rapport, et deux qui n'étaient donc jamais confrontés — dont `normalize_version`, qui
+# décide des `text_norm` et donc de tous les `quote_hash`.
+CHAMPS_IMAGE: tuple[str, ...] = (
+    "pipeline_digest", "prompts_digest", "model_ids", "normalize_version", "plancher_digest",
+)
+
+
+def verifier_identite_externe(rapport: dict[str, Any], *, plancher_digest: str,
+                              image_courante: dict[str, Any] | None,
+                              origine: str) -> None:
+    """Le rapport porte-t-il une identité **complète** et concordante ? — sinon il ne prouve rien.
+
+    Story 4.5, revue B1. La version précédente disait « si le champ est présent, je le compare » :
+    un rapport sans `plancher_digest` racine et avec `identity.image = {}` passait donc **tous** les
+    contrôles, avec zéro champ effectivement comparé. Quatre façons d'obtenir ce vide suffisaient —
+    racine absente, clé `image` absente, champs à `None`, `image` non-dict rabattu sur `{}`.
+
+    La règle est désormais l'inverse, et elle vaut pour tout chemin de confiance : **une identité
+    obligatoire absente, vide, mal formée ou incohérente ferme.** Un rapport qui ne dit pas sous quel
+    protocole et sur quelle image il a été mesuré n'est pas un rapport prudent, c'est un rapport
+    qu'on ne peut pas opposer — et l'accepter revient à croire ce qu'il ne dit pas.
+
+    `image_courante` est **obligatoire** et doit porter les cinq champs : la comparaison itère sur
+    elle, donc un appelant qui en omet un le retire silencieusement du contrôle.
+    """
+    if image_courante is None or set(image_courante) != set(CHAMPS_IMAGE):
+        raise PlancherInvalide(
+            f"{origine} : l'image du run courant est incomplète "
+            f"({sorted(image_courante or {})}, attendu {sorted(CHAMPS_IMAGE)}) — une comparaison "
+            "qui n'oppose qu'une partie des champs ne prouve pas l'égalité des images")
+    racine = rapport.get("plancher_digest")
+    if not isinstance(racine, str) or not racine:
+        raise PlancherInvalide(
+            f"{origine} : le rapport référencé ne porte pas de plancher_digest à sa racine — il ne "
+            "dit pas contre quels seuils il a été mesuré")
+    if racine != plancher_digest:
+        raise PlancherInvalide(
+            f"{origine} : le rapport référencé a été mesuré sous le plancher {racine!r} "
+            f"(racine du rapport), le run courant sous {plancher_digest}")
+    identite = rapport.get("identity")
+    image = identite.get("image") if isinstance(identite, dict) else None
+    if not isinstance(image, dict):
+        raise PlancherInvalide(
+            f"{origine} : le rapport référencé ne porte pas d'identité d'image "
+            f"({type(image).__name__}) — rien n'y dit quel code a été mesuré")
+    manquants = [champ for champ in CHAMPS_IMAGE if image.get(champ) is None]
+    if manquants:
+        raise PlancherInvalide(
+            f"{origine} : l'identité d'image du rapport est incomplète (manquants : "
+            f"{manquants}) — un champ absent n'est pas un champ concordant")
+    for champ in CHAMPS_IMAGE:
+        if image[champ] != image_courante[champ]:
+            raise PlancherInvalide(
+                f"{origine} : le rapport référencé porte {champ}={image[champ]!r}, "
+                f"le run courant {image_courante[champ]!r} — la preuve ne mesure pas cette image")
+
+
 def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revision: str,
                             report_bytes: bytes | None,
                             image_courante: dict[str, Any] | None = None) -> str:
@@ -412,25 +475,8 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
             f"preuve orchestrateur : le rapport référencé a mesuré la révision "
             f"{identite.get('candidate_revision')!r}, la preuve annonce "
             f"{brut['candidate_revision']}")
-    # Le **protocole** du rapport, à ses deux emplacements : la racine et l'identité d'image. Un
-    # rapport mesuré sous un autre plancher n'oppose pas les mêmes seuils, et une preuve qui s'en
-    # réclame comparerait des mesures qui ne veulent pas dire la même chose.
-    image = identite.get("image") if isinstance(identite.get("image"), dict) else {}
-    for source, valeur in (("racine du rapport", rapport.get("plancher_digest")),
-                           ("identity.image", image.get("plancher_digest"))):
-        if valeur is not None and valeur != plancher_digest:
-            raise PlancherInvalide(
-                f"preuve orchestrateur : le rapport référencé a été mesuré sous le plancher "
-                f"{valeur!r} ({source}), le run courant sous {plancher_digest}")
-    # Et l'**image** : deux runs ne se comparent qu'à code, prompts et modèles égaux. Une preuve
-    # tirée d'une autre image mesure un autre système.
-    if image_courante is not None:
-        for champ, attendu in image_courante.items():
-            observe = image.get(champ)
-            if observe is not None and observe != attendu:
-                raise PlancherInvalide(
-                    f"preuve orchestrateur : le rapport référencé porte {champ}={observe!r}, "
-                    f"le run courant {attendu!r} — la preuve ne mesure pas cette image")
+    verifier_identite_externe(rapport, plancher_digest=plancher_digest,
+                              image_courante=image_courante, origine="preuve orchestrateur")
     if not _hex_exact(brut["run_digest"], 64):
         raise PlancherInvalide(
             "preuve orchestrateur : run_digest doit être 64 caractères hexadécimaux")
@@ -463,7 +509,18 @@ class Configuration(BaseModel):
     report_digest: str | None = None
 
 
-def _configuration_depuis_rapport(item: Any, *, base: Path) -> Configuration:
+def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str,
+                                  image_courante: dict[str, Any] | None,
+                                  candidate_revision: str | None) -> Configuration:
+    """Une configuration candidate, **lue d'un rapport qu'on a d'abord opposé** (revue B1).
+
+    C'est la fonction qui classe les candidats du checkpoint : ce qu'elle déclare `admissible` décide
+    de ce qui est promu. Elle lisait pourtant `identity.run_digest` sans jamais le recalculer, et ne
+    contrôlait ni le plancher, ni la révision, ni l'image — un rapport au `run_digest` arbitraire et
+    sans `plancher_digest` racine rendait `admissible=True`. La même exigence que la preuve trusted
+    s'y applique donc, et pour la même raison : un rapport qu'on n'a pas pu opposer ne prouve rien,
+    quel que soit le chemin par lequel il arrive.
+    """
     if not isinstance(item, dict) or set(item) != {"name", "report"}:
         raise ValueError("chaque configuration porte exactement name et report")
     report_path = Path(str(item["report"]))
@@ -476,10 +533,28 @@ def _configuration_depuis_rapport(item: Any, *, base: Path) -> Configuration:
     decisions = rapport.get("decisions")
     if not isinstance(decisions, list) or not decisions:
         raise ValueError(f"rapport {report_path} sans décisions")
+    try:
+        verifier_identite_externe(rapport, plancher_digest=plancher_digest,
+                                  image_courante=image_courante,
+                                  origine=f"configuration {item['name']!r}")
+    except PlancherInvalide as exc:
+        raise ValueError(str(exc)) from exc
     identite = rapport.get("identity") or {}
     run_digest = identite.get("run_digest")
     if not isinstance(run_digest, str) or len(run_digest) != 64:
         raise ValueError(f"rapport {report_path} sans run_digest")
+    # **Recalculé**, jamais lu : `run.identite_run` définit le digest comme l'empreinte canonique de
+    # l'identité privée de sa propre clé. Un digest cru sur parole n'est qu'une chaîne.
+    recalcule = empreinte_canonique(
+        {cle: valeur for cle, valeur in identite.items() if cle != "run_digest"})
+    if recalcule != run_digest:
+        raise ValueError(
+            f"rapport {report_path} : run_digest {run_digest} ne se recalcule pas depuis son "
+            f"identité (recalculé {recalcule}) — ce rapport a été fabriqué ou modifié")
+    if candidate_revision is not None and identite.get("candidate_revision") != candidate_revision:
+        raise ValueError(
+            f"rapport {report_path} : mesuré sur la révision "
+            f"{identite.get('candidate_revision')!r}, classement demandé pour {candidate_revision}")
     metrics = rapport.get("metrics") or {}
     cost = rapport.get("cost_eur")
     latency = metrics.get("latency_p50_ms")
@@ -515,7 +590,10 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--digest", action="store_true", help="afficher le digest du plancher chargé")
     parser.add_argument("--classer", type=Path, metavar="CONFIGS_JSON",
                         help="classer des configurations candidates (JSON : liste d'objets "
-                             "{name, admissible, cost_eur, latency_ms})")
+                             "{name, report})")
+    parser.add_argument("--candidate-revision", metavar="SHA40",
+                        help="révision produit dont on classe les configurations : chaque rapport "
+                             "doit l'avoir mesurée (revue 4.5, B1)")
     args = parser.parse_args(argv)
     try:
         charge = charger_plancher()
@@ -527,8 +605,21 @@ def _main(argv: list[str] | None = None) -> int:
             brut = json.loads(args.classer.read_text(encoding="utf-8"))
             if not isinstance(brut, list):
                 raise ValueError("une liste de configurations est attendue")
+            # L'image du run courant, complète : la comparaison itère dessus, et un champ omis
+            # serait un champ jamais opposé (revue B1).
+            image_courante = {
+                "pipeline_digest": pipeline_digest(),
+                "prompts_digest": prompts_digest(),
+                "model_ids": dict(TIERS),
+                "normalize_version": normalize_version,
+                "plancher_digest": charge.digest,
+            }
             configurations = [
-                _configuration_depuis_rapport(item, base=args.classer.parent) for item in brut]
+                _configuration_depuis_rapport(
+                    item, base=args.classer.parent, plancher_digest=charge.digest,
+                    image_courante=image_courante,
+                    candidate_revision=args.candidate_revision)
+                for item in brut]
             if len({c.name for c in configurations}) != len(configurations):
                 raise ValueError("les noms de configurations doivent être uniques")
         except (OSError, ValueError, ValidationError) as exc:

@@ -281,10 +281,13 @@ class GateContext(DomainModel):
     # modification produit hors de ces couches ne le fait pas bouger, et un gate `full` d'un ancien
     # commit restait servi sans une alerte alors qu'il affirme avoir mesuré *ce* code.
     #
-    # En production, `deploy.yml` pose `GIT_SHA=<sha7>` : la comparaison se fait donc sur le
-    # **préfixe commun**, jamais sur l'égalité stricte. Vide ou `dev` (hors conteneur), la révision
-    # est inconnue et rien n'est comparé — mettre tout un corpus en quarantaine parce qu'un poste de
-    # développement ne se nomme pas serait une panne inventée.
+    # En production, `deploy.yml` pose `GIT_SHA=<sha40>` : la comparaison est une **identité
+    # stricte** sur la révision complète (story 4.5, revue B2 — un préfixe de sept caractères ne
+    # discriminait que 16⁷ classes, et servait un gate d'un autre commit sans alerte). Vide, `dev`
+    # ou tronquée (hors conteneur), la révision est inconnue : hors production rien n'est comparé —
+    # mettre un corpus en quarantaine parce qu'un poste de développement ne se nomme pas serait une
+    # panne inventée —, mais **en production une révision inconnue ferme**, parce que le profil
+    # `full` promet que le servi est exactement le mesuré.
     candidate_revision: str = ""
     # `prod` ou `dev`. Sous un gate `full`, une révision **inconnue** est une preuve manquante en
     # production et une simple ignorance ailleurs : la règle est celle qu'AD-7 applique déjà à

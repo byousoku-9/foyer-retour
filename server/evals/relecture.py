@@ -54,18 +54,55 @@ class BlocRelu(BaseModel):
     image_url: str = Field(min_length=1)
 
 
+# Pourquoi une clé attendue n'a pas pu être projetée. Vocabulaire **fermé** : une raison qui n'y est
+# pas ne peut pas sortir du planificateur, et « perdu pour une raison qu'on ne sait pas nommer »
+# n'existe donc pas.
+RaisonNonProjetable = Literal["inconnu_de_lindex", "sans_page_ou_bbox"]
+
+
+class CleNonProjetable(BaseModel):
+    """Une clé attendue que le plan n'a **pas** pu projeter, et pourquoi.
+
+    Story 4.5, revue B5. Ces clés étaient simplement sautées (`continue`) : le plan n'avait aucun
+    champ où les loger, la couverture ne s'exigeait que sur ce qui restait, et le résultat publié
+    annonçait `concordante` avec un ratio parfait sur un dénominateur amputé — une page servie par le
+    corpus n'avait jamais été regardée, et rien nulle part ne le disait.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    block_id: str = Field(min_length=1)
+    raison: RaisonNonProjetable
+
+
 class PlanRelecture(BaseModel):
-    """Le plan complet et son empreinte : le verdict s'y adosse, il ne s'en écarte pas."""
+    """Le plan complet et son empreinte : le verdict s'y adosse, il ne s'en écarte pas.
+
+    Le plan porte **ce qu'il a projeté et ce qu'il n'a pas pu projeter**. Les deux entrent dans
+    `plan_digest` : deux plans qui perdent différemment ne sont pas le même plan, et un verdict
+    adossé à l'un ne vaut pas pour l'autre.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
     candidate_revision: str = Field(pattern=REVISION)
     blocs: list[BlocRelu] = Field(default_factory=list)
+    non_projetables: list[CleNonProjetable] = Field(default_factory=list)
 
     @property
     def plan_digest(self) -> str:
         return empreinte_canonique(self.model_dump(mode="json"))
+
+    @property
+    def cles_attendues(self) -> list[str]:
+        """**Toutes** les clés du plan, projetables ou non — le dénominateur de la couverture.
+
+        C'est la correction de fond : la couverture se mesurait sur le résidu projetable, donc sur
+        un dénominateur que le planificateur avait lui-même réduit.
+        """
+        return sorted({b.block_id for b in self.blocs}
+                      | {n.block_id for n in self.non_projetables})
 
 
 class VerdictBloc(BaseModel):
@@ -103,39 +140,63 @@ def blocs_cles_du_rapport(rapport: dict[str, Any]) -> list[str]:
     """
     blocs: set[str] = set()
     for resultat in rapport.get("results") or []:
+        # **Rien n'est écarté en silence** (revue B5, chemin frère). Un rapport dont une exécution
+        # n'est pas un objet, ou dont un `block_id` n'est pas une chaîne, est un rapport corrompu ou
+        # fabriqué : le sauter revenait à bâtir un plan sur ce qui restait lisible, et à le publier
+        # comme s'il était complet.
         if not isinstance(resultat, dict):
-            continue
+            raise RelectureInvalide(
+                f"rapport : une exécution n'est pas un objet ({type(resultat).__name__}) — le plan "
+                "de seconde lecture ne peut pas être bâti sur un rapport corrompu")
         for preuve in resultat.get("proofs") or []:
-            if isinstance(preuve, dict) and isinstance(preuve.get("block_id"), str):
-                blocs.add(preuve["block_id"])
+            if not isinstance(preuve, dict) or not isinstance(preuve.get("block_id"), str):
+                raise RelectureInvalide(
+                    f"rapport : preuve sans block_id lisible dans l'exécution "
+                    f"{resultat.get('id')!r}")
+            blocs.add(preuve["block_id"])
         for block_id in resultat.get("expected_blocks_not_opened") or []:
-            if isinstance(block_id, str):
-                blocs.add(block_id)
+            if not isinstance(block_id, str):
+                raise RelectureInvalide(
+                    f"rapport : expected_blocks_not_opened porte une valeur non textuelle dans "
+                    f"l'exécution {resultat.get('id')!r}")
+            blocs.add(block_id)
     return sorted(blocs)
 
 
 def plan_de_relecture(index: Any, block_ids: list[str], *, candidate_revision: str) -> PlanRelecture:
-    """Le plan des blocs clés, tel que le corpus servi les décrit — trié, sans doublon.
+    """Le plan des blocs clés, tel que le corpus servi les décrit — trié, sans doublon, **sans perte**.
 
-    Un `block_id` que le corpus ne sert pas, ou dont l'ingestion n'a retenu ni page ni bbox, n'entre
-    **pas** dans le plan : on ne peut pas demander à quelqu'un de relire une image qui n'existe pas.
-    Ce qui manque se lit à la longueur du plan, pas à une entrée fabriquée.
+    Une clé qu'on ne peut pas projeter en image ne disparaît pas : elle entre dans
+    `non_projetables` avec sa raison. On ne peut pas demander de relire une image qui n'existe pas ;
+    on peut, et on doit, dire qu'on l'a demandée et qu'elle n'existe pas.
+
+    C'est le patron que `charger_images` suit déjà — perdre en amont, être **rattrapé en aval** par
+    le refus de `valider_verdict`. Ce planificateur perdait sans rattrapage : le résultat publié
+    annonçait `concordante` sur ce qui restait.
     """
     vus: dict[str, BlocRelu] = {}
+    perdus: dict[str, RaisonNonProjetable] = {}
     for block_id in sorted(set(block_ids)):
         try:
             doc_id = index.doc_of(block_id)
             bloc = index.corpus.documents[doc_id].block(block_id)
         except KeyError:
+            perdus[block_id] = "inconnu_de_lindex"
             continue
-        if bloc is None or bloc.page is None or bloc.bbox is None:
+        if bloc is None:
+            perdus[block_id] = "inconnu_de_lindex"
+            continue
+        if bloc.page is None or bloc.bbox is None:
+            perdus[block_id] = "sans_page_ou_bbox"
             continue
         vus[block_id] = BlocRelu(
             doc_id=doc_id, block_id=block_id, page=bloc.page, bbox=[float(v) for v in bloc.bbox],
             text_norm=bloc.text_norm,
             image_url=ROUTE_PAGE.format(doc_id=doc_id, page=bloc.page, block_id=block_id))
-    return PlanRelecture(candidate_revision=candidate_revision,
-                         blocs=[vus[k] for k in sorted(vus)])
+    return PlanRelecture(
+        candidate_revision=candidate_revision,
+        blocs=[vus[k] for k in sorted(vus)],
+        non_projetables=[CleNonProjetable(block_id=k, raison=perdus[k]) for k in sorted(perdus)])
 
 
 def ecrire_plan(plan: PlanRelecture, path: Path) -> None:
@@ -215,7 +276,17 @@ def valider_verdict(brut: Any, plan: PlanRelecture, *, candidate_revision: str,
         raise RelectureInvalide(
             f"verdict de seconde lecture : plan_digest {verdict.plan_digest} ≠ plan servi "
             f"{plan.plan_digest}")
-    attendus = [b.block_id for b in plan.blocs]
+    if plan.non_projetables:
+        # **Une preuve amputée n'est pas une preuve.** Ces clés étaient attendues et n'ont pas pu
+        # être regardées : aucun verdict ne peut les couvrir, donc aucun verdict ne peut être
+        # concordant. Le refus est la forme « rouge » exigée — la seconde lecture reste due.
+        detail = ", ".join(f"{n.block_id} ({n.raison})" for n in plan.non_projetables)
+        raise RelectureInvalide(
+            f"verdict de seconde lecture : {len(plan.non_projetables)} clé(s) attendue(s) n'ont "
+            f"pas pu être projetées en image — {detail}. La couverture se mesure sur les clés "
+            "attendues, jamais sur le résidu projetable")
+    # La couverture porte sur **toutes** les clés attendues, pas sur les seules projetables.
+    attendus = plan.cles_attendues
     rendus = [v.block_id for v in verdict.verdicts]
     if sorted(rendus) != sorted(attendus) or len(set(rendus)) != len(rendus):
         raise RelectureInvalide(
