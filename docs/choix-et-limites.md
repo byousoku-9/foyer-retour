@@ -39,6 +39,36 @@ et se lit au-dessus des colonnes qu'elle coiffe. La clé de lecture devient
 colonne ou de bande, et les tables sont replacées dans la colonne de leur propre boîte. La règle
 s'applique par récursion, donc à trois colonnes comme à deux, sans cas particulier.
 
+**Une table est une boîte de la détection, et elle reste un bloc atomique.** La détection ne voyait
+d'abord que les lignes : les tables n'intervenaient qu'au *bandage*, et seulement une fois qu'une
+gouttière avait déjà été trouvée par du texte. Une page dominée par des tableaux — quatre tables à
+gauche, quatre à droite, sans une seule ligne — n'avait donc aucune gouttière et se relisait en
+rangées, en violation de l'acceptation « la lecture épuise une colonne avant d'entamer la suivante »,
+puisqu'une table *est* un bloc. Les tables entrent désormais dans la détection des gouttières et dans
+le calcul de la hauteur écrite, comme le texte. Chaque table y est représentée par autant de boîtes
+que de rangées détectées — son contenu écrit pèse ce qu'il pèse, et non pour un objet unique, sans
+quoi une colonne entièrement tabulaire resterait sous le nombre de lignes exigé de chaque côté ; à
+défaut de rangées publiées par l'extracteur, sa seule boîte compte pour une. Ces boîtes sont bornées
+par la boîte de la table et posées **à son aplomb** : elles en reprennent les bords gauche et droit et
+n'en gardent que la hauteur de la rangée. L'atomicité est donc structurelle, jamais un contrôle
+ajouté après coup — aucune frontière ne peut passer entre deux rangées d'une même table sans les
+traverser toutes, si bien qu'une table est soit entièrement d'un côté, soit traversante, donc pleine
+largeur et ouvrant une bande, exactement comme une ligne traversante. Une table détectée qui ne rend
+aucune rangée (`table_sans_bloc`) ne sert rien et ne vote pas. La fusion des numéros observe la même
+géométrie que la lecture, tables comprises : une page ne peut pas s'abîmer à la fusion pour se
+corriger à la lecture. Sur une page sans table, la liste de boîtes est exactement celle des lignes :
+le comportement y est inchangé à l'octet.
+
+**La garde à deux signaux reste une garde sur les lignes.** Elle protège une rangée
+« libellé … montant » que `find_tables()` **n'a pas vue** : rien d'autre que leur ligne de base ne
+tient ensemble le libellé et le montant, et les lire comme deux colonnes les sépare. Une rangée que
+`find_tables()` a vue n'a pas ce statut — c'est déjà un bloc atomique, son libellé et son montant
+sont deux cellules de la même ligne du même bloc `table`, qu'aucune gouttière ne peut disjoindre.
+Faire voter les rangées de table dans cette garde n'aurait donc rien protégé et aurait coûté :
+la grille d'un tableau est appariée par construction, et elle aurait écarté les colonnes voisines.
+La garde reste armée à l'identique sur les lignes d'une page qui porte aussi des tables ; elle se
+tait pour une gouttière dont un côté n'a aucune ligne, n'ayant alors aucune paire à observer.
+
 **Une rangée « libellé … montant » n'est pas une colonne, et il faut deux signaux pour le dire.**
 Une liste de libellés à gauche et de montants à droite laisse un blanc vertical franc que rien
 n'oppose, géométriquement, à une gouttière : elle satisfait les trois bornes ci-dessus, et la lire
@@ -55,7 +85,8 @@ distingue la rangée de la colonne.
 **Aucune gouttière retenue ⇒ rien ne bouge.** C'est la garantie qui rend la détection sûre : sur une
 page mono-colonne, l'ordre de lecture est l'ordre d'extraction, à l'identique, jusqu'aux octets des
 blocs, des identifiants, des boîtes et du sommaire. Le test qui le prouve rejoue l'ingestion complète
-avec la détection rendue impossible et compare les artefacts.
+avec la détection rendue impossible et compare les artefacts. La garantie vaut aussi pour une page
+qui ne porte que des tables : sans gouttière retenue, elles gardent leur ordre d'extraction.
 
 **Le modèle propose une structure, le code la prouve — ou le document part en quarantaine.**
 L'heuristique numérique (`_NUMBER_RE`) ne reconnaît que les décimaux pointés, et un contrat à titres
@@ -67,7 +98,7 @@ Les titres servis sont **relus dans le registre** à partir de l'`uid` désigné
 chemin positionnel (`{doc_id}:s1.2`) calculé par le code : renommer les intitulés ne déplace aucun
 identifiant. Le vérificateur est en code pur, hors réseau, et rend un refus **nommé** :
 `proposition_illisible`, `document_different`, `ligne_inconnue`, `titre_duplique`, `titre_ambigu`,
-`cycle`, `profondeur_excessive`, `ordre_impossible`, `intervalles_croises`,
+`cycle`, `profondeur_excessive`, `largeur_excessive`, `ordre_impossible`, `intervalles_croises`,
 `parent_non_contenant`, `ligne_omise`, `affectation_non_prouvee`, `proposition_vide`,
 `noeud_non_construit`. Un
 nœud prouvé que l'arbre bâti ne porte pas est donc un refus, pas une note : annoncer « proposition
@@ -103,6 +134,31 @@ que la proposition scinde, une ligne fusionnée dont les deux `uid` tombent de p
 frontière —, est le refus `affectation_non_prouvee` : un bloc servi ne peut pas être moins prouvé que
 la proposition qui l'annonce.
 
+**La largeur est bornée comme la profondeur, et refusée au plus tôt.** La profondeur de l'arbre
+proposé était bornée ; sa largeur ne l'était pas. Le vérificateur porte une boucle en O(n²) sur les
+intervalles : une proposition très large faisait donc travailler indéfiniment un chemin dont toute la
+valeur est d'être fail-closed et déterministe — refuser vite, ou ne rien valoir.
+`STRUCTURE_MAX_NODES` borne le nombre total de nœuds et `STRUCTURE_MAX_CHILDREN` le nombre d'enfants
+d'un même parent, **racines comprises** : une proposition « plate » de N nœuds sans parent est une
+largeur de N, et c'est le cas qu'un compte par parent seul laisserait passer. Les deux bornes
+s'appliquent aux cinq endroits par lesquels une proposition peut arriver — le schéma fournisseur
+(`maxItems`), le modèle Pydantic, le parse local de la réponse, le chargement de l'artefact depuis le
+disque et le vérificateur lui-même —, sous le motif dédié `largeur_excessive` du vocabulaire fermé.
+Le chemin d'entrée est fermé avant le chemin de sortie : `STRUCTURE_MAX_OUTPUT_TOKENS` ne borne que
+la réponse du **réseau**, si bien qu'un `structure.json` déposé à la main lui échappe entièrement. Un
+tel fichier est donc jugé d'abord sur sa **taille**, sans être lu — il ne peut pas peser plus que la
+charge utile qui l'a produit, `STRUCTURE_MAX_INPUT_CHARS`, puisqu'il ne fait que nommer des `uid` que
+cette charge portait déjà avec leur page, leur colonne, leur ordre, leur boîte et leur texte —, puis
+sur sa largeur comptée sur la charge brute, avant que le moindre modèle soit bâti. Un artefact de dix
+millions de nœuds est ainsi rejeté sans avoir été désérialisé, et non après. Ces bornes entrent dans
+`ingest_fingerprint` **seulement dans la branche où une proposition est appliquée** : elles peuvent y
+faire basculer accepté/refusé, donc changer l'arbre servi, alors qu'un document sans `structure.json`
+n'est concerné par aucune d'elles — les y faire entrer quand même périmerait ses artefacts pour un
+réglage qui ne décide rien chez lui. `STRUCTURE_MAX_DEPTH`, `STRUCTURE_MIN_COVERAGE` et la version
+des règles de vérification suivent le même partage ; `STRUCTURE_MAX_OUTPUT_TOKENS` et
+`STRUCTURE_MAX_COST_EUR` restent dehors, car ils bornent la fabrication hors ligne de l'artefact,
+jamais son acceptation.
+
 **L'appel suit la convention LLM du spine, et le plafond ne se neutralise pas.** L'unique appel du
 tier `ingest` passe par `messages.parse(..., output_config={"format": …})` **sans** `output_format`,
 et la réponse est validée localement par un `TypeAdapter` sur la forme filaire, avant les contrôles
@@ -123,13 +179,15 @@ rendrait l'arbre instable et mettrait le document en quarantaine à chaque déma
 `uv run python -m server.ingest.structure <doc_id>`, puis relu et revérifié à chaque ingestion. Sa
 liaison cryptographique au manifest reste hors périmètre (différé, `target_story: 4.5`).
 
-### Les dix réglages de la story, et où ils se règlent
+### Les douze réglages de la story, et où ils se règlent
 
 Convention Seuils : aucune de ces valeurs n'est écrite en dur dans le parseur ou le vérificateur.
 Chacune vit dans `server/app/config.py` avec la justification de sa valeur, est publiée par
 `thresholds()` — donc lisible sur `/api/v1/sante` et dans `Trace.thresholds` — et se règle par la
 variable d'environnement du même nom en majuscules. Les cinq bornes de colonne entrent en plus dans
-`ingest_fingerprint`, parce qu'elles changent l'ordre de lecture, donc les identifiants.
+`ingest_fingerprint`, parce qu'elles changent l'ordre de lecture, donc les identifiants ; les quatre
+bornes du vérificateur et `STRUCTURE_MAX_INPUT_CHARS` n'y entrent que lorsqu'une proposition est
+appliquée, parce qu'elles ne décident de rien pour un document qui n'en porte pas.
 
 La liste ci-dessous est un **second texte faisant autorité sur les mêmes nombres** : une garde
 (`test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_documentes`) relit chaque
@@ -140,15 +198,23 @@ mesurent 710 081 et 655 999 caractères — ne survive pas une story de plus.
 Géométrie des colonnes du corps :
 
 - `COLUMN_GUTTER_MIN_PT=18.0` — largeur minimale du blanc vertical entre deux colonnes.
-- `COLUMN_MIN_LINES=4` — lignes entièrement d'un côté, exigées de chaque côté.
-- `COLUMN_MIN_SPAN_RATIO=0.35` — part de la hauteur écrite que chaque côté doit couvrir.
+- `COLUMN_MIN_LINES=4` — boîtes entièrement d'un côté, exigées de chaque côté : une ligne de texte,
+  ou une rangée de table posée à l'aplomb de la boîte de sa table.
+- `COLUMN_MIN_SPAN_RATIO=0.35` — part de la hauteur écrite — tables comprises — que chaque côté doit
+  couvrir.
 - `COLUMN_ROW_PAIRING_MAX_RATIO=0.5` — appariement des lignes de base au-delà duquel les deux côtés
-  ressemblent à une rangée ; n'écarte la gouttière qu'avec le critère suivant.
-- `COLUMN_MIN_FILL_RATIO=0.6` — part de sa largeur *disponible* qu'occupe le côté le moins rempli.
+  ressemblent à une rangée ; mesuré sur les lignes seules, et n'écarte la gouttière qu'avec le
+  critère suivant.
+- `COLUMN_MIN_FILL_RATIO=0.6` — part de sa largeur *disponible* qu'occupe le côté le moins rempli,
+  mesurée elle aussi sur les lignes seules.
 
 Structure proposée puis vérifiée :
 
 - `STRUCTURE_MAX_DEPTH=6` — profondeur maximale de l'arbre proposé.
+- `STRUCTURE_MAX_NODES=2000` — nombre total de nœuds. **Mesuré** sur les trois documents déjà
+  ingérés : 751, 88 et 2 nœuds ; la borne est réglée à ~2,7 fois le maximum mesuré.
+- `STRUCTURE_MAX_CHILDREN=256` — enfants d'un même parent, racines comprises. **Mesuré** de même :
+  la fratrie la plus large en compte 87, puis 54 ; même marge.
 - `STRUCTURE_MIN_COVERAGE=1.0` — part des lignes du registre que les intervalles doivent couvrir. La
   borne est nommée et publiée parce que l'AC l'exige ; la règle appliquée est par `uid` et
   inconditionnelle, si bien qu'abaisser ce réglage ne rend aucune ligne omise acceptable.

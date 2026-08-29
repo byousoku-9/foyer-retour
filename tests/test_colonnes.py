@@ -335,6 +335,284 @@ def test_un_bandeau_de_tete_pleine_largeur_nouvre_pas_une_bande_vide() -> None:
     assert page.lines[0] is titre  # `colonne=0` se lit avant les colonnes de sa bande
 
 
+# --- Tables : des boîtes atomiques dans la détection ---------------------------------------------
+
+def _table(prefixe: str, x: float, y: float, *, n: int = 3, largeur: float = 200.0,
+           hauteur: float = 20.0) -> p.PageTable:
+    """Une table détectée, avec ses `row_bboxes` — le poids géométrique de son contenu écrit."""
+    return p.PageTable(
+        bbox=[x, y, x + largeur, y + n * hauteur],
+        rows=[[f"{prefixe} rangee {i}", "valeur"] for i in range(n)],
+        row_bboxes=[[x, y + i * hauteur, x + largeur, y + (i + 1) * hauteur] for i in range(n)],
+    )
+
+
+def _tables_extraites(tables: list[p.PageTable]) -> list[p.PageTable]:
+    """L'ordre que rend `_tables()` : le tri `(y0, x0)`, donc deux colonnes entrelacées."""
+    return sorted(tables, key=lambda table: (table.bbox[1], table.bbox[0]))
+
+
+def _ordre_de_lecture(page: p.PageText) -> list[str]:
+    """Les deux premiers caractères du premier texte de chaque groupe, dans l'ordre de lecture."""
+    p.ordonner_pages([page])
+    return [lignes[0].text[:2] for _kind, lignes in p._segment_page(page)]
+
+
+def _page_tables_cote_a_cote() -> p.PageText:
+    """Quatre tables à gauche, quatre à droite : aucune ligne de texte sur la page."""
+    tables = [table for i in range(4)
+              for table in (_table(f"G{i}", GAUCHE_X, 100.0 + i * 160.0),
+                            _table(f"D{i}", DROITE_X, 100.0 + i * 160.0))]
+    return p.PageText(page=1, width=595, height=842, lines=[], tables=_tables_extraites(tables))
+
+
+def test_des_tables_cote_a_cote_se_lisent_colonne_par_colonne() -> None:
+    """AC : une table est un bloc — une page qui n'en porte que ne peut pas se lire en rangées."""
+    page = _page_tables_cote_a_cote()
+    # L'entrée est bien l'entrelacement de l'extraction, jamais la sortie attendue.
+    assert [table.rows[0][0][:2] for table in page.tables][:4] == ["G0", "D0", "G1", "D1"]
+    assert _ordre_de_lecture(page) == [f"G{i}" for i in range(4)] + [f"D{i}" for i in range(4)]
+    assert page.layout.multi and len(page.layout.boundaries) == 1
+    assert [page.layout.colonne(table.bbox) for table in page.tables] == [1, 2] * 4
+
+
+def test_aucun_bloc_de_table_ne_mele_deux_colonnes() -> None:
+    """AC : aucun bloc accepté ne mêle deux colonnes — une table est un bloc."""
+    document = _construire([_page_tables_cote_a_cote()])
+    tables = [block for block in document.blocks if block.kind == "table"]
+    assert len(tables) == 8
+    for block in tables:
+        assert len({line.text[:1] for line in block.lines}) == 1, block.text
+    assert [block.text[:2] for block in tables] == \
+        [f"G{i}" for i in range(4)] + [f"D{i}" for i in range(4)]
+
+
+def test_une_table_traversante_ouvre_une_bande_lue_avant_ses_colonnes() -> None:
+    """AC : traversante ⇒ pleine largeur, exactement comme une ligne traversante — jamais coupée."""
+    tables = [table for i in range(2)
+              for table in (_table(f"G{i}", GAUCHE_X, 100.0 + i * 100.0),
+                            _table(f"D{i}", DROITE_X, 100.0 + i * 100.0))]
+    traversante = _table("TT", GAUCHE_X, 320.0, n=2, largeur=474.0)  # 56 → 530 : elle enjambe
+    tables.append(traversante)
+    tables += [table for i in range(2, 4)
+               for table in (_table(f"G{i}", GAUCHE_X, 220.0 + i * 100.0),
+                             _table(f"D{i}", DROITE_X, 220.0 + i * 100.0))]
+    page = p.PageText(page=1, width=595, height=842, lines=[], tables=_tables_extraites(tables))
+    assert _ordre_de_lecture(page) == ["G0", "G1", "D0", "D1", "TT", "G2", "G3", "D2", "D3"]
+    assert page.layout.colonne(traversante.bbox) == 0
+    assert page.layout.bande(traversante.bbox[1]) == 1
+    assert page.layout.bande(100.0) == 0
+
+
+def test_une_page_mele_lignes_et_tables_dans_les_memes_colonnes() -> None:
+    """Lignes et tables comptent ensemble : trois lignes par côté ne suffisent pas, la table pèse.
+
+    Le mélange est le cas réel — un corps à deux colonnes alterne paragraphes et tableaux — et il
+    n'est pas la somme de deux cas déjà couverts : sans les tables dans la détection, chaque côté
+    reste sous `column_min_lines` et la page se relit en rangées.
+    """
+    lignes = _extrait(
+        [_ligne(f"G{i} texte de la colonne.", GAUCHE_X, 100.0 + i * 60.0) for i in range(3)],
+        [_ligne(f"D{i} texte de la colonne.", DROITE_X, 100.0 + i * 60.0) for i in range(3)],
+    )
+    tables = _tables_extraites([_table("GT", GAUCHE_X, 300.0), _table("DT", DROITE_X, 300.0)])
+    page = p.PageText(page=1, width=595, height=842, lines=lignes, tables=tables)
+    assert [line.text[:1] for line in page.lines][:2] == ["G", "D"]  # extraction entrelacée
+    assert _ordre_de_lecture(page) == ["G0", "G1", "G2", "GT", "D0", "D1", "D2", "DT"]
+    assert [line.text[:1] for line in page.lines] == ["G"] * 3 + ["D"] * 3
+    document = _construire([page])
+    for block in document.blocks:
+        assert len({line.text[:1] for line in block.lines}) == 1, block.text
+
+
+def test_une_page_qui_ne_porte_que_des_tables_sans_gouttiere_ne_bouge_pas() -> None:
+    """L'invariant « aucune gouttière retenue ⇒ rien ne bouge » vaut aussi sans une seule ligne."""
+    tables = [_table(f"T{i}", GAUCHE_X, 100.0 + i * 120.0, largeur=474.0) for i in range(4)]
+    page = p.PageText(page=1, width=595, height=842, lines=[], tables=list(tables))
+    assert _ordre_de_lecture(page) == [f"T{i}" for i in range(4)]
+    assert page.layout.boundaries == [] and not page.layout.multi
+    assert [table.bbox for table in page.tables] == [table.bbox for table in tables]
+    assert all(page.layout.colonne(table.bbox) == 1 for table in page.tables)
+
+
+def test_une_gouttiere_ne_coupe_jamais_une_table() -> None:
+    """Atomicité : une table qu'une frontière traverserait est pleine largeur, jamais scindée."""
+    lignes = _extrait(_colonne("G", GAUCHE_X, depart=100.0, n=4, pas=60.0),
+                      _colonne("D", DROITE_X, depart=100.0, n=4, pas=60.0),
+                      _colonne("H", GAUCHE_X, depart=460.0, n=4, pas=60.0),
+                      _colonne("B", DROITE_X, depart=460.0, n=4, pas=60.0))
+    chevauchante = _table("XX", 200.0, 380.0, n=2, largeur=200.0)  # 200 → 400 : à cheval
+    page = p.PageText(page=1, width=595, height=842, lines=lignes, tables=[chevauchante])
+    ordre = _ordre_de_lecture(page)
+    assert page.layout.multi
+    assert page.layout.colonne(chevauchante.bbox) == 0  # jamais d'un seul côté
+    assert ordre == ["G0", "G1", "G2", "G3", "D0", "D1", "D2", "D3",
+                     "XX", "H0", "H1", "H2", "H3", "B0", "B1", "B2", "B3"]
+    document = _construire([page])
+    tables = [block for block in document.blocks if block.kind == "table"]
+    assert len(tables) == 1 and len(tables[0].lines) == 2  # les deux rangées, dans un seul bloc
+
+
+def test_une_table_seule_dun_cote_pese_ses_rangees_et_fait_colonne() -> None:
+    """Une table est autant de boîtes que de rangées : son contenu écrit compte comme tel."""
+    lignes = _colonne("D", DROITE_X, depart=100.0, n=6, pas=90.0)
+    table = _table("GT", GAUCHE_X, 100.0, n=8, hauteur=60.0)
+    page = p.PageText(page=1, width=595, height=842, lines=list(lignes), tables=[table])
+    assert _ordre_de_lecture(page) == ["GT"] + [f"D{i}" for i in range(6)]
+    assert page.layout.multi and page.layout.colonne(table.bbox) == 1
+
+
+def test_trois_colonnes_de_tables_se_lisent_de_gauche_a_droite() -> None:
+    """La récursion ne connaît pas les tables non plus : elle tombe de la même règle."""
+    tables = [table for i in range(4)
+              for table in (_table(f"A{i}", 40.0, 100.0 + i * 160.0, largeur=150.0),
+                            _table(f"B{i}", 230.0, 100.0 + i * 160.0, largeur=150.0),
+                            _table(f"C{i}", 420.0, 100.0 + i * 160.0, largeur=150.0))]
+    page = p.PageText(page=1, width=595, height=842, lines=[], tables=_tables_extraites(tables))
+    assert _ordre_de_lecture(page) == [f"{cote}{i}" for cote in "ABC" for i in range(4)]
+    assert len(page.layout.boundaries) == 2
+
+
+def test_deux_tables_qui_se_recouvrent_ne_fabriquent_aucune_gouttiere() -> None:
+    """Deux boîtes qui se chevauchent ne laissent aucun blanc vertical : rien ne bouge."""
+    tables = _tables_extraites([_table("T0", GAUCHE_X, 100.0, n=6, largeur=400.0),
+                                _table("T1", 200.0, 160.0, n=6, largeur=330.0)])
+    page = p.PageText(page=1, width=595, height=842, lines=[], tables=tables)
+    assert _ordre_de_lecture(page) == ["T0", "T1"]
+    assert page.layout.boundaries == []
+
+
+def test_une_table_plus_haute_que_les_lignes_voisines_ne_scinde_pas_leur_colonne() -> None:
+    """La hauteur écrite compte les tables : un côté trop court se refuse, il ne se devine pas."""
+    lignes = _colonne("D", DROITE_X, depart=100.0, n=6, pas=12.0)  # 72 pt de haut seulement
+    table = _table("GT", GAUCHE_X, 100.0, n=10, hauteur=60.0)  # 600 pt : elle domine la page
+    page = p.PageText(page=1, width=595, height=842, lines=list(lignes), tables=[table])
+    p.ordonner_pages([page])
+    assert page.layout.boundaries == []  # column_min_span_ratio, mesuré sur la page entière
+    assert [line.ordre_lecture for line in page.lines] == list(range(1, 7))
+
+
+def test_une_table_sans_rangee_ne_pese_dans_aucune_gouttiere() -> None:
+    """Une table qui ne rend aucun bloc (`table_sans_bloc`) ne sert rien : elle ne vote pas."""
+    vides = _tables_extraites([p.PageTable(bbox=[GAUCHE_X, 100.0 + i * 160.0, 256.0,
+                                                 160.0 + i * 160.0], rows=[])
+                               for i in range(4)]
+                              + [p.PageTable(bbox=[DROITE_X, 100.0 + i * 160.0, 530.0,
+                                                   160.0 + i * 160.0], rows=[])
+                                 for i in range(4)])
+    page = p.PageText(page=1, width=595, height=842, lines=[], tables=vides)
+    p.ordonner_pages([page])
+    assert page.layout.boundaries == []
+    # Les mêmes boîtes, mais servant chacune un bloc, font bien deux colonnes : seule la vacuité
+    # les écartait.
+    pleine = _page_tables_cote_a_cote()
+    p.ordonner_pages([pleine])
+    assert pleine.layout.multi
+
+
+def test_la_fusion_des_numeros_ne_franchit_pas_une_gouttiere_revelee_par_les_tables() -> None:
+    """La fusion et la lecture observent la **même** géométrie : sinon la page s'abîme avant d'être lue."""
+    def _lignes() -> list[p.PageLine]:
+        return _extrait(
+            [_ligne(f"G{i} texte de la colonne.", GAUCHE_X, 100.0 + i * 60.0) for i in range(2)],
+            [p.PageLine("4", [GAUCHE_X, 400.0, 66.0, 412.0], 10.0)],
+            [_ligne(f"D{i} texte de la colonne.", DROITE_X, 100.0 + i * 60.0) for i in range(2)],
+            [_ligne("Intitule de la colonne de droite.", DROITE_X, 400.0)],
+        )
+
+    tables = _tables_extraites([_table("GT", GAUCHE_X, 460.0, n=3, hauteur=20.0),
+                                _table("DT", DROITE_X, 460.0, n=3, hauteur=20.0)])
+    sans_tables = p._merge_number_lines(_lignes())
+    # Sans la géométrie des tables, deux lignes par côté ne suffisent pas : la gouttière est
+    # invisible et le numéro se marie à l'intitulé de la colonne d'en face.
+    assert any(line.text.startswith("4 Intitule") for line in sans_tables)
+    avec_tables = p._merge_number_lines(_lignes(), tables)
+    assert not any(line.text.startswith("4 Intitule") for line in avec_tables)
+    assert [line.text for line in avec_tables if line.number is not None] == ["4"]
+
+
+def test_une_table_ne_pese_pas_dans_la_garde_de_rangee_libelle_montant() -> None:
+    """Une rangée détectée par `find_tables()` est déjà un bloc : elle n'a pas le statut d'une paire
+    libellé/montant que l'extracteur n'a pas vue, et n'entre donc pas dans la garde à deux signaux."""
+    rangees = _page_libelle_montant()
+    rangees.tables = [_table("GT", GAUCHE_X, 700.0, n=2, largeur=200.0)]
+    p.ordonner_pages([rangees])
+    assert rangees.layout.boundaries == []  # la garde reste armée malgré la table
+    assert [line.text[:2] for line in rangees.lines][:4] == ["Li", "00", "Li", "10"]
+
+
+def test_deux_colonnes_de_tables_etroites_restent_deux_colonnes() -> None:
+    """La garde ne voit pas les rangées de table — sinon la grille d'un tableau, appariée par
+    construction et parfois étroite, écarterait la gouttière que ce tableau lui-même dessine."""
+    tables = [table for i in range(4)
+              for table in (_table(f"G{i}", GAUCHE_X, 100.0 + i * 160.0, largeur=240.0),
+                            _table(f"D{i}", 470.0, 100.0 + i * 160.0, largeur=50.0))]
+    page = p.PageText(page=1, width=595, height=842, lines=[], tables=_tables_extraites(tables))
+    assert _ordre_de_lecture(page) == [f"G{i}" for i in range(4)] + [f"D{i}" for i in range(4)]
+    assert page.layout.multi
+    # La géométrie de ces rangées trébucherait sur les deux signaux si on les y faisait voter :
+    # appariées une à une, et un côté qui n'occupe pas sa largeur disponible.
+    gauche = [line for table in page.tables if table.rows[0][0][0] == "G"
+              for line in [_ligne(table.rows[0][0], table.bbox[0], table.bbox[1],
+                                  largeur=table.bbox[2] - table.bbox[0])]]
+    droite = [line for table in page.tables if table.rows[0][0][0] == "D"
+              for line in [_ligne(table.rows[0][0], table.bbox[0], table.bbox[1],
+                                  largeur=table.bbox[2] - table.bbox[0])]]
+    assert p._appariement_des_lignes_de_base(gauche, droite) == 1.0
+    assert p._remplissage_minimal(gauche + droite, gauche, droite) < \
+        p.get_settings().column_min_fill_ratio
+
+
+def test_une_rangee_mal_publiee_ne_dilate_pas_la_hauteur_ecrite() -> None:
+    """La représentation géométrique d'une table est **bornée** par sa propre boîte."""
+    page = _page_deux_colonnes()
+    fautive = _table("XX", GAUCHE_X, 700.0, n=2, hauteur=30.0)
+    fautive.row_bboxes = [[GAUCHE_X, 700.0, 256.0, 5000.0], [GAUCHE_X, 730.0, 256.0, 5000.0]]
+    page.tables = [fautive]
+    p.ordonner_pages([page])
+    assert page.layout.multi  # non bornée, la rangée noierait `column_min_span_ratio`
+    assert [line.text[:2] for line in page.lines] == \
+        [f"G{i}" for i in range(6)] + [f"D{i}" for i in range(6)]
+
+
+def test_un_pdf_de_tables_a_deux_colonnes_se_lit_colonne_par_colonne_de_bout_en_bout(
+        tmp_path: Path) -> None:
+    """Le cas mesuré, joué sur un vrai PDF : `find_tables()` rend huit tables et aucune ligne."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+
+    def _tracer(x: float, y: float, prefixe: str, *, rangees: int = 3,
+                largeur: float = 200.0, hauteur: float = 24.0) -> None:
+        for r in range(rangees + 1):
+            page.draw_line(pymupdf.Point(x, y + r * hauteur),
+                           pymupdf.Point(x + largeur, y + r * hauteur), width=0.6)
+        for c in (0.0, largeur / 2, largeur):
+            page.draw_line(pymupdf.Point(x + c, y),
+                           pymupdf.Point(x + c, y + rangees * hauteur), width=0.6)
+        for r in range(rangees):
+            page.insert_text((x + 4, y + r * hauteur + 16), f"{prefixe}{r} libelle", fontsize=9)
+            page.insert_text((x + largeur / 2 + 4, y + r * hauteur + 16), "valeur", fontsize=9)
+
+    for i in range(4):
+        _tracer(GAUCHE_X, 100.0 + i * 160.0, f"G{i}")
+        _tracer(DROITE_X, 100.0 + i * 160.0, f"D{i}")
+    doc.save(tmp_path / "source.pdf")
+    doc.close()
+
+    pages, _toc = p.extract_pages(tmp_path / "source.pdf")
+    page_texte = pages[0]
+    assert len(page_texte.tables) == 8 and page_texte.lines == []
+    # Le défaut mesuré, tel que l'extracteur le rend : les deux colonnes arrivent entrelacées.
+    assert [table.rows[0][0][:2] for table in page_texte.tables] == \
+        [f"{cote}{i}" for i in range(4) for cote in ("G", "D")]
+    document = _construire(pages)
+    assert page_texte.layout.multi
+    assert [block.text[:2] for block in document.blocks] == \
+        [f"G{i}" for i in range(4)] + [f"D{i}" for i in range(4)]
+
+
 # --- Table des matières -------------------------------------------------------------------------
 
 def test_une_tdm_absente_ne_structure_jamais_larbre() -> None:
@@ -369,6 +647,6 @@ def test_le_vocabulaire_du_corpus_synthetique_est_neutre() -> None:
 
     source = "".join(inspect.getsource(fabrique) for fabrique in
                      (_ligne, _colonne, _extrait, _page_deux_colonnes, _page_libelle_montant,
-                      _page_serree)).lower()
+                      _page_serree, _table, _tables_extraites, _page_tables_cote_a_cote)).lower()
     for interdit in ("axa", "baloise", "optihome", "home", "lu-", "p30", "p40", "p48"):
         assert interdit not in source, f"vocabulaire non neutre : {interdit!r}"

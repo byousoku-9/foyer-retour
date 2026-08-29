@@ -14,6 +14,7 @@ Le corpus est synthétique et neutre : `S1…`, `T1…`, aucun assureur, aucun d
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import io
@@ -25,6 +26,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from server.app.config import Settings, get_settings
 from server.app.domain import Document
@@ -802,6 +804,273 @@ def test_build_document_leve_sur_un_refus_plutot_que_de_replier_sur_la_numerotat
         p.build_document(_corpus(), edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
                          title="Contrat", structure=invalide)
     assert capture.value.motif == "ligne_omise"
+
+
+# --- Largeur bornée : nombre de nœuds, nombre d'enfants -----------------------------------------
+#
+# La profondeur était bornée, la largeur ne l'était pas : `verifier()` porte une boucle en O(n²) sur
+# les intervalles, si bien qu'une proposition très large faisait travailler indéfiniment un chemin
+# dont toute la valeur est d'être fail-closed et déterministe. Les deux bornes sont éprouvées **à la
+# borne exacte** (accepté) et **au-delà** (refusé), à chacun des cinq points où elles s'appliquent :
+# schéma fournisseur, modèle Pydantic, parse local, chargement depuis le disque, vérificateur.
+
+
+@contextlib.contextmanager
+def _regle(monkeypatch: pytest.MonkeyPatch, **valeurs: str) -> Any:
+    """Règle des bornes le temps d'un bloc, puis rend le cache de `Settings` à l'environnement réel."""
+    for nom, valeur in valeurs.items():
+        monkeypatch.setenv(nom, valeur)
+    get_settings.cache_clear()
+    try:
+        yield get_settings()
+    finally:
+        for nom in valeurs:
+            monkeypatch.delenv(nom, raising=False)
+        get_settings.cache_clear()
+
+
+def _plate(lignes: int) -> tuple[list[p.PageText], s.StructureProposee]:
+    """Un corpus d'une page et la proposition **plate** qui le couvre : N nœuds, N racines.
+
+    « Une proposition plate de N nœuds sans parent est une largeur de N » : c'est le cas qui prouve
+    que les racines comptent comme les enfants d'un parent quelconque.
+    """
+    page = _page(1, [f"Ligne source numero {index}." for index in range(1, lignes + 1)])
+    noeuds = [s.NoeudPropose(titre_line_uid=f"p1:l{index}", premiere_line_uid=f"p1:l{index}",
+                             derniere_line_uid=f"p1:l{index}") for index in range(1, lignes + 1)]
+    return [page], s.StructureProposee(schema_version="1", doc_id=DOC, noeuds=noeuds)
+
+
+def test_le_nombre_total_de_noeuds_est_accepte_a_la_borne_et_refuse_au_dela(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    pages, proposition = _plate(4)
+    registre = _registre(pages)
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="4", STRUCTURE_MAX_CHILDREN="4") as settings:
+        assert s.verifier(proposition, registre, doc_id=DOC, settings=settings).accepte
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="3", STRUCTURE_MAX_CHILDREN="4") as settings:
+        verdict = s.verifier(proposition, registre, doc_id=DOC, settings=settings)
+    assert not verdict.accepte and verdict.motif == "largeur_excessive"
+    assert verdict.motif in s.MOTIFS and "STRUCTURE_MAX_NODES" in verdict.detail
+
+
+def test_le_nombre_denfants_est_borne_racines_comprises(monkeypatch: pytest.MonkeyPatch) -> None:
+    pages, plate = _plate(4)
+    registre = _registre(pages)
+    with _regle(monkeypatch, STRUCTURE_MAX_CHILDREN="4") as settings:
+        assert s.verifier(plate, registre, doc_id=DOC, settings=settings).accepte
+    with _regle(monkeypatch, STRUCTURE_MAX_CHILDREN="3") as settings:
+        verdict = s.verifier(plate, registre, doc_id=DOC, settings=settings)
+    assert not verdict.accepte and verdict.motif == "largeur_excessive"
+    assert "racine" in verdict.detail and "STRUCTURE_MAX_CHILDREN" in verdict.detail
+
+
+def test_la_largeur_se_compte_par_parent_et_pas_seulement_a_la_racine(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Une racine unique et quatre enfants sous elle : la borne porte sur **chaque** fratrie."""
+    pages = [_page(1, [f"Ligne source numero {index}." for index in range(1, 6)])]
+    registre = _registre(pages)
+    proposition = _proposition(noeuds=[
+        s.NoeudPropose(titre_line_uid="p1:l1", premiere_line_uid="p1:l1", derniere_line_uid="p1:l5"),
+        *(s.NoeudPropose(titre_line_uid=f"p1:l{index}", premiere_line_uid=f"p1:l{index}",
+                         derniere_line_uid=f"p1:l{index}", parent_line_uid="p1:l1")
+          for index in range(2, 6)),
+    ])
+    with _regle(monkeypatch, STRUCTURE_MAX_CHILDREN="4", STRUCTURE_MAX_NODES="5") as settings:
+        assert s.verifier(proposition, registre, doc_id=DOC, settings=settings).accepte
+    with _regle(monkeypatch, STRUCTURE_MAX_CHILDREN="3", STRUCTURE_MAX_NODES="5") as settings:
+        verdict = s.verifier(proposition, registre, doc_id=DOC, settings=settings)
+    assert not verdict.accepte and verdict.motif == "largeur_excessive"
+    assert "'p1:l1'" in verdict.detail  # la fratrie fautive est nommée, et ce n'est pas la racine
+
+
+def test_le_schema_fournisseur_borne_le_nombre_de_noeuds_proposables(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Premier des cinq points : la surface d'écriture du modèle est bornée par le schéma lui-même.
+
+    Le nombre d'enfants n'est pas exprimable en JSON Schema ; `maxItems` le borne transitivement,
+    une fratrie ne pouvant pas compter plus de nœuds que l'arbre entier.
+    """
+    registre = _registre(_corpus())
+    schema = s.requete(registre, DOC, get_settings())["output_config"]["format"]["schema"]
+    assert schema["properties"]["noeuds"]["maxItems"] == get_settings().structure_max_nodes
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="3") as settings:
+        borne = s.requete(registre, DOC, settings)["output_config"]["format"]["schema"]
+    assert borne["properties"]["noeuds"]["maxItems"] == 3
+
+
+def test_le_modele_pydantic_refuse_une_proposition_plus_large_que_la_borne(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deuxième point : aucune `StructureProposee` hors borne ne peut seulement être bâtie."""
+    _pages, proposition = _plate(4)
+    charge = proposition.model_dump()
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="4", STRUCTURE_MAX_CHILDREN="4"):
+        assert len(s.StructureProposee.model_validate(charge).noeuds) == 4  # à la borne : bâtie
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="3"):
+        with pytest.raises(ValidationError, match="largeur_excessive"):
+            s.StructureProposee.model_validate(charge)
+    with _regle(monkeypatch, STRUCTURE_MAX_CHILDREN="3"):
+        with pytest.raises(ValidationError, match="largeur_excessive"):
+            s.StructureProposee.model_validate(charge)
+
+
+def test_parse_proposition_refuse_une_reponse_plus_large_que_la_borne(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Troisième point : la défense locale, **même si le schéma l'impose** (idiome `type_clauses`).
+
+    Le refus est un `ValueError` **exactement** — pas la `ValidationError` que rendrait le modèle
+    bâti en fin de fonction. Sans cette exigence, la sonde qui retire la garde de `parse_proposition`
+    reste verte : le contrôle serait alors celui du modèle, hérité, et un `model_construct` ou un
+    remaniement du modèle le ferait disparaître sans que rien ne rougisse.
+    """
+    pages, proposition = _plate(4)
+    registre = _registre(pages)
+    brut = json.dumps({"noeuds": [noeud.model_dump() for noeud in proposition.noeuds]})
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="4", STRUCTURE_MAX_CHILDREN="4") as settings:
+        assert len(s.parse_proposition(brut, registre, DOC, settings=settings).noeuds) == 4
+    for bornes in ({"STRUCTURE_MAX_NODES": "3", "STRUCTURE_MAX_CHILDREN": "4"},
+                   {"STRUCTURE_MAX_NODES": "4", "STRUCTURE_MAX_CHILDREN": "3"}):
+        with _regle(monkeypatch, **bornes) as settings:
+            with pytest.raises(ValueError, match="largeur_excessive") as leve:
+                s.parse_proposition(brut, registre, DOC, settings=settings)
+        assert type(leve.value) is ValueError, bornes  # refusé **avant** toute construction
+
+
+def test_charger_refuse_un_artefact_plus_lourd_que_la_charge_utile_sans_le_lire(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Quatrième point, **au plus tôt** : la taille du fichier est jugée avant toute désérialisation.
+
+    Le contenu déposé n'est pas du JSON : si l'octet avait été lu et analysé, le refus serait
+    `proposition_illisible`. Qu'il soit `largeur_excessive` prouve que la borne d'entrée précède la
+    lecture — c'est ce qui empêche un `structure.json` de dix millions de nœuds d'être entièrement
+    désérialisé puis vérifié avant d'être rejeté.
+    """
+    chemin = tmp_path / "structure.json"
+    chemin.write_text("x" * 400, "utf-8")
+    with _regle(monkeypatch, STRUCTURE_MAX_INPUT_CHARS="200"):
+        with pytest.raises(s.StructureRefusee) as leve:
+            s.charger(chemin)
+    assert leve.value.motif == "largeur_excessive" and "octet" in leve.value.detail
+    with _regle(monkeypatch, STRUCTURE_MAX_INPUT_CHARS="400"):  # à la borne : lu, donc illisible
+        with pytest.raises(s.StructureRefusee) as tolere:
+            s.charger(chemin)
+    assert tolere.value.motif == "proposition_illisible"
+
+
+def test_charger_ne_croit_pas_la_taille_annoncee_par_le_systeme_de_fichiers(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La lecture s'arrête d'elle-même un octet au-delà de la borne, quoi qu'annonce `stat()`.
+
+    Un fichier qui grandit entre l'appel et la lecture, ou dont l'entrée de répertoire a changé de
+    cible entre-temps, ferait sinon entrer sans borne ce que `stat()` avait déclaré minuscule.
+    """
+    import stat as statmod
+
+    chemin = tmp_path / "structure.json"
+    chemin.write_text("x" * 400, "utf-8")
+    monkeypatch.setattr(Path, "stat", lambda self, **_: SimpleNamespace(
+        st_size=0, st_mode=statmod.S_IFREG | 0o644))
+    with _regle(monkeypatch, STRUCTURE_MAX_INPUT_CHARS="200"):
+        with pytest.raises(s.StructureRefusee) as leve:
+            s.charger(chemin)
+    assert leve.value.motif == "largeur_excessive" and "jamais lu au-delà" in leve.value.detail
+
+
+def test_un_artefact_profondement_imbrique_reste_un_refus_du_vocabulaire_ferme(
+        tmp_path: Path) -> None:
+    """`RecursionError` sort de l'analyseur JSON, pas du vocabulaire : elle est rattrapée ici.
+
+    Non rattrapée, elle remonterait à `run()` sous le motif générique `source_illisible`, alors que
+    le check `structure_proposee` promet un mot du vocabulaire fermé pour tout ce qui est présent.
+    """
+    chemin = tmp_path / "structure.json"
+    chemin.write_bytes(b"[" * 60_000 + b"]" * 60_000)
+    with pytest.raises(s.StructureRefusee) as leve:
+        s.charger(chemin)
+    assert leve.value.motif == "proposition_illisible" and leve.value.motif in s.MOTIFS
+
+
+def test_charger_refuse_une_proposition_trop_large_sous_son_motif_dedie(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Quatrième point : un artefact de disque est borné **avant** que le moindre modèle soit bâti."""
+    _pages, proposition = _plate(4)
+    chemin = tmp_path / "structure.json"
+    chemin.write_text(json.dumps(proposition.model_dump()), "utf-8")
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="4", STRUCTURE_MAX_CHILDREN="4"):
+        assert len(s.charger(chemin).noeuds) == 4  # à la borne exacte : chargé
+    for borne in ("STRUCTURE_MAX_NODES", "STRUCTURE_MAX_CHILDREN"):
+        with _regle(monkeypatch, **{borne: "3"}):
+            with pytest.raises(s.StructureRefusee) as leve:
+                s.charger(chemin)
+        # Jamais `proposition_illisible` : le motif du vocabulaire fermé dit **ce qui** est refusé.
+        assert leve.value.motif == "largeur_excessive", borne
+
+
+def test_verifier_et_arbre_refusent_une_proposition_batie_hors_du_modele(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cinquième point : `model_construct` contourne le modèle — comme tout appel programmatique.
+
+    `arbre()` est documenté « sur une proposition déjà vérifiée » ; sans garde, un appel direct
+    referait en O(n²) le travail que le vérificateur refuse.
+    """
+    pages, proposition = _plate(4)
+    registre = _registre(pages)
+    brute = s.StructureProposee.model_construct(schema_version="1", doc_id=DOC,
+                                                noeuds=proposition.noeuds)
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="3") as settings:
+        verdict = s.verifier(brute, registre, doc_id=DOC, settings=settings)
+        assert not verdict.accepte and verdict.motif == "largeur_excessive"
+        with pytest.raises(s.StructureRefusee) as leve:
+            s.arbre(brute, registre, DOC)
+    assert leve.value.motif == "largeur_excessive"
+
+
+def test_un_line_uid_demesure_est_refuse_par_le_modele() -> None:
+    """La largeur bornée ne sert à rien si un seul `uid` peut peser autant que tout l'artefact."""
+    with pytest.raises(ValidationError):
+        s.NoeudPropose(titre_line_uid="p1:l" + "9" * 10_000, premiere_line_uid="p1:l1",
+                       derniere_line_uid="p1:l1")
+    assert len("p1:l" + "9" * 12) <= s.LINE_UID_MAX  # un uid réel reste très en deçà
+
+
+def test_une_structure_json_trop_large_met_le_document_en_quarantaine(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bout en bout : la largeur hors borne est un check `bloquant`, jamais un repli (AD-16)."""
+    dossier = _dossier(tmp_path)
+    proposition = _proposition_du_document(dossier, noeuds=4)
+    (dossier / "structure.json").write_text(
+        json.dumps(proposition.model_dump(), ensure_ascii=False), "utf-8")
+    with _regle(monkeypatch, STRUCTURE_MAX_NODES="3"):
+        report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
+    check = next(c for c in report.checks if c.name == "structure_proposee")
+    assert check.level == "bloquant" and "largeur_excessive" in check.detail
+    assert entry.status == "quarantaine" and not (dossier / "document.json").exists()
+
+
+def test_les_bornes_du_verificateur_entrent_dans_lempreinte_seulement_avec_une_proposition(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Elles font basculer accepté/refusé : elles changent donc l'arbre servi — mais elles seules.
+
+    Un document **sans** `structure.json` n'est concerné par aucune d'elles : les faire entrer
+    inconditionnellement dans l'empreinte invaliderait ses artefacts sans raison (AD-2).
+    """
+    proposition = _proposition()
+    sans, avec = p.ingest_fingerprint(), p.ingest_fingerprint(proposition)
+    assert sans != avec
+    for borne, valeur in (("STRUCTURE_MAX_NODES", "7"), ("STRUCTURE_MAX_CHILDREN", "7"),
+                          ("STRUCTURE_MAX_DEPTH", "5"), ("STRUCTURE_MIN_COVERAGE", "0.5"),
+                          ("STRUCTURE_MAX_INPUT_CHARS", "800000")):
+        with _regle(monkeypatch, **{borne: valeur}):
+            assert p.ingest_fingerprint() == sans, borne
+            assert p.ingest_fingerprint(proposition) != avec, borne
+    # Ce qui borne la **fabrication** hors ligne de l'artefact n'entre nulle part : ni la sortie du
+    # modèle, ni le plafond de coût ne peuvent changer un arbre déjà accepté.
+    for hors_sujet, valeur in (("STRUCTURE_MAX_OUTPUT_TOKENS", "8000"),
+                               ("STRUCTURE_MAX_COST_EUR", "4.0")):
+        with _regle(monkeypatch, **{hors_sujet: valeur}):
+            assert p.ingest_fingerprint() == sans and p.ingest_fingerprint(proposition) == avec
+    # La version des règles de vérification suit le même partage que les bornes qu'elle gouverne.
+    monkeypatch.setattr(p, "STRUCTURE_RULES_VERSION", "mutation-des-regles")
+    assert p.ingest_fingerprint() == sans and p.ingest_fingerprint(proposition) != avec
 
 
 # --- Colonnes et proposition, éprouvées ensemble ------------------------------------------------

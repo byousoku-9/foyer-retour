@@ -285,6 +285,8 @@ def test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_docum
         "column_row_pairing_max_ratio": (0.5, 0),
         "column_min_fill_ratio": (0.6, 0),
         "structure_max_depth": (6, 0),
+        "structure_max_nodes": (2000, 0),
+        "structure_max_children": (256, 0),
         "structure_min_coverage": (1.0, -0.1),
         "structure_max_input_chars": (900000, 0),
         "structure_max_output_tokens": (16000, 0),
