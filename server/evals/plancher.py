@@ -496,10 +496,9 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
 
 # --- la règle mécanique du checkpoint (trois rôles, rôle 1) ---------------------------------------
 
-# Les trois champs qui font l'identité d'une configuration classée, et leur longueur exacte. La
-# liste est ici, en un seul endroit, parce que la faute que le cycle de récupération ferme est
-# d'avoir contrôlé cette identité à un endroit (la CLI) et pas aux deux autres (le modèle et le
-# classement lui-même).
+# Les trois champs qui font l'identité d'une configuration classée, et leur longueur exacte. Le
+# modèle en contrôle la **forme** ; leur **valeur** vient du recalcul de `classer_configurations`,
+# jamais d'un appelant.
 IDENTITE_CLASSEMENT: tuple[tuple[str, int], ...] = (
     ("candidate_revision", 40), ("run_digest", 64), ("report_digest", 64),
 )
@@ -652,9 +651,15 @@ def _configuration_depuis_octets(name: str, octets: bytes, *, plancher_digest: s
         raise ValueError(
             f"{origine} : mesuré sur la révision "
             f"{identite.get('candidate_revision')!r}, classement demandé pour {candidate_revision}")
-    metrics = rapport.get("metrics") or {}
+    # `rapport.get("metrics") or {}` produisait une `AttributeError` non rattrapée — donc un
+    # traceback au lieu d'un refus dit — sur un `metrics` **truthy mais non-objet** : une liste, une
+    # chaîne, un nombre (revue P11). Le rapport est une entrée : son type se contrôle, il ne se
+    # suppose pas.
+    metrics = rapport.get("metrics")
+    if metrics is not None and not isinstance(metrics, dict):
+        raise ValueError(f"{origine} : 'metrics' doit être un objet ({type(metrics).__name__} reçu)")
     cost = rapport.get("cost_eur")
-    latency = metrics.get("latency_p50_ms")
+    latency = (metrics or {}).get("latency_p50_ms")
     if (isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost)
             or isinstance(latency, bool) or not isinstance(latency, int)):
         raise ValueError(f"{origine} sans coût/latence finis")
@@ -676,63 +681,25 @@ def _configuration_depuis_octets(name: str, octets: bytes, *, plancher_digest: s
         report_digest=hashlib.sha256(octets).hexdigest())
 
 
-def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str,
-                                  image_courante: dict[str, Any] | None,
-                                  candidate_revision: str) -> Configuration:
-    """`{name, report}` → la configuration dérivée des octets de ce rapport (voie fichier)."""
-    if not _hex_exact(candidate_revision, 40):
-        raise ValueError(
-            "classement : la révision candidate est obligatoire et doit être 40 caractères "
-            f"hexadécimaux (reçu {candidate_revision!r}) — promouvoir sans savoir quel candidat "
-            "est promu n'est pas une promotion, c'est un tirage")
-    candidat = _candidat_depuis_item(item, base=base)
-    return _configuration_depuis_octets(
-        candidat.name, candidat.report_bytes, plancher_digest=plancher_digest,
-        image_courante=image_courante, candidate_revision=candidate_revision)
+def image_du_depot(plancher_digest: str) -> dict[str, Any]:
+    """Les cinq champs d'image que **ce processus** exécute — calculés ici, jamais reçus.
 
-
-def verifier_identite_classement(configurations: list[Configuration]) -> None:
-    """Un classement se fait entre configurations **du même candidat**, toutes identifiées.
-
-    Story 4.5, cycle de récupération, revue B1 — même forme que `verifier_liaison_preuve` et
-    `verifier_identite_externe`, et pour la même raison : exiger la présence, puis le type, puis
-    l'égalité. Trois refus, et ils sont tous des refus de classer :
-
-    - une configuration dont l'identité **manque** : rien ne dit ce qui serait promu ;
-    - une configuration dont l'identité est **mal formée** (longueur ou alphabet) : ce n'est pas une
-      empreinte, c'est une chaîne qui y ressemble ;
-    - deux **révisions candidates** différentes dans la même liste : comparer les coûts de deux
-      commits et en promouvoir un n'est pas un classement, c'est une confusion.
-
-    Ne rend rien : c'est un garde-fou, pas une lecture. Il est appelé par `classer_configurations`,
-    et exposé pour qu'un futur chemin de promotion puisse s'y adosser au lieu d'en réinventer un.
+    Miroir exact de `run.image_du_run`, dont `evals/run.py` reste le nom d'usage côté runner. Les
+    deux ne peuvent pas partager une importation — `run` importe `plancher`, pas l'inverse —, et la
+    liste des cinq champs vit de toute façon ici (`CHAMPS_IMAGE`), qui est l'autorité de la
+    comparaison. Ce qui compte est que ni l'un ni l'autre ne **reçoive** cette image d'un appelant :
+    une image passée en paramètre est une image que l'appelant choisit, donc pas une image opposée.
     """
-    revisions: set[str] = set()
-    for configuration in configurations:
-        if not isinstance(configuration, Configuration):
-            raise ClassementInvalide(
-                "classement : chaque élément doit être une Configuration "
-                f"({type(configuration).__name__} reçu)")
-        for champ, longueur in IDENTITE_CLASSEMENT:
-            valeur = getattr(configuration, champ, None)
-            if valeur is None:
-                raise ClassementInvalide(
-                    f"classement : la configuration {configuration.name!r} n'a pas de {champ} — "
-                    "une liste où l'on ne sait pas ce qui serait promu ne se classe pas")
-            if not _hex_exact(valeur, longueur):
-                raise ClassementInvalide(
-                    f"classement : la configuration {configuration.name!r} porte un {champ} mal "
-                    f"formé ({valeur!r}, attendu {longueur} caractères hexadécimaux)")
-        revisions.add(str(configuration.candidate_revision))
-    if len(revisions) > 1:
-        raise ClassementInvalide(
-            f"classement : deux révisions candidates dans la même liste ({sorted(revisions)}) — "
-            "classer des mesures de commits différents ne compare rien")
+    return {
+        "pipeline_digest": pipeline_digest(),
+        "prompts_digest": prompts_digest(),
+        "model_ids": dict(TIERS),
+        "normalize_version": normalize_version,
+        "plancher_digest": plancher_digest,
+    }
 
 
-def classer_configurations(candidats: Any, *, plancher_digest: str,
-                           image_courante: dict[str, Any],
-                           candidate_revision: str) -> list[Configuration]:
+def classer_configurations(candidats: Any, *, candidate_revision: str) -> list[Configuration]:
     """Classement mécanique : admissibles au plancher d'abord, puis la moins chère, puis la plus rapide.
 
     C'est la règle du checkpoint de finalisation (spec 4.2b) : aucun jugement, aucune pondération.
@@ -740,22 +707,31 @@ def classer_configurations(candidats: Any, *, plancher_digest: str,
     coût ; `aucun_admissible` (liste sans admissible) est un résultat rouge que l'appelant publie
     tel quel, jamais une question humaine.
 
-    **L'API publique accepte des rapports, pas des déclarations** (revue B1, tour correctif 1/3).
-    Elle acceptait auparavant des `Configuration` : `admissible`, coût, latence et trois empreintes,
-    tous annoncés par l'appelant. Les tours précédents avaient durci la *présence* et la *syntaxe*
-    de ces empreintes, jamais le fait qu'elles correspondent à quelque chose de réel — si bien que
-    `Configuration(admissible=True, candidate_revision="a"*40, run_digest="b"*64,
-    report_digest="c"*64)` était classée **en tête**. Un objet de preuve marqué « vérifié », un
-    drapeau ou un constructeur privé auraient été contournables de la même façon.
+    **L'API publique accepte des rapports, pas des déclarations, et ancre ses références**
+    (revue B1, tours correctifs 1/3 puis P1). Trois couches ont été nécessaires, et les deux
+    premières ne suffisaient pas.
 
-    Chaque candidat porte donc les **octets** de son rapport, et cette fonction fait elle-même,
-    avant tout tri, ce que `_configuration_depuis_octets` fait déjà : sha256 des octets pour
-    `report_digest`, recalcul du `run_digest` depuis l'identité privée de sa clé, opposition de
-    `candidate_revision`, du `plancher_digest` et des cinq champs de l'image candidate. Une identité
-    fabriquée ne se recalcule pas : elle ferme.
+    1. Elle acceptait des `Configuration` : `admissible`, coût, latence et trois empreintes, tous
+       **annoncés** par l'appelant. `Configuration(admissible=True, candidate_revision="a"*40,
+       run_digest="b"*64, report_digest="c"*64)` était classée en tête.
+    2. Elle a accepté des octets de rapport, dont elle recalculait les trois empreintes — mais elle
+       recevait encore `plancher_digest` et `image_courante` en **paramètres**. Un appelant qui
+       fabriquait un rapport auto-cohérent (`empreinte_canonique` est publique) et passait les mêmes
+       valeurs obtenait toujours une tête `admissible=True`, sur un plancher et une image qui
+       n'existent nulle part. Le recalcul ne prouvait que la cohérence interne du rapport ; ce à quoi
+       on l'opposait venait toujours de qui posait la question.
+    3. Elle **dérive** donc maintenant ses deux références du processus : `charger_plancher()` pour
+       le protocole, `image_du_depot()` pour les cinq champs d'image. Il n'y a pas de paramètre pour
+       les remplacer, ni de voie « pour les tests » : un test qui a besoin d'un autre plancher
+       n'exerce pas ce chemin.
+
+    Reste `candidate_revision`, et c'est délibéré : c'est la **question** posée — « classe les
+    configurations de ce commit » —, pas une référence de confiance. Elle n'ouvre rien, puisque
+    chaque rapport doit l'avoir mesurée ; le classement d'un commit fantôme ne rend simplement aucune
+    configuration. Ce que le dépôt exécute réellement est opposé ailleurs, par `revision_executee`.
 
     Lève `ClassementInvalide` au premier écart, avant qu'aucun ordre ne soit rendu — jamais un
-    classement partiel, jamais une tête par défaut, et aucun paramètre ne le désarme.
+    classement partiel, jamais une tête par défaut.
     """
     # **L'argument est matérialisé avant d'être parcouru deux fois** (revue R12). Le contrôle itère,
     # puis `sorted` itère à nouveau : un appelant passant un générateur — parfaitement légitime au
@@ -772,9 +748,22 @@ def classer_configurations(candidats: Any, *, plancher_digest: str,
                 "déclarative ne prouve rien de ce qu'elle annonce")
     noms = [c.name for c in liste]
     if len(set(noms)) != len(noms):
+        # Deux candidats homonymes rendraient un artefact de promotion où l'on ne saurait pas
+        # lequel a été promu. La règle vivait à la frontière CLI ; elle appartient au classement,
+        # puisque c'est lui qui produit la décision.
         raise ClassementInvalide(
             "classement : les noms de configurations doivent être uniques "
             f"({sorted(nom for nom in set(noms) if noms.count(nom) > 1)} en double)")
+    # **Les deux références sont dérivées ici**, pas reçues (revue P1). `PlancherInvalide` et les
+    # erreurs de lecture des sources deviennent un refus de classer : un classement qui ne sait pas
+    # contre quel protocole ni contre quelle image il oppose ne se rend pas « au mieux ».
+    try:
+        plancher_digest = charger_plancher().digest
+        image_courante = image_du_depot(plancher_digest)
+    except (PlancherInvalide, OSError) as exc:
+        raise ClassementInvalide(
+            f"classement : le protocole et l'image de ce dépôt sont illisibles "
+            f"({type(exc).__name__}: {exc}) — rien ne pourrait leur être opposé") from exc
     configurations: list[Configuration] = []
     for candidat in liste:
         try:
@@ -783,7 +772,11 @@ def classer_configurations(candidats: Any, *, plancher_digest: str,
                 image_courante=image_courante, candidate_revision=candidate_revision))
         except (ValueError, ValidationError) as exc:
             raise ClassementInvalide(f"classement : {exc}") from exc
-    verifier_identite_classement(configurations)
+    # Aucun garde d'identité résiduel ici (revue P7) : les trois empreintes de chaque `Configuration`
+    # viennent d'être recalculées, et la révision candidate est la **même** pour toutes par
+    # construction. Un `verifier_identite_classement` posé après cette boucle n'aurait plus aucune
+    # branche atteignable — un contrôle qu'aucun chemin ne peut faire échouer donne l'apparence
+    # d'une garantie sans en être une.
     return sorted(configurations,
                   key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name))
 
@@ -809,8 +802,8 @@ def _main(argv: list[str] | None = None) -> int:
     if args.classer is not None:
         if not _hex_exact(args.candidate_revision, 40):
             # Une promotion sans candidat nommé n'est pas une promotion. Le contrôle est ici **et**
-            # dans `_configuration_depuis_rapport` : le second est l'invariant, le premier est le
-            # message que l'opérateur lit.
+            # dans `_configuration_depuis_octets`, que `classer_configurations` appelle : le second
+            # est l'invariant, le premier est le message que l'opérateur lit.
             print("refus : --classer exige --candidate-revision <40 hexadécimaux> — un classement "
                   "qui ne nomme pas le candidat qu'il promeut est inauditable", file=sys.stderr)
             return 2
@@ -823,18 +816,11 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"refus : configurations illisibles ({type(exc).__name__}: {exc})", file=sys.stderr)
             return 2
         try:
-            # L'image du run courant, complète : la comparaison itère dessus, et un champ omis
-            # serait un champ jamais opposé (revue B1).
+            # Le plancher et l'image sont **dérivés par le classement**, pas passés d'ici (revue
+            # P1) : la CLI n'est plus le seul endroit où ils sont ancrés, elle est un appelant
+            # comme un autre.
             classement = classer_configurations(
-                candidats, plancher_digest=charge.digest,
-                image_courante={
-                    "pipeline_digest": pipeline_digest(),
-                    "prompts_digest": prompts_digest(),
-                    "model_ids": dict(TIERS),
-                    "normalize_version": normalize_version,
-                    "plancher_digest": charge.digest,
-                },
-                candidate_revision=args.candidate_revision)
+                candidats, candidate_revision=args.candidate_revision)
         except ClassementInvalide as exc:
             # Le refus du classement est **dit à l'appelant**, jamais rabattu sur un classement
             # dégradé : une promotion qu'on ne peut pas auditer ne se rend pas « au mieux ».
@@ -846,8 +832,8 @@ def _main(argv: list[str] | None = None) -> int:
             # L'artefact de promotion dit **à quel candidat** il se rapporte, à la racine comme par
             # configuration : sans cela il est inauditable après coup (revue B1). La racine porte la
             # révision **que le classement a effectivement opposée** — chaque rapport l'a mesurée,
-            # et `verifier_identite_classement` a vérifié qu'elles étaient toutes égales —, pas
-            # seulement celle que l'opérateur a tapée.
+            # et le classement l'a recalculée depuis son identité —, pas seulement celle que
+            # l'opérateur a tapée.
             "candidate_revision": (classement[0].candidate_revision if classement
                                    else args.candidate_revision),
             "aucun_admissible": aucun_admissible,

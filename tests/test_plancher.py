@@ -6,6 +6,7 @@ quarantaine des digests non concordants sous gate `full`.
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,7 @@ from server.app.llm.client import LlmClient
 from server.app.domain.trace import Usage
 from server.evals.plancher import (CandidatClassement, ClassementInvalide, Configuration,
                                    PlancherInvalide, charger_plancher, classer_configurations,
-                                   verifier_identite_classement, PLANCHER_PATH)
+                                   PLANCHER_PATH)
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 
 
@@ -32,6 +33,9 @@ def _settings(**kw: object) -> Settings:
 # classement n'accepte que des configurations dont l'identité est complète et cohérente.
 REVISION_CLASSEE = "a" * 40
 
+# Sentinelle des fabriques : « ce champ n'est pas fourni » se distingue de « ce champ vaut None ».
+_ABSENT = object()
+
 
 def _config(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
             candidate_revision: str = REVISION_CLASSEE,
@@ -41,7 +45,7 @@ def _config(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
 
     Depuis le tour correctif 1/3, `Configuration` n'est plus une entrée de classement : c'est ce que
     `classer_configurations` produit en recalculant les empreintes depuis les octets d'un rapport.
-    Ce constructeur ne sert donc plus qu'à éprouver le **modèle** et `verifier_identite_classement`.
+    Ce constructeur ne sert donc plus qu'à éprouver le **modèle** lui-même.
 
     Dériver `run_digest` et `report_digest` du nom garde les tables lisibles tout en donnant à
     chaque configuration une identité **distincte** et bien formée : deux configurations d'un même
@@ -58,52 +62,81 @@ def _config(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
                        else hashlib.sha256(empreinte.encode("utf-8")).hexdigest()))
 
 
-# --- ce qu'un classement accepte depuis le tour correctif 1/3 : des **octets de rapport** ----------
+# --- ce qu'un classement accepte : des **octets de rapport**, opposés à des références ancrées ----
 #
-# `classer_configurations` n'accepte plus de `Configuration` déclaratives. Les tours précédents
-# avaient durci la présence et la syntaxe des trois empreintes, jamais le fait qu'elles
-# correspondent à quelque chose de réel : trois chaînes hexadécimales inventées suffisaient à
-# obtenir une tête de classement. Les tables ci-dessous passent donc par de vrais rapports, dont le
-# classement recalcule lui-même `report_digest`, `run_digest` et la révision mesurée.
+# `classer_configurations` n'accepte plus de `Configuration` déclaratives, et ne reçoit plus non plus
+# le plancher ni l'image auxquels elle les oppose : elle les **dérive du processus**. Les rapports
+# ci-dessous portent donc l'image et le plancher **réels** du dépôt — c'est la seule façon d'exercer
+# le chemin que le produit emprunte. Un rapport bâti sur une image synthétique est précisément le
+# contre-exemple de P1, et il a son test.
 
-def _octets_de_rapport(*, nom: str, admissible: bool, cost_eur: float, latency_ms: int,
-                       revision: str = REVISION_CLASSEE,
-                       run_digest: str | None = None) -> bytes:
+@functools.cache
+def _image_reelle_figee() -> str:
+    """L'image que le classement dérive du processus, sérialisée une fois pour toutes les fixtures.
+
+    Mémoïsée parce que `pipeline_digest()` et `prompts_digest()` relisent les sources du dépôt : une
+    table de six candidats la reconstruirait six fois par test.
+    """
+    import json as _json
+
+    from server.evals.plancher import image_du_depot
+
+    return _json.dumps(image_du_depot(charger_plancher().digest), sort_keys=True)
+
+
+def _image_reelle() -> dict:
+    import json as _json
+
+    return _json.loads(_image_reelle_figee())
+
+
+def _octets_de_rapport(*, nom: str, admissible: bool = True, cost_eur: float = 0.0,
+                       latency_ms: int = 0, revision: str = REVISION_CLASSEE,
+                       run_digest: object = _ABSENT,
+                       image: dict | None = None,
+                       plancher_racine: object = _ABSENT,
+                       identite: dict | None = None,
+                       **racine: object) -> bytes:
     """Les octets d'un rapport candidat — identité **recalculée**, sauf demande contraire.
 
-    `run_digest` n'est passé que par les contre-exemples : une empreinte posée à la main est
-    exactement ce que le classement doit refuser, puisqu'il la recalcule depuis l'identité privée de
-    sa propre clé.
+    Tous les leviers servent aux contre-exemples : `run_digest` pose une empreinte à la main, `image`
+    et `plancher_racine` fabriquent une identité externe, `identite` remplace l'identité entière, et
+    `racine` surcharge ou retire n'importe quelle clé du corps. Le nominal, lui, ne passe aucun de
+    ces arguments.
     """
     import json as _json
 
     from server.evals.cache import empreinte_canonique
 
-    identite: dict = {"candidate_revision": revision, "image": _image_candidate(),
-                      "scope": {"nom": nom}}
-    identite["run_digest"] = (run_digest if run_digest is not None
-                              else empreinte_canonique(identite))
-    return (_json.dumps({
+    if identite is None:
+        identite = {"candidate_revision": revision,
+                    "image": _image_reelle() if image is None else image,
+                    "scope": {"nom": nom}}
+        identite["run_digest"] = (empreinte_canonique(identite) if run_digest is _ABSENT
+                                  else run_digest)
+    corps: dict = {
         "schema_version": 3, "complete": True, "unexecuted_cases": [],
         "cost_eur": cost_eur, "metrics": {"latency_p50_ms": latency_ms},
         "decisions": [{"status": "green" if admissible else "red", "producer": "orchestrator"}],
-        "identity": identite, "plancher_digest": charger_plancher().digest,
-    }) + "\n").encode("utf-8")
+        "identity": identite,
+        "plancher_digest": (charger_plancher().digest if plancher_racine is _ABSENT
+                            else plancher_racine),
+    }
+    for cle, valeur in racine.items():
+        if valeur is _ABSENT:
+            corps.pop(cle, None)
+        else:
+            corps[cle] = valeur
+    return (_json.dumps(corps) + "\n").encode("utf-8")
 
 
-def _candidat(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
-              revision: str = REVISION_CLASSEE,
-              run_digest: str | None = None) -> CandidatClassement:
-    return CandidatClassement(name=name, report_bytes=_octets_de_rapport(
-        nom=name, admissible=admissible, cost_eur=cost_eur, latency_ms=latency_ms,
-        revision=revision, run_digest=run_digest))
+def _candidat(name: str, **kw: object) -> CandidatClassement:
+    return CandidatClassement(name=name, report_bytes=_octets_de_rapport(nom=name, **kw))  # type: ignore[arg-type]
 
 
 def _classer(candidats: object, *, revision: str = REVISION_CLASSEE) -> list[Configuration]:
-    """Le classement, avec l'image synthétique que les rapports ci-dessus déclarent."""
-    return classer_configurations(candidats, plancher_digest=charger_plancher().digest,
-                                  image_courante=_image_candidate(),
-                                  candidate_revision=revision)
+    """Le classement, tel que le produit l'appelle : **aucune référence n'est passée** (revue P1)."""
+    return classer_configurations(candidats, candidate_revision=revision)
 
 
 # --- chargement et digest --------------------------------------------------------------------------
@@ -370,11 +403,6 @@ def _table_mesuree(*, revision: str = REVISION_CLASSEE) -> list[CandidatClasseme
                       revision=revision)
             for nom, admissible, cout, latence in MESURES_TABLE]
 
-
-def _table_configurations() -> list[Configuration]:
-    """La même table sous forme de **résultats**, pour éprouver `verifier_identite_classement`."""
-    return [_config(nom, admissible=admissible, cost_eur=cout, latency_ms=latence)
-            for nom, admissible, cout, latence in MESURES_TABLE]
 
 
 def test_une_configuration_sous_le_plancher_nest_jamais_devant_une_admissible() -> None:
@@ -812,60 +840,62 @@ def test_une_identite_externe_amputee_ferme_au_lieu_de_passer(
         image_courante=_image_candidate())
 
 
-def test_le_classement_du_checkpoint_oppose_le_rapport_avant_de_le_croire(tmp_path: Path) -> None:
-    """B1, chemin frère : `_configuration_depuis_rapport` décide de ce qui est promu.
+def test_le_classement_oppose_le_rapport_avant_de_le_croire() -> None:
+    """B1 : ce qui décide de la promotion oppose l'identité du rapport **avant** de la lire.
 
-    Elle **lisait** `identity.run_digest` sans jamais le recalculer, et ne contrôlait ni plancher,
-    ni révision, ni image : un rapport au `run_digest` arbitraire et sans `plancher_digest` racine
-    rendait `admissible=True`. C'est plus grave que la preuve trusted — c'est la fonction qui classe
-    les candidats du checkpoint.
+    Ces contrôles étaient éprouvés sur un helper que la production n'appelait plus (revue P7) : il
+    a été supprimé, et ils sont désormais éprouvés sur le chemin que le produit emprunte réellement
+    — `classer_configurations` —, sans quoi la preuve porterait sur du code que rien n'exécute.
     """
-    import json as _json
-
-    from server.evals.plancher import _configuration_depuis_rapport
-
-    courant = charger_plancher().digest
-    image = _image_candidate()
-
-    def _rapport(nom: str, **surcharges: object) -> Path:
-        identite = _identite_candidate_revision(**surcharges.pop("identite", {}))  # type: ignore[arg-type]
-        if "run_digest" in surcharges:
-            identite["run_digest"] = surcharges.pop("run_digest")
-        corps = {"schema_version": 3, "complete": True, "unexecuted_cases": [],
-                 "cost_eur": 0.0, "metrics": {"latency_p50_ms": 1},
-                 "decisions": [{"status": "green", "producer": "orchestrator"}],
-                 "identity": identite, "plancher_digest": courant}
-        corps.update(surcharges)  # type: ignore[arg-type]
-        chemin = tmp_path / nom
-        chemin.write_text(_json.dumps(corps) + "\n", encoding="utf-8")
-        return chemin
-
-    # Le contre-exemple : digest arbitraire, plancher racine absent.
-    fabrique = _rapport("fabrique.json", run_digest="e" * 64, plancher_digest=None)
-    with pytest.raises(ValueError, match="plancher_digest"):
-        _configuration_depuis_rapport({"name": "candidat-fabrique", "report": fabrique.name},
-                                      base=tmp_path, plancher_digest=courant,
-                                      image_courante=image,
-                                      candidate_revision=REVISION_A_candidate_revision)
+    # Digest arbitraire **et** plancher racine absent.
+    with pytest.raises(ClassementInvalide, match="plancher_digest"):
+        _classer([_candidat("candidat-fabrique", run_digest="e" * 64, plancher_racine=None)])
     # Plancher présent mais digest non recalculable : refusé aussi.
-    fabrique = _rapport("fabrique2.json", run_digest="e" * 64)
-    with pytest.raises(ValueError, match="ne se recalcule pas"):
-        _configuration_depuis_rapport({"name": "c", "report": fabrique.name},
-                                      base=tmp_path, plancher_digest=courant,
-                                      image_courante=image,
-                                      candidate_revision=REVISION_A_candidate_revision)
+    with pytest.raises(ClassementInvalide, match="ne se recalcule pas"):
+        _classer([_candidat("c", run_digest="e" * 64)])
     # Révision divergente : refusée quand le classement en nomme une.
-    nominal = _rapport("nominal.json")
-    with pytest.raises(ValueError, match="révision"):
-        _configuration_depuis_rapport({"name": "c", "report": nominal.name},
-                                      base=tmp_path, plancher_digest=courant,
-                                      image_courante=image,
-                                      candidate_revision=REVISION_B_candidate_revision)
-    # Le nominal, lui, se classe.
-    configuration = _configuration_depuis_rapport(
-        {"name": "c", "report": nominal.name}, base=tmp_path, plancher_digest=courant,
-        image_courante=image, candidate_revision=REVISION_A_candidate_revision)
-    assert configuration.admissible is True
+    with pytest.raises(ClassementInvalide, match="révision"):
+        _classer([_candidat("c")], revision=REVISION_B_candidate_revision)
+    # Un rapport hors schéma 3, sans décisions, ou illisible : trois refus nommés.
+    with pytest.raises(ClassementInvalide, match="hors schéma 3"):
+        _classer([_candidat("c", schema_version=2)])
+    with pytest.raises(ClassementInvalide, match="sans décisions"):
+        _classer([_candidat("c", decisions=[])])
+    with pytest.raises(ClassementInvalide, match="illisible"):
+        _classer([CandidatClassement(name="c", report_bytes=b"pas du json")])
+    # Un `metrics` **truthy mais non-objet** : un refus dit, pas une AttributeError (revue P11).
+    with pytest.raises(ClassementInvalide, match="'metrics' doit être un objet"):
+        _classer([_candidat("c", metrics="pas-un-objet")])
+    # Le nominal, lui, se classe — et porte l'identité recalculée.
+    classement = _classer([_candidat("c")])
+    assert classement[0].admissible is True
+    assert classement[0].candidate_revision == REVISION_CLASSEE
+
+
+def test_le_classement_ancre_son_plancher_et_son_image_au_processus() -> None:
+    """P1 : les deux références auxquelles le rapport est opposé sont **dérivées**, pas reçues.
+
+    Contre-exemple exact du verdict : un rapport parfaitement auto-cohérent — `empreinte_canonique`
+    est publique, donc n'importe qui peut recalculer un `run_digest` juste — mais mesuré sur une
+    image et un plancher **inventés**. Le tour précédent le classait `admissible=True` en tête, car
+    `plancher_digest` et `image_courante` étaient des paramètres : il suffisait de passer les mêmes
+    valeurs. Il n'y a plus de paramètre à passer.
+    """
+    image_inventee = {"pipeline_digest": "1" * 64, "prompts_digest": "2" * 64,
+                      "model_ids": {"fast": "modele-invente"},
+                      "normalize_version": "v-inventee", "plancher_digest": "9" * 64}
+    fabrique = _candidat("fabriquee", image=image_inventee, plancher_racine="9" * 64)
+    with pytest.raises(ClassementInvalide, match="plancher"):
+        _classer([fabrique])
+    # Et l'image seule suffit : le plancher racine juste ne rachète pas une image inventée.
+    with pytest.raises(ClassementInvalide, match="normalize_version|pipeline_digest"):
+        _classer([_candidat("image-inventee",
+                            image=_image_reelle() | {"normalize_version": "v-inventee"})])
+    # La signature elle-même ne les accepte plus : la voie de contournement n'existe pas.
+    with pytest.raises(TypeError):
+        classer_configurations([fabrique], plancher_digest="9" * 64,  # type: ignore[call-arg]
+                               image_courante=image_inventee,
+                               candidate_revision=REVISION_CLASSEE)
 
 
 def test_la_promotion_exige_la_revision_candidate_et_la_porte(tmp_path: Path) -> None:
@@ -882,76 +912,88 @@ def test_la_promotion_exige_la_revision_candidate_et_la_porte(tmp_path: Path) ->
     """
     import json as _json
 
-    from server.evals.plancher import _configuration_depuis_rapport, _main
+    from server.evals.plancher import _main
 
-    courant = charger_plancher().digest
-    image = _image_candidate()
-    identite = _identite_candidate_revision()
-    identite_sans = _identite_candidate_revision(candidate_revision=None)
-
-    def _ecrire(nom: str, identite: dict) -> Path:
-        chemin = tmp_path / nom
-        chemin.write_text(_json.dumps({
-            "schema_version": 3, "complete": True, "unexecuted_cases": [],
-            "cost_eur": 0.0, "metrics": {"latency_p50_ms": 1},
-            "decisions": [{"status": "green", "producer": "orchestrator"}],
-            "identity": identite, "plancher_digest": courant}) + "\n", encoding="utf-8")
-        return chemin
-
-    nominal = _ecrire("nominal.json", identite)
-    sans_revision = _ecrire("sans-revision.json", identite_sans)
-
-    # 1. La révision est **obligatoire** : `None` ferme, quelle que soit la qualité du rapport.
-    with pytest.raises(ValueError, match="obligatoire"):
-        _configuration_depuis_rapport({"name": "c", "report": nominal.name}, base=tmp_path,
-                                      plancher_digest=courant, image_courante=image,
-                                      candidate_revision=None)  # type: ignore[arg-type]
-    # 2. Elle est **validée** : une forme qui n'est pas 40 hex ferme aussi.
-    for mauvaise in ("", "abc1234", "z" * 40):
-        with pytest.raises(ValueError, match="obligatoire"):
-            _configuration_depuis_rapport({"name": "c", "report": nominal.name}, base=tmp_path,
-                                          plancher_digest=courant, image_courante=image,
-                                          candidate_revision=mauvaise)
+    # 1. La révision est **obligatoire**, et 2. **validée** : `None` et toute forme qui n'est pas
+    #    40 hexadécimaux ferment, quelle que soit la qualité du rapport.
+    for mauvaise in (None, "", "abc1234", "z" * 40):
+        with pytest.raises(ClassementInvalide, match="obligatoire"):
+            _classer([_candidat("c")], revision=mauvaise)  # type: ignore[arg-type]
     # 3. Elle est **opposée** : le contre-exemple exact — un rapport sans révision mesurée.
-    with pytest.raises(ValueError, match="révision"):
-        _configuration_depuis_rapport({"name": "c", "report": sans_revision.name}, base=tmp_path,
-                                      plancher_digest=courant, image_courante=image,
-                                      candidate_revision=REVISION_A_candidate_revision)
+    sans_revision = _candidat("c", revision=None)  # type: ignore[arg-type]
+    with pytest.raises(ClassementInvalide, match="révision"):
+        _classer([sans_revision])
     # 4. Le nominal se classe, et **porte** la révision opposée.
-    configuration = _configuration_depuis_rapport(
-        {"name": "c", "report": nominal.name}, base=tmp_path, plancher_digest=courant,
-        image_courante=image, candidate_revision=REVISION_A_candidate_revision)
-    assert configuration.admissible is True
-    assert configuration.candidate_revision == REVISION_A_candidate_revision
+    classement = _classer([_candidat("c")])
+    assert classement[0].admissible is True
+    assert classement[0].candidate_revision == REVISION_CLASSEE
 
     # 5. La CLI refuse `--classer` sans révision, plutôt que de promouvoir un candidat anonyme.
+    (tmp_path / "nominal.json").write_bytes(_octets_de_rapport(nom="c"))
     configs = tmp_path / "configs.json"
-    configs.write_text(_json.dumps([{"name": "c", "report": nominal.name}]), encoding="utf-8")
+    configs.write_text(_json.dumps([{"name": "c", "report": "nominal.json"}]), encoding="utf-8")
     assert _main(["--classer", str(configs)]) == 2
 
 
-def test_un_rapport_sans_unexecuted_cases_ne_contribue_pas_a_une_promotion(tmp_path: Path) -> None:
+def test_un_rapport_sans_unexecuted_cases_ne_contribue_pas_a_une_promotion() -> None:
     """B5, chemin frère **dans la décision qui promeut** : la clé absente n'est pas « aucune ».
 
     `not rapport.get("unexecuted_cases")` traitait un rapport qui **omet** la clé comme n'ayant
     aucune exécution manquante, et il contribuait donc à `admissible=True`.
     """
+    with pytest.raises(ClassementInvalide, match="unexecuted_cases"):
+        _classer([_candidat("c", unexecuted_cases=_ABSENT)])
+    with pytest.raises(ClassementInvalide, match="unexecuted_cases"):
+        _classer([_candidat("c", unexecuted_cases="pas-une-liste")])
+
+
+def test_un_depot_dont_les_sources_sont_illisibles_ferme_le_classement(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """P12 : `pipeline_digest()` et `prompts_digest()` relisent le dépôt, donc peuvent lever.
+
+    Elles étaient appelées **hors** du garde qui rattrape, si bien qu'une source illisible sortait
+    en traceback au lieu du refus dit et du code 2 que la CLI promet. Un classement qui ne sait pas
+    contre quelle image il oppose ne se rend pas « au mieux ».
+    """
+    from server.evals import plancher as plancher_mod
+
+    def _illisible(_digest: str) -> dict:
+        raise OSError("source du dépôt illisible (injectée)")
+
+    monkeypatch.setattr(plancher_mod, "image_du_depot", _illisible)
+    with pytest.raises(ClassementInvalide, match="illisibles"):
+        _classer([_candidat("c")])
+    # Et la CLI le rend en code 2, avec un refus dit — jamais une trace de pile.
+    import json as _json
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as brut:
+        dossier = Path(brut)
+        (dossier / "c.json").write_bytes(_octets_de_rapport(nom="c"))
+        configs = dossier / "configs.json"
+        configs.write_text(_json.dumps([{"name": "c", "report": "c.json"}]), encoding="utf-8")
+        assert plancher_mod._main(["--classer", str(configs),
+                                   "--candidate-revision", REVISION_CLASSEE]) == 2
+
+
+def test_le_classement_refuse_deux_candidats_homonymes(tmp_path: Path) -> None:
+    """P6 : un artefact de promotion où l'on ne sait pas lequel a été promu n'est pas auditable.
+
+    La règle vivait à la frontière CLI et n'était éprouvée nulle part ; elle appartient au
+    classement, puisque c'est lui qui produit la décision. Éprouvée des **deux** côtés.
+    """
     import json as _json
 
-    from server.evals.plancher import _configuration_depuis_rapport
+    from server.evals.plancher import _main
 
-    courant = charger_plancher().digest
-    chemin = tmp_path / "sans-cle.json"
-    chemin.write_text(_json.dumps({
-        "schema_version": 3, "complete": True,
-        "cost_eur": 0.0, "metrics": {"latency_p50_ms": 1},
-        "decisions": [{"status": "green", "producer": "orchestrator"}],
-        "identity": _identite_candidate_revision(), "plancher_digest": courant}) + "\n",
-        encoding="utf-8")
-    with pytest.raises(ValueError, match="unexecuted_cases"):
-        _configuration_depuis_rapport({"name": "c", "report": chemin.name}, base=tmp_path,
-                                      plancher_digest=courant, image_courante=_image_candidate(),
-                                      candidate_revision=REVISION_A_candidate_revision)
+    with pytest.raises(ClassementInvalide, match="uniques"):
+        _classer([_candidat("jumeau", cost_eur=0.01), _candidat("jumeau", cost_eur=0.02)])
+    (tmp_path / "a.json").write_bytes(_octets_de_rapport(nom="jumeau", cost_eur=0.01))
+    (tmp_path / "b.json").write_bytes(_octets_de_rapport(nom="jumeau", cost_eur=0.02))
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([{"name": "jumeau", "report": "a.json"},
+                                    {"name": "jumeau", "report": "b.json"}]), encoding="utf-8")
+    assert _main(["--classer", str(configs), "--candidate-revision", REVISION_CLASSEE]) == 2
 
 
 # --- B1 : la voie **bibliothèque** du classement, fermée par recalcul ------------------------------
@@ -1029,67 +1071,42 @@ def test_le_classement_refuse_trois_empreintes_bien_formees_mais_fabriquees() ->
     assert classement[0].report_digest == hashlib.sha256(octets).hexdigest()
 
 
-def test_le_classement_refuse_un_rapport_dune_autre_image_ou_dun_autre_plancher() -> None:
-    """B1 : l'image candidate et le protocole sont opposés **avant** tout tri, pas après.
+def test_une_identite_de_rapport_mal_formee_ferme_le_classement() -> None:
+    """B1 : « longueur ou alphabet » — une chaîne qui ressemble à une empreinte n'en est pas une.
 
-    Un candidat mesuré sur une autre recette de normalisation porte d'autres `text_norm`, donc
-    d'autres `quote_hash` : ses chiffres ne se comparent à rien. Idem pour un autre plancher.
+    Le garde `verifier_identite_classement` a été **retiré** (revue P7) : après le recalcul, aucune
+    de ses branches n'était plus atteignable, et un contrôle qu'aucun chemin ne peut faire échouer
+    donne l'apparence d'une garantie sans en être une. La propriété qu'il décrivait est éprouvée là
+    où elle se joue vraiment — sur l'identité du rapport, avant que la `Configuration` n'existe.
     """
-    candidat = _candidat("nominal", admissible=True, cost_eur=0.0, latency_ms=0)
-    with pytest.raises(ClassementInvalide, match="normalize_version"):
-        classer_configurations(
-            [candidat], plancher_digest=charger_plancher().digest,
-            image_courante=_image_candidate(normalize_version="v-DIVERGENT"),
-            candidate_revision=REVISION_CLASSEE)
-    with pytest.raises(ClassementInvalide, match="plancher"):
-        classer_configurations(
-            [candidat], plancher_digest="f" * 64, image_courante=_image_candidate(),
-            candidate_revision=REVISION_CLASSEE)
-
-
-def test_le_classement_refuse_une_identite_absente_ou_mal_formee() -> None:
-    """B1 : `verifier_identite_classement` reste le garde-fou exposé des chemins de promotion.
-
-    Il ne dépend pas de l'admissibilité — une liste où l'on ne sait pas ce qui serait promu ne se
-    classe pas — et « longueur ou alphabet » suffit : une chaîne qui ressemble à une empreinte n'en
-    est pas une.
-    """
-    anonyme = _sans_identite()
-    with pytest.raises(ClassementInvalide, match="candidate_revision"):
-        verifier_identite_classement([anonyme])
-    with pytest.raises(ClassementInvalide, match="anonyme"):
-        verifier_identite_classement([*_table_configurations(), anonyme])
-    with pytest.raises(ClassementInvalide, match="run_digest|candidate_revision"):
-        verifier_identite_classement([_sans_identite("muette", admissible=False)])
-    for absent in ("candidate_revision", "run_digest", "report_digest"):
-        amputee = _config("partielle", admissible=True, cost_eur=0.0,
-                          latency_ms=0).model_copy(update={absent: None})
-        with pytest.raises(ClassementInvalide, match=absent):
-            verifier_identite_classement([amputee])
+    for mauvais in ("a" * 39, "A" * 64, "b" * 65, "zz" + "c" * 62, "", 42, None):
+        with pytest.raises(ClassementInvalide, match="run_digest|recalcule"):
+            _classer([_candidat("malformee", run_digest=mauvais)])  # type: ignore[arg-type]
+    for mauvaise in ("a" * 39, "A" * 40, ""):
+        with pytest.raises(ClassementInvalide, match="révision|obligatoire"):
+            _classer([_candidat("malformee", revision=mauvaise)])
+    # Et le modèle refuse toujours de porter une identité mal formée, quel qu'en soit le chemin.
     for champ, mauvaise in (("candidate_revision", "a" * 39), ("candidate_revision", "A" * 40),
                             ("run_digest", "b" * 65), ("report_digest", "zz" + "c" * 62)):
-        malformee = _config("malformee", admissible=True, cost_eur=0.0,
-                            latency_ms=0).model_copy(update={champ: mauvaise})
-        with pytest.raises(ClassementInvalide, match=champ):
-            verifier_identite_classement([malformee])
+        champs = {"candidate_revision": REVISION_CLASSEE, "run_digest": "b" * 64,
+                  "report_digest": "c" * 64}
+        champs[champ] = mauvaise
+        with pytest.raises(ValueError, match=champ):
+            Configuration(name="x", admissible=False, cost_eur=0.0, latency_ms=0, **champs)
 
 
 def test_le_classement_refuse_deux_revisions_candidates_dans_la_meme_liste() -> None:
     """B1 : « deux révisions candidates différentes dans un même classement ne sont pas un classement ».
 
     Comparer les coûts de deux commits et en promouvoir un n'est pas une règle mécanique, c'est une
-    confusion — et l'artefact de promotion serait inauditable, puisqu'il porte **une** révision.
-    Par l'API publique, le refus vient plus tôt encore : le rapport du candidat n'a pas mesuré la
-    révision du classement.
+    confusion — et l'artefact de promotion serait inauditable, puisqu'il porte **une** révision. Par
+    l'API publique, le refus vient du seul endroit qui puisse le rendre : le rapport du candidat n'a
+    pas mesuré la révision du classement, donc il n'entre pas. Aucune liste hétérogène ne peut plus
+    exister en aval.
     """
-    autre = _config("autre-commit", admissible=True, cost_eur=0.0, latency_ms=0,
-                    candidate_revision="b" * 40)
-    with pytest.raises(ClassementInvalide, match="deux révisions candidates"):
-        verifier_identite_classement([*_table_configurations(), autre])
     with pytest.raises(ClassementInvalide, match="révision"):
         _classer([*_table_mesuree(),
-                  _candidat("autre-commit", admissible=True, cost_eur=0.0, latency_ms=0,
-                            revision="b" * 40)])
+                  _candidat("autre-commit", revision="b" * 40)])
     # La table homogène, elle, se classe : le refus ne mord que sur l'incohérence.
     assert len(_classer(_table_mesuree())) == len(MESURES_TABLE)
 
@@ -1122,54 +1139,19 @@ def test_la_cli_de_classement_dit_le_refus_au_lieu_de_promouvoir(
 # `classement[0].candidate_revision if classement else args.candidate_revision` — écrite par ce
 # cycle — pouvait être remplacée par `None`, la clé retirée, ou `return 1 if aucun_admissible else 0`
 # inversé, sans rougir. Ce test est l'ancrage de l'artefact de promotion : il passe par `_main`, donc
-# par `_configuration_depuis_rapport`, donc par la vraie image du run.
-
-def _image_reelle() -> dict:
-    """L'image que `_main` construit réellement — vrais digests, vrais modèles, vraie normalisation.
-
-    Les fixtures `_image_candidate` sont synthétiques : elles n'atteignent jamais `_main`, qui
-    recalcule l'image depuis le dépôt. Un rapport bâti sur elles serait refusé pour incohérence
-    d'image avant même d'être classé, et le chemin nominal resterait invisible.
-    """
-    from server.app.corpus.text import normalize_version
-    from server.app.digests import pipeline_digest, prompts_digest
-    from server.app.llm.models import TIERS
-
-    return {
-        "pipeline_digest": pipeline_digest(),
-        "prompts_digest": prompts_digest(),
-        "model_ids": dict(TIERS),
-        "normalize_version": normalize_version,
-        "plancher_digest": charger_plancher().digest,
-    }
-
+# par la construction réelle des configurations, donc par l'image ancrée du processus.
 
 def _rapport_classable(chemin: Path, *, cout: float, latence: int, admissible: bool,
                        revision: str = REVISION_CLASSEE,
-                       run_digest: str | None = None) -> None:
-    """Un rapport que le classement accepte — identité **recalculée**, jamais posée.
+                       run_digest: object = _ABSENT) -> None:
+    """Écrit sur disque un rapport que le classement accepte — **la même fabrique** que plus haut.
 
-    `run_digest` n'est passé que par le contre-exemple du tour correctif 1/3 : une empreinte bien
-    formée mais fabriquée, que le classement doit refuser parce qu'il la recalcule.
+    Une seconde recette de rapport aurait fini par diverger de celle que les contre-exemples
+    emploient, et l'un des deux chemins aurait alors cessé d'être éprouvé.
     """
-    import json as _json
-
-    from server.evals.cache import empreinte_canonique
-
-    identite: dict = {"candidate_revision": revision, "image": _image_reelle(),
-                      "scope": {"nom": chemin.stem}}
-    identite["run_digest"] = (run_digest if run_digest is not None
-                              else empreinte_canonique(identite))
-    chemin.write_text(_json.dumps({
-        "schema_version": 3,
-        "complete": True,
-        "unexecuted_cases": [],
-        "cost_eur": cout,
-        "metrics": {"latency_p50_ms": latence},
-        "decisions": [{"status": "green" if admissible else "red", "producer": "orchestrator"}],
-        "identity": identite,
-        "plancher_digest": charger_plancher().digest,
-    }) + "\n", encoding="utf-8")
+    chemin.write_bytes(_octets_de_rapport(
+        nom=chemin.stem, admissible=admissible, cost_eur=cout, latency_ms=latence,
+        revision=revision, run_digest=run_digest))
 
 
 def test_le_classement_nominal_sort_en_zero_et_porte_la_revision_opposee(
