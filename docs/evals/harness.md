@@ -292,9 +292,10 @@ et **refuse sans rien toucher** sinon (`EspaceNonInstalle`, qui nomme la command
   d'autre d'une bascule voit un mélange. L'invariant ne le demande pas ; c'est dit pour ne pas
   laisser croire qu'il est couvert.
 - Le ping-pong à deux générations impose un `flock` exclusif sur l'espace : c'est la dette
-  `target_story: 4.1` payée pour le chemin des évals. L'ingestion écrit `data/manifest.json` par son
-  propre chemin (`server/ingest/artifacts.py`, qui écrit **à travers** le lien plutôt que de le
-  remplacer) et reste hors de ce verrou.
+  `target_story: 4.1` payée pour le chemin des évals. **L'ingestion aussi** : `write_atomic` écrivait
+  `data/manifest.json` à travers le lien, donc dans la génération publiée et hors du verrou ; toute
+  écriture d'une cible couverte par un pointeur passe désormais par la même bascule, sous le même
+  `flock`, sans jamais muter la génération active.
 
 **Ce qu'un opérateur doit savoir.** Les liens de `data/` et `docs/` sont committés : un checkout
 frais les a déjà. Les **sorties de run** (`eval-results.json`, `eval-results.md`, ou `.evals/` sous
@@ -311,6 +312,15 @@ propre disposition. La CI fait le même geste dans son étape d'évals, sur `.ev
 
 Les chemins frères — `ecrire_rapports` (le couple JSON + table) et `ecrire_gate` — passent par le
 même unique pointeur : ce sont des lots comme les autres.
+
+**Un run de gate n'a qu'un seul point de commit.** Le couple `eval-results.*` n'est plus basculé à
+part : il entre dans le **même** lot que la publication et `data/manifest.json`, préparé depuis les
+mêmes octets en mémoire. `gate.report_digest` est donc l'empreinte des octets que ce commit publiera,
+et non plus celle d'un rapport déjà écrit — c'est ce qui obligeait l'opération à avoir deux atomes.
+Ce que le protocole tient exactement, avant et après ce point de commit, est décrit dans
+`docs/evals/protocole.md` ; le résumé utile ici est : aucune exception n'est propagée une fois le
+pointeur effectivement remplacé, et le seul reste possible d'un refus est un brouillon abandonné,
+nommé en `.tmp` pour que `EspacePublie.residus()` le voie.
 
 | surface | chemin | dans l'image ? |
 |---|---|---|

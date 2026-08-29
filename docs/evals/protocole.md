@@ -269,10 +269,58 @@ publier ne peuvent plus devenir visibles séparément.
 Ce que le protocole garantit : après **toute** exception, à n'importe quel rang, `BaseException` et
 interruption comprises, zéro cible du lot n'est modifiée ni visible dans le nouvel état, et aucun
 temporaire ne subsiste. Il n'y a plus de restauration, donc plus rien qui puisse échouer en
-défaisant. Ce qu'il ne garantit pas, et qui s'écrit au lieu de se taire : un `SIGKILL` ou une coupure
-matérielle pendant l'unique `rename(2)`, que l'espace utilisateur ne couvre pas ; et le biais de
-lecteur, un lecteur qui résout deux cibles de part et d'autre d'une bascule. Les chemins frères
-(`ecrire_rapports`, `ecrire_gate`) passent par le même pointeur unique.
+défaisant.
+
+### Où est le point de commit, et ce qui est garanti de part et d'autre
+
+Le point de commit est **l'unique `os.replace` du pointeur** `data/.publie/courant`. Avant lui, rien
+de ce qui a été écrit n'est une cible : tout vit dans la génération inactive. Après lui, le lot est
+publié — et **aucune exception n'est propagée une fois qu'il a eu lieu**. C'est une garantie à part
+entière, parce qu'une exception remontée après un pointeur effectivement remplacé rendrait « le lot
+est publié » et « l'opération a échoué » vrais en même temps. Deux conséquences, écrites dans le
+code :
+
+- le chemin de nettoyage décide sur **l'état réel du pointeur sur disque**, jamais sur un drapeau
+  Python qu'une interruption peut couper à la frontière d'instruction qui suit le remplacement. Il
+  ne supprime donc jamais la génération devenue active — ce qui rendrait les cibles pendantes, une
+  destruction et non un état mêlé ;
+- le `fsync` du répertoire de l'espace, qui suit le commit, est **absorbé** s'il échoue : un `fsync`
+  raté coûte de la durabilité après coupure, jamais l'atomicité. Une interruption arrivée après le
+  commit est absorbée pour la même raison — la transaction est acquise, et il n'y a rien à annuler.
+
+**L'opération de production entière n'a qu'un seul commit.** Un run de gate préparait le couple
+`eval-results.*` dans un premier atome, puis le gate, la publication et le manifest dans un second :
+chaque atome était tout-ou-rien, l'opération ne l'était pas, et un échec du second laissait le
+premier lot déjà changé. Le rapport, sa table, les surfaces publiées et `data/manifest.json` sont
+donc préparés **depuis les mêmes octets en mémoire** — `gate.report_digest` est l'empreinte des
+octets que ce commit publiera, plus celle d'un fichier déjà écrit — et remis en une seule fois.
+
+Ce qui doit rester distinct le reste, et se décide **avant** le commit : un rapport inexploitable est
+refusé sans qu'aucune surface bouge (code 1), un incident technique sort en code 3 sans gate écrit,
+et la non-mutation du dernier vert retire le manifest du lot sans en retirer la publication.
+
+### Ce que le protocole ne garantit pas
+
+Ce qui s'écrit au lieu de se taire : un `SIGKILL` ou une coupure matérielle pendant l'unique
+`rename(2)`, que l'espace utilisateur ne couvre pas ; le biais de lecteur, un lecteur qui résout deux
+cibles de part et d'autre d'une bascule ; et l'abandon du **brouillon** — la génération inactive
+qu'un refus jette —, qui est un `rmtree` qu'une interruption peut couper en deux. Il ne touche aucune
+cible, mais il peut laisser un reste. Ce reste est donc rendu **visible** : le brouillon est d'abord
+sorti de son emplacement de génération par un `rename` unique, sous un nom en `.tmp`, de sorte que
+`EspacePublie.residus()` le voie au lieu de l'ignorer. La bascule suivante reconstruit de toute façon
+la génération inactive de zéro.
+
+### Tous les écrivains du manifest passent par le protocole
+
+`data/manifest.json` a trois écrivains d'ingestion (`server/ingest/artifacts.py::write_atomic`, via
+`merge_manifest`) en plus du gate. Ils écrivaient **à travers** le lien, c'est-à-dire dans la
+génération que le pointeur publie, et hors du verrou : le bundle n'était donc pas immuable, et une
+ingestion concurrente courait avec la reconstruction et la bascule d'un run. Toute écriture d'une
+cible couverte par un pointeur passe désormais par `EspacePublie.basculer` — même `flock`, même
+génération inactive, même unique `os.replace` —, et la génération active n'est jamais mutée.
+`ecrire_gate` reste l'unique écrivain du champ `gate` (AD-7) : l'ingestion écrit l'entrée et
+**préserve** le gate qui était là, ce qui ne change pas. Une cible ordinaire — `document.json`,
+`structure.json` — n'est couverte par aucun pointeur et garde son écriture atomique d'avant.
 
 Pourquoi cette forme l'emporte sur l'autre branche envisagée — durcir encore la restauration : parce
 qu'un protocole qui *défait* ce qu'il a déjà fait n'est pas tout-ou-rien. Rejouer un rollback, fût-ce
