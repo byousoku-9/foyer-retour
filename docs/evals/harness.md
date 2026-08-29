@@ -256,35 +256,61 @@ Un seul objet — `server/app/domain/evals.py::PublicationEvals` — construit p
 **inconditionnellement**, rouge compris (FR41). Publier ne promeut rien : seul `gate.evals_ok`
 décide de ce qui est servi (AD-8).
 
-**Publication et promotion basculent ensemble** : les trois surfaces *et* l'entrée de manifest sont
-préparées dans des temporaires de leurs répertoires cibles, puis basculées en une seule file de
-`os.replace`. Tout ce qui peut échouer **pour une autre raison qu'un renommage** — validation,
-sérialisation, écriture, `fsync` — survient avant la première bascule.
+**Publication et promotion basculent ensemble, par un unique pointeur atomique** (story 4.5, B7).
+Les surfaces publiées *et* l'entrée de manifest forment **un seul lot**, remis au même appel. Le lot
+n'est jamais renommé cible par cible : il est écrit dans une **génération inactive** du bundle
+`data/.publie/`, puis publié en déplaçant `data/.publie/courant` — un unique `os.replace` d'un lien
+symbolique, dans son propre répertoire, sur une entrée qui existe déjà.
 
-**La garantie exacte de la bascule, ni plus ni moins que ce que le code tient.** Un `os.replace`
-peut toujours échouer : ce n'est pas une opération atomique sur une file, et POSIX ne l'offre que
-sur un seul `rename`. Ce que `run._basculer` tient est donc « tout ou rien **par restauration** » :
+**Pourquoi cette forme est la seule.** L'invariant exigé interdit toute réparation après coup, et
+CPython peut lever `KeyboardInterrupt` à n'importe quelle frontière d'instruction : l'état observable
+du lot doit donc **déjà** être l'ancien à chaque frontière, ce qui laisse exactement un pas portant
+`ancien → nouveau`, atomique vis-à-vis d'une exception. Un pas atomique est un appel système, et un
+appel système ne change qu'une entrée de répertoire ; pour qu'une entrée change l'état résolu de
+toutes les cibles à la fois, il faut qu'elle soit un composant traversé par la résolution de chacune.
+D'où la disposition : chaque cible du lot est un chemin dont la résolution passe par `courant`.
 
-- l'état de chaque cible est capturé (ses octets, ou son absence) *avant* le premier renommage ; une
-  capture impossible ferme sans rien renommer, puisque rien ne pourrait la défaire ;
-- au premier renommage qui échoue — **sur toute exception**, `OSError`, `RuntimeError` ou
-  interruption comprises —, les cibles déjà basculées sont remises dans leur état d'avant, en ordre
-  inverse ; le manifest, qui promeut, est la dernière cible donc la première défaite ;
-- une restauration qui échoue à son tour est nommée cible par cible par `BasculePartielle`, jamais
-  masquée par un « rien n'a été publié » qui serait faux ;
-- les temporaires non consommés sont abandonnés en `finally`, quel que soit le chemin de sortie —
-  y compris l'échec de la capture. C'est ce qui couvre `ecrire_gate`, qui prépare son temporaire de
-  manifest avant l'appel et n'a pas de `finally` à lui.
+**La disposition est statique.** `data/manifest.json`, `data/evals-latest.json`,
+`docs/evals/latest.md` et `docs/evals/campagnes` sont des liens **committés** ; les sorties de run
+(`.evals/`) sont posées par la CI, `.evals/` étant ignoré par git. La bascule ne pose, ne migre et
+ne change **jamais** le type d'une cible : elle vérifie que chaque cible est résolue par le pointeur
+et **refuse sans rien toucher** sinon (`EspaceNonInstalle`, qui nomme la commande
+`python -m server.evals.espace`). `lstat` rend le même type avant et après une bascule, et Git aussi.
 
-Ce qui reste non couvert, et n'est pas couvrable ici : une panne matérielle entre deux renommages
-laisse le lot mêlé, comme toute séquence de renommages.
+**La garantie exacte, ni plus ni moins que ce que le code tient.**
 
-**Et un refus de préparation ne laisse aucun temporaire résiduel.** Tout ce qui peut lever — au
-premier rang, la lecture du `docs/evals/latest.md` à archiver — est lu et validé *avant* le premier
-temporaire, et la préparation entière est entourée d'un rollback local qui supprime chaque
-temporaire déjà accumulé sur toute exception, quel qu'en soit le rang. Les chemins frères
-(`ecrire_rapports`, la préparation de l'entrée de manifest) tiennent la même garantie. Sans elle,
-des refus répétés remplissaient `data/` de fichiers `.tmp` que plus rien ne nettoyait.
+- Garanti : toute exception — `OSError`, `RuntimeError`, `KeyboardInterrupt`, `BaseException` — levée
+  à n'importe quel rang laisse **zéro cible du lot** modifiée ou visible dans le nouvel état, et ne
+  laisse aucun temporaire. Il n'y a rien à défaire, donc rien qui puisse échouer ou être interrompu
+  en défaisant : il n'existe plus ni restauration, ni `BasculePartielle`, ni état mêlé à nommer.
+- Garanti : les surfaces que le lot ne réécrit pas gardent leur contenu à travers la bascule — la
+  génération inactive est d'abord un miroir en liens **durs** de la génération courante.
+- Non garanti, et écrit plutôt que tu : un `SIGKILL` ou une coupure matérielle **pendant** l'unique
+  `rename(2)` relève du système de fichiers. Le `fsync` des répertoires est fait ; au-delà, la
+  durabilité est celle du matériel.
+- Non garanti : l'absence de **biais de lecteur**. Un lecteur qui résout deux cibles de part et
+  d'autre d'une bascule voit un mélange. L'invariant ne le demande pas ; c'est dit pour ne pas
+  laisser croire qu'il est couvert.
+- Le ping-pong à deux générations impose un `flock` exclusif sur l'espace : c'est la dette
+  `target_story: 4.1` payée pour le chemin des évals. L'ingestion écrit `data/manifest.json` par son
+  propre chemin (`server/ingest/artifacts.py`, qui écrit **à travers** le lien plutôt que de le
+  remplacer) et reste hors de ce verrou.
+
+**Ce qu'un opérateur doit savoir.** Les liens de `data/` et `docs/` sont committés : un checkout
+frais les a déjà. Les **sorties de run** (`eval-results.json`, `eval-results.md`, ou `.evals/` sous
+`EVALS_OUTPUT_*`) sont ignorées par git, donc leurs liens ne peuvent pas l'être : ils se posent une
+fois, hors de tout run, par
+
+```
+uv run python -m server.evals.espace --racine . --data-dir data \
+  --cible eval-results.json --cible eval-results.md
+```
+
+Sans cela le run **refuse** avant toute mesure, en nommant cette commande — il ne pose jamais sa
+propre disposition. La CI fait le même geste dans son étape d'évals, sur `.evals/`.
+
+Les chemins frères — `ecrire_rapports` (le couple JSON + table) et `ecrire_gate` — passent par le
+même unique pointeur : ce sont des lots comme les autres.
 
 | surface | chemin | dans l'image ? |
 |---|---|---|

@@ -248,22 +248,41 @@ parole n'est qu'une chaîne, et un rapport fabriqué peut toujours être auto-co
 `pytest -q tests/test_plancher.py -k candidate_revision`). Toute preuve produite avant cette story
 est invalide.
 
-**Publication et promotion basculent ensemble.** Ni « publier puis promouvoir » ni l'inverse ne
-suffisent : dans un sens un échec d'écriture du manifest laisse des surfaces affirmant un verdict que
-le manifest ne porte pas, dans l'autre un échec de publication laisse un vert déjà servable. La règle
-est donc qu'**il ne reste rien d'échouable après la première bascule** : les trois surfaces *et*
-l'entrée de manifest sont préparées et validées dans des temporaires de leurs répertoires cibles,
-puis basculées en une seule file de `os.replace`. Un échec de préparation ne laisse ni publication ni
-gate — le manifest est byte-identique et aucune surface n'a bougé, **et aucun temporaire ne
-subsiste**. Cette dernière garantie est explicite parce qu'elle avait été prise pour acquise : la
-lecture du rendu à archiver survenait *après* la création du premier temporaire, si bien qu'un
-`docs/evals/latest.md` illisible faisait sortir la préparation sans jamais rendre sa liste — le
-temporaire échappait alors au nettoyage de l'appelant, et les refus répétés remplissaient `data/`.
-La règle tient désormais en deux moitiés, et il faut les deux : tout ce qui peut lever est **lu et
-validé avant le premier temporaire**, et la préparation entière est entourée d'un **rollback local**
-qui supprime chaque temporaire déjà accumulé sur toute exception, à n'importe quel rang. Les chemins
-frères qui préparent de la même façon — `ecrire_rapports` et la préparation de l'entrée de
-manifest — tiennent la même garantie. Le résultat est **publié quel qu'il soit** (FR41) dans un
+**Publication et promotion basculent ensemble, et c'est désormais littéralement vrai** (story 4.5,
+B7). Ni « publier puis promouvoir » ni l'inverse ne suffisent : dans un sens un échec d'écriture du
+manifest laisse des surfaces affirmant un verdict que le manifest ne porte pas, dans l'autre un échec
+de publication laisse un vert déjà servable. Les tours précédents avaient répondu par une file de
+`os.replace` suivie d'une **restauration** en cas d'échec — ce qui améliorait le *signalement* d'un
+état mêlé (`BasculePartielle` nommait les cibles laissées dans le nouvel état) sans l'empêcher : une
+interruption pendant la restauration laissait la cible du premier rang publiée.
+
+La règle est maintenant qu'**aucune cible n'est modifiée du tout tant que la transaction n'est pas
+acquise**, et l'acquisition est un **unique `os.replace`**. Le lot — les surfaces publiées *et*
+`data/manifest.json`, remis au même appel — est écrit dans une génération inactive du bundle
+`data/.publie/`, puis publié en déplaçant le pointeur `data/.publie/courant`. Chaque cible est un
+chemin dont la résolution traverse ce pointeur ; les liens sont **statiques et committés** pour
+`data/` et `docs/`, posés par la CI pour `.evals/`, et la bascule n'en crée, n'en migre ni n'en change
+jamais le type — elle refuse ce que le pointeur ne résout pas. Cette forme sert AD-14 (la publication
+des questions-témoins) et AD-8 (« seul `gate.evals_ok` décide de ce qui est servi ») : promouvoir et
+publier ne peuvent plus devenir visibles séparément.
+
+Ce que le protocole garantit : après **toute** exception, à n'importe quel rang, `BaseException` et
+interruption comprises, zéro cible du lot n'est modifiée ni visible dans le nouvel état, et aucun
+temporaire ne subsiste. Il n'y a plus de restauration, donc plus rien qui puisse échouer en
+défaisant. Ce qu'il ne garantit pas, et qui s'écrit au lieu de se taire : un `SIGKILL` ou une coupure
+matérielle pendant l'unique `rename(2)`, que l'espace utilisateur ne couvre pas ; et le biais de
+lecteur, un lecteur qui résout deux cibles de part et d'autre d'une bascule. Les chemins frères
+(`ecrire_rapports`, `ecrire_gate`) passent par le même pointeur unique.
+
+Pourquoi cette forme l'emporte sur l'autre branche envisagée — durcir encore la restauration : parce
+qu'un protocole qui *défait* ce qu'il a déjà fait n'est pas tout-ou-rien. Rejouer un rollback, fût-ce
+un nombre borné de fois, admet qu'après épuisement une cible reste dans le nouvel état. Ici il n'y a
+rien à défaire. Le prix est réel et se dit : `docs/evals/latest.md` ne se rend plus dans l'interface
+web de GitHub (un lien y est affiché comme chemin), le bundle suit deux générations dans le dépôt, un
+`git diff` de gate n'est plus seulement un gate, et le verrou différé en `target_story: 4.1` est payé
+pour le chemin des évals.
+
+Le résultat est **publié quel qu'il soit** (FR41) dans un
 artefact unique — `data/evals-latest.json`, `docs/evals/latest.md`, le résumé de CI et
 `GET /api/v1/evals/latest`, que `/` compose (FR42). Publier ne promeut rien : seul `gate.evals_ok`
 décide de ce qui est servi (AD-8). Les limites y sont dérivées du run ; les trois réserves
