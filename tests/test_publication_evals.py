@@ -34,7 +34,7 @@ from fastapi.testclient import TestClient
 from server.app.api.main import create_app
 from server.app.config import REPO_ROOT, Settings
 from server.app.domain.evals import (PublicationEvals, ReservesPubliees, SecondeLecturePubliee)
-from server.app.domain.ingest import Gate, GateDecision
+from server.app.domain.ingest import Gate
 from server.evals import publication as pub_mod
 from server.evals import run as runner
 
@@ -422,45 +422,88 @@ def test_une_decision_rouge_qui_porte_sa_raison_ne_publie_pas_une_inegalite_faus
                for limite in _publication(rapport=rouge_par_valeur).limites)
 
 
-def test_le_rendu_de_ci_porte_les_champs_que_lac_exige(tmp_path: Path) -> None:
-    """Revue P6 : `$GITHUB_STEP_SUMMARY` gardait le rendu d'avant le diff.
+def test_le_rendu_de_ci_est_celui_de_la_publication(tmp_path: Path) -> None:
+    """Correctif P6 du tour précédent : **un seul renderer**, y compris pour `$GITHUB_STEP_SUMMARY`.
 
-    La publication n'est appendue au rapport que sous `--gate ... --profile full`, or la CI lance
-    `--profile full` **sans** `--gate` (et `tests/test_workflows.py` épingle cette absence). Le
-    résumé de CI restait donc celui dont l'Intent de la spec dit qu'il n'a « ni stabilité, ni p95,
-    ni digest, ni limites » — c'est-à-dire la surface que l'AC 4 exige.
+    La CI lance un diagnostic `full` **sans gate**, donc sans publication, puis concatène
+    `results.md` — qui était produit par un second renderer. Deux renderers, deux artefacts, et les
+    tests ne comparaient que deux rendus synthétiques.
 
-    Les champs viennent du **même rapport** et du **même formatage** que la publication.
+    Désormais le Markdown que le runner écrit **contient** le rendu de publication de son propre
+    run, construit par la fonction autoritaire. Le journal par cas reste à côté : c'est le journal du
+    run, pas l'artefact publié.
     """
     rapport = _rapport(labels=_tous_les_labels())
     rapport["reserves"] = {"countersigned": False, "validated_by_expert": False,
                            "dictionary_validated": False}
     rendu = runner.rendre_markdown(rapport)
-    assert "stabilité N/N" in rendu and "0/1 (N=3)" in rendu
-    assert "coût froid (€)" in rendu and pub_mod.nombre(0.055) in rendu
-    assert "latence p95 (ms)" in rendu and "34370" in rendu
-    assert "a" * 64 in rendu, "le digest du run doit être lisible dans le résumé de CI"
-    assert "contresignature humaine" in rendu
-    assert "Limites dérivées de ce run :" in rendu
-    # Les limites sont **la même dérivation** que celle de la publication, mot pour mot.
-    attendues = pub_mod.limites_du_rapport(
-        rapport, [GateDecision.model_validate(d) for d in rapport["decisions"]],
-        reserves=ReservesPubliees(countersigned=False, validated_by_expert=False,
-                                  dictionary_validated=False))
-    for limite in attendues:
-        # Rendues par l'échappement durci du runner : une limite dérivée reste une valeur
-        # dynamique, et ne peut ni ouvrir du code ni casser une cellule.
-        assert runner._markdown_value(limite) in rendu, limite
-    # Et le formatage des chiffres est celui de la publication, y compris sur une valeur ronde :
-    # le recall vaut `1.0` dans la fixture et doit se lire `1.0000`, comme dans la publication.
-    assert f"| {pub_mod.nombre(1.0)} |" in rendu
+    # Le rendu de publication est **littéralement** celui de la fonction autoritaire.
+    attendu = pub_mod.rendre_publication_markdown(
+        pub_mod.construire_publication(rapport),
+        valeur=runner._markdown_value, code=runner._markdown_code)
+    assert attendu in rendu
+    # Et il porte ce que l'Intent reprochait au résumé de CI de taire.
+    assert "stabilité" in attendu and "0/1 (N=3)" in attendu
+    assert pub_mod.nombre(0.055) in attendu  # coût froid
+    assert "34370" in attendu               # latence p95
+    assert "a" * 64 in attendu              # run_digest
+    assert "## Réserves" in attendu and "## Limites" in attendu
+    # Le journal du run reste présent à côté du rendu publié.
+    assert "| Cas | Suite | Variante | Label |" in rendu
 
 
-def test_un_rapport_sans_reserves_ne_les_invente_pas(tmp_path: Path) -> None:
-    """Un run de diagnostic n'établit ni contresignature ni seconde lecture : il n'en dit rien."""
-    rendu = runner.rendre_markdown(_rapport(labels=_tous_les_labels()))
-    assert "contresignature humaine" not in rendu
-    assert "stabilité N/N" in rendu  # ce que le rapport établit reste publié
+def test_un_diagnostic_sans_gate_nabuse_daucun_champ_du_gate() -> None:
+    """Correctif P6 : « un diagnostic n'a ni `candidate_revision`, ni `plancher_digest`, ni `evals_ok` ».
+
+    Ces champs sont **absents**, jamais fabriqués : publier `evals_ok: false` pour un run qui n'a
+    rien jugé serait aussi faux que publier `true`.
+    """
+    rapport = _rapport(labels=_tous_les_labels())
+    rapport.pop("plancher_digest")
+    rapport["identity"] = {"run_digest": "a" * 64}
+    pub = pub_mod.construire_publication(rapport)
+    assert pub.evals_ok is None
+    assert pub.candidate_revision is None
+    assert pub.plancher_digest is None
+    assert pub.report_digest is None
+    # Les réserves d'un rapport qui ne les établit pas ne sont pas inventées non plus.
+    assert pub.reserves is None
+    rendu = pub_mod.rendre_publication_markdown(pub, valeur=runner._markdown_value,
+                                                code=runner._markdown_code)
+    assert "diagnostic (aucun gate)" in rendu
+    assert "il n'établit ni contresignature" in rendu
+
+
+def test_le_fichier_concatene_par_la_ci_est_celui_que_le_runner_ecrit() -> None:
+    """Correctif P6 : le test doit vérifier **la source réellement envoyée** à `$GITHUB_STEP_SUMMARY`.
+
+    Un test qui n'exercerait que le renderer Python laisserait passer un workflow qui concatène un
+    autre fichier que celui que le runner écrit — c'est-à-dire exactement le défaut d'origine, sous
+    une autre forme.
+    """
+    import re as _re
+
+    import yaml
+
+    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
+    etapes = workflow["jobs"]["verifier"]["steps"]
+    evals = next(e for e in etapes if str(e.get("name", "")).startswith("Questions-témoins"))
+    ecrit = evals["env"]["EVALS_OUTPUT_MARKDOWN"]
+    concatene = _re.search(r"cat (\S+) >> \"\$GITHUB_STEP_SUMMARY\"", evals["run"])
+    assert concatene is not None, "le workflow doit concaténer un fichier dans le résumé"
+    assert concatene.group(1) == ecrit, (
+        f"la CI concatène {concatene.group(1)} mais le runner écrit {ecrit}")
+    # Et c'est bien ce chemin que le runner reçoit comme `--output-markdown`.
+    from tests.test_evals_live import arguments_evals
+
+    import os as _os
+    _os.environ["EVALS_OUTPUT_MARKDOWN"] = ecrit
+    try:
+        args, _json, markdown = arguments_evals(0.5, Path("/tmp/inexistant"))
+    finally:
+        _os.environ.pop("EVALS_OUTPUT_MARKDOWN", None)
+    assert str(markdown) == ecrit
+    assert args[args.index("--output-markdown") + 1] == ecrit
 
 
 def test_le_latest_precedent_est_archive_avant_detre_remplace(tmp_path: Path) -> None:

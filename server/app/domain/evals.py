@@ -104,12 +104,18 @@ class PublicationEvals(FrozenModel):
     schema_version: Literal[1] = 1
     profile: str = Field(min_length=1)
     candidate_revision: str | None = Field(default=None, pattern=REVISION)
-    run_digest: str = Field(pattern=SHA256)
-    report_digest: str = Field(pattern=SHA256)
-    plancher_digest: str = Field(pattern=SHA256)
-    cases_hash: str = Field(pattern=SHA256)
-    date: str = Field(min_length=1)
-    evals_ok: bool
+    # `None` quand le rapport n'a pas encore d'identité de run (rapport partiel d'un incident
+    # survenu avant sa construction) : une empreinte fabriquée serait pire qu'une absence.
+    run_digest: str | None = Field(default=None, pattern=SHA256)
+    # **Absents sur un diagnostic**, jamais fabriqués (correctif P6 du tour précédent). Un `--profile full` sans `--gate`
+    # — ce que la CI lance à chaque PR — mesure sans juger : il n'a ni rapport certifié, ni
+    # protocole opposé, ni verdict. Publier `evals_ok: false` pour un run qui n'a rien jugé serait
+    # aussi faux que publier `true`. `null` dit la seule chose vraie : il n'y a pas de verdict.
+    report_digest: str | None = Field(default=None, pattern=SHA256)
+    plancher_digest: str | None = Field(default=None, pattern=SHA256)
+    cases_hash: str | None = Field(default=None, pattern=SHA256)
+    date: str = ""
+    evals_ok: bool | None = None
     variantes: dict[str, int] = Field(default_factory=dict)
     labels: dict[str, int] = Field(default_factory=dict)
     recall: float = Field(ge=0, le=1, allow_inf_nan=False)
@@ -117,12 +123,14 @@ class PublicationEvals(FrozenModel):
     cout: CoutPublie
     latence: LatencePubliee
     ne_tranche_pas_rate: float = Field(ge=0, le=1, allow_inf_nan=False)
-    reserves: ReservesPubliees
+    # `None` sur un diagnostic : un run sans gate n'établit ni contresignature, ni validation, ni
+    # signature de dictionnaire. Les fabriquer à `false` affirmerait un constat qui n'a pas été fait.
+    reserves: ReservesPubliees | None = None
     decisions: list[GateDecision] = Field(default_factory=list)
     # **Dérivées mécaniquement** du run (décisions rouges chiffrées, réserves à `false`, exécutions
     # manquantes, écarts de parsing, état incomplet) : aucune prose n'est fabriquée ici.
     limites: list[str] = Field(default_factory=list)
-    seconde_lecture: SecondeLecturePubliee
+    seconde_lecture: SecondeLecturePubliee | None = None
 
 
 class EtatPublication(FrozenModel):

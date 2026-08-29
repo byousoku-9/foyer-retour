@@ -725,7 +725,10 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # `GateContext` décrit l'image en cours : sans lui, le loader ne peut pas voir qu'un gate a été
     # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
-                           model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
+                           model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                           # Story 4.5 : la révision qui tourne, telle que le service la connaît.
+                           # Un gate `full` d'un autre commit part en quarantaine (`gate_perime`).
+                           candidate_revision=settings.git_sha, env=settings.env)
     # Dette D1 refermée (story 4.5) : la disjonction d'AD-7 a **trois** termes, et c'est
     # `Settings.deroger_au_gate` qui les combine — `ALLOW_UNGATED` **ou** `ENV=dev`. En `prod`, les
     # deux sont faux et la fermeture de l'AC 1.10 est intacte.

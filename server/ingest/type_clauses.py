@@ -36,7 +36,8 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 from server.ingest.artifacts import document_json, merged_manifest, read_manifest, structure_hash
-from server.ingest.report import enrich_typing_report, pages_charabia
+from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
+                                  pages_charabia)
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
@@ -1430,8 +1431,26 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             })
         typed_report.stats.update(transport_stats)
     doc_text = document_json(typed)
-    report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
     document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+    # **Le typage change `document.json`, donc l'arbre attesté** (story 4.5, revue B4). Les deux
+    # attestations d'ingestion sont préservées par `enrich_typing_report` (elles ne sont pas des
+    # checks de typage), mais elles nomment l'ancien `document_hash` : telles quelles, elles ne
+    # décrivent plus rien, et un document typé perdrait sa preuve de structure **sans que rien ne le
+    # dise** — le gate `full` la verrait simplement absente. Elles sont donc ré-attestées sur les
+    # empreintes neuves, avec les mêmes fonctions que l'ingestion, dans le même ordre.
+    #
+    # `renouveler=True` : rien n'est **fabriqué** au passage. Le typage réécrit un rapport, il ne
+    # re-vérifie ni l'arbre ni la proposition de structure ; il n'a donc rien à attester qui ne l'ait
+    # déjà été. Un rapport sans attestation — parce qu'aucune structure n'a été proposée, parce que
+    # l'arbre a été refusé, ou simplement parce qu'il date d'avant la story 4.5 — ressort exactement
+    # tel quel, et le témoin du gate reste rouge jusqu'à une vraie réingestion.
+    structure_courante = structure_hash(doc_dir)
+    typed_report = attester_structure(typed_report, document_hash=document_hash,
+                                      structure_hash=structure_courante or "", renouveler=True)
+    typed_report = attester_arbre(typed_report, document_hash=document_hash,
+                                  ingest_fingerprint=old_entry.ingest_fingerprint,
+                                  renouveler=True)
+    report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
     new_entry = ManifestEntry(
         status="quarantaine" if typed_report.blocking else "servi",
         source_hash=old_entry.source_hash,
@@ -1442,7 +1461,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         # Story 4.5 : `structure.json` n'est ni écrit ni supprimé ici — l'empreinte est donc relue
         # du disque, comme partout ailleurs, plutôt que recopiée de l'ancienne entrée (qui pourrait
         # décrire un fichier qui a bougé depuis).
-        structure_hash=structure_hash(doc_dir),
+        structure_hash=structure_courante,
         gate=None,
     )
     manifest_text, merged_entry = merged_manifest(raw_manifest, doc.doc_id, new_entry)

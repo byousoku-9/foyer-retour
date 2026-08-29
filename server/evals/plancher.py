@@ -30,6 +30,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from server.evals.cache import empreinte_canonique
+
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 PLANCHER_PATH = REFERENCE_DIR / "plancher.yaml"
 
@@ -316,7 +318,8 @@ def _hex_exact(valeur: Any, longueur: int) -> bool:
 
 
 def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revision: str,
-                            report_bytes: bytes | None) -> str:
+                            report_bytes: bytes | None,
+                            image_courante: dict[str, Any] | None = None) -> str:
     """Relie une preuve externe à **ce** candidat, et rend son `run_digest` racine.
 
     Intention M2 (`deferred-work.md`) : « une modification produit rend la réutilisation d'une preuve
@@ -331,8 +334,12 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
     - la **révision candidate** (`candidate_revision`) — la preuve nomme le commit qu'elle mesure ;
     - le **rapport** (`report_digest` = sha256 des octets du rapport) — un rapport modifié après coup
       détache la preuve de ce qu'elle prétend résumer ;
-    - le **run** (`run_digest` racine, et le même sur chaque décision) — une preuve dont les mesures
-      viennent de runs différents n'est pas une preuve, c'est une compilation.
+    - le **run** (`run_digest` racine, le même sur chaque décision, **et recalculé** depuis
+      l'identité du rapport) — une preuve dont les mesures viennent de runs différents n'est pas une
+      preuve, c'est une compilation ; et un `run_digest` cru sur parole n'est qu'une chaîne ;
+    - l'**image et le protocole** du rapport référencé (`pipeline_digest`, `prompts_digest`,
+      `model_ids`, `plancher_digest`) : deux runs ne se comparent qu'à code, prompts, modèles et
+      plancher égaux.
 
     Lève `PlancherInvalide` au premier écart, avec le chiffre en cause. L'appelant en fait un refus
     de tourner (code 2) : aucun gate n'est écrit.
@@ -370,6 +377,60 @@ def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revisi
         raise PlancherInvalide(
             f"preuve orchestrateur : rapport modifié — sha256 observé {observe}, report_digest "
             f"annoncé {brut['report_digest']}")
+    # **Le rapport doit se reconnaître dans la preuve** (revue B1). Recouper les seuls octets
+    # prouvait que le fichier n'avait pas bougé, pas qu'il décrivait ce run-là : une preuve pouvait
+    # référencer le rapport d'un autre run, d'une autre révision, et passer.
+    try:
+        rapport = json.loads(report_bytes)
+        if not isinstance(rapport, dict):
+            raise ValueError("un objet JSON est attendu")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : rapport référencé illisible ({type(exc).__name__})") from exc
+    identite = rapport.get("identity")
+    if not isinstance(identite, dict):
+        raise PlancherInvalide(
+            "preuve orchestrateur : le rapport référencé ne porte pas d'identité de run")
+    if identite.get("run_digest") != brut["run_digest"]:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : le rapport référencé porte run_digest "
+            f"{identite.get('run_digest')!r}, la preuve annonce {brut['run_digest']} — la preuve "
+            "ne décrit pas ce rapport")
+    # **Le `run_digest` est recalculé**, jamais cru sur parole. Il est défini comme l'empreinte
+    # canonique de l'identité privée de sa propre clé (`run.identite_run`) : sans ce recalcul, un
+    # rapport fabriqué pouvait déclarer n'importe quel couple `(run_digest, candidate_revision)`
+    # auto-cohérent, et la preuve s'y raccrochait sans rien prouver du tout.
+    sans_digest = {cle: valeur for cle, valeur in identite.items() if cle != "run_digest"}
+    recalcule = empreinte_canonique(sans_digest)
+    if recalcule != identite.get("run_digest"):
+        raise PlancherInvalide(
+            f"preuve orchestrateur : le run_digest du rapport ne se recalcule pas depuis son "
+            f"identité (annoncé {identite.get('run_digest')!r}, recalculé {recalcule}) — ce "
+            "rapport a été fabriqué ou modifié")
+    if identite.get("candidate_revision") != brut["candidate_revision"]:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : le rapport référencé a mesuré la révision "
+            f"{identite.get('candidate_revision')!r}, la preuve annonce "
+            f"{brut['candidate_revision']}")
+    # Le **protocole** du rapport, à ses deux emplacements : la racine et l'identité d'image. Un
+    # rapport mesuré sous un autre plancher n'oppose pas les mêmes seuils, et une preuve qui s'en
+    # réclame comparerait des mesures qui ne veulent pas dire la même chose.
+    image = identite.get("image") if isinstance(identite.get("image"), dict) else {}
+    for source, valeur in (("racine du rapport", rapport.get("plancher_digest")),
+                           ("identity.image", image.get("plancher_digest"))):
+        if valeur is not None and valeur != plancher_digest:
+            raise PlancherInvalide(
+                f"preuve orchestrateur : le rapport référencé a été mesuré sous le plancher "
+                f"{valeur!r} ({source}), le run courant sous {plancher_digest}")
+    # Et l'**image** : deux runs ne se comparent qu'à code, prompts et modèles égaux. Une preuve
+    # tirée d'une autre image mesure un autre système.
+    if image_courante is not None:
+        for champ, attendu in image_courante.items():
+            observe = image.get(champ)
+            if observe is not None and observe != attendu:
+                raise PlancherInvalide(
+                    f"preuve orchestrateur : le rapport référencé porte {champ}={observe!r}, "
+                    f"le run courant {attendu!r} — la preuve ne mesure pas cette image")
     if not _hex_exact(brut["run_digest"], 64):
         raise PlancherInvalide(
             "preuve orchestrateur : run_digest doit être 64 caractères hexadécimaux")

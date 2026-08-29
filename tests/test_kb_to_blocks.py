@@ -416,3 +416,48 @@ def test_une_structure_qui_bouge_ne_conserve_pas_le_gate(data_dir: Path) -> None
     k.run(data_dir, edition="git:test")
     assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8")
                       )["lux-guide"]["gate"] is None
+
+
+def test_lingestion_atteste_larbre_quelle_a_construit(data_dir: Path) -> None:
+    """Story 4.5 (revue B4, volet guide) : `invariants_arbre` **affirme**, et nomme de quoi il parle.
+
+    Le check existait déjà, avec `detail: "ok"` — une déclaration sans empreinte, que n'importe quel
+    `report.json` écrit à la main pouvait imiter. Le gate `full` en aurait tiré un fail-open sur le
+    seul périmètre qui lui reste : le guide n'a pas de `structure.json`, donc pas de preuve de
+    structure PDF, et sans cette attestation il n'aurait plus **aucune** exigence de structure.
+
+    L'attestation lie l'arbre aux octets écrits (`document_hash`) et au code qui les a produits
+    (`ingest_fingerprint`) — les deux valeurs que le manifest porte et que le loader recoupe.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre
+
+    report, entry = k.run(data_dir, edition="git:test")
+    atteste = next(c for c in report.checks if c.name == "invariants_arbre")
+    assert atteste.level == "info"
+    assert lire_attestation_arbre(atteste.detail) == (entry.document_hash,
+                                                      entry.ingest_fingerprint)
+    # Et c'est bien ce qui est **écrit** sur disque, pas seulement ce que `run` rend.
+    sur_disque = Report.model_validate_json((data_dir / "report.json").read_bytes())
+    lu = next(c for c in sur_disque.checks if c.name == "invariants_arbre")
+    assert lire_attestation_arbre(lu.detail) == (entry.document_hash, entry.ingest_fingerprint)
+    manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"]
+    assert lire_attestation_arbre(lu.detail) == (manifest["document_hash"],
+                                                 manifest["ingest_fingerprint"])
+    # L'ingestion reste déterministe : ré-attester deux fois n'empile pas deux attestations.
+    k.run(data_dir, edition="git:test")
+    relu = Report.model_validate_json((data_dir / "report.json").read_bytes())
+    assert next(c for c in relu.checks if c.name == "invariants_arbre").detail == lu.detail
+
+
+def test_un_arbre_refuse_natteste_rien(data_dir: Path) -> None:
+    """Une attestation ne se fabrique pas : un arbre refusé reste un bloquant nu.
+
+    `attester_*` ne réécrit qu'un check **déjà présent et affirmatif** ; elle n'en ajoute jamais.
+    Sans cette règle, un document en quarantaine aurait porté une preuve de structure.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre
+
+    (data_dir / "source.js").write_text("var kb = {fiches: [{}]};", "utf-8")
+    report, entry = k.run(data_dir, edition="git:test")
+    assert report.blocking and entry.status == "quarantaine" and entry.document_hash == ""
+    assert all(lire_attestation_arbre(c.detail) is None for c in report.checks)

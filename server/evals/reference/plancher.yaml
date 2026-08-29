@@ -175,7 +175,7 @@ temoins:
     scope: run
     mesure_par: eval_runner
 
-  # --- story 4.5 : les neuf temoins du gate `full` ------------------------------------------------
+  # --- story 4.5 : les dix temoins du gate `full` -------------------------------------------------
   #
   # Ils s'ajoutent **sans** toucher aux huit precedents et sans diminuer un import : ce sont des
   # exigences nouvelles, pas un abaissement. `arme_par: gate_full` dit a quel moment ils sont
@@ -237,30 +237,44 @@ temoins:
     mesure_par: eval_runner
     arme_par: gate_full
   - metric: typage_confirme_rate
-    pipeline: all
+    pipeline: sinistre
     famille: run
     criticite: bloquant
     plancher: 1.0
     n: 3
-    numerateur: "executions dont chaque preuve cite un bloc au typage confirme (kind_confirmed)"
-    denominateur: "executions planifiees (cas x repetitions), interruptions comprises"
-    incident: "execution manquante = rouge au denominateur"
-    scope: run
+    numerateur: "executions sinistre dont chaque preuve citant une clause fondatrice (garantie, exclusion) porte un kind confirme (manual ou model_verified)"
+    denominateur: "executions sinistre planifiees (cas sinistre x repetitions), interruptions comprises"
+    incident: "execution sinistre manquante = rouge au denominateur"
+    scope: suite
     mesure_par: eval_runner
     arme_par: gate_full
+    note: "le typage qu'AD-6 exige est celui des clauses fondatrices, l'univers exact du predicat decisionnel ; le guide n'a aucune clause juridique a typer et sa preuve equivalente est citations_retrouvees_rate + blocs_attendus_ouverts_rate"
   - metric: structure_prouvee_rate
-    pipeline: all
+    pipeline: parsing
     famille: run
     criticite: bloquant
     plancher: 1.0
     n: 3
-    numerateur: "documents du lot dont structure.json est declare au manifest, present, concordant, et dont le rapport ne porte aucun bloquant de structure"
-    denominateur: "documents du lot"
-    incident: "artefact de structure absent ou illisible = rouge, jamais neutre"
-    scope: run
+    numerateur: "documents PDF du lot dont structure.json est declare au manifest, present, concordant, et dont le rapport d'ingestion porte une attestation structure_proposee affirmative rattachee a ce document (document_hash et structure_hash observes)"
+    denominateur: "documents du lot issus d'un PDF (regle SOURCE_FILES du loader)"
+    incident: "artefact de structure absent, illisible, ou attestation absente = rouge, jamais neutre"
+    scope: suite
     mesure_par: eval_runner
     arme_par: gate_full
-    note: "actuellement 0/1 : aucune structure.json sur le corpus servi (reingestion reelle due a l'orchestrateur) — rouge, publie tel quel"
+    note: "un document non issu d'un PDF (copie de site) n'a aucune proposition de structure a prouver : il sort du denominateur, et c'est arbre_prouve_rate qui lui oppose la preuve deterministe dont son ingestion dispose ; le temoin n'est applicable que lorsque le lot porte une suite parsing, ce qu'un gate full sur un document PDF garantit. Actuellement 0/1 : aucune structure.json sur le corpus servi (reingestion reelle due a l'orchestrateur) — rouge, publie tel quel"
+  - metric: arbre_prouve_rate
+    pipeline: guide
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "documents non issus d'un PDF dont le rapport d'ingestion porte un check invariants_arbre affirmatif (jamais bloquant) dont l'attestation nomme le document_hash et l'ingest_fingerprint de l'entree du manifest"
+    denominateur: "documents du lot qui ne sont pas issus d'un PDF (regle SOURCE_FILES du loader), c'est-a-dire le complement exact du denominateur de structure_prouvee_rate"
+    incident: "rapport d'ingestion absent, illisible, etranger, sans attestation ou attestant un autre arbre = rouge, jamais neutre"
+    scope: suite
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "pendant de structure_prouvee_rate pour le perimetre guide : la story 4.2c ne s'applique pas a une copie de site, mais son ingestion emet le meme controle deterministe d'arbre (invariants_arbre) que l'ingestion PDF. Restreindre structure_prouvee_rate aux PDF sans donner cette preuve au guide aurait laisse un perimetre entier sans exigence de structure — un abaissement du plancher par omission. Le partage des deux denominateurs est la regle SOURCE_FILES, jamais un doc_id. Actuellement 0/1 : le report.json servi porte invariants_arbre sans empreinte (forme anterieure a 4.5) — rouge tant que le guide n'est pas reingere"
   - metric: stabilite_claim_decisionnelle
     pipeline: sinistre
     famille: stabilite

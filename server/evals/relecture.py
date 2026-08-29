@@ -147,14 +147,51 @@ def ecrire_plan(plan: PlanRelecture, path: Path) -> None:
                     encoding="utf-8")
 
 
-def valider_verdict(brut: Any, plan: PlanRelecture, *,
-                    candidate_revision: str) -> VerdictRelecture:
+def nom_image(block_id: str) -> str:
+    """Le nom de fichier local de l'image d'un bloc — déterministe, sans séparateur de chemin.
+
+    Les `block_id` portent des `:` (`{doc_id}:{loc}:{seq}`), que tous les systèmes de fichiers
+    n'acceptent pas et qui ouvriraient une composition de chemin. La substitution est fixe et
+    documentée : c'est le nom que l'orchestrateur donne à l'image téléchargée depuis la route de la
+    story 3.4, et celui que le validateur cherche.
+    """
+    return block_id.replace(":", "_") + ".png"
+
+
+def charger_images(images_dir: Path, plan: PlanRelecture) -> dict[str, bytes]:
+    """Les octets **réellement regardés**, un fichier par bloc du plan. Une absence n'est pas vide.
+
+    Un bloc dont l'image manque n'entre pas dans la table : `valider_verdict` refusera alors le
+    verdict qui prétend l'avoir relu, plutôt que de le croire sur parole.
+    """
+    octets: dict[str, bytes] = {}
+    for bloc in plan.blocs:
+        chemin = images_dir / nom_image(bloc.block_id)
+        try:
+            octets[bloc.block_id] = chemin.read_bytes()
+        except OSError:
+            continue
+    return octets
+
+
+def valider_verdict(brut: Any, plan: PlanRelecture, *, candidate_revision: str,
+                    images: dict[str, bytes] | None = None) -> VerdictRelecture:
     """Contrôle strict du verdict rempli — sinon `RelectureInvalide`, jamais un verdict à moitié lu.
 
-    Quatre liens, et les quatre sont exigés : le **schéma** exact (aucune clé en trop), la
+    **Cinq** liens, et les cinq sont exigés : le **schéma** exact (aucune clé en trop), la
     **révision** candidate (un verdict d'un autre commit ne dit rien de celui-ci), l'**empreinte du
-    plan** (un plan modifié après coup rendrait le verdict inintelligible), et la **couverture** —
-    exactement les blocs du plan, chacun une fois.
+    plan** (un plan modifié après coup rendrait le verdict inintelligible), la **couverture** —
+    exactement les blocs du plan, chacun une fois — et, depuis la revue, l'**empreinte des images**.
+
+    Ce cinquième lien est celui qui manquait, et il porte tout le poids de FR47 : `image_sha256`
+    était recopié du verdict sans jamais être recoupé, si bien qu'un verdict portant une empreinte
+    **inventée** était accepté puis publié « concordante » sur les quatre surfaces. Une fausse preuve
+    de seconde lecture, affirmée par le service. Le validateur recalcule donc lui-même l'empreinte
+    des octets qu'on lui donne (`empreinte_image`) et exige l'égalité ; une page manquante ou une
+    empreinte non recoupée est un refus.
+
+    `images=None` **refuse** : sans les octets, il n'y a rien à recouper, et accepter reviendrait à
+    rouvrir la porte que ce lien ferme. Un verdict ne se valide qu'avec ce qui a été regardé.
     """
     if not isinstance(brut, dict):
         raise RelectureInvalide("verdict de seconde lecture : un objet JSON est attendu")
@@ -184,6 +221,23 @@ def valider_verdict(brut: Any, plan: PlanRelecture, *,
         raise RelectureInvalide(
             "verdict de seconde lecture : la couverture du plan n'est pas exacte "
             f"(plan {sorted(attendus)}, verdict {sorted(rendus)})")
+    if images is None:
+        raise RelectureInvalide(
+            "verdict de seconde lecture : les octets réellement regardés ne sont pas fournis — "
+            "sans eux, `image_sha256` n'est recoupé avec rien")
+    for rendu in verdict.verdicts:
+        octets = images.get(rendu.block_id)
+        if octets is None:
+            raise RelectureInvalide(
+                f"verdict de seconde lecture : aucune image fournie pour {rendu.block_id} "
+                f"(attendu : {nom_image(rendu.block_id)}) — un bloc qu'on n'a pas pu regarder ne "
+                "peut pas avoir été relu")
+        observe = empreinte_image(octets)
+        if observe != rendu.image_sha256:
+            raise RelectureInvalide(
+                f"verdict de seconde lecture : {rendu.block_id} annonce image_sha256 "
+                f"{rendu.image_sha256}, les octets fournis rendent {observe} — le verdict ne porte "
+                "pas sur l'image qu'on a lue")
     return verdict
 
 

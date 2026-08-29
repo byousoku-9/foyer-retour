@@ -1144,3 +1144,99 @@ def test_main_refuse_max_cost_non_positif_ou_non_fini_avant_toute_action(
     )
     assert code == 2 and batches.created == []
     assert "nombre fini > 0" in capsys.readouterr().err
+
+
+def _attester_avant_typage(doc_dir: Path) -> tuple[str, str]:
+    """Le rapport d'un document réellement ingéré : les deux attestations de structure de 4.5.
+
+    Rend `(structure_hash, ingest_fingerprint)` — les deux valeurs qui doivent **survivre** au
+    typage, à côté d'un `document_hash` qui, lui, change.
+    """
+    from server.app.domain.ingest import detail_attestation_arbre, detail_attestation_structure
+
+    manifest_path = doc_dir.parent / "manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    entry = manifest["contrat"]
+    structure_text = '{"doc_id": "contrat", "noeuds": []}\n'
+    (doc_dir / "structure.json").write_text(structure_text, "utf-8")
+    structure_hash = hashlib.sha256(structure_text.encode()).hexdigest()
+    entry["structure_hash"] = structure_hash
+    manifest_path.write_text(json.dumps(manifest), "utf-8")
+    (doc_dir / "report.json").write_text(json.dumps(Report(
+        doc_id="contrat",
+        checks=[
+            Check(name="invariants_arbre", level="info",
+                  detail=detail_attestation_arbre(document_hash=entry["document_hash"],
+                                                  ingest_fingerprint=entry["ingest_fingerprint"])),
+            Check(name="structure_proposee", level="info",
+                  detail=detail_attestation_structure(document_hash=entry["document_hash"],
+                                                      structure_hash=structure_hash)),
+        ],
+        stats={"pages_charabia": {}},
+    ).model_dump()), "utf-8")
+    return structure_hash, entry["ingest_fingerprint"]
+
+
+def test_les_attestations_de_structure_survivent_au_typage(tmp_path: Path) -> None:
+    """Story 4.5 (revue B4) : le typage réécrit `report.json` — la preuve de structure doit rester vraie.
+
+    `enrich_typing_report` conserve les checks qui ne sont pas des checks de typage, donc les deux
+    attestations traversaient déjà la réécriture **en tant que texte**. Mais le typage change
+    `document.json`, donc le `document_hash` que le manifest porte : telles quelles, les attestations
+    nommaient l'ancien arbre et ne décrivaient plus rien. Le gate `full` aurait alors vu la preuve
+    simplement absente — un document typé perdant sa preuve de structure **sans que rien ne le dise**.
+
+    Ce que le test vérifie est exactement le prédicat du gate : le couple attesté est celui de
+    l'entrée du manifest écrite par ce même typage.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre, lire_attestation_structure
+
+    doc_dir, _doc = write_data(tmp_path)
+    structure_hash, fingerprint = _attester_avant_typage(doc_dir)
+    avant = json.loads((doc_dir.parent / "manifest.json").read_text("utf-8"))["contrat"]
+
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    client = FakeStandardClient(FakeBatches(kinds), kinds)
+    result = tc.run(doc_dir, settings=settings(type_clauses_standard_concurrency=2), client=client,
+                    transport="standard", max_cost=12, output=io.StringIO())
+    assert result is not None
+
+    entry = json.loads((doc_dir.parent / "manifest.json").read_text("utf-8"))["contrat"]
+    # Le typage a bien changé l'arbre : sans cela, le test ne prouverait rien.
+    assert entry["document_hash"] != avant["document_hash"]
+    assert entry["document_hash"] == hashlib.sha256(
+        (doc_dir / "document.json").read_bytes()).hexdigest()
+    assert entry["structure_hash"] == structure_hash
+
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    arbre = next(c for c in report.checks if c.name == "invariants_arbre")
+    structure = next(c for c in report.checks if c.name == "structure_proposee")
+    assert lire_attestation_arbre(arbre.detail) == (entry["document_hash"], fingerprint)
+    assert lire_attestation_structure(structure.detail) == (entry["document_hash"], structure_hash)
+    # Une seule attestation par check : la ré-attestation remplace, elle n'empile pas.
+    assert arbre.detail.count("document_hash=") == 1
+    assert structure.detail.count("document_hash=") == 1
+
+
+def test_le_typage_ne_fabrique_jamais_une_attestation_absente(tmp_path: Path) -> None:
+    """L'autre sens, et il compte autant : absente avant ⇒ absente après.
+
+    `write_data` écrit le rapport tel que le corpus servi le porte aujourd'hui —
+    `invariants_arbre: ok`, sans empreinte, et aucun `structure_proposee`. Si le typage attestait
+    « par défaut », il fabriquerait une preuve de structure pour un document dont l'ingestion n'en a
+    jamais produit : le gate `full` verdirait sur une affirmation que personne n'a vérifiée.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre, lire_attestation_structure
+
+    doc_dir, _doc = write_data(tmp_path)
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    client = FakeStandardClient(FakeBatches(kinds), kinds)
+    assert tc.run(doc_dir, settings=settings(type_clauses_standard_concurrency=2), client=client,
+                  transport="standard", max_cost=12, output=io.StringIO()) is not None
+
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert [c.name for c in report.checks if c.name == "structure_proposee"] == []
+    arbre = next(c for c in report.checks if c.name == "invariants_arbre")
+    assert arbre.detail == "ok"
+    assert all(lire_attestation_arbre(c.detail) is None
+               and lire_attestation_structure(c.detail) is None for c in report.checks)

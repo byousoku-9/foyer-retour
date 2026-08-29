@@ -347,23 +347,57 @@ REVISION_B_candidate_revision = "b" * 40
 
 def _preuve_candidate_revision(rapport: Path, **kw: object) -> dict:
     import hashlib
+    import json as _json
 
+    identite = _json.loads(rapport.read_text(encoding="utf-8")).get("identity") or {}
+    run_digest = str(identite.get("run_digest", "c" * 64))
     base = {
         "plancher_digest": charger_plancher().digest,
         "candidate_revision": REVISION_A_candidate_revision,
         "report_digest": hashlib.sha256(rapport.read_bytes()).hexdigest(),
-        "run_digest": "c" * 64,
+        "run_digest": run_digest,
         "decisions": [{"metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
-                       "run_digest": "c" * 64}],
+                       "run_digest": run_digest}],
     }
     base.update(kw)  # type: ignore[arg-type]
     return base
 
 
+def _identite_candidate_revision(**champs: object) -> dict:
+    """Une identité de run **cohérente** : son `run_digest` est celui que le runner calculerait.
+
+    `run.identite_run` définit `run_digest` comme l'empreinte canonique de l'identité privée de sa
+    propre clé. Une identité dont le digest est posé à la main est un rapport fabriqué — et c'est
+    exactement ce que la liaison doit refuser (revue B1).
+    """
+    from server.evals.cache import empreinte_canonique
+
+    identite: dict = {"candidate_revision": REVISION_A_candidate_revision,
+                      "image": {}, "scope": {}}
+    identite.update(champs)
+    identite["run_digest"] = empreinte_canonique(
+        {cle: valeur for cle, valeur in identite.items() if cle != "run_digest"})
+    return identite
+
+
+def _ecrire_rapport_candidate_revision(chemin: Path, **champs: object) -> dict:
+    import json as _json
+
+    identite = _identite_candidate_revision(**champs)
+    chemin.write_text(_json.dumps({
+        "schema_version": 3, "decisions": [], "identity": identite}) + "\n", encoding="utf-8")
+    return identite
+
+
 @pytest.fixture
 def rapport_candidate_revision(tmp_path: Path) -> Path:
+    """Un rapport qui **se reconnaît** dans la preuve : son identité porte le run et la révision.
+
+    Recouper les seuls octets prouvait que le fichier n'avait pas bougé, jamais qu'il décrivait ce
+    run-là : une preuve pouvait référencer le rapport d'un autre run, d'une autre révision.
+    """
     chemin = tmp_path / "rapport.json"
-    chemin.write_text('{"schema_version": 3, "decisions": []}\n', encoding="utf-8")
+    _ecrire_rapport_candidate_revision(chemin)
     return chemin
 
 
@@ -377,7 +411,7 @@ def test_la_preuve_nominale_liee_a_la_candidate_revision_est_acceptee(
         preuve, plancher_digest=charger_plancher().digest,
         candidate_revision=REVISION_A_candidate_revision,
         report_bytes=rapport_candidate_revision.read_bytes())
-    assert run_digest == "c" * 64
+    assert run_digest == preuve["run_digest"] and len(run_digest) == 64
 
 
 def test_une_preuve_dune_autre_candidate_revision_est_refusee(
@@ -476,7 +510,7 @@ def test_le_runner_refuse_avant_toute_decision_sur_une_candidate_revision_diverg
     from server.evals import run as runner
 
     rapport = tmp_path / "rapport.json"
-    rapport.write_text('{"schema_version": 3}\n', encoding="utf-8")
+    _ecrire_rapport_candidate_revision(rapport)
     preuve = tmp_path / "preuve.json"
     preuve.write_text(_json.dumps(_preuve_candidate_revision(rapport)), encoding="utf-8")
     with pytest.raises(runner.RefusDeTourner, match="candidate_revision"):
@@ -489,3 +523,126 @@ def test_le_runner_refuse_avant_toute_decision_sur_une_candidate_revision_diverg
         candidate_revision=REVISION_A_candidate_revision, report_path=rapport)
     assert [d.metric for d in decisions] == ["offline_tests_pass_rate"]
     assert decisions[0].status == "green" and decisions[0].producer == "orchestrator"
+
+
+def test_un_rapport_qui_ne_se_reconnait_pas_dans_la_preuve_est_refuse(
+        rapport_candidate_revision: Path) -> None:
+    """Revue B1 : les octets concordent, mais le rapport décrit un **autre** run ou une autre révision.
+
+    Recouper le seul `report_digest` prouvait que le fichier n'avait pas bougé — pas qu'il parlait
+    de ce run-là. Une preuve pouvait donc référencer le rapport d'une campagne antérieure et passer.
+    """
+    import hashlib
+    import json as _json  # noqa: F401 — lisibilité des fixtures locales
+
+    from server.evals.plancher import verifier_liaison_preuve
+
+    autre_run = rapport_candidate_revision.parent / "autre-run.json"
+    _ecrire_rapport_candidate_revision(autre_run, scope={"repeat": 5})
+    preuve = _preuve_candidate_revision(rapport_candidate_revision)
+    preuve["report_digest"] = hashlib.sha256(autre_run.read_bytes()).hexdigest()
+    with pytest.raises(PlancherInvalide, match="ne décrit pas ce rapport"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=autre_run.read_bytes())
+
+    autre_revision = rapport_candidate_revision.parent / "autre-revision.json"
+    _ecrire_rapport_candidate_revision(autre_revision,
+                                       candidate_revision=REVISION_B_candidate_revision)
+    preuve = _preuve_candidate_revision(autre_revision)
+    with pytest.raises(PlancherInvalide, match="a mesuré la révision"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=autre_revision.read_bytes())
+
+    # Un rapport sans identité de run ne prouve rien non plus.
+    muet = rapport_candidate_revision.parent / "muet.json"
+    muet.write_text('{"schema_version": 3}\n', encoding="utf-8")
+    with pytest.raises(PlancherInvalide, match="identité de run"):
+        verifier_liaison_preuve(
+            _preuve_candidate_revision(muet), plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision, report_bytes=muet.read_bytes())
+
+
+def test_un_run_digest_fabrique_est_refuse_meme_sil_est_auto_coherent(
+        rapport_candidate_revision: Path) -> None:
+    """B1 : le `run_digest` est **recalculé**, jamais cru sur parole.
+
+    `run.identite_run` le définit comme l'empreinte canonique de l'identité privée de sa propre clé.
+    Comparer le `run_digest` de la preuve à celui que le rapport **déclare** ne prouvait donc rien :
+    un rapport fabriqué pouvait annoncer n'importe quel couple auto-cohérent, et la preuve s'y
+    raccrochait sans que rien ne soit établi.
+    """
+    import hashlib
+    import json as _json
+
+    from server.evals.plancher import verifier_liaison_preuve
+
+    fabrique = rapport_candidate_revision.parent / "fabrique.json"
+    fabrique.write_text(_json.dumps({
+        "schema_version": 3, "decisions": [],
+        # Auto-cohérent — la preuve annoncera ce même digest — mais **non recalculable**.
+        "identity": {"run_digest": "e" * 64, "candidate_revision": REVISION_A_candidate_revision,
+                     "image": {}, "scope": {}},
+    }) + "\n", encoding="utf-8")
+    preuve = _preuve_candidate_revision(fabrique)
+    preuve["run_digest"] = "e" * 64
+    preuve["decisions"][0]["run_digest"] = "e" * 64
+    preuve["report_digest"] = hashlib.sha256(fabrique.read_bytes()).hexdigest()
+    with pytest.raises(PlancherInvalide, match="ne se recalcule pas"):
+        verifier_liaison_preuve(
+            preuve, plancher_digest=charger_plancher().digest,
+            candidate_revision=REVISION_A_candidate_revision,
+            report_bytes=fabrique.read_bytes())
+
+
+def test_un_rapport_dun_autre_plancher_ou_dune_autre_image_est_refuse(
+        rapport_candidate_revision: Path) -> None:
+    """B1 : deux runs ne se comparent qu'à protocole et image égaux.
+
+    Le rapport porte son `plancher_digest` à **deux** emplacements (racine et `identity.image`) et
+    les digests de l'image mesurée. Ni l'un ni l'autre n'était confronté au run courant : une preuve
+    tirée d'un autre plancher, ou d'un autre code, passait.
+    """
+    import hashlib
+    import json as _json
+
+    from server.evals.plancher import verifier_liaison_preuve
+
+    courant = charger_plancher().digest
+
+    def _verifier(chemin: Path, **kw: object) -> None:
+        preuve = _preuve_candidate_revision(chemin)
+        preuve["report_digest"] = hashlib.sha256(chemin.read_bytes()).hexdigest()
+        verifier_liaison_preuve(preuve, plancher_digest=courant,
+                                candidate_revision=REVISION_A_candidate_revision,
+                                report_bytes=chemin.read_bytes(), **kw)  # type: ignore[arg-type]
+
+    # 1. Plancher divergent à la racine du rapport.
+    racine = rapport_candidate_revision.parent / "autre-plancher.json"
+    identite = _identite_candidate_revision()
+    racine.write_text(_json.dumps({
+        "schema_version": 3, "decisions": [], "identity": identite,
+        "plancher_digest": "f" * 64}) + "\n", encoding="utf-8")
+    with pytest.raises(PlancherInvalide, match="racine du rapport"):
+        _verifier(racine)
+
+    # 2. Plancher divergent dans l'identité d'image.
+    image = rapport_candidate_revision.parent / "autre-plancher-image.json"
+    identite = _identite_candidate_revision(image={"plancher_digest": "f" * 64})
+    image.write_text(_json.dumps({
+        "schema_version": 3, "decisions": [], "identity": identite}) + "\n", encoding="utf-8")
+    with pytest.raises(PlancherInvalide, match="identity.image"):
+        _verifier(image)
+
+    # 3. Image divergente : un autre code, d'autres prompts, d'autres modèles.
+    autre_code = rapport_candidate_revision.parent / "autre-code.json"
+    identite = _identite_candidate_revision(image={"pipeline_digest": "1" * 64})
+    autre_code.write_text(_json.dumps({
+        "schema_version": 3, "decisions": [], "identity": identite}) + "\n", encoding="utf-8")
+    with pytest.raises(PlancherInvalide, match="ne mesure pas cette image"):
+        _verifier(autre_code, image_courante={"pipeline_digest": "2" * 64})
+    # La même image : accepté.
+    _verifier(autre_code, image_courante={"pipeline_digest": "1" * 64})

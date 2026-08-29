@@ -55,9 +55,38 @@ RESERVE_NON_EXPERTE = (
 DECIMALES = 4
 
 
+_HEX = frozenset("0123456789abcdef")
+
+
+def _empreinte(valeur: Any, longueur: int = 64) -> str | None:
+    """La valeur si c'est bien une empreinte, `None` sinon — **jamais** une chaîne recopiée.
+
+    Le rapport et le gate sont des entrées : rien ne garantit qu'un `cases_hash` bricolé à la main y
+    ressemble à une empreinte. Le publier tel quel ferait afficher aux quatre surfaces une identité
+    qui n'en est pas ; refuser la publication entière serait pire — un rapport lisible cesserait
+    d'être publiable. « Ce champ n'est pas une empreinte » se dit donc par son absence.
+    """
+    texte = "" if valeur is None else str(valeur)
+    return texte if len(texte) == longueur and all(c in _HEX for c in texte) else None
+
+
 def nombre(valeur: float) -> str:
     """Un taux ou un montant, rendu identiquement sur les quatre surfaces."""
     return f"{valeur:.{DECIMALES}f}"
+
+
+def _reserves_du_rapport(rapport: dict[str, Any]) -> ReservesPubliees | None:
+    """Les réserves telles que le **rapport** les porte, ou `None` s'il ne les établit pas.
+
+    Un run de diagnostic n'établit ni contresignature, ni validation, ni signature de dictionnaire :
+    inventer leur état serait pire que de ne rien en dire (AD-16).
+    """
+    brut = rapport.get("reserves")
+    if not isinstance(brut, dict) or any(
+            not isinstance(brut.get(champ), bool)
+            for champ in ("countersigned", "validated_by_expert", "dictionary_validated")):
+        return None
+    return ReservesPubliees.model_validate(brut)
 
 
 def stabilite_du_rapport(rapport: dict[str, Any]) -> StabilitePubliee:
@@ -136,29 +165,41 @@ def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
     return limites
 
 
-def construire_publication(rapport: dict[str, Any], gate: Gate, *,
-                           reserves: ReservesPubliees,
-                           relecture: SecondeLecturePubliee,
-                           report_digest: str,
+def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
+                           reserves: ReservesPubliees | None = None,
+                           relecture: SecondeLecturePubliee | None = None,
+                           report_digest: str | None = None,
                            candidate_revision: str | None = None) -> PublicationEvals:
     """L'objet publié : les chiffres du rapport, l'identité du gate, les limites dérivées.
 
+    **`gate` est facultatif** (correctif P6 du tour de revue précédent). Un `--profile full` sans `--gate` — ce que la CI lance à
+    chaque PR — produit un rapport sans verdict : la publication se construit quand même, depuis le
+    seul rapport, et les champs liés au gate restent **absents**. C'est ce qui permet au Markdown que
+    la CI concatène dans `$GITHUB_STEP_SUMMARY` d'être rendu par **le même** renderer que
+    `docs/evals/latest.md` — un second renderer aurait divergé, et c'est exactement ce que l'AC 4
+    interdit.
+
     `report_digest` est l'empreinte des **octets réellement écrits** du rapport JSON — pas un hash
     recalculé sur une re-sérialisation, qui pourrait différer d'un espace et rendre invérifiable ce
-    que la publication prétend résumer.
+    que la publication prétend résumer. Il est `None` tant que le rapport n'est pas figé.
     """
+    reserves = reserves if reserves is not None else _reserves_du_rapport(rapport)
     metrics = rapport.get("metrics") or {}
     decisions = [GateDecision.model_validate(d) for d in rapport.get("decisions") or []]
     limites = limites_du_rapport(rapport, decisions, reserves, relecture)
+    identite = rapport.get("identity") or {}
     return PublicationEvals(
-        profile=str(rapport.get("profile") or gate.profile),
-        candidate_revision=candidate_revision or gate.candidate_revision,
-        run_digest=str((rapport.get("identity") or {}).get("run_digest", "")),
-        report_digest=report_digest,
-        plancher_digest=str(rapport.get("plancher_digest") or gate.plancher_digest or ""),
-        cases_hash=str(rapport.get("cases_hash") or gate.cases_hash),
-        date=gate.date,
-        evals_ok=gate.evals_ok,
+        profile=str(rapport.get("profile") or (gate.profile if gate else "")),
+        candidate_revision=_empreinte(
+            candidate_revision or (gate.candidate_revision if gate else None)
+            or identite.get("candidate_revision"), 40),
+        run_digest=_empreinte(identite.get("run_digest")),
+        report_digest=_empreinte(report_digest),
+        plancher_digest=_empreinte(rapport.get("plancher_digest")
+                                   or (gate.plancher_digest if gate else None)),
+        cases_hash=_empreinte(rapport.get("cases_hash") or (gate.cases_hash if gate else None)),
+        date=str(gate.date if gate else (rapport.get("generated_at") or "")),
+        evals_ok=(gate.evals_ok if gate else None),
         variantes=dict(metrics.get("variants") or {}),
         labels=dict(metrics.get("labels") or {}),
         recall=float(metrics.get("recall") or 0.0),
@@ -190,7 +231,8 @@ def rendre_publication_markdown(pub: PublicationEvals,
         from server.evals.run import _markdown_code, _markdown_value
         valeur = valeur or _markdown_value
         code = code or _markdown_code
-    verdict = "vert" if pub.evals_ok else "rouge"
+    verdict = "diagnostic (aucun gate)" if pub.evals_ok is None else (
+        "vert" if pub.evals_ok else "rouge")
     lignes = [
         "# Résultats des questions-témoins — dernier run publié",
         "",
@@ -206,8 +248,8 @@ def rendre_publication_markdown(pub: PublicationEvals,
         "",
         "| run_digest | report_digest | plancher_digest | cases_hash |",
         "|---|---|---|---|",
-        f"| {code(pub.run_digest)} | {code(pub.report_digest)} | {code(pub.plancher_digest)} | "
-        f"{code(pub.cases_hash)} |",
+        f"| {code(pub.run_digest or '—')} | {code(pub.report_digest or '—')} | "
+        f"{code(pub.plancher_digest or '—')} | {code(pub.cases_hash or '—')} |",
         "",
         "## Chiffres",
         "",
@@ -238,24 +280,91 @@ def rendre_publication_markdown(pub: PublicationEvals,
         f"{nombre(d.value)} | {nombre(d.threshold)} | {code(d.status)} |"
         for d in sorted(pub.decisions, key=lambda d: d.metric)
     ] or [f"| — | — | — | 0 | {nombre(0.0)} | {nombre(0.0)} | — |"]
-    lignes += [
-        "",
-        "## Réserves",
-        "",
-        "| contresignature humaine | validé par un expert | dictionnaire validé |",
-        "|---|---|---|",
-        f"| {code(pub.reserves.countersigned)} | {code(pub.reserves.validated_by_expert)} | "
-        f"{code(pub.reserves.dictionary_validated)} |",
-        "",
-        f"Seconde lecture sur images de pages : {code(pub.seconde_lecture.statut)} — "
-        f"{pub.seconde_lecture.blocs_verifies}/{pub.seconde_lecture.blocs_planifies} bloc(s).",
-        "",
-        "## Limites",
-        "",
-    ]
+    lignes += ["", "## Réserves", ""]
+    if pub.reserves is None:
+        # Un diagnostic n'établit aucune réserve : le dire vaut mieux que de fabriquer trois `false`.
+        lignes += ["Ce run est un diagnostic : il n'établit ni contresignature, ni validation par un "
+                   "expert, ni signature du dictionnaire.", ""]
+    else:
+        lignes += [
+            "| contresignature humaine | validé par un expert | dictionnaire validé |",
+            "|---|---|---|",
+            f"| {code(pub.reserves.countersigned)} | {code(pub.reserves.validated_by_expert)} | "
+            f"{code(pub.reserves.dictionary_validated)} |",
+            "",
+        ]
+    if pub.seconde_lecture is not None:
+        lignes += [
+            f"Seconde lecture sur images de pages : {code(pub.seconde_lecture.statut)} — "
+            f"{pub.seconde_lecture.blocs_verifies}/{pub.seconde_lecture.blocs_planifies} bloc(s).",
+            "",
+        ]
+    lignes += ["## Limites", ""]
     lignes += [f"- {valeur(limite)}" for limite in pub.limites] or [
         "- aucune limite dérivée de ce run."]
     return "\n".join(lignes).rstrip() + "\n"
+
+
+def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Path,
+                         preparer: Any, nom: str = PUBLICATION_JSON,
+                         markdown_run: str | None = None,
+                         chemin_run: Path | None = None,
+                         valeur: Any = None, code: Any = None) -> list[tuple[Path, Path]]:
+    """Écrit **toutes** les sorties de publication dans des temporaires, et rend `[(tmp, cible)]`.
+
+    Story 4.5, revue B3. Le gate était persisté **avant** la publication : un échec d'écriture
+    laissait un `evals_ok: true` déjà promu et immédiatement servable, avec des surfaces
+    divergentes — le manifest disait « vert », et personne ne pouvait lire sur quoi.
+
+    La séquence est donc celle-ci, et c'est la seule qui tienne (revue A) : tout est écrit et vidé
+    sur disque ici, **puis** l'entrée de manifest est préparée de la même façon, **puis** chaque
+    temporaire bascule par `os.replace` (atomique, même système de fichiers, sur un fichier déjà
+    écrit). Tout ce qui peut échouer survient ainsi avant la **première** bascule : le manifest reste
+    byte-identique, aucune publication partielle n'est visible, et il ne subsiste aucun état où les
+    surfaces affirment un verdict que le manifest ne porte pas.
+
+    `preparer(cible, contenu) -> tmp` est la recette d'écriture temporaire de l'appelant ; une
+    seconde recette ici laisserait un fichier à moitié écrit le jour où le disque est plein.
+    """
+    import json
+
+    rendu = rendre_publication_markdown(pub, valeur=valeur, code=code)
+    a_basculer: list[tuple[Path, Path]] = [
+        (preparer(data_dir / nom,
+                  json.dumps(pub.model_dump(mode="json"), indent=2, ensure_ascii=False,
+                             sort_keys=True) + "\n"),
+         data_dir / nom),
+    ]
+    markdown_path = repo_root.joinpath(*DOCS_LATEST)
+    archive = _preparer_archive(markdown_path, repo_root=repo_root, preparer=preparer)
+    if archive is not None:
+        a_basculer.append(archive)
+    a_basculer.append((preparer(markdown_path, rendu), markdown_path))
+    if markdown_run is not None and chemin_run is not None:
+        # Le journal du run **et** l'artefact publié, dans le fichier que la CI concatène : un seul
+        # renderer, une seule bascule.
+        a_basculer.append((preparer(chemin_run, markdown_run), chemin_run))
+    return a_basculer
+
+
+def _preparer_archive(markdown_path: Path, *, repo_root: Path,
+                      preparer: Any) -> tuple[Path, Path] | None:
+    """Prépare l'archive du `latest.md` existant, ou `None` s'il n'y a rien à archiver."""
+    import datetime
+
+    try:
+        octets = markdown_path.read_bytes()
+    except OSError:
+        return None
+    if not octets.strip():
+        return None
+    horodatage = datetime.datetime.fromtimestamp(
+        markdown_path.stat().st_mtime, tz=datetime.UTC).strftime("%Y%m%d")
+    empreinte = hashlib.sha256(octets).hexdigest()[:12]
+    archive = repo_root.joinpath(*DOCS_ARCHIVES) / f"{horodatage}-{empreinte}.md"
+    if archive.is_file():
+        return None
+    return preparer(archive, octets.decode("utf-8", errors="replace")), archive
 
 
 def ecrire_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Path,

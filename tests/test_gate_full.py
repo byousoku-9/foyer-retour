@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -45,12 +46,15 @@ TEXTE = ("Le bien decrit au present chapitre est garanti selon les conditions qu
          "sous reserve des exceptions enoncees a la section suivante.")
 REVISION = "0" * 40
 
-# Les neuf témoins que la story ajoute. La liste est **relue du plancher** plus bas : l'écrire ici
-# sert à nommer ce que l'AC exige, pas à le définir.
-NEUFS = (
+# Les dix témoins que la story ajoute. La liste est **relue du plancher** plus bas, et l'égalité des
+# deux ensembles est asserée : l'écrire ici sert à nommer ce que l'AC exige, pas à le définir — mais
+# un témoin `gate_full` ajouté au plancher sans passer par cette liste ferait rougir le test, ce qui
+# est le bon comportement pour un fichier qui porte le protocole.
+DIX = (
     "parsing_ok_rate", "blocs_attendus_ouverts_rate", "citations_retrouvees_rate",
     "zero_5xx_technique_rate", "typage_confirme_rate", "structure_prouvee_rate",
-    "stabilite_claim_decisionnelle", "anti_rustine_pass_rate", "metamorphique_pass_rate",
+    "arbre_prouve_rate", "stabilite_claim_decisionnelle", "anti_rustine_pass_rate",
+    "metamorphique_pass_rate",
 )
 
 
@@ -63,10 +67,19 @@ def _settings(**kw: Any) -> Settings:
     return Settings(_env_file=None, **defauts)
 
 
-def _document(*, kind_source: str | None = "manual") -> Document:
+# Les octets de source d'un document servi. Ce qu'un document **est** se lit sur son disque (règle
+# `SOURCE_FILES` du loader) : le corpus synthétique doit donc en porter une, comme le vrai.
+OCTETS_SOURCE = {"source.pdf": b"%PDF-1.4 minimal", "source.js": b"var kb = {};"}
+
+
+def _source_hash(source: str | None) -> str:
+    return "s" if source is None else hashlib.sha256(OCTETS_SOURCE[source]).hexdigest()
+
+
+def _document(*, kind_source: str | None = "manual", source_hash: str = "s") -> Document:
     doc = Document(
         doc_id=DOC, kind="contrat", title="Contrat neutre", edition="2020",
-        source_hash="s", ingest_fingerprint="f",
+        source_hash=source_hash, ingest_fingerprint="f",
         nodes=[Node(node_id=f"{DOC}:n1", level=1, title="N1",
                     items=[{"block_id": f"{DOC}:p1:1"}])],
         blocks=[{"block_id": f"{DOC}:p1:1", "loc": "p1", "seq": 1, "kind": "garantie",
@@ -126,8 +139,18 @@ def _resultat(**kw: Any) -> runner.Resultat:
     return runner.Resultat(**defauts)
 
 
+def _cas_guide(case_id: str = "g-cas-neutre") -> runner.Cas:
+    return runner.Cas.model_validate({
+        "id": case_id, "suite": "guide", "profile": "vertical",
+        "question": "Ou trouve-t-on la marche a suivre decrite par la fiche ?",
+        "expected": {"found": True}, "mode_attendu": "bonne_reponse",
+        "truth": {"source": "lecture_humaine", "validated_by_expert": False, "note": "relu"},
+    })
+
+
 def _decisions(resultats: list[runner.Resultat], cas: list[runner.Cas], *, repeat: int = 3,
                exigences_full: bool = True, structure: tuple[int, int] | None = (1, 1),
+               arbre: tuple[int, int] | None = (1, 1),
                producer: str = "orchestrator",
                non_executes: list[str] | None = None) -> dict[str, Any]:
     """Les décisions du gate, indexées par métrique. `producer=orchestrator` isole la valeur.
@@ -138,13 +161,28 @@ def _decisions(resultats: list[runner.Resultat], cas: list[runner.Cas], *, repea
     charge = charger_plancher()
     decisions = runner.construire_decisions(
         resultats, cas, plancher=charge, repeat=repeat, run_digest="a" * 64, producer=producer,
-        non_executes=non_executes, exigences_full=exigences_full, structure=structure)
+        non_executes=non_executes, exigences_full=exigences_full, structure=structure,
+        arbre=arbre)
     return {d.metric: d for d in decisions}
 
 
-# --- le plancher porte les neuf témoins, et ne perd rien ------------------------------------------
+def _temoins_gate_full_applicables(cas: list[runner.Cas]) -> set[str]:
+    """Les témoins `gate_full` que **ce lot** rend applicables — la règle du plancher, pas une liste.
 
-def test_les_neuf_temoins_vivent_dans_le_plancher_et_nabaissent_rien() -> None:
+    Le périmètre d'un témoin dépend du lot : les deux preuves de structure sont complémentaires
+    (`structure_prouvee_rate` pour un document PDF, `arbre_prouve_rate` pour une copie de site), et
+    le typage juridique ne se mesure que sur la suite qui porte des clauses. Écrire « les dix » en
+    dur dans chaque assertion aurait exigé qu'un gate de contrat prouve l'arbre d'un guide absent du
+    lot — un mur, pas une exigence.
+    """
+    return {t.metric for t in charger_plancher().plancher.temoins
+            if t.arme_par == "gate_full"
+            and runner._temoin_applicable(t, cas, exigences_full=True)}
+
+
+# --- le plancher porte les dix témoins, et ne perd rien -------------------------------------------
+
+def test_les_dix_temoins_vivent_dans_le_plancher_et_nabaissent_rien() -> None:
     """Boundaries : « tout nouveau seuil vit dans `plancher.yaml`, jamais en dur ».
 
     Et il s'y ajoute **sans jamais abaisser ni retirer** un témoin importé : les quatre seuils du
@@ -154,7 +192,10 @@ def test_les_neuf_temoins_vivent_dans_le_plancher_et_nabaissent_rien() -> None:
     """
     charge = charger_plancher()
     par_metric = {t.metric: t for t in charge.plancher.temoins}
-    for metric in NEUFS:
+    # L'égalité, pas l'inclusion : un témoin `gate_full` ajouté au plancher sans être nommé ici — ou
+    # retiré — fait rougir ce test. C'est un fichier de protocole ; il ne bouge pas en silence.
+    assert {t.metric for t in charge.plancher.temoins if t.arme_par == "gate_full"} == set(DIX)
+    for metric in DIX:
         temoin = par_metric[metric]
         assert temoin.criticite == "bloquant", metric
         assert temoin.plancher == 1.0 and temoin.n == 3, metric
@@ -186,9 +227,9 @@ def test_un_temoin_gate_full_ne_sarme_pas_ailleurs() -> None:
         if temoin.arme_par != "gate_full":
             continue
         assert runner._temoin_applicable(temoin, cas, exigences_full=False) is False, temoin.metric
-    # Hors gate `full`, aucune des neuf métriques n'apparaît dans les décisions.
+    # Hors gate `full`, aucune des dix métriques n'apparaît dans les décisions.
     hors = _decisions([_resultat()], cas, exigences_full=False)
-    assert not (set(NEUFS) & set(hors))
+    assert not (set(DIX) & set(hors))
     # Et les décisions historiques, elles, sont toujours là.
     assert {"cases_ok_rate", "executions_completes"} <= set(hors)
 
@@ -316,35 +357,230 @@ def test_le_typage_confirme_remonte_du_corpus_jusqua_la_preuve() -> None:
     assert inconnu[0]["kind_confirmed"] is False
 
 
-def test_la_structure_non_prouvee_rougit_le_gate_et_cest_letat_reel(tmp_path: Path) -> None:
-    """I/O matrix : aucun `structure_hash` au manifest, ou bloquant de structure ⇒ rouge.
+def _attester(data: Path, doc_id: str, ctx: runner.Contexte, *,
+              document_hash: str | None = None, structure_hash: str | None = None,
+              doc_id_rapport: str | None = None) -> None:
+    """Écrit un `report.json` portant l'attestation affirmative de la story 4.5."""
+    from server.app.domain.ingest import detail_attestation_structure
 
-    C'est l'état réel du corpus servi : aucune `structure.json` n'y existe, la story 4.2c n'a jamais
-    été exercée dessus, et la réingestion est une dette de l'orchestrateur. Le gate doit le dire.
+    entry = ctx.index.corpus.manifest[doc_id]
+    (data / doc_id / "report.json").write_text(json.dumps({
+        "doc_id": doc_id_rapport or doc_id,
+        "checks": [{"name": "structure_proposee", "level": "info",
+                    "detail": detail_attestation_structure(
+                        document_hash=document_hash or entry.document_hash,
+                        structure_hash=structure_hash or (entry.structure_hash or ""))}],
+    }), encoding="utf-8")
+
+
+def test_la_preuve_de_structure_ne_compte_que_les_documents_issus_dun_pdf(tmp_path: Path) -> None:
+    """Revue B4 : le guide n'a aucune **proposition** de structure à prouver, et sort du dénominateur.
+
+    Le témoin était `pipeline: all` : sur le corpus réel il rendait `(0, 1)` pour un document que
+    **aucun chemin de production** ne peut doter d'un `structure.json`. Un gate `full` du guide était
+    donc définitivement rouge. La règle est celle du loader (`SOURCE_FILES`), sans branche par
+    document : ce qu'un document **est** décide, pas son identifiant.
     """
     ctx = _contexte()
     data = tmp_path / "data"
     (data / DOC).mkdir(parents=True)
-    # 1. Rien de déclaré : non prouvée.
+    # Copie de site : hors dénominateur — le témoin n'a rien à mesurer.
+    (data / DOC / "source.js").write_bytes(b"var kb = {};")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 0)
+    # Document issu d'un PDF : il entre au dénominateur, et rien ne le prouve encore.
+    (data / DOC / "source.js").unlink()
+    (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4")
     assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
-    decision = _decisions([_resultat(repetition=r) for r in (1, 2, 3)], [_cas_sinistre()],
-                          structure=(0, 1))["structure_prouvee_rate"]
-    assert _rouge(decision) and decision.value == 0.0 and decision.scope == "run"
-    # 2. Déclarée et concordante, sans bloquant : prouvée.
-    octets = b'{"doc_id": "contrat-neutre"}\n'
-    (data / DOC / "structure.json").write_bytes(octets)
-    ctx.index.corpus.manifest[DOC].structure_hash = hashlib.sha256(octets).hexdigest()
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (1, 1)
-    # 3. Déclarée mais l'artefact a bougé : non prouvée (fail-closed).
-    (data / DOC / "structure.json").write_bytes(octets + b"\n")
+
+
+def test_la_structure_nest_prouvee_que_par_une_attestation_rattachee_au_document(
+        tmp_path: Path) -> None:
+    """Revue B4 : quatre conditions, et l'absence d'une seule suffit à ne pas compter.
+
+    Le fail-open reproduit par la revue : un `structure.json` au contenu **arbitraire**, son hash
+    recopié au manifest, **aucun `report.json`** ⇒ la structure passait pour prouvée. `if
+    rapport.is_file()` rendait facultative une des trois conditions que la docstring annonçait.
+    """
+    ctx = _contexte()
+    data = tmp_path / "data"
+    (data / DOC).mkdir(parents=True)
+    (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4")
+    entry = ctx.index.corpus.manifest[DOC]
+
+    # 1. Rien de déclaré au manifest : non prouvée.
     assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
-    # 4. Concordante, mais le rapport porte un bloquant de structure : non prouvée.
+
+    # 2. Le fail-open historique : artefact arbitraire, hash recopié, aucun rapport.
+    octets = b'{"nimporte": "quoi"}\n'
     (data / DOC / "structure.json").write_bytes(octets)
+    entry.structure_hash = hashlib.sha256(octets).hexdigest()
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1), (
+        "un artefact sans attestation ne prouve rien")
+
+    # 3. Rapport présent mais illisible : non prouvée.
+    (data / DOC / "report.json").write_text("{ pas du json", encoding="utf-8")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+    # 4. Rapport lisible mais sans le check : non prouvée.
     (data / DOC / "report.json").write_text(json.dumps({
-        "doc_id": DOC,
-        "checks": [{"name": "structure_proposee", "level": "bloquant", "detail": "ligne_omise"}],
+        "doc_id": DOC, "checks": [{"name": "invariants_arbre", "level": "info", "detail": "ok"}],
     }), encoding="utf-8")
     assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+    # 5. Attestation qui ne correspond pas au document (autre `document_hash`) : non prouvée.
+    _attester(data, DOC, ctx, document_hash="f" * 64)
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+    # 6. Attestation qui ne correspond pas à l'artefact (autre `structure_hash`) : non prouvée.
+    _attester(data, DOC, ctx, structure_hash="e" * 64)
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+    # 7. Rapport **étranger** : ses checks ne décrivent pas ce document.
+    _attester(data, DOC, ctx, doc_id_rapport="autre-doc")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+    # 8. Bloquant de structure : le vérificateur de 4.2c a refusé — jamais prouvée.
+    (data / DOC / "report.json").write_text(json.dumps({
+        "doc_id": DOC, "checks": [{"name": "structure_proposee", "level": "bloquant",
+                                   "detail": "ligne_omise : ..."}],
+    }), encoding="utf-8")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+    # 9. Enfin : les quatre conditions réunies.
+    _attester(data, DOC, ctx)
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (1, 1)
+    # Et l'artefact qui bouge après coup casse la concordance.
+    (data / DOC / "structure.json").write_bytes(octets + b"\n")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+
+def test_la_structure_non_prouvee_rougit_le_gate_et_cest_letat_reel() -> None:
+    """I/O matrix : structure non prouvée ⇒ décision rouge chiffrée, jamais neutre."""
+    decision = _decisions([_resultat(repetition=r) for r in (1, 2, 3)],
+                          [_cas_sinistre(), _cas_parsing()],
+                          structure=(0, 1))["structure_prouvee_rate"]
+    assert _rouge(decision) and decision.value == 0.0 and decision.scope == "suite:parsing"
+
+
+# --- revue B4, volet guide : la preuve de structure applicable à une copie de site -----------------
+
+def _attester_arbre(data: Path, doc_id: str, ctx: runner.Contexte, *,
+                    document_hash: str | None = None, ingest_fingerprint: str | None = None,
+                    doc_id_rapport: str | None = None, niveau: str = "info") -> None:
+    """Écrit un `report.json` portant l'attestation d'arbre — telle que l'ingestion l'écrit."""
+    from server.app.domain.ingest import detail_attestation_arbre
+
+    entry = ctx.index.corpus.manifest[doc_id]
+    (data / doc_id / "report.json").write_text(json.dumps({
+        "doc_id": doc_id_rapport or doc_id,
+        "checks": [{"name": "invariants_arbre", "level": niveau,
+                    "detail": detail_attestation_arbre(
+                        document_hash=document_hash or entry.document_hash,
+                        ingest_fingerprint=ingest_fingerprint or entry.ingest_fingerprint)}],
+    }), encoding="utf-8")
+
+
+def test_les_deux_perimetres_de_preuve_de_structure_sont_complementaires(tmp_path: Path) -> None:
+    """Revue B4 : restreindre `structure_prouvee_rate` aux PDF ne laisse **aucun** périmètre sans exigence.
+
+    C'est le cœur du finding. Restreindre était juste — la story 4.2c ne s'applique pas à une copie
+    de site —, mais restreindre **sans remplacer** aurait retiré au guide toute exigence de
+    structure : un abaissement du plancher déguisé en correctif de périmètre. Les deux dénominateurs
+    partagent donc le lot exactement, par la règle générique `SOURCE_FILES` du loader, et jamais par
+    un `doc_id`.
+    """
+    ctx = _contexte()
+    data = tmp_path / "data"
+    (data / DOC).mkdir(parents=True)
+
+    # Copie de site : hors du témoin PDF, **dans** le témoin d'arbre.
+    (data / DOC / "source.js").write_bytes(b"var kb = {};")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 0)
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # Document issu d'un PDF : l'inverse, exactement.
+    (data / DOC / "source.js").unlink()
+    (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 0)
+
+    # Aucune source lisible : aucun des deux ne prétend savoir ce que ce document est — et le loader
+    # ne le sert pas davantage. Compter un document qu'on ne sait pas lire serait inventer.
+    (data / DOC / "source.pdf").unlink()
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 0)
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 0)
+
+
+def test_larbre_nest_prouve_que_par_une_attestation_rattachee_au_document(tmp_path: Path) -> None:
+    """Revue B4 : une attestation fabriquée ne verdit rien — trois conditions, aucune facultative.
+
+    Le corpus servi porte aujourd'hui `invariants_arbre: ok` : la forme **historique** du check, une
+    déclaration sans empreinte. Si elle suffisait, le témoin serait vert sans qu'aucune ingestion
+    n'ait eu lieu — exactement le fail-open que la revue reproche à la preuve de structure PDF, sous
+    l'autre périmètre.
+    """
+    ctx = _contexte()
+    data = tmp_path / "data"
+    (data / DOC).mkdir(parents=True)
+    (data / DOC / "source.js").write_bytes(b"var kb = {};")
+    entry = ctx.index.corpus.manifest[DOC]
+
+    # 1. Aucun rapport : rien n'atteste, rien n'est prouvé.
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # 2. Rapport illisible.
+    (data / DOC / "report.json").write_text("{ pas du json", encoding="utf-8")
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # 3. **La forme historique** : `invariants_arbre: ok`, sans empreinte. Une déclaration.
+    (data / DOC / "report.json").write_text(json.dumps({
+        "doc_id": DOC, "checks": [{"name": "invariants_arbre", "level": "info", "detail": "ok"}],
+    }), encoding="utf-8")
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1), (
+        "un `invariants_arbre: ok` sans empreinte ne prouve rien")
+
+    # 4. Attestation qui nomme un autre arbre.
+    _attester_arbre(data, DOC, ctx, document_hash="f" * 64)
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # 5. Attestation qui nomme une autre ingestion.
+    _attester_arbre(data, DOC, ctx, ingest_fingerprint="e" * 64)
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # 6. Rapport étranger : ses checks ne décrivent pas ce document.
+    _attester_arbre(data, DOC, ctx, doc_id_rapport="autre-doc")
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # 7. Arbre **refusé** : un bloquant n'est jamais une preuve, même s'il porte les deux empreintes.
+    _attester_arbre(data, DOC, ctx, niveau="bloquant")
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+    # 8. Les trois conditions réunies.
+    _attester_arbre(data, DOC, ctx)
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (1, 1)
+
+    # 9. Et le manifest qui bouge — réingestion, ou `document.json` remplacé — détache l'attestation.
+    entry.document_hash = "9" * 64
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+
+
+def test_larbre_non_prouve_rougit_le_gate_du_guide() -> None:
+    """Revue B4 : le témoin de périmètre guide décide, chiffré, avec son scope propre.
+
+    Et il décide **par vacuité** aussi : un lot guide dont le dénominateur est vide n'émet aucune
+    décision, et la fermeture de `construire_decisions` la rend rouge `n=0, value=0.0`. Un gate
+    `full` du guide ne peut donc pas devenir vert en n'ayant simplement rien à mesurer.
+    """
+    cas = [_cas_guide()]
+    resultats = [_resultat(id="g-cas-neutre", suite="guide", variant="micro", repetition=r,
+                           verdict=None, proofs=[]) for r in (1, 2, 3)]
+    rouge = _decisions(resultats, cas, arbre=(0, 1))["arbre_prouve_rate"]
+    assert _rouge(rouge) and rouge.value == 0.0 and rouge.scope == "suite:guide"
+    vert = _decisions(resultats, cas, arbre=(1, 1))["arbre_prouve_rate"]
+    assert vert.status == "green" and vert.value == 1.0
+    # Dénominateur vide : rien n'est mesuré, donc rien n'est prouvé — pas un vert par absence.
+    vide = _decisions(resultats, cas, arbre=(0, 0))["arbre_prouve_rate"]
+    assert vide.status == "red" and vide.n == 0 and vide.value == 0.0
 
 
 def test_une_claim_decisionnelle_instable_rougit_sans_toucher_a_la_signature_figee() -> None:
@@ -385,16 +621,21 @@ def test_les_deux_gardes_orchestrateur_absentes_sont_deux_rouges_nommes() -> Non
         assert d.reason == "témoin orchestrateur applicable absent de ce run"
 
 
-def test_les_neuf_temoins_manquants_sont_rouges_et_pas_neutres() -> None:
+def test_les_dix_temoins_manquants_sont_rouges_et_pas_neutres() -> None:
     """Boundaries : « une preuve absente est **rouge**, jamais neutre ».
 
-    Un gate `full` qui ne mesure rien du tout produit neuf rouges chiffrés, pas neuf silences —
+    Un gate `full` qui ne mesure rien du tout produit dix rouges chiffrés, pas dix silences —
     c'est la fermeture par vacuité, et c'est ce qui rend ces témoins impossibles à oublier.
+
+    Le lot porte les **trois** suites, pour que les dix soient applicables d'un coup : les deux
+    preuves de structure ont des périmètres complémentaires, et un lot qui n'en couvrirait qu'un
+    laisserait l'autre témoin hors du contrôle sans que rien ne le dise.
     """
-    cas = [_cas_sinistre(), _cas_parsing()]
+    cas = [_cas_sinistre(), _cas_parsing(), _cas_guide()]
+    assert _temoins_gate_full_applicables(cas) == set(DIX)
     manquantes = [f"{c.id}#r{r}" for c in cas for r in (1, 2, 3)]
-    decisions = _decisions([], cas, structure=None, non_executes=manquantes)
-    for metric in NEUFS:
+    decisions = _decisions([], cas, structure=None, arbre=None, non_executes=manquantes)
+    for metric in DIX:
         assert decisions[metric].status == "red", metric
         assert decisions[metric].value == 0.0, metric
     # Et rien de vert nulle part : un run qui n'a rien mesuré ne peut pas produire un gate vert.
@@ -683,11 +924,19 @@ def _cases_dir(racine: Path, *, parsing: bool = True) -> Path:
     return cases
 
 
-def _data_dir(racine: Path) -> Path:
+def _data_dir(racine: Path, *, source: str | None = "source.pdf") -> Path:
+    """Le `data/` d'un document servi. `source` dit ce que ce document **est** (règle `SOURCE_FILES`).
+
+    Le défaut est `source.pdf` : `DOC` est le contrat que la suite `sinistre` sert, et un document
+    servi porte sa source sur le disque. `source=None` reproduit le checkout frais — sources
+    téléchargées au build, `.gitignore` —, que la revue C fait refuser sous `full`.
+    """
     data = racine / "data"
     dossier = data / DOC
     dossier.mkdir(parents=True, exist_ok=True)
-    doc = _document()
+    if source is not None:
+        (dossier / source).write_bytes(OCTETS_SOURCE[source])
+    doc = _document(source_hash=_source_hash(source))
     octets = json.dumps(doc.model_dump(mode="json", exclude_defaults=True), ensure_ascii=False,
                         sort_keys=True).encode("utf-8")
     (dossier / "document.json").write_bytes(octets)
@@ -697,18 +946,31 @@ def _data_dir(racine: Path) -> Path:
     # que la non-mutation du dernier vert est censée protéger.
     if not (data / "manifest.json").is_file():
         (data / "manifest.json").write_text(json.dumps({
-            DOC: {"status": "servi", "source_hash": "s", "ingest_fingerprint": "f",
+            DOC: {"status": "servi", "source_hash": _source_hash(source),
+                  "ingest_fingerprint": "f",
                   "document_hash": hashlib.sha256(octets).hexdigest(), "edition": "2020",
                   "overlay_hash": None, "gate": None}}, indent=2) + "\n", encoding="utf-8")
     return data
 
 
 def _cli(racine: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str], *,
-         cases_parsing: bool = True) -> int:
-    data = _data_dir(racine)
+         cases_parsing: bool = True, revision: str | None = REVISION,
+         source: str | None = "source.pdf",
+         sales: list[str] | None = None) -> int:
+    """Lance le runner sur un `data/` et des cas synthétiques.
+
+    La **révision réellement exécutée** est doublée : `revision_executee` interroge `git` sur le
+    dépôt produit, et un arbre de travail en cours de modification ferait refuser tous ces runs pour
+    une raison étrangère à ce qu'ils mesurent. La fonction elle-même est éprouvée séparément, sur un
+    vrai dépôt temporaire (`test_la_revision_executee_*`) : c'est l'environnement qu'on double ici,
+    jamais la règle.
+    """
+    data = _data_dir(racine, source=source)
     cases = _cases_dir(racine, parsing=cases_parsing)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", _settings)
+    monkeypatch.setattr(runner, "revision_executee",
+                        lambda _racine, **_kw: (revision, list(sales or [])))
     return runner.main(argv + ["--cases-dir", str(cases), "--data-dir", str(data)])
 
 
@@ -750,7 +1012,12 @@ def test_un_gate_full_de_bout_en_bout_ecrit_ses_decisions_et_publie(
     assert gate["cases"] == 2
     # Chaque décision porte les huit champs, et les neuf témoins de la story y sont.
     metriques = {d["metric"] for d in gate["decisions"]}
-    assert set(NEUFS) <= metriques
+    # Les témoins que **ce lot** rend applicables, tirés du plancher : le document est issu d'un PDF,
+    # donc `structure_prouvee_rate` l'oppose, et `arbre_prouve_rate` — le pendant guide — ne
+    # s'applique pas. Les deux périmètres sont complémentaires, jamais cumulés.
+    attendus = _temoins_gate_full_applicables([_cas_sinistre(), _cas_parsing()])
+    assert attendus <= metriques
+    assert "arbre_prouve_rate" not in attendus and "structure_prouvee_rate" in attendus
     for d in gate["decisions"]:
         assert set(d) == {"metric", "producer", "threshold", "scope", "n", "run_digest", "value",
                           "status", "reason"}
@@ -780,7 +1047,8 @@ def test_un_second_gate_full_rouge_ne_touche_pas_un_vert_existant(
     data = _data_dir(tmp_path)
     brut = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
     brut[DOC]["gate"] = {
-        "profile": "full", "source_hash": "s", "ingest_fingerprint": "f", "overlay_hash": None,
+        "profile": "full", "source_hash": brut[DOC]["source_hash"], "ingest_fingerprint": "f",
+        "overlay_hash": None,
         "cases_hash": "c", "cases": 2, "countersigned": False, "pipeline_digest": "p",
         "prompts_digest": "q", "model_ids": {}, "evals_ok": True, "date": "2026-08-28",
         "run_digest": "a" * 64, "plancher_digest": "b" * 64, "candidate_revision": "1" * 40,
@@ -830,15 +1098,31 @@ def test_un_document_pdf_sans_cas_parsing_ferme_le_gate_full(
     condition rouge de l'AC sans l'avoir mesurée. Le lot est mal composé — c'est une faute d'appel,
     refusée **avant tout appel**, et non une mesure.
     """
-    data = _data_dir(tmp_path)
-    (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4 minimal")
-    _cases_dir(tmp_path, parsing=False)
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION], cases_parsing=False)
     assert code == 2
     err = capsys.readouterr().err
     assert "ingéré depuis un PDF" in err and "cas `parsing`" in err
+    _manifest_intact(tmp_path)
+
+
+def test_un_lot_qui_narme_aucune_preuve_de_structure_ferme_le_gate_full(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue B4 : la garde de composition couvre **les deux** périmètres, pas seulement le parsing.
+
+    Restreindre `structure_prouvee_rate` aux documents issus d'un PDF a ouvert la même faille que P2,
+    de l'autre côté : un document non-PDF mesuré par une suite qui n'arme pas `arbre_prouve_rate`
+    n'aurait opposé **aucune** exigence de structure, et un gate `full` aurait pu verdir sans en avoir
+    prouvé la moindre. La question posée est unique — « le témoin qui couvre ce document est-il armé
+    par ce lot ? » —, et sa réponse négative est un refus avant tout appel.
+    """
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION], cases_parsing=False, source="source.js")
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "arbre_prouve_rate" in err and "n'est pas ingéré depuis un PDF" in err
     _manifest_intact(tmp_path)
 
 
@@ -861,12 +1145,15 @@ def test_un_document_sans_pdf_reste_inchange(tmp_path: Path,
     (sources / DOC / "source.js").unlink()
     assert runner.document_parse_depuis_un_pdf(sources, DOC) is True
 
-    # Et sur le chemin complet : sans PDF, un gate `full` sans cas `parsing` tourne comme avant —
-    # il écrit son gate (rouge, faute de preuve orchestrateur), la garde ne s'est pas déclenchée.
+    # Et sur le chemin complet : sans PDF, la garde du **parsing** ne se déclenche pas — un gate
+    # `vertical` sans cas `parsing` tourne exactement comme avant, et écrit son gate (rouge, faute
+    # de preuve orchestrateur). Les exigences de structure, elles, ne s'arment que sous `full` :
+    # c'est `test_un_lot_qui_narme_aucune_preuve_de_structure_ferme_le_gate_full` qui couvre ce
+    # second versant.
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     assert _cli(tmp_path, monkeypatch,
-                ["--gate", DOC, "--profile", "full", "--repeat", "3",
-                 "--candidate-revision", REVISION], cases_parsing=False) == 1
+                ["--gate", DOC, "--profile", "vertical", "--repeat", "3"],
+                cases_parsing=False, source="source.js") == 1
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest[DOC]["gate"] is not None
 
@@ -888,34 +1175,369 @@ def test_orchestrator_report_seul_est_refuse(tmp_path: Path, capsys: Any,
         capsys.readouterr().err
 
 
-def test_une_publication_impossible_empeche_le_run_detre_vert(
+def test_une_publication_impossible_nempeche_pas_seulement_le_vert_elle_empeche_le_gate(
         tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Revue P8 : « FR41 n'a pas publié » ne doit pas être indiscernable de « rien n'a tourné ».
+    """B3 : **l'écriture du gate est la dernière étape**. Rien n'est promu si rien n'est publié.
 
-    L'échec était avalé par un `except Exception` qui imprimait sur stderr et laissait sortir en 0 :
-    le seul endroit où le défaut se lisait était une ligne que personne ne relit après un succès.
+    Le test précédent *entérinait* le défaut : il affirmait qu'un échec de publication laissait le
+    gate écrit, en présentant cela comme une propriété. C'en était une, et c'était la mauvaise — un
+    `evals_ok: true` promu, immédiatement servable, que rien ne documentait.
 
-    Le code reste dans la ligne de partage d'AD-8/D4 — ni 2, ni 3 (qui promet « manifest non
-    modifié », faux ici), ni 4 —, et le gate déjà écrit n'est pas touché.
+    L'ordre est désormais : préparer → basculer la publication → écrire le gate. Un échec de
+    publication survient donc **avant** que le manifest ne bouge d'un octet.
     """
-    ecrire_reel = runner._ecrire_atomique
+    ecrire_reel = runner._preparer_atomique
 
-    def _ecrire(path: Path, contenu: str) -> None:
+    def _preparer(path: Path, contenu: str) -> Path:
         if path.name == "evals-latest.json":
             raise OSError("répertoire de publication en lecture seule")
-        ecrire_reel(path, contenu)
+        return ecrire_reel(path, contenu)
 
-    monkeypatch.setattr(runner, "_ecrire_atomique", _ecrire)
+    data = _data_dir(tmp_path)
+    avant = (data / "manifest.json").read_bytes()
+    monkeypatch.setattr(runner, "_preparer_atomique", _preparer)
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", REVISION])
     assert code != 0
+    assert "échec de publication" in capsys.readouterr().err
+    # **Aucun gate n'a été écrit**, et le manifest est byte-identique.
+    assert (data / "manifest.json").read_bytes() == avant
+    assert json.loads(avant)[DOC]["gate"] is None
+    # Et rien n'a été publié à moitié : ni artefact servi, ni rendu lisible.
+    assert not (data / "evals-latest.json").exists()
+    assert not (tmp_path / "docs" / "evals" / "latest.md").exists()
+
+
+def test_un_gate_impossible_a_ecrire_ne_publie_rien(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue A : publier **puis** écrire le gate déplaçait la fenêtre de B3 au lieu de la fermer.
+
+    `ecrire_gate` peut encore échouer après la publication — `data/` en lecture seule, disque plein,
+    conteneur sans droit d'écriture. Dans cet ordre, les trois surfaces publiaient déjà
+    `evals_ok: true` alors qu'aucun gate n'existait, et le message d'erreur affirmait littéralement
+    « rien n'a été publié ». L'ordre inverse avait le défaut symétrique.
+
+    La fermeture est de **ne plus rien laisser d'échouable après la première bascule** : le manifest
+    est préparé comme les publications, et tout bascule ensemble. On double donc l'environnement —
+    l'écriture du temporaire du manifest échoue — jamais la règle.
+    """
+    mkstemp_reel = runner.tempfile.mkstemp
+
+    def _mkstemp(*args: Any, **kw: Any) -> Any:
+        if str(kw.get("prefix", "")).startswith("manifest.json"):
+            raise OSError("data/ en lecture seule")
+        return mkstemp_reel(*args, **kw)
+
+    data = _data_dir(tmp_path)
+    avant = (data / "manifest.json").read_bytes()
+    monkeypatch.setattr(runner.tempfile, "mkstemp", _mkstemp)
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION])
+    assert code == 2
+    assert "écriture impossible" in capsys.readouterr().err
+    assert (data / "manifest.json").read_bytes() == avant
+    # **Aucune surface n'a publié un verdict que le manifest ne porte pas.**
+    assert not (data / "evals-latest.json").exists()
+    assert not (tmp_path / "docs" / "evals" / "latest.md").exists()
+    # Et aucun temporaire n'est resté derrière.
+    assert not list(data.glob("*.tmp")) and not list(data.glob(".*.tmp"))
+
+
+def test_un_manifest_hors_schema_ne_publie_rien_non_plus(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue A, seconde porte : `preparer_gate` refuse aussi sur une entrée hors schéma.
+
+    Le manifest est parfaitement lisible ; c'est **une autre entrée** qui est abîmée. Le refus
+    survient donc au moment de préparer le gate, après que la publication a été préparée — et c'est
+    exactement le cas que l'ordre précédent laissait passer avec des surfaces déjà basculées.
+    """
+    data = _data_dir(tmp_path)
+    brut = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    brut["autre-doc"] = {"status": "servi", "source_hash": 12, "gate": None}
+    (data / "manifest.json").write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+    avant = (data / "manifest.json").read_bytes()
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION])
+    assert code == 2
+    assert "invalide" in capsys.readouterr().err
+    assert (data / "manifest.json").read_bytes() == avant
+    assert not (data / "evals-latest.json").exists()
+    assert not (tmp_path / "docs" / "evals" / "latest.md").exists()
+
+
+def test_un_gate_full_publie_et_promeut_en_une_seule_sequence(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue A, versant nominal : après la préparation, plus rien ne peut échouer à moitié.
+
+    On observe la séquence réelle : au moment où la **première** bascule a lieu, le temporaire du
+    manifest est déjà écrit et n'attend plus qu'un `os.replace`. Autrement dit, il n'existe aucun
+    instant où une surface affirme un verdict que le manifest ne porte pas — ni l'inverse.
+    """
+    basculer_reel = runner._basculer
+    observees: list[list[str]] = []
+
+    def _basculer(prepares: list[Any]) -> None:
+        observees.append([cible.name for _tmp, cible in prepares])
+        for temporaire, _cible in prepares:
+            assert temporaire.is_file(), f"{temporaire.name} n'est pas encore écrit"
+        basculer_reel(prepares)
+
+    monkeypatch.setattr(runner, "_basculer", _basculer)
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    assert _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION]) == 1
+    # **Une seule** séquence de bascules, et le manifest en fait partie.
+    assert len(observees) == 1, observees
+    assert "manifest.json" in observees[0]
+    assert {"evals-latest.json", "latest.md"} <= set(observees[0])
+
+
+def test_un_second_gate_consecutif_nest_pas_refuse_par_les_sorties_du_premier(
+        tmp_path: Path) -> None:
+    """B3 bis : `SORTIES_DU_RUN` doit lister **toutes** les sorties que le run écrit.
+
+    `revision_executee` refuse un arbre sale. Si les sorties du run n'en sont pas exclues, le
+    **deuxième** gate d'une campagne voit l'arbre sali par le premier et refuse : une campagne
+    multi-documents devient impossible, ce qui est le contraire du but.
+
+    Le contrôle porte sur un vrai dépôt git temporaire — c'est la seule façon de prouver que la
+    liste est exhaustive plutôt que plausible.
+    """
+    import subprocess
+
+    depot = tmp_path / "depot"
+    (depot / "data").mkdir(parents=True)
+    (depot / "docs" / "evals").mkdir(parents=True)
+    for chemin, contenu in (("data/manifest.json", "{}\n"),
+                            ("docs/evals/latest.md", "# ancien\n"),
+                            ("server/app/config.py", "x = 1\n")):
+        cible = depot / chemin
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        cible.write_text(contenu, encoding="utf-8")
+    for commande in (["init", "-q"], ["add", "-A"],
+                     ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "initial"]):
+        subprocess.run(["git", "-C", str(depot), *commande], check=True, capture_output=True)
+
+    revision, sales = runner.revision_executee(depot)
+    assert revision is not None and len(revision) == 40 and sales == []
+
+    # Le premier gate écrit ses sorties : l'arbre est « sale » au sens de git…
+    (depot / "data" / "manifest.json").write_text('{"doc": {}}\n', encoding="utf-8")
+    (depot / "data" / "evals-latest.json").write_text('{"publie": true}\n', encoding="utf-8")
+    (depot / "docs" / "evals" / "latest.md").write_text("# nouveau\n", encoding="utf-8")
+    (depot / "docs" / "evals" / "campagnes").mkdir()
+    (depot / "docs" / "evals" / "campagnes" / "20260101-abc.md").write_text("x", encoding="utf-8")
+    # … mais le second gate n'en est pas empêché : ce sont **ses propres** sorties.
+    revision_2, sales_2 = runner.revision_executee(depot)
+    assert revision_2 == revision and sales_2 == [], sales_2
+    # Une modification **produit**, elle, est bien vue.
+    (depot / "server" / "app" / "config.py").write_text("x = 2\n", encoding="utf-8")
+    _revision_3, sales_3 = runner.revision_executee(depot)
+    assert sales_3 == ["server/app/config.py"]
+
+
+def test_la_revision_executee_refuse_ce_quelle_ne_peut_pas_etablir(tmp_path: Path,
+                                                                   monkeypatch: Any) -> None:
+    """B1 : une liaison qu'on ne peut pas prouver n'est pas une liaison.
+
+    Hors dépôt git et sans `GIT_SHA` en 40 hexadécimaux, la révision est **inconnue** — et le runner
+    refuse plutôt que de croire l'argument sur parole.
+    """
+    hors_depot = tmp_path / "hors-depot"
+    hors_depot.mkdir()
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    assert runner.revision_executee(hors_depot) == (None, [])
+    # `GIT_SHA` en 40 hex est le repli d'une image sans `.git` : il n'y a alors aucun arbre à juger.
+    monkeypatch.setenv("GIT_SHA", "d" * 40)
+    assert runner.revision_executee(hors_depot) == ("d" * 40, [])
+    # Un `GIT_SHA` court (le `sha7` du déploiement) ne suffit pas à établir une révision de gate.
+    monkeypatch.setenv("GIT_SHA", "abcdef1")
+    assert runner.revision_executee(hors_depot) == (None, [])
+
+
+def test_un_controle_darbre_qui_nechoue_pas_a_conclure_est_traite_comme_un_arbre_sale(
+        tmp_path: Path, monkeypatch: Any) -> None:
+    """Revue B : ne pas pouvoir contrôler l'arbre, c'est refuser — pas laisser passer.
+
+    Deux chemins affirmaient un arbre propre sans l'avoir regardé : un `git status --porcelain`
+    sortant en code non nul (un `index.lock` tenu suffit) laissait la liste des modifications vide,
+    et une exception rabattait sur `GIT_SHA` un dépôt pourtant présent. Un gate `full` passait alors
+    sur un arbre dont personne n'avait rien su.
+    """
+    import subprocess
+
+    depot = tmp_path / "depot"
+    (depot / ".git").mkdir(parents=True)
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    reel = subprocess.run
+
+    def _git(sortie_status: Any) -> Any:
+        def _run(argv: list[str], **kw: Any) -> Any:
+            if "rev-parse" in argv:
+                return SimpleNamespace(returncode=0, stdout="a" * 40 + "\n", stderr="")
+            return sortie_status()
+        return _run
+
+    # 1. `git status` sort en code non nul : l'arbre n'a pas été contrôlé.
+    runner_subprocess = subprocess
+    monkeypatch.setattr(runner_subprocess, "run",
+                        _git(lambda: SimpleNamespace(returncode=128, stdout="", stderr="lock")))
+    revision, sales = runner.revision_executee(depot)
+    assert revision == "a" * 40
+    assert sales == [runner.ARBRE_NON_VERIFIABLE], sales
+
+    # 2. `git status` lève : même conclusion, et **pas** de repli sur `GIT_SHA`.
+    monkeypatch.setenv("GIT_SHA", "d" * 40)
+
+    def _leve() -> Any:
+        raise OSError("git indisponible")
+
+    monkeypatch.setattr(runner_subprocess, "run", _git(_leve))
+    revision, sales = runner.revision_executee(depot)
+    assert revision == "a" * 40 and sales == [runner.ARBRE_NON_VERIFIABLE]
+
+    # 3. `rev-parse` lui-même échoue sur un dépôt **présent** : `GIT_SHA` ne le remplace pas.
+    def _rev_parse_casse(argv: list[str], **kw: Any) -> Any:
+        return SimpleNamespace(returncode=128, stdout="", stderr="fatal")
+
+    monkeypatch.setattr(runner_subprocess, "run", _rev_parse_casse)
+    assert runner.revision_executee(depot) == (None, [])
+    # Sans dépôt du tout, en revanche, `GIT_SHA` reste le repli légitime d'une image sans `.git`.
+    hors_depot = tmp_path / "image"
+    hors_depot.mkdir()
+    assert runner.revision_executee(hors_depot) == ("d" * 40, [])
+
+    monkeypatch.setattr(runner_subprocess, "run", reel)
+
+
+def test_un_arbre_non_verifiable_ferme_le_gate_full(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue B, jusqu'au verdict : l'appelant ne distingue pas « sale » de « non vérifiable »."""
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION], sales=[runner.ARBRE_NON_VERIFIABLE])
+    assert code == 2
+    assert "modifications non commises" in capsys.readouterr().err
+    _manifest_intact(tmp_path)
+
+
+def test_un_gate_full_sur_un_document_sans_source_est_refuse(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue C : sans source sur le disque, aucun des deux témoins de structure ne couvre le document.
+
+    C'est l'état **réel** d'un checkout frais : les `source.pdf` ne sont pas committés (`.gitignore`)
+    et sont téléchargés au build. La règle `SOURCE_FILES` ne sait alors pas ce que le document est,
+    il sort des deux dénominateurs, aucune décision de structure n'est émise — et le loader, lui, le
+    **sert** quand même (simple alerte `source_absente`). Le gate `full` verdirait donc sans qu'aucune
+    preuve de structure ne lui ait été opposée.
+    """
+    ctx = _contexte()
+    data_sans_source = tmp_path / "sonde"
+    (data_sans_source / DOC).mkdir(parents=True)
+    assert runner.preuve_de_structure(data_sans_source, ctx, [DOC]) == (0, 0)
+    assert runner.preuve_darbre(data_sans_source, ctx, [DOC]) == (0, 0)
+
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION], source=None)
+    assert code == 2
     err = capsys.readouterr().err
-    assert "échec de publication" in err
-    # Le gate mesuré reste écrit : ce qui a été mesuré reste mesuré.
-    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest[DOC]["gate"] is not None
+    assert "aucune source n'est présente" in err
+    # Le refus nomme la remise en état, sans quoi il n'apprend rien à qui le lit.
+    assert "server.ingest.fetch_source" in err
+    _manifest_intact(tmp_path)
+    # Et sous `vertical`, rien ne change : les exigences de structure ne s'arment que sur `full`.
+    assert _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "vertical", "--repeat", "3"], source=None) == 1
+
+
+def test_un_check_bloquant_interdit_de_compter_meme_a_cote_dune_attestation(
+        tmp_path: Path) -> None:
+    """Revue D : « jamais bloquant » est une règle, pas une intention de docstring.
+
+    Le vérificateur qui refuse et l'ingestion qui atteste écrivent le **même** nom de check. Un
+    rapport portant les deux — un refus et une acceptation — comptait comme prouvé, parce que seule
+    la présence d'une attestation non bloquante était exigée. Le chemin de production n'en émet
+    qu'un à la fois ; une preuve ne se lit pas en pariant là-dessus.
+    """
+    from server.app.domain.ingest import (detail_attestation_arbre,
+                                          detail_attestation_structure)
+
+    ctx = _contexte()
+    data = tmp_path / "data"
+    (data / DOC).mkdir(parents=True)
+    entry = ctx.index.corpus.manifest[DOC]
+
+    # --- périmètre guide : `invariants_arbre` ---------------------------------------------------
+    (data / DOC / "source.js").write_bytes(b"var kb = {};")
+    atteste = {"name": "invariants_arbre", "level": "info",
+               "detail": detail_attestation_arbre(document_hash=entry.document_hash,
+                                                  ingest_fingerprint=entry.ingest_fingerprint)}
+    refus = {"name": "invariants_arbre", "level": "bloquant", "detail": "cycle_noeuds : ..."}
+    (data / DOC / "report.json").write_text(json.dumps({"doc_id": DOC, "checks": [atteste]}),
+                                            encoding="utf-8")
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (1, 1)
+    (data / DOC / "report.json").write_text(
+        json.dumps({"doc_id": DOC, "checks": [atteste, refus]}), encoding="utf-8")
+    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1), (
+        "un arbre refusé n'est pas un arbre prouvé, même si une acceptation traîne à côté")
+
+    # --- périmètre PDF : `structure_proposee` ----------------------------------------------------
+    (data / DOC / "source.js").unlink()
+    (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4")
+    octets = b'{"doc_id": "contrat-neutre"}\n'
+    (data / DOC / "structure.json").write_bytes(octets)
+    entry.structure_hash = hashlib.sha256(octets).hexdigest()
+    atteste = {"name": "structure_proposee", "level": "info",
+               "detail": detail_attestation_structure(document_hash=entry.document_hash,
+                                                      structure_hash=entry.structure_hash)}
+    refus = {"name": "structure_proposee", "level": "bloquant", "detail": "ligne_omise : ..."}
+    (data / DOC / "report.json").write_text(json.dumps({"doc_id": DOC, "checks": [atteste]}),
+                                            encoding="utf-8")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (1, 1)
+    (data / DOC / "report.json").write_text(
+        json.dumps({"doc_id": DOC, "checks": [atteste, refus]}), encoding="utf-8")
+    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+
+
+def test_une_revision_annoncee_qui_nest_pas_celle_executee_est_refusee(
+        tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B1 : « preuve et argument concordants entre eux mais divergents de la révision exécutée ».
+
+    `--candidate-revision` n'était comparée qu'à elle-même : le runner la recopiait dans le gate et
+    dans la preuve, puis recoupait la preuve avec ce même argument. Trois surfaces d'accord sur une
+    révision que personne n'a exécutée.
+    """
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION], revision="b" * 40)
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "≠ révision réellement exécutée" in err
+    _manifest_intact(tmp_path)
+
+    # Un arbre sale est refusé pour la même raison : le commit annoncé ne décrit pas ce code.
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION], sales=["server/app/pipelines/guide.py"])
+    assert code == 2
+    assert "modifications non commises" in capsys.readouterr().err
+
+    # Une révision indéterminable est un refus, jamais un laissez-passer.
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION], revision=None)
+    assert code == 2
+    assert "n'a pu être établie" in capsys.readouterr().err
 
 
 def test_letat_de_seconde_lecture_est_celui_que_le_run_ecrit(
@@ -947,12 +1569,15 @@ def test_letat_de_seconde_lecture_est_celui_que_le_run_ecrit(
 
 def test_un_verdict_de_seconde_lecture_rempli_remonte_jusqua_la_publication(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Revue P4 : le chemin qui **ingère** un verdict rempli va jusqu'aux quatre surfaces.
+    """FR47 : le chemin qui **ingère** un verdict rempli va jusqu'aux quatre surfaces.
 
-    Sans lui, FR47 restait une bibliothèque sans appelant et `statut` ne pouvait jamais quitter
-    `planifiee` : l'orchestrateur produisait un verdict que rien ne lisait.
+    Le test précédent *entérinait* B5 : il posait `image_sha256: "aaaa…"` et concluait
+    « concordante ». Il prouvait donc exactement ce que la revue reproche — qu'une empreinte
+    inventée suffit. Ici les octets existent, le validateur recalcule leur empreinte, et c'est
+    l'égalité qui décide.
     """
-    from server.evals.relecture import blocs_cles_du_rapport, plan_de_relecture
+    from server.evals.relecture import (blocs_cles_du_rapport, empreinte_image, nom_image,
+                                        plan_de_relecture)
 
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     assert _cli(tmp_path, monkeypatch,
@@ -961,35 +1586,75 @@ def test_un_verdict_de_seconde_lecture_rempli_remonte_jusqua_la_publication(
     rapport = json.loads((tmp_path / "eval-results.json").read_text(encoding="utf-8"))
     plan = plan_de_relecture(_contexte().index, blocs_cles_du_rapport(rapport),
                              candidate_revision=REVISION)
+    assert plan.blocs, "le run doit produire un plan non vide pour que ce test morde"
+
+    # Les octets « réellement regardés » : synthétiques, mais **les mêmes** que ceux dont le verdict
+    # annonce l'empreinte. Aucun PDF, aucun rendu, aucun réseau.
+    images = tmp_path / "images"
+    images.mkdir()
+    octets = {b.block_id: b"\x89PNG\r\n\x1a\n" + b.block_id.encode("utf-8") for b in plan.blocs}
+    for block_id, contenu in octets.items():
+        (images / nom_image(block_id)).write_bytes(contenu)
+
     verdict = tmp_path / "verdict.json"
     verdict.write_text(json.dumps({
         "schema_version": 1, "candidate_revision": REVISION, "plan_digest": plan.plan_digest,
         "verdicts": [{"block_id": b.block_id, "verdict": "concordant",
-                      "image_sha256": "a" * 64, "note": ""} for b in plan.blocs],
+                      "image_sha256": empreinte_image(octets[b.block_id]), "note": ""}
+                     for b in plan.blocs],
     }), encoding="utf-8")
 
     assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
-                 "--candidate-revision", REVISION, "--relecture-verdict", str(verdict)]) == 1
+                 "--candidate-revision", REVISION, "--relecture-verdict", str(verdict),
+                 "--relecture-images", str(images)]) == 1
     publie = json.loads((tmp_path / "data" / "evals-latest.json").read_text(encoding="utf-8"))
-    assert publie["seconde_lecture"] == {"statut": "concordante", "blocs_planifies": 1,
-                                         "blocs_verifies": 1}
+    assert publie["seconde_lecture"] == {"statut": "concordante",
+                                         "blocs_planifies": len(plan.blocs),
+                                         "blocs_verifies": len(plan.blocs)}
     # La limite disparaît : elle était dérivée de l'état, pas rédigée.
     assert not any("seconde lecture" in limite for limite in publie["limites"])
 
 
-def test_un_verdict_de_seconde_lecture_qui_ne_concorde_pas_empeche_le_vert(
+def test_un_verdict_dont_les_images_ne_concordent_pas_empeche_le_vert(
         tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un verdict adossé à un autre plan n'est jamais publié au rabais : il fait échouer la publication."""
+    """B5, de bout en bout : une empreinte inventée ne devient jamais une seconde lecture publiée.
+
+    Trois façons de ne pas prouver, et les trois sont refusées : une empreinte fabriquée, une image
+    absente, et un verdict fourni **sans** les octets.
+    """
+    from server.evals.relecture import blocs_cles_du_rapport, nom_image, plan_de_relecture
+
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
-    verdict = tmp_path / "verdict.json"
-    verdict.write_text(json.dumps({
-        "schema_version": 1, "candidate_revision": REVISION, "plan_digest": "0" * 64,
-        "verdicts": [{"block_id": f"{DOC}:p1:1", "verdict": "concordant",
-                      "image_sha256": "a" * 64, "note": ""}],
-    }), encoding="utf-8")
-    code = _cli(tmp_path, monkeypatch,
+    assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
-                 "--candidate-revision", REVISION, "--relecture-verdict", str(verdict)])
-    assert code != 0
-    assert "échec de publication" in capsys.readouterr().err
+                 "--candidate-revision", REVISION]) == 1
+    rapport = json.loads((tmp_path / "eval-results.json").read_text(encoding="utf-8"))
+    plan = plan_de_relecture(_contexte().index, blocs_cles_du_rapport(rapport),
+                             candidate_revision=REVISION)
+    images = tmp_path / "images"
+    images.mkdir()
+    for bloc in plan.blocs:
+        (images / nom_image(bloc.block_id)).write_bytes(b"des-octets-de-page")
+
+    invente = tmp_path / "verdict.json"
+    invente.write_text(json.dumps({
+        "schema_version": 1, "candidate_revision": REVISION, "plan_digest": plan.plan_digest,
+        "verdicts": [{"block_id": b.block_id, "verdict": "concordant",
+                      "image_sha256": "a" * 64, "note": ""} for b in plan.blocs],
+    }), encoding="utf-8")
+    manifest_avant = (tmp_path / "data" / "manifest.json").read_bytes()
+    assert _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION, "--relecture-verdict", str(invente),
+                 "--relecture-images", str(images)]) != 0
+    err = capsys.readouterr().err
+    assert "échec de publication" in err and "ne porte pas sur l'image" in err
+    # B3 : rien n'est promu si rien n'est publié — le manifest n'a pas bougé.
+    assert (tmp_path / "data" / "manifest.json").read_bytes() == manifest_avant
+
+    # Sans les octets, il n'y a rien à recouper : refus aussi.
+    assert _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION, "--relecture-verdict", str(invente)]) != 0
+    assert "exige --relecture-images" in capsys.readouterr().err

@@ -12,6 +12,9 @@ from pydantic import ValidationError
 from server.app.config import get_settings
 from server.app.corpus.text import normalize
 from server.app.domain import Check, Document, Report, is_citable
+from server.app.domain.ingest import (STRUCTURE_CHECK, TREE_CHECK, detail_attestation_arbre,
+                                      detail_attestation_structure, lire_attestation_arbre,
+                                      lire_attestation_structure)
 
 _WORD = re.compile(r"[a-zà-öø-ÿ]+", re.IGNORECASE)
 _FRENCH_SIGNALS = frozenset({
@@ -77,6 +80,85 @@ def structure_check(motif: str | None, detail: str) -> Check:
     if motif is None:
         return Check(name="structure_proposee", level="info", detail=detail[:2000])
     return Check(name="structure_proposee", level="bloquant", detail=f"{motif} : {detail}"[:2000])
+
+
+def _reecrire_attestation(report: Report, *, nom: str, lire: Any, detail_neuf: Any,
+                          renouveler: bool) -> Report:
+    """Réécrit le détail des checks `nom` de niveau `info` — la mécanique commune aux deux attestations.
+
+    `renouveler=True` restreint la réécriture aux checks qui portent **déjà** une attestation. C'est
+    la différence entre *attester* et *ré-attester* : une ingestion a vérifié quelque chose et peut
+    l'affirmer ; un chemin qui se contente de réécrire `report.json` après coup — le typage — n'a rien
+    vérifié, et doit se borner à mettre à jour une affirmation existante. Sans cette restriction, un
+    document dont le rapport date d'avant la story 4.5 (`invariants_arbre: ok`, sans empreinte)
+    ressortirait du typage avec une preuve de structure que personne n'a produite.
+    """
+    checks = [
+        check.model_copy(update={"detail": detail_neuf(check.detail)})
+        if (check.name == nom and check.level == "info"
+            and (not renouveler or lire(check.detail) is not None)) else check
+        for check in report.checks
+    ]
+    return report.model_copy(update={"checks": checks})
+
+
+def attester_structure(report: Report, *, document_hash: str, structure_hash: str,
+                       renouveler: bool = False) -> Report:
+    """Rend le rapport dont le check `structure_proposee` **affirme** la structure de ce document.
+
+    Story 4.5. Le check n'existait qu'en `bloquant`, sur refus : un rapport où il est **absent** ne
+    disait donc rien — ni « acceptée », ni « pas de proposition ». Le gate `full` en tirait un
+    fail-open : un `structure.json` au contenu arbitraire, son hash recopié au manifest et aucun
+    `report.json`, et la structure passait pour prouvée.
+
+    L'attestation lie l'acceptation aux **octets exacts** vérifiés : `document_hash` (l'arbre que la
+    proposition a produit) et `structure_hash` (la proposition elle-même). Elle n'est écrite que
+    lorsque les deux existent — c'est-à-dire quand l'ingestion a réellement construit le document à
+    partir d'une proposition acceptée.
+
+    Le niveau reste `info` : le vocabulaire d'AD-8 a trois valeurs, et une acceptation n'est ni un
+    bloquant ni une alerte. C'est le **détail** qui porte la preuve.
+
+    `renouveler=True` : ne met à jour qu'une attestation **déjà présente** (voir
+    `_reecrire_attestation`). C'est le mode du typage, qui réécrit le rapport sans rien re-vérifier.
+    """
+    if not document_hash or not structure_hash:
+        return report
+    return _reecrire_attestation(
+        report, nom=STRUCTURE_CHECK, lire=lire_attestation_structure,
+        detail_neuf=lambda detail: detail_attestation_structure(
+            document_hash=document_hash, structure_hash=structure_hash, detail=detail),
+        renouveler=renouveler)
+
+
+def attester_arbre(report: Report, *, document_hash: str, ingest_fingerprint: str,
+                   renouveler: bool = False) -> Report:
+    """Rend le rapport dont le check `invariants_arbre` **affirme** l'arbre de ce document.
+
+    Story 4.5, revue B4 — volet guide. Restreindre `structure_prouvee_rate` aux documents issus d'un
+    PDF était juste (la story 4.2c ne s'applique qu'à eux), mais laissait le guide **sans aucune**
+    exigence de structure : un plancher abaissé par omission. La preuve déterministe applicable à une
+    copie de site existe pourtant déjà — `invariants_arbre`, émis par les deux ingestions —, il lui
+    manquait seulement d'être **affirmative** et **rattachée**.
+
+    Rattachée à quoi : `document_hash`, les octets exacts de l'arbre construit (ceux que le loader
+    recoupe avec le manifest à chaque chargement), et `ingest_fingerprint`, le code qui les a
+    produits. Un `report.json` écrit à la main portant `invariants_arbre: ok` — la forme historique
+    du check, celle que porte encore le corpus servi — ne prouve donc rien.
+
+    Comme `attester_structure` : le niveau reste `info` (une affirmation n'est ni un bloquant ni une
+    alerte), un check `bloquant` n'est jamais réécrit, et rien n'est **ajouté** — un rapport sans
+    `invariants_arbre` ressort tel quel. Une attestation ne se fabrique pas : elle se constate.
+
+    `renouveler=True` : ne met à jour qu'une attestation **déjà présente**. C'est le mode du typage.
+    """
+    if not document_hash or not ingest_fingerprint:
+        return report
+    return _reecrire_attestation(
+        report, nom=TREE_CHECK, lire=lire_attestation_arbre,
+        detail_neuf=lambda detail: detail_attestation_arbre(
+            document_hash=document_hash, ingest_fingerprint=ingest_fingerprint, detail=detail),
+        renouveler=renouveler)
 
 
 def build_report(doc: Document, previous: Document | None, kb: dict[str, Any], *,

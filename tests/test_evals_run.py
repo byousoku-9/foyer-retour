@@ -1674,23 +1674,39 @@ def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé.
 
-    Story 4.5 (M2) : la preuve porte désormais aussi la **révision candidate** et l'empreinte du
-    rapport dont elle dérive. Les cinq clés racine sont exigées exactement — voir
-    `tests/test_plancher.py -k candidate_revision` pour les quatre façons de ne pas concorder.
+    Story 4.5 (M2), durci par la revue B1 : la preuve porte la **révision candidate** et l'empreinte
+    du rapport dont elle dérive, et le rapport référencé doit **se reconnaître** dans la preuve —
+    même `run_digest`, recalculé depuis son identité, même révision, même plancher, même image. La
+    preuve construite ici est donc réellement valide de bout en bout : c'est la seule façon
+    d'exercer le chemin vert sans désarmer un contrôle. Les cinq façons de ne pas concorder sont
+    couvertes par `tests/test_plancher.py -k candidate_revision`.
     """
     charge = charger_plancher()
     revision = "1" * 40
+    # L'identité d'un run mesuré par l'orchestrateur, telle que `identite_run` la construit :
+    # `run_digest` est l'empreinte canonique de l'identité **privée de sa propre clé**.
+    identite: dict[str, Any] = {
+        "candidate_revision": revision,
+        "image": {"pipeline_digest": runner.pipeline_digest(),
+                  "prompts_digest": runner.prompts_digest(),
+                  "model_ids": dict(runner.TIERS),
+                  "plancher_digest": charge.digest},
+        "scope": {"profile": "full", "repeat": 3},
+    }
+    identite["run_digest"] = runner.empreinte_canonique(identite)
     rapport_source = tmp_path / "rapport-orchestrateur.json"
-    rapport_source.write_text('{"schema_version": 3}\n', encoding="utf-8")
+    rapport_source.write_text(json.dumps({
+        "schema_version": 3, "plancher_digest": charge.digest, "identity": identite,
+    }) + "\n", encoding="utf-8")
     preuve = tmp_path / "preuve-orchestrateur.json"
     preuve.write_text(json.dumps({
         "plancher_digest": charge.digest,
         "candidate_revision": revision,
         "report_digest": hashlib.sha256(rapport_source.read_bytes()).hexdigest(),
-        "run_digest": "a" * 64,
+        "run_digest": identite["run_digest"],
         "decisions": [{
             "metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
-            "run_digest": "a" * 64,
+            "run_digest": identite["run_digest"],
         }],
     }), encoding="utf-8")
     _corpus_, index = _corpus()

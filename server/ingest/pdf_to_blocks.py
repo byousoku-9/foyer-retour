@@ -42,8 +42,8 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
                                      read_manifest, structure_hash, write_atomic)
 from server.ingest.fetch_source import GS_URL_RE
-from server.ingest.report import (build_pdf_report, numero_de_noeud, report_from_validation_error,
-                                  structure_check)
+from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
+                                  numero_de_noeud, report_from_validation_error, structure_check)
 from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
                                      StructureRefusee, arbre, charger, empreinte_proposition,
                                      presente, registre_lignes, verifier)
@@ -1590,6 +1590,17 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
     else:
         for stale in ("document.json", "summary.md"):  # jamais un artefact périmé à côté d'un manifest en quarantaine
             (data_dir / stale).unlink(missing_ok=True)
+    # Story 4.5 : quand une proposition de structure a été acceptée et que le document a bien été
+    # construit, le rapport **atteste** de quoi il parle — `document_hash` et `structure_hash`
+    # observés. Sans cette liaison, « accepté » resterait déclaratif, et le gate `full` prendrait un
+    # `structure.json` arbitraire pour une structure prouvée.
+    report = attester_structure(report, document_hash=document_hash,
+                                structure_hash=structure_hash(data_dir) or "")
+    # Et l'attestation d'arbre, sur le même patron (revue B4, volet guide) : les deux ingestions
+    # émettent `invariants_arbre`, et aucune ne décide de son périmètre par un `doc_id`. C'est le
+    # témoin du plancher qui choisit, par la règle `SOURCE_FILES`, laquelle des deux preuves il
+    # oppose à quel document ; l'ingestion, elle, atteste ce qu'elle a vraiment vérifié.
+    report = attester_arbre(report, document_hash=document_hash, ingest_fingerprint=fingerprint)
     write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
     entry = merge_manifest(manifest_path, raw_manifest, doc_id,
                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,

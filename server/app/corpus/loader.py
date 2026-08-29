@@ -117,6 +117,15 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
         # politique complète un gate qui ne sait ni l'un ni l'autre serait affirmer une mesure dont
         # on a perdu la référence — le même défaut que `gate_preprotocole` nomme depuis 4.2b.
         return "gate_preprotocole", []
+    if (gate.profile == "full" and current is not None
+            and not _meme_revision(gate.candidate_revision, current.candidate_revision,
+                                   env=current.env)):
+        # Story 4.5 (revue B2) : un gate `full` **nomme** la révision qu'il a mesurée. Servir sous
+        # ce label un code dont la révision diffère, c'est affirmer une mesure qui n'a pas porté sur
+        # lui — et `pipeline_digest` ne le rattrape pas : il ne couvre que cinq couches, pas le
+        # dépôt. La quarantaine est la même que pour des digests non concordants, et pour la même
+        # raison : sous `full`, la politique complète promet que le servi *est* le mesuré.
+        return "gate_perime", []
     if current is not None and (
             gate.pipeline_digest, gate.prompts_digest, gate.model_ids, gate.pipeline_settings) != (
             current.pipeline_digest, current.prompts_digest, current.model_ids,
@@ -130,6 +139,52 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
             return "gate_perime", []
         return "", ["gate_perime"]
     return "", []
+
+
+# Longueur minimale d'un préfixe de révision comparable. `deploy.yml` pose `GIT_SHA=<sha7>` : sept
+# est donc la plus courte révision qu'un service porte réellement. En dessous, un préfixe ne
+# discrimine plus rien — `GIT_SHA=a` correspondrait à un seizième des révisions possibles, et
+# `GIT_SHA` posé par erreur à une lettre ferait « concorder » n'importe quel gate.
+REVISION_PREFIXE_MIN = 7
+
+
+def revision_comparable(valeur: str | None) -> str | None:
+    """La révision utilisable pour une comparaison, ou `None` si elle n'en est pas une.
+
+    `dev` (le défaut hors conteneur), une chaîne vide, ou un préfixe trop court pour discriminer :
+    ce sont trois façons de ne pas savoir quelle révision tourne, et aucune n'est une révision.
+    """
+    texte = (valeur or "").strip().lower()
+    if len(texte) < REVISION_PREFIXE_MIN or any(c not in "0123456789abcdef" for c in texte):
+        return None
+    return texte
+
+
+def _meme_revision(gate_revision: str | None, courante: str, *, env: str = "dev") -> bool:
+    """Le gate décrit-il la révision qui tourne ? — comparaison par **préfixe commun**.
+
+    En production, `deploy.yml` pose `GIT_SHA=<sha7>` : la révision courante est plus courte que
+    celle qu'un gate porte (40 hexadécimaux). Exiger l'égalité aurait mis tout le corpus en
+    quarantaine à chaque déploiement — une panne inventée, exactement ce qu'AD-16 interdit dans
+    l'autre sens. Le préfixe comparé doit valoir au moins `REVISION_PREFIXE_MIN` caractères : plus
+    court, il ne discrimine plus rien et « concorderait » avec presque tout.
+
+    **Quand la révision est inconnue, la réponse dépend de l'environnement**, et c'est le patron
+    qu'AD-7 applique déjà à `allow_ungated` :
+
+    - hors production, ne rien pouvoir conclure n'est pas une raison de refuser de servir : un poste
+      de développement ne se nomme pas, et mettre son corpus en quarantaine n'apprendrait rien à
+      personne ;
+    - en **production**, sous un gate `full`, une révision inconnue est une **preuve manquante**. Le
+      profil promet que le servi est exactement le mesuré ; ne pas pouvoir l'établir, c'est ne pas
+      pouvoir tenir la promesse. Quarantaine.
+    """
+    gate_lue = revision_comparable(gate_revision)
+    courante_lue = revision_comparable(courante)
+    if gate_lue is None or courante_lue is None:
+        return env != "prod"
+    commun = min(len(gate_lue), len(courante_lue))
+    return gate_lue[:commun] == courante_lue[:commun]
 
 
 def _gate_full_preprotocole(brut: object) -> bool:

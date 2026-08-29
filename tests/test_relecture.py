@@ -29,8 +29,9 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.domain.ingest import ManifestEntry
-from server.evals.relecture import (PlanRelecture, RelectureInvalide, ROUTE_PAGE, ecrire_plan,
-                                    empreinte_image, plan_de_relecture, valider_verdict)
+from server.evals.relecture import (PlanRelecture, RelectureInvalide, ROUTE_PAGE,
+                                    charger_images, ecrire_plan, empreinte_image, nom_image,
+                                    plan_de_relecture, valider_verdict)
 
 DOC = "contrat-neutre"
 TEXTE = "Le mobilier garni de la residence est garanti lors d un evenement soudain."
@@ -65,13 +66,28 @@ def _plan() -> PlanRelecture:
                              candidate_revision=REVISION)
 
 
+def _octets(block_id: str) -> bytes:
+    """Des octets d'image synthétiques, distincts par bloc — aucun PDF, aucun rendu réel."""
+    return b"\x89PNG\r\n\x1a\n" + block_id.encode("utf-8")
+
+
+def _images(plan: PlanRelecture) -> dict[str, bytes]:
+    return {b.block_id: _octets(b.block_id) for b in plan.blocs}
+
+
 def _verdict(plan: PlanRelecture, **kw: Any) -> dict[str, Any]:
+    """Un verdict dont les `image_sha256` sont ceux des octets que `_images` fournit.
+
+    C'est le point du correctif : l'empreinte n'est plus une chaîne posée à la main, c'est celle des
+    octets qu'on prétend avoir regardés.
+    """
     base: dict[str, Any] = {
         "schema_version": 1,
         "candidate_revision": REVISION,
         "plan_digest": plan.plan_digest,
         "verdicts": [{"block_id": b.block_id, "verdict": "concordant",
-                      "image_sha256": "a" * 64, "note": ""} for b in plan.blocs],
+                      "image_sha256": empreinte_image(_octets(b.block_id)), "note": ""}
+                     for b in plan.blocs],
     }
     base.update(kw)
     return base
@@ -139,7 +155,8 @@ def test_le_plan_secrit_tel_quel(tmp_path: Path) -> None:
 
 def test_un_verdict_complet_et_concordant_est_accepte() -> None:
     plan = _plan()
-    verdict = valider_verdict(_verdict(plan), plan, candidate_revision=REVISION)
+    verdict = valider_verdict(_verdict(plan), plan, candidate_revision=REVISION,
+                               images=_images(plan))
     assert verdict.concordant is True
     assert [v.block_id for v in verdict.verdicts] == [b.block_id for b in plan.blocs]
 
@@ -150,7 +167,7 @@ def test_un_verdict_divergent_est_accepte_et_dit_divergent() -> None:
     brut = _verdict(plan)
     brut["verdicts"][0]["verdict"] = "divergent"
     brut["verdicts"][0]["note"] = "le texte extrait omet une ligne de la colonne de droite"
-    verdict = valider_verdict(brut, plan, candidate_revision=REVISION)
+    verdict = valider_verdict(brut, plan, candidate_revision=REVISION, images=_images(plan))
     assert verdict.concordant is False
 
 
@@ -159,13 +176,14 @@ def test_un_verdict_dune_autre_revision_est_refuse() -> None:
     plan = _plan()
     with pytest.raises(RelectureInvalide, match="candidate_revision"):
         valider_verdict(_verdict(plan, candidate_revision="8" * 40), plan,
-                        candidate_revision=REVISION)
+                        candidate_revision=REVISION, images=_images(plan))
 
 
 def test_un_verdict_adosse_a_un_autre_plan_est_refuse() -> None:
     plan = _plan()
     with pytest.raises(RelectureInvalide, match="plan_digest"):
-        valider_verdict(_verdict(plan, plan_digest="0" * 64), plan, candidate_revision=REVISION)
+        valider_verdict(_verdict(plan, plan_digest="0" * 64), plan,
+                        candidate_revision=REVISION, images=_images(plan))
 
 
 def test_une_couverture_partielle_ou_dupliquee_est_refusee() -> None:
@@ -178,15 +196,15 @@ def test_une_couverture_partielle_ou_dupliquee_est_refusee() -> None:
     partiel = _verdict(plan)
     partiel["verdicts"] = partiel["verdicts"][:1]
     with pytest.raises(RelectureInvalide, match="couverture"):
-        valider_verdict(partiel, plan, candidate_revision=REVISION)
+        valider_verdict(partiel, plan, candidate_revision=REVISION, images=_images(plan))
     double = _verdict(plan)
     double["verdicts"] = [double["verdicts"][0], dict(double["verdicts"][0])]
     with pytest.raises(RelectureInvalide, match="couverture"):
-        valider_verdict(double, plan, candidate_revision=REVISION)
+        valider_verdict(double, plan, candidate_revision=REVISION, images=_images(plan))
     etranger = _verdict(plan)
     etranger["verdicts"][0]["block_id"] = f"{DOC}:p9:9"
     with pytest.raises(RelectureInvalide, match="couverture"):
-        valider_verdict(etranger, plan, candidate_revision=REVISION)
+        valider_verdict(etranger, plan, candidate_revision=REVISION, images=_images(plan))
 
 
 def test_un_verdict_hors_schema_est_refuse() -> None:
@@ -203,9 +221,9 @@ def test_un_verdict_hors_schema_est_refuse() -> None:
         brut = _verdict(plan)
         mutation(brut)
         with pytest.raises(RelectureInvalide, match=motif):
-            valider_verdict(brut, plan, candidate_revision=REVISION)
+            valider_verdict(brut, plan, candidate_revision=REVISION, images=_images(plan))
     with pytest.raises(RelectureInvalide, match="objet JSON"):
-        valider_verdict([1, 2], plan, candidate_revision=REVISION)
+        valider_verdict([1, 2], plan, candidate_revision=REVISION, images=_images(plan))
 
 
 def test_lempreinte_dimage_est_celle_des_octets_regardes() -> None:
@@ -320,13 +338,78 @@ def test_le_statut_ne_dit_concordante_que_si_tout_concorde() -> None:
     from server.evals.relecture import statut_du_verdict
 
     plan = _plan()
-    concordant = valider_verdict(_verdict(plan), plan, candidate_revision=REVISION)
+    concordant = valider_verdict(_verdict(plan), plan, candidate_revision=REVISION,
+                                 images=_images(plan))
     assert statut_du_verdict(concordant) == "concordante"
     brut = _verdict(plan)
     brut["verdicts"][1]["verdict"] = "divergent"
     assert statut_du_verdict(
-        valider_verdict(brut, plan, candidate_revision=REVISION)) == "divergente"
+        valider_verdict(brut, plan, candidate_revision=REVISION, images=_images(plan))) == "divergente"
     # Un plan vide ne peut produire aucune concordance : `concordant` est faux sur une liste vide.
     vide = plan_de_relecture(_index_de_test(), [], candidate_revision=REVISION)
-    assert statut_du_verdict(valider_verdict(_verdict(vide), vide,
-                                             candidate_revision=REVISION)) == "divergente"
+    assert statut_du_verdict(valider_verdict(_verdict(vide), vide, candidate_revision=REVISION,
+                                             images={})) == "divergente"
+
+
+# --- B5 : `image_sha256` est recoupé avec les octets réellement regardés --------------------------
+
+def test_un_verdict_dont_lempreinte_dimage_est_inventee_est_refuse() -> None:
+    """B5 : `image_sha256` était recopié du verdict sans jamais être recoupé.
+
+    Un verdict portant une empreinte **inventée** était accepté puis publié « concordante » sur les
+    quatre surfaces : une fausse preuve de seconde lecture, affirmée par le service. Le validateur
+    recalcule désormais l'empreinte des octets qu'on lui donne et exige l'égalité.
+    """
+    plan = _plan()
+    invente = _verdict(plan)
+    invente["verdicts"][0]["image_sha256"] = "a" * 64
+    with pytest.raises(RelectureInvalide, match="ne porte pas sur l'image"):
+        valider_verdict(invente, plan, candidate_revision=REVISION, images=_images(plan))
+    # Et l'empreinte juste d'une **autre** page ne passe pas davantage : c'est le bloc qui décide.
+    croise = _verdict(plan)
+    croise["verdicts"][0]["image_sha256"] = empreinte_image(_octets(plan.blocs[1].block_id))
+    with pytest.raises(RelectureInvalide, match="ne porte pas sur l'image"):
+        valider_verdict(croise, plan, candidate_revision=REVISION, images=_images(plan))
+
+
+def test_une_page_manquante_est_un_refus_jamais_une_relecture() -> None:
+    """« Un bloc qu'on n'a pas pu regarder ne peut pas avoir été relu. »"""
+    plan = _plan()
+    partielles = _images(plan)
+    partielles.pop(plan.blocs[0].block_id)
+    with pytest.raises(RelectureInvalide, match="aucune image fournie"):
+        valider_verdict(_verdict(plan), plan, candidate_revision=REVISION, images=partielles)
+
+
+def test_un_verdict_sans_octets_est_refuse() -> None:
+    """Sans les octets, `image_sha256` n'est recoupé avec rien : accepter rouvrirait la porte."""
+    plan = _plan()
+    with pytest.raises(RelectureInvalide, match="octets réellement regardés"):
+        valider_verdict(_verdict(plan), plan, candidate_revision=REVISION, images=None)
+
+
+def test_les_images_se_chargent_par_un_nom_deterministe_sans_separateur(tmp_path: Path) -> None:
+    """Le nom de fichier est fixe et sans `:` : ni composition de chemin, ni ambiguïté d'un système.
+
+    C'est le nom que l'orchestrateur donne à l'image téléchargée depuis la route de la story 3.4, et
+    celui que le validateur cherche — une convention écrite des deux côtés plutôt que devinée.
+    """
+    plan = _plan()
+    assert nom_image(f"{DOC}:p3:1") == f"{DOC}_p3_1.png"
+    assert ":" not in nom_image(f"{DOC}:p3:1") and "/" not in nom_image(f"{DOC}:p3:1")
+    dossier = tmp_path / "images"
+    dossier.mkdir()
+    for bloc in plan.blocs:
+        (dossier / nom_image(bloc.block_id)).write_bytes(_octets(bloc.block_id))
+    charges = charger_images(dossier, plan)
+    assert charges == _images(plan)
+    # Le validateur accepte alors, et refuse dès qu'une image bouge d'un octet.
+    assert valider_verdict(_verdict(plan), plan, candidate_revision=REVISION,
+                           images=charges).concordant is True
+    (dossier / nom_image(plan.blocs[0].block_id)).write_bytes(b"autre-image")
+    with pytest.raises(RelectureInvalide, match="ne porte pas sur l'image"):
+        valider_verdict(_verdict(plan), plan, candidate_revision=REVISION,
+                        images=charger_images(dossier, plan))
+    # Une image absente du répertoire n'entre pas dans la table : l'absence n'est pas du vide.
+    (dossier / nom_image(plan.blocs[0].block_id)).unlink()
+    assert plan.blocs[0].block_id not in charger_images(dossier, plan)

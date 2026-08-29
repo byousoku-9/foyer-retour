@@ -28,7 +28,7 @@ from server.app.domain import (Block, BlockRef, Check, Document, ManifestEntry, 
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash, read_manifest,
                                      structure_hash, write_atomic)
 from server.ingest.jsobject import parse_js_object
-from server.ingest.report import build_report, report_from_validation_error
+from server.ingest.report import attester_arbre, build_report, report_from_validation_error
 
 DOC_ID = "lux-guide"
 TITLE = "S'installer au Luxembourg"
@@ -332,9 +332,16 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     else:
         for stale in ("document.json", "summary.md"):  # jamais un artefact périmé à côté d'un manifest en quarantaine
             (data_dir / stale).unlink(missing_ok=True)
+    fingerprint = ingest_fingerprint()
+    # Story 4.5 (revue B4, volet guide) : quand l'arbre a réellement été construit et écrit, le
+    # rapport **atteste** de quoi il parle — `document_hash` et `ingest_fingerprint` observés. C'est
+    # la preuve de structure déterministe applicable à une copie de site, qui n'a pas de
+    # `structure.json` : sans elle, un `report.json` portant `invariants_arbre: ok` (la forme
+    # historique, sans empreinte) suffirait à faire verdir le témoin du gate `full`.
+    report = attester_arbre(report, document_hash=document_hash, ingest_fingerprint=fingerprint)
     write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
     entry = merge_manifest(manifest_path, raw_manifest, DOC_ID,
-                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=ingest_fingerprint(),
+                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
                                           document_hash=document_hash, edition=edition,
                                           overlay_hash=overlay_hash(data_dir),
                                           # Story 4.5 : couverte par le manifest comme l'overlay.
