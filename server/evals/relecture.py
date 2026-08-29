@@ -127,6 +127,26 @@ class VerdictRelecture(BaseModel):
         return bool(self.verdicts) and all(v.verdict == "concordant" for v in self.verdicts)
 
 
+def _exiger_liste(objet: Any, cle: str, *, contexte: str) -> list[Any]:
+    """La liste sous `cle` — **exigée présente et bien typée**, jamais devinée vide.
+
+    Une clé absente et une liste vide disent deux choses opposées : « je ne sais pas ce qu'il y
+    avait » et « il n'y avait rien ». Les confondre laisse une preuve corrompue réduire un
+    dénominateur sans que le dénominateur le dise. C'est la forme que `verifier_identite_externe`
+    applique déjà : exiger la clé, exiger le type, puis seulement lire.
+    """
+    if not isinstance(objet, dict) or cle not in objet:
+        raise RelectureInvalide(
+            f"{contexte} : la clé obligatoire {cle!r} est absente — « la clé n'est pas là » n'est "
+            "pas « la liste est vide », et un dénominateur amputé ne se distingue pas d'un "
+            "dénominateur honnête")
+    valeur = objet[cle]
+    if not isinstance(valeur, list):
+        raise RelectureInvalide(
+            f"{contexte} : {cle!r} doit être une liste ({type(valeur).__name__} reçu)")
+    return valeur
+
+
 def blocs_cles_du_rapport(rapport: dict[str, Any]) -> list[str]:
     """Les **blocs clés** d'un run : ceux que ses preuves citent, plus ceux qu'il attendait.
 
@@ -139,26 +159,28 @@ def blocs_cles_du_rapport(rapport: dict[str, Any]) -> list[str]:
     est le premier suspect d'un défaut de parsing.
     """
     blocs: set[str] = set()
-    for resultat in rapport.get("results") or []:
-        # **Rien n'est écarté en silence** (revue B5, chemin frère). Un rapport dont une exécution
-        # n'est pas un objet, ou dont un `block_id` n'est pas une chaîne, est un rapport corrompu ou
-        # fabriqué : le sauter revenait à bâtir un plan sur ce qui restait lisible, et à le publier
-        # comme s'il était complet.
+    # **La clé, puis le type, puis la valeur** — l'ordre de `plancher.verifier_identite_externe`.
+    # Les contrôles précédents étaient exclusivement typaux : `rapport.get("results") or []` faisait
+    # dire « aucune exécution » à « la clé n'est pas là », et un rapport **sans** `results` publiait
+    # `absente 0/0`, indiscernable d'un `results: []` honnêtement vide. Pire, une exécution sans
+    # `expected_blocks_not_opened` réduisait le dénominateur de 2 à 1 sans le vider : la réduction
+    # silencieuse avait simplement remonté d'un cran, du planificateur vers le lecteur de rapport.
+    results = _exiger_liste(rapport, "results", contexte="rapport")
+    for resultat in results:
         if not isinstance(resultat, dict):
             raise RelectureInvalide(
                 f"rapport : une exécution n'est pas un objet ({type(resultat).__name__}) — le plan "
                 "de seconde lecture ne peut pas être bâti sur un rapport corrompu")
-        for preuve in resultat.get("proofs") or []:
+        ou = f"l'exécution {resultat.get('id')!r}"
+        for preuve in _exiger_liste(resultat, "proofs", contexte=ou):
             if not isinstance(preuve, dict) or not isinstance(preuve.get("block_id"), str):
                 raise RelectureInvalide(
-                    f"rapport : preuve sans block_id lisible dans l'exécution "
-                    f"{resultat.get('id')!r}")
+                    f"rapport : preuve sans block_id lisible dans {ou}")
             blocs.add(preuve["block_id"])
-        for block_id in resultat.get("expected_blocks_not_opened") or []:
+        for block_id in _exiger_liste(resultat, "expected_blocks_not_opened", contexte=ou):
             if not isinstance(block_id, str):
                 raise RelectureInvalide(
-                    f"rapport : expected_blocks_not_opened porte une valeur non textuelle dans "
-                    f"l'exécution {resultat.get('id')!r}")
+                    f"rapport : expected_blocks_not_opened porte une valeur non textuelle dans {ou}")
             blocs.add(block_id)
     return sorted(blocs)
 
@@ -367,6 +389,11 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         plan = plan_de_relecture(Index(corpus), blocs_cles_du_rapport(rapport),
                                  candidate_revision=args.candidate_revision)
+    except RelectureInvalide as exc:
+        # **Un rapport corrompu est un refus dit**, jamais une trace de pile : `blocs_cles_du_rapport`
+        # levait un `TypeError` non rattrapé sur un `results`/`proofs` mal typé (revue B5).
+        print(f"refus : {exc}", file=sys.stderr)
+        return 2
     except ValidationError as exc:
         print(f"refus : {exc.errors()[0].get('msg', '')}", file=sys.stderr)
         return 2

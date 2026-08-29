@@ -32,6 +32,39 @@ from server.app.domain.ingest import Gate, GateDecision
 
 # **Une seule autorité** pour le nom du fichier servi : `config.EVALS_PUBLICATION_FILE`, que le
 # lecteur (`api/etat.py`) lit aussi. Deux littéraux auraient pu diverger sans bruit.
+class RapportInexploitable(Exception):
+    """Le rapport n'a pas les structures qu'une publication exige : elle ne peut pas être fabriquée.
+
+    Story 4.5, revue B5 (chemins frères). Les lectures `rapport.get(x) or defaut` faisaient dire
+    « il n'y en avait pas » à « la clé n'est pas là », et publiaient alors des **chiffres fabriqués**
+    sur les quatre surfaces : un `metrics` absent devenait `recall=0.0` et des latences à zéro
+    présentées comme des mesures ; un `decisions` absent devenait « aucune décision rouge » ; un
+    `stability` absent devenait « 0/0 (N=1) ». C'est l'invariant « aucun chiffre inventé » de la
+    story, violé à sa propre surface.
+    """
+
+
+def _exiger(rapport: dict[str, Any], cle: str, types: tuple[type, ...]) -> Any:
+    """La valeur sous `cle` — **clé exigée, type exigé**, jamais un défaut silencieux.
+
+    Même forme que `plancher.verifier_identite_externe` : exiger la clé, exiger le type, puis lire.
+    """
+    if cle not in rapport:
+        raise RapportInexploitable(
+            f"rapport : la clé obligatoire {cle!r} est absente — une publication bâtie dessus "
+            "publierait des chiffres que personne n'a mesurés")
+    valeur = rapport[cle]
+    if not isinstance(valeur, types):
+        raise RapportInexploitable(
+            f"rapport : {cle!r} doit être {' ou '.join(t.__name__ for t in types)} "
+            f"({type(valeur).__name__} reçu)")
+    return valeur
+
+
+class ArchivePrecedenteIllisible(Exception):
+    """Le rendu précédent existe mais ne se lit pas : l'écraser le perdrait sans archive."""
+
+
 PUBLICATION_JSON = EVALS_PUBLICATION_FILE
 DOCS_LATEST = ("docs", "evals", "latest.md")
 # Où le rendu lisible **précédent** est archivé avant d'être remplacé (revue 4.5, P7).
@@ -90,12 +123,22 @@ def _reserves_du_rapport(rapport: dict[str, Any]) -> ReservesPubliees | None:
 
 
 def stabilite_du_rapport(rapport: dict[str, Any]) -> StabilitePubliee:
-    """N/N depuis l'agrégat du run ; les cas `parsing` restent hors comptage, comme au plancher."""
-    agregat = rapport.get("stability") or {}
+    """N/N depuis l'agrégat du run ; les cas `parsing` restent hors comptage, comme au plancher.
+
+    `stability` n'est écrit que sous `repeat > 1` : **son absence est légitime** et se lit alors
+    « aucun cas comptabilisé », avec le `repeat` du rapport pour N. Ce qui ne l'est pas, c'est de
+    fabriquer `N=1` quand le rapport ne dit même pas combien de répétitions il a planifiées : le
+    `repeat` est donc exigé (revue B5, chemin frère).
+    """
+    agregat = rapport.get("stability")
+    if agregat is not None and not isinstance(agregat, dict):
+        raise RapportInexploitable(
+            f"rapport : 'stability' doit être un objet ({type(agregat).__name__} reçu)")
+    agregat = agregat or {}
     cases = agregat.get("cases") or {}
     comptabilises = [v for v in cases.values() if v.get("comptabilise")]
     return StabilitePubliee(
-        n=int(agregat.get("n", rapport.get("repeat", 1)) or 1),
+        n=int(agregat.get("n") or _exiger(rapport, "repeat", (int,))),
         cas_stables=sum(1 for v in comptabilises if v.get("stable")),
         cas_comptabilises=len(comptabilises))
 
@@ -132,16 +175,18 @@ def limites_du_rapport(rapport: dict[str, Any], decisions: list[GateDecision],
                 limites.append(
                     f"décision rouge {d.metric} : {nombre(d.value)} < plancher "
                     f"{nombre(d.threshold)} (n={d.n}, scope {d.scope}, producteur {d.producer})")
-    if not rapport.get("complete", False):
+    if not _exiger(rapport, "complete", (bool,)):
         limites.append(
             "run incomplet : " + str(rapport.get("stop_reason") or "interruption non qualifiée"))
-    non_executes = list(rapport.get("unexecuted_cases") or [])
+    non_executes = list(_exiger(rapport, "unexecuted_cases", (list,)))
     if non_executes:
         limites.append(
             f"{len(non_executes)} exécution(s) planifiée(s) non exécutée(s), rouges au "
             f"dénominateur : {', '.join(non_executes)}")
-    ecarts_parsing = sorted({r["id"] for r in rapport.get("results", [])
-                             if r.get("label") == "parsing"})
+    resultats = _exiger(rapport, "results", (list,))
+    if any(not isinstance(r, dict) for r in resultats):
+        raise RapportInexploitable("rapport : chaque entrée de 'results' doit être un objet")
+    ecarts_parsing = sorted({str(r["id"]) for r in resultats if r.get("label") == "parsing"})
     if ecarts_parsing:
         limites.append(
             "écart de parsing (le texte extrait diverge de la lecture visuelle) sur : "
@@ -188,10 +233,29 @@ def construire_publication(rapport: dict[str, Any], gate: Gate | None = None, *,
     que la publication prétend résumer. Il est `None` tant que le rapport n'est pas figé.
     """
     reserves = reserves if reserves is not None else _reserves_du_rapport(rapport)
-    metrics = rapport.get("metrics") or {}
-    decisions = [GateDecision.model_validate(d) for d in rapport.get("decisions") or []]
+    # **Les structures obligatoires sont exigées**, jamais remplacées par un défaut : sans elles la
+    # publication inventerait les chiffres qu'elle prétend rapporter (revue B5, chemins frères).
+    metrics = _exiger(rapport, "metrics", (dict,))
+    for champ in ("recall", "average_cost_eur", "latency_p50_ms", "latency_p95_ms",
+                  "cost_p95_eur", "ne_tranche_pas_rate"):
+        if champ not in metrics:
+            raise RapportInexploitable(
+                f"rapport : metrics.{champ} est absent — le publier à zéro serait présenter une "
+                "absence de mesure comme une mesure")
+    # `decisions` n'est écrit que lorsqu'un plancher a été chargé — un rapport qui ne nomme aucun
+    # protocole n'a rien contre quoi décider, et l'exiger interdirait un diagnostic légitime. Mais
+    # **un rapport qui nomme son protocole doit nommer ses décisions** : sans cette conditionnelle,
+    # un rapport amputé de ses décisions se publierait comme un rapport sans décision rouge.
+    if rapport.get("plancher_digest") is not None:
+        brut_decisions = _exiger(rapport, "decisions", (list,))
+    else:
+        brut_decisions = rapport.get("decisions") or []
+        if not isinstance(brut_decisions, list):
+            raise RapportInexploitable(
+                f"rapport : 'decisions' doit être une liste ({type(brut_decisions).__name__} reçu)")
+    decisions = [GateDecision.model_validate(d) for d in brut_decisions]
     limites = limites_du_rapport(rapport, decisions, reserves, relecture)
-    identite = rapport.get("identity") or {}
+    identite = _exiger(rapport, "identity", (dict,))
     return PublicationEvals(
         profile=str(rapport.get("profile") or (gate.profile if gate else "")),
         candidate_revision=_empreinte(
@@ -353,13 +417,26 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
 
 def _preparer_archive(markdown_path: Path, *, repo_root: Path,
                       preparer: Any) -> tuple[Path, Path] | None:
-    """Prépare l'archive du `latest.md` existant, ou `None` s'il n'y a rien à archiver."""
+    """Prépare l'archive du `latest.md` existant, ou `None` s'il n'y a **rien** à archiver.
+
+    Story 4.5, revue B3/B6 (chemin frère, et plus grave que le défaut lui-même) : `except OSError:
+    return None` disait « rien à archiver » quand la vraie réponse était « je n'ai pas pu lire ». Le
+    rendu précédent n'était alors pas archivé **puis écrasé** par le nouveau — et ce chemin détruit
+    même lorsque la bascule réussit. C'est le registre de campagne que la docstring d'`archiver_latest`
+    décrit comme des mesures live que personne ne peut reproduire sans repayer.
+
+    Seule l'absence est une absence.
+    """
     import datetime
 
     try:
         octets = markdown_path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise ArchivePrecedenteIllisible(
+            f"{markdown_path} : le rendu précédent n'a pas pu être lu ({type(exc).__name__}) — il "
+            "serait écrasé sans avoir été archivé") from exc
     if not octets.strip():
         return None
     horodatage = datetime.datetime.fromtimestamp(
@@ -415,8 +492,12 @@ def archiver_latest(markdown_path: Path, *, repo_root: Path, ecrire: Any) -> Pat
 
     try:
         octets = markdown_path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise ArchivePrecedenteIllisible(
+            f"{markdown_path} : le rendu précédent n'a pas pu être lu ({type(exc).__name__}) — il "
+            "serait écrasé sans avoir été archivé") from exc
     if not octets.strip():
         return None
     horodatage = datetime.datetime.fromtimestamp(

@@ -558,3 +558,70 @@ def test_lecrivain_et_le_lecteur_lisent_le_meme_reglage(tmp_path: Path) -> None:
     with TestClient(create_app(_reglages(), data_dir=data)) as client:
         assert client.get("/api/v1/evals/latest").json() == {
             "publie": False, "raison": "absent", "publication": None}
+
+
+# --- B5 : une structure obligatoire absente n'est pas un résultat honnêtement vide ----------------
+
+# `repeat` n'est pas dans cette liste : il n'est exigé que **lorsqu'il sert de repli**, quand
+# `stability` est absent — c'est `test_une_liste_vide_reste_un_resultat_honnete` qui le couvre.
+@pytest.mark.parametrize("cle", ["metrics", "decisions", "identity", "results",
+                                 "unexecuted_cases", "complete"])
+def test_une_structure_obligatoire_absente_ferme_au_lieu_de_publier_des_zeros(cle: str) -> None:
+    """B5, chemins frères : aucun chiffre fabriqué à sa propre surface.
+
+    Les lectures `rapport.get(x) or defaut` faisaient dire « il n'y en avait pas » à « la clé n'est
+    pas là », et publiaient alors des chiffres que personne n'avait mesurés : un `metrics` absent
+    devenait `recall=0.0` et des latences à zéro **présentées comme des mesures** ; un `decisions`
+    absent devenait « aucune décision rouge », donc un rapport sans limite rouge ; un `stability`
+    absent devenait « 0/0 (N=1) ».
+
+    C'est l'invariant « aucun chiffre inventé » de la story, violé là où elle le publie.
+    """
+    rapport = _rapport(labels=_tous_les_labels())
+    rapport["reserves"] = {"countersigned": False, "validated_by_expert": False,
+                           "dictionary_validated": False}
+    rapport["repeat"] = 3
+    assert pub_mod.construire_publication(rapport) is not None  # le nominal se publie
+    ampute = {c: v for c, v in rapport.items() if c != cle}
+    with pytest.raises(pub_mod.RapportInexploitable, match=cle):
+        pub_mod.construire_publication(ampute)
+
+
+@pytest.mark.parametrize("champ", ["recall", "average_cost_eur", "latency_p50_ms",
+                                   "latency_p95_ms", "cost_p95_eur", "ne_tranche_pas_rate"])
+def test_une_mesure_absente_nest_jamais_publiee_a_zero(champ: str) -> None:
+    """« Publier une absence de mesure à zéro » est précisément ce que la story interdit."""
+    rapport = _rapport(labels=_tous_les_labels())
+    rapport["repeat"] = 3
+    rapport["metrics"] = {c: v for c, v in rapport["metrics"].items() if c != champ}
+    with pytest.raises(pub_mod.RapportInexploitable, match=champ):
+        pub_mod.construire_publication(rapport)
+
+
+def test_une_liste_vide_reste_un_resultat_honnete() -> None:
+    """La distinction est le point : clé présente et liste vide **se publie**, clé absente ferme."""
+    rapport = _rapport(labels=_tous_les_labels(), decisions=[], results=[])
+    rapport["repeat"] = 3
+    rapport["unexecuted_cases"] = []
+    publication = pub_mod.construire_publication(rapport)
+    assert publication.decisions == [] and publication.limites == []
+    # Et la stabilité : `stability` absent est **légitime** (écrit seulement sous `repeat > 1`),
+    # mais le `repeat` du rapport est alors exigé plutôt que fabriqué à 1.
+    sans_stabilite = {c: v for c, v in rapport.items() if c != "stability"}
+    assert pub_mod.stabilite_du_rapport(sans_stabilite).n == 3
+    with pytest.raises(pub_mod.RapportInexploitable, match="repeat"):
+        pub_mod.stabilite_du_rapport({c: v for c, v in sans_stabilite.items() if c != "repeat"})
+    # Un `stability` mal typé n'est pas un `stability` vide.
+    with pytest.raises(pub_mod.RapportInexploitable, match="stability"):
+        pub_mod.stabilite_du_rapport({**rapport, "stability": []})
+
+
+def test_un_results_mal_type_est_un_refus_pas_une_erreur_nue() -> None:
+    """`r["id"]` sur un élément non-`dict` levait une erreur non typée : un refus dit la remplace."""
+    rapport = _rapport(labels=_tous_les_labels())
+    rapport["repeat"] = 3
+    rapport["results"] = ["pas-un-objet"]
+    with pytest.raises(pub_mod.RapportInexploitable, match="results"):
+        pub_mod.construire_publication(rapport)
+    with pytest.raises(pub_mod.RapportInexploitable, match="results"):
+        pub_mod.construire_publication({**rapport, "results": {"id": "x"}})

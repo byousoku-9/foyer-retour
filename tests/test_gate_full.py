@@ -1814,7 +1814,6 @@ def test_le_rapport_et_sa_table_basculent_ensemble(tmp_path: Path,
     md_path.write_text("# ancien\n", encoding="utf-8")
     avant = (json_path.read_bytes(), md_path.read_bytes())
 
-    rapport = json.loads((tmp_path / "rapport.json").read_text(encoding="utf-8"))
     rapport = {
         "schema_version": 3, "profile": "full", "complete": True, "stop_reason": None,
         "unexecuted_cases": [], "cases_hash": "d" * 64, "cases_planned": 1, "cases_completed": 1,
@@ -1822,7 +1821,9 @@ def test_le_rapport_et_sa_table_basculent_ensemble(tmp_path: Path,
         "metrics": {"labels": {label: 0 for label in runner.LABELS}, "variants": {},
                     "recall": 1.0, "average_cost_eur": 0.0, "latency_p50_ms": 0,
                     "latency_p95_ms": 0, "cost_p95_eur": 0.0, "ne_tranche_pas_rate": 0.0},
-        "results": [],
+        # Les structures que la publication **exige** (revue B5) : un rapport qui les omet ne se
+        # publie pas, il refuse — c'est le point du correctif.
+        "results": [], "decisions": [], "repeat": 1,
     }
     replace_reel = runner.os.replace
 
@@ -1904,3 +1905,135 @@ def test_un_run_sans_bloc_cle_ne_se_confond_pas_avec_un_run_dont_tout_est_perdu(
         (tmp_path / "data" / "evals-latest.json").read_text(encoding="utf-8"))["seconde_lecture"]
     assert seconde == {"statut": "impossible", "blocs_planifies": 1, "blocs_verifies": 0,
                        "blocs_non_projetables": 1}
+
+
+# --- B3/B6 : « je n'ai pas pu lire » n'est jamais « il n'y avait rien » ----------------------------
+
+def test_seule_labsence_est_une_absence() -> None:
+    """B3/B6, l'invariant lui-même : `FileNotFoundError` seule signifie « il n'y avait rien ».
+
+    `except OSError: return None` faisait dire « absent » à « illisible ». La conséquence n'était pas
+    l'imprécision : la restauration croyait la cible absente d'avant, exécutait `unlink()` — donc
+    **supprimait** le fichier qui venait d'être publié —, réussissait, et ne signalait donc aucune
+    restauration manquée.
+    """
+    import tempfile as _tempfile
+
+    with _tempfile.TemporaryDirectory() as dossier:
+        racine = Path(dossier)
+        assert runner._lire_ou_absent(racine / "jamais-cree") is None
+        present = racine / "present.md"
+        present.write_bytes(b"contenu")
+        assert runner._lire_ou_absent(present) == b"contenu"
+        # Un répertoire n'est pas un fichier absent : le lire lève `IsADirectoryError` (une
+        # `OSError`), et c'est un refus, pas une absence.
+        with pytest.raises(runner.EtatPrecedentIllisible, match="n'a pas pu être lu"):
+            runner._lire_ou_absent(racine)
+
+
+@pytest.mark.parametrize("rang", [0, 1, 2, 3])
+def test_un_etat_precedent_illisible_refuse_avant_toute_bascule(
+        rang: int, tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B3/B6 : un état d'avant illisible **arrête la préparation**, il ne se lit pas comme absent.
+
+    Un test par rang de la file, comme exigé : la propriété ne dépend pas de l'endroit où l'échec
+    survient. L'injection porte sur la lecture d'état de la bascule, et sur elle seule — patcher
+    `Path.read_bytes` globalement aurait aussi cassé le chargement du corpus, et le test aurait
+    mesuré autre chose.
+    """
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    assert _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", REVISION]) == 1
+    avant = _empreintes_des_cibles(tmp_path)
+
+    lire_reel = runner._lire_ou_absent
+    ordre = ["evals-latest.json", "latest.md", "eval-results.md", "manifest.json"]
+    illisible = ordre[rang]
+
+    def _lire(path: Path) -> bytes | None:
+        if path.name == illisible:
+            raise runner.EtatPrecedentIllisible(
+                f"{path} : l'état actuel n'a pas pu être lu (PermissionError) — la bascule est "
+                "abandonnée avant toute écriture, car rien ne pourrait la défaire")
+        return lire_reel(path)
+
+    monkeypatch.setattr(runner, "_lire_ou_absent", _lire)
+    code = _cli(tmp_path, monkeypatch,
+                ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                 "--candidate-revision", "c" * 40], revision="c" * 40)
+    assert code != 0
+    # **Aucune bascule** : le lot précédent est intégralement préservé, rien n'a été supprimé.
+    assert _empreintes_des_cibles(tmp_path) == avant, f"rang {rang} : une cible a bougé"
+    err = capsys.readouterr().err
+    # La cause est **nommée**, et le diagnostic dit qu'aucune bascule n'a eu lieu — jamais que
+    # « il n'y avait rien ». Selon le rang, l'arrêt survient dans la file de publication ou dans
+    # celle des rapports ; les deux refusent avant d'écrire.
+    assert "n'a pas pu être lu" in err
+    assert "refus de publier" in err or "refus d'écrire les rapports" in err
+    assert "aucune bascule n'a eu lieu" in err
+    assert not [p.name for p in tmp_path.rglob(".*.tmp")]
+
+
+def test_un_latest_illisible_nest_jamais_ecrase_sans_archive(tmp_path: Path) -> None:
+    """B3/B6, chemin frère **plus grave** : l'archive détruit même quand la bascule réussit.
+
+    `_preparer_archive` rendait `None` — « rien à archiver » — sur n'importe quelle `OSError`. Un
+    `docs/evals/latest.md` illisible n'était donc pas archivé, **puis écrasé** par le nouveau rendu.
+    C'est le registre de campagne que la docstring décrit comme « des mesures live que personne ne
+    peut reproduire sans repayer ».
+
+    Le contrôle porte sur un fichier réellement illisible (`chmod 000`), pas sur un double.
+    """
+    from server.evals import publication as pub_mod
+
+    latest = tmp_path.joinpath(*pub_mod.DOCS_LATEST)
+    latest.parent.mkdir(parents=True)
+    latest.write_text("# campagne précédente, irremplaçable\n", encoding="utf-8")
+    avant = latest.read_bytes()
+    latest.chmod(0o000)
+    try:
+        if runner._lire_ou_absent.__module__ and latest.exists():
+            with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
+                pub_mod._preparer_archive(latest, repo_root=tmp_path,
+                                          preparer=runner._preparer_atomique)
+            with pytest.raises(pub_mod.ArchivePrecedenteIllisible, match="n'a pas pu être lu"):
+                pub_mod.archiver_latest(latest, repo_root=tmp_path,
+                                        ecrire=runner._ecrire_atomique)
+    finally:
+        latest.chmod(0o644)
+    # Le rendu précédent est **intact** : ni archivé à moitié, ni écrasé.
+    assert latest.read_bytes() == avant
+    # Et une absence reste une absence : rien à archiver, aucune exception.
+    absent = tmp_path / "docs" / "evals" / "jamais.md"
+    assert pub_mod._preparer_archive(absent, repo_root=tmp_path,
+                                     preparer=runner._preparer_atomique) is None
+    assert pub_mod.archiver_latest(absent, repo_root=tmp_path,
+                                   ecrire=runner._ecrire_atomique) is None
+
+
+def test_ecrire_rapports_refuse_un_etat_precedent_illisible(tmp_path: Path,
+                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """B3/B6 sur le chemin frère `ecrire_rapports` : même règle, même preuve."""
+    json_path = tmp_path / "rapport.json"
+    md_path = tmp_path / "rapport.md"
+    json_path.write_text('{"ancien": true}\n', encoding="utf-8")
+    md_path.write_text("# ancien\n", encoding="utf-8")
+    avant = (json_path.read_bytes(), md_path.read_bytes())
+    rapport = {
+        "schema_version": 3, "profile": "full", "complete": True, "stop_reason": None,
+        "unexecuted_cases": [], "cases_hash": "d" * 64, "cases_planned": 1, "cases_completed": 1,
+        "cost_eur": 0.0, "identity": {"run_digest": "a" * 64}, "repeat": 1, "decisions": [],
+        "metrics": {"labels": {label: 0 for label in runner.LABELS}, "variants": {},
+                    "recall": 1.0, "average_cost_eur": 0.0, "latency_p50_ms": 0,
+                    "latency_p95_ms": 0, "cost_p95_eur": 0.0, "ne_tranche_pas_rate": 0.0},
+        "results": [],
+    }
+    md_path.chmod(0o000)
+    try:
+        with pytest.raises(runner.EtatPrecedentIllisible):
+            runner.ecrire_rapports(rapport, json_path, md_path)
+    finally:
+        md_path.chmod(0o644)
+    assert (json_path.read_bytes(), md_path.read_bytes()) == avant
+    assert not [p.name for p in tmp_path.glob(".*.tmp")]

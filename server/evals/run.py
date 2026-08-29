@@ -104,7 +104,8 @@ from server.evals.cache import PersistentResponseCache, empreinte_canonique, jso
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, charger_plancher,
                                    verifier_liaison_preuve)
-from server.evals.publication import (construire_publication, digest_octets,
+from server.evals.publication import (ArchivePrecedenteIllisible, RapportInexploitable,
+                                      construire_publication, digest_octets,
                                       preparer_publication, rendre_publication_markdown)
 from server.evals.publication import nombre as nombre_publie
 from server.evals.relecture import (RelectureInvalide, blocs_cles_du_rapport, charger_images,
@@ -1270,8 +1271,19 @@ def _source_du_document(data_dir: Path, doc_id: str) -> str | None:
     s'y branchent, et aucun ne connaît de `doc_id`.
     """
     for nom in SOURCE_FILES:
-        if (data_dir / doc_id / nom).is_file():
-            return nom
+        chemin = data_dir / doc_id / nom
+        try:
+            if chemin.is_file():
+                return nom
+        except OSError as exc:
+            # `Path.is_file()` avale l'`OSError` et rend `False` : un document dont la source
+            # **existe** mais est inatteignable (droits, montage) disparaissait alors des deux
+            # dénominateurs de structure, sans un mot. Ce n'est pas « pas de source », c'est « je ne
+            # sais pas » — et un témoin qui ne sait pas ne retire personne de son dénominateur
+            # (revue B3/B6, second chemin frère).
+            raise RefusDeTourner(
+                f"source de {doc_id!r} inatteignable ({nom} : {type(exc).__name__}) — impossible "
+                "de dire ce que ce document est, donc impossible de le compter ou non") from exc
     return None
 
 
@@ -2458,12 +2470,32 @@ class BasculePartielle(Exception):
         self.non_restaurees = non_restaurees
 
 
-def _lire_ou_none(path: Path) -> bytes | None:
-    """Les octets actuels d'une cible, ou `None` si elle n'existe pas encore."""
+class EtatPrecedentIllisible(Exception):
+    """L'état d'avant d'une cible n'a pas pu être lu : on ne peut donc pas promettre de le rendre."""
+
+
+def _lire_ou_absent(path: Path) -> bytes | None:
+    """Les octets actuels d'une cible, ou `None` **si et seulement si** elle n'existe pas.
+
+    Story 4.5, revue B3/B6. `except OSError: return None` faisait dire « il n'y avait rien » à
+    « je n'ai pas pu lire ». La conséquence était pire que l'imprécision : la restauration croyait
+    la cible absente d'avant, exécutait `unlink()` — donc **supprimait** le fichier qui venait
+    d'être publié —, réussissait, et ne signalait donc aucune restauration manquée. Le contenu
+    d'avant n'était jamais réécrit, et le message affirmait « rien n'a été publié » : le fichier
+    avait été publié, puis supprimé, et son état d'avant était perdu.
+
+    **Seule `FileNotFoundError` signifie l'absence.** Toute autre erreur de lecture interrompt la
+    préparation, avant le premier `os.replace` — un garde-fou qui ne peut pas lire refuse, il ne
+    devine pas.
+    """
     try:
         return path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise EtatPrecedentIllisible(
+            f"{path} : l'état actuel n'a pas pu être lu ({type(exc).__name__}) — la bascule est "
+            "abandonnée avant toute écriture, car rien ne pourrait la défaire") from exc
 
 
 def _basculer(prepares: list[tuple[Path, Path]]) -> None:
@@ -2489,7 +2521,10 @@ def _basculer(prepares: list[tuple[Path, Path]]) -> None:
     Si une restauration échoue à son tour, `BasculePartielle` nomme précisément quelles cibles ont
     été remises et lesquelles ne l'ont pas été.
     """
-    avant: list[tuple[Path, bytes | None]] = [(cible, _lire_ou_none(cible))
+    # **Avant le premier renommage** : si un état précédent est illisible, on ne pourra pas le
+    # restaurer, donc on ne commence pas. `EtatPrecedentIllisible` remonte à l'appelant, qui la
+    # traite comme un refus de publier — jamais comme une absence.
+    avant: list[tuple[Path, bytes | None]] = [(cible, _lire_ou_absent(cible))
                                               for _tmp, cible in prepares]
     faites: list[int] = []
     for index, (temporaire, cible) in enumerate(prepares):
@@ -2947,7 +2982,7 @@ def reserves_du_lot(cas: list[Cas], *, dictionary_validated: bool) -> ReservesPu
 
 
 def etat_seconde_lecture(ctx: Contexte, rapport: dict[str, Any], *,
-                         candidate_revision: str | None,
+                         candidate_revision: str,
                          verdict_path: Path | None = None,
                          images_dir: Path | None = None) -> SecondeLecturePubliee:
     """Où en est la seconde lecture (FR47) — le plan est calculable ici, le verdict est **ingéré**.
@@ -2966,8 +3001,15 @@ def etat_seconde_lecture(ctx: Contexte, rapport: dict[str, Any], *,
     `RelectureInvalide` : c'est un échec de publication (le run ne peut pas être vert), jamais une
     seconde lecture publiée au rabais.
     """
-    if candidate_revision is None:
-        return SecondeLecturePubliee(statut="absente", blocs_planifies=0, blocs_verifies=0)
+    # **La révision est exigée par la signature**, plus par un invariant distant (revue B1, frère).
+    # Elle l'était en fait déjà — l'appel n'a lieu que sous `exigences_full` —, mais le type disait
+    # le contraire et le corps publiait alors `absente 0/0` : tout appelant futur hors gate `full`
+    # aurait publié une seconde lecture « absente » sans réserve, là où la vraie réponse est « je ne
+    # sais pas de quel candidat on parle ».
+    if not candidate_revision:
+        raise RelectureInvalide(
+            "seconde lecture : la révision candidate est obligatoire — sans elle, le plan ne se "
+            "rattache à aucun candidat et « absente » serait une affirmation sans objet")
     plan = plan_de_relecture(ctx.index, blocs_cles_du_rapport(rapport),
                              candidate_revision=candidate_revision)
     attendues = len(plan.cles_attendues)
@@ -3843,6 +3885,14 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                      dictionary_validated=dictionary_validated)
         ecrire_rapports(rapport, output_json, output_markdown)
         print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
+    except EtatPrecedentIllisible as exc:
+        # **Nommer la cause** (revue B3/B6) : ce n'est pas une panne du writer, c'est un état
+        # précédent qu'on n'a pas pu lire — donc qu'on n'aurait pas pu restaurer. Rien n'a été
+        # écrit, et le code 3 tient sa promesse (« manifest non modifié »).
+        print(f"refus d'écrire les rapports : {exc} — aucune bascule n'a eu lieu, manifest non "
+              "modifié", file=sys.stderr)
+        noter_campaign("incident_report")
+        return 3
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques
         print(f"incident de rapport : {type(exc).__name__}: {exc} — manifest non modifié",
               file=sys.stderr)
@@ -3914,7 +3964,27 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             _abandonner(prepares)
             print(f"refus : {exc}", file=sys.stderr)
             return 2
-        except (OSError, UnicodeDecodeError, ValueError, RelectureInvalide) as exc:
+        except (RelectureInvalide, RapportInexploitable) as exc:
+            # **Une donnée inexploitable est un refus dit, pas un incident technique** (revue B5) :
+            # un rapport corrompu tombait dans `except Exception` — « incident de gate », code 3,
+            # « manifest non modifié » —, trois affirmations dont la dernière seule était vraie, et
+            # qui désignaient une panne là où le défaut est dans les données. Le même handler couvre
+            # le verdict de seconde lecture qui ne se recoupe pas : les deux sont des refus de
+            # publier, aucun n'a fait bouger le disque.
+            _abandonner(prepares)
+            publication_ok = False
+            print(f"échec de publication : rapport ou seconde lecture inexploitable — {exc} — "
+                  "aucune bascule n'a eu lieu, aucun gate n'a été écrit, le manifest est inchangé",
+                  file=sys.stderr)
+        except (EtatPrecedentIllisible, ArchivePrecedenteIllisible) as exc:
+            # **« Je n'ai pas pu lire » n'est pas « il n'y avait rien »** (revue B3/B6). L'échec
+            # survient avant le premier `os.replace` : rien n'a bougé, et c'est vrai de le dire.
+            # Publier quand même écraserait un état qu'on ne saurait ni archiver ni restaurer.
+            _abandonner(prepares)
+            publication_ok = False
+            print(f"refus de publier : {exc} — aucune bascule n'a eu lieu, aucun gate n'a été "
+                  "écrit, le manifest est inchangé et rien n'a été publié", file=sys.stderr)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
             # **FR41 : rien n'est promu si rien ne peut être publié** (revue B3, durcie par A).
             # L'échec survient pendant la **préparation**, donc avant la première bascule : aucun
             # gate n'est écrit, le manifest reste byte-identique, aucune surface n'a bougé, et les

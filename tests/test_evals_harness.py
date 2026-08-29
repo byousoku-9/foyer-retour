@@ -367,9 +367,13 @@ def test_markdown_echappe_toutes_les_valeurs_dynamiques() -> None:
     rapport = {
         "complete": False, "profile": "p|`\nligne", "cases_completed": 0,
         "cases_planned": 1, "stop_reason": "diag|`\nligne", "cases_hash": "h|`\n",
-        "unexecuted_cases": ["c|`\nligne"],
+        "unexecuted_cases": ["c|`\nligne"], "identity": {}, "decisions": [], "repeat": 1,
+        # Les six mesures que la publication **exige** : depuis la revue B5, une mesure absente
+        # n'est plus publiée à zéro, elle ferme. Le rendu reste celui qu'on teste ici — l'échappement
+        # de toute valeur dynamique.
         "metrics": {
-            "recall": 0.0, "average_cost_eur": 0.0, "latency_p50_ms": 0,
+            "recall": 0.0, "average_cost_eur": 0.0, "latency_p50_ms": 0, "latency_p95_ms": 0,
+            "cost_p95_eur": 0.0,
             "ne_tranche_pas_rate": 0.0, "labels": {label: 0 for label in runner.LABELS},
             "variants": {"v|`\nligne": 1},
         },

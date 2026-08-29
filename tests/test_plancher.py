@@ -748,13 +748,15 @@ def test_le_classement_du_checkpoint_oppose_le_rapport_avant_de_le_croire(tmp_pa
     with pytest.raises(ValueError, match="plancher_digest"):
         _configuration_depuis_rapport({"name": "candidat-fabrique", "report": fabrique.name},
                                       base=tmp_path, plancher_digest=courant,
-                                      image_courante=image, candidate_revision=None)
+                                      image_courante=image,
+                                      candidate_revision=REVISION_A_candidate_revision)
     # Plancher présent mais digest non recalculable : refusé aussi.
     fabrique = _rapport("fabrique2.json", run_digest="e" * 64)
     with pytest.raises(ValueError, match="ne se recalcule pas"):
         _configuration_depuis_rapport({"name": "c", "report": fabrique.name},
                                       base=tmp_path, plancher_digest=courant,
-                                      image_courante=image, candidate_revision=None)
+                                      image_courante=image,
+                                      candidate_revision=REVISION_A_candidate_revision)
     # Révision divergente : refusée quand le classement en nomme une.
     nominal = _rapport("nominal.json")
     with pytest.raises(ValueError, match="révision"):
@@ -767,3 +769,89 @@ def test_le_classement_du_checkpoint_oppose_le_rapport_avant_de_le_croire(tmp_pa
         {"name": "c", "report": nominal.name}, base=tmp_path, plancher_digest=courant,
         image_courante=image, candidate_revision=REVISION_A_candidate_revision)
     assert configuration.admissible is True
+
+
+def test_la_promotion_exige_la_revision_candidate_et_la_porte(tmp_path: Path) -> None:
+    """B1 : une décision de promotion **reçoit, valide et oppose** la révision candidate.
+
+    Contre-exemple reproduit : un rapport valide sous tous les autres contrôles, dont le seul écart
+    est `identity.candidate_revision = null` — exactement ce qu'écrit `identite_run` sans
+    `--candidate-revision` —, était classé `admissible: true`, `aucun_admissible: false`, code 0.
+    Le contrôle existait mais restait **opt-in de l'appelant** : l'option n'était pas requise et la
+    signature acceptait `None`.
+
+    Aggravant fermé du même geste : le JSON de classement ne portait la révision **nulle part**, ni
+    à la racine ni par configuration — l'artefact de promotion était inauditable après coup.
+    """
+    import json as _json
+
+    from server.evals.plancher import _configuration_depuis_rapport, _main
+
+    courant = charger_plancher().digest
+    image = _image_candidate()
+    identite = _identite_candidate_revision()
+    identite_sans = _identite_candidate_revision(candidate_revision=None)
+
+    def _ecrire(nom: str, identite: dict) -> Path:
+        chemin = tmp_path / nom
+        chemin.write_text(_json.dumps({
+            "schema_version": 3, "complete": True, "unexecuted_cases": [],
+            "cost_eur": 0.0, "metrics": {"latency_p50_ms": 1},
+            "decisions": [{"status": "green", "producer": "orchestrator"}],
+            "identity": identite, "plancher_digest": courant}) + "\n", encoding="utf-8")
+        return chemin
+
+    nominal = _ecrire("nominal.json", identite)
+    sans_revision = _ecrire("sans-revision.json", identite_sans)
+
+    # 1. La révision est **obligatoire** : `None` ferme, quelle que soit la qualité du rapport.
+    with pytest.raises(ValueError, match="obligatoire"):
+        _configuration_depuis_rapport({"name": "c", "report": nominal.name}, base=tmp_path,
+                                      plancher_digest=courant, image_courante=image,
+                                      candidate_revision=None)  # type: ignore[arg-type]
+    # 2. Elle est **validée** : une forme qui n'est pas 40 hex ferme aussi.
+    for mauvaise in ("", "abc1234", "z" * 40):
+        with pytest.raises(ValueError, match="obligatoire"):
+            _configuration_depuis_rapport({"name": "c", "report": nominal.name}, base=tmp_path,
+                                          plancher_digest=courant, image_courante=image,
+                                          candidate_revision=mauvaise)
+    # 3. Elle est **opposée** : le contre-exemple exact — un rapport sans révision mesurée.
+    with pytest.raises(ValueError, match="révision"):
+        _configuration_depuis_rapport({"name": "c", "report": sans_revision.name}, base=tmp_path,
+                                      plancher_digest=courant, image_courante=image,
+                                      candidate_revision=REVISION_A_candidate_revision)
+    # 4. Le nominal se classe, et **porte** la révision opposée.
+    configuration = _configuration_depuis_rapport(
+        {"name": "c", "report": nominal.name}, base=tmp_path, plancher_digest=courant,
+        image_courante=image, candidate_revision=REVISION_A_candidate_revision)
+    assert configuration.admissible is True
+    assert configuration.candidate_revision == REVISION_A_candidate_revision
+
+    # 5. La CLI refuse `--classer` sans révision, plutôt que de promouvoir un candidat anonyme.
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([{"name": "c", "report": nominal.name}]), encoding="utf-8")
+    assert _main(["--classer", str(configs)]) == 2
+
+
+def test_un_rapport_sans_unexecuted_cases_ne_contribue_pas_a_une_promotion(tmp_path: Path) -> None:
+    """B5, chemin frère **dans la décision qui promeut** : la clé absente n'est pas « aucune ».
+
+    `not rapport.get("unexecuted_cases")` traitait un rapport qui **omet** la clé comme n'ayant
+    aucune exécution manquante, et il contribuait donc à `admissible=True`.
+    """
+    import json as _json
+
+    from server.evals.plancher import _configuration_depuis_rapport
+
+    courant = charger_plancher().digest
+    chemin = tmp_path / "sans-cle.json"
+    chemin.write_text(_json.dumps({
+        "schema_version": 3, "complete": True,
+        "cost_eur": 0.0, "metrics": {"latency_p50_ms": 1},
+        "decisions": [{"status": "green", "producer": "orchestrator"}],
+        "identity": _identite_candidate_revision(), "plancher_digest": courant}) + "\n",
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="unexecuted_cases"):
+        _configuration_depuis_rapport({"name": "c", "report": chemin.name}, base=tmp_path,
+                                      plancher_digest=courant, image_courante=_image_candidate(),
+                                      candidate_revision=REVISION_A_candidate_revision)

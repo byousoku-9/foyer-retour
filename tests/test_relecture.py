@@ -292,16 +292,22 @@ def test_les_blocs_cles_dun_run_sont_ses_preuves_et_ses_attentes_non_ouvertes() 
     from server.evals.relecture import blocs_cles_du_rapport
 
     assert blocs_cles_du_rapport(_rapport_de_run()) == [f"{DOC}:p3:1", f"{DOC}:p3:2"]
-    assert blocs_cles_du_rapport({}) == []
+    # Un rapport **honnêtement vide** : la clé est là, la liste est vide.
+    assert blocs_cles_du_rapport({"results": []}) == []
+    # Un rapport **sans la clé** ne dit pas la même chose, et ne doit pas rendre la même réponse.
+    with pytest.raises(RelectureInvalide, match="clé obligatoire 'results'"):
+        blocs_cles_du_rapport({})
     # **Rien n'est écarté en silence** (revue B5, chemin frère) : un rapport corrompu est refusé,
     # jamais rétréci à ce qui reste lisible. Bâtir un plan sur le résidu, puis le publier comme
     # complet, est exactement la faute que `plan_de_relecture` commettait plus bas.
     with pytest.raises(RelectureInvalide, match="n'est pas un objet"):
         blocs_cles_du_rapport({"results": [None]})
     with pytest.raises(RelectureInvalide, match="block_id lisible"):
-        blocs_cles_du_rapport({"results": [{"id": "x", "proofs": [{"block_id": 12}]}]})
+        blocs_cles_du_rapport({"results": [
+            {"id": "x", "proofs": [{"block_id": 12}], "expected_blocks_not_opened": []}]})
     with pytest.raises(RelectureInvalide, match="non textuelle"):
-        blocs_cles_du_rapport({"results": [{"id": "x", "expected_blocks_not_opened": [7]}]})
+        blocs_cles_du_rapport({"results": [
+            {"id": "x", "proofs": [], "expected_blocks_not_opened": [7]}]})
 
 
 def test_la_cli_ecrit_un_plan_deterministe_sans_reseau(tmp_path: Path,
@@ -496,3 +502,42 @@ def test_aucun_bloc_cle_reste_distinct_de_tous_improjetables() -> None:
 def _index_sans_bbox() -> Index:
     """Le corpus de test, plus un bloc **servi** dont l'ingestion n'a retenu ni page ni bbox."""
     return _index_de_test(bloc_sans_image=True)
+
+
+def test_une_structure_obligatoire_absente_ne_se_lit_pas_comme_une_liste_vide() -> None:
+    """B5, le contre-exemple exact : un rapport **sans `results`** publiait `absente 0/0`.
+
+    Indiscernable d'un `results: []` honnêtement vide, même limite comprise. Pire, une exécution
+    **sans `expected_blocks_not_opened`** faisait passer le dénominateur de 2 à 1 sans le vider :
+    statut `planifiee`, limite `0/1`, dénominateur amputé **et invisible**. La réduction silencieuse
+    avait simplement remonté d'un cran, du planificateur vers le lecteur de rapport.
+    """
+    from server.evals.relecture import blocs_cles_du_rapport
+
+    complet = _rapport_de_run()
+    assert blocs_cles_du_rapport(complet) == [f"{DOC}:p3:1", f"{DOC}:p3:2"]
+
+    # `results` absent ≠ `results: []`.
+    with pytest.raises(RelectureInvalide, match="clé obligatoire 'results'"):
+        blocs_cles_du_rapport({})
+    assert blocs_cles_du_rapport({"results": []}) == []
+
+    # `proofs` absent ≠ `proofs: []`.
+    sans_proofs = {"results": [{"id": "s", "expected_blocks_not_opened": []}]}
+    with pytest.raises(RelectureInvalide, match="clé obligatoire 'proofs'"):
+        blocs_cles_du_rapport(sans_proofs)
+
+    # `expected_blocks_not_opened` absent ≠ liste vide — le défaut qui amputait le dénominateur.
+    sans_attendus = {"results": [{"id": "s", "proofs": [
+        {"block_id": f"{DOC}:p3:1"}]}]}
+    with pytest.raises(RelectureInvalide, match="expected_blocks_not_opened"):
+        blocs_cles_du_rapport(sans_attendus)
+    # Avec la clé présente et vide, le dénominateur est celui-là, et il est dit.
+    assert blocs_cles_du_rapport({"results": [{"id": "s", "proofs": [
+        {"block_id": f"{DOC}:p3:1"}], "expected_blocks_not_opened": []}]}) == [f"{DOC}:p3:1"]
+
+    # Un type faux n'est pas une absence non plus.
+    for mauvais in ({"results": {}}, {"results": [{"id": "s", "proofs": {},
+                                                   "expected_blocks_not_opened": []}]}):
+        with pytest.raises(RelectureInvalide, match="doit être une liste"):
+            blocs_cles_du_rapport(mauvais)

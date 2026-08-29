@@ -505,13 +505,17 @@ class Configuration(BaseModel):
     admissible: bool
     cost_eur: float = Field(ge=0, allow_inf_nan=False)
     latency_ms: int = Field(ge=0)
+    # **La révision opposée**, portée par l'artefact de promotion (revue B1). Sans elle, le JSON de
+    # classement était inauditable après coup : rien dedans ne disait à quel candidat il se
+    # rapportait — ni à la racine, ni par configuration.
+    candidate_revision: str | None = None
     run_digest: str | None = None
     report_digest: str | None = None
 
 
 def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str,
                                   image_courante: dict[str, Any] | None,
-                                  candidate_revision: str | None) -> Configuration:
+                                  candidate_revision: str) -> Configuration:
     """Une configuration candidate, **lue d'un rapport qu'on a d'abord opposé** (revue B1).
 
     C'est la fonction qui classe les candidats du checkpoint : ce qu'elle déclare `admissible` décide
@@ -521,6 +525,17 @@ def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str
     s'y applique donc, et pour la même raison : un rapport qu'on n'a pas pu opposer ne prouve rien,
     quel que soit le chemin par lequel il arrive.
     """
+    # **La révision est exigée, validée, puis opposée** — dans cet ordre (revue B1). Le contrôle
+    # existait mais restait *opt-in de l'appelant* : `--candidate-revision` n'était pas `required`,
+    # la signature l'acceptait à `None`, et un rapport dont le seul écart était
+    # `identity.candidate_revision = null` — exactement ce qu'écrit `identite_run` sans
+    # `--candidate-revision` — était classé `admissible: true`. Une décision de promotion ne peut
+    # pas dépendre du bon vouloir de qui l'appelle.
+    if not _hex_exact(candidate_revision, 40):
+        raise ValueError(
+            "classement : la révision candidate est obligatoire et doit être 40 caractères "
+            f"hexadécimaux (reçu {candidate_revision!r}) — promouvoir sans savoir quel candidat "
+            "est promu n'est pas une promotion, c'est un tirage")
     if not isinstance(item, dict) or set(item) != {"name", "report"}:
         raise ValueError("chaque configuration porte exactement name et report")
     report_path = Path(str(item["report"]))
@@ -551,7 +566,7 @@ def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str
         raise ValueError(
             f"rapport {report_path} : run_digest {run_digest} ne se recalcule pas depuis son "
             f"identité (recalculé {recalcule}) — ce rapport a été fabriqué ou modifié")
-    if candidate_revision is not None and identite.get("candidate_revision") != candidate_revision:
+    if identite.get("candidate_revision") != candidate_revision:
         raise ValueError(
             f"rapport {report_path} : mesuré sur la révision "
             f"{identite.get('candidate_revision')!r}, classement demandé pour {candidate_revision}")
@@ -561,13 +576,21 @@ def _configuration_depuis_rapport(item: Any, *, base: Path, plancher_digest: str
     if (isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost)
             or isinstance(latency, bool) or not isinstance(latency, int)):
         raise ValueError(f"rapport {report_path} sans coût/latence finis")
+    # `not rapport.get("unexecuted_cases")` faisait dire « aucune exécution manquante » à « la clé
+    # n'est pas là », **dans la décision qui promeut** : un rapport qui omet la clé contribuait à
+    # `admissible=True` (revue B5, chemin frère). La clé est donc exigée, comme partout ailleurs.
+    if "unexecuted_cases" not in rapport or not isinstance(rapport["unexecuted_cases"], list):
+        raise ValueError(
+            f"rapport {report_path} : 'unexecuted_cases' absent ou mal typé — « la clé n'est pas "
+            "là » n'est pas « aucune exécution manquante », et cette différence décide de la "
+            "promotion")
     admissible = bool(rapport.get("complete") is True
-                      and not rapport.get("unexecuted_cases")
+                      and not rapport["unexecuted_cases"]
                       and all(isinstance(d, dict) and d.get("status") == "green"
                               and d.get("producer") == "orchestrator" for d in decisions))
     return Configuration(
         name=str(item["name"]), admissible=admissible, cost_eur=float(cost),
-        latency_ms=latency, run_digest=run_digest,
+        latency_ms=latency, candidate_revision=candidate_revision, run_digest=run_digest,
         report_digest=hashlib.sha256(octets).hexdigest())
 
 
@@ -591,9 +614,10 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--classer", type=Path, metavar="CONFIGS_JSON",
                         help="classer des configurations candidates (JSON : liste d'objets "
                              "{name, report})")
-    parser.add_argument("--candidate-revision", metavar="SHA40",
-                        help="révision produit dont on classe les configurations : chaque rapport "
-                             "doit l'avoir mesurée (revue 4.5, B1)")
+    parser.add_argument("--candidate-revision", metavar="SHA40", required=False,
+                        help="OBLIGATOIRE avec --classer : révision produit dont on classe les "
+                             "configurations ; chaque rapport doit l'avoir mesurée, et le JSON de "
+                             "classement la porte")
     args = parser.parse_args(argv)
     try:
         charge = charger_plancher()
@@ -601,6 +625,13 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"refus : {exc}", file=sys.stderr)
         return 2
     if args.classer is not None:
+        if not _hex_exact(args.candidate_revision, 40):
+            # Une promotion sans candidat nommé n'est pas une promotion. Le contrôle est ici **et**
+            # dans `_configuration_depuis_rapport` : le second est l'invariant, le premier est le
+            # message que l'opérateur lit.
+            print("refus : --classer exige --candidate-revision <40 hexadécimaux> — un classement "
+                  "qui ne nomme pas le candidat qu'il promeut est inauditable", file=sys.stderr)
+            return 2
         try:
             brut = json.loads(args.classer.read_text(encoding="utf-8"))
             if not isinstance(brut, list):
@@ -629,6 +660,9 @@ def _main(argv: list[str] | None = None) -> int:
         aucun_admissible = not any(c.admissible for c in classement)
         print(json.dumps({
             "plancher_digest": charge.digest,
+            # L'artefact de promotion dit **à quel candidat** il se rapporte, à la racine comme par
+            # configuration : sans cela il est inauditable après coup (revue B1).
+            "candidate_revision": args.candidate_revision,
             "aucun_admissible": aucun_admissible,
             "classement": [c.model_dump() for c in classement],
         }, ensure_ascii=False, indent=2))
