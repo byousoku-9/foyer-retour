@@ -17,8 +17,9 @@ from server.app.domain.errors import BudgetExceeded
 from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
 from server.app.llm.client import LlmClient
 from server.app.domain.trace import Usage
-from server.evals.plancher import (ClassementInvalide, Configuration, PlancherInvalide,
-                                   charger_plancher, classer_configurations, PLANCHER_PATH)
+from server.evals.plancher import (CandidatClassement, ClassementInvalide, Configuration,
+                                   PlancherInvalide, charger_plancher, classer_configurations,
+                                   verifier_identite_classement, PLANCHER_PATH)
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 
 
@@ -33,10 +34,14 @@ REVISION_CLASSEE = "a" * 40
 
 
 def _config(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
-            candidate_revision: str | None = REVISION_CLASSEE,
+            candidate_revision: str = REVISION_CLASSEE,
             run_digest: str | None = None,
             report_digest: str | None = None) -> Configuration:
-    """Une configuration candidate complète — l'identité est dérivée du nom, jamais absente.
+    """Une configuration **résultat** complète — l'identité est dérivée du nom, jamais absente.
+
+    Depuis le tour correctif 1/3, `Configuration` n'est plus une entrée de classement : c'est ce que
+    `classer_configurations` produit en recalculant les empreintes depuis les octets d'un rapport.
+    Ce constructeur ne sert donc plus qu'à éprouver le **modèle** et `verifier_identite_classement`.
 
     Dériver `run_digest` et `report_digest` du nom garde les tables lisibles tout en donnant à
     chaque configuration une identité **distincte** et bien formée : deux configurations d'un même
@@ -51,6 +56,54 @@ def _config(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
         run_digest=run_digest if run_digest is not None else empreinte,
         report_digest=(report_digest if report_digest is not None
                        else hashlib.sha256(empreinte.encode("utf-8")).hexdigest()))
+
+
+# --- ce qu'un classement accepte depuis le tour correctif 1/3 : des **octets de rapport** ----------
+#
+# `classer_configurations` n'accepte plus de `Configuration` déclaratives. Les tours précédents
+# avaient durci la présence et la syntaxe des trois empreintes, jamais le fait qu'elles
+# correspondent à quelque chose de réel : trois chaînes hexadécimales inventées suffisaient à
+# obtenir une tête de classement. Les tables ci-dessous passent donc par de vrais rapports, dont le
+# classement recalcule lui-même `report_digest`, `run_digest` et la révision mesurée.
+
+def _octets_de_rapport(*, nom: str, admissible: bool, cost_eur: float, latency_ms: int,
+                       revision: str = REVISION_CLASSEE,
+                       run_digest: str | None = None) -> bytes:
+    """Les octets d'un rapport candidat — identité **recalculée**, sauf demande contraire.
+
+    `run_digest` n'est passé que par les contre-exemples : une empreinte posée à la main est
+    exactement ce que le classement doit refuser, puisqu'il la recalcule depuis l'identité privée de
+    sa propre clé.
+    """
+    import json as _json
+
+    from server.evals.cache import empreinte_canonique
+
+    identite: dict = {"candidate_revision": revision, "image": _image_candidate(),
+                      "scope": {"nom": nom}}
+    identite["run_digest"] = (run_digest if run_digest is not None
+                              else empreinte_canonique(identite))
+    return (_json.dumps({
+        "schema_version": 3, "complete": True, "unexecuted_cases": [],
+        "cost_eur": cost_eur, "metrics": {"latency_p50_ms": latency_ms},
+        "decisions": [{"status": "green" if admissible else "red", "producer": "orchestrator"}],
+        "identity": identite, "plancher_digest": charger_plancher().digest,
+    }) + "\n").encode("utf-8")
+
+
+def _candidat(name: str, *, admissible: bool, cost_eur: float, latency_ms: int,
+              revision: str = REVISION_CLASSEE,
+              run_digest: str | None = None) -> CandidatClassement:
+    return CandidatClassement(name=name, report_bytes=_octets_de_rapport(
+        nom=name, admissible=admissible, cost_eur=cost_eur, latency_ms=latency_ms,
+        revision=revision, run_digest=run_digest))
+
+
+def _classer(candidats: object, *, revision: str = REVISION_CLASSEE) -> list[Configuration]:
+    """Le classement, avec l'image synthétique que les rapports ci-dessus déclarent."""
+    return classer_configurations(candidats, plancher_digest=charger_plancher().digest,
+                                  image_courante=_image_candidate(),
+                                  candidate_revision=revision)
 
 
 # --- chargement et digest --------------------------------------------------------------------------
@@ -155,21 +208,20 @@ def test_un_plancher_illisible_est_un_refus(tmp_path: Path) -> None:
 # --- la règle mécanique du checkpoint --------------------------------------------------------------
 
 def test_le_classement_est_admissible_puis_moins_cher_puis_plus_rapide() -> None:
-    configurations = [
-        _config("chere-rapide", admissible=True, cost_eur=0.09, latency_ms=100),
-        _config("inadmissible-gratuite", admissible=False, cost_eur=0.0, latency_ms=1),
-        _config("economique-lente", admissible=True, cost_eur=0.03, latency_ms=900),
-        _config("economique-rapide", admissible=True, cost_eur=0.03, latency_ms=200),
+    candidats = [
+        _candidat("chere-rapide", admissible=True, cost_eur=0.09, latency_ms=100),
+        _candidat("inadmissible-gratuite", admissible=False, cost_eur=0.0, latency_ms=1),
+        _candidat("economique-lente", admissible=True, cost_eur=0.03, latency_ms=900),
+        _candidat("economique-rapide", admissible=True, cost_eur=0.03, latency_ms=200),
     ]
-    classement = [c.name for c in classer_configurations(configurations)]
+    classement = [c.name for c in _classer(candidats)]
     assert classement == ["economique-rapide", "economique-lente", "chere-rapide",
                           "inadmissible-gratuite"]
 
 
 def test_aucun_admissible_est_un_rouge_publie() -> None:
     """Boundaries 4.2b : `aucun_admissible` est un résultat rouge, jamais une question humaine."""
-    classement = classer_configurations([
-        _config("seule", admissible=False, cost_eur=0.01, latency_ms=10)])
+    classement = _classer([_candidat("seule", admissible=False, cost_eur=0.01, latency_ms=10)])
     assert not any(c.admissible for c in classement)
 
 
@@ -298,14 +350,31 @@ def test_un_gate_full_preprotocole_est_mis_en_quarantaine() -> None:
 # Six configurations mesurées, dont deux seulement passent le plancher. Les chiffres sont choisis
 # pour que **chaque** ordre naïf se trompe : la moins chère et la plus rapide du lot sont toutes deux
 # inadmissibles, et l'admissible la moins chère est aussi la plus lente des admissibles.
-TABLE_MESUREE = [
-    _config("a-sous-plancher-gratuite", admissible=False, cost_eur=0.000, latency_ms=1),
-    _config("b-admissible-lente", admissible=True, cost_eur=0.010, latency_ms=9_000),
-    _config("c-sous-plancher-instantanee", admissible=False, cost_eur=0.001, latency_ms=2),
-    _config("d-admissible-rapide", admissible=True, cost_eur=0.050, latency_ms=100),
-    _config("e-sous-plancher-chere", admissible=False, cost_eur=9.999, latency_ms=99_000),
-    _config("f-admissible-egale", admissible=True, cost_eur=0.010, latency_ms=8_000),
-]
+MESURES_TABLE: tuple[tuple[str, bool, float, int], ...] = (
+    ("a-sous-plancher-gratuite", False, 0.000, 1),
+    ("b-admissible-lente", True, 0.010, 9_000),
+    ("c-sous-plancher-instantanee", False, 0.001, 2),
+    ("d-admissible-rapide", True, 0.050, 100),
+    ("e-sous-plancher-chere", False, 9.999, 99_000),
+    ("f-admissible-egale", True, 0.010, 8_000),
+)
+
+
+def _table_mesuree(*, revision: str = REVISION_CLASSEE) -> list[CandidatClassement]:
+    """Les six candidats de la table, sous forme d'octets de rapports.
+
+    Une fonction et non une constante : les octets dépendent du plancher chargé et de l'image
+    synthétique, dont les fabriques vivent plus bas dans ce fichier.
+    """
+    return [_candidat(nom, admissible=admissible, cost_eur=cout, latency_ms=latence,
+                      revision=revision)
+            for nom, admissible, cout, latence in MESURES_TABLE]
+
+
+def _table_configurations() -> list[Configuration]:
+    """La même table sous forme de **résultats**, pour éprouver `verifier_identite_classement`."""
+    return [_config(nom, admissible=admissible, cost_eur=cout, latency_ms=latence)
+            for nom, admissible, cout, latence in MESURES_TABLE]
 
 
 def test_une_configuration_sous_le_plancher_nest_jamais_devant_une_admissible() -> None:
@@ -315,7 +384,7 @@ def test_une_configuration_sous_le_plancher_nest_jamais_devant_une_admissible() 
     sont inadmissibles, si bien qu'un classement qui commencerait par le coût ou par la latence les
     remonterait en tête.
     """
-    classement = classer_configurations(TABLE_MESUREE)
+    classement = _classer(_table_mesuree())
     admissibles = [c.name for c in classement if c.admissible]
     inadmissibles = [c.name for c in classement if not c.admissible]
     positions = {c.name: rang for rang, c in enumerate(classement)}
@@ -323,8 +392,8 @@ def test_une_configuration_sous_le_plancher_nest_jamais_devant_une_admissible() 
     assert len(admissibles) == 3 and len(inadmissibles) == 3
     assert max(positions[n] for n in admissibles) < min(positions[n] for n in inadmissibles)
     # La moins chère du lot et la plus rapide du lot sont inadmissibles : elles restent derrière.
-    moins_chere = min(TABLE_MESUREE, key=lambda c: c.cost_eur)
-    plus_rapide = min(TABLE_MESUREE, key=lambda c: c.latency_ms)
+    moins_chere = min(classement, key=lambda c: c.cost_eur)
+    plus_rapide = min(classement, key=lambda c: c.latency_ms)
     assert not moins_chere.admissible and not plus_rapide.admissible
     assert positions[moins_chere.name] >= len(admissibles)
     assert positions[plus_rapide.name] >= len(admissibles)
@@ -332,7 +401,7 @@ def test_une_configuration_sous_le_plancher_nest_jamais_devant_une_admissible() 
 
 def test_le_departage_economique_nopere_quentre_admissibles() -> None:
     """Coût puis latence, et seulement au sein du groupe admissible : aucune pondération croisée."""
-    classement = classer_configurations(TABLE_MESUREE)
+    classement = _classer(_table_mesuree())
     admissibles = [c for c in classement if c.admissible]
 
     # Coût croissant d'abord ; à coût égal, latence croissante ; à égalité parfaite, le nom.
@@ -351,10 +420,11 @@ def test_le_departage_economique_nopere_quentre_admissibles() -> None:
 
 def test_le_classement_ne_depend_pas_de_lordre_dentree() -> None:
     """Une règle mécanique : la même table, mélangée, rend le même classement (départage par nom)."""
-    attendu = [c.name for c in classer_configurations(TABLE_MESUREE)]
-    for depart in range(len(TABLE_MESUREE)):
-        permutee = TABLE_MESUREE[depart:] + TABLE_MESUREE[:depart]
-        assert [c.name for c in classer_configurations(permutee)] == attendu
+    table = _table_mesuree()
+    attendu = [c.name for c in _classer(table)]
+    for depart in range(len(table)):
+        permutee = table[depart:] + table[:depart]
+        assert [c.name for c in _classer(permutee)] == attendu
 
 
 # --- M2 (story 4.5) : la preuve trusted est liée à la révision qu'elle mesure ----------------------
@@ -884,16 +954,19 @@ def test_un_rapport_sans_unexecuted_cases_ne_contribue_pas_a_une_promotion(tmp_p
                                       candidate_revision=REVISION_A_candidate_revision)
 
 
-# --- B1, cycle de récupération : la voie **bibliothèque** du classement ----------------------------
+# --- B1 : la voie **bibliothèque** du classement, fermée par recalcul ------------------------------
 #
-# Les tours précédents avaient fermé la voie CLI — `--candidate-revision` requis,
-# `_configuration_depuis_rapport` opposant l'identité du rapport. Le recheck a montré que la voie
-# bibliothèque restait ouverte : n'importe quel appelant pouvait construire une `Configuration`
-# `admissible=True` sans révision, sans `run_digest` ni `report_digest`, et `classer_configurations`
-# la rendait **en tête**. Une décision de promotion anonyme reste une décision de promotion.
+# Trois tours l'ont fermée par couches successives, et chacune s'est révélée insuffisante : la voie
+# CLI (`--candidate-revision` requis), puis le modèle (`Configuration` refusant une identité absente
+# ou mal formée), puis le classement (refusant une liste d'anonymes). Le tour correctif 1/3 a montré
+# la faute de fond : présence et syntaxe ne sont pas une liaison. Trois empreintes **bien formées et
+# entièrement fabriquées** — `candidate_revision="a"*40`, `run_digest="b"*64`,
+# `report_digest="c"*64` — donnaient encore une tête de classement.
 #
-# Les contre-exemples ci-dessous sont rouges sur `b9db3c1` (le classement y rendait sagement son tri)
-# et verts ici. Ils ne passent par aucun paramètre : il n'y a pas de voie opt-in à désarmer.
+# `classer_configurations` n'accepte donc plus que des `CandidatClassement`, c'est-à-dire les octets
+# d'un rapport, et recalcule lui-même les trois empreintes avant tout tri. Les contre-exemples
+# ci-dessous sont rouges sur `4d0abb4` et verts ici ; aucun ne passe par un paramètre, il n'y a pas
+# de voie opt-in à désarmer.
 
 def _sans_identite(name: str = "anonyme", *, admissible: bool = True) -> Configuration:
     """Une configuration **sans identité**, construite en contournant le modèle.
@@ -907,12 +980,12 @@ def _sans_identite(name: str = "anonyme", *, admissible: bool = True) -> Configu
         candidate_revision=None, run_digest=None, report_digest=None)
 
 
-def test_une_configuration_admissible_sans_identite_est_refusee_par_le_modele() -> None:
-    """B1 : `Configuration` rend **impossible** de porter un verdict d'admissibilité anonyme."""
+def test_une_configuration_sans_identite_est_refusee_par_le_modele() -> None:
+    """B1 : un **résultat** de classement porte toujours son identité, complète et bien formée."""
     for absent in ("candidate_revision", "run_digest", "report_digest"):
         champs = {"candidate_revision": REVISION_CLASSEE, "run_digest": "b" * 64,
                   "report_digest": "c" * 64}
-        champs[absent] = None  # type: ignore[assignment]
+        champs.pop(absent)
         with pytest.raises(ValueError, match=absent):
             Configuration(name="x", admissible=True, cost_eur=0.0, latency_ms=0, **champs)
     # Une identité **mal formée** ferme, admissible ou non : ce n'est pas une empreinte.
@@ -926,41 +999,79 @@ def test_une_configuration_admissible_sans_identite_est_refusee_par_le_modele() 
     # Le nominal se construit, et ne se laisse plus dépouiller ensuite (`frozen`).
     nominale = _config("x", admissible=True, cost_eur=0.0, latency_ms=0)
     with pytest.raises(ValueError):
-        nominale.candidate_revision = None  # type: ignore[misc]
+        nominale.candidate_revision = "z" * 40  # type: ignore[misc]
 
 
-def test_le_classement_refuse_une_configuration_sans_identite() -> None:
-    """B1, contre-exemple du recheck : `classer_configurations` ne classe pas un anonyme.
+def test_le_classement_refuse_trois_empreintes_bien_formees_mais_fabriquees() -> None:
+    """B1, contre-exemple du tour correctif 1/3 : le refus tient au **recalcul**, pas à la forme.
 
-    Le refus est **une exception nommée**, dite à l'appelant — jamais un classement dégradé, jamais
-    une tête par défaut. Et il ne dépend pas de l'admissibilité : une liste où l'on ne sait pas ce
-    qui serait promu ne se classe pas.
+    Sur `4d0abb4`, `classer_configurations([Configuration(admissible=True,
+    candidate_revision="a"*40, run_digest="b"*64, report_digest="c"*64)])` rendait
+    `['fabriquee']` — trois empreintes irréprochables, aucune adossée à un octet réel.
+
+    Deux refus le ferment, et il faut les deux : une `Configuration` déclarative n'entre plus dans
+    un classement, et un **rapport** dont l'identité est posée à la main ne se recalcule pas.
+    """
+    fabriquee = Configuration(name="fabriquee", admissible=True, cost_eur=0.0, latency_ms=0,
+                              candidate_revision="a" * 40, run_digest="b" * 64,
+                              report_digest="c" * 64)
+    with pytest.raises(ClassementInvalide, match="CandidatClassement"):
+        _classer([fabriquee])
+    # Et par la voie légitime : les empreintes du rapport sont recalculées depuis ses octets.
+    with pytest.raises(ClassementInvalide, match="ne se recalcule pas"):
+        _classer([_candidat("fabriquee", admissible=True, cost_eur=0.0, latency_ms=0,
+                            run_digest="b" * 64)])
+    # Le `report_digest` rendu est bien celui des octets reçus, jamais une valeur annoncée.
+    import hashlib
+
+    octets = _octets_de_rapport(nom="nominal", admissible=True, cost_eur=0.0, latency_ms=0)
+    classement = _classer([CandidatClassement(name="nominal", report_bytes=octets)])
+    assert classement[0].report_digest == hashlib.sha256(octets).hexdigest()
+
+
+def test_le_classement_refuse_un_rapport_dune_autre_image_ou_dun_autre_plancher() -> None:
+    """B1 : l'image candidate et le protocole sont opposés **avant** tout tri, pas après.
+
+    Un candidat mesuré sur une autre recette de normalisation porte d'autres `text_norm`, donc
+    d'autres `quote_hash` : ses chiffres ne se comparent à rien. Idem pour un autre plancher.
+    """
+    candidat = _candidat("nominal", admissible=True, cost_eur=0.0, latency_ms=0)
+    with pytest.raises(ClassementInvalide, match="normalize_version"):
+        classer_configurations(
+            [candidat], plancher_digest=charger_plancher().digest,
+            image_courante=_image_candidate(normalize_version="v-DIVERGENT"),
+            candidate_revision=REVISION_CLASSEE)
+    with pytest.raises(ClassementInvalide, match="plancher"):
+        classer_configurations(
+            [candidat], plancher_digest="f" * 64, image_courante=_image_candidate(),
+            candidate_revision=REVISION_CLASSEE)
+
+
+def test_le_classement_refuse_une_identite_absente_ou_mal_formee() -> None:
+    """B1 : `verifier_identite_classement` reste le garde-fou exposé des chemins de promotion.
+
+    Il ne dépend pas de l'admissibilité — une liste où l'on ne sait pas ce qui serait promu ne se
+    classe pas — et « longueur ou alphabet » suffit : une chaîne qui ressemble à une empreinte n'en
+    est pas une.
     """
     anonyme = _sans_identite()
     with pytest.raises(ClassementInvalide, match="candidate_revision"):
-        classer_configurations([anonyme])
-    # Mêlée à des configurations complètes, elle ferme le classement entier — rien n'est rendu.
+        verifier_identite_classement([anonyme])
     with pytest.raises(ClassementInvalide, match="anonyme"):
-        classer_configurations([*TABLE_MESUREE, anonyme])
-    # Y compris inadmissible : ce n'est pas le verdict qui exige l'identité, c'est le classement.
+        verifier_identite_classement([*_table_configurations(), anonyme])
     with pytest.raises(ClassementInvalide, match="run_digest|candidate_revision"):
-        classer_configurations([_sans_identite("muette", admissible=False)])
-    # Chacun des trois champs, pris isolément, suffit à fermer.
+        verifier_identite_classement([_sans_identite("muette", admissible=False)])
     for absent in ("candidate_revision", "run_digest", "report_digest"):
         amputee = _config("partielle", admissible=True, cost_eur=0.0,
                           latency_ms=0).model_copy(update={absent: None})
         with pytest.raises(ClassementInvalide, match=absent):
-            classer_configurations([amputee])
-
-
-def test_le_classement_refuse_une_identite_mal_formee() -> None:
-    """B1 : « longueur ou alphabet » — une chaîne qui ressemble à une empreinte n'en est pas une."""
+            verifier_identite_classement([amputee])
     for champ, mauvaise in (("candidate_revision", "a" * 39), ("candidate_revision", "A" * 40),
                             ("run_digest", "b" * 65), ("report_digest", "zz" + "c" * 62)):
         malformee = _config("malformee", admissible=True, cost_eur=0.0,
                             latency_ms=0).model_copy(update={champ: mauvaise})
         with pytest.raises(ClassementInvalide, match=champ):
-            classer_configurations([malformee])
+            verifier_identite_classement([malformee])
 
 
 def test_le_classement_refuse_deux_revisions_candidates_dans_la_meme_liste() -> None:
@@ -968,35 +1079,40 @@ def test_le_classement_refuse_deux_revisions_candidates_dans_la_meme_liste() -> 
 
     Comparer les coûts de deux commits et en promouvoir un n'est pas une règle mécanique, c'est une
     confusion — et l'artefact de promotion serait inauditable, puisqu'il porte **une** révision.
+    Par l'API publique, le refus vient plus tôt encore : le rapport du candidat n'a pas mesuré la
+    révision du classement.
     """
     autre = _config("autre-commit", admissible=True, cost_eur=0.0, latency_ms=0,
                     candidate_revision="b" * 40)
     with pytest.raises(ClassementInvalide, match="deux révisions candidates"):
-        classer_configurations([*TABLE_MESUREE, autre])
+        verifier_identite_classement([*_table_configurations(), autre])
+    with pytest.raises(ClassementInvalide, match="révision"):
+        _classer([*_table_mesuree(),
+                  _candidat("autre-commit", admissible=True, cost_eur=0.0, latency_ms=0,
+                            revision="b" * 40)])
     # La table homogène, elle, se classe : le refus ne mord que sur l'incohérence.
-    assert len(classer_configurations(TABLE_MESUREE)) == len(TABLE_MESUREE)
+    assert len(_classer(_table_mesuree())) == len(MESURES_TABLE)
 
 
 def test_la_cli_de_classement_dit_le_refus_au_lieu_de_promouvoir(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str]) -> None:
-    """B1 : le refus remonte jusqu'à l'opérateur — code 2, message nommé, aucun classement imprimé."""
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """B1 : le refus remonte jusqu'à l'opérateur — code 2, message nommé, aucun classement imprimé.
+
+    Le rapport fourni porte une identité **fabriquée** : ses trois empreintes sont bien formées, et
+    aucune ne se recalcule. C'est la sonde du tour correctif 1/3, passée par la CLI.
+    """
     import json as _json
 
     from server.evals import plancher as plancher_mod
 
+    _rapport_classable(tmp_path / "fabrique.json", cout=0.0, latence=0, admissible=True,
+                       run_digest="b" * 64)
     configs = tmp_path / "configs.json"
-    configs.write_text(_json.dumps([{"name": "c", "report": "peu-importe.json"}]),
-                       encoding="utf-8")
-    # Le lecteur de rapport est neutralisé : ce qui est éprouvé ici est le **classement**, pas la
-    # lecture. Un appelant bibliothèque qui construirait ses configurations autrement produirait
-    # exactement cet objet-là.
-    monkeypatch.setattr(plancher_mod, "_configuration_depuis_rapport",
-                        lambda *a, **k: _sans_identite())
+    configs.write_text(_json.dumps([{"name": "c", "report": "fabrique.json"}]), encoding="utf-8")
     assert plancher_mod._main(["--classer", str(configs),
                                "--candidate-revision", REVISION_CLASSEE]) == 2
     capture = capsys.readouterr()
-    assert "refus" in capture.err and "candidate_revision" in capture.err
+    assert "refus" in capture.err and "ne se recalcule pas" in capture.err
     assert "aucun_admissible" not in capture.out
 
 
@@ -1029,15 +1145,21 @@ def _image_reelle() -> dict:
 
 
 def _rapport_classable(chemin: Path, *, cout: float, latence: int, admissible: bool,
-                       revision: str = REVISION_CLASSEE) -> None:
-    """Un rapport que `_configuration_depuis_rapport` accepte — identité recalculée, pas posée."""
+                       revision: str = REVISION_CLASSEE,
+                       run_digest: str | None = None) -> None:
+    """Un rapport que le classement accepte — identité **recalculée**, jamais posée.
+
+    `run_digest` n'est passé que par le contre-exemple du tour correctif 1/3 : une empreinte bien
+    formée mais fabriquée, que le classement doit refuser parce qu'il la recalcule.
+    """
     import json as _json
 
     from server.evals.cache import empreinte_canonique
 
     identite: dict = {"candidate_revision": revision, "image": _image_reelle(),
                       "scope": {"nom": chemin.stem}}
-    identite["run_digest"] = empreinte_canonique(identite)
+    identite["run_digest"] = (run_digest if run_digest is not None
+                              else empreinte_canonique(identite))
     chemin.write_text(_json.dumps({
         "schema_version": 3,
         "complete": True,
@@ -1129,9 +1251,10 @@ def test_le_classement_ne_consomme_pas_son_argument(tmp_path: Path) -> None:
     en silence est la même faute que celles que ce cycle ferme — une donnée absente présentée comme
     un résultat.
     """
-    classement = classer_configurations(iter(TABLE_MESUREE))
-    assert [c.name for c in classement] == [c.name for c in classer_configurations(TABLE_MESUREE)]
-    assert len(classement) == len(TABLE_MESUREE)
+    table = _table_mesuree()
+    classement = _classer(iter(table))
+    assert [c.name for c in classement] == [c.name for c in _classer(table)]
+    assert len(classement) == len(table)
     # Et un générateur d'anonymes ferme toujours : le contrôle n'a pas été contourné au passage.
     with pytest.raises(ClassementInvalide):
-        classer_configurations(c for c in [_sans_identite()])
+        _classer(c for c in [_sans_identite()])
