@@ -1823,12 +1823,28 @@ async def test_plusieurs_causes_donnent_plusieurs_phrases_dans_lordre_de_la_chai
     assert v.complete is False
 
 
-async def test_aucune_lacune_nest_ajoutee_a_un_refus(mini: Index) -> None:
-    """Matrice : `found=False` ⇒ **aucune** phrase de lacune. La preuve d'absence dit déjà tout, et
-    en ajouter une ferait deux comptes rendus du même fait."""
+async def test_aucune_lacune_nest_ajoutee_a_un_refus_dont_la_lecture_etait_complete(
+        mini: Index) -> None:
+    """Matrice : `found=False` **sur une lecture complète** ⇒ aucune phrase de lacune. La preuve
+    d'absence dit déjà tout, et en ajouter une ferait deux comptes rendus du même fait."""
+    draft = _draft_simple("mini:p1:2", "citation que le modèle a inventée")
+    v, _s, _f = await _verifier(mini, draft, [])
+    assert v.found is False and v.complete is False and v.lacunes == [] and v.nb_manques == 0
+
+
+async def test_un_refus_sous_lecture_bornee_dit_sa_borne(mini: Index) -> None:
+    """Story 4.2f, l'autre moitié de la règle : `found=False ∧ truncated` **porte** sa lacune.
+
+    Ce refus-là n'a pas d'`AbsenceProof` honnête à publier — la preuve annonce un balayage exhaustif
+    que la troncature dément —, et le pipeline lui donne à la place une `LecturePartielle`. Le
+    domaine exige alors un `unknown[]` non vide : sans cette lacune, la réponse dirait « je ne
+    conclus pas » sans dire pourquoi, et *restituer* ne pourrait même pas la construire.
+    """
     draft = _draft_simple("mini:p1:2", "citation que le modèle a inventée")
     v, _s, _f = await _verifier(mini, draft, [], truncated=True)
-    assert v.found is False and v.complete is False and v.lacunes == [] and v.nb_manques == 0
+    assert v.found is False and v.complete is False
+    assert LACUNE_LECTURE in [lacune.model_dump() for lacune in v.lacunes]
+    assert v.nb_manques >= 1
 
 
 async def test_les_lacunes_ne_sont_jamais_dupliquees(mini: Index) -> None:

@@ -1097,6 +1097,19 @@ def test_une_panne_reseau_ne_fabrique_rien(cas: dict[str, Any]) -> None:
     ("trace_seuil_chaine", "trace.thresholds.max_opens"),
     ("trace_seuil_booleen", "trace.thresholds.max_opens"),
     ("trace_seuil_infini", "trace.thresholds.max_opens"),
+    # Story 4.2f : le second porteur d'un `found=false` est lu aussi strictement que le premier.
+    # Ses compteurs sont **affichés** au gestionnaire ; absents, négatifs ou non entiers, la page
+    # chiffrerait une lecture que rien n'a mesurée. Et « exactement un porteur » vaut ici comme dans
+    # le domaine : ni deux comptes rendus du même refus, ni aucun.
+    ("lecture_sans_compteur", "answer.lecture_partielle.nodes_read"),
+    ("lecture_compteur_negatif", "answer.lecture_partielle.blocks_read"),
+    ("lecture_compteur_chaine", "answer.lecture_partielle.nodes_read"),
+    ("lecture_non_objet", "answer.lecture_partielle"),
+    ("lecture_documents_nuls", "answer.lecture_partielle.documents"),
+    ("deux_porteurs", "answer.lecture_partielle"),
+    ("aucun_porteur", "answer.reason"),
+    ("lecture_sans_manque", "answer.unknown"),
+    ("lecture_sur_reponse_trouvee", "answer.lecture_partielle"),
 ])
 def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, champ: str) -> None:
     """AD-16 : « réponse vide présentée comme réponse ». Un corps qu'aucune route ne peut écrire.
@@ -1118,6 +1131,9 @@ def test_un_200_incomplet_nest_pas_un_verdict(cas: dict[str, Any], nom: str, cha
     # (`tier: null`), une trace peut n'avoir aucune étape, et une analyse qui n'a rien coûté vaut
     # `0` — un zéro qui doit s'afficher (« cette analyse n'a rien coûté »), pas être refusé.
     "trace_sans_etape", "trace_cout_nul", "trace_etape_sans_appel",
+    # Story 4.2f : le corps que la story fait naître est un corps **servable**. Un lecteur qui le
+    # refuserait remplacerait le 503 par un écran illisible — une régression pire encore.
+    "lecture_partielle",
 ])
 def test_un_200_conforme_nest_jamais_refuse(cas: dict[str, Any], nom: str) -> None:
     """Le garde-fou du durcissement (revue Codex 1.9, tour 2, I2) : strict, pas inutilisable.
@@ -1528,3 +1544,57 @@ def test_le_script_ne_pose_jamais_de_html(cas: dict[str, Any]) -> None:
     assert "insertAdjacentHTML" not in source
     assert "document.write" not in source
     assert cas["dom"]["stockage"] == {}
+
+
+# --- story 4.2f : la lecture partielle, sur l'écran d'un gestionnaire -----
+
+def test_une_lecture_partielle_affiche_son_chiffre_et_ses_clauses_ecartees(
+        cas: dict[str, Any]) -> None:
+    """AC : « une réponse partielle chiffrée avec ses affirmations écartées, sans message
+    d'indisponibilité, sans bouton de repli et sans état sûr ».
+
+    Le bloc « Affirmations écartées par la vérification » était écrit depuis la story 1.9 et n'avait
+    jamais pu être atteint sous troncature : la page ne recevait qu'un 503.
+    """
+    vu = cas["verdict_lecture_partielle"]
+    assert vu["badge"] == [{"cls": "badge verdict-ne_tranche_pas", "texte": "ne tranche pas"}]
+    assert vu["clauses"] == 0
+    assert vu["preuve"] == []  # aucune absence du contrat n'est affirmée
+    assert vu["lecture"] == [
+        "Lecture partielle : 1 section lue, 4 passages transmis au modèle "
+        "— le reste n'a pas été lu, et rien n'en est affirmé"]
+    assert vu["etat"] == ["etat etat-lecture-partielle"]
+    assert vu["etat_texte"] == ["lecture partielle"]
+    assert vu["inconnu"] and vu["faits_compris"] == [["Bien concerné", "mobilier de salon"]]
+    # La clause écartée est enfin montrée — avec son motif, jamais avec sa citation (AD-3/D7).
+    assert vu["rejetees"] == [["Une clause que la vérification a écartée.",
+                               "citation introuvable dans le contrat", "non_retrouvee"]]
+    assert "CETTE QUOTE" not in vu["texte_entier"]
+    # Ni repli, ni message d'indisponibilité : rien n'est en panne.
+    assert vu["boutons"] == 0 and vu["actions"] == 0
+    assert "indisponible" not in vu["texte_entier"]
+
+
+def test_letat_de_lecture_partielle_ne_se_confond_ni_avec_inconnu_ni_avec_sur(
+        cas: dict[str, Any]) -> None:
+    etats = cas["etats_lecture_partielle"]
+    assert etats["porteur"]["texte"] == "lecture partielle"
+    assert etats["sans_porteur"]["texte"] == "inconnu"
+    phrases = cas["phrases_lecture_partielle"]
+    assert phrases["avec_liste"].startswith("ma lecture s'est arrêtée avant de conclure")
+    assert "Ce que je ne sais pas" in phrases["avec_liste"]
+    assert "Ce que je ne sais pas" not in phrases["sans_liste"]
+    assert "chiffré ci-dessus" in phrases["sans_liste"]
+    assert "chiffré ci-dessus" not in phrases["sans_chiffre"]
+    assert len(set(phrases.values())) == 4
+    for phrase in phrases.values():
+        assert "indisponible" not in phrase and "rien n'a été retenu" not in phrase
+
+
+def test_le_chiffre_de_la_lecture_est_le_meme_texte_que_sur_le_guide(cas: dict[str, Any]) -> None:
+    """Les deux fronts rendent la même donnée : deux phrases divergentes auraient dérivé."""
+    textes = cas["lecture_textes"]
+    assert textes["pluriel"].startswith("Lecture partielle : 3 sections lues, 12 passages")
+    assert textes["singulier"].startswith("Lecture partielle : 1 section lue, 1 passage")
+    assert textes["sans_section"].startswith("Lecture partielle : 0 section lue, 1 passage")
+    assert textes["absente"] == ""

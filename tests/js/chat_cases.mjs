@@ -183,6 +183,38 @@ function refus() {
   };
 }
 
+/**
+ * Story 4.2f : une **lecture partielle** — 200, `found=false`, aucune preuve d'absence, mais des
+ * compteurs, une affirmation écartée et la lacune qui dit la borne. C'est le corps que le pipeline
+ * rend là où il levait `TruncatedRead`, et que la page recevait en 503 « assistant indisponible ».
+ */
+function lecturePartielle() {
+  const phrase = "Je n'ai pas pu lire tout ce qui pouvait concerner votre question, et rien de ce " +
+    "que j'ai lu n'a passé la vérification.";
+  const manque = "Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a " +
+    "été bornée, et des passages sont restés fermés.";
+  const answer = {
+    found: false, complete: false, lang: "fr", lang_fallback: false, texte: phrase,
+    segments: [{ text: phrase, kind: "limite", claim_ids: [] }],
+    claims: [],
+    rejected_claims: [{
+      claim_id: "c9", text: "Une affirmation que la vérification a écartée.",
+      quotes: [{ block_id: "lux-guide:farrivee:2", quote: "CETTE QUOTE NE DOIT JAMAIS S'AFFICHER" }],
+      status: { retrouvee: false, pertinente: null, applicable: null, edition: "git:a8e8593" },
+      rejection_kind: "non_retrouvee", motif: "citation introuvable",
+    }],
+    reason: null,
+    lecture_partielle: { nodes_read: 2, blocks_read: 5, documents: ["lux-guide"] },
+    verdict: null, unknown: [manque], clarification: null,
+  };
+  return {
+    texte: phrase, segments: answer.segments, sources: [], fiches: [], unknown: [manque],
+    comparateur: false, answer, via: "api/v1",
+    trace: { request_id: "r-4-2f", pipeline: "guide", intent: "question",
+             total_cost_eur: 0.0181, steps: [] },
+  };
+}
+
 /** Tous les nœuds d'un arbre de vue, à plat, dans l'ordre du document. */
 function noeuds(vue) {
   if (!vue) return [];
@@ -504,6 +536,45 @@ async function main() {
     cas.preuve_absente = CHAT.preuveAbsence(null);
   }
 
+  // --- story 4.2f : la lecture partielle, lue puis peinte -----------------
+  {
+    const { CHAT, compteur } = chargerChat(PAGE, () => reponseHttp({ corps: lecturePartielle() }));
+    compteur.lectures = 0;
+    const r = await CHAT.repondre(QUESTION, PROFIL, []);
+    cas.lecture_partielle = {
+      texte: r.texte,
+      segments_kind: r.segments.map((s) => s.kind),
+      sources: r.sources.length,
+      unknown: r.unknown,
+      // Les deux porteurs, tels que la page les lit : l'un est là, l'autre non.
+      preuve: CHAT.preuveAbsence(r.answer.reason),
+      lecture: CHAT.lectureLue(r.answer.lecture_partielle),
+      etat: CHAT.etatReponse(r.answer),
+      rejetees: r.answer.rejected_claims.map((c) => c.rejection_kind),
+      // Aucun repli n'est ouvert : ce n'est pas une indisponibilité (AD-11/AD-16).
+      lectures_du_moteur_lexical: compteur.lectures,
+    };
+    cas.lecture_textes = {
+      pluriel: CHAT.lectureLue({ nodes_read: 3, blocks_read: 12, documents: [] }),
+      singulier: CHAT.lectureLue({ nodes_read: 1, blocks_read: 1, documents: [] }),
+      sans_section: CHAT.lectureLue({ nodes_read: 0, blocks_read: 1, documents: [] }),
+      absente: CHAT.lectureLue(null),
+    };
+    cas.phrases_lecture_partielle = {
+      avec_liste: CHAT.phraseEtat({ cle: "lecture-partielle" }, { liste: true, lecture: true }),
+      sans_liste: CHAT.phraseEtat({ cle: "lecture-partielle" }, { liste: false, lecture: true }),
+      // Les deux drapeaux comptent : la phrase ne promet « ci-dessus » que ce que la vue a peint.
+      sans_chiffre: CHAT.phraseEtat({ cle: "lecture-partielle" }, { liste: true, lecture: false }),
+      sans_rien: CHAT.phraseEtat({ cle: "lecture-partielle" }, { liste: false, lecture: false }),
+    };
+    cas.etats_lecture_partielle = {
+      porteur: CHAT.etatReponse({ found: false, complete: false,
+                                  lecture_partielle: { nodes_read: 1, blocks_read: 1 } }),
+      sans_porteur: CHAT.etatReponse({ found: false, complete: false }),
+    };
+    cas.vue_lecture_partielle = resumerVue(CHAT.vueReponse(lecturePartielle(), QUESTION));
+  }
+
   // --- réponse incomplète : `unknown` et l'état « partiel » ---------------
   {
     const partielle = reponseSourcee();
@@ -746,6 +817,41 @@ async function main() {
                                 answer: { found: false, complete: false,
                                           reason: { kind: "zero_hit", terms_searched: [], documents: [],
                                                     variants_count: 3, blocks_scanned: "12" } } },
+      // --- story 4.2f : le second porteur d'un `found=false`, lu strictement ---
+      // Les compteurs sont **affichés** : absents, non entiers ou négatifs, ils peindraient une
+      // lecture que rien n'a mesurée. Et « exactement un porteur » vaut ici comme dans le domaine :
+      // aucun des deux, ou les deux, sont deux corps qu'aucune route ne peut écrire.
+      answer_lecture_sans_compteur: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  lecture_partielle: { blocks_read: 5, documents: [] } } },
+      answer_lecture_compteur_negatif: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  lecture_partielle: { nodes_read: -1, blocks_read: 5, documents: [] } } },
+      answer_lecture_compteur_chaine: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  lecture_partielle: { nodes_read: "2", blocks_read: 5, documents: [] } } },
+      answer_lecture_compteur_fractionnaire: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  lecture_partielle: { nodes_read: 1.5, blocks_read: 5, documents: [] } } },
+      answer_deux_porteurs: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: ["il manque des passages"],
+                  reason: REASON,
+                  lecture_partielle: { nodes_read: 2, blocks_read: 5, documents: [] } } },
+      // « Une lecture partielle dit ce qui lui manque » : le domaine l'exige, la page le refait.
+      answer_lecture_sans_manque: {
+        texte: "x", trace: TRACE,
+        answer: { found: false, complete: false, unknown: [],
+                  lecture_partielle: { nodes_read: 2, blocks_read: 5, documents: [] } } },
+      answer_lecture_sur_reponse_trouvee: {
+        texte: "x", trace: TRACE,
+        answer: { found: true, complete: false, claims: [CLAIM],
+                  unknown: ["il manque des passages"],
+                  lecture_partielle: { nodes_read: 2, blocks_read: 5, documents: [] } } },
       // --- story 2.5 : ce que le panneau consomme est **strict sur le type** ---
       // Tolérant à l'absence (les deux lots sont écrits en parallèle, le front n'exige aucun de ces
       // champs), mais un champ **présent et mal typé** est un serveur cassé : l'afficher peindrait

@@ -1337,3 +1337,96 @@ def test_une_reserve_qui_mangerait_le_quota_est_refusee_a_la_construction() -> N
     with pytest.raises(ValueError, match="strictement inférieur"):
         _budget(max_opens=2, profil_max_opens=2)
     assert _budget(max_opens=2, profil_max_opens=1).profil_max_opens == 1
+
+
+# --- story 4.2f : les nœuds réellement lus, publiés par les deux variantes ------------------------
+
+def _noeuds_attendus(corpus: Corpus, block_ids: list[str]) -> list[str]:
+    """Les nœuds propriétaires des blocs transmis, lus sur le corpus — jamais sur le résultat."""
+    doc = corpus.documents["d"]
+    return list(dict.fromkeys(doc.node_of(b) for b in block_ids))
+
+
+def test_le_deterministe_publie_le_noeud_de_chaque_bloc_transmis() -> None:
+    """Story 4.2f : **tout** bloc transmis compte, y compris entré hors fenêtre.
+
+    Une réponse de lecture partielle chiffre ce qui a été lu ; sans ce champ, elle n'aurait eu que
+    des blocs à compter. Et le compte doit couvrir tous les blocs : la cible d'un renvoi (`d:p1:5`,
+    nœud `n3`) est bien un passage lu, et l'omettre ferait dire à l'écran « 2 sections lues » pour
+    des passages venus de trois — deux chiffres qui se contredisent.
+    """
+    corpus = _corpus()
+    result, _step = _run(_parsed(["matricule"]), corpus, Index(corpus))
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p2:1", "d:p1:5"]
+    assert result.opened_node_ids == _noeuds_attendus(corpus, result.opened_block_ids)
+    assert result.opened_node_ids == ["n1", "n2", "n3"]  # n3 apporte la cible du renvoi
+    # Aucun double comptage, et jamais plus de sections que de passages.
+    assert len(set(result.opened_node_ids)) == len(result.opened_node_ids)
+    assert 1 <= len(result.opened_node_ids) <= len(result.opened_block_ids)
+
+
+def test_le_deterministe_ne_compte_pas_un_noeud_dont_le_budget_a_ecarte_la_fenetre() -> None:
+    """Un compteur d'ouvertures aurait compté des nœuds dont rien n'est entré : la réponse aurait
+    annoncé une lecture qui n'a pas eu lieu."""
+    corpus = _corpus()
+    complet, _s1 = _run(_parsed(["matricule"]), corpus, Index(corpus))
+    borne, _s2 = _run(_parsed(["matricule"]), corpus, Index(corpus),
+                      _budget(max_blocks=1))
+    assert borne.truncated is True
+    assert len(borne.opened_node_ids) < len(complet.opened_node_ids)
+    assert all(n in complet.opened_node_ids for n in borne.opened_node_ids)
+    # Et ce qui reste publié reste exact : les nœuds des seuls blocs réellement transmis.
+    assert borne.opened_node_ids == _noeuds_attendus(corpus, borne.opened_block_ids)
+
+
+def test_le_deterministe_ne_publie_aucun_noeud_quand_rien_nest_transmis() -> None:
+    corpus = _corpus()
+    result, _step = _run(_parsed(["matricule"]), corpus, Index(corpus), _budget(max_tokens=1))
+    assert result.blocs == [] and result.truncated is True
+    assert result.opened_node_ids == []
+
+
+async def test_les_outils_publient_le_noeud_de_chaque_bloc_transmis() -> None:
+    """La variante **servie** (AD-1 : `outils` est le défaut) suit exactement la même règle.
+
+    C'est celle où l'omission mordait le plus : `primary_node_by_block` n'est renseigné que pour les
+    blocs admis depuis une fenêtre, si bien qu'une navigation servie par `definitions` ou par des
+    dépendances directes pouvait publier « 0 section lue » sous N passages transmis.
+    """
+    corpus = _corpus()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n2", focus_block_id="d:p2:1")),
+    ], corpus=corpus)
+    assert result.opened_node_ids == _noeuds_attendus(corpus, result.opened_block_ids)
+    assert "n3" in result.opened_node_ids  # la cible du renvoi, entrée hors fenêtre
+    assert len(set(result.opened_node_ids)) == len(result.opened_node_ids)
+
+
+async def test_un_bloc_transmis_sans_fenetre_a_quand_meme_sa_section() -> None:
+    """Le cas que l'omission rendait absurde : aucune fenêtre ouverte, un bloc quand même transmis.
+
+    `definitions` admet ses blocs sans passer par `ouvrir_noeud` : le compte des sections ne peut
+    donc pas se lire sur les seules fenêtres, sinon l'écran affiche « 0 section lue, 1 passage
+    transmis ». AD-2 garantit qu'un bloc a exactement un nœud propriétaire — il n'y a rien à deviner.
+    """
+    corpus = _corpus()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("definitions", "t1", termes=["contenu"])),
+    ], corpus=corpus, parsed=_parsed(["contenu"]))
+    assert result.opened_block_ids == ["d:p3:1"]
+    assert result.opened_node_ids == ["n3"]
+
+
+async def test_les_outils_ne_comptent_pas_une_ouverture_sans_bloc_admis() -> None:
+    """Le pendant côté outils : une fenêtre qu'aucun bloc n'a franchie ne fait lire aucune section."""
+    corpus = _corpus()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n2", focus_block_id="d:p2:1")),
+    ], corpus=corpus, budget=_budget(max_blocks=1, max_tokens=6000))
+    assert result.truncated is True
+    assert result.opened_node_ids == ["n1"]
+    assert result.opened_node_ids == _noeuds_attendus(corpus, result.opened_block_ids)

@@ -104,6 +104,12 @@ const ENTREES_ETAT = [
   { cle: "partiel", contexte: { liste: false, preuve: false } },
   { cle: "inconnu", contexte: { liste: false, preuve: true } },
   { cle: "inconnu", contexte: { liste: false, preuve: false } },
+  // Story 4.2f : le quatrième état, sur ses **deux** drapeaux. Comme les trois autres, sa phrase
+  // ne décrit que ce que la vue a peint — et elle ne nomme aucun document.
+  { cle: "lecture-partielle", contexte: { liste: true, lecture: true } },
+  { cle: "lecture-partielle", contexte: { liste: false, lecture: true } },
+  { cle: "lecture-partielle", contexte: { liste: true, lecture: false } },
+  { cle: "lecture-partielle", contexte: { liste: false, lecture: false } },
   { cle: "farfelu", contexte: { liste: false, preuve: true } },
   { cle: null, contexte: null },
 ];
@@ -118,6 +124,9 @@ const ETATS = [
   { found: true, complete: true },
   { found: true, complete: false },
   { found: false, complete: false },
+  // Story 4.2f : `found=false` **avec** son second porteur — les deux pages doivent en tirer le
+  // même quatrième état, sans quoi le même corps serait badgé « inconnu » d'un côté seulement.
+  { found: false, complete: false, lecture_partielle: { nodes_read: 2, blocks_read: 5 } },
   null,
 ];
 cas.etats = ETATS.map((a) => ({
@@ -139,6 +148,22 @@ cas.preuves = PREUVES.map((r) => ({
   entree: r,
   chat: guide.CHAT.preuveAbsence(r),
   sinistre: sinistre.SINISTRE.preuveAbsence(r),
+}));
+
+// Story 4.2f : le chiffre de la lecture bornée, écrit deux fois pour la même raison que la preuve
+// d'absence (D8 : les pages `tools/` n'importent rien de `web/app/`), donc amarré ici.
+const LECTURES = [
+  { nodes_read: 3, blocks_read: 12, documents: [] },
+  // Le plancher du domaine : `blocks_read >= 1` (zéro bloc transmis est un `BudgetExceeded`
+  // terminal), `nodes_read` reste `ge=0` — la page ne fabrique aucun nombre à sa place.
+  { nodes_read: 1, blocks_read: 1, documents: [] },
+  { nodes_read: 0, blocks_read: 1, documents: [] },
+  null,
+];
+cas.lectures = LECTURES.map((l) => ({
+  entree: l,
+  chat: guide.CHAT.lectureLue(l),
+  sinistre: sinistre.SINISTRE.lectureLue(l),
 }));
 
 // I1, revue 2.5 : l'absence de gate et l'alerte `sans_gate` décrivent le **même** fait. Les

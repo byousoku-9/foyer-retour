@@ -9,7 +9,7 @@ from server.app.api.conversation_token import signer, verifier
 from server.app.api.etat import _conversation_secret
 from server.app.api.main import create_app
 from server.app.config import Settings
-from server.app.domain.answer import AbsenceProof, Answer
+from server.app.domain.answer import AbsenceProof, Answer, LecturePartielle
 from server.app.domain.conversation import (
     FACT_KEY_MAX,
     ContinuationState,
@@ -68,6 +68,66 @@ def _state():
         pipeline_digest="pipeline", prompts_digest="prompts", request_id="r-0",
         faits=Faits(description="Une bougie est tombée sur le canapé.", montant_eur=1200),
         answer=answer, decision_claims=[claim])
+
+
+def _state_lecture_partielle():
+    """Story 4.2f : un premier tour dont la **lecture a été bornée** et où rien n'a survécu.
+
+    Aucune clause vérifiée, donc aucune `ClaimJugee` décisionnelle : le fil s'ouvre sur les seules
+    questions du paquet manquant, exactement comme un `ne_tranche_pas` ordinaire. Ce qui change est
+    le porteur de l'`Answer` — une `LecturePartielle` au lieu d'une `AbsenceProof` — et c'est lui
+    que chaque tour de suivi doit savoir reconduire.
+    """
+    verdict = decider([], ask_client_max=3, missing=MissingPackage())
+    answer = Answer(
+        found=False, complete=False, texte="Ma lecture du contrat s'est arrêtée avant de conclure.",
+        lecture_partielle=LecturePartielle(nodes_read=1, blocks_read=4, documents=["cg"]),
+        unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre."],
+        verdict=verdict, faits_compris=QuestionScope(bien="canapé", cause="bougie"))
+    return initialiser(
+        doc_id="cg", source_hash="source", ingest_fingerprint="ingest",
+        pipeline_digest="pipeline", prompts_digest="prompts", request_id="r-0",
+        faits=Faits(description="Une bougie est tombée sur le canapé.", montant_eur=1200),
+        answer=answer, decision_claims=[])
+
+
+def test_un_suivi_sur_une_lecture_partielle_reste_servable() -> None:
+    """P1 : le porteur est reconduit **avec** ce qu'il annonçait manquer, sinon le fil casse.
+
+    Le suivi ne relit rien : la borne du premier tour vaut encore à chaque tour. Vider `unknown[]`
+    en gardant le porteur faisait lever le domaine — et `run_followup` convertissait ce
+    `ValidationError` en `InvalidRequest`, donc un 400 portant un message de validation interne à
+    tous les tours du fil.
+    """
+    state = _state_lecture_partielle()
+    assert state.answer.lecture_partielle is not None
+    question = next(q for q in state.questions if q.status == "active")
+    updated = appliquer(
+        state, ConversationAction(question_id=question.question_id, value="non"),
+        request_id="r-1", ask_client_max=3)
+    # L'invariant du domaine tient : un porteur, et un seul, avec sa lacune.
+    assert updated.answer.found is False and updated.answer.reason is None
+    assert updated.answer.lecture_partielle == state.answer.lecture_partielle
+    assert updated.answer.unknown == state.answer.unknown
+    assert updated.answer.verdict is not None
+    # Et le fil reste ouvert : un second tour ne casse pas davantage.
+    encore = next(q for q in updated.questions if q.status == "active")
+    troisieme = appliquer(
+        updated, ConversationAction(question_id=encore.question_id, value="oui"),
+        request_id="r-2", ask_client_max=3)
+    assert troisieme.answer.lecture_partielle == state.answer.lecture_partielle
+    assert troisieme.answer.unknown == state.answer.unknown
+
+
+def test_un_suivi_ordinaire_ne_reconduit_aucune_lecture_partielle() -> None:
+    """Le pendant : un premier tour muni de sa preuve d'absence garde ses propres réserves."""
+    state = _state()
+    question = next(q for q in state.questions if q.kind == "fait" and q.claim_id)
+    updated = appliquer(
+        state, ConversationAction(question_id=question.question_id, value="oui"),
+        request_id="r-1", ask_client_max=3)
+    assert updated.answer.lecture_partielle is None
+    assert updated.answer.unknown == []  # `couvert` : plus rien à réserver
 
 
 def test_premier_tour_source_les_faits_et_propose_deux_a_trois_questions() -> None:
@@ -462,6 +522,60 @@ def test_api_suivi_valide_avant_cout_et_trace_les_cinq_etapes() -> None:
         })
         assert rejected.status_code == 400
         assert len(double.appels) == 1
+
+
+def test_api_un_fil_ouvert_sur_une_lecture_partielle_ne_casse_a_aucun_tour() -> None:
+    """P1, sur la surface HTTP : le défaut se voyait au second appel, pas au premier.
+
+    Le premier tour rendait bien 200 avec son jeton et ses questions actives — le fil s'ouvrait
+    normalement. C'est `/suivi` qui ressortait en 400 avec le texte d'une `ValidationError` pydantic
+    dans le corps, à chaque tour : tout gestionnaire dont l'analyse initiale tombait sur une lecture
+    bornée héritait d'un fil ouvert et inutilisable.
+    """
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        answer = Answer(
+            found=False, complete=False,
+            texte="Ma lecture du contrat s'est arrêtée avant de conclure.",
+            lecture_partielle=LecturePartielle(nodes_read=1, blocks_read=4,
+                                               documents=["cg-mini"]),
+            unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre."],
+            verdict=decider([], ask_client_max=3, missing=MissingPackage()),
+            faits_compris=QuestionScope(bien="canapé"))
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = Double((answer, _trace()))
+
+        first = client.post(
+            "/api/v1/sinistre", json=_corps(), headers={**XFF, "X-Sinistre-Conversation": "1"})
+        assert first.status_code == 200
+        assert first.json()["answer"]["lecture_partielle"] == {
+            "nodes_read": 1, "blocks_read": 4, "documents": ["cg-mini"]}
+        conversation = first.json()["conversation"]
+        question = next(q for q in conversation["questions"] if q["status"] == "active")
+
+        followup = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": conversation["token"],
+            "question_id": question["question_id"], "value": "non",
+        })
+
+        assert followup.status_code == 200, followup.text
+        corps = followup.json()
+        # Le porteur est reconduit avec sa réserve : le suivi n'a rien relu, la borne vaut encore.
+        assert corps["answer"]["lecture_partielle"] == {
+            "nodes_read": 1, "blocks_read": 4, "documents": ["cg-mini"]}
+        assert corps["answer"]["reason"] is None and corps["answer"]["unknown"]
+        assert corps["answer"]["verdict"]["value"] in {
+            "couvert", "non_couvert", "sous_conditions", "ne_tranche_pas"}
+        # Et le tour suivant non plus ne casse pas : le fil est réellement utilisable.
+        suivante = next(q for q in corps["conversation"]["questions"] if q["status"] == "active")
+        second = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": corps["conversation"]["token"],
+            "question_id": suivante["question_id"], "value": "oui",
+        })
+        assert second.status_code == 200, second.text
+        assert second.json()["answer"]["lecture_partielle"] is not None
 
 
 def test_api_refuse_un_digest_perime_avant_le_pipeline() -> None:

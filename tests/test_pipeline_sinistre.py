@@ -829,27 +829,44 @@ async def test_a_truncated_read_with_no_surviving_clause_never_proves_an_absence
 
     « Aucune clause du contrat n'a été retrouvée » lu au terme d'une lecture **bornée** est une
     affirmation d'assureur que rien n'appuie : NFR2 et AD-1 l'interdisent (« budget épuisé ou
-    troncature non résolue ⇒ jamais d'`AbsenceProof` »). Échec terminal avec sa trace partielle
-    (AD-16), et le verdict `ne_tranche_pas` ne sert pas de couverture à une preuve fabriquée.
+    troncature non résolue ⇒ jamais d'`AbsenceProof` »). Cette interdiction-là ne bouge pas.
+
+    **Story 4.2f : ce n'est plus un 503 pour autant.** Le gestionnaire recevait « L'analyse est
+    indisponible pour le moment » alors que rien n'était en panne — la lecture avait eu lieu, elle
+    était insuffisante. La réponse est désormais un 200 typé : `found=false`, aucune preuve
+    d'absence, une `LecturePartielle` chiffrée, la lacune `lecture_bornee`, les affirmations
+    écartées, et le `ne_tranche_pas` calculé par la règle (0bis) d'AD-6 — jamais un verdict de
+    remplacement.
     """
     settings = _settings(retrieval_max_blocks=1)
-    with pytest.raises(BudgetExceeded, match="aucune absence du contrat n'est affirmée") as capture:
-        await _run(index, [_comprendre(), _rediger(MAUVAISE),
-                           _rediger(("c9", "Autre tentative, aussi fausse.",
-                                     [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")]))],
-                   settings=settings)
-    trace = capture.value.trace
-    assert trace is not None and trace.truncations == 1
+    answer, trace, _fake = await _run(
+        index, [_comprendre(), _rediger(MAUVAISE),
+                _rediger(("c9", "Autre tentative, aussi fausse.",
+                          [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")]))],
+        settings=settings)
+    assert trace.truncations == 1
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
-                                             "rediger", "verifier"]
+                                             "rediger", "verifier", "restituer"]
+    assert answer.found is False and answer.complete is False and answer.reason is None
+    assert answer.lecture_partielle is not None
+    assert answer.lecture_partielle.blocks_read == 1 and answer.lecture_partielle.nodes_read == 1
+    assert answer.lecture_partielle.documents == [DOC_ID]
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    # AD-6/AD-16 : jamais un sinistre sans verdict, et jamais un verdict de remplacement.
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert answer.faits_compris is not None and answer.faits_compris.bien == "mobilier de salon"
+    assert answer.rejected_claims
+    # La phrase servie est celle du **sinistre**, jamais celle du guide.
+    assert "contrat" in answer.texte and "guide" not in answer.texte
 
 
 async def test_une_contradiction_sur_un_segment_identique_ne_vide_plus_une_lecture_tronquee(
         index: Index) -> None:
     """Story 4.2a-bis, la surface de l'incident : sous lecture tronquée, un `soutenu=false` scripté
     sur un segment byte-identique à sa claim retenue ne vide plus la réponse — le segment est dérivé
-    de la pertinence, affiché, `found=true`, et ni `TruncatedRead`/503 ni refus `claims_rejetes`.
-    Le vrai zéro-claim tronqué, lui, lève toujours `TruncatedRead` (test ci-dessus).
+    de la pertinence, affiché, `found=true`, et ni 503 ni refus `claims_rejetes`.
+    Le vrai zéro-claim tronqué, lui, rend depuis la story 4.2f un 200 typé portant une
+    `LecturePartielle` (test ci-dessus) — et non plus un `TruncatedRead`.
 
     `retrieval_max_blocks=4` : la lecture est bien tronquée (l'exclusion `p2:1` reste fermée,
     `trace.truncations == 1`) **et** la clause citée `p1:2` est fournie — c'est la configuration de

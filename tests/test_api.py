@@ -37,6 +37,7 @@ from server.app.domain.answer import (
     Answer,
     AnswerSegment,
     ClaimStatus,
+    LecturePartielle,
     Quote,
     RejectedClaim,
     VerifiedClaim,
@@ -1254,6 +1255,35 @@ def test_la_ligne_de_log_porte_les_champs_dad10_et_aucun_texte(prod: TestClient,
     assert secret not in brut and "terms_searched" not in brut and "arrivee" not in brut
 
 
+def test_le_journal_nomme_une_lecture_partielle_au_lieu_de_la_taire(
+        prod: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Story 4.2f : la bascule 503 → 200 ne doit pas rendre ce chemin invisible au journal.
+
+    Avant le diff, ces requêtes sortaient en lignes d'erreur `budget_exceeded` : parfaitement
+    repérables. Servies en 200 avec `reason_kind=null`, elles devenaient indistinguables de
+    n'importe quelle autre réponse, alors qu'AD-10 fait précisément de ces champs le support de
+    « l'analytique des échecs ». Le mot posé est celui du harness d'évals (`lecture_tronquee`) : le
+    vocabulaire ne change ni avec le code HTTP, ni avec le lecteur.
+    """
+    answer = Answer(found=False, complete=False, texte="Ma lecture s'est arrêtée avant de conclure.",
+                    lecture_partielle=LecturePartielle(nodes_read=2, blocks_read=5,
+                                                       documents=[DOC_ID]),
+                    unknown=["Je n'ai pas pu lire tout ce qui pouvait concerner votre question."])
+    _brancher(prod, Double((answer, _trace(intent="question", total_cost_eur=0.018))), mini=True)
+
+    with caplog.at_level(logging.INFO, logger="foyer.request"):
+        r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+
+    assert r.status_code == 200
+    ligne = [json.loads(rec.message) for rec in caplog.records
+             if rec.name == "foyer.request"][-1]
+    assert ligne["found"] is False and ligne["reason_kind"] == "lecture_tronquee"
+    # Les deux compteurs d'un balayage restent nuls : ils mesurent autre chose que ce qui a été lu,
+    # et les renseigner ici mélangerait deux grandeurs dans la même colonne.
+    assert ligne["variants_count"] is None and ligne["blocks_scanned"] is None
+    assert ligne["cost_eur"] == 0.018 and ligne["status"] == 200
+
+
 def test_un_champ_hors_liste_ne_peut_pas_sortir_par_le_journal(caplog: pytest.LogCaptureFixture) -> None:
     """AD-10 clôt la liste des champs logués : une route future ne peut pas la contourner.
 
@@ -1445,6 +1475,57 @@ def test_une_reponse_partielle_traverse_lenveloppe_avec_ce_qui_lui_manque(prod: 
     assert j["sources"], "une réponse partielle reste sourcée : elle est amputée, pas inventée"
 
 
+# --- story 4.2f : une lecture partielle traverse l'enveloppe en 200 typé ---
+def test_une_lecture_partielle_est_publiee_en_200_avec_ses_compteurs(prod: TestClient) -> None:
+    """AD-11 : « toute sortie du pipeline est un 200 avec `Answer` complet ». La docstring des routes
+    le disait déjà ; sur ce chemin, elle redevient exacte.
+
+    L'AC nomme la sérialisation séparément parce que rien n'a été ajouté aux schémas : `ChatResponse`
+    publie `answer` entier, donc le nouveau porteur traverse sans modification de contrat. C'est
+    précisément ce que ce test garde — le jour où quelqu'un projetterait `Answer` champ par champ,
+    `lecture_partielle` disparaîtrait en silence et le front peindrait `reponse_illisible`.
+    """
+    manques = ["Je n'ai pas pu lire tout ce qui pouvait concerner votre question."]
+    rejetee = RejectedClaim(
+        claim_id="c9", text="Une affirmation que la vérification a écartée.",
+        quotes=[{"block_id": f"{DOC_ID}:farrivee:2", "quote": "chaîne rendue par le modèle"}],
+        status=ClaimStatus(retrouvee=False, pertinente=None, edition="git:test"),
+        rejection_kind="non_retrouvee", motif="citation introuvable")
+    answer = Answer(found=False, complete=False, texte="Ma lecture s'est arrêtée avant de conclure.",
+                    segments=[AnswerSegment(text="Ma lecture s'est arrêtée avant de conclure.",
+                                            kind="limite")],
+                    rejected_claims=[rejetee],
+                    lecture_partielle=LecturePartielle(nodes_read=2, blocks_read=5,
+                                                       documents=[DOC_ID]),
+                    unknown=manques)
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
+    j = r.json()
+
+    assert r.status_code == 200
+    assert j["answer"]["found"] is False and j["answer"]["complete"] is False
+    # Aucune absence affirmée : c'est l'invariant que le 503 protégeait, tenu sans la panne.
+    assert j["answer"]["reason"] is None
+    assert j["answer"]["lecture_partielle"] == {"nodes_read": 2, "blocks_read": 5,
+                                                "documents": [DOC_ID]}
+    # `sources[]` n'énumère que `answer.claims` (AD-11) : il n'y en a aucune, et les affirmations
+    # écartées voyagent dans `answer`, où le front les lit.
+    assert j["sources"] == []
+    assert [c["rejection_kind"] for c in j["answer"]["rejected_claims"]] == ["non_retrouvee"]
+    assert j["unknown"] == manques and j["answer"]["unknown"] == manques
+
+
+def test_lenveloppe_refuse_les_deux_porteurs_a_la_fois() -> None:
+    """L'invariant d'AD-4 amendé, vérifié au bord du contrat HTTP : rien ne peut publier un refus qui
+    dise à la fois « le corpus n'en parle pas » et « je n'ai pas fini de le lire »."""
+    with pytest.raises(ValidationError, match="exactement un porteur"):
+        Answer(found=False, complete=False, texte="x",
+               reason=AbsenceProof(kind="claims_rejetes"),
+               lecture_partielle=LecturePartielle(nodes_read=1, blocks_read=1),
+               unknown=["il manque des passages"])
+
+
 def test_le_domaine_refuse_une_reponse_partielle_muette() -> None:
     """L'invariant d'AD-4 tel que la story 2.3 le complète, vérifié au bord du contrat HTTP : rien
     ne peut publier un « partiel » sans dire ce qui manque."""
@@ -1504,6 +1585,71 @@ def _pipeline_reel(script: list[dict], *, fake: Any = None) -> Any:
                                           doc_id=DOC_ID, **kw)
 
     return appeler
+
+
+def _pipeline_reel_borne(script: list[dict], **reglages: Any) -> Any:
+    """`_pipeline_reel`, avec des seuils resserrés : c'est la borne qui fait la lecture partielle.
+
+    Les réglages passent par `Settings.model_copy` plutôt que par l'application partagée du module :
+    le pipeline reste le vrai, la route reste la vraie, et seul le budget de retrieval de **cette**
+    requête change.
+    """
+    from server.app.llm.client import LlmClient
+    from tests.llm_fake import FakeAnthropic
+
+    anthropic_fake = FakeAnthropic(script)
+
+    async def appeler(question: str, historique: list, profil: Any, **kw: Any):
+        settings = kw.pop("settings").model_copy(update=reglages)
+        kw["client"] = LlmClient(settings, anthropic_client=anthropic_fake)
+        return await guide.repondre_guide(question, historique, profil, settings=settings,
+                                          doc_id=DOC_ID, **kw)
+
+    return appeler
+
+
+def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: TestClient) -> None:
+    """Story 4.2f, la surface **composée** : pipeline réel → route → 200 typé.
+
+    La bascule était prouvée à deux endroits disjoints — le pipeline sans HTTP, l'enveloppe avec un
+    double à la place du pipeline et une `Answer` écrite à la main. Ni l'un ni l'autre ne dit que les
+    deux se rejoignent : c'est **ici** que la borne du retrieval, la vérification qui ne retient
+    rien, la fabrique de *restituer* et la projection HTTP se rencontrent sur une seule requête.
+    """
+    from server.app.llm.models import TIERS
+    from tests.llm_fake import fake_message
+
+    corpus, index = _mini_corpus()
+    etat = prod.app.state.foyer
+    etat.corpus, etat.index = corpus, index
+    # L'ébauche cite un bloc **réel mais non transmis** : la citation ne peut pas être retenue, et
+    # la relance rejoue la même — c'est la configuration exacte de la story.
+    ebauche = {"segments": [{"text": "Une affirmation.", "kind": "factuel", "claim_ids": ["c1"]}],
+               "claims": [{"claim_id": "c1", "text": "Une affirmation.",
+                           "quotes": [{"block_id": f"{DOC_ID}:q1:2", "quote": FAQ_R[:40]}]}]}
+    script = [_script_du_mini_guide()[0],
+              fake_message(model=TIERS["reason"], text=json.dumps(ebauche)),
+              fake_message(model=TIERS["reason"], text=json.dumps(ebauche))]
+    etat.pipeline = _pipeline_reel_borne(script, retrieval_max_blocks=1)
+
+    r = prod.post("/api/v1/chat", json={"question": "Quel délai après mon arrivée ?", "profil": {},
+                                        "variant": "deterministe"}, headers=XFF)
+
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["answer"]["found"] is False and j["answer"]["complete"] is False
+    assert j["answer"]["reason"] is None  # aucune absence affirmée, et aucune 503
+    lue = j["answer"]["lecture_partielle"]
+    # Les compteurs viennent du **vrai** retrieval, pas d'un objet écrit à la main : ils doivent
+    # retomber sur ce que la trace de la même requête dit avoir ouvert.
+    ouverts = [b for s in j["trace"]["steps"] for b in s.get("opened_block_ids", [])]
+    assert lue["blocks_read"] == len(set(ouverts)) >= 1
+    assert 1 <= lue["nodes_read"] <= lue["blocks_read"]
+    assert lue["documents"] == [DOC_ID]
+    assert j["trace"]["truncations"] == 1
+    assert j["answer"]["rejected_claims"] and j["sources"] == []
+    assert j["unknown"] and j["answer"]["unknown"] == j["unknown"]
+    assert [s["name"] for s in j["trace"]["steps"]][-1] == "restituer"
 
 
 @pytest.mark.parametrize("variant", [None, "outils"])

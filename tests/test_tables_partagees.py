@@ -123,12 +123,20 @@ def test_les_phrases_detat_du_chat_et_du_sinistre_sont_identiques(cas: dict[str,
     for entree in cas["phrases_etat"]:
         for mot in ("guide", "contrat", "conditions générales"):
             assert mot not in entree["chat"], (mot, entree)
+    # Story 4.2f : la phrase du quatrième état n'annonce ni panne ni absence — c'est tout son objet.
+    partielles = [e["chat"] for e in cas["phrases_etat"]
+                  if (e["entree"] or {}).get("cle") == "lecture-partielle"]
+    assert len(partielles) == 4 and len(set(partielles)) == 4  # les deux drapeaux comptent
+    for phrase in partielles:
+        assert phrase.startswith("ma lecture s'est arrêtée avant de conclure")
+        assert "indisponible" not in phrase
 
 
 def test_les_trois_etats_sont_derives_pareil_des_deux_booleens(cas: dict[str, Any]) -> None:
     for entree in cas["etats"]:
         assert entree["chat"] == entree["sinistre"], entree
-    assert [e["chat"]["cle"] for e in cas["etats"]] == ["sur", "partiel", "inconnu", "inconnu"]
+    assert [e["chat"]["cle"] for e in cas["etats"]] == [
+        "sur", "partiel", "inconnu", "lecture-partielle", "inconnu"]
 
 
 def test_la_preuve_dabsence_est_chiffree_pareil_des_deux_cotes(cas: dict[str, Any]) -> None:
@@ -307,3 +315,32 @@ def test_chaque_module_est_monte_dans_un_contexte_neuf() -> None:
     # Un `monter()` par module comparé : guide, accueil, sinistre, site.
     assert source.count("= monter(") == 4, source.count("= monter(")
     assert "vm.createContext" in source
+
+
+def test_le_chiffre_de_la_lecture_bornee_est_le_meme_des_deux_cotes(cas: dict[str, Any]) -> None:
+    """Story 4.2f : le pendant de la preuve d'absence pour le second porteur d'un `found=false`.
+
+    La même donnée, rendue en deux phrases différentes selon la page, aurait fait croire à deux
+    mesures. Comme la preuve, les compteurs s'affichent **même à zéro** — « la navigation n'a rien
+    fait entrer » et « douze passages sont partis au modèle » sont deux situations distinctes — et
+    la phrase ne nomme aucun document.
+    """
+    for entree in cas["lectures"]:
+        assert entree["chat"] == entree["sinistre"], entree
+    par_entree = {json.dumps(e["entree"], sort_keys=True): e["chat"] for e in cas["lectures"]}
+    grand = par_entree[json.dumps({"nodes_read": 3, "blocks_read": 12, "documents": []},
+                                  sort_keys=True)]
+    assert grand == ("Lecture partielle : 3 sections lues, 12 passages transmis au modèle "
+                     "— le reste n'a pas été lu, et rien n'en est affirmé")
+    petit = par_entree[json.dumps({"nodes_read": 1, "blocks_read": 1, "documents": []},
+                                  sort_keys=True)]
+    assert petit.startswith("Lecture partielle : 1 section lue, 1 passage")
+    # `blocks_read` plancher à 1 (zéro bloc transmis reste un `BudgetExceeded` terminal) ;
+    # `nodes_read` reste `ge=0`, et la page l'affiche tel quel plutôt que d'inventer un nombre.
+    sans_section = par_entree[json.dumps({"nodes_read": 0, "blocks_read": 1, "documents": []},
+                                         sort_keys=True)]
+    assert sans_section.startswith("Lecture partielle : 0 section lue, 1 passage")
+    assert par_entree["null"] == ""
+    for entree in cas["lectures"]:
+        for mot in ("guide", "contrat", "conditions générales"):
+            assert mot not in entree["chat"], (mot, entree)
