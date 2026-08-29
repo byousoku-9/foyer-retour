@@ -130,28 +130,40 @@ de son rapport, et rien d'autre. Ce que l'appelant annonçait — admissibilité
 | `admissible` | `complete`, `unexecuted_cases` vide, et toutes les décisions `green` d'un producteur orchestrateur |
 
 S'y ajoutent, avant tout tri, les recoupements de `verifier_identite_externe` : `plancher_digest`
-racine et les **cinq** champs de l'image candidate (`pipeline_digest`, `prompts_digest`,
-`model_ids`, `normalize_version`, `plancher_digest`). Le premier écart lève `ClassementInvalide` —
-jamais un tri dégradé, jamais une tête par défaut ; la CLI le rend en code 2 sans imprimer de
-classement. Le classement matérialise aussi son argument avant de le parcourir deux fois : un
-générateur épuisé aurait rendu un classement vide, donc `aucun_admissible` sur des candidats réels.
+racine et les **cinq** champs de l'image (`pipeline_digest`, `prompts_digest`, `model_ids`,
+`normalize_version`, `plancher_digest`). Le premier écart lève `ClassementInvalide` — jamais un tri
+dégradé, jamais une tête par défaut ; la CLI le rend en code 2 sans imprimer de classement. Deux
+candidats homonymes ferment aussi : un artefact de promotion où l'on ne sait pas lequel a été promu
+n'est pas auditable. Le classement matérialise enfin son argument avant de le parcourir deux fois :
+un générateur épuisé aurait rendu un classement vide, donc `aucun_admissible` sur des candidats
+réels.
+
+**Les deux références sont ancrées, pas reçues.** `classer_configurations` dérive elle-même le
+`plancher_digest` (`charger_plancher()`) et l'image (`image_du_depot()`, miroir de
+`run.image_du_run`) du processus qui l'exécute. Il n'existe **aucun paramètre** pour les remplacer,
+ni de voie « pour les tests ». Ce qui reste un paramètre est `candidate_revision`, et c'est la
+question posée — « classe les configurations de ce commit » —, pas une référence de confiance : elle
+n'ouvre rien, puisque chaque rapport doit l'avoir mesurée. Ce que le dépôt exécute réellement est
+opposé ailleurs, par `revision_executee`.
 
 `Configuration` est le **résultat**, pas l'entrée : ses trois empreintes y sont obligatoires et bien
-formées, et `verifier_identite_classement` reste exposé pour qu'un futur chemin de promotion s'y
-adosse — il refuse une identité absente, mal formée, ou deux révisions candidates dans la même
-liste.
+formées, et leur valeur vient du recalcul, jamais d'un appelant. Il n'y a plus de garde d'identité
+après la construction — toutes les empreintes viennent d'être recalculées et la révision est la même
+pour toutes par construction, donc aucune branche d'un tel garde ne serait atteignable, et un
+contrôle qu'aucun chemin ne peut faire échouer donne l'apparence d'une garantie sans en être une.
 
 L'artefact de promotion porte, à sa racine, le `plancher_digest` et la révision **effectivement
 opposée** par le classement ; il sort en code 0, en code 1 quand aucune configuration n'est
 admissible — un rouge publié, jamais une question —, et en code 2 sur un refus de classer.
 
-Trois tours ont fermé ce chemin par couches, et les deux premières ne suffisaient pas : la voie CLI
-(`--candidate-revision` requis), puis la présence et la **syntaxe** des trois empreintes. Un domaine
-de valeur n'est pas une preuve : `Configuration(admissible=True, candidate_revision="a"*40,
-run_digest="b"*64, report_digest="c"*64)` était encore classée **en tête**. Un objet marqué
-« vérifié », un drapeau ou un constructeur privé auraient été contournables de la même façon ; seul
-le recalcul depuis des octets ferme la cause. Il n'y a **aucun paramètre** pour le désarmer.
-Reproduction : `pytest -q tests/test_plancher.py -k classement`.
+Quatre couches ont été nécessaires, et les trois premières ne suffisaient pas : la voie CLI
+(`--candidate-revision` requis), puis la présence et la **syntaxe** des trois empreintes, puis leur
+**recalcul** depuis les octets. Le recalcul ne prouvait encore que la cohérence interne du rapport :
+un appelant qui fabriquait un rapport auto-cohérent — `empreinte_canonique` est publique — et
+passait le même `plancher_digest` et la même `image_courante` obtenait toujours une tête
+`admissible: true`, sur un plancher et une image qui n'existent nulle part. Ancrer les références au
+processus est ce qui ferme la cause. Reproduction :
+`pytest -q tests/test_plancher.py -k classement`.
 
 ## Interdits
 

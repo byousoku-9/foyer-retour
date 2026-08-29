@@ -327,10 +327,11 @@ journal de CI lit sans que la validation l'exige produirait un `KeyError` nu, qu
 | `metrics.labels` | incomplet : les **sept** labels fixes d'AD-14 sont exigés, zéros compris |
 | chaque entrée de `results` | non-objet, ou privée de `id`/`suite`/`variant`/`label` (chaînes **non vides**), `cost_eur`/`cost_eur_original` (réels finis **≥ 0**), `latency_ms` (entier **≥ 0**) |
 | `results[i].suite`, `results[i].label` | hors des vocabulaires **littéraux** — les trois suites livrées, les sept labels d'AD-14 |
-| `stability` présent | sans `cases`, `cases` non-objet, `n` absent/non entier ≥ 1, `n ≠ repeat`, ou une entrée dont `stable`/`comptabilise` manque ou n'est pas un **booléen** (`"oui"` n'est pas `True`) — jamais un `0/0` ni un `1/1` fabriqué |
+| `stability` présent | sans `cases`, `cases` non-objet **ou vide**, `n` absent/non entier ≥ 1, `n ≠ repeat`, ou une entrée dont `stable`/`comptabilise` manque ou n'est pas un **booléen** (`"oui"` n'est pas `True`) — jamais un `0/0` ni un `1/1` fabriqué |
 | `decisions` | non vides sans `plancher_digest` racine ; absentes alors que `plancher_digest` est présent ; mal typées ; ou une entrée non-objet |
-| chaque entrée de `decisions` | `metric`/`producer`/`scope`/`status` non-chaînes ou vides, `status` hors `{green, red}`, `producer` hors `{builder, orchestrator}`, `threshold`/`value` non finis ou hors `[0, 1]`, `n` non entier, `run_digest` mal formé, `reason` ni chaîne ni `null` — **aucune coercition** : `"3"` n'est pas `3` |
-| `decisions[i].run_digest` | ni l'empreinte de ce run, ni une empreinte déclarée dans `external_run_digests` — une décision opposée à aucun run |
+| chaque entrée de `decisions` | une **clé inconnue** (le vocabulaire est fermé), `metric`/`producer`/`scope`/`status` non-chaînes ou vides, `status` hors `{green, red}`, `producer` hors `{builder, orchestrator}`, `threshold`/`value` non finis ou hors `[0, 1]`, `n` non entier ou `< 0`, `run_digest` mal formé, `reason` ni chaîne ni `null` — **aucune coercition** : `"3"` n'est pas `3` |
+| `decisions[i].run_digest` | ni l'empreinte de ce run, ni une empreinte déclarée dans `external_run_digests` ; ou une empreinte étrangère sur une décision qui n'est pas `producer="orchestrator"` |
+| `external_run_digests` | non-liste, empreinte mal formée, ou empreinte déclarée qu'aucune décision ne porte — contrôlée **même quand le rapport n'a aucune décision** |
 | `reserves` présentes | non-objet, champ absent, ou champ non booléen — une réserve illisible n'est pas une réserve absente |
 
 Ce qui peut **légitimement** manquer reste distinct de ce qui manque à tort : `stability` sous un run
@@ -353,11 +354,21 @@ indiscernable d'un rapport qui n'en porte pas.
 Le vocabulaire des labels est contrôlé **par égalité** : une clé manquante levait un `KeyError` nu,
 une clé en trop aurait publié un huitième label sans en être un (AD-14 : « labels fixes »).
 
-`external_run_digests` est la seule façon dont un rapport déclare les empreintes de run qui ne sont
-pas la sienne : celles des décisions venues d'une preuve `--orchestrator-evidence`, que
-`verifier_liaison_preuve` a déjà opposées aux octets de leur propre rapport. Le runner ne l'écrit
-que lorsqu'il y en a — une liste vide qu'il faudrait ensuite interpréter serait la faute même que ce
+`external_run_digests` est la façon dont un rapport déclare les empreintes de run qui ne sont pas la
+sienne : celles des décisions venues d'une preuve `--orchestrator-evidence`. Le runner ne l'écrit que
+lorsqu'il y en a — une liste vide qu'il faudrait ensuite interpréter serait la faute même que ce
 module refuse.
+
+**Ce que cette déclaration établit, et ce qu'elle n'établit pas.** `valider_rapport_publiable` lit un
+rapport, c'est-à-dire une entrée non fiable : elle ne peut donc pas vérifier qu'une empreinte
+étrangère vient d'une preuve réelle, et prétendre le contraire annoncerait une liaison qui n'a pas
+lieu ici. Ce qu'elle établit est une **cohérence interne**, stricte : une empreinte étrangère n'est
+admise que sur une décision `producer="orchestrator"` — le runner n'écrit jamais que sa propre
+empreinte pour ses propres mesures —, et toute empreinte déclarée doit être **portée** par au moins
+une décision, faute de quoi c'est une porte ouverte et non une donnée. La liaison cryptographique de
+la preuve à ce candidat a lieu **en amont**, dans `charger_decisions_orchestrateur` →
+`verifier_liaison_preuve`, avant qu'aucune décision externe n'existe ; un refus y sort en code 2 et
+aucun gate n'est écrit.
 
 ### La seconde lecture (FR47)
 
