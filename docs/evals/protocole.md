@@ -128,6 +128,16 @@ Une configuration candidate porte `candidate_revision` (40 hexadécimaux), `run_
 3. `_configuration_depuis_rapport` oppose l'identité du rapport avant de la lire (protocole,
    révision, image, `run_digest` recalculé, `unexecuted_cases` exigé).
 
+`frozen` sur le modèle ferme l'affectation d'attribut, et rien de plus : `model_copy(update=…)` et
+`model_construct(…)` produisent toujours une copie amputée. Ce qui **tient** la propriété est le
+point 2, pas le point 1. Le classement matérialise aussi son argument avant de le parcourir deux
+fois : un générateur épuisé aurait rendu un classement vide, donc `aucun_admissible` sur des
+candidats bien réels.
+
+L'artefact de promotion porte, à sa racine, le `plancher_digest` et la révision **effectivement
+opposée** par le classement ; il sort en code 0, en code 1 quand aucune configuration n'est
+admissible — un rouge publié, jamais une question —, et en code 2 sur un refus de classer.
+
 Le contrôle n'existait auparavant que sur la voie CLI : n'importe quel appelant bibliothèque
 obtenait un classement — donc un candidat en tête — sans révision, sans run ni rapport. Un contrôle
 que l'appelant peut ne pas demander n'est pas un contrôle, et il n'y a donc **aucun paramètre** pour

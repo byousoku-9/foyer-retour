@@ -286,27 +286,43 @@ chiffre inventé.
 `server/evals/publication.py::valider_rapport_publiable` est **la** lecture du rapport : tous les
 chemins qui alimentent les quatre surfaces l'appellent — `construire_publication`,
 `stabilite_du_rapport`, `limites_du_rapport`, et `run.rendre_markdown` pour le résumé de CI. Aucune
-seconde lecture permissive ne subsiste, et plus aucun repli `or 0.0`, `or {}` ou `or 0` ne peut
-transformer une donnée invalide en chiffre plausible. Le refus est un `RapportInexploitable` qui
-**nomme la clé et sa raison typée**, levé *avant* qu'aucune surface n'affiche quoi que ce soit.
+seconde lecture permissive ne subsiste, et **aucune mesure chiffrée** n'est plus tirée d'un repli
+`or 0.0`, `or {}` ou `or 0`. Le refus est un `RapportInexploitable` qui **nomme la clé et sa raison
+typée**, levé *avant* qu'aucune surface n'affiche quoi que ce soit.
 
-Sont refusés :
+La couverture est celle des clés que les rendus partagés **indexent réellement** : une clé que le
+journal de CI lit sans que la validation l'exige produirait un `KeyError` nu, qui n'est pas une
+`ValueError` et ressortirait du runner en « incident technique », code 3 — un défaut de données
+étiqueté panne (revue R1). Sont donc refusés :
 
 | donnée | refus |
 |---|---|
 | `profile` | absent, non-chaîne, ou vide |
-| `complete`, `unexecuted_cases`, `identity`, `results` | absents ou mal typés ; une entrée de `results` non-objet |
-| `cost_eur` | absent, `None`, booléen, non numérique ou non fini |
-| `metrics.recall`, `.average_cost_eur`, `.cost_p95_eur`, `.ne_tranche_pas_rate` | idem |
-| `metrics.latency_p50_ms`, `.latency_p95_ms` | idem, et non entiers (arrondir une latence l'inventerait) |
-| `metrics.labels`, `metrics.variants` | absents, `None` ou non-objets — jamais rabattus sur `{}` |
+| `complete`, `unexecuted_cases`, `identity`, `results` | absents ou mal typés |
+| `cases_hash`, `cases_planned`, `cases_completed` | absents ou mal typés (le journal les indexe) |
+| `stop_reason` | **absent** ; `None` est une valeur légitime — « pas d'arrêt » — mais la clé doit être là |
+| `cost_eur` | absent, `None`, booléen, non numérique, non fini, ou négatif |
+| `metrics.recall`, `.ne_tranche_pas_rate` | idem, et hors de `[0, 1]` |
+| `metrics.average_cost_eur`, `.cost_p95_eur` | idem, et négatifs |
+| `metrics.latency_p50_ms`, `.latency_p95_ms` | idem, non entiers (arrondir une latence l'inventerait), ou négatifs |
+| `metrics.labels`, `metrics.variants` | absents, `None`, non-objets — jamais rabattus sur `{}` —, ou comptage non entier ≥ 0 |
+| `metrics.labels` | incomplet : les **sept** labels fixes d'AD-14 sont exigés, zéros compris |
+| chaque entrée de `results` | non-objet, ou privée de `id`/`suite`/`variant`/`label` (chaînes), `cost_eur`/`cost_eur_original` (réels finis), `latency_ms` (entier) |
 | `stability` présent | sans `cases`, `cases` non-objet, ou `n` absent/non entier ≥ 1 — jamais un `0/0` fabriqué |
-| `decisions` | non vides sans `plancher_digest` racine ; ou mal typées ; ou absentes alors que `plancher_digest` est présent |
+| `decisions` | non vides sans `plancher_digest` racine ; absentes alors que `plancher_digest` est présent ; mal typées ; ou une entrée non-objet |
+| `reserves` présentes | non-objet, champ absent, ou champ non booléen — une réserve illisible n'est pas une réserve absente |
 
 Ce qui peut **légitimement** manquer reste distinct de ce qui manque à tort : `stability` sous un run
-sans répétition (le `repeat` du rapport donne alors le N, et il est exigé), les réserves d'un
-diagnostic, et le gate d'un `--profile full` sans `--gate`. Quand un run n'a pris aucune décision, le
-rendu l'écrit en toutes lettres au lieu d'une ligne de tableau à zéros.
+sans répétition (le `repeat` du rapport donne alors le N, et il est exigé), les `reserves` d'un
+diagnostic — la **clé absente**, pas un champ mal formé —, et le gate d'un `--profile full` sans
+`--gate`. Quand un run n'a pris aucune décision, le rendu l'écrit en toutes lettres au lieu d'une
+ligne de tableau à zéros.
+
+Deux champs restent tirés d'un repli, et ce sont les deux seuls : `cases_hash`, qui retombe sur celui
+du gate quand le rapport n'en porte pas, et `date`, qui retombe sur `generated_at` puis sur la chaîne
+vide. Ni l'un ni l'autre n'est une mesure — ce sont une identité et un horodatage —, et
+`_empreinte` refuse de publier comme empreinte ce qui n'en est pas une. L'invariant « aucun chiffre
+inventé » porte sur les mesures ; le dire sans cette réserve serait inexact (revue R10).
 
 ### La seconde lecture (FR47)
 
