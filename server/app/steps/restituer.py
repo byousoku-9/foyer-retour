@@ -35,6 +35,7 @@ from server.app.domain.answer import (
     AnswerSegment,
     Lacune,
     LacuneKind,
+    LecturePartielle,
     Verification,
 )
 from server.app.domain.langue import LANGUES_SERVIES
@@ -178,6 +179,42 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
 
 REGISTRE_GUIDE = "guide"
 REGISTRE_SINISTRE = "sinistre"
+
+# Story 4.2f — la phrase d'une **lecture partielle**, une par registre et par langue. Elle n'est pas
+# une phrase de refus : elle n'affirme aucune absence, elle dit que la lecture s'est arrêtée avant
+# d'avoir conclu. Le chiffre — nœuds lus, blocs transmis — est dans `Answer.lecture_partielle`, que
+# les deux fronts rendent séparément, exactement comme ils rendent la preuve chiffrée d'un refus.
+# Elle ne nomme donc ni un passage, ni un terme, ni un document.
+PHRASES_DE_LECTURE_PARTIELLE: dict[str, dict[str, str]] = {
+    REGISTRE_GUIDE: {
+        "fr": ("Je n'ai pas pu lire tout ce qui pouvait concerner votre question, et rien de ce que "
+               "j'ai lu n'a passé la vérification. Je ne conclus donc pas : ce que le guide dit "
+               "au-delà de ma lecture reste ouvert."),
+        "en": ("I could not read everything that might concern your question, and nothing I did read "
+               "passed verification. So I draw no conclusion: what the guide says beyond my reading "
+               "remains open."),
+        "de": ("Ich konnte nicht alles lesen, was Ihre Frage betreffen könnte, und nichts von dem "
+               "Gelesenen hat die Prüfung bestanden. Ich ziehe daher keinen Schluss: Was der Ratgeber "
+               "über meine Lektüre hinaus sagt, bleibt offen."),
+        "pt": ("Não consegui ler tudo o que poderia dizer respeito à sua pergunta, e nada do que li "
+               "passou na verificação. Por isso não concluo nada: o que o guia diz para além da "
+               "minha leitura fica em aberto."),
+    },
+    REGISTRE_SINISTRE: {
+        "fr": ("Je n'ai pas pu lire tout ce qui pouvait concerner ce sinistre, et aucune des clauses "
+               "citées n'a passé la vérification. Je ne conclus donc pas : ce que le contrat prévoit "
+               "au-delà de ma lecture reste ouvert."),
+        "en": ("I could not read everything that might concern this loss, and none of the cited "
+               "clauses passed verification. So I draw no conclusion: what the policy provides beyond "
+               "my reading remains open."),
+        "de": ("Ich konnte nicht alles lesen, was diesen Schaden betreffen könnte, und keine der "
+               "zitierten Klauseln hat die Prüfung bestanden. Ich ziehe daher keinen Schluss: Was der "
+               "Vertrag über meine Lektüre hinaus vorsieht, bleibt offen."),
+        "pt": ("Não consegui ler tudo o que poderia dizer respeito a este sinistro, e nenhuma das "
+               "cláusulas citadas passou na verificação. Por isso não concluo nada: o que o contrato "
+               "prevê para além da minha leitura fica em aberto."),
+    },
+}
 # Le registre choisit **le vocabulaire du refus**, jamais sa logique : mêmes kinds, mêmes règles, même
 # `AbsenceProof`. Le défaut est le guide, à l'octet près — ses fixtures et ses tests en dépendent.
 REGISTRES: dict[str, dict[str, dict[str, str]]] = {
@@ -232,11 +269,35 @@ _FORMES_LACUNES_INVALIDES = {
         or (kind not in LACUNES_PLURALISEES
             and (not isinstance(patron, str) or not patron.strip())))
 }
+# Story 4.2f : le registre de la lecture partielle apporte **sa propre** garde. L'invariant
+# ci-dessus compare les registres de refus à `get_args(AbsenceKind)` ; ce registre-ci n'a pas de kind
+# — une seule phrase par registre et par langue —, donc rien n'y aurait veillé, et un
+# `KeyError` à la première réponse partielle servie serait un 500 sur le chemin même que cette story
+# ouvre. Deux propriétés sont exigées : les mêmes registres que le refus, et les quatre langues
+# servies, avec une phrase non vide.
+_REGISTRES_LECTURE_MANQUANTS = set(REGISTRES) ^ set(PHRASES_DE_LECTURE_PARTIELLE)
+_LANGUES_LECTURE_MANQUANTES = {
+    f"lecture_partielle.{nom}": set(LANGUES_SERVIES) ^ set(phrases)
+    for nom, phrases in PHRASES_DE_LECTURE_PARTIELLE.items()
+}
+_FORMES_LECTURE_INVALIDES = {
+    f"lecture_partielle.{nom}.{lang}"
+    for nom, phrases in PHRASES_DE_LECTURE_PARTIELLE.items()
+    for lang in set(LANGUES_SERVIES) & set(phrases)
+    if not isinstance(phrases[lang], str) or not phrases[lang].strip()
+}
 if (any(_LANGUES_MANQUANTES.values()) or _LANGUES_LACUNES_MANQUANTES or _LANGUES_REPERES_MANQUANTES
         or any(_CHAMPS_REPERES_MANQUANTS.values())
         or any(_MANQUANTS.values()) or any(_LACUNES_MANQUANTES.values())
-        or _FORMES_LACUNES_INVALIDES):
-    differences = {**_LANGUES_MANQUANTES, **_MANQUANTS, **_LACUNES_MANQUANTES}
+        or _FORMES_LACUNES_INVALIDES
+        or _REGISTRES_LECTURE_MANQUANTS or any(_LANGUES_LECTURE_MANQUANTES.values())
+        or _FORMES_LECTURE_INVALIDES):
+    differences = {**_LANGUES_MANQUANTES, **_MANQUANTS, **_LACUNES_MANQUANTES,
+                   **_LANGUES_LECTURE_MANQUANTES}
+    if _REGISTRES_LECTURE_MANQUANTS:
+        differences["lecture_partielle.registres"] = _REGISTRES_LECTURE_MANQUANTS
+    if _FORMES_LECTURE_INVALIDES:
+        differences["lecture_partielle.formes"] = _FORMES_LECTURE_INVALIDES
     if _LANGUES_LACUNES_MANQUANTES:
         differences["lacunes.langues"] = _LANGUES_LACUNES_MANQUANTES
     if _LANGUES_REPERES_MANQUANTES:
@@ -295,7 +356,9 @@ def _fusionner_inconnues(declarees: list[str], lacunes: list[Lacune], language: 
 
 def restituer(*, language: str, lang_fallback: bool = False,
               verification: Verification | None = None,
-              reason: AbsenceProof | None = None, clarification: str | None = None,
+              reason: AbsenceProof | None = None,
+              lecture_partielle: LecturePartielle | None = None,
+              clarification: str | None = None,
               verdict: Verdict | None = None, faits_compris: QuestionScope | None = None,
               registre: str = REGISTRE_GUIDE) -> tuple[Answer, StepTrace]:
     """`Answer` + son `StepTrace`. `reason` est obligatoire dès que la vérification n'a rien retenu.
@@ -313,6 +376,12 @@ def restituer(*, language: str, lang_fallback: bool = False,
     jamais rien, sans quoi le front n'aurait qu'une absence à afficher. Les deux sources sont
     exclusives : un `Verification` qui porte déjà un verdict n'en admet pas un second.
 
+    `lecture_partielle` (story 4.2f) : le second porteur possible d'un `found=False`, exclusif de
+    `reason`. Le pipeline le construit depuis le `RetrievalResult` — il est le seul à voir le
+    retrieval — et *restituer* le recopie, comme le verdict. Une lecture bornée dont rien n'a survécu
+    passe donc par cette fabrique comme n'importe quelle autre réponse : c'est un 200 typé, pas une
+    exception, et AD-4 garde son unique objet de réponse.
+
     `faits_compris` (story 1.9, D4) : *restituer* **recopie** ici aussi. C'est
     `ParsedQuestion.scope`, borné par l'appelant — le pipeline est le seul à voir `settings` et la
     question comprise —, et il est recopié tel quel sur **les deux** issues. Sur un refus surtout :
@@ -329,18 +398,65 @@ def restituer(*, language: str, lang_fallback: bool = False,
     if verification is not None and verification.verdict is not None:
         verdict = verification.verdict
 
-    if not trouve and reason is None:
-        # AD-16 : un `Answer` sans réponse **et** sans preuve d'absence serait un dégradé silencieux —
+    if reason is not None and lecture_partielle is not None:
+        # Story 4.2f : « ce que j'ai cherché en vain » et « ce que j'ai lu sans conclure » sont deux
+        # comptes rendus du même refus, dont l'un annonce l'exhaustivité que l'autre dément.
+        raise ValueError("restituer reçoit deux porteurs d'absence (une AbsenceProof et une "
+                         "LecturePartielle) : un seul dit ce qui s'est passé")
+    if not trouve and reason is None and lecture_partielle is None:
+        # AD-16 : un `Answer` sans réponse **et** sans porteur serait un dégradé silencieux —
         # le domaine le refuserait de toute façon, autant le dire à l'appelant avec ses mots.
-        raise ValueError("restituer sans réponse retenue exige une AbsenceProof (reason)")
+        raise ValueError("restituer sans réponse retenue exige une AbsenceProof (reason) ou une "
+                         "LecturePartielle (lecture_partielle)")
     if trouve and reason is not None:
         raise ValueError("restituer avec une réponse retenue n'admet pas d'AbsenceProof (reason)")
+    if trouve and lecture_partielle is not None:
+        raise ValueError("restituer avec une réponse retenue n'admet pas de LecturePartielle "
+                         "(la borne se dit alors dans unknown[])")
 
     if registre not in REGISTRES:
         raise ValueError(f"registre de refus inconnu : {registre!r} "
                          f"(connus : {', '.join(sorted(REGISTRES))})")
     if language not in LANGUES_SERVIES:
         raise ValueError(f"langue de restitution inconnue : {language!r}")
+
+    if not trouve and lecture_partielle is not None:
+        # Story 4.2f — la troisième issue de cette fabrique : ni réponse, ni absence prouvée.
+        # Le texte est composé **par le code**, comme toutes les phrases d'absence (AD-3) ; les
+        # chiffres restent dans le champ typé, que le front rend séparément. `rejected_claims` sont
+        # conservées : elles sont souvent la seule chose que l'écran ait à montrer, et AD-3 les veut
+        # « affichables par le front ». `unknown` fusionne les deux canaux comme partout ailleurs, et
+        # porte au moins la lacune `lecture_bornee` que *vérifier* dépose sur ce chemin.
+        phrase = PHRASES_DE_LECTURE_PARTIELLE[registre][language]
+        inconnues = (_fusionner_inconnues(list(verification.unknown), list(verification.lacunes),
+                                          language) if verification is not None else [])
+        if not inconnues:
+            # Le domaine le refuserait de toute façon (« une lecture partielle dit ce qui lui
+            # manque »), mais il le refuserait par une `ValidationError` pydantic — c'est-à-dire un
+            # 500 générique sur le chemin que cette story vient d'ouvrir. Les autres contradictions
+            # de contrat de cette fabrique se disent avec ses mots ; celle-ci aussi.
+            raise ValueError("restituer avec une LecturePartielle exige une vérification qui dise sa "
+                             "borne (unknown[] ou une lacune) : une réponse qui chiffre sa lecture "
+                             "doit dire pourquoi celle-ci n'a pas suffi")
+        answer = Answer(
+            found=False, complete=False, lang=language, lang_fallback=lang_fallback, texte=phrase,
+            segments=[AnswerSegment(text=phrase, kind="limite")],
+            rejected_claims=list(verification.rejected_claims) if verification is not None else [],
+            reason=None, lecture_partielle=lecture_partielle,
+            # AD-16 / AD-6 : le verdict recopié tel quel, jamais un verdict de remplacement — en
+            # sinistre c'est le `ne_tranche_pas` que la règle (0bis) d'AD-6 a rendu sur zéro clause
+            # affichée ; en guide il n'y en a pas.
+            verdict=verdict, faits_compris=faits_compris,
+            unknown=inconnues,
+            clarification=clarification,
+        )
+        step.checks.append(CheckResult(
+            name="lecture_partielle", ok=False,
+            detail=f"lecture bornée sans affirmation retenue : {lecture_partielle.nodes_read} "
+                   f"nœud(s) lu(s), {lecture_partielle.blocks_read} bloc(s) transmis — aucune "
+                   "absence du corpus n'est affirmée"))
+        step.ms = int((time.monotonic() - t0) * 1000)
+        return answer, step
 
     if not trouve:
         assert reason is not None  # garanti par le contrôle ci-dessus (mypy/lecture)

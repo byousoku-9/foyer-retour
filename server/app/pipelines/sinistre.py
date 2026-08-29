@@ -34,7 +34,7 @@ from server.app.domain.answer import AbsenceProof, Answer, AnswerDraft, AnswerSe
 from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
     BudgetExceeded,
-    TruncatedRead,
+    # `TruncatedRead` n'est plus levée ici (story 4.2f) : voir le commentaire de `pipelines/guide.py`.
     CorpusUnavailable,
     InvalidRequest,
     LlmParse,
@@ -61,6 +61,7 @@ from server.app.pipelines.commun import (
     digests,
     domine,
     gate_de,
+    lecture_partielle_de,
     libelles_de_blocs,
     normaliser_langue_pipeline,
     relance_abandonnee,
@@ -700,12 +701,23 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             # NFR2 / AD-1, la même règle que dans le pipeline guide (revue Codex 2.3, B3) : une
             # lecture **bornée** dont rien n'a survécu ne prouve aucune absence, et un contrat est
             # l'endroit où l'affirmer à tort coûte le plus cher — « aucune clause n'a été retrouvée »
-            # lu sur un contrat que nous n'avons pas fini de lire est une réponse d'assureur. Échec
-            # terminal avec sa trace partielle (AD-16), jamais un `AbsenceProof`.
-            raise TruncatedRead(
-                "aucune clause n'a survécu à la vérification, et la lecture du contrat avait été "
-                f"tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
-                f"{settings.retrieval_max_tokens} tokens) : aucune absence du contrat n'est affirmée")
+            # lu sur un contrat que nous n'avons pas fini de lire est une réponse d'assureur.
+            #
+            # **Story 4.2f : l'absence reste interdite, le 503 ne l'est plus.** L'issue est une
+            # `LecturePartielle` — combien de nœuds lus, combien de clauses transmises — servie en
+            # 200 par *restituer*. Le verdict, lui, est celui que *vérifier* a calculé sur zéro clause
+            # affichée : la règle (0bis) d'AD-6 rend `ne_tranche_pas`, et `_verdict_par_defaut` n'est
+            # que la ceinture d'AD-16 pour un acquis venu d'ailleurs. Jamais un verdict de
+            # remplacement, jamais un sinistre sans verdict.
+            verification = _verdict_par_defaut(verification, dossier)
+            answer, step_restituer = restituer(
+                language=parsed.language, lang_fallback=parsed.lang_fallback,
+                verification=verification,
+                lecture_partielle=lecture_partielle_de(retrieval, doc_id=doc_id),
+                faits_compris=compris, registre=REGISTRE_SINISTRE)
+            noter_hors_borne(step_restituer, ignores)
+            steps.append(step_restituer)
+            return answer, tracer()
         if not verification.found:
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé. Le verdict, lui, a bien été
             # calculé par *vérifier* sur zéro clause affichée : c'est un `ne_tranche_pas` gagné, et

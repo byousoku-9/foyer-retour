@@ -254,6 +254,38 @@ class AbsenceProof(DomainModel):
     documents: list[str] = Field(default_factory=list)
 
 
+class LecturePartielle(DomainModel):
+    """Story 4.2f — le troisième porteur d'état d'une réponse : ce qui a été **lu**, pas ce qui manque.
+
+    Une lecture bornée dont aucune affirmation n'a survécu à la vérification n'est ni une panne ni une
+    absence. Ce n'est pas une panne : la chaîne est allée jusqu'au bout, des blocs sont partis au
+    modèle, la vérification a tourné. Ce n'est pas une absence : `AbsenceProof` publie
+    `blocks_scanned = len(document.blocks)` et un compte de variantes, c'est-à-dire l'annonce d'un
+    balayage **exhaustif** que la troncature dément — l'opposer à l'utilisateur reviendrait à lui
+    affirmer que le corpus ne dit rien de ce que nous n'avons pas lu.
+
+    D'où un type à part, qui ne dit **que** ce qui a été lu :
+
+    - `nodes_read` — les nœuds distincts d'où viennent les blocs transmis (jamais le nombre
+      d'ouvertures tentées : une ouverture refusée par le quota n'a rien fait lire) ;
+    - `blocks_read` — les blocs effectivement transmis au modèle, **au moins un** ;
+    - `documents` — le ou les documents lus, comme `AbsenceProof.documents`.
+
+    `blocks_read ≥ 1` n'est pas une précaution de forme : zéro bloc transmis est exactement le cas
+    qu'AD-1/NFR2 gardent en échec terminal (`BudgetExceeded`, « le budget de retrieval n'a laissé
+    passer aucun bloc »), avant même *rédiger*. Une lecture partielle qui annoncerait n'avoir rien lu
+    n'aurait rien à chiffrer et se confondrait avec cette panne-là.
+
+    Ce n'est délibérément **pas** un cinquième `AbsenceKind` : `AbsenceKind` reste fermé à ses quatre
+    valeurs, et réutiliser `AbsenceProof` en y ajoutant un kind rouvrirait le défaut par la porte du
+    vocabulaire — l'objet continuerait de porter les champs d'un balayage exhaustif.
+    """
+
+    nodes_read: int = Field(ge=0)
+    blocks_read: int = Field(ge=1)
+    documents: list[str] = Field(default_factory=list)
+
+
 class Answer(DomainModel):
     """Seul objet de réponse des deux pipelines."""
 
@@ -266,6 +298,11 @@ class Answer(DomainModel):
     claims: list[VerifiedClaim] = Field(default_factory=list)
     rejected_claims: list[RejectedClaim] = Field(default_factory=list)
     reason: AbsenceProof | None = None
+    # Story 4.2f : l'autre porteur possible d'un `found=False`, à côté de `reason` et jamais avec lui.
+    # `reason` dit ce qui a été cherché en vain ; celui-ci dit ce qui a été lu sans conclure. Les deux
+    # ensemble seraient deux comptes rendus contradictoires du même refus ; aucun des deux serait le
+    # « dégradé silencieux » qu'AD-16 interdit.
+    lecture_partielle: LecturePartielle | None = None
     verdict: Verdict | None = None
     # État interne, exclu de toute projection HTTP. La route 3.7 le place dans l'état de continuation
     # avant de signer celui-ci ; le navigateur ne peut donc ni le fabriquer ni le modifier.
@@ -297,8 +334,28 @@ class Answer(DomainModel):
     def _found_coherence(self) -> Answer:
         if self.lang_fallback and self.lang != "fr":
             raise ValueError("lang_fallback=True exige lang='fr'")
-        if not self.found and self.reason is None:
-            raise ValueError("found=False exige une preuve d'absence (reason)")
+        # Story 4.2f : **exactement un** porteur sur `found=False`. Le domaine exigeait une preuve
+        # d'absence, et c'est cette ligne qui condamnait une lecture bornée sans claim survivante à
+        # un 503 : le seul objet disponible affirmait un balayage exhaustif que la troncature dément.
+        # La règle n'est pas assouplie, elle est **typée** : un refus dit ce qu'il a cherché en vain
+        # (`reason`), ou ce qu'il a lu sans conclure (`lecture_partielle`) — jamais les deux (deux
+        # comptes rendus du même fait, dont l'un ment), jamais aucun (le dégradé muet d'AD-16).
+        porteurs = [p for p in (self.reason, self.lecture_partielle) if p is not None]
+        if not self.found and len(porteurs) != 1:
+            raise ValueError("found=False exige exactement un porteur : une preuve d'absence (reason) "
+                             "ou une lecture partielle (lecture_partielle), jamais les deux, jamais aucun")
+        if self.found and self.lecture_partielle is not None:
+            # Une réponse retenue n'est pas une lecture restée sans conclusion : si la lecture a été
+            # bornée **et** qu'une affirmation a survécu, la borne se dit dans `unknown[]` par la
+            # lacune `lecture_bornee`, et `complete=False` la publie. Ce porteur-ci n'a rien à y faire.
+            raise ValueError("found=True n'admet pas de lecture partielle (la borne se dit alors "
+                             "dans unknown[] et complete=False)")
+        if self.lecture_partielle is not None and not self.unknown:
+            # Symétrique de l'invariant « partiel dit ce qui lui manque » : une réponse qui chiffre
+            # ce qu'elle a lu doit dire pourquoi cela n'a pas suffi — au minimum la lacune
+            # `lecture_bornee` que *vérifier* dépose.
+            raise ValueError("une lecture partielle dit ce qui lui manque : unknown[] ne peut pas "
+                             "être vide")
         if self.found and not self.claims:
             raise ValueError("found=True exige au moins une claim retrouvée et pertinente")
         if not self.found and self.claims:

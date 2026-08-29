@@ -28,7 +28,9 @@ from server.app.config import Settings
 from server.app.domain.answer import AbsenceProof, Answer
 from server.app.domain.errors import (
     BudgetExceeded,
-    TruncatedRead,
+    # `TruncatedRead` n'est plus levée ici (story 4.2f) : une lecture bornée sans claim survivante est
+    # désormais une réponse 200 typée. Le type reste dans `domain/errors.py` — il est le contrat du
+    # harness d'évals, qui doit continuer à distinguer une lecture bornée d'un plafond financier.
     CorpusUnavailable,
     InvalidRequest,
     LlmParse,
@@ -47,6 +49,7 @@ from server.app.pipelines.commun import (
     digests,
     domine,
     gate_de,
+    lecture_partielle_de,
     libelles_de_blocs,
     normaliser_langue_pipeline,
     relance_abandonnee,
@@ -537,17 +540,26 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 # **NFR2, AD-1 et l'AC 2.3 mot pour mot** : « budget de retrieval épuisé ou
                 # troncature non résolue ⇒ `complete=False` et **jamais** d'`AbsenceProof` » (revue
                 # Codex 2.3, B3). Le garde-fou du retrieval vide couvrait déjà le cas où le budget
-                # n'avait rien laissé passer ; celui-ci couvre le cas symétrique et jusque-là ouvert
-                # — des blocs sont bien partis au modèle, mais la lecture était **bornée** et aucune
-                # affirmation n'a survécu à la vérification. Publier un `AbsenceProof` reviendrait
-                # alors à opposer à l'utilisateur ce que nous n'avons pas lu : la preuve annonce des
-                # termes cherchés et un compte de blocs parcourus, c'est-à-dire l'exhaustivité que la
-                # troncature dément. Il n'y a pas d'`Answer` honnête à rendre — c'est une erreur
-                # terminale, avec son code (AD-16), et le front a son mode dégradé (UX-DR4).
-                raise TruncatedRead(
-                    "aucune affirmation n'a survécu à la vérification, et la lecture du corpus avait "
-                    f"été tronquée ({settings.max_opens} nœuds, {settings.retrieval_max_blocks} blocs, "
-                    f"{settings.retrieval_max_tokens} tokens) : aucune absence du corpus n'est affirmée")
+                # n'avait rien laissé passer ; celui-ci couvre le cas symétrique — des blocs sont
+                # bien partis au modèle, mais la lecture était **bornée** et aucune affirmation n'a
+                # survécu à la vérification. Publier un `AbsenceProof` reviendrait à opposer à
+                # l'utilisateur ce que nous n'avons pas lu : la preuve annonce des termes cherchés et
+                # un compte de blocs parcourus, c'est-à-dire l'exhaustivité que la troncature dément.
+                #
+                # **Story 4.2f : ce n'est pas pour autant une panne.** Le 503 tenait à ce que le seul
+                # objet disponible sous `found=False` était cette preuve-là. Un troisième porteur
+                # existe désormais — `LecturePartielle` — qui ne dit pas ce qui n'existe pas mais
+                # chiffre ce qui a été lu. La chaîne s'achève donc normalement : *restituer*, un 200,
+                # `found=false`, `complete=false`, les affirmations écartées conservées, et la lacune
+                # `lecture_bornee` dans `unknown[]`. Aucune absence n'est affirmée — c'est bien ce
+                # que l'invariant demandait —, et rien n'est présenté comme indisponible : ce qui
+                # s'est passé est un fait métier, pas un incident technique.
+                answer, step_restituer = restituer(
+                    language=parsed.language, lang_fallback=parsed.lang_fallback,
+                    verification=verification,
+                    lecture_partielle=lecture_partielle_de(retrieval, doc_id=doc_id))
+                steps.append(step_restituer)
+                return answer, tracer()
             # AD-3 : zéro claim survivante après la relance ⇒ refus motivé, jamais un dégradé silencieux.
             answer, step_restituer = restituer(
                 language=parsed.language, lang_fallback=parsed.lang_fallback,

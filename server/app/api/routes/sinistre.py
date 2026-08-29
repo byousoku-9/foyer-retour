@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from server.app.api.conversation_token import signer, verifier as verifier_token
-from server.app.api.presenter import clauses_de
+from server.app.api.presenter import champs_de_journal, clauses_de
 from server.app.api.routes.chat import verifier_quota
 from server.app.api.schemas import (
     VIA,
@@ -104,9 +104,9 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
     request.state.log_fields.update(
         intent=trace.intent, found=answer.found,
         verdict=answer.verdict.value if answer.verdict is not None else None,
-        reason_kind=answer.reason.kind if answer.reason is not None else None,
-        variants_count=answer.reason.variants_count if answer.reason is not None else None,
-        blocks_scanned=answer.reason.blocks_scanned if answer.reason is not None else None,
+        # Story 4.2f : la cause de l'issue, nommée par `presenter.champs_de_journal` — une seule
+        # règle pour les deux routes, qui écrivent le même champ.
+        **champs_de_journal(answer),
         cost_eur=trace.total_cost_eur)
     response = SinistreResponse(answer=answer, sources=sources, via=VIA, trace=trace)
     # Compatibilité explicite : les appelants one-shot conservent leur contrat exact. La page 3.7

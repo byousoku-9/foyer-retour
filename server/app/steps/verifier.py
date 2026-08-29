@@ -917,12 +917,25 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # Les lacunes ne portent ni `block_id`, ni terme cherché, ni contenu de bloc (AD-10, AD-15), ni
     # document. Leur projection est commune au guide et au sinistre ; « le guide » y serait faux.
     #
-    # **Aucune lacune sur un refus.** `found=False` porte son `AbsenceProof`, qui dit déjà ce qui a
-    # été cherché et pourquoi rien n'a été retenu ; y ajouter « il me manque des éléments » ferait
-    # deux comptes rendus du même fait.
+    # **Un refus porte sa preuve d'absence ; une lecture partielle doit dire sa borne** (story 4.2f,
+    # amende la règle « aucune lacune sur un refus » de la story 2.3).
+    #
+    # La règle d'origine valait pour le refus qu'elle avait sous les yeux : `found=False` porte son
+    # `AbsenceProof`, qui dit déjà ce qui a été cherché et pourquoi rien n'a été retenu ; y ajouter
+    # « il me manque des éléments » ferait deux comptes rendus du même fait. Elle reste vraie de ce
+    # refus-là — un `claims_rejetes` sur une lecture **complète** ne porte toujours aucune lacune.
+    #
+    # Elle est fausse de l'autre : quand la lecture a été **bornée** et que rien n'a survécu, il n'y a
+    # pas d'`AbsenceProof` honnête à publier (AD-1/NFR2), et la réponse servie porte à sa place une
+    # `LecturePartielle` qui chiffre ce qui a été lu. Cette réponse-là dirait « je ne conclus pas »
+    # sans dire pourquoi si `unknown[]` restait vide — le domaine le refuse d'ailleurs.
+    #
+    # `not found ∧ retrieval.truncated` désigne **exactement** cette cause : *vérifier* n'est atteint
+    # qu'avec `retrieval.blocs ≠ []` (hors périmètre, clarification, zéro hit et zéro bloc
+    # court-circuitent avant), et le retrieval vidé par le budget lève avant *rédiger*.
     lacunes = _lacunes(retrieval=retrieval, parsed=parsed, facettes_couvertes=facettes_couvertes,
                        renvois_ouverts=renvois_ouverts, contradiction=contradiction,
-                       ecartes=ecartes) if found else []
+                       ecartes=ecartes) if found or retrieval.truncated else []
     # Une phrase écartée faute de soutien est une part de la réponse que l'ébauche voulait donner et
     # qui n'est pas montrée — y compris une limite retirée. La réponse servie est alors amputée :
     # elle n'est pas donnée pour complète (AD-4, « aucune troncature »). Les six conditions d'AD-4
