@@ -2539,31 +2539,59 @@ def _basculer(prepares: list[tuple[Path, Path]]) -> None:
 
     Si une restauration échoue à son tour, `BasculePartielle` nomme précisément quelles cibles ont
     été remises et lesquelles ne l'ont pas été.
+
+    **La garantie porte sur toute la durée de la fonction, et sur toute exception** (revue B7, tour
+    correctif 1/3). Trois trous la laissaient inexacte. La capture des états précédents se faisait
+    *hors* de toute garde de nettoyage : un `EtatPrecedentIllisible` laissait derrière lui les
+    temporaires déjà préparés par l'appelant — c'est le cas d'`ecrire_gate`, qui n'a pas de
+    `finally` à lui. La restauration n'était tentée que sur `OSError` : une `RuntimeError` ou une
+    interruption après la première bascule laissait la première cible dans le **nouvel** état
+    (mesuré : `{'a': 'nouveau-a', 'b': 'ancien-b'}`). Et le nettoyage des temporaires vivait dans la
+    restauration, donc dans ce seul chemin. Désormais : capture sous garde, restauration sur
+    `BaseException`, nettoyage en `finally`. Toute exception levée *par la restauration elle-même*
+    est traitée cible par cible et ne masque jamais la cause d'origine.
     """
-    # **Avant le premier renommage** : si un état précédent est illisible, on ne pourra pas le
-    # restaurer, donc on ne commence pas. `EtatPrecedentIllisible` remonte à l'appelant, qui la
-    # traite comme un refus de publier — jamais comme une absence.
-    avant: list[tuple[Path, bytes | None]] = [(cible, _lire_ou_absent(cible))
-                                              for _tmp, cible in prepares]
     faites: list[int] = []
-    for index, (temporaire, cible) in enumerate(prepares):
-        try:
-            os.replace(temporaire, cible)
-        except OSError as echec:
-            restaurees, non_restaurees = _restaurer(prepares, avant, faites)
-            if non_restaurees:
-                raise BasculePartielle(
-                    f"bascule interrompue sur {cible} ({echec}) et restauration incomplète — "
-                    f"remises en état : {restaurees or ['aucune']} ; "
-                    f"laissées dans le nouvel état : {non_restaurees}",
-                    restaurees=restaurees, non_restaurees=non_restaurees) from echec
-            raise
-        faites.append(index)
+    avant: list[tuple[Path, bytes | None]] = []
+    try:
+        # **Avant le premier renommage** : si un état précédent est illisible, on ne pourra pas le
+        # restaurer, donc on ne commence pas. `EtatPrecedentIllisible` remonte à l'appelant, qui la
+        # traite comme un refus de publier — jamais comme une absence. Le `finally` en dessous
+        # abandonne alors les temporaires : c'est ce qui couvre `ecrire_gate`, dont le temporaire de
+        # manifest est préparé avant cet appel et n'était nettoyé par personne.
+        avant = [(cible, _lire_ou_absent(cible)) for _tmp, cible in prepares]
+        for index, (temporaire, cible) in enumerate(prepares):
+            try:
+                os.replace(temporaire, cible)
+            except BaseException as echec:
+                restaurees, non_restaurees = _restaurer(avant, faites)
+                if non_restaurees:
+                    raise BasculePartielle(
+                        f"bascule interrompue sur {cible} ({echec!r}) et restauration incomplète — "
+                        f"remises en état : {restaurees or ['aucune']} ; "
+                        f"laissées dans le nouvel état : {non_restaurees}",
+                        restaurees=restaurees, non_restaurees=non_restaurees) from echec
+                raise
+            faites.append(index)
+    finally:
+        # Les temporaires que la bascule n'a pas consommés n'ont plus de raison d'être — y compris
+        # quand la capture initiale a levé, et quel que soit le rang atteint. `_abandonner` ignore
+        # ceux qu'`os.replace` a déjà déplacés.
+        _abandonner(prepares)
 
 
-def _restaurer(prepares: list[tuple[Path, Path]], avant: list[tuple[Path, bytes | None]],
+def _restaurer(avant: list[tuple[Path, bytes | None]],
                faites: list[int]) -> tuple[list[str], list[str]]:
-    """Défait les bascules déjà faites, en ordre inverse. Rend `(restaurées, non restaurées)`."""
+    """Défait les bascules déjà faites, en ordre inverse. Rend `(restaurées, non restaurées)`.
+
+    Une restauration qui échoue est **isolée** : elle nomme sa cible, laisse les autres se faire, et
+    ne remplace jamais la cause d'origine par sa propre panne. `Exception` et non `OSError` :
+    l'écriture de restauration peut échouer autrement qu'en entrée-sortie, et cette fonction ne doit
+    en aucun cas lever — sans quoi elle remplacerait la cause d'origine par sa propre panne.
+
+    Elle ne touche **aucun** temporaire : leur abandon appartient au `finally` de `_basculer`, qui
+    couvre tous les chemins de sortie, y compris l'échec de la capture initiale.
+    """
     restaurees: list[str] = []
     non_restaurees: list[str] = []
     for index in reversed(faites):
@@ -2573,12 +2601,10 @@ def _restaurer(prepares: list[tuple[Path, Path]], avant: list[tuple[Path, bytes 
                 cible.unlink(missing_ok=True)
             else:
                 _ecrire_atomique_octets(cible, octets)
-        except OSError:
+        except Exception:  # noqa: BLE001 — voir la docstring : elle ne masque jamais la cause
             non_restaurees.append(str(cible))
         else:
             restaurees.append(str(cible))
-    # Les temporaires que la bascule n'a pas consommés n'ont plus de raison d'être.
-    _abandonner([prepares[i] for i in range(len(prepares)) if i not in set(faites)])
     return restaurees, non_restaurees
 
 
@@ -2864,10 +2890,11 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, P
     **Pourquoi une préparation séparée** (revue A). Publier puis écrire le gate déplaçait la fenêtre
     de la revue B3 au lieu de la fermer : `ecrire_gate` peut encore refuser (manifest illisible,
     entrée absente ou hors schéma) ou échouer en écriture, et les trois surfaces auraient alors
-    publié `evals_ok: true` sans qu'aucun gate n'existe. Tout ce qui peut échouer — validation,
-    sérialisation, écriture du temporaire — se produit donc **avant** la première bascule ; ne
-    restent ensuite que des `os.replace` sur des fichiers déjà écrits, dans le même système de
-    fichiers.
+    publié `evals_ok: true` sans qu'aucun gate n'existe. Tout ce qui peut échouer pour une autre
+    raison qu'un renommage — validation, sérialisation, écriture du temporaire — se produit donc
+    **avant** la première bascule ; ne restent ensuite que des `os.replace` sur des fichiers déjà
+    écrits, dans le même système de fichiers, dont l'échec est rattrapé par la restauration de
+    `_basculer`.
 
     **Non-mutation du dernier vert (story 4.2b).** Un gate candidat **rouge** ne remplace jamais un
     gate `evals_ok: true` : le verdict candidat est publié dans le rapport (décisions chiffrées,
@@ -2978,6 +3005,12 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
     `full` de `main()`, lui, n'appelle pas cette fonction : il prépare le manifest **avec** ses
     publications et bascule tout ensemble, pour qu'aucune surface ne puisse affirmer un verdict que
     le manifest ne porte pas.
+
+    **Le contrat de `_basculer` couvre ce chemin** (revue B7, tour correctif 1/3). Le temporaire
+    préparé ci-dessous n'est protégé par aucun `finally` local : c'est `_basculer` qui abandonne les
+    temporaires en sortie, y compris quand sa **capture initiale** lève `EtatPrecedentIllisible` —
+    exactement le cas d'un `data/manifest.json` illisible en seconde lecture. Aucun `.tmp` ne reste
+    donc dans `data/` sur un refus, quel que soit le rang atteint.
     """
     prepare = preparer_gate(manifest_path, doc_id, gate)
     if prepare is None:
@@ -3977,10 +4010,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 # la déplaçait : `preparer_gate` peut encore refuser (manifest illisible, entrée
                 # absente ou hors schéma) ou échouer en écriture, et les trois surfaces auraient
                 # alors publié `evals_ok: true` sans qu'aucun gate n'existe. L'ordre inverse avait le
-                # défaut symétrique. La seule fermeture est de **ne plus rien laisser d'échouable
-                # après la première bascule** : tout ce qui peut échouer se produit ici, rien n'est
-                # encore visible, et la suite n'est qu'une file de `os.replace` sur des fichiers
-                # déjà écrits, dans leur répertoire cible.
+                # défaut symétrique. La fermeture est donc en deux temps : tout ce qui peut échouer
+                # **pour une autre raison qu'un renommage** se produit ici, rien n'est encore
+                # visible ; et la file de `os.replace` qui suit est rattrapée par la restauration de
+                # `_basculer`, parce qu'un renommage peut toujours échouer — l'affirmer autrement
+                # serait promettre plus que le code ne tient.
                 prepares = preparer_la_publication(
                     rapport, gate, ctx, cas,
                     data_dir=args.data_dir, output_markdown=output_markdown,

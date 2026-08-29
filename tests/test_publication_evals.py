@@ -1332,3 +1332,98 @@ def test_un_plancher_digest_racine_mal_forme_ferme() -> None:
     with pytest.raises(pub_mod.RapportInexploitable, match="plancher_digest"):
         pub_mod.valider_rapport_publiable(rapport)
 
+
+# --- B7, tour correctif 1/3 : la bascule tient sa garantie sur **toute** exception -----------------
+#
+# `_basculer` ne restaurait que sur `OSError`, et la capture des états précédents se faisait hors de
+# toute garde de nettoyage. Sonde reproduite sur `4d0abb4` : une `RuntimeError` injectée au second
+# rang laissait `{'a': 'nouveau-a', 'b': 'ancien-b'}` **et** un temporaire `.b.tmp` orphelin. Le
+# chemin frère `ecrire_gate` appelle `_basculer` directement : quand la capture levait
+# `EtatPrecedentIllisible`, son temporaire de manifest n'était abandonné par aucun `finally`.
+
+def _lot_prepare(racine: Path, noms: tuple[str, ...]) -> list[tuple[Path, Path]]:
+    """Trois cibles portant leur état d'avant, et leurs trois temporaires prêts à basculer."""
+    prepares = []
+    for nom in noms:
+        cible = racine / nom
+        cible.write_text(f"ancien-{nom}", encoding="utf-8")
+        prepares.append((runner._preparer_atomique(cible, f"nouveau-{nom}"), cible))
+    return prepares
+
+
+@pytest.mark.parametrize("rang", [0, 1, 2])
+@pytest.mark.parametrize("exception", [OSError("panne d'écriture injectée"),
+                                       RuntimeError("panne injectée hors OSError"),
+                                       KeyboardInterrupt()],
+                         ids=["oserror", "runtimeerror", "interruption"])
+def test_une_bascule_interrompue_a_nimporte_quel_rang_ne_laisse_ni_cible_ni_temporaire(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rang: int,
+        exception: BaseException) -> None:
+    """Chaque rang, trois causes : le seul état admissible à la sortie est « rien n'a bougé »."""
+    noms = ("a", "b", "c")
+    prepares = _lot_prepare(tmp_path, noms)
+    temporaires = {str(tmp) for tmp, _cible in prepares}
+    vrai_replace = os.replace
+    compte = {"n": 0}
+
+    def replace_faillible(src: Any, dst: Any) -> Any:
+        # Seules les bascules du lot sont comptées : les écritures de **restauration** passent par
+        # leurs propres temporaires et doivent aboutir, sans quoi la sonde mesurerait l'échec de la
+        # restauration au lieu de celui de la bascule.
+        if str(src) in temporaires:
+            compte["n"] += 1
+            if compte["n"] == rang + 1:
+                raise exception
+        return vrai_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace_faillible)
+    with pytest.raises(type(exception)):
+        runner._basculer(prepares)
+    monkeypatch.undo()
+
+    assert {nom: (tmp_path / nom).read_text(encoding="utf-8") for nom in noms} == {
+        nom: f"ancien-{nom}" for nom in noms}, "aucune cible ne reste dans le nouvel état"
+    assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
+
+
+def test_une_capture_detat_precedent_impossible_nabandonne_pas_ses_temporaires(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La capture se fait **sous garde** : un état illisible ferme sans rien laisser derrière."""
+    prepares = _lot_prepare(tmp_path, ("a", "b"))
+
+    def capture_impossible(path: Path) -> bytes | None:
+        raise runner.EtatPrecedentIllisible(f"{path} : illisible (injecté)")
+
+    monkeypatch.setattr(runner, "_lire_ou_absent", capture_impossible)
+    with pytest.raises(runner.EtatPrecedentIllisible):
+        runner._basculer(prepares)
+    monkeypatch.undo()
+    assert _temporaires(tmp_path) == []
+    assert (tmp_path / "a").read_text(encoding="utf-8") == "ancien-a"
+
+
+def test_ecrire_gate_est_couvert_par_le_meme_contrat(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """B7, chemin frère : `ecrire_gate` n'a aucun `finally` — c'est `_basculer` qui le couvre.
+
+    Le temporaire de `data/manifest.json` est préparé par `preparer_gate` **avant** l'appel ; quand
+    la capture de l'état précédent lève, personne ne le nettoyait.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    manifest = data / "manifest.json"
+    entree = {"status": "servi", "source_hash": "s", "ingest_fingerprint": "f",
+              "document_hash": "d", "edition": "2020", "overlay_hash": None,
+              "structure_hash": None, "gate": None}
+    manifest.write_text(json.dumps({"doc-neutre": entree}, indent=2) + "\n", encoding="utf-8")
+    avant = manifest.read_bytes()
+
+    def capture_impossible(path: Path) -> bytes | None:
+        raise runner.EtatPrecedentIllisible(f"{path} : illisible (injecté)")
+
+    monkeypatch.setattr(runner, "_lire_ou_absent", capture_impossible)
+    with pytest.raises(runner.EtatPrecedentIllisible):
+        runner.ecrire_gate(manifest, "doc-neutre", _gate())
+    monkeypatch.undo()
+    assert _temporaires(tmp_path) == [], "aucun `.tmp` ne reste dans data/"
+    assert manifest.read_bytes() == avant, "le manifest est byte-identique"
