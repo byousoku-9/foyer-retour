@@ -261,6 +261,13 @@ préparées dans des temporaires de leurs répertoires cibles, puis basculées e
 `os.replace`. Il ne reste rien d'échouable après la première bascule, donc aucun état où une surface
 affirme un verdict que le manifest ne porte pas — ni l'inverse.
 
+**Et un refus de préparation ne laisse aucun temporaire résiduel.** Tout ce qui peut lever — au
+premier rang, la lecture du `docs/evals/latest.md` à archiver — est lu et validé *avant* le premier
+temporaire, et la préparation entière est entourée d'un rollback local qui supprime chaque
+temporaire déjà accumulé sur toute exception, quel qu'en soit le rang. Les chemins frères
+(`ecrire_rapports`, la préparation de l'entrée de manifest) tiennent la même garantie. Sans elle,
+des refus répétés remplissaient `data/` de fichiers `.tmp` que plus rien ne nettoyait.
+
 | surface | chemin | dans l'image ? |
 |---|---|---|
 | artefact machine servi | `data/evals-latest.json` | oui (`COPY data`) |
@@ -273,6 +280,33 @@ Les **limites** publiées sont *dérivées* du run — décisions rouges chiffr�
 exécutions manquantes, écarts de parsing, état incomplet — jamais rédigées. Un artefact absent,
 illisible ou hors schéma rend un état typé `publie: false` avec sa raison : jamais 5xx, jamais un
 chiffre inventé.
+
+#### La validation canonique du rapport, avant toute surface
+
+`server/evals/publication.py::valider_rapport_publiable` est **la** lecture du rapport : tous les
+chemins qui alimentent les quatre surfaces l'appellent — `construire_publication`,
+`stabilite_du_rapport`, `limites_du_rapport`, et `run.rendre_markdown` pour le résumé de CI. Aucune
+seconde lecture permissive ne subsiste, et plus aucun repli `or 0.0`, `or {}` ou `or 0` ne peut
+transformer une donnée invalide en chiffre plausible. Le refus est un `RapportInexploitable` qui
+**nomme la clé et sa raison typée**, levé *avant* qu'aucune surface n'affiche quoi que ce soit.
+
+Sont refusés :
+
+| donnée | refus |
+|---|---|
+| `profile` | absent, non-chaîne, ou vide |
+| `complete`, `unexecuted_cases`, `identity`, `results` | absents ou mal typés ; une entrée de `results` non-objet |
+| `cost_eur` | absent, `None`, booléen, non numérique ou non fini |
+| `metrics.recall`, `.average_cost_eur`, `.cost_p95_eur`, `.ne_tranche_pas_rate` | idem |
+| `metrics.latency_p50_ms`, `.latency_p95_ms` | idem, et non entiers (arrondir une latence l'inventerait) |
+| `metrics.labels`, `metrics.variants` | absents, `None` ou non-objets — jamais rabattus sur `{}` |
+| `stability` présent | sans `cases`, `cases` non-objet, ou `n` absent/non entier ≥ 1 — jamais un `0/0` fabriqué |
+| `decisions` | non vides sans `plancher_digest` racine ; ou mal typées ; ou absentes alors que `plancher_digest` est présent |
+
+Ce qui peut **légitimement** manquer reste distinct de ce qui manque à tort : `stability` sous un run
+sans répétition (le `repeat` du rapport donne alors le N, et il est exigé), les réserves d'un
+diagnostic, et le gate d'un `--profile full` sans `--gate`. Quand un run n'a pris aucune décision, le
+rendu l'écrit en toutes lettres au lieu d'une ligne de tableau à zéros.
 
 ### La seconde lecture (FR47)
 

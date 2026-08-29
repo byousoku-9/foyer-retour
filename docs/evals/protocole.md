@@ -114,6 +114,25 @@ finalisation a trois rôles : la règle mécanique (`server/evals/plancher.py::c
 Claude Code sur abonnement (JSON accepte/rejette) ; un rejet ou une sortie mal formée conserve la
 configuration précédente et rend la story suivante non promouvable — sans intervention humaine.
 
+### L'identité d'un classement est portée par le modèle, jamais par l'appelant
+
+Une configuration candidate porte `candidate_revision` (40 hexadécimaux), `run_digest` et
+`report_digest` (64). Trois règles, et aucune n'est optionnelle :
+
+1. `Configuration` **refuse** `admissible: true` sans identité complète et bien formée, et n'est
+   plus modifiable après construction ;
+2. `classer_configurations` **refuse de classer** — jamais un tri dégradé, jamais une tête par
+   défaut — toute liste contenant une configuration dont l'identité manque, est mal formée, ou dont
+   la révision candidate diverge de celle des autres. Le refus est `ClassementInvalide`, dit à
+   l'appelant ; la CLI le rend en code 2 sans imprimer de classement ;
+3. `_configuration_depuis_rapport` oppose l'identité du rapport avant de la lire (protocole,
+   révision, image, `run_digest` recalculé, `unexecuted_cases` exigé).
+
+Le contrôle n'existait auparavant que sur la voie CLI : n'importe quel appelant bibliothèque
+obtenait un classement — donc un candidat en tête — sans révision, sans run ni rapport. Un contrôle
+que l'appelant peut ne pas demander n'est pas un contrôle, et il n'y a donc **aucun paramètre** pour
+le désarmer. Reproduction : `pytest -q tests/test_plancher.py -k classement`.
+
 ## Interdits
 
 - Exécuter le split C ; lire ou matérialiser le split B côté builder.
@@ -175,7 +194,16 @@ le manifest ne porte pas, dans l'autre un échec de publication laisse un vert d
 est donc qu'**il ne reste rien d'échouable après la première bascule** : les trois surfaces *et*
 l'entrée de manifest sont préparées et validées dans des temporaires de leurs répertoires cibles,
 puis basculées en une seule file de `os.replace`. Un échec de préparation ne laisse ni publication ni
-gate — le manifest est byte-identique et aucune surface n'a bougé. Le résultat est **publié quel qu'il soit** (FR41) dans un
+gate — le manifest est byte-identique et aucune surface n'a bougé, **et aucun temporaire ne
+subsiste**. Cette dernière garantie est explicite parce qu'elle avait été prise pour acquise : la
+lecture du rendu à archiver survenait *après* la création du premier temporaire, si bien qu'un
+`docs/evals/latest.md` illisible faisait sortir la préparation sans jamais rendre sa liste — le
+temporaire échappait alors au nettoyage de l'appelant, et les refus répétés remplissaient `data/`.
+La règle tient désormais en deux moitiés, et il faut les deux : tout ce qui peut lever est **lu et
+validé avant le premier temporaire**, et la préparation entière est entourée d'un **rollback local**
+qui supprime chaque temporaire déjà accumulé sur toute exception, à n'importe quel rang. Les chemins
+frères qui préparent de la même façon — `ecrire_rapports` et la préparation de l'entrée de
+manifest — tiennent la même garantie. Le résultat est **publié quel qu'il soit** (FR41) dans un
 artefact unique — `data/evals-latest.json`, `docs/evals/latest.md`, le résumé de CI et
 `GET /api/v1/evals/latest`, que `/` compose (FR42). Publier ne promeut rien : seul `gate.evals_ok`
 décide de ce qui est servi (AD-8). Les limites y sont dérivées du run ; les trois réserves
