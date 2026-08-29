@@ -558,6 +558,12 @@ def _main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — poi
         print(f"refus : {exc}")
         return 2
     print(f"espace posé : {espace.pointeur} -> {espace.generation()}")
+    restes = espace.residus()
+    if restes:
+        # Le seul reste qu'un refus puisse laisser : un brouillon abandonné dont l'effacement a été
+        # interrompu. Il ne touche aucune cible et la bascule suivante le remplace, mais il se dit —
+        # une sonde qui ne peut pas le voir ne prouve rien sur ce chemin.
+        print(f"résidus (brouillons abandonnés, sans effet sur les cibles) : {', '.join(restes)}")
     return 0
 
 
