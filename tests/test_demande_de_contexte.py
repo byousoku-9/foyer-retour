@@ -74,9 +74,13 @@ SECTION_LUE = (
 # définitions sont communes (aucune portée déclarée), donc valides partout — c'est ce qui permet à
 # la satisfaction de les résoudre depuis la section lue (AD-2, remontée vers la commune).
 SECTION_FERMEE = (
+    # **Deux** renvois, et c'est délibéré (revue externe, I1) : ce bloc entre à la première passe
+    # comme *dépendance*, et la fermeture d'un niveau ne suit pas les `refs` d'une dépendance — ses
+    # deux cibles restent donc fermées, et une demande de `renvoi` qui le vise a exactement deux
+    # candidats. C'est ce qu'il faut pour exhiber une satisfaction **partielle** sous le budget.
     ("definition_objet", "definition",
      "L'objet inventorié désigne tout élément porté au registre annexé.",
-     "objet inventorié", ("bareme",)),
+     "objet inventorié", ("bareme", "annexe_technique")),
     ("definition_valeur", "definition",
      "La valeur résiduelle désigne le montant retenu après application du barème annexé.",
      "valeur résiduelle", ()),
@@ -89,6 +93,9 @@ SECTION_FERMEE = (
      "registre annexé", ()),
     ("bareme", "para",
      "Le barème annexé fixe le montant retenu pour chaque élément porté au registre.", None, ()),
+    ("annexe_technique", "para",
+     "L'annexe technique précise le classement retenu pour chaque élément porté au registre.",
+     None, ()),
 )
 
 # Citation contiguë de la clause lue : plus longue que `quote_min_chars`, présente dans ce seul bloc.
@@ -506,9 +513,19 @@ async def test_une_demande_qui_nest_pas_un_objet_ne_tue_pas_le_lot(
         fake_message(model=TIERS["micro"], text=json.dumps(base))])
 
     assert fake.remaining_script == 0  # aucun retry de parse : la sortie était exploitable
-    assert "demande_hors_vocabulaire" in _tous_les_checks(trace)
+    noms = _tous_les_checks(trace)
+    assert "demande_hors_vocabulaire" in noms
     # Le lot reste jugé : l'affirmation a bien reçu son verdict de pertinence.
     assert [c.claim_id for c in answer.claims] == [neutre.identite.claim]
+    # Revue externe (B1) : une forme non-objet ne porte **aucun** `claim_id` exploitable. Écarter
+    # « celui qu'elle nomme » ne retirait alors rien du tout, et l'affirmation gardait son
+    # applicabilité : la réponse disait qu'il manquait un élément et rendait quand même un verdict
+    # décisoire, dans le même corps. Faute de cible fiable, la fermeture porte sur **toutes** les
+    # entrées décisionnelles — c'est la seule lecture fail-closed de « échoue fermée ».
+    assert "applicabilite_incomplete" in noms
+    assert all(c.status.applicable == "humain" for c in answer.claims)
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert not answer.complete and _lacune() in answer.unknown
 
 
 async def test_une_demande_bien_formee_sur_un_terme_sans_definition_reste_insatisfaite(
@@ -535,8 +552,15 @@ async def test_une_demande_bien_formee_sur_un_terme_sans_definition_reste_insati
 
 
 async def test_un_claim_id_jamais_envoye_ne_designe_rien(neutre: CorpusNeutre) -> None:
-    """« et dans tous les cas un `claim_id` envoyé » : un identifiant inventé ne décide de rien."""
-    _answer, trace, fake = await _run(neutre, [
+    """« et dans tous les cas un `claim_id` envoyé » : un identifiant inventé ne décide de rien.
+
+    Revue croisée 4.2e (B1) : « ne décide de rien » se lisait auparavant « ne ferme rien ». Le
+    contrôle a bien déclaré qu'il lui manquait de quoi juger — il a seulement mal nommé sa cible.
+    Ne rien écarter laissait donc `applicable=oui` et AD-6 rendait `couvert`, sous la phrase qui
+    annonce un renvoi à une personne. Faute de cible fiable, **aucune** des affirmations jugées
+    n'est retenue : c'est la seule lecture fail-closed de « toute demande mal formée échoue fermée ».
+    """
+    answer, trace, fake = await _run(neutre, [
         _comprendre(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE,
                                            claim_id="jamais-soumis"))])
@@ -544,6 +568,9 @@ async def test_un_claim_id_jamais_envoye_ne_designe_rien(neutre: CorpusNeutre) -
     assert fake.remaining_script == 0
     assert "demande_cible_inconnue" in _tous_les_checks(trace)
     assert "satisfaction_demande" not in _tous_les_checks(trace)
+    assert all(c.status.applicable == "humain" for c in answer.claims)
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert not answer.complete and _lacune() in answer.unknown
 
 
 async def test_une_demande_bien_formee_mais_insatisfaite_ferme_sans_reprise(
@@ -560,6 +587,38 @@ async def test_une_demande_bien_formee_mais_insatisfaite_ferme_sans_reprise(
     assert "satisfaction_demande" in noms and "demande_insatisfaite" in noms
     assert "demande_satisfaite" not in noms and "reprise_unique" not in noms
     assert [s.name for s in trace.steps].count("verifier") == 1
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert not answer.complete and _lacune() in answer.unknown
+
+
+async def test_une_satisfaction_partielle_ne_declenche_aucune_reprise(
+        neutre: CorpusNeutre) -> None:
+    """Revue croisée 4.2e (I1), au pipeline : à moitié relu ⇒ pas de reprise, `ne_tranche_pas`.
+
+    Le renvoi visé a deux cibles et la borne de l'étape n'en laisse entrer qu'une. Le contrôle
+    n'obtient donc pas ce qu'il a demandé — il en obtient la moitié. Avant ce correctif, le pipeline
+    lisait « au moins un bloc neuf », déclarait la demande satisfaite, dépensait une reprise, et
+    cette reprise pouvait rendre un verdict décisoire sur un contexte incomplet.
+
+    `fake.remaining_script == 0` est ici l'assertion centrale : aucune reprise n'a été scriptée,
+    donc aucune n'a eu lieu.
+    """
+    answer, trace, fake = await _run(
+        neutre,
+        [_comprendre(neutre), _rediger(neutre),
+         _verifier(neutre, demande=_demande(neutre, "renvoi", neutre.bloc("definition_objet"),
+                                            raison="renvoi_non_lu"))],
+        settings=_settings(neutre.identite, retrieval_max_blocks=5))
+
+    assert fake.remaining_script == 0
+    noms = _tous_les_checks(trace)
+    # La passe a bien eu lieu et a bien ouvert quelque chose — ce n'est pas le cas « rien trouvé ».
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert len(retrouver.discarded_block_ids) == 1
+    assert "demande_insatisfaite" in noms and "demande_satisfaite" not in noms
+    assert "reprise_unique" not in noms
+    assert [s.name for s in trace.steps].count("verifier") == 1
+    assert all(c.status.applicable == "humain" for c in answer.claims)
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert not answer.complete and _lacune() in answer.unknown
 
@@ -941,7 +1000,9 @@ def test_la_satisfaction_ne_suit_quun_seul_niveau(neutre: CorpusNeutre) -> None:
                         raison="renvoi_non_lu"),
         retrieval=depart)
     lus = set(neutre.cles(b.block_id for b in augmente.blocs))
-    assert lus == {"prise_en_charge", "definition_objet", "bareme"}
+    # Les **deux** `refs` du bloc visé, et rien au-delà : ni les `refs` de `bareme` ou d'
+    # `annexe_technique`, ni la définition d'un terme que le bloc visé emploie.
+    assert lus == {"prise_en_charge", "definition_objet", "bareme", "annexe_technique"}
 
 
 def test_la_satisfaction_est_bornee_par_le_budget_de_letape_entiere(neutre: CorpusNeutre) -> None:
@@ -964,6 +1025,33 @@ def test_la_satisfaction_est_bornee_par_le_budget_de_letape_entiere(neutre: Corp
     assert neutre.cles(step.discarded_block_ids) == ["definition_valeur"]
     assert step.opened_block_ids == []
     assert not next(c for c in step.checks if c.name == "satisfaction_demande").ok
+
+
+def test_une_satisfaction_partielle_nest_pas_une_satisfaction(neutre: CorpusNeutre) -> None:
+    """Revue croisée 4.2e (I1) : un candidat ouvert **et** un candidat écarté ⇒ demande insatisfaite.
+
+    Le cas est celui d'un renvoi à deux cibles avec une seule place restante. Le rappel n'a rien
+    fait de mal : il a lu ce qu'il pouvait sous la borne de l'étape. Mais le contexte demandé n'est
+    relu qu'**à moitié**, et « à moitié » n'est pas une réponse à « il me manque ceci pour juger ».
+    Déclarer la demande satisfaite laissait alors une reprise juger sur un contexte incomplet et
+    rendre un verdict décisoire — la place insuffisante ne fermait plus vers `humain`.
+    """
+    depart = _retrieval(neutre, "prise_en_charge", "inscription", "definition_objet")
+    demande = DemandeContexte(kind="renvoi", cible=neutre.bloc("definition_objet"), claim_id="k1",
+                              raison="renvoi_non_lu")
+
+    partielle, step = _satisfaire(neutre, demande, retrieval=depart, retrieval_max_blocks=4)
+    # La passe a bien ouvert un bloc — ce n'est pas le cas « rien trouvé » — et en a écarté un.
+    assert len(step.opened_block_ids) == 1 and len(step.discarded_block_ids) == 1
+    assert partielle.truncated is True
+    # Et elle ne se déclare pas satisfaite pour autant : c'est le fait que le pipeline lit.
+    assert not next(c for c in step.checks if c.name == "satisfaction_demande").ok
+
+    # Contrôle : avec la place pour les deux, la même demande est bien satisfaite.
+    entiere, step_entier = _satisfaire(neutre, demande, retrieval=depart, retrieval_max_blocks=5)
+    assert len(step_entier.opened_block_ids) == 2 and step_entier.discarded_block_ids == []
+    assert entiere.truncated is False
+    assert next(c for c in step_entier.checks if c.name == "satisfaction_demande").ok
 
 
 def test_la_satisfaction_ne_rend_rien_quand_le_contexte_nexiste_pas(neutre: CorpusNeutre) -> None:
