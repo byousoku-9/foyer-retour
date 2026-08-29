@@ -340,16 +340,36 @@ class DemandeRendue(BaseModel):
         contrat ne nomme pas ». Ramener silencieusement la seconde à la première était l'anti-modèle
         exact de la revue 4.2a.
         """
-        if isinstance(data, dict):
-            kind, raison = data.get("kind"), data.get("raison")
-            hors_vocabulaire = kind not in DEMANDE_KINDS or raison not in DEMANDE_RAISONS
-            data = {**data, "hors_vocabulaire": hors_vocabulaire}
-            if hors_vocabulaire:
-                data["kind"] = None
-                data["raison"] = None
-            for champ in ("cible", "claim_id"):
-                valeur = data.get(champ)
-                data[champ] = valeur.strip() if isinstance(valeur, str) else ""
+        if isinstance(data, cls):
+            return data
+        if not isinstance(data, dict):
+            # Revue 4.2e (G) : une chaîne, une liste ou un nombre à cette clé faisaient lever
+            # pydantic — donc perdre **tous** les verdicts du lot en `LlmParse` terminal. C'est
+            # exactement l'anti-modèle que cette sentinelle existe pour empêcher (revue 4.2a, B2) :
+            # une valeur brute inconnue n'écarte que ce qu'elle concerne.
+            return {"kind": None, "cible": "", "claim_id": "", "raison": None,
+                    "hors_vocabulaire": True}
+        textes = {champ: (data[champ].strip() if isinstance(data.get(champ), str) else "")
+                  for champ in ("cible", "claim_id")}
+        kind, raison = data.get("kind"), data.get("raison")
+        # Revue 4.2e (D) : `{}` et l'objet dont les quatre valeurs sont nulles sont des sorties
+        # **conformes** au schéma transformé — il ne rend aucun champ requis. Le modèle n'a alors
+        # rien demandé, et le classer « hors vocabulaire » servait à l'utilisateur une phrase de
+        # manque pour une demande qui n'existait pas. Ne rien dire n'est pas dire n'importe quoi.
+        # Le « rien demandé » se lit sur les valeurs **brutes**, et non sur leur projection : un
+        # `cible: 12` se projette en chaîne vide, mais le modèle a bien rendu quelque chose — le
+        # tenir pour un silence rouvrirait par la porte de la coercition exactement ce que cette
+        # sentinelle ferme. Absent, `null` ou une chaîne de blancs sont des silences ; une valeur
+        # d'un autre type est une demande malformée, et elle est refusée comme telle.
+        muets = all(data.get(champ) is None
+                    or (isinstance(data.get(champ), str) and not data[champ].strip())
+                    for champ in ("cible", "claim_id"))
+        vide = kind is None and raison is None and muets
+        hors_vocabulaire = not vide and (kind not in DEMANDE_KINDS or raison not in DEMANDE_RAISONS)
+        data = {**data, **textes, "hors_vocabulaire": hors_vocabulaire}
+        if vide or hors_vocabulaire:
+            data["kind"] = None
+            data["raison"] = None
         return data
 
 
@@ -1420,7 +1440,10 @@ def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis:
     AD-15) : ni la cible, ni l'identifiant reçus n'y sont recopiés.
     """
     rendue = getattr(parsed, "demande_contexte", None)
-    if rendue is None:
+    if rendue is None or (rendue.kind is None and not rendue.hors_vocabulaire):
+        # Champ absent, nul, ou objet dont aucune des quatre valeurs n'est renseignée : dans les
+        # trois cas le contrôle n'a rien demandé (revue 4.2e, D). Aucune trace non plus — il n'y a
+        # pas d'événement à nommer.
         return None, False
 
     def bloquer(claim_id: str) -> None:
@@ -1436,11 +1459,25 @@ def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis:
                    "fermé : aucune demande n'est formée (l'affirmation visée, si elle a été "
                    "soumise, est traitée comme `humain`)"))
         return None, True
-    if rendue.claim_id not in attendus or not rendue.cible:
+    if rendue.claim_id not in attendus:
+        # Rien à écarter : le contrôle n'a pas jugé cette affirmation-là, il n'a pas pu en former de
+        # champs typés. Un identifiant inventé ne décide de rien, ici comme partout.
         step.checks.append(CheckResult(
             name="demande_cible_inconnue", ok=False,
-            detail="une demande de contexte ne désigne aucune affirmation soumise, ou ne nomme "
-                   "aucune cible : aucune demande n'est formée"))
+            detail="une demande de contexte ne désigne aucune affirmation soumise au contrôle : "
+                   "aucune demande n'est formée"))
+        return None, True
+    if not rendue.cible:
+        # Revue 4.2e (B) : `cible` est facultatif dans le schéma envoyé — une cible omise ou faite
+        # de blancs est une sortie conforme. Elle ne désigne rien, et cette branche **doit** écarter
+        # les champs typés comme les autres : sans cela, un verdict décisoire était rendu sur
+        # l'affirmation que le contrôle venait de déclarer injugeable, pendant que la réponse disait
+        # à l'utilisateur qu'il lui manquait un élément. Deux canaux qui se contredisent.
+        bloquer(rendue.claim_id)
+        step.checks.append(CheckResult(
+            name="demande_cible_inconnue", ok=False,
+            detail="une demande de contexte ne nomme aucune cible : aucune demande n'est formée "
+                   "(l'affirmation visée est traitée comme `humain`)"))
         return None, True
 
     # `forme()` et non `normalize()` seul : c'est la clé de comparaison des **termes** du projet

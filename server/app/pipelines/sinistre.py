@@ -121,7 +121,7 @@ APPELS_DE_LA_REPRISE = 1
 LACUNE_CONTEXTE_NON_RELU = Lacune(kind="contexte_non_relu")
 
 
-def _contexte_non_relu(verification: Verification) -> Verification:
+def _contexte_non_relu(verification: Verification, *, lecture_bornee: bool) -> Verification:
     """La demande de contexte n'a pas été satisfaite, ou sa reprise a été refusée (story 4.2e).
 
     Exactement le patron de `relance_abandonnee` (AD-4 : « `complete=True` exige aucune troncature de
@@ -129,13 +129,24 @@ def _contexte_non_relu(verification: Verification) -> Verification:
     typée dit **pourquoi** — sans quoi l'utilisateur lirait « partiel » sans savoir ce qui manque, ce
     que l'invariant `complete ⟺ found ∧ rien qui manque` du domaine interdit de toute façon.
 
-    Aucune lacune sur un refus : `found=False` porte déjà son porteur (preuve d'absence ou lecture
-    partielle), qui dit tout. La claim que la demande bloquait, elle, vaut déjà `humain` — *vérifier*
-    l'a écartée de l'applicabilité par le mécanisme existant, et AD-6 en déduit seule
-    `ne_tranche_pas`. Rien n'est fabriqué ici : ni verdict, ni substitution.
+    Sur un refus, la lacune ne se pose que si la lecture est **bornée** — c'est la règle exacte
+    qu'AD-4 a prise en story 4.2f (`verifier` calcule ses lacunes sur `not found ∧ truncated`) : un
+    refus non tronqué porte déjà son porteur, l'`AbsenceProof`, qui dit tout ; une `LecturePartielle`,
+    elle, **exige** de dire sa borne et *restituer* refuse par contrat une réponse qui chiffre sa
+    lecture sans dire pourquoi celle-ci n'a pas suffi.
+
+    Le drapeau est un paramètre et non une relecture de `verification` parce que la borne peut naître
+    **après** le contrôle : la passe de satisfaction écarte ses propres candidats sous le budget de
+    l'étape, si bien qu'une lecture devenue tronquée n'a plus aucune lacune calculée par *vérifier*.
+    Sans ce paramètre, ce chemin sortait en `ValueError` — un 500 générique sur la cause même que
+    cette story ouvre.
+
+    La claim que la demande bloquait, elle, vaut déjà `humain` — *vérifier* l'a écartée de
+    l'applicabilité par le mécanisme existant, et AD-6 en déduit seule `ne_tranche_pas`. Rien n'est
+    fabriqué ici : ni verdict, ni substitution.
     """
     lacunes = list(verification.lacunes)
-    if verification.found and LACUNE_CONTEXTE_NON_RELU not in lacunes:
+    if (verification.found or lecture_bornee) and LACUNE_CONTEXTE_NON_RELU not in lacunes:
         lacunes.append(LACUNE_CONTEXTE_NON_RELU)
     return verification.model_copy(update={"complete": False, "lacunes": lacunes})
 
@@ -603,6 +614,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                      budget=budget, settings=settings, faits=faits,
                                                      dossier=dossier)
         steps.append(step_verifier)
+        # Story 4.2e : **quelle** ébauche et **quelle** étape ont produit la vérification retenue.
+        # La relance d'AD-3 peut les remplacer plus bas ; la demande de contexte, elle, est rendue
+        # par le contrôle qui fait foi, et c'est cette ébauche-là qu'une reprise doit relire (et
+        # cette étape-là que ses checks doivent nommer).
+        draft_verifie, step_de_la_verification = draft, step_verifier
 
         # --- relance unique (AD-3) ------------------------------------------
         omises = _fondatrices_omises(verification, retrieval, settings)
@@ -703,6 +719,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     relance_trouve_clause = seconde.found and not acquise.found
                     if relance_trouve_clause or domine(seconde, acquise):
                         verification = seconde
+                        # Story 4.2e : la vérification retenue est celle de l'ébauche relancée. Une
+                        # reprise de contexte qui repartirait de la première soumettrait un lot où
+                        # le `claim_id` de la demande n'existe pas — et, la dominance n'étant pas
+                        # stricte, pourrait faire servir la rédaction d'avant la relance.
+                        draft_verifie, step_de_la_verification = draft_2, step_verifier_2
                     else:
                         step_verifier_2.checks.append(CheckResult(
                             name="relance_moins_bonne", ok=False,
@@ -756,11 +777,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 # Aucune passe, aucun appel : la place se contrôle **avant** de rouvrir quoi que ce
                 # soit. Même conséquence qu'une demande insatisfaite, jamais une erreur terminale —
                 # la réponse acquise est servie, sans être donnée pour complète.
-                step_verifier.checks.append(CheckResult(
+                step_de_la_verification.checks.append(CheckResult(
                     name="reprise_sans_place", ok=False,
-                    detail=f"demande de contexte non reprise ({place}) : la première vérification "
+                    detail=f"demande de contexte non reprise ({place}) : la vérification acquise "
                            "fait foi, le contexte demandé n'a pas été relu"))
-                verification = _contexte_non_relu(acquise)
+                verification = _contexte_non_relu(acquise, lecture_bornee=truncated or retrieval.truncated)
             else:
                 complement, step_satisfaire = satisfaire_demande(
                     demande, retrieval=retrieval, corpus=corpus, index=index,
@@ -773,26 +794,42 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 step_retrouver.ms += step_satisfaire.ms
                 step_retrouver.opened_block_ids = list(complement.opened_block_ids)
                 step_retrouver.discarded_block_ids = list(complement.discarded_block_ids)
+                # La borne de cette passe est celle de l'étape : un candidat écarté par le budget
+                # est une lecture tronquée, et `Trace.truncations` doit le dire. Sans cela, la trace
+                # publiait des blocs écartés en annonçant zéro troncature, et un refus repartait sur
+                # une preuve d'absence qui promet un balayage exhaustif (NFR2).
+                truncated = truncated or complement.truncated
+                # La borne se dit aussi sur la lecture servie, même quand le complément n'est pas
+                # adopté (revue 4.2e, F) : un refus aval ne doit jamais repartir d'une lecture
+                # donnée pour exhaustive alors que le budget a écarté des candidats. Les **blocs**,
+                # eux, restent ceux que la vérification servie a réellement vus — sans quoi la
+                # réponse chiffrerait une lecture plus large que le jugement qui la porte.
+                retrieval = retrieval.model_copy(update={
+                    "truncated": truncated,
+                    "discarded_block_ids": list(complement.discarded_block_ids)})
                 neufs = len(complement.blocs) - len(retrieval.blocs)
                 if neufs <= 0:
-                    step_verifier.checks.append(CheckResult(
+                    step_de_la_verification.checks.append(CheckResult(
                         name="demande_insatisfaite", ok=False,
                         detail="le contexte demandé n'existe pas dans le contrat lu, ou le budget "
                                "de l'étape ne laissait pas la place de le rouvrir : aucune reprise, "
-                               "la première vérification fait foi"))
-                    verification = _contexte_non_relu(acquise)
+                               "la vérification acquise fait foi"))
+                    verification = _contexte_non_relu(acquise, lecture_bornee=truncated or retrieval.truncated)
                 else:
-                    step_verifier.checks.append(CheckResult(
+                    step_de_la_verification.checks.append(CheckResult(
                         name="demande_satisfaite", ok=True,
                         detail=f"{neufs} bloc(s) rouvert(s) pour la demande de contexte, sous le "
                                "budget de l'étape et sans appel modèle"))
-                    retrieval = complement
-                    truncated = retrieval.truncated
                     try:
+                        # L'ébauche relue est celle qui a **produit** cette vérification-là : c'est
+                        # sur elle que la demande a été formulée, ce sont ses `claim_id` et ses
+                        # citations. Le complément n'est adopté comme lecture servie que si la
+                        # reprise l'est aussi — sinon la réponse chiffrerait une lecture que la
+                        # vérification servie n'a pas vue.
                         reprise, step_verifier_reprise = await verifier(
-                            draft, parsed=parsed, retrieval=retrieval, corpus=corpus, index=index,
-                            client=client, budget=budget, settings=settings, faits=faits,
-                            dossier=dossier)
+                            draft_verifie, parsed=parsed, retrieval=complement, corpus=corpus,
+                            index=index, client=client, budget=budget, settings=settings,
+                            faits=faits, dossier=dossier)
                     except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                         # Même partage qu'à la relance (AD-16) : un appel **commencé** qui échoue
                         # reste terminal ; une reprise qui n'a jamais démarré laisse l'acquis servir.
@@ -802,11 +839,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                 steps.append(exc.step)
                             exc.trace = tracer()
                             raise
-                        step_verifier.checks.append(CheckResult(
+                        step_de_la_verification.checks.append(CheckResult(
                             name="reprise_sans_place", ok=False,
                             detail=f"reprise de vérifier non démarrée ({exc.code.value}) : la "
-                                   f"première vérification fait foi — {exc.message}"))
-                        verification = _contexte_non_relu(acquise)
+                                   f"vérification acquise fait foi — {exc.message}"))
+                        verification = _contexte_non_relu(acquise, lecture_bornee=truncated or retrieval.truncated)
                     else:
                         steps.append(step_verifier_reprise)
                         step_verifier_reprise.checks.append(CheckResult(
@@ -821,9 +858,21 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                 name="seconde_demande_refusee", ok=False,
                                 detail="la reprise redemande du contexte : refusée sans être "
                                        "satisfaite — une satisfaction et une reprise, jamais deux"))
-                            verification = _contexte_non_relu(acquise)
+                            verification = _contexte_non_relu(acquise, lecture_bornee=truncated or retrieval.truncated)
                         elif domine(reprise, acquise):
-                            verification = reprise
+                            # Revue 4.2e (L) : les lacunes de l'acquis sont **reconduites**. Une
+                            # relance abandonnée faute de place avait posé sa lacune sur `acquise` ;
+                            # adopter la reprise telle quelle l'effaçait, et la réponse repartait
+                            # `complete=True` alors qu'une relance due n'avait jamais démarré. Une
+                            # reprise qui domine sur les six axes ne dit rien de ce que l'acquis
+                            # avait déjà constaté manquant.
+                            verification = reprise.model_copy(update={
+                                "lacunes": list(dict.fromkeys([*acquise.lacunes,
+                                                               *reprise.lacunes])),
+                                "complete": reprise.complete and acquise.complete})
+                            # La lecture servie est celle que cette vérification-là a réellement
+                            # vue : le complément n'est adopté qu'avec elle (revue 4.2e, F).
+                            retrieval, truncated = complement, complement.truncated
                         else:
                             # Exactement la règle de la relance (AD-1) : une reprise qui perdrait
                             # une facette ou un bloc cité troquerait une sous-question contre une
@@ -840,6 +889,15 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                        f"complete={reprise.complete} contre {acquise.complete}, "
                                        f"manques={reprise.nb_manques} contre "
                                        f"{acquise.nb_manques}) : la première fait foi"))
+                            # Revue 4.2e (E) : cette fermeture-ci servait tout de même la réponse
+                            # comme **complète**. C'était la seule des cinq à ne pas le dire, et la
+                            # moins défendable : le jugement servi est celui rendu **avant**
+                            # relecture du contexte, sur une affirmation que le contrôle avait
+                            # déclarée injugeable. Pour une demande de `renvoi`, `complete=True`
+                            # contredisait en outre AD-1 — « aucun renvoi non résolu sur une claim
+                            # décisionnelle ». Le contexte demandé n'a pas nourri la réponse
+                            # servie : elle le dit, comme les quatre autres fermetures.
+                            verification = _contexte_non_relu(acquise, lecture_bornee=truncated or retrieval.truncated)
 
         # --- restituer ------------------------------------------------------
         echeance("restituer")

@@ -849,6 +849,47 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     return result, step
 
 
+def _definitions_de_la_cible(trouvees: list[tuple[str, str]], *, cible: str,
+                             bloc: Any) -> list[str]:
+    """Parmi les définitions rendues par l'index, celles qui définissent **la cible demandée**.
+
+    Le filtre n'est pas une précaution de style : `Index.definitions(..., blocs_ouverts=…)` rend
+    aussi, par sa branche « terme rencontré dans un bloc ouvert », toute définition dont le
+    `defines` figure dans le texte d'un bloc déjà lu — **indépendamment des termes demandés**. C'est
+    exactement ce que veut la fermeture d'un niveau des deux variantes ; ce n'est pas ce que veut la
+    satisfaction d'une demande. Sans le filtre, une demande portant sur un terme que le contrat ne
+    définit nulle part rendait quand même « un bloc neuf » : le pipeline la déclarait satisfaite,
+    payait un appel de reprise, et la fermeture `humain` / `contexte_non_relu` n'avait pas lieu —
+    la garantie fail-closed de la story tombait sur son cas le plus fréquent.
+
+    Deux groupes, du plus précis au moins précis, et **le second ne sert que si le premier est
+    vide** — c'est ce qui borne l'élargissement en mots isolés :
+
+    1. les définitions qui **nomment** la cible (`defines` la contient en mots entiers) : « jardin »
+       trouve « mobilier de jardin », la règle même de `Index.definitions` ;
+    2. à défaut, celles dont le `defines` est une **sous-expression** de la cible en mots entiers :
+       une qualité « caractère X de l'événement » n'est définie nulle part sous ce libellé, et la
+       définition de « X » est alors le seul contexte que la demande puisse viser.
+
+    Une définition étrangère aux deux groupes n'est jamais rouverte, quel que soit le bloc ouvert
+    qui emploie son terme.
+    """
+    forme_cible = f" {forme(cible)} "
+    if not forme_cible.strip():
+        return []
+    nomment: list[str] = []
+    sous_expressions: list[str] = []
+    for block_id, _node_id in trouvees:
+        defini = f" {forme(bloc(block_id).defines or '')} "
+        if not defini.strip():
+            continue
+        if forme_cible in defini:
+            nomment.append(block_id)
+        elif defini in forme_cible:
+            sous_expressions.append(block_id)
+    return nomment or sous_expressions
+
+
 def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, corpus: Corpus,
                        index: Index, budget: RetrievalBudget, settings: Settings,
                        doc_id: str) -> tuple[RetrievalResult, StepTrace]:
@@ -867,8 +908,10 @@ def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, 
     pas une navigation. Le coût en appels est donc nul, et `StepTrace.calls == []` le dit — la même
     convention que la variante déterministe.
 
-    **Un niveau, jamais deux.** Pour un `renvoi`, les `refs` du bloc visé et les définitions des
-    termes qu'il emploie ; leurs propres `refs` ne sont pas suivis. Pour une `definition` ou une
+    **Un niveau, jamais deux, et rien que la cible.** Pour un `renvoi`, les `refs` du bloc visé ;
+    leurs propres `refs` ne sont pas suivis, et les définitions des termes que ce bloc emploie n'en
+    font pas partie — elles relèvent de la fermeture automatique d'AD-1, que la passe initiale a
+    déjà faite, pas du renvoi demandé. Pour une `definition` ou une
     `qualite`, les définitions applicables du terme demandé, résolues **dans la portée** des blocs
     déjà ouverts (AD-2, `Index.definitions(..., blocs_ouverts=…)`) — c'est ce qui donne à un contrat
     la définition de sa branche plutôt que celle d'une autre.
@@ -897,19 +940,25 @@ def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, 
     if demande.kind == "renvoi":
         # La cible a été validée par *vérifier* contre les blocs fournis ; la garde reste, parce que
         # cette entrée est publique et qu'un appelant futur n'aura pas fait ce contrôle.
+        #
+        # Revue 4.2e (C, chemin `renvoi`) : **les `refs` du bloc visé, et rien d'autre.** La
+        # fermeture commune `_dependances_directes` ajoute aussi les définitions des termes que ce
+        # bloc emploie — c'est la fermeture automatique d'un niveau d'AD-1, déjà appliquée par la
+        # passe initiale, et ce n'est pas ce qu'une demande de renvoi vise. L'y laisser rouvrait un
+        # bloc étranger au renvoi demandé, que le pipeline comptait ensuite comme « un bloc neuf » :
+        # la demande était déclarée satisfaite, un appel de reprise était payé, et la fermeture
+        # `humain` / `contexte_non_relu` n'avait pas lieu — le même défaut fail-closed que le filtre
+        # des définitions ferme sur l'autre chemin.
         if demande.cible in deja:
-            candidats = _dependances_directes(
-                demande.cible, block=bloc, index=index, terms=[], doc_id=doc_id,
-                search_candidates=(), related_limit=budget.search_limit, related_max=0,
-                proximity_min=settings.limite_liee_proximite_min,
-                related_cache={}, search_related=False)
+            candidats = [ref for ref in bloc(demande.cible).refs if ref != demande.cible]
     else:
         # Le libellé entier **et** ses mots : `Index.definitions` apparie `defines` et terme en mots
         # entiers, si bien qu'une qualité nommée « caractère X de l'événement » ne trouverait la
         # définition de « X » par aucun autre chemin. Aucun mot n'est ajouté ni traduit.
         termes = list(dict.fromkeys([demande.cible, *forme(demande.cible).split()]))
-        candidats = [b for b, _node_id in index.definitions(termes, doc_id=doc_id,
-                                                            blocs_ouverts=ouverts)]
+        candidats = _definitions_de_la_cible(
+            index.definitions(termes, doc_id=doc_id, blocs_ouverts=ouverts),
+            cible=demande.cible, bloc=bloc)
     candidats = [b for b in dict.fromkeys(candidats)
                  if b not in deja and index.doc_of(b) == doc_id]
 
