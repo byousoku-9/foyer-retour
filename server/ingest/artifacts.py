@@ -68,19 +68,43 @@ def load_previous(path: Path) -> Document | None:
 
 
 def write_atomic(path: Path, text: str) -> None:
-    """Écrit `path` atomiquement, **à travers** un lien symbolique plutôt qu'en le remplaçant.
+    """Écrit `path` atomiquement — **par le protocole de publication** quand la cible en relève.
 
-    Story 4.5, B7. `data/manifest.json` est désormais une entrée de l'espace de publication : un
-    lien statique vers `data/.publie/courant/data/manifest.json`, committé une fois, que l'unique
-    `os.replace` du pointeur fait basculer avec les autres surfaces. Un `tmp.replace(path)` nu
-    détruirait ce lien et le remplacerait par un fichier ordinaire — silencieusement, et une seule
-    fois suffirait : la bascule suivante déplacerait le pointeur sans que `data/manifest.json` en
-    voie rien, et le run publierait quatre surfaces sur cinq en annonçant un succès. C'est un faux
-    vert, et c'est le chemin frère le plus dangereux de tout ce changement.
+    Story 4.5, B7. `data/manifest.json` est une entrée de l'espace de publication : un lien statique
+    vers `data/.publie/courant/data/manifest.json`, committé une fois, que l'unique `os.replace` du
+    pointeur fait basculer avec les autres surfaces. Un `tmp.replace(path)` nu détruirait ce lien et
+    le remplacerait par un fichier ordinaire — silencieusement, et une seule fois suffirait : la
+    bascule suivante déplacerait le pointeur sans que `data/manifest.json` en voie rien, et le run
+    publierait quatre surfaces sur cinq en annonçant un succès.
 
-    On résout donc la destination avant de renommer, et le temporaire est créé **dans le répertoire
-    résolu** pour que le `rename` reste sur le même système de fichiers.
+    Tour correctif 3/3. Écrire **à travers** le lien évitait cette destruction mais en ouvrait une
+    autre, et c'est celle que le recheck a nommée : le `rename` avait lieu **dans la génération
+    active**, hors du verrou de l'espace. Le bundle n'était donc pas immuable — la génération que le
+    pointeur publie changeait sous les pieds de ses lecteurs — et une ingestion concurrente courait
+    avec la reconstruction et la bascule d'un run, deux écrivains sur les deux mêmes générations.
+
+    Toute écriture d'une cible couverte par un pointeur passe donc désormais par
+    `EspacePublie.basculer` : même verrou (`flock`), même génération inactive, même unique
+    `os.replace`. La génération active n'est jamais mutée, et le lot d'une ingestion — une seule
+    cible — est aussi tout-ou-rien que celui d'un run.
+
+    `ecrire_gate` reste l'unique écrivain du champ `gate` (AD-7) : l'ingestion écrit l'entrée, jamais
+    son gate, et `merged_manifest` ne fait que **préserver** celui qui était là. Ce qui change ici
+    est le chemin d'écriture, pas qui écrit quoi.
+
+    Une cible ordinaire — `document.json`, `structure.json`, un manifest de test hors bundle — n'est
+    couverte par aucun pointeur : elle garde l'écriture atomique d'avant, temporaire puis `rename`,
+    et un lien qui ne relève d'aucun espace continue d'être écrit **à travers** plutôt que remplacé.
     """
+    # Import différé : `server/evals/` importe `server/ingest/` (le runner lit les rapports
+    # d'ingestion), et un import de module à module dans les deux sens serait un cycle. Le module
+    # importé ici n'a lui-même aucune dépendance hors stdlib.
+    from server.evals.espace import espace_couvrant
+
+    espace = espace_couvrant(path)
+    if espace is not None:
+        espace.basculer([(path, text)])
+        return
     cible = Path(os.path.realpath(path)) if path.is_symlink() else path
     cible.parent.mkdir(parents=True, exist_ok=True)
     tmp = cible.with_name(cible.name + ".tmp")

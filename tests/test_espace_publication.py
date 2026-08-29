@@ -192,7 +192,7 @@ def test_lingestion_ecrit_a_travers_le_lien_et_ne_le_remplace_pas(tmp_path: Path
     `tmp.replace(path)` remplace un lien symbolique par un fichier ordinaire. Une seule ingestion
     aurait suffi : la bascule suivante aurait déplacé le pointeur sans que `data/manifest.json` en
     voie rien, et le run aurait publié quatre surfaces sur cinq en annonçant un succès — un faux
-    vert. L'écriture résout donc la destination avant de renommer.
+    vert. L'écriture passe donc par l'espace quand la cible en relève.
     """
     from server.ingest.artifacts import write_atomic
 
@@ -204,3 +204,108 @@ def test_lingestion_ecrit_a_travers_le_lien_et_ne_le_remplace_pas(tmp_path: Path
     assert manifest.is_symlink(), "l'ingestion a remplacé le lien par un fichier ordinaire"
     assert espace.resolue_dans_lespace(manifest), "le manifest est sorti de l'espace"
     assert json.loads(manifest.read_text(encoding="utf-8")) == {"doc": 1}
+
+
+# --- B7, tour correctif 3/3 : immutabilité du bundle et concurrence -------------------------------
+#
+# Mesuré sur une copie figée de `824e509` : `write_atomic` résolvait le lien puis renommait **dans la
+# génération active**, hors du verrou. `'ancien-manifest.json'` devenait `'ecrit-par-l-ingestion'`
+# dans la génération que le pointeur publie, sans que le pointeur bouge. Le bundle n'était donc pas
+# immuable, et deux écrivains — une ingestion et la reconstruction d'un run — couraient sur les deux
+# mêmes générations sans se voir.
+
+def test_lingestion_du_manifest_ne_mute_jamais_la_generation_publiee(tmp_path: Path) -> None:
+    """Le bundle est **immuable** : on ne récrit pas une génération, on en publie une autre.
+
+    La sonde compare la génération active **d'avant** : ses octets et son inode doivent être
+    intacts après l'écriture, et le pointeur doit avoir bougé. C'est la différence exacte entre
+    « écrire à travers le lien » (ce que faisait `824e509`) et « passer par le protocole ».
+    """
+    from server.ingest.artifacts import write_atomic
+
+    espace = EspacePublie(tmp_path)
+    espace.installer([Path("data") / "manifest.json", Path("docs") / "evals" / "latest.md"])
+    manifest = tmp_path / "data" / "manifest.json"
+    latest = tmp_path / "docs" / "evals" / "latest.md"
+    espace.basculer([(manifest, '{"doc": 0}\n'), (latest, "publié par le run\n")])
+
+    generation_avant = espace.generation()
+    slot_avant = espace.chemin / generation_avant / "data" / "manifest.json"
+    octets_avant, inode_avant = slot_avant.read_bytes(), os.stat(slot_avant).st_ino
+
+    write_atomic(manifest, '{"doc": 1}\n')
+
+    assert espace.generation() != generation_avant, (
+        "l'ingestion doit publier une génération, jamais muter celle que le pointeur sert")
+    assert slot_avant.read_bytes() == octets_avant, "la génération publiée a été mutée en place"
+    assert os.stat(slot_avant).st_ino == inode_avant
+    assert json.loads(manifest.read_text(encoding="utf-8")) == {"doc": 1}
+    # Le report en avant vaut aussi pour l'ingestion : ce qu'elle ne réécrit pas reste publié.
+    assert latest.read_text(encoding="utf-8") == "publié par le run\n"
+    assert espace.residus() == []
+
+
+def test_lingestion_du_manifest_prend_le_meme_verrou_que_la_bascule(tmp_path: Path) -> None:
+    """Un second écrivain ne peut ni voir ni produire un bundle partiel : il **attend**.
+
+    Le verrou de l'espace était pris par la bascule d'un run et par elle seule ; l'ingestion écrivait
+    à côté. Le ping-pong à deux générations n'est sûr que si **tous** ses écrivains le prennent —
+    sinon deux d'entre eux choisissent la même génération inactive et le pointeur publie un mélange.
+
+    La preuve est une vraie contention : le verrou est tenu, l'ingestion est lancée dans un fil, et
+    on vérifie qu'elle **n'a pas** abouti tant que le verrou n'est pas rendu. `flock` associe le
+    verrou à la description de fichier ouverte, donc deux `open` du même processus se bloquent bien
+    l'un l'autre.
+    """
+    import threading
+
+    from server.evals.espace import _verrou
+    from server.ingest.artifacts import write_atomic
+
+    espace = EspacePublie(tmp_path)
+    espace.installer([Path("data") / "manifest.json"])
+    manifest = tmp_path / "data" / "manifest.json"
+    espace.basculer([(manifest, '{"doc": 0}\n')])
+
+    fini = threading.Event()
+
+    def _ecrire() -> None:
+        write_atomic(manifest, '{"doc": 1}\n')
+        fini.set()
+
+    fil = threading.Thread(target=_ecrire)
+    with _verrou(espace.chemin):
+        fil.start()
+        assert not fini.wait(0.3), (
+            "l'ingestion a écrit sans attendre le verrou de l'espace : deux écrivains courent")
+        assert json.loads(manifest.read_text(encoding="utf-8")) == {"doc": 0}
+    fil.join(10)
+    assert fini.is_set(), "l'ingestion n'a jamais abouti après la libération du verrou"
+    assert json.loads(manifest.read_text(encoding="utf-8")) == {"doc": 1}
+
+
+def test_une_cible_hors_espace_garde_son_ecriture_atomique_ordinaire(tmp_path: Path) -> None:
+    """Tout n'est pas dans un bundle : `document.json` et consorts gardent leur chemin d'écriture.
+
+    `espace_couvrant` reconnaît la couverture **structurellement**, par le chemin résolu de la
+    cible, jamais par son nom : un fichier ordinaire, un lien qui ne mène à aucun espace et un
+    manifest de test posé hors bundle rendent tous `None`.
+    """
+    from server.evals.espace import espace_couvrant
+    from server.ingest.artifacts import write_atomic
+
+    ordinaire = tmp_path / "document.json"
+    write_atomic(ordinaire, '{"a": 1}\n')
+    assert espace_couvrant(ordinaire) is None
+    assert json.loads(ordinaire.read_text(encoding="utf-8")) == {"a": 1}
+    assert not ordinaire.is_symlink()
+
+    ailleurs = tmp_path / "cible-liee.json"
+    reel = tmp_path / "reel.json"
+    reel.write_text("{}\n", encoding="utf-8")
+    os.symlink(reel.name, ailleurs)
+    assert espace_couvrant(ailleurs) is None
+    write_atomic(ailleurs, '{"b": 2}\n')
+    assert ailleurs.is_symlink(), "un lien hors espace reste écrit à travers, pas remplacé"
+    assert json.loads(reel.read_text(encoding="utf-8")) == {"b": 2}
+    assert sorted(p.name for p in tmp_path.rglob("*") if p.name.endswith(".tmp")) == []
