@@ -1559,10 +1559,15 @@ def test_un_plancher_digest_racine_mal_forme_ferme() -> None:
 #     après toute exception, à n'importe quel rang, `BaseException` et interruption comprises,
 #     **zéro cible du lot** n'est modifiée ni visible dans le nouvel état.
 #
-# La contre-sonde exacte du recheck — un lot d'au moins trois cibles remises **au même appel**, panne
-# au deuxième renommage, puis `KeyboardInterrupt` pendant ce qui était la restauration — est
-# `test_la_contre_sonde_du_recheck_ne_laisse_aucune_cible_publiee`. Elle est rouge sur `24569cc`
-# (`a` y vaut `'nouveau-a'`) et verte ici.
+# La contre-sonde exacte du recheck — un lot d'au moins trois cibles remises **au même appel**, dont
+# `data/manifest.json`, panne au deuxième renommage, puis interruption — tient en deux sondes, parce
+# que ses deux exceptions ne peuvent pas vivre dans le même appel : la première interrompt la
+# préparation, donc un `KeyboardInterrupt` injecté à un rang ultérieur de renommage ne serait jamais
+# atteint. `test_la_contre_sonde_du_recheck_ne_laisse_aucune_cible_publiee` éprouve la panne au
+# deuxième renommage et **vérifie sa cause** ; `test_une_interruption_pendant_le_traitement_de_la_
+# panne_ne_publie_rien` éprouve l'interruption au seul rang où elle est atteignable après cette
+# panne. Les deux comparent l'état observable complet — présence, type `lstat`, cible de lien,
+# contenu — avant et après. Elles sont rouges sur `24569cc` (`a` y vaut `'nouveau-a'`) et vertes ici.
 
 
 def _espace_de_lot(racine: Path, noms: tuple[str, ...]) -> tuple[EspacePublie, list[Path]]:
@@ -1581,31 +1586,65 @@ def _espace_de_lot(racine: Path, noms: tuple[str, ...]) -> tuple[EspacePublie, l
     return espace, [racine / c for c in cibles]
 
 
-def _etat_observable(cibles: list[Path]) -> dict[str, tuple[str, int]]:
-    """Contenu **et** type d'entrée (`lstat`) de chaque cible.
+def _etat_observable(
+        cibles: list[Path]) -> dict[str, tuple[bool, int | None, str | None, str | None]]:
+    """Les **quatre** dimensions que l'interdiction 7 nomme, pour chaque cible.
 
-    L'interdiction 7 définit « modifiée » par l'état observable : contenu, type d'entrée, cible de
-    lien, présence ou absence. Comparer les seuls contenus laisserait passer une migration de type,
-    qui est exactement la substitution qu'un candidat précédent avait employée.
+    L'AC définit « modifiée » par l'état observable : contenu, type d'entrée (`lstat`), cible de
+    lien, présence ou absence. Une version antérieure de cette sonde *affirmait* les couvrir toutes
+    et n'en capturait que deux — contenu et type —, si bien qu'une cible apparue, disparue ou
+    repointée ailleurs l'aurait traversée sans la rougir. Les quatre sont donc capturées
+    littéralement, dans cet ordre :
+
+    1. **présence de l'entrée** — `lstat` réussit ou non. Distincte de la lisibilité : un lien
+       pendant est une entrée *présente* dont le contenu est *absent*, et les deux se disent.
+    2. **type d'entrée** — les quatre bits de poids fort de `st_mode` (fichier ordinaire, lien,
+       répertoire). C'est ce qui rougit une migration de type, la substitution qu'un candidat
+       précédent avait employée.
+    3. **cible de lien** — `readlink` quand l'entrée est un lien. Deux liens de même type pointant
+       ailleurs sont deux états différents ; sans cette dimension, repointer une cible serait
+       invisible.
+    4. **contenu** — `None` quand il n'est pas lisible (absence, lien pendant, répertoire), ce qui
+       est la même chose qu'absent pour tout lecteur (fermeture B6 conservée).
     """
-    etat = {}
+    etat: dict[str, tuple[bool, int | None, str | None, str | None]] = {}
     for cible in cibles:
-        marque = os.lstat(cible).st_mode >> 12
-        etat[str(cible)] = (cible.read_text(encoding="utf-8"), marque)
+        try:
+            marque = os.lstat(cible).st_mode >> 12
+        except OSError:
+            etat[str(cible)] = (False, None, None, None)
+            continue
+        lien = os.readlink(cible) if os.path.islink(cible) else None
+        try:
+            contenu = cible.read_text(encoding="utf-8")
+        except OSError:
+            contenu = None
+        etat[str(cible)] = (True, marque, lien, contenu)
     return etat
 
 
 def test_la_contre_sonde_du_recheck_ne_laisse_aucune_cible_publiee(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """La sonde exacte du recheck : panne au **deuxième** renommage, puis interruption ensuite.
+    """Premier volet de la sonde du recheck : panne au **deuxième** renommage, lot ≥ 3 cibles.
 
-    Sur `24569cc`, elle rendait `BasculePartielle`, `non_restaurees=['…/a']` et laissait la cible du
-    premier rang à `'nouveau-a'` — et le test d'alors restait vert *précisément parce qu'il
-    acceptait cet état*. Ici, aucune cible n'a bougé, parce qu'aucune n'est modifiée tant que
-    l'unique `os.replace` du pointeur n'a pas eu lieu : il n'y a rien à défaire, donc rien qui
-    puisse échouer ou être interrompu en défaisant.
+    Ici, aucune cible n'a bougé parce qu'aucune n'est modifiée tant que l'unique `os.replace` du
+    pointeur n'a pas eu lieu : il n'y a rien à défaire, donc rien qui puisse échouer ou être
+    interrompu en défaisant.
+
+    La cause est éprouvée **ici**, pas ailleurs : c'est bien l'`OSError` injectée qui remonte, et le
+    compteur prouve que la panne a eu lieu au deuxième renommage et qu'aucun troisième n'a suivi.
+    Une version antérieure attrapait `BaseException` et injectait de surcroît un `KeyboardInterrupt`
+    au troisième rang, qui est **inatteignable** sous ce protocole : la première exception interrompt
+    la préparation. L'interruption a donc sa propre sonde, atteignable, juste en dessous.
+
+    Ce que ce volet **ne** prouve pas, mesuré plutôt que supposé : sur `24569cc`, une `OSError` seule
+    au deuxième renommage était correctement restaurée par `run._basculer`, donc son assertion d'état
+    y serait verte. C'est le volet « interruption » ci-dessous qui y est rouge, et c'est bien celui
+    que le recheck décrit. Les deux ne se remplacent pas.
     """
     espace, cibles = _espace_de_lot(tmp_path, ("a", "b", "c"))
+    assert len(cibles) >= 3, "la contre-sonde exige un lot d'au moins trois cibles au même appel"
+    assert any(c.name == "manifest.json" for c in cibles), "le manifest appartient au lot"
     avant = _etat_observable(cibles)
     vrai = os.replace
     compte = {"n": 0}
@@ -1614,21 +1653,77 @@ def test_la_contre_sonde_du_recheck_ne_laisse_aucune_cible_publiee(
         compte["n"] += 1
         if compte["n"] == 2:
             raise OSError("panne au deuxième renommage (injectée)")
-        if compte["n"] == 3:
-            raise KeyboardInterrupt()
         return vrai(src, dst)
 
     monkeypatch.setattr(os, "replace", replace_faillible)
-    with pytest.raises(BaseException):  # noqa: B017, PT011 — l'identité de la cause est éprouvée ailleurs
+    with pytest.raises(OSError, match="panne au deuxième renommage") as leve:
         espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
     monkeypatch.undo()
 
+    assert type(leve.value) is OSError, "la cause qui remonte est bien celle injectée"
+    assert compte["n"] == 2, "la panne a eu lieu au deuxième renommage, et rien n'a suivi"
     assert _etat_observable(cibles) == avant, (
         "aucune cible du lot n'est modifiée ni visible dans le nouvel état")
     assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
 
 
-@pytest.mark.parametrize("rang", [1, 2, 3, 4, 5])
+def test_une_interruption_pendant_le_traitement_de_la_panne_ne_publie_rien(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le second volet de la sonde du recheck : l'interruption, à un rang **atteignable**.
+
+    Le recheck injectait son `KeyboardInterrupt` « pendant la restauration ». Ce protocole n'a plus
+    de restauration — c'est précisément ce qui ferme l'AC —, donc l'analogue structurel est
+    l'interruption pendant ce qui *suit* la panne : l'abandon de la génération inactive, dans le
+    gestionnaire `except BaseException` de `basculer`. C'est le seul endroit où une seconde
+    exception peut encore survenir après la première, et il est atteint ici pour de vrai.
+
+    L'invariant tient d'autant plus facilement que rien n'a été publié : la génération abandonnée
+    n'est **pas une cible** — le pointeur ne la traverse pas — et la bascule suivante la reconstruit
+    (`_reconstruire` commence par un `rmtree`). Ce qui compte est ce que l'AC exige : zéro cible
+    modifiée, zéro temporaire, et le pointeur toujours sur la génération d'avant.
+
+    **C'est ce volet qui est rouge sur `24569cc`**, et la mesure est celle-ci : sur l'arbre figé, le
+    même scénario (`OSError` au deuxième renommage puis `KeyboardInterrupt` au rang suivant, qui y
+    est le premier renommage **de restauration**) rend
+    `BasculePartielle(… laissées dans le nouvel état : ['…/manifest.json'])`, et la cible de premier
+    rang y reste à `'nouveau-manifest.json'`. La dimension « contenu » de `_etat_observable` la
+    rougit ; le test d'alors restait vert *précisément parce qu'il acceptait cet état*.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b", "c"))
+    avant = _etat_observable(cibles)
+    generation_avant = espace.generation()
+    vrai_replace, vrai_rmtree = os.replace, shutil.rmtree
+    compte = {"replace": 0, "rmtree": 0}
+
+    def replace_faillible(src: Any, dst: Any) -> Any:
+        compte["replace"] += 1
+        if compte["replace"] == 2:
+            raise OSError("panne au deuxième renommage (injectée)")
+        return vrai_replace(src, dst)
+
+    def rmtree_interrompu(*a: Any, **k: Any) -> Any:
+        compte["rmtree"] += 1
+        # 1 = la remise à zéro de la génération inactive par `_reconstruire` ; 2 = son abandon dans
+        # le gestionnaire d'exception, c'est-à-dire le rang que le recheck visait.
+        if compte["rmtree"] == 2:
+            raise KeyboardInterrupt()
+        return vrai_rmtree(*a, **k)
+
+    monkeypatch.setattr(os, "replace", replace_faillible)
+    monkeypatch.setattr(shutil, "rmtree", rmtree_interrompu)
+    with pytest.raises(KeyboardInterrupt):
+        espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
+    monkeypatch.undo()
+
+    assert compte["replace"] == 2, "la panne a bien eu lieu au deuxième renommage"
+    assert compte["rmtree"] == 2, "l'interruption a bien été levée après la panne, pas avant"
+    assert _etat_observable(cibles) == avant, (
+        "aucune cible du lot n'est modifiée ni visible dans le nouvel état")
+    assert espace.generation() == generation_avant, "le pointeur n'a pas bougé"
+    assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
+
+
+@pytest.mark.parametrize("rang", [1, 2, 3, 4, 5, 6])
 @pytest.mark.parametrize("exception", [OSError("panne injectée"),
                                        RuntimeError("panne injectée hors OSError"),
                                        KeyboardInterrupt()],
@@ -1638,10 +1733,14 @@ def test_une_bascule_interrompue_a_nimporte_quel_rang_ne_laisse_ni_cible_ni_temp
         exception: BaseException) -> None:
     """Chaque rang, trois causes : le seul état admissible à la sortie est « rien n'a bougé ».
 
-    Le dernier rang est l'atome lui-même. Y échouer laisse le pointeur sur l'ancienne génération,
-    donc le lot entier dans son état d'avant : c'est le même invariant, à la frontière.
+    Le lot compte cinq cibles, donc `basculer` fait six `os.replace` : cinq écritures de slots dans
+    la génération inactive (rangs 1 à 5), puis **l'atome** (rang 6). Le rang 6 est donc éprouvé
+    explicitement, et il est la frontière : y échouer laisse le pointeur sur l'ancienne génération,
+    donc le lot entier dans son état d'avant. Une version antérieure s'arrêtait au rang 5 tout en
+    affirmant couvrir l'atome — le texte promettait plus que la sonde.
     """
     espace, cibles = _espace_de_lot(tmp_path, ("a", "b"))
+    assert len(cibles) == 5, "le rang 6 est l'atome : il dépend du nombre de cibles du lot"
     avant = _etat_observable(cibles)
     vrai = os.replace
     compte = {"n": 0}
@@ -1657,6 +1756,7 @@ def test_une_bascule_interrompue_a_nimporte_quel_rang_ne_laisse_ni_cible_ni_temp
         espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
     monkeypatch.undo()
 
+    assert compte["n"] == rang, "l'exception a bien été levée au rang visé"
     assert _etat_observable(cibles) == avant, "aucune cible ne reste dans le nouvel état"
     assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
 
