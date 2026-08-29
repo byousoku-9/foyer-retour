@@ -142,6 +142,8 @@
      stylées ici. Chaque couleur a sa variante sombre : la dette de contraste du rouge en dur
      (`#be123c` sans variante, 2,88:1 sur fond sombre) ne doit pas rouvrir par une autre porte. */
   .preuve { margin: 12px 0 0; font-size: 13px; opacity: .75; }
+  /* Le chiffre d'une lecture bornée, au même ton discret que la preuve chiffrée d'un refus. */
+  .lecture-partielle { margin: 12px 0 0; font-size: 13px; opacity: .75; }
   /* Portée `#resultat` : la page a déjà un `p.pied` (le rappel de portée, en bas de page), et une
      règle nue ferait de lui une barre d'état. Le pied **d'une réponse** vit dans le résultat. */
   #resultat .pied {
@@ -154,11 +156,14 @@
   }
   .etat-sur { color: #15803d; }
   .etat-partiel { color: #8a5300; }
+  /* Story 4.2f : même teinte que « partiel » — c'est une réserve, pas un échec. */
+  .etat-lecture-partielle { color: #8a5300; }
   .etat-inconnu { color: inherit; opacity: .8; }
   .etat-phrase { flex: 1 1 22ch; min-width: 0; opacity: .75; }
   @media (prefers-color-scheme: dark) {
     .etat-sur { color: #5ccb90; }
     .etat-partiel { color: #e7b165; }
+    .etat-lecture-partielle { color: #e7b165; }
   }
   details.trace { margin-top: 24px; border-top: 1px solid var(--bord); padding-top: 12px; font-size: 13px; }
   details.trace summary { cursor: pointer; opacity: .75; }

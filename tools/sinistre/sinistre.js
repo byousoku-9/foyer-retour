@@ -289,10 +289,31 @@
     return debut + " — " + chiffres.join(", ");
   }
 
-  // FR5 : les trois états, lus sur les deux booléens que *vérifier* calcule (AD-4).
+  // Story 4.2f : ce que la lecture du contrat a couvert, chiffré — **la même phrase** que
+  // `web/app/chat.js`. Le pendant de `preuveAbsence()` pour le second porteur d'un `found=false`, et
+  // la différence entre les deux est tout le sujet : une preuve d'absence annonce des passages
+  // parcourus (le contrat entier), celle-ci annonce des passages lus.
+  function lectureLue(lecture) {
+    if (!lecture) return "";
+    var noeuds = entier(lecture.nodes_read);
+    var blocs = entier(lecture.blocks_read);
+    return "Lecture partielle : " +
+      pluriel(noeuds, "section") + (noeuds > 1 ? " lues" : " lue") + ", " +
+      pluriel(blocs, "passage") + " transmis au modèle" +
+      " — le reste n'a pas été lu, et rien n'en est affirmé";
+  }
+
+  // FR5 : les états, lus sur les deux booléens que *vérifier* calcule (AD-4) et sur le porteur qui
+  // accompagne un `found=false` (story 4.2f). « inconnu » dit un refus fondé sur une recherche menée
+  // à son terme ; « lecture partielle » dit que la lecture du contrat s'est arrêtée avant de
+  // conclure. Sur un contrat, confondre les deux est exactement la faute que la story corrige.
   function etatReponse(answer) {
     var a = answer || {};
-    if (!a.found) return { cle: "inconnu", texte: "inconnu" };
+    if (!a.found) {
+      return estObjet(a.lecture_partielle)
+        ? { cle: "lecture-partielle", texte: "lecture partielle" }
+        : { cle: "inconnu", texte: "inconnu" };
+    }
     if (!a.complete) return { cle: "partiel", texte: "partiel" };
     return { cle: "sur", texte: "sûr" };
   }
@@ -310,6 +331,15 @@
       return c.liste
         ? "il manque des éléments : ils sont listés sous « Ce que je ne sais pas »"
         : "il manque des éléments, et rien n'indique lesquels";
+    }
+    if (cle === "lecture-partielle") {
+      // Story 4.2f — **la même phrase** que le guide. Elle n'affirme aucune absence et ne parle
+      // d'aucune indisponibilité ; comme les trois autres, elle ne décrit que ce que la vue a
+      // réellement peint : le chiffre n'est promis « ci-dessus » que s'il y est.
+      var lu = c.lecture
+        ? "ma lecture s'est arrêtée avant de conclure : ce qui a été lu est chiffré ci-dessus"
+        : "ma lecture s'est arrêtée avant de conclure, sans que ce qui a été lu soit chiffré";
+      return c.liste ? lu + ", et ce qui manque est listé sous « Ce que je ne sais pas »" : lu;
     }
     return c.preuve
       ? "rien n'a été retenu : la preuve de cette absence est ci-dessus"
@@ -334,6 +364,7 @@
     faits_compris_hors_borne: "des faits compris dépassent leur borne",
     hors_perimetre_desarme: "refus hors périmètre désarmé : la liste des rubriques était tronquée",
     intention_expliquee: "intention rendue par le modèle, et déclencheurs qui la confirment",
+    lecture_partielle: "lecture bornée sans affirmation retenue : ce qui a été lu est chiffré, aucune absence n'est affirmée",
     libelles_hors_borne: "des libellés de portée dépassent leur borne",
     lignes_incompletes: "un bloc cité n'est pas la concaténation de ses lignes",
     limites_non_affichees: "des phrases de limite n'ont pas été affichées",
@@ -1200,6 +1231,11 @@
     var preuve = preuveAbsence(a.reason);
     if (preuve) enfants.push(noeud("p", "preuve", preuve));
 
+    // Story 4.2f : l'autre porteur d'un `found=false`, au même endroit et sous la même règle — le
+    // serveur écrit la phrase, la page ajoute le chiffre. Les deux sont exclusifs par le contrat.
+    var lecture = estObjet(a.lecture_partielle) ? lectureLue(a.lecture_partielle) : "";
+    if (lecture) enfants.push(noeud("p", "lecture-partielle", lecture));
+
     var inconnus = tableau(a.unknown).filter(function (x) { return String(x || "").trim(); });
     if (inconnus.length) {
       enfants.push(section("inconnu", "Ce que je ne sais pas", [liste("inconnu-liste", inconnus)]));
@@ -1211,22 +1247,28 @@
       ]));
     }
 
-    // FR5 / reprise différée de 2.3 : le cadre des **trois états**, celui-là même que le chat pose
-    // depuis 2.3. La page rendait déjà les phrases de lacune composées par le code, mais sans le
+    // FR5 / reprise différée de 2.3, étendu par la story 4.2f : le cadre des états, celui-là même
+    // que le chat pose depuis 2.3 — « sûr », « partiel », « lecture partielle », « inconnu ». La page rendait déjà les phrases de lacune composées par le code, mais sans le
     // badge ni la phrase qui les encadrent : la même donnée était rendue avec deux niveaux
     // d'explicitation selon la page. Le badge d'état n'est pas le badge de **verdict** — l'un dit
     // ce que le contrat prévoit, l'autre ce que la vérification a pu établir — et les deux se
     // lisent : un « sous conditions » sur une réponse *partielle* est une réserve de plus.
     //
-    // Il n'apparaît que si `answer.reason` est là ou si la réponse est trouvée, c'est-à-dire quand
-    // `found`/`complete` ont un sens complet : un corps sans `reason` sur un `found=false` n'a pas
-    // été écrit par la route, et le badge dirait « inconnu » sur rien (M15).
-    if (a.found === true || a.reason) {
+    // Il n'apparaît que si l'un des deux porteurs d'un `found=false` est là, ou si la réponse est
+    // trouvée, c'est-à-dire quand `found`/`complete` ont un sens complet : un corps sans porteur sur
+    // un `found=false` n'a pas été écrit par la route, et le badge dirait « inconnu » sur rien (M15).
+    //
+    // Story 4.2f : `answer.lecture_partielle` est le second porteur, et l'élargissement n'est pas
+    // cosmétique — sans lui, la seule réponse que ce chemin produise n'aurait ni badge, ni phrase
+    // d'état, et le bloc « Affirmations écartées par la vérification » écrit plus haut serait resté
+    // pour toujours inatteignable : sous troncature, la page ne recevait qu'un 503.
+    if (a.found === true || a.reason || estObjet(a.lecture_partielle)) {
       var etat = etatReponse(a);
       enfants.push(noeud("div", "pied", null, [
         noeud("span", "etat etat-" + etat.cle, etat.texte),
         noeud("span", "etat-phrase",
-              phraseEtat(etat, { liste: inconnus.length > 0, preuve: !!preuve }))
+              phraseEtat(etat, { liste: inconnus.length > 0, preuve: !!preuve,
+                                 lecture: !!lecture }))
       ]));
     }
 
@@ -1467,6 +1509,18 @@
     exigerListe(reason.documents, estChaine, champ + ".documents");
   }
 
+  // `LecturePartielle` (story 4.2f), lue avec la **même** exigence que `AbsenceProof`. Ses deux
+  // compteurs n'ont pas de valeur par défaut côté serveur et ce sont eux que l'écran affiche : un
+  // compteur absent, négatif ou non entier peindrait « 0 section lue » sur une lecture que rien n'a
+  // mesurée — le contraire de ce que ce porteur promet, puisqu'il n'existe que pour la chiffrer.
+  function lireLecturePartielle(lecture, champ) {
+    if (lecture === undefined || lecture === null) return;
+    exiger(estObjet(lecture), champ);
+    exiger(estCompteur(lecture.nodes_read), champ + ".nodes_read");
+    exiger(estCompteur(lecture.blocks_read), champ + ".blocks_read");
+    exigerListe(lecture.documents, estChaine, champ + ".documents");
+  }
+
   // Lecture **stricte** du contrat d'AD-11, sur ce que l'écran consomme — et **récursive** depuis la
   // revue Codex 1.9 (tour 2, I2). Un 200 incomplet n'est pas une réponse dégradée, c'est un serveur
   // cassé : la page n'en peint aucun morceau (`reponse_illisible`).
@@ -1528,6 +1582,20 @@
     exigerListe(o.answer.unknown, estChaine, "answer.unknown");
     exiger(ouNul(estChaine)(o.answer.clarification), "answer.clarification");
     lireReason(o.answer.reason, "answer.reason");
+    lireLecturePartielle(o.answer.lecture_partielle, "answer.lecture_partielle");
+    // Story 4.2f : « exactement un porteur sur `found=false` », l'invariant du domaine refait ici.
+    // Sans porteur, la page peindrait un badge « inconnu » sur rien ; avec les deux, elle
+    // afficherait à la fois « le contrat n'en dit rien » et « je n'ai pas fini de le lire », dont
+    // l'un ment. Et un `found=true` qui porterait une lecture partielle annoncerait deux états.
+    var porteurs = (estObjet(o.answer.reason) ? 1 : 0) +
+                   (estObjet(o.answer.lecture_partielle) ? 1 : 0);
+    exiger(porteurs <= 1, "answer.lecture_partielle");
+    exiger(o.answer.found === true || porteurs === 1, "answer.reason");
+    exiger(o.answer.found !== true || !estObjet(o.answer.lecture_partielle),
+           "answer.lecture_partielle");
+    // « Une lecture partielle dit ce qui lui manque » : aucune route ne peut servir ce corps, et le
+    // peindre donnerait un compteur de lecture sans la moindre réserve en face.
+    exiger(!estObjet(o.answer.lecture_partielle) || o.answer.unknown.length > 0, "answer.unknown");
     // `faits_compris` est le seul objet vraiment facultatif de la réponse (`QuestionScope | None` :
     // le guide n'en a pas, et AD-5 n'en publie pas sur une clarification). Présent, il est descendu
     // comme le reste — c'est l'endroit où l'utilisateur vérifie qu'il a été compris, et un
@@ -2257,6 +2325,7 @@
     libelleVerdict: libelleVerdict,
     motifRejet: motifRejet,
     preuveAbsence: preuveAbsence,
+    lectureLue: lectureLue,
     etatReponse: etatReponse,
     phraseEtat: phraseEtat,
     traceVue: traceVue,
