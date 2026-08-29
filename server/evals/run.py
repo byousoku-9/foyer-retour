@@ -1033,6 +1033,17 @@ def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, 
     elif orphelins:
         ecarts.append(f"{len(orphelins)} segment(s) factuel(s) affiché(s) sans affirmation survivante")
         label = "claim_non_soutenu"
+    elif answer.lecture_partielle is not None:
+        # Story 4.2f : une lecture bornée sans claim survivante est désormais un **200 typé**, là où
+        # elle levait `TruncatedRead`. Le harness gardait déjà ce cas en `claim_non_soutenu` sur la
+        # branche d'exception ; il le garde ici, à la même précédence — avant `faux_refus`, qu'un
+        # `found=False` déclencherait sinon. Un 200 partiel n'est jamais `bonne_reponse` par défaut,
+        # et deux campagnes ne restent comparables que si le vocabulaire du harness ne change pas
+        # avec le code HTTP.
+        lp = answer.lecture_partielle
+        ecarts.append(f"lecture partielle : {lp.nodes_read} nœud(s) lu(s), "
+                      f"{lp.blocks_read} bloc(s) transmis, aucune affirmation retenue")
+        label = "claim_non_soutenu"
     elif cas.expected.found and not answer.found:
         label = "faux_refus"
     elif valeur_verdict == "ne_tranche_pas" and cas.expected.verdict \
@@ -1491,7 +1502,14 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                             }),
                             repetition=repetition, doc_id=doc_id,
                             complete=answer.complete,
-                            reason_kind=answer.reason.kind if answer.reason is not None else None,
+                            # Story 4.2f : le même vocabulaire des deux côtés de la bascule. La
+                            # branche `TruncatedRead` ci-dessous pose `lecture_tronquee` sur un 503 ;
+                            # le 200 typé qui la remplace doit poser le même mot, sans quoi une
+                            # campagne d'avant et une campagne d'après cesseraient d'être comparables
+                            # sur le seul motif que le code HTTP a changé.
+                            reason_kind=("lecture_tronquee" if answer.lecture_partielle is not None
+                                         else (answer.reason.kind if answer.reason is not None
+                                               else None)),
                             opened_block_ids=_blocs_ouverts(trace),
                             steps=_etapes(trace),
                             proofs=_preuves(answer, ctx.index))
