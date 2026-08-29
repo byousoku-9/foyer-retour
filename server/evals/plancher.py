@@ -524,9 +524,13 @@ class ClassementInvalide(Exception):
 class Configuration(BaseModel):
     """Une configuration candidate au checkpoint : son admissibilité, son identité et ses deux coûts.
 
-    **`frozen`** (revue B1, voie bibliothèque) : sans cela, une configuration validée à la
-    construction pouvait être dépouillée de son identité juste avant d'être classée. Un artefact de
-    promotion ne se modifie pas après avoir été constitué.
+    **`frozen`** ferme l'affectation d'attribut, et rien de plus (revue R9) : `model_copy(update=…)`
+    et `model_construct(…)` produisent toujours une copie amputée sans repasser par le validateur —
+    c'est d'ailleurs par là que les contre-exemples de `tests/test_plancher.py` fabriquent leurs
+    anonymes. Ce qui **tient** réellement la propriété « aucune promotion anonyme » est
+    `verifier_identite_classement`, appelée par `classer_configurations` : le modèle rend la faute
+    difficile, le classement la rend impossible. Écrire l'inverse ferait croire à une garantie que
+    ce mot-clé ne donne pas.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -701,6 +705,13 @@ def classer_configurations(configurations: list[Configuration]) -> list[Configur
     décide d'une promotion, c'est de savoir ce qu'on promeut. `ClassementInvalide` est donc levée
     avant qu'aucun ordre ne soit rendu — jamais un classement partiel, jamais une tête par défaut.
     """
+    # **L'argument est matérialisé avant d'être parcouru deux fois** (revue R12). Le contrôle itère,
+    # puis `sorted` itère à nouveau : un appelant passant un générateur — parfaitement légitime au
+    # regard de la signature — obtenait un classement **vide**, donc `aucun_admissible: true` pour
+    # des candidats bien réels. Dans la fonction dont tout l'objet est qu'aucune voie bibliothèque ne
+    # produise une décision de promotion non opposée, un épuisement silencieux est la même faute que
+    # celles que ce cycle ferme : une donnée absente rendue comme un résultat.
+    configurations = list(configurations)
     verifier_identite_classement(configurations)
     return sorted(configurations,
                   key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name))

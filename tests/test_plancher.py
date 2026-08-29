@@ -998,3 +998,140 @@ def test_la_cli_de_classement_dit_le_refus_au_lieu_de_promouvoir(
     capture = capsys.readouterr()
     assert "refus" in capture.err and "candidate_revision" in capture.err
     assert "aucun_admissible" not in capture.out
+
+
+# --- R2 : le chemin **nominal** de `--classer`, celui que ce cycle a réécrit -----------------------
+#
+# Les contre-exemples B1 prouvent les refus ; aucun test ne prouvait le succès. La ligne
+# `classement[0].candidate_revision if classement else args.candidate_revision` — écrite par ce
+# cycle — pouvait être remplacée par `None`, la clé retirée, ou `return 1 if aucun_admissible else 0`
+# inversé, sans rougir. Ce test est l'ancrage de l'artefact de promotion : il passe par `_main`, donc
+# par `_configuration_depuis_rapport`, donc par la vraie image du run.
+
+def _image_reelle() -> dict:
+    """L'image que `_main` construit réellement — vrais digests, vrais modèles, vraie normalisation.
+
+    Les fixtures `_image_candidate` sont synthétiques : elles n'atteignent jamais `_main`, qui
+    recalcule l'image depuis le dépôt. Un rapport bâti sur elles serait refusé pour incohérence
+    d'image avant même d'être classé, et le chemin nominal resterait invisible.
+    """
+    from server.app.corpus.text import normalize_version
+    from server.app.digests import pipeline_digest, prompts_digest
+    from server.app.llm.models import TIERS
+
+    return {
+        "pipeline_digest": pipeline_digest(),
+        "prompts_digest": prompts_digest(),
+        "model_ids": dict(TIERS),
+        "normalize_version": normalize_version,
+        "plancher_digest": charger_plancher().digest,
+    }
+
+
+def _rapport_classable(chemin: Path, *, cout: float, latence: int, admissible: bool,
+                       revision: str = REVISION_CLASSEE) -> None:
+    """Un rapport que `_configuration_depuis_rapport` accepte — identité recalculée, pas posée."""
+    import json as _json
+
+    from server.evals.cache import empreinte_canonique
+
+    identite: dict = {"candidate_revision": revision, "image": _image_reelle(),
+                      "scope": {"nom": chemin.stem}}
+    identite["run_digest"] = empreinte_canonique(identite)
+    chemin.write_text(_json.dumps({
+        "schema_version": 3,
+        "complete": True,
+        "unexecuted_cases": [],
+        "cost_eur": cout,
+        "metrics": {"latency_p50_ms": latence},
+        "decisions": [{"status": "green" if admissible else "red", "producer": "orchestrator"}],
+        "identity": identite,
+        "plancher_digest": charger_plancher().digest,
+    }) + "\n", encoding="utf-8")
+
+
+def test_le_classement_nominal_sort_en_zero_et_porte_la_revision_opposee(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """R2 : le chemin de succès de `--classer`, de bout en bout, par `_main`.
+
+    Quatre propriétés que rien n'assérait : le code de sortie 0, la révision **réellement opposée**
+    à la racine du JSON de promotion, le `plancher_digest` racine, et l'ordre de rang (admissible
+    d'abord, puis la moins chère, puis la plus rapide).
+    """
+    import json as _json
+
+    from server.evals.plancher import _main
+
+    _rapport_classable(tmp_path / "chere.json", cout=0.09, latence=100, admissible=True)
+    _rapport_classable(tmp_path / "economique.json", cout=0.03, latence=900, admissible=True)
+    _rapport_classable(tmp_path / "recalee.json", cout=0.00, latence=1, admissible=False)
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([
+        {"name": "chere", "report": "chere.json"},
+        {"name": "recalee", "report": "recalee.json"},
+        {"name": "economique", "report": "economique.json"},
+    ]), encoding="utf-8")
+
+    assert _main(["--classer", str(configs),
+                  "--candidate-revision", REVISION_CLASSEE]) == 0
+    artefact = _json.loads(capsys.readouterr().out)
+
+    assert artefact["candidate_revision"] == REVISION_CLASSEE
+    assert artefact["plancher_digest"] == charger_plancher().digest
+    assert artefact["aucun_admissible"] is False
+    assert [c["name"] for c in artefact["classement"]] == ["economique", "chere", "recalee"]
+    # Chaque configuration porte son identité, et toutes la même révision : l'artefact est auditable.
+    for configuration in artefact["classement"]:
+        assert configuration["candidate_revision"] == REVISION_CLASSEE
+        assert len(configuration["run_digest"]) == 64
+        assert len(configuration["report_digest"]) == 64
+    # Deux runs distincts, deux `run_digest` distincts : l'identité n'est pas un copier-coller.
+    assert len({c["run_digest"] for c in artefact["classement"]}) == 3
+
+
+def test_aucun_admissible_sort_en_un_et_reste_un_rouge_publie(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """R2 : `aucun_admissible` est un **rouge publié** — code 1, artefact complet, jamais une question."""
+    import json as _json
+
+    from server.evals.plancher import _main
+
+    _rapport_classable(tmp_path / "recalee.json", cout=0.00, latence=1, admissible=False)
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([{"name": "recalee", "report": "recalee.json"}]),
+                       encoding="utf-8")
+
+    assert _main(["--classer", str(configs), "--candidate-revision", REVISION_CLASSEE]) == 1
+    artefact = _json.loads(capsys.readouterr().out)
+    assert artefact["aucun_admissible"] is True
+    assert artefact["candidate_revision"] == REVISION_CLASSEE
+    assert [c["name"] for c in artefact["classement"]] == ["recalee"]
+
+
+def test_un_rapport_dune_autre_revision_ne_se_classe_pas_par_la_cli(tmp_path: Path) -> None:
+    """R2, revers du nominal : la révision opposée est bien celle des rapports, pas de l'argument."""
+    import json as _json
+
+    from server.evals.plancher import _main
+
+    _rapport_classable(tmp_path / "autre.json", cout=0.01, latence=10, admissible=True,
+                       revision="b" * 40)
+    configs = tmp_path / "configs.json"
+    configs.write_text(_json.dumps([{"name": "autre", "report": "autre.json"}]), encoding="utf-8")
+    assert _main(["--classer", str(configs), "--candidate-revision", REVISION_CLASSEE]) == 2
+
+
+def test_le_classement_ne_consomme_pas_son_argument(tmp_path: Path) -> None:
+    """R12 : un générateur épuisé rendait un classement **vide**, donc `aucun_admissible` sur des candidats réels.
+
+    La signature annonce une liste, mais rien n'empêchait un appelant de passer un itérateur : le
+    contrôle d'identité le parcourait, puis `sorted` n'y trouvait plus rien. Un classement vide rendu
+    en silence est la même faute que celles que ce cycle ferme — une donnée absente présentée comme
+    un résultat.
+    """
+    classement = classer_configurations(iter(TABLE_MESUREE))
+    assert [c.name for c in classement] == [c.name for c in classer_configurations(TABLE_MESUREE)]
+    assert len(classement) == len(TABLE_MESUREE)
+    # Et un générateur d'anonymes ferme toujours : le contrôle n'a pas été contourné au passage.
+    with pytest.raises(ClassementInvalide):
+        classer_configurations(c for c in [_sans_identite()])
