@@ -110,38 +110,48 @@ Un candidat rouge **ne mute jamais** le dernier vert : gate, révision et trafic
 restent intacts ; le verdict candidat est publié dans le rapport avec raison et limites. Sous gate
 `full`, des digests non concordants mettent le document en **quarantaine**. Le checkpoint de
 finalisation a trois rôles : la règle mécanique (`server/evals/plancher.py::classer_configurations`
-— admissibles au plancher, puis moins chère, puis plus rapide), un architecte neuf, et un relecteur
+— admissibles au plancher, puis moins chère, puis plus rapide, sur des rapports dont elle recalcule
+l'identité), un architecte neuf, et un relecteur
 Claude Code sur abonnement (JSON accepte/rejette) ; un rejet ou une sortie mal formée conserve la
 configuration précédente et rend la story suivante non promouvable — sans intervention humaine.
 
-### L'identité d'un classement est portée par le modèle, jamais par l'appelant
+### Un classement n'accepte que des rapports, et recalcule leurs empreintes
 
-Une configuration candidate porte `candidate_revision` (40 hexadécimaux), `run_digest` et
-`report_digest` (64). Trois règles, et aucune n'est optionnelle :
+`classer_configurations(candidats, *, plancher_digest, image_courante, candidate_revision)` ne prend
+plus de `Configuration` déclaratives : chaque `CandidatClassement` porte un **nom** et les **octets**
+de son rapport, et rien d'autre. Ce que l'appelant annonçait — admissibilité, coût, latence,
+`candidate_revision`, `run_digest`, `report_digest` — est désormais **lu ou recalculé** :
 
-1. `Configuration` **refuse** `admissible: true` sans identité complète et bien formée, et n'est
-   plus modifiable après construction ;
-2. `classer_configurations` **refuse de classer** — jamais un tri dégradé, jamais une tête par
-   défaut — toute liste contenant une configuration dont l'identité manque, est mal formée, ou dont
-   la révision candidate diverge de celle des autres. Le refus est `ClassementInvalide`, dit à
-   l'appelant ; la CLI le rend en code 2 sans imprimer de classement ;
-3. `_configuration_depuis_rapport` oppose l'identité du rapport avant de la lire (protocole,
-   révision, image, `run_digest` recalculé, `unexecuted_cases` exigé).
+| champ rendu | d'où il vient |
+|---|---|
+| `report_digest` | `sha256` des octets reçus |
+| `run_digest` | `empreinte_canonique(identity privée de sa propre clé)`, recalculée puis opposée à celle que le rapport annonce |
+| `candidate_revision` | `identity.candidate_revision` du rapport, qui doit égaler celle du classement |
+| `admissible` | `complete`, `unexecuted_cases` vide, et toutes les décisions `green` d'un producteur orchestrateur |
 
-`frozen` sur le modèle ferme l'affectation d'attribut, et rien de plus : `model_copy(update=…)` et
-`model_construct(…)` produisent toujours une copie amputée. Ce qui **tient** la propriété est le
-point 2, pas le point 1. Le classement matérialise aussi son argument avant de le parcourir deux
-fois : un générateur épuisé aurait rendu un classement vide, donc `aucun_admissible` sur des
-candidats bien réels.
+S'y ajoutent, avant tout tri, les recoupements de `verifier_identite_externe` : `plancher_digest`
+racine et les **cinq** champs de l'image candidate (`pipeline_digest`, `prompts_digest`,
+`model_ids`, `normalize_version`, `plancher_digest`). Le premier écart lève `ClassementInvalide` —
+jamais un tri dégradé, jamais une tête par défaut ; la CLI le rend en code 2 sans imprimer de
+classement. Le classement matérialise aussi son argument avant de le parcourir deux fois : un
+générateur épuisé aurait rendu un classement vide, donc `aucun_admissible` sur des candidats réels.
+
+`Configuration` est le **résultat**, pas l'entrée : ses trois empreintes y sont obligatoires et bien
+formées, et `verifier_identite_classement` reste exposé pour qu'un futur chemin de promotion s'y
+adosse — il refuse une identité absente, mal formée, ou deux révisions candidates dans la même
+liste.
 
 L'artefact de promotion porte, à sa racine, le `plancher_digest` et la révision **effectivement
 opposée** par le classement ; il sort en code 0, en code 1 quand aucune configuration n'est
 admissible — un rouge publié, jamais une question —, et en code 2 sur un refus de classer.
 
-Le contrôle n'existait auparavant que sur la voie CLI : n'importe quel appelant bibliothèque
-obtenait un classement — donc un candidat en tête — sans révision, sans run ni rapport. Un contrôle
-que l'appelant peut ne pas demander n'est pas un contrôle, et il n'y a donc **aucun paramètre** pour
-le désarmer. Reproduction : `pytest -q tests/test_plancher.py -k classement`.
+Trois tours ont fermé ce chemin par couches, et les deux premières ne suffisaient pas : la voie CLI
+(`--candidate-revision` requis), puis la présence et la **syntaxe** des trois empreintes. Un domaine
+de valeur n'est pas une preuve : `Configuration(admissible=True, candidate_revision="a"*40,
+run_digest="b"*64, report_digest="c"*64)` était encore classée **en tête**. Un objet marqué
+« vérifié », un drapeau ou un constructeur privé auraient été contournables de la même façon ; seul
+le recalcul depuis des octets ferme la cause. Il n'y a **aucun paramètre** pour le désarmer.
+Reproduction : `pytest -q tests/test_plancher.py -k classement`.
 
 ## Interdits
 

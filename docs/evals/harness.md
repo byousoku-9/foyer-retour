@@ -258,8 +258,26 @@ décide de ce qui est servi (AD-8).
 
 **Publication et promotion basculent ensemble** : les trois surfaces *et* l'entrée de manifest sont
 préparées dans des temporaires de leurs répertoires cibles, puis basculées en une seule file de
-`os.replace`. Il ne reste rien d'échouable après la première bascule, donc aucun état où une surface
-affirme un verdict que le manifest ne porte pas — ni l'inverse.
+`os.replace`. Tout ce qui peut échouer **pour une autre raison qu'un renommage** — validation,
+sérialisation, écriture, `fsync` — survient avant la première bascule.
+
+**La garantie exacte de la bascule, ni plus ni moins que ce que le code tient.** Un `os.replace`
+peut toujours échouer : ce n'est pas une opération atomique sur une file, et POSIX ne l'offre que
+sur un seul `rename`. Ce que `run._basculer` tient est donc « tout ou rien **par restauration** » :
+
+- l'état de chaque cible est capturé (ses octets, ou son absence) *avant* le premier renommage ; une
+  capture impossible ferme sans rien renommer, puisque rien ne pourrait la défaire ;
+- au premier renommage qui échoue — **sur toute exception**, `OSError`, `RuntimeError` ou
+  interruption comprises —, les cibles déjà basculées sont remises dans leur état d'avant, en ordre
+  inverse ; le manifest, qui promeut, est la dernière cible donc la première défaite ;
+- une restauration qui échoue à son tour est nommée cible par cible par `BasculePartielle`, jamais
+  masquée par un « rien n'a été publié » qui serait faux ;
+- les temporaires non consommés sont abandonnés en `finally`, quel que soit le chemin de sortie —
+  y compris l'échec de la capture. C'est ce qui couvre `ecrire_gate`, qui prépare son temporaire de
+  manifest avant l'appel et n'a pas de `finally` à lui.
+
+Ce qui reste non couvert, et n'est pas couvrable ici : une panne matérielle entre deux renommages
+laisse le lot mêlé, comme toute séquence de renommages.
 
 **Et un refus de préparation ne laisse aucun temporaire résiduel.** Tout ce qui peut lever — au
 premier rang, la lecture du `docs/evals/latest.md` à archiver — est lu et validé *avant* le premier
@@ -307,9 +325,12 @@ journal de CI lit sans que la validation l'exige produirait un `KeyError` nu, qu
 | `metrics.latency_p50_ms`, `.latency_p95_ms` | idem, non entiers (arrondir une latence l'inventerait), ou négatifs |
 | `metrics.labels`, `metrics.variants` | absents, `None`, non-objets — jamais rabattus sur `{}` —, ou comptage non entier ≥ 0 |
 | `metrics.labels` | incomplet : les **sept** labels fixes d'AD-14 sont exigés, zéros compris |
-| chaque entrée de `results` | non-objet, ou privée de `id`/`suite`/`variant`/`label` (chaînes), `cost_eur`/`cost_eur_original` (réels finis), `latency_ms` (entier) |
-| `stability` présent | sans `cases`, `cases` non-objet, ou `n` absent/non entier ≥ 1 — jamais un `0/0` fabriqué |
+| chaque entrée de `results` | non-objet, ou privée de `id`/`suite`/`variant`/`label` (chaînes **non vides**), `cost_eur`/`cost_eur_original` (réels finis **≥ 0**), `latency_ms` (entier **≥ 0**) |
+| `results[i].suite`, `results[i].label` | hors des vocabulaires **littéraux** — les trois suites livrées, les sept labels d'AD-14 |
+| `stability` présent | sans `cases`, `cases` non-objet, `n` absent/non entier ≥ 1, `n ≠ repeat`, ou une entrée dont `stable`/`comptabilise` manque ou n'est pas un **booléen** (`"oui"` n'est pas `True`) — jamais un `0/0` ni un `1/1` fabriqué |
 | `decisions` | non vides sans `plancher_digest` racine ; absentes alors que `plancher_digest` est présent ; mal typées ; ou une entrée non-objet |
+| chaque entrée de `decisions` | `metric`/`producer`/`scope`/`status` non-chaînes ou vides, `status` hors `{green, red}`, `producer` hors `{builder, orchestrator}`, `threshold`/`value` non finis ou hors `[0, 1]`, `n` non entier, `run_digest` mal formé, `reason` ni chaîne ni `null` — **aucune coercition** : `"3"` n'est pas `3` |
+| `decisions[i].run_digest` | ni l'empreinte de ce run, ni une empreinte déclarée dans `external_run_digests` — une décision opposée à aucun run |
 | `reserves` présentes | non-objet, champ absent, ou champ non booléen — une réserve illisible n'est pas une réserve absente |
 
 Ce qui peut **légitimement** manquer reste distinct de ce qui manque à tort : `stability` sous un run
@@ -320,9 +341,23 @@ ligne de tableau à zéros.
 
 Deux champs restent tirés d'un repli, et ce sont les deux seuls : `cases_hash`, qui retombe sur celui
 du gate quand le rapport n'en porte pas, et `date`, qui retombe sur `generated_at` puis sur la chaîne
-vide. Ni l'un ni l'autre n'est une mesure — ce sont une identité et un horodatage —, et
-`_empreinte` refuse de publier comme empreinte ce qui n'en est pas une. L'invariant « aucun chiffre
-inventé » porte sur les mesures ; le dire sans cette réserve serait inexact (revue R10).
+vide. Ni l'un ni l'autre n'est une mesure — ce sont une identité et un horodatage. L'invariant
+« aucun chiffre inventé » porte sur les mesures ; le dire sans cette réserve serait inexact
+(revue R10).
+
+`_empreinte` ne rabat plus rien : **absent** (`None` ou chaîne vide) reste une absence — un
+diagnostic n'a ni révision candidate ni rapport certifié —, mais **présent et mal formé** est un
+`RapportInexploitable` qui nomme la valeur. Publier `—` pour une empreinte bricolée la rendait
+indiscernable d'un rapport qui n'en porte pas.
+
+Le vocabulaire des labels est contrôlé **par égalité** : une clé manquante levait un `KeyError` nu,
+une clé en trop aurait publié un huitième label sans en être un (AD-14 : « labels fixes »).
+
+`external_run_digests` est la seule façon dont un rapport déclare les empreintes de run qui ne sont
+pas la sienne : celles des décisions venues d'une preuve `--orchestrator-evidence`, que
+`verifier_liaison_preuve` a déjà opposées aux octets de leur propre rapport. Le runner ne l'écrit
+que lorsqu'il y en a — une liste vide qu'il faudrait ensuite interpréter serait la faute même que ce
+module refuse.
 
 ### La seconde lecture (FR47)
 
