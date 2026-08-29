@@ -38,6 +38,7 @@ from server.app.domain.evals import (PublicationEvals, ReservesPubliees, Seconde
 from server.app.domain.ingest import Gate
 from server.evals import publication as pub_mod
 from server.evals import run as runner
+from server.evals import espace as espace_mod
 from server.evals.espace import EspaceNonInstalle, EspacePublie
 from tests.helpers_espace import poser_espace
 
@@ -1759,6 +1760,138 @@ def test_une_bascule_interrompue_a_nimporte_quel_rang_ne_laisse_ni_cible_ni_temp
     assert compte["n"] == rang, "l'exception a bien été levée au rang visé"
     assert _etat_observable(cibles) == avant, "aucune cible ne reste dans le nouvel état"
     assert _temporaires(tmp_path) == [], "aucun temporaire ne subsiste"
+
+
+# --- B7, tour correctif 3/3 : la frontière **post-commit** -------------------------------------
+#
+# Les sondes ci-dessus injectent toutes **avant** que le `os.replace` du pointeur n'ait lieu. L'AC
+# porte aussi sur l'après : « aucune exception n'est propagée avec le lot déjà basculé », et « en
+# aucun cas une cible ne devient illisible ou pendante, ni la génération devenue active n'est
+# supprimée ». Les deux sondes suivantes injectent donc **après** un `os.replace` réussi.
+#
+# Mesuré sur une copie figée de `824e509` (`git archive` dans `/tmp`), avec la sonde à quatre
+# dimensions : (1a) `KeyboardInterrupt` juste après le remplacement → `KeyboardInterrupt` propagée,
+# `identique: False`, et les trois cibles passent de leur ancien contenu à `contenu: None` — le
+# gestionnaire `except BaseException` avait supprimé la génération **devenue active**, laissant
+# trois liens pendants ; (1b) `_fsync_repertoire` post-commit levant `EIO` → `OSError` propagée,
+# `identique: False`, les trois cibles portant `nouveau-*`.
+
+def test_une_interruption_juste_apres_le_commit_ne_propage_rien_et_ne_detruit_rien(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frontière post-commit, volet 1a : le pointeur a bougé, donc l'opération a **réussi**.
+
+    Le `os.replace` du pointeur est le point de commit. Une `KeyboardInterrupt` peut tomber à la
+    frontière d'instruction qui le suit — c'est précisément pour cela qu'aucun drapeau Python ne
+    peut servir à décider du nettoyage : il n'est pas encore affecté. Le gestionnaire relit donc le
+    pointeur **sur disque** ; il y voit la génération neuve, en conclut que la transaction est
+    acquise, n'efface rien et ne propage rien.
+
+    Ce que la sonde interdit, dans l'ordre de gravité : que la génération devenue active soit
+    supprimée (les cibles deviendraient pendantes — une destruction, pas un état mêlé) ; qu'une
+    exception remonte avec le lot déjà publié.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b"))
+    generation_avant = espace.generation()
+    vrai = os.replace
+
+    def replace_puis_interruption(src: Any, dst: Any) -> Any:
+        rendu = vrai(src, dst)
+        if Path(dst).name == "courant":
+            raise KeyboardInterrupt()
+        return rendu
+
+    monkeypatch.setattr(os, "replace", replace_puis_interruption)
+    # **Aucune exception ne remonte** : le lot est publié, l'opération a réussi.
+    espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
+    monkeypatch.undo()
+
+    assert espace.generation() != generation_avant, "le pointeur a bien basculé"
+    for cible in cibles:
+        assert cible.read_text(encoding="utf-8") == f"nouveau-{cible.name}", (
+            "le lot entier doit être publié : ni cible pendante, ni cible restée en arrière")
+    assert espace.residus() == [], "aucun résidu, génération inactive à moitié effacée comprise"
+
+
+def test_un_fsync_post_commit_qui_echoue_ne_remonte_pas_avec_le_lot_bascule(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frontière post-commit, volet 1b : le `fsync` du répertoire de l'espace peut lever `EIO`.
+
+    Il suit le commit. Sa propagation rendrait « le lot est publié » et « l'opération a échoué »
+    vrais en même temps — l'état mêlé de l'AC, une frontière plus loin. Un `fsync` raté coûte de la
+    **durabilité** après coupure, jamais l'atomicité : il est donc absorbé, et c'est écrit dans le
+    module plutôt que tu.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b"))
+    generation_avant = espace.generation()
+    vrai = espace_mod._fsync_repertoire
+    vus: list[str] = []
+
+    def fsync_faillible(chemin: Any) -> Any:
+        vus.append(str(chemin))
+        if Path(chemin) == espace.chemin:
+            raise OSError(5, "EIO injecté après le commit")
+        return vrai(chemin)
+
+    monkeypatch.setattr(espace_mod, "_fsync_repertoire", fsync_faillible)
+    espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
+    monkeypatch.undo()
+
+    assert str(espace.chemin) in vus, "le `fsync` post-commit a bien été atteint"
+    assert espace.generation() != generation_avant
+    assert all(c.read_text(encoding="utf-8") == f"nouveau-{c.name}" for c in cibles)
+    assert espace.residus() == []
+
+
+def test_la_sonde_de_residus_voit_une_generation_inactive_laissee_a_moitie_effacee(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC du tour 3/3 : un nettoyage interrompu doit être **vu**, pas ignoré.
+
+    L'abandon du brouillon est le seul `rmtree` qu'une interruption peut couper en deux. Il ne
+    touche aucune cible — et jamais la génération que le pointeur publie —, mais il peut laisser
+    une génération inactive à moitié effacée. Les sondes des tours précédents ne comptaient que les
+    *fichiers* en `.tmp` : ce reste leur était invisible.
+
+    `_abandonner` sort donc le brouillon de son emplacement de génération par un `rename` unique
+    avant de l'effacer, sous un nom en `.tmp` : un effacement interrompu laisse un reste que
+    `residus()` voit. L'invariant sur les cibles, lui, tient toujours — c'est ce que la seconde
+    moitié de ce test vérifie.
+    """
+    espace, cibles = _espace_de_lot(tmp_path, ("a", "b", "c"))
+    avant = _etat_observable(cibles)
+    generation_avant = espace.generation()
+    vrai_replace, vrai_rmtree = os.replace, shutil.rmtree
+    compte = {"replace": 0, "rmtree": 0}
+
+    def replace_faillible(src: Any, dst: Any) -> Any:
+        compte["replace"] += 1
+        if compte["replace"] == 2:
+            raise OSError("panne au deuxième renommage (injectée)")
+        return vrai_replace(src, dst)
+
+    def rmtree_interrompu(*a: Any, **k: Any) -> Any:
+        compte["rmtree"] += 1
+        # 1 = la remise à zéro du brouillon par `_reconstruire` ; 2 = son effacement après la panne.
+        if compte["rmtree"] == 2:
+            raise KeyboardInterrupt()
+        return vrai_rmtree(*a, **k)
+
+    monkeypatch.setattr(os, "replace", replace_faillible)
+    monkeypatch.setattr(shutil, "rmtree", rmtree_interrompu)
+    with pytest.raises(KeyboardInterrupt):
+        espace.basculer([(c, f"nouveau-{c.name}") for c in cibles])
+    monkeypatch.undo()
+
+    assert compte["rmtree"] == 2, "l'interruption a bien coupé l'effacement du brouillon"
+    # 1. La sonde **voit** ce qui reste, au lieu de l'ignorer.
+    restes = espace.residus()
+    assert restes, "un nettoyage interrompu doit être visible par la sonde de résidus"
+    assert all(".tmp" in reste for reste in restes), restes
+    # 2. Et l'invariant sur les cibles tient : rien du lot n'a bougé, le pointeur non plus.
+    assert _etat_observable(cibles) == avant
+    assert espace.generation() == generation_avant
+    # 3. La bascule suivante repart de zéro : le reste n'empêche ni ne pollue rien.
+    espace.basculer([(c, f"suivant-{c.name}") for c in cibles])
+    assert all(c.read_text(encoding="utf-8") == f"suivant-{c.name}" for c in cibles)
 
 
 def test_la_bascule_ne_cree_ne_migre_ni_ne_change_le_type_daucune_cible(

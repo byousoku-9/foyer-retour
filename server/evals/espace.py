@@ -40,13 +40,32 @@ Garanti : toute exception — `OSError`, `RuntimeError`, `KeyboardInterrupt`, `B
 à n'importe quel rang de la préparation laisse les cibles exactement dans leur état d'avant, et ne
 laisse aucun temporaire. Il n'y a rien à défaire, donc rien qui puisse échouer en défaisant.
 
-Non garanti, et écrit plutôt que taché : un `SIGKILL` ou une coupure matérielle **pendant**
+Garanti aussi, et c'est la **frontière post-commit** (tour correctif 3/3) : aucune exception n'est
+propagée une fois le pointeur effectivement remplacé. Le remplacement est le point de commit ;
+au-delà, l'opération a réussi, et remonter une exception rendrait « le lot est publié » et « ça a
+échoué » vrais en même temps — exactement l'état mêlé que l'AC interdit, une frontière plus loin.
+Deux conséquences, toutes deux mécaniques :
+
+- **l'état réel du pointeur sur disque est la seule autorité** du chemin de nettoyage. Un drapeau
+  Python posé après le `os.replace` peut être coupé par une interruption à cette frontière
+  d'instruction précise ; le gestionnaire relit donc `courant` au lieu de se croire ;
+- **rien de ce qui suit le commit ne peut lever** : le `fsync` du répertoire de l'espace et le
+  retrait du lien temporaire sont exécutés en absorbant toute exception, `BaseException` comprise.
+  Une interruption arrivée là est **absorbée**, parce que la transaction est acquise et que
+  l'annuler est impossible ; c'est dit ici plutôt que tu.
+
+Non garanti, et écrit plutôt que tu : un `SIGKILL` ou une coupure matérielle **pendant**
 l'unique `rename(2)` relève du système de fichiers, pas de l'espace utilisateur. `rename(2)` est
 atomique pour un observateur, mais sa durabilité après coupure dépend du `fsync` du répertoire, que
-ce module fait — sans pouvoir promettre plus que ce que le matériel tient. Non garanti non plus :
-l'absence de **biais de lecteur**, un lecteur qui résout deux cibles de part et d'autre d'une
-bascule voit un mélange. L'AC ne le demande pas ; il est dit ici pour ne pas laisser croire qu'il
-est couvert.
+ce module fait — sans pouvoir promettre plus que ce que le matériel tient ; un `fsync` qui échoue
+après le commit ne défait pas la publication, il la rend seulement moins durable, et c'est ce que
+l'absorption dit. Non garanti non plus : l'absence de **biais de lecteur**, un lecteur qui résout
+deux cibles de part et d'autre d'une bascule voit un mélange. L'AC ne le demande pas ; il est dit
+ici pour ne pas laisser croire qu'il est couvert. Non garanti enfin : l'abandon du **brouillon**
+(la génération inactive) est un `rmtree`, qu'une interruption peut couper en deux. Il ne touche
+aucune cible — et jamais, en aucun cas, la génération que le pointeur publie — mais il peut laisser
+une génération inactive à moitié effacée. C'est un résidu **visible** (`residus()`), pas un état
+mêlé : la bascule suivante la reconstruit de zéro.
 
 ## Spine
 
@@ -59,6 +78,7 @@ l'inverse. La publication reste inconditionnelle (FR41) : un lot rouge bascule c
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import os
 import shutil
@@ -264,9 +284,11 @@ class EspacePublie:
            inchangé, à chaque frontière d'instruction.
         4. **Basculer** : un `os.replace` d'un lien symbolique sur `courant`. C'est l'atome.
 
-        Toute exception avant 4 laisse la génération inactive à l'abandon (elle est détruite en
-        `finally`) et **aucune cible modifiée**. Toute exception pendant 4 : le `rename` a eu lieu
-        ou n'a pas eu lieu ; les deux sont des états entiers du lot.
+        Toute exception avant 4 laisse la génération inactive à l'abandon (elle est jetée par
+        `_abandonner`) et **aucune cible modifiée**. Toute exception pendant ou après 4 : le
+        `rename` a eu lieu ou n'a pas eu lieu, et c'est le **pointeur sur disque** qui le dit, pas
+        un drapeau Python. S'il a eu lieu, l'opération a réussi et rien n'est propagé (frontière
+        post-commit) ; sinon, rien n'est publié et la cause remonte.
         """
         cibles = [cible for cible, _contenu in lot]
         self.verifier_lot(cibles)
@@ -281,33 +303,118 @@ class EspacePublie:
             courante = self.generation()
             suivante = GENERATIONS[1] if courante == GENERATIONS[0] else GENERATIONS[0]
             racine_suivante = self.chemin / suivante
-            lien_tmp: Path | None = None
+            lien_tmp = self.chemin / f".{POINTEUR}.{os.getpid()}.tmp"
             try:
                 _reconstruire(self.chemin / courante, racine_suivante)
                 for cible, contenu in lot:
                     _ecrire_dans_bundle(racine_suivante / self.slot(cible), contenu)
                 _fsync_repertoire(racine_suivante)
-                lien_tmp = self.chemin / f".{POINTEUR}.{os.getpid()}.tmp"
                 lien_tmp.unlink(missing_ok=True)
                 os.symlink(suivante, lien_tmp)
                 # --- L'ATOME. Un seul `rename(2)`, dans un seul répertoire, sur une entrée qui
                 # existe déjà. Avant lui, les cibles se résolvent toutes dans `courante` ; après,
                 # toutes dans `suivante`. Il n'y a pas de frontière entre les deux.
                 os.replace(lien_tmp, self.pointeur)
-                lien_tmp = None
             except BaseException:
-                # Rien de ce qui précède n'était une cible : il n'y a rien à défaire. On ne fait que
-                # jeter du brouillon. `ignore_errors` parce qu'un échec de nettoyage ne doit jamais
-                # masquer la cause d'origine — et il ne laisse de toute façon aucune cible modifiée.
-                shutil.rmtree(racine_suivante, ignore_errors=True)
+                # **Le pointeur sur disque est la seule autorité** (tour correctif 3/3). Noter le
+                # succès dans une variable Python ne marche pas : `KeyboardInterrupt` peut tomber
+                # entre le `os.replace` réussi et l'affectation qui suit, et le gestionnaire
+                # détruirait alors la génération **devenue active** — trois cibles publiées puis
+                # rendues pendantes, une destruction et non un état mêlé.
+                if self._generation_publiee() == suivante:
+                    # Le commit est acquis : le lot entier est publié, l'opération a réussi.
+                    # Propager ici rendrait une exception avec tout le lot déjà basculé.
+                    self._apres_le_commit(lien_tmp)
+                    return
+                self._abandonner(suivante, lien_tmp)
                 raise
-            finally:
-                if lien_tmp is not None:
-                    try:
-                        lien_tmp.unlink()
-                    except OSError:
-                        pass
+            self._apres_le_commit(lien_tmp)
+
+    # --- la frontière post-commit ------------------------------------------------------------------
+
+    def _generation_publiee(self) -> str | None:
+        """La génération que `courant` désigne **sur disque**, ou `None` si on ne peut pas conclure.
+
+        Volontairement muette : elle est appelée depuis un gestionnaire d'exception, où lever
+        masquerait la cause d'origine. `None` signifie « je ne sais pas », et tout appelant en tire
+        la conclusion prudente : ne rien détruire.
+        """
+        try:
+            cible = os.readlink(self.pointeur)
+        except OSError:
+            return None
+        return cible if cible in GENERATIONS else None
+
+    def _apres_le_commit(self, lien_tmp: Path) -> None:
+        """Tout ce qui suit le point de commit, et qui ne peut donc **jamais** lever.
+
+        Le lot est publié : une exception propagée ici serait une exception avec le lot déjà
+        basculé. Le `fsync` du répertoire rend l'entrée durable — son échec (`EIO`) coûte de la
+        durabilité, jamais l'atomicité — et le retrait du lien temporaire n'a plus d'objet, le
+        `rename` l'ayant consommé. Les deux sont donc absorbés, `BaseException` comprise : une
+        interruption arrivée après le commit ne peut plus annuler quoi que ce soit.
+        """
+        with contextlib.suppress(BaseException):
+            lien_tmp.unlink()
+        with contextlib.suppress(BaseException):
             _fsync_repertoire(self.chemin)
+
+    def _abandonner(self, generation: str, lien_tmp: Path) -> None:
+        """Jette le brouillon — et **jamais** ce que le pointeur publie.
+
+        Le lien temporaire part d'abord : c'est un `unlink` unique, qui ne peut rien laisser à
+        moitié. Le brouillon part ensuite, mais **seulement** si le pointeur relu sur disque ne le
+        désigne pas : dans le doute (pointeur illisible), on ne détruit rien, parce qu'un brouillon
+        laissé n'est pas une cible alors qu'une génération publiée détruite rend toutes les cibles
+        pendantes.
+
+        Il part en **deux temps**, et l'ordre importe : un `rename` unique le sort d'abord de son
+        emplacement de génération — c'est atomique, donc le slot est vide ou plein, jamais à moitié
+        —, puis son contenu est effacé sous un nom en `.tmp`. Un `rmtree` fait directement sur la
+        génération pouvait être coupé en deux par une interruption et laisser une génération
+        inactive à moitié effacée, **indiscernable** d'un bundle précédent complet : c'est le
+        résidu que le tour correctif 3/3 exige de rendre visible. Sous un nom en `.tmp`, il l'est
+        par la même sonde que tous les autres temporaires.
+
+        `ignore_errors` couvre les échecs d'`OSError`, pas l'interruption : un `KeyboardInterrupt`
+        pendant l'effacement remonte, et c'est voulu — l'appelant doit voir l'interruption.
+        """
+        try:
+            lien_tmp.unlink()
+        except OSError:
+            pass
+        if self._generation_publiee() in (None, generation):
+            return
+        poubelle: Path | None = None
+        try:
+            poubelle = Path(tempfile.mkdtemp(prefix=f".{generation}.abandonne.", suffix=".tmp",
+                                             dir=self.chemin))
+            os.rename(self.chemin / generation, poubelle / generation)
+        except OSError:
+            pass
+        if poubelle is not None:
+            shutil.rmtree(poubelle, ignore_errors=True)
+
+    # --- la sonde de résidus ------------------------------------------------------------------------
+
+    def residus(self) -> list[str]:
+        """Tout ce que l'espace laisse traîner, **répertoires compris**.
+
+        Tour correctif 3/3. Les sondes des tours précédents ne comptaient que les *fichiers* dont le
+        nom finit par `.tmp` : un brouillon à moitié effacé par un nettoyage interrompu n'était vu
+        par aucune d'elles. Depuis qu'`_abandonner` sort le brouillon de son emplacement de
+        génération avant de l'effacer, ce reste porte un nom en `.tmp` — et cette sonde le voit,
+        parce qu'elle ne filtre plus sur le type d'entrée.
+
+        Ce qu'elle ne compte **pas**, et c'est délibéré : la génération inactive complète laissée
+        par une bascule réussie. C'est le bundle précédent, suivi par git, matière du prochain
+        miroir — pas un résidu.
+        """
+        if not self.chemin.is_dir():
+            return []
+        return sorted({str(p.relative_to(self.chemin)) for p in self.chemin.rglob("*")
+                       if any(part.endswith(".tmp")
+                              for part in p.relative_to(self.chemin).parts)})
 
 
 class _verrou:  # noqa: N801 — gestionnaire de contexte, employé comme une fonction
@@ -393,6 +500,38 @@ def _fsync_repertoire(chemin: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def espace_couvrant(cible: Path) -> EspacePublie | None:
+    """L'espace dont le pointeur couvre `cible`, ou `None` si elle n'est couverte par aucun.
+
+    Tour correctif 3/3, frontière « immutabilité et concurrence ». Un écrivain **hors** de ce module
+    — l'ingestion et son `write_atomic` — écrivait `data/manifest.json` en résolvant son lien puis en
+    renommant **dans la génération active**, hors du verrou. Le bundle n'était donc pas immuable : la
+    génération que le pointeur publie changeait sous les pieds des lecteurs, et une ingestion
+    concurrente courait avec la reconstruction et la bascule d'un run.
+
+    Cette fonction est le pont : elle reconnaît, à partir du chemin **résolu** de la cible, l'espace
+    qui la couvre, pour que tout écrivain d'une cible du lot passe par le même protocole (même
+    verrou, même génération inactive, même unique `os.replace`). Elle ne construit rien et n'écrit
+    rien ; une cible ordinaire — `document.json`, `structure.json`, un fichier hors bundle — rend
+    `None`, et son écrivain garde son chemin d'avant.
+
+    La reconnaissance est **structurelle**, jamais nominale : le chemin résolu d'une cible couverte
+    est `<data_dir>/.publie/<génération>/<slot>`, donc `data_dir` est le parent du répertoire
+    d'espace, et la racine son parent — exactement la dérivation unique de `espace_du_data_dir`.
+    """
+    chemin = Path(cible)
+    if not chemin.is_symlink():
+        return None
+    resolu = Path(os.path.realpath(chemin))
+    for parent in resolu.parents:
+        if parent.name != REPERTOIRE_ESPACE:
+            continue
+        data_dir = parent.parent
+        espace = EspacePublie(data_dir.parent, data_dir)
+        return espace if espace.resolue_dans_lespace(chemin) else None
+    return None
 
 
 # --- la pose de la disposition, en ligne de commande -----------------------------------------------
