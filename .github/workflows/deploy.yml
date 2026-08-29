@@ -109,11 +109,19 @@ jobs:
             exit 1
           fi
 
-      # AD-11 : `/api/v1/sante` publie `version: sha7`. C'est ce que le smoke comparera — sans quoi
-      # il mesurerait une révision qu'il n'a pas construite.
-      - name: Empreinte courte du commit
+      # Deux formes de la **même** révision, et une seule source de vérité (story 4.5, revue B2) :
+      #
+      #   - `sha40` est ce que le service porte (`GIT_SHA`). Un gate `full` affirme avoir mesuré un
+      #     commit précis ; le comparer à sept caractères ne discriminait que 16⁷ classes, et un
+      #     gate d'un **autre** commit partageant le sha7 était servi sans alerte.
+      #   - `sha7` reste ce qu'AD-11 promet à `/api/v1/sante` (`version: sha7`) et ce que le smoke
+      #     compare. C'est une **projection** de la première (`Settings.version_publiee`), pas une
+      #     seconde vérité.
+      - name: Empreintes du commit
         id: sha
-        run: echo "sha7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha40=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "sha7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       # **Avant `auth`, et c'est la seule raison de l'ordre.** L'installateur d'uv est un script
       # téléchargé et exécuté (`curl | sh`) : joué après l'authentification, il tournerait sur un
@@ -162,7 +170,7 @@ jobs:
           no_traffic: true
           tag: ${{ env.TAG }}
           env_vars: |-
-            GIT_SHA=${{ steps.sha.outputs.sha7 }}
+            GIT_SHA=${{ steps.sha.outputs.sha40 }}
           env_vars_update_strategy: overwrite
           secrets: |-
             ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:1
