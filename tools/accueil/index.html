@@ -13,7 +13,7 @@
   :root { color-scheme: light dark; --trait: color-mix(in srgb, currentColor 22%, transparent); }
   * { box-sizing: border-box; }
   body {
-    margin: 0 auto; padding: 48px 20px 64px; max-width: 780px;
+    margin: 0 auto; padding: 48px 20px 64px; max-width: 860px;
     font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   h1 { font-size: 27px; margin: 0 0 6px; letter-spacing: -0.01em; }
@@ -28,6 +28,8 @@
   a.entree:hover, a.entree:focus-visible { border-width: 2px; padding: 15px 17px; }
   a.entree b { display: block; font-size: 17px; }
   a.entree span { opacity: .75; font-size: 14px; }
+  a.entree .question { margin-top: 8px; opacity: 1; font-size: 15px; font-weight: 650; }
+  a.entree span + span { display: block; }
   section.bloc { border-top: 1px solid var(--trait); padding-top: 8px; margin-top: 40px; }
   ul.puces { padding-left: 20px; margin: 8px 0; }
   ul.puces li { margin: 4px 0; }
@@ -41,9 +43,30 @@
   #etat ul { padding-left: 20px; margin: 6px 0 0; font-size: 14px; }
   #etat h3 { margin: 12px 0 2px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em;
              opacity: .7; }
+  .separation-etats { display: grid; gap: 16px; }
+  .preuve-candidate, .etat-servi {
+    border: 1px solid var(--trait); border-radius: 12px; padding: 18px;
+  }
+  .preuve-candidate h3, .etat-servi h3 { margin-top: 0; font-size: 17px; }
+  .verdict { padding: 12px 14px; border-left: 5px solid currentColor; background: var(--trait); }
+  .tableau-defilement { overflow-x: auto; margin: 14px 0; }
+  table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--trait); text-align: left;
+           vertical-align: top; }
+  th { font-size: 13px; }
+  td.nombre { white-space: nowrap; }
+  ul.liens { padding-left: 20px; }
+  ul.liens li { margin: 5px 0; }
   footer { margin-top: 44px; border-top: 1px solid var(--trait); padding-top: 14px; font-size: 14px; }
   footer a { color: inherit; }
   code { font-size: .92em; }
+  @media (max-width: 600px) {
+    body { padding: 24px 14px 44px; }
+    h1 { font-size: 24px; }
+    h2 { margin-top: 30px; }
+    .preuve-candidate, .etat-servi { padding: 14px; }
+    .tableau-defilement { margin-right: -14px; padding-right: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -54,14 +77,17 @@ sur un guide, un sinistre confronté aux conditions générales d'un contrat, et
 de cent mille lignes ». Tout est servi par un seul service&nbsp;; le code est public.</p>
 
 <ul class="entrees">
-  <li><a class="entree" href="/guide/"><b>1 · Le guide et son assistant</b><span>La copie du site
-    « S'installer au Luxembourg », dont l'assistant répond depuis le guide&nbsp;: chaque phrase
-    affichée cite un passage retrouvé mot pour mot par du code, ou n'est pas affichée.</span></a></li>
-  <li><a class="entree" href="/sinistre/"><b>2 · Sinistre et conditions générales</b><span>Décrire un
-    sinistre, lire un verdict « au regard des conditions générales seules »&nbsp;: les clauses
-    exactes du contrat, leur page, le paquet manquant et les questions à poser au client.</span></a></li>
-  <li><a class="entree" href="#sujet-3"><b>3 · L'Excel de 100 000 lignes</b><span>La réponse est
-    écrite ci-dessous, et elle commence par « je ne fais pas un RAG ».</span></a></li>
+  <li><a class="entree" href="/guide/#assistant"><b>1 · Le guide et son assistant</b>
+    <span class="question">Il fait quel temps aujourd’hui ?</span>
+    <span>Ouvre l'assistant sans envoyer la question&nbsp;: cet exemple hors du guide permet de voir
+    un refus justifié plutôt qu'une réponse inventée.</span></a></li>
+  <li><a class="entree" href="/sinistre/#description"><b>2 · Sinistre et conditions générales</b>
+    <span class="question">Une bougie a brûlé mon salon&nbsp;: que dit mon contrat&nbsp;?</span>
+    <span>Ouvre la description du sinistre, sans la soumettre, pour confronter les faits aux clauses,
+    à leur page, au paquet manquant et aux questions à poser au client.</span></a></li>
+  <li><a class="entree" href="#sujet-3"><b>3 · L'Excel de 100 000 lignes</b>
+    <span class="question">Comment interroger cent mille lignes sans inventer un total&nbsp;?</span>
+    <span>Descend vers la réponse finale, qui commence par « je ne fais pas un RAG ».</span></a></li>
 </ul>
 
 <section class="bloc" id="sujet-3">
@@ -77,19 +103,20 @@ ancienne&nbsp;: <strong>une table va dans une base</strong>.</p>
 <ul class="puces">
   <li><strong>La table entre dans une base SQL</strong> (SQLite ou DuckDB pour une démonstration,
     l'entrepôt de l'entreprise en vrai). Elle garde ses colonnes et ses types.</li>
-  <li><strong>Un profil par colonne est calculé à l'ingestion</strong> — type, valeurs distinctes,
-    taux de nuls, bornes, valeurs aberrantes. Il est payé une fois, et c'est lui qui permet au modèle
+  <li><strong>Un profil par colonne est calculé à l'ingestion</strong> — type, nuls, valeurs
+    distinctes, bornes et valeurs aberrantes. Il est payé une fois, et c'est lui qui permet au modèle
     d'écrire une requête juste plutôt que plausible.</li>
-  <li><strong>Le modèle traduit la question en requête</strong>, avec le schéma et un échantillon de
+  <li><strong>Le modèle traduit la question vers SQL</strong>, avec le schéma et un échantillon de
     valeurs sous les yeux. Il n'écrit que du <code>SELECT</code>, sur une liste blanche de tables,
     avec un <code>LIMIT</code> et un délai maximal, sur une connexion en lecture seule.</li>
   <li><strong>La requête est affichée telle qu'elle a été exécutée.</strong> C'est la pièce
     vérifiable&nbsp;: un lecteur qui sait lire du SQL peut contredire la réponse sans me croire sur
     parole.</li>
-  <li><strong>Le modèle ne calcule rien.</strong> Les sommes, les moyennes, les comptages et les
-    tris sont faits par la base. Un modèle qui additionne est un modèle qui se trompe sans le dire.</li>
-  <li><strong>Le texte libre n'est cherché qu'après le filtre</strong>, et seulement sur les colonnes
-    de texte. On filtre d'abord sur ce qui est structuré (dates, montants, communes, codes), puis on
+  <li><strong>Le modèle ne calcule rien&nbsp;: le calcul est exécuté par la base.</strong> Les sommes,
+    les moyennes, les comptages et les tris ne lui sont pas confiés. Un modèle qui additionne est un
+    modèle qui se trompe sans le dire.</li>
+  <li><strong>Le texte libre n'est cherché qu'après le filtre</strong>, et seulement sur les
+    colonnes de texte. On filtre d'abord sur ce qui est structuré (dates, montants, communes, codes), puis on
     cherche dans les commentaires du sous-ensemble obtenu — jamais l'inverse.</li>
   <li><strong>La restitution montre son travail</strong>&nbsp;: la requête, le nombre de lignes
     trouvées, les lignes sources, et ce que les données <em>ne disent pas</em> (colonnes vides,
@@ -116,23 +143,70 @@ porte.</p>
 </section>
 
 <section class="bloc">
-<h2>Ce qui a été vérifié</h2>
-<p class="reserve">Lu à l'instant sur <code>/api/v1/sante</code>, jamais écrit dans cette page.</p>
-<!-- Rempli par `accueil.js` après la sonde : `role="status"` + `aria-live="polite"`
-     pour qu'un lecteur d'écran entende apparaître le niveau de validation, qui est l'information
-     que cette section existe pour donner. -->
-<div id="etat" role="status" aria-live="polite"></div>
-<noscript><p class="reserve">JavaScript est désactivé&nbsp;: le niveau de validation n'a pas pu être
-lu. Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
+<h2>Preuves disponibles — deux états à ne pas confondre</h2>
+<div class="separation-etats">
+  <article class="preuve-candidate" aria-labelledby="titre-candidat-45">
+    <h3 id="titre-candidat-45">Snapshot du 30 août 2026 — campagne candidate full 4.5</h3>
+    <p>Ce snapshot éditorial décrit le candidat
+      <code>cf5c1babbed8fc348d9d3be1eea3b8a1db925344</code>. Il ne décrit pas le produit encore
+      servi et ses progressions ne sont pas des taux de réussite.</p>
+    <p class="verdict"><strong>Verdict&nbsp;: rouge — campagne interrompue, candidat
+      non promouvable.</strong> Aucun résultat final, « dernier vert » ou promotion n'est déduit des
+      mesures partielles.</p>
+    <div class="tableau-defilement" tabindex="0" aria-label="Progression des témoins de la campagne 4.5">
+      <table>
+        <thead>
+          <tr><th scope="col">Témoin</th><th scope="col">Cas mesurés</th>
+              <th scope="col">Exécutions</th><th scope="col">Incident ou limite</th>
+              <th scope="col">Coût réel</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">AXA</th><td class="nombre">8/14 cas</td>
+              <td class="nombre">25/42 exécutions</td>
+              <td>Timeout API sans <code>request_id</code>&nbsp;; campagne interrompue.</td>
+              <td class="nombre">0,7726 EUR</td></tr>
+          <tr><th scope="row">Guide</th><td class="nombre">17/34 cas</td>
+              <td class="nombre">53/102 exécutions</td>
+              <td>Sortie <code>llm_parse</code> tronquée
+                (<code>stop_reason=max_tokens</code>)&nbsp;; campagne interrompue.</td>
+              <td class="nombre">1,3401 EUR</td></tr>
+          <tr><th scope="row">Baloise</th><td class="nombre">Non exécuté</td>
+              <td class="nombre">Non exécuté</td><td>Source indisponible&nbsp;: HTTP 406 / GCS 403.</td>
+              <td class="nombre">0 EUR</td></tr>
+          <tr><th scope="row" colspan="4">Total live cumulé réellement dépensé</th>
+              <td class="nombre"><strong>2,1127 EUR</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="etat-servi" aria-labelledby="titre-etat-servi">
+    <h3 id="titre-etat-servi">État servi maintenant</h3>
+    <p>Au lancement de cette campagne, le produit servi était
+      <code>6abd3d0c8681428ce8373de34164b7eb9ac4220d</code>. Ce point de comparaison historique
+      reste séparé du candidat mesuré ci-dessus&nbsp;; l'état actuellement servi est lu dynamiquement
+      ci-dessous.</p>
+    <p class="reserve">Le détail ci-dessous est lu à l'instant sur <code>/api/v1/sante</code>,
+      jamais écrit dans cette page. Si la sonde échoue, l'état courant est explicitement inconnu&nbsp;;
+      le snapshot et l'identifiant du dernier produit servi restent lisibles.</p>
+    <!-- Rempli par `accueil.js` après la sonde : `role="status"` + `aria-live="polite"`
+         pour qu'un lecteur d'écran entende apparaître le niveau de validation. -->
+    <div id="etat" role="status" aria-live="polite"></div>
+    <noscript><p class="reserve">JavaScript est désactivé&nbsp;: l'état courant n'a pas pu être lu.
+      Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
+  </article>
+</div>
 </section>
 
 <footer>
-<p>Le code, les choix et les limites&nbsp;:
-<a href="https://github.com/byousoku-9/foyer-retour">github.com/byousoku-9/foyer-retour</a> —
-le <a href="https://github.com/byousoku-9/foyer-retour/tree/main/server/evals/cases">golden set des
-questions-témoins</a> et le
-<a href="https://github.com/byousoku-9/foyer-retour/blob/main/docs/tests-live.md">journal des tests
-réels</a> y sont publiés, résultats compris.</p>
+<p><strong>Pour relire le code, les choix et les limites&nbsp;:</strong></p>
+<ul class="liens">
+  <li><a href="https://github.com/byousoku-9/foyer-retour">Dépôt foyer-retour</a></li>
+  <li><a href="https://github.com/byousoku-9/foyer-retour/blob/main/docs/architecture.md"><code>docs/architecture.md</code></a></li>
+  <li><a href="https://github.com/byousoku-9/foyer-retour/blob/main/docs/choix-et-limites.md"><code>docs/choix-et-limites.md</code></a></li>
+  <li><a href="/guide/#assistant">Surface «&nbsp;Pourquoi cette réponse&nbsp;»</a>, disponible sous
+    chaque réponse ou refus de l'assistant.</li>
+</ul>
 <p class="reserve">Le guide servi sous <code>/guide/</code> est une copie du site « S'installer au
 Luxembourg », reproduite avec l'accord de son auteur et modifiée a minima. Les conditions générales
 servies sous <code>/sinistre/</code> sont celles d'un contrat public, dans leur édition imprimée —

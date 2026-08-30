@@ -1184,9 +1184,10 @@ def test_un_identifiant_quarantine_invalide_nentre_jamais_dans_la_liste_publique
             etat.corpus.quarantine.pop(doc_id, None)
 
 
-def test_laccueil_provisoire_donne_les_trois_entrees(prod: TestClient) -> None:
+def test_laccueil_final_donne_les_trois_entrees(prod: TestClient) -> None:
     page = prod.get("/").text
-    assert '"/guide/"' in page and '"/sinistre/"' in page and "github.com/byousoku-9/foyer-retour" in page
+    assert ('"/guide/#assistant"' in page and '"/sinistre/#description"' in page
+            and '"#sujet-3"' in page and "github.com/byousoku-9/foyer-retour" in page)
 
 
 def test_un_fichier_statique_absent_reste_un_404_nu(prod: TestClient) -> None:
