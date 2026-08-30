@@ -31,9 +31,12 @@ STEP_TIERS: dict[str, Tier | None] = {
 # `temperature` — Sonnet 5 et Opus 5 rejettent (400) toute valeur non défaut, Haiku 4.5 accepte `temperature=0` ;
 # `cache_ttl` — durée du breakpoint `cache_control` du préfixe (spine : « cache 1 h » pour `reason`).
 MODEL_CAPS: dict[str, dict[str, object]] = {
-    TIERS["ingest"]: {"effort": True, "temperature": False, "cache_ttl": "5m"},
-    TIERS["reason"]: {"effort": True, "temperature": False, "cache_ttl": "1h"},
-    TIERS["micro"]: {"effort": False, "temperature": True, "cache_ttl": "5m"},
+    TIERS["ingest"]: {"effort": True, "temperature": False, "cache_ttl": "5m",
+                      "context_window": 200_000},
+    TIERS["reason"]: {"effort": True, "temperature": False, "cache_ttl": "1h",
+                      "context_window": 200_000},
+    TIERS["micro"]: {"effort": False, "temperature": True, "cache_ttl": "5m",
+                     "context_window": 200_000},
 }
 
 # Effort explicite par tier quand le modèle l'accepte (AD-9) ; `micro` n'en a pas (MODEL_CAPS.effort=False).

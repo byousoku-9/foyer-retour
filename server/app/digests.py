@@ -14,6 +14,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
+SERVER_DIR = APP_DIR.parent
+EVALS_DIR = SERVER_DIR / "evals"
 PROMPTS_DIR = APP_DIR / "llm" / "prompts"
 PIPELINE_LAYERS = ("steps", "pipelines", "corpus", "domain", "llm")
 _EXCLUDED_PARTS = {"__pycache__", "prompts", ".pytest_cache"}
@@ -53,6 +55,11 @@ def pipeline_digest(app_dir: Path = APP_DIR) -> str:
 def prompts_digest(prompts_dir: Path = PROMPTS_DIR) -> str:
     """Empreinte des prompts (`server/app/llm/prompts/*.md|txt|j2`)."""
     return digest_paths(_iter_files(prompts_dir, (".md", ".txt", ".j2", ".jinja")), prompts_dir)
+
+
+def harness_digest(evals_dir: Path = EVALS_DIR) -> str:
+    """Empreinte du code qui exécute, juge et publie les évals (hors cas et références)."""
+    return digest_paths(_iter_files(evals_dir, (".py",)), evals_dir)
 
 
 def cases_hash(paths: Iterable[Path], root: Path | None = None) -> str:

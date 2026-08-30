@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -11,7 +12,16 @@ from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
-from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
+from server.app.domain import (
+    Block,
+    BlockRef,
+    Document,
+    FullContextSelection,
+    Node,
+    NodeRef,
+    RetrievalBudget,
+)
+from server.app.domain.errors import BudgetExceeded
 from server.app.domain.question import ParsedQuestion, QuestionScope
 from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.llm.models import STEP_TIERS, TIERS
@@ -19,7 +29,12 @@ from server.app.llm.client import LlmClient
 from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import estimate_tokens
 from server.app.pipelines.commun import retrieval_budget
-from server.app.steps.retrouver import OUTILS_RECHERCHE, retrouver_deterministe, retrouver_outils
+from server.app.steps.retrouver import (
+    OUTILS_RECHERCHE,
+    retrouver_deterministe,
+    retrouver_full_context,
+    retrouver_outils,
+)
 from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -327,7 +342,8 @@ async def test_outils_memoise_la_recherche_de_limite_par_bloc(
         ),
     ], corpus=corpus, parsed=_parsed(["matricule"]), budget=_budget(max_blocks=10, max_tokens=6000))
 
-    assert len(calls) == 2  # recherche de question + une seule recherche liée pour la garantie
+    # phase sommaire + recherche du navigateur + une seule recherche liée pour la garantie
+    assert len(calls) == 3
 
 
 async def test_outils_reason_tier_reaches_the_provider_and_the_trace_unchanged() -> None:
@@ -529,7 +545,7 @@ async def test_outils_abnormal_tool_turn_end_is_always_truncated(stop_reason: st
 
 @pytest.mark.parametrize(
     ("searched", "truncated"),
-    [([], True), (["zorbule"], True), (["zorbule", "quuxite"], False)],
+    [([], True), (["zorbule"], False), (["zorbule", "quuxite"], False)],
 )
 async def test_outils_zero_hit_requires_all_canonical_terms_to_have_been_searched(
         searched: list[str], truncated: bool) -> None:
@@ -973,7 +989,7 @@ async def test_outils_traces_dictionary_expansion_for_terms_actually_searched(tm
          fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])], corpus=corpus,
         parsed=_parsed(["social security number"]), dictionnaire=dico)
     check = next(c for c in step.checks if c.name == "dictionnaire")
-    assert check.detail == "0 variante(s) ajoutée(s) à 0 terme(s)"
+    assert check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
 
 
 def _corpus_avec_manifest() -> Corpus:
@@ -1430,3 +1446,260 @@ async def test_les_outils_ne_comptent_pas_une_ouverture_sans_bloc_admis() -> Non
     assert result.truncated is True
     assert result.opened_node_ids == ["n1"]
     assert result.opened_node_ids == _noeuds_attendus(corpus, result.opened_block_ids)
+
+
+def _dictionnaire_mecanismes() -> Dictionnaire:
+    return Dictionnaire(
+        charge=True, corpus_ok=True, doc_id="d",
+        _groupes={"alias": ("alias", "matricule")},
+        _canoniques={"alias": ("matricule",)},
+        _candidate_questions={"n3": ("q",)},
+    )
+
+
+def test_deterministe_executes_configured_mechanism_permutations_without_resorting_hits() -> None:
+    corpus = _corpus()
+    dico = _dictionnaire_mecanismes()
+    parsed = _parsed(["alias"])
+
+    faq_first, _ = _run(
+        parsed, corpus, Index(corpus), _budget(max_opens=1), doc_id="d", dictionnaire=dico,
+        settings=_s(retrieval_mechanism_order="dictionnaire,faq,sommaire,outils"))
+    summary_first, _ = _run(
+        parsed, corpus, Index(corpus), _budget(max_opens=1), doc_id="d", dictionnaire=dico,
+        settings=_s(retrieval_mechanism_order="dictionnaire,sommaire,outils,faq"))
+    dictionary_late, _ = _run(
+        parsed, corpus, Index(corpus), _budget(max_opens=3), doc_id="d", dictionnaire=dico,
+        settings=_s(retrieval_mechanism_order="sommaire,outils,faq,dictionnaire"))
+
+    assert faq_first.opened_node_ids == ["n3"]
+    assert summary_first.opened_node_ids[0] == "n1"
+    # Le dictionnaire placé après sommaire ne peut rétroactivement élargir son hit `alias`.
+    assert dictionary_late.opened_node_ids == ["n3"]
+
+
+@pytest.mark.parametrize(
+    ("order", "faq_visible_during_tools"),
+    [
+        ("dictionnaire,faq,sommaire,outils", True),
+        ("outils,dictionnaire,sommaire,faq", False),
+    ],
+)
+async def test_outils_faq_opens_a_candidate_without_lexical_hit_in_configured_order(
+        order: str, faq_visible_during_tools: bool) -> None:
+    corpus = _corpus()
+    messages = ([_tool_message(_tool("ouvrir_noeud", "t1", node_id="n3"))]
+                if faq_visible_during_tools else
+                [fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])])
+    result, step, fake, _budget_used = await _run_outils(
+        messages,
+        corpus=corpus, parsed=_parsed(["zorbule"]), dictionnaire=_dictionnaire_mecanismes(),
+        settings=_s(max_cost_eur_per_request=1.0, retrieval_mechanism_order=order))
+
+    assert ("d:p3:1" in result.opened_block_ids) is faq_visible_during_tools
+    assert Index(corpus).chercher(["zorbule"], limit=20, doc_id="d") == []
+    user_message = str(fake.requests[0]["messages"][0]["content"])
+    assert ("faq_candidates" in user_message) is faq_visible_during_tools
+    assert step.mechanism_order == order.split(",")
+
+
+@pytest.mark.parametrize(
+    ("order", "summary_visible"),
+    [("sommaire,outils,dictionnaire,faq", True),
+     ("outils,sommaire,dictionnaire,faq", False)],
+)
+async def test_outils_only_sees_summary_when_summary_precedes_it(
+        order: str, summary_visible: bool) -> None:
+    corpus = _corpus()
+    result, _step, fake, _request_budget = await _run_outils(
+        [_tool_message(_tool("ouvrir_noeud", "t1", node_id="n1",
+                             focus_block_id="d:p1:1")),
+         fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])],
+        corpus=corpus, parsed=_parsed(["matricule"]),
+        settings=_s(max_cost_eur_per_request=1.0, retrieval_mechanism_order=order))
+
+    assert ("d:p1:1" in result.opened_block_ids) is summary_visible
+    system = fake.requests[0]["system"][0]["text"]
+    assert (("root\n  n1" in system) is summary_visible)
+
+
+@pytest.mark.parametrize(
+    ("order", "expanded_during_tools"),
+    [("dictionnaire,outils,faq,sommaire", True),
+     ("outils,faq,sommaire,dictionnaire", False)],
+)
+async def test_dictionary_only_enriches_searches_that_follow_it(
+        order: str, expanded_during_tools: bool) -> None:
+    result, _step, fake, _request_budget = await _run_outils(
+        [_tool_message(_tool("chercher", "t1", termes=["alias"])),
+         fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])],
+        parsed=_parsed(["alias"]), dictionnaire=_dictionnaire_mecanismes(),
+        settings=_s(max_cost_eur_per_request=1.0, retrieval_mechanism_order=order))
+
+    tool_feedback = str(fake.requests[1]["messages"])
+    assert (("d:p1:1" in tool_feedback) is expanded_during_tools)
+    # Les hits ajoutés par une phase ultérieure ne sont jamais ouverts rétroactivement.
+    assert result.opened_block_ids == []
+
+
+async def test_micro_retrieval_callers_disable_provider_prompt_cache() -> None:
+    settings = _s(max_cost_eur_per_request=1.0, retrouver_outils_tier="micro",
+                  retrieval_prompt_cache=False)
+    _result, tools_step, tools_fake, _request_budget = await _run_outils(
+        [fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])],
+        settings=settings)
+    assert "cache_control" not in tools_fake.requests[0]["system"][0]
+    assert tools_step.prompt_cache is False
+
+    corpus = _corpus()
+    full_fake = FakeAnthropic([fake_message(
+        model=TIERS["micro"], text='{"block_ids":["d:p2:1"]}')])
+    result, full_step = await retrouver_full_context(
+        _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(max_blocks=30, max_tokens=6000), settings=settings,
+        client=LlmClient(settings, anthropic_client=full_fake),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d")
+    assert result.opened_block_ids == ["d:p2:1"]
+    assert "cache_control" not in full_fake.requests[0]["system"][0]
+    assert full_step.prompt_cache is False
+
+
+async def test_full_context_places_all_citable_blocks_in_system_and_only_dynamic_data_in_user() -> None:
+    corpus = _corpus()
+
+    class Client:
+        request: dict[str, object] | None = None
+
+        async def parse(self, **kwargs):
+            self.request = kwargs
+            return SimpleNamespace(parsed=FullContextSelection(block_ids=["d:p1:1"]))
+
+    client = Client()
+    result, step = await retrouver_full_context(
+        _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(max_blocks=30, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0), client=client,
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d")
+    assert result.opened_block_ids == ["d:p1:1"] and result.blocs[0] is corpus.documents["d"].block("d:p1:1")
+    assert client.request is not None
+    system = str(client.request["system_prefix"])
+    user = str(client.request["messages"])
+    assert "d:p1:1" in system and "d:p3:1" in system and "root" in system
+    assert "d:p1:1" not in user and "Le matricule est délivré" not in user
+    assert step.prompt_cache is True and step.mechanism_order == [
+        "dictionnaire", "faq", "sommaire", "outils"]
+
+
+async def test_full_context_resolves_model_ids_in_canonical_corpus_order() -> None:
+    corpus = _corpus()
+
+    class Client:
+        async def parse(self, **kwargs):
+            return SimpleNamespace(parsed=FullContextSelection(
+                block_ids=["d:p2:1", "d:p1:1"]))
+
+    result, _step = await retrouver_full_context(
+        _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(max_blocks=30, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0), client=Client(),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d")
+    assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]
+    assert [block.block_id for block in result.blocs] == result.opened_block_ids
+
+
+async def test_full_context_applies_common_atomic_closure_and_block_budget() -> None:
+    corpus = _corpus()
+
+    class Client:
+        async def parse(self, **kwargs):
+            return SimpleNamespace(parsed=FullContextSelection(block_ids=["d:p1:2"]))
+
+    complete, _step = await retrouver_full_context(
+        _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(max_blocks=2, max_tokens=6000), settings=_s(), client=Client(),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d")
+    assert complete.opened_block_ids == ["d:p1:2", "d:p1:5"]
+
+    bounded, bounded_step = await retrouver_full_context(
+        _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(max_blocks=1, max_tokens=6000), settings=_s(), client=Client(),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d")
+    assert bounded.opened_block_ids == [] and bounded.truncated is True
+    assert bounded.discarded_block_ids == bounded_step.discarded_block_ids == ["d:p1:2"]
+
+
+async def test_full_context_limits_primary_nodes_by_max_opens() -> None:
+    corpus = _corpus()
+
+    class Client:
+        async def parse(self, **kwargs):
+            return SimpleNamespace(parsed=FullContextSelection(
+                block_ids=["d:p3:1", "d:p2:1", "d:p1:1"]))
+
+    candidates: list[str] = []
+    result, _step = await retrouver_full_context(
+        _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
+        budget=_budget(max_opens=1, max_blocks=30, max_tokens=6000), settings=_s(),
+        client=Client(),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d", candidats_out=candidates)
+    assert candidates == ["d:p3:1", "d:p2:1", "d:p1:1"]
+    assert result.opened_node_ids == ["n1"]
+    assert result.discarded_block_ids == ["d:p2:1", "d:p3:1"]
+    assert result.truncated is True
+
+
+async def test_full_context_refuses_context_window_before_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app.steps import retrouver as module
+
+    corpus = _corpus()
+
+    class Client:
+        called = False
+
+        async def parse(self, **kwargs):
+            self.called = True
+            raise AssertionError("le client ne doit pas être appelé")
+
+    client = Client()
+    caps = dict(module.MODEL_CAPS[TIERS["micro"]])
+    monkeypatch.setitem(module.MODEL_CAPS, TIERS["micro"], {**caps, "context_window": 1})
+    with pytest.raises(BudgetExceeded, match="hors enveloppe") as capture:
+        await retrouver_full_context(
+            _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+            budget=_budget(max_blocks=30, max_tokens=6000), settings=_s(), client=client,
+            request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+            doc_id="d")
+    assert client.called is False
+    assert capture.value.step is not None
+    assert capture.value.step.prompt_cache is True
+
+
+async def test_full_context_preflight_counts_the_exact_structured_envelope(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app.steps import retrouver as module
+
+    corpus = _corpus()
+    settings = _s(retrouver_outils_max_tokens=7)
+    caps = dict(module.MODEL_CAPS[TIERS["micro"]])
+    monkeypatch.setitem(module.MODEL_CAPS, TIERS["micro"], {**caps, "context_window": 16})
+    monkeypatch.setattr(
+        module, "estimate_tokens",
+        lambda payload, _settings: 10 if '"output_config"' in payload else 1)
+
+    class Client:
+        async def parse(self, **kwargs):
+            raise AssertionError("le préflight exact doit refuser avant le client")
+
+    with pytest.raises(BudgetExceeded) as capture:
+        await retrouver_full_context(
+            _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+            budget=_budget(max_blocks=30, max_tokens=6000), settings=settings, client=Client(),
+            request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+            doc_id="d")
+    assert capture.value.step is not None

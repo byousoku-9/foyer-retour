@@ -85,17 +85,30 @@ Comparées : uniquement des variantes **existantes**.
 
 | Axe | Valeurs |
 |---|---|
-| variante guide | `outils` (défaut), `deterministe` |
+| variante guide | `outils` (défaut initial), `deterministe`, `full_context` |
 | variante sinistre | `outils` (défaut), `deterministe` |
 | tier par étape (`COMPRENDRE_TIER`, `REDIGER_TIER`, `VERIFIER_TIER`) | `micro`, `reason` |
 | `RELANCE_SUR_NON_PERTINENCE` | `0`, `1` |
 
-`full_context` n'existe pas et n'est pas simulé. Les points d'un même témoin partagent une seule
+`full_context` place le sommaire et tous les passages citables dans le préfixe système cacheable,
+jamais dans le message utilisateur, puis rend seulement des IDs résolus depuis le corpus. L'entrée,
+le schéma et la sortie sont réservés avant appel dans la fenêtre réelle du modèle. Les mécanismes
+ont l'ordre par défaut `dictionnaire → FAQ → sommaire → outils`; le régler ne retrie jamais les
+hits internes de l'index. Les points d'un même témoin partagent une seule
 identité `--series-id` et une seule phase `--series-kind baseline`; le ledger autorise au plus un
 identifiant baseline puis un identifiant final par témoin, tout en agrégeant les coûts de chaque
 invocation. Chaque point utilise `--repeat 3` à paramètres épinglés. La série est **tirée après
 passation, sur HEAD figé — jamais par le builder** ; les résultats sont consignés dans
 `docs/evals/latest.md` et `docs/tests-live.md` quel que soit le résultat.
+
+La publication 4.4 garde toujours ses six cellules. Une cellule jamais exécutée porte `not_run`
+et des mesures absentes, jamais zéro. Un rapport partiel ne recommande rien et ne modifie jamais
+`data/retrieval-default.json`. Si une baseline gagne sur recall, coût et latence, elle devient la
+variante par défaut. Le JSON et le Markdown sont d'abord rendus et validés depuis le même objet,
+puis publiés comme une paire avec restauration des deux projections sur panne. Le triplet versionné
+(variante, tier, prompt cache) n'est remplacé qu'après cette publication probante ; si sa finalisation
+échoue, la paire et le défaut sont restaurés octet pour octet. Un run builder reste diagnostic et ne
+peut jamais déclencher cette promotion, même si ses six cellules sont complètes.
 
 ## Décisions et promotion
 

@@ -1247,6 +1247,21 @@ def test_executer_cas_sans_variante_attend_le_defaut_du_pipeline_de_la_suite(sui
     assert trace.variant == runner.DEFAUT_PAR_SUITE[suite] == "outils"
 
 
+def test_guide_run_without_variant_uses_the_runtime_versioned_setting() -> None:
+    settings = _settings(retrieval_variant="full_context")
+    cas = _cas(id="g-runtime-default")
+    assert runner.variante_du_cas(cas, None, settings=settings) == "full_context"
+
+    _corpus_, index = _corpus()
+    answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
+    ctx = _armer(_contexte(
+        [(answer, _trace(variant="full_context"))], settings=settings))
+    _answer, trace, _cost = asyncio.run(runner.executer_cas(
+        cas, ctx, doc_id=GUIDE, budget_restant_eur=1.0))
+    assert trace.variant == "full_context"
+    assert ctx._guide.appels[0]["kw"]["variant"] == "full_context"  # type: ignore[attr-defined]
+
+
 def test_le_budget_dun_cas_est_le_reste_du_plafond_de_run() -> None:
     """AD-9 : « en évals, [le plafond par requête] est remplacé par un plafond par run »."""
     corpus, index = _corpus()
@@ -1602,6 +1617,49 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     _COURANT["guide"] = DoublePipeline(reponses_guide or [])
     _COURANT["sinistre"] = DoublePipeline(reponses_sinistre or [])
     return runner.main(argv + ["--cases-dir", str(cases), "--data-dir", str(data)])
+
+
+def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_canoniques(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE)
+    _corpus_, index = _corpus()
+    answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
+    variants = ["deterministe", "deterministe", "outils", "outils",
+                "full_context", "full_context"]
+    double = DoublePipeline([(answer, _trace(variant=variant)) for variant in variants])
+    _COURANT["guide"] = double
+    _COURANT["sinistre"] = DoublePipeline([])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+
+    def matrix_settings() -> Settings:
+        return _settings(
+            retrouver_outils_tier=os.environ.get("RETROUVER_OUTILS_TIER", "micro"),
+            retrieval_prompt_cache=(
+                os.environ.get("RETRIEVAL_PROMPT_CACHE", "true").casefold() == "true"))
+
+    monkeypatch.setattr(runner, "Settings", matrix_settings)
+    # La commande ne reçoit aucun --output-* : seul le root canonique est redirigé vers tmp_path.
+    monkeypatch.setattr(runner, "REPO_ROOT", tmp_path)
+    code = runner.main([
+        "--suite", "guide", "--compare", "deterministe,outils,full_context",
+        "--tiers", "reason,micro", "--max-cost", "1.0",
+        "--cases-dir", str(cases), "--data-dir", str(data),
+    ])
+
+    assert code == 0
+    assert len(double.appels) == 6
+    assert [call["kw"]["variant"] for call in double.appels] == variants
+    json_path = tmp_path / "docs" / "evals" / "baselines.json"
+    markdown_path = tmp_path / "docs" / "evals" / "baselines.md"
+    assert json_path.is_file() and markdown_path.is_file()
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    assert [cell["key"] for cell in report["cells"]] == [
+        "deterministe/reason", "deterministe/micro", "outils/reason", "outils/micro",
+        "full_context/reason", "full_context/micro"]
+    assert all(cell["complete"] for cell in report["cells"])
 
 
 def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,

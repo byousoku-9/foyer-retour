@@ -69,6 +69,10 @@ class LLMCall(DomainModel):
 class StepTrace(DomainModel):
     name: str
     tier: str | None = None
+    # `None` pour une étape sans préfixe fournisseur ; vrai/faux pour le profil effectivement
+    # appliqué au retrieval. Ce fait ne se déduit ni du tier ni de l'usage (petit préfixe non caché).
+    prompt_cache: bool | None = None
+    mechanism_order: list[str] = Field(default_factory=list)
     ms: int = 0
     usage: Usage = Field(default_factory=Usage)
     opened_block_ids: list[str] = Field(default_factory=list)

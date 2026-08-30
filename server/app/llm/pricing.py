@@ -140,7 +140,8 @@ def estimate_tokens(text: str, settings: Settings) -> int:
 
 
 def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, settings: Settings,
-                  *, tools: Any = None, output_schema: Any = None, prefix_cached: bool = False) -> float:
+                  *, tools: Any = None, output_schema: Any = None, prefix_cached: bool = False,
+                  prompt_cache: bool = True) -> float:
     """Majorant en euros d'un appel avant de le faire (AD-9, NFR4) — jamais un coût facturé.
 
     Le plafond par requête (`BudgetExceeded`) se vérifie sur `budget.cost_eur` réel + cette
@@ -166,7 +167,9 @@ def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, setti
         prefix_chars += _json_len(output_schema)
     suffix_chars = sum(_text_len(m.get("content") if isinstance(m, dict) else getattr(m, "content", ""))
                        for m in messages or [])
-    if prefix_cached:
+    if not prompt_cache:
+        write_rate = p["input"]
+    elif prefix_cached:
         write_rate = p["cache_read"]
     else:
         write_rate = p["cache_write_1h"] if MODEL_CAPS[model]["cache_ttl"] == "1h" else p["cache_write"]

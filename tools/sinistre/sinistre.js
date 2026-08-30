@@ -363,6 +363,7 @@
     demande_insatisfaite: "le contexte demandé n'a pas pu être rouvert : aucune relecture",
     demande_satisfaite: "le contexte demandé a été rouvert dans le contrat, sans appel modèle",
     dictionnaire: "variantes du dictionnaire ajoutées aux termes cherchés",
+    faq: "formulation de FAQ reconnue comme candidate",
     facettes_non_couvertes: "des sous-questions posées ne sont pas couvertes",
     fait_cite_hors_sujet: "un fragment cité pour une qualité n'en emploie aucun mot",
     fait_cite_introuvable: "une qualité dite établie ne cite aucun fragment des faits déclarés",

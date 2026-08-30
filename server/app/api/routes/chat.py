@@ -76,7 +76,8 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
         # seule, et voyage comme `corpus`, `index` et `client` — le pipeline ne voit pas `corpus`
         # (table des couches) et ne peut donc pas le charger lui-même. Toujours un objet, jamais
         # `None` : un dictionnaire absent est un `Dictionnaire` inerte, qui n'arme rien.
-        dictionnaire=etat.dictionnaire, variant=demande.variant)
+        dictionnaire=etat.dictionnaire,
+        variant=demande.variant or etat.settings.retrieval_variant)
 
     try:
         sources = sources_de(answer, etat.index, etat.corpus)

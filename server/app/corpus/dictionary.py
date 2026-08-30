@@ -102,6 +102,9 @@ class Dictionnaire:
     # seule chose du dictionnaire qui ait le droit de sortir dans une `AbsenceProof` — jamais les
     # variantes, jamais les déclencheurs.
     _canoniques: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
+    # Nœud répondant → formulations validées à l'ingestion. Contrairement aux variantes
+    # lexicales, cette table peut proposer un nœud même si le texte de sa fiche n'a aucun hit.
+    _candidate_questions: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
 
     @property
     def utilisable(self) -> bool:
@@ -242,6 +245,29 @@ class Dictionnaire:
                 reconnus += 1
         return reconnus, len(declencheurs)
 
+    def faq_candidates(self, question: str, *, doc_id: str | None) -> list[str]:
+        """Nœuds dont une formulation candidate correspond à la question, ordre du fichier.
+
+        La comparaison est une égalité de formes normalisées (casse, accents et ponctuation
+        neutralisés). Aucun mot, seuil, cas ou assureur n'est codé ici ; une question courte ne
+        devient donc jamais le sous-ensemble accidentel d'une formulation plus longue.
+        """
+        if not self.utilisable_pour(doc_id):
+            return []
+        query = forme(question)
+        if not query:
+            return []
+        result: list[str] = []
+        for node_id, candidates in self._candidate_questions.items():
+            for candidate in candidates:
+                # Une FAQ est une formulation normalisée, pas un moteur de mots-clés. L'égalité
+                # neutralise casse/accents/punctuation sans transformer une question courte comme
+                # « Combien ? » en sous-ensemble universel de toutes les formulations longues.
+                if forme(candidate) == query:
+                    result.append(node_id)
+                    break
+        return result
+
 
 def _corpus_ok(hashes: dict[str, str], corpus: Corpus, doc_id: str) -> tuple[bool, str]:
     """Les empreintes du dictionnaire décrivent-elles le document `doc_id` **tel qu'il est servi** ?
@@ -374,4 +400,6 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictio
         corpus_ok=corpus_ok, raison=raison if not corpus_ok else "", canoniques=len(fichier.corpus),
         _groupes={f: tuple(g) for f, g in groupes.items()},
         _intents=intents,
-        _canoniques={f: tuple(c) for f, c in canoniques.items()})
+        _canoniques={f: tuple(c) for f, c in canoniques.items()},
+        _candidate_questions={node_id: tuple(questions) for node_id, questions
+                              in fichier.candidate_questions.items()})

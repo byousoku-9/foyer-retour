@@ -2,6 +2,13 @@
 
 Le harness est `python -m server.evals.run`. Il valide tous les cas, les grilles compagnon et la compatibilité suite/variante avant de construire un éventuel client. Les suites guide et sinistre exigent `ANTHROPIC_API_KEY` et un plafond fini strictement positif. La suite parsing est entièrement locale : elle ne construit aucun client, ne lit aucune clé et coûte zéro. `--dry-run` valide le plan sans clé, corpus, client ni écriture.
 
+La comparaison 4.4 utilise exactement `--suite guide --compare
+deterministe,outils,full_context --tiers reason,micro`. Les axes sont des ensembles fermés : ordre
+CLI permuté, même plan canonique ; élément vide, doublon, cellule absente ou axe en trop, refus
+avant client. Les six cellules partagent un seul `--max-cost` global. Le profil `reason` active le
+prompt cache du seul retrieval ; `micro` le désactive réellement. Un hit du cache local conserve son
+coût fournisseur original dans la comparaison.
+
 ```bash
 uv run python -m server.evals.run --profile full --max-cost 1.0
 uv run python -m server.evals.run --profile full --quick --max-cost 1.0
@@ -10,7 +17,7 @@ ANTHROPIC_API_KEY= uv run python -m server.evals.run --suite parsing --profile f
 uv run python -m server.evals.run --help
 ```
 
-`full` inclut les cas `vertical` et `full`. `--quick` choisit de façon stable le premier identifiant de chaque suite documentaire sélectionnée ; il est incompatible avec `--gate`, car un gate doit porter sur toute sa suite. Le guide accepte `outils` et `deterministe`; le sinistre accepte `outils` et `deterministe` depuis la story 4.2d; le parsing porte la variante `local`. Sans `--variant`, les deux suites documentaires tournent la variante par défaut de leur pipeline, `outils` — ce que la production sert (AD-1, amendement du 25/08/2026) ; `deterministe` reste la baseline de comparaison, demandée explicitement. Un couple incompatible est refusé avant tout appel.
+`full` inclut les cas `vertical` et `full`. `--quick` choisit de façon stable le premier identifiant de chaque suite documentaire sélectionnée ; il est incompatible avec `--gate`, car un gate doit porter sur toute sa suite. Le guide accepte `outils`, `deterministe` et `full_context`; le sinistre accepte `outils` et `deterministe` depuis la story 4.2d; le parsing porte la variante `local`. Sans `--variant`, les suites documentaires tournent leur défaut versionné — initialement `outils` — et `deterministe` reste une baseline explicite. Un couple incompatible est refusé avant tout appel.
 
 Sur un lot qui mêle plusieurs suites, `--variant` ne peut pas désigner une variante commune quand
 les vocabulaires diffèrent. Il faut d'abord sélectionner la suite, par exemple

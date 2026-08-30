@@ -506,7 +506,9 @@ def test_verdict_models() -> None:
 def test_trace_models() -> None:
     assert {"request_id", "pipeline", "variant", "steps", "total_cost_eur", "source_hash", "ingest_fingerprint",
             "pipeline_digest", "prompts_digest", "thresholds", "retries", "truncations", "deadline_remaining_s"} <= fields(trace.Trace)
-    assert fields(trace.StepTrace) == {"name", "tier", "ms", "usage", "opened_block_ids", "discarded_block_ids", "checks", "calls"}
+    assert fields(trace.StepTrace) == {
+        "name", "tier", "prompt_cache", "mechanism_order", "ms", "usage",
+        "opened_block_ids", "discarded_block_ids", "checks", "calls"}
     assert fields(trace.Usage) == {"input", "cached", "output", "cost_eur", "cached_response", "cost_eur_original"}
     assert {"name", "ok", "detail"} == fields(trace.CheckResult)
     # Story 4.2e : `tier` publie le tier **réellement employé** par cet appel-là. `StepTrace.tier`
