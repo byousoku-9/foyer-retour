@@ -33,7 +33,10 @@ from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
+from server.app.domain.answer import AnswerDraft
+from server.app.domain.errors import BudgetExceeded
 from server.app.domain.question import Faits
+from server.app.domain.trace import StepTrace
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
     ChampsApplicabilite,
@@ -46,7 +49,7 @@ from server.app.llm.client import LlmClient
 from server.app.pipelines import sinistre
 from server.app.steps.verifier import _mots_qualifiants
 from tests.fixtures import LLMRecorder
-from tests.llm_fake import RecordedAnthropic
+from tests.llm_fake import FakeAnthropic, RecordedAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC_ID = "axa-lu-optihome-2017"
@@ -107,6 +110,49 @@ def _budget() -> RequestBudget:
     s = _settings()
     return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
                          max_cost_eur=s.max_cost_eur_per_request)
+
+
+async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le coût mesuré du chemin outils passe, mais le plafond refuse toujours avant fournisseur."""
+    import server.app.llm.client as client_module
+
+    settings = _settings()
+    monkeypatch.setattr(client_module, "estimate_cost", lambda *args, **kwargs: 0.0945)
+    reponse = fake_message(text='{"segments": [], "claims": []}', model="claude-sonnet-5")
+    fournisseur = FakeAnthropic([reponse])
+    client = LlmClient(settings, anthropic_client=fournisseur)
+    budget = _budget()
+    budget.cost_eur = 0.0149
+
+    await client.parse(
+        tier=settings.rediger_tier,
+        system_prefix="préfixe de rédaction sinistre",
+        messages=[{"role": "user", "content": "contexte borné issu de la navigation"}],
+        output_model=AnswerDraft,
+        budget=budget,
+        step=StepTrace(name="rediger"),
+        max_tokens=settings.rediger_max_tokens,
+    )
+
+    assert settings.max_cost_eur_per_request == 0.12
+    assert len(fournisseur.requests) == 1
+
+    fournisseur_bloque = FakeAnthropic([])
+    client_bloque = LlmClient(settings, anthropic_client=fournisseur_bloque)
+    budget_bloque = _budget()
+    budget_bloque.cost_eur = 0.0256
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await client_bloque.parse(
+            tier=settings.rediger_tier,
+            system_prefix="préfixe de rédaction sinistre",
+            messages=[{"role": "user", "content": "contexte borné issu de la navigation"}],
+            output_model=AnswerDraft,
+            budget=budget_bloque,
+            step=StepTrace(name="rediger"),
+            max_tokens=settings.rediger_max_tokens,
+        )
+    assert fournisseur_bloque.requests == [] and budget_bloque.attempts == 0
 
 
 async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
