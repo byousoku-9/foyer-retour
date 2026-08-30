@@ -2644,7 +2644,8 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
         date=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"))
 
 
-def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, str] | None:
+def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate, *,
+                  lire: Any = None) -> tuple[Path, str] | None:
     """Sérialise `manifest[doc_id].gate` et rend `(manifest, contenu)` — **sans rien écrire**.
 
     Rend `None` — sans rien préparer — quand le gate **ne doit pas** être écrit : c'est la
@@ -2671,9 +2672,21 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, s
     **Non-mutation du dernier vert (story 4.2b).** Un gate candidat **rouge** ne remplace jamais un
     gate `evals_ok: true` : le verdict candidat est publié dans le rapport (décisions chiffrées,
     raison, limites), et le mécanisme de promotion reste le seul chemin de bascule.
+
+    **`lire` est la lecture de la transaction, et c'est elle qui compte** (revue du tour de racine
+    unique, constat 1). Le gate est le quatrième écrivain de `data/manifest.json`, et il lisait le
+    manifest entier **hors du verrou** avant d'en remettre la sérialisation à la bascule : une
+    ingestion publiée entre-temps était donc écrasée par une fusion périmée — le fait 2 exactement,
+    sur le writer que le tour n'avait pas fermé. La lecture, la décision de non-mutation du dernier
+    vert et la publication vivent maintenant dans la même `EspacePublie.transaction()`. Sans `lire`
+    (arbre qu'aucune racine ne couvre), le chemin est lu tel quel, comme avant.
     """
     try:
-        brut = json.loads(manifest_path.read_text(encoding="utf-8"))
+        brut_texte = lire(manifest_path) if lire is not None else manifest_path.read_text(
+            encoding="utf-8")
+        if brut_texte is None:
+            raise FileNotFoundError(str(manifest_path))
+        brut = json.loads(brut_texte)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise RefusDeTourner(f"{manifest_path} illisible : {type(exc).__name__}") from exc
     if not isinstance(brut, dict) or doc_id not in brut:
@@ -2734,13 +2747,13 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate) -> tuple[Path, s
     # La forme des autres écrivains de `data/` — clés triées, `indent=2`, `ensure_ascii=False`, saut
     # de ligne final — pour qu'un `git diff` de gate ne montre qu'un gate.
     #
-    # Ce qui reste ouvert — deux écrivains qui relisent le même manifest et perdent l'un des deux
-    # gates — demandait un verrou sur toute la séquence, entrée différée (`target_story: 4.1`). B7
-    # l'a **payé** : `EspacePublie.basculer` prend un `flock` exclusif sur l'espace, parce que le
-    # ping-pong à deux générations ne peut pas s'en passer. La lecture du manifest reste néanmoins
-    # hors du verrou ici, donc la course de perte de gate n'est fermée qu'au moment de la bascule ;
-    # l'entrée différée reste due pour l'ingestion, qui écrit `data/manifest.json` par son propre
-    # chemin (`server/ingest/artifacts.py`).
+    # La course de perte de gate — deux écrivains qui relisent le même manifest et perdent l'une des
+    # deux entrées — demandait un verrou sur **toute la séquence**, entrée différée
+    # (`target_story: 4.1`). Elle est payée, et pour tous les écrivains : le ping-pong à deux
+    # générations impose un `flock` exclusif, et lecture, fusion et publication vivent dans la même
+    # `EspacePublie.transaction()` — ici par `lire`, dans l'ingestion par
+    # `server/ingest/artifacts.py::fusionner_et_publier`. Il ne reste aucun écrivain de
+    # `data/manifest.json` qui lise hors du verrou.
     return manifest_path, json.dumps(dict(sorted(brut.items())), indent=2,
                                      ensure_ascii=False) + "\n"
 
@@ -2757,14 +2770,29 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
 
     **Le contrat de l'espace couvre ce chemin** (story 4.5, B7). Il n'y a plus de temporaire préparé
     avant l'appel, donc plus de temporaire à oublier : la sérialisation est en mémoire, l'écriture
-    et la publication appartiennent à `EspacePublie.basculer`. L'espace est dérivé du manifest par
-    l'autorité unique `espace_du_data_dir`, de sorte qu'un appelant ne puisse pas en désigner un
+    et la publication appartiennent à `EspacePublie.transaction()`. L'espace est dérivé du manifest
+    par l'autorité unique `espace_du_data_dir`, de sorte qu'un appelant ne puisse pas en désigner un
     autre que celui où vit le manifest qu'il écrit.
+
+    **La lecture est dans la transaction** (revue du tour de racine unique) : relire, décider la
+    non-mutation du dernier vert et publier sous le même `flock`, sans quoi une entrée publiée
+    entre la lecture et la bascule disparaîtrait du manifest que ce gate republie.
     """
-    prepare = preparer_gate(manifest_path, doc_id, gate)
-    if prepare is None:
-        return False
-    espace_du_data_dir(manifest_path.parent).basculer([prepare])
+    espace = espace_du_data_dir(manifest_path.parent)
+    if not espace.installe():
+        # Aucun pointeur : il n'y a pas de section critique à ouvrir — personne d'autre ne peut
+        # publier ce manifest — et le refus, si un gate doit réellement être écrit, reste celui
+        # d'avant, dit par la bascule et nommant la commande qui pose la disposition.
+        prepare = preparer_gate(manifest_path, doc_id, gate)
+        if prepare is None:
+            return False
+        espace.basculer([prepare])
+        return True
+    with espace.transaction() as transaction:
+        prepare = preparer_gate(manifest_path, doc_id, gate, lire=transaction.lire)
+        if prepare is None:
+            return False
+        transaction.publier([prepare])
     return True
 
 
@@ -2861,6 +2889,7 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
                             relecture_verdict: Path | None = None,
                             relecture_images: Path | None = None,
                             repo_root: Path | None = None,
+                            resoudre: Any = None,
                             preuve_externe: PreuveExterneVerifiee | None,
                             ) -> list[tuple[Path, str]]:
     """Construit l'artefact unique et **prépare** ses écritures — sans rien publier encore.
@@ -2883,6 +2912,11 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
     `repo_root` est **dérivé de `data_dir`** par l'appelant, exactement comme `output_json` et le
     cache le sont déjà. Le figer sur `REPO_ROOT` ferait écrire le `docs/evals/latest.md` du dépôt
     depuis n'importe quel run pointé ailleurs.
+
+    `resoudre` est le repère dans lequel lire le rendu précédent à archiver — `tx.chemin_publie`
+    sous une transaction. `docs/evals/latest.md` est une cible **couverte** : décider son archivage
+    sur une lecture faite hors du verrou, c'est risquer d'écraser sans l'archiver un rendu qu'une
+    bascule concurrente a publié entre-temps (revue du tour de racine unique, constat 1).
     """
     repo_root = repo_root if repo_root is not None else REPO_ROOT
     publication = construire_publication(
@@ -2895,7 +2929,7 @@ def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, 
         report_digest=report_digest, candidate_revision=candidate_revision,
         preuve_externe=preuve_externe)
     prepares = preparer_publication(
-        publication, data_dir=data_dir, repo_root=repo_root,
+        publication, data_dir=data_dir, repo_root=repo_root, resoudre=resoudre,
         nom=ctx.settings.evals_publication_file,
         markdown_run=rendre_markdown(rapport, publication, preuve_externe=preuve_externe),
         chemin_run=output_markdown,
@@ -3803,32 +3837,45 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # code 3 sans gate écrit, et la non-mutation du dernier vert retire le manifest du lot
             # sans retirer la publication (un rouge est un résultat, publié — AC 2).
             publications: list[tuple[Path, str]] = []
-            if exigences_full:
-                publications = preparer_la_publication(
-                    rapport, gate, ctx, cas,
-                    data_dir=args.data_dir, output_markdown=output_markdown,
-                    report_digest=report_digest,
-                    candidate_revision=args.candidate_revision,
-                    relecture_verdict=args.relecture_verdict,
-                    relecture_images=args.relecture_images,
-                    repo_root=args.data_dir.parent,
-                    preuve_externe=preuve_externe)
-                # Le journal du run porte la publication : c'est `preparer_la_publication` qui le
-                # rend, et il n'entre donc pas une seconde fois par `preparer_les_rapports` — deux
-                # contenus au même slot sont un refus, et ce serait le bon (une seule autorité).
-                prepares = [(output_json, contenu_rapport), *publications]
-            else:
-                prepares = preparer_les_rapports(rapport, output_json, output_markdown,
-                                                 preuve_externe=preuve_externe,
-                                                 contenu_json=contenu_rapport)
-            cibles = [cible for cible, _contenu in publications]
-            # `None` quand la non-mutation du dernier vert s'applique : les publications sont alors
-            # basculées quand même — un rouge est un **résultat**, publié —, et le manifest ne bouge
-            # pas. C'est exactement ce que l'AC 2 demande.
-            prepare_gate = preparer_gate(args.data_dir / MANIFEST, args.gate, gate)
-            if prepare_gate is not None:
-                prepares.append(prepare_gate)
-            espace.basculer(prepares)
+            # **Tout ce qui lit une cible couverte lit sous le verrou** (revue du tour de racine
+            # unique, constat 1). Deux lectures se faisaient dehors : le manifest entier, relu par
+            # `preparer_gate`, et le `docs/evals/latest.md` précédent, relu pour décider son
+            # archivage. Les deux remettaient ensuite à la bascule une décision prise sur un état
+            # qu'une ingestion concurrente pouvait avoir remplacé — la mise à jour perdue, sur les
+            # deux surfaces à la fois. La séquence entière — lire, fusionner, décider, publier —
+            # vit donc dans une seule `EspacePublie.transaction()`, qui reste **un seul point de
+            # commit** pour le lot complet.
+            with espace.transaction() as transaction:
+                if exigences_full:
+                    publications = preparer_la_publication(
+                        rapport, gate, ctx, cas,
+                        data_dir=args.data_dir, output_markdown=output_markdown,
+                        report_digest=report_digest,
+                        candidate_revision=args.candidate_revision,
+                        relecture_verdict=args.relecture_verdict,
+                        relecture_images=args.relecture_images,
+                        repo_root=args.data_dir.parent,
+                        resoudre=transaction.chemin_publie,
+                        preuve_externe=preuve_externe)
+                    # Le journal du run porte la publication : c'est `preparer_la_publication` qui
+                    # le rend, et il n'entre donc pas une seconde fois par `preparer_les_rapports`
+                    # — deux contenus au même slot sont un refus, et ce serait le bon (une seule
+                    # autorité).
+                    prepares = [(output_json, contenu_rapport), *publications]
+                else:
+                    prepares = preparer_les_rapports(rapport, output_json, output_markdown,
+                                                     preuve_externe=preuve_externe,
+                                                     contenu_json=contenu_rapport)
+                cibles = [cible for cible, _contenu in publications]
+                # `None` quand la non-mutation du dernier vert s'applique : les publications sont
+                # alors basculées quand même — un rouge est un **résultat**, publié —, et le
+                # manifest ne bouge pas. C'est exactement ce que l'AC 2 demande, et la décision se
+                # prend sur le manifest **réellement publié**, lu dans la transaction.
+                prepare_gate = preparer_gate(args.data_dir / MANIFEST, args.gate, gate,
+                                             lire=transaction.lire)
+                if prepare_gate is not None:
+                    prepares.append(prepare_gate)
+                transaction.publier(prepares)
             prepares = []
             gate_ecrit = prepare_gate is not None
             print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)

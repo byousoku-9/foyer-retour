@@ -931,6 +931,7 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
                          nom: str = PUBLICATION_JSON,
                          markdown_run: str | None = None,
                          chemin_run: Path | None = None,
+                         resoudre: Any = None,
                          valeur: Any = None, code: Any = None) -> list[tuple[Path, str]]:
     """Rend le lot de publication : `[(cible, contenu)]`, **sans écrire un seul octet**.
 
@@ -947,6 +948,14 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
     Tout ce qui peut lever — validation canonique du rapport, rendu, décision d'archivage — se
     produit **avant** que l'appelant ne remette le lot à la bascule, donc avant que la moindre
     surface ne bouge. C'était déjà l'intention ; c'est maintenant une propriété du type de retour.
+
+    `resoudre` est le repère dans lequel lire le rendu précédent (revue du tour de racine unique,
+    constat 1). `docs/evals/latest.md` est une cible **couverte** : la lire à travers son lien, hors
+    du verrou, c'est décider de son archivage sur un état qu'une bascule concurrente peut avoir
+    remplacé entre la décision et le commit — le rendu précédent serait alors écrasé sans avoir été
+    archivé, c'est-à-dire le défaut même que `_archive_a_ecrire` existe pour fermer, déplacé d'un
+    cran. L'appelant qui publie sous une transaction passe donc `tx.chemin_publie` ; par défaut, le
+    chemin est lu tel quel, ce qui reste juste pour un arbre qu'aucune racine ne couvre.
     """
     import json
 
@@ -960,7 +969,7 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
             "qu'un retirerait de la bascule la surface que la CI concatène, en silence")
     rendu = rendre_publication_markdown(pub, valeur=valeur, code=code)
     markdown_path = repo_root.joinpath(*DOCS_LATEST)
-    archive = _archive_a_ecrire(markdown_path, repo_root=repo_root)
+    archive = _archive_a_ecrire(markdown_path, repo_root=repo_root, resoudre=resoudre)
     contenu_json = json.dumps(pub.model_dump(mode="json"), indent=2, ensure_ascii=False,
                               sort_keys=True) + "\n"
     lot: list[tuple[Path, str]] = [(data_dir / nom, contenu_json)]
@@ -974,7 +983,8 @@ def preparer_publication(pub: PublicationEvals, *, data_dir: Path, repo_root: Pa
     return lot
 
 
-def _archive_a_ecrire(markdown_path: Path, *, repo_root: Path) -> tuple[Path, str] | None:
+def _archive_a_ecrire(markdown_path: Path, *, repo_root: Path,
+                      resoudre: Any = None) -> tuple[Path, str] | None:
     """Décide **sans rien écrire** ce que l'archivage du `latest.md` existant doit produire.
 
     Rend `(chemin de l'archive, contenu)`, ou `None` s'il n'y a rien à archiver — fichier absent,
@@ -992,8 +1002,12 @@ def _archive_a_ecrire(markdown_path: Path, *, repo_root: Path) -> tuple[Path, st
     """
     import datetime
 
+    # Le rendu précédent se lit dans le repère que l'appelant donne : le slot publié quand une
+    # transaction est ouverte, le chemin lui-même sinon. Les octets sont les mêmes ; ce qui change
+    # est qu'ils ne peuvent pas se dérober sous le verrou.
+    source = resoudre(markdown_path) if resoudre is not None else markdown_path
     try:
-        octets = markdown_path.read_bytes()
+        octets = source.read_bytes()
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -1004,7 +1018,7 @@ def _archive_a_ecrire(markdown_path: Path, *, repo_root: Path) -> tuple[Path, st
         return None
     try:
         horodatage = datetime.datetime.fromtimestamp(
-            markdown_path.stat().st_mtime, tz=datetime.UTC).strftime("%Y%m%d")
+            source.stat().st_mtime, tz=datetime.UTC).strftime("%Y%m%d")
     except OSError as exc:
         raise ArchivePrecedenteIllisible(
             f"{markdown_path} : l'horodatage du rendu précédent n'a pas pu être lu "
