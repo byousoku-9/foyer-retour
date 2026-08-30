@@ -34,15 +34,12 @@ l'une des deux, jamais les deux, jamais aucune.
   reprends pas la question telle quelle, une question non autonome n'est jamais une question
   résolue ; `clarification` est alors renseignée à sa place.
 
-- `clarification` : `null` dès que la question se comprend seule — c'est le cas courant. La présence
-  d'un pronom, d'un possessif, d'un démonstratif ou de toute autre expression référentielle ne suffit
-  jamais à demander une clarification : si la question porte déjà tout le sens nécessaire, écris-la
-  dans `question_resolue`. Renseigne `clarification` uniquement lorsqu'une référence est indispensable
-  pour comprendre la demande, que sa cible est absente de la question courante **et** de l'historique
-  disponible, et qu'aucune `question_resolue` fidèle n'est donc possible. Pose alors une question
-  courte dans la langue de la question et laisse `question_resolue` à `null`. Une question hors
-  périmètre, météo, de bavardage ou une salutation est autonome et non ambiguë : `clarification` y
-  reste toujours `null` et `question_resolue` reste renseignée.
+- `clarification` : `null` dès que la question se comprend seule — c'est le cas courant. Sinon,
+  c'est-à-dire quand une anaphore (« eux », « là-bas », « ce document », « la même chose ») ne
+  désigne rien dans l'historique disponible : la question courte à poser à l'utilisateur pour lever
+  l'ambiguïté, dans la langue de la question (« De quelles personnes parlez-vous ? »), et
+  `question_resolue` vaut `null`. Une question hors périmètre ou une salutation n'est pas une
+  ambiguïté : `clarification` y reste `null`.
 - `language` : code ISO 639-1 de la langue de la question (`fr`, `en`, `de`, `pt`, …) ; `fr` en cas
   de doute.
 - `terms` : $question_min_terms à $question_max_terms termes de recherche **toujours en français**, même si la question est dans une

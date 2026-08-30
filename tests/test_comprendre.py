@@ -132,17 +132,13 @@ async def test_une_intention_autonome_refusee_ne_peut_pas_devenir_une_clarificat
     contradictoire = fake_message(text=_sortie(
         intent=intent, question_resolue=None, clarification="Quel objet désignez-vous ?",
         terms=[], themes=[], facettes=[]), model=HAIKU)
-    valide = fake_message(text=_sortie(
-        intent=intent, question_resolue="Sa demande complète est hors périmètre.",
-        clarification=None, terms=[], themes=[], facettes=[]), model=HAIKU)
-    client, _ = _client([contradictoire, valide])
+    client, _ = _client([contradictoire])
 
     sortie, step = await _comprendre(client, question="Sa demande complète concerne un autre sujet.")
 
     assert isinstance(sortie, ParsedQuestion) and sortie.intent == intent
-    assert sortie.question_resolue == "Sa demande complète est hors périmètre."
-    assert len(step.calls) == 2
-    assert any("intention autonome refusée" in (check.detail or "") for check in step.checks)
+    assert sortie.question_resolue == "Sa demande complète concerne un autre sujet."
+    assert len(step.calls) == 1
 
 
 async def test_une_vraie_reference_indispensable_absente_reste_une_clarification() -> None:
@@ -165,8 +161,6 @@ async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_ques
     assert "deux issues exclusives" in prefixe
     assert "`clarification` est alors renseignée à sa place" in prefixe
     assert "que l'historique ne dit pas" in prefixe
-    assert "absente de la question courante **et** de l'historique" in prefixe
-    assert "ne suffit" in prefixe and "jamais à demander une clarification" in prefixe
     # mesuré en réel : sans cette consigne, une question météo revenait avec les **deux** champs à
     # `null` (le modèle jugeait la question résolue inutile hors périmètre) — un appel perdu en
     # relance motivée à chaque refus (revue Codex 1.4, B4, tour 3 ; `docs/tests-live.md`)

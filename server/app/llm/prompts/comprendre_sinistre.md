@@ -25,11 +25,7 @@ l'une des deux, jamais les deux, jamais aucune.
   déclarés apportent (quel bien, quel événement, quelle cause). Conserve la langue d'origine.
   Renseigne-la quel que soit l'`intent`. N'invente jamais un fait que la description ne dit pas.
 - `clarification` : `null` dès que la demande se comprend avec les faits déclarés — c'est le cas
-  courant. Une expression référentielle ne justifie jamais à elle seule une clarification : celle-ci
-  exige une cible indispensable au sens, absente de la question, de l'historique **et** des faits
-  déclarés, sans laquelle aucune réécriture autonome fidèle n'est possible. Pose alors la question
-  courte au gestionnaire et laisse `question_resolue` à `null`. Une intention hors périmètre reste
-  une demande autonome refusée : renseigne `question_resolue` et garde `clarification` à `null`.
+  courant. Sinon, la question courte à poser au gestionnaire, et `question_resolue` vaut `null`.
   Un fait **manquant** (on ignore si la chaleur était subite, si une option a été souscrite) n'est
   pas une ambiguïté : c'est ce que le contrôle d'applicabilité relèvera plus loin — `clarification`
   reste `null`. Des phases successives ou apparemment contradictoires **explicitement déclarées**

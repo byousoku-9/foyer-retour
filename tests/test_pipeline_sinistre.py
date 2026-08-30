@@ -2016,15 +2016,14 @@ async def test_an_out_of_scope_request_is_refused_after_one_micro_call(index: In
     assert "assurance habitation" in answer.texte and "guide" not in answer.texte
 
 
-async def test_un_refus_sinistre_contradictoire_est_relance_puis_refuse_sans_retrieval(
+async def test_un_refus_sinistre_contradictoire_est_normalise_puis_refuse_sans_retrieval(
         index: Index) -> None:
     answer, trace, fake = await _run(index, [
         _comprendre("hors_perimetre", clarification="Quel objet désignez-vous ?"),
-        _comprendre("hors_perimetre"),
     ])
 
     assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
-    assert len(fake.requests) == 2 and "retrouver" not in [step.name for step in trace.steps]
+    assert len(fake.requests) == 1 and "retrouver" not in [step.name for step in trace.steps]
     assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
     assert answer.clarification is None
 
