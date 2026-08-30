@@ -297,7 +297,7 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     assert "refus de budget avant le premier appel" in err
     assert "configured_budget_eur=1.0000" in err
     assert "accrued_cost_eur=0.0000" in err
-    majorant = 3 * _settings().max_cost_eur_per_request
+    majorant = runner.estimate_run_majorant(3, _settings())
     assert f"refused_cost_eur={majorant:.4f}" in err
     rapport = json.loads((tmp_path / "refus.json").read_text(encoding="utf-8"))
     assert rapport["complete"] is False and rapport["executions_completed"] == 0
