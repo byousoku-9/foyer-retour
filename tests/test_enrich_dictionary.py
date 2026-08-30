@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from server.app.corpus.racine import REPERTOIRE_ESPACE
+
 from server.app.config import Settings
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
@@ -84,7 +86,24 @@ def _ecrire_data(tmp_path: Path, *, deux_categories: bool = False, kind: str = "
         document_hash=hashlib.sha256(texte.encode("utf-8")).hexdigest(), edition="git:test")
     (tmp_path / "manifest.json").write_text(
         json.dumps({DOC_ID: entree.model_dump()}, indent=2, ensure_ascii=False), "utf-8")
+    _poser_la_disposition(tmp_path)
     return tmp_path
+
+
+def _poser_la_disposition(data: Path) -> None:
+    """La disposition du `data-dir` d'un test, posée comme un opérateur la pose (story 4.5, N3).
+
+    `enrich_dictionary.main` est un entrypoint de production — enrichissement **et** `--valider` :
+    il exige une racine **installée** et refuse avant tout appel payant comme avant toute signature
+    sinon. Son lot n'a qu'une cible, et c'est précisément le cas où le refus « lot mixte » était
+    structurellement inatteignable.
+    """
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(data, data).installer(
+        [Path("manifest.json"), Path("dictionary.json"),
+         Path(DOC_ID) / "dictionary.json", Path(DOC_ID) / "document.json",
+         Path(DOC_ID) / "summary.md", Path(DOC_ID) / "report.json"], migrer=True)
 
 
 def _source_hash(data: Path) -> str:
@@ -278,7 +297,12 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     racine = data / "dictionary.json"
     racine.write_bytes(b'{"marqueur":"dictionnaire global intact"}\n')
     avant = racine.read_bytes()
-    fichiers_avant = {p.relative_to(data): p.read_bytes() for p in data.rglob("*") if p.is_file()}
+    # `.publie/` est le **bundle** de la racine, pas une surface : ses deux générations alternent à
+    # chaque publication, et une bascule saine y réécrit la génération inactive. Ce que cette sonde
+    # compare est ce qu'un lecteur voit — les cibles, atteintes par leurs liens —, et **aucune**
+    # d'elles n'est retirée de la comparaison (story 4.5, disposition de la racine).
+    fichiers_avant = {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
+                      if p.is_file() and REPERTOIRE_ESPACE not in p.parts}
     block_id = f"{DOC_ID}:farrivee:1"
     batches = FauxBatches({ed.custom_id(block_id): _sortie_categorie(
                                 termes=[{"fiche_id": block_id,
@@ -293,7 +317,7 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     assert code == 0 and cible.is_file()
     assert racine.read_bytes() == avant
     assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
-            if p.is_file() and p != cible} == fichiers_avant
+            if p.is_file() and p != cible and REPERTOIRE_ESPACE not in p.parts} == fichiers_avant
     produit = DictionaryFile.model_validate_json(cible.read_bytes())
     assert produit.corpus_source_hashes == {DOC_ID: _source_hash(data)}
     assert produit.validated is False
@@ -304,7 +328,7 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     assert code == 0 and valide.validated is True and valide.validated_by == "Lancelot Oudin"
     assert racine.read_bytes() == avant
     assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
-            if p.is_file() and p != cible} == fichiers_avant
+            if p.is_file() and p != cible and REPERTOIRE_ESPACE not in p.parts} == fichiers_avant
 
 
 def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
@@ -1025,3 +1049,36 @@ def test_un_intent_inconnu_est_compte_comme_un_ecart(tmp_path: Path) -> None:
     code, texte, _ = _lancer(tmp_path, {ed.custom_id(CAT): _sortie_categorie(),
                                         "intents": SORTIE_INTENTS})
     assert code == 0 and "intent_inconnu=1" in texte
+
+
+# --- N3 : l'entrypoint de production refuse avant tout appel payant et avant toute signature ------
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_tout_appel(
+        tmp_path: Path, capsys: Any) -> None:
+    """N3 : lot d'une seule cible — le cas où le refus « lot mixte » était inatteignable.
+
+    `enrich_dictionary` est le **cinquième** écrivain d'une cible couverte, et ses deux modes
+    (enrichissement et `--valider`) atteignaient le repli rootless sans un mot. Ici la disposition
+    est retirée après coup : la CLI refuse avant toute soumission comme avant toute signature.
+    """
+    import shutil as _shutil
+
+    data = _ecrire_data(tmp_path)
+    # La disposition est **retirée** : chaque lien redevient le fichier ordinaire qu'il désignait,
+    # et l'espace disparaît. C'est exactement l'état d'un `data-dir` custom jamais installé.
+    liens = [c for c in sorted(data.rglob("*"))
+             if c.is_symlink() and REPERTOIRE_ESPACE not in c.parts]
+    contenus = {c: (c.read_bytes() if c.is_file() else None) for c in liens}
+    for chemin, octets in contenus.items():
+        chemin.unlink()
+        if octets is not None:
+            chemin.write_bytes(octets)
+    _shutil.rmtree(data / REPERTOIRE_ESPACE)
+
+    code = ed.main(["--data", str(data)], client=None, settings=_settings(),
+                   sortie=io.StringIO())
+    assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
+
+    code = ed.main(["--data", str(data), "--valider", "Lancelot Oudin"], client=None,
+                   settings=_settings(), sortie=io.StringIO())
+    assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err

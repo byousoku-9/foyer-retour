@@ -13,6 +13,7 @@ import pytest
 from server.app.domain import Document, Report
 from server.ingest import kb_to_blocks as k
 from server.ingest.jsobject import parse_js_object
+from tests.helpers_espace import poser_espace
 from server.ingest.report import build_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,19 @@ def data_dir(tmp_path: Path) -> Path:
     d.mkdir(parents=True)
     shutil.copy(MINI, d / "source.js")
     return d
+
+
+def _poser_la_disposition(tmp_path: Path, data_dir: Path) -> None:
+    """La disposition du `data-dir` d'un test, posée comme un opérateur la pose (story 4.5, N3).
+
+    Un entrypoint de production — ici `kb_to_blocks.main` — exige une racine **installée** et refuse
+    avant tout travail sinon : un `data-dir` custom non installé n'a pas d'opération tout-ou-rien à
+    offrir. Les tests qui appellent `run()` directement exercent, eux, la primitive interne, et n'ont
+    donc pas à poser quoi que ce soit — c'est ce qui laisse
+    `test_une_disposition_incomplete_refuse_avant_toute_ingestion` composer sa disposition partielle.
+    """
+    poser_espace(tmp_path, cibles=[data_dir.relative_to(tmp_path) / nom
+                                   for nom in ("document.json", "summary.md", "report.json")])
 
 
 def test_block_order_ids_and_source_fields(mini_kb: dict) -> None:
@@ -190,7 +204,9 @@ def test_modified_source_only_shifts_ids_after_insertion(data_dir: Path) -> None
     assert report.stats["ids_disparus"] == 2 and report.stats["ids_nouveaux"] == 0
 
 
-def test_tree_invariant_violation_quarantines(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tree_invariant_violation_quarantines(data_dir: Path, tmp_path: Path,
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    _poser_la_disposition(tmp_path, data_dir)
     src = (data_dir / "source.js").read_text("utf-8").replace('id: "bail_test"', 'id: "arrivee"')  # block_id dupliqué
     (data_dir / "source.js").write_text(src, "utf-8")
     assert k.main(["--data", str(data_dir)]) == 1
@@ -252,7 +268,9 @@ def test_fingerprint_includes_normalize_version(monkeypatch: pytest.MonkeyPatch)
     assert k.ingest_fingerprint() != before
 
 
-def test_main_success_propagates_edition(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_success_propagates_edition(data_dir: Path, tmp_path: Path,
+                                         capsys: pytest.CaptureFixture[str]) -> None:
+    _poser_la_disposition(tmp_path, data_dir)
     assert k.main(["--data", str(data_dir), "--edition", "git:abc1234"]) == 0
     out = capsys.readouterr().out
     assert out.rstrip().endswith("lux-guide : servi (edition git:abc1234, gate: null)")
@@ -301,7 +319,9 @@ def test_invalid_other_manifest_entry_is_kept_with_warning(data_dir: Path, capsy
     assert "'autre-doc' du manifest invalide" in capsys.readouterr().err
 
 
-def test_unreadable_manifest_blocks_without_touching_artefacts(data_dir: Path) -> None:
+def test_unreadable_manifest_blocks_without_touching_artefacts(data_dir: Path,
+                                                              tmp_path: Path) -> None:
+    _poser_la_disposition(tmp_path, data_dir)
     k.run(data_dir, edition="e")
     snapshot = {p.name: p.read_bytes() for p in data_dir.iterdir()}
     (data_dir.parent / "manifest.json").write_text("{pas du json", "utf-8")
@@ -578,3 +598,78 @@ def test_une_disposition_incomplete_refuse_avant_toute_ingestion(
     assert not (data_dir / "document.json").exists() and not (data_dir / "summary.md").exists()
     assert (data_dir.parent / "manifest.json").read_bytes() == manifest_avant
     assert espace.residus() == []
+
+
+# --- N3 : un entrypoint de production exige une racine installée ---------------------------------
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_toute_ingestion(
+        data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """N3 : le repli rootless n'est **atteignable depuis aucun entrypoint de production**.
+
+    `espace_couvrant` rendait `None` pour toutes les cibles, donc `_espace_du_lot` rendait `None`
+    sans lever, et `publier_artefacts` prenait `_publier_sans_racine` — un chemin qui n'a pas
+    d'atome fort, et où une cible couverte dont le lien aurait été cassé est réécrite en fichier
+    ordinaire, silencieusement. La CLI refuse désormais, avant d'avoir lu une ligne de source.
+    """
+    assert k.main(["--data", str(data_dir)]) == 2
+    erreur = capsys.readouterr().err
+    assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
+    assert not (data_dir / "document.json").exists()
+    assert not (data_dir / "report.json").exists()
+    assert not (data_dir.parent / "manifest.json").exists()
+
+
+def test_loverlay_et_le_document_precedent_sont_lus_sous_le_verrou(
+        data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N3, second volet : ce qui décide du contenu publié se lit **dans** la transaction.
+
+    `overlay_hash()`, `structure_hash()` et `load_previous()` étaient évalués comme **arguments
+    d'appel** de `merge_manifest`, donc **avant** que le `flock` de la racine ne soit pris : entre
+    cette lecture et la publication, une opération concurrente pouvait remplacer l'overlay ou le
+    document, et l'entrée publiée décrivait alors un état que la publication contredit.
+
+    La sonde n'invente aucune concurrence : elle observe l'**ordre** des appels système. Toute
+    lecture d'une cible couverte qui décide de l'entrée doit tomber **après** la prise du verrou.
+    """
+    from server.evals import espace as esp
+
+    _poser_la_disposition(tmp_path, data_dir)
+    espace_du_test = esp.EspacePublie(tmp_path, tmp_path / "data")
+    espace_du_test.installer([Path("data/lux-guide/typing.manual.json"),
+                              Path("data/lux-guide/structure.json")])
+    k.run(data_dir, edition="git:test")  # une ingestion saine d'abord
+
+    evenements: list[str] = []
+    vrai_enter = esp._verrou.__enter__
+    vrai_read = Path.read_bytes
+    vrai_is_file = Path.is_file
+    decidents = {"typing.manual.json", "structure.json", "document.json"}
+
+    def _noter_verrou(self: object) -> object:
+        evenements.append("verrou")
+        return vrai_enter(self)  # type: ignore[arg-type]
+
+    def _noter_lecture(chemin: Path) -> bytes:
+        if chemin.name in decidents:
+            evenements.append(f"lecture:{chemin.name}")
+        return vrai_read(chemin)
+
+    def _noter_presence(chemin: Path) -> bool:
+        if chemin.name in decidents:
+            evenements.append(f"lecture:{chemin.name}")
+        return vrai_is_file(chemin)
+
+    monkeypatch.setattr(esp._verrou, "__enter__", _noter_verrou)
+    monkeypatch.setattr(Path, "read_bytes", _noter_lecture)
+    monkeypatch.setattr(Path, "is_file", _noter_presence)
+    k.run(data_dir, edition="git:test")
+    monkeypatch.undo()
+
+    assert "verrou" in evenements, "aucune section critique n'a été ouverte"
+    premier_verrou = evenements.index("verrou")
+    avant = [e for e in evenements[:premier_verrou] if e.startswith("lecture:")]
+    assert avant == [], (
+        "ces lectures décident du contenu publié et ont eu lieu **hors** du verrou : "
+        f"{avant}")
+    assert any(e.startswith("lecture:") for e in evenements[premier_verrou:]), (
+        "l'entrée a été composée sans relire ce qui la décide sous le verrou")

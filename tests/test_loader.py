@@ -423,14 +423,15 @@ def test_un_oserror_overlay_ne_publie_jamais_son_chemin(data: Path, monkeypatch:
     m["lux-guide"]["overlay_hash"] = _sha(path)
     _write_manifest(data, m)
     original = Path.read_bytes
-    lectures = 0
 
+    # L'échec est injecté sur **toute** lecture de l'overlay, quel que soit leur nombre. La version
+    # d'avant ne rougissait qu'à la *seconde* — celle qui reparsait ce qui venait d'être haché — et
+    # dépendait donc du défaut que le tour de la racine vraiment unique (N1) ferme : les octets
+    # hachés sont désormais les octets parsés, il n'y a plus qu'une lecture. L'attente est
+    # inchangée, le champ de la sonde est élargi.
     def lire(chemin: Path) -> bytes:
-        nonlocal lectures
         if chemin == path:
-            lectures += 1
-            if lectures == 2:  # la première lecture calcule le hash, la seconde parse l'overlay
-                raise OSError(f"échec privé sur {chemin}")
+            raise OSError(f"échec privé sur {chemin}")
         return original(chemin)
 
     monkeypatch.setattr(Path, "read_bytes", lire)
@@ -458,14 +459,12 @@ def test_un_oserror_document_garde_le_detail_au_log_seulement(
         data: Path, monkeypatch: Any, caplog: Any) -> None:
     document = data / "lux-guide" / "document.json"
     original = Path.read_bytes
-    lectures = 0
 
+    # Même élargissement que pour l'overlay : l'échec porte sur **toute** lecture du document, et
+    # non plus sur la seconde d'un couple hash-puis-parsing que N1 a supprimé.
     def lire(chemin: Path) -> bytes:
-        nonlocal lectures
         if chemin == document:
-            lectures += 1
-            if lectures == 2:  # hash puis parsing du document
-                raise OSError(f"échec privé sur {chemin}")
+            raise OSError(f"échec privé sur {chemin}")
         return original(chemin)
 
     monkeypatch.setattr(Path, "read_bytes", lire)
@@ -944,3 +943,90 @@ def test_la_revision_comparable_exige_une_revision_entiere() -> None:
     assert revision_comparable("A" * 40) == "a" * 40  # la casse ne change pas un commit
     for refuse in (None, "", "dev", "a" * 7, "a" * 39, "a" * 41, "z" * 40):
         assert revision_comparable(refuse) is None, refuse
+
+
+# --- N1 : une passe de chargement ne mêle jamais deux générations ---------------------------------
+
+def _corpus_sous_racine(tmp_path: Path) -> tuple[Path, Any]:
+    """Le même `data/` minimal, mais **sous une racine de publication** posée par l'opérateur."""
+    from server.evals.espace import EspacePublie
+
+    d = tmp_path / "data" / "lux-guide"
+    d.mkdir(parents=True)
+    shutil.copy(MINI, d / "source.js")
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([Path("data") / "manifest.json",
+                      *(Path("data") / "lux-guide" / nom
+                        for nom in ("document.json", "summary.md", "report.json"))])
+    k.run(d, edition="git:test")
+    return d.parent, espace
+
+
+def test_les_octets_haches_sont_les_octets_parses(tmp_path: Path,
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 : `document.json` était **haché** puis **reparsé** par deux `open()` distincts.
+
+    Le contrôle d'empreinte existe précisément pour interdire qu'un artefact ait bougé sans
+    réingestion ; il portait sur des octets qu'un second `open()` avait pu remplacer entre-temps,
+    donc il validait quelque chose que personne n'utilisait. Une seule lecture, un seul tampon.
+    """
+    data, _espace = _corpus_sous_racine(tmp_path)
+    document = data / "lux-guide" / "document.json"
+    lectures = {"n": 0}
+    vrai = Path.read_bytes
+
+    def _compter(chemin: Path) -> bytes:
+        if chemin.name == "document.json":
+            lectures["n"] += 1
+        return vrai(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", _compter)
+    corpus = load_corpus(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert corpus.served == ["lux-guide"], corpus.quarantine
+    assert lectures["n"] == 1, (
+        f"{lectures['n']} lectures de {document.name} : les octets hachés ne sont pas, par "
+        "construction, les octets parsés")
+
+
+def test_une_bascule_entre_deux_lectures_ne_mele_jamais_deux_generations(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1, l'AC littérale : le pointeur bascule **entre deux lectures** d'une même passe.
+
+    Le manifest est lu au tout début, les artefacts par document ensuite. Une bascule tombant entre
+    les deux confrontait une entrée de la génération A à un `document.json` de la génération B : le
+    document partait en quarantaine « document_hash différent du manifest », alors qu'aucun des deux
+    états n'était incohérent. La passe pince désormais une génération et lit tout à travers elle.
+    """
+    from server.app.corpus import loader as ld
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    avant = json.loads((data / "manifest.json").read_text("utf-8"))
+    document_avant = (data / "lux-guide" / "document.json").read_text("utf-8")
+
+    # Une publication concurrente : un document **différent**, avec son entrée cohérente.
+    autre = document_avant.replace("Les huit premiers jours", "Les huit premiers jours ")
+    entree = dict(avant["lux-guide"])
+    entree["document_hash"] = hashlib.sha256(autre.encode("utf-8")).hexdigest()
+    manifest_apres = json.dumps({"lux-guide": entree}, indent=2, ensure_ascii=False) + "\n"
+
+    bascule = {"faite": False}
+    vrai_sha = ld._sha256
+
+    def _basculer_puis_hacher(octets: bytes) -> str:
+        if not bascule["faite"]:
+            bascule["faite"] = True
+            espace.basculer([(data / "manifest.json", manifest_apres),
+                             (data / "lux-guide" / "document.json", autre)])
+        return vrai_sha(octets)
+
+    monkeypatch.setattr(ld, "_sha256", _basculer_puis_hacher)
+    corpus = load_corpus(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert bascule["faite"], "la bascule concurrente n'a pas eu lieu"
+    assert corpus.served == ["lux-guide"], (
+        f"la passe a mêlé deux générations : {corpus.quarantine}")
+    # L'état rendu vient d'**une** génération : celle qui a été pincée à l'entrée de la passe.
+    assert corpus.manifest["lux-guide"].document_hash == avant["lux-guide"]["document_hash"]

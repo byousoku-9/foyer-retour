@@ -26,6 +26,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
 from server.app.config import Settings, get_settings
@@ -645,6 +647,16 @@ def _aucun_client(*args: Any, **kwargs: Any) -> Any:
     raise AssertionError("aucun client anthropic ne doit être construit sur ce chemin")
 
 
+def _poser_la_disposition(tmp_path: Path, dossier: Path) -> None:
+    """La disposition du `data-dir` d'un test, posée comme un opérateur la pose (story 4.5, N3).
+
+    `structure.main` est un entrypoint de production : il exige une racine **installée** et refuse
+    avant toute extraction et avant son unique appel payant sinon. Son lot n'a qu'une cible, et
+    c'est précisément le cas où le refus « lot mixte » était structurellement inatteignable.
+    """
+    poser_espace(tmp_path, cibles=[dossier.relative_to(tmp_path) / "structure.json"])
+
+
 def test_le_prevol_de_cout_refuse_avant_toute_construction_de_client(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """AD-1/AD-9 : le majorant est comparé au plafond **avant** tout client (idiome `type_clauses`).
@@ -655,6 +667,7 @@ def test_le_prevol_de_cout_refuse_avant_toute_construction_de_client(
     un document réel du système de fichiers, avec un plafond volontairement minuscule.
     """
     dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
     monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
     sortie = io.StringIO()
     code = s.main([DOC, "--data", str(dossier.parent), "--max-cost", "0.0001"], output=sortie)
@@ -669,6 +682,7 @@ def test_le_plafond_de_cout_se_regle_aussi_par_config(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Convention Seuils : `--max-cost` ne fait que **surcharger** `structure_max_cost_eur`."""
     dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
     monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
     reglages = Settings(_env_file=None, structure_max_cost_eur=0.0001)
     code = s.main([DOC, "--data", str(dossier.parent)], settings=reglages, output=io.StringIO())
@@ -721,6 +735,7 @@ def test_sans_cle_anthropic_la_cli_refuse_sur_un_document(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """AD-14 : « sans clé, ça refuse » — y compris une fois le majorant passé, et sans rien écrire."""
     dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # posée et vide : elle fait foi
     monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
     code = s.main([DOC, "--data", str(dossier.parent)],
@@ -733,6 +748,7 @@ def test_la_cli_ecrit_structure_json_atomiquement_avec_un_client_injecte(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Le chemin nominal hors ligne : client injecté, verdict rendu, artefact écrit d'un seul coup."""
     dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
     monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)  # injecté ⇒ aucun n'est construit
     sortie = io.StringIO()
     code = s.main([DOC, "--data", str(dossier.parent)], client=FauxClient(), output=sortie)
@@ -1601,3 +1617,25 @@ def test_le_registre_ne_fuit_pas_dans_les_artefacts_servis(tmp_path: Path) -> No
     assert all(line.line_id.startswith(block.block_id)
                for block in document.blocks for line in block.lines)
     assert hashlib.sha256(brut.encode("utf-8")).hexdigest()  # artefact bien sérialisé
+
+
+# --- N3 : l'entrypoint de production refuse avant tout appel payant -------------------------------
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_toute_extraction_et_tout_appel(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """N3 : lot d'**une seule cible**, donc refus « lot mixte » structurellement inatteignable.
+
+    `structure.main` écrit `structure.json` et rien d'autre : le contrôle de couverture d'avant, qui
+    ne levait que sur un lot mixte ou deux racines, ne pouvait pas le voir. Le repli rootless était
+    donc atteint après l'extraction **et** après le seul appel payant du module. Ici le refus tombe
+    avant tout : ni extraction, ni client, ni écriture.
+    """
+    dossier = _dossier(tmp_path)
+    monkeypatch.setattr(s.anthropic, "Anthropic", _aucun_client)
+    monkeypatch.setattr("server.ingest.pdf_to_blocks.extract_pages", _aucune_extraction)
+    code = s.main([DOC, "--data", str(dossier.parent)], output=io.StringIO())
+    assert code == 2
+    erreur = capsys.readouterr().err
+    assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
+    assert not (dossier / "structure.json").exists()

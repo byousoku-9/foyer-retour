@@ -1101,3 +1101,192 @@ def test_une_interruption_juste_apres_un_rename_est_rattrapee_par_le_retablissem
     assert _etat_observable(cibles) == avant, (
         "une cible est restée publiée après une exception propagée : le rang n'était pas noté")
     assert sorted(p.name for p in tmp_path.rglob("*") if p.name.endswith(".tmp")) == []
+
+
+# --- N1 : une lecture pince **une** génération, et lit tout à travers elle ------------------------
+
+def test_un_repere_de_lecture_ne_resout_courant_quune_seule_fois(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 : le repère résout `courant` **une fois**, puis ne le relit plus jamais.
+
+    Avant ce tour, il n'existait aucune API de lecture : toute voie relisait le pointeur à *chaque*
+    appel système — un `readlink` par cible. Une bascule tombant entre deux de ces résolutions
+    rendait un état composé de deux générations. Ici on compte les résolutions : une seule, quel que
+    soit le nombre de cibles lues.
+    """
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md", "b.md"), [("a.md", "un"), ("b.md", "deux")])
+    assert espace.generation() in GENERATIONS
+
+    lectures = {"n": 0}
+    vrai = rac.lire_pointeur
+
+    def _compter(chemin: Path) -> str:
+        lectures["n"] += 1
+        return vrai(chemin)
+
+    monkeypatch.setattr(rac, "lire_pointeur", _compter)
+    repere = rac.lecture_de(espace.data_dir)
+    try:
+        assert repere.texte(tmp_path / "a.md") == "un"
+        assert repere.texte(tmp_path / "b.md") == "deux"
+        assert repere.fichier(tmp_path / "a.md")
+    finally:
+        repere.fermer()
+    assert lectures["n"] == 1, (
+        f"{lectures['n']} résolutions de `courant` pour une seule passe de lecture — une "
+        "opération de lecture ne doit en faire qu'une")
+
+
+def test_un_repere_pince_survit_a_une_bascule_concurrente(tmp_path: Path) -> None:
+    """N1 : la génération pincée reste lisible pendant qu'une autre est publiée.
+
+    Deux générations alternent : celle qu'un lecteur a pincée devient inactive à la bascule
+    suivante, mais elle n'est reconstruite qu'à la **seconde**. Un lecteur pincé traverse donc
+    entièrement une bascule, et rend un état d'une seule génération — jamais un mélange.
+    """
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md", "b.md"), [("a.md", "v1"), ("b.md", "v1")])
+    repere = rac.lecture_de(espace.data_dir)
+    try:
+        assert repere.texte(tmp_path / "a.md") == "v1"
+        espace.basculer([(tmp_path / "a.md", "v2"), (tmp_path / "b.md", "v2")])
+        # Le lien vivant montre déjà `v2` ; le repère, lui, tient sa génération.
+        assert (tmp_path / "a.md").read_text("utf-8") == "v2"
+        assert repere.texte(tmp_path / "b.md") == "v1", (
+            "le repère a suivi la bascule : la passe mêlerait deux générations")
+        assert not repere.perimee()
+        # Seconde bascule : la génération pincée est reconstruite, et le repère le **dit**.
+        espace.basculer([(tmp_path / "a.md", "v3"), (tmp_path / "b.md", "v3")])
+        assert repere.perimee(), "une génération reconstruite sous le repère doit être détectée"
+    finally:
+        repere.fermer()
+
+
+def test_relire_rejoue_la_passe_quand_le_repere_a_ete_perime(tmp_path: Path) -> None:
+    """N1 : deux bascules pendant une passe ⇒ la passe est **rejouée**, jamais rendue mêlée."""
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    passes: list[str | None] = []
+
+    def _passe(lecture: rac.Lecture) -> str | None:
+        valeur = lecture.texte(tmp_path / "a.md")
+        passes.append(valeur)
+        if len(passes) == 1:  # deux bascules pendant la première passe : le repère est périmé
+            espace.basculer([(tmp_path / "a.md", "v2")])
+            espace.basculer([(tmp_path / "a.md", "v3")])
+        return valeur
+
+    assert rac.relire(espace.data_dir, _passe) == "v3"
+    assert passes == ["v1", "v3"], passes
+
+
+# --- N2 : la marque du brouillon, dans les deux sens ----------------------------------------------
+
+def test_une_marque_impossible_a_poser_refuse_avant_toute_mutation(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N2 : la marque n'est plus best-effort **à la pose**.
+
+    `marquer()` était intégralement enveloppée dans `contextlib.suppress(OSError)` et ne rendait
+    rien : `publier` enchaînait sur `_reconstruire` sans jamais savoir si la marque existait. Un
+    `ENOSPC` avalé, puis un `rmtree`/`mkdir` de la génération inactive, puis une exception au rang N
+    laissaient un `a`/`b` **partiel sous son nom canonique**, sans marque, sans nom en `.tmp` — et
+    `residus()` rendait `[]`.
+    """
+    from server.evals import espace as esp
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    generation = espace.generation()
+    inactive = espace.chemin / (GENERATIONS[1] if generation == GENERATIONS[0] else GENERATIONS[0])
+    inactive.mkdir(exist_ok=True)
+    (inactive / "temoin.txt").write_text("intact", encoding="utf-8")
+
+    vrai_open = esp.os.open
+
+    def _refuser_la_marque(chemin: Any, *a: object, **k: object) -> int:
+        # **Seule la marque** échoue : le verrou, lui, s'ouvre normalement. Sans cette précision, la
+        # sonde passerait pour la mauvaise raison — un `flock` impossible à prendre refuse déjà.
+        if ".brouillon." in str(chemin):
+            raise OSError(28, "No space left on device")
+        return vrai_open(chemin, *a, **k)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(esp.os, "open", _refuser_la_marque)
+    with pytest.raises(OSError, match="No space left"):
+        espace.basculer([(tmp_path / "a.md", "v2")])
+    monkeypatch.undo()
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v1", "la cible a bougé malgré le refus"
+    assert (inactive / "temoin.txt").read_text("utf-8") == "intact", (
+        "la génération inactive a été mutée alors que la marque n'a pas pu être posée")
+
+
+def test_un_brouillon_reste_marque_jusquau_commit_etabli(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N2 : la marque tombait **entre** le `fsync` du brouillon et l'atome.
+
+    Une exception dans cette fenêtre — préparation du lien temporaire, `symlink`, interruption —
+    laissait la génération inactive écrite, complète pour un lot mais périmée pour le pointeur, et
+    **sans marque**. La sonde de résidus ne voyait alors rien.
+    """
+    from server.evals import espace as esp
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    vrai_open = esp.os.open
+    poses = {"n": 0}
+
+    def _une_seule_pose(chemin: Any, *a: object, **k: object) -> int:
+        # La **première** pose réussit (celle d'avant la première mutation) ; toute pose ultérieure
+        # échoue. C'est la conjonction exacte que la cartographie a mesurée : une marque retirée
+        # trop tôt, puis une repose best-effort qui échoue en silence, laissait une génération
+        # inactive partielle **sous son nom canonique**, sans marque et sans nom en `.tmp`.
+        if ".brouillon." in str(chemin):
+            poses["n"] += 1
+            if poses["n"] > 1:
+                raise OSError(13, "Permission denied")
+        return vrai_open(chemin, *a, **k)  # type: ignore[arg-type]
+
+    def _echouer(*_a: object, **_k: object) -> None:
+        raise RuntimeError("panne juste avant l'atome")
+
+    monkeypatch.setattr(esp.os, "open", _une_seule_pose)
+    monkeypatch.setattr(esp.os, "symlink", _echouer)
+    # Le pointeur est rendu indécidable pour que l'abandon prudent renonce à détruire : c'est le cas
+    # exact du fait 4, et c'est là que la marque doit encore être présente.
+    monkeypatch.setattr(esp.EspacePublie, "_generation_publiee", lambda self: None)
+    with pytest.raises(RuntimeError, match="juste avant l'atome"):
+        espace.basculer([(tmp_path / "a.md", "v2")])
+    monkeypatch.undo()
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v1"
+    restes = espace.residus()
+    assert any(".brouillon." in reste for reste in restes), (
+        f"le brouillon laissé avant l'atome n'est pas vu par la sonde : {restes}")
+
+
+def test_une_marque_perimee_cesse_detre_signalee_apres_des_bascules_saines(
+        tmp_path: Path) -> None:
+    """N2, **dans l'autre sens** : un bundle complet n'est jamais un brouillon.
+
+    La marque est nommée par pid et n'était retirée que par la transaction qui l'avait posée : un
+    processus tué en cours de brouillon en laissait une que **rien** ne moissonnait. Sondé, après
+    deux bascules parfaitement saines — qui `rmtree`ent et republient la génération qu'elle
+    nomme —, `residus()` la rendait encore, et désignait comme « brouillon en cours » la génération
+    que le pointeur publie. Fermer le faux négatif en ouvrant un faux positif permanent n'aurait
+    rien fermé.
+    """
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    inactive = GENERATIONS[1] if espace.generation() == GENERATIONS[0] else GENERATIONS[0]
+    crash = espace.chemin / f".{inactive}.brouillon.99999.tmp"
+    crash.write_text("", encoding="utf-8")
+    assert espace.residus() == [crash.name], "la marque d'un processus disparu doit d'abord se voir"
+
+    espace.basculer([(tmp_path / "a.md", "v2")])
+    espace.basculer([(tmp_path / "a.md", "v3")])
+
+    assert espace.residus() == [], (
+        "une marque a survécu à la reconstruction complète de la génération qu'elle nomme : elle "
+        "désigne désormais un bundle publié comme un brouillon en cours")
+    assert (tmp_path / "a.md").read_text("utf-8") == "v3"

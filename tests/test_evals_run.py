@@ -1997,6 +1997,9 @@ def test_une_erreur_de_rapport_reste_un_incident_et_ne_touche_pas_le_gate(
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_text("utf-8")
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
@@ -2022,6 +2025,9 @@ def test_un_cas_modifie_pendant_le_run_ne_peut_pas_etre_certifie(
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_text("utf-8")
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     chemin = cases / "guide" / "g-luxtrust.yaml"
@@ -2283,6 +2289,9 @@ def test_une_exception_inattendue_est_un_incident_pas_un_verdict(tmp_path: Path,
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_text(encoding="utf-8")
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
@@ -2474,6 +2483,9 @@ def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
@@ -2625,3 +2637,42 @@ def test_un_rapport_inexploitable_sort_en_un_et_non_en_trois(
     assert not issubclass(RapportInexploitable, ValueError), (
         "si c'était une ValueError, elle serait absorbée par le handler d'échec de publication "
         "du chemin gate, et la cause nommée ici disparaîtrait")
+
+
+# --- N3 : le runner d'évals exige une racine installée, **avant** toute mesure --------------------
+
+def test_le_runner_refuse_un_data_dir_non_installe_avant_toute_mesure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """N3 : le runner n'avait **aucun préflight d'espace**.
+
+    Dans `run._main`, les seules occurrences d'`espace` étaient une construction pure — qui ne
+    vérifie rien — puis quatre usages **tous postérieurs** à `_executer_puis_fermer` : sur un
+    `--data-dir` non installé, la campagne entière était payée, puis le refus tombait et le rapport
+    était perdu. `docs/evals/harness.md` affirmait pourtant, mot pour mot, que « le run refuse avant
+    toute mesure ». Il le fait maintenant, et aucun pipeline n'est appelé.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    appels: list[str] = []
+
+    class PipelineSentinelle:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            appels.append("appel")
+            raise AssertionError("aucune mesure ne doit avoir lieu sans racine installée")
+
+    _COURANT["guide"] = PipelineSentinelle()
+    _COURANT["sinistre"] = PipelineSentinelle()
+
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+
+    assert code == 2, "un refus d'avant appel est un code 2, comme les autres"
+    erreur = capsys.readouterr().err
+    assert "espace de publication" in erreur and "rien n'a été mesuré" in erreur
+    assert appels == []
+    assert not (tmp_path / "eval-results.json").exists()
+    assert not (tmp_path / "eval-results.md").exists()

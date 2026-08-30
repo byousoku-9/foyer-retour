@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+
+from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
 from server.app.domain import Block, BlockRef, Document, Node
@@ -154,6 +156,20 @@ def data(tmp_path: Path) -> Path:
     return d
 
 
+def _poser_la_disposition(tmp_path: Path, *doc_dirs: Path) -> None:
+    """La disposition du `data-dir` d'un test, posée comme un opérateur la pose (story 4.5, N3).
+
+    Un entrypoint de production — ici `pdf_to_blocks.main` — exige une racine **installée** et
+    refuse avant toute extraction sinon : un `data-dir` custom non installé n'offre aucune opération
+    tout-ou-rien. Les tests qui appellent `run()` directement exercent la primitive interne et n'ont
+    donc rien à poser.
+    """
+    cibles = [dossier.relative_to(tmp_path) / nom
+              for dossier in doc_dirs
+              for nom in ("document.json", "summary.md", "report.json")]
+    poser_espace(tmp_path, cibles=cibles)
+
+
 def _run(d: Path):
     source_url = d / "source.url"
     if not source_url.exists():
@@ -229,6 +245,7 @@ def test_page_with_image_but_no_text_is_blocking(tmp_path: Path) -> None:
     d.mkdir(parents=True)
     build_pdf(d / "source.pdf", pages=nominal_pages(), image_page=True)
     (d / "source.url").write_text("https://example.test/contrat.pdf\n", "utf-8")
+    _poser_la_disposition(tmp_path, d)
     assert p.main([DOC, "--data", str(d.parent), "--title", "Contrat synthétique",
                    "--edition", "test 2026"]) == 1
     report = json.loads((d / "report.json").read_text("utf-8"))
@@ -1195,6 +1212,7 @@ def test_reference_hash_is_mandatory_and_checked_before_extraction(tmp_path: Pat
     build_pdf(d / "source.pdf", pages=nominal_pages(), sha=False)
     if content is not None:
         (d / "source.sha256").write_text(content, "utf-8")
+    _poser_la_disposition(tmp_path, d)
     assert p.main([DOC, "--data", str(d.parent), "--title", "Contrat synthétique",
                    "--edition", "test 2026"]) == 1
     report = json.loads((d / "report.json").read_text("utf-8"))
@@ -1206,6 +1224,7 @@ def test_reference_hash_is_mandatory_and_checked_before_extraction(tmp_path: Pat
 def test_main_with_unknown_doc_dir_is_blocking(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "inconnu").mkdir()
+    _poser_la_disposition(tmp_path, tmp_path / "data" / "inconnu")
     assert p.main(["inconnu", "--data", str(tmp_path / "data")]) == 1
 
 
@@ -1221,6 +1240,7 @@ def _generic_source(tmp_path: Path, doc_id: str = DOC) -> Path:
 def test_generic_contract_accepts_valid_source_url(tmp_path: Path, url: str) -> None:
     data_dir = _generic_source(tmp_path)
     (data_dir / "source.url").write_text(url + "\n", "utf-8")
+    _poser_la_disposition(tmp_path, data_dir)
     assert p.main([DOC, "--data", str(data_dir.parent), "--title", "Contrat générique",
                    "--edition", "édition 2026"]) == 0
     entry = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))[DOC]
@@ -1253,6 +1273,7 @@ def test_generic_cli_rejects_doc_id_outside_repository_slug_before_path_resoluti
 def test_generic_cli_requires_edition_and_non_blank_title(tmp_path: Path) -> None:
     data_dir = _generic_source(tmp_path)
     (data_dir / "source.url").write_text("https://example.test/contrat.pdf\n", "utf-8")
+    _poser_la_disposition(tmp_path, data_dir)
     assert p.main([DOC, "--data", str(data_dir.parent), "--title", "Contrat générique"]) == 1
     entry = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))[DOC]
     assert entry["edition"] == "" and entry["edition"] != p.DEFAULT_EDITION
@@ -1266,6 +1287,7 @@ def test_generic_cli_requires_edition_and_non_blank_title(tmp_path: Path) -> Non
 def test_axa_compatibility_cli_keeps_defaults_and_allows_missing_source_url(tmp_path: Path) -> None:
     data_dir = _generic_source(tmp_path, p.DOC_ID)
     assert not (data_dir / "source.url").exists()
+    _poser_la_disposition(tmp_path, data_dir)
     assert p.main([p.DOC_ID, "--data", str(data_dir.parent)]) == 0
     document = Document.model_validate_json((data_dir / "document.json").read_bytes())
     assert document.edition == p.DEFAULT_EDITION and document.title == p.TITLE and document.source_url is None
@@ -1443,3 +1465,47 @@ def test_fingerprint_depends_on_rules_and_thresholds(
         assert p.ingest_fingerprint() != before
     finally:
         p.get_settings.cache_clear()
+
+
+# --- N3 / N1 : la racine, le refus avant tout travail, et le lien pendant qui est une absence -----
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_toute_extraction(
+        data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """N3 : aucun entrypoint de production n'atteint le repli rootless.
+
+    Le refus tombe **avant** l'extraction du PDF, et aucune cible n'est écrite. Le lot d'une
+    ingestion PDF n'est jamais mixte au sens du contrôle d'avant : quand *aucune* cible n'est
+    couverte, `_espace_du_lot` rendait `None` sans lever et l'écriture partait sans atome.
+    """
+    assert p.main([DOC, "--data", str(data.parent), "--title", "Contrat synthétique",
+                   "--edition", "test 2026"]) == 2
+    erreur = capsys.readouterr().err
+    assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
+    assert not (data / "document.json").exists() and not (data / "report.json").exists()
+    assert not (data.parent / "manifest.json").exists()
+
+
+def test_un_structure_json_non_publie_est_une_absence_pas_un_refus(
+        data: Path, tmp_path: Path) -> None:
+    """Le défaut d'interaction que la disposition crée, et que ce tour ferme.
+
+    Sous une racine, tout artefact jamais publié est un **lien pendant** — c'est la forme même de
+    l'absence, et c'est l'état réel des `structure.json` du dépôt. `presente()` employait
+    `os.path.lexists`, qui voit l'entrée de répertoire : le lien pendant passait pour « présent »,
+    `charger()` rendait `proposition_illisible`, le check devenait bloquant, et la prochaine
+    réingestion PDF mettait les documents servis **en quarantaine** — du seul fait de la
+    disposition. Hors racine, la règle d'AD-16 est inchangée : un lien pendant ordinaire reste
+    « présent mais illisible » (`test_charger_refuse_tout_artefact_non_regulier…` le prouve).
+    """
+    _poser_la_disposition(tmp_path, data)
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(tmp_path, tmp_path / "data").installer(
+        [Path("data") / DOC / "structure.json"])
+    structure = data / "structure.json"
+    assert structure.is_symlink() and not structure.exists(), "le slot n'est pas publié"
+
+    report, entry = p.run(data, edition="test 2026", doc_id=DOC, title="Contrat synthétique")
+
+    assert not report.blocking, [c.name for c in report.blocking]
+    assert entry.status == "servi" and entry.structure_hash is None

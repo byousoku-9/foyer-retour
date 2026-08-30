@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
 from server.app.config import Settings
@@ -913,6 +915,12 @@ def test_run_et_cli_restent_batch_par_defaut_et_standard_est_explicite(tmp_path:
     assert result is not None and result.transport == "batch" and len(batches.created) == 2
 
     standard_dir, _doc = write_data(tmp_path / "standard")
+    # Story 4.5, N3 : la CLI de typage est un entrypoint de production ; elle exige une racine
+    # **installée** et refuse avant toute soumission sinon. La disposition se pose ici, comme un
+    # opérateur la pose. `tc.run`, appelé directement plus haut, exerce la primitive interne.
+    poser_espace(tmp_path / "standard",
+                 cibles=[Path("data/contrat/document.json"), Path("data/contrat/report.json"),
+                         Path("data/contrat/typing.manual.json")])
     standard_batches = FakeBatches(kinds)
     standard_client = FakeStandardClient(standard_batches, kinds)
     code = tc.main(
