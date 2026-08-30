@@ -76,6 +76,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
+from server.app.corpus.racine import Lecture, lecture_pincee  # noqa: E402 — idem
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
 from server.app.domain.document import BlockKind  # noqa: E402 — idem
 from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
@@ -155,12 +156,24 @@ class Attendus:
 
 
 def charger_attendus(*, racine: Path | None = None) -> Attendus:
-    """Lit `data/manifest.json` et les deux cas témoins — les seules sources d'attentes du dépôt."""
+    """Lit `data/manifest.json` et les deux cas témoins — les seules sources d'attentes du dépôt.
+
+    **Une seule génération pour toute la lecture** (story 4.5, N1). L'attendu qui autorise une
+    promotion de trafic était composé de trois résolutions indépendantes du pointeur — le manifest,
+    puis `data/dictionary.json` lu deux fois — et une bascule tombant entre elles produisait un
+    attendu mi-ancien mi-neuf. Le repère est donc pincé une fois, ici, et toute la lecture passe par
+    lui.
+    """
     racine = racine or REPO_ROOT
+    with lecture_pincee(racine / "data") as lecture:
+        return _attendus_pinces(racine, lecture)
+
+
+def _attendus_pinces(racine: Path, lecture: Lecture) -> Attendus:
     reglages = Settings(_env_file=None)
     fichier = racine / "data" / "manifest.json"
     try:
-        manifest = json.loads(fichier.read_text("utf-8"))
+        manifest = json.loads(lecture.reel(fichier).read_text("utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise ErreurTransport(f"{fichier} illisible : {e}") from e
     if not isinstance(manifest, dict):
@@ -230,13 +243,14 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
         gate_profile=gate_profile,
         gate_cases=gate_cases,
         source_hash=hashes,
-        dictionnaire_validated=_dictionnaire_validated(racine),
-        dictionnaire_corpus_ok=_dictionnaire_corpus_ok(racine, manifest, reglages.guide_doc_id),
+        dictionnaire_validated=_dictionnaire_validated(racine, lecture),
+        dictionnaire_corpus_ok=_dictionnaire_corpus_ok(racine, manifest, reglages.guide_doc_id,
+                                                       lecture),
         cas_guide=_lire_cas(cases / "guide", reglages.guide_doc_id, suite_sinistre=False),
         cas_sinistre=_lire_cas(cases / "sinistre", reglages.sinistre_doc_id, suite_sinistre=True))
 
 
-def _dictionnaire_du_depot(racine: Path) -> DictionaryFile | None:
+def _dictionnaire_du_depot(racine: Path, lecture: Lecture | None = None) -> DictionaryFile | None:
     """`data/dictionary.json` de **ce commit**, lu par la règle du serveur — ou `None`.
 
     **La règle, et non une approximation** (revue coordonnée 2.1). Cette fonction se réduisait à
@@ -253,20 +267,22 @@ def _dictionnaire_du_depot(racine: Path) -> DictionaryFile | None:
     tant que l'ingestion n'a pas tourné, et c'est un état que le dépôt assume (le refus « zéro hit »
     dort, `/sante` le dit).
     """
-    fichier = racine / "data" / DICTIONARY_FILE
+    chemin = racine / "data" / DICTIONARY_FILE
+    fichier = chemin if lecture is None else lecture.reel(chemin)
     try:
         return DictionaryFile.model_validate_json(fichier.read_bytes())
     except (OSError, UnicodeDecodeError, ValueError):
         return None
 
 
-def _dictionnaire_validated(racine: Path) -> bool:
+def _dictionnaire_validated(racine: Path, lecture: Lecture | None = None) -> bool:
     """Le dictionnaire de ce commit porte-t-il une validation humaine ? (AD-5, story 2.1)"""
-    fichier = _dictionnaire_du_depot(racine)
+    fichier = _dictionnaire_du_depot(racine, lecture)
     return fichier is not None and fichier.validated
 
 
-def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any], doc_id: str) -> bool:
+def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any], doc_id: str,
+                            lecture: Lecture | None = None) -> bool:
     """Les `corpus_source_hashes` du dictionnaire committé décrivent-elles le corpus de ce commit ?
 
     **Ce que ce contrôle attrape, et que rien d'autre ne voyait** (revue coordonnée 2.1) : une image
@@ -283,7 +299,7 @@ def _dictionnaire_corpus_ok(racine: Path, manifest: dict[str, Any], doc_id: str)
     du corpus passait ici et côté serveur, et le smoke aurait promu une révision où les variantes du
     guide viennent d'ailleurs.
     """
-    fichier = _dictionnaire_du_depot(racine)
+    fichier = _dictionnaire_du_depot(racine, lecture)
     if fichier is None or doc_id not in fichier.corpus_source_hashes:
         return False
     for declare, empreinte in fichier.corpus_source_hashes.items():

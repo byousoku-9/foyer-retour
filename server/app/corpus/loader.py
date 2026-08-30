@@ -15,6 +15,7 @@ from typing import get_args
 
 from server.app.domain import BlockKind, Document, GateContext, Manifest, ManifestEntry, Report
 
+from .racine import Lecture, lecture_de
 from .text import normalize
 
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
@@ -62,8 +63,17 @@ class Corpus:
         return sorted(self.documents)
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _sha256(octets: bytes) -> str:
+    """L'empreinte des **octets qu'on a lus**, jamais d'une seconde ouverture du même chemin.
+
+    Story 4.5, tour de la racine vraiment unique (N1). Cette fonction prenait un `Path` et rouvrait
+    le fichier : `document.json` était donc **haché** par un `open()` puis **parsé** par un autre,
+    et `typing.manual.json` de même. Sous une racine de publication, une bascule tombant entre les
+    deux fait porter le contrôle d'empreinte sur des octets que personne n'utilise — le contrôle qui
+    existe *pour* interdire le mélange ne le voyait pas. Les octets hachés sont désormais, par
+    construction, les octets parsés : une seule lecture, un seul tampon.
+    """
+    return hashlib.sha256(octets).hexdigest()
 
 
 def _first_error(exc: ValueError) -> str:
@@ -227,7 +237,7 @@ def _raison_entree_invalide(brut: object, exc: ValueError) -> str:
     return f"entrée de manifest invalide : {_first_error(exc)}"
 
 
-def _bloquant_statique(doc_dir: Path) -> str:
+def _bloquant_statique(doc_dir: Path, lecture: Lecture) -> str:
     """Le défaut statique de `report.json`, ou "" lorsqu'il est absent ou valide sans bloquant.
 
     AD-8 énonce la règle du **service** : « un document est `servi` ssi aucun bloquant statique **et**
@@ -247,10 +257,10 @@ def _bloquant_statique(doc_dir: Path) -> str:
     peuvent donc lui être appliqués. La couche API le refuse et publie `rapport_etranger`.
     """
     chemin = doc_dir / REPORT_FILE
-    if not chemin.is_file():
+    if not lecture.fichier(chemin):
         return ""
     try:
-        rapport = Report.model_validate_json(chemin.read_bytes())
+        rapport = Report.model_validate_json(lecture.reel(chemin).read_bytes())
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return f"rapport_statique_illisible : {_read_error(exc)}"
     if rapport.doc_id != doc_dir.name:
@@ -362,39 +372,50 @@ def perimetre(doc: Document, max_chars: int = PERIMETRE_MAX_CHARS) -> str:
 
 
 def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated: bool,
-              current: GateContext | None,
+              current: GateContext | None, lecture: Lecture,
               raison_max_chars: int = 500) -> tuple[Document | None, str, list[str]]:
-    """Renvoie (document | None, raison de quarantaine, alertes). Aucune exception ne sort : tout devient une raison."""
+    """Renvoie (document | None, raison de quarantaine, alertes). Aucune exception ne sort : tout devient une raison.
+
+    Toutes les lectures passent par `lecture`, le **repère pincé** de la passe (N1) : le manifest
+    dont vient `entry` et les artefacts qu'on lui oppose viennent de la même génération, et chaque
+    artefact n'est ouvert **qu'une fois** — l'empreinte porte sur les octets qui sont ensuite parsés.
+    """
     if entry.status == "quarantaine":
         return None, "quarantaine (manifest)", []
     if doc_dir.name != doc_id:
         return None, f"dossier {doc_dir.name!r} différent du doc_id", []
     doc_path = doc_dir / "document.json"
-    if not doc_path.is_file():
+    if not lecture.fichier(doc_path):
         return None, "document.json absent", []
     try:
-        if _sha256(doc_path) != entry.document_hash:
+        doc_octets = lecture.reel(doc_path).read_bytes()
+        if _sha256(doc_octets) != entry.document_hash:
             return None, "document_hash différent du manifest", []
         source_found = False
         for name in SOURCE_FILES:
             src = doc_dir / name
-            if src.is_file():
+            if lecture.fichier(src):
                 source_found = True
-                if _sha256(src) != entry.source_hash:
+                if _sha256(lecture.reel(src).read_bytes()) != entry.source_hash:
                     return None, f"source_hash différent du manifest ({name})", []
                 break
-        raw_doc = json.loads(doc_path.read_bytes())
+        raw_doc = json.loads(doc_octets)
         overlay_path = doc_dir / OVERLAY_FILE
+        overlay_present = lecture.fichier(overlay_path)
         # L'overlay est couvert par le manifest (`overlay_hash`) comme `document.json` l'est par `document_hash`.
-        if overlay_path.is_file() != (entry.overlay_hash is not None):
+        if overlay_present != (entry.overlay_hash is not None):
             return None, ("overlay : typing.manual.json présent mais non déclaré dans le manifest (relancer l'ingestion)"
-                          if overlay_path.is_file() else "overlay : déclaré dans le manifest mais absent"), []
-        if overlay_path.is_file():
-            if _sha256(overlay_path) != entry.overlay_hash:
+                          if overlay_present else "overlay : déclaré dans le manifest mais absent"), []
+        if overlay_present:
+            try:
+                overlay_octets = lecture.reel(overlay_path).read_bytes()
+            except (OSError, UnicodeDecodeError) as exc:
+                return None, f"overlay illisible : {_read_error(exc)}"[:raison_max_chars], []
+            if _sha256(overlay_octets) != entry.overlay_hash:
                 return None, "overlay_hash différent du manifest (relancer l'ingestion)", []
             try:
-                overlay = json.loads(overlay_path.read_bytes())
-            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                overlay = json.loads(overlay_octets)
+            except (UnicodeDecodeError, ValueError) as exc:
                 return None, f"overlay illisible : {_read_error(exc)}"[:raison_max_chars], []
             reason = _apply_overlay(raw_doc, overlay) if isinstance(raw_doc, dict) else ""
             if reason:
@@ -404,12 +425,14 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
         # fichier remplacé sans réingestion changerait ce que les questions-témoins ont validé, sans
         # qu'une seule empreinte du manifest ne bouge.
         structure_path = doc_dir / STRUCTURE_FILE
-        if structure_path.is_file() != (entry.structure_hash is not None):
+        structure_presente = lecture.fichier(structure_path)
+        if structure_presente != (entry.structure_hash is not None):
             return None, ("structure : structure.json présent mais non déclaré dans le manifest "
                           "(relancer l'ingestion)"
-                          if structure_path.is_file()
+                          if structure_presente
                           else "structure : déclarée dans le manifest mais absente"), []
-        if structure_path.is_file() and _sha256(structure_path) != entry.structure_hash:
+        if structure_presente and _sha256(
+                lecture.reel(structure_path).read_bytes()) != entry.structure_hash:
             return None, "structure_hash différent du manifest (relancer l'ingestion)", []
         doc = Document.model_validate(raw_doc)
     except ValueError as exc:  # ValidationError et JSONDecodeError en héritent
@@ -429,12 +452,12 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
         return None, "ingest_fingerprint du document différent du manifest", []
     if doc.edition != entry.edition:
         return None, f"edition {doc.edition!r} différente du manifest ({entry.edition!r})", []
-    if not (doc_dir / "summary.md").is_file():
+    if not lecture.fichier(doc_dir / "summary.md"):
         return None, "sommaire_absent", []
     # AD-8, avant le gate et **avant** toute dérogation : `ALLOW_UNGATED` déroge à l'absence de
     # questions-témoins (AD-7 la nomme « dev / J+1 avant le premier gate »), jamais à un contrat
     # illisible. Un bloquant statique met ce seul document en quarantaine, quel que soit l'environnement.
-    bloquants = _bloquant_statique(doc_dir)
+    bloquants = _bloquant_statique(doc_dir, lecture)
     if bloquants:
         return None, f"bloquant_statique : {bloquants}", []
     reason, alerts = _gate_alerts(entry, current, allow_ungated=allow_ungated)
@@ -449,19 +472,31 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
 
 def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateContext | None = None,
                 perimetre_max_chars: int = PERIMETRE_MAX_CHARS,
-                raison_max_chars: int = 500) -> Corpus:
+                raison_max_chars: int = 500, lecture: Lecture | None = None) -> Corpus:
     """Charge chaque document du manifest ; une incohérence met ce seul document en quarantaine (AD-7).
 
     `current` décrit l'image en cours (digests, modèles) ; sans lui, la péremption du gate n'est pas évaluée.
     `perimetre_max_chars` borne la projection des titres rendue à *comprendre* (story 2.1) ; son
     défaut est celui de `config.Settings`, que `corpus` ne peut pas importer.
+
+    `lecture` est le **repère pincé** de l'opération de lecture qui englobe ce chargement (N1, story
+    4.5) : une passe qui charge le corpus *puis* les dictionnaires, les rapports et la publication
+    d'évals doit lire toutes ses surfaces couvertes dans **une seule** génération. Sans lui, le
+    chargement pince la sienne, le temps de sa propre passe. Il n'existe pas de paramètre qui
+    rétablisse une résolution vivante : ou il y a un espace installé, et tout passe par lui, ou il
+    n'y en a pas, et il n'y a rien à mêler.
     """
     data_dir = Path(data_dir)
+    if lecture is None:
+        with lecture_de(data_dir) as pincee:
+            return load_corpus(data_dir, allow_ungated=allow_ungated, current=current,
+                               perimetre_max_chars=perimetre_max_chars,
+                               raison_max_chars=raison_max_chars, lecture=pincee)
     manifest_path = data_dir / "manifest.json"
-    if not manifest_path.is_file():
+    if not lecture.fichier(manifest_path):
         return Corpus()
     try:
-        raw = json.loads(manifest_path.read_bytes())
+        raw = json.loads(lecture.reel(manifest_path).read_bytes())
         if not isinstance(raw, dict):
             raise ValueError("un objet JSON {doc_id: entrée} est attendu")
     except (OSError, UnicodeDecodeError, ValueError) as exc:
@@ -485,12 +520,12 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             continue
         doc, reason, alerts = _load_one(
             doc_dir, doc_id, entry, allow_ungated=allow_ungated, current=current,
-            raison_max_chars=raison_max_chars)
+            lecture=lecture, raison_max_chars=raison_max_chars)
         if doc is None:
             corpus.quarantine[doc_id] = reason
             continue
         try:
-            summary = (data_dir / doc_id / "summary.md").read_text("utf-8")
+            summary = lecture.reel(data_dir / doc_id / "summary.md").read_text("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             LOG.warning("summary.md illisible pour %r : %r", doc_id, exc)
             corpus.quarantine[doc_id] = f"summary.md illisible : {type(exc).__name__}"

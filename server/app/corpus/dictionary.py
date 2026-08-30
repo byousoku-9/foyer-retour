@@ -49,6 +49,7 @@ from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile
 
 from .index import words
 from .loader import Corpus, _first_error
+from .racine import Lecture, lecture_de
 from .text import normalize
 
 
@@ -271,14 +272,22 @@ def _corpus_ok(hashes: dict[str, str], corpus: Corpus, doc_id: str) -> tuple[boo
     return True, ""
 
 
-def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictionnaire:
+def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str, *,
+                    lecture: Lecture | None = None) -> Dictionnaire:
     """Dictionnaire du document → `Dictionnaire`. Absent ou invalide ⇒ inerte, jamais d'exception.
 
     `doc_id` est le document auquel ce dictionnaire sera **appliqué** (`settings.guide_doc_id` pour
     le serveur) : il est exigé parmi les `corpus_source_hashes` et porté par l'objet, de sorte que
     `utilisable_pour` / `court_circuit_pour` refusent tout autre document (revue Codex 2.1, B3).
     Le paramètre est obligatoire, et c'est le point : un appelant qui l'oublierait rouvrirait le trou.
+
+    `lecture` est le **repère pincé** de l'opération de lecture qui englobe cet appel (N1, story
+    4.5) : le dictionnaire servi et le corpus auquel il est opposé viennent alors de la même
+    génération. Sans lui, un repère est pincé pour la durée de cet appel seul.
     """
+    if lecture is None:
+        with lecture_de(Path(data_dir)) as pincee:
+            return load_dictionary(data_dir, corpus, doc_id, lecture=pincee)
     racine = Path(data_dir)
     document = corpus.documents.get(doc_id)
     # Le guide conserve le chemin historique public. Chaque contrat possède sa donnée lexicale :
@@ -286,12 +295,12 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictio
     chemin = (racine / DICTIONARY_FILE
               if document is None or document.kind == "guide"
               else racine / doc_id / DICTIONARY_FILE)
-    if not chemin.is_file():
+    if not lecture.fichier(chemin):
         return Dictionnaire(doc_id=doc_id,
                             raison=f"{DICTIONARY_FILE} absent : lancer "
                                    "`python -m server.ingest.enrich_dictionary`")
     try:
-        brut = json.loads(chemin.read_bytes())
+        brut = json.loads(lecture.reel(chemin).read_bytes())
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return Dictionnaire(doc_id=doc_id,
                             raison=f"{DICTIONARY_FILE} illisible : {_first_error(exc)}"[:500])

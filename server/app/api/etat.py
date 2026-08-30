@@ -32,6 +32,7 @@ from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
 from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
+from server.app.corpus.racine import Lecture, relire
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
@@ -537,10 +538,18 @@ def _rapport_publiable(rapport: Report, *, raison_max_chars: int) -> Report:
     return Report(doc_id=rapport.doc_id, checks=checks, stats=stats)
 
 
-def _artefact_audit(data_dir: Path, doc_id: str, nom: str) -> Path | None:
-    """Résout un artefact sans jamais suivre un lien hors de ``data_dir``."""
+def _artefact_audit(data_dir: Path, doc_id: str, nom: str,
+                    lecture: Lecture | None = None) -> Path | None:
+    """Résout un artefact sans jamais suivre un lien hors de ``data_dir``.
+
+    La résolution part du **repère pincé** (N1, story 4.5) : sous une racine de publication, le
+    chemin réellement lu est le slot de la génération que la passe a pincée, jamais celui que le
+    pointeur désigne au moment de cet appel. Le garde-fou est inchangé — ce qui sort de ``data_dir``
+    n'est pas publié —, et l'espace vit sous ``data_dir``, donc un slot y reste.
+    """
     racine = data_dir.resolve()
-    chemin = data_dir / doc_id / nom
+    brut = data_dir / doc_id / nom
+    chemin = brut if lecture is None else lecture.reel(brut)
     try:
         resolu = chemin.resolve(strict=True)
     except OSError:
@@ -548,7 +557,7 @@ def _artefact_audit(data_dir: Path, doc_id: str, nom: str) -> Path | None:
     return resolu if resolu.is_relative_to(racine) and resolu.is_file() else None
 
 
-def _rapports(data_dir: Path, doc_ids: list[str], *,
+def _rapports(data_dir: Path, doc_ids: list[str], lecture: Lecture | None = None, *,
               raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> tuple[dict[str, Report], list[Alerte]]:
     """Les rapports d'ingestion des documents connus, lus au démarrage (AD-7/AD-8).
 
@@ -566,7 +575,7 @@ def _rapports(data_dir: Path, doc_ids: list[str], *,
     rapports: dict[str, Report] = {}
     alertes: list[Alerte] = []
     for doc_id in doc_ids:
-        chemin = _artefact_audit(data_dir, doc_id, RAPPORT)
+        chemin = _artefact_audit(data_dir, doc_id, RAPPORT, lecture)
         if chemin is None:
             continue
         try:
@@ -617,7 +626,7 @@ def _doc_ids_audit(corpus: Corpus) -> list[str]:
     return sorted(doc_id for doc_id in connus if doc_id_auditable(doc_id))
 
 
-def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
+def _sources(data_dir: Path, doc_ids: list[str], lecture: Lecture | None = None) -> dict[str, str]:
     """L'URL publique de chaque document auditable, lue **au démarrage** (AD-7).
 
     Pourquoi ici et pas dans `Document.source_url` : AD-7 fait de `data/{doc_id}/source.url` le
@@ -633,7 +642,7 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     """
     urls: dict[str, str] = {}
     for doc_id in doc_ids:
-        chemin = _artefact_audit(data_dir, doc_id, SOURCE_URL)
+        chemin = _artefact_audit(data_dir, doc_id, SOURCE_URL, lecture)
         if chemin is None:
             continue
         try:
@@ -646,7 +655,8 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     return urls
 
 
-def _publication_evals(data_dir: Path, nom: str) -> EtatPublication:
+def _publication_evals(data_dir: Path, nom: str,
+                       lecture: Lecture | None = None) -> EtatPublication:
     """L'artefact des résultats d'évals, lu **une fois au démarrage** — ou un état typé « aucun ».
 
     Trois façons de ne pas avoir de run publié, et les trois se disent (AD-16) :
@@ -669,6 +679,8 @@ def _publication_evals(data_dir: Path, nom: str) -> EtatPublication:
     import json
 
     chemin = data_dir / nom
+    if lecture is not None:
+        chemin = lecture.reel(chemin)
     if not chemin.is_file():
         return EtatPublication(publie=False, raison="absent")
     try:
@@ -717,6 +729,60 @@ def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
     return sources
 
 
+@dataclass(frozen=True)
+class SurfacesLues:
+    """Tout ce que le démarrage lit dans `data/` — **d'une seule génération** (story 4.5, N1).
+
+    Le regroupement n'est pas cosmétique : c'est ce qui rend la passe rejouable telle quelle sur un
+    repère neuf quand la génération pincée a été reconstruite sous elle. Rien de coûteux et de non
+    lu n'y entre (ni client, ni renderer, ni index) — les rejouer serait payer deux fois ce qui ne
+    dépend pas du disque.
+    """
+
+    corpus: Corpus
+    dictionnaire: Dictionnaire
+    dictionnaires: dict[str, Dictionnaire]
+    doc_ids_audit: list[str]
+    rapports: dict[str, Report]
+    alertes_rapports: list[Alerte]
+    sources: dict[str, str]
+    pdf_sources: dict[str, VerifiedSource]
+    publication: EtatPublication
+
+
+def _lire_les_surfaces(data_dir: Path, settings: Settings, contexte: GateContext,
+                       lecture: Lecture) -> SurfacesLues:
+    """La passe de lecture du démarrage, jouée **entièrement** à travers un repère unique.
+
+    Dette D1 refermée (story 4.5) : la disjonction d'AD-7 a **trois** termes, et c'est
+    `Settings.deroger_au_gate` qui les combine — `ALLOW_UNGATED` **ou** `ENV=dev`. En `prod`, les
+    deux sont faux et la fermeture de l'AC 1.10 est intacte.
+    """
+    corpus = load_corpus(data_dir, allow_ungated=settings.deroger_au_gate, current=contexte,
+                         perimetre_max_chars=settings.perimetre_max_chars,
+                         raison_max_chars=settings.raison_publiable_max_chars, lecture=lecture)
+    # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
+    # `corpus_ok` exige l'empreinte de **ce** document, pas celle d'un document quelconque du corpus.
+    dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id, lecture=lecture)
+    dictionnaires = {
+        doc_id: load_dictionary(data_dir, corpus, doc_id, lecture=lecture)
+        for doc_id, document in corpus.documents.items()
+        if document.kind == "contrat"
+    }
+    # Les quarantaines sont connues du loader mais ne sont jamais dans ``documents``. Leurs seuls
+    # artefacts d'audit (rapport et URL publique filtrée) peuvent néanmoins être lus ici, une fois.
+    doc_ids_audit = _doc_ids_audit(corpus)
+    rapports, alertes_rapports = _rapports(
+        data_dir, doc_ids_audit, lecture,
+        raison_max_chars=settings.raison_publiable_max_chars)
+    return SurfacesLues(
+        corpus=corpus, dictionnaire=dictionnaire, dictionnaires=dictionnaires,
+        doc_ids_audit=doc_ids_audit, rapports=rapports, alertes_rapports=alertes_rapports,
+        sources=_sources(data_dir, doc_ids_audit, lecture),
+        pdf_sources=_pdf_sources(data_dir, corpus),
+        publication=_publication_evals(data_dir, settings.evals_publication_file, lecture))
+
+
 def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
     """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
     data_dir = DATA_DIR if data_dir is None else data_dir
@@ -732,26 +798,23 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # Dette D1 refermée (story 4.5) : la disjonction d'AD-7 a **trois** termes, et c'est
     # `Settings.deroger_au_gate` qui les combine — `ALLOW_UNGATED` **ou** `ENV=dev`. En `prod`, les
     # deux sont faux et la fermeture de l'AC 1.10 est intacte.
-    corpus = load_corpus(data_dir, allow_ungated=settings.deroger_au_gate, current=contexte,
-                         perimetre_max_chars=settings.perimetre_max_chars,
-                         raison_max_chars=settings.raison_publiable_max_chars)
-    # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
-    # `corpus_ok` exige l'empreinte de **ce** document, pas celle d'un document quelconque du corpus.
-    dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
-    dictionnaires = {
-        doc_id: load_dictionary(data_dir, corpus, doc_id)
-        for doc_id, document in corpus.documents.items()
-        if document.kind == "contrat"
-    }
-    # Les quarantaines sont connues du loader mais ne sont jamais dans ``documents``. Leurs seuls
-    # artefacts d'audit (rapport et URL publique filtrée) peuvent néanmoins être lus ici, une fois.
-    doc_ids_audit = _doc_ids_audit(corpus)
-    rapports, alertes_rapports = _rapports(
-        data_dir, doc_ids_audit,
-        raison_max_chars=settings.raison_publiable_max_chars)
+    # **Une seule génération pour toute la passe de démarrage** (story 4.5, N1). Le service résolvait
+    # une quarantaine de cibles couvertes — manifest, puis document, overlay, structure, sommaire,
+    # rapport, dictionnaires, publication d'évals — et relisait le pointeur à *chaque* appel
+    # système : une bascule tombant entre deux de ces résolutions rendait un état composé de deux
+    # générations, que le contrôle d'empreinte ne voyait pas puisqu'il portait sur des octets qu'un
+    # second `open()` avait pu remplacer. `relire` pince une génération, joue la passe entière à
+    # travers elle, et la rejoue si le repère a été périmé sous elle (deux bascules).
+    surfaces = relire(data_dir, lambda lecture: _lire_les_surfaces(
+        data_dir, settings, contexte, lecture))
+    corpus = surfaces.corpus
+    dictionnaire = surfaces.dictionnaire
+    dictionnaires = surfaces.dictionnaires
+    doc_ids_audit = surfaces.doc_ids_audit
+    rapports, alertes_rapports = surfaces.rapports, surfaces.alertes_rapports
     erreurs_rapports = _erreurs_rapports(doc_ids_audit, rapports, alertes_rapports)
-    sources = _sources(data_dir, doc_ids_audit)
-    pdf_sources = _pdf_sources(data_dir, corpus)
+    sources = surfaces.sources
+    pdf_sources = surfaces.pdf_sources
     page_renderer = PageRenderer(
         max_lines=settings.pdf_highlight_max_lines,
         max_blocks=settings.pdf_highlight_max_blocks,
@@ -784,7 +847,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         dictionnaires=dictionnaires,
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
-        publication_evals=_publication_evals(data_dir, settings.evals_publication_file),
+        publication_evals=surfaces.publication,
         alerts=_alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)
         + alertes_rapports + alertes_ungated
         + _alertes_dictionnaire(
