@@ -155,6 +155,19 @@ class Attendus:
     cas_sinistre: CasTemoin
 
 
+def exiger_la_racine(racine: Path) -> None:
+    """Le smoke est un entrypoint de production : il refuse une disposition absente avant de lire.
+
+    Patch croisé 2/3, `N3-LECTURE-ROOTLESS`. Son attendu **autorise une promotion de trafic** : le
+    composer depuis une lecture rootless serait exactement le reader de production hors racine que
+    N3 interdit. Le repli rootless reste la primitive interne ; ce qui est fermé est qu'aucun
+    entrypoint ne l'atteigne.
+    """
+    from server.ingest.artifacts import exiger_espace_installe
+
+    exiger_espace_installe([racine / "data" / "manifest.json"])
+
+
 def charger_attendus(*, racine: Path | None = None) -> Attendus:
     """Lit `data/manifest.json` et les deux cas témoins — les seules sources d'attentes du dépôt.
 
@@ -864,6 +877,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parseur.parse_args(argv)
 
     base = args.base_url.rstrip("/")
+    # **Le refus de racine précède la lecture** (patch croisé 2/3, `N3-LECTURE-ROOTLESS`).
+    try:
+        exiger_la_racine(args.racine if args.racine is not None else REPO_ROOT)
+    except Exception as e:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"ÉCHEC · refus, rien n'a été lu : {e}", file=sys.stderr)
+        return 1
     try:
         attendus = charger_attendus(racine=args.racine)
     except ErreurTransport as e:

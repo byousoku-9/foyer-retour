@@ -32,7 +32,7 @@ from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
 from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
-from server.app.corpus.racine import Lecture, relire
+from server.app.corpus.racine import exiger_racine_installee, Lecture, relire
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
@@ -786,6 +786,12 @@ def _lire_les_surfaces(data_dir: Path, settings: Settings, contexte: GateContext
 def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
     """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
     data_dir = DATA_DIR if data_dir is None else data_dir
+    # **Le démarrage du service est un entrypoint de lecture de production** (patch croisé 2/3,
+    # `N3-LECTURE-ROOTLESS`) : il exige une racine installée avant de lire quoi que ce soit. Sans
+    # cela, un `data-dir` jamais installé se lisait rootless et rendait un corpus **vide sans
+    # refuser** — un service qui démarre en affirmant ne rien avoir à servir, au lieu de dire qu'il
+    # ne sait pas lire son espace.
+    exiger_racine_installee(data_dir)
     digest_pipeline = pipeline_digest()
     digest_prompts = prompts_digest()
     # `GateContext` décrit l'image en cours : sans lui, le loader ne peut pas voir qu'un gate a été

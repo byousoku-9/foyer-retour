@@ -364,6 +364,7 @@ def _main(argv: list[str] | None = None) -> int:
     from server.app.config import REPO_ROOT, Settings
     from server.app.corpus.index import Index
     from server.app.corpus.loader import load_corpus
+    from server.ingest.artifacts import exiger_espace_installe
 
     parser = argparse.ArgumentParser(
         prog="python -m server.evals.relecture",
@@ -383,6 +384,16 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"refus : rapport illisible ({type(exc).__name__}: {exc})", file=sys.stderr)
         return 2
     reglages = Settings()
+    # **Un entrypoint de lecture de production exige une racine installée** (patch croisé 2/3,
+    # `N3-LECTURE-ROOTLESS`), et il le dit **avant** de lire : le repli rootless reste une primitive
+    # interne, symétrique de `_publier_sans_racine`, et ce qui ferme N3 est qu'aucun entrypoint ne
+    # l'atteigne. Le manifest suffit à trancher — c'est la première cible couverte que toute
+    # opération sur ce `data-dir` touche.
+    try:
+        exiger_espace_installe([Path(args.data_dir) / "manifest.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus, rien n'a été lu : {exc}", file=sys.stderr)
+        return 2
     corpus = load_corpus(args.data_dir, allow_ungated=True,
                          perimetre_max_chars=reglages.perimetre_max_chars,
                          raison_max_chars=reglages.raison_publiable_max_chars)

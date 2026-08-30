@@ -535,8 +535,16 @@ class EspacePublie(RacinePubliee):
         if sorti:
             try:
                 transaction.marque.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                # **Avant commit, une impossibilité de nettoyage se dit** (patch croisé 2/3,
+                # `N2-NETTOYAGE-MUET`). L'abandon a réussi — le brouillon est sorti, il est visible
+                # sous son nom `.tmp` — donc rien n'est mêlé ; mais la marque qui reste désigne une
+                # génération qui n'est plus en construction. Ne pas propager ici est délibéré : on
+                # est dans un gestionnaire d'exception, et masquer la cause d'origine serait pire.
+                # On le **dit**, et la marque reste un résidu que `residus()` voit.
+                print(f"nettoyage impossible pendant l'abandon : {transaction.marque} subsiste "
+                      f"({type(exc).__name__}) — rien n'est publié, le brouillon est abandonné",
+                      file=sys.stderr)
         if poubelle is not None:
             shutil.rmtree(poubelle, ignore_errors=True)
 
@@ -573,8 +581,16 @@ class EspacePublie(RacinePubliee):
         """
         if not self.chemin.is_dir():
             return []
-        publiee = self._generation_publiee()
-        marque_du_publie = f".{publiee}.brouillon." if publiee is not None else None
+        # **La marque d'une génération publiée n'est plus filtrée** (patch croisé 2/3,
+        # `N2-NETTOYAGE-MUET`). Ce filtre existait pour un faux positif réel : une marque laissée
+        # par un processus disparu survivait à la reconstruction de sa génération et désignait à
+        # jamais la publication en cours comme un brouillon. Mais depuis que l'assainissement
+        # **pré-commit** est strict — il refuse plutôt que d'absorber —, aucune marque périmée ne
+        # peut plus survivre à une bascule saine : le faux positif est fermé à sa cause. Le filtre
+        # ne protégeait donc plus rien, et il ôtait la seule observabilité durable qui restait
+        # quand le retrait post-commit échoue. Une marque qui subsiste est désormais **toujours**
+        # un résidu.
+        marque_du_publie = None
         restes: set[str] = set()
         for chemin in self.chemin.rglob("*"):
             relatif = chemin.relative_to(self.chemin)

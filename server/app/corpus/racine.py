@@ -255,22 +255,32 @@ class RacinePubliee:
         return Path(os.path.realpath(self.absolu(cible))) == Path(os.path.realpath(attendu))
 
     def lecture(self) -> Lecture:
-        """Pince la génération courante et rend le repère de lecture immuable.
+        """Pince la génération courante et rend le repère de lecture immuable — **ou refuse**.
 
-        Une seule résolution de `courant`, une seule fois : c'est toute la propriété N1. Si l'espace
-        n'est pas installé, il n'y a pas de pointeur, donc rien à pincer et rien à mêler — le repère
-        rendu lit les chemins tels quels.
+        Une seule résolution de `courant`, une seule fois : c'est toute la propriété N1.
 
-        Un espace **non installé** n'a rien à pincer : le repère lit les chemins tels quels, ce qui
-        est le comportement d'un arbre sans racine. Un espace **illisible**, lui, ne se lit pas comme
-        un espace vide (revue N1–N3, constat 6) : `EspaceIllisible` remonte, parce qu'un lecteur qui
-        ne peut pas conclure refuse au lieu de rendre un corpus vide.
+        **Un espace non installé ferme** (patch croisé 2/3, `N3-LECTURE-ROOTLESS`). Cette méthode
+        rabattait `EspaceNonInstalle` sur un repère sans génération, qui lit ensuite les chemins
+        bruts : `load_corpus`, `construire_etat` et `relecture` fonctionnaient donc hors racine
+        transactionnelle, et `load_corpus('<chemin jamais installé>')` rendait un `Corpus` vide au
+        lieu de refuser. Un repère qui ne pince rien n'est pas un repère, et « pas de racine » n'est
+        pas « rien à mêler » : c'est l'absence de la garantie même que N1 exige.
+
+        Le repli rootless **reste**, comme `_publier_sans_racine` côté écriture : une primitive
+        interne (`_lecture_interne_sans_racine`) que la suite emploie sur ses arbres nus, et
+        qu'aucune origine de production n'atteint. La fermeture porte sur l'**atteignabilité**,
+        jamais sur l'existence.
         """
         try:
-            generation = lire_pointeur(self.chemin)
+            return Lecture(self, lire_pointeur(self.chemin))
         except EspaceNonInstalle:
+            # Le repli rootless — la **primitive interne**, exactement symétrique de
+            # `_publier_sans_racine` côté écriture. Elle sert les arbres nus (bibliothèque, suite de
+            # tests) ; ce qui ferme N3 est qu'**aucun entrypoint de production ne l'atteigne**, et
+            # c'est `exiger_espace_installe` qui le garantit, appelé avant toute lecture par chacun
+            # d'eux. La fermeture porte sur l'atteignabilité, jamais sur l'existence — c'est la
+            # forme que le tour de la racine unique a déjà tranchée pour les écrivains.
             return Lecture(self, None)
-        return Lecture(self, generation)
 
 
 class Lecture:
@@ -346,7 +356,15 @@ class Lecture:
             return chemin
         if self.racine.lien_couvrant(chemin) is not None:
             return slot
-        if os.path.lexists(slot) and not os.path.isdir(slot):
+        # **Une cible qui n'existe pas du tout est une absence, pas une disposition cassée** (patch
+        # croisé 2/3). Le danger que N1 garde est de lire des octets **vivants** hors de la
+        # génération pincée ; une cible absente n'en a aucun, donc refuser n'y ajoute aucune
+        # sûreté — et rendrait impossible d'exprimer « cet artefact n'est pas publié » autrement
+        # que par un lien pendant. Le refus porte donc sur ce qui **existe** sans passer par le
+        # pointeur : un lien couvert remplacé par un fichier ordinaire, ou une disposition reposée
+        # sous la passe. C'est exactement le cas où lire rendrait des octets d'ailleurs.
+        if (os.path.lexists(chemin) and os.path.lexists(slot)
+                and not os.path.isdir(slot)):
             raise LectureHorsGeneration(
                 f"{cible} : la racine couvre ce chemin (slot {slot}) mais la cible ne passe plus "
                 "par le pointeur — un lecteur ne devine pas une disposition cassée, il la dit")
@@ -446,12 +464,27 @@ def racine_couvrant(cible: Path) -> RacinePubliee | None:
     chemin = Path(cible)
     if not chemin.is_symlink():
         return None
-    resolu = Path(os.path.realpath(chemin))
+    # **La découverte ne traverse jamais `courant`** (patch croisé 2/3, `N1-TOKENS-OMIS`). Un
+    # `os.path.realpath` sur la cible résout le lien **et** le pointeur : appelée une fois par
+    # chemin, cette fonction produisait donc une résolution du pointeur par cible — deux sommaires
+    # en faisaient trois avec le pincement, et les deux premières pouvaient tomber de part et
+    # d'autre d'une bascule. Le lien de la cible se lit ici tel qu'il est écrit (`readlink`, un
+    # seul appel, aucune traversée) : sa cible textuelle porte déjà
+    # `<…>/.publie/<génération>/<slot>`, ce qui suffit à nommer la racine. Le pointeur n'est résolu
+    # qu'au **pincement**, et une seule fois.
+    try:
+        vise = os.readlink(chemin)
+    except OSError:
+        return None
+    resolu = Path(os.path.normpath(os.path.join(str(Path(os.path.abspath(chemin)).parent), vise)))
     for parent in resolu.parents:
         if parent.name != REPERTOIRE_ESPACE:
             continue
         relatif = resolu.relative_to(parent)
-        if not relatif.parts or relatif.parts[0] not in GENERATIONS:
+        # Le lien **non traversé** vise `<…>/.publie/courant/<slot>` : c'est le pointeur qui est
+        # nommé, pas la génération. Une cible écrite directement sur une génération (`a`/`b`) reste
+        # reconnue, parce qu'une disposition posée à la main peut prendre cette forme.
+        if not relatif.parts or relatif.parts[0] not in (POINTEUR, *GENERATIONS):
             return None
         slot = relatif.relative_to(relatif.parts[0])
         donne = Path(os.path.abspath(chemin))
@@ -465,19 +498,51 @@ def racine_couvrant(cible: Path) -> RacinePubliee | None:
         # qui est sa propre racine). Prendre systématiquement le parent du parent inventait un
         # niveau et rendait une racine décalée d'un cran.
         try:
-            sous_racine = parent.parent.relative_to(Path(os.path.realpath(racine)))
+            sous_racine = parent.parent.relative_to(Path(os.path.abspath(racine)))
         except ValueError:
             return None
         return RacinePubliee(racine, racine / sous_racine)
     return None
 
 
-def lecture_de(data_dir: Path | str, racine: Path | None = None) -> Lecture:
-    """Le repère de lecture d'un `data/` — pincé s'il a un espace installé, direct sinon.
+def exiger_racine_installee(data_dir: Path | str) -> None:
+    """Le préflight d'un **entrypoint de lecture de production** : une racine installée, ou un refus.
 
-    C'est l'entrée que les lecteurs de production emploient. La racine se déduit du `data/` comme
-    partout ailleurs (`espace_du_data_dir` en est le pendant écriture) : un `data/` est le
-    répertoire de données d'une racine qui est son parent, sauf mention explicite.
+    Patch croisé 2/3, `N3-LECTURE-ROOTLESS`. `RacinePubliee.lecture()` rabat l'absence de racine sur
+    un repère sans génération, qui lit les chemins bruts : c'est la primitive interne, symétrique de
+    `_publier_sans_racine` côté écriture, et elle sert les arbres nus de la bibliothèque et de la
+    suite. Ce qui ferme N3 est qu'**aucun entrypoint de production ne l'atteigne** — le démarrage du
+    service, le runner, les six CLI d'ingestion, le smoke, la relecture et le comptage de tokens
+    appellent donc ce préflight (ou son équivalent `exiger_espace_installe`) **avant toute lecture**,
+    tout travail et tout coût.
+
+    Vit ici, et pas dans `server/ingest/artifacts.py`, parce que la table des couches du spine
+    n'autorise pas `api` à importer l'ingestion : `corpus` est la seule couche que le démarrage du
+    service et les lecteurs servis peuvent voir (`tests/test_layers.py`).
+    """
+    data = Path(data_dir)
+    if racine_couvrant(data / "manifest.json") is None:
+        raise EspaceNonInstalle(
+            f"{data} : aucune racine de publication ne couvre ce `data-dir` — un lecteur de "
+            "production ne lit pas hors racine transactionnelle. Poser la disposition "
+            "(idempotente) : `python -m server.evals.espace --racine <racine> --data-dir <data> "
+            "--depot`")
+
+
+def lecture_de(data_dir: Path | str, racine: Path | None = None) -> Lecture:
+    """Le repère de lecture d'un `data/` — pincé, ou **refusé**.
+
+    C'est l'origine de lecture commune. Elle ne décide pas seule de la fermeture N3 : le refus d'un
+    `data-dir` custom **non installé** appartient aux **entrypoints de production**, qui appellent
+    `exiger_espace_installe` avant toute lecture (patch croisé 2/3, `N3-LECTURE-ROOTLESS`). C'est la
+    forme symétrique de ce que le tour de la racine unique a tranché côté écriture : le repli
+    rootless reste une primitive, et ce qui est fermé est son **atteignabilité** depuis la
+    production, jamais son existence.
+
+    La racine se déduit du `data/` comme partout ailleurs (`espace_du_data_dir` en est le pendant
+    écriture) : un `data/` est le répertoire de données d'une racine qui est son parent, sauf
+    mention explicite. Il n'existe **aucun paramètre** pour choisir l'un ou l'autre : la question
+    est structurelle, pas une option d'appelant.
     """
     data = Path(data_dir)
     return RacinePubliee(data.parent if racine is None else Path(racine), data).lecture()

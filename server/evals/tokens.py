@@ -28,7 +28,8 @@ from pathlib import Path
 
 from server.app.config import get_settings
 from server.app.corpus.racine import (EspaceIllisible, EspaceNonInstalle, Lecture,
-                                      LectureHorsGeneration, LecturePerimee, racine_couvrant)
+                                      LectureHorsGeneration, LecturePerimee, RacinePubliee,
+                                      racine_couvrant)
 from server.app.llm.models import TIERS
 from server.app.llm.tokens import MEASURED_TIERS, measure
 
@@ -42,7 +43,13 @@ def repere_du_lot(paths: list[Path]) -> Lecture:
     et le runner. Deux racines dans un même lot ne sont pas un lot : elles ne se pincent pas
     ensemble, donc elles ne se comptent pas ensemble.
     """
-    racines: dict[str, object] = {}
+    # **Le pointeur n'est résolu qu'au pincement** (patch croisé 2/3, `N1-TOKENS-OMIS`).
+    # `racine_couvrant` appelé par cible suivait `courant` pour chacune : deux sommaires
+    # produisaient **trois** résolutions au lieu d'une, et les deux premières pouvaient tomber de
+    # part et d'autre d'une bascule. La racine se découvre donc par **arithmétique de liens** —
+    # `lien_couvrant` lit la cible du lien, sans jamais traverser le pointeur — et une seule
+    # `lecture()` le résout, une fois, pour tout le lot.
+    racines: dict[str, RacinePubliee] = {}
     for path in paths:
         racine = racine_couvrant(path)
         if racine is None:
@@ -55,7 +62,7 @@ def repere_du_lot(paths: list[Path]) -> Lecture:
         raise EspaceNonInstalle(
             f"les chemins du lot relèvent de racines différentes ({sorted(racines)}) : aucun "
             "repère unique ne les lit ensemble")
-    return next(iter(racines.values())).lecture()  # type: ignore[union-attr]
+    return next(iter(racines.values())).lecture()
 
 
 def lire_le_lot(paths: list[Path], lecture: Lecture) -> list[tuple[Path, str]]:
@@ -74,10 +81,6 @@ def main(argv: list[str]) -> int:
         print("usage : python -m server.evals.tokens <fichier> [...]", file=sys.stderr)
         return 2
     paths = [Path(a) for a in argv]
-    missing = [p for p in paths if not p.is_file()]
-    if missing:
-        print(f"fichier(s) introuvable(s) : {', '.join(map(str, missing))}", file=sys.stderr)
-        return 2
     # **Le refus de racine tombe avant le client, avant la clé et avant le premier appel payant.**
     # L'ordre importe pour deux raisons : les deux refus sont d'avant coût, donc aucun n'est retardé
     # par l'autre ; et placer celui-ci en premier le rend atteignable par un test déterministe hors
@@ -96,9 +99,18 @@ def main(argv: list[str]) -> int:
     try:
         try:
             lot = lire_le_lot(paths, lecture)
+            # **La fraîcheur se vérifie après le lot et avant le premier appel payant** (patch
+            # croisé 2/3, `N1-TOKENS-OMIS`). `Lecture.reel` contrôle avant de *rendre* un chemin, et
+            # l'ouverture arrive séparément : une reconstruction tombant entre les deux fournissait
+            # des octets reconstruits, puis déclenchait les appels — payés sur une génération que
+            # personne n'avait pincée. Un comptage ne se rejoue pas : il refuse.
+            lecture.verifier()
         except (LecturePerimee, LectureHorsGeneration) as exc:
             print(f"refus : {exc} — rien n'a été compté, aucun appel n'a été soumis",
                   file=sys.stderr)
+            return 2
+        except FileNotFoundError as exc:
+            print(f"fichier(s) introuvable(s) : {exc}", file=sys.stderr)
             return 2
         try:
             results = asyncio.run(measure(lot))

@@ -68,7 +68,16 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Block, is_citable
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 
-from .artifacts import LectureDuLot, exiger_espace_installe, republier, write_atomic
+from .artifacts import LectureDuLot, exiger_espace_installe, republier
+
+class CorpusDeplace(Exception):
+    """Le corpus a bougé entre la campagne payante et sa publication — rien n'est publié.
+
+    Patch croisé 2/3, `N1-N3-ENRICH-RMW`. Une réingestion publiée pendant les minutes d'appels
+    rendrait le dictionnaire dérivé d'une génération antérieure : le publier serait une composition
+    intergénérationnelle, exactement ce que N1 et B7 interdisent. Le refus est dit, sans mutation.
+    """
+
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
@@ -950,14 +959,50 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     # construction. Vide, le fichier est inerte : `_corpus_ok` le refuse déjà (« ne dit pas quel
     # corpus il décrit »), donc ni variantes ni court-circuit, et `--valider` sort en 5.
     partiel = args.limit is not None
-    fichier = _trier(DictionaryFile(
-        schema_version=SCHEMA_VERSION,
-        corpus_source_hashes={} if partiel else {doc_id: corpus.manifest[doc_id].source_hash},
-        corpus=termes, intents=intents, candidate_questions=questions,
-        # **Jamais** `validated: true` ici, sous aucune forme : AD-5 réserve la signature à un
-        # humain, et c'est elle — et elle seule — qui arme le refus « zéro hit ».
-        validated=False, validated_by=None, validated_at=None))
-    write_atomic(chemin, _serialiser(fichier))
+    # L'identité **exacte** du corpus qui a produit les requêtes : c'est elle que la publication
+    # opposera à ce qui est réellement publié.
+    source_hash_campagne = corpus.manifest[doc_id].source_hash
+
+    def _publier(lecture: LectureDuLot) -> list[tuple[Path, str | None]]:
+        """Relit le manifest **sous le verrou** et refuse si le corpus a bougé pendant la campagne.
+
+        Patch croisé 2/3, `N1-N3-ENRICH-RMW`. Cette branche — la plus longue en durée d'appels
+        payants du module — composait `corpus_source_hashes` depuis le `load_corpus` fait **avant**
+        la campagne, puis publiait par `write_atomic` : trois gestes à cheval sur le verrou. Une
+        réingestion publiée pendant les appels faisait donc publier, dans la génération courante, un
+        dictionnaire dérivé de l'ancienne et portant son ancien `source_hash`. L'alerte aval
+        `dictionnaire_corpus_perime` ne remplace ni le refus ni la transaction.
+
+        C'est le patron que `--valider` et le typage tiennent déjà : lire, opposer, publier — dans
+        la même section critique. Une divergence est un refus **sans mutation**, jamais une
+        publication intergénérationnelle.
+        """
+        publie = _entrees_publiees(lecture, (data_dir / "manifest.json"))
+        entree = publie.get(doc_id)
+        if isinstance(entree, dict):
+            publie_hash = entree.get("source_hash")
+            if publie_hash != source_hash_campagne:
+                raise CorpusDeplace(
+                    f"{doc_id} a été réingéré pendant la campagne (source_hash publié "
+                    f"{publie_hash!r} ≠ {source_hash_campagne!r} de la campagne) : rien n'est "
+                    "publié, relancer l'enrichissement")
+        fichier = _trier(DictionaryFile(
+            schema_version=SCHEMA_VERSION,
+            corpus_source_hashes={} if partiel else {doc_id: source_hash_campagne},
+            corpus=termes, intents=intents, candidate_questions=questions,
+            # **Jamais** `validated: true` ici, sous aucune forme : AD-5 réserve la signature à un
+            # humain, et c'est elle — et elle seule — qui arme le refus « zéro hit ».
+            validated=False, validated_by=None, validated_at=None))
+        rendu.append(fichier)
+        return [(chemin, _serialiser(fichier))]
+
+    rendu: list[DictionaryFile] = []
+    try:
+        republier([chemin], _publier)
+    except CorpusDeplace as exc:
+        print(str(exc), file=sys.stderr)
+        return 5
+    fichier = rendu[-1]
 
     variantes = sum(len(v) for v in fichier.corpus.values())
     print(f"{chemin} écrit : {len(fichier.corpus)} canonique(s), {variantes} variante(s), "
