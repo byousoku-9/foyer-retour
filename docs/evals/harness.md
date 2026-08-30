@@ -270,12 +270,21 @@ appel système ne change qu'une entrée de répertoire ; pour qu'une entrée cha
 toutes les cibles à la fois, il faut qu'elle soit un composant traversé par la résolution de chacune.
 D'où la disposition : chaque cible du lot est un chemin dont la résolution passe par `courant`.
 
-**La disposition est statique.** `data/manifest.json`, `data/evals-latest.json`,
-`docs/evals/latest.md` et `docs/evals/campagnes` sont des liens **committés** ; les sorties de run
+**La disposition est statique, et elle couvre tout ce qu'un écrivain de production publie.** Les
+surfaces de racine — `data/manifest.json`, `data/dictionary.json`, `data/evals-latest.json`,
+`docs/evals/latest.md`, `docs/evals/campagnes` — et, dans chaque répertoire de document,
+`document.json`, `summary.md`, `report.json`, `structure.json`, `typing.manual.json` et
+`dictionary.json` sont des liens **committés**. Les *entrées* (`source.js`, `source.pdf`,
+`source.url`, `source.sha256`) n'en sont pas : personne ne les écrit. `cibles_du_depot` énumère cette
+liste **structurellement**, en listant `data/`, de sorte qu'aucun `doc_id` n'apparaisse dans le code ;
+`python -m server.evals.espace --depot` la pose, et poser un document neuf, c'est reposer la
+disposition — un geste d'opérateur, idempotent, jamais atteint depuis une bascule. Les sorties de run
 (`.evals/`) sont posées par la CI, `.evals/` étant ignoré par git. La bascule ne pose, ne migre et
 ne change **jamais** le type d'une cible : elle vérifie que chaque cible est résolue par le pointeur
 et **refuse sans rien toucher** sinon (`EspaceNonInstalle`, qui nomme la commande
 `python -m server.evals.espace`). `lstat` rend le même type avant et après une bascule, et Git aussi.
+Un lot **moitié couvert, moitié ordinaire** est refusé de la même façon, avant toute écriture : le
+pointeur ne déplacerait que sa moitié.
 
 **La garantie exacte, ni plus ni moins que ce que le code tient.**
 
@@ -291,11 +300,33 @@ et **refuse sans rien toucher** sinon (`EspaceNonInstalle`, qui nomme la command
 - Non garanti : l'absence de **biais de lecteur**. Un lecteur qui résout deux cibles de part et
   d'autre d'une bascule voit un mélange. L'invariant ne le demande pas ; c'est dit pour ne pas
   laisser croire qu'il est couvert.
+- Garanti : la **lecture** d'une cible du lot, la fusion que l'appelant en tire et la publication
+  vivent dans la **même** section critique (`EspacePublie.transaction()`). Sérialiser les commits ne
+  suffisait pas : un écrivain qui lisait le manifest — ou la génération courante — avant de prendre
+  le verrou fusionnait un état périmé et écrasait la publication d'un concurrent. Il n'existe aucune
+  voie d'écriture sans verrou : pas de paramètre, pas de défaut permissif, pas de constructeur privé.
+- Garanti : aucune exception n'est propagée avec le lot déjà basculé, **y compris** celles levées par
+  la sortie de la section critique (`flock(LOCK_UN)`, `close`, toute sortie de contexte postérieure
+  au commit). Avant le commit, au contraire, une exception de verrou remonte et laisse zéro cible
+  modifiée.
+- Garanti : une génération inactive laissée **partielle** — brouillon abandonné, nettoyage
+  interrompu, pointeur indécidable au moment de conclure — est toujours vue par
+  `EspacePublie.residus()`, jamais indiscernable d'un bundle complet : une marque de brouillon est
+  posée avant la première écriture, retirée quand le brouillon est complet, et **reposée** par
+  l'abandon prudent.
 - Le ping-pong à deux générations impose un `flock` exclusif sur l'espace : c'est la dette
   `target_story: 4.1` payée pour le chemin des évals. **L'ingestion aussi** : `write_atomic` écrivait
-  `data/manifest.json` à travers le lien, donc dans la génération publiée et hors du verrou ; toute
-  écriture d'une cible couverte par un pointeur passe désormais par la même bascule, sous le même
-  `flock`, sans jamais muter la génération active.
+  `data/manifest.json` à travers le lien, donc dans la génération publiée et hors du verrou, et
+  `type_clauses._atomic_artifacts` le remplaçait carrément par un fichier ordinaire sans jamais voir
+  la racine ; toute écriture d'une cible couverte par un pointeur passe désormais par la même
+  bascule, sous le même `flock`, sans jamais muter la génération active. Le lot complet d'une
+  ingestion — document, sommaire, rapport, retrait de l'overlay, manifest — a **un seul** point de
+  commit, et une suppression y est membre au même titre qu'une écriture.
+- Non garanti, pour un lot qu'**aucune racine ne couvre** (un `data/` de test) : il n'y a pas de
+  pointeur, donc pas d'atome fort. La propriété vis-à-vis d'une exception Python est tenue — état
+  d'avant capturé, temporaires préparés, rangs effectués rétablis en ordre inverse sur toute
+  exception, aucun temporaire résiduel — mais une coupure **hors exception** entre deux appels
+  système peut y laisser un lot à moitié publié. C'est la raison d'être de la racine.
 
 **Ce qu'un opérateur doit savoir.** Les liens de `data/` et `docs/` sont committés : un checkout
 frais les a déjà. Les **sorties de run** (`eval-results.json`, `eval-results.md`, ou `.evals/` sous
@@ -310,8 +341,19 @@ uv run python -m server.evals.espace --racine . --data-dir data \
 Sans cela le run **refuse** avant toute mesure, en nommant cette commande — il ne pose jamais sa
 propre disposition. La CI fait le même geste dans son étape d'évals, sur `.evals/`.
 
-Les chemins frères — `ecrire_rapports` (le couple JSON + table) et `ecrire_gate` — passent par le
-même unique pointeur : ce sont des lots comme les autres.
+**Un document neuf se pose de la même façon**, une fois, avant sa première ingestion :
+
+```
+uv run python -m server.evals.espace --racine . --data-dir data --depot
+```
+
+`--depot` relit la disposition de tout le dépôt et pose ce qui manque ; c'est idempotent. Sans elle,
+l'ingestion du document neuf refuse avec un **lot mixte** — son `document.json` ne serait pas couvert
+alors que le manifest l'est —, et `tests/test_espace_publication.py` le dit avant la production.
+
+Les chemins frères — `ecrire_rapports` (le couple JSON + table), `ecrire_gate` et les trois écrivains
+d'ingestion (`kb_to_blocks`, `pdf_to_blocks`, `type_clauses`) — passent par le même unique pointeur :
+ce sont des lots comme les autres.
 
 **Un run de gate n'a qu'un seul point de commit.** Le couple `eval-results.*` n'est plus basculé à
 part : il entre dans le **même** lot que la publication et `data/manifest.json`, préparé depuis les

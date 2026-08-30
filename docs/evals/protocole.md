@@ -288,6 +288,16 @@ code :
   raté coûte de la durabilité après coupure, jamais l'atomicité. Une interruption arrivée après le
   commit est absorbée pour la même raison — la transaction est acquise, et il n'y a rien à annuler.
 
+**La frontière post-commit ne s'arrête pas au `return` de la bascule : elle court jusqu'à la sortie
+de la section critique.** `flock(LOCK_UN)` et `close` sont des appels système, donc ils peuvent
+lever, et une `OSError` — ou un `KeyboardInterrupt` tombant là — remontait avec le lot déjà publié.
+Le verrou est donc pris et rendu **à la main**, sans `with` interne, pour que sa libération tombe du
+bon côté de la frontière : après un pointeur effectivement remplacé, elle est absorbée comme le
+`fsync`. Symétriquement, une exception de verrou survenue **avant** le commit continue de remonter,
+et laisse zéro cible modifiée : il n'y a alors rien de publié qu'elle contredirait. Un filet ferme le
+descripteur dans tous les cas — fermer le descripteur rend le `flock`, c'est la garantie du système —
+sans quoi une exception levée pendant l'abandon d'un brouillon sortirait en laissant le verrou tenu.
+
 **L'opération de production entière n'a qu'un seul commit.** Un run de gate préparait le couple
 `eval-results.*` dans un premier atome, puis le gate, la publication et le manifest dans un second :
 chaque atome était tout-ou-rien, l'opération ne l'était pas, et un échec du second laissait le
@@ -310,17 +320,70 @@ sorti de son emplacement de génération par un `rename` unique, sous un nom en 
 `EspacePublie.residus()` le voie au lieu de l'ignorer. La bascule suivante reconstruit de toute façon
 la génération inactive de zéro.
 
-### Tous les écrivains du manifest passent par le protocole
+Le suffixe `.tmp` ne suffit pas comme unique signal, et c'est le second reste possible. Quand le
+pointeur est **indécidable** au moment de conclure, l'abandon ne détruit rien — à raison, puisqu'une
+génération publiée effacée rendrait toutes les cibles pendantes — mais il laissait alors la
+génération inactive, peut-être à moitié écrite, sous son nom `a`/`b`, que rien ne distinguait d'un
+bundle complet. Une **marque** de brouillon est donc posée dans l'espace avant la première écriture
+et retirée quand le brouillon est complet et `fsync`é ; l'abandon prudent la **repose**. Une
+génération inactive dont le sort est inconnu n'est ainsi jamais silencieuse, ni pour `residus()`, ni
+pour un opérateur. La bascule suivante, elle, ne s'y fie pas : elle reconstruit de zéro.
 
-`data/manifest.json` a trois écrivains d'ingestion (`server/ingest/artifacts.py::write_atomic`, via
-`merge_manifest`) en plus du gate. Ils écrivaient **à travers** le lien, c'est-à-dire dans la
-génération que le pointeur publie, et hors du verrou : le bundle n'était donc pas immuable, et une
-ingestion concurrente courait avec la reconstruction et la bascule d'un run. Toute écriture d'une
-cible couverte par un pointeur passe désormais par `EspacePublie.basculer` — même `flock`, même
-génération inactive, même unique `os.replace` —, et la génération active n'est jamais mutée.
-`ecrire_gate` reste l'unique écrivain du champ `gate` (AD-7) : l'ingestion écrit l'entrée et
-**préserve** le gate qui était là, ce qui ne change pas. Une cible ordinaire — `document.json`,
-`structure.json` — n'est couverte par aucun pointeur et garde son écriture atomique d'avant.
+### Tous les écrivains d'une cible couverte passent par le protocole, et sous le même verrou
+
+`data/manifest.json` a trois écrivains d'ingestion (`kb_to_blocks`, `pdf_to_blocks`, `type_clauses`)
+en plus du gate. Trois défauts distincts les faisaient échapper à la racine, et les trois sont fermés.
+
+1. **Une voie qui ne voyait jamais la racine.** `type_clauses._atomic_artifacts` remettait
+   `document.json`, `report.json`, `manifest.json` et la suppression de l'overlay à une file de
+   `os.replace` directs : sur un manifest couvert, cela **remplaçait le lien statique par un fichier
+   ordinaire** et sortait le manifest du pointeur pour de bon. Sa restauration séquentielle — relire
+   les octets d'entrée, les réécrire cible par cible sur `except Exception` — était en outre la forme
+   même que ce protocole refuse. Son lot complet passe désormais par la racine, d'un seul geste.
+2. **Un read-modify-write dont la lecture précédait le verrou.** `merge_manifest` fusionnait un
+   `raw` que l'appelant avait lu **avant** son traitement — des minutes plus tôt pour un typage — et
+   ne prenait le verrou qu'à l'écriture finale : deux ingestions, ou une ingestion et un run,
+   publiaient chacune une fusion partie du même état périmé, et la seconde écrasait l'entrée de la
+   première sans l'avoir vue. Sérialiser les commits n'y changeait rien, puisque c'est la **lecture**
+   qui était dehors. `EspacePublie.transaction()` tient donc la séquence entière — lecture, fusion,
+   publication — sous un **unique `flock`** ; `merge_manifest` ne prend plus de `raw` en paramètre,
+   précisément pour qu'aucun appelant ne puisse croire qu'une lecture hors verrou fait une base de
+   fusion. Il n'existe pas de voie opt-in : pas de paramètre, pas de défaut permissif.
+3. **La génération courante elle-même, lue hors du verrou.** C'est le même défaut au cœur de
+   l'espace, et le plus grave : un écrivain parti d'une génération périmée prend pour « inactive »
+   celle que le pointeur publie, la reconstruit de zéro et la republie — il mute la génération active
+   *et* efface la publication du concurrent. La génération courante est donc lue **sous** le verrou ;
+   la lecture faite avant n'est qu'un préflight, qui sert à refuser un espace non installé sans rien
+   créer.
+
+Le lot d'une opération d'ingestion est, comme celui d'un run, l'ensemble complet des cibles qu'elle
+implique — `document.json`, `summary.md`, `report.json`, le retrait de l'overlay et le manifest — et
+il a **un seul point de commit**. Une suppression est membre du lot au même titre qu'une écriture :
+son slot est absent de la génération publiée, donc son lien devient pendant, donc la cible est
+absente pour tout lecteur. `ecrire_gate` reste l'unique écrivain du champ `gate` (AD-7) : l'ingestion
+écrit l'entrée et **préserve** le gate qui était là, ce qui ne change pas — ce qui change est le
+chemin d'écriture, pas qui écrit quoi.
+
+**Ce que la racine couvre** est donc *tout ce qu'un écrivain de production publie*, et rien d'autre :
+les surfaces de racine (`data/manifest.json`, `data/dictionary.json`, `data/evals-latest.json`,
+`docs/evals/latest.md`, `docs/evals/campagnes`) et, dans chaque répertoire de document,
+`document.json`, `summary.md`, `report.json`, `structure.json`, `typing.manual.json` et
+`dictionary.json`. Les *entrées* (`source.js`, `source.pdf`, `source.url`, `source.sha256`) n'en sont
+pas : personne ne les écrit, et les mettre dans le bundle en ferait un dépôt de sources.
+`server/evals/espace.py::cibles_du_depot` énumère cette disposition **structurellement**, en listant
+`data/` — aucun `doc_id` n'est écrit nulle part —, et `python -m server.evals.espace --depot` la pose.
+Un lot **moitié couvert** est refusé avant de toucher quoi que ce soit, en nommant les cibles
+manquantes : le pointeur ne déplacerait que sa moitié, et l'autre serait écrite à un autre rang.
+
+**Un arbre qu'aucune racine ne couvre** — un `data/` de test, une arborescence jetable — n'a pas de
+pointeur à déplacer, donc pas d'atome fort. Il tient néanmoins la même propriété observable vis-à-vis
+d'une exception : l'état d'avant est capturé avant la moindre écriture, tous les temporaires sont
+préparés ensuite, les `rename` s'enchaînent, et **toute** exception rétablit en ordre inverse les
+rangs effectués avant de propager la cause d'origine ; aucun temporaire ne subsiste. Ce qu'il ne
+garantit pas, et qui s'écrit : POSIX n'offre aucun renommage multiple atomique, donc une coupure
+**hors exception Python** entre deux appels système peut y laisser un lot à moitié publié. C'est
+exactement la raison d'être de la racine, qui elle n'a rien à défaire — et une limite non couvrable
+ne justifie jamais une cible modifiée après une exception propagée.
 
 Pourquoi cette forme l'emporte sur l'autre branche envisagée — durcir encore la restauration : parce
 qu'un protocole qui *défait* ce qu'il a déjà fait n'est pas tout-ou-rien. Rejouer un rollback, fût-ce
