@@ -78,6 +78,17 @@ def test_les_choix_et_alternatives_des_trois_sujets_sont_explicites() -> None:
         assert attendu in synthese
 
 
+def test_la_mesure_historique_4_2d_est_rattachee_au_sinistre() -> None:
+    synthese = _normalise(_synthese())
+    sujet_1 = synthese.split("### sujet 1 —", 1)[1].split("### sujet 2 —", 1)[0]
+    sujet_2 = synthese.split("### sujet 2 —", 1)[1].split("### sujet 3 —", 1)[0]
+
+    assert "aucune baseline 4.4 n'est conservée" in sujet_1
+    assert "story 4.2d" not in sujet_1
+    assert "mesure historique de story 4.2d, sur un seul sinistre" in sujet_2
+    assert "recall `2/3` des deux côtés" in sujet_2
+
+
 def test_les_mesures_courantes_restent_rouges_partielles_et_non_promouvables() -> None:
     synthese = _normalise(_synthese())
     for attendu in (
@@ -168,6 +179,11 @@ def test_confidentialite_retenue_et_limites_obligatoires_sont_dites() -> None:
         "politique d'usage",
         "obligation légale",
         "jusqu'à deux ans",
+        "le navigateur ne persiste pas les conversations non plus",
+        "son stockage local conserve en revanche des données de reprise et de configuration",
+        "profil et préférences d'affichage, avancement du parcours",
+        "adresses et coordonnées de comparaison",
+        "sélections de sinistres et paramètres de simulation",
         "aucune donnée utilisateur n'entre dans `data/`",
         "réduit l'injection d'instructions, sans l'éliminer",
         "best-effort",
@@ -192,6 +208,8 @@ def test_confidentialite_retenue_et_limites_obligatoires_sont_dites() -> None:
     )
     for attendu in attendus:
         assert attendu in synthese
+
+    assert "le navigateur garde seulement le profil et les préférences d'affichage" not in synthese
 
 
 def test_l_annexe_technique_historique_est_repliable_et_byte_identique() -> None:

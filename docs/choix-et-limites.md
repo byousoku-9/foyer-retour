@@ -31,13 +31,8 @@ fonctionné sur les quelque 23 000 tokens du guide, mais seulement parce que le 
 cela ne démontre ni sélection ni preuve d'absence. Une base vectorielle seule classe des proximités,
 pas la portée exacte d'une réponse ; les embeddings restent donc une voix possible, pas la décision.
 Un chatbot séparé aurait esquivé l'intégration au site, et un parcours guidé seul aurait remplacé le
-chatbot demandé plutôt que de l'éprouver.
-
-Une **mesure historique** de story 4.2d, sur un seul sinistre répété trois fois, a comparé le rappel
-`deterministe` à `outils` : recall `2/3` des deux côtés ; coût de série `0,1649 EUR` contre
-`0,0703 EUR`. Les deux séries étaient rouges et instables. Elle explique pourquoi `outils` a été
-servi dans ce contexte, mais ne vaut ni baseline générale ni preuve de justesse. La campagne 4.4
-destinée à comparer proprement les variantes a été annulée : **aucune baseline 4.4 n'est conservée**.
+chatbot demandé plutôt que de l'éprouver. La campagne 4.4 destinée à comparer proprement les
+variantes a été annulée : **aucune baseline 4.4 n'est conservée**.
 
 ### Sujet 2 — lire des contrats sans transformer le parsing en expertise
 
@@ -55,6 +50,11 @@ ajouterait latence et dérive de schéma. La comparaison multi-assureurs n'étai
 cas porte sur un assuré et son contrat. À l'inverse, un simple poste de recherche de clauses aurait
 évité le verdict demandé ; le compromis retenu est un verdict conservateur qui nomme les pièces et
 faits encore nécessaires.
+
+Une **mesure historique** de story 4.2d, sur un seul sinistre répété trois fois, a comparé le rappel
+`deterministe` à `outils` : recall `2/3` des deux côtés ; coût de série `0,1649 EUR` contre
+`0,0703 EUR`. Les deux séries étaient rouges et instables. Elle explique pourquoi `outils` a été
+servi dans ce contexte, mais ne vaut ni baseline générale ni preuve de justesse.
 
 Les rapports versionnés couvrent les pages et publient aussi leurs alertes. Ils prouvent une chaîne
 d'extraction inspectable, pas l'intégrité juridique du document, encore moins une validation
@@ -97,10 +97,13 @@ deux ans. La [politique de conservation d'Anthropic](https://privacy.claude.com/
 reste liée parce qu'une politique de tiers peut changer.
 
 Le serveur ne persiste pas les conversations et ses logs excluent le texte des questions. Le
-navigateur garde seulement le profil et les préférences d'affichage ; **aucune donnée utilisateur
-n'entre dans `data/`**. Les contenus utilisateur et documentaire sont délimités comme non fiables,
-après les instructions système : cela réduit l'injection d'instructions, sans l'éliminer. Le
-démonstrateur public demande donc de ne saisir aucune donnée réelle ou nominative de sinistre.
+navigateur ne persiste pas les conversations non plus. Son stockage local conserve en revanche des
+données de reprise et de configuration : profil et préférences d'affichage, avancement du parcours,
+adresses et coordonnées de comparaison, sélections de sinistres et paramètres de simulation.
+**Aucune donnée utilisateur n'entre dans `data/`**. Les contenus utilisateur et documentaire sont
+délimités comme non fiables, après les instructions système : cela réduit l'injection
+d'instructions, sans l'éliminer. Le démonstrateur public demande donc de ne saisir aucune donnée
+réelle ou nominative de sinistre.
 
 ## Baseline et état courant
 
