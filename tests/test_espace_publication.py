@@ -17,11 +17,12 @@ import pytest
 from server.app.config import REPO_ROOT
 from server.evals import run as runner
 from server.evals.espace import (GENERATIONS, EspaceIllisible, EspaceNonInstalle, EspacePublie,
-                                 LotHorsEspace)
+                                 LotHorsEspace, cibles_du_depot)
 from server.evals.revision import sorties_du_run
 
-# Les cibles que le dépôt doit porter en liens statiques committés. `.evals/` n'y est pas : il est
-# ignoré par git, et la CI pose ses liens elle-même (`.github/workflows/ci.yml`).
+# Les cibles que le dépôt doit porter en liens statiques committés — **toutes** celles qu'un
+# écrivain de production publie. `.evals/` n'y est pas : il est ignoré par git, et la CI pose ses
+# liens elle-même (`.github/workflows/ci.yml`).
 CIBLES_COMMITTEES = ("data/manifest.json", "data/evals-latest.json",
                      "docs/evals/latest.md", "docs/evals/campagnes")
 
@@ -40,6 +41,27 @@ def test_la_disposition_du_depot_est_posee_et_resolue_par_le_pointeur() -> None:
         cible = REPO_ROOT / relatif
         assert cible.is_symlink(), f"{relatif} doit être un lien statique de l'espace"
         assert espace.resolue_dans_lespace(cible), f"{relatif} ne passe pas par le pointeur"
+
+
+def test_la_racine_couvre_tout_ce_quun_ecrivain_de_production_publie() -> None:
+    """Tour de racine unique : une racine n'a d'autorité que sur ce qu'elle couvre.
+
+    Le tour précédent ne couvrait que le manifest et les surfaces d'évals. Les artefacts qu'une
+    ingestion publie — document, sommaire, rapport, proposition de structure, overlay, dictionnaire
+    — restaient dehors, si bien que le lot d'un `kb_to_blocks`, d'un `pdf_to_blocks` ou d'un
+    `type_clauses` était moitié dedans, moitié dehors : il n'existait aucun geste unique qui le
+    publiait, et son échec laissait un artefact neuf devant un manifest périmé.
+
+    L'énumération est **structurelle** (`cibles_du_depot` liste `data/`, aucun `doc_id` n'est écrit
+    nulle part) : ce test échouerait à l'ingestion d'un document neuf dont la disposition n'aurait
+    pas été posée, ce qui est exactement le signal voulu.
+    """
+    espace = EspacePublie(REPO_ROOT)
+    manquantes = [str(relatif) for relatif in cibles_du_depot(REPO_ROOT)
+                  if not espace.resolue_dans_lespace(REPO_ROOT / relatif)]
+    assert manquantes == [], (
+        "ces cibles de production ne passent pas par le pointeur — les publier serait un rang "
+        f"hors de l'atome : {manquantes}")
 
 
 def test_le_manifest_servi_est_toujours_lisible_a_son_chemin_historique() -> None:
@@ -364,3 +386,389 @@ def test_une_cible_hors_espace_garde_son_ecriture_atomique_ordinaire(tmp_path: P
     assert ailleurs.is_symlink(), "un lien hors espace reste écrit à travers, pas remplacé"
     assert json.loads(reel.read_text(encoding="utf-8")) == {"b": 2}
     assert sorted(p.name for p in tmp_path.rglob("*") if p.name.endswith(".tmp")) == []
+
+
+# --- B7, tour de racine unique : les quatre faits du verdict, contre-sondés ------------------------
+#
+# Le tour 3/3 avait rendu l'opération de production du runner tout-ou-rien, mais une racine n'a
+# d'autorité que sur les écrivains qui passent par elle. Quatre voies lui échappaient : une écriture
+# groupée qui remplaçait la cible sans jamais la voir, un read-modify-write dont la lecture précédait
+# le verrou, une sortie de section critique qui pouvait lever après le commit, et un brouillon qui
+# devenait invisible dès que le pointeur était indécidable.
+
+
+def _etat_observable(cibles: list[Path]) -> dict[str, tuple[bool, str | None, str | None, bytes | None]]:
+    """Les quatre dimensions de l'AC : présence, type `lstat`, cible de lien, contenu.
+
+    Comparer les octets seuls laisserait passer un lien couvert remplacé par un fichier ordinaire de
+    même contenu — le fait 1 exactement. Aucune cible n'est retirée de la comparaison.
+    """
+    etat: dict[str, tuple[bool, str | None, str | None, bytes | None]] = {}
+    for cible in cibles:
+        present = cible.is_symlink() or cible.exists()
+        if cible.is_symlink():
+            type_entree: str | None = "lien"
+            lien: str | None = os.readlink(cible)
+        elif cible.is_dir():
+            type_entree, lien = "repertoire", None
+        elif cible.exists():
+            type_entree, lien = "fichier", None
+        else:
+            type_entree, lien = None, None
+        try:
+            contenu: bytes | None = cible.read_bytes()
+        except OSError:
+            contenu = None
+        etat[str(cible)] = (present, type_entree, lien, contenu)
+    return etat
+
+
+def _espace_pose(tmp_path: Path, relatifs: tuple[str, ...], lot: list[tuple[str, str]]) -> EspacePublie:
+    espace = EspacePublie(tmp_path)
+    espace.installer([Path(relatif) for relatif in relatifs])
+    espace.basculer([(tmp_path / relatif, contenu) for relatif, contenu in lot])
+    return espace
+
+
+def test_deux_fusions_concurrentes_du_manifest_ne_perdent_aucune_entree(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fait 2 : la **lecture** doit vivre sous le verrou, pas seulement le commit.
+
+    `merge_manifest` recevait un `raw` que l'appelant avait lu au début de son traitement — des
+    minutes plus tôt pour un typage — et ne prenait le verrou qu'à l'écriture finale. Deux fusions
+    concurrentes partaient donc du même état : la seconde publiait un manifest où l'entrée de la
+    première n'avait jamais existé. Sérialiser les commits n'y changeait rien, puisque c'est la
+    lecture qui était dehors.
+
+    La preuve est une **contention réelle**, pas un ordonnancement supposé : la première fusion est
+    retenue à l'intérieur de sa section critique jusqu'à ce que la seconde ait démarré, de sorte
+    qu'une lecture faite hors verrou tomberait forcément sur l'état d'avant.
+    """
+    import threading
+
+    from server.app.domain import ManifestEntry
+    from server.ingest import artifacts
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json",), [("data/manifest.json", "{}\n")])
+    manifest = tmp_path / "data" / "manifest.json"
+
+    a_lu = threading.Event()
+    b_lancee = threading.Event()
+    vraie_fusion = artifacts.merged_manifest
+
+    def _fusion_retenue(raw: dict[str, object], doc_id: str, entry: ManifestEntry) -> object:
+        if doc_id == "doc-a":
+            a_lu.set()
+            assert b_lancee.wait(10), "la seconde fusion n'a jamais démarré"
+        return vraie_fusion(raw, doc_id, entry)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(artifacts, "merged_manifest", _fusion_retenue)
+
+    def _entree(edition: str) -> ManifestEntry:
+        return ManifestEntry(status="servi", source_hash="s" * 64, ingest_fingerprint="f" * 64,
+                             document_hash="d" * 64, edition=edition, gate=None)
+
+    erreurs: list[BaseException] = []
+
+    def _fusionner(doc_id: str) -> None:
+        try:
+            artifacts.merge_manifest(manifest, doc_id, _entree(doc_id))
+        except BaseException as exc:  # noqa: BLE001 — remontée au fil principal
+            erreurs.append(exc)
+
+    fil_a = threading.Thread(target=_fusionner, args=("doc-a",))
+    fil_a.start()
+    assert a_lu.wait(10), "la première fusion n'a jamais atteint sa section critique"
+    fil_b = threading.Thread(target=_fusionner, args=("doc-b",))
+    fil_b.start()
+    # Le temps que la seconde fusion lise — hors verrou, elle lirait l'état d'avant et l'écraserait.
+    fil_b.join(0.3)
+    b_lancee.set()
+    fil_a.join(10)
+    fil_b.join(10)
+
+    assert erreurs == []
+    publie = json.loads(manifest.read_text(encoding="utf-8"))
+    assert sorted(publie) == ["doc-a", "doc-b"], (
+        f"une fusion a écrasé l'autre : mise à jour perdue ({sorted(publie)})")
+    assert manifest.is_symlink() and espace.resolue_dans_lespace(manifest)
+    assert espace.residus() == []
+
+
+def test_la_generation_courante_est_lue_sous_le_verrou(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le même défaut que le fait 2, au cœur de l'espace, et plus grave.
+
+    Lire le pointeur **avant** de prendre le verrou, c'est prendre pour « inactive » la génération
+    qu'un concurrent vient de publier : la bascule la reconstruit alors de zéro depuis un état
+    périmé et la republie. Ce n'est pas seulement une mise à jour perdue, c'est une **mutation de la
+    génération active** — exactement les deux propriétés que ce tour ferme.
+
+    La contre-sonde fait basculer un concurrent entre le préflight et la prise du verrou, puis
+    vérifie qu'une surface **hors du lot** du second écrivain porte bien ce que le concurrent a
+    publié, et non ce qui la précédait.
+    """
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json", "docs/evals/latest.md"),
+                          [("data/manifest.json", "v0"), ("docs/evals/latest.md", "l0")])
+    manifest = tmp_path / "data" / "manifest.json"
+    latest = tmp_path / "docs" / "evals" / "latest.md"
+
+    concurrent_fait = {"oui": False}
+    vrai_enter = espace_module._verrou.__enter__
+
+    def _basculer_un_concurrent_puis_verrouiller(self: object) -> object:
+        if not concurrent_fait["oui"]:
+            concurrent_fait["oui"] = True
+            EspacePublie(tmp_path).basculer([(manifest, "v1"), (latest, "l1")])
+        return vrai_enter(self)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(espace_module._verrou, "__enter__", _basculer_un_concurrent_puis_verrouiller)
+
+    espace.basculer([(manifest, "v2")])
+
+    assert concurrent_fait["oui"], "la sonde n'a pas injecté de concurrent"
+    assert manifest.read_text(encoding="utf-8") == "v2"
+    assert latest.read_text(encoding="utf-8") == "l1", (
+        "la publication du concurrent a été effacée : la génération courante a été lue hors verrou")
+    assert espace.residus() == []
+
+
+def test_un_deverrouillage_qui_leve_apres_le_commit_ne_propage_rien(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fait 3 : la frontière post-commit ne s'arrête pas au `return` de la bascule.
+
+    `flock(LOCK_UN)` et `close` sont des appels système : ils peuvent lever. Appelés **après** un
+    pointeur effectivement remplacé, ils feraient remonter une exception avec le lot déjà publié —
+    « publié » et « échoué » vrais en même temps. Le verrou est donc rendu du bon côté de la
+    frontière, et sa libération reste effective : un écrivain suivant ne doit pas attendre pour
+    toujours.
+    """
+    import threading
+
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json",), [("data/manifest.json", "v0")])
+    manifest = tmp_path / "data" / "manifest.json"
+    vrai_flock = espace_module.fcntl.flock
+
+    def _flock_qui_leve_au_deverrouillage(fd: int, operation: int) -> None:
+        if operation == espace_module.fcntl.LOCK_UN:
+            raise OSError("EIO pendant flock(LOCK_UN)")
+        vrai_flock(fd, operation)
+
+    monkeypatch.setattr(espace_module.fcntl, "flock", _flock_qui_leve_au_deverrouillage)
+
+    espace.basculer([(manifest, "v1")])  # aucune exception : le commit est acquis
+
+    assert manifest.read_text(encoding="utf-8") == "v1"
+    assert manifest.is_symlink() and espace.resolue_dans_lespace(manifest)
+
+    # Le verrou a bien été rendu : fermer le descripteur suffit, et le filet le fait.
+    fini = threading.Event()
+
+    def _suivant() -> None:
+        espace.basculer([(manifest, "v2")])
+        fini.set()
+
+    fil = threading.Thread(target=_suivant, daemon=True)
+    fil.start()
+    assert fini.wait(10), "le verrou n'a pas été rendu : l'écrivain suivant attend indéfiniment"
+    assert manifest.read_text(encoding="utf-8") == "v2"
+    assert espace.residus() == []
+
+
+def test_une_interruption_a_la_sortie_de_la_section_critique_ne_propage_rien(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fait 3, variante `BaseException` : toute sortie de contexte postérieure au commit est absorbée.
+
+    Un `KeyboardInterrupt` tombant dans `_verrou.__exit__` après le commit remontait avec le lot
+    déjà basculé. La garantie porte sur **toute** la pile qui suit le point de commit, pas sur les
+    seules `OSError`.
+    """
+    import threading
+
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json",), [("data/manifest.json", "v0")])
+    manifest = tmp_path / "data" / "manifest.json"
+
+    def _sortie_interrompue(self: object, *_exc: object) -> None:
+        raise KeyboardInterrupt("interruption à la sortie de la section critique")
+
+    monkeypatch.setattr(espace_module._verrou, "__exit__", _sortie_interrompue)
+
+    espace.basculer([(manifest, "v1")])  # aucune exception, `BaseException` comprise
+
+    assert manifest.read_text(encoding="utf-8") == "v1"
+    fini = threading.Event()
+
+    def _suivant() -> None:
+        espace.basculer([(manifest, "v2")])
+        fini.set()
+
+    fil = threading.Thread(target=_suivant, daemon=True)
+    fil.start()
+    assert fini.wait(10), "le filet n'a pas rendu la section critique"
+    assert manifest.read_text(encoding="utf-8") == "v2"
+    assert espace.residus() == []
+
+
+def test_une_exception_de_verrou_avant_le_commit_remonte_sans_rien_modifier(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La symétrie du fait 3 : avant le commit, une exception de verrou **doit** remonter.
+
+    Absorber les sorties de section critique après le commit ne doit pas devenir « absorber les
+    exceptions de verrou ». Avant le commit il n'y a rien de publié qu'une exception contredirait :
+    elle remonte, et zéro cible du lot n'est modifiée sur les quatre dimensions.
+    """
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json", "docs/evals/latest.md"),
+                          [("data/manifest.json", "v0"), ("docs/evals/latest.md", "l0")])
+    cibles = [tmp_path / "data" / "manifest.json", tmp_path / "docs" / "evals" / "latest.md"]
+    avant = _etat_observable(cibles)
+    vrai_flock = espace_module.fcntl.flock
+
+    def _flock_indisponible(fd: int, operation: int) -> None:
+        if operation == espace_module.fcntl.LOCK_EX:
+            raise OSError("verrou indisponible")
+        vrai_flock(fd, operation)
+
+    monkeypatch.setattr(espace_module.fcntl, "flock", _flock_indisponible)
+
+    # Le verrou est pris **avant** le `try/finally` de la transaction — c'est ce qui permet de
+    # refuser sans rien créer. Son descripteur doit donc être rendu par la prise elle-même, sinon
+    # chaque refus fuit un descripteur, et un processus qui en refuse assez finit en `EMFILE`.
+    ouverts_avant = len(os.listdir("/dev/fd"))
+
+    with pytest.raises(OSError, match="verrou indisponible"):
+        espace.basculer([(cibles[0], "v1"), (cibles[1], "l1")])
+
+    assert len(os.listdir("/dev/fd")) <= ouverts_avant, "le descripteur du verrou non acquis a fui"
+    assert _etat_observable(cibles) == avant
+    assert espace.residus() == []
+
+
+def test_un_brouillon_abandonne_pointeur_indecidable_est_vu_par_la_sonde(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fait 4 : le renoncement prudent est juste, mais il ne doit pas être silencieux.
+
+    Quand le pointeur est **indécidable** au moment de l'abandon, `_abandonner` ne détruit rien — une
+    génération publiée effacée rendrait toutes les cibles pendantes. Mais il laissait alors la
+    génération inactive, peut-être à moitié écrite, sous son nom `a`/`b`, que `residus()` ne
+    regardait pas : un brouillon partiel devenait indiscernable d'un bundle complet, pour la sonde
+    comme pour un opérateur.
+    """
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json", "docs/evals/latest.md"),
+                          [("data/manifest.json", "v0"), ("docs/evals/latest.md", "l0")])
+    cibles = [tmp_path / "data" / "manifest.json", tmp_path / "docs" / "evals" / "latest.md"]
+    avant = _etat_observable(cibles)
+    active = espace.generation()
+    empreinte_active = {str(p.relative_to(espace.chemin)): p.read_bytes()
+                        for p in (espace.chemin / active).rglob("*") if p.is_file()}
+
+    ecrits = {"n": 0}
+    vrai_ecrire = espace_module._ecrire_dans_bundle
+
+    def _echouer_au_second_slot(chemin: Path, contenu: str) -> None:
+        ecrits["n"] += 1
+        if ecrits["n"] == 2:
+            raise OSError("panne d'écriture du brouillon")
+        vrai_ecrire(chemin, contenu)
+
+    monkeypatch.setattr(espace_module, "_ecrire_dans_bundle", _echouer_au_second_slot)
+    # Le pointeur devient indécidable au moment de conclure : `_abandonner` ne peut plus savoir
+    # quelle génération est publiée, donc il ne détruit rien — et doit laisser une trace.
+    monkeypatch.setattr(EspacePublie, "_generation_publiee", lambda self: None)
+
+    with pytest.raises(OSError, match="panne d'écriture du brouillon"):
+        espace.basculer([(cibles[0], "v1"), (cibles[1], "l1")])
+
+    monkeypatch.undo()
+    assert _etat_observable(cibles) == avant, "une cible du lot a bougé"
+    assert espace.generation() == active, "la génération active a changé"
+    assert {str(p.relative_to(espace.chemin)): p.read_bytes()
+            for p in (espace.chemin / active).rglob("*") if p.is_file()} == empreinte_active, (
+        "la génération active a été touchée par l'abandon")
+    assert espace.residus() != [], (
+        "la génération inactive est restée partielle sans qu'aucune sonde ne la voie")
+
+
+def test_un_lot_sans_racine_dont_un_rang_echoue_ne_modifie_aucune_cible(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reprise du tour : un arbre sans pointeur tient la **même propriété observable**.
+
+    Une version de `publier_artefacts` préparait ses temporaires puis enchaînait les `rename` sans
+    rien défaire, au motif qu'« un arbre sans racine n'a pas la propriété ». C'était l'affaiblissement
+    que la contre-sonde historique du typage dit depuis toujours : un `rename` réussi au rang 1 suivi
+    d'un échec au rang 2 laisse la première cible publiée.
+
+    Ici l'échec tombe au **dernier** rang écrit, et la sonde couvre aussi une cible qui n'existait
+    pas — la rétablir, c'est la faire redisparaître, pas y écrire un vide.
+    """
+    from server.ingest import artifacts
+
+    existantes = [tmp_path / nom for nom in ("document.json", "report.json", "manifest.json")]
+    for index, cible in enumerate(existantes):
+        cible.write_text(f"avant-{index}", encoding="utf-8")
+    neuve = tmp_path / "structure.json"
+    cibles = [*existantes, neuve]
+    avant = _etat_observable(cibles)
+
+    appels = {"n": 0}
+    vrai_replace = artifacts.os.replace
+
+    def _echouer_au_troisieme(source: object, cible: object) -> None:
+        appels["n"] += 1
+        if appels["n"] == 3:
+            raise OSError("panne simulée")
+        vrai_replace(source, cible)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(artifacts.os, "replace", _echouer_au_troisieme)
+
+    with pytest.raises(OSError, match="panne simulée"):
+        artifacts.publier_artefacts([(cible, f"après-{index}") for index, cible in enumerate(cibles)])
+
+    monkeypatch.undo()
+    assert _etat_observable(cibles) == avant
+    assert sorted(p.name for p in tmp_path.rglob("*") if p.name.endswith(".tmp")) == []
+
+
+def test_un_brouillon_complet_dont_le_sort_est_indecidable_est_vu_aussi(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fait 4, second volet : la marque tombe quand le brouillon est complet — elle doit revenir.
+
+    Un brouillon complet et `fsync`é n'est plus un résidu : sa marque est retirée, et c'est juste,
+    puisque la bascule suivante s'en sert comme miroir. Mais si l'échec tombe **entre** ce retrait et
+    la conclusion, et que le pointeur est alors indécidable, on ne sait plus si cette génération est
+    celle que le pointeur publie : `_abandonner` ne détruit rien — à raison — et doit **reposer** la
+    marque, faute de quoi une génération dont le sort est inconnu redevient silencieuse.
+    """
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json", "docs/evals/latest.md"),
+                          [("data/manifest.json", "v0"), ("docs/evals/latest.md", "l0")])
+    cibles = [tmp_path / "data" / "manifest.json", tmp_path / "docs" / "evals" / "latest.md"]
+    avant = _etat_observable(cibles)
+    active = espace.generation()
+
+    def _lien_temporaire_impossible(*_args: object, **_kw: object) -> None:
+        raise OSError("panne juste avant l'atome")
+
+    # `os.symlink` n'est appelé qu'après le `fsync` du brouillon et le retrait de sa marque : l'échec
+    # tombe donc sur un brouillon **complet**, à un cheveu du point de commit.
+    monkeypatch.setattr(espace_module.os, "symlink", _lien_temporaire_impossible)
+    monkeypatch.setattr(EspacePublie, "_generation_publiee", lambda self: None)
+
+    with pytest.raises(OSError, match="panne juste avant l'atome"):
+        espace.basculer([(cibles[0], "v1"), (cibles[1], "l1")])
+
+    monkeypatch.undo()
+    assert _etat_observable(cibles) == avant
+    assert espace.generation() == active, "la génération active a changé"
+    assert espace.residus() != [], (
+        "une génération dont le sort est indécidable est restée indiscernable d'un bundle complet")

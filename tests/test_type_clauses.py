@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from server.app.config import Settings
 from server.app.domain import Block, BlockRef, Document, ManifestEntry, Node, NodeRef, Report
 from server.app.domain.ingest import Check, Gate
 from server.app.llm.pricing import cost_from_usage
+from server.evals.espace import EspacePublie
 from server.ingest.artifacts import document_json
 from server.ingest.report import enrich_typing_report
 from server.ingest import type_clauses as tc
@@ -615,6 +617,108 @@ def test_un_echec_de_remplacement_restaure_tous_les_artefacts(tmp_path: Path,
         tc._atomic_artifacts({path: f"après-{index}" for index, path in enumerate(paths)}, [overlay])
     assert [path.read_text("utf-8") for path in paths] == ["avant-0", "avant-1", "avant-2"]
     assert overlay.read_text("utf-8") == "avant-3"
+
+
+def _etat_observable(cibles: list[Path]) -> dict[str, tuple[bool, str | None, str | None, str | None]]:
+    """Les quatre dimensions de l'AC : présence, contenu, type `lstat`, cible de lien.
+
+    Le même repère que les sondes de `tests/test_publication_evals.py` : comparer les octets seuls
+    laisserait passer un lien couvert remplacé par un fichier ordinaire de même contenu — ce qui est
+    exactement le fait 1 du tour de racine unique.
+    """
+    etat: dict[str, tuple[bool, str | None, str | None, str | None]] = {}
+    for cible in cibles:
+        existe = cible.is_symlink() or cible.exists()
+        try:
+            contenu: str | None = cible.read_text("utf-8")
+        except OSError:
+            contenu = None
+        if cible.is_symlink():
+            type_entree: str | None = "lien"
+            lien: str | None = os.readlink(cible)
+        elif cible.is_dir():
+            type_entree, lien = "repertoire", None
+        elif cible.exists():
+            type_entree, lien = "fichier", None
+        else:
+            type_entree, lien = None, None
+        etat[str(cible)] = (existe, contenu, type_entree, lien)
+    return etat
+
+
+def test_le_typage_ne_remplace_jamais_un_lien_couvert_par_un_fichier_ordinaire(tmp_path: Path) -> None:
+    """Fait 1 du tour de racine unique : `_atomic_artifacts` sortait le manifest du pointeur.
+
+    `os.replace(temp, path)` sur un lien symbolique le **remplace** par un fichier ordinaire. Sur
+    `data/manifest.json`, couvert par la racine de publication, une seule exécution du typage
+    suffisait : le manifest quittait le pointeur pour de bon, et la bascule suivante d'un run
+    publiait ses autres surfaces sans que le manifest en voie rien — le faux vert exact que
+    `write_atomic` documente, obtenu par un chemin qui ne l'appelait pas.
+
+    La sonde compare les **quatre dimensions** avant/après, et vérifie en plus que la génération
+    publiée n'a pas été mutée en place : c'est la différence entre « écrire à travers le lien » et
+    « passer par le protocole ».
+    """
+    espace = EspacePublie(tmp_path)
+    doc_dir = tmp_path / "data" / "contrat"
+    cibles = [doc_dir / "document.json", doc_dir / "report.json",
+              tmp_path / "data" / "manifest.json", doc_dir / "typing.manual.json"]
+    espace.installer([c.relative_to(tmp_path) for c in cibles])
+    espace.basculer([(cibles[0], "doc-avant"), (cibles[1], "rapport-avant"),
+                     (cibles[2], "manifest-avant"), (cibles[3], "overlay-avant")])
+
+    generation_avant = espace.generation()
+    slot_manifest = espace.chemin / generation_avant / "data" / "manifest.json"
+    octets_avant, inode_avant = slot_manifest.read_bytes(), os.stat(slot_manifest).st_ino
+    types_avant = {str(c): os.lstat(c).st_mode for c in cibles}
+
+    tc._atomic_artifacts({cibles[0]: "doc-après", cibles[1]: "rapport-après",
+                          cibles[2]: "manifest-après"}, [cibles[3]])
+
+    assert espace.generation() != generation_avant, "le typage doit publier, jamais muter"
+    assert slot_manifest.read_bytes() == octets_avant, "la génération publiée a été mutée en place"
+    assert os.stat(slot_manifest).st_ino == inode_avant
+    for cible in cibles:
+        assert cible.is_symlink(), f"{cible} : le lien statique a été remplacé"
+        assert os.lstat(cible).st_mode == types_avant[str(cible)]
+        assert espace.resolue_dans_lespace(cible), f"{cible} est sortie du pointeur"
+    assert cibles[0].read_text("utf-8") == "doc-après"
+    assert cibles[1].read_text("utf-8") == "rapport-après"
+    assert cibles[2].read_text("utf-8") == "manifest-après"
+    # La suppression de l'overlay est **membre du lot** : elle devient une absence par le même geste.
+    assert not cibles[3].exists()
+    assert espace.residus() == []
+
+
+def test_un_echec_du_typage_sur_un_lot_couvert_ne_laisse_aucune_cible_modifiee(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le lot du typage bascule d'un seul geste, ou pas du tout — plus aucune restauration.
+
+    La forme d'avant préparait ses temporaires, remplaçait cible par cible, puis **défaisait** sur
+    erreur en réécrivant les octets d'entrée. C'est précisément la forme que les tours correctifs
+    1/3 et 2/3 ont refusée pour les évals : un protocole qui défait ce qu'il a fait admet qu'après
+    épuisement une cible reste dans le nouvel état. Ici il n'y a rien à défaire.
+    """
+    espace = EspacePublie(tmp_path)
+    doc_dir = tmp_path / "data" / "contrat"
+    cibles = [doc_dir / "document.json", doc_dir / "report.json",
+              tmp_path / "data" / "manifest.json", doc_dir / "typing.manual.json"]
+    espace.installer([c.relative_to(tmp_path) for c in cibles])
+    espace.basculer([(cibles[0], "doc-avant"), (cibles[1], "rapport-avant"),
+                     (cibles[2], "manifest-avant"), (cibles[3], "overlay-avant")])
+    avant = _etat_observable(cibles)
+
+    from server.evals import espace as espace_module
+
+    def _boum(chemin: Path, contenu: str) -> None:
+        raise OSError("panne simulée")
+
+    monkeypatch.setattr(espace_module, "_ecrire_dans_bundle", _boum)
+    with pytest.raises(OSError, match="panne simulée"):
+        tc._atomic_artifacts({cibles[0]: "doc-après", cibles[1]: "rapport-après",
+                              cibles[2]: "manifest-après"}, [cibles[3]])
+    assert _etat_observable(cibles) == avant
+    assert espace.residus() == []
 
 
 def test_success_writes_automatic_document_removes_overlay_and_invalidates_gate(tmp_path: Path) -> None:
