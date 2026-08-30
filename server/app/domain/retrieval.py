@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .document import Block, DomainModel
 
@@ -58,6 +58,21 @@ class RetrievalResult(DomainModel):
     decision_dependency_block_ids: list[str] = Field(default_factory=list)
     discarded_block_ids: list[str] = Field(default_factory=list)
     truncated: bool = False
+
+
+class FullContextSelection(DomainModel):
+    """Sortie minimale du modèle : des identifiants, jamais des blocs inventés."""
+
+    block_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("block_ids")
+    @classmethod
+    def _uniques(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or value != value.strip() for value in values):
+            raise ValueError("block_ids exige des identifiants non blancs et trimés")
+        if len(values) != len(set(values)):
+            raise ValueError("block_ids ne peut pas contenir de doublon")
+        return values
 
 
 class NodeChild(DomainModel):

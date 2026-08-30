@@ -114,6 +114,51 @@ class ToolTurnResult:
     call: LLMCall
 
 
+def structured_request_parts(
+    *, tier: Tier, system_prefix: str, messages: list[dict[str, Any]],
+    output_model: type[T], max_tokens: int,
+    tools: list[dict[str, Any]] | None = None,
+    effort: Literal["low", "medium", "high", "max"] | None = None,
+    prompt_cache: bool = True,
+) -> tuple[dict[str, Any], TypeAdapter[T]]:
+    """Construit l'enveloppe structurée unique employée au préflight et par le client."""
+    model = model_for(tier)
+    caps = MODEL_CAPS[model]
+    adapter: TypeAdapter[T] = TypeAdapter(output_model)
+    cache_control: dict[str, Any] = {"type": "ephemeral"}
+    if caps["cache_ttl"] == "1h":
+        cache_control["ttl"] = "1h"
+    system_block: dict[str, Any] = {"type": "text", "text": system_prefix}
+    if prompt_cache:
+        system_block["cache_control"] = cache_control
+    schema = adapter.json_schema()
+    output_config: dict[str, Any] = {
+        "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)},
+    }
+    if effort is not None and not caps["effort"]:
+        raise ValueError(f"le modèle du tier {tier!r} n'accepte pas de paramètre effort")
+    if caps["effort"]:
+        output_config["effort"] = effort or EFFORT[tier]
+    return {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": [system_block],
+        "messages": list(messages),
+        "output_config": output_config,
+        "tools": tools,
+        "extra_body": {"temperature": 0} if caps["temperature"] else None,
+    }, adapter
+
+
+def structured_input_envelope(**kwargs: Any) -> str:
+    """JSON exact des champs d'entrée facturables d'un appel `parse`, hors sortie réservée."""
+    request, _adapter = structured_request_parts(**kwargs)
+    wire = {key: request[key] for key in ("system", "messages", "output_config")}
+    if request["tools"] is not None:
+        wire["tools"] = request["tools"]
+    return json.dumps(wire, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _cache_key(body: dict[str, Any]) -> str:
     payload = json.dumps(body, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -236,28 +281,21 @@ class LlmClient:
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
         effort: Literal["low", "medium", "high", "max"] | None = None,
+        prompt_cache: bool = True,
     ) -> LlmResult[T]:
         """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide."""
         settings = self._settings
-        model = model_for(tier)
-        caps = MODEL_CAPS[model]
         max_tokens = max_tokens or settings.llm_max_output_tokens
-        adapter: TypeAdapter[T] = TypeAdapter(output_model)
-
-        cache_control: dict[str, Any] = {"type": "ephemeral"}
-        if caps["cache_ttl"] == "1h":
-            cache_control["ttl"] = "1h"
-        system = [{"type": "text", "text": system_prefix, "cache_control": cache_control}]
+        request, adapter = structured_request_parts(
+            tier=tier, system_prefix=system_prefix, messages=messages,
+            output_model=output_model, max_tokens=max_tokens, tools=tools,
+            effort=effort, prompt_cache=prompt_cache)
+        model = request["model"]
+        system = request["system"]
+        output_config = request["output_config"]
+        extra_body = request["extra_body"]
         schema = adapter.json_schema()
         champs = _champs_du_schema(schema)
-        output_config: dict[str, Any] = {
-            "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)},
-        }
-        if effort is not None and not caps["effort"]:
-            raise ValueError(f"le modèle du tier {tier!r} n'accepte pas de paramètre effort")
-        if caps["effort"]:
-            output_config["effort"] = effort or EFFORT[tier]
-        extra_body = {"temperature": 0} if caps["temperature"] else None
         # Story 1.4 (reprise B5) : empreinte du préfixe facturable — modèle + système + tools + schéma de
         # sortie. Déjà vue dans la requête ⇒ l'estimation compte le préfixe au tarif `cache_read` ; notée
         # seulement après une réponse du fournisseur *qui a effectivement caché le préfixe* (un échec
@@ -289,7 +327,8 @@ class LlmClient:
                 raise BudgetExceeded(f"plafond d'appels atteint ({budget.attempts}/{budget.max_attempts})")
             estimate = estimate_cost(model, system, msgs, max_tokens, settings, tools=tools,
                                      output_schema=output_config["format"],
-                                     prefix_cached=budget.prefix_seen(prefix_digest))
+                                     prefix_cached=(prompt_cache and budget.prefix_seen(prefix_digest)),
+                                     prompt_cache=prompt_cache)
             if budget.cost_eur + estimate > budget.max_cost_eur:
                 raise BudgetExceeded(
                     f"plafond de coût par requête : {budget.cost_eur:.4f} € déjà engagés "
@@ -323,7 +362,7 @@ class LlmClient:
             budget.note_call(usage)
             self._noter_campagne(usage)
             cache_write = self._cache_write_tokens(message.usage)
-            if cache_write or usage.cached:
+            if prompt_cache and (cache_write or usage.cached):
                 # AD-9 / NFR4 (revue 1.4) : l'empreinte n'est notée que si le fournisseur a réellement
                 # écrit (ou lu) le préfixe. Un préfixe sous la taille minimale cacheable du modèle
                 # (2 048 tokens sur Haiku 4.5, 1 024 sur Sonnet/Opus) n'est jamais mis en cache : le
@@ -406,6 +445,7 @@ class LlmClient:
         budget: RequestBudget,
         step: StepTrace,
         max_tokens: int,
+        prompt_cache: bool = True,
     ) -> ToolTurnResult:
         """Un tour brut d'outils, avec les mêmes bornes, prix, cache et traces que `parse()`.
 
@@ -420,7 +460,10 @@ class LlmClient:
         cache_control: dict[str, Any] = {"type": "ephemeral"}
         if caps["cache_ttl"] == "1h":
             cache_control["ttl"] = "1h"
-        system = [{"type": "text", "text": system_prefix, "cache_control": cache_control}]
+        system_block: dict[str, Any] = {"type": "text", "text": system_prefix}
+        if prompt_cache:
+            system_block["cache_control"] = cache_control
+        system = [system_block]
         output_config = {"effort": EFFORT[tier]} if caps["effort"] else None
         extra_body = {"temperature": 0} if caps["temperature"] else None
         prefix_digest = _cache_key({"model": model, "system": system, "tools": tools})
@@ -451,7 +494,8 @@ class LlmClient:
         if budget.attempts >= budget.max_attempts:
             raise BudgetExceeded(f"plafond d'appels atteint ({budget.attempts}/{budget.max_attempts})")
         estimate = estimate_cost(model, system, messages, max_tokens, settings, tools=tools,
-                                 prefix_cached=budget.prefix_seen(prefix_digest))
+                                 prefix_cached=(prompt_cache and budget.prefix_seen(prefix_digest)),
+                                 prompt_cache=prompt_cache)
         if budget.cost_eur + estimate > budget.max_cost_eur:
             raise BudgetExceeded(
                 f"plafond de coût par requête : {budget.cost_eur:.4f} € déjà engagés "
@@ -480,7 +524,7 @@ class LlmClient:
         budget.note_call(usage)
         self._noter_campagne(usage)
         cache_write = self._cache_write_tokens(message.usage)
-        if cache_write or usage.cached:
+        if prompt_cache and (cache_write or usage.cached):
             budget.note_prefix(prefix_digest)
         call = LLMCall(model=message.model, ms=ms, usage=usage,
                        cache_read=usage.cached, cache_write=cache_write, tools=tool_names)

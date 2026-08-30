@@ -70,7 +70,7 @@ from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize, normalize_version
-from server.app.digests import pipeline_digest, prompts_digest
+from server.app.digests import harness_digest, pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
@@ -929,6 +929,8 @@ def _etapes(trace: Trace) -> list[dict[str, Any]]:
     return [{
         "name": s.name,
         "tier": s.tier,
+        "prompt_cache": s.prompt_cache,
+        "mechanism_order": s.mechanism_order,
         "cost_eur": round(sum(call.usage.cost_eur for call in s.calls), 4),
         "ms": s.ms,
         "calls": len(s.calls),
@@ -1117,11 +1119,15 @@ def document_de_la_suite(settings: Settings, suite: str) -> str:
     raise RefusDeTourner(f"suite `{suite}` sans sous-dossier documentaire")
 
 
-def variante_du_cas(cas: Cas, variante_demandee: str | None) -> str:
+def variante_du_cas(cas: Cas, variante_demandee: str | None,
+                    *, settings: Settings | None = None) -> str:
     """Résout la variante avant tout appel, en refusant les couples suite/variante impossibles."""
     suite = cas.suite.split("/", 1)[0]
     connues = VARIANTES_PAR_SUITE.get(suite, ())
-    variante = variante_demandee or DEFAUT_PAR_SUITE.get(suite, "")
+    runtime_default = (settings.retrieval_variant
+                       if suite == "guide" and settings is not None
+                       else DEFAUT_PAR_SUITE.get(suite, ""))
+    variante = variante_demandee or runtime_default
     if variante not in connues:
         raise RefusDeTourner(
             f"variante `{variante}` incompatible avec la suite `{suite}` "
@@ -1152,6 +1158,11 @@ def namespace_cache(cas: Cas, ctx: Contexte, *, doc_id: str, variant: str) -> di
         # client. Les seuils actifs couvrent en plus tout réglage de pipeline qui peut changer ce
         # corps ou la réponse sans changer l'entrée humaine.
         "parameters": {"thresholds": ctx.settings.thresholds(), "usd_eur": ctx.settings.usd_eur},
+        "retrieval_parameters": {
+            "tier": ctx.settings.retrouver_outils_tier,
+            "prompt_cache": ctx.settings.retrieval_prompt_cache,
+            "mechanism_order": list(ctx.settings.retrieval_mechanisms()),
+        },
         "variant": variant,
         "pipeline_digest": ctx.pipeline_digest_hex,
         "prompts_digest": ctx.prompts_digest_hex,
@@ -1183,7 +1194,7 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
     variantes: dict[str, str] = {}
     for c in cas:
         doc_id = c.doc_id or document_de_la_suite(ctx.settings, c.suite)
-        variante = variante_du_cas(c, variant)
+        variante = variante_du_cas(c, variant, settings=ctx.settings)
         ns = namespace_cache(c, ctx, doc_id=doc_id, variant=variante)
         namespaces[c.id] = empreinte_canonique(ns)
         variantes[c.id] = variante
@@ -1197,10 +1208,15 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
         if precedent is not None and document["dictionary_fingerprint"] is None:
             document["dictionary_fingerprint"] = precedent["dictionary_fingerprint"]
         documents[doc_id] = document
+    common_thresholds = {
+        name: value for name, value in ctx.settings.thresholds().items()
+        if name not in {"retrouver_outils_tier_reason", "retrieval_prompt_cache"}
+    }
     identite = {
         "image": {
             "pipeline_digest": ctx.pipeline_digest_hex,
             "prompts_digest": ctx.prompts_digest_hex,
+            "harness_digest": harness_digest(),
             "model_ids": dict(TIERS),
             "normalize_version": normalize_version,
             # Story 4.2b : le protocole (plancher pré-enregistré) fait partie de l'identité — deux
@@ -1221,6 +1237,23 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
         },
         "documents": dict(sorted(documents.items())),
         "cache_namespace_digests": namespaces,
+        # Projection comparable des paramètres : les deux composantes propres à la cellule sont
+        # exclues ici et publiées juste dessous dans `retrieval`; tout le reste doit être strictement
+        # identique entre les six runs avant une domination.
+        "comparison_parameters": {
+            "thresholds": common_thresholds,
+            "usd_eur": ctx.settings.usd_eur,
+        },
+        # Réglages effectivement portés par le contexte enfant. La matrice 4.4 les valide contre
+        # la cellule demandée avant de fabriquer son identité comparative : recopier le plan seul
+        # masquerait une variable d'environnement ignorée ou un défaut runtime divergent.
+        "retrieval": {
+            "variant": (next(iter(set(variantes.values())))
+                        if len(set(variantes.values())) == 1 else None),
+            "tier": ctx.settings.retrouver_outils_tier,
+            "prompt_cache": ctx.settings.retrieval_prompt_cache,
+            "mechanism_order": list(ctx.settings.retrieval_mechanisms()),
+        },
     }
     # `run_digest` = empreinte canonique de l'identité (Design Notes 4.2b). Calculé sur l'identité
     # **sans** lui-même, puis publié dedans : c'est lui que les décisions du gate référencent.
@@ -1285,7 +1318,7 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
             answer, trace = await repondre_guide(cas.question, list(cas.historique),
                                                  cas.profil or Profil(), doc_id=doc_id,
                                                  dictionnaire=ctx.dictionnaire,
-                                                 variant=variant or DEFAUT_PAR_SUITE["guide"],
+                                                 variant=variant or ctx.settings.retrieval_variant,
                                                  **commun)
         else:
             assert cas.faits is not None  # garanti par `Cas._coherence`
@@ -1312,7 +1345,7 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
     # recopiée ici vieillirait seule, et cette garde-là refuse **après** les appels facturés — elle
     # jetterait alors la namespace de cache d'une trace pourtant conforme. `variante_du_cas` sait
     # aussi qu'une suite peut porter un sous-dossier documentaire (`sinistre/axa-…`).
-    variante_attendue = variant or variante_du_cas(cas, None)
+    variante_attendue = variant or variante_du_cas(cas, None, settings=ctx.settings)
     if trace.variant != variante_attendue:
         if ctx.response_cache is not None:
             ctx.response_cache.discard_namespace()
@@ -1418,7 +1451,7 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                     f"{len(non_executes)} exécutions non exécutées",
                     resultats=resultats, non_executes=non_executes,
                     arret_budget=True, cost_eur_engaged=cumul)
-            variante = variante_du_cas(c, variant)
+            variante = variante_du_cas(c, variant, settings=ctx.settings)
             if ctx.response_cache is not None:
                 ctx.response_cache.set_namespace(namespace_cache(
                     c, ctx, doc_id=doc_id, variant=variante))
@@ -1853,6 +1886,7 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
     rapport: dict[str, Any] = {
         "schema_version": 3,
         "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "producer": producer,
         "profile": profile,
         "identity": run_identity or {
             "scope": {"profile": profile, "case_ids": [c.id for c in cas]},
@@ -2368,6 +2402,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--variant", choices=VARIANTES_LIVREES,
                    help="variante (défaut : " + ", ".join(
                        f"{suite} → {defaut}" for suite, defaut in DEFAUT_PAR_SUITE.items()) + ")")
+    p.add_argument("--compare",
+                   help="matrice 4.4 : deterministe,outils,full_context (ensemble exact)")
+    p.add_argument("--tiers", help="profils retrieval 4.4 : reason,micro (ensemble exact)")
     p.add_argument("--gate", metavar="DOC_ID",
                    help="écrire `manifest.gate` pour ce document depuis la suite qui le sert")
     p.add_argument("--repeat", type=int, default=1, metavar="N",
@@ -2433,18 +2470,24 @@ def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path
                     f"chemins en collision : {nom_a}={chemin_a} et {nom_b}={chemin_b}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, _comparison_cell: bool = False) -> int:
     """Ferme toujours les ressources persistantes, quel que soit le code de sortie de la CLI."""
     with ExitStack() as lifecycle:
-        return _main(argv, lifecycle=lifecycle)
+        return _main(argv, lifecycle=lifecycle, comparison_cell=_comparison_cell)
 
 
-def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
+def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
+          comparison_cell: bool = False) -> int:
     args = _parser().parse_args(argv)
     sortie = sys.stdout
     cas: list[Cas] = []
-    output_json = args.output_json or args.data_dir.parent / "eval-results.json"
-    output_markdown = args.output_markdown or args.data_dir.parent / "eval-results.md"
+    comparison_requested = args.compare is not None or args.tiers is not None
+    output_json = args.output_json or (
+        REPO_ROOT / "docs" / "evals" / "baselines.json" if comparison_requested
+        else args.data_dir.parent / "eval-results.json")
+    output_markdown = args.output_markdown or (
+        REPO_ROOT / "docs" / "evals" / "baselines.md" if comparison_requested
+        else args.data_dir.parent / "eval-results.md")
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
@@ -2476,8 +2519,55 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # partait sans borne, contre AD-9 et contre CLAUDE.md (« la clé **et un plafond** »).
             raise RefusDeTourner(f"plafond de run {max_cost} € : les évals tournent avec un plafond "
                                  "fini et strictement positif (CLAUDE.md, AD-9)")
+        if comparison_requested:
+            from server.evals.baselines import BaselineError, canonical_plan, run_comparison
+
+            if args.compare is None or args.tiers is None:
+                raise RefusDeTourner("--compare et --tiers sont exigés ensemble")
+            if (args.variant is not None or args.gate is not None or args.exclude_suite
+                    or args.cas is not None or args.quick or args.repeat != 1
+                    or args.orchestrator_evidence is not None or comparison_cell):
+                raise RefusDeTourner(
+                    "la matrice 4.4 refuse --variant, --gate, --exclude-suite, --case, --quick, "
+                    "--repeat et --orchestrator-evidence")
+            try:
+                plan = canonical_plan(args.compare, args.tiers, suite=args.suite)
+            except BaselineError as exc:
+                raise RefusDeTourner(str(exc)) from exc
+            if args.dry_run:
+                print("dry-run matrice 4.4 : aucun appel, aucun client et aucune écriture",
+                      file=sortie)
+                print("cellules=" + ",".join(cell.key for cell in plan)
+                      + f" budget_global={max_cost:.4f} EUR", file=sortie)
+                return 0
+            if args.producer == "orchestrator":
+                if args.max_cost is None:
+                    raise RefusDeTourner(
+                        "la matrice orchestrateur exige --max-cost explicite")
+                if args.series_kind is None or not args.series_id:
+                    raise RefusDeTourner(
+                        "la matrice orchestrateur exige --series-kind et --series-id")
+                if not settings.live_campaign_id:
+                    raise RefusDeTourner(
+                        "la matrice orchestrateur exige LIVE_CAMPAIGN_ID : preuve non vérifiable")
+            base_argv = ["--suite", "guide", "--profile", args.profile,
+                         "--producer", args.producer,
+                         "--cases-dir", str(args.cases_dir), "--data-dir", str(args.data_dir)]
+            if args.series_kind is not None:
+                base_argv.extend(["--series-kind", args.series_kind])
+            if args.series_id is not None:
+                base_argv.extend(["--series-id", args.series_id])
+            return run_comparison(
+                plan=plan, max_cost_eur=max_cost, base_argv=base_argv,
+                invoke=lambda child_argv: main(child_argv, _comparison_cell=True),
+                producer=args.producer,
+                output_json=output_json, output_markdown=output_markdown)
         if args.repeat < 1:
             raise RefusDeTourner(f"--repeat {args.repeat} : au moins une exécution par cas")
+        if comparison_cell and (
+                args.suite != "guide" or args.variant is None
+                or args.gate is not None or args.repeat != 1):
+            raise RefusDeTourner("cellule comparative interne invalide")
         # Story 4.2b : le protocole précède toute mesure. Sans plancher chargé — donc sans digest —
         # aucun run ne part : il n'y aurait rien contre quoi comparer le résultat.
         try:
@@ -2492,7 +2582,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             if args.max_cost is None:
                 raise RefusDeTourner(
                     "--producer orchestrator exige --max-cost explicite (borne locale par run)")
-            if args.repeat < charge_plancher.plancher.n_minimum:
+            if (not comparison_cell
+                    and args.repeat < charge_plancher.plancher.n_minimum):
                 raise RefusDeTourner(
                     f"--producer orchestrator exige --repeat >= "
                     f"{charge_plancher.plancher.n_minimum}")
@@ -2563,9 +2654,9 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                  f"dans {args.cases_dir}{' (suites ' + ', '.join(suites) + ')' if suites else ''}")
         # Compatibilité fermée avant contexte/client : un couple impossible ne peut rien facturer.
         for c in cas:
-            variante_du_cas(c, args.variant)
+            variante_du_cas(c, args.variant, settings=settings)
         if args.gate and args.variant is not None and any(
-                args.variant != variante_du_cas(c, None) for c in cas):
+                args.variant != variante_du_cas(c, None, settings=settings) for c in cas):
             raise RefusDeTourner(
                 f"--gate refuse la variante explicite `{args.variant}` : le gate doit mesurer "
                 "la variante servie par défaut")
@@ -2627,7 +2718,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             print("dry-run : aucun appel, aucun client et aucune écriture", file=sortie)
             print(f"profil={args.profile} gate={args.gate or '-'} cas={len(cas)} "
                   f"suites={','.join(suites or sorted({c.suite for c in cas}))} "
-                  f"variantes={','.join(sorted({variante_du_cas(c, args.variant) for c in cas}))} "
+                  f"variantes={','.join(sorted({variante_du_cas(c, args.variant, settings=settings) for c in cas}))} "
                   f"ids={','.join(c.id for c in cas)} plafond={max_cost:.4f} EUR", file=sortie)
             print(f"plancher_digest={charge_plancher.digest} repeat={args.repeat} "
                   f"majorant_estime={majorant_estime:.4f} EUR "
@@ -2642,6 +2733,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 "image": {
                     "pipeline_digest": pipeline_digest(),
                     "prompts_digest": prompts_digest(),
+                    "harness_digest": harness_digest(),
                     "model_ids": dict(TIERS),
                     "normalize_version": normalize_version,
                     "plancher_digest": charge_plancher.digest,
@@ -2652,7 +2744,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                     "repeat": args.repeat,
                     "case_ids": [c.id for c in cas],
                     "suites": sorted({c.suite for c in cas}),
-                    "variants": {c.id: variante_du_cas(c, args.variant) for c in cas},
+                    "variants": {c.id: variante_du_cas(c, args.variant, settings=settings)
+                                 for c in cas},
                     "references_digest": references_digest,
                     "campaign_id": settings.live_campaign_id,
                     "series_kind": args.series_kind,
@@ -2660,6 +2753,12 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 },
                 "documents": {},
                 "cache_namespace_digests": {},
+                "retrieval": {
+                    "variant": args.variant,
+                    "tier": settings.retrouver_outils_tier,
+                    "prompt_cache": settings.retrieval_prompt_cache,
+                    "mechanism_order": list(settings.retrieval_mechanisms()),
+                },
                 "preflight_refused": True,
             }
             identite_refus["run_digest"] = empreinte_canonique(identite_refus)

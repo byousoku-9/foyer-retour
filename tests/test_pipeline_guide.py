@@ -154,7 +154,7 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
                settings: Settings | None = None, budget: RequestBudget | None = None,
                question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None,
-               dictionnaire: Any = None, variant: str = "deterministe"):
+               dictionnaire: Any = None, variant: str | None = "deterministe"):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
@@ -359,6 +359,48 @@ async def test_variante_outils_keeps_its_failed_call_in_the_partial_trace(index:
     assert trace is not None and trace.variant == "outils"
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
     assert len(trace.steps[-1].calls) == 1
+
+
+async def test_full_context_traverses_the_real_pipeline_and_publishes_its_trace(index: Index) -> None:
+    selection = fake_message(
+        model=TIERS["micro"], text=json.dumps({"block_ids": [f"{DOC_ID}:f1:2"]}))
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), selection,
+                _rediger(BONNE), _verdicts(("c1", True))],
+        variant="full_context")
+
+    assert answer.found is True and fake.remaining_script == 0
+    assert trace.variant == "full_context"
+    retrieval = next(step for step in trace.steps if step.name == "retrouver")
+    assert retrieval.opened_block_ids == [f"{DOC_ID}:f1:2"]
+    assert len(retrieval.calls) == 1 and retrieval.calls[0].tier == "micro"
+
+
+async def test_direct_pipeline_without_variant_uses_runtime_versioned_setting(index: Index) -> None:
+    selection = fake_message(
+        model=TIERS["micro"], text=json.dumps({"block_ids": [f"{DOC_ID}:f1:2"]}))
+    _answer, trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), selection,
+                _rediger(BONNE), _verdicts(("c1", True))],
+        settings=_settings(retrieval_variant="full_context"), variant=None)
+    assert trace.variant == "full_context" and fake.remaining_script == 0
+
+
+async def test_full_context_preflight_incident_keeps_partial_pipeline_trace(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app.steps import retrouver as retrieval_module
+
+    caps = dict(retrieval_module.MODEL_CAPS[TIERS["micro"]])
+    monkeypatch.setitem(
+        retrieval_module.MODEL_CAPS, TIERS["micro"], {**caps, "context_window": 1})
+    with pytest.raises(BudgetExceeded) as capture:
+        await _run(index, [_comprendre(terms=["arrivée"])], variant="full_context")
+
+    trace = capture.value.trace
+    assert trace is not None and trace.variant == "full_context"
+    assert [step.name for step in trace.steps] == ["comprendre", "retrouver"]
+    assert trace.steps[-1].calls == []
+    assert trace.steps[-1].opened_block_ids == []
 
 
 async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None:

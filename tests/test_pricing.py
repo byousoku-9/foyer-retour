@@ -155,3 +155,13 @@ def test_estimate_cost_counts_the_output_schema() -> None:
     with_schema = pricing.estimate_cost(HAIKU, "sys", [{"role": "user", "content": "q"}], 100, s,
                                         output_schema=schema)
     assert with_schema > base
+
+
+def test_no_prompt_cache_prices_the_prefix_as_plain_input() -> None:
+    s = _settings(estimate_chars_per_token=4.0, estimate_tokenizer_factor=1.0, usd_eur=1.0)
+    system = "a" * 4000
+    uncached = pricing.estimate_cost(
+        HAIKU, system, [], 0, s, prompt_cache=False, prefix_cached=True)
+    cached_write = pricing.estimate_cost(HAIKU, system, [], 0, s)
+    assert uncached == round(1000 * 1.0 / 1e6, 4)
+    assert cached_write == round(1000 * 1.25 / 1e6, 4)

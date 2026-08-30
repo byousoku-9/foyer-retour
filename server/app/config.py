@@ -6,15 +6,46 @@ ils sont exposés dans `Trace.thresholds` via `Settings.thresholds()` et se règ
 
 from __future__ import annotations
 
+import json
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class RetrievalDefault:
+    variant: str
+    tier: str
+    prompt_cache: bool
+
+
+def load_retrieval_default(path: Path) -> RetrievalDefault:
+    """Lit strictement le triplet versionné, sans repli silencieux."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"défaut retrieval illisible ({path}) : {exc}") from exc
+    expected = {"variant", "tier", "prompt_cache"}
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ValueError("défaut retrieval : champs exacts variant, tier, prompt_cache attendus")
+    if value["variant"] not in {"deterministe", "outils", "full_context"}:
+        raise ValueError(f"défaut retrieval : variant invalide {value['variant']!r}")
+    if value["tier"] not in {"reason", "micro"}:
+        raise ValueError(f"défaut retrieval : tier invalide {value['tier']!r}")
+    if type(value["prompt_cache"]) is not bool:
+        raise ValueError("défaut retrieval : prompt_cache doit être un booléen JSON")
+    return RetrievalDefault(**value)
+
+
+RETRIEVAL_DEFAULT_PATH = REPO_ROOT / "data" / "retrieval-default.json"
+RETRIEVAL_DEFAULT = load_retrieval_default(RETRIEVAL_DEFAULT_PATH)
 
 # Nombre maximal d'éléments des trois listes que *comprendre* fait rendre au modèle (`terms`,
 # `themes`, `facettes`). Revue Codex 2.1 (M3), puis 2.2 (I2) : la valeur vivait en dur dans
@@ -210,7 +241,15 @@ class Settings(BaseSettings):
     max_llm_turns: int = Field(2, ge=1, le=2)
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
-    retrouver_outils_tier: Literal["micro", "reason"] = "micro"
+    # Le triplet servi vient d'un artefact versionné unique. Les champs restent surchargeables par
+    # environnement pour qu'une cellule d'éval exécute ses réglages sans réécrire le défaut.
+    # Une nouvelle instance relit l'artefact : après promotion atomique, HTTP, pipeline direct et
+    # runner convergent au prochain démarrage/chargement sans dépendre d'une constante importée
+    # avant la publication. Les variables d'environnement gardent leur priorité Pydantic normale.
+    retrieval_variant: Literal["deterministe", "outils", "full_context"] = RETRIEVAL_DEFAULT.variant
+    retrouver_outils_tier: Literal["micro", "reason"] = RETRIEVAL_DEFAULT.tier
+    retrieval_prompt_cache: bool = RETRIEVAL_DEFAULT.prompt_cache
+    retrieval_mechanism_order: str = "dictionnaire,faq,sommaire,outils"
     # Story 4.2b : surcharges de tier **par étape**, pour que la matrice baseline (`micro`/`reason`
     # par étape) soit exécutable à paramètres épinglés au lieu d'exiger une édition de code. Les
     # défauts sont l'affectation d'AD-9 (`STEP_TIERS`) ; la valeur active est publiée dans
@@ -580,6 +619,19 @@ class Settings(BaseSettings):
     fetch_timeout_s: float = Field(30.0, gt=0)
     metadata_timeout_s: float = Field(2.0, gt=0)  # serveur de métadonnées GCP (jeton du repli gs://)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _versioned_retrieval_default(cls, value: Any) -> Any:
+        """Injecte d'un seul snapshot le triplet absent après résolution de l'environnement."""
+        if not isinstance(value, dict):
+            return value
+        default = load_retrieval_default(RETRIEVAL_DEFAULT_PATH)
+        resolved = dict(value)
+        resolved.setdefault("retrieval_variant", default.variant)
+        resolved.setdefault("retrouver_outils_tier", default.tier)
+        resolved.setdefault("retrieval_prompt_cache", default.prompt_cache)
+        return resolved
+
     @model_validator(mode="after")
     def _coherence(self) -> Settings:
         if self.llm_timeout_s >= self.deadline_s:
@@ -592,6 +644,11 @@ class Settings(BaseSettings):
             # `RetrievalBudget` invalide à la première question (revue coordonnée 2.3, A4).
             raise ValueError(f"profil_max_opens ({self.profil_max_opens}) doit être < max_opens "
                              f"({self.max_opens}) : le profil ordonne, il ne remplace pas la question")
+        mecanismes = tuple(part.strip() for part in self.retrieval_mechanism_order.split(","))
+        if (len(mecanismes) != 4 or len(set(mecanismes)) != 4
+                or set(mecanismes) != {"dictionnaire", "faq", "sommaire", "outils"}):
+            raise ValueError("retrieval_mechanism_order doit contenir exactement, sans doublon, "
+                             "dictionnaire,faq,sommaire,outils")
         if self.header_caps_max_size_pt >= self.title_min_size_pt:
             raise ValueError(f"header_caps_max_size_pt ({self.header_caps_max_size_pt}) doit être "
                              f"< title_min_size_pt ({self.title_min_size_pt})")
@@ -632,6 +689,10 @@ class Settings(BaseSettings):
             self.allow_ungated = True
         return self
 
+    def retrieval_mechanisms(self) -> tuple[str, ...]:
+        """Ordre effectif des mécanismes, distinct de tout classement interne des hits."""
+        return tuple(part.strip() for part in self.retrieval_mechanism_order.split(","))
+
     def thresholds(self) -> dict[str, float | int]:
         """Seuils actifs, tels qu'exposés dans `Trace.thresholds`."""
         return {
@@ -670,6 +731,7 @@ class Settings(BaseSettings):
             "rediger_tier_reason": int(self.rediger_tier == "reason"),
             "verifier_tier_reason": int(self.verifier_tier == "reason"),
             "retrouver_outils_tier_reason": int(self.retrouver_outils_tier == "reason"),
+            "retrieval_prompt_cache": int(self.retrieval_prompt_cache),
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,

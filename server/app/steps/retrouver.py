@@ -47,14 +47,15 @@ from typing import Any
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, forme
-from server.app.corpus.index import Index
+from server.app.corpus.index import Index, reading_order
 from server.app.corpus.loader import Corpus
-from server.app.domain import Block, RetrievalBudget, RetrievalResult
+from server.app.domain import Block, FullContextSelection, RetrievalBudget, RetrievalResult, is_citable
 from server.app.domain.answer import DemandeContexte
-from server.app.domain.errors import PipelineError
+from server.app.domain.errors import BudgetExceeded, LlmParse, PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace
-from server.app.llm.models import STEP_TIERS
+from server.app.llm.client import structured_input_envelope
+from server.app.llm.models import MODEL_CAPS, STEP_TIERS, model_for
 from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import render_prompt, untrusted
 
@@ -224,16 +225,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     t0 = time.monotonic()
     # L'amendement 2.6 autorise explicitement l'arbitrage du tier de navigation. Le déterministe
     # conserve l'affectation historique `reason`; la variante appelée publie son tier réel.
-    step = StepTrace(name="retrouver", tier=settings.retrouver_outils_tier)
+    mechanisms = settings.retrieval_mechanisms()
+    step = StepTrace(name="retrouver", tier=settings.retrouver_outils_tier,
+                     prompt_cache=settings.retrieval_prompt_cache,
+                     mechanism_order=list(mechanisms))
     if doc_id not in corpus.documents:
         raise KeyError(doc_id)
     document = corpus.documents[doc_id]
     terms = parsed.termes_de_recherche()
     elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
-    prompt = render_prompt(
-        "retrouver", doc_id=doc_id, max_llm_turns=budget.max_llm_turns,
-        max_opens=budget.max_opens, profil_max_opens=budget.profil_max_opens,
-        sommaire=untrusted("sommaire", index.sommaire(doc_id)))
+    dictionary_ready = False
+    faq_candidates = (dictionnaire.faq_candidates(parsed.question_resolue, doc_id=doc_id)
+                      if dictionnaire is not None else [])
+    summary_ready = False
+
+    def navigation_prompt() -> str:
+        return render_prompt(
+            "retrouver", doc_id=doc_id, max_llm_turns=budget.max_llm_turns,
+            max_opens=budget.max_opens, profil_max_opens=budget.profil_max_opens,
+            sommaire=untrusted(
+                "sommaire", index.sommaire(doc_id) if summary_ready else ""))
     question = {
         "question_resolue": parsed.question_resolue,
         "termes": terms,
@@ -249,10 +260,12 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     window_opened: list[str] = []
     primary_node_by_block: dict[str, str] = {}
     search_candidates: list[str] = []
+    tool_search_candidates: list[str] = []
     search_runs: list[list[str]] = []
     related_cache: dict[str, list[str]] = {}
     decision_dependencies: list[str] = []
     searched_terms: list[str] = []
+    dictionary_searched_terms: list[str] = []
     blocks_used = 0
     tokens_used = 0
     opens = 0
@@ -305,7 +318,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         truncated = True
         return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
 
-    def execute(name: str, args: object) -> tuple[dict[str, Any], bool]:
+    def execute(name: str, args: object, *, mechanism: bool = False) -> tuple[dict[str, Any], bool]:
         nonlocal opens, truncated
         if not isinstance(args, dict):
             return invalid()
@@ -318,11 +331,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if set(args) != {"termes"} or not termes:
                 return invalid()
             mapping: dict[str, list[str]] | list[str] = termes
-            if elargi:
+            if dictionary_ready:
                 mapping = dictionnaire.expand(termes)
             for terme in termes:
                 if forme(terme) not in {forme(t) for t in searched_terms}:
                     searched_terms.append(terme)
+                if (dictionary_ready
+                        and forme(terme) not in {forme(t) for t in dictionary_searched_terms}):
+                    dictionary_searched_terms.append(terme)
             hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id)
             search_truncated = len(hits) > budget.search_limit
             if search_truncated:
@@ -331,6 +347,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             for block_id, _node_id in hits:
                 if block_id not in search_candidates:
                     search_candidates.append(block_id)
+                if not mechanism and block_id not in tool_search_candidates:
+                    tool_search_candidates.append(block_id)
             search_runs.append([block_id for block_id, _node_id in hits])
             return {"candidats": [{"block_id": b, "node_id": n} for b, n in hits],
                     "truncated": search_truncated}, False
@@ -456,58 +474,97 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return invalid()
 
     used_tools = False
-    for turn in range(budget.max_llm_turns):
-        try:
-            result = await client.tool_turn(
-                tier=settings.retrouver_outils_tier, system_prefix=prompt,
-                messages=messages, tools=OUTILS_RECHERCHE,
-                budget=request_budget, step=step, max_tokens=settings.retrouver_outils_max_tokens)
-        except PipelineError as exc:
-            # Comme les autres étapes LLM : l'appel éventuellement commencé et son coût doivent
-            # survivre dans la trace partielle de l'erreur terminale.
-            step.ms = int((time.monotonic() - t0) * 1000)
-            exc.step = step
-            raise
-        if result.message.stop_reason in {"max_tokens", "refusal", "pause_turn"}:
-            truncated = True
-        tool_uses = [b for b in result.message.content if getattr(b, "type", None) == "tool_use"]
-        if not tool_uses:
-            # Un `end_turn` au second tour peut conclure honnêtement une recherche sans hit ; la
-            # couverture canonique réellement observée décide alors seule de la complétude.
-            if turn == 0:
+
+    async def navigate() -> None:
+        nonlocal truncated, used_tools
+        # Les candidats FAQ ne deviennent visibles au navigateur qu'une fois le mécanisme FAQ
+        # franchi. Cela rend notamment `outils → FAQ` distinct de `FAQ → outils`.
+        if faq_candidates and "faq_candidates" in question:
+            messages[0] = {
+                "role": "user",
+                "content": untrusted(
+                    "question_resolue", json.dumps(question, ensure_ascii=False)),
+            }
+        prompt = navigation_prompt()
+        for turn in range(budget.max_llm_turns):
+            try:
+                result = await client.tool_turn(
+                    tier=settings.retrouver_outils_tier, system_prefix=prompt,
+                    messages=messages, tools=OUTILS_RECHERCHE,
+                    budget=request_budget, step=step,
+                    max_tokens=settings.retrouver_outils_max_tokens,
+                    prompt_cache=settings.retrieval_prompt_cache)
+            except PipelineError as exc:
+                # Comme les autres étapes LLM : l'appel éventuellement commencé et son coût doivent
+                # survivre dans la trace partielle de l'erreur terminale.
+                step.ms = int((time.monotonic() - t0) * 1000)
+                exc.step = step
+                raise
+            if result.message.stop_reason in {"max_tokens", "refusal", "pause_turn"}:
                 truncated = True
-            break
-        used_tools = True
-        tool_results: list[dict[str, Any]] = []
-        for use in tool_uses:
-            payload, is_error = execute(str(use.name), use.input)
-            content = untrusted("resultat_outil", json.dumps(payload, ensure_ascii=False, sort_keys=True))
-            item: dict[str, Any] = {"type": "tool_result", "tool_use_id": str(use.id), "content": content}
-            if is_error:
-                item["is_error"] = True
-            tool_results.append(item)
-        # Le premier tour nominal regroupe recherche et ouvertures. Si des blocs sont admis et
-        # qu'aucun curseur ne reste à suivre, un second appel ne peut qu'alourdir le chemin froid :
-        # `RetrievalResult` est déjà prêt pour la chaîne commune.
-        if turn == 0 and admitted and not pagination_expected:
-            break
-        if turn + 1 < budget.max_llm_turns:
-            messages.extend([
-                {"role": "assistant", "content": _content_json(result.message)},
-                {"role": "user", "content": tool_results},
-            ])
+            tool_uses = [
+                b for b in result.message.content if getattr(b, "type", None) == "tool_use"
+            ]
+            if not tool_uses:
+                # Un `end_turn` au second tour peut conclure honnêtement une recherche sans hit ; la
+                # couverture canonique réellement observée décide alors seule de la complétude.
+                if turn == 0:
+                    truncated = True
+                break
+            used_tools = True
+            tool_results: list[dict[str, Any]] = []
+            for use in tool_uses:
+                payload, is_error = execute(str(use.name), use.input)
+                content = untrusted(
+                    "resultat_outil", json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                item: dict[str, Any] = {
+                    "type": "tool_result", "tool_use_id": str(use.id), "content": content,
+                }
+                if is_error:
+                    item["is_error"] = True
+                tool_results.append(item)
+            # Le premier tour nominal regroupe recherche et ouvertures. Si des blocs sont admis et
+            # qu'aucun curseur ne reste à suivre, un second appel ne peut qu'alourdir le chemin froid.
+            if turn == 0 and admitted and not pagination_expected:
+                break
+            if turn + 1 < budget.max_llm_turns:
+                messages.extend([
+                    {"role": "assistant", "content": _content_json(result.message)},
+                    {"role": "user", "content": tool_results},
+                ])
+
+    # Les mécanismes sont des phases, et non un tri global des hits. Chaque phase conserve l'ordre
+    # interne produit par l'index ou le dictionnaire ; seule leur concaténation suit la configuration.
+    for mechanism in mechanisms:
+        if mechanism == "dictionnaire":
+            dictionary_ready = elargi
+        elif mechanism == "faq":
+            if faq_candidates:
+                question["faq_candidates"] = list(faq_candidates)
+        elif mechanism == "sommaire":
+            summary_ready = True
+            # Ajoute les candidats lexicaux dans leur ordre de score sans les ouvrir à la place du
+            # navigateur. Si le dictionnaire a déjà préparé les formes, la recherche les emploie.
+            if terms:
+                execute("chercher", {"termes": terms}, mechanism=True)
+        elif mechanism == "outils":
+            await navigate()
     expected_search = canonical_forms(terms)
     covered_search = canonical_forms(searched_terms)
     # Un refus `zero_hit` n'est honnête que si au moins un terme canonique existait et si les
     # recherches réellement exécutées les ont tous couverts. Une recherche vide, inventée ou
     # partielle ne devient jamais une preuve d'absence.
     absence_proven = bool(expected_search) and expected_search <= covered_search
-    if not used_tools or (not admitted and (search_candidates or not absence_proven)):
+    if (not used_tools and not admitted) or (
+            not admitted and (search_candidates or not absence_proven)):
         truncated = True
     if pagination_expected:
         truncated = True
 
-    discarded = [b for b in search_candidates if b not in admitted_set]
+    # AD-10 réserve cette liste aux candidats explicitement rendus par `chercher` au navigateur.
+    # Les candidats préparés par la phase sommaire restent disponibles pour la navigation, mais ne
+    # sont pas réétiquetés a posteriori comme un choix du modèle de ne pas les ouvrir.
+    discarded = [b for b in tool_search_candidates if b not in admitted_set]
     if candidats_out is not None:
         candidats_out.extend(b for b in search_candidates if b not in candidats_out)
     result = RetrievalResult(
@@ -542,16 +599,186 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             name="candidats_non_ouverts", ok=False,
             detail=f"{len(discarded)} candidat(s) de chercher non lu(s) par le navigateur ; "
                    "choix de navigation distinct d'une troncature"))
-    if elargi and searched_terms:
-        searched_expanded = dictionnaire.expand(searched_terms)
-        base = {forme(t) for t in searched_terms} - {""}
+    if faq_candidates:
+        step.checks.append(CheckResult(
+            name="faq", ok=True,
+            detail=f"{len(faq_candidates)} nœud(s) candidat(s) traité(s) selon l'ordre configuré"))
+    if dictionary_searched_terms:
+        searched_expanded = dictionnaire.expand(dictionary_searched_terms)
+        base = {forme(t) for t in dictionary_searched_terms} - {""}
         touches = sum(1 for variantes in searched_expanded.values()
                       if any(v and v not in base for v in variantes))
         step.checks.append(CheckResult(
             name="dictionnaire", ok=True,
-            detail=f"{dictionnaire.variants_count(searched_terms)} variante(s) ajoutée(s) "
+            detail=f"{dictionnaire.variants_count(dictionary_searched_terms)} variante(s) ajoutée(s) "
                    f"à {touches} terme(s)"))
     return result, step
+
+
+async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
+                                 budget: RetrievalBudget, settings: Settings, client: Any,
+                                 request_budget: Any, doc_id: str,
+                                 dictionnaire: Dictionnaire | None = None,
+                                 candidats_out: list[str] | None = None,
+                                 ) -> tuple[RetrievalResult, StepTrace]:
+    """Sélection LLM sur le sommaire et tous les passages citables du guide.
+
+    Tout le corpus statique vit dans le préfixe cacheable. Le message utilisateur ne transporte
+    que la question résolue, ses termes et sa portée. L'enveloppe froide complète est refusée avant
+    le client si elle ne tient pas dans la fenêtre réelle du modèle choisi.
+    """
+    t0 = time.monotonic()
+    step = StepTrace(name="retrouver", tier=settings.retrouver_outils_tier,
+                     prompt_cache=settings.retrieval_prompt_cache,
+                     mechanism_order=list(settings.retrieval_mechanisms()))
+
+    def failure(exc: PipelineError) -> PipelineError:
+        """Tout refus de la variante conserve la trace de l'étape qui l'a produit."""
+        step.ms = int((time.monotonic() - t0) * 1000)
+        exc.step = step
+        return exc
+
+    if doc_id not in corpus.documents:
+        raise KeyError(doc_id)
+    document = corpus.documents[doc_id]
+    ordered = [document.block(block_id) for block_id, _node_id in reading_order(document)
+               if is_citable(document.block(block_id))]
+    serialized = "\n\n".join(
+        json.dumps({"block_id": block.block_id, "text": block.text}, ensure_ascii=False,
+                   sort_keys=True) for block in ordered)
+    prompt = render_prompt(
+        "retrouver_full_context", doc_id=doc_id,
+        sommaire=untrusted("sommaire", index.sommaire(doc_id)),
+        passages=untrusted("passages", serialized))
+    question = {
+        "question_resolue": parsed.question_resolue,
+        "termes": parsed.termes_de_recherche(),
+        "scope": parsed.scope.model_dump(mode="json"),
+    }
+    messages = [{"role": "user", "content": untrusted(
+        "question_resolue", json.dumps(question, ensure_ascii=False, sort_keys=True))}]
+    max_tokens = settings.retrouver_outils_max_tokens
+    model = model_for(settings.retrouver_outils_tier)
+    # Même enveloppe structurée que `LlmClient.parse` : blocs système (et cache_control éventuel),
+    # messages et schéma Anthropic transformé/output_config. Toute évolution du client modifie donc
+    # le préflight au même endroit, au lieu de recréer ici une approximation plus petite.
+    envelope = structured_input_envelope(
+        tier=settings.retrouver_outils_tier, system_prefix=prompt, messages=messages,
+        output_model=FullContextSelection, max_tokens=max_tokens,
+        prompt_cache=settings.retrieval_prompt_cache)
+    input_tokens = estimate_tokens(envelope, settings)
+    context_window = int(MODEL_CAPS[model]["context_window"])
+    if input_tokens + max_tokens > context_window:
+        raise failure(BudgetExceeded(
+            f"full_context hors enveloppe du modèle {model} : entrée majorée {input_tokens} "
+            f"+ sortie réservée {max_tokens} > contexte {context_window}"))
+    try:
+        response = await client.parse(
+            tier=settings.retrouver_outils_tier, system_prefix=prompt, messages=messages,
+            output_model=FullContextSelection, budget=request_budget, step=step,
+            max_tokens=max_tokens, prompt_cache=settings.retrieval_prompt_cache)
+    except PipelineError as exc:
+        raise failure(exc)
+    known = {block.block_id: block for block in ordered}
+    unknown = [block_id for block_id in response.parsed.block_ids if block_id not in known]
+    if unknown:
+        raise failure(LlmParse(
+            f"full_context a rendu {len(unknown)} block_id absent(s) ou non citables"))
+    requested = set(response.parsed.block_ids)
+    if candidats_out is not None:
+        candidats_out.extend(
+            block_id for block_id in response.parsed.block_ids if block_id not in candidats_out)
+    # Le modèle sélectionne un ensemble d'IDs ; il ne décide jamais de l'ordre documentaire. Les
+    # objets sont résolus depuis le corpus et restent dans l'ordre de lecture canonique.
+    selected_ids = [block.block_id for block in ordered if block.block_id in requested]
+
+    def block(block_id: str) -> Block:
+        if index.doc_of(block_id) != doc_id:
+            raise KeyError(block_id)
+        return document.block(block_id)
+
+    # `max_opens` borne les nœuds primaires choisis par le modèle, exactement comme les fenêtres
+    # des deux autres variantes. Plusieurs passages du même nœud ne consomment qu'une ouverture.
+    primary_nodes: list[str] = []
+    admitted_primary_ids: list[str] = []
+    discarded: list[str] = []
+    for block_id in selected_ids:
+        node_id = document.node_of(block_id)
+        if node_id not in primary_nodes:
+            if len(primary_nodes) >= budget.max_opens:
+                discarded.append(block_id)
+                continue
+            primary_nodes.append(node_id)
+        if node_id in primary_nodes:
+            admitted_primary_ids.append(block_id)
+    allowed_nodes = set(primary_nodes)
+    # Les autres passages sélectionnés appartenant à un nœud déjà écarté sont eux aussi rejetés.
+    for block_id in selected_ids:
+        if document.node_of(block_id) not in allowed_nodes and block_id not in discarded:
+            discarded.append(block_id)
+
+    related_cache: dict[str, list[str]] = {}
+    dependencies_by_primary: dict[str, list[str]] = {}
+    units: list[list[str]] = []
+    for block_id in admitted_primary_ids:
+        dependencies = _dependances_directes(
+            block_id, block=block, index=index, terms=parsed.termes_de_recherche(),
+            doc_id=doc_id, search_candidates=selected_ids,
+            related_limit=budget.search_limit, related_max=settings.limite_liee_max,
+            proximity_min=settings.limite_liee_proximite_min,
+            related_cache=related_cache, search_related=True)
+        units.append([block_id, *dependencies])
+        if block(block_id).kind in {"garantie", "exclusion"}:
+            dependencies_by_primary[block_id] = dependencies
+
+    # Une unité primaire+dépendances entre entièrement ou pas du tout. Les unités ultérieures sont
+    # encore essayées : une première unité trop grande ne doit pas gaspiller le budget résiduel.
+    admitted: set[str] = set()
+    blocks_used = 0
+    tokens_used = 0
+    truncated = bool(discarded)
+    admitted_primaries: list[str] = []
+    for unit in units:
+        new: list[str] = []
+        for candidate in unit:
+            if candidate not in admitted and candidate not in new:
+                new.append(candidate)
+        token_cost = sum(estimate_tokens(f"{candidate}\n{block(candidate).text}", settings)
+                         for candidate in new)
+        if budget.max_blocks is not None and blocks_used + len(new) > budget.max_blocks:
+            truncated = True
+            if unit[0] not in admitted and unit[0] not in discarded:
+                discarded.append(unit[0])
+            continue
+        if budget.max_tokens is not None and tokens_used + token_cost > budget.max_tokens:
+            truncated = True
+            if unit[0] not in admitted and unit[0] not in discarded:
+                discarded.append(unit[0])
+            continue
+        blocks_used += len(new)
+        tokens_used += token_cost
+        admitted.update(new)
+        admitted_primaries.append(unit[0])
+
+    opened: list[str] = []
+    for block_id in (*admitted_primaries, *(candidate for unit in units for candidate in unit[1:])):
+        if block_id in admitted and block_id not in opened:
+            opened.append(block_id)
+    decision_dependencies: list[str] = []
+    for primary, dependencies in dependencies_by_primary.items():
+        if primary not in admitted:
+            continue
+        decision_dependencies.extend(candidate for candidate in dependencies
+                                     if candidate in admitted
+                                     and candidate not in decision_dependencies)
+    step.ms = int((time.monotonic() - t0) * 1000)
+    step.opened_block_ids = list(opened)
+    step.discarded_block_ids = list(discarded)
+    return RetrievalResult(
+        blocs=[block(block_id) for block_id in opened], opened_block_ids=opened,
+        opened_node_ids=_noeuds_des_blocs(opened, corpus=corpus, index=index),
+        decision_dependency_block_ids=decision_dependencies,
+        discarded_block_ids=discarded, truncated=truncated), step
 
 
 def _reserver(nodes: list[str], noeuds_prioritaires: Iterable[str] | None, max_opens: int,
@@ -656,20 +883,47 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # que pour le document dont il porte l'empreinte. Une recherche sans `doc_id` — sur tout le
     # corpus — n'élargit donc rien, et le vocabulaire du guide ne peut pas ouvrir des blocs de contrat.
     elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
-    cherches = dictionnaire.expand(terms) if elargi else terms
-    hits = (index.chercher(cherches, limit=budget.search_limit, doc_id=doc_id,
-                           kinds_prioritaires=kinds_prioritaires) if terms else [])
-    if candidats_out is not None:
-        candidats_out.extend(b for b, _ in hits if b not in candidats_out)
-
-    # Nœuds candidats par score : ordre de première apparition dans les hits (déjà triés par score,
-    # puis ordre de lecture) ; la fenêtre de chaque nœud contient son meilleur hit (AD-1).
+    faq_nodes = (dictionnaire.faq_candidates(parsed.question_resolue, doc_id=doc_id)
+                 if dictionnaire is not None else [])
+    mechanisms = settings.retrieval_mechanisms()
+    dictionary_ready = False
+    expanded_search: dict[str, list[str]] | None = None
+    hits: list[tuple[str, str]] = []
+    # Nœuds candidats par phase puis, à l'intérieur de chaque phase, dans l'ordre propre de la
+    # source. Il n'y a aucun retri global des hits documentaires.
     nodes: list[str] = []
     best_hit: dict[str, str] = {}
-    for block_id, node_id in hits:
-        if node_id not in best_hit:
-            best_hit[node_id] = block_id
-            nodes.append(node_id)
+    for mechanism in mechanisms:
+        if mechanism == "dictionnaire":
+            dictionary_ready = elargi
+        elif mechanism == "faq":
+            for node_id in faq_nodes:
+                if node_id in best_hit:
+                    continue
+                try:
+                    window = index.ouvrir_noeud(node_id, node_window=1)
+                except (KeyError, ValueError):
+                    continue
+                if window.blocks:
+                    nodes.append(node_id)
+                    best_hit[node_id] = window.blocks[0].block_id
+        elif mechanism == "sommaire" and terms:
+            if dictionary_ready:
+                expanded_search = dictionnaire.expand(terms)
+            cherches: dict[str, list[str]] | list[str] = expanded_search or terms
+            phase_hits = index.chercher(
+                cherches, limit=budget.search_limit, doc_id=doc_id,
+                kinds_prioritaires=kinds_prioritaires)
+            for block_id, node_id in phase_hits:
+                if block_id not in {candidate for candidate, _node in hits}:
+                    hits.append((block_id, node_id))
+                if node_id not in best_hit:
+                    best_hit[node_id] = block_id
+                    nodes.append(node_id)
+        # `outils` est la phase de navigation LLM de l'autre variante. Dans le déterministe elle
+        # reste un jalon ordonné explicite, sans inventer d'appel ni modifier les hits déjà acquis.
+    if candidats_out is not None:
+        candidats_out.extend(b for b, _ in hits if b not in candidats_out)
     if len(nodes) > budget.max_opens:
         truncated = True  # des nœuds candidats avaient des hits au-delà du quota
     related_cache: dict[str, list[str]] = {}
@@ -796,8 +1050,15 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                              discarded_block_ids=discarded,
                              decision_dependency_block_ids=dependances_decisionnelles,
                              truncated=truncated)
-    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"], ms=int((time.monotonic() - t0) * 1000),
+    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"],
+                     prompt_cache=None,
+                     mechanism_order=list(mechanisms),
+                     ms=int((time.monotonic() - t0) * 1000),
                      opened_block_ids=list(opened), discarded_block_ids=list(discarded))
+    if faq_nodes:
+        step.checks.append(CheckResult(
+            name="faq", ok=True,
+            detail=f"{len(faq_nodes)} nœud(s) candidat(s) traité(s) selon l'ordre configuré"))
     if designes and budget.profil_max_opens > 0:
         # AD-10 : la trace dit ce que le profil a **fait**, pas ce qu'il déclare. Les `node_id` du
         # guide sont nos propres identifiants, produits par l'ingestion (AD-2) — ils ne sont ni du
@@ -827,7 +1088,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                                 f"fenêtre, leur place a été rendue ({', '.join(restaures)})")
             detail, ok = " ; ".join(morceaux), not abandonnes
         step.checks.append(CheckResult(name="noeuds_du_profil", ok=ok, detail=detail))
-    if elargi:
+    if expanded_search is not None:
         # AD-10 / AD-16 : la trace dit **combien** de formes ont été ajoutées et à combien de termes,
         # jamais lesquelles. AD-4 interdit de publier la liste des variantes, et la trace est lue par
         # le front « pourquoi cette réponse » : un compte se recoupe avec `variants_count` de
@@ -841,7 +1102,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # question ne cherchait pas déjà.
         base = {forme(t) for t in terms} - {""}
         ajoutees = dictionnaire.variants_count(terms)
-        touches = sum(1 for variantes in cherches.values()
+        touches = sum(1 for variantes in expanded_search.values()
                       if any(v and v not in base for v in variantes))
         step.checks.append(CheckResult(
             name="dictionnaire", ok=True,

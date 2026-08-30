@@ -72,6 +72,18 @@ def test_le_schema_accepte_exactement_les_huit_champs_dad5() -> None:
     assert fichier.validated is False
 
 
+def test_la_chaine_json_expose_une_faq_sans_hit_dans_le_texte_de_fiche(tmp_path: Path) -> None:
+    dictionnaire = load_dictionary(_ecrire(tmp_path), _corpus(), DOC_ID)
+    assert dictionnaire.faq_candidates(
+        "Combien de temps pour me déclarer ?", doc_id=DOC_ID) == [f"{DOC_ID}:f1"]
+    assert dictionnaire.faq_candidates("question sans rapport", doc_id=DOC_ID) == []
+    # Une inclusion inverse rendait « Combien ? » candidate de presque toutes les FAQ longues.
+    assert dictionnaire.faq_candidates("Combien ?", doc_id=DOC_ID) == []
+    # La normalisation reste générique : casse, accents et ponctuation ne changent pas l'identité.
+    assert dictionnaire.faq_candidates(
+        "COMBIEN DE TEMPS POUR ME DECLARER", doc_id=DOC_ID) == [f"{DOC_ID}:f1"]
+
+
 def test_un_champ_de_plus_nest_pas_un_dictionnaire_un_peu_enrichi() -> None:
     """`extra="forbid"` : la spec interdit d'ajouter au schéma ce qu'AD-5 et l'AC n'énumèrent pas.
 

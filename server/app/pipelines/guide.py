@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.app.config import Settings
+from server.app.config import RETRIEVAL_DEFAULT, Settings
 from server.app.domain.answer import AbsenceProof, Answer
 from server.app.domain.errors import (
     BudgetExceeded,
@@ -59,13 +59,18 @@ from server.app.pipelines.commun import (
 from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import restituer
-from server.app.steps.retrouver import retrouver_deterministe, retrouver_outils
+from server.app.steps.retrouver import (
+    retrouver_deterministe,
+    retrouver_full_context,
+    retrouver_outils,
+)
 from server.app.steps.verifier import verifier
 
 PIPELINE = "guide"
-VARIANT = "outils"
+VARIANT = RETRIEVAL_DEFAULT.variant
 VARIANT_DETERMINISTE = "deterministe"
-VARIANTS = frozenset({VARIANT, VARIANT_DETERMINISTE})
+VARIANT_FULL_CONTEXT = "full_context"
+VARIANTS = frozenset({"outils", VARIANT_DETERMINISTE, VARIANT_FULL_CONTEXT})
 # L'alerte du loader qui dit que le périmètre annoncé à *comprendre* n'est plus exhaustif
 # (`corpus/loader._perimetre`, palier 3). Nommée ici parce que c'est ici qu'elle **désarme** un refus.
 PERIMETRE_TRONQUE = "perimetre_tronque"
@@ -143,13 +148,14 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                          pipeline_digest_hex: str | None = None,
                          prompts_digest_hex: str | None = None,
                          dictionnaire: Any = None,
-                         variant: str = VARIANT) -> tuple[Answer, Trace]:
+                         variant: str | None = None) -> tuple[Answer, Trace]:
     """Une question du guide → l'unique `Answer` d'AD-4 et sa `Trace`.
 
     Toute sortie normale — réponse, refus, clarification, claims toutes rejetées — est un `Answer`
     (l'API en fera un 200, AD-11). Seules les entrées hors bornes (`InvalidRequest`) et les échecs
     terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`, `LlmUnavailable`) remontent.
     """
+    variant = variant or settings.retrieval_variant
     if variant not in VARIANTS:
         # Avant le budget et surtout avant *comprendre* : une faute de variante ne coûte rien.
         raise InvalidRequest(f"variant inconnu : {variant!r}")
@@ -369,6 +375,17 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
                     client=client, request_budget=budget, doc_id=doc_id, dictionnaire=dictionnaire,
                     candidats_out=candidats_outils)
+            except PipelineError as exc:
+                if exc.step is not None:
+                    steps.append(exc.step)
+                exc.trace = tracer()
+                raise
+        elif variant == VARIANT_FULL_CONTEXT:
+            try:
+                retrieval, step_retrouver = await retrouver_full_context(
+                    parsed, corpus=corpus, index=index, budget=borne_retrieval,
+                    settings=settings, client=client, request_budget=budget, doc_id=doc_id,
+                    dictionnaire=dictionnaire)
             except PipelineError as exc:
                 if exc.step is not None:
                     steps.append(exc.step)

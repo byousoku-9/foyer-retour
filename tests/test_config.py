@@ -455,3 +455,41 @@ def test_la_borne_de_nombre_des_listes_de_comprendre_vit_ici_et_se_publie() -> N
     corps = [ligne for ligne in source.splitlines()
              if not ligne.lstrip().startswith("#") and "= LISTE_MAX_ITEMS" not in ligne]
     assert not [ligne for ligne in corps if re.search(r"=\s*\d{2,}\s*$", ligne)], corps
+
+
+def test_lordre_des_mecanismes_est_une_permutation_fermee_et_le_defaut_est_versionne() -> None:
+    import json
+
+    from pydantic import ValidationError
+
+    from server.app.config import RETRIEVAL_DEFAULT_PATH
+
+    permute = Settings(
+        _env_file=None, retrieval_mechanism_order="faq,dictionnaire,outils,sommaire")
+    assert permute.retrieval_mechanisms() == ("faq", "dictionnaire", "outils", "sommaire")
+    with pytest.raises(ValidationError, match="retrieval_mechanism_order"):
+        Settings(_env_file=None, retrieval_mechanism_order="faq,faq,sommaire,outils")
+    triplet = json.loads(RETRIEVAL_DEFAULT_PATH.read_text(encoding="utf-8"))
+    settings = Settings(_env_file=None)
+    assert triplet == {"variant": settings.retrieval_variant,
+                       "tier": settings.retrouver_outils_tier,
+                       "prompt_cache": settings.retrieval_prompt_cache}
+
+
+def test_a_fresh_settings_snapshot_adopts_the_promoted_versioned_triplet(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app import config as module
+
+    path = tmp_path / "retrieval-default.json"
+    path.write_text(
+        '{"variant":"outils","tier":"micro","prompt_cache":true}', encoding="utf-8")
+    monkeypatch.setattr(module, "RETRIEVAL_DEFAULT_PATH", path)
+    first = module.Settings(_env_file=None)
+    path.write_text(
+        '{"variant":"full_context","tier":"reason","prompt_cache":false}', encoding="utf-8")
+    fresh = module.Settings(_env_file=None)
+
+    assert (first.retrieval_variant, first.retrouver_outils_tier,
+            first.retrieval_prompt_cache) == ("outils", "micro", True)
+    assert (fresh.retrieval_variant, fresh.retrouver_outils_tier,
+            fresh.retrieval_prompt_cache) == ("full_context", "reason", False)

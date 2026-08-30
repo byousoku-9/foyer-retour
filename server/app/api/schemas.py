@@ -2,7 +2,7 @@
 
 Entrée (`ChatRequest`) : les bornes d'AD-11 sont portées par le schéma, donc refusées par pydantic
 avant d'atteindre la route — `question ≤ 1 000`, `Turn.texte ≤ 2 000` (déjà dans le domaine),
-`variant` dans la liste des variantes existantes (`null` garde le défaut outils). Le nombre de
+`variant` dans la liste des variantes existantes (`null` garde le défaut retrieval versionné). Le nombre de
 tours d'historique, lui, est un seuil
 de `config.py` : il ne peut pas vivre dans une annotation de classe, et `borner()` l'applique à
 l'entrée de la route — **jamais** en tronquant (AD-11 : « 400 au-delà, jamais tronqué côté serveur »
@@ -42,7 +42,7 @@ from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.ingest import Gate
 from server.app.domain.trace import Trace
-from server.app.pipelines.guide import VARIANT, VARIANTS
+from server.app.pipelines.guide import VARIANTS
 
 VIA = "api/v1"
 
@@ -73,13 +73,13 @@ class ChatRequest(RequeteAvecLangue):
     historique: list[Turn] = Field(default_factory=list)
     # AD-1 : « un `pipeline.variant` inconnu ⇒ 400 ». La liste est importée du pipeline pour que les
     # implémentations de *retrouver* et le contrat HTTP ne puissent pas diverger.
-    variant: str | None = Field(default=VARIANT, pattern=f"^({'|'.join(sorted(VARIANTS))})$")
+    variant: str | None = Field(default=None, pattern=f"^({'|'.join(sorted(VARIANTS))})$")
 
     @field_validator("variant")
     @classmethod
-    def _variante_par_defaut(cls, v: str | None) -> str:
-        """Le client historique envoyait `null` : il reste l'alias explicite du défaut outils."""
-        return VARIANT if v is None else v
+    def _variante_par_defaut(cls, v: str | None) -> str | None:
+        """Le client historique envoyait `null` : la route le résout sur le triplet runtime."""
+        return v
 
     @field_validator("question")
     @classmethod

@@ -628,6 +628,9 @@ def test_variante_inconnue_est_refusee(prod: TestClient) -> None:
     assert r.status_code == 200
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "outils"}, headers=XFF)
     assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "full_context"},
+                  headers=XFF)
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "full_context"
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": None}, headers=XFF)
     assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
@@ -1655,6 +1658,36 @@ def _pipeline_reel_borne(script: list[dict], **reglages: Any) -> Any:
                                           doc_id=DOC_ID, **kw)
 
     return appeler
+
+
+def test_http_without_variant_uses_the_runtime_versioned_triplet(prod: TestClient) -> None:
+    from server.app.llm.models import TIERS
+    from tests.llm_fake import fake_message
+
+    corpus, index = _mini_corpus()
+    script = _script_du_mini_guide()
+    script.insert(1, fake_message(
+        model=TIERS["micro"], text=json.dumps(
+            {"block_ids": [f"{DOC_ID}:farrivee:2"]})))
+    etat = prod.app.state.foyer
+    previous_settings, previous_pipeline = etat.settings, etat.pipeline
+    etat.corpus, etat.index = corpus, index
+    etat.settings = previous_settings.model_copy(update={
+        "retrieval_variant": "full_context", "retrouver_outils_tier": "micro",
+        "retrieval_prompt_cache": False})
+    etat.pipeline = _pipeline_reel(script)
+    try:
+        response = prod.post(
+            "/api/v1/chat", json={"question": "Quel délai après mon arrivée ?", "profil": {}},
+            headers=XFF)
+    finally:
+        etat.settings, etat.pipeline = previous_settings, previous_pipeline
+
+    assert response.status_code == 200, response.text
+    trace = response.json()["trace"]
+    assert trace["variant"] == "full_context"
+    retrieval = next(step for step in trace["steps"] if step["name"] == "retrouver")
+    assert retrieval["tier"] == "micro" and retrieval["prompt_cache"] is False
 
 
 def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: TestClient) -> None:

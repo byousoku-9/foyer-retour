@@ -122,6 +122,22 @@ async def test_request_shape_reason_effort_1h_ttl_no_temperature() -> None:
     assert "extra_body" not in req
 
 
+async def test_parse_without_prompt_cache_sends_no_cache_control() -> None:
+    client, fake = _client([fake_message(model=HAIKU)])
+    await _call(client, prompt_cache=False)
+    assert fake.requests[0]["system"] == [{"type": "text", "text": "préfixe stable"}]
+
+
+async def test_tool_turn_without_prompt_cache_sends_no_cache_control() -> None:
+    client, fake = _client([fake_message(model=HAIKU, stop_reason="end_turn", content=[])])
+    await client.tool_turn(
+        tier="micro", system_prefix="préfixe stable", messages=[],
+        tools=[{"name": "chercher", "input_schema": {"type": "object"}}],
+        budget=_budget(), step=StepTrace(name="retrouver"), max_tokens=20,
+        prompt_cache=False)
+    assert fake.requests[0]["system"] == [{"type": "text", "text": "préfixe stable"}]
+
+
 async def test_request_shape_ingest_effort_high_5m() -> None:
     client, fake = _client([fake_message(model=OPUS)])
     await _call(client, tier="ingest")
