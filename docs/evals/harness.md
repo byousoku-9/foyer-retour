@@ -288,10 +288,16 @@ porte un lien **pendant** `typing.manual.json` dans chaque répertoire de docume
 uv run python -m server.evals.espace --racine . --data-dir data --depot   # si besoin
 uv run python - <<'EOF'
 from pathlib import Path
-from server.ingest.artifacts import publier_artefacts
-publier_artefacts([(Path("data/<doc_id>/typing.manual.json"), Path("mon-overlay.json").read_text("utf-8"))])
+from server.ingest.artifacts import deposer_par_la_racine
+deposer_par_la_racine([(Path("data/<doc_id>/typing.manual.json"), Path("mon-overlay.json").read_text("utf-8"))])
 EOF
 ```
+
+`deposer_par_la_racine` est **la** procédure : elle exige une racine installée sur la cible
+avant de publier, et refuse en nommant `--depot` sinon. Appeler `publier_artefacts` directement
+resterait possible — c'est la primitive interne que la contre-sonde historique du typage exerce —
+mais sur une cible non installée elle prend le repli rootless, qui n'a pas d'atome fort : la
+procédure opérateur ne passe donc plus par elle.
 
 Les deux gestes que la couverture rend faux, et qu'il ne faut donc pas faire : écrire *à travers* le
 lien pendant (`> data/<doc>/typing.manual.json`) écrirait directement dans la génération active, hors
@@ -319,9 +325,11 @@ pointeur ne déplacerait que sa moitié.
 - Non garanti, et écrit plutôt que tu : un `SIGKILL` ou une coupure matérielle **pendant** l'unique
   `rename(2)` relève du système de fichiers. Le `fsync` des répertoires est fait ; au-delà, la
   durabilité est celle du matériel.
-- Non garanti : l'absence de **biais de lecteur**. Un lecteur qui résout deux cibles de part et
-  d'autre d'une bascule voit un mélange. L'invariant ne le demande pas ; c'est dit pour ne pas
-  laisser croire qu'il est couvert.
+- Garanti : l'absence de **biais de lecteur**. Une opération de lecture de production pince une
+  génération unique, lit toutes ses surfaces couvertes à travers elle, et rejoue — puis refuse après
+  un nombre borné de tentatives — si cette génération est reconstruite sous elle. C'est N1, décrit
+  en détail plus bas (« Ce qu'un lecteur pince ») et dans `protocole.md`. Cette ligne affirmait
+  jusqu'ici l'inverse, et contredisait donc à la fois l'invariant et la suite de ce document.
 - Garanti : la **lecture** d'une cible du lot, la fusion que l'appelant en tire et la publication
   vivent dans la **même** section critique (`EspacePublie.transaction()`). Sérialiser les commits ne
   suffisait pas : un écrivain qui lisait le manifest — ou la génération courante — avant de prendre

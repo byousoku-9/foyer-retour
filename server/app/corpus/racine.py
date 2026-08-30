@@ -319,9 +319,18 @@ class Lecture:
         2. un ancêtre (ou la cible) est lié **par le pointeur** : c'est le slot de la génération
            pincée qui est rendu, absence comprise ;
         3. rien ne la lie par le pointeur. Si la racine ne connaît pas ce chemin — aucun slot chez
-           elle —, il est rendu tel quel. Si elle le connaît (le slot existe dans la génération
-           pincée) mais que la cible ne passe plus par le pointeur, la disposition est cassée : le
-           refus est **nommé** (`LectureHorsGeneration`), jamais un repli sur le lien vivant.
+           elle —, il est rendu tel quel. Si elle le connaît **comme une cible**, c'est-à-dire si son
+           slot est un fichier ordinaire, mais que la cible ne passe plus par le pointeur, la
+           disposition est cassée : le refus est **nommé** (`LectureHorsGeneration`), jamais un repli
+           sur le lien vivant.
+
+        **Un slot répertoire n'est pas une cible** (patch croisé 1/3). `installer()` pose la
+        disposition **fichier par fichier** : `data/` et `data/<doc_id>/` restent des répertoires
+        ordinaires, et leurs slots existent dans le bundle uniquement parce qu'ils *contiennent* des
+        cibles. Les traiter comme des cibles couvertes faisait refuser la disposition que
+        `installer()` produit — un faux positif par construction, qui faisait lever le chemin de
+        regate (`_sans_gate_sur_disque` énumère `data/` et passe chaque entrée, répertoires compris).
+        Un conteneur de cibles se rend tel quel ; ce sont ses cibles qui se résolvent.
         """
         chemin = Path(cible)
         if self.racine is None or self.generation is None:
@@ -337,7 +346,7 @@ class Lecture:
             return chemin
         if self.racine.lien_couvrant(chemin) is not None:
             return slot
-        if os.path.lexists(slot):
+        if os.path.lexists(slot) and not os.path.isdir(slot):
             raise LectureHorsGeneration(
                 f"{cible} : la racine couvre ce chemin (slot {slot}) mais la cible ne passe plus "
                 "par le pointeur — un lecteur ne devine pas une disposition cassée, il la dit")

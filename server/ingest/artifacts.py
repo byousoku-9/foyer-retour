@@ -160,6 +160,24 @@ def verifier_couverture_du_lot(cibles: Sequence[Path]) -> None:
     _espace_du_lot(cibles)
 
 
+def deposer_par_la_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
+    """La voie **opérateur** de dépôt d'un artefact écrit à la main — overlay de typage compris.
+
+    Patch croisé 1/3, `N3-OVERLAY-BYPASS`. La procédure documentée appelait directement
+    `publier_artefacts`, qui sur une cible custom **non installée** fait rendre `None` à
+    `_espace_du_lot` et prend le repli rootless : le septième entrypoint cartographié atteignait donc
+    publiquement, et officiellement, la primitive que N3 déclare inaccessible en production. Le repli
+    ne peut pas être à la fois « interne » et prescrit par la documentation.
+
+    Cette fonction est la procédure : elle exige une racine installée sur le lot **avant** de
+    publier, refuse en nommant `--depot` sinon, et délègue ensuite à `publier_artefacts` inchangée.
+    Un `data-dir` custom **installé** passe sans traitement particulier ; c'est le non installé qui
+    ferme.
+    """
+    exiger_espace_installe([cible for cible, _ in lot])
+    publier_artefacts(lot)
+
+
 def publier_artefacts(lot: Sequence[tuple[Path, str | None]]) -> None:
     """Publie le lot **complet** d'une opération d'ingestion — d'un seul geste quand une racine le couvre.
 

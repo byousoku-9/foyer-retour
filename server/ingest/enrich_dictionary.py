@@ -837,6 +837,17 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
               f"{doc_id!r}", file=sys.stderr)
         return 2
     data_dir = Path(args.data)
+    # **Le préflight précède la lecture, pas seulement l'écriture** (patch croisé 1/3,
+    # `N3-LECTURE-ROOTLESS`). Le refus de racine tombait après `load_corpus` : une disposition custom
+    # absente était donc déjà **lue rootless** — manifest, documents, sommaires, overlays — avant
+    # d'être refusée. Un reader de production hors racine transactionnelle est exactement ce que N3
+    # interdit, et le refus « avant tout travail » commence par la lecture. Le manifest suffit à
+    # trancher : il est la première cible couverte que toute opération sur ce `data-dir` touche.
+    try:
+        exiger_espace_installe([data_dir / "manifest.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus, rien n'a été lu ni écrit : {exc}", file=sys.stderr)
+        return 2
     corpus = load_corpus(data_dir, allow_ungated=True,
                          perimetre_max_chars=settings.perimetre_max_chars)
     if doc_id not in corpus.documents:

@@ -3783,11 +3783,15 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                                     lecture=lecture_run)
                 arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot,
                                           lecture=lecture_run)
-                # **Le repère partagé se vérifie avant de conclure** (revue N1–N3, constat 1). Une
-                # décision de gate ne se rejoue pas : elle a construit un client et s'apprête à
-                # payer. Si la génération pincée a été reconstruite sous elle, le refus est dit
-                # avant tout appel, plutôt que la décision rendue sur deux générations.
-                lecture_run.verifier()
+            # **Le repère partagé se vérifie avant de conclure, pour tout run** (patch croisé 1/3,
+            # `N1-RUN-FRESHNESS`). Ce contrôle vivait sous `exigences_full` : un gate `vertical` et
+            # le run CI `--profile full` **sans** `--gate` sortaient donc de la passe sans
+            # vérification finale. Or `Lecture.reel` contrôle avant de *rendre* un chemin, et
+            # l'ouverture arrive séparément : une reconstruction entre ce contrôle et le
+            # `read_bytes` fournirait les nouveaux octets sans rejeu ni refus. La péremption est une
+            # propriété de la **passe de lecture**, pas du profil qui la consomme — elle se vérifie
+            # donc ici, après toute construction de contexte et avant le premier appel payant.
+            lecture_run.verifier()
             try:
                 run_identity = identite_run(
                     cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,

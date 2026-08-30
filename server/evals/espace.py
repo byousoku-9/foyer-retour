@@ -137,6 +137,7 @@ import contextlib
 import fcntl
 import os
 import shutil
+import sys
 import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
@@ -425,15 +426,45 @@ class EspacePublie(RacinePubliee):
         avec le lot déjà publié (tour de racine unique, fait 3). Fermer le descripteur suffit de
         toute façon à rendre le `flock` ; ce qui reste au-delà est du nettoyage, pas de la
         correction.
+
+        **Absorber n'est pas taire** (patch croisé 1/3, `N2-NETTOYAGE-MUET`). Le retrait de la marque
+        était absorbé *et* invisible : la marque qui survit nomme désormais la génération que le
+        pointeur **publie**, donc `residus()` la filtre — à raison, puisqu'un bundle publié n'est pas
+        un brouillon. L'impossibilité de nettoyer n'était alors ni propagée (c'est l'AC, et elle ne
+        se négocie pas) ni signalée (ce n'en est pas la contrepartie). Elle laisse désormais une
+        trace d'un **autre nom**, que `residus()` ne filtre jamais, et un mot sur `stderr` : le
+        nettoyage ultérieur est vérifiable, et personne n'apprend l'échec par une exception.
         """
         with contextlib.suppress(BaseException):
             transaction.lien_tmp.unlink()
-        with contextlib.suppress(BaseException):
+        try:
             transaction.marque.unlink()
+        except BaseException as exc:  # noqa: BLE001 — après commit, rien ne remonte : on le **dit**
+            self._dire_le_nettoyage_impossible(transaction, exc)
         with contextlib.suppress(BaseException):
             _fsync_repertoire(self.chemin)
         with contextlib.suppress(BaseException):
             verrou.__exit__()
+
+    def _dire_le_nettoyage_impossible(self, transaction: Transaction,
+                                      cause: BaseException) -> None:
+        """Rendre durablement visible une marque qu'on n'a pas pu retirer après le commit.
+
+        Deux canaux, parce qu'aucun des deux n'est garanti seul : une trace sur disque que
+        `residus()` **voit toujours** — son nom ne porte pas le motif `.{gen}.brouillon.` que la
+        sonde filtre pour la génération publiée —, et un mot sur `stderr` pour l'opérateur qui
+        regarde. Si même la trace ne peut pas être écrite, il ne reste que `stderr` : on ne lève
+        pas, jamais, le lot étant déjà basculé.
+        """
+        trace = self.chemin / f".{transaction.suivante}.nettoyage-impossible.{os.getpid()}.tmp"
+        with contextlib.suppress(BaseException):
+            trace.write_text(
+                f"{transaction.marque.name} n'a pas pu être retirée après le commit : "
+                f"{type(cause).__name__}: {cause}\n", encoding="utf-8")
+        with contextlib.suppress(BaseException):
+            print(f"nettoyage impossible après le commit : {transaction.marque} subsiste "
+                  f"({type(cause).__name__}) — le lot est publié, rien n'est annulé ; "
+                  f"trace : {trace.name}", file=sys.stderr)
 
     def _abandonner(self, transaction: Transaction) -> None:
         """Jette le brouillon — et **jamais** ce que le pointeur publie.
@@ -665,14 +696,31 @@ class Transaction:
         # répertoire au fur et à mesure : une `OSError` en cours d'itération sortait du `suppress`
         # englobant et laissait les marques **suivantes** non moissonnées — donc un bundle publié
         # signalé comme brouillon, à jamais. Chaque suppression est isolée à son tour.
-        entrees: list[Path] = []
-        with contextlib.suppress(OSError):
+        # **Avant le commit, une impossibilité d'assainir est un refus, pas un silence** (patch
+        # croisé 1/3, `N2-NETTOYAGE-MUET`). L'itération et chaque `unlink` étaient absorbés, puis la
+        # transaction continuait : une marque périmée qu'on n'a pas pu moissonner survivait alors à
+        # la reconstruction de sa génération et, une fois celle-ci publiée, `residus()` la filtrait —
+        # ni dite, ni observable. Ici rien n'est encore basculé : lever laisse **zéro cible
+        # modifiée**, ce qui est exactement ce que l'AC demande d'une exception d'avant commit.
+        try:
             entrees = list(self.espace.chemin.iterdir())
+        except OSError as exc:
+            raise EspaceIllisible(
+                f"{self.espace.chemin} : impossible d'énumérer l'espace pour moissonner les marques "
+                f"périmées ({type(exc).__name__}) — refus avant toute mutation, plutôt qu'un "
+                "brouillon qu'on ne saura plus distinguer d'un bundle complet") from exc
         for entree in entrees:
             if (entree.name.startswith(prefixe) and entree.name.endswith(".tmp")
                     and entree != self.marque):
-                with contextlib.suppress(OSError):
+                try:
                     entree.unlink()
+                except FileNotFoundError:
+                    continue  # une autre transaction l'a moissonnée : c'est le résultat voulu
+                except OSError as exc:
+                    raise EspaceIllisible(
+                        f"{entree} : marque périmée impossible à retirer ({type(exc).__name__}) — "
+                        "refus avant toute mutation ; la laisser survivre à la reconstruction de sa "
+                        "génération la rendrait indiscernable d'un bundle publié") from exc
 
     def publier(self, lot: Sequence[tuple[Path, str | None]]) -> None:
         """Écrit la génération inactive puis **bascule le pointeur** — l'unique point de commit.
