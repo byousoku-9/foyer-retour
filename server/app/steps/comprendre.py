@@ -100,6 +100,9 @@ class SortieComprendre(DomainModel):
         if resolue == clarif:
             raise ValueError("renseigne soit question_resolue (question autonome), soit clarification "
                              "(anaphore irrésoluble), jamais les deux ni aucune des deux")
+        if clarif and self.intent in {"meteo", "bavardage", "hors_perimetre"}:
+            raise ValueError("une intention autonome refusée exige question_resolue ; une clarification "
+                             "est réservée à un référent indispensable réellement absent")
         return self
 
     @model_validator(mode="after")

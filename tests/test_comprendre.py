@@ -126,6 +126,37 @@ async def test_neither_or_both_outcomes_is_a_validation_error_not_an_arbitrary_c
         await _comprendre(client)
 
 
+@pytest.mark.parametrize("intent", ["meteo", "bavardage", "hors_perimetre"])
+async def test_une_intention_autonome_refusee_ne_peut_pas_devenir_une_clarification(
+        intent: str) -> None:
+    contradictoire = fake_message(text=_sortie(
+        intent=intent, question_resolue=None, clarification="Quel objet désignez-vous ?",
+        terms=[], themes=[], facettes=[]), model=HAIKU)
+    valide = fake_message(text=_sortie(
+        intent=intent, question_resolue="Sa demande complète est hors périmètre.",
+        clarification=None, terms=[], themes=[], facettes=[]), model=HAIKU)
+    client, _ = _client([contradictoire, valide])
+
+    sortie, step = await _comprendre(client, question="Sa demande complète concerne un autre sujet.")
+
+    assert isinstance(sortie, ParsedQuestion) and sortie.intent == intent
+    assert sortie.question_resolue == "Sa demande complète est hors périmètre."
+    assert len(step.calls) == 2
+    assert any("intention autonome refusée" in (check.detail or "") for check in step.checks)
+
+
+async def test_une_vraie_reference_indispensable_absente_reste_une_clarification() -> None:
+    client, _ = _client([fake_message(text=_sortie(
+        intent="suivi", question_resolue=None,
+        clarification="De quelle démarche parlez-vous ?", terms=[], themes=[], facettes=[]),
+        model=HAIKU)])
+
+    sortie, step = await _comprendre(client, question="Et pour celle-ci ?")
+
+    assert isinstance(sortie, ClarificationRequise)
+    assert sortie.intent == "suivi" and len(step.calls) == 1
+
+
 async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_question() -> None:
     """La propriété sémantique vit dans le prompt, pas dans le code (AD-5)."""
     prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6,
@@ -134,6 +165,8 @@ async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_ques
     assert "deux issues exclusives" in prefixe
     assert "`clarification` est alors renseignée à sa place" in prefixe
     assert "que l'historique ne dit pas" in prefixe
+    assert "absente de la question courante **et** de l'historique" in prefixe
+    assert "ne suffit" in prefixe and "jamais à demander une clarification" in prefixe
     # mesuré en réel : sans cette consigne, une question météo revenait avec les **deux** champs à
     # `null` (le modèle jugeait la question résolue inutile hors périmètre) — un appel perdu en
     # relance motivée à chaque refus (revue Codex 1.4, B4, tour 3 ; `docs/tests-live.md`)
