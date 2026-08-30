@@ -79,7 +79,7 @@ import yaml
 from pydantic import (BaseModel, ConfigDict, Field, PrivateAttr, StrictBool, ValidationError,
                       field_validator, model_validator)
 
-from server.app.config import REPO_ROOT, Settings
+from server.app.config import EVALS_PUBLICATION_FILE, REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
@@ -109,11 +109,12 @@ from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
+from server.app.corpus.racine import Lecture, lecture_pincee
 from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
                                  LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
                                    charger_plancher, verifier_liaison_preuve)
-from server.evals.publication import (ArchivePrecedenteIllisible,
+from server.evals.publication import (DOCS_LATEST, ArchivePrecedenteIllisible,
                                       RapportInexploitable, construire_publication, digest_contenu,
                                       preparer_publication, rendre_publication_markdown,
                                       valider_rapport_publiable)
@@ -2380,6 +2381,23 @@ def rendre_markdown(rapport: dict[str, Any],
         pub, valeur=_markdown_value, code=_markdown_code)
 
 
+def cibles_publiees_du_run(data_dir: Path, output_json: Path, output_markdown: Path, *,
+                           gate: bool) -> list[Path]:
+    """Le lot que ce run publiera — la question que le préflight de racine pose (story 4.5, N3).
+
+    Hors gate, l'opération de production est le couple `(rapport JSON, table Markdown)`. Sous
+    `--gate`, elle y ajoute le manifest, l'artefact servi et le rendu lisible : c'est le lot complet
+    de l'AC, `data/manifest.json` compris, et il est connu **avant** la première mesure.
+    L'archive de campagne, elle, vit **sous** `docs/evals/campagnes`, dont la couverture se déduit
+    de celle de ce répertoire ; l'inclure nommément exigerait un horodatage qui n'existe pas encore.
+    """
+    cibles = [output_json, output_markdown]
+    if gate:
+        cibles += [data_dir / MANIFEST, data_dir / EVALS_PUBLICATION_FILE,
+                   data_dir.parent.joinpath(*DOCS_LATEST)]
+    return cibles
+
+
 def espace_du_data_dir(data_dir: Path) -> EspacePublie:
     """L'espace de publication d'un `data/` — **l'autorité unique** du couple (racine, bundle).
 
@@ -2468,14 +2486,18 @@ def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Pat
 STRUCTURE_FILE = "structure.json"
 
 
-def _rapport_dingestion(data_dir: Path, doc_id: str) -> Report | None:
+def _rapport_dingestion(data_dir: Path, doc_id: str, lecture: Lecture) -> Report | None:
     """Le `report.json` de ce document, **rattaché à lui**, ou `None` — absent, illisible, étranger.
 
     Les trois cas se valent pour une preuve : rien n'atteste, donc rien n'est prouvé. Un rapport
     dont le `doc_id` diffère décrit un autre document, et ses checks ne disent rien de celui-ci.
+
+    La lecture passe par le **repère pincé** de l'opération de gate (story 4.5, N1) : le manifest
+    d'où viennent les empreintes attendues, la proposition de structure et ce rapport doivent venir
+    de la même génération — une décision de gate composée de trois générations ne décrit aucun état.
     """
     try:
-        lu = Report.model_validate_json((data_dir / doc_id / "report.json").read_bytes())
+        lu = Report.model_validate_json(lecture.reel(data_dir / doc_id / "report.json").read_bytes())
     except (OSError, ValueError):
         return None
     return lu if lu.doc_id == doc_id else None
@@ -2496,7 +2518,8 @@ def _atteste(lu: Report, nom: str, lire: Any, attendu: tuple[str, ...]) -> bool:
     return attendu in [a for a in attestations if a is not None]
 
 
-def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tuple[int, int]:
+def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
+                  lecture: Lecture | None = None) -> tuple[int, int]:
     """(documents non-PDF dont l'arbre est prouvé, documents non-PDF du lot) — jamais une valeur neutre.
 
     Story 4.5, revue B4 — **volet guide**. `structure_prouvee_rate` a été restreint aux documents
@@ -2526,6 +2549,9 @@ def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tuple[in
     à la main ne verdit donc rien, et une réingestion — ou un `document.json` qui bouge — détache
     l'attestation sans qu'aucune ligne de code n'ait à s'en apercevoir.
     """
+    if lecture is None:
+        with lecture_pincee(data_dir) as pincee:
+            return preuve_darbre(data_dir, ctx, doc_ids, lecture=pincee)
     uniques = [doc_id for doc_id in sorted(set(doc_ids))
                if _source_du_document(data_dir, doc_id) not in (None, "source.pdf")]
     prouves = 0
@@ -2535,7 +2561,7 @@ def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tuple[in
                    (getattr(entry, "ingest_fingerprint", "") or ""))
         if not all(attendu):
             continue
-        lu = _rapport_dingestion(data_dir, doc_id)
+        lu = _rapport_dingestion(data_dir, doc_id, lecture)
         if lu is None:
             continue
         if _atteste(lu, TREE_CHECK, lire_attestation_arbre, attendu):
@@ -2543,7 +2569,8 @@ def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tuple[in
     return prouves, len(uniques)
 
 
-def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tuple[int, int]:
+def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
+                        lecture: Lecture | None = None) -> tuple[int, int]:
     """(documents PDF dont la structure est prouvée, documents PDF du lot) — jamais une valeur neutre.
 
     **Le dénominateur ne retient que les documents issus d'un PDF** (règle `SOURCE_FILES` du loader,
@@ -2574,6 +2601,9 @@ def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tu
     une dette de l'orchestrateur. « Structure insuffisamment prouvée » est donc l'état **réel** ; ce
     témoin le dit en rouge chiffré au lieu de le contourner.
     """
+    if lecture is None:
+        with lecture_pincee(data_dir) as pincee:
+            return preuve_de_structure(data_dir, ctx, doc_ids, lecture=pincee)
     uniques = [doc_id for doc_id in sorted(set(doc_ids))
                if document_parse_depuis_un_pdf(data_dir, doc_id)]
     prouves = 0
@@ -2582,14 +2612,14 @@ def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str]) -> tu
         attendu = getattr(entry, "structure_hash", None) if entry is not None else None
         if not attendu:
             continue
-        chemin = data_dir / doc_id / STRUCTURE_FILE
+        chemin = lecture.reel(data_dir / doc_id / STRUCTURE_FILE)
         try:
             observe = hashlib.sha256(chemin.read_bytes()).hexdigest()
         except OSError:
             continue
         if observe != attendu:
             continue
-        lu = _rapport_dingestion(data_dir, doc_id)
+        lu = _rapport_dingestion(data_dir, doc_id, lecture)
         if lu is None:
             continue  # rapport absent, illisible ou étranger : rien n'atteste, rien n'est prouvé
         if not _atteste(lu, STRUCTURE_CHECK, lire_attestation_structure,
@@ -2950,6 +2980,7 @@ def cle_absente(settings: Settings) -> bool:
 
 
 def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
+                             lecture: Lecture | None = None,
                              ancetres: frozenset[Path] = frozenset()) -> None:
     """Matérialise ``source`` sous ``cible`` sans jamais lire hors de ``racine``.
 
@@ -2960,7 +2991,10 @@ def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
     mettrait en quarantaine.
     """
     try:
-        resolu = source.resolve(strict=True)
+        # **Depuis le repère pincé** (story 4.5, N1) : l'ombre est une photographie du `data/` servi,
+        # et une photographie composée de deux générations ne décrit rien. `reel` rend le slot de la
+        # génération que l'opération a pincée ; hors espace, il rend le chemin tel quel.
+        resolu = (source if lecture is None else lecture.reel(source)).resolve(strict=True)
     except OSError:
         return
     if not resolu.is_relative_to(racine):
@@ -2971,7 +3005,7 @@ def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
         cible.mkdir()
         descendants = ancetres | {resolu}
         for enfant in resolu.iterdir():
-            _materialiser_dans_ombre(enfant, cible / enfant.name, racine, descendants)
+            _materialiser_dans_ombre(enfant, cible / enfant.name, racine, lecture, descendants)
         return
     if not resolu.is_file():
         return
@@ -2981,7 +3015,8 @@ def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
         shutil.copy2(resolu, cible)
 
 
-def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
+def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any,
+                          lecture: Lecture | None = None) -> Path:
     """Un `data/` **de lecture** identique, sauf que `manifest[doc_id].gate` y vaut `null`.
 
     Pourquoi il en faut un : `loader._gate_alerts` met en quarantaine, sans dérogation possible, tout
@@ -2998,13 +3033,15 @@ def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
     bloquant statique, `status: quarantaine`. L'écriture du gate, elle, se fait toujours sur le
     **vrai** manifest.
     """
+    if lecture is None:
+        lecture = pile.enter_context(lecture_pincee(data_dir))
     ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
     racine = data_dir.resolve(strict=True)
     for entree in data_dir.iterdir():
         if entree.name == MANIFEST:
             continue
-        _materialiser_dans_ombre(entree, ombre / entree.name, racine)
-    brut = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8"))
+        _materialiser_dans_ombre(entree, ombre / entree.name, racine, lecture)
+    brut = json.loads(lecture.reel(data_dir / MANIFEST).read_text(encoding="utf-8"))
     if isinstance(brut, dict) and isinstance(brut.get(doc_id), dict):
         brut[doc_id]["gate"] = None
     (ombre / MANIFEST).write_text(json.dumps(brut, indent=2, ensure_ascii=False) + "\n",
@@ -3016,7 +3053,8 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                         pile: Any = None, cache_dir: Path | None = None,
                         campaign_budget_eur: float | None = None,
                         campaign_accrued_eur: float = 0.0,
-                        campaign_cost_recorder: Any = None) -> Contexte:
+                        campaign_cost_recorder: Any = None,
+                        lecture: Lecture | None = None) -> Contexte:
     """Corpus, index et client — le même assemblage qu'`api/etat.construire_etat` (AD-7, AD-9).
 
     `allow_ungated=True` **toujours**, et ce n'est pas une dérogation : c'est ce runner qui écrit le
@@ -3038,17 +3076,29 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     alors aucun chemin pour écrire le gate au nouveau schéma, alors que c'est exactement ce que la
     commande demande. Un gate que l'image courante ne sait pas lire n'est pas un gate : pour ce seul
     document, et pour la lecture seulement, il est traité comme absent.
+
+    `lecture` est le **repère pincé** de l'opération de gate (story 4.5, N1) : le corpus qui sert de
+    base à la mesure, les dictionnaires et les preuves de structure lues juste après doivent venir
+    d'**une seule** génération. Sans lui, un repère est pincé pour la durée de cet appel seul.
     """
+    if lecture is None:
+        with lecture_pincee(data_dir) as pincee:
+            return construire_contexte(
+                settings, data_dir, regate=regate, pile=pile, cache_dir=cache_dir,
+                campaign_budget_eur=campaign_budget_eur,
+                campaign_accrued_eur=campaign_accrued_eur,
+                campaign_cost_recorder=campaign_cost_recorder, lecture=pincee)
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
                                 model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
                                 # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
                                 # `full` **nomme** à celle qui tourne. Le runner charge exactement
                                 # comme `api/etat.py` : le contexte doit donc la porter ici aussi.
                                 candidate_revision=settings.git_sha, env=settings.env)
-    lecture = data_dir
+    source = data_dir
+    lecture_du_corpus = lecture
     if regate is not None and pile is not None:
-        entree_brute = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8")) \
-            if (data_dir / MANIFEST).is_file() else {}
+        entree_brute = json.loads(lecture.reel(data_dir / MANIFEST).read_text(encoding="utf-8")) \
+            if lecture.fichier(data_dir / MANIFEST) else {}
         brut_gate = (entree_brute[regate].get("gate")
                      if isinstance(entree_brute.get(regate), dict) else None)
         gate_a_refaire = False
@@ -3066,12 +3116,17 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                 except ValidationError:
                     gate_a_refaire = True
         if gate_a_refaire:
-            lecture = _sans_gate_sur_disque(data_dir, regate, pile)
-    corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate,
+            source = _sans_gate_sur_disque(data_dir, regate, pile, lecture)
+            # L'ombre est une photographie **déjà pincée** : elle n'a pas d'espace, donc son repère
+            # ne résout rien et ne peut rien mêler. Le repère du `data/` réel reste celui de tout le
+            # reste de la passe.
+            lecture_du_corpus = pile.enter_context(lecture_pincee(source))
+    corpus = load_corpus(source, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
-                         raison_max_chars=settings.raison_publiable_max_chars)
+                         raison_max_chars=settings.raison_publiable_max_chars,
+                         lecture=lecture_du_corpus)
     dictionnaires = {
-        doc_id: load_dictionary(data_dir, corpus, doc_id)
+        doc_id: load_dictionary(data_dir, corpus, doc_id, lecture=lecture)
         for doc_id, document in corpus.documents.items()
         if document.kind == "contrat"
     }
@@ -3083,14 +3138,22 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                                      campaign_cost_recorder=campaign_cost_recorder),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest,
-                    # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
-                    # le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
-                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id),
+                    # Lu dans `data_dir`, pas dans `source` : `_sans_gate_sur_disque` ne recopie
+                    # que le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
+                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id,
+                                                 lecture=lecture),
                     dictionnaires=dictionnaires, response_cache=response_cache)
 
 
-def construire_contexte_parsing(settings: Settings, data_dir: Path) -> Contexte:
-    """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit."""
+def construire_contexte_parsing(settings: Settings, data_dir: Path, *,
+                                lecture: Lecture | None = None) -> Contexte:
+    """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit.
+
+    `lecture` : le repère pincé de l'opération (N1), comme pour `construire_contexte`.
+    """
+    if lecture is None:
+        with lecture_pincee(data_dir) as pincee:
+            return construire_contexte_parsing(settings, data_dir, lecture=pincee)
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
                                 model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
                                 # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
@@ -3099,7 +3162,7 @@ def construire_contexte_parsing(settings: Settings, data_dir: Path) -> Contexte:
                                 candidate_revision=settings.git_sha, env=settings.env)
     corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
-                         raison_max_chars=settings.raison_publiable_max_chars)
+                         raison_max_chars=settings.raison_publiable_max_chars, lecture=lecture)
     return Contexte(
         settings=settings, index=Index(corpus), client=None,
         pipeline_digest_hex=contexte_gate.pipeline_digest,
@@ -3306,6 +3369,24 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
                         cases_dir=args.cases_dir, reference_dir=reference_dir,
                         data_dir=args.data_dir, cache_dir=cache_dir)
+        # **La racine de publication, vérifiée avant toute mesure** (story 4.5, N3). Les seules
+        # occurrences d'`espace` étaient une construction pure — qui ne vérifie rien — puis quatre
+        # usages **tous postérieurs** à l'exécution : sur un `--data-dir` non installé, la campagne
+        # entière était payée avant que le refus ne tombe, et le rapport était perdu.
+        # `docs/evals/harness.md` affirmait pourtant, mot pour mot, que « le run refuse avant toute
+        # mesure ». Il le fait désormais, et le refus est un code 2 comme les autres refus d'avant
+        # appel. Un `--data-dir` custom **installé** passe sans traitement particulier.
+        try:
+            if not args.dry_run:
+                # `--dry-run` n'écrit **rien** : il n'y a ni travail payant, ni cible, donc rien que
+                # la racine protège. Ce n'est pas une voie opt-in — aucun argument ne désarme le
+                # contrôle sur un chemin qui publie —, c'est l'absence d'objet.
+                espace.verifier_lot(cibles_publiees_du_run(
+                    args.data_dir, output_json, output_markdown, gate=bool(args.gate)))
+        except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible) as exc:
+            raise RefusDeTourner(
+                f"espace de publication : {exc} — rien n'a été mesuré, aucun appel n'a été "
+                "soumis, aucune cible n'a été écrite") from exc
         try:
             settings = Settings()
         except ValidationError as exc:
@@ -3660,12 +3741,19 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             return 4
         # 5. Le corpus, puis le document visé par `--gate`.
         with ExitStack() as pile:
+            # **Un seul repère de lecture pour toute la décision de gate** (story 4.5, N1). Le
+            # corpus qui sert de base à la mesure, les dictionnaires, la preuve de structure et la
+            # preuve d'arbre lisaient chacun le pointeur à leur tour : jusqu'à trois générations
+            # pouvaient entrer dans une seule décision de gate. Elles viennent désormais toutes de
+            # la génération pincée ici, pour la durée de l'opération.
+            lecture_run = pile.enter_context(lecture_pincee(args.data_dir))
             if all(c.suite == "parsing" for c in cas):
-                ctx = construire_contexte_parsing(settings, args.data_dir)
+                ctx = construire_contexte_parsing(settings, args.data_dir, lecture=lecture_run)
             else:
                 # `--repeat` désarme le cache : trois répétitions servies du cache ne mesureraient
                 # ni la stabilité ni le coût (story 4.2b).
                 ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
+                                          lecture=lecture_run,
                                           cache_dir=None if args.repeat > 1 else cache_dir,
                                           campaign_budget_eur=(settings.live_budget_eur
                                                                if campaign is not None
@@ -3681,8 +3769,10 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                 # liste de documents : aucun document du lot n'échappe aux deux.
                 documents_du_lot = [c.doc_id or document_de_la_suite(settings, c.suite)
                                     for c in cas]
-                structure_lot = preuve_de_structure(args.data_dir, ctx, documents_du_lot)
-                arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot)
+                structure_lot = preuve_de_structure(args.data_dir, ctx, documents_du_lot,
+                                                    lecture=lecture_run)
+                arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot,
+                                          lecture=lecture_run)
             try:
                 run_identity = identite_run(
                     cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,

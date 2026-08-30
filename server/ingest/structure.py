@@ -44,10 +44,11 @@ import anthropic
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
+from server.app.corpus.racine import racine_couvrant
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import cost_from_usage, estimate_cost
-from server.ingest.artifacts import write_atomic
+from server.ingest.artifacts import exiger_espace_installe, write_atomic
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
@@ -677,8 +678,22 @@ def presente(path: Path) -> bool:
 
     `lexists` et non `exists` : un lien pendant n'existe pas au sens de sa cible, mais son entrée de
     répertoire, elle, est bien là — et c'est elle que l'opérateur a déposée.
+
+    **Sauf sous une racine de publication** (story 4.5, tour de la racine vraiment unique). Là, un
+    lien pendant n'est pas un artefact déposé : c'est la forme même de l'**absence** — un slot que la
+    génération publiée ne porte pas. La disposition en crée un pour tout artefact jamais publié, et
+    c'est l'état réel des `structure.json` du dépôt. Les compter comme « présents » aurait fait
+    rendre `proposition_illisible` à `charger()`, donc un check bloquant, donc la mise en quarantaine
+    des documents servis à la prochaine réingestion — un défaut d'interaction créé par la
+    disposition, pas par l'artefact. La reconnaissance est **structurelle** (le chemin résolu passe
+    par un pointeur de publication), jamais nominale : hors racine, la règle d'AD-16 est inchangée,
+    et un lien pendant ordinaire reste « présent mais illisible ».
     """
-    return os.path.lexists(path)
+    if not os.path.lexists(path):
+        return False
+    if not path.is_file() and racine_couvrant(path) is not None:
+        return False
+    return True
 
 
 def charger(path: Path, *, settings: Settings | None = None) -> StructureProposee:
@@ -834,6 +849,14 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
               f"{args.doc_id!r}", file=sys.stderr)
         return 2
     doc_dir = args.data / args.doc_id
+    # **Un entrypoint de production exige une racine installée** (story 4.5, N3) : le refus tombe
+    # avant l'extraction et avant le seul appel payant de ce module, jamais après. Le lot n'a qu'une
+    # cible — c'est précisément le cas pour lequel le refus « lot mixte » était inatteignable.
+    try:
+        exiger_espace_installe([doc_dir / "structure.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus, rien n'a été écrit : {exc}", file=sys.stderr)
+        return 2
     try:
         # Import tardif : `pdf_to_blocks` dépend de ce module pour vérifier, la CLI ne peut donc
         # pas l'importer au chargement sans fermer le cycle.

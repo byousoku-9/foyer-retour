@@ -25,8 +25,9 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.domain.profil import PROFIL_KEYS
 from server.app.domain import (Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, ParcoursCondition, Report,
                                Source)
-from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash, read_manifest,
-                                     structure_hash, verifier_couverture_du_lot)
+from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE, LectureDuLot,
+                                     document_json, exiger_espace_installe, merge_manifest,
+                                     read_manifest, verifier_couverture_du_lot)
 from server.ingest.jsobject import parse_js_object
 from server.ingest.report import attester_arbre, build_report, report_from_validation_error
 
@@ -324,53 +325,84 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     source_hash = ""
     doc: Document | None = None
     summary = ""
-    previous = load_previous(data_dir / "document.json")
+    kb: Any = None
+    parcours: Any = None
+    echec: Report | None = None
     try:
         source_bytes = (data_dir / "source.js").read_bytes()
         source_hash = hashlib.sha256(source_bytes).hexdigest()
         kb = check_structure(parse_js_object(source_bytes.decode("utf-8")))
         doc, parcours = build_document_et_parcours(kb, edition=edition, source_hash=source_hash)
         summary = build_summary(doc, kb)
-        report = build_report(doc, previous, kb, summary=summary,
-                              parcours_ignorees=parcours.ignorees, parcours_alertes=parcours.alertes)
     except ValidationError as exc:
-        report = report_from_validation_error(DOC_ID, exc)
+        echec = report_from_validation_error(DOC_ID, exc)
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError) as exc:
         # JSObjectError est une ValueError ; KeyError/TypeError = champ manquant ou structure inattendue.
         detail = f"{type(exc).__name__}: {exc}"[:2000]
-        report = Report(doc_id=DOC_ID, checks=[Check(name="source_illisible", level="bloquant", detail=detail)])
-    status = "quarantaine" if report.blocking else "servi"
-    document_hash = ""
-    # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici, puis
-    # publié en un seul geste avec le manifest. Écrire `document.json` et `summary.md` tout de
-    # suite, comme avant, faisait autant de points de commit que d'artefacts : un échec au manifest
-    # laissait deux artefacts neufs devant une entrée périmée. Une absence est membre du lot au
-    # même titre qu'un contenu — `None` retire l'artefact, et jamais un artefact périmé ne reste à
-    # côté d'un manifest en quarantaine.
-    artefacts: list[tuple[Path, str | None]] = []
-    if doc is not None and not report.blocking:
-        doc_text = document_json(doc)
-        artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
-        document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
-    else:
-        artefacts += [(data_dir / "document.json", None), (data_dir / "summary.md", None)]
+        echec = Report(doc_id=DOC_ID, checks=[Check(name="source_illisible", level="bloquant", detail=detail)])
     fingerprint = ingest_fingerprint()
-    # Story 4.5 (revue B4, volet guide) : quand l'arbre a réellement été construit et écrit, le
-    # rapport **atteste** de quoi il parle — `document_hash` et `ingest_fingerprint` observés. C'est
-    # la preuve de structure déterministe applicable à une copie de site, qui n'a pas de
-    # `structure.json` : sans elle, un `report.json` portant `invariants_arbre: ok` (la forme
-    # historique, sans empreinte) suffirait à faire verdir le témoin du gate `full`.
-    report = attester_arbre(report, document_hash=document_hash, ingest_fingerprint=fingerprint)
-    artefacts.append((data_dir / "report.json",
-                      json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n"))
-    entry = merge_manifest(manifest_path, DOC_ID,
-                            ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
-                                          document_hash=document_hash, edition=edition,
-                                          overlay_hash=overlay_hash(data_dir),
-                                          # Story 4.5 : couverte par le manifest comme l'overlay.
-                                          structure_hash=structure_hash(data_dir), gate=None),
-                            artefacts=artefacts)
-    return report, entry
+    publie: Report | None = None
+
+    def fabriquer(lecture: LectureDuLot) -> tuple[ManifestEntry, list[tuple[Path, str | None]]]:
+        """Tout ce qui décide du contenu publié, lu **sous le verrou** (story 4.5, N3).
+
+        `load_previous`, `overlay_hash` et `structure_hash` étaient évalués comme arguments d'appel,
+        donc avant l'ouverture de la transaction : l'entrée publiée pouvait décrire un état que la
+        publication contredisait, et `ids_disparus` se comparait à un document qu'une ingestion
+        concurrente avait déjà remplacé. Les trois lectures vivent maintenant ici, depuis le repère
+        que la transaction a pincé.
+        """
+        nonlocal publie
+        if echec is not None:
+            rapport = echec
+        else:
+            previous = lecture.document_precedent(data_dir / "document.json")
+            rapport = build_report(doc, previous, kb, summary=summary,
+                                   parcours_ignorees=parcours.ignorees,
+                                   parcours_alertes=parcours.alertes)
+        status = "quarantaine" if rapport.blocking else "servi"
+        document_hash = ""
+        # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici,
+        # puis publié en un seul geste avec le manifest. Écrire `document.json` et `summary.md`
+        # tout de suite, comme avant, faisait autant de points de commit que d'artefacts : un échec
+        # au manifest laissait deux artefacts neufs devant une entrée périmée. Une absence est
+        # membre du lot au même titre qu'un contenu — `None` retire l'artefact, et jamais un
+        # artefact périmé ne reste à côté d'un manifest en quarantaine.
+        artefacts: list[tuple[Path, str | None]] = []
+        if doc is not None and not rapport.blocking:
+            doc_text = document_json(doc)
+            artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
+            document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+        else:
+            artefacts += [(data_dir / "document.json", None), (data_dir / "summary.md", None)]
+        # Story 4.5 (revue B4, volet guide) : quand l'arbre a réellement été construit et écrit, le
+        # rapport **atteste** de quoi il parle — `document_hash` et `ingest_fingerprint` observés.
+        # C'est la preuve de structure déterministe applicable à une copie de site, qui n'a pas de
+        # `structure.json` : sans elle, un `report.json` portant `invariants_arbre: ok` (la forme
+        # historique, sans empreinte) suffirait à faire verdir le témoin du gate `full`.
+        rapport = attester_arbre(rapport, document_hash=document_hash,
+                                 ingest_fingerprint=fingerprint)
+        artefacts.append((data_dir / "report.json",
+                          json.dumps(rapport.model_dump(), indent=2, ensure_ascii=False) + "\n"))
+        publie = rapport
+        return ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
+                             document_hash=document_hash, edition=edition,
+                             overlay_hash=lecture.empreinte(data_dir / OVERLAY_FILE),
+                             # Story 4.5 : couverte par le manifest comme l'overlay.
+                             structure_hash=lecture.empreinte(data_dir / STRUCTURE_FILE),
+                             gate=None), artefacts
+
+    entry = merge_manifest(manifest_path, DOC_ID, fabriquer,
+                           cibles=[data_dir / "document.json", data_dir / "summary.md",
+                                   data_dir / "report.json"])
+    assert publie is not None
+    return publie, entry
+
+
+def _lot_publie(data_dir: Path) -> list[Path]:
+    """Le lot complet de cette ingestion — la question que le préflight de racine pose (N3)."""
+    return [data_dir / "document.json", data_dir / "summary.md", data_dir / "report.json",
+            data_dir.parent / "manifest.json"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -378,6 +410,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data", default="data/lux-guide", type=Path)
     parser.add_argument("--edition", default=DEFAULT_EDITION)
     args = parser.parse_args(argv)
+    # **Un entrypoint de production exige une racine installée** (story 4.5, N3), et le dit avant
+    # d'avoir lu une seule ligne de source : le repli rootless n'est pas une opération tout-ou-rien,
+    # et une cible couverte dont le lien aurait été cassé y serait réécrite en fichier ordinaire,
+    # silencieusement. Un `--data` custom **installé** passe sans traitement particulier.
+    try:
+        exiger_espace_installe(_lot_publie(Path(args.data)))
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus : {exc}", file=sys.stderr)
+        return 2
     report, entry = run(args.data, edition=args.edition)
     for c in report.checks:
         print(f"[{c.level}] {c.name}: {c.detail}")

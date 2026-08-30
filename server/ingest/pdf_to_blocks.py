@@ -39,7 +39,8 @@ from server.app.config import get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
+from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE, LectureDuLot,
+                                     document_json, exiger_espace_installe, merge_manifest,
                                      read_manifest, structure_hash, verifier_couverture_du_lot)
 from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
@@ -1535,7 +1536,12 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
     source_hash = ""
     doc: Document | None = None
     summary = ""
-    previous = load_previous(data_dir / "document.json")
+    structure_appliquee: str | None = None
+    rendu_structure: str | None = None
+    echec: Report | None = None
+    pages: Any = None
+    meta: Any = None
+    toc: Any = None
     try:
         document_title = TITLE if title is None and doc_id == DOC_ID else title
         if document_title is None:
@@ -1577,6 +1583,10 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         # du système de fichiers est une absence.
         structure_path = data_dir / "structure.json"
         structure = charger(structure_path) if presente(structure_path) else None
+        # L'empreinte de **ce que l'ingestion applique**, gardée pour être opposée sous le verrou à
+        # celle de la génération publiée : l'entrée du manifest ne doit jamais nommer une structure
+        # que l'ingestion n'a pas appliquée (story 4.5, N3).
+        structure_appliquee = structure_hash(data_dir)
         # La proposition appliquée entre dans l'empreinte : deux ingestions du même PDF qui rendent
         # des `node_id` différents ne peuvent pas porter la même (AD-2, lu par le loader).
         fingerprint = ingest_fingerprint(structure)
@@ -1585,52 +1595,83 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         summary = build_summary(doc)
         detail = (None if structure is None else
                   f"proposition vérifiée : {len(structure.noeuds)} nœud(s) sur lignes source")
-        report = build_pdf_report(doc, previous, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
-                                  continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
-                                  printed_toc=meta["printed_toc"], summary=summary, structure=detail)
+        rendu_structure = detail
     except ValidationError as exc:
-        report = report_from_validation_error(doc_id, exc)
+        echec = report_from_validation_error(doc_id, exc)
     except StructureRefusee as exc:
-        report = Report(doc_id=doc_id, checks=[structure_check(exc.motif, exc.detail)])
+        echec = Report(doc_id=doc_id, checks=[structure_check(exc.motif, exc.detail)])
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
         # pymupdf lève FileDataError (RuntimeError) sur un PDF corrompu ; OSError si `source.pdf` manque.
         detail = f"{type(exc).__name__}: {exc}"[:2000]
-        report = Report(doc_id=doc_id, checks=[Check(name="source_illisible", level="bloquant", detail=detail)])
-    status = "quarantaine" if report.blocking else "servi"
-    document_hash = ""
-    # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici, puis
-    # publié en un seul geste avec le manifest — un point de commit pour l'opération, et non un par
-    # artefact. Une absence (`None`) est membre du lot comme un contenu : jamais un artefact périmé
-    # à côté d'un manifest en quarantaine.
-    artefacts: list[tuple[Path, str | None]] = []
-    if doc is not None and not report.blocking:
-        doc_text = document_json(doc)
-        artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
-        document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
-    else:
-        artefacts += [(data_dir / "document.json", None), (data_dir / "summary.md", None)]
-    # Story 4.5 : quand une proposition de structure a été acceptée et que le document a bien été
-    # construit, le rapport **atteste** de quoi il parle — `document_hash` et `structure_hash`
-    # observés. Sans cette liaison, « accepté » resterait déclaratif, et le gate `full` prendrait un
-    # `structure.json` arbitraire pour une structure prouvée.
-    report = attester_structure(report, document_hash=document_hash,
-                                structure_hash=structure_hash(data_dir) or "")
-    # Et l'attestation d'arbre, sur le même patron (revue B4, volet guide) : les deux ingestions
-    # émettent `invariants_arbre`, et aucune ne décide de son périmètre par un `doc_id`. C'est le
-    # témoin du plancher qui choisit, par la règle `SOURCE_FILES`, laquelle des deux preuves il
-    # oppose à quel document ; l'ingestion, elle, atteste ce qu'elle a vraiment vérifié.
-    report = attester_arbre(report, document_hash=document_hash, ingest_fingerprint=fingerprint)
-    artefacts.append((data_dir / "report.json",
-                      json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n"))
-    entry = merge_manifest(manifest_path, doc_id,
-                           ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
-                                         document_hash=document_hash, edition=resolved_edition,
-                                         overlay_hash=overlay_hash(data_dir),
-                                         # Story 4.5 : la proposition de structure est couverte par
-                                         # le manifest, exactement comme l'overlay l'est.
-                                         structure_hash=structure_hash(data_dir), gate=None),
-                           artefacts=artefacts)
-    return report, entry
+        echec = Report(doc_id=doc_id, checks=[Check(name="source_illisible", level="bloquant", detail=detail)])
+    publie: Report | None = None
+
+    def fabriquer(lecture: LectureDuLot) -> tuple[ManifestEntry, list[tuple[Path, str | None]]]:
+        """Ce qui décide du contenu publié, lu **sous le verrou** (story 4.5, N3).
+
+        Le document précédent (`ids_disparus`), l'empreinte de l'overlay et celle de la structure
+        étaient évalués comme arguments d'appel, donc avant l'ouverture de la transaction : l'entrée
+        publiée pouvait nommer un overlay ou une structure qu'une opération concurrente avait
+        remplacés entre-temps. Les trois viennent maintenant du repère que la transaction a pincé.
+
+        La structure **appliquée** par l'extraction, elle, a nécessairement été lue avant — c'est
+        elle qui décide des `node_id`. Elle est donc **opposée** à celle de la génération publiée :
+        si elles diffèrent, l'entrée nommerait une structure que le document n'applique pas, et
+        l'ingestion refuse plutôt que de publier cette contradiction.
+        """
+        nonlocal publie
+        rapport = echec if echec is not None else build_pdf_report(
+            doc, lecture.document_precedent(data_dir / "document.json"), pages=pages,
+            numbers=meta["numbers"], duplicates=meta["duplicates"], continues=meta["continues"],
+            toc=toc, toc_gaps=meta["toc_gaps"], printed_toc=meta["printed_toc"], summary=summary,
+            structure=rendu_structure)
+        status = "quarantaine" if rapport.blocking else "servi"
+        document_hash = ""
+        structure_publiee = lecture.empreinte(data_dir / STRUCTURE_FILE)
+        # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici,
+        # puis publié en un seul geste avec le manifest — un point de commit pour l'opération, et
+        # non un par artefact. Une absence (`None`) est membre du lot comme un contenu : jamais un
+        # artefact périmé à côté d'un manifest en quarantaine.
+        artefacts: list[tuple[Path, str | None]] = []
+        if doc is not None and not rapport.blocking:
+            if structure_publiee != structure_appliquee:
+                raise ValueError(
+                    "structure.json a changé entre l'extraction et la publication "
+                    f"({structure_appliquee} → {structure_publiee}) : l'entrée nommerait une "
+                    "structure que ce document n'applique pas — relancer l'ingestion")
+            doc_text = document_json(doc)
+            artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
+            document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+        else:
+            artefacts += [(data_dir / "document.json", None), (data_dir / "summary.md", None)]
+        # Story 4.5 : quand une proposition de structure a été acceptée et que le document a bien
+        # été construit, le rapport **atteste** de quoi il parle — `document_hash` et
+        # `structure_hash` observés. Sans cette liaison, « accepté » resterait déclaratif, et le
+        # gate `full` prendrait un `structure.json` arbitraire pour une structure prouvée.
+        rapport = attester_structure(rapport, document_hash=document_hash,
+                                     structure_hash=structure_publiee or "")
+        # Et l'attestation d'arbre, sur le même patron (revue B4, volet guide) : les deux ingestions
+        # émettent `invariants_arbre`, et aucune ne décide de son périmètre par un `doc_id`. C'est
+        # le témoin du plancher qui choisit, par la règle `SOURCE_FILES`, laquelle des deux preuves
+        # il oppose à quel document ; l'ingestion, elle, atteste ce qu'elle a vraiment vérifié.
+        rapport = attester_arbre(rapport, document_hash=document_hash,
+                                 ingest_fingerprint=fingerprint)
+        artefacts.append((data_dir / "report.json",
+                          json.dumps(rapport.model_dump(), indent=2, ensure_ascii=False) + "\n"))
+        publie = rapport
+        return ManifestEntry(status=status, source_hash=source_hash,
+                             ingest_fingerprint=fingerprint, document_hash=document_hash,
+                             edition=resolved_edition,
+                             overlay_hash=lecture.empreinte(data_dir / OVERLAY_FILE),
+                             # Story 4.5 : la proposition de structure est couverte par le manifest,
+                             # exactement comme l'overlay l'est.
+                             structure_hash=structure_publiee, gate=None), artefacts
+
+    entry = merge_manifest(manifest_path, doc_id, fabriquer,
+                           cibles=[data_dir / "document.json", data_dir / "summary.md",
+                                   data_dir / "report.json"])
+    assert publie is not None
+    return publie, entry
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1644,6 +1685,15 @@ def main(argv: list[str] | None = None) -> int:
     if len(args.doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(args.doc_id):
         print(f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu) : "
               f"{args.doc_id!r}", file=sys.stderr)
+        return 2
+    # **Un entrypoint de production exige une racine installée** (story 4.5, N3) : le refus tombe
+    # avant l'extraction du PDF, jamais après. Un `--data` custom **installé** passe sans traitement.
+    doc_dir = args.data / args.doc_id
+    try:
+        exiger_espace_installe([doc_dir / "document.json", doc_dir / "summary.md",
+                                doc_dir / "report.json", args.data / "manifest.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus : {exc}", file=sys.stderr)
         return 2
     report, entry = run(args.data / args.doc_id, edition=args.edition, doc_id=args.doc_id, title=args.title)
     for c in report.checks:

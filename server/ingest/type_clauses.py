@@ -35,8 +35,10 @@ from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, 
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
-from server.ingest.artifacts import (document_json, fusionner_et_publier, publier_artefacts, read_manifest,
-                                     structure_hash, verifier_couverture_du_lot)
+from server.app.corpus.racine import Lecture, lecture_pincee
+from server.ingest.artifacts import (STRUCTURE_FILE, LectureDuLot, document_json,
+                                     exiger_espace_installe, fusionner_et_publier,
+                                     publier_artefacts, verifier_couverture_du_lot)
 from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
                                   pages_charabia)
 
@@ -1018,8 +1020,11 @@ def _apply_node_scopes(doc: Document) -> Document:
     return Document.model_validate(doc.model_copy(update={"nodes": nodes}, deep=True).model_dump())
 
 
-def _migration_overlay(doc_dir: Path, doc: Document) -> dict[str, dict[str, Any]]:
+def _migration_overlay(doc_dir: Path, doc: Document,
+                       lecture: Lecture | None = None) -> dict[str, dict[str, Any]]:
     path = doc_dir / "typing.manual.json"
+    if lecture is not None:
+        path = lecture.reel(path)
     if not path.is_file():
         return {}
     try:
@@ -1096,19 +1101,32 @@ def _atomic_artifacts(files: dict[Path, str], delete: list[Path]) -> None:
 
 
 def _load(doc_dir: Path) -> tuple[Document, Report, dict[str, Any], ManifestEntry, dict[str, dict[str, Any]]]:
+    """Le corpus du typage, lu **d'une seule génération** (story 4.5, N1).
+
+    Six résolutions indépendantes du pointeur — manifest, document, rapport, overlay — décidaient
+    ensemble de ce que la transaction publierait : une bascule tombant entre deux d'entre elles
+    faisait typer un document que le manifest ne décrit plus. Le repère est pincé une fois, ici, et
+    toute la lecture passe par lui ; les octets **hachés** sont les octets **parsés**.
+    """
+    with lecture_pincee(doc_dir.parent) as lecture:
+        return _load_pince(doc_dir, lecture)
+
+
+def _load_pince(doc_dir: Path, lecture: Lecture) -> tuple[
+        Document, Report, dict[str, Any], ManifestEntry, dict[str, dict[str, Any]]]:
     manifest_path = doc_dir.parent / "manifest.json"
-    raw_manifest = read_manifest(manifest_path)
+    raw_manifest = _manifest_lu(lecture, manifest_path)
     raw_entry = raw_manifest.get(doc_dir.name)
     if raw_entry is None:
         raise ValueError(f"{doc_dir.name}: absent du manifest")
     entry = TypeAdapter(ManifestEntry).validate_python(raw_entry)
     doc_path = doc_dir / "document.json"
     report_path = doc_dir / "report.json"
-    doc_bytes = doc_path.read_bytes()
+    doc_bytes = lecture.reel(doc_path).read_bytes()
     if hashlib.sha256(doc_bytes).hexdigest() != entry.document_hash:
         raise ValueError("document_hash différent du manifest; relancer l'ingestion PDF")
     doc = Document.model_validate_json(doc_bytes)
-    report = Report.model_validate_json(report_path.read_bytes())
+    report = Report.model_validate_json(lecture.reel(report_path).read_bytes())
     pages_charabia(report)  # préflight avant client/API : un ancien rapport doit être réingéré
     if doc.doc_id != doc_dir.name or report.doc_id != doc.doc_id:
         raise ValueError("doc_id incohérent entre dossier, document et rapport")
@@ -1118,11 +1136,31 @@ def _load(doc_dir: Path) -> tuple[Document, Report, dict[str, Any], ManifestEntr
             entry.source_hash, entry.ingest_fingerprint, entry.edition):
         raise ValueError("source_hash, ingest_fingerprint ou édition incohérent avec le manifest")
     overlay_path = doc_dir / "typing.manual.json"
-    if overlay_path.is_file() != (entry.overlay_hash is not None):
+    overlay_present = lecture.fichier(overlay_path)
+    if overlay_present != (entry.overlay_hash is not None):
         raise ValueError("présence de typing.manual.json incohérente avec overlay_hash")
-    if overlay_path.is_file() and hashlib.sha256(overlay_path.read_bytes()).hexdigest() != entry.overlay_hash:
+    if overlay_present and hashlib.sha256(
+            lecture.reel(overlay_path).read_bytes()).hexdigest() != entry.overlay_hash:
         raise ValueError("overlay_hash différent du manifest; relancer l'ingestion PDF")
-    return doc, report, raw_manifest, entry, _migration_overlay(doc_dir, doc)
+    return doc, report, raw_manifest, entry, _migration_overlay(doc_dir, doc, lecture)
+
+
+def _manifest_lu(lecture: Lecture, manifest_path: Path) -> dict[str, Any]:
+    """`read_manifest`, mais depuis le repère pincé — même contrôle, une seule génération."""
+    octets = lecture.octets(manifest_path)
+    return _manifest_valide(octets, manifest_path)
+
+
+def _manifest_du_verrou(lecture: LectureDuLot, manifest_path: Path) -> dict[str, Any]:
+    """Le manifest **réellement publié**, lu dans la transaction qui va le republier (N3)."""
+    return _manifest_valide(lecture.octets(manifest_path), manifest_path)
+
+
+def _manifest_valide(octets: bytes | None, manifest_path: Path) -> dict[str, Any]:
+    raw: dict[str, Any] = json.loads(octets.decode("utf-8")) if octets else {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{manifest_path} : un objet JSON {{doc_id: entrée}} est attendu")
+    return raw
 
 
 @contextmanager
@@ -1452,36 +1490,71 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     # déjà été. Un rapport sans attestation — parce qu'aucune structure n'a été proposée, parce que
     # l'arbre a été refusé, ou simplement parce qu'il date d'avant la story 4.5 — ressort exactement
     # tel quel, et le témoin du gate reste rouge jusqu'à une vraie réingestion.
-    structure_courante = structure_hash(doc_dir)
-    typed_report = attester_structure(typed_report, document_hash=document_hash,
-                                      structure_hash=structure_courante or "", renouveler=True)
-    typed_report = attester_arbre(typed_report, document_hash=document_hash,
-                                  ingest_fingerprint=old_entry.ingest_fingerprint,
-                                  renouveler=True)
-    report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
-    new_entry = ManifestEntry(
-        status="quarantaine" if typed_report.blocking else "servi",
-        source_hash=old_entry.source_hash,
-        ingest_fingerprint=old_entry.ingest_fingerprint,
-        document_hash=document_hash,
-        edition=old_entry.edition,
-        overlay_hash=None,
-        # Story 4.5 : `structure.json` n'est ni écrit ni supprimé ici — l'empreinte est donc relue
-        # du disque, comme partout ailleurs, plutôt que recopiée de l'ancienne entrée (qui pourrait
-        # décrire un fichier qui a bougé depuis).
-        structure_hash=structure_courante,
-        gate=None,
-    )
+    rapport_publie: Report | None = None
+
+    def fabriquer(lecture: LectureDuLot) -> tuple[ManifestEntry, list[tuple[Path, str | None]]]:
+        """L'entrée publiée, décidée **sous le verrou** (story 4.5, N3).
+
+        `structure_hash` et les champs repris de l'entrée antérieure — `source_hash`,
+        `ingest_fingerprint`, `edition` — venaient d'une lecture faite par `_load` **avant des
+        minutes d'appels de modèle**. Une réingestion publiée entre-temps rendait donc l'entrée du
+        typage descriptive d'un document qui n'existe plus, et le typage écrasait la réingestion.
+        Les trois champs sont relus ici, dans la transaction qui publie, et **opposés** à ceux que
+        le typage a effectivement typés : une divergence est un refus, jamais une publication.
+        """
+        nonlocal rapport_publie
+        manifest_publie = _manifest_du_verrou(lecture, doc_dir.parent / "manifest.json")
+        brut = manifest_publie.get(doc.doc_id)
+        entree_publiee = (TypeAdapter(ManifestEntry).validate_python(brut)
+                          if isinstance(brut, dict) else None)
+        if entree_publiee is None:
+            raise BatchFailure(
+                f"{doc.doc_id} a disparu du manifest pendant le typage : rien n'est publié")
+        repris = (entree_publiee.source_hash, entree_publiee.ingest_fingerprint,
+                  entree_publiee.edition, entree_publiee.document_hash)
+        attendus = (old_entry.source_hash, old_entry.ingest_fingerprint, old_entry.edition,
+                    old_entry.document_hash)
+        if repris != attendus:
+            raise BatchFailure(
+                "le document a été réingéré pendant le typage (source_hash, ingest_fingerprint, "
+                "édition ou document_hash du manifest publié diffèrent de ceux qui ont été typés) "
+                "— rien n'est publié, relancer le typage")
+        structure_courante = lecture.empreinte(doc_dir / STRUCTURE_FILE)
+        rapport = attester_structure(typed_report, document_hash=document_hash,
+                                     structure_hash=structure_courante or "", renouveler=True)
+        rapport = attester_arbre(rapport, document_hash=document_hash,
+                                 ingest_fingerprint=entree_publiee.ingest_fingerprint,
+                                 renouveler=True)
+        rapport_publie = rapport
+        report_text = json.dumps(rapport.model_dump(), indent=2, ensure_ascii=False) + "\n"
+        entree = ManifestEntry(
+            status="quarantaine" if rapport.blocking else "servi",
+            source_hash=entree_publiee.source_hash,
+            ingest_fingerprint=entree_publiee.ingest_fingerprint,
+            document_hash=document_hash,
+            edition=entree_publiee.edition,
+            overlay_hash=None,
+            # Story 4.5 : `structure.json` n'est ni écrit ni supprimé ici — l'empreinte est donc
+            # relue du bundle publié, plutôt que recopiée de l'ancienne entrée (qui pourrait
+            # décrire un fichier qui a bougé depuis).
+            structure_hash=structure_courante,
+            gate=None,
+        )
+        return entree, [(doc_dir / "document.json", doc_text),
+                        (doc_dir / "report.json", report_text),
+                        (doc_dir / "typing.manual.json", None)]
+
     # Tour de racine unique, fait 2 : le manifest est **relu et fusionné sous le verrou** de la
     # racine, jamais depuis le `raw_manifest` que `_load` avait lu au début de l'opération — le
     # typage dure des minutes, et une ingestion concurrente publiée entre-temps était écrasée par
     # cette fusion périmée. Le lot complet du typage — document, rapport, manifest et le retrait de
     # l'overlay — bascule au même appel.
     merged_entry = fusionner_et_publier(
-        doc_dir.parent / "manifest.json", doc.doc_id, new_entry,
-        artefacts=[(doc_dir / "document.json", doc_text),
-                   (doc_dir / "report.json", report_text),
-                   (doc_dir / "typing.manual.json", None)])
+        doc_dir.parent / "manifest.json", doc.doc_id, fabriquer,
+        cibles=[doc_dir / "document.json", doc_dir / "report.json",
+                doc_dir / "typing.manual.json"])
+    assert rapport_publie is not None
+    typed_report = rapport_publie
     return TypingResult(document=typed, report=typed_report, entry=merged_entry,
                         cost_eur=total_cost,
                         first_requests=len(first_plans), second_requests=len(second_plans),
@@ -1561,6 +1634,16 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         return 2
     if args.max_cost is not None and (not math.isfinite(args.max_cost) or args.max_cost <= 0):
         print("--max-cost doit être un nombre fini > 0", file=sys.stderr)
+        return 2
+    # **Un entrypoint de production exige une racine installée** (story 4.5, N3), et le dit avant la
+    # moindre soumission : le typage est le plus cher des chemins d'ingestion, et le refus d'un
+    # `data-dir` non installé tombait après l'avoir payé. Un `--data` custom **installé** passe.
+    doc_dir_pre = args.data / args.doc_id
+    try:
+        exiger_espace_installe([doc_dir_pre / "document.json", doc_dir_pre / "report.json",
+                                doc_dir_pre / "typing.manual.json", args.data / "manifest.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus : {exc}", file=sys.stderr)
         return 2
     settings = settings or get_settings()
     try:

@@ -11,7 +11,7 @@ import hashlib
 import json
 import sys
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +138,35 @@ def _espace_du_lot(cibles: Sequence[Path]) -> Any:
             f"les cibles du lot relèvent de racines différentes ({sorted(racines)}) : aucun "
             "pointeur ne les bascule ensemble")
     return next(iter(couverts.values()))
+
+
+def exiger_espace_installe(cibles: Sequence[Path]) -> None:
+    """Le préflight d'un **entrypoint de production** : une racine installée, ou un refus avant tout.
+
+    Story 4.5, tour de la racine vraiment unique (N3). `verifier_couverture_du_lot` ne lève que sur
+    un lot **mixte** ou deux racines : quand `espace_couvrant` rend `None` pour *toutes* les cibles,
+    `_espace_du_lot` rend `None` sans lever, et `publier_artefacts` prend silencieusement le repli
+    rootless. Sept entrypoints de production atteignaient ce repli — dont trois **après** avoir payé
+    des appels de modèle, et quatre avec un lot d'une seule cible, pour lequel le refus « lot mixte »
+    est structurellement inatteignable. Une cible couverte dont le lien avait été cassé était alors
+    réécrite en fichier ordinaire, silencieusement, et ne se signalait qu'à l'opération multi-cibles
+    suivante.
+
+    La garde ne dépend donc plus d'un lot mixte : **aucune** cible couverte, c'est un refus, quel que
+    soit le nombre de cibles. Elle n'interdit pas les `data-dir` custom — un custom **installé** a sa
+    propre racine et passe sans traitement particulier — elle interdit les `data-dir` **non
+    installés**. Le repli rootless reste ce qu'il est, une primitive interne qu'aucun entrypoint de
+    production n'atteint (la contre-sonde historique du typage l'exerce directement, et le doit).
+    """
+    from server.evals.espace import EspaceNonInstalle
+
+    if _espace_du_lot(cibles) is None:
+        chemins = sorted(str(cible) for cible in cibles)
+        raise EspaceNonInstalle(
+            f"aucune racine de publication ne couvre {chemins} : écrire sans racine n'est pas une "
+            "opération tout-ou-rien, et un entrypoint de production ne le fait pas. Poser la "
+            "disposition (idempotente) : `python -m server.evals.espace --racine <racine> "
+            "--data-dir <data> --depot`")
 
 
 def verifier_couverture_du_lot(cibles: Sequence[Path]) -> None:
@@ -362,8 +391,82 @@ def merged_manifest(raw: dict[str, Any], doc_id: str, entry: ManifestEntry) -> t
     return json.dumps(dict(sorted(raw.items())), indent=2, ensure_ascii=False) + "\n", entry
 
 
-def fusionner_et_publier(manifest_path: Path, doc_id: str, entry: ManifestEntry, *,
-                         artefacts: Sequence[tuple[Path, str | None]] = ()) -> ManifestEntry:
+class LectureDuLot:
+    """Ce qu'un écrivain a le droit de lire pour **décider** du contenu qu'il publie.
+
+    Story 4.5, tour de la racine vraiment unique (N3, second volet). Le tour précédent n'avait fermé
+    la mise à jour perdue que sur les **octets du manifest** : `overlay_hash()`, `structure_hash()`,
+    `load_previous()` et les champs repris de l'entrée antérieure restaient évalués **comme
+    arguments d'appel**, donc avant l'ouverture de la transaction — parfois des minutes avant, dans
+    le cas du typage. Ce qui décide du contenu publié doit se lire sous le verrou, depuis le repère
+    que la transaction a pincé : sinon l'entrée publiée décrit un état que la publication contredit.
+
+    Sous une racine, la lecture passe par `Transaction.chemin_publie`, c'est-à-dire par le slot de
+    la génération courante, dans le repère de la transaction. Sans racine — un arbre de test — il
+    n'y a ni pointeur ni verrou à protéger, et le chemin est lu tel quel : c'est la même
+    dissymétrie structurelle que celle de `publier_artefacts`, jamais un paramètre.
+    """
+
+    def __init__(self, transaction: Any = None) -> None:
+        self._transaction = transaction
+
+    def chemin(self, cible: Path) -> Path:
+        return Path(cible) if self._transaction is None else self._transaction.chemin_lu(cible)
+
+    def octets(self, cible: Path) -> bytes | None:
+        try:
+            return self.chemin(cible).read_bytes()
+        except FileNotFoundError:
+            return None
+
+    def empreinte(self, cible: Path) -> str | None:
+        """sha256 des octets **publiés** de `cible`, ou `None` si elle est absente.
+
+        La règle est exactement celle d'`overlay_hash`/`structure_hash`, dite sous le verrou : ce
+        qui n'est pas un fichier régulier est une absence, et l'empreinte porte sur les octets que
+        la génération courante publie, pas sur ceux qu'un lien pouvait désigner minutes plus tôt.
+        """
+        chemin = self.chemin(cible)
+        return hashlib.sha256(chemin.read_bytes()).hexdigest() if chemin.is_file() else None
+
+    def document_precedent(self, cible: Path) -> Document | None:
+        """Le `document.json` publié, pour `ids_disparus` ; illisible ou invalide ⇒ comme absent."""
+        chemin = self.chemin(cible)
+        if not chemin.is_file():
+            return None
+        try:
+            return Document.model_validate_json(chemin.read_bytes())
+        except (ValidationError, ValueError, OSError):
+            return None
+
+
+def republier(cibles: Sequence[Path],
+              fabrique: Callable[[LectureDuLot], Sequence[tuple[Path, str | None]]]) -> None:
+    """Relit et republie un lot **sous le même verrou** — le read-modify-write d'une cible couverte.
+
+    Story 4.5, tour de la racine vraiment unique (N3). `enrich_dictionary --valider` lisait le
+    dictionnaire, le signait, puis l'écrivait par `write_atomic` : trois gestes à cheval sur le
+    verrou, donc un enrichissement concurrent publié entre la lecture et l'écriture était écrasé par
+    une signature portant l'ancien contenu. C'est le même défaut que celui du manifest, sur une
+    autre surface, et il se ferme de la même façon : la lecture, la transformation et la publication
+    vivent dans la même section critique.
+
+    Sans racine — un `data/` de test —, il n'y a pas de pointeur à protéger, et le chemin d'avant
+    reste le bon. La différence est structurelle, jamais un paramètre.
+    """
+    espace = _espace_du_lot(cibles)
+    if espace is None:
+        publier_artefacts(list(fabrique(LectureDuLot(None))))
+        return
+    with espace.transaction() as transaction:
+        transaction.publier(list(fabrique(LectureDuLot(transaction))))
+
+
+def fusionner_et_publier(manifest_path: Path, doc_id: str,
+                         entree: ManifestEntry | Callable[
+                             [LectureDuLot], tuple[ManifestEntry, Sequence[tuple[Path, str | None]]]],
+                         *, artefacts: Sequence[tuple[Path, str | None]] = (),
+                         cibles: Sequence[Path] = ()) -> ManifestEntry:
     """Relit, fusionne et publie **sous le même verrou** — la fin des mises à jour perdues.
 
     Tour de racine unique, fait 2. `merge_manifest` fusionnait un `raw` que l'appelant avait lu
@@ -380,26 +483,47 @@ def fusionner_et_publier(manifest_path: Path, doc_id: str, entry: ManifestEntry,
 
     `ecrire_gate` demeure l'unique écrivain du champ `gate` (AD-7) : `merged_manifest` ne fait que
     **préserver** celui qui était là, exactement comme avant.
+
+    Tour de la racine vraiment unique (N3). `entree` peut désormais être une **fabrique** —
+    `(LectureDuLot) -> (entrée, artefacts)` — plutôt qu'une entrée déjà construite. C'est ce qui
+    permet à `overlay_hash`, `structure_hash`, au document précédent et aux champs repris de
+    l'entrée antérieure d'être lus **dans** la transaction, depuis le repère qu'elle a pincé, au
+    lieu d'être évalués comme arguments d'appel avant elle. `cibles` déclare, pour le préflight de
+    couverture, les chemins que la fabrique publiera : le lot doit être connu avant d'ouvrir la
+    section critique, puisque c'est lui qui désigne la racine.
     """
-    espace = _espace_du_lot([*[cible for cible, _c in artefacts], manifest_path])
+    lot_declare = [*[cible for cible, _c in artefacts], *cibles, manifest_path]
+    espace = _espace_du_lot(lot_declare)
+
+    def _composer(lecture: LectureDuLot) -> tuple[ManifestEntry, list[tuple[Path, str | None]]]:
+        if callable(entree):
+            entry, arts = entree(lecture)
+            return entry, [*artefacts, *arts]
+        return entree, [*artefacts]
+
     if espace is None:
+        entry, arts = _composer(LectureDuLot(None))
         raw = read_manifest(manifest_path)
         text, merged = merged_manifest(raw, doc_id, entry)
-        publier_artefacts([*artefacts, (manifest_path, text)])
+        publier_artefacts([*arts, (manifest_path, text)])
         return merged
     with espace.transaction() as transaction:
+        entry, arts = _composer(LectureDuLot(transaction))
         raw = _manifest_depuis(transaction.lire(manifest_path), manifest_path)
         text, merged = merged_manifest(raw, doc_id, entry)
-        transaction.publier([*artefacts, (manifest_path, text)])
+        transaction.publier([*arts, (manifest_path, text)])
     return merged
 
 
-def merge_manifest(manifest_path: Path, doc_id: str, entry: ManifestEntry, *,
-                   artefacts: Sequence[tuple[Path, str | None]] = ()) -> ManifestEntry:
+def merge_manifest(manifest_path: Path, doc_id: str,
+                   entree: ManifestEntry | Callable[
+                       [LectureDuLot], tuple[ManifestEntry, Sequence[tuple[Path, str | None]]]],
+                   *, artefacts: Sequence[tuple[Path, str | None]] = (),
+                   cibles: Sequence[Path] = ()) -> ManifestEntry:
     """Fusionne l'entrée `doc_id` ; les autres documents sont conservés tels quels, même invalides.
 
     Le `raw` que cette fonction prenait en paramètre a disparu **à dessein** : le garder aurait
     laissé croire qu'une lecture faite hors du verrou peut servir de base à une fusion. Elle ne le
     peut pas, et c'était le défaut. La lecture qui compte est refaite dans la transaction.
     """
-    return fusionner_et_publier(manifest_path, doc_id, entry, artefacts=artefacts)
+    return fusionner_et_publier(manifest_path, doc_id, entree, artefacts=artefacts, cibles=cibles)

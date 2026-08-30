@@ -79,24 +79,48 @@ l'unique `rename(2)` relève du système de fichiers, pas de l'espace utilisateu
 atomique pour un observateur, mais sa durabilité après coupure dépend du `fsync` du répertoire, que
 ce module fait — sans pouvoir promettre plus que ce que le matériel tient ; un `fsync` qui échoue
 après le commit ne défait pas la publication, il la rend seulement moins durable, et c'est ce que
-l'absorption dit. Non garanti non plus : l'absence de **biais de lecteur**, un lecteur qui résout
-deux cibles de part et d'autre d'une bascule voit un mélange. L'AC ne le demande pas ; il est dit
-ici pour ne pas laisser croire qu'il est couvert. Non garanti enfin : l'abandon du **brouillon**
+l'absorption dit. Le **biais de lecteur** — un lecteur qui résout deux cibles de part et d'autre
+d'une bascule — n'est plus dans cette liste : `server/app/corpus/racine.py` en est le pendant
+lecture, et toute opération de lecture de production pince une génération unique (tour de la racine
+vraiment unique, N1). Ce qui reste non couvert et se dit : un lecteur qui n'emploierait **pas** ce
+repère — un outil externe, un script ad hoc — voit toujours un mélange. Non garanti enfin :
+l'abandon du **brouillon**
 (la génération inactive) est un `rmtree`, qu'une interruption peut couper en deux. Il ne touche
 aucune cible — et jamais, en aucun cas, la génération que le pointeur publie — mais il peut laisser
 une génération inactive à moitié effacée. C'est un résidu **visible** (`residus()`), pas un état
 mêlé : la bascule suivante la reconstruit de zéro.
 
-## Le brouillon est toujours détectable
+## Le brouillon est toujours détectable, **dans les deux sens**
 
 Un brouillon incomplet ne doit **jamais** être indiscernable d'un bundle complet — ni pour
 `residus()`, ni pour `_reconstruire`, ni pour un opérateur (tour de racine unique, fait 4). Une
-**marque** en `.tmp` est donc posée dans l'espace avant la première écriture du brouillon et
-retirée quand il est complet et `fsync`é ; tant qu'elle est là, la génération qu'elle nomme est en
-cours de construction. Elle survit à l'abandon prudent : quand le pointeur est **indécidable**,
-`_abandonner` ne détruit rien (une génération publiée effacée rendrait toutes les cibles
-pendantes) mais repose la marque, de sorte que le brouillon laissé sous son nom `a`/`b` soit vu.
-`_reconstruire`, lui, n'a jamais à s'y fier : il efface et rebâtit la génération inactive de zéro.
+**marque** en `.tmp` est donc posée dans l'espace avant la première écriture du brouillon ; tant
+qu'elle est là, la génération qu'elle nomme est en cours de construction.
+
+Tour de la racine vraiment unique (N2). Cette marque n'est plus « un signal, pas une garantie ».
+Trois changements, et les trois sont la même exigence :
+
+- **à la pose, elle ne peut pas échouer en silence.** Si la marque ne peut pas être créée, la
+  préparation refuse **avant toute mutation de la génération inactive** : sans elle, une exception
+  au rang N laisserait un `a`/`b` partiel que `residus()` ne verrait pas ;
+- **elle est conservée jusqu'au commit établi**, et n'est retirée que dans la frontière
+  post-commit. Elle couvre donc *toute* la fenêtre de mutation, et l'abandon prudent — quand le
+  pointeur est indécidable et qu'on ne détruit rien — n'a plus rien à **reposer** : elle est déjà
+  là. Une repose best-effort partageait exactement le mode de défaillance qu'on ferme ;
+- **elle ne peut pas survivre à la génération qu'elle nomme.** Une marque laissée par un processus
+  disparu n'était moissonnée par personne : après deux bascules parfaitement saines, `residus()`
+  désignait encore comme « brouillon en cours » la génération **que le pointeur publie**. La
+  transaction qui reconstruit une génération inactive assainit donc ce qui la concerne, et
+  `residus()` ne compte jamais une marque nommant la génération publiée — un bundle complet n'est
+  pas un brouillon. Fermer le faux négatif en ouvrant un faux positif permanent n'aurait rien fermé.
+
+Ce que le nommage par pid ne peut pas garantir seul s'écrit plutôt que tu : deux processus qui
+préparent la même génération inactive sont impossibles (le `flock` les sérialise), mais une marque
+dont le processus a disparu **entre** deux bascules reste jusqu'à la reconstruction suivante de sa
+génération — c'est-à-dire jusqu'au prochain écrivain, pas jusqu'à un moissonneur qui n'existe pas.
+
+`_reconstruire`, lui, n'a jamais à se fier à la marque : il efface et rebâtit la génération
+inactive de zéro.
 
 ## Spine
 
@@ -117,16 +141,17 @@ import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
-# Le bundle vit sous `data/` parce que c'est ce que l'image copie (`Dockerfile` : `COPY server data
-# web tools`). Un espace posé sous `docs/` serait absent de l'image, et la route servie rendrait
-# `publie: false` en production — exactement là où FR41 la demande.
-REPERTOIRE_ESPACE = ".publie"
-POINTEUR = "courant"
-VERROU = ".verrou"
-# Deux générations qui alternent. Le contenu publié est petit (un manifest, un artefact servi, deux
-# rendus Markdown, les archives de campagne) : les suivre toutes les deux dans git coûte quelques
-# kilo-octets et évite une génération par run, qui ferait croître le dépôt sans borne.
-GENERATIONS = ("a", "b")
+# **La disposition n'a qu'une autorité** (tour de la racine vraiment unique, N1). Les constantes,
+# les refus nommés et la moitié *lecture* de la racine vivent dans `server/app/corpus/racine.py`,
+# parce que la table des couches du spine interdit à `corpus` comme à `api` d'importer
+# `server/evals` (`tests/test_layers.py`) : un lecteur servi ne peut donc pas atteindre ce module.
+# Les recopier ici aurait fait deux littéraux `.publie` qu'un caractère de différence désaccorderait.
+# Ce module garde ce qui **écrit** : l'installation, la transaction, la bascule et la sonde.
+from server.app.corpus.racine import (GENERATIONS, POINTEUR, REPERTOIRE_ESPACE,  # noqa: F401
+                                      VERROU, EspaceIllisible, EspaceNonInstalle, Lecture,
+                                      LotHorsEspace, RacinePubliee, lire_pointeur, racine_couvrant)
+
+_lire_pointeur = lire_pointeur
 
 # --- la disposition du dépôt : ce que la racine couvre ----------------------------------------------
 #
@@ -203,109 +228,18 @@ def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
     return cibles
 
 
-class EspaceNonInstalle(Exception):
-    """Une cible du lot n'est pas résolue dans l'espace : on refuse **avant** de toucher quoi que ce soit.
-
-    Ce refus est la contrepartie de l'interdiction 7 : puisque la bascule ne pose jamais de lien,
-    une disposition absente doit se dire au lieu de s'installer en douce. Le message porte la
-    commande exacte qui l'installe.
-    """
-
-
-class LotHorsEspace(Exception):
-    """Une cible du lot n'est pas sous la racine de l'espace — il n'y a pas de pointeur commun."""
-
-
-class EspaceIllisible(Exception):
-    """L'espace existe mais n'a pas pu être lu : un garde-fou qui ne peut pas conclure refuse."""
-
-
-def _lire_pointeur(espace: Path) -> str:
-    try:
-        cible = os.readlink(espace / POINTEUR)
-    except FileNotFoundError as exc:
-        raise EspaceNonInstalle(
-            f"{espace / POINTEUR} : l'espace de publication n'est pas installé") from exc
-    except OSError as exc:
-        raise EspaceIllisible(
-            f"{espace / POINTEUR} : pointeur illisible ({type(exc).__name__})") from exc
-    if cible not in GENERATIONS:
-        raise EspaceIllisible(
-            f"{espace / POINTEUR} : génération {cible!r} hors de {GENERATIONS}")
-    return cible
-
-
-class EspacePublie:
+class EspacePublie(RacinePubliee):
     """L'espace de publication d'une racine : son bundle, son pointeur, sa bascule.
 
     `racine` est la racine dont les cibles sont relatives — la racine du dépôt en production,
     `tmp_path` dans les tests. `data_dir` en dérive comme le reste du runner (`run.main` construit
     déjà `output_json`, `output_markdown` et le cache depuis `args.data_dir`), pour qu'un run pointé
     ailleurs n'écrive jamais dans le `data/` du dépôt.
+
+    La moitié **lecture** — la disposition, le slot d'une cible, la génération courante, le repère
+    pincé — vient de `RacinePubliee` (`server/app/corpus/racine.py`), que les lecteurs servis
+    importent sans jamais atteindre cette classe-ci. Ce qui est ajouté ici **écrit**.
     """
-
-    def __init__(self, racine: Path, data_dir: Path | None = None) -> None:
-        self.racine = Path(racine)
-        self.data_dir = Path(data_dir) if data_dir is not None else self.racine / "data"
-
-    # --- lecture ----------------------------------------------------------------------------------
-
-    @property
-    def chemin(self) -> Path:
-        return self.data_dir / REPERTOIRE_ESPACE
-
-    @property
-    def pointeur(self) -> Path:
-        return self.chemin / POINTEUR
-
-    def installe(self) -> bool:
-        return self.pointeur.is_symlink()
-
-    def generation(self) -> str:
-        """La génération sur laquelle `courant` pointe."""
-        return _lire_pointeur(self.chemin)
-
-    def absolu(self, cible: Path) -> Path:
-        """La cible en chemin absolu sous la racine — un chemin relatif s'entend depuis la racine.
-
-        Sans cela, un appelant passant `data/manifest.json` sonderait le répertoire courant du
-        processus au lieu de l'espace, et l'installation refuserait (ou pire, migrerait) le mauvais
-        fichier.
-        """
-        chemin = Path(cible)
-        return chemin if chemin.is_absolute() else (self.racine / chemin)
-
-    def slot(self, cible: Path) -> Path:
-        """Le chemin de `cible` **dans** une génération — son chemin relatif à la racine.
-
-        Le bundle est un miroir de l'arborescence publiée : `data/manifest.json` vit à
-        `<gen>/data/manifest.json`. Aucun nom aplati, aucune table de correspondance à tenir à jour :
-        le chemin *est* la clé, donc deux cibles distinctes ne peuvent pas se partager un slot.
-        """
-        try:
-            # `os.path.abspath` et non `resolve()` : résoudre suivrait le lien de la cible et
-            # rendrait le chemin **dans** le bundle, donc un slot imbriqué à chaque appel.
-            return Path(os.path.abspath(self.absolu(cible))).relative_to(
-                Path(os.path.abspath(self.racine)))
-        except ValueError as exc:
-            raise LotHorsEspace(
-                f"{cible} : hors de la racine {self.racine} — aucun pointeur ne peut la couvrir"
-            ) from exc
-
-    def chemin_dans(self, cible: Path, generation: str) -> Path:
-        return self.chemin / generation / self.slot(cible)
-
-    def resolue_dans_lespace(self, cible: Path) -> bool:
-        """`cible` se résout-elle dans la génération courante ?
-
-        On compare des chemins **résolus**, pas des types d'entrée : une cible directement liée et
-        une cible vivant dans un répertoire lié (les archives de campagne) passent toutes deux par
-        le pointeur, donc l'atome les couvre toutes deux. Un lien pendant se résout aussi — c'est
-        exactement ce qu'il faut, puisqu'un lien pendant *est* l'absence (`FileNotFoundError` à la
-        lecture, fermeture B6 conservée).
-        """
-        attendu = self.chemin_dans(cible, self.generation())
-        return Path(os.path.realpath(self.absolu(cible))) == Path(os.path.realpath(attendu))
 
     def verifier_lot(self, cibles: Iterable[Path]) -> None:
         """Refuse **avant toute écriture** si une cible n'est pas couverte par le pointeur."""
@@ -344,6 +278,11 @@ class EspacePublie:
             return
         cible = self.absolu(brute)
         interne = self.chemin_dans(brute, generation)
+        # Le **répertoire** du slot est posé même quand la cible n'existe pas encore : la
+        # disposition est alors complète, et un lien pendant reste une absence sans être un
+        # cul-de-sac. Sans lui, écrire à travers un lien jamais publié échouerait sur un parent
+        # absent, alors que la publication, elle, crée ce répertoire (`_ecrire_dans_bundle`).
+        interne.parent.mkdir(parents=True, exist_ok=True)
         if cible.is_symlink() or cible.exists():
             if not migrer:
                 raise EspaceNonInstalle(
@@ -514,8 +453,14 @@ class EspacePublie:
         renoncement prudent est le bon comportement — on ne détruit rien qu'on ne sait pas
         inactif —, mais il laissait la génération sous son nom `a`/`b`, potentiellement à moitié
         écrite, et `residus()` ne voyait que les noms en `.tmp` : un brouillon devenait
-        indiscernable d'un bundle complet. La marque posée avant la première écriture n'est donc
-        retirée que lorsqu'on a pu conclure ; sinon elle est **reposée**, et la sonde la voit.
+        indiscernable d'un bundle complet.
+
+        Tour de la racine vraiment unique (N2) : il n'y a plus rien à **reposer** ici. La marque
+        est posée avant la première mutation et **conservée jusqu'au commit établi**, donc elle est
+        déjà là quand on arrive dans cette fonction, quelle que soit la cause. La repose
+        best-effort d'avant appelait la même fonction que la pose et partageait donc exactement son
+        mode de défaillance silencieux : une panne de repose rendait de nouveau une génération
+        partielle invisible. Ce chemin ne fait plus que décider s'il peut la **retirer**.
 
         `ignore_errors` couvre les échecs d'`OSError`, pas l'interruption : un `KeyboardInterrupt`
         pendant l'effacement remonte, et c'est voulu — l'appelant doit voir l'interruption.
@@ -527,11 +472,15 @@ class EspacePublie:
         if not transaction.prepare:
             # Rien n'a été écrit dans la génération inactive : elle porte encore le bundle
             # précédent complet, qui est la matière du prochain miroir. L'effacer serait une perte
-            # nette pour un refus qui n'a rien touché.
+            # nette pour un refus qui n'a rien touché. La marque, elle, n'a pas non plus été
+            # posée — ou sa pose est précisément ce qui a échoué —, donc il n'y a rien à retirer.
+            with contextlib.suppress(OSError):
+                transaction.marque.unlink()
             return
         publiee = self._generation_publiee()
         if publiee is None:
-            transaction.marquer()
+            # Pointeur indécidable : on ne détruit rien, et la marque **déjà posée** reste. C'est
+            # elle que `residus()` voit, et c'est tout ce que le fait 4 demandait.
             return
         if publiee == transaction.suivante:
             return
@@ -575,15 +524,33 @@ class EspacePublie:
         posée avant la première écriture, et reposée par l'abandon prudent, est ce que cette sonde
         voit alors : une génération inactive partielle n'est plus jamais silencieuse.
 
-        Ce qu'elle ne compte **pas**, et c'est délibéré : la génération inactive complète laissée
-        par une bascule réussie. C'est le bundle précédent, suivi par git, matière du prochain
-        miroir — pas un résidu.
+        Tour de la racine vraiment unique, N2, **dans l'autre sens**. Une marque nommant la
+        génération que le pointeur **publie** n'est pas un brouillon : un bundle complet et servi ne
+        peut pas être en cours de construction. Cela arrivait pourtant — une marque laissée par un
+        processus disparu survivait à la reconstruction complète de sa génération, et la sonde
+        désignait à jamais la publication en cours comme un brouillon. Fermer un faux négatif en
+        ouvrant un faux positif permanent n'aurait rien fermé : la sonde ignore donc cette
+        marque-là, et **elle seule**. Quand le pointeur est indécidable, rien n'est ignoré — ne pas
+        savoir ce qui est publié est précisément le cas où tout doit se voir.
+
+        Ce qu'elle ne compte **pas** non plus, et c'est délibéré : la génération inactive complète
+        laissée par une bascule réussie. C'est le bundle précédent, suivi par git, matière du
+        prochain miroir — pas un résidu.
         """
         if not self.chemin.is_dir():
             return []
-        return sorted({str(p.relative_to(self.chemin)) for p in self.chemin.rglob("*")
-                       if any(part.endswith(".tmp")
-                              for part in p.relative_to(self.chemin).parts)})
+        publiee = self._generation_publiee()
+        marque_du_publie = f".{publiee}.brouillon." if publiee is not None else None
+        restes: set[str] = set()
+        for chemin in self.chemin.rglob("*"):
+            relatif = chemin.relative_to(self.chemin)
+            if not any(part.endswith(".tmp") for part in relatif.parts):
+                continue
+            if (marque_du_publie is not None and len(relatif.parts) == 1
+                    and relatif.name.startswith(marque_du_publie)):
+                continue
+            restes.add(str(relatif))
+        return sorted(restes)
 
 
 class Transaction:
@@ -626,6 +593,27 @@ class Transaction:
         self.espace.verifier_lot([cible])
         return self.espace.chemin / self.courante / self.espace.slot(cible)
 
+    def chemin_lu(self, cible: Path) -> Path:
+        """Le chemin **effectivement lu sous le verrou** — le slot publié quand la racine le couvre.
+
+        Story 4.5, N3. Ce que lit un écrivain pour *décider* du contenu qu'il publie (l'empreinte de
+        l'overlay, celle de la structure, le document précédent) doit venir de la génération que la
+        transaction a pincée, jamais du lien vivant. Une cible que la racine ne couvre pas n'a pas
+        de génération : il n'y a rien à pincer et rien à mêler, et son chemin est rendu tel quel.
+        C'est la même dissymétrie structurelle que celle de `publier_artefacts`, jamais un paramètre.
+
+        À la différence de `chemin_publie`, cette fonction ne **refuse** pas une cible non couverte :
+        elle sert la lecture d'un artefact qui peut légitimement ne pas appartenir au lot (un
+        overlay jamais posé dans un arbre partiellement installé), et refuser reviendrait à exiger
+        du lot ce que le lot ne contient pas.
+        """
+        try:
+            if not self.espace.resolue_dans_lespace(cible):
+                return Path(cible)
+            return self.espace.chemin / self.courante / self.espace.slot(cible)
+        except LotHorsEspace:
+            return Path(cible)
+
     def lire(self, cible: Path) -> str | None:
         """Le contenu **publié** d'une cible du lot, lu sous le verrou. `None` si elle est absente.
 
@@ -639,9 +627,43 @@ class Transaction:
             return None
 
     def marquer(self) -> None:
-        """Pose la marque du brouillon, sans jamais lever — elle est un signal, pas une garantie."""
+        """Pose la marque du brouillon. **Elle lève** : sans marque, il n'y a pas de préparation.
+
+        Tour de la racine vraiment unique, N2. Cette fonction était intégralement enveloppée dans
+        `contextlib.suppress(OSError)` et ne rendait rien : `publier` enchaînait sur
+        `_reconstruire` sans jamais savoir si la marque existait. La séquence mesurée était donc
+        réelle — `ENOSPC`, `EDQUOT` ou un `EACCES` ponctuel avalé, puis un `rmtree`/`mkdir` de la
+        génération inactive, puis une exception au rang N : `data/.publie/b` restait **partielle
+        sous son nom canonique**, sans marque, sans nom en `.tmp`, et `residus()` rendait `[]`.
+
+        L'ordre est donc renversé : la marque d'abord, la première mutation ensuite. Un espace où
+        l'on ne peut pas poser un fichier vide est un espace où l'on ne doit rien reconstruire.
+        """
+        os.close(os.open(self.marque, os.O_CREAT | os.O_WRONLY, 0o644))
+
+    def _assainir_les_marques_perimees(self) -> None:
+        """Retire les marques d'**autres** processus nommant la génération qu'on vient de rebâtir.
+
+        Le défaut symétrique de N2, et il est le plus insidieux : la marque est nommée par pid et
+        n'était retirée que par la transaction qui l'avait posée. Un processus tué en cours de
+        brouillon en laissait donc une que **rien** ne moissonnait — sondé, après deux bascules
+        parfaitement saines qui `rmtree`ent et republient la génération qu'elle nomme, `residus()`
+        la rendait encore. La marque avait survécu à la génération qu'elle désigne, et signalait
+        comme « brouillon en cours » un bundle complet.
+
+        L'assainissement se fait **après** la reconstruction, jamais avant : purger d'abord aurait
+        rendu invisible une génération réellement partielle si la reconstruction échouait ensuite —
+        c'est-à-dire aurait rouvert le faux négatif pour fermer le faux positif. Après
+        `_reconstruire`, la génération est un miroir neuf et complet : ce que d'anciennes marques
+        disaient d'elle n'a plus d'objet, et la marque de *cette* transaction la couvre désormais.
+        """
+        prefixe = f".{self.suivante}.brouillon."
         with contextlib.suppress(OSError):
-            os.close(os.open(self.marque, os.O_CREAT | os.O_WRONLY, 0o644))
+            for entree in self.espace.chemin.iterdir():
+                if (entree.name.startswith(prefixe) and entree.name.endswith(".tmp")
+                        and entree != self.marque):
+                    with contextlib.suppress(OSError):
+                        entree.unlink()
 
     def publier(self, lot: Sequence[tuple[Path, str | None]]) -> None:
         """Écrit la génération inactive puis **bascule le pointeur** — l'unique point de commit.
@@ -682,9 +704,16 @@ class Transaction:
                 f"deux cibles du lot partagent un slot : {sorted(slots)} — un lot ne publie pas "
                 "deux contenus au même chemin")
         racine_suivante = self.espace.chemin / self.suivante
-        self.prepare = True
+        # **La marque d'abord, la première mutation ensuite** (N2). `prepare` n'est posé qu'après :
+        # une marque qui ne peut pas être créée refuse la préparation *avant* que la génération
+        # inactive ait bougé, donc il n'y a rien à abandonner et rien à rendre visible.
         self.marquer()
+        self.prepare = True
         _reconstruire(self.espace.chemin / self.courante, racine_suivante)
+        # La génération est un miroir neuf : ce que d'anciennes marques disaient d'elle n'a plus
+        # d'objet, et laisser vivre une marque d'un processus disparu ferait signaler comme
+        # brouillon, à jamais, un bundle complet.
+        self._assainir_les_marques_perimees()
         for cible, contenu in lot:
             chemin = racine_suivante / self.espace.slot(cible)
             if contenu is None:
@@ -692,9 +721,12 @@ class Transaction:
             else:
                 _ecrire_dans_bundle(chemin, contenu)
         _fsync_repertoire(racine_suivante)
-        # Le brouillon est complet et durable : plus rien ne le distingue d'un bundle publiable.
-        with contextlib.suppress(OSError):
-            self.marque.unlink()
+        # **La marque reste jusqu'au commit établi** (N2). Elle tombait ici, entre le `fsync` du
+        # brouillon et l'atome : une exception dans cette fenêtre — préparation du lien temporaire,
+        # `symlink`, interruption — laissait la génération inactive écrite, complète pour un lot
+        # mais périmée pour le pointeur, et **sans marque**. La frontière post-commit
+        # (`_apres_le_commit`) est le seul endroit d'où la retirer, parce que c'est le seul endroit
+        # où la génération qu'elle nomme est devenue celle que le pointeur publie.
         self.lien_tmp.unlink(missing_ok=True)
         os.symlink(self.suivante, self.lien_tmp)
         # --- L'ATOME. Un seul `rename(2)`, dans un seul répertoire, sur une entrée qui existe
@@ -871,28 +903,17 @@ def espace_couvrant(cible: Path) -> EspacePublie | None:
     Attraper `LotHorsEspace` pour rendre `None` aurait été le faux correctif : une cible réellement
     **dans** l'espace, atteinte par un préfixe lié, serait retombée sur l'écriture à travers le
     lien — c'est-à-dire la réouverture, sous un autre chemin, du défaut que ce tour ferme.
+
+    La reconnaissance elle-même vit dans `server/app/corpus/racine.py` (tour de la racine vraiment
+    unique, N1) : c'est la question d'un **lecteur** autant que d'un écrivain, et la table des
+    couches interdit à `corpus` d'importer les évals. Ici on ne fait qu'en tirer l'objet
+    d'**écriture** — et revérifier que la cible est bien résolue dans la génération courante.
     """
-    chemin = Path(cible)
-    if not chemin.is_symlink():
+    lue = racine_couvrant(Path(cible))
+    if lue is None:
         return None
-    resolu = Path(os.path.realpath(chemin))
-    for parent in resolu.parents:
-        if parent.name != REPERTOIRE_ESPACE:
-            continue
-        generation = resolu.relative_to(parent).parts[0]
-        if generation not in GENERATIONS:
-            return None
-        slot = resolu.relative_to(parent / generation)
-        donne = Path(os.path.abspath(chemin))
-        # Le chemin donné doit se terminer par le slot : sinon les deux repères ne décrivent pas la
-        # même cible, et rien ne permet d'en déduire une racine.
-        if donne.parts[-len(slot.parts):] != slot.parts:
-            return None
-        racine = Path(*donne.parts[:-len(slot.parts)])
-        sous_racine = parent.parent.relative_to(parent.parent.parent)
-        espace = EspacePublie(racine, racine / sous_racine)
-        return espace if espace.resolue_dans_lespace(chemin) else None
-    return None
+    espace = EspacePublie(lue.racine, lue.data_dir)
+    return espace if espace.resolue_dans_lespace(Path(cible)) else None
 
 
 # --- la pose de la disposition, en ligne de commande -----------------------------------------------
