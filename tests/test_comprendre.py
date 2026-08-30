@@ -138,8 +138,8 @@ async def test_une_intention_autonome_refusee_ne_peut_pas_devenir_une_clarificat
 
     assert isinstance(sortie, ParsedQuestion) and sortie.intent == intent
     assert sortie.question_resolue == "Sa demande complète concerne un autre sujet."
-    assert sortie.clarification_neutralisee == "Quel objet désignez-vous ?"
-    assert "clarification_neutralisee" not in sortie.model_dump()
+    assert step.clarification_neutralisee == "Quel objet désignez-vous ?"
+    assert "clarification_neutralisee" not in step.model_dump()
     assert [check.name for check in step.checks] == ["clarification_refus_neutralisee"]
     assert len(step.calls) == 1
 

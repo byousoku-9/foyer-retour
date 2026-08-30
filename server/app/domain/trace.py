@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from .document import DomainModel
 
@@ -75,6 +75,19 @@ class StepTrace(DomainModel):
     discarded_block_ids: list[str] = Field(default_factory=list)
     checks: list[CheckResult] = Field(default_factory=list)
     calls: list[LLMCall] = Field(default_factory=list)
+    # Story 4.5, revue croisée B1 : une sortie modèle peut déclarer à la fois une intention refusée
+    # et une clarification. Le fait public vit dans ``checks`` ; son texte non fiable ne doit jamais
+    # entrer dans la trace sérialisée (AD-10), mais le pipeline guide doit pouvoir le servir si son
+    # périmètre tronqué lui interdit de croire ``hors_perimetre``. Un attribut Pydantic privé garde
+    # cette donnée strictement entre *comprendre* et son appelant, sans changer le contrat de Trace.
+    _clarification_neutralisee: str | None = PrivateAttr(default=None)
+
+    @property
+    def clarification_neutralisee(self) -> str | None:
+        return self._clarification_neutralisee
+
+    def neutraliser_clarification(self, clarification: str) -> None:
+        self._clarification_neutralisee = clarification
 
 
 class BlocTrace(DomainModel):

@@ -246,7 +246,6 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         language, lang_fallback = normaliser_langue(out.language)
     clarification = (out.clarification or "").strip()
     question_resolue = (out.question_resolue or "").strip()
-    clarification_neutralisee: str | None = None
     if clarification and out.intent in {"meteo", "bavardage", "hors_perimetre"}:
         # Le contrat du prompt rend ces trois intentions autonomes et refusables sans retrieval.
         # Si le modèle produit malgré tout l'autre issue d'AD-5, privilégier l'intent évite de
@@ -255,7 +254,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
         # `hors_perimetre` et doit la servir plutôt que de laisser la question brute non autonome
         # atteindre *retrouver*. Une vraie anaphore reste `suivi` et conserve directement sa
         # `ClarificationRequise`.
-        clarification_neutralisee = clarification
+        step.neutraliser_clarification(clarification)
         step.checks.append(CheckResult(
             name="clarification_refus_neutralisee", ok=False,
             detail="la sortie de compréhension portait à la fois une intention refusée et une "
@@ -312,7 +311,6 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
             lang_fallback=lang_fallback,
             terms=terms,
             facettes=facettes,
-            clarification_neutralisee=clarification_neutralisee,
             scope=QuestionScope(themes=themes,
                                 # Les deux canaux du profil, côte à côte dans le même `scope` : les
                                 # `themes` **cherchent** (jugement du modèle sur les clés déclarées),

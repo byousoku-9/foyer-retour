@@ -290,7 +290,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             # guide quelle que soit la liste de ses catégories.
             if (parsed.intent == "hors_perimetre"
                     and PERIMETRE_TRONQUE in corpus.alerts.get(doc_id, [])):
-                if parsed.clarification_neutralisee is not None:
+                if step_comprendre.clarification_neutralisee is not None:
                     # Revue croisée 4.5, B1 : le périmètre tronqué retire l'autorité du classement
                     # `hors_perimetre`, pas l'irrésolution que le même appel a explicitement rendue.
                     # La question brute n'est donc jamais promue en entrée de recherche.
@@ -302,7 +302,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     return refuser(
                         "clarification_requise", None, language=parsed.language,
                         lang_fallback=parsed.lang_fallback,
-                        clarification=parsed.clarification_neutralisee,
+                        clarification=step_comprendre.clarification_neutralisee,
                     )
                 hors_perimetre_desarme = True
                 step_comprendre.checks.append(CheckResult(
@@ -314,7 +314,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 # Une normalisation contradictoire n'a produit aucune `question_resolue` autonome :
                 # ne pas prétendre compter ses déclencheurs sur la question brute. Le check dédié de
                 # *comprendre* porte déjà le fait, sans publier le texte modèle.
-                if parsed.clarification_neutralisee is None:
+                if step_comprendre.clarification_neutralisee is None:
                     step_comprendre.checks.append(
                         _intention_expliquee(parsed.intent, parsed.question_resolue, dictionnaire))
                 return refuser("hors_perimetre", None, language=parsed.language,
