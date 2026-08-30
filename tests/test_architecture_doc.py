@@ -129,10 +129,10 @@ def test_les_statuts_de_citation_et_la_table_de_verdict_restent_distincts() -> N
 
 def test_la_synthese_ne_reintroduit_pas_le_vocabulaire_interdit() -> None:
     texte = unicodedata.normalize("NFC", _texte()).casefold()
-    mapping = "mapp" + "ing"
-    assureur = "assu" + "reur"
+    racine_relation = "mapp" + "ing"
+    racine_acteur = "assu" + "reur"
     association_interdite = re.compile(
-        rf"{mapping}.{{0,40}}{assureur}|{assureur}.{{0,40}}{mapping}",
+        rf"{racine_relation}.{{0,40}}{racine_acteur}|{racine_acteur}.{{0,40}}{racine_relation}",
         flags=re.DOTALL,
     )
     assert association_interdite.search(texte) is None
