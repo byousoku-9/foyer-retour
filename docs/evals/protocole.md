@@ -331,6 +331,18 @@ bascule concurrente (deux générations alternent ; celle qu'il a pincée n'est 
 l'identité de l'inode qu'il tient ouvert, et `relire` rejoue la passe sur un repère neuf ; après un
 nombre borné de tentatives, le refus est dit plutôt que résolu par un état partiel.
 
+Le contrôle de péremption vit **dans le repère**, pas chez ses appelants : `Lecture.reel` le fait à
+chaque résolution. C'est délibéré — un contrôle que chaque lecteur doit penser à faire est un
+contrôle qu'aucun ne fait, et c'est exactement ce qui avait été mesuré.
+
+Deux refus nommés complètent la garantie, parce qu'un lecteur qui ne peut pas conclure doit le dire
+plutôt que deviner. `LectureHorsGeneration` : la racine connaît le slot d'une cible, mais la cible ne
+passe plus par le pointeur — disposition cassée, lien couvert remplacé par un fichier ordinaire. Le
+repère refuse au lieu de rendre le chemin brut, c'est-à-dire au lieu de lire à travers le lien
+vivant. `EspaceIllisible` : `courant` désigne une génération dont le répertoire est absent ou
+illisible. Sans ce refus, chaque slot était vu absent et la passe rendait un corpus **vide sans
+refuser** — un corpus vide et un corpus illisible ne sont pas le même fait, et seul le second ferme.
+
 Les opérations de lecture qui le pincent : le démarrage du service (`load_corpus` +
 `construire_etat`, manifest, documents, overlays, structures, sommaires, rapports, dictionnaires et
 publication d'évals), `run.construire_contexte` et les deux preuves de structure et d'arbre — une
