@@ -51,10 +51,15 @@ ferme.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
+import stat
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TypeVar
+
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+from server.app.domain.ingest import ManifestEntry
 
 # Le bundle vit sous `data/` parce que c'est ce que l'image copie (`Dockerfile` : `COPY server data
 # web tools`). Un espace posé sous `docs/` serait absent de l'image, et la route servie rendrait
@@ -71,6 +76,13 @@ GENERATIONS = ("a", "b")
 # reconstruite sous elle. Il en faut **deux** bascules pour que cela arrive ; trois tentatives
 # laissent donc une marge large, et la borne existe pour que l'échec se dise au lieu de tourner.
 ESSAIS_DE_LECTURE = 3
+
+# Autorité de la disposition lisible dans `data/`. L'écrivain importe les mêmes constantes : une
+# cible lue en production ne peut pas être oubliée du bundle par une seconde liste.
+SURFACES_DATA = ("manifest.json", "dictionary.json", "evals-latest.json")
+ARTEFACTS_DOCUMENT = ("document.json", "summary.md", "report.json", "structure.json",
+                      "typing.manual.json", "dictionary.json")
+SOURCES_DOCUMENT = ("source.js", "source.pdf", "source.url", "source.sha256")
 
 
 class EspaceNonInstalle(Exception):
@@ -125,10 +137,16 @@ def lire_pointeur(espace: Path) -> str:
     # **Une génération nommée mais absente est illisible, pas vide** (revue N1–N3, constat 6). Sans
     # ce contrôle, chaque slot était vu absent et le corpus, le smoke et le typage rendaient un état
     # **vide sans refuser** : un espace qu'on ne sait pas lire doit se dire.
-    if not (espace / cible).is_dir():
+    try:
+        mode = os.lstat(espace / cible).st_mode
+    except OSError as exc:
         raise EspaceIllisible(
-            f"{espace / cible} : `courant` désigne {cible!r}, dont le répertoire est absent ou "
-            "illisible — l'espace de publication ne peut pas être lu")
+            f"{espace / cible} : le répertoire est absent ou illisible "
+            f"({type(exc).__name__})") from exc
+    if not stat.S_ISDIR(mode):
+        raise EspaceIllisible(
+            f"{espace / cible} : `courant` désigne {cible!r}, qui n'est pas un répertoire "
+            "ordinaire — un lien ou une autre entrée ne peut pas porter une génération")
     return cible
 
 
@@ -242,6 +260,23 @@ class RacinePubliee:
                 return None
             chemin, reste = chemin.parent, reste.parent
 
+    def lien_exact(self, cible: Path) -> Path | None:
+        """La cible elle-même est-elle le lien statique exact via ``courant`` ?"""
+        try:
+            slot = self.slot(cible)
+        except LotHorsEspace:
+            return None
+        chemin = Path(os.path.abspath(self.absolu(cible)))
+        if not os.path.islink(chemin):
+            return None
+        try:
+            lien = os.readlink(chemin)
+        except OSError:
+            return None
+        vise = Path(os.path.normpath(os.path.join(str(chemin.parent), lien)))
+        attendu = Path(os.path.abspath(self.chemin / POINTEUR / slot))
+        return chemin if vise == attendu else None
+
     def resolue_dans_lespace(self, cible: Path) -> bool:
         """`cible` se résout-elle dans la génération **courante** ?
 
@@ -271,16 +306,7 @@ class RacinePubliee:
         qu'aucune origine de production n'atteint. La fermeture porte sur l'**atteignabilité**,
         jamais sur l'existence.
         """
-        try:
-            return Lecture(self, lire_pointeur(self.chemin))
-        except EspaceNonInstalle:
-            # Le repli rootless — la **primitive interne**, exactement symétrique de
-            # `_publier_sans_racine` côté écriture. Elle sert les arbres nus (bibliothèque, suite de
-            # tests) ; ce qui ferme N3 est qu'**aucun entrypoint de production ne l'atteigne**, et
-            # c'est `exiger_espace_installe` qui le garantit, appelé avant toute lecture par chacun
-            # d'eux. La fermeture porte sur l'atteignabilité, jamais sur l'existence — c'est la
-            # forme que le tour de la racine unique a déjà tranchée pour les écrivains.
-            return Lecture(self, None)
+        return _lecture_validee(self.data_dir, racine=self.racine)
 
 
 class Lecture:
@@ -297,6 +323,7 @@ class Lecture:
         self.generation = generation
         self._fd: int | None = None
         self._ino: int | None = None
+        self._dev: int | None = None
         if racine is not None and generation is not None:
             # Le repère **tient ouvert** le répertoire de la génération pincée. Deux raisons, et les
             # deux comptent : l'inode ne peut pas être recyclé tant qu'il est ouvert, donc
@@ -309,8 +336,13 @@ class Lecture:
             # sous lui — et un garde-fou qui ne peut pas conclure refuse au lieu de se taire. Le
             # taire aurait été exactement le best-effort que N2 ferme par ailleurs.
             with contextlib.suppress(OSError):
-                self._fd = os.open(racine.chemin / generation, os.O_RDONLY)
-                self._ino = os.fstat(self._fd).st_ino
+                drapeaux = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                self._fd = os.open(racine.chemin / generation, drapeaux)
+                identite = os.fstat(self._fd)
+                if not stat.S_ISDIR(identite.st_mode):
+                    raise OSError("la génération pincée n'est pas un répertoire ordinaire")
+                self._ino = identite.st_ino
+                self._dev = identite.st_dev
 
     # --- le repère ---------------------------------------------------------------------------------
 
@@ -363,8 +395,7 @@ class Lecture:
         # que par un lien pendant. Le refus porte donc sur ce qui **existe** sans passer par le
         # pointeur : un lien couvert remplacé par un fichier ordinaire, ou une disposition reposée
         # sous la passe. C'est exactement le cas où lire rendrait des octets d'ailleurs.
-        if (os.path.lexists(chemin) and os.path.lexists(slot)
-                and not os.path.isdir(slot)):
+        if os.path.lexists(slot) and not os.path.isdir(slot):
             raise LectureHorsGeneration(
                 f"{cible} : la racine couvre ce chemin (slot {slot}) mais la cible ne passe plus "
                 "par le pointeur — un lecteur ne devine pas une disposition cassée, il la dit")
@@ -384,10 +415,12 @@ class Lecture:
         """
         if self.racine is None or self.generation is None:
             return False
-        if self._ino is None:
+        if self._ino is None or self._dev is None:
             return True
         try:
-            return os.stat(self.racine.chemin / self.generation).st_ino != self._ino
+            identite = os.lstat(self.racine.chemin / self.generation)
+            return (not stat.S_ISDIR(identite.st_mode)
+                    or identite.st_ino != self._ino or identite.st_dev != self._dev)
         except OSError:
             return True
 
@@ -482,9 +515,9 @@ def racine_couvrant(cible: Path) -> RacinePubliee | None:
             continue
         relatif = resolu.relative_to(parent)
         # Le lien **non traversé** vise `<…>/.publie/courant/<slot>` : c'est le pointeur qui est
-        # nommé, pas la génération. Une cible écrite directement sur une génération (`a`/`b`) reste
-        # reconnue, parce qu'une disposition posée à la main peut prendre cette forme.
-        if not relatif.parts or relatif.parts[0] not in (POINTEUR, *GENERATIONS):
+        # nommé, pas la génération. Une cible écrite directement sur une génération (`a`/`b`) est
+        # une disposition incomplète : elle contournerait la bascule suivante et doit être refusée.
+        if not relatif.parts or relatif.parts[0] != POINTEUR:
             return None
         slot = relatif.relative_to(relatif.parts[0])
         donne = Path(os.path.abspath(chemin))
@@ -505,7 +538,103 @@ def racine_couvrant(cible: Path) -> RacinePubliee | None:
     return None
 
 
-def exiger_racine_installee(data_dir: Path | str) -> None:
+def _repertoire_ordinaire(chemin: Path, *, role: str) -> None:
+    try:
+        mode = os.lstat(chemin).st_mode
+    except OSError as exc:
+        raise EspaceIllisible(
+            f"{chemin} : {role} absent ou illisible ({type(exc).__name__})") from exc
+    if not stat.S_ISDIR(mode):
+        raise EspaceNonInstalle(
+            f"{chemin} : {role} doit être un répertoire ordinaire, jamais un lien symbolique — "
+            "la disposition est incomplète")
+
+
+def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -> None:
+    """Valide toute la disposition dans le repère déjà pincé, puis en confirme l'inode."""
+    assert lecture.generation is not None
+    generation = lecture.generation
+    _repertoire_ordinaire(data, role="conteneur data")
+    _repertoire_ordinaire(publiee.chemin / generation, role="génération publiée")
+    _repertoire_ordinaire(
+        publiee.chemin / generation / publiee.slot(data), role="conteneur data du slot")
+
+    manifest_path = data / "manifest.json"
+    if publiee.lien_exact(manifest_path) is None:
+        raise EspaceNonInstalle(
+            f"{manifest_path} : le manifest doit être son propre lien exact via `courant` — "
+            "aucun fichier ordinaire, lien direct a/b ou ancêtre lié n'est accepté")
+    octets_manifest = lecture.octets(manifest_path)
+    if octets_manifest is None:
+        raise EspaceIllisible(f"{manifest_path} : manifest publié absent")
+    try:
+        brut = json.loads(octets_manifest)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise EspaceIllisible(
+            f"{manifest_path} : manifest publié absent, illisible ou invalide "
+            f"({type(exc).__name__})") from exc
+    if not isinstance(brut, dict):
+        raise EspaceIllisible(f"{manifest_path} : un objet JSON {{doc_id: entrée}} est attendu")
+
+    attendus = [data / nom for nom in SURFACES_DATA]
+    for doc_id, entree in brut.items():
+        if not isinstance(doc_id, str) or DOC_ID_RE.fullmatch(doc_id) is None:
+            raise EspaceIllisible(
+                f"{manifest_path} : identifiant de document impropre {doc_id!r} "
+                f"(attendu : {DOC_ID_RE.pattern})")
+        if len(doc_id) > DOC_ID_MAX:
+            raise EspaceNonInstalle(
+                f"{manifest_path} : identifiant de document {doc_id!r} dépasse "
+                f"{DOC_ID_MAX} caractères — la disposition est incomplète")
+        try:
+            ManifestEntry.model_validate(entree)
+        except ValueError as exc:
+            raise EspaceIllisible(
+                f"{manifest_path} : entrée ManifestEntry invalide pour {doc_id!r} "
+                f"({exc})") from exc
+        document = data / doc_id
+        _repertoire_ordinaire(document, role=f"conteneur du document {doc_id!r}")
+        _repertoire_ordinaire(
+            publiee.chemin / generation / publiee.slot(document),
+            role=f"conteneur du slot du document {doc_id!r}")
+        attendus.extend(document / nom for nom in (*ARTEFACTS_DOCUMENT, *SOURCES_DOCUMENT))
+
+    for cible in attendus:
+        if publiee.lien_exact(cible) is None:
+            raise EspaceNonInstalle(
+                f"{cible} : lien exact via `courant` absent, ordinaire, porté par un ancêtre ou "
+                "directement lié à une génération a/b — la disposition est incomplète. Reposer "
+                "la disposition : `python -m server.evals.espace --racine <racine> --data-dir "
+                "<data> --depot`")
+        slot = publiee.chemin_dans(cible, generation)
+        try:
+            mode = os.lstat(slot).st_mode
+        except FileNotFoundError:
+            continue  # lien pendant exact : absence métier publiée
+        except OSError as exc:
+            raise EspaceIllisible(
+                f"{slot} : slot illisible ({type(exc).__name__})") from exc
+        if not stat.S_ISREG(mode):
+            raise EspaceIllisible(
+                f"{slot} : un slot présent doit être un fichier ordinaire, jamais un lien ou un "
+                "répertoire")
+    lecture.verifier()
+
+
+def _lecture_validee(data_dir: Path | str, *, racine: Path | None = None) -> Lecture:
+    data = Path(data_dir)
+    publiee = RacinePubliee(data.parent if racine is None else Path(racine), data)
+    generation = lire_pointeur(publiee.chemin)
+    lecture = Lecture(publiee, generation)
+    try:
+        _valider_disposition(data, publiee, lecture)
+    except BaseException:
+        lecture.fermer()
+        raise
+    return lecture
+
+
+def exiger_racine_installee(data_dir: Path | str, *, racine: Path | None = None) -> str:
     """Le préflight d'un **entrypoint de lecture de production** : une racine installée, ou un refus.
 
     Patch croisé 2/3, `N3-LECTURE-ROOTLESS`. `RacinePubliee.lecture()` rabat l'absence de racine sur
@@ -520,13 +649,9 @@ def exiger_racine_installee(data_dir: Path | str) -> None:
     n'autorise pas `api` à importer l'ingestion : `corpus` est la seule couche que le démarrage du
     service et les lecteurs servis peuvent voir (`tests/test_layers.py`).
     """
-    data = Path(data_dir)
-    if racine_couvrant(data / "manifest.json") is None:
-        raise EspaceNonInstalle(
-            f"{data} : aucune racine de publication ne couvre ce `data-dir` — un lecteur de "
-            "production ne lit pas hors racine transactionnelle. Poser la disposition "
-            "(idempotente) : `python -m server.evals.espace --racine <racine> --data-dir <data> "
-            "--depot`")
+    with _lecture_validee(data_dir, racine=racine) as lecture:
+        assert lecture.generation is not None
+        return lecture.generation
 
 
 def lecture_de(data_dir: Path | str, racine: Path | None = None) -> Lecture:
@@ -544,8 +669,13 @@ def lecture_de(data_dir: Path | str, racine: Path | None = None) -> Lecture:
     mention explicite. Il n'existe **aucun paramètre** pour choisir l'un ou l'autre : la question
     est structurelle, pas une option d'appelant.
     """
+    return _lecture_validee(data_dir, racine=racine)
+
+
+def _lecture_interne_sans_racine(data_dir: Path | str) -> Lecture:
+    """Primitive interne des arbres unitaires nus ; aucune API de production ne l'appelle."""
     data = Path(data_dir)
-    return RacinePubliee(data.parent if racine is None else Path(racine), data).lecture()
+    return Lecture(RacinePubliee(data.parent, data), None)
 
 
 T = TypeVar("T")

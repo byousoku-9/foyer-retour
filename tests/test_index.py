@@ -11,6 +11,7 @@ from server.app.config import Settings
 from server.app.corpus.dictionary import load_dictionary
 from server.app.corpus.index import Index, reading_order, words
 from server.app.corpus.loader import Corpus, load_corpus
+from server.app.corpus.racine import _lecture_interne_sans_racine
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef
 from server.ingest import kb_to_blocks as k
 
@@ -31,7 +32,8 @@ def mini_index(tmp_path: Path) -> Index:
     d.mkdir(parents=True)
     shutil.copy(MINI, d / "source.js")
     k.run(d, edition="git:test")
-    return Index(load_corpus(d.parent, allow_ungated=True))
+    with _lecture_interne_sans_racine(d.parent) as lecture:
+        return Index(load_corpus(d.parent, allow_ungated=True, lecture=lecture))
 
 
 def test_reading_order_follows_items_from_root(mini_index: Index) -> None:

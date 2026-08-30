@@ -322,7 +322,9 @@ d'empreinte ne voyait pas : il portait sur des octets qu'un second `open()` avai
 résout `courant` une seule fois et rend un repère immuable ; toutes les cibles couvertes se lisent à
 travers lui, **sans** prendre le verrou des écrivains — un lecteur ne doit pas sérialiser la
 production pour être cohérent. Il n'y a pas de paramètre pour retomber sur une résolution vivante :
-ou l'espace est installé et tout passe par lui, ou il ne l'est pas et il n'y a rien à mêler.
+ou l'espace est installé **et complet** et tout passe par lui, ou la lecture publique refuse. Le
+repli sans racine n'existe que comme primitive interne explicitement appelée par les tests unitaires
+et par la photographie temporaire de regate.
 
 Ce que le repère garantit : **une opération de lecture ne mêle jamais deux générations**, et les
 octets **hachés** sont les octets **parsés** — une seule lecture, un seul tampon. Il survit à une
@@ -347,7 +349,9 @@ Les opérations de lecture qui le pincent : le démarrage du service (`load_corp
 `construire_etat`, manifest, documents, overlays, structures, sommaires, rapports, dictionnaires et
 publication d'évals), `run.construire_contexte` et les deux preuves de structure et d'arbre — une
 décision de gate ne peut plus être composée de trois générations —, `type_clauses._load`, et
-`scripts/smoke.charger_attendus`, dont l'attendu autorise une promotion de trafic.
+`scripts/smoke.charger_attendus`, dont l'attendu autorise une promotion de trafic. Les sources
+`source.url`, `source.pdf` et `source.js` suivent ce même repère ; le renderer conserve les octets
+PDF pincés au démarrage et ne relit jamais le chemin vivant par requête.
 
 ### La marque du brouillon n'est plus best-effort, dans les deux sens
 
@@ -359,13 +363,15 @@ fenêtre de mutation, y compris celle qui allait du `fsync` du brouillon à l'at
 prudent n'a plus rien à *reposer* (une repose best-effort partageait exactement le mode de
 défaillance qu'on ferme).
 
-Symétriquement, une marque **ne peut pas survivre à la génération qu'elle nomme**. Elle est nommée
+Symétriquement, une marque périmée est assainie strictement **avant** le commit. Si son retrait
+échoue, la publication refuse sans mutation. Après le commit, aucun nettoyage ne propage : la
+marque qui subsiste reste toutefois visible dans `residus()`, indépendamment de la réussite d'une
+trace auxiliaire ou de stderr. Elle est nommée
 par pid, et rien ne la moissonnait : après deux bascules parfaitement saines — qui `rmtree`ent et
 republient la génération qu'elle nomme —, `residus()` la rendait encore et désignait comme
 « brouillon en cours » la génération que le pointeur publie. La transaction qui reconstruit une
-génération inactive assainit donc ce qui la concerne, et `residus()` ne compte jamais une marque
-nommant la génération publiée. Fermer un faux négatif en ouvrant un faux positif permanent n'aurait
-rien fermé. Ce que le nommage par pid ne peut pas garantir seul s'écrit : une marque dont le
+génération inactive assainit donc ce qui la concerne. Ce que le nommage par pid ne peut pas garantir
+seul s'écrit : une marque dont le
 processus a disparu **entre** deux bascules reste jusqu'à la reconstruction suivante de sa
 génération — c'est-à-dire jusqu'au prochain écrivain, pas jusqu'à un moissonneur qui n'existe pas.
 Et `residus()` n'a **aucun observateur de production** : ses seuls appelants sont la CLI d'opérateur
@@ -386,15 +392,19 @@ avant tout appel payant** : les six CLI (`kb_to_blocks`, `pdf_to_blocks`, `type_
 la vérification tombe désormais avant `_executer_puis_fermer`. La garde ne dépend plus d'un lot
 mixte : **aucune** cible couverte est un refus. Elle n'interdit pas les `data-dir` custom — un custom
 **installé** passe sans traitement particulier —, elle interdit les `data-dir` **non installés**.
-`_publier_sans_racine` et `_atomic_artifacts` restent, comme **primitives internes** qu'aucun
-entrypoint de production n'atteint.
+`_publier_sans_racine`, `_atomic_artifacts` et `_lecture_interne_sans_racine` restent, comme
+**primitives internes** qu'aucun entrypoint public de production n'atteint. `lecture_de`,
+`load_corpus`, le smoke et la relecture refusent un pointeur absent, une génération absente, un
+manifest illisible, un lien manquant ou remplacé, et un lien direct vers `a`/`b`. Les répertoires
+conteneurs restent, eux, des répertoires ordinaires.
 
 Ce qui décide du **contenu publié** se lit sous le verrou, depuis le repère que la transaction a
 pincé : `overlay_hash`, `structure_hash`, le document précédent (`ids_disparus`) et les champs repris
 de l'entrée antérieure (`source_hash`, `ingest_fingerprint`, `edition`). Le typage, qui dure des
 minutes, **oppose** en outre ces champs à ceux qu'il a réellement typés : une réingestion publiée
-entre-temps est un refus, jamais une publication. `enrich_dictionary --valider` cesse d'être un
-read-modify-write à cheval sur le verrou.
+entre-temps est un refus, jamais une publication. Pour `enrich_dictionary`, l'opérande est l'entrée
+canonique entière capturée avant la campagne — source, document, ingestion, édition, statut,
+overlay, structure et gate — sur les transports batch comme standard.
 
 Enfin, sous une racine, un **lien pendant est une absence** : c'est la forme que prend tout artefact
 jamais publié, et c'est l'état réel des `structure.json` du dépôt. `structure.presente()` le dit
@@ -476,8 +486,9 @@ chemin d'écriture, pas qui écrit quoi.
 les surfaces de racine (`data/manifest.json`, `data/dictionary.json`, `data/evals-latest.json`,
 `docs/evals/latest.md`, `docs/evals/campagnes`) et, dans chaque répertoire de document,
 `document.json`, `summary.md`, `report.json`, `structure.json`, `typing.manual.json` et
-`dictionary.json`. Les *entrées* (`source.js`, `source.pdf`, `source.url`, `source.sha256`) n'en sont
-pas : personne ne les écrit, et les mettre dans le bundle en ferait un dépôt de sources.
+`dictionary.json`, `source.js`, `source.pdf` et `source.url`. Ces sources sont des entrées, mais leur
+sélection et leur lecture décident de ce qui est servi : elles doivent donc appartenir à la même
+génération. `source.sha256`, référence de téléchargement non servie, reste hors du bundle.
 `server/evals/espace.py::cibles_du_depot` énumère cette disposition **structurellement**, en listant
 `data/` — aucun `doc_id` n'est écrit nulle part —, et `python -m server.evals.espace --depot` la pose.
 Un lot **moitié couvert** est refusé avant de toucher quoi que ce soit, en nommant les cibles

@@ -76,7 +76,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
-from server.app.corpus.racine import Lecture, relire  # noqa: E402 — idem
+from server.app.corpus.racine import EspaceIllisible, Lecture, relire  # noqa: E402 — idem
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
 from server.app.domain.document import BlockKind  # noqa: E402 — idem
 from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
@@ -178,10 +178,16 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
     lui.
     """
     racine = racine or REPO_ROOT
+    exiger_la_racine(racine)
     # `relire` : l'attendu qui autorise une promotion de trafic ne peut pas être composé de deux
     # générations, et pincer sans consulter la péremption ne l'empêchait pas (revue N1–N3, 1).
     depot = racine
-    return relire(racine / "data", lambda lecture: _attendus_pinces(depot, lecture))
+    try:
+        return relire(racine / "data", lambda lecture: _attendus_pinces(depot, lecture))
+    except EspaceIllisible as exc:
+        # La validation de racine est désormais plus précoce que le parseur propre au smoke ; sa
+        # frontière publique reste `ErreurTransport`, avec le diagnostic de domaine intact.
+        raise ErreurTransport(str(exc)) from exc
 
 
 def _attendus_pinces(racine: Path, lecture: Lecture) -> Attendus:

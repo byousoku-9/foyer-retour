@@ -15,15 +15,12 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from server.app.config import EVALS_PUBLICATION_FILE
-from server.evals.espace import EspacePublie
+from server.evals.espace import EspacePublie, cibles_du_depot
 
 # Les cibles que tout run peut publier, relatives à la racine. Les sorties de run par défaut de
 # `run.main` (`eval-results.json` / `eval-results.md`) en font partie : un run sans `--gate` bascule
 # déjà ce couple, et il est soumis au même invariant que la publication.
 CIBLES_STANDARD = (
-    Path("data") / "manifest.json",
-    Path("data") / EVALS_PUBLICATION_FILE,
     Path("docs") / "evals" / "latest.md",
     Path("docs") / "evals" / "campagnes",
     Path("eval-results.json"),
@@ -40,6 +37,7 @@ def poser_espace(racine: Path, *, data_dir: Path | None = None,
     chemin de production n'atteint ce mode.
     """
     espace = EspacePublie(racine, data_dir)
-    voulues = [*CIBLES_STANDARD, *cibles]
+    voulues = [*CIBLES_STANDARD, *cibles_du_depot(racine, espace.data_dir), *cibles]
+    voulues = list(dict.fromkeys(voulues))
     espace.installer(voulues, migrer=True)
     return espace

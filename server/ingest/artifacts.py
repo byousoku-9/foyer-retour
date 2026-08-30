@@ -80,6 +80,11 @@ def write_atomic(path: Path, text: str) -> None:
     publier_artefacts([(path, text)])
 
 
+def write_atomic_bytes(path: Path, content: bytes) -> None:
+    """Variante binaire de :func:`write_atomic`, soumise au même point de commit."""
+    publier_artefacts([(path, content)])
+
+
 def _espace_du_lot(cibles: Sequence[Path]) -> Any:
     """L'espace qui couvre **tout** le lot, `None` s'il n'en couvre aucune cible — sinon un refus.
 
@@ -160,7 +165,7 @@ def verifier_couverture_du_lot(cibles: Sequence[Path]) -> None:
     _espace_du_lot(cibles)
 
 
-def deposer_par_la_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
+def deposer_par_la_racine(lot: Sequence[tuple[Path, str | bytes | None]]) -> None:
     """La voie **opérateur** de dépôt d'un artefact écrit à la main — overlay de typage compris.
 
     Patch croisé 1/3, `N3-OVERLAY-BYPASS`. La procédure documentée appelait directement
@@ -178,7 +183,7 @@ def deposer_par_la_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
     publier_artefacts(lot)
 
 
-def publier_artefacts(lot: Sequence[tuple[Path, str | None]]) -> None:
+def publier_artefacts(lot: Sequence[tuple[Path, str | bytes | None]]) -> None:
     """Publie le lot **complet** d'une opération d'ingestion — d'un seul geste quand une racine le couvre.
 
     Tour de racine unique. `write_atomic` appelé cible par cible faisait autant de points de commit
@@ -251,7 +256,7 @@ def _retablir(chemin: Path, etat: tuple[str, object], temporaires: list[Path]) -
         os.replace(tmp, chemin)
 
 
-def _publier_sans_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
+def _publier_sans_racine(lot: Sequence[tuple[Path, str | bytes | None]]) -> None:
     """Le lot d'un arbre qu'**aucune racine ne couvre** — même propriété observable, autre mécanique.
 
     Reprise du tour de racine unique. Une version antérieure de ce chemin préparait ses temporaires
@@ -282,7 +287,7 @@ def _publier_sans_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
     """
     # La cible réellement opérée : à travers un lien qui ne relève d'aucun espace pour une écriture
     # (ne pas le remplacer par un fichier ordinaire), le lien lui-même pour une suppression.
-    operations: list[tuple[Path, str | None]] = [
+    operations: list[tuple[Path, str | bytes | None]] = [
         (cible if contenu is None else (Path(os.path.realpath(cible)) if cible.is_symlink() else cible), contenu)
         for cible, contenu in lot]
     # Deux entrées visant le même chemin rendraient le rétablissement ambigu — laquelle est
@@ -301,7 +306,10 @@ def _publier_sans_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
             chemin.parent.mkdir(parents=True, exist_ok=True)
             tmp = chemin.with_name(chemin.name + ".tmp")
             temporaires.append(tmp)
-            tmp.write_text(contenu, "utf-8")
+            if isinstance(contenu, bytes):
+                tmp.write_bytes(contenu)
+            else:
+                tmp.write_text(contenu, "utf-8")
             prets.append((tmp, chemin))
         for tmp, chemin in prets:
             # **Le rang se note avant l'appel système, jamais après.** `KeyboardInterrupt` peut

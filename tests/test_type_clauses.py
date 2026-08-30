@@ -483,7 +483,8 @@ class FakeStandardClient:
         )
 
 
-def write_data(tmp_path: Path, *, overlay: bool = False) -> tuple[Path, Document]:
+def write_data(tmp_path: Path, *, overlay: bool = False,
+               installer: bool = True) -> tuple[Path, Document]:
     data = tmp_path / "data"
     doc_dir = data / "contrat"
     doc_dir.mkdir(parents=True)
@@ -507,6 +508,8 @@ def write_data(tmp_path: Path, *, overlay: bool = False) -> tuple[Path, Document
                           document_hash=hashlib.sha256(text.encode()).hexdigest(), edition="2026",
                           overlay_hash=overlay_hash)
     (data / "manifest.json").write_text(json.dumps({"contrat": entry.model_dump()}), "utf-8")
+    if installer:
+        poser_espace(tmp_path, data_dir=data)
     return doc_dir, doc
 
 
@@ -1362,7 +1365,7 @@ def test_une_disposition_incomplete_refuse_le_typage_avant_toute_soumission(tmp_
     soumis et facturé était jeté pour une disposition qu'on pouvait vérifier gratuitement avant la
     première soumission. La sonde vérifie que **rien n'a été soumis**.
     """
-    doc_dir, _ = write_data(tmp_path)
+    doc_dir, _ = write_data(tmp_path, installer=False)
     espace = EspacePublie(tmp_path, tmp_path / "data")
     # Le manifest est couvert, les artefacts du document ne le sont pas : le lot mixte exact que la
     # pose d'un document neuf oublie.
@@ -1394,7 +1397,7 @@ def test_la_cli_de_typage_refuse_un_data_dir_non_installe_avant_toute_soumission
 
     Le refus est un code 2, comme tous les refus d'avant appel, et **aucun lot n'est créé**.
     """
-    doc_dir, _ = write_data(tmp_path)
+    doc_dir, _ = write_data(tmp_path, installer=False)
     avant = {chemin: chemin.read_bytes()
              for chemin in (doc_dir / "document.json", doc_dir / "report.json",
                             doc_dir.parent / "manifest.json")}

@@ -43,8 +43,7 @@ def _poser_la_disposition(tmp_path: Path, data_dir: Path) -> None:
     donc pas à poser quoi que ce soit — c'est ce qui laisse
     `test_une_disposition_incomplete_refuse_avant_toute_ingestion` composer sa disposition partielle.
     """
-    poser_espace(tmp_path, cibles=[data_dir.relative_to(tmp_path) / nom
-                                   for nom in ("document.json", "summary.md", "report.json")])
+    poser_espace(tmp_path, data_dir=data_dir.parent)
 
 
 def test_block_order_ids_and_source_fields(mini_kb: dict) -> None:
@@ -323,11 +322,11 @@ def test_unreadable_manifest_blocks_without_touching_artefacts(data_dir: Path,
                                                               tmp_path: Path) -> None:
     _poser_la_disposition(tmp_path, data_dir)
     k.run(data_dir, edition="e")
-    snapshot = {p.name: p.read_bytes() for p in data_dir.iterdir()}
+    snapshot = {p.name: p.read_bytes() for p in data_dir.iterdir() if p.exists()}
     (data_dir.parent / "manifest.json").write_text("{pas du json", "utf-8")
     report, entry = k.run(data_dir, edition="e")
     assert report.checks[0].name == "manifest_illisible" and report.blocking and entry.status == "quarantaine"
-    assert {p.name: p.read_bytes() for p in data_dir.iterdir()} == snapshot
+    assert {p.name: p.read_bytes() for p in data_dir.iterdir() if p.exists()} == snapshot
     assert (data_dir.parent / "manifest.json").read_text("utf-8") == "{pas du json"
     assert k.main(["--data", str(data_dir)]) == 1
 
@@ -405,7 +404,10 @@ def test_lingestion_declare_la_structure_presente_et_le_loader_sert_toujours(dat
     manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
     assert manifest["lux-guide"]["structure_hash"] == attendu
     # Et le document reste **servi** : c'est toute la différence avec le cul-de-sac.
-    corpus = load_corpus(data_dir.parent, allow_ungated=True)
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+
+    with _lecture_interne_sans_racine(data_dir.parent) as lecture:
+        corpus = load_corpus(data_dir.parent, allow_ungated=True, lecture=lecture)
     assert corpus.quarantine == {} and "lux-guide" in corpus.documents
 
 

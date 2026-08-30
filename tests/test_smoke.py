@@ -21,6 +21,8 @@ from typing import Any
 
 import pytest
 
+from tests.helpers_espace import poser_espace
+
 from scripts.smoke import (
     SURFACES,
     Attendus,
@@ -319,10 +321,20 @@ def _ecrire_depot(tmp_path: Any, contenu: str | None, *, source_hash: str = DICO
     data.mkdir(parents=True, exist_ok=True)
     if contenu is not None:
         (data / "dictionary.json").write_text(contenu, encoding="utf-8")
-    entrees = {"lux-guide": {"status": "servi", "source_hash": source_hash}}
+    entrees = {"lux-guide": {
+        "status": "servi", "source_hash": source_hash, "ingest_fingerprint": "fp",
+        "document_hash": "document", "edition": "git:test",
+    }}
     for doc_id, empreinte in (autres or {}).items():
-        entrees[doc_id] = {"status": "servi", "source_hash": empreinte}
+        entrees[doc_id] = {
+            "status": "servi", "source_hash": empreinte, "ingest_fingerprint": "fp",
+            "document_hash": "document", "edition": "git:test",
+        }
     (data / "manifest.json").write_text(json.dumps(entrees), encoding="utf-8")
+    for doc_id in entrees:
+        (data / doc_id).mkdir(exist_ok=True)
+        (data / doc_id / "source.url").write_text("https://example.invalid/source", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
     return tmp_path
 
 
@@ -903,7 +915,14 @@ def test_les_attendus_sont_ceux_du_manifest_et_des_cas_du_gate() -> None:
 
 def test_les_attendus_refusent_un_depot_sans_document_servi(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "manifest.json").write_text('{"x": {"status": "quarantaine"}}', "utf-8")
+    (tmp_path / "data" / "manifest.json").write_text(json.dumps({"x": {
+        "status": "quarantaine", "source_hash": "source", "ingest_fingerprint": "fp",
+        "document_hash": "document", "edition": "git:test",
+    }}), "utf-8")
+    (tmp_path / "data" / "x").mkdir()
+    (tmp_path / "data" / "x" / "source.url").write_text(
+        "https://example.invalid/source", "utf-8")
+    poser_espace(tmp_path, data_dir=tmp_path / "data")
     with pytest.raises(ErreurTransport, match="aucun document"):
         charger_attendus(racine=tmp_path)
 
@@ -1116,6 +1135,11 @@ def test_un_gate_cases_illisible_dans_le_manifest_est_un_refus(tmp_path: Path) -
     manifest = json.loads((REPO / "data" / "manifest.json").read_text("utf-8"))
     manifest["lux-guide"]["gate"]["cases"] = None
     (depot / "data" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    for doc_id in manifest:
+        (depot / "data" / doc_id).mkdir()
+        (depot / "data" / doc_id / "source.url").write_text(
+            "https://example.invalid/source", "utf-8")
+    poser_espace(depot, data_dir=depot / "data")
     with pytest.raises(ErreurTransport, match="gate.cases"):
         charger_attendus(racine=depot)
 

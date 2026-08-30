@@ -29,7 +29,7 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.domain.ingest import ManifestEntry
-from server.evals.espace import EspacePublie
+from tests.helpers_espace import poser_espace
 from server.evals.relecture import (PlanRelecture, RelectureInvalide, ROUTE_PAGE,
                                     charger_images, ecrire_plan, empreinte_image, nom_image,
                                     plan_de_relecture, valider_verdict)
@@ -335,17 +335,23 @@ def test_la_cli_ecrit_un_plan_deterministe_sans_reseau(tmp_path: Path,
     # opérateur la pose — l'index reste doublé, et aucune attente de ce test ne change.
     data = tmp_path / "data-servi"
     data.mkdir()
-    EspacePublie(tmp_path, data).installer([Path("data-servi") / "manifest.json"])
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
     code = module._main(["--report", str(rapport), "--candidate-revision", REVISION,
                          "--data-dir", str(data), "--out", str(sortie)])
     assert code == 0
     ecrit = PlanRelecture.model_validate_json(sortie.read_bytes())
+    octets_premier = sortie.read_bytes()
     assert [b.block_id for b in ecrit.blocs] == [f"{DOC}:p3:1", f"{DOC}:p3:2"]
     assert ecrit.candidate_revision == REVISION
     # Déterministe : deux exécutions rendent le même digest.
-    module._main(["--report", str(rapport), "--candidate-revision", REVISION,
-                  "--data-dir", str(tmp_path / "data-absent"), "--out", str(sortie)])
-    assert PlanRelecture.model_validate_json(sortie.read_bytes()).plan_digest == ecrit.plan_digest
+    data_second = tmp_path / "data-second"
+    data_second.mkdir()
+    (data_second / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data_second)
+    assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(data_second), "--out", str(sortie)]) == 0
+    assert sortie.read_bytes() == octets_premier
 
 
 def test_la_cli_refuse_un_rapport_illisible(tmp_path: Path) -> None:
@@ -357,6 +363,33 @@ def test_la_cli_refuse_un_rapport_illisible(tmp_path: Path) -> None:
     assert module._main(["--report", str(casse), "--candidate-revision", REVISION]) == 2
     assert module._main(["--report", str(tmp_path / "absent.json"),
                          "--candidate-revision", REVISION]) == 2
+
+
+@pytest.mark.parametrize("partielle", [False, True])
+def test_le_preflight_refuse_avant_de_lire_le_rapport(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, partielle: bool) -> None:
+    from server.evals import relecture as module
+
+    rapport = tmp_path / "rapport-ne-doit-pas-etre-lu.json"
+    rapport.write_text(json.dumps(_rapport_de_run()), "utf-8")
+    data = tmp_path / "data"
+    data.mkdir()
+    if partielle:
+        (data / "manifest.json").write_text("{}\n", "utf-8")
+        poser_espace(tmp_path, data_dir=data)
+        (data / "dictionary.json").unlink()
+    lectures: list[Path] = []
+    vrai = Path.read_text
+
+    def _mouchard(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == rapport:
+            lectures.append(self)
+        return vrai(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _mouchard)
+    assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(data)]) == 2
+    assert lectures == [], "le rapport a été ouvert avant le préflight complet"
 
 
 def test_le_statut_ne_dit_concordante_que_si_tout_concorde() -> None:
@@ -569,5 +602,5 @@ def test_la_cli_de_relecture_refuse_un_data_dir_non_installe_avant_toute_lecture
                          "--data-dir", str(tmp_path / "jamais-installe"), "--out", str(sortie)])
 
     assert code == 2
-    assert "aucune racine de publication ne couvre" in capsys.readouterr().err
+    assert "espace de publication n'est pas installé" in capsys.readouterr().err
     assert not sortie.exists(), "un plan a été écrit alors que la disposition refusait"

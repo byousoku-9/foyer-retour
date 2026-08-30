@@ -1045,7 +1045,9 @@ def test_les_deux_verrous_du_dictionnaire_se_lisent_ou_restent_faux(
         tmp_path: Any, over: dict, attendus: tuple) -> None:
     corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
     _ecrire_dictionnaire(tmp_path, corpus, **over)
-    d = load_dictionary(tmp_path, corpus, "lux-guide")
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+    with _lecture_interne_sans_racine(tmp_path) as lecture:
+        d = load_dictionary(tmp_path, corpus, "lux-guide", lecture=lecture)
     assert (d.validated, d.corpus_ok, d.court_circuit_actif) == attendus
 
 
@@ -1056,7 +1058,9 @@ def test_un_dictionnaire_illisible_ou_non_conforme_nempeche_jamais_de_servir(
     n'empêche jamais de servir et ne lève jamais au démarrage »."""
     corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
     (tmp_path / "dictionary.json").write_bytes(contenu)
-    d = load_dictionary(tmp_path, corpus, "lux-guide")
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+    with _lecture_interne_sans_racine(tmp_path) as lecture:
+        d = load_dictionary(tmp_path, corpus, "lux-guide", lecture=lecture)
     assert d.court_circuit_actif is False and d.utilisable is False and d.raison
 
 
@@ -1065,12 +1069,18 @@ def test_les_deux_alertes_du_dictionnaire_disent_deux_causes_distinctes(tmp_path
     « non validé », et taire l'une des deux raisons ferait chercher la mauvaise."""
     corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True)
     _ecrire_dictionnaire(tmp_path, corpus, corpus_source_hashes={"lux-guide": "autre"})
-    alertes = etat_module._alertes_dictionnaire(load_dictionary(tmp_path, corpus, "lux-guide"))
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+    with _lecture_interne_sans_racine(tmp_path) as lecture:
+        dictionnaire = load_dictionary(tmp_path, corpus, "lux-guide", lecture=lecture)
+    alertes = etat_module._alertes_dictionnaire(dictionnaire)
     noms = [a.alerte for a in alertes]
     assert noms == ["dictionnaire_non_valide", "dictionnaire_corpus_perime"]
     assert all(a.doc_id == "*" for a in alertes)
     # Le dictionnaire **absent** ne porte que la première : rien n'est périmé, rien n'est là.
-    absent = etat_module._alertes_dictionnaire(load_dictionary(tmp_path / "vide", corpus, "lux-guide"))
+    with _lecture_interne_sans_racine(tmp_path / "vide") as lecture:
+        dictionnaire_absent = load_dictionary(
+            tmp_path / "vide", corpus, "lux-guide", lecture=lecture)
+    absent = etat_module._alertes_dictionnaire(dictionnaire_absent)
     assert [a.alerte for a in absent] == ["dictionnaire_non_valide"]
 
 

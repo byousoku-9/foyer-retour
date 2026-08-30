@@ -189,6 +189,7 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
     import json
 
     from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.racine import _lecture_interne_sans_racine
 
     # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
     # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
@@ -207,7 +208,8 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
          # Story 2.5 : les déclencheurs d'intention. Ils ne décident rien (AD-5) — ils permettent
          # au pipeline de **compter** ce qui corrobore l'intention rendue par *comprendre*.
          "intents": intents or {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
-    return load_dictionary(dossier, index.corpus, doc_id)
+    with _lecture_interne_sans_racine(dossier) as lecture:
+        return load_dictionary(dossier, index.corpus, doc_id, lecture=lecture)
 
 
 BONNE = ("c1", "Le délai est de huit jours.", [(f"{DOC_ID}:f1:2", Q_ARRIVEE)])

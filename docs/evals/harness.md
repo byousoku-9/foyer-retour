@@ -274,8 +274,10 @@ D'où la disposition : chaque cible du lot est un chemin dont la résolution pas
 retire.** Les surfaces de racine — `data/manifest.json`, `data/dictionary.json`,
 `data/evals-latest.json`, `docs/evals/latest.md`, `docs/evals/campagnes` — et, dans chaque
 répertoire de document, `document.json`, `summary.md`, `report.json`, `structure.json`,
-`typing.manual.json` et `dictionary.json` sont des liens **committés**. Les *entrées* (`source.js`,
-`source.pdf`, `source.url`, `source.sha256`) n'en sont pas : personne ne les écrit.
+`typing.manual.json`, `dictionary.json`, `source.js`, `source.pdf` et `source.url` sont des liens
+**committés**. Ces trois sources sont sélectionnées, vérifiées et parfois rendues par le service ou
+le gate : elles appartiennent donc au même instantané que le manifest et le document.
+`source.sha256`, référence du téléchargement mais surface non servie, reste hors du bundle.
 
 `typing.manual.json` est le cas à part, et il vaut mieux le nommer que le laisser deviner : c'est une
 **entrée écrite à la main**, dont seule la **suppression** appartient au pipeline — `type_clauses` la
@@ -303,8 +305,8 @@ Les deux gestes que la couverture rend faux, et qu'il ne faut donc pas faire : �
 lien pendant (`> data/<doc>/typing.manual.json`) écrirait directement dans la génération active, hors
 verrou — le défaut d'immutabilité que ce protocole ferme ; et le remplacer par un fichier ordinaire
 ferait **refuser en lot mixte** toute opération suivante sur ce document, puisque son lot serait
-moitié couvert. `cibles_du_depot` énumère cette
-liste **structurellement**, en listant `data/`, de sorte qu'aucun `doc_id` n'apparaisse dans le code ;
+moitié couvert. `cibles_du_depot` énumère cette liste depuis les identifiants du manifest et les
+répertoires déjà présents sous `data/`, de sorte qu'aucun `doc_id` n'apparaisse dans le code ;
 `python -m server.evals.espace --depot` la pose, et poser un document neuf, c'est reposer la
 disposition — un geste d'opérateur, idempotent, jamais atteint depuis une bascule. Les sorties de run
 (`.evals/`) sont posées par la CI, `.evals/` étant ignoré par git. La bascule ne pose, ne migre et
@@ -342,8 +344,9 @@ pointeur ne déplacerait que sa moitié.
 - Garanti : une génération inactive laissée **partielle** — brouillon abandonné, nettoyage
   interrompu, pointeur indécidable au moment de conclure — est toujours vue par
   `EspacePublie.residus()`, jamais indiscernable d'un bundle complet : une marque de brouillon est
-  posée avant la première écriture, retirée quand le brouillon est complet, et **reposée** par
-  l'abandon prudent.
+  posée avant la première écriture et conservée jusqu'au commit établi. Un retrait impossible avant
+  commit ne masque jamais la cause d'origine ; après commit il ne lève jamais, mais la marque reste
+  un résidu durable, même si le signalement sur stderr échoue.
 - Le ping-pong à deux générations impose un `flock` exclusif sur l'espace : c'est la dette
   `target_story: 4.1` payée pour le chemin des évals. **L'ingestion aussi** : `write_atomic` écrivait
   `data/manifest.json` à travers le lien, donc dans la génération publiée et hors du verrou, et
@@ -384,7 +387,8 @@ particulier : ce qui est interdit est le `data-dir` **non installé**, pas le `d
 
 **Ce qu'un lecteur pince.** Une opération de lecture de production — démarrage du service,
 `construire_contexte` du runner, les preuves de structure et d'arbre, `type_clauses._load`,
-`charger_attendus` du smoke — résout `courant` **une seule fois** et lit toutes ses surfaces
+`charger_attendus` du smoke et la CLI de relecture — exige d'abord une disposition **complète**,
+résout `courant` **une seule fois** et lit toutes ses surfaces
 couvertes à travers ce repère (`server/app/corpus/racine.py`). Une bascule tombant entre deux de ses
 lectures ne peut donc plus lui faire rendre un état composé de deux générations, et les octets
 **hachés** sont les octets **parsés**. Un lecteur ne prend aucun verrou : il ne sérialise pas la
@@ -393,7 +397,9 @@ détecte et la passe est rejouée, puis, après un nombre borné de tentatives, 
 
 **Ce qui décide du contenu publié se lit sous le verrou.** `overlay_hash`, `structure_hash`, le
 document précédent et les champs repris de l'entrée antérieure (`source_hash`, `ingest_fingerprint`,
-`edition`) viennent du repère que la transaction a pincé, jamais d'une lecture faite avant elle. Le
+`edition`, statut, overlay, structure et gate) viennent du repère que la transaction a pincé, jamais
+d'une lecture faite avant elle. L'enrichissement oppose l'entrée canonique entière capturée avant la
+campagne à celle relue sous le verrou ; une différence quelconque refuse. Le
 typage **oppose** en outre ces champs à ceux qu'il a réellement typés : une réingestion publiée
 pendant les minutes d'appels est un refus, pas une publication.
 

@@ -98,12 +98,13 @@ def _poser_la_disposition(data: Path) -> None:
     sinon. Son lot n'a qu'une cible, et c'est précisément le cas où le refus « lot mixte » était
     structurellement inatteignable.
     """
+    from server.app.corpus.racine import ARTEFACTS_DOCUMENT, SOURCES_DOCUMENT, SURFACES_DATA
     from server.evals.espace import EspacePublie
 
-    EspacePublie(data, data).installer(
-        [Path("manifest.json"), Path("dictionary.json"),
-         Path(DOC_ID) / "dictionary.json", Path(DOC_ID) / "document.json",
-         Path(DOC_ID) / "summary.md", Path(DOC_ID) / "report.json"], migrer=True)
+    EspacePublie(data.parent, data).installer(
+        [*(data / nom for nom in SURFACES_DATA),
+         *(data / DOC_ID / nom for nom in (*ARTEFACTS_DOCUMENT, *SOURCES_DOCUMENT))],
+        migrer=True)
 
 
 def _source_hash(data: Path) -> str:
@@ -1114,7 +1115,7 @@ def test_valider_oppose_le_manifest_publie_et_non_le_corpus_charge_avant_le_verr
                "corpus": {"franchise": ["deductible"]}, "intents": {},
                "candidate_questions": {}, "validated": False, "validated_by": None,
                "validated_at": None}
-    espace = EspacePublie(data, data)
+    espace = EspacePublie(data.parent, data)
     espace.basculer([(chemin, json.dumps(fichier, ensure_ascii=False))])
 
     # La réingestion concurrente : le manifest **publié** porte un autre `source_hash`.
@@ -1200,7 +1201,7 @@ def test_une_reingestion_pendant_la_campagne_refuse_au_lieu_de_publier(
     # La réingestion concurrente, publiée pendant la campagne (le faux client la déclenche).
     publie = json.loads(manifest_path.read_text("utf-8"))
     publie[DOC_ID]["source_hash"] = hashlib.sha256(b"source reingeree").hexdigest()
-    espace = EspacePublie(data, data)
+    espace = EspacePublie(data.parent, data)
 
     class ClientQuiReingere(FauxClient):
         def __init__(self, batches: Any) -> None:
@@ -1229,3 +1230,126 @@ def test_une_reingestion_pendant_la_campagne_refuse_au_lieu_de_publier(
     assert "réingéré pendant la campagne" in capsys.readouterr().err
     apres = (data / "dictionary.json").read_bytes() if (data / "dictionary.json").exists() else None
     assert apres == avant, "un dictionnaire a été publié alors que le corpus avait bougé"
+
+
+def test_le_transport_standard_refuse_aussi_un_changement_canonique_non_source(
+        tmp_path: Path, capsys: Any) -> None:
+    """N1-N3 : l'égalité complète protège aussi Messages standard, sans réseau."""
+    from server.evals.espace import EspacePublie
+
+    data = _ecrire_data(tmp_path, kind="contrat")
+    manifest = data / "manifest.json"
+    apres = json.loads(manifest.read_text("utf-8"))
+    apres[DOC_ID]["edition"] = "git:autre-revision"
+    espace = EspacePublie(data.parent, data)
+
+    class MessagesQuiReingere(FauxMessagesStandard):
+        fait = False
+
+        def create(self, **params: Any) -> Any:
+            if not self.fait:
+                self.fait = True
+                espace.basculer([(manifest, json.dumps(apres, ensure_ascii=False) + "\n")])
+            return super().create(**params)
+
+    messages = MessagesQuiReingere([_message(_sortie_contrat()), _message(SORTIE_INTENTS)])
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"],
+                   client=FauxClientStandard(messages), settings=_settings(), sortie=io.StringIO())
+
+    assert code == 5 and len(messages.requetes) == 2
+    assert "changé d'identité canonique" in capsys.readouterr().err
+    assert not (data / DOC_ID / "dictionary.json").exists()
+
+
+@pytest.mark.parametrize(("mutation", "diagnostic"), [
+    ("supprime", "manifest supprimé"),
+    ("json-invalide", "manifest illisible"),
+    ("entree-absente", "entrée absente"),
+    ("entree-invalide", "entrée invalide"),
+])
+@pytest.mark.parametrize("transport", ["batch", "standard"])
+def test_toute_identite_manifest_devenue_inexploitable_refuse_sans_modifier_le_lot(
+        tmp_path: Path, capsys: Any, mutation: str, diagnostic: str,
+        transport: str) -> None:
+    """Les quatre refus post-campagne mordent sur les deux transports, sans réseau.
+
+    La mutation concurrente est le seul commit autorisé par la sonde. Tous les autres octets du
+    bundle, dictionnaire sentinelle compris, doivent rester ceux qu'elle a recopiés : le refus ne
+    peut publier ni dictionnaire partiel, ni second lot.
+    """
+    from server.evals.espace import EspacePublie
+
+    kind = "guide" if transport == "batch" else "contrat"
+    data = _ecrire_data(tmp_path, kind=kind)
+    espace = EspacePublie(data.parent, data)
+    manifest = data / "manifest.json"
+    dictionnaire = (data / "dictionary.json" if kind == "guide"
+                    else data / DOC_ID / "dictionary.json")
+    sentinelle = json.dumps({
+        "schema_version": ed.SCHEMA_VERSION,
+        "corpus_source_hashes": {}, "corpus": {}, "intents": {},
+        "candidate_questions": {}, "validated": False,
+        "validated_by": None, "validated_at": None,
+    }, sort_keys=True) + "\n"
+    espace.basculer([(dictionnaire, sentinelle)])
+
+    def octets_du_lot_hors_manifest() -> dict[Path, bytes]:
+        generation = espace.generation()
+        racine = espace.chemin / generation
+        return {
+            p.relative_to(racine): p.read_bytes()
+            for p in racine.rglob("*")
+            if p.is_file() and p.name != "manifest.json"
+        }
+
+    lot_avant = octets_du_lot_hors_manifest()
+
+    if mutation == "supprime":
+        nouveau_manifest: str | None = None
+    elif mutation == "json-invalide":
+        nouveau_manifest = "{\n"
+    elif mutation == "entree-absente":
+        nouveau_manifest = "{}\n"
+    else:
+        nouveau_manifest = json.dumps({DOC_ID: {"status": "servi"}}) + "\n"
+
+    fait = False
+
+    def muter() -> None:
+        nonlocal fait
+        if not fait:
+            fait = True
+            espace.basculer([(manifest, nouveau_manifest)])
+
+    if transport == "batch":
+        class BatchesQuiMutent(FauxBatches):
+            def retrieve(self, batch_id: str) -> _Lot:
+                muter()
+                return super().retrieve(batch_id)
+
+        batches = BatchesQuiMutent({
+            ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS,
+            ed.custom_id(CAT): _sortie_categorie(),
+        })
+        client: Any = FauxClient(batches)
+        argv = ["--data", str(data), "--doc-id", DOC_ID]
+    else:
+        class MessagesQuiMutent(FauxMessagesStandard):
+            def create(self, **params: Any) -> Any:
+                muter()
+                return super().create(**params)
+
+        messages = MessagesQuiMutent([
+            _message(_sortie_contrat()), _message(SORTIE_INTENTS),
+        ])
+        client = FauxClientStandard(messages)
+        argv = ["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"]
+
+    code = ed.main(argv, client=client, settings=_settings(), sortie=io.StringIO())
+
+    assert fait and code == 5
+    assert diagnostic in capsys.readouterr().err
+    assert dictionnaire.read_bytes() == sentinelle.encode("utf-8")
+    lot_apres = octets_du_lot_hors_manifest()
+    assert lot_avant, "la contre-sonde doit observer un lot non vide"
+    assert lot_apres == lot_avant

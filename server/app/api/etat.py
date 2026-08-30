@@ -706,13 +706,13 @@ def _first_error_public(exc: ValueError) -> str:
     return type(exc).__name__
 
 
-def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
+def _pdf_sources(data_dir: Path, corpus: Corpus, lecture: Lecture) -> dict[str, VerifiedSource]:
     """Projette les PDF déjà validés par le loader, sans toucher au cœur du corpus.
 
     Un document servi a déjà passé le hash de la première source présente dans
     ``SOURCE_FILES``. Rejouer exactement cette sélection permet au lecteur de
-    mémoriser le chemin choisi sans relire le PDF au démarrage. Le renderer
-    revérifie les octets au moment de chaque requête.
+    mémoriser le chemin choisi et ses octets dans le même repère. Le renderer sert ensuite ce
+    tampon immuable et ne relit jamais le chemin vivant par requête.
     """
     sources: dict[str, VerifiedSource] = {}
     for doc_id in corpus.served:
@@ -721,10 +721,15 @@ def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
             continue
         for source_name in SOURCE_FILES:
             path = data_dir / doc_id / source_name
-            if not path.is_file():
+            payload = lecture.octets(path)
+            if payload is None:
                 continue
             if source_name == "source.pdf":
-                sources[doc_id] = VerifiedSource(path=path, sha256=entry.source_hash)
+                # Le renderer sert ce tampon immuable : aucune seconde traversée de `courant`, ni
+                # aucune reconstruction ultérieure de la génération pincée, ne peut changer les
+                # octets rendus entre la sélection et la requête HTTP.
+                sources[doc_id] = VerifiedSource(
+                    path=lecture.reel(path), sha256=entry.source_hash, payload=payload)
             break
     return sources
 
@@ -779,7 +784,7 @@ def _lire_les_surfaces(data_dir: Path, settings: Settings, contexte: GateContext
         corpus=corpus, dictionnaire=dictionnaire, dictionnaires=dictionnaires,
         doc_ids_audit=doc_ids_audit, rapports=rapports, alertes_rapports=alertes_rapports,
         sources=_sources(data_dir, doc_ids_audit, lecture),
-        pdf_sources=_pdf_sources(data_dir, corpus),
+        pdf_sources=_pdf_sources(data_dir, corpus, lecture),
         publication=_publication_evals(data_dir, settings.evals_publication_file, lecture))
 
 

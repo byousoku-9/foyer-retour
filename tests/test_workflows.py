@@ -13,7 +13,7 @@ OIDC entre GitHub et le pool WIF aboutit. Il ne s'exerce que depuis un runner Gi
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -447,6 +447,40 @@ def test_le_credentiel_federe_ne_part_ni_dans_le_bucket_ni_dans_limage() -> None
                   if ligne.strip() and not ligne.lstrip().startswith("#")}
         assert "gha-creds-*.json" in motifs, (
             f"`{nom}` doit exclure le crédentiel écrit par `auth@v3` dans le répertoire de travail")
+
+
+def _entre_dans_le_contexte(fichier: Path, relatif: str) -> bool:
+    """Évalue les motifs ordonnés utiles de nos trois fichiers ignore, négations comprises."""
+    ignore = False
+    chemin = PurePosixPath(relatif)
+    for brute in fichier.read_text("utf-8").splitlines():
+        motif = brute.strip()
+        if not motif or motif.startswith("#"):
+            continue
+        negation = motif.startswith("!")
+        motif = motif[1:] if negation else motif
+        if chemin.match(motif.rstrip("/")):
+            ignore = not negation
+    return not ignore
+
+
+def test_les_liens_pdf_entrent_dans_les_contextes_sans_les_octets_prives() -> None:
+    """Le préflight exige les liens racine ; les slots PDF, verrou et brouillons restent privés."""
+    racine = WORKFLOWS.parents[1]
+    liens = [f"data/{doc_id}/source.pdf" for doc_id in (
+        "lux-guide", "axa-lu-optihome-2017", "baloise-lu-home-2-2024")]
+    exclus = [
+        "data/.publie/a/data/axa-lu-optihome-2017/source.pdf",
+        "data/.publie/b/data/baloise-lu-home-2-2024/source.pdf",
+        "data/.publie/.verrou",
+        "data/.publie/a/data/doc/.source.pdf.telechargement.tmp",
+    ]
+    for nom in (".dockerignore", ".gcloudignore", ".gitignore"):
+        ignore = racine / nom
+        assert all(_entre_dans_le_contexte(ignore, lien) for lien in liens), nom
+        assert all(not _entre_dans_le_contexte(ignore, secret) for secret in exclus), nom
+    assert all((racine / lien).is_symlink() for lien in liens), (
+        "les entrées réadmises doivent rester les liens statiques, jamais des octets PDF")
 
 
 # --- `scripts/gcp_bootstrap.sh` : la frontière d'identité, côté GCP -------------------------------

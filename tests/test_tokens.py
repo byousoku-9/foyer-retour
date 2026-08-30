@@ -9,21 +9,45 @@ installée avant de dépenser.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from server.evals import tokens as tk
 from server.evals.espace import EspacePublie
+from server.app.domain.ingest import ManifestEntry
+from tests.helpers_espace import poser_espace
 
 
 def _lot_couvert(tmp_path: Path) -> tuple[Path, EspacePublie]:
     data = tmp_path / "data" / "doc"
     data.mkdir(parents=True)
-    espace = EspacePublie(tmp_path, tmp_path / "data")
-    espace.installer([Path("data") / "doc" / "summary.md"])
-    espace.basculer([(data / "summary.md", "un sommaire couvert")])
+    (data / "summary.md").write_text("un sommaire couvert", "utf-8")
+    entree = ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                           document_hash="d", edition="2020")
+    (data.parent / "manifest.json").write_text(
+        json.dumps({"doc": entree.model_dump()}), "utf-8")
+    espace = poser_espace(tmp_path, data_dir=data.parent)
     return data / "summary.md", espace
+
+
+def test_une_disposition_partielle_refuse_avant_measure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    chemin, _espace = _lot_couvert(tmp_path)
+    (tmp_path / "data" / "doc" / "source.url").unlink()
+    appels: list[str] = []
+
+    async def _interdit(_lot: object) -> object:
+        appels.append("measure")
+        raise AssertionError("measure ne doit pas être appelé")
+
+    monkeypatch.setattr(tk, "get_settings", lambda: type("S", (), {"anthropic_api_key": "sk"})())
+    monkeypatch.setattr(tk, "measure", _interdit)
+    assert tk.main([str(chemin)]) == 2
+    assert appels == []
+    assert "disposition est incomplète" in capsys.readouterr().err
 
 
 def test_le_comptage_refuse_un_chemin_hors_racine_avant_tout_appel(

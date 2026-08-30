@@ -364,7 +364,7 @@ def _main(argv: list[str] | None = None) -> int:
     from server.app.config import REPO_ROOT, Settings
     from server.app.corpus.index import Index
     from server.app.corpus.loader import load_corpus
-    from server.ingest.artifacts import exiger_espace_installe
+    from server.app.corpus.racine import lecture_de
 
     parser = argparse.ArgumentParser(
         prog="python -m server.evals.relecture",
@@ -376,28 +376,27 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--out", type=Path, help="où écrire le plan (défaut : stdout)")
     args = parser.parse_args(argv)
+    # Le préflight est le premier geste après le parsing : même un rapport parfaitement lisible ne
+    # doit pas être ouvert si le corpus qu'il faudrait lui opposer n'a pas de racine complète.
     try:
-        rapport = json.loads(args.report.read_text(encoding="utf-8"))
-        if not isinstance(rapport, dict):
-            raise ValueError("un objet JSON est attendu")
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        print(f"refus : rapport illisible ({type(exc).__name__}: {exc})", file=sys.stderr)
-        return 2
-    reglages = Settings()
-    # **Un entrypoint de lecture de production exige une racine installée** (patch croisé 2/3,
-    # `N3-LECTURE-ROOTLESS`), et il le dit **avant** de lire : le repli rootless reste une primitive
-    # interne, symétrique de `_publier_sans_racine`, et ce qui ferme N3 est qu'aucun entrypoint ne
-    # l'atteigne. Le manifest suffit à trancher — c'est la première cible couverte que toute
-    # opération sur ce `data-dir` touche.
-    try:
-        exiger_espace_installe([Path(args.data_dir) / "manifest.json"])
+        lecture = lecture_de(args.data_dir)
     except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
         print(f"refus, rien n'a été lu : {exc}", file=sys.stderr)
         return 2
-    corpus = load_corpus(args.data_dir, allow_ungated=True,
-                         perimetre_max_chars=reglages.perimetre_max_chars,
-                         raison_max_chars=reglages.raison_publiable_max_chars)
     try:
+        try:
+            rapport = json.loads(args.report.read_text(encoding="utf-8"))
+            if not isinstance(rapport, dict):
+                raise ValueError("un objet JSON est attendu")
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            print(f"refus : rapport illisible ({type(exc).__name__}: {exc})", file=sys.stderr)
+            return 2
+        reglages = Settings()
+        corpus = load_corpus(args.data_dir, allow_ungated=True,
+                             perimetre_max_chars=reglages.perimetre_max_chars,
+                             raison_max_chars=reglages.raison_publiable_max_chars,
+                             lecture=lecture)
+        lecture.verifier()
         plan = plan_de_relecture(Index(corpus), blocs_cles_du_rapport(rapport),
                                  candidate_revision=args.candidate_revision)
     except RelectureInvalide as exc:
@@ -408,6 +407,8 @@ def _main(argv: list[str] | None = None) -> int:
     except ValidationError as exc:
         print(f"refus : {exc.errors()[0].get('msg', '')}", file=sys.stderr)
         return 2
+    finally:
+        lecture.fermer()
     if args.out is not None:
         ecrire_plan(plan, args.out)
         print(f"plan écrit : {args.out} ({len(plan.blocs)} bloc(s), "

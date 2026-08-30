@@ -432,8 +432,13 @@ def _etat_observable(cibles: list[Path]) -> dict[str, tuple[bool, str | None, st
 
 def _espace_pose(tmp_path: Path, relatifs: tuple[str, ...], lot: list[tuple[str, str]]) -> EspacePublie:
     espace = EspacePublie(tmp_path)
-    espace.installer([Path(relatif) for relatif in relatifs])
-    espace.basculer([(tmp_path / relatif, contenu) for relatif, contenu in lot])
+    surfaces = ("data/manifest.json", "data/dictionary.json", "data/evals-latest.json")
+    espace.installer([*(Path(relatif) for relatif in surfaces),
+                      *(Path(relatif) for relatif in relatifs)])
+    a_publier = [(tmp_path / relatif, contenu) for relatif, contenu in lot]
+    if not any(relatif == "data/manifest.json" for relatif, _contenu in lot):
+        a_publier.insert(0, (tmp_path / "data/manifest.json", "{}\n"))
+    espace.basculer(a_publier)
     return espace
 
 
@@ -1012,7 +1017,7 @@ def test_la_disposition_suit_le_data_dir_du_run_et_refuse_hors_racine(tmp_path: 
     assert "docs/evals/latest.md" in cibles
 
     espace = EspacePublie(tmp_path, autre)
-    espace.installer([Path(c) for c in cibles])
+    espace.installer([Path(c) for c in cibles], migrer=True)
     for relatif in cibles:
         assert espace.resolue_dans_lespace(tmp_path / relatif), f"{relatif} hors du pointeur"
 
@@ -1454,10 +1459,8 @@ def test_un_nettoyage_impossible_apres_le_commit_est_dit_et_reste_observable(
     """`N2-NETTOYAGE-MUET`, volet **après** commit : rien ne remonte, mais rien n'est tu.
 
     Après le commit, l'AC interdit de propager quoi que ce soit — le lot est publié. Mais absorber
-    n'est pas taire : la marque qui subsiste nomme désormais la génération que le pointeur
-    **publie**, donc `residus()` la filtre à raison (un bundle publié n'est pas un brouillon), et
-    l'impossibilité devenait invisible. Elle laisse maintenant une trace d'un **autre nom**, que la
-    sonde de résidus ne filtre jamais, et un mot sur `stderr`.
+    n'est pas taire : la marque qui subsiste reste un résidu durable, complété par une trace
+    auxiliaire et un mot sur `stderr`.
     """
     espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
     vrai_unlink = Path.unlink
@@ -1548,3 +1551,213 @@ def test_un_nettoyage_impossible_pendant_labandon_est_dit(
 
     assert (tmp_path / "a.md").read_text("utf-8") == "v1", "aucune cible ne doit avoir bougé"
     assert "nettoyage impossible pendant l'abandon" in capsys.readouterr().err
+
+
+def test_un_stderr_ferme_ne_masque_pas_la_cause_dorigine_pendant_labandon(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N2 : l'échec du signalement est secondaire à l'échec pré-commit."""
+    from server.evals import espace as esp
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    vrai_unlink = Path.unlink
+
+    def _marque_non_retirable(self: Path, **kw: object) -> None:
+        if ".brouillon." in self.name:
+            raise PermissionError("marque verrouillée")
+        return vrai_unlink(self, **kw)  # type: ignore[arg-type]
+
+    class _StderrFerme:
+        def write(self, _texte: str) -> int:
+            raise OSError("stderr fermé")
+
+        def flush(self) -> None:
+            raise OSError("stderr fermé")
+
+    monkeypatch.setattr(Path, "unlink", _marque_non_retirable)
+    monkeypatch.setattr(esp, "_fsync_repertoire",
+                        lambda _c: (_ for _ in ()).throw(OSError("cause originale")))
+    monkeypatch.setattr(esp.sys, "stderr", _StderrFerme())
+    with pytest.raises(OSError, match="cause originale"):
+        espace.basculer([(tmp_path / "a.md", "v2")])
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v1"
+    assert any(".brouillon." in reste for reste in espace.residus())
+
+
+def test_keyboardinterrupt_du_nettoyage_et_du_signalement_ne_masque_pas_la_cause_initiale(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La cause pré-commit distincte reste celle propagée, même sous interruptions secondaires."""
+    from server.evals import espace as esp
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    vrai_unlink = Path.unlink
+
+    def _interrompre_marque(self: Path, **kw: object) -> None:
+        if ".brouillon." in self.name:
+            raise KeyboardInterrupt("interruption de l'unlink")
+        return vrai_unlink(self, **kw)  # type: ignore[arg-type]
+
+    class _StderrInterrompu:
+        def write(self, _texte: str) -> int:
+            raise KeyboardInterrupt("interruption du signalement")
+
+        def flush(self) -> None:
+            raise KeyboardInterrupt("interruption du signalement")
+
+    monkeypatch.setattr(Path, "unlink", _interrompre_marque)
+    monkeypatch.setattr(esp, "_fsync_repertoire",
+                        lambda _c: (_ for _ in ()).throw(RuntimeError("cause initiale distincte")))
+    monkeypatch.setattr(esp.sys, "stderr", _StderrInterrompu())
+    with pytest.raises(RuntimeError, match="cause initiale distincte"):
+        espace.basculer([(tmp_path / "a.md", "v2")])
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v1"
+    assert espace.residus(), "le nettoyage interrompu doit laisser un signal durable"
+
+
+@pytest.mark.parametrize("forme", ["absent", "ordinaire", "generation-directe"])
+def test_toute_disposition_incomplete_refuse_avant_lecture(
+        tmp_path: Path, forme: str) -> None:
+    """N3 : absent, type remplacé et lien direct a/b sont tous fail-closed."""
+    from server.app.corpus import racine as rac
+    from tests.helpers_espace import poser_espace
+
+    data = tmp_path / "data"
+    doc = data / "doc-neutre"
+    doc.mkdir(parents=True)
+    (doc / "source.url").write_text("https://example.invalid/source", "utf-8")
+    (data / "manifest.json").write_text(json.dumps({"doc-neutre": {
+        "status": "servi", "source_hash": "source", "ingest_fingerprint": "ingest",
+        "document_hash": "document", "edition": "2020",
+    }}) + "\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
+    cible = doc / "source.url"
+    contenu = cible.read_text("utf-8")
+    lien = os.readlink(cible)
+    cible.unlink()
+    if forme == "ordinaire":
+        cible.write_text(contenu, "utf-8")
+    elif forme == "generation-directe":
+        os.symlink(lien.replace("/courant/", "/a/"), cible)
+
+    with pytest.raises(rac.EspaceNonInstalle, match="disposition est incomplète"):
+        rac.lecture_de(data)
+    assert doc.is_dir() and not doc.is_symlink(), "les conteneurs restent des répertoires ordinaires"
+
+
+def _racine_de_lecture_valide(tmp_path: Path) -> tuple[Path, Path, EspacePublie]:
+    """Disposition minimale dont chaque mutation ci-dessous ne casse qu'une garde."""
+    from tests.helpers_espace import poser_espace
+
+    data = tmp_path / "data"
+    doc = data / "doc-neutre"
+    doc.mkdir(parents=True)
+    (doc / "source.url").write_text("https://example.invalid/source", "utf-8")
+    (data / "manifest.json").write_text(json.dumps({"doc-neutre": {
+        "status": "servi", "source_hash": "source", "ingest_fingerprint": "ingest",
+        "document_hash": "document", "edition": "2020",
+    }}) + "\n", "utf-8")
+    return data, doc, poser_espace(tmp_path, data_dir=data)
+
+
+@pytest.mark.parametrize("mutation", [
+    "generation-symlink",
+    "data-public-symlink",
+    "doc-public-symlink",
+    "data-slot-symlink",
+    "doc-slot-symlink",
+    "slot-file-symlink",
+    "slot-directory",
+])
+def test_les_conteneurs_et_slots_malveillants_sont_refuses_fail_closed(
+        tmp_path: Path, mutation: str) -> None:
+    """Chaque ancêtre et chaque slot présent doit garder son type ordinaire exact."""
+    from server.app.corpus import racine as rac
+
+    data, doc, espace = _racine_de_lecture_valide(tmp_path)
+    generation = espace.generation()
+    racine_generation = espace.chemin / generation
+    externe = tmp_path / "externe"
+    externe.mkdir()
+
+    if mutation == "generation-symlink":
+        sauvegarde = espace.chemin / f"{generation}-reel"
+        racine_generation.rename(sauvegarde)
+        os.symlink(sauvegarde.name, racine_generation)
+    elif mutation == "data-public-symlink":
+        sauvegarde = tmp_path / "data-reel"
+        data.rename(sauvegarde)
+        os.symlink(sauvegarde.name, data)
+    elif mutation == "doc-public-symlink":
+        sauvegarde = data / "doc-reel"
+        doc.rename(sauvegarde)
+        os.symlink(sauvegarde.name, doc)
+    elif mutation == "data-slot-symlink":
+        slot = racine_generation / espace.slot(data)
+        slot.rename(racine_generation / "data-reel")
+        os.symlink("../externe-inexistante", slot)
+    elif mutation == "doc-slot-symlink":
+        slot = racine_generation / espace.slot(doc)
+        slot.rename(slot.with_name("doc-reel"))
+        os.symlink(externe, slot)
+    else:
+        slot = espace.chemin_dans(doc / "source.url", generation)
+        slot.unlink()
+        if mutation == "slot-file-symlink":
+            secret = externe / "secret"
+            secret.write_text("hors racine", "utf-8")
+            os.symlink(secret, slot)
+        else:
+            slot.mkdir()
+
+    with pytest.raises((rac.EspaceIllisible, rac.EspaceNonInstalle)):
+        rac.lecture_de(data)
+
+
+@pytest.mark.parametrize(("manifest", "diagnostic"), [
+    ({"..": {"status": "servi", "source_hash": "s", "ingest_fingerprint": "i",
+              "document_hash": "d", "edition": "e"}}, "identifiant de document impropre"),
+    ({"doc-neutre": {"status": "servi"}}, "ManifestEntry invalide"),
+])
+def test_les_cles_et_valeurs_du_manifest_sont_validees_par_les_autorites_du_domaine(
+        tmp_path: Path, manifest: dict[str, object], diagnostic: str) -> None:
+    from server.app.corpus import racine as rac
+
+    data, _doc, espace = _racine_de_lecture_valide(tmp_path)
+    espace.basculer([(data / "manifest.json", json.dumps(manifest) + "\n")])
+    with pytest.raises(rac.EspaceIllisible, match=diagnostic):
+        rac.lecture_de(data)
+
+
+def test_un_slot_absent_reste_une_absence_metier_si_son_lien_exact_existe(
+        tmp_path: Path) -> None:
+    from server.app.corpus import racine as rac
+
+    data, doc, espace = _racine_de_lecture_valide(tmp_path)
+    source = doc / "source.url"
+    espace.chemin_dans(source, espace.generation()).unlink()
+    assert source.is_symlink(), "la disposition exacte doit rester posée"
+    with rac.lecture_de(data) as lecture:
+        assert lecture.octets(source) is None
+
+
+def test_deux_bascules_pendant_la_validation_ne_lisent_jamais_la_generation_reconstruite(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le pincement précède la validation : un inode reconstruit est refusé avant toute lecture."""
+    from server.app.corpus import racine as rac
+
+    data, _doc, espace = _racine_de_lecture_valide(tmp_path)
+    vrai_octets = rac.Lecture.octets
+    bascule = False
+
+    def _octets_apres_deux_bascules(self: rac.Lecture, cible: Path) -> bytes | None:
+        nonlocal bascule
+        if cible == data / "manifest.json" and not bascule:
+            bascule = True
+            espace.basculer([(cible, cible.read_bytes())])
+            espace.basculer([(cible, b"{manifest non valide\n")])
+        return vrai_octets(self, cible)
+
+    monkeypatch.setattr(rac.Lecture, "octets", _octets_apres_deux_bascules)
+    with pytest.raises(rac.LecturePerimee, match="reconstruite"):
+        rac.lecture_de(data)

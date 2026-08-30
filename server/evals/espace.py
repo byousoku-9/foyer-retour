@@ -107,12 +107,10 @@ Trois changements, et les trois sont la même exigence :
   post-commit. Elle couvre donc *toute* la fenêtre de mutation, et l'abandon prudent — quand le
   pointeur est indécidable et qu'on ne détruit rien — n'a plus rien à **reposer** : elle est déjà
   là. Une repose best-effort partageait exactement le mode de défaillance qu'on ferme ;
-- **elle ne peut pas survivre à la génération qu'elle nomme.** Une marque laissée par un processus
-  disparu n'était moissonnée par personne : après deux bascules parfaitement saines, `residus()`
-  désignait encore comme « brouillon en cours » la génération **que le pointeur publie**. La
-  transaction qui reconstruit une génération inactive assainit donc ce qui la concerne, et
-  `residus()` ne compte jamais une marque nommant la génération publiée — un bundle complet n'est
-  pas un brouillon. Fermer le faux négatif en ouvrant un faux positif permanent n'aurait rien fermé.
+- **une marque périmée est assainie strictement avant le commit.** Une marque laissée par un
+  processus disparu ne peut donc pas survivre à une bascule saine. En revanche, si son retrait
+  post-commit échoue, `residus()` la compte même lorsqu'elle nomme la génération publiée : c'est la
+  preuve durable du nettoyage incomplet, et non une exception qui masquerait un commit réussi.
 
 Ce que le nommage par pid ne peut pas garantir seul s'écrit plutôt que tu : deux processus qui
 préparent la même génération inactive sont impossibles (le `flock` les sérialise), mais une marque
@@ -135,6 +133,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
 import os
 import shutil
 import sys
@@ -148,8 +147,11 @@ from pathlib import Path
 # `server/evals` (`tests/test_layers.py`) : un lecteur servi ne peut donc pas atteindre ce module.
 # Les recopier ici aurait fait deux littéraux `.publie` qu'un caractère de différence désaccorderait.
 # Ce module garde ce qui **écrit** : l'installation, la transaction, la bascule et la sonde.
-from server.app.corpus.racine import (GENERATIONS, POINTEUR, REPERTOIRE_ESPACE,  # noqa: F401
-                                      VERROU, EspaceIllisible, EspaceNonInstalle, Lecture,
+from server.app.corpus.racine import (ARTEFACTS_DOCUMENT as ARTEFACTS_DE_DOCUMENT,
+                                      GENERATIONS, POINTEUR, REPERTOIRE_ESPACE,  # noqa: F401
+                                      SOURCES_DOCUMENT as SOURCES_PUBLIEES,
+                                      SURFACES_DATA as SURFACES_DE_DATA, VERROU,
+                                      EspaceIllisible, EspaceNonInstalle,
                                       LotHorsEspace, RacinePubliee, lire_pointeur, racine_couvrant)
 
 _lire_pointeur = lire_pointeur
@@ -159,8 +161,10 @@ _lire_pointeur = lire_pointeur
 # Tour de racine unique. Une racine n'a d'autorité que sur les cibles qu'elle couvre : un artefact
 # publié hors du pointeur est écrit à son propre rang, donc l'opération qui l'écrit avec d'autres
 # n'est pas tout-ou-rien. La règle est donc **tout ce qu'un écrivain de production publie**, et rien
-# d'autre : les *entrées* (`source.js`, `source.pdf`, `source.url`, `source.sha256`, `README.md`)
-# n'en sont pas — personne ne les écrit, et les mettre dans le bundle en ferait un dépôt de sources.
+# d'autre. Les sources et leur référence effectivement consommées (`source.js`, `source.pdf`,
+# `source.url`, `source.sha256`) en sont : les sélectionner ou les lire hors du repère épinglé
+# recomposerait un document depuis deux générations. `README.md`, qui n'est pas servi, reste hors
+# du bundle.
 #
 # La liste est **nominale par artefact, jamais par document** : les répertoires de documents sont
 # découverts en listant le `data/` **du run**, de sorte qu'aucun `doc_id` n'apparaisse ici.
@@ -171,8 +175,6 @@ _lire_pointeur = lire_pointeur
 # le run, et n'installait jamais `<autre>/manifest.json` — donc l'ingestion suivante refusait en lot
 # mixte, en désignant une cible que personne n'écrit.
 
-# Les surfaces écrites dans le `data/` du run : le runner d'évals et l'enrichissement du dictionnaire.
-SURFACES_DE_DATA = ("manifest.json", "dictionary.json", "evals-latest.json")
 # Les surfaces écrites hors du `data/`, relatives à la racine : le rendu lisible et ses archives.
 SURFACES_HORS_DATA = ("docs/evals/latest.md", "docs/evals/campagnes")
 # Les artefacts qu'une ingestion publie dans le répertoire d'un document. `kb_to_blocks` et
@@ -186,19 +188,18 @@ SURFACES_HORS_DATA = ("docs/evals/latest.md", "docs/evals/campagnes")
 # dans le lot qu'il publie). Elle est donc couverte parce que cette suppression doit être membre du
 # lot — pas parce qu'un écrivain la publie. La conséquence pour un opérateur est réelle et se dit :
 # poser un overlay se fait *par la racine*, et la procédure est écrite dans `docs/evals/harness.md`.
-ARTEFACTS_DE_DOCUMENT = ("document.json", "summary.md", "report.json", "structure.json",
-                         "typing.manual.json", "dictionary.json")
-# Les **entrées** d'un document : elles ne sont jamais publiées, et servent seulement à reconnaître
-# un répertoire de document d'un cache ou de l'espace lui-même, sans nommer aucun `doc_id`.
+# Toutes les entrées servent à reconnaître un répertoire de document, sans nommer aucun `doc_id`.
+# Le sous-ensemble `SOURCES_PUBLIEES` est couvert et pincé, référence de téléchargement comprise.
 SOURCES_DE_DOCUMENT = ("source.js", "source.pdf", "source.url", "source.sha256")
 
 
 def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
     """Toutes les cibles que la racine doit couvrir, relatives à `racine`.
 
-    L'énumération est **structurelle** : un répertoire du `data/` du run est celui d'un document s'il
-    porte au moins une source ou un artefact d'ingestion — ce qui exclut d'office l'espace lui-même
-    et les caches, sans avoir à les nommer. Poser un document neuf, c'est donc reposer la
+    L'énumération réunit les identifiants valides du manifest et la découverte structurelle des
+    répertoires qui portent déjà une source ou un artefact d'ingestion. Elle couvre donc aussi bien
+    un document déclaré dont les slots sont encore absents qu'un document neuf pas encore déclaré,
+    tout en excluant l'espace lui-même et les caches. Poser un document neuf, c'est reposer la
     disposition — un geste d'opérateur, idempotent, jamais atteint depuis une bascule.
 
     Les deux familles de surfaces vivent dans leur propre repère : celles du `data/` sont relatives à
@@ -218,6 +219,18 @@ def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
             "peut couvrir à la fois ses surfaces et celles de `docs/`") from exc
     cibles = [relatif_data / nom for nom in SURFACES_DE_DATA]
     cibles += [Path(relatif) for relatif in SURFACES_HORS_DATA]
+    documents: set[str] = set()
+    manifest = data / "manifest.json"
+    try:
+        brut_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+        if isinstance(brut_manifest, dict):
+            documents.update(doc_id for doc_id in brut_manifest
+                             if isinstance(doc_id, str) and doc_id
+                             and Path(doc_id).name == doc_id)
+    except (OSError, UnicodeDecodeError, ValueError):
+        # Une pose de réparation doit encore pouvoir couvrir le manifest illisible ; la découverte
+        # structurelle ci-dessous conserve alors les documents déjà présents sur disque.
+        pass
     if data.is_dir():
         for entree in sorted(data.iterdir()):
             if not entree.is_dir() or entree.name.startswith("."):
@@ -225,7 +238,10 @@ def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
             noms = {chemin.name for chemin in entree.iterdir()}
             if not (noms & set(ARTEFACTS_DE_DOCUMENT)) and not (noms & set(SOURCES_DE_DOCUMENT)):
                 continue
-            cibles += [relatif_data / entree.name / nom for nom in ARTEFACTS_DE_DOCUMENT]
+            documents.add(entree.name)
+    for doc_id in sorted(documents):
+        cibles += [relatif_data / doc_id / nom
+                    for nom in (*ARTEFACTS_DE_DOCUMENT, *SOURCES_PUBLIEES)]
     return cibles
 
 
@@ -379,7 +395,7 @@ class EspacePublie(RacinePubliee):
             # pour toujours. Fermer le descripteur suffit à rendre le verrou.
             verrou.fermer()
 
-    def basculer(self, lot: Sequence[tuple[Path, str | None]]) -> None:
+    def basculer(self, lot: Sequence[tuple[Path, str | bytes | None]]) -> None:
         """Publie **tout** le lot, ou rien du tout, par un unique `os.replace`.
 
         Une transaction d'un seul appel — la forme courte de `transaction()`, pour un écrivain qui
@@ -428,12 +444,10 @@ class EspacePublie(RacinePubliee):
         correction.
 
         **Absorber n'est pas taire** (patch croisé 1/3, `N2-NETTOYAGE-MUET`). Le retrait de la marque
-        était absorbé *et* invisible : la marque qui survit nomme désormais la génération que le
-        pointeur **publie**, donc `residus()` la filtre — à raison, puisqu'un bundle publié n'est pas
-        un brouillon. L'impossibilité de nettoyer n'était alors ni propagée (c'est l'AC, et elle ne
-        se négocie pas) ni signalée (ce n'en est pas la contrepartie). Elle laisse désormais une
-        trace d'un **autre nom**, que `residus()` ne filtre jamais, et un mot sur `stderr` : le
-        nettoyage ultérieur est vérifiable, et personne n'apprend l'échec par une exception.
+        était absorbé *et* invisible. La marque qui survit est désormais elle-même conservée dans
+        `residus()`, y compris si elle nomme la génération publiée ; une trace auxiliaire et un mot
+        sur `stderr` complètent ce signal durable sans jamais faire remonter une exception après le
+        commit.
         """
         with contextlib.suppress(BaseException):
             transaction.lien_tmp.unlink()
@@ -451,10 +465,9 @@ class EspacePublie(RacinePubliee):
         """Rendre durablement visible une marque qu'on n'a pas pu retirer après le commit.
 
         Deux canaux, parce qu'aucun des deux n'est garanti seul : une trace sur disque que
-        `residus()` **voit toujours** — son nom ne porte pas le motif `.{gen}.brouillon.` que la
-        sonde filtre pour la génération publiée —, et un mot sur `stderr` pour l'opérateur qui
-        regarde. Si même la trace ne peut pas être écrite, il ne reste que `stderr` : on ne lève
-        pas, jamais, le lot étant déjà basculé.
+        `residus()` voit si elle peut être écrite, et un mot sur `stderr` pour l'opérateur qui
+        regarde. Si ces deux canaux échouent aussi, la marque de brouillon subsistante reste le
+        signal durable : on ne lève pas, jamais, le lot étant déjà basculé.
         """
         trace = self.chemin / f".{transaction.suivante}.nettoyage-impossible.{os.getpid()}.tmp"
         with contextlib.suppress(BaseException):
@@ -499,16 +512,14 @@ class EspacePublie(RacinePubliee):
         `ignore_errors` couvre les échecs d'`OSError`, pas l'interruption : un `KeyboardInterrupt`
         pendant l'effacement remonte, et c'est voulu — l'appelant doit voir l'interruption.
         """
-        try:
+        with contextlib.suppress(BaseException):
             transaction.lien_tmp.unlink()
-        except OSError:
-            pass
         if not transaction.prepare:
             # Rien n'a été écrit dans la génération inactive : elle porte encore le bundle
             # précédent complet, qui est la matière du prochain miroir. L'effacer serait une perte
             # nette pour un refus qui n'a rien touché. La marque, elle, n'a pas non plus été
             # posée — ou sa pose est précisément ce qui a échoué —, donc il n'y a rien à retirer.
-            with contextlib.suppress(OSError):
+            with contextlib.suppress(BaseException):
                 transaction.marque.unlink()
             return
         publiee = self._generation_publiee()
@@ -525,7 +536,7 @@ class EspacePublie(RacinePubliee):
                                              suffix=".tmp", dir=self.chemin))
             os.rename(self.chemin / transaction.suivante, poubelle / transaction.suivante)
             sorti = True
-        except OSError:
+        except BaseException:  # nettoyage secondaire : la cause pré-commit doit rester l'autorité
             pass
         # **La marque ne tombe que si le brouillon est réellement sorti de son emplacement.** La
         # retirer inconditionnellement était un aveuglement de la même famille que celui du fait 4 :
@@ -535,17 +546,24 @@ class EspacePublie(RacinePubliee):
         if sorti:
             try:
                 transaction.marque.unlink()
-            except OSError as exc:
+            except BaseException as exc:  # noqa: BLE001 — ne masque jamais la cause pré-commit
                 # **Avant commit, une impossibilité de nettoyage se dit** (patch croisé 2/3,
                 # `N2-NETTOYAGE-MUET`). L'abandon a réussi — le brouillon est sorti, il est visible
                 # sous son nom `.tmp` — donc rien n'est mêlé ; mais la marque qui reste désigne une
                 # génération qui n'est plus en construction. Ne pas propager ici est délibéré : on
                 # est dans un gestionnaire d'exception, et masquer la cause d'origine serait pire.
                 # On le **dit**, et la marque reste un résidu que `residus()` voit.
-                print(f"nettoyage impossible pendant l'abandon : {transaction.marque} subsiste "
-                      f"({type(exc).__name__}) — rien n'est publié, le brouillon est abandonné",
-                      file=sys.stderr)
+                # Le canal de signalement fait partie de la panne possible : un stderr fermé ne
+                # doit jamais remplacer la cause pré-commit que `transaction()` relancera. La
+                # marque et le brouillon sorti restent les traces durables que `residus()` voit.
+                with contextlib.suppress(BaseException):
+                    print(f"nettoyage impossible pendant l'abandon : "
+                          f"{transaction.marque} subsiste ({type(exc).__name__}) — rien n'est "
+                          "publié, le brouillon est abandonné", file=sys.stderr)
         if poubelle is not None:
+            # `ignore_errors` absorbe les erreurs de nettoyage ordinaires. Une interruption reste
+            # toutefois observable sur ce chemin **pré-commit** : la contre-sonde historique
+            # l'exige, et le brouillon est déjà sous un nom `.tmp` durablement visible.
             shutil.rmtree(poubelle, ignore_errors=True)
 
     # --- la sonde de résidus ------------------------------------------------------------------------
@@ -563,17 +581,13 @@ class EspacePublie(RacinePubliee):
         quand le pointeur est **indécidable** au moment de l'abandon, `_abandonner` renonce à
         détruire — à raison — et laisse la génération inactive sous son nom `a`/`b`, peut-être à
         moitié écrite, que rien ne distinguait d'un bundle complet. La **marque** de brouillon
-        posée avant la première écriture, et reposée par l'abandon prudent, est ce que cette sonde
+        posée avant la première écriture, et conservée par l'abandon prudent, est ce que cette sonde
         voit alors : une génération inactive partielle n'est plus jamais silencieuse.
 
-        Tour de la racine vraiment unique, N2, **dans l'autre sens**. Une marque nommant la
-        génération que le pointeur **publie** n'est pas un brouillon : un bundle complet et servi ne
-        peut pas être en cours de construction. Cela arrivait pourtant — une marque laissée par un
-        processus disparu survivait à la reconstruction complète de sa génération, et la sonde
-        désignait à jamais la publication en cours comme un brouillon. Fermer un faux négatif en
-        ouvrant un faux positif permanent n'aurait rien fermé : la sonde ignore donc cette
-        marque-là, et **elle seule**. Quand le pointeur est indécidable, rien n'est ignoré — ne pas
-        savoir ce qui est publié est précisément le cas où tout doit se voir.
+        N2 exige aussi que l'échec du retrait post-commit reste durablement observable. La sonde ne
+        filtre donc aucune marque selon la génération que le pointeur publie. Le faux positif
+        historique est fermé à sa cause par l'assainissement pré-commit strict : une marque périmée
+        ne survit plus à une bascule saine ; une marque qui subsiste est bien un résidu.
 
         Ce qu'elle ne compte **pas** non plus, et c'est délibéré : la génération inactive complète
         laissée par une bascule réussie. C'est le bundle précédent, suivi par git, matière du
@@ -738,7 +752,7 @@ class Transaction:
                         "refus avant toute mutation ; la laisser survivre à la reconstruction de sa "
                         "génération la rendrait indiscernable d'un bundle publié") from exc
 
-    def publier(self, lot: Sequence[tuple[Path, str | None]]) -> None:
+    def publier(self, lot: Sequence[tuple[Path, str | bytes | None]]) -> None:
         """Écrit la génération inactive puis **bascule le pointeur** — l'unique point de commit.
 
         Déroulé, et pourquoi chaque étape est là :
@@ -885,7 +899,7 @@ def _reconstruire(courante: Path, suivante: Path) -> None:
             os.link(source, destination)
 
 
-def _ecrire_dans_bundle(chemin: Path, contenu: str) -> None:
+def _ecrire_dans_bundle(chemin: Path, contenu: str | bytes) -> None:
     """Écrit un slot de la génération inactive : temporaire, `fsync`, puis `rename` **dans le bundle**.
 
     Le `rename` remplace l'entrée plutôt que d'écrire à travers elle : c'est ce qui empêche
@@ -895,7 +909,9 @@ def _ecrire_dans_bundle(chemin: Path, contenu: str) -> None:
     chemin.parent.mkdir(parents=True, exist_ok=True)
     fd, temporaire = tempfile.mkstemp(prefix=f".{chemin.name}.", suffix=".tmp", dir=chemin.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as flux:
+        mode = "wb" if isinstance(contenu, bytes) else "w"
+        kwargs = {} if isinstance(contenu, bytes) else {"encoding": "utf-8"}
+        with os.fdopen(fd, mode, **kwargs) as flux:
             flux.write(contenu)
             flux.flush()
             os.fsync(flux.fileno())

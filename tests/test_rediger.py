@@ -15,6 +15,7 @@ import pytest
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
+from server.app.corpus.racine import _lecture_interne_sans_racine
 from server.app.domain.answer import AnswerDraft, Claim, Quote
 from server.app.domain.errors import ErrorCode, LlmParse
 from server.app.domain.question import ParsedQuestion, Turn
@@ -77,7 +78,8 @@ def mini_index(tmp_path_factory: pytest.TempPathFactory) -> Index:
     d.mkdir(parents=True)
     shutil.copy(MINI, d / "source.js")
     k.run(d, edition="git:test")
-    return Index(load_corpus(d.parent, allow_ungated=True))
+    with _lecture_interne_sans_racine(d.parent) as lecture:
+        return Index(load_corpus(d.parent, allow_ungated=True, lecture=lecture))
 
 
 def _settings(**kw) -> Settings:

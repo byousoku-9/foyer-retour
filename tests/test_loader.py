@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from server.app.corpus import loader
-from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain import Document, GateContext
 from server.ingest import kb_to_blocks as k
@@ -27,6 +26,16 @@ ROOT = Path(__file__).resolve().parents[1]
 # qu'on ait le temps de faire autre chose que relever le seuil dans l'urgence.
 PERIMETRE_MARGE_MIN = 0.15
 MINI = Path(__file__).parent / "data" / "mini_kb.js"
+
+_load_corpus_public = loader.load_corpus
+
+
+def load_corpus(data_dir: Path | str, **kwargs: Any) -> loader.Corpus:
+    """Voie unitaire explicite pour les matrices historiques sur arbres nus."""
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+
+    with _lecture_interne_sans_racine(data_dir) as lecture:
+        return _load_corpus_public(data_dir, lecture=lecture, **kwargs)
 
 
 @pytest.fixture
@@ -73,6 +82,16 @@ def test_ungated_document_served_with_alert_or_quarantined(data: Path) -> None:
     assert c.summaries["lux-guide"].startswith("<!-- lux-guide")
     c = load_corpus(data, allow_ungated=False)
     assert c.documents == {} and c.quarantine == {"lux-guide": "sans_gate"}
+
+
+def test_load_corpus_public_refuse_un_arbre_nu_avant_de_lire(tmp_path: Path) -> None:
+    from server.app.corpus.racine import EspaceNonInstalle
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    with pytest.raises(EspaceNonInstalle, match="n'est pas installé"):
+        _load_corpus_public(data, allow_ungated=True)
 
 
 def test_modified_document_json_is_quarantined_alone(data: Path) -> None:
@@ -950,15 +969,12 @@ def test_la_revision_comparable_exige_une_revision_entiere() -> None:
 
 def _corpus_sous_racine(tmp_path: Path) -> tuple[Path, Any]:
     """Le même `data/` minimal, mais **sous une racine de publication** posée par l'opérateur."""
-    from server.evals.espace import EspacePublie
+    from tests.helpers_espace import poser_espace
 
     d = tmp_path / "data" / "lux-guide"
     d.mkdir(parents=True)
     shutil.copy(MINI, d / "source.js")
-    espace = EspacePublie(tmp_path, tmp_path / "data")
-    espace.installer([Path("data") / "manifest.json",
-                      *(Path("data") / "lux-guide" / nom
-                        for nom in ("document.json", "summary.md", "report.json"))])
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data")
     k.run(d, edition="git:test")
     return d.parent, espace
 
@@ -982,7 +998,7 @@ def test_les_octets_haches_sont_les_octets_parses(tmp_path: Path,
         return vrai(chemin)
 
     monkeypatch.setattr(Path, "read_bytes", _compter)
-    corpus = load_corpus(data, allow_ungated=True)
+    corpus = _load_corpus_public(data, allow_ungated=True)
     monkeypatch.undo()
 
     assert corpus.served == ["lux-guide"], corpus.quarantine
@@ -1023,7 +1039,7 @@ def test_une_bascule_entre_deux_lectures_ne_mele_jamais_deux_generations(
         return vrai_sha(octets)
 
     monkeypatch.setattr(ld, "_sha256", _basculer_puis_hacher)
-    corpus = load_corpus(data, allow_ungated=True)
+    corpus = _load_corpus_public(data, allow_ungated=True)
     monkeypatch.undo()
 
     assert bascule["faite"], "la bascule concurrente n'a pas eu lieu"
@@ -1073,7 +1089,7 @@ def test_load_corpus_rejoue_quand_la_generation_pincee_est_reconstruite_sous_lui
         return vrai_sha(octets)
 
     monkeypatch.setattr(ld, "_sha256", _deux_bascules_a_la_premiere_passe)
-    corpus = load_corpus(data, allow_ungated=True)
+    corpus = _load_corpus_public(data, allow_ungated=True)
     monkeypatch.undo()
 
     assert passes["n"] == 1, "la reconstruction concurrente n'a pas eu lieu"
@@ -1175,7 +1191,7 @@ def test_une_passe_de_load_corpus_ne_traverse_le_pointeur_quune_seule_fois(
 
     for module, nom in ((os, "readlink"), (os, "stat"), (os.path, "realpath")):
         monkeypatch.setattr(module, nom, _mouchard(nom, getattr(module, nom)))
-    corpus = load_corpus(data, allow_ungated=True)
+    corpus = _load_corpus_public(data, allow_ungated=True)
     monkeypatch.undo()
 
     assert corpus.served == ["lux-guide"], corpus.quarantine
@@ -1205,13 +1221,13 @@ def test_load_corpus_refuse_une_disposition_cassee_au_lieu_de_lire_le_lien_vivan
     # ne connaît pas : c'est ce qui fait mordre cette sonde sur les deux arbres pour la même raison.
     rendu, refus = None, None
     try:
-        rendu = load_corpus(data, allow_ungated=True)
+        rendu = _load_corpus_public(data, allow_ungated=True)
     except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
         refus = exc
     assert rendu is None, (
         "la passe a rendu un corpus au lieu de refuser : elle a lu la cible à travers son lien "
         "vivant, hors de la génération pincée")
-    assert "ne passe plus par le pointeur" in str(refus), refus
+    assert "disposition est incomplète" in str(refus), refus
 
 
 def test_load_corpus_dit_un_espace_illisible_au_lieu_de_rendre_un_corpus_vide(
@@ -1227,7 +1243,7 @@ def test_load_corpus_dit_un_espace_illisible_au_lieu_de_rendre_un_corpus_vide(
 
     rendu, refus = None, None
     try:
-        rendu = load_corpus(data, allow_ungated=True)
+        rendu = _load_corpus_public(data, allow_ungated=True)
     except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
         refus = exc
     assert rendu is None, (
@@ -1261,7 +1277,7 @@ def test_load_corpus_refuse_apres_avoir_epuise_ses_rejeux(
     monkeypatch.setattr(ld, "_sha256", _reconstruire_a_chaque_passe)
     rendu, refus = None, None
     try:
-        rendu = load_corpus(data, allow_ungated=True)
+        rendu = _load_corpus_public(data, allow_ungated=True)
     except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
         refus = exc
     monkeypatch.undo()

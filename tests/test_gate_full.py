@@ -39,7 +39,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import StepTrace, Trace
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
-from server.evals.espace import POINTEUR, Transaction
+from server.evals.espace import EspacePublie, POINTEUR, Transaction
 from tests.helpers_espace import poser_espace
 from server.evals.plancher import charger_plancher
 
@@ -59,6 +59,25 @@ DIX = (
     "arbre_prouve_rate", "stabilite_claim_decisionnelle", "anti_rustine_pass_rate",
     "metamorphique_pass_rate",
 )
+
+
+_PREUVE_STRUCTURE = runner.preuve_de_structure
+_PREUVE_ARBRE = runner.preuve_darbre
+
+
+def _preuve_structure(data: Path, ctx: runner.Contexte, documents: list[str]) -> tuple[int, int]:
+    """Primitive unitaire explicite : ces matrices synthétiques n'exercent pas un entrypoint."""
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+
+    with _lecture_interne_sans_racine(data) as lecture:
+        return _PREUVE_STRUCTURE(data, ctx, documents, lecture=lecture)
+
+
+def _preuve_arbre(data: Path, ctx: runner.Contexte, documents: list[str]) -> tuple[int, int]:
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+
+    with _lecture_interne_sans_racine(data) as lecture:
+        return _PREUVE_ARBRE(data, ctx, documents, lecture=lecture)
 
 
 # --- fabriques neutres ----------------------------------------------------------------------------
@@ -389,11 +408,11 @@ def test_la_preuve_de_structure_ne_compte_que_les_documents_issus_dun_pdf(tmp_pa
     (data / DOC).mkdir(parents=True)
     # Copie de site : hors dénominateur — le témoin n'a rien à mesurer.
     (data / DOC / "source.js").write_bytes(b"var kb = {};")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 0)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 0)
     # Document issu d'un PDF : il entre au dénominateur, et rien ne le prouve encore.
     (data / DOC / "source.js").unlink()
     (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
 
 def test_la_structure_nest_prouvee_que_par_une_attestation_rattachee_au_document(
@@ -411,50 +430,50 @@ def test_la_structure_nest_prouvee_que_par_une_attestation_rattachee_au_document
     entry = ctx.index.corpus.manifest[DOC]
 
     # 1. Rien de déclaré au manifest : non prouvée.
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 2. Le fail-open historique : artefact arbitraire, hash recopié, aucun rapport.
     octets = b'{"nimporte": "quoi"}\n'
     (data / DOC / "structure.json").write_bytes(octets)
     entry.structure_hash = hashlib.sha256(octets).hexdigest()
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1), (
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1), (
         "un artefact sans attestation ne prouve rien")
 
     # 3. Rapport présent mais illisible : non prouvée.
     (data / DOC / "report.json").write_text("{ pas du json", encoding="utf-8")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 4. Rapport lisible mais sans le check : non prouvée.
     (data / DOC / "report.json").write_text(json.dumps({
         "doc_id": DOC, "checks": [{"name": "invariants_arbre", "level": "info", "detail": "ok"}],
     }), encoding="utf-8")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 5. Attestation qui ne correspond pas au document (autre `document_hash`) : non prouvée.
     _attester(data, DOC, ctx, document_hash="f" * 64)
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 6. Attestation qui ne correspond pas à l'artefact (autre `structure_hash`) : non prouvée.
     _attester(data, DOC, ctx, structure_hash="e" * 64)
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 7. Rapport **étranger** : ses checks ne décrivent pas ce document.
     _attester(data, DOC, ctx, doc_id_rapport="autre-doc")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 8. Bloquant de structure : le vérificateur de 4.2c a refusé — jamais prouvée.
     (data / DOC / "report.json").write_text(json.dumps({
         "doc_id": DOC, "checks": [{"name": "structure_proposee", "level": "bloquant",
                                    "detail": "ligne_omise : ..."}],
     }), encoding="utf-8")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
     # 9. Enfin : les quatre conditions réunies.
     _attester(data, DOC, ctx)
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (1, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (1, 1)
     # Et l'artefact qui bouge après coup casse la concordance.
     (data / DOC / "structure.json").write_bytes(octets + b"\n")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
 
 def test_la_structure_non_prouvee_rougit_le_gate_et_cest_letat_reel() -> None:
@@ -498,20 +517,20 @@ def test_les_deux_perimetres_de_preuve_de_structure_sont_complementaires(tmp_pat
 
     # Copie de site : hors du témoin PDF, **dans** le témoin d'arbre.
     (data / DOC / "source.js").write_bytes(b"var kb = {};")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 0)
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 0)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # Document issu d'un PDF : l'inverse, exactement.
     (data / DOC / "source.js").unlink()
     (data / DOC / "source.pdf").write_bytes(b"%PDF-1.4")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 0)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 0)
 
     # Aucune source lisible : aucun des deux ne prétend savoir ce que ce document est — et le loader
     # ne le sert pas davantage. Compter un document qu'on ne sait pas lire serait inventer.
     (data / DOC / "source.pdf").unlink()
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 0)
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 0)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 0)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 0)
 
 
 def test_larbre_nest_prouve_que_par_une_attestation_rattachee_au_document(tmp_path: Path) -> None:
@@ -529,42 +548,42 @@ def test_larbre_nest_prouve_que_par_une_attestation_rattachee_au_document(tmp_pa
     entry = ctx.index.corpus.manifest[DOC]
 
     # 1. Aucun rapport : rien n'atteste, rien n'est prouvé.
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # 2. Rapport illisible.
     (data / DOC / "report.json").write_text("{ pas du json", encoding="utf-8")
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # 3. **La forme historique** : `invariants_arbre: ok`, sans empreinte. Une déclaration.
     (data / DOC / "report.json").write_text(json.dumps({
         "doc_id": DOC, "checks": [{"name": "invariants_arbre", "level": "info", "detail": "ok"}],
     }), encoding="utf-8")
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1), (
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1), (
         "un `invariants_arbre: ok` sans empreinte ne prouve rien")
 
     # 4. Attestation qui nomme un autre arbre.
     _attester_arbre(data, DOC, ctx, document_hash="f" * 64)
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # 5. Attestation qui nomme une autre ingestion.
     _attester_arbre(data, DOC, ctx, ingest_fingerprint="e" * 64)
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # 6. Rapport étranger : ses checks ne décrivent pas ce document.
     _attester_arbre(data, DOC, ctx, doc_id_rapport="autre-doc")
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # 7. Arbre **refusé** : un bloquant n'est jamais une preuve, même s'il porte les deux empreintes.
     _attester_arbre(data, DOC, ctx, niveau="bloquant")
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
     # 8. Les trois conditions réunies.
     _attester_arbre(data, DOC, ctx)
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (1, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (1, 1)
 
     # 9. Et le manifest qui bouge — réingestion, ou `document.json` remplacé — détache l'attestation.
     entry.document_hash = "9" * 64
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1)
 
 
 def test_larbre_non_prouve_rougit_le_gate_du_guide() -> None:
@@ -1314,6 +1333,9 @@ def test_un_manifest_hors_schema_ne_publie_rien_non_plus(
     brut = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
     brut["autre-doc"] = {"status": "servi", "source_hash": 12, "gate": None}
     (data / "manifest.json").write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+    (data / "autre-doc").mkdir()
+    (data / "autre-doc" / "source.url").write_text("https://example.invalid/source", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_bytes()
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     code = _cli(tmp_path, monkeypatch,
@@ -1536,8 +1558,8 @@ def test_un_gate_full_sur_un_document_sans_source_est_refuse(
     ctx = _contexte()
     data_sans_source = tmp_path / "sonde"
     (data_sans_source / DOC).mkdir(parents=True)
-    assert runner.preuve_de_structure(data_sans_source, ctx, [DOC]) == (0, 0)
-    assert runner.preuve_darbre(data_sans_source, ctx, [DOC]) == (0, 0)
+    assert _preuve_structure(data_sans_source, ctx, [DOC]) == (0, 0)
+    assert _preuve_arbre(data_sans_source, ctx, [DOC]) == (0, 0)
 
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     code = _cli(tmp_path, monkeypatch,
@@ -1579,10 +1601,10 @@ def test_un_check_bloquant_interdit_de_compter_meme_a_cote_dune_attestation(
     refus = {"name": "invariants_arbre", "level": "bloquant", "detail": "cycle_noeuds : ..."}
     (data / DOC / "report.json").write_text(json.dumps({"doc_id": DOC, "checks": [atteste]}),
                                             encoding="utf-8")
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (1, 1)
+    assert _preuve_arbre(data, ctx, [DOC]) == (1, 1)
     (data / DOC / "report.json").write_text(
         json.dumps({"doc_id": DOC, "checks": [atteste, refus]}), encoding="utf-8")
-    assert runner.preuve_darbre(data, ctx, [DOC]) == (0, 1), (
+    assert _preuve_arbre(data, ctx, [DOC]) == (0, 1), (
         "un arbre refusé n'est pas un arbre prouvé, même si une acceptation traîne à côté")
 
     # --- périmètre PDF : `structure_proposee` ----------------------------------------------------
@@ -1597,10 +1619,10 @@ def test_un_check_bloquant_interdit_de_compter_meme_a_cote_dune_attestation(
     refus = {"name": "structure_proposee", "level": "bloquant", "detail": "ligne_omise : ..."}
     (data / DOC / "report.json").write_text(json.dumps({"doc_id": DOC, "checks": [atteste]}),
                                             encoding="utf-8")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (1, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (1, 1)
     (data / DOC / "report.json").write_text(
         json.dumps({"doc_id": DOC, "checks": [atteste, refus]}), encoding="utf-8")
-    assert runner.preuve_de_structure(data, ctx, [DOC]) == (0, 1)
+    assert _preuve_structure(data, ctx, [DOC]) == (0, 1)
 
 
 def test_une_revision_annoncee_qui_nest_pas_celle_executee_est_refusee(
@@ -2385,22 +2407,32 @@ def test_la_decision_de_gate_partage_un_seul_repere_entre_ses_trois_preuves(
     """
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     reperes: dict[str, Any] = {}
-    for nom in ("construire_contexte", "preuve_de_structure", "preuve_darbre"):
+    for nom in ("verifier_composition_gate_full", "construire_contexte",
+                "preuve_de_structure", "preuve_darbre"):
         vrai = getattr(runner, nom)
 
         def _noter(*a: Any, _nom: str = nom, _vrai: Any = vrai, **k: Any) -> Any:
-            reperes[_nom] = k.get("lecture")
-            return _vrai(*a, **k)
+            reperes[_nom] = k.get("lecture", a[4] if _nom == "verifier_composition_gate_full"
+                                  and len(a) > 4 else None)
+            resultat = _vrai(*a, **k)
+            if _nom == "verifier_composition_gate_full":
+                data = Path(a[0])
+                EspacePublie(tmp_path, data).basculer([
+                    (data / DOC / "source.js", b"var kb = {};"),
+                    (data / DOC / "source.pdf", None),
+                ])
+            return resultat
 
         monkeypatch.setattr(runner, nom, _noter)
 
     _cli(tmp_path, monkeypatch, ["--gate", DOC, "--profile", "full", "--repeat", "3",
                                  "--candidate-revision", REVISION])
 
-    assert set(reperes) == {"construire_contexte", "preuve_de_structure", "preuve_darbre"}, (
-        f"l'opération de gate n'a pas appelé les trois preuves : {sorted(reperes)}")
+    assert set(reperes) == {"verifier_composition_gate_full", "construire_contexte",
+                            "preuve_de_structure", "preuve_darbre"}, (
+        f"l'opération de gate n'a pas appelé les quatre décisions : {sorted(reperes)}")
     manquants = [nom for nom, repere in reperes.items() if repere is None]
     assert manquants == [], f"ces preuves sont retombées sur leur repère par défaut : {manquants}"
     assert len({id(repere) for repere in reperes.values()}) == 1, (
-        "les trois preuves de la décision de gate pincent chacune leur génération : le verdict peut "
-        "être composé de trois états")
+        "les quatre preuves de la décision de gate pincent chacune leur génération : le verdict "
+        "peut être composé de plusieurs états")

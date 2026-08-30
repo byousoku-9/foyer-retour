@@ -64,6 +64,7 @@ import json
 import math
 import os
 import shutil
+import stat
 import statistics
 import sys
 import tempfile
@@ -109,7 +110,8 @@ from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
-from server.app.corpus.racine import Lecture, LecturePerimee, lecture_pincee, relire
+from server.app.corpus.racine import (Lecture, LecturePerimee, _lecture_interne_sans_racine,
+                                      lecture_pincee, relire)
 from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
                                  LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
@@ -1182,7 +1184,8 @@ ARBRE_NON_VERIFIABLE = _ARBRE_NON_VERIFIABLE
 SORTIES_DU_RUN = _SORTIES_DU_RUN
 
 
-def _source_du_document(data_dir: Path, doc_id: str) -> str | None:
+def _source_du_document(data_dir: Path, doc_id: str, *,
+                        lecture: Lecture | None = None) -> str | None:
     """Le nom de la source qui fait foi pour ce document, ou `None` si aucune n'est présente.
 
     La règle est celle du loader, rejouée à l'identique : la **première** source présente dans
@@ -1193,8 +1196,15 @@ def _source_du_document(data_dir: Path, doc_id: str) -> str | None:
     for nom in SOURCE_FILES:
         chemin = data_dir / doc_id / nom
         try:
-            if chemin.is_file():
+            lu = lecture.reel(chemin) if lecture is not None else chemin
+            mode = os.stat(lu, follow_symlinks=False).st_mode
+            if stat.S_ISREG(mode):
                 return nom
+            raise RefusDeTourner(
+                f"source de {doc_id!r} invalide ({nom} n'est pas un fichier ordinaire) — "
+                "impossible de dire ce que ce document est")
+        except (FileNotFoundError, NotADirectoryError):
+            continue
         except OSError as exc:
             # `Path.is_file()` avale l'`OSError` et rend `False` : un document dont la source
             # **existe** mais est inatteignable (droits, montage) disparaissait alors des deux
@@ -1224,7 +1234,8 @@ def image_du_run(plancher_digest: str) -> dict[str, Any]:
     }
 
 
-def document_parse_depuis_un_pdf(data_dir: Path, doc_id: str) -> bool:
+def document_parse_depuis_un_pdf(data_dir: Path, doc_id: str, *,
+                                 lecture: Lecture | None = None) -> bool:
     """Ce document est-il **réellement parsé**, c'est-à-dire ingéré depuis un PDF ?
 
     Un `source.js` — la copie du site — n'a rien à prouver côté extraction : son texte n'est pas
@@ -1232,7 +1243,42 @@ def document_parse_depuis_un_pdf(data_dir: Path, doc_id: str) -> bool:
 
     Aucune branche par document, aucun slug : c'est la présence d'un artefact qui décide.
     """
-    return _source_du_document(data_dir, doc_id) == "source.pdf"
+    return _source_du_document(data_dir, doc_id, lecture=lecture) == "source.pdf"
+
+
+def verifier_composition_gate_full(data_dir: Path, doc_id: str, cas: list[Cas],
+                                   charge_plancher: Any, lecture: Lecture) -> None:
+    """Refuse un lot `full` dont la preuve de structure applicable ne peut pas être mesurée."""
+    source = _source_du_document(data_dir, doc_id, lecture=lecture)
+    if source is None:
+        raise RefusDeTourner(
+            f"--gate {doc_id} --profile full : aucune source n'est présente pour ce document "
+            f"({', '.join(SOURCE_FILES)} absents de {data_dir / doc_id}), donc rien ne dit ce "
+            "qu'il est ni quelle preuve de structure lui opposer. Un gate `full` sans exigence "
+            "de structure affirmerait la politique complète sans l'avoir opposée — remettre la "
+            "source en état (`uv run python -m server.ingest.fetch_source --all --data "
+            f"{data_dir}`), ou mesurer en `--profile vertical`")
+    depuis_un_pdf = source == "source.pdf"
+    couvrants = (["structure_prouvee_rate", "parsing_ok_rate"] if depuis_un_pdf
+                 else ["arbre_prouve_rate"])
+    for metrique in couvrants:
+        temoin_couvrant = charge_plancher.plancher.temoin(metrique)
+        if temoin_couvrant is None or _temoin_applicable(
+                temoin_couvrant, cas, exigences_full=True):
+            continue
+        if depuis_un_pdf:
+            raise RefusDeTourner(
+                f"--gate {doc_id} --profile full : ce document est ingéré depuis un PDF, et "
+                f"aucun cas `parsing` ne l'accompagne dans le lot — le témoin {metrique} ne peut "
+                "donc rien mesurer. La politique complète promet un raisonnement juste sur un "
+                "texte dont personne n'aurait vérifié qu'il est celui du contrat — écrire au "
+                f"moins un cas sous parsing/{doc_id}/, ou mesurer en `--profile vertical`")
+        raise RefusDeTourner(
+            f"--gate {doc_id} --profile full : ce document n'est pas ingéré depuis un PDF, et le "
+            f"témoin {metrique} — la preuve de structure qui lui est applicable — n'est pas armé "
+            "par ce lot. Un gate `full` sans aucune exigence de structure affirmerait la politique "
+            "complète sans l'avoir opposée — mesurer en `--profile vertical`, ou composer le lot "
+            "avec la suite qui sert ce document")
 
 
 def suites_du_gate(settings: Settings, doc_id: str, profil: str, *,
@@ -2559,7 +2605,8 @@ def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
         return relire(data_dir, lambda pincee: preuve_darbre(
             data_dir, ctx, doc_ids, lecture=pincee))
     uniques = [doc_id for doc_id in sorted(set(doc_ids))
-               if _source_du_document(data_dir, doc_id) not in (None, "source.pdf")]
+               if _source_du_document(data_dir, doc_id, lecture=lecture)
+               not in (None, "source.pdf")]
     prouves = 0
     for doc_id in uniques:
         entry = ctx.index.corpus.manifest.get(doc_id)
@@ -2611,7 +2658,7 @@ def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
         return relire(data_dir, lambda pincee: preuve_de_structure(
             data_dir, ctx, doc_ids, lecture=pincee))
     uniques = [doc_id for doc_id in sorted(set(doc_ids))
-               if document_parse_depuis_un_pdf(data_dir, doc_id)]
+               if document_parse_depuis_un_pdf(data_dir, doc_id, lecture=lecture)]
     prouves = 0
     for doc_id in uniques:
         entry = ctx.index.corpus.manifest.get(doc_id)
@@ -3040,7 +3087,10 @@ def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any,
     **vrai** manifest.
     """
     if lecture is None:
-        lecture = pile.enter_context(lecture_pincee(data_dir))
+        # Primitive de bibliothèque : les entrypoints ont déjà préflighté et transmettent leur
+        # repère. Les tests unitaires sur un arbre nu doivent demander explicitement cette voie
+        # privée ; elle ne redevient jamais un repli d'une API publique.
+        lecture = pile.enter_context(_lecture_interne_sans_racine(data_dir))
     ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
     racine = data_dir.resolve(strict=True)
     for entree in data_dir.iterdir():
@@ -3130,7 +3180,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
             # L'ombre est une photographie **déjà pincée** : elle n'a pas d'espace, donc son repère
             # ne résout rien et ne peut rien mêler. Le repère du `data/` réel reste celui de tout le
             # reste de la passe.
-            lecture_du_corpus = pile.enter_context(lecture_pincee(source))
+            lecture_du_corpus = pile.enter_context(_lecture_interne_sans_racine(source))
     corpus = load_corpus(source, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
                          raison_max_chars=settings.raison_publiable_max_chars,
@@ -3596,44 +3646,9 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
         # `parsing_ok_rate` pour un document issu d'un PDF, `arbre_prouve_rate` pour une copie de
         # site. La question posée est unique : « les témoins qui couvrent ce document sont-ils armés
         # par ce lot ? ».
-        if exigences_full:
-            source = _source_du_document(args.data_dir, args.gate)
-            if source is None:
-                # **Aucune source sur le disque** (revue C) — l'état réel d'un checkout frais : les
-                # `source.pdf` ne sont pas committés (`.gitignore`), ils sont téléchargés au build.
-                # Sans source, la règle `SOURCE_FILES` ne sait pas ce que ce document est, aucun des
-                # deux témoins de structure ne le compte, et le gate `full` verdirait sans qu'aucune
-                # preuve de structure ne lui ait été opposée. Le refus nomme la remise en état.
-                raise RefusDeTourner(
-                    f"--gate {args.gate} --profile full : aucune source n'est présente pour ce "
-                    f"document ({', '.join(SOURCE_FILES)} absents de "
-                    f"{args.data_dir / args.gate}), donc rien ne dit ce qu'il est ni quelle preuve "
-                    f"de structure lui opposer. Un gate `full` sans exigence de structure "
-                    f"affirmerait la politique complète sans l'avoir opposée — remettre la source "
-                    f"en état (`uv run python -m server.ingest.fetch_source --all --data "
-                    f"{args.data_dir}`), ou mesurer en `--profile vertical`")
-            depuis_un_pdf = source == "source.pdf"
-            couvrants = ["structure_prouvee_rate", "parsing_ok_rate"] if depuis_un_pdf else [
-                "arbre_prouve_rate"]
-            for metrique in couvrants:
-                temoin_couvrant = charge_plancher.plancher.temoin(metrique)
-                if temoin_couvrant is None or _temoin_applicable(
-                        temoin_couvrant, cas, exigences_full=True):
-                    continue
-                if depuis_un_pdf:
-                    raise RefusDeTourner(
-                        f"--gate {args.gate} --profile full : ce document est ingéré depuis un "
-                        f"PDF, et aucun cas `parsing` ne l'accompagne dans le lot — le témoin "
-                        f"{metrique} ne peut donc rien mesurer. La politique complète promet un "
-                        f"raisonnement juste sur un texte dont personne n'aurait vérifié qu'il est "
-                        f"celui du contrat — écrire au moins un cas sous parsing/{args.gate}/, ou "
-                        f"mesurer en `--profile vertical`")
-                raise RefusDeTourner(
-                    f"--gate {args.gate} --profile full : ce document n'est pas ingéré depuis un "
-                    f"PDF, et le témoin {metrique} — la preuve de structure qui lui est applicable "
-                    f"— n'est pas armé par ce lot. Un gate `full` sans aucune exigence de structure "
-                    f"affirmerait la politique complète sans l'avoir opposée — mesurer en "
-                    f"`--profile vertical`, ou composer le lot avec la suite qui sert ce document")
+        # La vérification de composition est exécutée plus bas, dans le **même repère pincé** que
+        # le corpus et les preuves. La faire ici relirait les sources à travers `courant` avant le
+        # pincement et composerait précisément la décision intergénérationnelle que N1 interdit.
         parsing_local_seul = args.gate is None and all(c.suite == "parsing" for c in cas)
         if not args.dry_run and not parsing_local_seul and cle_absente(settings):
             raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
@@ -3757,6 +3772,10 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # pouvaient entrer dans une seule décision de gate. Elles viennent désormais toutes de
             # la génération pincée ici, pour la durée de l'opération.
             lecture_run = pile.enter_context(lecture_pincee(args.data_dir))
+            if exigences_full:
+                assert args.gate is not None
+                verifier_composition_gate_full(
+                    args.data_dir, args.gate, cas, charge_plancher, lecture_run)
             if all(c.suite == "parsing" for c in cas):
                 ctx = construire_contexte_parsing(settings, args.data_dir, lecture=lecture_run)
             else:
@@ -3812,7 +3831,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             resultats = asyncio.run(_executer_puis_fermer(
                 cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
                 variant=args.variant, repeat=args.repeat))
-    except LecturePerimee as exc:
+    except (LecturePerimee, EspaceNonInstalle, EspaceIllisible) as exc:
         # Une décision de gate ne se rejoue pas : elle a construit un client et s'apprête à payer.
         # Le refus est un code 2 — rien n'a été mesuré, rien n'a été écrit (revue N1–N3, 1).
         print(f"refus : {exc} — rien n'a été mesuré, aucune cible n'a été écrite", file=sys.stderr)

@@ -302,9 +302,7 @@ def _poser_la_racine(data: Path) -> None:
     **installée** et refuse avant de lire sinon. Poser la disposition ne change aucune attente —
     c'est le décor qui rejoint la forme que la production a.
     """
-    from server.evals.espace import EspacePublie
-
-    EspacePublie(data.parent, data).installer([Path(data.name) / "manifest.json"], migrer=True)
+    poser_espace(data.parent, data_dir=data)
 
 
 def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None:
@@ -2014,5 +2012,5 @@ def test_le_demarrage_refuse_un_data_dir_non_installe_avant_toute_lecture(tmp_pa
     nu.mkdir()
     (nu / "manifest.json").write_text("{}", encoding="utf-8")
 
-    with pytest.raises(EspaceNonInstalle, match="aucune racine de publication ne couvre"):
+    with pytest.raises(EspaceNonInstalle, match="espace de publication n'est pas installé"):
         construire_etat(_reglages(), data_dir=nu)

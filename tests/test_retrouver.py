@@ -949,6 +949,7 @@ def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], 
     import json
 
     from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.racine import _lecture_interne_sans_racine
 
     # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
     # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
@@ -962,7 +963,8 @@ def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], 
     (dossier / "dictionary.json").write_text(json.dumps(
         {"schema_version": "1", "corpus_source_hashes": hashes, "corpus": termes,
          "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
-    return load_dictionary(dossier, corpus, DICO_DOC)
+    with _lecture_interne_sans_racine(dossier) as lecture:
+        return load_dictionary(dossier, corpus, DICO_DOC, lecture=lecture)
 
 
 async def test_outils_traces_dictionary_expansion_for_terms_actually_searched(tmp_path: Path) -> None:

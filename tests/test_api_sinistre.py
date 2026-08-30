@@ -401,15 +401,9 @@ def _corpus_sur_disque(racine: Any, *, rapport: str | None, source: str | None,
     # production ; il exige une racine **installée** et refuse avant de lire sinon. La disposition
     # se pose ici, comme un opérateur la pose. Aucune attente de ce fichier ne change : le décor
     # rejoint la forme que la production a.
-    from server.evals.espace import EspacePublie
+    from tests.helpers_espace import poser_espace
 
-    EspacePublie(racine.parent, racine).installer(
-        [pathlib.Path(racine.name) / "manifest.json",
-         *(pathlib.Path(racine.name) / "doc-mini" / nom
-           for nom in ("document.json", "summary.md")
-           ),
-         *([pathlib.Path(racine.name) / "doc-mini" / "report.json"] if rapport is not None else []),
-         ], migrer=True)
+    poser_espace(racine.parent, data_dir=racine)
 
 
 def _client_sur(racine: Any, *, raison_max_chars: int = 500) -> Any:
@@ -599,24 +593,11 @@ def test_ids_quarantaines_invalides_ne_lisent_rien_hors_data_dir(tmp_path: Any) 
     manifest[traversal] = dict(entree)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    with _client_sur(tmp_path) as client:
-        etat = client.app.state.foyer
-        assert absolu in etat.corpus.quarantine and traversal in etat.corpus.quarantine
-        assert set(etat.reports) == set()
-        assert set(etat.source_urls) == set()
-        assert set(etat.report_errors) == {"doc-mini"}
-        assert all(a.doc_id not in {absolu, traversal} for a in etat.alerts)
-        alertes_anonymes = [a for a in etat.alerts
-                            if a.doc_id == "*" and a.alerte == "quarantaine"]
-        assert len(alertes_anonymes) == 2
-        assert all(a.detail == "quarantaine (manifest)" for a in alertes_anonymes)
-        assert [d["doc_id"] for d in client.get("/api/v1/documents").json()] == ["doc-mini"]
-        absent = client.get("/api/v1/documents/doc-mini/report")
-        assert absent.status_code == 400
-        assert absent.json()["error"]["message"] == "le rapport d'ingestion est absent"
-        corps_sante = client.get("/api/v1/sante").text
-        assert absolu not in corps_sante and traversal not in corps_sante
-        assert "secret.invalid" not in corps_sante
+    from server.app.corpus.racine import EspaceIllisible
+
+    with pytest.raises(EspaceIllisible, match="identifiant de document impropre"):
+        with _client_sur(tmp_path):
+            pass
 
 
 def test_un_manifest_illisible_publie_une_quarantaine_anonyme_sur_sante(
@@ -631,15 +612,11 @@ def test_un_manifest_illisible_publie_une_quarantaine_anonyme_sur_sante(
     EspacePublie(tmp_path.parent, tmp_path).installer(
         [pathlib.Path(tmp_path.name) / "manifest.json"], migrer=True)
 
-    with _client_sur(tmp_path) as client:
-        reponse = client.get("/api/v1/sante")
-        assert reponse.status_code == 200
-        quarantaines = [a for a in reponse.json()["alerts"] if a["alerte"] == "quarantaine"]
-        assert len(quarantaines) == 1
-        assert quarantaines[0]["doc_id"] == "*"
-        assert quarantaines[0]["detail"].startswith("manifest invalide : ")
-        assert str(tmp_path) not in quarantaines[0]["detail"]
-        assert client.get("/api/v1/documents").json() == []
+    from server.app.corpus.racine import EspaceIllisible
+
+    with pytest.raises(EspaceIllisible, match="manifest publié absent, illisible ou invalide"):
+        with _client_sur(tmp_path):
+            pass
 
 
 def test_un_doc_id_trop_long_est_quarantaine_et_alerte_sans_disparaitre(
@@ -651,14 +628,11 @@ def test_un_doc_id_trop_long_est_quarantaine_et_alerte_sans_disparaitre(
     manifest[trop_long] = dict(manifest["doc-mini"])
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    with _client_sur(tmp_path) as client:
-        etat = client.app.state.foyer
-        assert trop_long in etat.corpus.quarantine
-        alertes = [a for a in client.get("/api/v1/sante").json()["alerts"]
-                   if a["alerte"] == "quarantaine" and a["doc_id"] == "*"]
-        assert len(alertes) == 1
-        assert trop_long not in client.get("/api/v1/sante").text
-        assert trop_long not in [d["doc_id"] for d in client.get("/api/v1/documents").json()]
+    from server.app.corpus.racine import EspaceNonInstalle
+
+    with pytest.raises(EspaceNonInstalle, match="disposition est incomplète"):
+        with _client_sur(tmp_path):
+            pass
 
 
 def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None:
@@ -844,14 +818,11 @@ def test_un_lien_symbolique_daudit_ne_lit_jamais_hors_data(tmp_path: Any) -> Non
 
     EspacePublie(data.parent, data).installer(
         [pathlib.Path(data.name) / "manifest.json"], migrer=True)
-    with _client_sur(data) as client:
-        sante = client.get("/api/v1/sante")
-        documents = client.get("/api/v1/documents")
-        rapport = client.get("/api/v1/documents/doc-mini/report")
-    assert "MARQUEUR_EXTERNE" not in sante.text + documents.text + rapport.text
-    assert documents.json()[0]["status"] == "quarantaine"
-    assert documents.json()[0]["source_url"] is None
-    assert rapport.status_code == 400
+    from server.app.corpus.racine import EspaceNonInstalle
+
+    with pytest.raises(EspaceNonInstalle, match="disposition est incomplète"):
+        with _client_sur(data):
+            pass
 
 
 def test_rapport_absent_est_distingue_sur_la_liste(tmp_path: Any) -> None:

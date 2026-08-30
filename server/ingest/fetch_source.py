@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import sys
@@ -28,7 +29,9 @@ from urllib.parse import urlsplit
 import httpx
 
 from server.app.config import get_settings
+from server.app.corpus.racine import Lecture, lecture_de
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+from server.app.domain.ingest import ManifestEntry
 
 SOURCES_BUCKET = "foyer-retour-sources"
 METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
@@ -43,7 +46,7 @@ PUBLIC_HEADERS = {
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GS_URL_RE = re.compile(r"^gs://([a-z0-9][a-z0-9._-]{1,221}[a-z0-9])/(.+)$")
 
-EXIT_OK, EXIT_HASH, EXIT_UNREACHABLE, EXIT_USAGE = 0, 2, 3, 4
+EXIT_OK, EXIT_HASH, EXIT_UNREACHABLE, EXIT_USAGE, EXIT_CHANGED = 0, 2, 3, 4, 5
 
 
 class FetchError(Exception):
@@ -60,17 +63,77 @@ def gs_to_https(url: str) -> str:
     return f"https://storage.googleapis.com/{m.group(1)}/{m.group(2)}"
 
 
-def read_reference(doc_dir: Path) -> tuple[str, str]:
+def read_reference(doc_dir: Path, *, lecture: Lecture | None = None) -> tuple[str, str]:
     """(`source.url`, sha256 attendu) ; un fichier absent ou un hash mal formé est une erreur d'usage."""
     url_path, sha_path = doc_dir / "source.url", doc_dir / "source.sha256"
-    if not url_path.is_file() or not sha_path.is_file():
+    url_brute = lecture.texte(url_path) if lecture is not None else (
+        url_path.read_text("utf-8") if url_path.is_file() else None)
+    sha_brute = lecture.texte(sha_path) if lecture is not None else (
+        sha_path.read_text("utf-8") if sha_path.is_file() else None)
+    if url_brute is None or sha_brute is None:
         raise FetchError(EXIT_USAGE, f"{doc_dir} : source.url et source.sha256 requis")
-    url = url_path.read_text("utf-8").strip()
-    expected = sha_path.read_text("utf-8").split()[0].lower() if sha_path.read_text("utf-8").split() else ""
+    url = url_brute.strip()
+    morceaux = sha_brute.split()
+    expected = morceaux[0].lower() if morceaux else ""
     if not (url.startswith("https://") or GS_URL_RE.match(url)) or not _SHA256_RE.match(expected):
         raise FetchError(EXIT_USAGE, f"{doc_dir} : URL https:// ou gs://bucket/objet, et sha256 hexadécimal "
                                      "(64 caractères) attendus")
     return url, expected
+
+
+def _identite_pincee(data_dir: Path, doc_id: str) -> tuple[str, str, ManifestEntry]:
+    """URL, référence et identité canonique lues dans une unique génération validée."""
+    doc_dir = data_dir / doc_id
+    with lecture_de(data_dir) as lecture:
+        url, expected = read_reference(doc_dir, lecture=lecture)
+        manifeste = lecture.octets(data_dir / "manifest.json")
+        try:
+            brut = json.loads(manifeste) if manifeste is not None else None
+            entree = ManifestEntry.model_validate(brut[doc_id])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise FetchError(
+                EXIT_USAGE, f"{doc_id} : identité canonique absente ou invalide dans le manifest") from exc
+        if entree.source_hash != expected:
+            raise FetchError(
+                EXIT_USAGE,
+                f"{doc_id} : source.sha256 ne correspond pas au source_hash canonique du manifest")
+        lecture.verifier()
+        return url, expected, entree
+
+
+def _publier_si_identique(data_dir: Path, doc_id: str, content: bytes, *,
+                          url_capturee: str, reference_capturee: str,
+                          entree_capturee: ManifestEntry) -> None:
+    """Compare sous le verrou puis publie PDF + manifest par l'unique commit."""
+    from server.evals.espace import EspacePublie
+
+    doc_dir = data_dir / doc_id
+    manifest_path = data_dir / "manifest.json"
+    espace = EspacePublie(data_dir.parent, data_dir)
+    with espace.transaction() as transaction:
+        url_courante = transaction.lire(doc_dir / "source.url")
+        reference_courante = transaction.lire(doc_dir / "source.sha256")
+        manifest_courant = transaction.lire(manifest_path)
+        try:
+            brut = json.loads(manifest_courant) if manifest_courant is not None else None
+            entree_courante = ManifestEntry.model_validate(brut[doc_id])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise FetchError(
+                EXIT_CHANGED,
+                f"{doc_id} : identité canonique absente ou invalide après téléchargement — rien "
+                "n'est publié") from exc
+        morceaux = reference_courante.split() if reference_courante is not None else []
+        reference = morceaux[0].lower() if morceaux else ""
+        if (url_courante is None or url_courante.strip() != url_capturee
+                or reference != reference_capturee or entree_courante != entree_capturee):
+            raise FetchError(
+                EXIT_CHANGED,
+                f"{doc_id} : URL, référence ou identité canonique modifiée pendant le "
+                "téléchargement — rien n'est publié")
+        transaction.publier([
+            (doc_dir / "source.pdf", content),
+            (manifest_path, manifest_courant),
+        ])
 
 
 def _metadata_token(client: httpx.Client) -> str | None:
@@ -141,8 +204,12 @@ def fetch(
             EXIT_USAGE,
             f"doc_id invalide (slug [a-z0-9-]+ de {DOC_ID_MAX} caractères maximum attendu) : {doc_id!r}",
         )
-    doc_dir = Path(data_dir) / doc_id
-    url, expected = read_reference(doc_dir)
+    data = Path(data_dir)
+    doc_dir = data / doc_id
+    # Premier geste après la validation syntaxique : préflight complet et capture d'une seule
+    # génération, avant Settings, référence, client ou réseau.
+    url, expected, entree_capturee = _identite_pincee(data, doc_id)
+    url_capturee = url
     own = client is None
     client = client or httpx.Client(timeout=get_settings().fetch_timeout_s)
     try:
@@ -191,9 +258,9 @@ def fetch(
     if got != expected:
         raise FetchError(EXIT_HASH, f"{doc_id} : hash attendu {expected}, obtenu {got} ({origin}) — rien n'est écrit")
     target = doc_dir / "source.pdf"
-    tmp = target.with_name(target.name + ".tmp")
-    tmp.write_bytes(content)
-    tmp.replace(target)
+    _publier_si_identique(
+        data, doc_id, content, url_capturee=url_capturee, reference_capturee=expected,
+        entree_capturee=entree_capturee)
     print(f"{doc_id} : {target} ({len(content)} octets, sha256 {got}) depuis {origin}")
     return target
 
@@ -201,7 +268,7 @@ def fetch(
 def documents_to_fetch(data_dir: Path) -> tuple[list[str], list[str]]:
     """(documents avec `source.sha256`, documents dont la source est committée) parmi `data/*/`."""
     to_fetch, committed = [], []
-    for d in sorted(p for p in data_dir.iterdir() if p.is_dir()):
+    for d in sorted(p for p in data_dir.iterdir() if p.is_dir() and not p.name.startswith(".")):
         (to_fetch if (d / "source.sha256").is_file() else committed).append(d.name)
     return to_fetch, committed
 
@@ -217,6 +284,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--data", default="data", type=Path)
     args = parser.parse_args(argv)
+    # `--all` ne liste même pas les références d'un arbre partiel : le préflight complet précède
+    # tout parcours de `data/`, toute lecture et tout coût.
+    try:
+        with lecture_de(args.data):
+            pass
+    except Exception as exc:  # noqa: BLE001 — refus opérateur, sans trace Python
+        print(f"refus avant lecture et réseau : {exc}", file=sys.stderr)
+        return EXIT_USAGE
     if bool(args.doc_id) == args.all:
         parser.error("un doc_id ou --all")
     if args.all:

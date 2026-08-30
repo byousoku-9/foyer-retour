@@ -16,8 +16,9 @@ from typing import Any
 
 import pytest
 
-from server.app.corpus.dictionary import Dictionnaire, forme, load_dictionary
+from server.app.corpus.dictionary import Dictionnaire, forme, load_dictionary as _load_dictionary
 from server.app.corpus.loader import Corpus
+from server.app.corpus.racine import _lecture_interne_sans_racine
 from server.app.corpus.text import normalize
 from server.app.domain.dictionary import INTENTS_DU_DICTIONNAIRE, DictionaryFile
 from server.app.domain.document import Block, BlockRef, Document, Node
@@ -26,6 +27,12 @@ from server.app.pipelines.commun import INTENTS_REFUSES
 
 DOC_ID = "mini"
 SOURCE_HASH = "sha-source"
+
+
+def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str) -> Dictionnaire:
+    """Lecture unitaire explicite d'un arbre nu, jamais le chemin public de production."""
+    with _lecture_interne_sans_racine(data_dir) as lecture:
+        return _load_dictionary(data_dir, corpus, doc_id, lecture=lecture)
 
 
 def _corpus(source_hash: str = SOURCE_HASH) -> Corpus:

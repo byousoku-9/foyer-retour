@@ -64,6 +64,7 @@ from server.app.domain.dictionary import (
     SCHEMA_VERSION,
     DictionaryFile,
 )
+from server.app.domain import ManifestEntry
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Block, is_citable
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
@@ -706,6 +707,32 @@ def _entrees_publiees(lecture: LectureDuLot, manifest_path: Path) -> dict[str, A
     return brut if isinstance(brut, dict) else {}
 
 
+def _entree_canonique_publiee(lecture: LectureDuLot, manifest_path: Path,
+                               doc_id: str) -> ManifestEntry:
+    """L'entrée complète publiée, ou un refus : absence et invalidité ne valent jamais identité."""
+    octets = lecture.octets(manifest_path)
+    if octets is None:
+        raise CorpusDeplace(
+            f"{doc_id} : manifest supprimé pendant la campagne — rien n'est publié, relancer "
+            "l'enrichissement")
+    try:
+        brut = json.loads(octets.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise CorpusDeplace(
+            f"{doc_id} : manifest illisible pendant la campagne ({type(exc).__name__}) — rien "
+            "n'est publié, relancer l'enrichissement") from exc
+    if not isinstance(brut, dict) or doc_id not in brut:
+        raise CorpusDeplace(
+            f"{doc_id} : entrée absente du manifest publié pendant la campagne — rien n'est "
+            "publié, relancer l'enrichissement")
+    try:
+        return ManifestEntry.model_validate(brut[doc_id])
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise CorpusDeplace(
+            f"{doc_id} : entrée invalide dans le manifest publié pendant la campagne "
+            f"({type(exc).__name__}) — rien n'est publié, relancer l'enrichissement") from exc
+
+
 def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
                       *, data_dir: Path | None = None, sortie: Any = sys.stdout) -> int:
     """`--valider "Nom"` : trois champs, et **rien d'autre** (AD-5).
@@ -863,6 +890,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         raison = corpus.quarantine.get(doc_id, "absent du manifest")
         print(f"document {doc_id!r} non servi ({raison}) : rien n'a été écrit", file=sys.stderr)
         return 2
+    # Identité canonique **avant** la campagne : ce sont ces octets logiques qui ont produit les
+    # requêtes, et toute différence au moment du commit (pas seulement `source_hash`) refuse.
+    entree_campagne = corpus.manifest[doc_id]
+    source_hash_campagne = entree_campagne.source_hash
     chemin = (data_dir / DICTIONARY_FILE
               if corpus.documents[doc_id].kind == "guide"
               else data_dir / doc_id / DICTIONARY_FILE)
@@ -959,10 +990,6 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     # construction. Vide, le fichier est inerte : `_corpus_ok` le refuse déjà (« ne dit pas quel
     # corpus il décrit »), donc ni variantes ni court-circuit, et `--valider` sort en 5.
     partiel = args.limit is not None
-    # L'identité **exacte** du corpus qui a produit les requêtes : c'est elle que la publication
-    # opposera à ce qui est réellement publié.
-    source_hash_campagne = corpus.manifest[doc_id].source_hash
-
     def _publier(lecture: LectureDuLot) -> list[tuple[Path, str | None]]:
         """Relit le manifest **sous le verrou** et refuse si le corpus a bougé pendant la campagne.
 
@@ -977,15 +1004,13 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         la même section critique. Une divergence est un refus **sans mutation**, jamais une
         publication intergénérationnelle.
         """
-        publie = _entrees_publiees(lecture, (data_dir / "manifest.json"))
-        entree = publie.get(doc_id)
-        if isinstance(entree, dict):
-            publie_hash = entree.get("source_hash")
-            if publie_hash != source_hash_campagne:
-                raise CorpusDeplace(
-                    f"{doc_id} a été réingéré pendant la campagne (source_hash publié "
-                    f"{publie_hash!r} ≠ {source_hash_campagne!r} de la campagne) : rien n'est "
-                    "publié, relancer l'enrichissement")
+        entree_publiee = _entree_canonique_publiee(
+            lecture, data_dir / "manifest.json", doc_id)
+        if entree_publiee != entree_campagne:
+            raise CorpusDeplace(
+                f"{doc_id} a été réingéré pendant la campagne ou a changé d'identité canonique "
+                "(source, document, ingestion, édition, statut, overlay, structure ou gate) : "
+                "rien n'est publié, relancer l'enrichissement")
         fichier = _trier(DictionaryFile(
             schema_version=SCHEMA_VERSION,
             corpus_source_hashes={} if partiel else {doc_id: source_hash_campagne},
