@@ -1,5 +1,22 @@
 # Choix et limites mesurées
 
+## Correctif Story 4.5 — compréhension, fermeture et rédaction
+
+Une clarification n'est plus déclenchée par la seule présence d'une expression référentielle : elle
+exige une cible indispensable au sens, absente de la question courante et de l'historique. Le schéma
+rejette et relance toute combinaison contradictoire entre une intention autonome refusée et une
+clarification ; un refus conserve ainsi une `question_resolue` et ne lance aucun retrieval.
+
+La fermeture directe d'un renvoi vers un `heading` forme désormais une unité atomique composée du
+titre et du premier passage citable de son nœud. Elle reste à un niveau, ne suit jamais les `refs` de
+la cible et respecte les budgets existants. Avant `search_limit`, l'index réserve aussi un nœud utile
+distinct par facette lorsqu'il existe ; les thèmes du profil et leurs doublons complètent seulement
+ensuite le classement. Les deux variantes consomment le même classement et les mêmes unités.
+
+Enfin, `rediger_max_tokens=2048` est l'unique plafond de rédaction du guide. L'ancienne seconde
+autorité à 1 792 tokens du chemin `outils` est supprimée ; modèle Sonnet 5, tier `reason`, effort,
+prompt, schéma, retry unique et fail-closed restent inchangés sous le plafond courant de 0,12 €.
+
 ## Story 4.5 — le gate `full` décide de ce qui est servi, et l'accueil publie
 
 ### Ce qui a changé, et pourquoi ce n'est pas une seconde plomberie
@@ -77,10 +94,8 @@ est intacte — la dérogation y est forcée à `False` et `env` n'y vaut pas `d
 
 ### Ce qui n'est pas refermable ici
 
-Le libellé « guide » de `retrouver.md` et l'arbitrage du plafond sinistre sous `outils` changent tous
-deux le corps de requête, donc la clé des fixtures : les toucher rendrait la suite hors réseau rouge
-sans qu'aucun ré-enregistrement soit possible pour un builder. Ils restent différés, avec leur
-commande de résolution écrite dans la passation.
+Le libellé « guide » de `retrouver.md` reste différé. Le plafond de rédaction `outils`, lui, est
+désormais aligné par le correctif Story 4.5 décrit plus haut.
 
 ## Story 4.2e — le contrôle demande le contexte qui lui manque, une fois
 
