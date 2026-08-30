@@ -363,6 +363,37 @@ uv run python -m server.evals.espace --racine . --data-dir data \
 Sans cela le run **refuse** avant toute mesure, en nommant cette commande — il ne pose jamais sa
 propre disposition. La CI fait le même geste dans son étape d'évals, sur `.evals/`.
 
+Cette phrase était fausse jusqu'au tour de la racine vraiment unique (N3) : le runner n'avait aucun
+préflight d'espace, ses quatre usages de la racine étaient **tous postérieurs** à l'exécution, et sur
+un `--data-dir` non installé la campagne entière était payée avant que le refus ne tombe. Le
+contrôle a lieu maintenant avant `_executer_puis_fermer`, et le refus est un **code 2** — un refus
+d'avant appel, comme les autres. La même règle vaut pour les **six** CLI d'ingestion et de
+dictionnaire (`kb_to_blocks`, `pdf_to_blocks`, `type_clauses`, `structure`, `enrich_dictionary` en
+enrichissement **et** en `--valider`) : chacune exige une racine installée et refuse avant tout
+travail et avant tout appel payant. La garde ne dépend plus d'un lot **mixte** — un lot d'une seule
+cible refuse aussi —, et un `--data-dir` custom **installé** est accepté sans traitement
+particulier : ce qui est interdit est le `data-dir` **non installé**, pas le `data-dir` custom.
+
+**Ce qu'un lecteur pince.** Une opération de lecture de production — démarrage du service,
+`construire_contexte` du runner, les preuves de structure et d'arbre, `type_clauses._load`,
+`charger_attendus` du smoke — résout `courant` **une seule fois** et lit toutes ses surfaces
+couvertes à travers ce repère (`server/app/corpus/racine.py`). Une bascule tombant entre deux de ses
+lectures ne peut donc plus lui faire rendre un état composé de deux générations, et les octets
+**hachés** sont les octets **parsés**. Un lecteur ne prend aucun verrou : il ne sérialise pas la
+production pour être cohérent. Deux bascules pendant une même passe la périment ; le repère le
+détecte et la passe est rejouée, puis, après un nombre borné de tentatives, le refus est dit.
+
+**Ce qui décide du contenu publié se lit sous le verrou.** `overlay_hash`, `structure_hash`, le
+document précédent et les champs repris de l'entrée antérieure (`source_hash`, `ingest_fingerprint`,
+`edition`) viennent du repère que la transaction a pincé, jamais d'une lecture faite avant elle. Le
+typage **oppose** en outre ces champs à ceux qu'il a réellement typés : une réingestion publiée
+pendant les minutes d'appels est un refus, pas une publication.
+
+**Un lien pendant est une absence.** Sous une racine, c'est la forme que prend tout artefact jamais
+publié — et c'est l'état réel des `structure.json` du dépôt. Une réingestion PDF le traite comme une
+absence ; sans cela, `presente()` le voyait « présent », `charger()` rendait `proposition_illisible`,
+et les deux contrats servis seraient partis en quarantaine du seul fait de la disposition.
+
 **Un document neuf se pose de la même façon**, une fois, avant sa première ingestion :
 
 ```

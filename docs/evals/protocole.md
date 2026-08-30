@@ -309,11 +309,91 @@ Ce qui doit rester distinct le reste, et se décide **avant** le commit : un rap
 refusé sans qu'aucune surface bouge (code 1), un incident technique sort en code 3 sans gate écrit,
 et la non-mutation du dernier vert retire le manifest du lot sans en retirer la publication.
 
+### Une lecture pince une génération, et lit tout à travers elle
+
+Tour de la racine vraiment unique (N1). Il n'existait **aucune API de lecture** : le seul objet qui
+figeait une génération était `Transaction`, une API d'écriture qui exige le `flock` exclusif et meurt
+à la sortie du `with`. Toute autre voie relisait le pointeur **à chaque appel système** — un
+`readlink` par cible —, et le démarrage du service en résolvait une quarantaine. Une bascule tombant
+entre deux de ces résolutions rendait un état composé de deux générations, que le contrôle
+d'empreinte ne voyait pas : il portait sur des octets qu'un second `open()` avait pu remplacer.
+
+`server/app/corpus/racine.py` ouvre le pendant **lecture** de la racine. `lecture_pincee(data_dir)`
+résout `courant` une seule fois et rend un repère immuable ; toutes les cibles couvertes se lisent à
+travers lui, **sans** prendre le verrou des écrivains — un lecteur ne doit pas sérialiser la
+production pour être cohérent. Il n'y a pas de paramètre pour retomber sur une résolution vivante :
+ou l'espace est installé et tout passe par lui, ou il ne l'est pas et il n'y a rien à mêler.
+
+Ce que le repère garantit : **une opération de lecture ne mêle jamais deux générations**, et les
+octets **hachés** sont les octets **parsés** — une seule lecture, un seul tampon. Il survit à une
+bascule concurrente (deux générations alternent ; celle qu'il a pincée n'est reconstruite qu'à la
+*seconde* bascule). Deux bascules pendant une même passe la périment : le repère le **détecte** sur
+l'identité de l'inode qu'il tient ouvert, et `relire` rejoue la passe sur un repère neuf ; après un
+nombre borné de tentatives, le refus est dit plutôt que résolu par un état partiel.
+
+Les opérations de lecture qui le pincent : le démarrage du service (`load_corpus` +
+`construire_etat`, manifest, documents, overlays, structures, sommaires, rapports, dictionnaires et
+publication d'évals), `run.construire_contexte` et les deux preuves de structure et d'arbre — une
+décision de gate ne peut plus être composée de trois générations —, `type_clauses._load`, et
+`scripts/smoke.charger_attendus`, dont l'attendu autorise une promotion de trafic.
+
+### La marque du brouillon n'est plus best-effort, dans les deux sens
+
+Tour de la racine vraiment unique (N2). La marque **ne peut pas échouer en silence à la pose** : si
+elle ne peut pas être créée, la préparation refuse **avant toute mutation de la génération
+inactive** — il n'y a donc rien à abandonner et rien à rendre visible. Elle est **conservée jusqu'au
+commit établi** et n'est retirée que dans la frontière post-commit : elle couvre ainsi toute la
+fenêtre de mutation, y compris celle qui allait du `fsync` du brouillon à l'atome, et l'abandon
+prudent n'a plus rien à *reposer* (une repose best-effort partageait exactement le mode de
+défaillance qu'on ferme).
+
+Symétriquement, une marque **ne peut pas survivre à la génération qu'elle nomme**. Elle est nommée
+par pid, et rien ne la moissonnait : après deux bascules parfaitement saines — qui `rmtree`ent et
+republient la génération qu'elle nomme —, `residus()` la rendait encore et désignait comme
+« brouillon en cours » la génération que le pointeur publie. La transaction qui reconstruit une
+génération inactive assainit donc ce qui la concerne, et `residus()` ne compte jamais une marque
+nommant la génération publiée. Fermer un faux négatif en ouvrant un faux positif permanent n'aurait
+rien fermé. Ce que le nommage par pid ne peut pas garantir seul s'écrit : une marque dont le
+processus a disparu **entre** deux bascules reste jusqu'à la reconstruction suivante de sa
+génération — c'est-à-dire jusqu'au prochain écrivain, pas jusqu'à un moissonneur qui n'existe pas.
+Et `residus()` n'a **aucun observateur de production** : ses seuls appelants sont la CLI d'opérateur
+(`python -m server.evals.espace`) et les tests.
+
+### Aucun entrypoint de production n'écrit hors racine
+
+Tour de la racine vraiment unique (N3). `espace_couvrant` rendant `None` pour *toutes* les cibles,
+`_espace_du_lot` rendait `None` **sans lever**, et `publier_artefacts` prenait silencieusement le
+repli rootless. Sept entrypoints l'atteignaient — dont trois **après** avoir payé des appels de
+modèle, et quatre avec un lot d'**une seule cible**, pour lequel le refus « lot mixte » est
+structurellement inatteignable. Une cible couverte dont le lien avait été cassé y était réécrite en
+fichier ordinaire, silencieusement.
+
+Chaque entrypoint de production exige donc une racine **installée** et refuse **avant tout travail et
+avant tout appel payant** : les six CLI (`kb_to_blocks`, `pdf_to_blocks`, `type_clauses`,
+`structure`, `enrich_dictionary` en enrichissement **et** en `--valider`) et le runner d'évals, dont
+la vérification tombe désormais avant `_executer_puis_fermer`. La garde ne dépend plus d'un lot
+mixte : **aucune** cible couverte est un refus. Elle n'interdit pas les `data-dir` custom — un custom
+**installé** passe sans traitement particulier —, elle interdit les `data-dir` **non installés**.
+`_publier_sans_racine` et `_atomic_artifacts` restent, comme **primitives internes** qu'aucun
+entrypoint de production n'atteint.
+
+Ce qui décide du **contenu publié** se lit sous le verrou, depuis le repère que la transaction a
+pincé : `overlay_hash`, `structure_hash`, le document précédent (`ids_disparus`) et les champs repris
+de l'entrée antérieure (`source_hash`, `ingest_fingerprint`, `edition`). Le typage, qui dure des
+minutes, **oppose** en outre ces champs à ceux qu'il a réellement typés : une réingestion publiée
+entre-temps est un refus, jamais une publication. `enrich_dictionary --valider` cesse d'être un
+read-modify-write à cheval sur le verrou.
+
+Enfin, sous une racine, un **lien pendant est une absence** : c'est la forme que prend tout artefact
+jamais publié, et c'est l'état réel des `structure.json` du dépôt. `structure.presente()` le dit
+comme les autres lecteurs le disent (`is_file()`) quand — et seulement quand — la cible est couverte
+par une racine ; hors racine, la règle d'AD-16 est inchangée et un lien pendant reste « présent mais
+illisible ».
+
 ### Ce que le protocole ne garantit pas
 
 Ce qui s'écrit au lieu de se taire : un `SIGKILL` ou une coupure matérielle pendant l'unique
-`rename(2)`, que l'espace utilisateur ne couvre pas ; le biais de lecteur, un lecteur qui résout deux
-cibles de part et d'autre d'une bascule ; et l'abandon du **brouillon** — la génération inactive
+`rename(2)`, que l'espace utilisateur ne couvre pas ; et l'abandon du **brouillon** — la génération inactive
 qu'un refus jette —, qui est un `rmtree` qu'une interruption peut couper en deux. Il ne touche aucune
 cible, mais il peut laisser un reste. Ce reste est donc rendu **visible** : le brouillon est d'abord
 sorti de son emplacement de génération par un `rename` unique, sous un nom en `.tmp`, de sorte que
@@ -324,10 +404,13 @@ Le suffixe `.tmp` ne suffit pas comme unique signal, et c'est le second reste po
 pointeur est **indécidable** au moment de conclure, l'abandon ne détruit rien — à raison, puisqu'une
 génération publiée effacée rendrait toutes les cibles pendantes — mais il laissait alors la
 génération inactive, peut-être à moitié écrite, sous son nom `a`/`b`, que rien ne distinguait d'un
-bundle complet. Une **marque** de brouillon est donc posée dans l'espace avant la première écriture
-et retirée quand le brouillon est complet et `fsync`é ; l'abandon prudent la **repose**. Une
-génération inactive dont le sort est inconnu n'est ainsi jamais silencieuse, ni pour `residus()`, ni
-pour un opérateur. La bascule suivante, elle, ne s'y fie pas : elle reconstruit de zéro.
+bundle complet. La **marque** de brouillon (voir ci-dessus) est ce que `residus()` voit alors : une
+génération inactive dont le sort est inconnu n'est jamais silencieuse, ni pour `residus()`, ni pour
+un opérateur. La bascule suivante, elle, ne s'y fie pas : elle reconstruit de zéro.
+
+Le **biais de lecteur** n'est plus dans cette liste : il est couvert par le repère de lecture. Ce qui
+n'est pas couvert, et qui se dit : un lecteur qui n'emploierait pas le repère — un outil externe, un
+script ad hoc — résout deux cibles de part et d'autre d'une bascule et voit un mélange.
 
 ### Tous les écrivains d'une cible couverte passent par le protocole, et sous le même verrou
 
