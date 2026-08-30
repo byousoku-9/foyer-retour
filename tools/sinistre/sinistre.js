@@ -355,6 +355,10 @@
     candidats_non_ouverts: "des passages trouvés n'ont pas été ouverts par la navigation",
     citations: "citations relues dans le corpus",
     claims_non_citees: "affirmations vérifiées qu'aucune phrase affichée ne reprend",
+    clarification_refus_neutralisee:
+      "clarification conservée : la compréhension portait aussi une intention refusée",
+    clarification_retablie_perimetre_tronque:
+      "clarification servie : la liste tronquée ne permet pas de confirmer le refus hors périmètre",
     clarification_langue_non_affirmee: "clarification retirée : sa langue n'est pas affirmable",
     cout_eleve: "coût de la requête au-dessus du seuil",
     demande_cible_inconnue: "le contrôle a demandé un contexte que rien de ce qui lui a été soumis ne désigne",
