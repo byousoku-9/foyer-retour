@@ -9,19 +9,30 @@ le second garde l’ordre, relit les preuves, calcule les états et rend tout **
 
 ## Une requête : cinq étapes, dans le même ordre
 
-Le guide et l’outil sinistre exécutent la même séquence : *comprendre → retrouver → rédiger →
-vérifier → restituer*. Une étape ne peut pas en appeler une autre et le modèle ne peut ni sauter la
-vérification, ni afficher directement sa sortie. La navigation par outils est la recherche par
-défaut ; une variante déterministe fournit le même contrat de résultat et sert de baseline ou de
-repli borné. Changer la recherche ne crée donc pas un second pipeline (AD-1).
+Une réponse factuelle suit, dans les deux outils, *comprendre → retrouver → rédiger → vérifier →
+restituer*. `comprendre` produit une question autonome et ses facettes, ou court-circuite vers
+*restituer* pour une clarification ou un refus d’intention. Dans le guide, un dictionnaire validé et
+conforme aux empreintes peut armer un refus « zéro hit » avant *retrouver*, sauf si un périmètre
+tronqué désarme ce pré-contrôle. Une lecture complète sans bloc citable produit ensuite un refus ;
+une lecture tronquée ne prouve jamais cette absence. Aucune sortie factuelle rédigée n’atteint
+*restituer* sans passer par *vérifier* (AD-1, AD-5).
+
+La navigation par outils est la recherche par défaut ; une variante déterministe fournit le même
+contrat de résultat et sert de baseline ou de repli borné. Changer la recherche ne crée donc pas un
+second pipeline (AD-1).
 
 ```mermaid
 flowchart LR
   Q["Question + profil ou faits"] --> C["comprendre<br/>question autonome et facettes"]
-  C --> R["retrouver<br/>ouvrir, chercher, suivre les renvois"]
+  C -->|"guide : question autonome + facettes"| G{"garde déterministe<br/>sur l’index"}
+  G -->|"hit ou garde désarmée"| R["retrouver<br/>ouvrir, chercher, suivre les renvois"]
+  C -->|"sinistre : question autonome + facettes"| R
   R --> D["rédiger<br/>segments, claims et citations"]
   D --> V["vérifier<br/>citations, soutien, applicabilité"]
   V --> S["restituer<br/>Answer + Trace"]
+  C -->|"clarification · intention refusée"| S
+  G -->|"zéro-hit armé"| S
+  R -->|"lecture complète sans bloc citable"| S
   M["Modèle<br/>propose"] -. "compréhension · recherche · rédaction<br/>jugements typés" .-> C
   M -.-> R
   M -.-> D
@@ -29,6 +40,9 @@ flowchart LR
   K["Code<br/>vérifie"] -. "ordre · bornes · preuves<br/>états · verdict" .-> V
   K -.-> S
 ```
+
+Chaque sortie normale porte l’`Answer` et la `Trace` des seules étapes réellement parcourues ; un
+échec terminal conserve la trace partielle dès que la chaîne a commencé (AD-10, AD-16).
 
 Une réponse est découpée en affirmations et en citations. Le `ClaimStatus` porté par chaque
 affirmation garde quatre champs distincts. `retrouvee` est la preuve, établie par le code, que chaque
@@ -101,17 +115,24 @@ modèle ne produit jamais la valeur finale et n’effectue aucun calcul de couve
 ## Intelligence payée à l’ingestion, lecture au service
 
 L’**intelligence payée à l’ingestion** transforme les sources une fois en artefacts versionnés :
-`document.json`, sommaire, rapport, dictionnaire et manifest. Le modèle d’ingestion étiquette des
-identifiants de blocs ; le code relit les sources, résout l’arbre, les portées et les renvois, vérifie
-les empreintes et met un candidat incohérent en quarantaine. Au démarrage, le serveur charge ces
-JSON et leurs index en mémoire puis les consulte sans les modifier (AD-2, AD-7).
+`document.json`, sommaire, rapport, dictionnaire et manifest. Pour la structure PDF, le modèle
+propose hors ligne seulement des ancres `line_uid` et des liens parent/enfant, jamais du texte. Le
+code vérifie UID, ordre, couverture et bornes, relit les titres, calcule les `node_id`, puis applique
+`structure.json`. Sans cet artefact, l’heuristique reste nominale ; présent mais refusé, il place le
+document en quarantaine sans repli silencieux (AD-2, AD-7, AD-16).
+
+Séparément, pour les clauses des PDF, le modèle d’ingestion étiquette les `block_id` avec un type et
+une confiance, sans renvoyer leur texte ; le code résout l’arbre, les portées et les renvois. Les
+contrôles statiques vont dans `report.json` et une incohérence bloquante garde le document hors du
+corpus servi (AD-7, AD-8). Au démarrage, le serveur charge les JSON et leurs index en mémoire puis
+les consulte sans les modifier.
 
 Trois tiers configurés rendent le compromis explicite : `ingest` pour le travail hors ligne,
 `reason` pour la rédaction, et `micro` pour comprendre, naviguer par défaut et vérifier. Leurs IDs de
 modèles sont centralisés plutôt que promis par la documentation. Le préfixe stable du tier `reason`
 utilise le cache fournisseur d’une heure ; séparément, le harness d’évals possède un cache persistant
-indexé par le modèle, les paramètres, les schémas, le pipeline, le corpus, la variante et l’entrée.
-Une seule table de prix calcule le coût depuis l’usage réellement rendu par l’API (AD-9).
+indexé par le modèle, les paramètres, les schémas, le pipeline, le corpus, la variante et l’entrée
+(AD-14). Une seule table de prix calcule le coût depuis l’usage réellement rendu par l’API (AD-9).
 
 ## Un service, une origine, une promotion conditionnelle
 

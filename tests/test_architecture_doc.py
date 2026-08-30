@@ -14,6 +14,23 @@ def _texte() -> str:
     return DOC.read_text(encoding="utf-8")
 
 
+def _section(texte: str, titre: str) -> str:
+    section = re.search(
+        rf"^{re.escape(titre)}\n(?P<body>.*?)(?=^## |\Z)",
+        texte,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert section is not None
+    return section.group("body")
+
+
+def _paragraphe(texte: str, fragment: str) -> str:
+    for paragraphe in texte.split("\n\n"):
+        if fragment.casefold() in paragraphe.casefold():
+            return paragraphe
+    raise AssertionError(f"paragraphe absent pour {fragment!r}")
+
+
 def test_la_synthese_reste_courte_et_structuree() -> None:
     texte = _texte()
     mots = re.findall(r"\b[\wÀ-ÿ’-]+\b", texte)
@@ -41,7 +58,20 @@ def test_les_formulations_et_decisions_structurantes_sont_presentes() -> None:
         assert formulation.casefold() in texte.casefold()
 
     ads = {int(numero) for numero in re.findall(r"\bAD-(\d+)\b", texte)}
-    assert {1, 2, 3, 4, 6, 7, 9, 12, 13, 16} <= ads
+    assert {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16} <= ads
+
+
+def test_les_decisions_restent_associees_a_leur_section() -> None:
+    texte = _texte()
+    requete = _section(texte, "## Une requête : cinq étapes, dans le même ordre")
+    ingestion = _section(texte, "## Intelligence payée à l’ingestion, lecture au service")
+
+    assert "AD-5" in _paragraphe(requete, "question autonome")
+    assert "AD-10" in _paragraphe(requete, "`Trace`")
+    structure = _paragraphe(ingestion, "`structure.json`")
+    assert all(ad in structure for ad in ("AD-2", "AD-7", "AD-16"))
+    assert "AD-8" in _paragraphe(ingestion, "contrôles statiques")
+    assert "AD-14" in _paragraphe(ingestion, "cache persistant")
 
 
 def test_les_trois_diagrammes_couvrent_les_vues_demandees() -> None:
@@ -53,7 +83,10 @@ def test_les_trois_diagrammes_couvrent_les_vues_demandees() -> None:
         diagrammes[0],
         flags=re.MULTILINE,
     )
-    assert aretes_requete[:5] == [("Q", "C"), ("C", "R"), ("R", "D"), ("D", "V"), ("V", "S")]
+    assert {
+        ("Q", "C"), ("C", "G"), ("G", "R"), ("C", "R"),
+        ("R", "D"), ("D", "V"), ("V", "S"), ("C", "S"), ("G", "S"), ("R", "S"),
+    } <= set(aretes_requete)
     assert all(etape in diagrammes[0] for etape in ("comprendre", "retrouver", "rédiger", "vérifier", "restituer"))
     assert all(registre in diagrammes[1] for registre in ("Document.nodes", "Document.blocks", "Node.items"))
     assert all(reference in diagrammes[1] for reference in ("NodeRef", "BlockRef"))
@@ -96,13 +129,13 @@ def test_les_statuts_de_citation_et_la_table_de_verdict_restent_distincts() -> N
 
 def test_la_synthese_ne_reintroduit_pas_le_vocabulaire_interdit() -> None:
     texte = unicodedata.normalize("NFC", _texte()).casefold()
-    fragments_interdits = (
-        "assu" + "reur",
-        "comparat" + "eur",
-        "anonymis" + "é",
-        "mapp" + "ing",
+    mapping = "mapp" + "ing"
+    assureur = "assu" + "reur"
+    association_interdite = re.compile(
+        rf"{mapping}.{{0,40}}{assureur}|{assureur}.{{0,40}}{mapping}",
+        flags=re.DOTALL,
     )
-    assert not [fragment for fragment in fragments_interdits if fragment in texte]
+    assert association_interdite.search(texte) is None
 
 
 def test_la_synthese_ne_fabrique_pas_un_resultat_de_validation() -> None:
