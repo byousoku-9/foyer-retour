@@ -1,0 +1,110 @@
+{
+  "doc_id": "baloise-lu-home-2-2024",
+  "checks": [
+    {
+      "name": "invariants_arbre",
+      "level": "info",
+      "detail": "ok"
+    },
+    {
+      "name": "blocs_non_citables",
+      "level": "alerte",
+      "detail": "2 bloc(s) sur 2 page(s) exclus du rappel ; pages : 1, 2 ; kind=autre=2"
+    },
+    {
+      "name": "tdm_imprimee",
+      "level": "alerte",
+      "detail": "numéros annoncés absents de l'arbre : 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15"
+    },
+    {
+      "name": "tdm_pdf",
+      "level": "info",
+      "detail": "get_toc() : 0 entrée(s), contrôle distinct"
+    },
+    {
+      "name": "couverture",
+      "level": "info",
+      "detail": "48/48 page(s) éligible(s), soit 100.0% ; seuil indicatif 80%"
+    },
+    {
+      "name": "definition_introuvable",
+      "level": "alerte",
+      "detail": "baloise-lu-home-2-2024:p3:11, baloise-lu-home-2-2024:p3:24, baloise-lu-home-2-2024:p4:5, baloise-lu-home-2-2024:p4:17, baloise-lu-home-2-2024:p5:12, baloise-lu-home-2-2024:p7:7, baloise-lu-home-2-2024:p8:2, baloise-lu-home-2-2024:p9:4, baloise-lu-home-2-2024:p10:11, baloise-lu-home-2-2024:p3:4 → Accessible, baloise-lu-home-2-2024:p3:6 → Accident, baloise-lu-home-2-2024:p3:9 → Animal domestique, baloise-lu-home-2-2024:p3:10 → Assuré, baloise-lu-home-2-2024:p3:14 → Année d'assurance, baloise-lu-home-2-2024:p3:16 → Antivol approuvé, baloise-lu-home-2-2024:p3:18 → Appareils ménagers, baloise-lu-home-2-2024:p3:23 → Assurance au premier risque, baloise-lu-home-2-2024:p4:3 → Biens immeubles par destination, baloise-lu-home-2-2024:p4:6 → mobilier, baloise-lu-home-2-2024:p4:8 → Dépôt, baloise-lu-home-2-2024:p4:10 → bâtiment, baloise-lu-home-2-2024:p4:11 → chiens « dangereux », baloise-lu-home-2-2024:p4:12 → chiens « dangereux », baloise-lu-home-2-2024:p4:14 → bâtiment, baloise-lu-home-2-2024:p5:2 → Déchéance, baloise-lu-home-2-2024:p5:6 → Conflit de travail, baloise-lu-home-2-2024:p5:8 → Dépendances, baloise-lu-home-2-2024:p5:15 → Dommages corporels, baloise-lu-home-2-2024:p5:18 → Contenu situé dans les parties communes, baloise-lu-home-2-2024:p5:20 → Dommage immatériel non consécutif, baloise-lu-home-2-2024:p6:4 → Dommages ménagers, baloise-lu-home-2-2024:p6:6 → Dysfonctionnement, baloise-lu-home-2-2024:p6:7 → Locataire, baloise-lu-home-2-2024:p6:11 → Franchise, baloise-lu-home-2-2024:p6:12 → Grève, baloise-lu-home-2-2024:p6:14 → Loyers impayés, baloise-lu-home-2-2024:p6:16 → Indice Baloise, baloise-lu-home-2-2024:p7:2 → Matériel professionnel, baloise-lu-home-2-2024:p7:3 → mobilier usuel, baloise-lu-home-2-2024:p7:5 → Matériels nomades, baloise-lu-home-2-2024:p7:6 → objets multimédia, baloise-lu-home-2-2024:p7:12 → Marchandises destinées à la vente, baloise-lu-home-2-2024:p7:15 → Matériaux durs, baloise-lu-home-2-2024:p7:16 → Objets de mobilité durable, baloise-lu-home-2-2"
+    },
+    {
+      "name": "exclusion_sans_marqueur",
+      "level": "alerte",
+      "detail": "baloise-lu-home-2-2024:p5:16, baloise-lu-home-2-2024:p9:9, baloise-lu-home-2-2024:p12:6, baloise-lu-home-2-2024:p12:8, baloise-lu-home-2-2024:p12:9, baloise-lu-home-2-2024:p12:11, baloise-lu-home-2-2024:p12:19, baloise-lu-home-2-2024:p13:7, baloise-lu-home-2-2024:p14:5, baloise-lu-home-2-2024:p14:15, baloise-lu-home-2-2024:p14:16, baloise-lu-home-2-2024:p15:4, baloise-lu-home-2-2024:p15:5, baloise-lu-home-2-2024:p16:14, baloise-lu-home-2-2024:p17:2, baloise-lu-home-2-2024:p17:3, baloise-lu-home-2-2024:p17:9, baloise-lu-home-2-2024:p17:10, baloise-lu-home-2-2024:p18:1, baloise-lu-home-2-2024:p18:2, baloise-lu-home-2-2024:p18:3, baloise-lu-home-2-2024:p18:4, baloise-lu-home-2-2024:p18:11, baloise-lu-home-2-2024:p20:4, baloise-lu-home-2-2024:p21:3, baloise-lu-home-2-2024:p22:1, baloise-lu-home-2-2024:p22:19, baloise-lu-home-2-2024:p23:21, baloise-lu-home-2-2024:p25:15, baloise-lu-home-2-2024:p26:5, baloise-lu-home-2-2024:p26:19, baloise-lu-home-2-2024:p26:21, baloise-lu-home-2-2024:p27:2, baloise-lu-home-2-2024:p27:5, baloise-lu-home-2-2024:p29:13, baloise-lu-home-2-2024:p29:15, baloise-lu-home-2-2024:p30:1, baloise-lu-home-2-2024:p30:3, baloise-lu-home-2-2024:p30:16, baloise-lu-home-2-2024:p31:8, baloise-lu-home-2-2024:p32:1, baloise-lu-home-2-2024:p32:2, baloise-lu-home-2-2024:p32:6, baloise-lu-home-2-2024:p32:7, baloise-lu-home-2-2024:p32:10, baloise-lu-home-2-2024:p32:11"
+    },
+    {
+      "name": "confiance_typage_faible",
+      "level": "alerte",
+      "detail": "seuil 0.70 : baloise-lu-home-2-2024:p3:10, baloise-lu-home-2-2024:p3:11, baloise-lu-home-2-2024:p3:22, baloise-lu-home-2-2024:p3:24, baloise-lu-home-2-2024:p3:25, baloise-lu-home-2-2024:p4:6, baloise-lu-home-2-2024:p4:10, baloise-lu-home-2-2024:p4:11, baloise-lu-home-2-2024:p4:12, baloise-lu-home-2-2024:p4:13, baloise-lu-home-2-2024:p4:14, baloise-lu-home-2-2024:p4:17, baloise-lu-home-2-2024:p5:8, baloise-lu-home-2-2024:p5:9, baloise-lu-home-2-2024:p5:12, baloise-lu-home-2-2024:p5:13, baloise-lu-home-2-2024:p5:16, baloise-lu-home-2-2024:p6:10, baloise-lu-home-2-2024:p6:13, baloise-lu-home-2-2024:p6:15, baloise-lu-home-2-2024:p7:3, baloise-lu-home-2-2024:p7:5, baloise-lu-home-2-2024:p7:6, baloise-lu-home-2-2024:p7:7, baloise-lu-home-2-2024:p7:11, baloise-lu-home-2-2024:p7:13, baloise-lu-home-2-2024:p7:14, baloise-lu-home-2-2024:p7:19, baloise-lu-home-2-2024:p7:24, baloise-lu-home-2-2024:p8:2, baloise-lu-home-2-2024:p8:7, baloise-lu-home-2-2024:p8:8, baloise-lu-home-2-2024:p8:11, baloise-lu-home-2-2024:p8:12, baloise-lu-home-2-2024:p9:1, baloise-lu-home-2-2024:p9:2, baloise-lu-home-2-2024:p9:4, baloise-lu-home-2-2024:p9:7, baloise-lu-home-2-2024:p9:9, baloise-lu-home-2-2024:p9:16, baloise-lu-home-2-2024:p9:18, baloise-lu-home-2-2024:p10:1, baloise-lu-home-2-2024:p10:2, baloise-lu-home-2-2024:p10:6, baloise-lu-home-2-2024:p10:7, baloise-lu-home-2-2024:p10:8, baloise-lu-home-2-2024:p10:11, baloise-lu-home-2-2024:p11:2, baloise-lu-home-2-2024:p11:3, baloise-lu-home-2-2024:p11:6, baloise-lu-home-2-2024:p11:7, baloise-lu-home-2-2024:p11:15, baloise-lu-home-2-2024:p12:1, baloise-lu-home-2-2024:p12:2, baloise-lu-home-2-2024:p12:9, baloise-lu-home-2-2024:p12:12, baloise-lu-home-2-2024:p12:15, baloise-lu-home-2-2024:p13:2, baloise-lu-home-2-2024:p13:5, baloise-lu-home-2-2024:p13:6, baloise-lu-home-2-2024:p13:10, baloise-lu-home-2-2024:p13:11, baloise-lu-home-2-2024:p13:12, baloise-lu-home-2-2024:p14:1, baloise-lu-home-2-2024:p14:5, baloise-"
+    },
+    {
+      "name": "kinds_non_confirmes",
+      "level": "alerte",
+      "detail": "baloise-lu-home-2-2024:p3:12, baloise-lu-home-2-2024:p3:15, baloise-lu-home-2-2024:p3:17, baloise-lu-home-2-2024:p5:13, baloise-lu-home-2-2024:p7:7, baloise-lu-home-2-2024:p7:18, baloise-lu-home-2-2024:p10:6, baloise-lu-home-2-2024:p11:2, baloise-lu-home-2-2024:p11:12, baloise-lu-home-2-2024:p12:1, baloise-lu-home-2-2024:p12:2, baloise-lu-home-2-2024:p13:2, baloise-lu-home-2-2024:p14:5, baloise-lu-home-2-2024:p14:11, baloise-lu-home-2-2024:p15:2, baloise-lu-home-2-2024:p16:2, baloise-lu-home-2-2024:p16:3, baloise-lu-home-2-2024:p16:7, baloise-lu-home-2-2024:p16:21, baloise-lu-home-2-2024:p17:7, baloise-lu-home-2-2024:p19:4, baloise-lu-home-2-2024:p19:8, baloise-lu-home-2-2024:p20:7, baloise-lu-home-2-2024:p20:16, baloise-lu-home-2-2024:p21:1, baloise-lu-home-2-2024:p21:2, baloise-lu-home-2-2024:p21:7, baloise-lu-home-2-2024:p21:17, baloise-lu-home-2-2024:p22:15, baloise-lu-home-2-2024:p22:21, baloise-lu-home-2-2024:p23:16, baloise-lu-home-2-2024:p23:18, baloise-lu-home-2-2024:p23:21, baloise-lu-home-2-2024:p24:6, baloise-lu-home-2-2024:p26:18, baloise-lu-home-2-2024:p28:4, baloise-lu-home-2-2024:p28:11, baloise-lu-home-2-2024:p28:16, baloise-lu-home-2-2024:p29:22, baloise-lu-home-2-2024:p31:8, baloise-lu-home-2-2024:p38:6, baloise-lu-home-2-2024:p39:1, baloise-lu-home-2-2024:p39:8, baloise-lu-home-2-2024:p40:4, baloise-lu-home-2-2024:p40:8, baloise-lu-home-2-2024:p41:9, baloise-lu-home-2-2024:p42:2, baloise-lu-home-2-2024:p42:10, baloise-lu-home-2-2024:p42:18, baloise-lu-home-2-2024:p45:3, baloise-lu-home-2-2024:p46:11, baloise-lu-home-2-2024:p46:13, baloise-lu-home-2-2024:p46:15, baloise-lu-home-2-2024:p47:1, baloise-lu-home-2-2024:p47:2, baloise-lu-home-2-2024:p48:9, baloise-lu-home-2-2024:p48:10"
+    },
+    {
+      "name": "typage_clauses",
+      "level": "info",
+      "detail": "513 bloc(s) étiqueté(s), 453/510 kind(s) juridique(s) confirmé(s) par deux lectures"
+    },
+    {
+      "name": "typage_transport",
+      "level": "info",
+      "detail": "standard initial; aucune API Batch; appels_standard=120; coût_standard=4.2518 EUR; coût_antérieur=0.0000 EUR; coût_cumulé=4.2518 EUR; plafond=10.0000 EUR"
+    }
+  ],
+  "stats": {
+    "pages": 48,
+    "pages_avec_blocs": 48,
+    "pages_sans_texte": "",
+    "pages_blanches": 0,
+    "pages_avec_images": 0,
+    "pages_ocr": 0,
+    "pages_ocr_echec": 0,
+    "pages_non_francaises": 0,
+    "couverture": 1.0,
+    "pages_sans_texte_dessinees": 0,
+    "pages_tdm": 1,
+    "noeuds": 2,
+    "blocs": 692,
+    "blocs_par_kind": {
+      "autre": 2,
+      "list": 207,
+      "para": 472,
+      "table": 11
+    },
+    "continues": 24,
+    "en_tetes_retires": 47,
+    "tdm_pdf_entrees": 0,
+    "numeros_articles": 0,
+    "tables": 11,
+    "pages_charabia": {},
+    "blocs_non_citables": 2,
+    "pages_non_citables": 2,
+    "sommaire_chars": 255,
+    "ids_disparus": 0,
+    "ids_nouveaux": 0,
+    "blocs_types_modele": 513,
+    "blocs_juridiques": 510,
+    "blocs_juridiques_confirmes": 453,
+    "references_non_resolues": 0,
+    "typage_transport": "standard",
+    "typage_current_campaign": "ef01fd620246cd2dd76ec153a2fa13963234ff02d3b5affa0e20ba3c13340c8c",
+    "typage_current_payload_sha256": "6c0eaf1c15b90990c3e19d593d965526be8a05951a4bfa8403786a82a78b76d4",
+    "typage_replayed_payload_requests": 0,
+    "typage_changed_payload_requests": 0,
+    "typage_changed_payload_custom_ids": "",
+    "typage_reused_requests": 0,
+    "typage_standard_requests": 120,
+    "typage_batch_cost_eur": 0.0,
+    "typage_standard_cost_eur": 4.2518,
+    "typage_total_cost_eur": 4.2518,
+    "typage_prior_cost_eur": 0.0,
+    "typage_cumulative_cost_eur": 4.2518,
+    "typage_cost_ceiling_eur": 10.0
+  }
+}
