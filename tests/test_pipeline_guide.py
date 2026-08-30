@@ -1901,6 +1901,33 @@ async def test_un_perimetre_tronque_desarme_le_refus_hors_perimetre(index: Index
     assert [c.name for c in comprendre.checks if c.name == "intention_expliquee"] == []
 
 
+async def test_un_perimetre_tronque_ne_desarme_pas_une_clarification_neutralisee(
+        index: Index, perimetre_tronque) -> None:
+    """B1 : une liste de périmètre amputée ne rend pas autonome une référence irrésolue.
+
+    La sortie modèle contradictoire porte à la fois l'intention que le périmètre tronqué ne permet
+    pas de croire et la seule question de clarification disponible. Cette dernière doit être servie
+    après l'unique appel ``micro`` ; la question brute non autonome ne doit jamais devenir l'entrée
+    de *retrouver*.
+    """
+    clarification = "De quelle démarche parlez-vous ?"
+    answer, trace, fake = await _run(
+        index,
+        [_comprendre("hors_perimetre", clarification=clarification)],
+        question="Et pour celle-ci ?",
+    )
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.clarification == clarification
+    assert answer.reason is not None and answer.reason.kind == "clarification_requise"
+    comprendre = next(step for step in trace.steps if step.name == "comprendre")
+    assert [check.name for check in comprendre.checks] == [
+        "clarification_refus_neutralisee",
+        "clarification_retablie_perimetre_tronque",
+    ]
+
+
 async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(
         index: Index, perimetre_tronque, tmp_path: Path) -> None:
     """M13 dit que la chaîne poursuit **vers retrouver** : un dictionnaire signé ne doit pas

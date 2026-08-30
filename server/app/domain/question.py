@@ -137,6 +137,17 @@ class ParsedQuestion(DomainModel):
     # 1.5, tour 3, B3). Liste vide = aucun découpage rendu ⇒ aucune preuve de couverture ⇒
     # `complete=False`, jamais l'inverse.
     facettes: list[str] = Field(default_factory=list)
+    # Story 4.5, revue croisée B1 : *comprendre* peut neutraliser une sortie modèle contradictoire
+    # qui classe une question dans une intention refusée tout en déclarant son référent irrésolu.
+    # Le pipeline refuse normalement cette intention, mais un guide dont le périmètre annoncé est
+    # tronqué n'a plus le droit de s'y fier. Il doit alors servir cette clarification et surtout ne
+    # jamais laisser la question brute, potentiellement non autonome, atteindre *retrouver*.
+    #
+    # Ce porteur reste interne à la chaîne : il n'entre ni dans un prompt ni dans la trace publiée.
+    # ``exclude=True`` empêche qu'une sérialisation accidentelle expose le texte modèle ; seul le
+    # fait, sans son contenu, est consigné par un ``CheckResult``.
+    clarification_neutralisee: str | None = Field(
+        default=None, max_length=CLARIFICATION_MAX_CHARS, exclude=True)
 
     @model_validator(mode="after")
     def _normalise_language(self) -> ParsedQuestion:
