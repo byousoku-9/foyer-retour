@@ -63,7 +63,6 @@ import html
 import json
 import math
 import os
-import shutil
 import stat
 import statistics
 import sys
@@ -84,7 +83,7 @@ from server.app.config import EVALS_PUBLICATION_FILE, REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
-from server.app.corpus.loader import SOURCE_FILES, load_corpus
+from server.app.corpus.loader import SOURCE_FILES, _gate_alerts, load_corpus
 from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
@@ -110,8 +109,9 @@ from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
-from server.app.corpus.racine import (Lecture, LectureHorsGeneration, LecturePerimee,
-                                      _lecture_interne_sans_racine, lecture_pincee, relire)
+from server.app.corpus.racine import (CapaciteRegate, Lecture, LectureHorsGeneration,
+                                      LecturePerimee, lecture_pincee, lecture_pincee_regate,
+                                      relire)
 from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
                                  LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
@@ -2775,12 +2775,15 @@ def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate, *,
     if not isinstance(brut, dict) or doc_id not in brut:
         raise RefusDeTourner(f"{manifest_path} : aucune entrée {doc_id!r}")
     gate_existant = brut[doc_id].get("gate") if isinstance(brut[doc_id], dict) else None
-    if (not gate.evals_ok and isinstance(gate_existant, dict)
-            and gate_existant.get("evals_ok") is True):
+    gate_existant_inconnu = gate_existant is not None and (
+        not isinstance(gate_existant, dict) or gate_existant.get("evals_ok") is not False)
+    if not gate.evals_ok and gate_existant_inconnu:
         # Le rouge est un **résultat**, publié dans le rapport ; le dernier vert — gate, révision,
-        # trafic — reste intact. Écraser le vert ferait d'un candidat raté une régression de
+        # trafic — reste intact. Une valeur hors schéma est elle aussi conservée : on ne peut pas
+        # prouver qu'elle est rouge, donc l'écraser avec un candidat rouge serait une décision
+        # ouverte par défaut. Écraser le vert ferait d'un candidat raté une régression de
         # production (Intent 4.2b : « un rouge peut détruire le dernier vert »).
-        print(f"gate candidat rouge sur {doc_id!r} : le gate vert existant n'est pas modifié "
+        print(f"gate candidat rouge sur {doc_id!r} : le gate existant n'est pas modifié "
               "(le verdict candidat, ses raisons et ses limites sont publiés dans le rapport)",
               file=sys.stderr)
         return None
@@ -3032,88 +3035,36 @@ def cle_absente(settings: Settings) -> bool:
     return config_cle_absente(settings)
 
 
-def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
-                             lecture: Lecture | None = None,
-                             ancetres: frozenset[Path] = frozenset()) -> None:
-    """Matérialise ``source`` sous ``cible`` sans jamais lire hors de ``racine``.
-
-    Les fichiers sont liés physiquement quand le système de fichiers le permet : le corpus AXA
-    n'est donc pas recopié. Une copie est le repli portable si le répertoire temporaire se trouve
-    sur un autre volume. Les liens symboliques internes sont résolus vers un fichier ou un dossier
-    réel dans l'ombre ; ceux qui sortent du vrai ``data/`` sont ignorés, comme le loader les
-    mettrait en quarantaine.
-    """
+def _gate_a_neutraliser(capacite: CapaciteRegate, cible: str,
+                        current: GateContext) -> bool:
+    """Le gate ciblé est-il rouge, périmé ou hors du schéma courant ?"""
+    brut = json.loads(capacite.octets_manifest)
+    entree_brute = brut.get(cible) if isinstance(brut, dict) else None
+    gate_brut = entree_brute.get("gate") if isinstance(entree_brute, dict) else None
+    if gate_brut is None:
+        return False
+    if not isinstance(gate_brut, dict):
+        return True
+    if gate_brut.get("evals_ok") is False:
+        return True
     try:
-        # **Depuis le repère pincé** (story 4.5, N1) : l'ombre est une photographie du `data/` servi,
-        # et une photographie composée de deux générations ne décrit rien. `reel` rend le slot de la
-        # génération que l'opération a pincée ; hors espace, il rend le chemin tel quel.
-        resolu = (source if lecture is None else lecture.reel(source)).resolve(strict=True)
-    except OSError:
-        return
-    if not resolu.is_relative_to(racine):
-        return
-    if resolu.is_dir():
-        if resolu in ancetres:
-            return
-        cible.mkdir()
-        descendants = ancetres | {resolu}
-        for enfant in resolu.iterdir():
-            _materialiser_dans_ombre(enfant, cible / enfant.name, racine, lecture, descendants)
-        return
-    if not resolu.is_file():
-        return
-    try:
-        os.link(resolu, cible)
-    except OSError:
-        shutil.copy2(resolu, cible)
-
-
-def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any,
-                          lecture: Lecture | None = None) -> Path:
-    """Un `data/` **de lecture** identique, sauf que `manifest[doc_id].gate` y vaut `null`.
-
-    Pourquoi il en faut un : `loader._gate_alerts` met en quarantaine, sans dérogation possible, tout
-    document dont le gate porte `evals_ok: false` (AD-8 : « jamais servi »). C'est juste au service —
-    et c'est un cul-de-sac pour la mesure : après un run rouge, `--gate {doc_id}` refuserait
-    éternellement en code 2 « document non servi », et il n'existerait aucun chemin pour reprendre la
-    mesure et écrire un gate vert. Un verdict d'éval ne doit pas rendre l'éval impossible.
-
-    Ce que cette fonction **ne fait pas** : modifier `data/`. Elle construit un dossier temporaire
-    composé de vrais répertoires et de fichiers liés physiquement (copiés seulement si nécessaire),
-    puis n'y réécrit qu'un `manifest.json`, en mémoire, avec le seul `gate` du document visé mis à
-    `null`. Cette vue reste donc confinée sous sa propre racine sans recopier normalement le contrat
-    AXA. Tout le reste de la règle d'AD-7 continue de s'appliquer sur cette lecture : hashes, overlay,
-    bloquant statique, `status: quarantaine`. L'écriture du gate, elle, se fait toujours sur le
-    **vrai** manifest.
-    """
-    if lecture is None:
-        # Primitive de bibliothèque : les entrypoints ont déjà préflighté et transmettent leur
-        # repère. Les tests unitaires sur un arbre nu doivent demander explicitement cette voie
-        # privée ; elle ne redevient jamais un repli d'une API publique.
-        lecture = pile.enter_context(_lecture_interne_sans_racine(data_dir))
-    ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
-    racine = data_dir.resolve(strict=True)
-    for entree in data_dir.iterdir():
-        # L'espace lui-même n'entre pas dans l'ombre : ses **deux** générations y seraient recopiées
-        # à chaque regate, et l'ombre est une photographie de ce qui est servi, pas du bundle. Dit
-        # plutôt qu'obtenu par accident (revue N1–N3, constat 18).
-        if entree.name in (MANIFEST, _REPERTOIRE_ESPACE):
-            continue
-        _materialiser_dans_ombre(entree, ombre / entree.name, racine, lecture)
-    brut = json.loads(lecture.reel(data_dir / MANIFEST).read_text(encoding="utf-8"))
-    if isinstance(brut, dict) and isinstance(brut.get(doc_id), dict):
-        brut[doc_id]["gate"] = None
-    (ombre / MANIFEST).write_text(json.dumps(brut, indent=2, ensure_ascii=False) + "\n",
-                                  encoding="utf-8")
-    return ombre
+        entree = ManifestEntry.model_validate(entree_brute)
+    except ValidationError:
+        # La capacité a déjà prouvé que cette même entrée est valide sans son gate :
+        # l'invalidité est donc bornée au schéma du gate ciblé.
+        return True
+    raison, alertes = _gate_alerts(entree, current, allow_ungated=True)
+    return raison in {"gate_echoue", "gate_perime", "gate_preprotocole"} or any(
+        alerte in {"gate_perime", "gate_preprotocole"} for alerte in alertes)
 
 
 def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | None = None,
-                        pile: Any = None, cache_dir: Path | None = None,
+                        cache_dir: Path | None = None,
                         campaign_budget_eur: float | None = None,
                         campaign_accrued_eur: float = 0.0,
                         campaign_cost_recorder: Any = None,
-                        lecture: Lecture | None = None) -> Contexte:
+                        lecture: Lecture | None = None,
+                        capacite_regate: CapaciteRegate | None = None) -> Contexte:
     """Corpus, index et client — le même assemblage qu'`api/etat.construire_etat` (AD-7, AD-9).
 
     `allow_ungated=True` **toujours**, et ce n'est pas une dérogation : c'est ce runner qui écrit le
@@ -3122,11 +3073,10 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     s'applique : un document dont les hashes ont bougé, dont le rapport porte un bloquant statique ou
     que le manifest met en quarantaine n'est **pas** chargé, et `--gate` le refusera.
 
-    `regate` va un cran plus loin, et seulement pour le document que `--gate` vise : il fait lire un
-    manifest où **son** gate vaut `null`, ce qui permet de reprendre la mesure d'un document dont le
-    gate précédent était rouge (`gate_echoue`) **ou que le schéma en vigueur ne sait plus lire**.
-    Voir `_sans_gate_sur_disque` : `data/` n'est pas touché, et un document en quarantaine pour une
-    autre raison le reste.
+    `regate` va un cran plus loin, et seulement avec la capacité issue du pincement dédié : si son
+    gate est rouge, périmé ou hors schéma, le loader neutralise ce seul champ dans une copie mémoire
+    des octets du manifest déjà validé. Le `data-dir` original et son unique génération restent la
+    source de toutes les lectures ; un gate vert et frais conserve son jugement.
 
     Le second cas est le même cul-de-sac que le premier, par une autre porte (revue Codex 1.10
     tour 2) : quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
@@ -3140,11 +3090,15 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     base à la mesure, les dictionnaires et les preuves de structure lues juste après doivent venir
     d'**une seule** génération. Sans lui, un repère est pincé pour la durée de cet appel seul.
     """
+    if (regate is None) != (capacite_regate is None):
+        raise ValueError("un regate exige ensemble sa cible et sa capacité pincée")
+    if regate is not None and (lecture is None or capacite_regate is None):
+        raise ValueError("un regate exige un repère explicite et sa capacité pincée")
     if lecture is None:
         # `relire` et non un simple pincement : une passe qui ne consulte jamais la péremption peut
         # rendre un corpus composé de deux générations (revue du tour N1–N3, constat 1).
         return relire(data_dir, lambda pincee: construire_contexte(
-            settings, data_dir, regate=regate, pile=pile, cache_dir=cache_dir,
+            settings, data_dir, cache_dir=cache_dir,
             campaign_budget_eur=campaign_budget_eur,
             campaign_accrued_eur=campaign_accrued_eur,
             campaign_cost_recorder=campaign_cost_recorder, lecture=pincee))
@@ -3154,37 +3108,14 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                                 # `full` **nomme** à celle qui tourne. Le runner charge exactement
                                 # comme `api/etat.py` : le contexte doit donc la porter ici aussi.
                                 candidate_revision=settings.git_sha, env=settings.env)
-    source = data_dir
-    lecture_du_corpus = lecture
-    if regate is not None and pile is not None:
-        entree_brute = json.loads(lecture.reel(data_dir / MANIFEST).read_text(encoding="utf-8")) \
-            if lecture.fichier(data_dir / MANIFEST) else {}
-        brut_gate = (entree_brute[regate].get("gate")
-                     if isinstance(entree_brute.get(regate), dict) else None)
-        gate_a_refaire = False
-        if isinstance(brut_gate, dict):
-            gate_a_refaire = brut_gate.get("evals_ok") is False
-            if (not gate_a_refaire and brut_gate.get("profile") == "full"
-                    and (brut_gate.get("pipeline_digest"), brut_gate.get("prompts_digest"),
-                         brut_gate.get("model_ids"), brut_gate.get("pipeline_settings", {})) != (
-                         contexte_gate.pipeline_digest, contexte_gate.prompts_digest,
-                         contexte_gate.model_ids, contexte_gate.pipeline_settings)):
-                gate_a_refaire = True
-            if not gate_a_refaire:
-                try:
-                    Gate.model_validate(brut_gate)
-                except ValidationError:
-                    gate_a_refaire = True
-        if gate_a_refaire:
-            source = _sans_gate_sur_disque(data_dir, regate, pile, lecture)
-            # L'ombre est une photographie **déjà pincée** : elle n'a pas d'espace, donc son repère
-            # ne résout rien et ne peut rien mêler. Le repère du `data/` réel reste celui de tout le
-            # reste de la passe.
-            lecture_du_corpus = pile.enter_context(_lecture_interne_sans_racine(source))
-    corpus = load_corpus(source, allow_ungated=True, current=contexte_gate,
+    neutraliser = bool(regate is not None and capacite_regate is not None
+                       and _gate_a_neutraliser(capacite_regate, regate, contexte_gate))
+    corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
                          raison_max_chars=settings.raison_publiable_max_chars,
-                         lecture=lecture_du_corpus)
+                         lecture=lecture, regate=regate,
+                         capacite_regate=capacite_regate,
+                         neutraliser_regate=neutraliser)
     dictionnaires = {
         doc_id: load_dictionary(data_dir, corpus, doc_id, lecture=lecture)
         for doc_id, document in corpus.documents.items()
@@ -3198,8 +3129,6 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                                      campaign_cost_recorder=campaign_cost_recorder),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest,
-                    # Lu dans `data_dir`, pas dans `source` : `_sans_gate_sur_disque` ne recopie
-                    # que le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
                     dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id,
                                                  lecture=lecture),
                     dictionnaires=dictionnaires, response_cache=response_cache)
@@ -3659,7 +3588,13 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
         # Un seul repère porte tout le préflight restant : composition `full`, dry-run, refus de
         # budget et opération réelle. Il est ouvert avant le ledger (coût/état), toute sortie de
         # succès et tout rapport ; l'opération réelle le réutilise au lieu de repincer plus bas.
-        lecture_run = lifecycle.enter_context(lecture_pincee(args.data_dir))
+        capacite_run: CapaciteRegate | None = None
+        if args.gate is not None:
+            capacite_run = lifecycle.enter_context(
+                lecture_pincee_regate(args.data_dir, args.gate))
+            lecture_run = capacite_run.lecture
+        else:
+            lecture_run = lifecycle.enter_context(lecture_pincee(args.data_dir))
         if exigences_full:
             assert args.gate is not None
             verifier_composition_gate_full(
@@ -3774,71 +3709,70 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                     run_digest=str(identite_refus["run_digest"]), status="budget_refused")
             return 4
         # 5. Le corpus, puis le document visé par `--gate`.
-        with ExitStack() as pile:
-            # **Un seul repère de lecture pour toute la décision de gate** (story 4.5, N1). Le
-            # corpus qui sert de base à la mesure, les dictionnaires, la preuve de structure et la
-            # preuve d'arbre lisaient chacun le pointeur à leur tour : jusqu'à trois générations
-            # pouvaient entrer dans une seule décision de gate. Elles viennent désormais toutes de
-            # la génération pincée ici, pour la durée de l'opération.
-            if all(c.suite == "parsing" for c in cas):
-                ctx = construire_contexte_parsing(settings, args.data_dir, lecture=lecture_run)
-            else:
-                # `--repeat` désarme le cache : trois répétitions servies du cache ne mesureraient
-                # ni la stabilité ni le coût (story 4.2b).
-                ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
-                                          lecture=lecture_run,
-                                          cache_dir=None if args.repeat > 1 else cache_dir,
-                                          campaign_budget_eur=(settings.live_budget_eur
-                                                               if campaign is not None
-                                                               else budget_effectif),
-                                          campaign_accrued_eur=accrued_cost_eur,
-                                          campaign_cost_recorder=(campaign.record_cost
-                                                                  if campaign is not None else None))
-            dictionary_validated = bool(getattr(ctx.dictionnaire, "validated", False))
-            if exigences_full:
-                # Lues **avant** l'exécution, sur le corpus que ce run va mesurer : les preuves de
-                # structure sont une propriété des artefacts servis, pas du résultat des appels. Les
-                # deux périmètres sont complémentaires (règle `SOURCE_FILES`) et lus sur la **même**
-                # liste de documents : aucun document du lot n'échappe aux deux.
-                documents_du_lot = [c.doc_id or document_de_la_suite(settings, c.suite)
-                                    for c in cas]
-                structure_lot = preuve_de_structure(args.data_dir, ctx, documents_du_lot,
-                                                    lecture=lecture_run)
-                arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot,
-                                          lecture=lecture_run)
-            # **Le repère partagé se vérifie avant de conclure, pour tout run** (patch croisé 1/3,
-            # `N1-RUN-FRESHNESS`). Ce contrôle vivait sous `exigences_full` : un gate `vertical` et
-            # le run CI `--profile full` **sans** `--gate` sortaient donc de la passe sans
-            # vérification finale. Or `Lecture.reel` contrôle avant de *rendre* un chemin, et
-            # l'ouverture arrive séparément : une reconstruction entre ce contrôle et le
-            # `read_bytes` fournirait les nouveaux octets sans rejeu ni refus. La péremption est une
-            # propriété de la **passe de lecture**, pas du profil qui la consomme — elle se vérifie
-            # donc ici, après toute construction de contexte et avant le premier appel payant.
-            lecture_run.verifier()
-            try:
-                run_identity = identite_run(
-                    cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
-                    references_digest=references_digest,
-                    plancher_digest=charge_plancher.digest, repeat=args.repeat,
-                    campaign_id=settings.live_campaign_id, series_kind=args.series_kind,
-                    series_id=args.series_id, candidate_revision=args.candidate_revision)
-            except Exception:
-                fermer = getattr(ctx.client, "aclose", None)
-                if fermer is not None:
-                    asyncio.run(fermer())
-                raise
-            # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
-            # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
-            # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
-            # lève `Event loop is closed` et fait sortir en code 3 un run par ailleurs vert, sans
-            # écrire le gate. Voir `_executer_puis_fermer`.
-            resultats = asyncio.run(_executer_puis_fermer(
-                cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
-                variant=args.variant, repeat=args.repeat))
-            # Le même repère couvre jusqu'au dernier résultat. Deux bascules pendant les appels
-            # reconstruisent sa génération : le refus tombe ici, avant `resume`, tout rapport ou
-            # gate, et non après avoir publié une décision fondée sur des octets périmés.
-            lecture_run.verifier()
+        # **Un seul repère de lecture pour toute la décision de gate** (story 4.5, N1). Le
+        # corpus qui sert de base à la mesure, les dictionnaires, la preuve de structure et la
+        # preuve d'arbre lisaient chacun le pointeur à leur tour : jusqu'à trois générations
+        # pouvaient entrer dans une seule décision de gate. Elles viennent désormais toutes de
+        # la génération pincée ici, pour la durée de l'opération.
+        if all(c.suite == "parsing" for c in cas):
+            ctx = construire_contexte_parsing(settings, args.data_dir, lecture=lecture_run)
+        else:
+            # `--repeat` désarme le cache : trois répétitions servies du cache ne mesureraient
+            # ni la stabilité ni le coût (story 4.2b).
+            ctx = construire_contexte(settings, args.data_dir, regate=args.gate,
+                                      lecture=lecture_run, capacite_regate=capacite_run,
+                                      cache_dir=None if args.repeat > 1 else cache_dir,
+                                      campaign_budget_eur=(settings.live_budget_eur
+                                                           if campaign is not None
+                                                           else budget_effectif),
+                                      campaign_accrued_eur=accrued_cost_eur,
+                                      campaign_cost_recorder=(campaign.record_cost
+                                                              if campaign is not None else None))
+        dictionary_validated = bool(getattr(ctx.dictionnaire, "validated", False))
+        if exigences_full:
+            # Lues **avant** l'exécution, sur le corpus que ce run va mesurer : les preuves de
+            # structure sont une propriété des artefacts servis, pas du résultat des appels. Les
+            # deux périmètres sont complémentaires (règle `SOURCE_FILES`) et lus sur la **même**
+            # liste de documents : aucun document du lot n'échappe aux deux.
+            documents_du_lot = [c.doc_id or document_de_la_suite(settings, c.suite)
+                                for c in cas]
+            structure_lot = preuve_de_structure(args.data_dir, ctx, documents_du_lot,
+                                                lecture=lecture_run)
+            arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot,
+                                      lecture=lecture_run)
+        # **Le repère partagé se vérifie avant de conclure, pour tout run** (patch croisé 1/3,
+        # `N1-RUN-FRESHNESS`). Ce contrôle vivait sous `exigences_full` : un gate `vertical` et
+        # le run CI `--profile full` **sans** `--gate` sortaient donc de la passe sans
+        # vérification finale. Or `Lecture.reel` contrôle avant de *rendre* un chemin, et
+        # l'ouverture arrive séparément : une reconstruction entre ce contrôle et le
+        # `read_bytes` fournirait les nouveaux octets sans rejeu ni refus. La péremption est une
+        # propriété de la **passe de lecture**, pas du profil qui la consomme — elle se vérifie
+        # donc ici, après toute construction de contexte et avant le premier appel payant.
+        lecture_run.verifier()
+        try:
+            run_identity = identite_run(
+                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
+                references_digest=references_digest,
+                plancher_digest=charge_plancher.digest, repeat=args.repeat,
+                campaign_id=settings.live_campaign_id, series_kind=args.series_kind,
+                series_id=args.series_id, candidate_revision=args.candidate_revision)
+        except Exception:
+            fermer = getattr(ctx.client, "aclose", None)
+            if fermer is not None:
+                asyncio.run(fermer())
+            raise
+        # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
+        # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
+        # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
+        # lève `Event loop is closed` et fait sortir en code 3 un run par ailleurs vert, sans
+        # écrire le gate. Voir `_executer_puis_fermer`.
+        resultats = asyncio.run(_executer_puis_fermer(
+            cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
+            variant=args.variant, repeat=args.repeat))
+        # Le même repère couvre jusqu'au dernier résultat. Deux bascules pendant les appels
+        # reconstruisent sa génération : le refus tombe ici, avant `resume`, tout rapport ou
+        # gate, et non après avoir publié une décision fondée sur des octets périmés.
+        lecture_run.verifier()
     except (LecturePerimee, LectureHorsGeneration, EspaceNonInstalle, EspaceIllisible) as exc:
         # Une décision de gate ne se rejoue pas : elle a construit un client et s'apprête à payer.
         # Le refus est un code 2 — rien n'a été mesuré, rien n'a été écrit (revue N1–N3, 1).

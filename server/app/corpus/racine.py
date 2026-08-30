@@ -56,7 +56,7 @@ import os
 import stat
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.app.domain.ingest import ManifestEntry
@@ -119,6 +119,77 @@ class LecturePerimee(Exception):
     octets dont il ne peut plus affirmer qu'ils viennent de la génération qu'il a pincée. La passe
     est rejouée (`relire`) ; après épuisement des tentatives, le refus est dit.
     """
+
+
+_SCEAU_REGATE = object()
+
+
+class CapaciteRegate:
+    """Autorisation bornée de neutraliser un seul gate dans un manifest déjà validé.
+
+    Elle ne peut naître que du pincement dédié : le repère, sa génération non nulle, son
+    ``data-dir``, sa cible et les octets exacts du manifest sont liés ensemble. Le loader oppose
+    ces cinq faits avant de rendre une copie mémoire dont le seul gate ciblé vaut ``null``.
+    """
+
+    def __init__(self, lecture: Lecture, data_dir: Path, cible: str, manifest: bytes, *,
+                 sceau: object) -> None:
+        if sceau is not _SCEAU_REGATE:
+            raise TypeError("une capacité de regate ne se construit que par lecture_pincee_regate")
+        if lecture.generation is None or lecture.racine is None:
+            raise ValueError("une capacité de regate exige une génération pincée")
+        self._lecture = lecture
+        self._data_dir = Path(os.path.abspath(data_dir))
+        self._cible = cible
+        self._manifest = manifest
+        self._generation = lecture.generation
+        self._active = True
+
+    def _exiger_active(self) -> None:
+        if not self._active:
+            raise ValueError("capacité de regate expirée : le pincement dédié est fermé")
+
+    def invalider(self) -> None:
+        """Rend définitivement la capacité inutilisable à la fermeture du pincement."""
+        self._active = False
+
+    @property
+    def lecture(self) -> Lecture:
+        self._exiger_active()
+        return self._lecture
+
+    @property
+    def cible(self) -> str:
+        self._exiger_active()
+        return self._cible
+
+    @property
+    def octets_manifest(self) -> bytes:
+        self._exiger_active()
+        return self._manifest
+
+    def manifest_regate(self, *, lecture: Lecture, data_dir: Path | str,
+                        cible: str, neutraliser: bool) -> dict[str, Any]:
+        """Oppose la capacité et rend ses octets, neutralisés seulement si demandé."""
+        self._exiger_active()
+        data = Path(os.path.abspath(data_dir))
+        racine_data = (Path(os.path.abspath(lecture.racine.data_dir))
+                       if lecture.racine is not None else None)
+        if (lecture is not self._lecture or lecture.generation is None
+                or lecture.generation != self._generation
+                or data != self._data_dir or racine_data != self._data_dir
+                or cible != self._cible):
+            raise ValueError(
+                "capacité de regate étrangère : repère, génération, data-dir et cible "
+                "doivent être ceux du pincement dédié")
+        lecture.verifier()
+        brut = json.loads(self._manifest)
+        entree = brut.get(cible) if isinstance(brut, dict) else None
+        if not isinstance(entree, dict):
+            raise ValueError(f"capacité de regate sans entrée {cible!r}")
+        if neutraliser:
+            entree["gate"] = None
+        return brut
 
 
 def lire_pointeur(espace: Path) -> str:
@@ -322,10 +393,9 @@ class RacinePubliee:
         lieu de refuser. Un repère qui ne pince rien n'est pas un repère, et « pas de racine » n'est
         pas « rien à mêler » : c'est l'absence de la garantie même que N1 exige.
 
-        Le repli rootless **reste**, comme `_publier_sans_racine` côté écriture : une primitive
-        interne (`_lecture_interne_sans_racine`) que la suite emploie sur ses arbres nus, et
-        qu'aucune origine de production n'atteint. La fermeture porte sur l'**atteignabilité**,
-        jamais sur l'existence.
+        Le repli rootless **reste**, comme son pendant côté écriture : une primitive interne que
+        la suite emploie sur ses arbres nus et qu'aucune origine de production n'atteint. La
+        fermeture porte sur l'**atteignabilité**, jamais sur l'existence.
         """
         return _lecture_validee(self.data_dir, racine=self.racine)
 
@@ -391,9 +461,8 @@ class Lecture:
         disposition **fichier par fichier** : `data/` et `data/<doc_id>/` restent des répertoires
         ordinaires, et leurs slots existent dans le bundle uniquement parce qu'ils *contiennent* des
         cibles. Les traiter comme des cibles couvertes faisait refuser la disposition que
-        `installer()` produit — un faux positif par construction, qui faisait lever le chemin de
-        regate (`_sans_gate_sur_disque` énumère `data/` et passe chaque entrée, répertoires compris).
-        Un conteneur de cibles se rend tel quel ; ce sont ses cibles qui se résolvent.
+        `installer()` produit — un faux positif par construction. Un conteneur de cibles se rend
+        tel quel ; ce sont ses cibles qui se résolvent.
         """
         chemin = Path(cible)
         if self.racine is None or self.generation is None:
@@ -571,8 +640,14 @@ def _repertoire_ordinaire(chemin: Path, *, role: str) -> None:
             "la disposition est incomplète")
 
 
-def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -> None:
-    """Valide toute la disposition dans le repère déjà pincé, puis en confirme l'inode."""
+def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture, *,
+                         cible_regate: str | None = None) -> bytes:
+    """Valide la disposition et rend les octets exacts du manifest qui l'a décrite.
+
+    La voie de regate ne tolère que le champ ``gate`` de sa cible : l'entrée ciblée est validée
+    avec ce champ neutralisé, tandis que toutes les autres entrées restent strictes. Les octets
+    originaux sont conservés pour que le loader ne rouvre jamais le manifest sous un autre repère.
+    """
     assert lecture.generation is not None
     generation = lecture.generation
     _repertoire_ordinaire(data, role="conteneur data")
@@ -599,6 +674,7 @@ def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -
         raise EspaceIllisible(f"{manifest_path} : un objet JSON {{doc_id: entrée}} est attendu")
 
     attendus = [data / nom for nom in SURFACES_DATA]
+    cible_trouvee = cible_regate is None
     for doc_id, entree in brut.items():
         if not isinstance(doc_id, str) or DOC_ID_RE.fullmatch(doc_id) is None:
             raise EspaceIllisible(
@@ -608,8 +684,15 @@ def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -
             raise EspaceNonInstalle(
                 f"{manifest_path} : identifiant de document {doc_id!r} dépasse "
                 f"{DOC_ID_MAX} caractères — la disposition est incomplète")
+        a_valider = entree
+        if doc_id == cible_regate:
+            cible_trouvee = True
+            if not isinstance(entree, dict):
+                raise EspaceIllisible(
+                    f"{manifest_path} : entrée de regate {doc_id!r} invalide")
+            a_valider = {**entree, "gate": None}
         try:
-            ManifestEntry.model_validate(entree)
+            ManifestEntry.model_validate(a_valider)
         except ValueError as exc:
             raise EspaceIllisible(
                 f"{manifest_path} : entrée ManifestEntry invalide pour {doc_id!r} "
@@ -620,6 +703,10 @@ def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -
             publiee.chemin / generation / publiee.slot(document),
             role=f"conteneur du slot du document {doc_id!r}")
         attendus.extend(document / nom for nom in (*ARTEFACTS_DOCUMENT, *SOURCES_DOCUMENT))
+
+    if not cible_trouvee:
+        raise EspaceIllisible(
+            f"{manifest_path} : cible de regate {cible_regate!r} absente du manifest")
 
     for cible in attendus:
         if publiee.lien_exact(cible) is None:
@@ -641,6 +728,7 @@ def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -
                 f"{slot} : un slot présent doit être un fichier ordinaire, jamais un lien ou un "
                 "répertoire")
     lecture.verifier()
+    return octets_manifest
 
 
 def _lecture_validee(data_dir: Path | str, *, racine: Path | None = None) -> Lecture:
@@ -654,6 +742,22 @@ def _lecture_validee(data_dir: Path | str, *, racine: Path | None = None) -> Lec
         lecture.fermer()
         raise
     return lecture
+
+
+def _lecture_regate_validee(data_dir: Path | str, cible: str, *,
+                            racine: Path | None = None) -> CapaciteRegate:
+    data = Path(data_dir)
+    publiee = RacinePubliee(data.parent if racine is None else Path(racine), data)
+    generation = lire_pointeur(publiee.chemin)
+    lecture = Lecture(publiee, generation)
+    try:
+        manifest = _valider_disposition(
+            data, publiee, lecture, cible_regate=cible)
+        return CapaciteRegate(
+            lecture, data, cible, manifest, sceau=_SCEAU_REGATE)
+    except BaseException:
+        lecture.fermer()
+        raise
 
 
 def exiger_racine_installee(data_dir: Path | str, *, racine: Path | None = None) -> str:
@@ -745,3 +849,19 @@ def lecture_pincee(data_dir: Path | str) -> Iterator[Lecture]:
         yield lecture
     finally:
         lecture.fermer()
+
+
+@contextlib.contextmanager
+def lecture_pincee_regate(data_dir: Path | str, cible: str) -> Iterator[CapaciteRegate]:
+    """Pince la capacité bornée d'un regate, sans jamais ouvrir de voie rootless.
+
+    La validation générale reste stricte. Ici seulement, le gate de ``cible`` est retiré d'une
+    copie pour valider le reste de son entrée ; toutes les autres entrées et toute la disposition
+    sont validées sans dérogation. Le manifest original n'est ni réécrit ni relu.
+    """
+    capacite = _lecture_regate_validee(data_dir, cible)
+    try:
+        yield capacite
+    finally:
+        capacite._lecture.fermer()
+        capacite.invalider()

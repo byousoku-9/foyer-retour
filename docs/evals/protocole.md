@@ -326,8 +326,16 @@ résout `courant` une seule fois et rend un repère immuable ; toutes les cibles
 travers lui, **sans** prendre le verrou des écrivains — un lecteur ne doit pas sérialiser la
 production pour être cohérent. Il n'y a pas de paramètre pour retomber sur une résolution vivante :
 ou l'espace est installé **et complet** et tout passe par lui, ou la lecture publique refuse. Le
-repli sans racine n'existe que comme primitive interne explicitement appelée par les tests unitaires
-et par la photographie temporaire de regate.
+repli sans racine n'existe que comme primitive interne explicitement appelée par les tests
+unitaires. Un regate ne l'atteint jamais : son pincement dédié lie une capacité à la génération, au
+`data-dir` custom, au document ciblé et aux octets du manifest validé. Le loader oppose ces quatre
+faits et `allow_ungated=True` avant de neutraliser **en mémoire** le seul gate ciblé ; tous les
+artefacts restent lus depuis le `data-dir` original, sous le même repère.
+
+Cette capacité n'est employée que si la qualification du runner trouve le gate rouge, périmé ou
+hors schéma. Un gate vert et frais garde son jugement. Une autre entrée invalide, un repère sans
+génération, étranger ou visant un autre document ferment avant toute mesure ; le manifest sur disque
+n'est jamais modifié par la qualification.
 
 Ce que le repère garantit : **une opération de lecture ne mêle jamais deux générations**, et les
 octets **hachés** sont les octets **parsés** — une seule lecture, un seul tampon. Il survit à une

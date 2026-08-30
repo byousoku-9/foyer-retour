@@ -13,7 +13,6 @@ import io
 import json
 import os
 import shutil
-from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -1616,25 +1615,39 @@ def test_un_gate_hors_schema_se_reprend_comme_un_gate_rouge(tmp_path: Path) -> N
                            "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q",
                            "model_ids": {}, "evals_ok": True, "date": "2026-08-23",
                            "overlay_hash": None, "cases": 1}
+    brut[CONTRAT]["gate"] = {
+        "profile": "vertical", "source_hash": brut[CONTRAT]["source_hash"],
+        "ingest_fingerprint": brut[CONTRAT]["ingest_fingerprint"], "cases_hash": "autre-cas",
+        "pipeline_digest": "autre-pipeline", "prompts_digest": "autre-prompt",
+        "model_ids": {}, "evals_ok": True, "date": "2026-08-23", "overlay_hash": None,
+        "cases": 1, "countersigned": False,
+    }
     chemin.write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
 
-    with ExitStack() as pile:
-        ombre = runner._sans_gate_sur_disque(racine, GUIDE, pile)
-        lu = json.loads((ombre / "manifest.json").read_text(encoding="utf-8"))
-        assert lu[GUIDE]["gate"] is None
-        # `data/` n'est pas touché, et l'autre document garde le sien.
-        assert json.loads(chemin.read_text(encoding="utf-8"))[GUIDE]["gate"] is not None
-        assert lu[CONTRAT]["gate"] == brut[CONTRAT]["gate"]
-        # La vue de reprise satisfait la même frontière que le vrai `data/` : aucun artefact ne
-        # se résout hors de sa racine temporaire et le loader peut donc appliquer son garde intact.
-        assert (ombre / GUIDE / "document.json").is_file()
-        assert all(not chemin_ombre.is_symlink() for chemin_ombre in ombre.rglob("*"))
-        assert all(chemin_ombre.resolve().is_relative_to(ombre.resolve())
-                   for chemin_ombre in ombre.rglob("*"))
+    poser_espace(tmp_path, data_dir=racine)
+    avant = chemin.read_bytes()
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    with lecture_pincee_regate(racine, GUIDE) as capacite:
+        ferme = load_corpus(
+            racine, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite)
+        assert GUIDE not in ferme.served, "la neutralisation doit rester fail-closed par défaut"
+        corpus = load_corpus(
+            racine, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite, neutraliser_regate=True)
+        assert GUIDE in corpus.served
+        assert capacite.lecture.generation is not None
+        assert capacite.lecture.racine is not None
+        assert capacite.lecture.racine.data_dir == racine
+    # Le manifest validé est seulement neutralisé en mémoire ; l'autre entrée est inchangée.
+    assert chemin.read_bytes() == avant
+    assert json.loads(chemin.read_text(encoding="utf-8"))[CONTRAT]["gate"] == brut[CONTRAT]["gate"]
 
 
-def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(tmp_path: Path) -> None:
-    """Le runner ne transforme pas une entrée hostile en lecture autorisée par sa copie temporaire."""
+def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nom historique : la reprise ne matérialise plus aucune vue ni aucun lien."""
     racine = tmp_path / "data"
     racine.mkdir()
     _corpus_sur_disque(racine)
@@ -1643,9 +1656,39 @@ def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(tmp_path: Path) 
     (externe / "secret.txt").write_text("ne pas lire", encoding="utf-8")
     (racine / "lien-hors-data").symlink_to(externe, target_is_directory=True)
 
-    with ExitStack() as pile:
-        ombre = runner._sans_gate_sur_disque(racine, GUIDE, pile)
-        assert not (ombre / "lien-hors-data").exists()
+    poser_espace(tmp_path, data_dir=racine)
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    lectures_externes: list[Path] = []
+    vrai_read_bytes = Path.read_bytes
+    vrai_open = Path.open
+
+    def open_garde(chemin: Path, *args: Any, **kwargs: Any) -> Any:
+        mode = args[0] if args else kwargs.get("mode", "r")
+        resolu = Path(os.path.realpath(chemin))
+        if "r" in mode and resolu.is_relative_to(externe.resolve()):
+            lectures_externes.append(resolu)
+            raise AssertionError(f"lecture externe interdite : {resolu}")
+        return vrai_open(chemin, *args, **kwargs)
+
+    def read_bytes_garde(chemin: Path) -> bytes:
+        resolu = Path(os.path.realpath(chemin))
+        if resolu.is_relative_to(externe.resolve()):
+            lectures_externes.append(resolu)
+            raise AssertionError(f"lecture externe interdite : {resolu}")
+        return vrai_read_bytes(chemin)
+
+    monkeypatch.setattr(Path, "open", open_garde)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes_garde)
+    entrees_avant = {p.relative_to(tmp_path) for p in tmp_path.rglob("*")}
+    with lecture_pincee_regate(racine, GUIDE) as capacite:
+        corpus = load_corpus(
+            racine, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite, neutraliser_regate=True)
+        assert GUIDE in corpus.served
+    assert lectures_externes == []
+    assert {p.relative_to(tmp_path) for p in tmp_path.rglob("*")} == entrees_avant
+    assert (racine / "lien-hors-data").resolve() == externe.resolve()
 
 
 def test_un_manifest_invalide_arrete_tout_sans_rien_ecrire(tmp_path: Path) -> None:
@@ -2299,19 +2342,143 @@ def test_un_gate_rouge_peut_etre_repris(tmp_path: Path, monkeypatch: pytest.Monk
     _corpus_sur_disque(data)
     # 1. un run rouge écrit `evals_ok: false` et le document part en quarantaine.
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[(_refus(), _trace())]) == 1
-    assert load_corpus(data, allow_ungated=True).quarantine.get(GUIDE) == "gate_echoue"
-    # 2. le run suivant peut malgré tout mesurer ce document ; sa provenance builder reste rouge.
+    assert _main(
+        tmp_path, ["--gate", CONTRAT], monkeypatch,
+        reponses_sinistre=[(_refus(), _trace("sinistre"))]) == 1
+    avant = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    gate_autre = avant[CONTRAT]["gate"]
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        GUIDE: "gate_echoue", CONTRAT: "gate_echoue"}
+
+    # 2. le run suivant peut mesurer la cible sans neutraliser l'autre gate rouge dans le Corpus.
+    vrai_load_corpus = runner.load_corpus
+    corpus_du_run: list[Corpus] = []
+
+    def observer_corpus(*args: Any, **kwargs: Any) -> Corpus:
+        corpus = vrai_load_corpus(*args, **kwargs)
+        corpus_du_run.append(corpus)
+        return corpus
+
+    monkeypatch.setattr(runner, "load_corpus", observer_corpus)
     _corpus_, index = _corpus()
     bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 1
+    assert corpus_du_run and GUIDE in corpus_du_run[-1].served
+    assert corpus_du_run[-1].quarantine[CONTRAT] == "gate_echoue"
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
     assert manifest[GUIDE]["gate"]["evals_ok"] is False
+    assert manifest[CONTRAT]["gate"] == gate_autre
     # La reprise a bien exécuté le document sans élargir la dérogation, puis le service reste fermé.
     corpus = load_corpus(data, allow_ungated=False)
     assert corpus.served == [] and corpus.quarantine == {
-        GUIDE: "gate_echoue", CONTRAT: "sans_gate"}
-    # …et `data/` n'a pas été touché autrement : le second document garde son entrée d'origine.
-    assert manifest[CONTRAT]["gate"] is None
+        GUIDE: "gate_echoue", CONTRAT: "gate_echoue"}
+
+
+@pytest.mark.parametrize("forme", ["scalaire", "liste", "full-preprotocole"])
+def test_le_vrai_cli_reprend_un_gate_hors_schema_sur_le_custom_installe(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forme: str) -> None:
+    """La reprise hors schéma passe par `main`, le data-dir original et son repère pincé."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    manifest_path = data / "manifest.json"
+    brut = json.loads(manifest_path.read_text("utf-8"))
+    if forme == "scalaire":
+        gate_existant: Any = 7
+    elif forme == "liste":
+        gate_existant = ["gate", "historique"]
+    else:
+        gate_existant = {
+            "profile": "full", "source_hash": brut[GUIDE]["source_hash"],
+            "ingest_fingerprint": brut[GUIDE]["ingest_fingerprint"], "cases_hash": "c",
+            "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {},
+            "evals_ok": True, "date": "2026-08-23", "overlay_hash": None, "cases": 1,
+            "countersigned": False, "decisions": [], "run_digest": None,
+            "plancher_digest": "a" * 64, "candidate_revision": "b" * 40,
+            "report_digest": "c" * 64,
+        }
+    brut[GUIDE]["gate"] = gate_existant
+    manifest_path.write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    vrai_load_corpus = runner.load_corpus
+    observations: list[tuple[int, int, str]] = []
+
+    def observer_load_corpus(data_dir: Path | str, **kwargs: Any) -> Corpus:
+        lecture = kwargs.get("lecture")
+        capacite = kwargs.get("capacite_regate")
+        assert Path(data_dir) == data, "le CLI doit garder le data-dir custom original"
+        assert lecture is not None and lecture.generation is not None
+        assert lecture.racine is not None and lecture.racine.data_dir == data
+        assert capacite is not None and capacite.lecture is lecture
+        assert capacite.cible == GUIDE and kwargs.get("regate") == GUIDE
+        assert kwargs.get("neutraliser_regate") is True
+        observations.append((id(lecture), id(capacite), lecture.generation))
+        return vrai_load_corpus(data_dir, **kwargs)
+
+    monkeypatch.setattr(runner, "load_corpus", observer_load_corpus)
+
+    code = _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne])
+
+    assert code == 1
+    gate = json.loads(manifest_path.read_text("utf-8"))[GUIDE]["gate"]
+    assert len(observations) == 1
+    assert not any(p.is_dir() and p.name.startswith("evals-regate") for p in tmp_path.rglob("*"))
+    assert len(_COURANT["guide"].appels) == 1, "le vrai CLI n'a pas mesuré le document repris"
+    assert gate == gate_existant, (
+        "le candidat builder rouge ne doit pas écraser le gate inconnu ou préprotocole")
+
+
+@pytest.mark.parametrize("fraiche", [False, True])
+def test_le_regate_neutralise_un_gate_perime_mais_pas_un_gate_vert_frais(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fraiche: bool) -> None:
+    """La qualification précède la capacité : un gate vert/frais garde son jugement."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    assert _main(
+        tmp_path, ["--gate", GUIDE], monkeypatch,
+        reponses_guide=[(_refus(), _trace())]) == 1
+    manifest_path = data / "manifest.json"
+    brut = json.loads(manifest_path.read_text("utf-8"))
+    gate = brut[GUIDE]["gate"]
+    gate["evals_ok"] = True
+    gate["decisions"] = []
+    gate["pipeline_digest"] = runner.pipeline_digest() if fraiche else "pipeline-perime"
+    gate["prompts_digest"] = runner.prompts_digest()
+    gate["model_ids"] = dict(runner.TIERS)
+    gate["pipeline_settings"] = _settings().thresholds()
+    EspacePublie(tmp_path, data).basculer([
+        (manifest_path, json.dumps(brut, indent=2, ensure_ascii=False) + "\n")])
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    with lecture_pincee_regate(data, GUIDE) as capacite:
+        ctx = runner.construire_contexte(
+            _settings(), data, regate=GUIDE, lecture=capacite.lecture,
+            capacite_regate=capacite)
+        alertes = ctx.index.corpus.alerts[GUIDE]
+        asyncio.run(ctx.client.aclose())
+
+    if fraiche:
+        assert "sans_gate" not in alertes and "gate_perime" not in alertes
+    else:
+        assert "sans_gate" in alertes and "gate_perime" not in alertes
+
+
+def test_aucune_production_natteint_la_lecture_rootless() -> None:
+    """Garde structurelle N3 : une définition privée, aucun import ni appel dans `server/`."""
+    serveur = Path(runner.__file__).resolve().parents[1]
+    occurrences = [
+        (chemin.relative_to(serveur), no, ligne.strip())
+        for chemin in serveur.rglob("*.py")
+        for no, ligne in enumerate(chemin.read_text("utf-8").splitlines(), 1)
+        if "_lecture_interne_sans_racine" in ligne
+    ]
+    assert occurrences, "la garde privée rootless doit rester définie pour les sondes historiques"
+    assert occurrences == [
+        (Path("app/corpus/racine.py"), occurrences[0][1],
+         "def _lecture_interne_sans_racine(data_dir: Path | str) -> Lecture:")
+    ]
 
 
 def test_un_document_en_quarantaine_pour_autre_chose_reste_refuse(tmp_path: Path,
@@ -2875,29 +3042,20 @@ def test_un_run_sans_gate_verifie_aussi_la_fraicheur_de_son_repere(
 
 def test_le_regate_traverse_une_disposition_installee_sans_la_prendre_pour_cassee(
         tmp_path: Path) -> None:
-    """Régression du tour précédent, reproduite sur le chemin qui la subissait.
-
-    `installer()` pose la disposition **fichier par fichier** : `data/` et `data/<doc_id>/` restent
-    des répertoires ordinaires. Le refus « disposition cassée » les prenait pour des cibles couvertes
-    — leur slot existe, puisqu'il contient des cibles — et levait. `_sans_gate_sur_disque` énumère
-    précisément `data/` et passe **chaque entrée**, répertoires compris : le regate d'un gate rouge
-    ou périmé, seul usage de l'arbre d'ombre, échouait donc sur la disposition que le dépôt porte.
-    """
-    import contextlib as _contextlib
+    """Nom historique : le regate lit le custom installé, sans arbre secondaire."""
 
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
-    # Les artefacts **par document** sont installés : c'est ce qui donne un slot à `data/<doc_id>/`,
-    # donc ce qui fait exister le cas « conteneur » que le refus prenait pour une cible.
     poser_espace(tmp_path, data_dir=data,
                  cibles=[Path("data") / GUIDE / nom for nom in
                          ("document.json", "summary.md", "report.json")])
+    from server.app.corpus.racine import lecture_pincee_regate
 
-    with _contextlib.ExitStack() as pile:
-        # L'arbre d'ombre vit le temps de la pile : les assertions sont dedans.
-        ombre = runner._sans_gate_sur_disque(data, GUIDE, pile)
-        assert ombre.is_dir(), "l'arbre d'ombre n'a pas été construit"
-        assert (ombre / "manifest.json").is_file(), "le manifest sans gate n'a pas été matérialisé"
-        assert (ombre / GUIDE / "document.json").is_file(), (
-            "les artefacts du document n'ont pas été matérialisés dans l'ombre")
+    with lecture_pincee_regate(data, GUIDE) as capacite:
+        corpus = load_corpus(
+            data, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite, neutraliser_regate=True)
+        assert GUIDE in corpus.served
+        assert capacite.lecture.reel(data / GUIDE / "document.json").is_file()
+    assert data.is_dir() and (data / GUIDE).is_dir()

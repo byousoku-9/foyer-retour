@@ -15,7 +15,7 @@ from typing import get_args
 
 from server.app.domain import BlockKind, Document, GateContext, Manifest, ManifestEntry, Report
 
-from .racine import Lecture, relire
+from .racine import CapaciteRegate, Lecture, relire
 from .text import normalize
 
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
@@ -472,7 +472,10 @@ def _load_one(doc_dir: Path, doc_id: str, entry: ManifestEntry, *, allow_ungated
 
 def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateContext | None = None,
                 perimetre_max_chars: int = PERIMETRE_MAX_CHARS,
-                raison_max_chars: int = 500, lecture: Lecture | None = None) -> Corpus:
+                raison_max_chars: int = 500, lecture: Lecture | None = None,
+                regate: str | None = None,
+                capacite_regate: CapaciteRegate | None = None,
+                neutraliser_regate: bool = False) -> Corpus:
     """Charge chaque document du manifest ; une incohérence met ce seul document en quarantaine (AD-7).
 
     `current` décrit l'image en cours (digests, modèles) ; sans lui, la péremption du gate n'est pas évaluée.
@@ -485,8 +488,22 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
     chargement pince la sienne, le temps de sa propre passe. Il n'existe pas de paramètre qui
     rétablisse une résolution vivante : ou il y a un espace installé, et tout passe par lui, ou il
     n'y en a pas, et il n'y a rien à mêler.
+
+    `regate` et `capacite_regate` sont indissociables : la cible ne peut être relue qu'avec la
+    capacité issue de `lecture_pincee_regate`, le même objet `lecture`, sa génération non nulle et
+    le même `data_dir`. `neutraliser_regate` est **fail-closed** par défaut (`False`) : même avec ce
+    trio qualifié, le gate ciblé reste présent. Seul le runner, après avoir établi que ce gate est
+    rouge, périmé, préprotocole ou hors schéma, passe explicitement `True`. La neutralisation ne
+    modifie que la copie mémoire du manifest ; elle n'élargit jamais `allow_ungated`, ne touche
+    aucune autre entrée et n'autorise aucun autre repère.
     """
     data_dir = Path(data_dir)
+    if (regate is None) != (capacite_regate is None):
+        raise ValueError(
+            "une neutralisation de gate exige ensemble une cible et sa capacité de regate")
+    if capacite_regate is not None and (lecture is None or not allow_ungated):
+        raise ValueError(
+            "une neutralisation de gate exige un repère explicite et allow_ungated=True")
     if lecture is None:
         # **`relire`, jamais un simple pincement** (revue du tour N1–N3, constat 1). Pincer sans
         # jamais consulter la péremption laissait la passe rendre un état composé de deux
@@ -498,15 +515,26 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
             perimetre_max_chars=perimetre_max_chars, raison_max_chars=raison_max_chars,
             lecture=pincee))
     manifest_path = data_dir / "manifest.json"
-    if not lecture.fichier(manifest_path):
+    if capacite_regate is None and not lecture.fichier(manifest_path):
         return Corpus()
+    if capacite_regate is not None and regate is not None:
+        # Une erreur d'opposition est une erreur de contrat, pas un manifest métier à mettre en
+        # quarantaine : elle doit refuser immédiatement et rester visible de l'appelant.
+        raw = capacite_regate.manifest_regate(
+            lecture=lecture, data_dir=data_dir, cible=regate,
+            neutraliser=neutraliser_regate)
+    else:
+        try:
+            raw = json.loads(lecture.reel(manifest_path).read_bytes())
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            if isinstance(exc, OSError):
+                LOG.warning("manifest illisible %s : %s", manifest_path, exc)
+            return Corpus(
+                quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:raison_max_chars]})
     try:
-        raw = json.loads(lecture.reel(manifest_path).read_bytes())
         if not isinstance(raw, dict):
             raise ValueError("un objet JSON {doc_id: entrée} est attendu")
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        if isinstance(exc, OSError):
-            LOG.warning("manifest illisible %s : %s", manifest_path, exc)
+    except ValueError as exc:
         return Corpus(quarantine={"*": f"manifest invalide : {_read_error(exc)}"[:raison_max_chars]})
     corpus = Corpus()
     racine_resolue = data_dir.resolve()

@@ -1810,3 +1810,18 @@ def test_deux_bascules_pendant_la_validation_ne_lisent_jamais_la_generation_reco
     monkeypatch.setattr(rac.Lecture, "octets", _octets_apres_deux_bascules)
     with pytest.raises(rac.LecturePerimee, match="reconstruite"):
         rac.lecture_de(data)
+
+
+def test_le_pincement_de_regate_lie_la_cible_aux_octets_valides_de_sa_generation(
+        tmp_path: Path) -> None:
+    """La capacité naît du custom installé et conserve son manifest exact."""
+    from server.app.corpus import racine as rac
+
+    data, _doc, espace = _racine_de_lecture_valide(tmp_path)
+    manifest = (data / "manifest.json").read_bytes()
+    with rac.lecture_pincee_regate(data, "doc-neutre") as capacite:
+        assert capacite.cible == "doc-neutre"
+        assert capacite.octets_manifest == manifest
+        assert capacite.lecture.generation == espace.generation()
+        assert capacite.lecture.racine is not None
+        assert capacite.lecture.racine.data_dir == data

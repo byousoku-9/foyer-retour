@@ -624,6 +624,30 @@ def test_un_echec_de_remplacement_restaure_tous_les_artefacts(tmp_path: Path,
     assert overlay.read_text("utf-8") == "avant-3"
 
 
+def test_success_writes_automatic_document_removes_overlay_and_invalidates_gate(tmp_path: Path) -> None:
+    doc_dir, _ = write_data(tmp_path, overlay=True)
+    manifest = json.loads((doc_dir.parent / "manifest.json").read_text("utf-8"))
+    entry = ManifestEntry.model_validate(manifest["contrat"])
+    gate = Gate(profile="vertical", source_hash="source", ingest_fingerprint="fp", overlay_hash=entry.overlay_hash,
+                cases_hash="cases", cases=1, countersigned=False, pipeline_digest="p", prompts_digest="q",
+                model_ids={}, evals_ok=True, date="2026-08-26")
+    manifest["contrat"]["gate"] = gate.model_dump()
+    (doc_dir.parent / "manifest.json").write_text(json.dumps(manifest), "utf-8")
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    result = tc.run(doc_dir, settings=settings(), client=FakeClient(FakeBatches(kinds)), output=io.StringIO())
+    assert result is not None and result.entry.gate is None and result.entry.overlay_hash is None
+    per_request = cost_from_usage(
+        tc.MODEL, {"input_tokens": 100, "output_tokens": 20}, settings().usd_eur, batch=True,
+    ).cost_eur
+    assert result.first_requests == result.second_requests == 1
+    assert result.cost_eur == round(per_request * 2, 4)  # T1 + T2, taux EUR et remise Batch inclus
+    assert not (doc_dir / "typing.manual.json").exists()
+    saved = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    assert saved.block("contrat:p1:1").kind_source == "model_verified"
+    assert saved.block("contrat:p2:1").defines == "contenu"
+    assert [check.name for check in result.report.checks][-1] == "typage_clauses"
+
+
 def _etat_observable(cibles: list[Path]) -> dict[str, tuple[bool, str | None, str | None, str | None]]:
     """Les quatre dimensions de l'AC : présence, contenu, type `lstat`, cible de lien.
 
@@ -724,30 +748,6 @@ def test_un_echec_du_typage_sur_un_lot_couvert_ne_laisse_aucune_cible_modifiee(
                               cibles[2]: "manifest-après"}, [cibles[3]])
     assert _etat_observable(cibles) == avant
     assert espace.residus() == []
-
-
-def test_success_writes_automatic_document_removes_overlay_and_invalidates_gate(tmp_path: Path) -> None:
-    doc_dir, _ = write_data(tmp_path, overlay=True)
-    manifest = json.loads((doc_dir.parent / "manifest.json").read_text("utf-8"))
-    entry = ManifestEntry.model_validate(manifest["contrat"])
-    gate = Gate(profile="vertical", source_hash="source", ingest_fingerprint="fp", overlay_hash=entry.overlay_hash,
-                cases_hash="cases", cases=1, countersigned=False, pipeline_digest="p", prompts_digest="q",
-                model_ids={}, evals_ok=True, date="2026-08-26")
-    manifest["contrat"]["gate"] = gate.model_dump()
-    (doc_dir.parent / "manifest.json").write_text(json.dumps(manifest), "utf-8")
-    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
-    result = tc.run(doc_dir, settings=settings(), client=FakeClient(FakeBatches(kinds)), output=io.StringIO())
-    assert result is not None and result.entry.gate is None and result.entry.overlay_hash is None
-    per_request = cost_from_usage(
-        tc.MODEL, {"input_tokens": 100, "output_tokens": 20}, settings().usd_eur, batch=True,
-    ).cost_eur
-    assert result.first_requests == result.second_requests == 1
-    assert result.cost_eur == round(per_request * 2, 4)  # T1 + T2, taux EUR et remise Batch inclus
-    assert not (doc_dir / "typing.manual.json").exists()
-    saved = Document.model_validate_json((doc_dir / "document.json").read_bytes())
-    assert saved.block("contrat:p1:1").kind_source == "model_verified"
-    assert saved.block("contrat:p2:1").defines == "contenu"
-    assert [check.name for check in result.report.checks][-1] == "typage_clauses"
 
 
 def test_t6_byte_identical_rerun_preserves_an_existing_gate(tmp_path: Path) -> None:

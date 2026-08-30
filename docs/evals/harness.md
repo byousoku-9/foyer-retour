@@ -401,6 +401,12 @@ lectures ne peut donc plus lui faire rendre un état composé de deux générati
 production pour être cohérent. Deux bascules pendant une même passe la périment ; le repère le
 détecte et la passe est rejouée, puis, après un nombre borné de tentatives, le refus est dit.
 
+Le regate conserve exactement cette frontière. Son pincement dédié valide toute la disposition et
+toutes les autres entrées, puis lie au repère une capacité portant sa génération, son `data-dir`, sa
+cible et les octets du manifest. Si — et seulement si — le gate ciblé est rouge, périmé ou hors
+schéma, le loader le neutralise dans une copie mémoire. Un gate vert et frais reste opposé, le
+manifest disque reste byte-identique et aucune ombre rootless n'est installée ni lue.
+
 **Ce qui décide du contenu publié se lit sous le verrou.** `overlay_hash`, `structure_hash`, le
 document précédent et les champs repris de l'entrée antérieure (`source_hash`, `ingest_fingerprint`,
 `edition`, statut, overlay, structure et gate) viennent du repère que la transaction a pincé, jamais

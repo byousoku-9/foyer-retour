@@ -1309,3 +1309,68 @@ def test_un_conteneur_de_cibles_nest_pas_une_cible_couverte(tmp_path: Path) -> N
         assert repere.reel(data) == data
     finally:
         repere.fermer()
+
+
+def test_la_neutralisation_de_regate_refuse_tout_mauvais_repere(tmp_path: Path) -> None:
+    """La capacité oppose repère, génération, data-dir, cible et option explicite."""
+    from server.app.corpus import racine as rac
+
+    data, _espace = _corpus_sous_racine(tmp_path / "origine")
+    autre_data, _autre_espace = _corpus_sous_racine(tmp_path / "autre")
+    with rac.lecture_pincee_regate(data, "lux-guide") as capacite:
+        lecture_origine = capacite.lecture
+        with pytest.raises(ValueError, match="repère explicite"):
+            _load_corpus_public(
+                data, allow_ungated=True, regate="lux-guide", capacite_regate=capacite)
+        with rac._lecture_interne_sans_racine(data) as rootless, pytest.raises(
+                ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=rootless,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with rac.lecture_de(autre_data) as etranger, pytest.raises(
+                ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=etranger,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with pytest.raises(ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                autre_data, allow_ungated=True, lecture=capacite.lecture,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with rac.lecture_de(data) as meme_generation, pytest.raises(
+                ValueError, match="capacité de regate étrangère"):
+            assert meme_generation.generation == capacite.lecture.generation
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=meme_generation,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with pytest.raises(ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=capacite.lecture,
+                regate="autre-document", capacite_regate=capacite, neutraliser_regate=True)
+        with pytest.raises(ValueError, match="allow_ungated=True"):
+            _load_corpus_public(
+                data, allow_ungated=False, lecture=capacite.lecture,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+
+    with pytest.raises(ValueError, match="capacité de regate expirée"):
+        _load_corpus_public(
+            data, allow_ungated=True, lecture=lecture_origine,
+            regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+    with pytest.raises(ValueError, match="capacité de regate expirée"):
+        _ = capacite.octets_manifest
+
+
+def test_un_autre_document_invalide_ferme_le_pincement_de_regate(tmp_path: Path) -> None:
+    """La tolérance est le seul gate ciblé, jamais une seconde entrée du manifest."""
+    from server.app.corpus import racine as rac
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    brut = json.loads((data / "manifest.json").read_text("utf-8"))
+    brut["autre-document"] = {"status": "inconnu"}
+    manifest = json.dumps(brut, indent=2, ensure_ascii=False) + "\n"
+    espace.basculer([(data / "manifest.json", manifest)])
+    avant = (data / "manifest.json").read_bytes()
+
+    with pytest.raises(rac.EspaceIllisible, match="autre-document"):
+        with rac.lecture_pincee_regate(data, "lux-guide"):
+            pass
+    assert (data / "manifest.json").read_bytes() == avant
