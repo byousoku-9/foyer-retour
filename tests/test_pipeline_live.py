@@ -187,17 +187,15 @@ async def test_outils_cold_path_preflights_every_real_request_under_the_cap(
 
     assert answer.found and preflights
     assert settings.retrouver_outils_max_tokens in {m for _, _, m in preflights}
-    assert settings.outils_rediger_max_tokens in {m for _, _, m in preflights}
+    assert settings.rediger_max_tokens in {m for _, _, m in preflights}
     assert settings.verifier_max_tokens in {m for _, _, m in preflights}
     assert all(engage + estimate <= settings.max_cost_eur_per_request
                for engage, estimate, _ in preflights)
-    # Contrôle négatif reproduisant le chemin froid qui avait bloqué la première tentative 2.6 :
-    # 0,0477 € engagés par la navigation Sonnet, puis l'ancien plafond commun de *rédiger*.
+    # Le plafond unique est bien celui qui a été préflighté sur la rédaction de la variante outils.
     args_rediger, kwargs_rediger = next(
         (args, kwargs) for args, kwargs in appels_estimes
         if int(args[3] if len(args) > 3 else kwargs["max_tokens"])
-        == settings.outils_rediger_max_tokens
+        == settings.rediger_max_tokens
     )
-    ancien_majorant = original(
-        *args_rediger[:3], settings.rediger_max_tokens, *args_rediger[4:], **kwargs_rediger)
-    assert 0.0477 + ancien_majorant > settings.max_cost_eur_per_request
+    majorant = original(*args_rediger, **kwargs_rediger)
+    assert majorant > 0

@@ -338,11 +338,6 @@ class Settings(BaseSettings):
     # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,12 €).
     comprendre_max_tokens: int = Field(1024, ge=1)
     rediger_max_tokens: int = Field(2048, ge=1)
-    # Story 2.6, mesure froide : après deux tours Haiku à 0,0143 €, le majorant de *rédiger* à
-    # 2 048 tokens portait le total à 0,1018 € et interdisait l'appel avant fournisseur. 1 792 garde
-    # le même modèle, prompt et schéma sous le plafond de 0,10 €. Cette borne ne s'applique qu'au
-    # guide `variant="outils"` ; le guide déterministe et le sinistre conservent 2 048.
-    outils_rediger_max_tokens: int = Field(1792, ge=1)
     # Bornes comportementales annoncées aux prompts des étapes (story 1.4, revue Codex 1.4 I1) : la
     # convention Seuils du spine interdit toute valeur numérique en dur dans une étape — un prompt en
     # est une. `quote_min_chars` est le seuil que *vérifier* appliquera (AD-3) : le prompt le rend
@@ -667,7 +662,6 @@ class Settings(BaseSettings):
         for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
                             ("retrouver_outils_max_tokens", self.retrouver_outils_max_tokens),
                             ("rediger_max_tokens", self.rediger_max_tokens),
-                            ("outils_rediger_max_tokens", self.outils_rediger_max_tokens),
                             ("verifier_max_tokens", self.verifier_max_tokens),
                             ("verifier_sinistre_max_tokens", self.verifier_sinistre_max_tokens)):
             # Le plafond par étape ne peut pas dépasser le plafond de sortie du client : il part tel
@@ -763,7 +757,6 @@ class Settings(BaseSettings):
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,
             "rediger_max_tokens": self.rediger_max_tokens,
-            "outils_rediger_max_tokens": self.outils_rediger_max_tokens,
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
             "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,

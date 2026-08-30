@@ -267,8 +267,8 @@ async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_cha
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
-    assert fake.requests[2]["max_tokens"] == _settings().outils_rediger_max_tokens == 1792
-    assert trace.thresholds["outils_rediger_max_tokens"] == 1792
+    assert fake.requests[2]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    assert "outils_rediger_max_tokens" not in trace.thresholds
     assert len(fake.requests) == 4
 
 
@@ -836,11 +836,11 @@ async def test_a_retry_that_verifies_worse_never_replaces_the_answer(
 @pytest.mark.parametrize("variant", ["deterministe", "outils"])
 async def test_a_max_tokens_draft_is_retried_under_the_variant_output_cap(
         index: Index, variant: str) -> None:
-    """M4 : la troncature de *rédiger* est éprouvée sur le plafond réduit du chemin outils."""
+    """M4 : la troncature de *rédiger* est éprouvée sous l'autorité unique des variantes."""
     tronquee = _rediger(BONNE)
     tronquee["stop_reason"] = "max_tokens"
-    settings = _settings(rediger_max_tokens=19, outils_rediger_max_tokens=17)
-    expected = 17 if variant == "outils" else 19
+    settings = _settings(rediger_max_tokens=19)
+    expected = 19
     script = _avec_navigation_outils([_comprendre(), tronquee, tronquee], variant)
     with pytest.raises(LlmParse, match=rf"tronquée.*max_tokens={expected}"):
         await _run(index, script, variant=variant, settings=settings)
