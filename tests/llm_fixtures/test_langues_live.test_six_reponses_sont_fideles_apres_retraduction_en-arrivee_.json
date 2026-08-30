@@ -154,6 +154,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:1edc20a882f35a15": {
+    "request": "claude-haiku-4-5-20251001:1edc20a882f35a15",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": true, \"raison\": null}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWfJjoaQzGDuWZqJBQw",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3572,
+        "output_tokens": 107,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:397415061cbb0370": {
     "request": "claude-haiku-4-5-20251001:397415061cbb0370",
     "response": {
@@ -211,6 +242,37 @@
         "inference_geo": "not_available",
         "input_tokens": 3355,
         "output_tokens": 124,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:3eaaa16c225a0fec": {
+    "request": "claude-haiku-4-5-20251001:3eaaa16c225a0fec",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\":\"en\",\"fidele\":true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWfXZjMrBXqdxepHgrp",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 684,
+        "output_tokens": 16,
         "service_tier": "standard"
       }
     }
@@ -410,7 +472,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeTkabjy4rEAZhXh1AZcc",
+      "id": "msg_011CeZWenugr3dwAwW2eJ2FK",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -913,6 +975,40 @@
         "inference_geo": "global",
         "input_tokens": 2886,
         "output_tokens": 448,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:df2cd5bfef6757a9": {
+    "request": "claude-sonnet-5:df2cd5bfef6757a9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"You must register with your commune within eight days of moving in.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"This declaration is the starting point for everything else administratively.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Registration with the commune must happen within eight days of moving in.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Without this declaration, you cannot get a matricule, social security, a bank account, or school enrollment.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWey3t5LX1Lt7uymEf6",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6811,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 6811,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2932,
+        "output_tokens": 306,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

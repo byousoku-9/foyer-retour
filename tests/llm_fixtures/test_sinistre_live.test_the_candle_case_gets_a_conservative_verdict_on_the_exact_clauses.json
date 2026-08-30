@@ -30,6 +30,82 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:0544cca0af4c0287": {
+    "request": "claude-haiku-4-5-20251001:0544cca0af4c0287",
+    "response": {
+      "content": [
+        {
+          "text": "Maintenant je vais ouvrir les passages les plus pertinents pour la couverture du mobilier endommagé par brûlure. Je vais commencer par les garanties de base concernant les dommages matériels et le mobilier.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01DPnZV7aGaHVo8i8pn6Zvak",
+          "input": {
+            "focus_block_id": "axa-lu-optihome-2017:p34:12",
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1.6"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_013fiJ7UeJhSDSXYccKUTQwR",
+          "input": {
+            "focus_block_id": "axa-lu-optihome-2017:p47:4",
+            "node_id": "axa-lu-optihome-2017:a3.1.8.7"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01YQ8PAytiei5FTfTLyQ5Srm",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a1.27"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01EmmKzqyQnQB5s1oRZkTRzo",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a1.16"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeZWkYxDPLDGgMhVSc8pA",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4882,
+        "inference_geo": "not_available",
+        "input_tokens": 1757,
+        "output_tokens": 387,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:3064624e73dcb709": {
     "request": "claude-haiku-4-5-20251001:3064624e73dcb709",
     "response": {
@@ -67,11 +143,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\": \"question\", \"question_resolue\": \"Le mobilier de salon (canapé et table basse) endommagé par brûlure suite à la chute d'une bougie allumée le 1er août 2026 est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"brûlure\", \"incendie partiel\", \"dégât mobilier\", \"chaleur\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier de salon causé par brûlure\"], \"bien\": \"mobilier de salon (canapé, table basse)\", \"evenement\": \"brûlure sans propagation de flammes ni embrasement\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute accidentelle d'une bougie allumée\", \"moment\": \"1er août 2026\"}",
+          "text": "{\"intent\": \"question\", \"question_resolue\": \"Le mobilier de salon (canapé et table basse) endommagé par brûlure suite à la chute d'une bougie allumée le 1er août 2026 au salon du domicile est-il couvert par le contrat d'assurance habitation ?\", \"clarification\": null, \"language\": \"fr\", \"terms\": [\"mobilier de salon\", \"canapé\", \"brûlure\", \"dégât du feu\", \"bougie\"], \"themes\": [], \"facettes\": [\"Couverture du dommage au mobilier par brûlure accidentelle\"], \"bien\": \"mobilier de salon (canapé, table basse)\", \"evenement\": \"brûlure accidentelle sans propagation\", \"lieu\": \"salon du domicile assuré\", \"cause\": \"chute de bougie allumée\", \"moment\": \"1er août 2026\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeVq39AHXTgjdYhM69gsb",
+      "id": "msg_011CeZWkGWVuKWkjuZnkZsVt",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -87,7 +163,54 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "not_available",
         "input_tokens": 3431,
-        "output_tokens": 232,
+        "output_tokens": 227,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:794851a580145ed4": {
+    "request": "claude-haiku-4-5-20251001:794851a580145ed4",
+    "response": {
+      "content": [
+        {
+          "text": "Je vais rechercher les passages pertinents concernant la couverture du mobilier endommagé par brûlure accidentelle.",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01XpgSeU8QSBLJZv8ygPnojg",
+          "input": {
+            "termes": [
+              "mobilier",
+              "brûlure",
+              "dégât du feu",
+              "dommages matériels",
+              "incendie"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeZWkSHNmn3VfYnPv9mjQ",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4882
+        },
+        "cache_creation_input_tokens": 4882,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 557,
+        "output_tokens": 116,
         "service_tier": "standard"
       }
     }
@@ -248,6 +371,37 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:e624eff01f8fad9e": {
+    "request": "claude-haiku-4-5-20251001:e624eff01f8fad9e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": false, \"raison\": \"hors_objet\"}, {\"claim_id\": \"c3\", \"pertinente\": false, \"raison\": \"hors_objet\"}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [], \"applicabilite\": [{\"claim_id\": \"c1\", \"fait_requis_present\": true, \"option_requise\": false, \"cp_requise\": false, \"fait_manquant\": null, \"qualites_exigees\": [\"caractère soudain de l'événement\", \"action subite de la chaleur\", \"contact direct et immédiat avec un foyer ou une substance incandescente\"], \"qualites_etablies\": [{\"qualite\": \"caractère soudain de l'événement\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"action subite de la chaleur\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}, {\"qualite\": \"contact direct et immédiat avec un foyer ou une substance incandescente\", \"fait_cite\": \"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]}, {\"claim_id\": \"c2\", \"fait_requis_present\": false, \"option_requise\": false, \"cp_requise\": true, \"fait_manquant\": null, \"qualites_exigees\": [], \"qualites_etablies\": []}], \"demande_contexte\": null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWmTYoZGe3kiVDWAKZS",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 10705
+        },
+        "cache_creation_input_tokens": 10705,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 831,
+        "output_tokens": 431,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:ee0e2cc12aab794f": {
     "request": "claude-haiku-4-5-20251001:ee0e2cc12aab794f",
     "response": {
@@ -306,6 +460,40 @@
         "inference_geo": "global",
         "input_tokens": 3596,
         "output_tokens": 1019,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:32e3dd934067420d": {
+    "request": "claude-sonnet-5:32e3dd934067420d",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Pour les extensions mentionnées aux points 3.1.8.3 à 3.1.8.6, le contrat exclut les dégâts occasionnés au bâtiment par un tel événement soudain en l'absence d'embrasement ou de commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Le Preneur d'assurance est défini par le contrat.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"Pour les extensions mentionnées aux points 3.1.8.3 à 3.1.8.6, le contrat exclut les dégâts occasionnés au bâtiment par un tel événement soudain en l'absence d'embrasement ou de commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p46:1\",\"quote\":\"les dégâts occasionnés au bâtiment par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l’absence d’embrasement ou de commencement d’incendie.\"}]},{\"claim_id\":\"c3\",\"text\":\"Le Preneur d'assurance est défini par le contrat.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p6:9\",\"quote\":\"1.3.1 Le Preneur d’assurance,\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWksadwcHTjGvBhrSzt",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7619,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 7619,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2893,
+        "output_tokens": 904,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
