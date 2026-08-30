@@ -129,8 +129,9 @@ async def test_neither_or_both_outcomes_is_a_validation_error_not_an_arbitrary_c
 @pytest.mark.parametrize("intent", ["meteo", "bavardage", "hors_perimetre"])
 async def test_une_intention_autonome_refusee_ne_peut_pas_devenir_une_clarification(
         intent: str) -> None:
+    clarification_privee = "SENTINELLE-CLARIFICATION-NEUTRALISEE-4-5"
     contradictoire = fake_message(text=_sortie(
-        intent=intent, question_resolue=None, clarification="Quel objet désignez-vous ?",
+        intent=intent, question_resolue=None, clarification=clarification_privee,
         terms=[], themes=[], facettes=[]), model=HAIKU)
     client, _ = _client([contradictoire])
 
@@ -138,9 +139,13 @@ async def test_une_intention_autonome_refusee_ne_peut_pas_devenir_une_clarificat
 
     assert isinstance(sortie, ParsedQuestion) and sortie.intent == intent
     assert sortie.question_resolue == "Sa demande complète concerne un autre sujet."
-    assert step.clarification_neutralisee == "Quel objet désignez-vous ?"
-    assert "clarification_neutralisee" not in step.model_dump()
+    assert step.clarification_neutralisee == clarification_privee
+    serialise = step.model_dump_json()
+    assert "clarification_neutralisee" not in serialise
+    assert clarification_privee not in serialise
+    assert all(clarification_privee not in check.detail for check in step.checks)
     assert [check.name for check in step.checks] == ["clarification_refus_neutralisee"]
+    assert step.checks[0].ok is False
     assert len(step.calls) == 1
 
 

@@ -294,6 +294,15 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     # Revue croisée 4.5, B1 : le périmètre tronqué retire l'autorité du classement
                     # `hors_perimetre`, pas l'irrésolution que le même appel a explicitement rendue.
                     # La question brute n'est donc jamais promue en entrée de recherche.
+                    if parsed.lang_fallback:
+                        # Même fait que sur la sortie `ClarificationRequise` ordinaire : la
+                        # clarification privée a été écrite avant le repli vers le français. La
+                        # servir exige donc de publier que sa langue n'est pas affirmable.
+                        step_comprendre.checks.append(CheckResult(
+                            name="clarification_langue_non_affirmee", ok=False,
+                            detail="la langue détectée n'est pas servie : la question de "
+                                   "clarification reste posée dans la langue de la question, la "
+                                   "réponse est en français"))
                     step_comprendre.checks.append(CheckResult(
                         name="clarification_retablie_perimetre_tronque", ok=False,
                         detail=f"le périmètre annoncé au modèle est tronqué ({PERIMETRE_TRONQUE}) : "

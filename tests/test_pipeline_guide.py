@@ -466,6 +466,13 @@ async def test_un_refus_autonome_contradictoire_est_normalise_puis_refuse_sans_r
     assert len(fake.requests) == 1 and "retrouver" not in [step.name for step in trace.steps]
     assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
     assert answer.clarification is None
+    comprendre = next(step for step in trace.steps if step.name == "comprendre")
+    (neutralisee,) = [
+        check for check in comprendre.checks
+        if check.name == "clarification_refus_neutralisee"
+    ]
+    assert neutralisee.ok is False
+    assert [check for check in comprendre.checks if check.name == "intention_expliquee"] == []
 
 
 async def test_a_clarification_short_circuits_and_is_carried_by_the_answer(index: Index) -> None:
@@ -1926,6 +1933,32 @@ async def test_un_perimetre_tronque_ne_desarme_pas_une_clarification_neutralisee
         "clarification_refus_neutralisee",
         "clarification_retablie_perimetre_tronque",
     ]
+    checks = {check.name: check for check in comprendre.checks}
+    assert checks["clarification_refus_neutralisee"].ok is False
+    assert checks["clarification_retablie_perimetre_tronque"].ok is False
+
+
+async def test_une_clarification_neutralisee_retablie_publie_le_repli_de_langue(
+        index: Index, perimetre_tronque) -> None:
+    """Le chemin privé publie la même divergence de langue qu'une clarification ordinaire."""
+    clarification = "¿De qué trámite habla?"
+    answer, trace, fake = await _run(
+        index,
+        [_comprendre("hors_perimetre", clarification=clarification, language="es")],
+        question="¿Y para este?",
+    )
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
+    assert answer.clarification == clarification
+    assert answer.lang == "fr" and answer.lang_fallback is True
+    comprendre = next(step for step in trace.steps if step.name == "comprendre")
+    assert [check.name for check in comprendre.checks] == [
+        "clarification_refus_neutralisee",
+        "clarification_langue_non_affirmee",
+        "clarification_retablie_perimetre_tronque",
+    ]
+    assert all(check.ok is False for check in comprendre.checks)
 
 
 async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(
