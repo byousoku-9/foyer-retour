@@ -137,16 +137,29 @@ GENERATIONS = ("a", "b")
 # n'en sont pas — personne ne les écrit, et les mettre dans le bundle en ferait un dépôt de sources.
 #
 # La liste est **nominale par artefact, jamais par document** : les répertoires de documents sont
-# découverts en listant `data/`, de sorte qu'aucun `doc_id` n'apparaisse ici.
+# découverts en listant le `data/` **du run**, de sorte qu'aucun `doc_id` n'apparaisse ici.
+#
+# Les noms sont donnés dans le repère qui leur convient, et pas dans un préfixe codé en dur : ceux du
+# `data/` sont relatifs à `data_dir`, ceux de `docs/` à la racine. Écrire `data/manifest.json` en dur
+# faisait poser, sous `--data-dir <autre>`, un `<racine>/data/manifest.json` qui n'a rien à voir avec
+# le run, et n'installait jamais `<autre>/manifest.json` — donc l'ingestion suivante refusait en lot
+# mixte, en désignant une cible que personne n'écrit.
 
-# Les surfaces de racine, écrites par le runner d'évals et l'enrichissement du dictionnaire.
-SURFACES_DE_RACINE = ("data/manifest.json", "data/dictionary.json", "data/evals-latest.json",
-                      "docs/evals/latest.md", "docs/evals/campagnes")
+# Les surfaces écrites dans le `data/` du run : le runner d'évals et l'enrichissement du dictionnaire.
+SURFACES_DE_DATA = ("manifest.json", "dictionary.json", "evals-latest.json")
+# Les surfaces écrites hors du `data/`, relatives à la racine : le rendu lisible et ses archives.
+SURFACES_HORS_DATA = ("docs/evals/latest.md", "docs/evals/campagnes")
 # Les artefacts qu'une ingestion publie dans le répertoire d'un document. `kb_to_blocks` et
 # `pdf_to_blocks` écrivent les trois premiers **au même lot** que le manifest ; `type_clauses` écrit
 # document et rapport et **retire** l'overlay dans ce même lot ; `structure.py` écrit la proposition
 # de structure, dont l'empreinte entre au manifest ; `enrich_dictionary` écrit le dictionnaire d'un
 # contrat. Une cible absente est un lien pendant, c'est-à-dire une absence (fermeture B6).
+#
+# `typing.manual.json` est le cas à part, et il est nommé plutôt que caché : c'est une **entrée**
+# écrite à la main, dont seule la **suppression** appartient au pipeline (`type_clauses` la retire
+# dans le lot qu'il publie). Elle est donc couverte parce que cette suppression doit être membre du
+# lot — pas parce qu'un écrivain la publie. La conséquence pour un opérateur est réelle et se dit :
+# poser un overlay se fait *par la racine*, et la procédure est écrite dans `docs/evals/harness.md`.
 ARTEFACTS_DE_DOCUMENT = ("document.json", "summary.md", "report.json", "structure.json",
                          "typing.manual.json", "dictionary.json")
 # Les **entrées** d'un document : elles ne sont jamais publiées, et servent seulement à reconnaître
@@ -157,15 +170,28 @@ SOURCES_DE_DOCUMENT = ("source.js", "source.pdf", "source.url", "source.sha256")
 def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
     """Toutes les cibles que la racine doit couvrir, relatives à `racine`.
 
-    L'énumération est **structurelle** : un répertoire de `data/` est celui d'un document s'il porte
-    au moins une source ou un artefact d'ingestion — ce qui exclut d'office l'espace lui-même et les
-    caches, sans avoir à les nommer. Poser un document neuf, c'est donc reposer la disposition — un
-    geste d'opérateur, idempotent, jamais atteint depuis une bascule.
+    L'énumération est **structurelle** : un répertoire du `data/` du run est celui d'un document s'il
+    porte au moins une source ou un artefact d'ingestion — ce qui exclut d'office l'espace lui-même
+    et les caches, sans avoir à les nommer. Poser un document neuf, c'est donc reposer la
+    disposition — un geste d'opérateur, idempotent, jamais atteint depuis une bascule.
+
+    Les deux familles de surfaces vivent dans leur propre repère : celles du `data/` sont relatives à
+    `data_dir`, celles de `docs/` à la racine. Un `data_dir` qui n'est pas sous la racine n'a pas de
+    disposition possible — aucun pointeur ne peut couvrir les deux —, et c'est dit (`LotHorsEspace`)
+    plutôt que résolu par un préfixe deviné.
     """
     racine = Path(racine)
     data = Path(data_dir) if data_dir is not None else racine / "data"
-    cibles = [Path(relatif) for relatif in SURFACES_DE_RACINE]
-    relatif_data = data.relative_to(racine) if data.is_absolute() else Path(data)
+    try:
+        relatif_data = Path(os.path.relpath(os.path.abspath(data), os.path.abspath(racine)))
+        if relatif_data.is_absolute() or relatif_data.parts[:1] == ("..",):
+            raise ValueError(relatif_data)
+    except ValueError as exc:
+        raise LotHorsEspace(
+            f"{data} : le répertoire de données est hors de la racine {racine} — aucun pointeur ne "
+            "peut couvrir à la fois ses surfaces et celles de `docs/`") from exc
+    cibles = [relatif_data / nom for nom in SURFACES_DE_DATA]
+    cibles += [Path(relatif) for relatif in SURFACES_HORS_DATA]
     if data.is_dir():
         for entree in sorted(data.iterdir()):
             if not entree.is_dir() or entree.name.startswith("."):
@@ -510,16 +536,24 @@ class EspacePublie:
         if publiee == transaction.suivante:
             return
         poubelle: Path | None = None
+        sorti = False
         try:
             poubelle = Path(tempfile.mkdtemp(prefix=f".{transaction.suivante}.abandonne.",
                                              suffix=".tmp", dir=self.chemin))
             os.rename(self.chemin / transaction.suivante, poubelle / transaction.suivante)
+            sorti = True
         except OSError:
             pass
-        try:
-            transaction.marque.unlink()
-        except OSError:
-            pass
+        # **La marque ne tombe que si le brouillon est réellement sorti de son emplacement.** La
+        # retirer inconditionnellement était un aveuglement de la même famille que celui du fait 4 :
+        # quand `mkdtemp` ou le `rename` échouent, la génération inactive reste **mêlée** sous son
+        # nom `a`/`b` — mi-ancien miroir, mi-nouveau lot — et sans marque plus rien ne la distingue
+        # d'un bundle complet. Tant qu'elle est là, elle est vue par `residus()`.
+        if sorti:
+            try:
+                transaction.marque.unlink()
+            except OSError:
+                pass
         if poubelle is not None:
             shutil.rmtree(poubelle, ignore_errors=True)
 
@@ -572,6 +606,25 @@ class Transaction:
         # première écriture, donc jamais faux dans le sens dangereux : au pire il fait jeter une
         # génération inactive qui était intacte, ce qui ne coûte qu'un miroir à refaire.
         self.prepare = False
+        # Une transaction publie **une fois**. `courante` et `suivante` sont figées à la
+        # construction : après un commit acquis, le pointeur désigne `suivante`, et un second
+        # `publier` reconstruirait cette même `suivante` — c'est-à-dire `rmtree` sur la génération
+        # que le pointeur publie, toutes les cibles pendantes le temps du miroir, puis un retour à
+        # l'état d'avant le premier commit, sans la moindre erreur. `publier` refuse déjà l'abus
+        # moindre (deux cibles au même slot) ; il refuse celui-ci de la même façon, et avant de
+        # toucher quoi que ce soit.
+        self.publiee = False
+
+    def chemin_publie(self, cible: Path) -> Path:
+        """Le slot **publié** d'une cible du lot, dans le repère de la transaction.
+
+        Un appelant qui doit lire autre chose que des octets — l'horodatage d'un rendu à archiver,
+        par exemple — a besoin du chemin, pas du contenu. Le lui donner ici, sous le verrou, est ce
+        qui empêche qu'il aille l'observer à travers le lien, où une bascule concurrente peut
+        déplacer le sol entre sa lecture et son commit.
+        """
+        self.espace.verifier_lot([cible])
+        return self.espace.chemin / self.courante / self.espace.slot(cible)
 
     def lire(self, cible: Path) -> str | None:
         """Le contenu **publié** d'une cible du lot, lu sous le verrou. `None` si elle est absente.
@@ -580,10 +633,8 @@ class Transaction:
         c'est le même octet, mais dit dans le repère de la transaction. C'est cette lecture-là —
         et non celle que l'appelant aurait faite avant d'entrer — qui rend la fusion sûre.
         """
-        self.espace.verifier_lot([cible])
-        chemin = self.espace.chemin / self.courante / self.espace.slot(cible)
         try:
-            return chemin.read_text(encoding="utf-8")
+            return self.chemin_publie(cible).read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
 
@@ -610,7 +661,17 @@ class Transaction:
         Toute exception avant 3 laisse le brouillon à l'abandon et **aucune cible modifiée**. Toute
         exception pendant ou après 3 : le `rename` a eu lieu ou n'a pas eu lieu, et c'est le
         **pointeur sur disque** qui le dit — le gestionnaire de `transaction()` en tire la suite.
+
+        **Une fois par transaction**, et le refus vient avant toute écriture : republier dans la
+        même transaction reconstruirait la génération que le pointeur vient de publier et défairait
+        le commit précédent en silence.
         """
+        if self.publiee:
+            raise LotHorsEspace(
+                "cette transaction a déjà publié : une transaction a un seul point de commit, et "
+                "republier reconstruirait la génération que le pointeur publie — ouvrir une "
+                "nouvelle transaction, ou remettre tout le lot au même appel")
+        self.publiee = True
         cibles = [cible for cible, _contenu in lot]
         self.espace.verifier_lot(cibles)
         # Deux cibles qui partagent un slot rendraient la bascule ambiguë — laquelle gagne ? Le
