@@ -326,10 +326,14 @@ def test_la_cli_ecrit_un_plan_deterministe_sans_reseau(tmp_path: Path,
     sortie = tmp_path / "plan.json"
     # L'index est doublé par celui de ce module : la commande lit le **corpus servi**, jamais le
     # réseau. C'est le seul point qu'un test hors ligne ne peut pas fournir sur disque ici.
-    monkeypatch.setattr(
-        module, "plan_de_relecture",
-        lambda _index, blocs, *, candidate_revision: plan_de_relecture(
-            _index_de_test(), blocs, candidate_revision=candidate_revision))
+    planifications: list[str] = []
+
+    def planifier(_index: Any, blocs: Any, *, candidate_revision: str) -> PlanRelecture:
+        planifications.append(candidate_revision)
+        return plan_de_relecture(
+            _index_de_test(), blocs, candidate_revision=candidate_revision)
+
+    monkeypatch.setattr(module, "plan_de_relecture", planifier)
     # Story 4.5, N3 : `relecture` est un entrypoint de lecture de production ; il exige une racine
     # **installée** et refuse avant toute lecture sinon. La disposition se pose ici, comme un
     # opérateur la pose — l'index reste doublé, et aucune attente de ce test ne change.
@@ -351,6 +355,8 @@ def test_la_cli_ecrit_un_plan_deterministe_sans_reseau(tmp_path: Path,
     poser_espace(tmp_path, data_dir=data_second)
     assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
                          "--data-dir", str(data_second), "--out", str(sortie)]) == 0
+    assert planifications == [REVISION, REVISION], (
+        "les deux codes 0 doivent venir de deux planifications effectives")
     assert sortie.read_bytes() == octets_premier
 
 
