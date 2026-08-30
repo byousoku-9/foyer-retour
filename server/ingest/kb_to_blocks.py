@@ -26,7 +26,7 @@ from server.app.domain.profil import PROFIL_KEYS
 from server.app.domain import (Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, ParcoursCondition, Report,
                                Source)
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash, read_manifest,
-                                     structure_hash, write_atomic)
+                                     structure_hash)
 from server.ingest.jsobject import parse_js_object
 from server.ingest.report import attester_arbre, build_report, report_from_validation_error
 
@@ -298,7 +298,11 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     """Ingère `data_dir/source.js` ; toute erreur de source devient un check bloquant, jamais une trace Python."""
     manifest_path = data_dir.parent / "manifest.json"
     try:
-        raw_manifest = read_manifest(manifest_path)
+        # **Préflight seulement** : cette lecture refuse tôt un manifest illisible, avec un rapport
+        # bloquant plutôt qu'une trace Python. Ce n'est **pas** l'état dont la fusion part — celui-là
+        # est relu sous le verrou de la racine par `fusionner_et_publier` (tour de racine unique,
+        # fait 2), sans quoi une ingestion concurrente publiée pendant le traitement serait écrasée.
+        read_manifest(manifest_path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         detail = f"{manifest_path} illisible, rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
         report = Report(doc_id=DOC_ID, checks=[Check(name="manifest_illisible", level="bloquant", detail=detail)])
@@ -324,14 +328,19 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
         report = Report(doc_id=DOC_ID, checks=[Check(name="source_illisible", level="bloquant", detail=detail)])
     status = "quarantaine" if report.blocking else "servi"
     document_hash = ""
+    # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici, puis
+    # publié en un seul geste avec le manifest. Écrire `document.json` et `summary.md` tout de
+    # suite, comme avant, faisait autant de points de commit que d'artefacts : un échec au manifest
+    # laissait deux artefacts neufs devant une entrée périmée. Une absence est membre du lot au
+    # même titre qu'un contenu — `None` retire l'artefact, et jamais un artefact périmé ne reste à
+    # côté d'un manifest en quarantaine.
+    artefacts: list[tuple[Path, str | None]] = []
     if doc is not None and not report.blocking:
         doc_text = document_json(doc)
-        write_atomic(data_dir / "document.json", doc_text)
-        write_atomic(data_dir / "summary.md", summary)
+        artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
         document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
     else:
-        for stale in ("document.json", "summary.md"):  # jamais un artefact périmé à côté d'un manifest en quarantaine
-            (data_dir / stale).unlink(missing_ok=True)
+        artefacts += [(data_dir / "document.json", None), (data_dir / "summary.md", None)]
     fingerprint = ingest_fingerprint()
     # Story 4.5 (revue B4, volet guide) : quand l'arbre a réellement été construit et écrit, le
     # rapport **atteste** de quoi il parle — `document_hash` et `ingest_fingerprint` observés. C'est
@@ -339,13 +348,15 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     # `structure.json` : sans elle, un `report.json` portant `invariants_arbre: ok` (la forme
     # historique, sans empreinte) suffirait à faire verdir le témoin du gate `full`.
     report = attester_arbre(report, document_hash=document_hash, ingest_fingerprint=fingerprint)
-    write_atomic(data_dir / "report.json", json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n")
-    entry = merge_manifest(manifest_path, raw_manifest, DOC_ID,
+    artefacts.append((data_dir / "report.json",
+                      json.dumps(report.model_dump(), indent=2, ensure_ascii=False) + "\n"))
+    entry = merge_manifest(manifest_path, DOC_ID,
                             ManifestEntry(status=status, source_hash=source_hash, ingest_fingerprint=fingerprint,
                                           document_hash=document_hash, edition=edition,
                                           overlay_hash=overlay_hash(data_dir),
                                           # Story 4.5 : couverte par le manifest comme l'overlay.
-                                          structure_hash=structure_hash(data_dir), gate=None))
+                                          structure_hash=structure_hash(data_dir), gate=None),
+                            artefacts=artefacts)
     return report, entry
 
 

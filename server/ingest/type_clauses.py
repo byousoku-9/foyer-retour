@@ -35,7 +35,8 @@ from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, 
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
-from server.ingest.artifacts import document_json, merged_manifest, read_manifest, structure_hash
+from server.ingest.artifacts import (document_json, fusionner_et_publier, publier_artefacts, read_manifest,
+                                     structure_hash)
 from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
                                   pages_charabia)
 
@@ -1067,30 +1068,31 @@ def _check_migration(doc: Document, expected: dict[str, dict[str, Any]]) -> None
 
 
 def _atomic_artifacts(files: dict[Path, str], delete: list[Path]) -> None:
-    """Prépare tous les temporaires, puis remplace; restaure les octets d'entrée sur toute erreur."""
-    originals = {path: path.read_bytes() if path.is_file() else None for path in [*files, *delete]}
-    temps: dict[Path, Path] = {}
-    try:
-        for path, text in files.items():
-            temp = path.with_name(path.name + ".typing.tmp")
-            temp.write_text(text, "utf-8")
-            temps[path] = temp
-        for path, temp in temps.items():
-            os.replace(temp, path)
-        for path in delete:
-            path.unlink(missing_ok=True)
-    except Exception:
-        for path, content in originals.items():
-            if content is None:
-                path.unlink(missing_ok=True)
-            else:
-                restore = path.with_name(path.name + ".typing.restore")
-                restore.write_bytes(content)
-                os.replace(restore, path)
-        raise
-    finally:
-        for temp in temps.values():
-            temp.unlink(missing_ok=True)
+    """Publie le lot **complet** de l'opération de typage — d'un seul geste, par la racine.
+
+    Story 4.5, tour de racine unique, fait 1. Cette fonction faisait `os.replace(temp, path)` sur
+    chacune de ses cibles, `data/manifest.json` compris : sur un manifest couvert par une racine de
+    publication, cela **remplaçait le lien statique par un fichier ordinaire** et sortait le
+    manifest du pointeur pour de bon — la destruction exacte que la docstring de `write_atomic`
+    décrit comme « une seule fois suffirait », par un chemin qui n'appelle pas `write_atomic`.
+
+    Et sa restauration séquentielle — relire les octets d'entrée, puis les réécrire cible par cible
+    sur `except Exception` — est précisément la forme que les tours correctifs 1/3 et 2/3 ont
+    refusée pour les évals : un protocole qui *défait* ce qu'il a déjà fait n'est pas tout-ou-rien,
+    il admet qu'après épuisement une cible reste dans le nouvel état. Elle ne pouvait pas rester la
+    forme de l'ingestion.
+
+    Le lot est donc remis **entier** — les fichiers écrits *et* la suppression de l'overlay — à
+    `publier_artefacts`, qui le bascule par la racine quand elle en couvre les cibles (même
+    `flock`, même génération inactive, même unique `os.replace` du pointeur) et garde le chemin
+    d'avant quand aucune racine ne les couvre. Une suppression est membre du lot au même titre
+    qu'une écriture : sans cela, retirer l'overlay resterait un `unlink` à un rang où une exception
+    laisserait l'un fait et l'autre non.
+
+    Le typage continue de faire exactement ce qu'il faisait ; ce qui change est le chemin
+    d'écriture.
+    """
+    publier_artefacts([*files.items(), *((path, None) for path in delete)])
 
 
 def _load(doc_dir: Path) -> tuple[Document, Report, dict[str, Any], ManifestEntry, dict[str, dict[str, Any]]]:
@@ -1464,12 +1466,16 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         structure_hash=structure_courante,
         gate=None,
     )
-    manifest_text, merged_entry = merged_manifest(raw_manifest, doc.doc_id, new_entry)
-    _atomic_artifacts(
-        {doc_dir / "document.json": doc_text, doc_dir / "report.json": report_text,
-         doc_dir.parent / "manifest.json": manifest_text},
-        [doc_dir / "typing.manual.json"],
-    )
+    # Tour de racine unique, fait 2 : le manifest est **relu et fusionné sous le verrou** de la
+    # racine, jamais depuis le `raw_manifest` que `_load` avait lu au début de l'opération — le
+    # typage dure des minutes, et une ingestion concurrente publiée entre-temps était écrasée par
+    # cette fusion périmée. Le lot complet du typage — document, rapport, manifest et le retrait de
+    # l'overlay — bascule au même appel.
+    merged_entry = fusionner_et_publier(
+        doc_dir.parent / "manifest.json", doc.doc_id, new_entry,
+        artefacts=[(doc_dir / "document.json", doc_text),
+                   (doc_dir / "report.json", report_text),
+                   (doc_dir / "typing.manual.json", None)])
     return TypingResult(document=typed, report=typed_report, entry=merged_entry,
                         cost_eur=total_cost,
                         first_requests=len(first_plans), second_requests=len(second_plans),

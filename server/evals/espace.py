@@ -49,10 +49,30 @@ Deux conséquences, toutes deux mécaniques :
 - **l'état réel du pointeur sur disque est la seule autorité** du chemin de nettoyage. Un drapeau
   Python posé après le `os.replace` peut être coupé par une interruption à cette frontière
   d'instruction précise ; le gestionnaire relit donc `courant` au lieu de se croire ;
-- **rien de ce qui suit le commit ne peut lever** : le `fsync` du répertoire de l'espace et le
-  retrait du lien temporaire sont exécutés en absorbant toute exception, `BaseException` comprise.
-  Une interruption arrivée là est **absorbée**, parce que la transaction est acquise et que
-  l'annuler est impossible ; c'est dit ici plutôt que tu.
+- **rien de ce qui suit le commit ne peut lever** : le `fsync` du répertoire de l'espace, le
+  retrait du lien temporaire **et la sortie de la section critique** — `flock(LOCK_UN)`, `close`,
+  et tout ce que l'appelant exécute encore dans le `with` — sont exécutés en absorbant toute
+  exception, `BaseException` comprise. Une interruption arrivée là est **absorbée**, parce que la
+  transaction est acquise et que l'annuler est impossible ; c'est dit ici plutôt que tu.
+
+La frontière post-commit ne s'arrête donc pas au `return` de `publier` : elle court jusqu'à la
+sortie de la section critique (tour de racine unique, fait 3). Le verrou est pris et rendu **à la
+main**, sans `with`, précisément pour que sa libération tombe du bon côté de cette frontière ; un
+`with _verrou(...)` interne rendait le `__exit__` inaccessible au gestionnaire et laissait
+`OSError` ou `KeyboardInterrupt` remonter avec le lot déjà publié. Symétriquement, une exception
+de verrou **avant** le commit continue de remonter et laisse zéro cible modifiée.
+
+## La transaction : lire, fusionner, publier sous le même verrou
+
+`transaction()` est la seule API d'écriture de l'espace, et elle tient **toute** la séquence sous
+un unique `flock` : la lecture d'une cible du lot, la fusion que l'appelant en tire, et la
+publication. C'est ce qui ferme la **mise à jour perdue** (tour de racine unique, fait 2) : un
+écrivain qui lisait le manifest avant de prendre le verrou fusionnait un état périmé et écrasait
+la publication d'un concurrent, quand bien même chaque commit était sérialisé. Sérialiser les
+commits ne suffit jamais si la lecture est dehors.
+
+Il n'existe **aucune voie d'écriture sans verrou** : pas de paramètre, pas de défaut permissif,
+pas de constructeur privé. `basculer` n'est qu'une transaction d'un seul appel.
 
 Non garanti, et écrit plutôt que tu : un `SIGKILL` ou une coupure matérielle **pendant**
 l'unique `rename(2)` relève du système de fichiers, pas de l'espace utilisateur. `rename(2)` est
@@ -66,6 +86,17 @@ ici pour ne pas laisser croire qu'il est couvert. Non garanti enfin : l'abandon 
 aucune cible — et jamais, en aucun cas, la génération que le pointeur publie — mais il peut laisser
 une génération inactive à moitié effacée. C'est un résidu **visible** (`residus()`), pas un état
 mêlé : la bascule suivante la reconstruit de zéro.
+
+## Le brouillon est toujours détectable
+
+Un brouillon incomplet ne doit **jamais** être indiscernable d'un bundle complet — ni pour
+`residus()`, ni pour `_reconstruire`, ni pour un opérateur (tour de racine unique, fait 4). Une
+**marque** en `.tmp` est donc posée dans l'espace avant la première écriture du brouillon et
+retirée quand il est complet et `fsync`é ; tant qu'elle est là, la génération qu'elle nomme est en
+cours de construction. Elle survit à l'abandon prudent : quand le pointeur est **indécidable**,
+`_abandonner` ne détruit rien (une génération publiée effacée rendrait toutes les cibles
+pendantes) mais repose la marque, de sorte que le brouillon laissé sous son nom `a`/`b` soit vu.
+`_reconstruire`, lui, n'a jamais à s'y fier : il efface et rebâtit la génération inactive de zéro.
 
 ## Spine
 
@@ -83,7 +114,7 @@ import fcntl
 import os
 import shutil
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
 # Le bundle vit sous `data/` parce que c'est ce que l'image copie (`Dockerfile` : `COPY server data
@@ -96,6 +127,54 @@ VERROU = ".verrou"
 # rendus Markdown, les archives de campagne) : les suivre toutes les deux dans git coûte quelques
 # kilo-octets et évite une génération par run, qui ferait croître le dépôt sans borne.
 GENERATIONS = ("a", "b")
+
+# --- la disposition du dépôt : ce que la racine couvre ----------------------------------------------
+#
+# Tour de racine unique. Une racine n'a d'autorité que sur les cibles qu'elle couvre : un artefact
+# publié hors du pointeur est écrit à son propre rang, donc l'opération qui l'écrit avec d'autres
+# n'est pas tout-ou-rien. La règle est donc **tout ce qu'un écrivain de production publie**, et rien
+# d'autre : les *entrées* (`source.js`, `source.pdf`, `source.url`, `source.sha256`, `README.md`)
+# n'en sont pas — personne ne les écrit, et les mettre dans le bundle en ferait un dépôt de sources.
+#
+# La liste est **nominale par artefact, jamais par document** : les répertoires de documents sont
+# découverts en listant `data/`, de sorte qu'aucun `doc_id` n'apparaisse ici.
+
+# Les surfaces de racine, écrites par le runner d'évals et l'enrichissement du dictionnaire.
+SURFACES_DE_RACINE = ("data/manifest.json", "data/dictionary.json", "data/evals-latest.json",
+                      "docs/evals/latest.md", "docs/evals/campagnes")
+# Les artefacts qu'une ingestion publie dans le répertoire d'un document. `kb_to_blocks` et
+# `pdf_to_blocks` écrivent les trois premiers **au même lot** que le manifest ; `type_clauses` écrit
+# document et rapport et **retire** l'overlay dans ce même lot ; `structure.py` écrit la proposition
+# de structure, dont l'empreinte entre au manifest ; `enrich_dictionary` écrit le dictionnaire d'un
+# contrat. Une cible absente est un lien pendant, c'est-à-dire une absence (fermeture B6).
+ARTEFACTS_DE_DOCUMENT = ("document.json", "summary.md", "report.json", "structure.json",
+                         "typing.manual.json", "dictionary.json")
+# Les **entrées** d'un document : elles ne sont jamais publiées, et servent seulement à reconnaître
+# un répertoire de document d'un cache ou de l'espace lui-même, sans nommer aucun `doc_id`.
+SOURCES_DE_DOCUMENT = ("source.js", "source.pdf", "source.url", "source.sha256")
+
+
+def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
+    """Toutes les cibles que la racine doit couvrir, relatives à `racine`.
+
+    L'énumération est **structurelle** : un répertoire de `data/` est celui d'un document s'il porte
+    au moins une source ou un artefact d'ingestion — ce qui exclut d'office l'espace lui-même et les
+    caches, sans avoir à les nommer. Poser un document neuf, c'est donc reposer la disposition — un
+    geste d'opérateur, idempotent, jamais atteint depuis une bascule.
+    """
+    racine = Path(racine)
+    data = Path(data_dir) if data_dir is not None else racine / "data"
+    cibles = [Path(relatif) for relatif in SURFACES_DE_RACINE]
+    relatif_data = data.relative_to(racine) if data.is_absolute() else Path(data)
+    if data.is_dir():
+        for entree in sorted(data.iterdir()):
+            if not entree.is_dir() or entree.name.startswith("."):
+                continue
+            noms = {chemin.name for chemin in entree.iterdir()}
+            if not (noms & set(ARTEFACTS_DE_DOCUMENT)) and not (noms & set(SOURCES_DE_DOCUMENT)):
+                continue
+            cibles += [relatif_data / entree.name / nom for nom in ARTEFACTS_DE_DOCUMENT]
+    return cibles
 
 
 class EspaceNonInstalle(Exception):
@@ -259,76 +338,94 @@ class EspacePublie:
         par_le_pointeur = self.chemin / POINTEUR / self.slot(brute)
         os.symlink(os.path.relpath(par_le_pointeur, cible.parent), cible)
 
-    # --- la bascule -------------------------------------------------------------------------------
+    # --- la transaction et la bascule ---------------------------------------------------------------
 
-    def basculer(self, lot: Sequence[tuple[Path, str]]) -> None:
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[Transaction]:
+        """Ouvre la section critique de l'espace : lire, fusionner, publier sous **un seul** `flock`.
+
+        C'est l'unique API d'écriture. Elle existe parce que sérialiser les commits ne suffit pas :
+        un écrivain qui lit le manifest **avant** le verrou fusionne un état périmé et écrase la
+        publication d'un concurrent — la mise à jour perdue que le tour de racine unique ferme
+        (fait 2). La lecture (`Transaction.lire`), la fusion faite par l'appelant et la publication
+        (`Transaction.publier`) vivent donc toutes trois dans le même `with`.
+
+        Le verrou est pris et rendu **à la main**, sans `with` interne, pour que sa libération
+        tombe du bon côté de la frontière post-commit (fait 3) : une fois le pointeur remplacé,
+        `flock(LOCK_UN)` et `close` ne peuvent plus faire remonter quoi que ce soit. Avant le
+        commit, au contraire, une exception de verrou remonte et laisse zéro cible modifiée.
+
+        L'autorité du chemin de sortie est toujours le **pointeur sur disque**, jamais un drapeau
+        Python qu'une interruption pourrait couper à la frontière d'instruction qui suit
+        `os.replace`.
+
+        La génération courante elle-même est lue **sous le verrou**, et c'est la même règle que
+        celle qui vaut pour le manifest : une lecture faite avant le verrou est périmée dès qu'un
+        concurrent bascule. Ici la mise à jour perdue serait pire qu'une entrée écrasée — un
+        écrivain parti d'une génération périmée prendrait pour « inactive » la génération que le
+        pointeur publie, la reconstruirait de zéro et la republierait, c'est-à-dire muterait la
+        génération active tout en effaçant la publication du concurrent.
+        """
+        # Avant toute chose et **hors du verrou** : un espace non installé refuse sans rien créer.
+        # `_verrou` crée son répertoire parent ; le laisser faire poserait un `.publie/` là où il
+        # n'y en a pas, sur le seul fait qu'un appelant s'est trompé de racine. Ce n'est qu'un
+        # préflight : la lecture dont la transaction part est refaite ci-dessous, sous le verrou.
+        _lire_pointeur(self.chemin)
+        verrou = _verrou(self.chemin)
+        verrou.__enter__()
+        transaction: Transaction | None = None
+        try:
+            try:
+                transaction = Transaction(self, _lire_pointeur(self.chemin))
+                yield transaction
+            except BaseException:
+                if transaction is not None and self._generation_publiee() == transaction.suivante:
+                    # Le commit est acquis : le lot entier est publié, l'opération a réussi.
+                    # Propager rendrait « publié » et « échoué » vrais en même temps.
+                    self._apres_le_commit(transaction, verrou)
+                    return
+                try:
+                    if transaction is not None:
+                        self._abandonner(transaction)
+                finally:
+                    # La cause d'origine prime : une `OSError` de déverrouillage ne doit pas la
+                    # masquer. C'est le seul cas où une exception de verrou d'avant-commit ne
+                    # remonte pas — elle remonterait *à la place* de ce qui a réellement fait
+                    # échouer la transaction.
+                    with contextlib.suppress(BaseException):
+                        verrou.__exit__()
+                raise
+            if self._generation_publiee() == transaction.suivante:
+                self._apres_le_commit(transaction, verrou)
+                return
+            # Rien n'a été publié : le brouillon est jeté, et une exception de verrou remonte telle
+            # quelle — il n'y a pas de lot basculé qu'elle pourrait contredire.
+            self._abandonner(transaction)
+            verrou.__exit__()
+        finally:
+            # **La section critique est rendue quoi qu'il arrive.** Un `KeyboardInterrupt` levé
+            # pendant l'abandon du brouillon est délibérément laissé remonter (l'appelant doit voir
+            # l'interruption) ; sans ce filet, il sortirait en laissant le `flock` tenu, et tout
+            # écrivain ultérieur du processus — y compris la sonde qui vérifie l'état — bloquerait
+            # pour toujours. Fermer le descripteur suffit à rendre le verrou.
+            verrou.fermer()
+
+    def basculer(self, lot: Sequence[tuple[Path, str | None]]) -> None:
         """Publie **tout** le lot, ou rien du tout, par un unique `os.replace`.
 
-        `lot` est une suite de `(cible, contenu)` remise **au même appel** : le lot est l'ensemble
-        complet des cibles qu'implique l'opération, `data/manifest.json` compris. Aucune cible n'en
-        est retirée, et il n'existe pas de variante « une seule cible » qui supprimerait le rang où
-        échouer.
+        Une transaction d'un seul appel — la forme courte de `transaction()`, pour un écrivain qui
+        n'a rien à relire avant de publier. `lot` est une suite de `(cible, contenu)` remise **au
+        même appel** : le lot est l'ensemble complet des cibles qu'implique l'opération,
+        `data/manifest.json` compris. Aucune cible n'en est retirée, et il n'existe pas de variante
+        « une seule cible » qui supprimerait le rang où échouer.
 
-        Déroulé, et pourquoi chaque étape est là :
-
-        1. **Vérifier** que chaque cible est résolue par le pointeur. Rien n'est touché ; un refus
-           ici est un refus avant écriture.
-        2. **Verrouiller** l'espace (`flock`). Le ping-pong à deux générations n'est sûr que sous
-           verrou : deux runs concurrents choisiraient sinon la même génération inactive et le
-           pointeur publierait un mélange. C'est la dette `target_story: 4.1` (« deux écrivains de
-           `data/` à réunir »), payée ici parce que la forme l'exige.
-        3. **Construire** la génération inactive : elle est d'abord un miroir en liens **durs** de
-           la génération courante — les surfaces que ce lot ne réécrit pas gardent leur contenu —
-           puis les slots du lot y sont écrits, `fsync` compris. Rien de tout cela n'est une cible :
-           `courant` pointe toujours sur l'ancienne génération, donc l'état observable du lot est
-           inchangé, à chaque frontière d'instruction.
-        4. **Basculer** : un `os.replace` d'un lien symbolique sur `courant`. C'est l'atome.
-
-        Toute exception avant 4 laisse la génération inactive à l'abandon (elle est jetée par
-        `_abandonner`) et **aucune cible modifiée**. Toute exception pendant ou après 4 : le
-        `rename` a eu lieu ou n'a pas eu lieu, et c'est le **pointeur sur disque** qui le dit, pas
-        un drapeau Python. S'il a eu lieu, l'opération a réussi et rien n'est propagé (frontière
-        post-commit) ; sinon, rien n'est publié et la cause remonte.
+        Un `contenu` à `None` **supprime** la cible : son slot est absent de la génération publiée,
+        donc son lien devient pendant, donc elle est absente pour tout lecteur (fermeture B6). Une
+        suppression est ainsi membre du lot au même titre qu'une écriture — c'est ce qui permet à
+        l'opération de typage de retirer son overlay dans le même geste qu'elle publie le reste.
         """
-        cibles = [cible for cible, _contenu in lot]
-        self.verifier_lot(cibles)
-        # Deux cibles qui partagent un slot rendraient la bascule ambiguë — laquelle gagne ? Le
-        # refus est dit plutôt que résolu par l'ordre d'itération.
-        slots = [str(self.slot(cible)) for cible in cibles]
-        if len(set(slots)) != len(slots):
-            raise LotHorsEspace(
-                f"deux cibles du lot partagent un slot : {sorted(slots)} — un lot ne publie pas "
-                "deux contenus au même chemin")
-        with _verrou(self.chemin):
-            courante = self.generation()
-            suivante = GENERATIONS[1] if courante == GENERATIONS[0] else GENERATIONS[0]
-            racine_suivante = self.chemin / suivante
-            lien_tmp = self.chemin / f".{POINTEUR}.{os.getpid()}.tmp"
-            try:
-                _reconstruire(self.chemin / courante, racine_suivante)
-                for cible, contenu in lot:
-                    _ecrire_dans_bundle(racine_suivante / self.slot(cible), contenu)
-                _fsync_repertoire(racine_suivante)
-                lien_tmp.unlink(missing_ok=True)
-                os.symlink(suivante, lien_tmp)
-                # --- L'ATOME. Un seul `rename(2)`, dans un seul répertoire, sur une entrée qui
-                # existe déjà. Avant lui, les cibles se résolvent toutes dans `courante` ; après,
-                # toutes dans `suivante`. Il n'y a pas de frontière entre les deux.
-                os.replace(lien_tmp, self.pointeur)
-            except BaseException:
-                # **Le pointeur sur disque est la seule autorité** (tour correctif 3/3). Noter le
-                # succès dans une variable Python ne marche pas : `KeyboardInterrupt` peut tomber
-                # entre le `os.replace` réussi et l'affectation qui suit, et le gestionnaire
-                # détruirait alors la génération **devenue active** — trois cibles publiées puis
-                # rendues pendantes, une destruction et non un état mêlé.
-                if self._generation_publiee() == suivante:
-                    # Le commit est acquis : le lot entier est publié, l'opération a réussi.
-                    # Propager ici rendrait une exception avec tout le lot déjà basculé.
-                    self._apres_le_commit(lien_tmp)
-                    return
-                self._abandonner(suivante, lien_tmp)
-                raise
-            self._apres_le_commit(lien_tmp)
+        with self.transaction() as transaction:
+            transaction.publier(lot)
 
     # --- la frontière post-commit ------------------------------------------------------------------
 
@@ -345,21 +442,32 @@ class EspacePublie:
             return None
         return cible if cible in GENERATIONS else None
 
-    def _apres_le_commit(self, lien_tmp: Path) -> None:
+    def _apres_le_commit(self, transaction: Transaction, verrou: _verrou) -> None:
         """Tout ce qui suit le point de commit, et qui ne peut donc **jamais** lever.
 
         Le lot est publié : une exception propagée ici serait une exception avec le lot déjà
         basculé. Le `fsync` du répertoire rend l'entrée durable — son échec (`EIO`) coûte de la
-        durabilité, jamais l'atomicité — et le retrait du lien temporaire n'a plus d'objet, le
-        `rename` l'ayant consommé. Les deux sont donc absorbés, `BaseException` comprise : une
-        interruption arrivée après le commit ne peut plus annuler quoi que ce soit.
+        durabilité, jamais l'atomicité —, le retrait du lien temporaire n'a plus d'objet (le
+        `rename` l'a consommé), et la **sortie de la section critique** — `flock(LOCK_UN)` puis
+        `close` — n'a plus rien à protéger. Les trois sont donc absorbés, `BaseException` comprise :
+        une interruption arrivée après le commit ne peut plus annuler quoi que ce soit.
+
+        Le déverrouillage est ici, et pas dans un `with`, parce que c'est précisément là qu'il
+        appartient : `_verrou.__exit__` pouvait faire remonter `OSError` ou `KeyboardInterrupt`
+        avec le lot déjà publié (tour de racine unique, fait 3). Fermer le descripteur suffit de
+        toute façon à rendre le `flock` ; ce qui reste au-delà est du nettoyage, pas de la
+        correction.
         """
         with contextlib.suppress(BaseException):
-            lien_tmp.unlink()
+            transaction.lien_tmp.unlink()
+        with contextlib.suppress(BaseException):
+            transaction.marque.unlink()
         with contextlib.suppress(BaseException):
             _fsync_repertoire(self.chemin)
+        with contextlib.suppress(BaseException):
+            verrou.__exit__()
 
-    def _abandonner(self, generation: str, lien_tmp: Path) -> None:
+    def _abandonner(self, transaction: Transaction) -> None:
         """Jette le brouillon — et **jamais** ce que le pointeur publie.
 
         Le lien temporaire part d'abord : c'est un `unlink` unique, qui ne peut rien laisser à
@@ -376,20 +484,40 @@ class EspacePublie:
         résidu que le tour correctif 3/3 exige de rendre visible. Sous un nom en `.tmp`, il l'est
         par la même sonde que tous les autres temporaires.
 
+        **Quand le pointeur est indécidable, la marque reste** (tour de racine unique, fait 4). Le
+        renoncement prudent est le bon comportement — on ne détruit rien qu'on ne sait pas
+        inactif —, mais il laissait la génération sous son nom `a`/`b`, potentiellement à moitié
+        écrite, et `residus()` ne voyait que les noms en `.tmp` : un brouillon devenait
+        indiscernable d'un bundle complet. La marque posée avant la première écriture n'est donc
+        retirée que lorsqu'on a pu conclure ; sinon elle est **reposée**, et la sonde la voit.
+
         `ignore_errors` couvre les échecs d'`OSError`, pas l'interruption : un `KeyboardInterrupt`
         pendant l'effacement remonte, et c'est voulu — l'appelant doit voir l'interruption.
         """
         try:
-            lien_tmp.unlink()
+            transaction.lien_tmp.unlink()
         except OSError:
             pass
-        if self._generation_publiee() in (None, generation):
+        if not transaction.prepare:
+            # Rien n'a été écrit dans la génération inactive : elle porte encore le bundle
+            # précédent complet, qui est la matière du prochain miroir. L'effacer serait une perte
+            # nette pour un refus qui n'a rien touché.
+            return
+        publiee = self._generation_publiee()
+        if publiee is None:
+            transaction.marquer()
+            return
+        if publiee == transaction.suivante:
             return
         poubelle: Path | None = None
         try:
-            poubelle = Path(tempfile.mkdtemp(prefix=f".{generation}.abandonne.", suffix=".tmp",
-                                             dir=self.chemin))
-            os.rename(self.chemin / generation, poubelle / generation)
+            poubelle = Path(tempfile.mkdtemp(prefix=f".{transaction.suivante}.abandonne.",
+                                             suffix=".tmp", dir=self.chemin))
+            os.rename(self.chemin / transaction.suivante, poubelle / transaction.suivante)
+        except OSError:
+            pass
+        try:
+            transaction.marque.unlink()
         except OSError:
             pass
         if poubelle is not None:
@@ -406,6 +534,13 @@ class EspacePublie:
         génération avant de l'effacer, ce reste porte un nom en `.tmp` — et cette sonde le voit,
         parce qu'elle ne filtre plus sur le type d'entrée.
 
+        Tour de racine unique, fait 4. Le suffixe `.tmp` ne suffisait pas comme unique signal :
+        quand le pointeur est **indécidable** au moment de l'abandon, `_abandonner` renonce à
+        détruire — à raison — et laisse la génération inactive sous son nom `a`/`b`, peut-être à
+        moitié écrite, que rien ne distinguait d'un bundle complet. La **marque** de brouillon
+        posée avant la première écriture, et reposée par l'abandon prudent, est ce que cette sonde
+        voit alors : une génération inactive partielle n'est plus jamais silencieuse.
+
         Ce qu'elle ne compte **pas**, et c'est délibéré : la génération inactive complète laissée
         par une bascule réussie. C'est le bundle précédent, suivi par git, matière du prochain
         miroir — pas un résidu.
@@ -417,6 +552,96 @@ class EspacePublie:
                               for part in p.relative_to(self.chemin).parts)})
 
 
+class Transaction:
+    """Une section critique ouverte sur l'espace : ce qu'on peut y lire, et l'unique publication.
+
+    Jamais construite par un appelant : `EspacePublie.transaction()` en est la seule origine, et
+    elle ne la rend qu'à l'intérieur du `flock`. Il n'y a donc pas d'objet de transaction qui
+    survive au verrou, ni de voie qui publierait sans lui.
+    """
+
+    def __init__(self, espace: EspacePublie, courante: str) -> None:
+        self.espace = espace
+        self.courante = courante
+        self.suivante = GENERATIONS[1] if courante == GENERATIONS[0] else GENERATIONS[0]
+        self.lien_tmp = espace.chemin / f".{POINTEUR}.{os.getpid()}.tmp"
+        # La marque du brouillon : posée avant la première écriture, retirée quand il est complet.
+        self.marque = espace.chemin / f".{self.suivante}.brouillon.{os.getpid()}.tmp"
+        # Non pas une autorité — le pointeur sur disque l'est —, mais la seule chose qui distingue
+        # « le brouillon n'a jamais été touché » de « il a commencé à l'être ». Posé **avant** la
+        # première écriture, donc jamais faux dans le sens dangereux : au pire il fait jeter une
+        # génération inactive qui était intacte, ce qui ne coûte qu'un miroir à refaire.
+        self.prepare = False
+
+    def lire(self, cible: Path) -> str | None:
+        """Le contenu **publié** d'une cible du lot, lu sous le verrou. `None` si elle est absente.
+
+        La lecture passe par le slot de la génération courante plutôt que par le lien de la cible :
+        c'est le même octet, mais dit dans le repère de la transaction. C'est cette lecture-là —
+        et non celle que l'appelant aurait faite avant d'entrer — qui rend la fusion sûre.
+        """
+        self.espace.verifier_lot([cible])
+        chemin = self.espace.chemin / self.courante / self.espace.slot(cible)
+        try:
+            return chemin.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
+    def marquer(self) -> None:
+        """Pose la marque du brouillon, sans jamais lever — elle est un signal, pas une garantie."""
+        with contextlib.suppress(OSError):
+            os.close(os.open(self.marque, os.O_CREAT | os.O_WRONLY, 0o644))
+
+    def publier(self, lot: Sequence[tuple[Path, str | None]]) -> None:
+        """Écrit la génération inactive puis **bascule le pointeur** — l'unique point de commit.
+
+        Déroulé, et pourquoi chaque étape est là :
+
+        1. **Vérifier** que chaque cible est résolue par le pointeur. Rien n'est touché ; un refus
+           ici est un refus avant écriture.
+        2. **Marquer** le brouillon, puis **construire** la génération inactive : elle est d'abord
+           un miroir en liens **durs** de la génération courante — les surfaces que ce lot ne
+           réécrit pas gardent leur contenu — puis les slots du lot y sont écrits ou retirés,
+           `fsync` compris. Rien de tout cela n'est une cible : `courant` pointe toujours sur
+           l'ancienne génération, donc l'état observable du lot est inchangé, à chaque frontière
+           d'instruction. La marque tombe quand le brouillon est complet.
+        3. **Basculer** : un `os.replace` d'un lien symbolique sur `courant`. C'est l'atome.
+
+        Toute exception avant 3 laisse le brouillon à l'abandon et **aucune cible modifiée**. Toute
+        exception pendant ou après 3 : le `rename` a eu lieu ou n'a pas eu lieu, et c'est le
+        **pointeur sur disque** qui le dit — le gestionnaire de `transaction()` en tire la suite.
+        """
+        cibles = [cible for cible, _contenu in lot]
+        self.espace.verifier_lot(cibles)
+        # Deux cibles qui partagent un slot rendraient la bascule ambiguë — laquelle gagne ? Le
+        # refus est dit plutôt que résolu par l'ordre d'itération.
+        slots = [str(self.espace.slot(cible)) for cible in cibles]
+        if len(set(slots)) != len(slots):
+            raise LotHorsEspace(
+                f"deux cibles du lot partagent un slot : {sorted(slots)} — un lot ne publie pas "
+                "deux contenus au même chemin")
+        racine_suivante = self.espace.chemin / self.suivante
+        self.prepare = True
+        self.marquer()
+        _reconstruire(self.espace.chemin / self.courante, racine_suivante)
+        for cible, contenu in lot:
+            chemin = racine_suivante / self.espace.slot(cible)
+            if contenu is None:
+                _retirer_du_bundle(chemin)
+            else:
+                _ecrire_dans_bundle(chemin, contenu)
+        _fsync_repertoire(racine_suivante)
+        # Le brouillon est complet et durable : plus rien ne le distingue d'un bundle publiable.
+        with contextlib.suppress(OSError):
+            self.marque.unlink()
+        self.lien_tmp.unlink(missing_ok=True)
+        os.symlink(self.suivante, self.lien_tmp)
+        # --- L'ATOME. Un seul `rename(2)`, dans un seul répertoire, sur une entrée qui existe
+        # déjà. Avant lui, les cibles se résolvent toutes dans `courante` ; après, toutes dans
+        # `suivante`. Il n'y a pas de frontière entre les deux.
+        os.replace(self.lien_tmp, self.espace.pointeur)
+
+
 class _verrou:  # noqa: N801 — gestionnaire de contexte, employé comme une fonction
     """Un `flock` exclusif sur l'espace, en gestionnaire de contexte."""
 
@@ -425,18 +650,50 @@ class _verrou:  # noqa: N801 — gestionnaire de contexte, employé comme une fo
         self.fd: int | None = None
 
     def __enter__(self) -> _verrou:
+        """Prend le verrou, ou **ne laisse rien derrière** : un `flock` qui échoue rend son descripteur.
+
+        La prise du verrou précède le `try/finally` de `transaction()` — c'est ce qui garantit
+        qu'un espace non installé refuse sans rien créer —, donc c'est ici, et nulle part ailleurs,
+        que le descripteur d'un verrou non acquis doit être refermé.
+        """
         self.chemin.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = os.open(self.chemin, os.O_CREAT | os.O_RDWR, 0o644)
-        fcntl.flock(self.fd, fcntl.LOCK_EX)
+        fd = os.open(self.chemin, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except BaseException:
+            with contextlib.suppress(BaseException):
+                os.close(fd)
+            raise
+        self.fd = fd
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        if self.fd is not None:
-            try:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
-            finally:
-                os.close(self.fd)
-                self.fd = None
+        """Rend le verrou, et **peut lever** : `flock(LOCK_UN)` comme `close` sont des appels système.
+
+        C'est précisément pourquoi la sortie de la section critique appartient à la frontière
+        post-commit (tour de racine unique, fait 3) : appelée après un pointeur effectivement
+        remplacé, elle est absorbée par `_apres_le_commit` ; appelée avant, elle remonte.
+        """
+        if self.fd is None:
+            return
+        fd, self.fd = self.fd, None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def fermer(self) -> None:
+        """Le filet : rend la section critique sans jamais lever, même si `__exit__` a échoué.
+
+        Fermer le descripteur rend le `flock` — c'est la garantie du système, pas une politesse.
+        Sans ce filet, une exception levée pendant l'abandon d'un brouillon sortirait en laissant
+        le verrou tenu, et tout écrivain ultérieur du processus attendrait indéfiniment.
+        """
+        if self.fd is None:
+            return
+        fd, self.fd = self.fd, None
+        with contextlib.suppress(BaseException):
+            os.close(fd)
 
 
 def _reconstruire(courante: Path, suivante: Path) -> None:
@@ -483,6 +740,21 @@ def _ecrire_dans_bundle(chemin: Path, contenu: str) -> None:
         except OSError:
             pass
         raise
+
+
+def _retirer_du_bundle(chemin: Path) -> None:
+    """Retire un slot de la génération inactive : la cible sera **absente** après la bascule.
+
+    Une suppression est membre du lot comme une écriture. Sans elle, une opération qui retire un
+    artefact — le typage et son overlay — devrait le faire par un `unlink` hors de l'atome, donc
+    à un rang où une exception laisserait l'artefact retiré et le reste non publié.
+    """
+    try:
+        chemin.unlink()
+    except FileNotFoundError:
+        pass
+    except IsADirectoryError:
+        shutil.rmtree(chemin)
 
 
 def _fsync_repertoire(chemin: Path) -> None:
@@ -576,12 +848,18 @@ def _main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — poi
     p.add_argument("--data-dir", type=Path, default=None)
     p.add_argument("--cible", type=Path, action="append", default=[],
                    help="chemin relatif à la racine ; répétable")
+    p.add_argument("--depot", action="store_true",
+                   help="pose toute la disposition du dépôt (surfaces de racine + artefacts de "
+                        "chaque document de data/), en plus des --cible donnés")
     p.add_argument("--migrer", action="store_true",
                    help="déplace le contenu d'une cible déjà existante dans le bundle")
     args = p.parse_args(argv)
     espace = EspacePublie(args.racine, args.data_dir)
+    cibles = list(args.cible)
+    if args.depot:
+        cibles += [c for c in cibles_du_depot(espace.racine, espace.data_dir) if c not in cibles]
     try:
-        espace.installer(args.cible, migrer=args.migrer)
+        espace.installer(cibles, migrer=args.migrer)
     except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible, OSError) as exc:
         print(f"refus : {exc}")
         return 2
