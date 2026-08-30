@@ -1,6 +1,6 @@
 # Harness de questions-témoins
 
-Le harness est `python -m server.evals.run`. Il valide tous les cas, les grilles compagnon et la compatibilité suite/variante avant de construire un éventuel client. Les suites guide et sinistre exigent `ANTHROPIC_API_KEY` et un plafond fini strictement positif. La suite parsing est entièrement locale : elle ne construit aucun client, ne lit aucune clé et coûte zéro. `--dry-run` valide le plan sans clé, corpus, client ni écriture.
+Le harness est `python -m server.evals.run`. Il valide tous les cas, les grilles compagnon et la compatibilité suite/variante avant de construire un éventuel client. Les suites guide et sinistre exigent `ANTHROPIC_API_KEY` et un plafond fini strictement positif. La suite parsing est entièrement locale : elle ne construit aucun client, ne lit aucune clé et coûte zéro. `--dry-run` ne construit ni client ni écriture, mais valide la disposition publiée et, pour un gate `full`, la composition complète dans le même repère pincé que le run réel.
 
 ```bash
 uv run python -m server.evals.run --profile full --max-cost 1.0
@@ -274,10 +274,16 @@ D'où la disposition : chaque cible du lot est un chemin dont la résolution pas
 retire.** Les surfaces de racine — `data/manifest.json`, `data/dictionary.json`,
 `data/evals-latest.json`, `docs/evals/latest.md`, `docs/evals/campagnes` — et, dans chaque
 répertoire de document, `document.json`, `summary.md`, `report.json`, `structure.json`,
-`typing.manual.json`, `dictionary.json`, `source.js`, `source.pdf` et `source.url` sont des liens
-**committés**. Ces trois sources sont sélectionnées, vérifiées et parfois rendues par le service ou
-le gate : elles appartiennent donc au même instantané que le manifest et le document.
-`source.sha256`, référence du téléchargement mais surface non servie, reste hors du bundle.
+`typing.manual.json`, `dictionary.json`, `source.js`, `source.pdf`, `source.url` et `source.sha256` sont des liens
+**committés**. Ces sources sont sélectionnées, vérifiées et parfois rendues par le service ou
+le gate : elles appartiennent donc au même instantané que le manifest et le document. La référence
+`source.sha256` appartient elle aussi au bundle : elle décide quels octets `fetch_source` peut
+publier et doit donc être opposée dans la même génération que l'URL et l'identité canonique.
+
+`fetch_source --all` énumère les documents depuis le manifest et classe leurs références dans une
+seule lecture validée et pincée. Une bascule concurrente ne peut donc pas composer un lot de deux
+générations ; chaque téléchargement oppose ensuite sous verrou l'URL, `source.sha256` et l'entrée
+canonique capturées avant le réseau, et refuse avec le code 5 si l'une d'elles a changé.
 
 `typing.manual.json` est le cas à part, et il vaut mieux le nommer que le laisser deviner : c'est une
 **entrée écrite à la main**, dont seule la **suppression** appartient au pipeline — `type_clauses` la

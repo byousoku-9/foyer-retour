@@ -43,11 +43,8 @@ _reference/
 
 # Sources non redistribuées : téléchargées au build (server/ingest/fetch_source.py)
 data/*/source.pdf
-# La disposition committée publie ces sources par le pointeur ; seuls ces liens restent suivis.
-!data/lux-guide/source.pdf
-!data/axa-lu-optihome-2017/source.pdf
-!data/baloise-lu-home-2-2024/source.pdf
-# Les liens ci-dessus sont publics ; leurs octets dans les générations ne le sont jamais.
+# Les liens racine déjà committés restent suivis par Git ; aucun nouvel octet privé n'est admis par
+# une exception nominative. La pose générique est faite par `server.evals.espace --depot`.
 data/.publie/*/data/*/source.pdf
 data/*/*.tmp
 # Inode persistant des verrous `flock` de typage ; ne jamais l'unlink pendant qu'un concurrent attend.

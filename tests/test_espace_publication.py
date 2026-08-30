@@ -1660,6 +1660,55 @@ def _racine_de_lecture_valide(tmp_path: Path) -> tuple[Path, Path, EspacePublie]
     return data, doc, poser_espace(tmp_path, data_dir=data)
 
 
+@pytest.mark.parametrize("operation", ["lecture", "installation", "transaction"])
+def test_un_espace_publie_lie_vers_lexterieur_refuse_sans_mutation(
+        tmp_path: Path, operation: str) -> None:
+    """`.publie` est une frontière : aucune API publique ne suit son remplacement par un lien."""
+    from server.app.corpus import racine as rac
+
+    data = tmp_path / "data"
+    data.mkdir()
+    externe = tmp_path / "externe"
+    externe.mkdir()
+    (externe / "temoin").write_bytes(b"octets externes intacts")
+    os.symlink(externe, data / ".publie")
+    espace = EspacePublie(tmp_path, data)
+    avant = {p.relative_to(externe).as_posix(): p.read_bytes()
+             for p in externe.rglob("*") if p.is_file()}
+
+    with pytest.raises((rac.EspaceNonInstalle, rac.EspaceIllisible), match="répertoire ordinaire"):
+        if operation == "lecture":
+            rac.lecture_de(data)
+        elif operation == "installation":
+            espace.installer([Path("data/manifest.json")], migrer=True)
+        else:
+            with espace.transaction():
+                pass
+
+    apres = {p.relative_to(externe).as_posix(): p.read_bytes()
+             for p in externe.rglob("*") if p.is_file()}
+    assert apres == avant and not (externe / ".verrou").exists()
+
+
+def test_la_vraie_cli_depot_refuse_un_doc_id_traversant_avant_toute_creation(
+        tmp_path: Path) -> None:
+    from server.evals import espace as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    temoin = tmp_path / "source.url"
+    temoin.write_text("ne pas migrer", "utf-8")
+    (data / "manifest.json").write_text(json.dumps({"..": {
+        "status": "servi", "source_hash": "s", "ingest_fingerprint": "i",
+        "document_hash": "d", "edition": "e",
+    }}), "utf-8")
+
+    assert module._main(["--racine", str(tmp_path), "--data-dir", str(data),
+                         "--depot", "--migrer"]) == 2
+    assert temoin.read_text("utf-8") == "ne pas migrer"
+    assert not (data / ".publie").exists()
+
+
 @pytest.mark.parametrize("mutation", [
     "generation-symlink",
     "data-public-symlink",

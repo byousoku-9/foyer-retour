@@ -364,7 +364,8 @@ def _main(argv: list[str] | None = None) -> int:
     from server.app.config import REPO_ROOT, Settings
     from server.app.corpus.index import Index
     from server.app.corpus.loader import load_corpus
-    from server.app.corpus.racine import lecture_de
+    from server.app.corpus.racine import (EspaceIllisible, EspaceNonInstalle,
+                                          LectureHorsGeneration, LecturePerimee, lecture_de)
 
     parser = argparse.ArgumentParser(
         prog="python -m server.evals.relecture",
@@ -385,18 +386,37 @@ def _main(argv: list[str] | None = None) -> int:
         return 2
     try:
         try:
+            # Le corpus complet est la première construction après le pincement. Une mutation qui
+            # périme ou sort une cible de la génération refuse avant lecture du rapport, Settings
+            # ou plan : aucune de ces surfaces ne doit rendre un état prématuré.
+            corpus = load_corpus(args.data_dir, allow_ungated=True, lecture=lecture)
+            lecture.verifier()
+        except (LecturePerimee, LectureHorsGeneration, EspaceIllisible,
+                EspaceNonInstalle) as exc:
+            print(f"refus, rien n'a été construit : {exc}", file=sys.stderr)
+            return 2
+        reglages = Settings()
+        try:
+            # La première passe ci-dessus garantit qu'aucune configuration n'est construite sur
+            # une racine cassée. Le corpus effectivement remis au plan respecte ensuite les bornes
+            # configurées, sans repincer : les deux passes appartiennent à la même génération.
+            corpus = load_corpus(
+                args.data_dir, allow_ungated=True,
+                perimetre_max_chars=reglages.perimetre_max_chars,
+                raison_max_chars=reglages.raison_publiable_max_chars,
+                lecture=lecture)
+            lecture.verifier()
+        except (LecturePerimee, LectureHorsGeneration, EspaceIllisible,
+                EspaceNonInstalle) as exc:
+            print(f"refus, rien n'a été construit : {exc}", file=sys.stderr)
+            return 2
+        try:
             rapport = json.loads(args.report.read_text(encoding="utf-8"))
             if not isinstance(rapport, dict):
                 raise ValueError("un objet JSON est attendu")
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             print(f"refus : rapport illisible ({type(exc).__name__}: {exc})", file=sys.stderr)
             return 2
-        reglages = Settings()
-        corpus = load_corpus(args.data_dir, allow_ungated=True,
-                             perimetre_max_chars=reglages.perimetre_max_chars,
-                             raison_max_chars=reglages.raison_publiable_max_chars,
-                             lecture=lecture)
-        lecture.verifier()
         plan = plan_de_relecture(Index(corpus), blocs_cles_du_rapport(rapport),
                                  candidate_revision=args.candidate_revision)
     except RelectureInvalide as exc:
@@ -410,7 +430,11 @@ def _main(argv: list[str] | None = None) -> int:
     finally:
         lecture.fermer()
     if args.out is not None:
-        ecrire_plan(plan, args.out)
+        try:
+            ecrire_plan(plan, args.out)
+        except OSError as exc:
+            print(f"refus : sortie illisible ({type(exc).__name__}: {exc})", file=sys.stderr)
+            return 2
         print(f"plan écrit : {args.out} ({len(plan.blocs)} bloc(s), "
               f"plan_digest={plan.plan_digest})")
     else:

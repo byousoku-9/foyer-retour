@@ -76,7 +76,9 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
-from server.app.corpus.racine import EspaceIllisible, Lecture, relire  # noqa: E402 — idem
+from server.app.corpus.racine import (EspaceIllisible, EspaceNonInstalle, Lecture,
+                                      LectureHorsGeneration, LecturePerimee,
+                                      exiger_racine_installee, relire)  # noqa: E402 — idem
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
 from server.app.domain.document import BlockKind  # noqa: E402 — idem
 from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
@@ -163,9 +165,14 @@ def exiger_la_racine(racine: Path) -> None:
     N3 interdit. Le repli rootless reste la primitive interne ; ce qui est fermé est qu'aucun
     entrypoint ne l'atteigne.
     """
-    from server.ingest.artifacts import exiger_espace_installe
-
-    exiger_espace_installe([racine / "data" / "manifest.json"])
+    try:
+        # Le manifest seul ne prouve pas la disposition : le smoke consomme aussi le dictionnaire
+        # et les documents. La validation commune exige tous les liens/slots de la génération et
+        # interdit le repli rootless avant de composer un attendu de promotion.
+        exiger_racine_installee(racine / "data", racine=racine)
+    except (LecturePerimee, LectureHorsGeneration, EspaceIllisible,
+            EspaceNonInstalle, OSError) as exc:
+        raise ErreurTransport(str(exc)) from exc
 
 
 def charger_attendus(*, racine: Path | None = None) -> Attendus:
@@ -184,7 +191,8 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
     depot = racine
     try:
         return relire(racine / "data", lambda lecture: _attendus_pinces(depot, lecture))
-    except EspaceIllisible as exc:
+    except (LecturePerimee, LectureHorsGeneration, EspaceIllisible,
+            EspaceNonInstalle, OSError) as exc:
         # La validation de racine est désormais plus précoce que le parseur propre au smoke ; sa
         # frontière publique reste `ErreurTransport`, avec le diagnostic de domaine intact.
         raise ErreurTransport(str(exc)) from exc

@@ -110,8 +110,8 @@ from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
-from server.app.corpus.racine import (Lecture, LecturePerimee, _lecture_interne_sans_racine,
-                                      lecture_pincee, relire)
+from server.app.corpus.racine import (Lecture, LectureHorsGeneration, LecturePerimee,
+                                      _lecture_interne_sans_racine, lecture_pincee, relire)
 from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
                                  LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
@@ -3438,11 +3438,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
         # appel. Un `--data-dir` custom **installé** passe sans traitement particulier.
         try:
             if not args.dry_run:
-                # `--dry-run` n'écrit **rien** : il n'y a ni travail payant, ni cible, donc rien que
-                # la racine protège. Ce n'est pas une voie opt-in — aucun argument ne désarme le
-                # contrôle sur un chemin qui publie —, c'est l'absence d'objet.
                 espace.verifier_lot(cibles_publiees_du_run(
                     args.data_dir, output_json, output_markdown, gate=bool(args.gate)))
+            # Le dry-run ne possède aucune cible d'écriture. Sa disposition de **lecture** complète
+            # est néanmoins validée plus bas par `lecture_run`, avant son succès et dans le même
+            # repère que la composition `full`.
         except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible) as exc:
             raise RefusDeTourner(
                 f"espace de publication : {exc} — rien n'a été mesuré, aucun appel n'a été "
@@ -3650,15 +3650,24 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
         # le corpus et les preuves. La faire ici relirait les sources à travers `courant` avant le
         # pincement et composerait précisément la décision intergénérationnelle que N1 interdit.
         parsing_local_seul = args.gate is None and all(c.suite == "parsing" for c in cas)
-        if not args.dry_run and not parsing_local_seul and cle_absente(settings):
-            raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
-                                 "(AD-14 — les unitaires passent sans clé, les évals non)")
         # Les compagnons décrivent exclusivement les cas guide `full`. Les injecter dans un run
         # vertical périmerait les cinq gates historiques malgré leurs YAML byte-identiques.
         references_du_run = references if args.profile == "full" and any(
             c.suite == "guide" for c in cas) else None
         references_digest = references.digest if references_du_run else None
         snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
+        # Un seul repère porte tout le préflight restant : composition `full`, dry-run, refus de
+        # budget et opération réelle. Il est ouvert avant le ledger (coût/état), toute sortie de
+        # succès et tout rapport ; l'opération réelle le réutilise au lieu de repincer plus bas.
+        lecture_run = lifecycle.enter_context(lecture_pincee(args.data_dir))
+        if exigences_full:
+            assert args.gate is not None
+            verifier_composition_gate_full(
+                args.data_dir, args.gate, cas, charge_plancher, lecture_run)
+        lecture_run.verifier()
+        if not args.dry_run and not parsing_local_seul and cle_absente(settings):
+            raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
+                                 "(AD-14 — les unitaires passent sans clé, les évals non)")
         accrued_cost_eur = 0.0
         if args.producer == "orchestrator" and not args.dry_run:
             try:
@@ -3771,11 +3780,6 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             # preuve d'arbre lisaient chacun le pointeur à leur tour : jusqu'à trois générations
             # pouvaient entrer dans une seule décision de gate. Elles viennent désormais toutes de
             # la génération pincée ici, pour la durée de l'opération.
-            lecture_run = pile.enter_context(lecture_pincee(args.data_dir))
-            if exigences_full:
-                assert args.gate is not None
-                verifier_composition_gate_full(
-                    args.data_dir, args.gate, cas, charge_plancher, lecture_run)
             if all(c.suite == "parsing" for c in cas):
                 ctx = construire_contexte_parsing(settings, args.data_dir, lecture=lecture_run)
             else:
@@ -3831,7 +3835,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             resultats = asyncio.run(_executer_puis_fermer(
                 cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
                 variant=args.variant, repeat=args.repeat))
-    except (LecturePerimee, EspaceNonInstalle, EspaceIllisible) as exc:
+            # Le même repère couvre jusqu'au dernier résultat. Deux bascules pendant les appels
+            # reconstruisent sa génération : le refus tombe ici, avant `resume`, tout rapport ou
+            # gate, et non après avoir publié une décision fondée sur des octets périmés.
+            lecture_run.verifier()
+    except (LecturePerimee, LectureHorsGeneration, EspaceNonInstalle, EspaceIllisible) as exc:
         # Une décision de gate ne se rejoue pas : elle a construit un client et s'apprête à payer.
         # Le refus est un code 2 — rien n'a été mesuré, rien n'a été écrit (revue N1–N3, 1).
         print(f"refus : {exc} — rien n'a été mesuré, aucune cible n'a été écrite", file=sys.stderr)

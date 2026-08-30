@@ -927,6 +927,26 @@ def test_les_attendus_refusent_un_depot_sans_document_servi(tmp_path: Path) -> N
         charger_attendus(racine=tmp_path)
 
 
+def test_les_surfaces_publiques_du_smoke_refusent_un_espace_lie_sans_muter_lexterieur(
+        tmp_path: Path) -> None:
+    import os
+    import scripts.smoke as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    externe = tmp_path / "externe"
+    externe.mkdir()
+    temoin = externe / "temoin"
+    temoin.write_bytes(b"intact")
+    os.symlink(externe, data / ".publie")
+
+    with pytest.raises(ErreurTransport, match="répertoire ordinaire"):
+        module.exiger_la_racine(tmp_path)
+    with pytest.raises(ErreurTransport, match="répertoire ordinaire"):
+        charger_attendus(racine=tmp_path)
+    assert temoin.read_bytes() == b"intact" and not (externe / ".verrou").exists()
+
+
 def test_les_corps_de_reference_sont_ceux_des_schemas() -> None:
     """Un champ renommé dans `schemas.py` doit rougir **ici**, pas en production.
 
@@ -1145,6 +1165,41 @@ def test_un_gate_cases_illisible_dans_le_manifest_est_un_refus(tmp_path: Path) -
 
 
 # --- le programme ---------------------------------------------------------------------------------
+
+def test_une_reconstruction_est_traduite_par_la_surface_publique_sans_http(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    import scripts.smoke as smoke
+    from server.evals.espace import EspacePublie
+
+    depot = _ecrire_depot(tmp_path, None)
+    vrai_attendus = smoke._attendus_pinces
+
+    def reconstruire_a_chaque_passe(racine: Path, lecture: Any) -> Any:
+        data = racine / "data"
+        espace = EspacePublie(racine, data)
+        manifest = (data / "manifest.json").read_bytes()
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return vrai_attendus(racine, lecture)
+
+    def http_interdit(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("HTTP atteint malgré la péremption des attendus")
+
+    monkeypatch.setattr(smoke, "_attendus_pinces", reconstruire_a_chaque_passe)
+    with pytest.raises(ErreurTransport, match="reconstruite"):
+        charger_attendus(racine=depot)
+    capsys.readouterr()
+    monkeypatch.setattr(smoke, "appeler_avec_reprise", http_interdit)
+    monkeypatch.setattr(smoke, "sonder", http_interdit)
+    monkeypatch.setattr(smoke, "appeler", http_interdit)
+
+    code = main(["--base-url", "https://candidat.invalid", "--version", VERSION,
+                 "--racine", str(depot)])
+    erreur = capsys.readouterr().err
+    assert code == 1 and "attendus illisibles" in erreur
+    assert "Traceback" not in erreur
+
 
 def test_main_sort_en_1_quand_le_service_est_injoignable(monkeypatch: pytest.MonkeyPatch,
                                                          capsys: pytest.CaptureFixture[str]) -> None:

@@ -56,9 +56,6 @@ node_modules
 
 # Sources non redistribuées : `fetch_source --all` les télécharge au build (FR32)
 data/*/source.pdf
-!data/lux-guide/source.pdf
-!data/axa-lu-optihome-2017/source.pdf
-!data/baloise-lu-home-2-2024/source.pdf
 data/.publie/*/data/*/source.pdf
 data/*/*.tmp
 data/.publie/.verrou

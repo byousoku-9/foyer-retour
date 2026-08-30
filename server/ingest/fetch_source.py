@@ -6,7 +6,8 @@
 
 Codes de sortie : 0 = téléchargé et vérifié ; 2 = hash différent du hash de référence (rien n'est écrit, aucun
 repli : le contenu existe mais n'est pas celui attendu) ; 3 = URL publique injoignable **et** repli
-`gs://foyer-retour-sources/{doc_id}.pdf` en échec ; 4 = usage (dossier, `source.url`/`source.sha256` absents).
+`gs://foyer-retour-sources/{doc_id}.pdf` en échec ; 4 = usage (dossier, `source.url`/`source.sha256` absents) ;
+5 = génération ou identité canonique modifiée pendant le téléchargement (rien n'est publié).
 `source.url` est une URL `https://` publique ou une URL `gs://bucket/objet` du bucket privé (AC 1.2) ; un objet
 `gs://` est lu par HTTPS (`storage.googleapis.com`) avec le jeton `GOOGLE_OAUTH_ACCESS_TOKEN`
 (local : `gcloud auth print-access-token`) ou celui du serveur de métadonnées (Cloud Build, Cloud Run),
@@ -23,6 +24,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -55,6 +57,16 @@ class FetchError(Exception):
         self.code = code
 
 
+@dataclass(frozen=True)
+class IdentiteSource:
+    """Identité complète d'un téléchargement, capturée dans une seule génération."""
+
+    doc_id: str
+    url: str
+    reference: str
+    entree: ManifestEntry
+
+
 def gs_to_https(url: str) -> str:
     """`gs://bucket/objet` → `https://storage.googleapis.com/bucket/objet` (API XML, lecture avec jeton ou anonyme)."""
     m = GS_URL_RE.match(url)
@@ -81,24 +93,38 @@ def read_reference(doc_dir: Path, *, lecture: Lecture | None = None) -> tuple[st
     return url, expected
 
 
-def _identite_pincee(data_dir: Path, doc_id: str) -> tuple[str, str, ManifestEntry]:
-    """URL, référence et identité canonique lues dans une unique génération validée."""
+def _identite_dans_lecture(
+    data_dir: Path,
+    doc_id: str,
+    lecture: Lecture,
+    *,
+    entree_brute: object | None = None,
+) -> IdentiteSource:
+    """Capture l'identité complète dans le repère fourni, sans jamais repincer."""
     doc_dir = data_dir / doc_id
-    with lecture_de(data_dir) as lecture:
-        url, expected = read_reference(doc_dir, lecture=lecture)
-        manifeste = lecture.octets(data_dir / "manifest.json")
-        try:
+    url, expected = read_reference(doc_dir, lecture=lecture)
+    try:
+        if entree_brute is None:
+            manifeste = lecture.octets(data_dir / "manifest.json")
             brut = json.loads(manifeste) if manifeste is not None else None
-            entree = ManifestEntry.model_validate(brut[doc_id])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise FetchError(
-                EXIT_USAGE, f"{doc_id} : identité canonique absente ou invalide dans le manifest") from exc
-        if entree.source_hash != expected:
-            raise FetchError(
-                EXIT_USAGE,
-                f"{doc_id} : source.sha256 ne correspond pas au source_hash canonique du manifest")
+            entree_brute = brut[doc_id]
+        entree = ManifestEntry.model_validate(entree_brute)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise FetchError(
+            EXIT_USAGE, f"{doc_id} : identité canonique absente ou invalide dans le manifest") from exc
+    if entree.source_hash != expected:
+        raise FetchError(
+            EXIT_USAGE,
+            f"{doc_id} : source.sha256 ne correspond pas au source_hash canonique du manifest")
+    return IdentiteSource(doc_id=doc_id, url=url, reference=expected, entree=entree)
+
+
+def _identite_pincee(data_dir: Path, doc_id: str) -> IdentiteSource:
+    """URL, référence et identité canonique lues dans une unique génération validée."""
+    with lecture_de(data_dir) as lecture:
+        identite = _identite_dans_lecture(data_dir, doc_id, lecture)
         lecture.verifier()
-        return url, expected, entree
+        return identite
 
 
 def _publier_si_identique(data_dir: Path, doc_id: str, content: bytes, *,
@@ -111,25 +137,30 @@ def _publier_si_identique(data_dir: Path, doc_id: str, content: bytes, *,
     manifest_path = data_dir / "manifest.json"
     espace = EspacePublie(data_dir.parent, data_dir)
     with espace.transaction() as transaction:
-        url_courante = transaction.lire(doc_dir / "source.url")
-        reference_courante = transaction.lire(doc_dir / "source.sha256")
-        manifest_courant = transaction.lire(manifest_path)
         try:
+            # Toute l'opposition d'identité appartient à cette frontière. Une référence non UTF-8
+            # est une identité qu'on ne peut plus comparer, donc une modification concurrente —
+            # jamais un incident brut qui échapperait à la CLI après avoir ouvert le brouillon.
+            url_courante = transaction.lire(doc_dir / "source.url")
+            reference_courante = transaction.lire(doc_dir / "source.sha256")
+            manifest_courant = transaction.lire(manifest_path)
             brut = json.loads(manifest_courant) if manifest_courant is not None else None
             entree_courante = ManifestEntry.model_validate(brut[doc_id])
-        except (KeyError, TypeError, ValueError) as exc:
+            morceaux = reference_courante.split() if reference_courante is not None else []
+            reference = morceaux[0].lower() if morceaux else ""
+            if (url_courante is None or url_courante.strip() != url_capturee
+                    or reference != reference_capturee or entree_courante != entree_capturee):
+                raise FetchError(
+                    EXIT_CHANGED,
+                    f"{doc_id} : URL, référence ou identité canonique modifiée pendant le "
+                    "téléchargement — rien n'est publié")
+        except FetchError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — toute lecture/opposition indécidable ferme
             raise FetchError(
                 EXIT_CHANGED,
                 f"{doc_id} : identité canonique absente ou invalide après téléchargement — rien "
                 "n'est publié") from exc
-        morceaux = reference_courante.split() if reference_courante is not None else []
-        reference = morceaux[0].lower() if morceaux else ""
-        if (url_courante is None or url_courante.strip() != url_capturee
-                or reference != reference_capturee or entree_courante != entree_capturee):
-            raise FetchError(
-                EXIT_CHANGED,
-                f"{doc_id} : URL, référence ou identité canonique modifiée pendant le "
-                "téléchargement — rien n'est publié")
         transaction.publier([
             (doc_dir / "source.pdf", content),
             (manifest_path, manifest_courant),
@@ -197,6 +228,7 @@ def fetch(
     *,
     client: httpx.Client | None = None,
     private_source: bool = False,
+    identite: IdentiteSource | None = None,
 ) -> Path:
     """Écrit `data/{doc_id}/source.pdf` (atomique) après vérification du sha256 ; lève `FetchError(code)`."""
     if len(doc_id) > DOC_ID_MAX or not DOC_ID_RE.fullmatch(doc_id):
@@ -208,7 +240,12 @@ def fetch(
     doc_dir = data / doc_id
     # Premier geste après la validation syntaxique : préflight complet et capture d'une seule
     # génération, avant Settings, référence, client ou réseau.
-    url, expected, entree_capturee = _identite_pincee(data, doc_id)
+    identite = identite or _identite_pincee(data, doc_id)
+    if identite.doc_id != doc_id:
+        raise FetchError(
+            EXIT_USAGE,
+            f"capture d'identité de {identite.doc_id!r} remise au téléchargement de {doc_id!r}")
+    url, expected, entree_capturee = identite.url, identite.reference, identite.entree
     url_capturee = url
     own = client is None
     client = client or httpx.Client(timeout=get_settings().fetch_timeout_s)
@@ -265,11 +302,48 @@ def fetch(
     return target
 
 
-def documents_to_fetch(data_dir: Path) -> tuple[list[str], list[str]]:
-    """(documents avec `source.sha256`, documents dont la source est committée) parmi `data/*/`."""
-    to_fetch, committed = [], []
-    for d in sorted(p for p in data_dir.iterdir() if p.is_dir() and not p.name.startswith(".")):
-        (to_fetch if (d / "source.sha256").is_file() else committed).append(d.name)
+def documents_to_fetch(
+    data_dir: Path,
+    *,
+    lecture: Lecture | None = None,
+) -> tuple[list[IdentiteSource], list[str]]:
+    """Classe le lot du manifest dans une unique génération validée et pincée.
+
+    Le manifest est l'autorité d'énumération : parcourir `data/` vivant (`iterdir`/`is_file`)
+    pouvait sélectionner les identifiants d'une génération et classifier leurs références dans la
+    suivante. Un appel direct obtient son propre repère ; `--all` fournit celui qu'il conserve pour
+    toute la sélection.
+    """
+    data = Path(data_dir)
+    if lecture is None:
+        with lecture_de(data) as pincee:
+            resultat = documents_to_fetch(data, lecture=pincee)
+            pincee.verifier()
+            return resultat
+    manifeste = lecture.octets(data / "manifest.json")
+    try:
+        brut = json.loads(manifeste) if manifeste is not None else None
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise FetchError(EXIT_USAGE, f"{data / 'manifest.json'} : manifest illisible") from exc
+    if not isinstance(brut, dict):
+        raise FetchError(EXIT_USAGE, f"{data / 'manifest.json'} : objet de documents attendu")
+    to_fetch: list[IdentiteSource] = []
+    committed: list[str] = []
+    for doc_id in sorted(brut):
+        if (not isinstance(doc_id, str) or len(doc_id) > DOC_ID_MAX
+                or DOC_ID_RE.fullmatch(doc_id) is None):
+            raise FetchError(EXIT_USAGE, f"identifiant de document impropre : {doc_id!r}")
+        doc_dir = data / doc_id
+        if lecture.octets(doc_dir / "source.sha256") is not None:
+            to_fetch.append(_identite_dans_lecture(
+                data, doc_id, lecture, entree_brute=brut[doc_id]))
+        elif lecture.fichier(doc_dir / "source.js") or lecture.fichier(doc_dir / "source.pdf"):
+            committed.append(doc_id)
+        else:
+            raise FetchError(
+                EXIT_USAGE,
+                f"{doc_id} : ni source.sha256 téléchargeable, ni source.js/source.pdf committé")
+    lecture.verifier()
     return to_fetch, committed
 
 
@@ -284,25 +358,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--data", default="data", type=Path)
     args = parser.parse_args(argv)
-    # `--all` ne liste même pas les références d'un arbre partiel : le préflight complet précède
-    # tout parcours de `data/`, toute lecture et tout coût.
+    if bool(args.doc_id) == args.all:
+        parser.error("un doc_id ou --all")
+    # `--all` ne liste même pas les références d'un arbre partiel : le préflight complet,
+    # l'énumération et la classification partagent le même repère, avant tout réseau.
     try:
-        with lecture_de(args.data):
-            pass
+        with lecture_de(args.data) as lecture:
+            if args.all:
+                identites, committed = documents_to_fetch(args.data, lecture=lecture)
+            else:
+                identites, committed = [], []
+            lecture.verifier()
+    except FetchError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.code
     except Exception as exc:  # noqa: BLE001 — refus opérateur, sans trace Python
         print(f"refus avant lecture et réseau : {exc}", file=sys.stderr)
         return EXIT_USAGE
-    if bool(args.doc_id) == args.all:
-        parser.error("un doc_id ou --all")
-    if args.all:
-        doc_ids, committed = documents_to_fetch(args.data)
-        for doc_id in committed:
-            print(f"{doc_id} : source committée, rien à télécharger")
-    else:
-        doc_ids = [args.doc_id]
+    for doc_id in committed:
+        print(f"{doc_id} : source committée, rien à télécharger")
+    doc_ids = [identite.doc_id for identite in identites] if args.all else [args.doc_id]
     for doc_id in doc_ids:
         try:
-            fetch(doc_id, args.data, private_source=args.private_source)
+            capture = next((i for i in identites if i.doc_id == doc_id), None)
+            if capture is not None:
+                fetch(doc_id, args.data, private_source=args.private_source, identite=capture)
+            else:
+                fetch(doc_id, args.data, private_source=args.private_source)
         except FetchError as exc:
             print(str(exc), file=sys.stderr)
             return exc.code

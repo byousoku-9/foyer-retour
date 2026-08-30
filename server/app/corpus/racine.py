@@ -123,6 +123,11 @@ class LecturePerimee(Exception):
 
 def lire_pointeur(espace: Path) -> str:
     """La génération que `courant` désigne, ou un refus nommé — jamais une supposition."""
+    # Le répertoire qui porte le pointeur est lui-même une frontière de confiance. Sans ce
+    # `lstat`, un `.publie` remplacé par un lien fait lire `courant`, puis les générations, dans un
+    # arbre externe. Côté écrivain, la même omission permettait d'y créer le verrou et de
+    # reconstruire une génération. Le contrôle précède donc toute résolution sous `.publie`.
+    _repertoire_espace_ordinaire(espace)
     try:
         cible = os.readlink(espace / POINTEUR)
     except FileNotFoundError as exc:
@@ -148,6 +153,22 @@ def lire_pointeur(espace: Path) -> str:
             f"{espace / cible} : `courant` désigne {cible!r}, qui n'est pas un répertoire "
             "ordinaire — un lien ou une autre entrée ne peut pas porter une génération")
     return cible
+
+
+def _repertoire_espace_ordinaire(espace: Path) -> None:
+    """Exige par `lstat` le répertoire `.publie`, sans jamais suivre un lien externe."""
+    try:
+        mode = os.lstat(espace).st_mode
+    except FileNotFoundError as exc:
+        raise EspaceNonInstalle(
+            f"{espace} : l'espace de publication n'est pas installé") from exc
+    except OSError as exc:
+        raise EspaceIllisible(
+            f"{espace} : espace de publication illisible ({type(exc).__name__})") from exc
+    if not stat.S_ISDIR(mode):
+        raise EspaceNonInstalle(
+            f"{espace} : l'espace de publication doit être un répertoire ordinaire, jamais un "
+            "lien symbolique")
 
 
 class RacinePubliee:
@@ -555,6 +576,7 @@ def _valider_disposition(data: Path, publiee: RacinePubliee, lecture: Lecture) -
     assert lecture.generation is not None
     generation = lecture.generation
     _repertoire_ordinaire(data, role="conteneur data")
+    _repertoire_espace_ordinaire(publiee.chemin)
     _repertoire_ordinaire(publiee.chemin / generation, role="génération publiée")
     _repertoire_ordinaire(
         publiee.chemin / generation / publiee.slot(data), role="conteneur data du slot")

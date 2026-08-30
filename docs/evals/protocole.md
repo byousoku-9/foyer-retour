@@ -73,6 +73,9 @@ par les témoins live (familles de formulations du golden set, série baseline).
   référence, pas une borne du chemin évals : une exécution y reçoit le restant du plafond de run
   (AD-9) et peut coûter jusqu'à ce restant — c'est le budget effectif qui borne. Un run simple
   adossé à un cache froid est donc refusé lui aussi quand son majorant dépasse une borne.
+  La disposition publiée et, sous `--gate … --profile full`, la composition complète sont validées
+  auparavant dans un repère unique. Cette composition précède donc aussi le dry-run et le refus de
+  budget : aucun succès ni rapport budgétaire ne peut masquer un lot mal composé.
 - **En campagne** : le runner s'arrête avant l'exécution qui déborderait ; le client refuse
   l'appel qui déborderait. Les deux publient les mêmes trois chiffres. Jamais une question
   humaine.
@@ -486,9 +489,11 @@ chemin d'écriture, pas qui écrit quoi.
 les surfaces de racine (`data/manifest.json`, `data/dictionary.json`, `data/evals-latest.json`,
 `docs/evals/latest.md`, `docs/evals/campagnes`) et, dans chaque répertoire de document,
 `document.json`, `summary.md`, `report.json`, `structure.json`, `typing.manual.json` et
-`dictionary.json`, `source.js`, `source.pdf` et `source.url`. Ces sources sont des entrées, mais leur
+`dictionary.json`, `source.js`, `source.pdf`, `source.url` et `source.sha256`. Ces sources sont des entrées, mais leur
 sélection et leur lecture décident de ce qui est servi : elles doivent donc appartenir à la même
-génération. `source.sha256`, référence de téléchargement non servie, reste hors du bundle.
+génération. `source.sha256` est la référence qui autorise la publication du PDF : elle appartient
+donc au bundle même si elle n'est pas servie directement. `fetch_source --all` capture son lot par
+une unique lecture validée/pincée du manifest et de ces références avant tout réseau.
 `server/evals/espace.py::cibles_du_depot` énumère cette disposition **structurellement**, en listant
 `data/` — aucun `doc_id` n'est écrit nulle part —, et `python -m server.evals.espace --depot` la pose.
 Un lot **moitié couvert** est refusé avant de toucher quoi que ce soit, en nommant les cibles

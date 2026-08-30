@@ -271,6 +271,13 @@ def _interdit(*args: Any, **kw: Any) -> Any:
     raise AssertionError("le contexte a été construit malgré le refus de budget")
 
 
+def _poser_racine_budget(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("refus.json"), Path("refus.md")))
+
+
 def test_le_refus_de_budget_survient_avant_le_premier_appel(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str]) -> None:
@@ -279,8 +286,7 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     monkeypatch.delenv("LIVE_BUDGET_EUR", raising=False)
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
     monkeypatch.setattr(runner, "construire_contexte_parsing", _interdit)
-    poser_espace(tmp_path, data_dir=tmp_path / "data",
-                cibles=(Path("refus.json"), Path("refus.md")))
+    _poser_racine_budget(tmp_path)
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
                         "--repeat", "3", "--max-cost", "0.2",
                         "--data-dir", str(tmp_path / "data"),
@@ -310,8 +316,7 @@ def test_live_budget_env_borne_aussi_le_max_cost(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
     monkeypatch.setenv("LIVE_BUDGET_EUR", "0.15")
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
-    poser_espace(tmp_path, data_dir=tmp_path / "data",
-                cibles=(Path("refus.json"), Path("refus.md")))
+    _poser_racine_budget(tmp_path)
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
                         "--repeat", "3", "--max-cost", "5.0",
                         "--data-dir", str(tmp_path / "data"),
@@ -319,6 +324,24 @@ def test_live_budget_env_borne_aussi_le_max_cost(
                         "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
     assert "configured_budget_eur=0.1500" in capsys.readouterr().err
+
+
+def test_une_racine_incomplete_precede_le_refus_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
+    monkeypatch.setattr(runner, "construire_contexte", _interdit)
+    poser_espace(tmp_path, data_dir=tmp_path / "data",
+                cibles=(Path("refus.json"), Path("refus.md")))
+
+    code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
+                        "--repeat", "3", "--max-cost", "0.2",
+                        "--data-dir", str(tmp_path / "data"),
+                        "--output-json", str(tmp_path / "refus.json"),
+                        "--output-markdown", str(tmp_path / "refus.md")])
+    assert code == 2
+    assert "manifest publié absent" in capsys.readouterr().err
+    assert not (tmp_path / "refus.json").exists()
 
 
 def test_dry_run_publie_plancher_digest_et_majorant(

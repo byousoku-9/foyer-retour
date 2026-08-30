@@ -783,6 +783,32 @@ def test_dry_run_prepare_sans_cle_client_ni_ecriture(
     assert "gate=lux-guide" in sortie and "cas=1" in sortie
 
 
+def test_un_dry_run_vertical_refuse_une_racine_incomplete_sans_succes_ni_rapport(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
+    (data / "dictionary.json").unlink()
+
+    code = runner.main(["--profile", "vertical", "--dry-run", "--data-dir", str(data)])
+    capture = capsys.readouterr()
+    assert code == 2
+    assert "dry-run :" not in capture.out and "rapports écrits" not in capture.out
+    assert "disposition est incomplète" in capture.err
+
+
+def test_la_racine_incomplete_precede_le_refus_de_cle(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    data = tmp_path / "data"
+
+    assert runner.main(["--suite", "guide", "--data-dir", str(data)]) == 2
+    erreur = capsys.readouterr().err
+    assert "espace de publication" in erreur and "les évals exigent une clé" not in erreur
+
+
 def test_main_full_quick_planifie_seulement_les_ids_stables(
         monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Preuve de couture : ``main`` applique réellement quick au lot full avant exécution."""
@@ -795,6 +821,27 @@ def test_main_full_quick_planifie_seulement_les_ids_stables(
     assert "cas=5" in sortie
     assert ("ids=b-bougie-canape,g-arrivee-huit-jours,p-axa-chaleur,"
             "p-baloise-acceptation,s-absurde-chat-lune") in sortie
+
+
+@pytest.mark.parametrize("fin", [["--dry-run"], ["--max-cost", "0.0001"]],
+                         ids=["dry-run", "refus-budgetaire"])
+def test_la_composition_full_precede_dry_run_et_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fin: list[str]) -> None:
+    revision = "1" * 40
+    monkeypatch.setattr(runner, "revision_executee", lambda *_a, **_k: (revision, []))
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("le budget a été calculé avant la composition")))
+    monkeypatch.setattr(
+        runner, "verifier_composition_gate_full",
+        lambda *_a, **_k: (_ for _ in ()).throw(runner.RefusDeTourner("lot full mal composé")))
+
+    code = _main(
+        tmp_path,
+        ["--gate", GUIDE, "--profile", "full", "--repeat", "3",
+         "--candidate-revision", revision, *fin],
+        monkeypatch,
+    )
+    assert code == 2
 
 
 def _interdit(*args: Any, **kw: Any) -> Any:
@@ -1665,6 +1712,38 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     return runner.main(argv + ["--cases-dir", str(cases), "--data-dir", str(data)])
 
 
+def test_une_reconstruction_apres_execution_refuse_avant_tout_rapport_ou_gate(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    vrai_executer = runner._executer_puis_fermer
+    json_path = tmp_path / "ne-doit-pas-exister.json"
+    md_path = tmp_path / "ne-doit-pas-exister.md"
+
+    async def reconstruire_apres(*args: Any, **kwargs: Any) -> Any:
+        resultats = await vrai_executer(*args, **kwargs)
+        data = tmp_path / "data"
+        espace = EspacePublie(tmp_path, data)
+        manifest = (data / "manifest.json").read_bytes()
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return resultats
+
+    monkeypatch.setattr(runner, "_executer_puis_fermer", reconstruire_apres)
+    code = _main(
+        tmp_path,
+        ["--suite", "guide", "--output-json", str(json_path),
+         "--output-markdown", str(md_path)],
+        monkeypatch,
+        reponses_guide=[guide],
+    )
+    capture = capsys.readouterr()
+    assert code == 2 and "reconstruite" in capture.err
+    assert not json_path.exists() and not md_path.exists()
+    assert "rapports écrits" not in capture.out
+
+
 def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,
                                                    monkeypatch: pytest.MonkeyPatch) -> None:
     """Les suites tournent, mais la provenance builder ne peut produire aucune preuve verte."""
@@ -2333,6 +2412,7 @@ def test_le_profil_full_inclut_vertical_et_full_en_dry_run(
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
     _COURANT["guide"] = DoublePipeline([])
     _COURANT["sinistre"] = DoublePipeline([])
+    poser_espace(tmp_path, data_dir=data)
     code = runner.main(["--profile", "full", "--dry-run", "--cases-dir", str(cases),
                         "--data-dir", str(data)])
     assert code == 0

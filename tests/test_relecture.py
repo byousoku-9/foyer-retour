@@ -392,6 +392,155 @@ def test_le_preflight_refuse_avant_de_lire_le_rapport(
     assert lectures == [], "le rapport a été ouvert avant le préflight complet"
 
 
+def test_une_reconstruction_pendant_load_refuse_ferme_la_lecture_et_ne_construit_rien(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app import config
+    from server.app.corpus import racine as rac
+    from server.evals import relecture as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    espace = poser_espace(tmp_path, data_dir=data)
+    rapport = tmp_path / "rapport.json"
+    rapport.write_text(json.dumps(_rapport_de_run()), "utf-8")
+    # `load_corpus` est importé localement : le patch porte sur son module d'autorité.
+    from server.app.corpus import loader
+    vrai_load = loader.load_corpus
+
+    def reconstruire(*args: Any, **kwargs: Any) -> Any:
+        contenu = (data / "manifest.json").read_bytes()
+        espace.basculer([(data / "manifest.json", contenu)])
+        espace.basculer([(data / "manifest.json", contenu)])
+        return vrai_load(*args, **kwargs)
+
+    fermetures: list[None] = []
+    vraie_fermeture = rac.Lecture.fermer
+
+    def fermer(self: rac.Lecture) -> None:
+        vraie_fermeture(self)
+        fermetures.append(None)
+
+    monkeypatch.setattr(loader, "load_corpus", reconstruire)
+    monkeypatch.setattr(rac.Lecture, "fermer", fermer)
+    monkeypatch.setattr(config, "Settings", lambda: (_ for _ in ()).throw(
+        AssertionError("Settings construit avant le refus")))
+    vraie_lecture_texte = Path.read_text
+
+    def interdire_rapport(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == rapport:
+            raise AssertionError("rapport lu avant le refus")
+        return vraie_lecture_texte(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", interdire_rapport)
+    monkeypatch.setattr(module, "plan_de_relecture", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("plan construit avant le refus")))
+
+    assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(data)]) == 2
+    assert fermetures
+
+
+def test_la_cli_recharge_le_corpus_avec_les_bornes_configurees_dans_la_meme_lecture(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app import config
+    from server.app.corpus import loader
+    from server.evals import relecture as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
+    rapport = tmp_path / "rapport.json"
+    rapport.write_text(json.dumps(_rapport_de_run()), "utf-8")
+    vrai_load = loader.load_corpus
+    appels: list[dict[str, Any]] = []
+
+    def observer(*args: Any, **kwargs: Any) -> Any:
+        appels.append(dict(kwargs))
+        return vrai_load(*args, **kwargs)
+
+    class Reglages:
+        perimetre_max_chars = 137
+        raison_publiable_max_chars = 41
+
+    monkeypatch.setattr(loader, "load_corpus", observer)
+    monkeypatch.setattr(config, "Settings", Reglages)
+    monkeypatch.setattr(
+        module, "plan_de_relecture",
+        lambda _index, blocs, *, candidate_revision: plan_de_relecture(
+            _index_de_test(), blocs, candidate_revision=candidate_revision))
+
+    assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(data)]) == 0
+    assert len(appels) == 2
+    assert "perimetre_max_chars" not in appels[0] and "raison_max_chars" not in appels[0]
+    assert appels[1]["perimetre_max_chars"] == 137
+    assert appels[1]["raison_max_chars"] == 41
+    assert appels[0]["lecture"] is appels[1]["lecture"]
+
+
+def test_une_reconstruction_pendant_le_chargement_configure_refuse_avant_rapport(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.app.corpus import loader
+    from server.evals import relecture as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    espace = poser_espace(tmp_path, data_dir=data)
+    rapport = tmp_path / "rapport-interdit.json"
+    rapport.write_text(json.dumps(_rapport_de_run()), "utf-8")
+    vrai_load = loader.load_corpus
+    appels = 0
+
+    def reconstruire_au_second(*args: Any, **kwargs: Any) -> Any:
+        nonlocal appels
+        appels += 1
+        if appels == 2:
+            contenu = (data / "manifest.json").read_bytes()
+            espace.basculer([(data / "manifest.json", contenu)])
+            espace.basculer([(data / "manifest.json", contenu)])
+        return vrai_load(*args, **kwargs)
+
+    vraie_lecture = Path.read_text
+
+    def interdire_rapport(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == rapport:
+            raise AssertionError("rapport lu malgré la péremption configurée")
+        return vraie_lecture(self, *args, **kwargs)
+
+    monkeypatch.setattr(loader, "load_corpus", reconstruire_au_second)
+    monkeypatch.setattr(Path, "read_text", interdire_rapport)
+    assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(data)]) == 2
+    assert appels == 2
+
+
+def test_une_sortie_de_plan_inaccessible_est_un_refus_sans_traceback(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    from server.evals import relecture as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
+    rapport = tmp_path / "rapport.json"
+    rapport.write_text(json.dumps(_rapport_de_run()), "utf-8")
+    monkeypatch.setattr(
+        module, "plan_de_relecture",
+        lambda _index, blocs, *, candidate_revision: plan_de_relecture(
+            _index_de_test(), blocs, candidate_revision=candidate_revision))
+    monkeypatch.setattr(module, "ecrire_plan", lambda *_a, **_k: (_ for _ in ()).throw(
+        OSError("sortie interdite")))
+
+    assert module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(data), "--out", str(tmp_path / "plan.json")]) == 2
+    capture = capsys.readouterr()
+    assert "sortie illisible" in capture.err and "Traceback" not in capture.err
+
+
 def test_le_statut_ne_dit_concordante_que_si_tout_concorde() -> None:
     """`statut_du_verdict` : jamais « concordante par défaut », jamais sur une liste vide."""
     from server.evals.relecture import statut_du_verdict

@@ -141,6 +141,8 @@ import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+
 # **La disposition n'a qu'une autorité** (tour de la racine vraiment unique, N1). Les constantes,
 # les refus nommés et la moitié *lecture* de la racine vivent dans `server/app/corpus/racine.py`,
 # parce que la table des couches du spine interdit à `corpus` comme à `api` d'importer
@@ -152,7 +154,8 @@ from server.app.corpus.racine import (ARTEFACTS_DOCUMENT as ARTEFACTS_DE_DOCUMEN
                                       SOURCES_DOCUMENT as SOURCES_PUBLIEES,
                                       SURFACES_DATA as SURFACES_DE_DATA, VERROU,
                                       EspaceIllisible, EspaceNonInstalle,
-                                      LotHorsEspace, RacinePubliee, lire_pointeur, racine_couvrant)
+                                      LotHorsEspace, RacinePubliee, _repertoire_espace_ordinaire,
+                                      lire_pointeur, racine_couvrant)
 
 _lire_pointeur = lire_pointeur
 
@@ -193,6 +196,13 @@ SURFACES_HORS_DATA = ("docs/evals/latest.md", "docs/evals/campagnes")
 SOURCES_DE_DOCUMENT = ("source.js", "source.pdf", "source.url", "source.sha256")
 
 
+def _valider_doc_id_depot(doc_id: str, *, origine: Path) -> None:
+    if len(doc_id) > DOC_ID_MAX or DOC_ID_RE.fullmatch(doc_id) is None:
+        raise EspaceIllisible(
+            f"{origine} : identifiant de document impropre {doc_id!r} "
+            f"(attendu : {DOC_ID_RE.pattern}, {DOC_ID_MAX} caractères maximum)")
+
+
 def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
     """Toutes les cibles que la racine doit couvrir, relatives à `racine`.
 
@@ -224,9 +234,12 @@ def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
     try:
         brut_manifest = json.loads(manifest.read_text(encoding="utf-8"))
         if isinstance(brut_manifest, dict):
-            documents.update(doc_id for doc_id in brut_manifest
-                             if isinstance(doc_id, str) and doc_id
-                             and Path(doc_id).name == doc_id)
+            for doc_id in brut_manifest:
+                if not isinstance(doc_id, str):
+                    raise EspaceIllisible(
+                        f"{manifest} : identifiant de document non textuel {doc_id!r}")
+                _valider_doc_id_depot(doc_id, origine=manifest)
+                documents.add(doc_id)
     except (OSError, UnicodeDecodeError, ValueError):
         # Une pose de réparation doit encore pouvoir couvrir le manifest illisible ; la découverte
         # structurelle ci-dessous conserve alors les documents déjà présents sur disque.
@@ -238,6 +251,7 @@ def cibles_du_depot(racine: Path, data_dir: Path | None = None) -> list[Path]:
             noms = {chemin.name for chemin in entree.iterdir()}
             if not (noms & set(ARTEFACTS_DE_DOCUMENT)) and not (noms & set(SOURCES_DE_DOCUMENT)):
                 continue
+            _valider_doc_id_depot(entree.name, origine=entree)
             documents.add(entree.name)
     for doc_id in sorted(documents):
         cibles += [relatif_data / doc_id / nom
@@ -278,7 +292,18 @@ class EspacePublie(RacinePubliee):
         silence : sans `migrer=True`, l'installation refuse et le dit. `migrer=True` est un geste
         d'opérateur, exécuté une fois et committé ; il n'est jamais atteint depuis un run.
         """
-        self.chemin.mkdir(parents=True, exist_ok=True)
+        try:
+            _repertoire_espace_ordinaire(self.chemin)
+        except EspaceNonInstalle:
+            # Une absence réelle est le seul état que l'installation puisse créer. Une entrée
+            # existante d'un autre type — en particulier un lien — est refusée avant mutation.
+            try:
+                os.lstat(self.chemin)
+            except FileNotFoundError:
+                self.chemin.mkdir(parents=True, exist_ok=False)
+            else:
+                raise
+        _repertoire_espace_ordinaire(self.chemin)
         for generation in GENERATIONS:
             (self.chemin / generation).mkdir(exist_ok=True)
         if not self.installe():
@@ -1025,11 +1050,12 @@ def _main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — poi
     p.add_argument("--migrer", action="store_true",
                    help="déplace le contenu d'une cible déjà existante dans le bundle")
     args = p.parse_args(argv)
-    espace = EspacePublie(args.racine, args.data_dir)
-    cibles = list(args.cible)
-    if args.depot:
-        cibles += [c for c in cibles_du_depot(espace.racine, espace.data_dir) if c not in cibles]
     try:
+        espace = EspacePublie(args.racine, args.data_dir)
+        cibles = list(args.cible)
+        if args.depot:
+            cibles += [c for c in cibles_du_depot(espace.racine, espace.data_dir)
+                        if c not in cibles]
         espace.installer(cibles, migrer=args.migrer)
     except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible, OSError) as exc:
         print(f"refus : {exc}")

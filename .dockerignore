@@ -15,11 +15,8 @@ _reference
 .claude
 .agents
 data/*/source.pdf
-# Les octets privés restent exclus, mais les trois entrées racine sont des **liens statiques** que
-# le préflight N3 exige dans l'image. Docker doit copier les liens, jamais leur slot PDF privé.
-!data/lux-guide/source.pdf
-!data/axa-lu-optihome-2017/source.pdf
-!data/baloise-lu-home-2-2024/source.pdf
+# Les octets privés et les liens du checkout sont exclus génériquement. Le Dockerfile repose la
+# disposition depuis le manifest, hors réseau, avant `fetch_source --all`.
 data/.publie/*/data/*/source.pdf
 data/*/*.tmp
 # Story 4.5, N1 — le packaging emporte ce qui est **réellement résolu**, et rien de plus. Les cibles

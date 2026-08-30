@@ -29,10 +29,12 @@ def data(tmp_path: Path) -> Path:
     (d / "source.url").write_text(URL + "\n", "utf-8")
     (d / "source.sha256").write_text(SHA + "\n", "utf-8")
     (tmp_path / "data" / "lux-guide").mkdir()
+    (tmp_path / "data" / "lux-guide" / "source.js").write_text(
+        "const GUIDE = {};\n", "utf-8")
     entree = ManifestEntry(status="servi", source_hash=SHA, ingest_fingerprint="fp",
                            document_hash="doc", edition="2020")
     (tmp_path / "data" / "manifest.json").write_text(
-        json.dumps({"doc-a": entree.model_dump()}), "utf-8")
+        json.dumps({"doc-a": entree.model_dump(), "lux-guide": entree.model_dump()}), "utf-8")
     poser_espace(tmp_path, data_dir=tmp_path / "data")
     return tmp_path / "data"
 
@@ -103,6 +105,52 @@ def test_identite_modifiee_pendant_le_telechargement_refuse_sans_publier(data: P
     with pytest.raises(f.FetchError) as exc:
         f.fetch("doc-a", data, client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert exc.value.code == f.EXIT_CHANGED
+    assert cible.read_bytes() == b"ancien"
+
+
+def test_identite_non_utf8_relue_sous_verrou_est_un_changement_sans_publication(
+        data: Path) -> None:
+    espace = EspacePublie(data.parent, data)
+    cible = data / "doc-a" / "source.pdf"
+    espace.basculer([(cible, b"ancien")])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        espace.basculer([(data / "doc-a" / "source.sha256", b"\xff\xfe")])
+        return httpx.Response(200, content=PDF, request=request)
+
+    with pytest.raises(f.FetchError) as exc:
+        f.fetch("doc-a", data, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert exc.value.code == f.EXIT_CHANGED
+    assert cible.read_bytes() == b"ancien"
+
+
+def test_la_vraie_cli_all_oppose_la_capture_du_batch_sous_verrou(
+        data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    espace = EspacePublie(data.parent, data)
+    cible = data / "doc-a" / "source.pdf"
+    espace.basculer([(cible, b"ancien")])
+    vrai_fetch = f.fetch
+    captures: list[f.IdentiteSource] = []
+
+    def fetch_apres_bascule(
+        doc_id: str,
+        data_dir: Path,
+        *,
+        private_source: bool = False,
+        identite: f.IdentiteSource | None = None,
+    ) -> Path:
+        assert identite is not None
+        captures.append(identite)
+        manifest = json.loads((data / "manifest.json").read_text("utf-8"))
+        manifest[doc_id]["edition"] = "2021"
+        espace.basculer([(data / "manifest.json", json.dumps(manifest))])
+        return vrai_fetch(
+            doc_id, data_dir, private_source=private_source, identite=identite,
+            client=_client({URL: httpx.Response(200, content=PDF)}, []))
+
+    monkeypatch.setattr(f, "fetch", fetch_apres_bascule)
+    assert f.main(["--all", "--data", str(data)]) == f.EXIT_CHANGED
+    assert [capture.entree.edition for capture in captures] == ["2020"]
     assert cible.read_bytes() == b"ancien"
 
 
@@ -300,7 +348,27 @@ def test_reference_files_validated(data: Path) -> None:
 
 
 def test_documents_to_fetch_lists_committed_sources(data: Path) -> None:
-    assert f.documents_to_fetch(data) == (["doc-a"], ["lux-guide"])
+    captures, committed = f.documents_to_fetch(data)
+    assert [capture.doc_id for capture in captures] == ["doc-a"]
+    assert captures[0].url == URL and captures[0].reference == SHA
+    assert committed == ["lux-guide"]
+
+
+def test_all_refuse_un_document_sans_reference_ni_source_avant_reseau(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = tmp_path / "data"
+    doc = data / "sans-source"
+    doc.mkdir(parents=True)
+    entree = ManifestEntry(status="servi", source_hash=SHA, ingest_fingerprint="fp",
+                           document_hash="doc", edition="2020")
+    (data / "manifest.json").write_text(
+        json.dumps({"sans-source": entree.model_dump()}), "utf-8")
+    poser_espace(tmp_path, data_dir=data)
+    monkeypatch.setattr(f, "fetch", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("réseau atteint malgré le document sans source")))
+
+    assert f.main(["--all", "--data", str(data)]) == f.EXIT_USAGE
+    assert not (doc / "source.pdf").exists()
 
 
 def test_main_codes(data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -321,7 +389,14 @@ def test_main_codes(data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
 def test_main_forwards_private_source_mode(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, Path, bool]] = []
 
-    def fake_fetch(doc_id: str, data_dir: Path, *, private_source: bool = False) -> Path:
+    def fake_fetch(
+        doc_id: str,
+        data_dir: Path,
+        *,
+        private_source: bool = False,
+        identite: f.IdentiteSource | None = None,
+    ) -> Path:
+        assert identite is not None
         calls.append((doc_id, data_dir, private_source))
         return data_dir / doc_id / "source.pdf"
 
