@@ -1462,3 +1462,29 @@ def test_une_reingestion_publiee_pendant_le_typage_est_un_refus_pas_une_publicat
     assert manifest_path.read_bytes() == publie.encode("utf-8"), (
         "le typage a écrasé la réingestion publiée au lieu de refuser")
     assert espace.residus() == []
+
+
+def test_la_procedure_operateur_de_depot_refuse_une_cible_non_installee(tmp_path: Path) -> None:
+    """`N3-OVERLAY-BYPASS` : le septième entrypoint cartographié passe par la racine.
+
+    La procédure documentée appelait directement `publier_artefacts` : sur une cible custom **non
+    installée**, `_espace_du_lot` rend `None` et cette API prend le repli rootless. Le repli ne peut
+    pas être à la fois « primitive interne » et prescrit par la documentation opérateur.
+    `deposer_par_la_racine` est désormais la procédure, et elle exige la disposition.
+    """
+    from server.ingest.artifacts import deposer_par_la_racine
+    from server.evals.espace import EspaceNonInstalle
+
+    cible = tmp_path / "data" / "contrat" / "typing.manual.json"
+    cible.parent.mkdir(parents=True)
+
+    with pytest.raises(EspaceNonInstalle, match="aucune racine de publication ne couvre"):
+        deposer_par_la_racine([(cible, '{"schema_version": "1"}')])
+    assert not cible.exists(), "une cible a été écrite alors que la disposition refusait"
+
+    # Et sous une disposition installée, la même procédure publie sans traitement particulier.
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data",
+                          cibles=[Path("data/contrat/typing.manual.json")])
+    deposer_par_la_racine([(cible, '{"schema_version": "1"}')])
+    assert cible.read_text("utf-8") == '{"schema_version": "1"}'
+    assert cible.is_symlink() and espace.residus() == []

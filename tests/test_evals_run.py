@@ -2741,3 +2741,83 @@ def test_les_arguments_de_la_ci_passent_le_preflight_de_racine(tmp_path: Path) -
     assert lot == [sorties / "results.json", sorties / "results.md"], (
         "le lot d'un run sans gate est le seul couple rapport/table")
     exiger_espace_installe(lot)  # ne lève pas : la disposition de la CI suffit au diagnostic
+
+
+# --- Patch croisé 1/3 : la fraîcheur du repère vaut pour tout run, et le regate sous racine -------
+
+def test_un_run_sans_gate_verifie_aussi_la_fraicheur_de_son_repere(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """`N1-RUN-FRESHNESS` : la péremption est une propriété de la passe, pas du profil.
+
+    `lecture_run.verifier()` vivait sous `if exigences_full:`. Un gate `vertical` et le run CI
+    `--profile full` **sans** `--gate` sortaient donc de leur passe de lecture sans vérification
+    finale : `Lecture.reel` contrôle avant de *rendre* un chemin, et l'ouverture arrive séparément,
+    si bien qu'une reconstruction entre les deux fournissait les nouveaux octets sans rejeu ni
+    refus. La sonde prend le chemin **sans gate**, celui que la CI lance.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    espace = poser_espace(tmp_path, data_dir=data)
+    manifest = (data / "manifest.json").read_text("utf-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+
+    appels: list[str] = []
+
+    class PipelineSentinelle:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            appels.append("appel")
+            raise AssertionError("aucune mesure ne doit suivre un repère périmé")
+
+    _COURANT["guide"] = PipelineSentinelle()
+    _COURANT["sinistre"] = PipelineSentinelle()
+
+    # La génération pincée est reconstruite pendant la construction du contexte : deux bascules.
+    vrai_contexte = runner.construire_contexte
+
+    def _reconstruire_puis_rendre(*a: Any, **k: Any) -> Any:
+        ctx = vrai_contexte(*a, **k)
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return ctx
+
+    monkeypatch.setattr(runner, "construire_contexte", _reconstruire_puis_rendre)
+    code = runner.main(["--suite", "guide", "--cases-dir", str(cases), "--data-dir", str(data)])
+    monkeypatch.undo()
+
+    assert code == 2, "un repère périmé se refuse avant tout appel, comme les autres refus"
+    assert "rien n'a été mesuré" in capsys.readouterr().err
+    assert appels == [], "un appel payant a suivi une génération reconstruite sous la passe"
+
+
+def test_le_regate_traverse_une_disposition_installee_sans_la_prendre_pour_cassee(
+        tmp_path: Path) -> None:
+    """Régression du tour précédent, reproduite sur le chemin qui la subissait.
+
+    `installer()` pose la disposition **fichier par fichier** : `data/` et `data/<doc_id>/` restent
+    des répertoires ordinaires. Le refus « disposition cassée » les prenait pour des cibles couvertes
+    — leur slot existe, puisqu'il contient des cibles — et levait. `_sans_gate_sur_disque` énumère
+    précisément `data/` et passe **chaque entrée**, répertoires compris : le regate d'un gate rouge
+    ou périmé, seul usage de l'arbre d'ombre, échouait donc sur la disposition que le dépôt porte.
+    """
+    import contextlib as _contextlib
+
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    # Les artefacts **par document** sont installés : c'est ce qui donne un slot à `data/<doc_id>/`,
+    # donc ce qui fait exister le cas « conteneur » que le refus prenait pour une cible.
+    poser_espace(tmp_path, data_dir=data,
+                 cibles=[Path("data") / GUIDE / nom for nom in
+                         ("document.json", "summary.md", "report.json")])
+
+    with _contextlib.ExitStack() as pile:
+        # L'arbre d'ombre vit le temps de la pile : les assertions sont dedans.
+        ombre = runner._sans_gate_sur_disque(data, GUIDE, pile)
+        assert ombre.is_dir(), "l'arbre d'ombre n'a pas été construit"
+        assert (ombre / "manifest.json").is_file(), "le manifest sans gate n'a pas été matérialisé"
+        assert (ombre / GUIDE / "document.json").is_file(), (
+            "les artefacts du document n'ont pas été matérialisés dans l'ombre")

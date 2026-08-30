@@ -1132,3 +1132,43 @@ def test_valider_oppose_le_manifest_publie_et_non_le_corpus_charge_avant_le_verr
         "la signature a été publiée sur un corpus périmé : l'opérande du contrôle venait du "
         "`load_corpus` d'avant le verrou, pas du manifest publié")
     assert json.loads(chemin.read_text("utf-8"))["validated"] is False
+
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_meme_de_lire_le_corpus(
+        tmp_path: Path, capsys: Any) -> None:
+    """`N3-LECTURE-ROOTLESS` : le refus « avant tout travail » commence par la **lecture**.
+
+    Le préflight tombait après `load_corpus` : une disposition custom absente était donc déjà lue
+    rootless — manifest, documents, sommaires, overlays — avant d'être refusée. Un reader de
+    production hors racine transactionnelle est exactement ce que N3 interdit, et lire n'est pas
+    « ne rien faire ». La sonde compte les lectures : il ne doit y en avoir aucune.
+    """
+    import shutil as _shutil
+
+    data = _ecrire_data(tmp_path)
+    liens = [c for c in sorted(data.rglob("*"))
+             if c.is_symlink() and REPERTOIRE_ESPACE not in c.parts]
+    contenus = {c: (c.read_bytes() if c.is_file() else None) for c in liens}
+    for chemin, octets in contenus.items():
+        chemin.unlink()
+        if octets is not None:
+            chemin.write_bytes(octets)
+    _shutil.rmtree(data / REPERTOIRE_ESPACE)
+
+    lues: list[str] = []
+    vrai_read = Path.read_bytes
+
+    def _noter(chemin: Path) -> bytes:
+        if chemin.suffix in {".json", ".md"}:
+            lues.append(chemin.name)
+        return vrai_read(chemin)
+
+    Path.read_bytes = _noter  # type: ignore[method-assign]
+    try:
+        code = ed.main(["--data", str(data)], client=None, settings=_settings(),
+                       sortie=io.StringIO())
+    finally:
+        Path.read_bytes = vrai_read  # type: ignore[method-assign]
+
+    assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
+    assert lues == [], f"le corpus a été lu rootless avant le refus : {lues}"

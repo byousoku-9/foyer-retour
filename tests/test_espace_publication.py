@@ -1408,3 +1408,72 @@ def test_une_marque_perimee_cesse_detre_signalee_apres_des_bascules_saines(
         "une marque a survécu à la reconstruction complète de la génération qu'elle nomme : elle "
         "désigne désormais un bundle publié comme un brouillon en cours")
     assert (tmp_path / "a.md").read_text("utf-8") == "v3"
+
+
+# --- Patch croisé 1/3 : absorber n'est pas taire -------------------------------------------------
+
+def test_un_assainissement_impossible_refuse_avant_le_commit(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`N2-NETTOYAGE-MUET`, volet **avant** commit : lever laisse zéro cible modifiée.
+
+    Le moissonnage des marques périmées absorbait l'itération **et** chaque `unlink`, puis la
+    transaction continuait. Une marque qu'on n'a pas pu retirer survivait alors à la reconstruction
+    de sa génération et, une fois celle-ci publiée, `residus()` la filtrait — ni dite, ni
+    observable. Avant le commit rien n'est basculé : le refus est donc gratuit, et c'est exactement
+    ce que l'AC demande d'une exception d'avant commit.
+    """
+    from server.evals import espace as esp
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    avant = _etat_observable([tmp_path / "a.md"])
+    inactive = GENERATIONS[1] if espace.generation() == GENERATIONS[0] else GENERATIONS[0]
+    perimee = espace.chemin / f".{inactive}.brouillon.99999.tmp"
+    perimee.write_text("marque d'un processus disparu", "utf-8")
+
+    vrai_unlink = Path.unlink
+
+    def _unlink_impossible(self: Path, **kw: object) -> None:
+        if self.name.endswith(".brouillon.99999.tmp"):
+            raise PermissionError("marque périmée verrouillée")
+        return vrai_unlink(self, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "unlink", _unlink_impossible)
+    with pytest.raises(esp.EspaceIllisible, match="impossible à retirer"):
+        espace.basculer([(tmp_path / "a.md", "v2")])
+    monkeypatch.undo()
+
+    assert _etat_observable([tmp_path / "a.md"]) == avant, (
+        "une cible a bougé alors que l'assainissement avait refusé avant le commit")
+    assert perimee.exists(), "la marque qu'on n'a pas su retirer doit rester détectable"
+    assert any("brouillon.99999" in reste for reste in espace.residus()), espace.residus()
+
+
+def test_un_nettoyage_impossible_apres_le_commit_est_dit_et_reste_observable(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """`N2-NETTOYAGE-MUET`, volet **après** commit : rien ne remonte, mais rien n'est tu.
+
+    Après le commit, l'AC interdit de propager quoi que ce soit — le lot est publié. Mais absorber
+    n'est pas taire : la marque qui subsiste nomme désormais la génération que le pointeur
+    **publie**, donc `residus()` la filtre à raison (un bundle publié n'est pas un brouillon), et
+    l'impossibilité devenait invisible. Elle laisse maintenant une trace d'un **autre nom**, que la
+    sonde de résidus ne filtre jamais, et un mot sur `stderr`.
+    """
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    vrai_unlink = Path.unlink
+
+    def _retrait_impossible(self: Path, **kw: object) -> None:
+        if ".brouillon." in self.name:
+            raise PermissionError("marque impossible à retirer après le commit")
+        return vrai_unlink(self, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "unlink", _retrait_impossible)
+    espace.basculer([(tmp_path / "a.md", "v2")])  # ne lève pas : le lot est publié
+    monkeypatch.undo()
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v2", "le lot devait être publié"
+    erreur = capsys.readouterr().err
+    assert "nettoyage impossible après le commit" in erreur, erreur
+    traces = [reste for reste in espace.residus() if "nettoyage-impossible" in reste]
+    assert traces, (
+        f"l'impossibilité de nettoyage n'est pas observable : residus() = {espace.residus()}")

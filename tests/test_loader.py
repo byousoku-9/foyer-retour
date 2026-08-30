@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -1146,3 +1147,149 @@ def test_construire_etat_compose_toutes_ses_surfaces_dans_une_seule_generation(
     assert set(generations) == {generations[0]}, (
         f"le démarrage a composé son état à partir de {sorted(set(generations))} : "
         "corpus, rapports et publication ne viennent pas de la même génération")
+
+
+# --- Patch croisé 1/3 : les mêmes propriétés, prouvées sur un entrypoint qui existe à la baseline --
+
+def test_une_passe_de_load_corpus_ne_traverse_le_pointeur_quune_seule_fois(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 mesuré sur `load_corpus`, qui existe à la baseline — pas sur l'API neuve.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. La sonde équivalente de `test_espace_publication.py`
+    appelle `racine.lecture_de` directement : sur `bb46017` elle rougit parce que le module n'existe
+    pas, ce qui prouve l'absence d'une API, jamais le fait comportemental annoncé. Celle-ci passe par
+    l'entrypoint que la baseline possède déjà et compte les traversées **réelles** du pointeur —
+    `os.readlink`, `os.stat`, `os.path.realpath` visant `courant`. À la baseline, chaque artefact
+    était résolu indépendamment : le compte est celui du nombre de cibles, pas 1.
+    """
+    data, espace = _corpus_sous_racine(tmp_path)
+    pointeur = str(espace.chemin / "courant")
+    touches: list[str] = []
+
+    def _mouchard(nom: str, vrai: Any) -> Any:
+        def _appel(chemin: Any, *a: Any, **k: Any) -> Any:
+            if str(chemin) == pointeur:
+                touches.append(nom)
+            return vrai(chemin, *a, **k)
+        return _appel
+
+    for module, nom in ((os, "readlink"), (os, "stat"), (os.path, "realpath")):
+        monkeypatch.setattr(module, nom, _mouchard(nom, getattr(module, nom)))
+    corpus = load_corpus(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert corpus.served == ["lux-guide"], corpus.quarantine
+    assert touches == ["readlink"], (
+        f"traversées explicites de `courant` pendant la passe : {touches}. Il en faut exactement "
+        "une — le pincement. Aucune (`[]`) signifie que la passe ne pince rien et laisse le noyau "
+        "résoudre le lien à chaque `open()`, donc potentiellement de part et d'autre d'une bascule ; "
+        "plusieurs signifient qu'elle le retraverse au lieu de lire à travers son repère")
+
+
+def test_load_corpus_refuse_une_disposition_cassee_au_lieu_de_lire_le_lien_vivant(
+        tmp_path: Path) -> None:
+    """N1 sur un entrypoint de la baseline : un lecteur qui ne peut pas conclure **refuse**.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. Une cible couverte dont le lien a été remplacé par un
+    fichier ordinaire n'est plus dans la génération pincée : la lire quand même, c'est lire à travers
+    le lien vivant, hors du repère — le mélange que N1 interdit. À la baseline, `load_corpus` lisait
+    ce fichier sans un mot.
+    """
+    data, _espace = _corpus_sous_racine(tmp_path)
+    document = data / "lux-guide" / "document.json"
+    octets = document.read_bytes()
+    document.unlink()
+    document.write_bytes(octets)  # même contenu, mais hors de la génération pincée
+
+    # L'assertion porte sur l'**issue observable**, jamais sur un type d'exception que la baseline
+    # ne connaît pas : c'est ce qui fait mordre cette sonde sur les deux arbres pour la même raison.
+    rendu, refus = None, None
+    try:
+        rendu = load_corpus(data, allow_ungated=True)
+    except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
+        refus = exc
+    assert rendu is None, (
+        "la passe a rendu un corpus au lieu de refuser : elle a lu la cible à travers son lien "
+        "vivant, hors de la génération pincée")
+    assert "ne passe plus par le pointeur" in str(refus), refus
+
+
+def test_load_corpus_dit_un_espace_illisible_au_lieu_de_rendre_un_corpus_vide(
+        tmp_path: Path) -> None:
+    """N1 sur un entrypoint de la baseline : vide et illisible ne sont pas le même fait.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. Quand `courant` nomme une génération dont le répertoire
+    a disparu, chaque slot est vu absent : la passe rendait un corpus **vide sans refuser**, et le
+    service démarrait sur un espace qu'il ne savait pas lire.
+    """
+    data, espace = _corpus_sous_racine(tmp_path)
+    shutil.rmtree(espace.chemin / espace.generation())
+
+    rendu, refus = None, None
+    try:
+        rendu = load_corpus(data, allow_ungated=True)
+    except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
+        refus = exc
+    assert rendu is None, (
+        f"la passe a rendu un corpus (servis : {getattr(rendu, 'served', None)}) sur un espace "
+        "qu'elle ne sait pas lire : un corpus vide et un corpus illisible ne sont pas le même fait")
+    assert "absent ou illisible" in str(refus), refus
+
+
+def test_load_corpus_refuse_apres_avoir_epuise_ses_rejeux(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 sur un entrypoint de la baseline : après épuisement, le refus est **dit**.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. Sous une production qui reconstruit la génération pincée
+    à chaque passe, rendre un état serait affirmer une cohérence qu'aucune génération ne porte. À la
+    baseline il n'y avait ni rejeu ni refus : la passe rendait l'état mêlé.
+    """
+    from server.app.corpus import loader as ld
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    manifest = (data / "manifest.json").read_text("utf-8")
+    passes = {"n": 0}
+    vrai_sha = ld._sha256
+
+    def _reconstruire_a_chaque_passe(octets: bytes) -> str:
+        passes["n"] += 1
+        # Deux bascules : la seconde reconstruit la génération que la passe vient de pincer.
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return vrai_sha(octets)
+
+    monkeypatch.setattr(ld, "_sha256", _reconstruire_a_chaque_passe)
+    rendu, refus = None, None
+    try:
+        rendu = load_corpus(data, allow_ungated=True)
+    except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
+        refus = exc
+    monkeypatch.undo()
+    assert rendu is None, (
+        "la passe a rendu un état alors que sa génération était reconstruite sous elle à chaque "
+        "tentative : aucune génération ne porte cette cohérence")
+    assert "tentatives de lecture" in str(refus), refus
+    assert passes["n"] > 1, f"la passe n'a pas été rejouée : {passes}"
+
+
+def test_un_conteneur_de_cibles_nest_pas_une_cible_couverte(tmp_path: Path) -> None:
+    """Régression du tour précédent : `installer()` pose fichier par fichier.
+
+    Patch croisé 1/3. Le refus « disposition cassée » traitait tout chemin dont le slot existe comme
+    une cible : or `data/` et `data/<doc_id>/` sont des **répertoires ordinaires** dont le slot
+    n'existe que parce qu'il contient des cibles. Le lecteur refusait donc la disposition que
+    `installer()` produit — un faux positif par construction, qui faisait lever le chemin de regate
+    du runner, lequel énumère `data/` et passe chaque entrée, répertoires compris.
+    """
+    from server.app.corpus import racine as rac
+
+    data, _espace = _corpus_sous_racine(tmp_path)
+    repere = rac.lecture_de(data)
+    try:
+        # Une cible : résolue dans la génération pincée.
+        assert repere.reel(data / "manifest.json") != data / "manifest.json"
+        # Deux conteneurs : rendus tels quels, jamais refusés.
+        assert repere.reel(data / "lux-guide") == data / "lux-guide"
+        assert repere.reel(data) == data
+    finally:
+        repere.fermer()
