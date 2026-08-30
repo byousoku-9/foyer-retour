@@ -1477,3 +1477,74 @@ def test_un_nettoyage_impossible_apres_le_commit_est_dit_et_reste_observable(
     traces = [reste for reste in espace.residus() if "nettoyage-impossible" in reste]
     assert traces, (
         f"l'impossibilité de nettoyage n'est pas observable : residus() = {espace.residus()}")
+
+
+def test_une_marque_qui_survit_au_commit_reste_un_residu_durable(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`N2-NETTOYAGE-MUET` : l'observabilité ne tient plus à une trace best-effort.
+
+    Après le commit, la marque qui subsiste nomme la génération que le pointeur **publie** :
+    `residus()` la filtrait, et la seule observabilité restante était une trace écrite sous
+    `suppress(BaseException)` plus un mot sur `stderr`. Une même panne — `EACCES`, `ENOSPC` — pouvait
+    donc emporter le retrait **et** la trace, et l'échec n'était plus durablement observable.
+
+    Le filtre est levé : il existait contre un faux positif que l'assainissement **pré-commit**
+    strict ferme désormais à sa cause (aucune marque périmée ne survit à une bascule saine). Une
+    marque qui subsiste est donc toujours un résidu, indépendamment de toute trace.
+    """
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    vrai_unlink = Path.unlink
+
+    def _tout_echoue(self: Path, **kw: object) -> None:
+        # La même panne emporte le retrait **et** l'écriture de la trace.
+        if ".brouillon." in self.name:
+            raise PermissionError("marque impossible à retirer après le commit")
+        return vrai_unlink(self, **kw)  # type: ignore[arg-type]
+
+    vrai_write = Path.write_text
+
+    def _trace_impossible(self: Path, *a: object, **k: object) -> int:
+        if "nettoyage-impossible" in self.name:
+            raise PermissionError("trace impossible à écrire")
+        return vrai_write(self, *a, **k)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "unlink", _tout_echoue)
+    monkeypatch.setattr(Path, "write_text", _trace_impossible)
+    espace.basculer([(tmp_path / "a.md", "v2")])  # ne lève pas : le lot est publié
+    monkeypatch.undo()
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v2", "le lot devait être publié"
+    restes = espace.residus()
+    assert any(".brouillon." in reste for reste in restes), (
+        f"la marque qui a survécu au commit n'est pas observable : residus() = {restes}")
+
+
+def test_un_nettoyage_impossible_pendant_labandon_est_dit(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """`N2-NETTOYAGE-MUET`, volet abandon : l'échec d'unlink cesse d'être muet.
+
+    Pendant `_abandonner`, le retrait de la marque était absorbé sans un mot. Ne pas **propager** y
+    est délibéré — on est dans un gestionnaire d'exception, et masquer la cause d'origine serait
+    pire —, mais absorber n'est pas taire : l'échec se dit, et la marque reste un résidu.
+    """
+    from server.evals import espace as esp
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    vrai_unlink = Path.unlink
+
+    def _marque_non_retirable(self: Path, **kw: object) -> None:
+        if ".brouillon." in self.name:
+            raise PermissionError("marque verrouillée pendant l'abandon")
+        return vrai_unlink(self, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "unlink", _marque_non_retirable)
+    # Un échec **avant** le commit : le brouillon est abandonné, et l'abandon retire la marque.
+    monkeypatch.setattr(esp, "_fsync_repertoire",
+                        lambda _c: (_ for _ in ()).throw(OSError("échec avant commit")))
+    with pytest.raises(OSError, match="échec avant commit"):
+        espace.basculer([(tmp_path / "a.md", "v2")])
+    monkeypatch.undo()
+
+    assert (tmp_path / "a.md").read_text("utf-8") == "v1", "aucune cible ne doit avoir bougé"
+    assert "nettoyage impossible pendant l'abandon" in capsys.readouterr().err

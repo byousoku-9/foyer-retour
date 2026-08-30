@@ -1172,3 +1172,60 @@ def test_la_cli_refuse_un_data_dir_non_installe_avant_meme_de_lire_le_corpus(
 
     assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
     assert lues == [], f"le corpus a été lu rootless avant le refus : {lues}"
+
+
+def test_une_reingestion_pendant_la_campagne_refuse_au_lieu_de_publier(
+        tmp_path: Path, capsys: Any) -> None:
+    """`N1-N3-ENRICH-RMW` : la branche d'enrichissement cesse d'être un read-modify-write.
+
+    Elle composait `corpus_source_hashes` depuis le `load_corpus` fait **avant** la campagne
+    payante, puis publiait par `write_atomic` : trois gestes à cheval sur le verrou. Une réingestion
+    publiée pendant les minutes d'appels faisait donc publier, dans la génération courante, un
+    dictionnaire dérivé de l'ancienne et portant son ancien `source_hash`. L'alerte aval
+    `dictionnaire_corpus_perime` ne remplace ni le refus ni la transaction, et l'inscription
+    `deferred` du tour précédent ne fermait rien.
+
+    C'est le patron que `--valider` et le typage tiennent déjà : lire, opposer, publier — dans la
+    même section critique. La contention est **réelle** : la réingestion est publiée pendant que la
+    campagne tourne, donc après la lecture dont la publication tirait son identité.
+    """
+    import hashlib
+
+    from server.evals.espace import EspacePublie
+
+    data = _ecrire_data(tmp_path)
+    manifest_path = data / "manifest.json"
+    avant = (data / "dictionary.json").read_bytes() if (data / "dictionary.json").exists() else None
+
+    # La réingestion concurrente, publiée pendant la campagne (le faux client la déclenche).
+    publie = json.loads(manifest_path.read_text("utf-8"))
+    publie[DOC_ID]["source_hash"] = hashlib.sha256(b"source reingeree").hexdigest()
+    espace = EspacePublie(data, data)
+
+    class ClientQuiReingere(FauxClient):
+        def __init__(self, batches: Any) -> None:
+            super().__init__(batches)
+            self._fait = False
+
+        def _reingerer(self) -> None:
+            if not self._fait:
+                self._fait = True
+                espace.basculer([(manifest_path,
+                                  json.dumps(publie, indent=2, ensure_ascii=False) + "\n")])
+
+    batches = FauxBatches({ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS,
+                           ed.custom_id(CAT): _sortie_categorie()},
+                          etats=["in_progress", "ended"])
+    client = ClientQuiReingere(batches)
+    horloge = iter(range(0, 100000, 30))
+
+    def _dormir(_s: float) -> None:
+        client._reingerer()  # la réingestion tombe pendant l'attente du lot
+
+    code = ed.main(["--data", str(data)], client=client, settings=_settings(),
+                   sortie=io.StringIO(), dormir=_dormir, maintenant=lambda: next(horloge))
+
+    assert code == 5, "une réingestion pendant la campagne doit refuser, pas publier"
+    assert "réingéré pendant la campagne" in capsys.readouterr().err
+    apres = (data / "dictionary.json").read_bytes() if (data / "dictionary.json").exists() else None
+    assert apres == avant, "un dictionnaire a été publié alors que le corpus avait bougé"

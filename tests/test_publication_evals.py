@@ -294,6 +294,19 @@ def test_les_quatre_surfaces_portent_les_memes_chiffres(tmp_path: Path) -> None:
         assert limite in textes
 
 
+
+def _poser_la_racine(data: Path) -> None:
+    """La disposition d'un `data-dir` de test, posée comme un opérateur la pose (story 4.5, N3).
+
+    Le démarrage du service est un entrypoint de lecture de production : il exige une racine
+    **installée** et refuse avant de lire sinon. Poser la disposition ne change aucune attente —
+    c'est le décor qui rejoint la forme que la production a.
+    """
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(data.parent, data).installer([Path(data.name) / "manifest.json"], migrer=True)
+
+
 def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None:
     """I/O matrix : artefact absent ou illisible ⇒ `publie: false`, **jamais** 5xx, aucun chiffre.
 
@@ -303,6 +316,8 @@ def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None
     vide = tmp_path / "vide"
     vide.mkdir()
     (vide / "manifest.json").write_text("{}", encoding="utf-8")
+    # Story 4.5, N3 (patch croisé 2/3) : le démarrage exige une racine **installée**.
+    _poser_la_racine(vide)
     assert _servir(vide) == {"publie": False, "raison": "absent", "publication": None}
 
     # P14 : `illisible` et `hors_schema` sont **réellement** distingués, par un `json.loads` avant
@@ -314,6 +329,7 @@ def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None
     illisible.mkdir()
     (illisible / "manifest.json").write_text("{}", encoding="utf-8")
     (illisible / "evals-latest.json").write_text("{ pas du json", encoding="utf-8")
+    _poser_la_racine(illisible)
     assert _servir(illisible)["raison"] == "illisible"
 
     hors_schema = tmp_path / "hors-schema"
@@ -321,6 +337,7 @@ def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None
     (hors_schema / "manifest.json").write_text("{}", encoding="utf-8")
     (hors_schema / "evals-latest.json").write_text(
         json.dumps({"profile": "full"}), encoding="utf-8")
+    _poser_la_racine(hors_schema)
     corps = _servir(hors_schema)
     assert corps == {"publie": False, "raison": "hors_schema", "publication": None}
     # Et `/` le rend comme une **absence**, sans inventer un chiffre.
@@ -332,6 +349,7 @@ def test_aucun_run_publie_est_un_etat_type_jamais_un_5xx(tmp_path: Path) -> None
 def test_la_route_vit_sous_api_v1_et_na_pas_dalias_racine(tmp_path: Path) -> None:
     """AD-11 : toute route neuve vit sous `/api/v1` ; rien d'ancien n'attend `/evals` à la racine."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    _poser_la_racine(tmp_path)  # story 4.5, N3 : le démarrage exige une racine installée
     with TestClient(create_app(_reglages(), data_dir=tmp_path)) as client:
         assert client.get("/api/v1/evals/latest").status_code == 200
         assert client.get("/evals/latest").status_code == 404
@@ -1978,3 +1996,23 @@ def test_ecrire_gate_est_couvert_par_le_meme_contrat(tmp_path: Path,
     # Et le chemin nominal publie bien, par le même unique atome.
     assert runner.ecrire_gate(manifest, "doc-neutre", _gate()) is True
     assert json.loads(manifest.read_text(encoding="utf-8"))["doc-neutre"]["gate"] is not None
+
+
+def test_le_demarrage_refuse_un_data_dir_non_installe_avant_toute_lecture(tmp_path: Path) -> None:
+    """`N3-LECTURE-ROOTLESS` : le démarrage du service est un entrypoint de lecture de production.
+
+    `RacinePubliee.lecture()` rabat l'absence de racine sur un repère sans génération, qui lit les
+    chemins bruts — c'est la primitive interne, symétrique de `_publier_sans_racine` côté écriture.
+    Ce qui ferme N3 est qu'**aucun entrypoint de production ne l'atteigne** : sans ce préflight, un
+    `data-dir` jamais installé se lisait rootless et le service démarrait en affirmant n'avoir rien
+    à servir, au lieu de dire qu'il ne sait pas lire son espace.
+    """
+    from server.app.api.etat import construire_etat
+    from server.app.corpus.racine import EspaceNonInstalle
+
+    nu = tmp_path / "jamais-installe"
+    nu.mkdir()
+    (nu / "manifest.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(EspaceNonInstalle, match="aucune racine de publication ne couvre"):
+        construire_etat(_reglages(), data_dir=nu)

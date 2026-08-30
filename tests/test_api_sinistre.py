@@ -11,6 +11,8 @@ doit exhiber une clause aux offsets, à la page et à la bbox connus.
 
 from __future__ import annotations
 
+import pathlib
+
 import json
 from typing import Any
 
@@ -395,6 +397,19 @@ def _corpus_sur_disque(racine: Any, *, rapport: str | None, source: str | None,
               "document_hash": hashlib.sha256(octets).hexdigest(), "edition": "2020",
               "overlay_hash": None, "gate": None}
     (racine / "manifest.json").write_text(_json.dumps({"doc-mini": entree}), encoding="utf-8")
+    # Story 4.5, N3 (patch croisé 2/3) : le démarrage du service est un entrypoint de lecture de
+    # production ; il exige une racine **installée** et refuse avant de lire sinon. La disposition
+    # se pose ici, comme un opérateur la pose. Aucune attente de ce fichier ne change : le décor
+    # rejoint la forme que la production a.
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(racine.parent, racine).installer(
+        [pathlib.Path(racine.name) / "manifest.json",
+         *(pathlib.Path(racine.name) / "doc-mini" / nom
+           for nom in ("document.json", "summary.md")
+           ),
+         *([pathlib.Path(racine.name) / "doc-mini" / "report.json"] if rapport is not None else []),
+         ], migrer=True)
 
 
 def _client_sur(racine: Any, *, raison_max_chars: int = 500) -> Any:
@@ -608,6 +623,13 @@ def test_un_manifest_illisible_publie_une_quarantaine_anonyme_sur_sante(
         tmp_path: Any) -> None:
     """B1 : même sans clé de document publiable, l'échec global du manifest reste visible."""
     (tmp_path / "manifest.json").write_text("{", encoding="utf-8")
+    # Story 4.5, N3 (patch croisé 2/3) : le démarrage exige une racine **installée**. Le manifest
+    # reste illisible — c'est ce que ce test éprouve —, mais il est désormais illisible *sous* une
+    # disposition, comme en production.
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(tmp_path.parent, tmp_path).installer(
+        [pathlib.Path(tmp_path.name) / "manifest.json"], migrer=True)
 
     with _client_sur(tmp_path) as client:
         reponse = client.get("/api/v1/sante")
@@ -815,6 +837,13 @@ def test_un_lien_symbolique_daudit_ne_lit_jamais_hors_data(tmp_path: Any) -> Non
         source="https://externe.invalid/secret.pdf")
     (data / "manifest.json").write_bytes((externe / "manifest.json").read_bytes())
     (data / "doc-mini").symlink_to(externe / "doc-mini", target_is_directory=True)
+    # Story 4.5, N3 (patch croisé 2/3) : le démarrage exige une racine **installée**. Le lien
+    # d'audit vers l'extérieur reste ce que ce test éprouve — la racine ne le couvre pas, et c'est
+    # précisément pourquoi il ne doit rien publier.
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(data.parent, data).installer(
+        [pathlib.Path(data.name) / "manifest.json"], migrer=True)
     with _client_sur(data) as client:
         sante = client.get("/api/v1/sante")
         documents = client.get("/api/v1/documents")

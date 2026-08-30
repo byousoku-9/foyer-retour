@@ -404,6 +404,14 @@ def _data_dir(tmp_path: Path) -> Path:
         }
     }
     (data_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    # Story 4.5, N3 (patch croisé 2/3) : le démarrage du service est un entrypoint de lecture de
+    # production ; il exige une racine **installée**. La disposition se pose ici, comme un opérateur
+    # la pose — aucune attente de ce fichier ne change.
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(tmp_path, data_dir).installer(
+        [Path("data") / "manifest.json",
+         *(Path("data") / DOC_ID / nom for nom in ("document.json", "summary.md"))], migrer=True)
     return data_dir
 
 

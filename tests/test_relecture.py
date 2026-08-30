@@ -29,6 +29,7 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
 from server.app.domain.document import Document, Node
 from server.app.domain.ingest import ManifestEntry
+from server.evals.espace import EspacePublie
 from server.evals.relecture import (PlanRelecture, RelectureInvalide, ROUTE_PAGE,
                                     charger_images, ecrire_plan, empreinte_image, nom_image,
                                     plan_de_relecture, valider_verdict)
@@ -329,8 +330,14 @@ def test_la_cli_ecrit_un_plan_deterministe_sans_reseau(tmp_path: Path,
         module, "plan_de_relecture",
         lambda _index, blocs, *, candidate_revision: plan_de_relecture(
             _index_de_test(), blocs, candidate_revision=candidate_revision))
+    # Story 4.5, N3 : `relecture` est un entrypoint de lecture de production ; il exige une racine
+    # **installée** et refuse avant toute lecture sinon. La disposition se pose ici, comme un
+    # opérateur la pose — l'index reste doublé, et aucune attente de ce test ne change.
+    data = tmp_path / "data-servi"
+    data.mkdir()
+    EspacePublie(tmp_path, data).installer([Path("data-servi") / "manifest.json"])
     code = module._main(["--report", str(rapport), "--candidate-revision", REVISION,
-                         "--data-dir", str(tmp_path / "data-absent"), "--out", str(sortie)])
+                         "--data-dir", str(data), "--out", str(sortie)])
     assert code == 0
     ecrit = PlanRelecture.model_validate_json(sortie.read_bytes())
     assert [b.block_id for b in ecrit.blocs] == [f"{DOC}:p3:1", f"{DOC}:p3:2"]
@@ -541,3 +548,26 @@ def test_une_structure_obligatoire_absente_ne_se_lit_pas_comme_une_liste_vide() 
                                                    "expected_blocks_not_opened": []}]}):
         with pytest.raises(RelectureInvalide, match="doit être une liste"):
             blocs_cles_du_rapport(mauvais)
+
+
+def test_la_cli_de_relecture_refuse_un_data_dir_non_installe_avant_toute_lecture(
+        tmp_path: Path, capsys: Any) -> None:
+    """`N3-LECTURE-ROOTLESS` : un entrypoint de lecture de production refuse avant de lire.
+
+    `relecture` composait son plan depuis un `load_corpus` qui, sur un `data-dir` jamais installé,
+    rendait un corpus **vide sans refuser** : un reader de production hors racine transactionnelle,
+    exactement ce que N3 interdit. Le repli rootless reste la primitive interne — symétrique de
+    `_publier_sans_racine` — et ce qui est fermé est son atteignabilité depuis la production.
+    """
+    from server.evals import relecture as module
+
+    rapport = tmp_path / "rapport.json"
+    rapport.write_text(json.dumps(_rapport_de_run()), encoding="utf-8")
+    sortie = tmp_path / "plan.json"
+
+    code = module._main(["--report", str(rapport), "--candidate-revision", REVISION,
+                         "--data-dir", str(tmp_path / "jamais-installe"), "--out", str(sortie)])
+
+    assert code == 2
+    assert "aucune racine de publication ne couvre" in capsys.readouterr().err
+    assert not sortie.exists(), "un plan a été écrit alors que la disposition refusait"
