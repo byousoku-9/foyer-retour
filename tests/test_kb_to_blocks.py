@@ -461,3 +461,120 @@ def test_un_arbre_refuse_natteste_rien(data_dir: Path) -> None:
     report, entry = k.run(data_dir, edition="git:test")
     assert report.blocking and entry.status == "quarantaine" and entry.document_hash == ""
     assert all(lire_attestation_arbre(c.detail) is None for c in report.checks)
+
+
+# --- Story 4.5, tour de racine unique : l'ingestion sous une racine posée --------------------------
+#
+# Revue du tour, constats 6 et 7. Le chemin de production neuf — lot complet constitué dans `run`,
+# `merge_manifest(..., artefacts=…)`, `fusionner_et_publier`, `transaction()`, un seul `publier` —
+# n'était exercé par aucun test sous un pointeur : tous les tests d'ingestion tournent sur un
+# `tmp_path` qu'aucune racine ne couvre, donc sur le chemin ordinaire.
+
+
+def _lot_du_document(data_dir: Path) -> list[Path]:
+    return [data_dir / "document.json", data_dir / "summary.md", data_dir / "report.json",
+            data_dir.parent / "manifest.json"]
+
+
+def test_une_ingestion_sous_une_racine_publie_son_lot_en_un_seul_commit(
+        data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat 7 : le chemin de production sous pointeur, de bout en bout.
+
+    Les quatre cibles — document, sommaire, rapport, manifest — doivent être publiées par **un
+    seul** point de commit, rester des liens résolus par le pointeur, et ne jamais muter la
+    génération que le pointeur publiait à l'entrée.
+    """
+    from server.evals.espace import EspacePublie, Transaction
+
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([c.relative_to(tmp_path) for c in _lot_du_document(data_dir)])
+    espace.basculer([(data_dir.parent / "manifest.json", "{}\n")])
+
+    generation_avant = espace.generation()
+    slot_manifest = espace.chemin / generation_avant / "data" / "manifest.json"
+    octets_avant, inode_avant = slot_manifest.read_bytes(), slot_manifest.stat().st_ino
+
+    commits: list[list[str]] = []
+    publier_reel = Transaction.publier
+
+    def _publier(self: object, lot: list[tuple[Path, str | None]]) -> None:
+        commits.append(sorted(Path(cible).name for cible, _contenu in lot))
+        publier_reel(self, lot)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Transaction, "publier", _publier)
+    report, entry = k.run(data_dir, edition="git:test")
+
+    assert not report.blocking
+    assert commits == [["document.json", "manifest.json", "report.json", "summary.md"]], (
+        "l'ingestion doit publier son lot complet en un seul commit")
+    assert espace.generation() != generation_avant, "l'ingestion publie, elle ne mute pas"
+    assert slot_manifest.read_bytes() == octets_avant and slot_manifest.stat().st_ino == inode_avant
+    for cible in _lot_du_document(data_dir):
+        assert cible.is_symlink(), f"{cible} : le lien couvert a été remplacé"
+        assert espace.resolue_dans_lespace(cible), f"{cible} est sortie du pointeur"
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"][
+        "document_hash"] == entry.document_hash
+    assert Document.model_validate_json((data_dir / "document.json").read_bytes()).doc_id == "lux-guide"
+    assert espace.residus() == []
+
+
+def test_une_quarantaine_sous_une_racine_retire_les_artefacts_dans_le_meme_lot(
+        data_dir: Path, tmp_path: Path) -> None:
+    """Constat 7, branche de quarantaine : les artefacts périmés partent **dans le même geste**.
+
+    Quand le rapport est bloquant, `document.json` et `summary.md` entrent au lot avec `None` — leur
+    slot est absent de la génération publiée, donc leur lien devient pendant, donc ils sont absents
+    pour tout lecteur. Sans cela, retirer un artefact serait un `unlink` à un rang où une exception
+    laisserait l'un fait et l'autre non, et un manifest en quarantaine pourrait cohabiter avec un
+    `document.json` neuf.
+    """
+    from server.evals.espace import EspacePublie
+
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([c.relative_to(tmp_path) for c in _lot_du_document(data_dir)])
+    espace.basculer([(data_dir.parent / "manifest.json", "{}\n")])
+
+    k.run(data_dir, edition="git:test")  # une ingestion saine d'abord
+    assert (data_dir / "document.json").is_file() and (data_dir / "summary.md").is_file()
+
+    (data_dir / "source.js").write_text("ceci n'est pas un objet JS", "utf-8")
+    report, entry = k.run(data_dir, edition="git:test")
+
+    assert report.blocking and entry.status == "quarantaine"
+    for retire in ("document.json", "summary.md"):
+        cible = data_dir / retire
+        assert cible.is_symlink(), f"{retire} doit rester un lien couvert"
+        assert not cible.exists(), f"{retire} périmé est resté à côté d'un manifest en quarantaine"
+    assert (data_dir / "report.json").is_file(), "le rapport de quarantaine, lui, est publié"
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))[
+        "lux-guide"]["status"] == "quarantaine"
+    assert espace.residus() == []
+
+
+def test_une_disposition_incomplete_refuse_avant_toute_ingestion(
+        data_dir: Path, tmp_path: Path) -> None:
+    """Constat 6 : le refus « lot mixte » tombait au **dernier** geste, en trace non rattrapée.
+
+    Le lot complet est connu dès l'entrée : si sa disposition n'est pas posée, il n'y a aucune raison
+    de faire tout le travail pour le jeter ensuite, ni de sortir en trace Python là où tous les
+    autres refus d'ingestion sont des checks bloquants. Ici le manifest est couvert et les artefacts
+    du document ne le sont pas — le lot mixte exact que la pose d'un document neuf oublie.
+    """
+    from server.evals.espace import EspacePublie
+
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([Path("data") / "manifest.json"])
+    espace.basculer([(data_dir.parent / "manifest.json", "{}\n")])
+    manifest_avant = (data_dir.parent / "manifest.json").read_bytes()
+
+    report, entry = k.run(data_dir, edition="git:test")
+
+    assert report.blocking and entry.status == "quarantaine"
+    noms = {c.name for c in report.checks}
+    assert noms == {"espace_de_publication_incomplet"}, noms
+    detail = next(c.detail for c in report.checks if c.name == "espace_de_publication_incomplet")
+    assert "lot mixte" in detail and "--depot" in detail, detail
+    # **Rien n'a été écrit** : ni artefact, ni manifest.
+    assert not (data_dir / "document.json").exists() and not (data_dir / "summary.md").exists()
+    assert (data_dir.parent / "manifest.json").read_bytes() == manifest_avant
+    assert espace.residus() == []

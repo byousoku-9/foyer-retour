@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,9 +21,14 @@ from server.evals.espace import (GENERATIONS, EspaceIllisible, EspaceNonInstalle
                                  LotHorsEspace, cibles_du_depot)
 from server.evals.revision import sorties_du_run
 
-# Les cibles que le dépôt doit porter en liens statiques committés — **toutes** celles qu'un
-# écrivain de production publie. `.evals/` n'y est pas : il est ignoré par git, et la CI pose ses
-# liens elle-même (`.github/workflows/ci.yml`).
+# Les **surfaces de racine** que le dépôt doit porter en liens statiques committés. Ce n'est
+# volontairement pas la liste complète de ce que la racine couvre : les artefacts de document sont
+# découverts structurellement, et c'est
+# `test_la_racine_couvre_tout_ce_quun_ecrivain_de_production_publie` — et lui seul — qui les
+# éprouve, en dérivant sa liste de `cibles_du_depot`. Écrire ici une liste qui se voudrait complète
+# reviendrait à recopier à la main ce que l'énumération structurelle rend, et à la laisser diverger.
+# `.evals/` n'y est pas non plus : il est ignoré par git, et la CI pose ses liens elle-même
+# (`.github/workflows/ci.yml`).
 CIBLES_COMMITTEES = ("data/manifest.json", "data/evals-latest.json",
                      "docs/evals/latest.md", "docs/evals/campagnes")
 
@@ -772,3 +778,326 @@ def test_un_brouillon_complet_dont_le_sort_est_indecidable_est_vu_aussi(
     assert espace.generation() == active, "la génération active a changé"
     assert espace.residus() != [], (
         "une génération dont le sort est indécidable est restée indiscernable d'un bundle complet")
+
+
+# --- Revue du tour de racine unique : les dix constats, contre-sondés -------------------------------
+
+
+def _verrou_tenu(espace: EspacePublie) -> bool:
+    """Le `flock` de l'espace est-il pris ? — sondé depuis une **autre** description de fichier.
+
+    `flock` associe le verrou à la description ouverte, pas au processus : deux `open` du même
+    processus se bloquent bien l'un l'autre. Un `LOCK_EX | LOCK_NB` qui échoue prouve donc que la
+    section critique est tenue au moment où on le demande, ce qui est exactement la question
+    « cette lecture se fait-elle sous le verrou ? ».
+    """
+    import fcntl
+
+    fd = os.open(espace.chemin / ".verrou", os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def test_le_gate_relit_le_manifest_sous_le_verrou_et_ne_perd_aucune_entree(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat 1 : le gate est le **quatrième** écrivain du manifest, et il lisait dehors.
+
+    `preparer_gate` relisait `data/manifest.json` entier hors verrou, puis remettait sa
+    sérialisation à la bascule. Une ingestion publiée entre les deux disparaissait du manifest que
+    le gate republiait — le fait 2 du tour, sur le writer que le tour n'avait pas fermé, alors que
+    son invariant dit « tout read-modify-write du manifest ».
+
+    La preuve est une **contention réelle** : le gate est retenu entre sa lecture et sa
+    publication, une ingestion démarre pendant ce temps, et l'entrée qu'elle publie doit survivre.
+    """
+    import threading
+
+    from server.app.domain.ingest import Gate, ManifestEntry
+    from server.evals import run as runner
+    from server.ingest import artifacts
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json",), [("data/manifest.json", "{}\n")])
+    manifest = tmp_path / "data" / "manifest.json"
+
+    def _entree(edition: str) -> ManifestEntry:
+        return ManifestEntry(status="servi", source_hash="s" * 64, ingest_fingerprint="f" * 64,
+                             document_hash="d" * 64, edition=edition, gate=None)
+
+    espace.basculer([(manifest, json.dumps({"doc-gate": _entree("v0").model_dump(mode="json")},
+                                           indent=2) + "\n")])
+
+    gate = Gate(profile="vertical", source_hash="s" * 64, ingest_fingerprint="f" * 64,
+                cases_hash="c" * 64, pipeline_digest="p" * 64, prompts_digest="q" * 64,
+                model_ids={"reason": "m"}, evals_ok=True, date="2026-08-30T00:00:00Z",
+                cases=1, countersigned=False)
+
+    a_lu = threading.Event()
+    b_lancee = threading.Event()
+    vrai_preparer = runner.preparer_gate
+    sous_verrou: list[bool] = []
+
+    def _preparer_retenu(manifest_path: Path, doc_id: str, g: Any, **kw: Any) -> Any:
+        sous_verrou.append(_verrou_tenu(espace))
+        resultat = vrai_preparer(manifest_path, doc_id, g, **kw)
+        a_lu.set()
+        assert b_lancee.wait(10), "l'ingestion concurrente n'a jamais démarré"
+        return resultat
+
+    monkeypatch.setattr(runner, "preparer_gate", _preparer_retenu)
+    erreurs: list[BaseException] = []
+
+    def _ecrire_le_gate() -> None:
+        try:
+            runner.ecrire_gate(manifest, "doc-gate", gate)
+        except BaseException as exc:  # noqa: BLE001 — remontée au fil principal
+            erreurs.append(exc)
+
+    def _ingerer() -> None:
+        try:
+            artifacts.merge_manifest(manifest, "doc-ingere", _entree("v1"))
+        except BaseException as exc:  # noqa: BLE001
+            erreurs.append(exc)
+
+    fil_gate = threading.Thread(target=_ecrire_le_gate)
+    fil_gate.start()
+    assert a_lu.wait(10), "le gate n'a jamais atteint sa lecture"
+    fil_ingestion = threading.Thread(target=_ingerer)
+    fil_ingestion.start()
+    fil_ingestion.join(0.3)
+    b_lancee.set()
+    fil_gate.join(10)
+    fil_ingestion.join(10)
+
+    assert erreurs == []
+    assert sous_verrou == [True], (
+        "le gate a lu le manifest hors du verrou : une publication concurrente peut se glisser "
+        "entre sa lecture et son commit")
+    publie = json.loads(manifest.read_text(encoding="utf-8"))
+    assert sorted(publie) == ["doc-gate", "doc-ingere"], (
+        f"le gate a écrasé l'entrée de l'ingestion : mise à jour perdue ({sorted(publie)})")
+    assert publie["doc-gate"]["gate"] is not None
+    assert espace.residus() == []
+
+
+def test_larchive_du_rendu_precedent_se_decide_dans_le_repere_de_la_transaction(
+        tmp_path: Path) -> None:
+    """Constat 1, second volet : `docs/evals/latest.md` est une cible **couverte**.
+
+    Décider son archivage sur une lecture faite à travers son lien, hors verrou, c'est décider sur
+    un état qu'une bascule concurrente peut avoir remplacé entre la décision et le commit : le rendu
+    publié entre-temps serait écrasé **sans avoir été archivé** — le défaut même que l'archivage
+    existe pour fermer, déplacé d'un cran.
+
+    La sonde donne un repère explicite et vérifie que c'est **celui-là** qui est lu : si `resoudre`
+    est ignoré, l'archive porte les octets du lien et non ceux du slot publié.
+    """
+    from server.evals.publication import _archive_a_ecrire
+
+    latest = tmp_path / "docs" / "evals" / "latest.md"
+    latest.parent.mkdir(parents=True)
+    latest.write_text("ce que le lien montre\n", encoding="utf-8")
+    slot = tmp_path / "slot-publie.md"
+    slot.write_text("ce que la transaction publie\n", encoding="utf-8")
+
+    par_defaut = _archive_a_ecrire(latest, repo_root=tmp_path)
+    assert par_defaut is not None and par_defaut[1] == "ce que le lien montre\n"
+
+    par_la_transaction = _archive_a_ecrire(latest, repo_root=tmp_path, resoudre=lambda _c: slot)
+    assert par_la_transaction is not None, "le repère de la transaction doit être lu"
+    assert par_la_transaction[1] == "ce que la transaction publie\n", (
+        "l'archivage a été décidé sur le lien plutôt que sur le slot publié")
+    assert par_la_transaction[0] != par_defaut[0], (
+        "le nom de l'archive dérive du contenu remplacé : deux contenus, deux archives")
+
+
+def test_un_abandon_qui_ne_peut_pas_sortir_le_brouillon_garde_sa_marque(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat 2 : la marque tombait même quand le brouillon n'était pas sorti.
+
+    `mkdtemp` et le `rename` qui sortent le brouillon de son emplacement de génération sont sous
+    `except OSError: pass` — à raison, on ne veut rien détruire —, mais le retrait de la marque
+    s'exécutait ensuite **inconditionnellement**. Quand la sortie échoue, la génération inactive
+    reste donc mêlée sous son nom `a`/`b` — mi-ancien miroir, mi-nouveau lot — et sans marque plus
+    rien ne la distingue d'un bundle complet : la garantie « une génération inactive laissée
+    partielle est toujours vue » était fausse sur cette branche.
+    """
+    import tempfile as tempfile_module
+
+    from server.evals import espace as espace_module
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json", "docs/evals/latest.md"),
+                          [("data/manifest.json", "v0"), ("docs/evals/latest.md", "l0")])
+    cibles = [tmp_path / "data" / "manifest.json", tmp_path / "docs" / "evals" / "latest.md"]
+    avant = _etat_observable(cibles)
+    active = espace.generation()
+
+    ecrits = {"n": 0}
+    vrai_ecrire = espace_module._ecrire_dans_bundle
+
+    def _echouer_au_second_slot(chemin: Path, contenu: str) -> None:
+        ecrits["n"] += 1
+        if ecrits["n"] == 2:
+            raise OSError("panne d'écriture du brouillon")
+        vrai_ecrire(chemin, contenu)
+
+    def _mkdtemp_impossible(*_args: object, **_kw: object) -> str:
+        raise OSError("pas de place pour la poubelle")
+
+    monkeypatch.setattr(espace_module, "_ecrire_dans_bundle", _echouer_au_second_slot)
+    monkeypatch.setattr(tempfile_module, "mkdtemp", _mkdtemp_impossible)
+
+    with pytest.raises(OSError, match="panne d'écriture du brouillon"):
+        espace.basculer([(cibles[0], "v1"), (cibles[1], "l1")])
+
+    monkeypatch.undo()
+    assert _etat_observable(cibles) == avant
+    assert espace.generation() == active
+    assert espace.residus() != [], (
+        "le brouillon n'a pas pu être sorti et sa marque a quand même été retirée : la génération "
+        "inactive mêlée est redevenue indiscernable d'un bundle complet")
+
+
+def test_une_transaction_ne_publie_quune_fois(tmp_path: Path) -> None:
+    """Constat 4 : un second `publier` défaisait le premier commit, en silence.
+
+    `courante` et `suivante` sont figées à la construction de la transaction. Après un commit
+    acquis, le pointeur désigne `suivante` — donc un second `publier` reconstruirait cette
+    génération-là : `rmtree` sur ce que le pointeur publie (toutes les cibles pendantes le temps du
+    miroir), puis republication d'un état bâti sur `courante`, c'est-à-dire un retour à l'état
+    d'avant le premier commit, sans la moindre erreur.
+    """
+    espace = _espace_pose(tmp_path, ("data/manifest.json", "docs/evals/latest.md"),
+                          [("data/manifest.json", "v0"), ("docs/evals/latest.md", "l0")])
+    manifest = tmp_path / "data" / "manifest.json"
+    latest = tmp_path / "docs" / "evals" / "latest.md"
+
+    with espace.transaction() as transaction:
+        transaction.publier([(manifest, "v1")])
+        with pytest.raises(LotHorsEspace, match="déjà publié"):
+            transaction.publier([(latest, "l2")])
+
+    # Le premier commit tient, et le refus n'a rien touché.
+    assert manifest.read_text(encoding="utf-8") == "v1"
+    assert latest.read_text(encoding="utf-8") == "l0"
+    assert manifest.is_symlink() and espace.resolue_dans_lespace(manifest)
+    assert espace.residus() == []
+
+
+def test_la_disposition_suit_le_data_dir_du_run_et_refuse_hors_racine(tmp_path: Path) -> None:
+    """Constat 5 : `cibles_du_depot` mêlait deux conventions de chemin.
+
+    Les surfaces de racine portaient un préfixe `data/` **codé en dur** alors que les artefacts de
+    document étaient bâtis sur le `data_dir` donné. Sous `--data-dir <autre>`, `--depot` posait donc
+    un `<racine>/data/manifest.json` sans rapport avec le run et n'installait jamais
+    `<autre>/manifest.json` : l'ingestion suivante refusait en lot mixte, en désignant une cible que
+    personne n'écrit.
+    """
+    autre = tmp_path / "donnees"
+    (autre / "contrat").mkdir(parents=True)
+    (autre / "contrat" / "source.js").write_text("{}", encoding="utf-8")
+
+    cibles = [str(c) for c in cibles_du_depot(tmp_path, autre)]
+    assert "donnees/manifest.json" in cibles and "data/manifest.json" not in cibles
+    assert "donnees/dictionary.json" in cibles and "donnees/evals-latest.json" in cibles
+    assert "donnees/contrat/document.json" in cibles
+    # Les surfaces hors `data/` gardent leur repère : elles ne suivent pas le `--data-dir`.
+    assert "docs/evals/latest.md" in cibles
+
+    espace = EspacePublie(tmp_path, autre)
+    espace.installer([Path(c) for c in cibles])
+    for relatif in cibles:
+        assert espace.resolue_dans_lespace(tmp_path / relatif), f"{relatif} hors du pointeur"
+
+    # Un `data_dir` hors de la racine n'a pas de disposition possible : aucun pointeur ne peut
+    # couvrir à la fois ses surfaces et celles de `docs/`. C'est dit, pas deviné.
+    dehors = tmp_path.parent / f"{tmp_path.name}-dehors"
+    dehors.mkdir()
+    with pytest.raises(LotHorsEspace, match="hors de la racine"):
+        cibles_du_depot(tmp_path, dehors)
+
+
+def test_un_lot_mixte_et_deux_racines_sont_refuses_avant_toute_ecriture(tmp_path: Path) -> None:
+    """Constat 8 : les deux branches de refus de `_espace_du_lot` n'étaient testées nulle part.
+
+    La documentation opérateur affirme que ce refus « se dit avant la production » ; encore
+    faut-il qu'il se dise, qu'il nomme la cible manquante et la commande qui la pose, et surtout
+    qu'il **ne touche à rien** — un refus qui aurait déjà écrit la moitié couverte du lot serait
+    précisément l'état mêlé qu'il existe pour empêcher.
+    """
+    from server.evals.espace import EspaceNonInstalle
+    from server.ingest import artifacts
+
+    espace = _espace_pose(tmp_path, ("data/manifest.json",), [("data/manifest.json", "v0")])
+    manifest = tmp_path / "data" / "manifest.json"
+    ordinaire = tmp_path / "data" / "contrat" / "document.json"
+    ordinaire.parent.mkdir(parents=True)
+    ordinaire.write_text("doc-avant", encoding="utf-8")
+    avant = _etat_observable([manifest, ordinaire])
+
+    with pytest.raises(EspaceNonInstalle, match="lot mixte") as refus:
+        artifacts.publier_artefacts([(manifest, "v1"), (ordinaire, "doc-après")])
+    assert "--depot" in str(refus.value), (
+        "le refus doit pointer la commande que la documentation opérateur donne")
+    assert str(ordinaire) in str(refus.value)
+    assert _etat_observable([manifest, ordinaire]) == avant, "le refus a touché une cible"
+
+    # Deux racines distinctes dans un même lot : il n'y a pas de pointeur commun.
+    seconde = tmp_path / "ailleurs"
+    seconde.mkdir()
+    espace2 = _espace_pose(seconde, ("data/manifest.json",), [("data/manifest.json", "w0")])
+    manifest2 = seconde / "data" / "manifest.json"
+    avant2 = _etat_observable([manifest, manifest2])
+    with pytest.raises(LotHorsEspace, match="racines différentes"):
+        artifacts.publier_artefacts([(manifest, "v1"), (manifest2, "w1")])
+    assert _etat_observable([manifest, manifest2]) == avant2
+    assert espace.residus() == [] and espace2.residus() == []
+
+
+def test_une_interruption_juste_apres_un_rename_est_rattrapee_par_le_retablissement(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat 3 : le rang était noté **après** l'appel système, donc parfois jamais.
+
+    `tmp.replace(chemin)` puis `faites.append(chemin)` : `KeyboardInterrupt` peut tomber à cette
+    frontière d'instruction précise. La cible est alors publiée et absente de la liste des rangs à
+    rétablir — une cible modifiée après une exception propagée, ce que l'AC interdit littéralement,
+    `BaseException` comprise.
+
+    La sonde injecte exactement cela : le `rename` **réussit**, puis l'interruption est levée. Noter
+    le rang avant l'appel est ce qui la rattrape ; l'asymétrie le justifie — rétablir une cible qui
+    n'a pas bougé lui réécrit ses propres octets, l'inverse la laisse publiée.
+    """
+    from server.ingest import artifacts
+
+    cibles = [tmp_path / nom for nom in ("document.json", "report.json", "manifest.json")]
+    for index, cible in enumerate(cibles):
+        cible.write_text(f"avant-{index}", encoding="utf-8")
+    avant = _etat_observable(cibles)
+
+    appels = {"n": 0}
+    vrai_replace = artifacts.os.replace
+
+    def _reussir_puis_interrompre(source: object, cible: object) -> None:
+        appels["n"] += 1
+        vrai_replace(source, cible)  # type: ignore[arg-type]
+        if appels["n"] == 1:
+            # L'interruption tombe **après** le renommage réussi : la cible est publiée, et c'est
+            # tout l'enjeu — le rang doit déjà être noté.
+            raise KeyboardInterrupt("interruption juste après le rename")
+
+    monkeypatch.setattr(artifacts.os, "replace", _reussir_puis_interrompre)
+
+    with pytest.raises(KeyboardInterrupt, match="juste après le rename"):
+        artifacts.publier_artefacts([(cible, f"après-{index}")
+                                     for index, cible in enumerate(cibles)])
+
+    monkeypatch.undo()
+    assert _etat_observable(cibles) == avant, (
+        "une cible est restée publiée après une exception propagée : le rang n'était pas noté")
+    assert sorted(p.name for p in tmp_path.rglob("*") if p.name.endswith(".tmp")) == []

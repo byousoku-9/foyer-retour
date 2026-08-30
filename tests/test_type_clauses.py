@@ -16,7 +16,7 @@ from server.app.config import Settings
 from server.app.domain import Block, BlockRef, Document, ManifestEntry, Node, NodeRef, Report
 from server.app.domain.ingest import Check, Gate
 from server.app.llm.pricing import cost_from_usage
-from server.evals.espace import EspacePublie
+from server.evals.espace import EspaceNonInstalle, EspacePublie
 from server.ingest.artifacts import document_json
 from server.ingest.report import enrich_typing_report
 from server.ingest import type_clauses as tc
@@ -1344,3 +1344,29 @@ def test_le_typage_ne_fabrique_jamais_une_attestation_absente(tmp_path: Path) ->
     assert arbre.detail == "ok"
     assert all(lire_attestation_arbre(c.detail) is None
                and lire_attestation_structure(c.detail) is None for c in report.checks)
+
+
+def test_une_disposition_incomplete_refuse_le_typage_avant_toute_soumission(tmp_path: Path) -> None:
+    """Constat 6 de la revue du tour de racine unique : le refus tombait après avoir payé.
+
+    Le lot du typage — document, rapport, retrait de l'overlay, manifest — est connu dès l'entrée.
+    Le contrôle de couverture ne s'exerçait qu'au tout dernier geste : un typage LLM entièrement
+    soumis et facturé était jeté pour une disposition qu'on pouvait vérifier gratuitement avant la
+    première soumission. La sonde vérifie que **rien n'a été soumis**.
+    """
+    doc_dir, _ = write_data(tmp_path)
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    # Le manifest est couvert, les artefacts du document ne le sont pas : le lot mixte exact que la
+    # pose d'un document neuf oublie.
+    espace.installer([Path("data") / "manifest.json"], migrer=True)
+    avant = {chemin: chemin.read_bytes()
+             for chemin in (doc_dir / "document.json", doc_dir / "report.json",
+                            doc_dir.parent / "manifest.json")}
+
+    batches = FakeBatches({"contrat:p1:1": "garantie", "contrat:p2:1": "definition"})
+    with pytest.raises(EspaceNonInstalle, match="lot mixte"):
+        tc.run(doc_dir, settings=settings(), client=FakeClient(batches), output=io.StringIO())
+
+    assert batches.created == [], "un lot a été soumis alors que la disposition refusait le typage"
+    assert {chemin: chemin.read_bytes() for chemin in avant} == avant
+    assert espace.residus() == []

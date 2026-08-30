@@ -39,7 +39,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import StepTrace, Trace
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
-from server.evals.espace import POINTEUR
+from server.evals.espace import POINTEUR, Transaction
 from tests.helpers_espace import poser_espace
 from server.evals.plancher import charger_plancher
 
@@ -1348,7 +1348,12 @@ def test_un_gate_full_publie_et_promeut_en_une_seule_sequence(
     au lot final. L'AC porte sur l'opération, pas sur l'appel : il n'y a donc plus qu'**une** seule
     bascule, et elle porte les cinq cibles.
     """
-    basculer_reel = runner.EspacePublie.basculer
+    # Le point d'observation est le **commit** — `Transaction.publier` —, et non plus la seule
+    # forme courte `EspacePublie.basculer` : depuis que l'opération de gate ouvre sa transaction
+    # elle-même (pour relire le manifest et le rendu précédent sous le verrou), c'est là que passe
+    # tout ce qui publie, `basculer` compris. La sonde voit donc **plus** de chemins qu'avant, et
+    # elle exige toujours exactement un appel portant les cinq cibles.
+    basculer_reel = Transaction.publier
     observees: list[list[str]] = []
     deja_publiees: list[list[str]] = []
 
@@ -1362,7 +1367,7 @@ def test_un_gate_full_publie_et_promeut_en_une_seule_sequence(
             if Path(cible).is_file() and Path(cible).read_text(encoding="utf-8") == contenu])
         basculer_reel(self, lot)
 
-    monkeypatch.setattr(runner.EspacePublie, "basculer", _basculer)
+    monkeypatch.setattr(Transaction, "publier", _basculer)
     monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
     assert _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
@@ -1867,7 +1872,7 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
 
     # L'injection vise **le lot de publication** (celui qui porte le manifest), et lui seul :
     # `ecrire_rapports` a le sien, éprouvé à part.
-    basculer_reel = runner.EspacePublie.basculer
+    basculer_reel = Transaction.publier
     replace_reel = runner.os.replace
     # L'état observable du lot **entier**, relevé au moment même où la bascule commence : c'est lui
     # que l'invariant protège, et il couvre des cibles que `_empreintes_des_cibles` n'a pas à
@@ -1901,7 +1906,7 @@ def test_un_echec_de_bascule_a_nimporte_quelle_etape_ne_laisse_aucun_lot_partiel
         finally:
             monkeypatch.setattr(runner.os, "replace", replace_reel)
 
-    monkeypatch.setattr(runner.EspacePublie, "basculer", _basculer)
+    monkeypatch.setattr(Transaction, "publier", _basculer)
     code = _cli(tmp_path, monkeypatch,
                 ["--gate", DOC, "--profile", "full", "--repeat", "3",
                  "--candidate-revision", autre_revision], revision=autre_revision)
