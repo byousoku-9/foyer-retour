@@ -331,8 +331,9 @@ pour un opérateur. La bascule suivante, elle, ne s'y fie pas : elle reconstruit
 
 ### Tous les écrivains d'une cible couverte passent par le protocole, et sous le même verrou
 
-`data/manifest.json` a trois écrivains d'ingestion (`kb_to_blocks`, `pdf_to_blocks`, `type_clauses`)
-en plus du gate. Trois défauts distincts les faisaient échapper à la racine, et les trois sont fermés.
+`data/manifest.json` a **quatre** écrivains : trois d'ingestion (`kb_to_blocks`, `pdf_to_blocks`,
+`type_clauses`) et le gate d'évals. Quatre défauts distincts les faisaient échapper à la racine, et
+les quatre sont fermés.
 
 1. **Une voie qui ne voyait jamais la racine.** `type_clauses._atomic_artifacts` remettait
    `document.json`, `report.json`, `manifest.json` et la suppression de l'overlay à une file de
@@ -355,6 +356,18 @@ en plus du gate. Trois défauts distincts les faisaient échapper à la racine, 
    *et* efface la publication du concurrent. La génération courante est donc lue **sous** le verrou ;
    la lecture faite avant n'est qu'un préflight, qui sert à refuser un espace non installé sans rien
    créer.
+4. **Le gate, quatrième écrivain, lisait lui aussi dehors.** `preparer_gate` relisait le manifest
+   entier hors verrou, puis remettait sa sérialisation à la bascule : une ingestion publiée
+   entre-temps disparaissait du manifest que le gate republiait. Le même défaut portait sur une
+   seconde surface couverte, `docs/evals/latest.md` : la décision d'archiver le rendu précédent était
+   prise sur une lecture hors verrou, donc un rendu publié entre la décision et le commit était
+   écrasé **sans avoir été archivé**. L'opération de gate ouvre donc sa propre transaction et y fait
+   tout : relire le manifest, décider la non-mutation du dernier vert, décider l'archivage, publier
+   le lot complet. Cela reste **un seul point de commit**.
+
+Une transaction publie **une fois** : republier dans la même section critique reconstruirait la
+génération que le pointeur vient de publier et défairait le commit précédent en silence. Le refus est
+dit, comme celui de deux cibles au même slot, et avant de toucher quoi que ce soit.
 
 Le lot d'une opération d'ingestion est, comme celui d'un run, l'ensemble complet des cibles qu'elle
 implique — `document.json`, `summary.md`, `report.json`, le retrait de l'overlay et le manifest — et

@@ -270,12 +270,34 @@ appel système ne change qu'une entrée de répertoire ; pour qu'une entrée cha
 toutes les cibles à la fois, il faut qu'elle soit un composant traversé par la résolution de chacune.
 D'où la disposition : chaque cible du lot est un chemin dont la résolution passe par `courant`.
 
-**La disposition est statique, et elle couvre tout ce qu'un écrivain de production publie.** Les
-surfaces de racine — `data/manifest.json`, `data/dictionary.json`, `data/evals-latest.json`,
-`docs/evals/latest.md`, `docs/evals/campagnes` — et, dans chaque répertoire de document,
-`document.json`, `summary.md`, `report.json`, `structure.json`, `typing.manual.json` et
-`dictionary.json` sont des liens **committés**. Les *entrées* (`source.js`, `source.pdf`,
-`source.url`, `source.sha256`) n'en sont pas : personne ne les écrit. `cibles_du_depot` énumère cette
+**La disposition est statique, et elle couvre tout ce qu'une opération de production publie ou
+retire.** Les surfaces de racine — `data/manifest.json`, `data/dictionary.json`,
+`data/evals-latest.json`, `docs/evals/latest.md`, `docs/evals/campagnes` — et, dans chaque
+répertoire de document, `document.json`, `summary.md`, `report.json`, `structure.json`,
+`typing.manual.json` et `dictionary.json` sont des liens **committés**. Les *entrées* (`source.js`,
+`source.pdf`, `source.url`, `source.sha256`) n'en sont pas : personne ne les écrit.
+
+`typing.manual.json` est le cas à part, et il vaut mieux le nommer que le laisser deviner : c'est une
+**entrée écrite à la main**, dont seule la **suppression** appartient au pipeline — `type_clauses` la
+retire dans le lot qu'il publie. Elle est donc couverte parce que cette suppression doit être membre
+du lot, pas parce qu'un écrivain la publie. La conséquence pour un opérateur est réelle : le dépôt
+porte un lien **pendant** `typing.manual.json` dans chaque répertoire de document (un lien pendant
+*est* une absence pour tout lecteur), et **poser un overlay se fait par la racine** :
+
+```
+uv run python -m server.evals.espace --racine . --data-dir data --depot   # si besoin
+uv run python - <<'EOF'
+from pathlib import Path
+from server.ingest.artifacts import publier_artefacts
+publier_artefacts([(Path("data/<doc_id>/typing.manual.json"), Path("mon-overlay.json").read_text("utf-8"))])
+EOF
+```
+
+Les deux gestes que la couverture rend faux, et qu'il ne faut donc pas faire : écrire *à travers* le
+lien pendant (`> data/<doc>/typing.manual.json`) écrirait directement dans la génération active, hors
+verrou — le défaut d'immutabilité que ce protocole ferme ; et le remplacer par un fichier ordinaire
+ferait **refuser en lot mixte** toute opération suivante sur ce document, puisque son lot serait
+moitié couvert. `cibles_du_depot` énumère cette
 liste **structurellement**, en listant `data/`, de sorte qu'aucun `doc_id` n'apparaisse dans le code ;
 `python -m server.evals.espace --depot` la pose, et poser un document neuf, c'est reposer la
 disposition — un geste d'opérateur, idempotent, jamais atteint depuis une bascule. Les sorties de run
@@ -344,12 +366,19 @@ propre disposition. La CI fait le même geste dans son étape d'évals, sur `.ev
 **Un document neuf se pose de la même façon**, une fois, avant sa première ingestion :
 
 ```
-uv run python -m server.evals.espace --racine . --data-dir data --depot
+uv run python -m server.evals.espace --racine . --data-dir <le data/ du run> --depot
 ```
 
-`--depot` relit la disposition de tout le dépôt et pose ce qui manque ; c'est idempotent. Sans elle,
-l'ingestion du document neuf refuse avec un **lot mixte** — son `document.json` ne serait pas couvert
-alors que le manifest l'est —, et `tests/test_espace_publication.py` le dit avant la production.
+`--depot` relit la disposition de tout le dépôt et pose ce qui manque ; c'est idempotent. Les
+surfaces du `data/` sont posées **dans le `data/` donné**, jamais sous un `data/` deviné : un
+`--data-dir` autre pose ses propres surfaces, et un `--data-dir` hors de la racine est refusé plutôt
+que rattrapé par un préfixe supposé.
+
+Sans ce geste, l'ingestion du document neuf **refuse avant toute soumission** — un préflight de
+couverture ouvre `kb_to_blocks`, `pdf_to_blocks` et `type_clauses`, si bien qu'un typage LLM n'est
+jamais payé pour être ensuite jeté —, et le refus est un check bloquant
+`espace_de_publication_incomplet` qui nomme la commande ci-dessus, jamais une trace Python.
+`tests/test_espace_publication.py` le dit avant la production.
 
 Les chemins frères — `ecrire_rapports` (le couple JSON + table), `ecrire_gate` et les trois écrivains
 d'ingestion (`kb_to_blocks`, `pdf_to_blocks`, `type_clauses`) — passent par le même unique pointeur :
