@@ -278,13 +278,11 @@ class EspacePublie(RacinePubliee):
             return
         cible = self.absolu(brute)
         interne = self.chemin_dans(brute, generation)
-        # Le **répertoire** du slot est posé même quand la cible n'existe pas encore : la
-        # disposition est alors complète, et un lien pendant reste une absence sans être un
-        # cul-de-sac. Sans lui, écrire à travers un lien jamais publié échouerait sur un parent
-        # absent, alors que la publication, elle, crée ce répertoire (`_ecrire_dans_bundle`).
-        interne.parent.mkdir(parents=True, exist_ok=True)
         if cible.is_symlink() or cible.exists():
             if not migrer:
+                # **Le refus vient avant toute création** (revue N1–N3, constat 17) : poser le
+                # répertoire du slot d'abord laissait, sur une installation refusée, des
+                # répertoires vides dans le bundle — une trace d'un geste qui n'a pas eu lieu.
                 raise EspaceNonInstalle(
                     f"{cible} existe déjà hors de l'espace : l'installation ne migre pas une cible "
                     "sans qu'on le lui demande (`--migrer`), parce qu'une migration silencieuse "
@@ -295,6 +293,11 @@ class EspacePublie(RacinePubliee):
                 shutil.move(str(cible), str(interne))
             else:
                 shutil.move(str(cible), str(interne))
+        # Le **répertoire** du slot est posé une fois le refus passé : la disposition est alors
+        # complète, et un lien pendant reste une absence sans être un cul-de-sac. Sans lui, écrire à
+        # travers un lien jamais publié échouerait sur un parent absent, alors que la publication,
+        # elle, crée ce répertoire (`_ecrire_dans_bundle`).
+        interne.parent.mkdir(parents=True, exist_ok=True)
         cible.parent.mkdir(parents=True, exist_ok=True)
         cible.unlink(missing_ok=True)
         # **Le lien passe par le pointeur, jamais par une génération.** Pointer directement sur `a`
@@ -658,12 +661,18 @@ class Transaction:
         disaient d'elle n'a plus d'objet, et la marque de *cette* transaction la couvre désormais.
         """
         prefixe = f".{self.suivante}.brouillon."
+        # **Le parcours est matérialisé avant d'agir** (revue N1–N3, constat 16). `iterdir()` lit le
+        # répertoire au fur et à mesure : une `OSError` en cours d'itération sortait du `suppress`
+        # englobant et laissait les marques **suivantes** non moissonnées — donc un bundle publié
+        # signalé comme brouillon, à jamais. Chaque suppression est isolée à son tour.
+        entrees: list[Path] = []
         with contextlib.suppress(OSError):
-            for entree in self.espace.chemin.iterdir():
-                if (entree.name.startswith(prefixe) and entree.name.endswith(".tmp")
-                        and entree != self.marque):
-                    with contextlib.suppress(OSError):
-                        entree.unlink()
+            entrees = list(self.espace.chemin.iterdir())
+        for entree in entrees:
+            if (entree.name.startswith(prefixe) and entree.name.endswith(".tmp")
+                    and entree != self.marque):
+                with contextlib.suppress(OSError):
+                    entree.unlink()
 
     def publier(self, lot: Sequence[tuple[Path, str | None]]) -> None:
         """Écrit la génération inactive puis **bascule le pointeur** — l'unique point de commit.

@@ -41,12 +41,12 @@ from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEn
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE, LectureDuLot,
                                      document_json, exiger_espace_installe, merge_manifest,
-                                     read_manifest, structure_hash, verifier_couverture_du_lot)
+                                     read_manifest, verifier_couverture_du_lot)
 from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
 from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
-                                     StructureRefusee, arbre, charger, empreinte_proposition,
+                                     StructureRefusee, arbre, charger_octets, empreinte_proposition,
                                      presente, registre_lignes, verifier)
 
 DOC_ID = "axa-lu-optihome-2017"
@@ -1504,6 +1504,10 @@ def build_summary(doc: Document) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+class _StructureAChange(Exception):
+    """Sort de la fabrique **avec son rapport déjà bâti** : le refus est un check, pas une trace."""
+
+
 def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         title: str | None = None) -> tuple[Report, ManifestEntry]:
     """Ingère `data_dir/source.pdf` ; toute erreur de source devient un check bloquant, jamais une trace Python."""
@@ -1582,11 +1586,12 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         # `charger()` promet de les classer `proposition_illisible` (AD-16). Seule l'absence au sens
         # du système de fichiers est une absence.
         structure_path = data_dir / "structure.json"
-        structure = charger(structure_path) if presente(structure_path) else None
-        # L'empreinte de **ce que l'ingestion applique**, gardée pour être opposée sous le verrou à
-        # celle de la génération publiée : l'entrée du manifest ne doit jamais nommer une structure
-        # que l'ingestion n'a pas appliquée (story 4.5, N3).
-        structure_appliquee = structure_hash(data_dir)
+        structure = None
+        if presente(structure_path):
+            # **Une seule lecture, un seul tampon** (revue N1–N3, constat 7) : l'empreinte porte sur
+            # les octets réellement appliqués, jamais sur une seconde ouverture du même chemin.
+            structure, octets_structure = charger_octets(structure_path)
+            structure_appliquee = hashlib.sha256(octets_structure).hexdigest()
         # La proposition appliquée entre dans l'empreinte : deux ingestions du même PDF qui rendent
         # des `node_id` différents ne peuvent pas porter la même (AD-2, lu par le loader).
         fingerprint = ingest_fingerprint(structure)
@@ -1620,25 +1625,52 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         l'ingestion refuse plutôt que de publier cette contradiction.
         """
         nonlocal publie
-        rapport = echec if echec is not None else build_pdf_report(
-            doc, lecture.document_precedent(data_dir / "document.json"), pages=pages,
-            numbers=meta["numbers"], duplicates=meta["duplicates"], continues=meta["continues"],
-            toc=toc, toc_gaps=meta["toc_gaps"], printed_toc=meta["printed_toc"], summary=summary,
-            structure=rendu_structure)
+        # **Le filet suit la construction du rapport là où elle a été déplacée** (revue N1–N3,
+        # constat 3) : `run()` promet un check bloquant, jamais une trace Python, et `main()`
+        # l'appelle sans `try`.
+        rapport = echec
+        structure_publiee: str | None = None
+        if rapport is None:
+            try:
+                structure_publiee = lecture.empreinte(data_dir / STRUCTURE_FILE)
+                if structure_publiee != structure_appliquee:
+                    # **Un refus voulu, rendu comme les autres** (revue N1–N3, constat 3) : l'entrée
+                    # nommerait une structure que ce document n'applique pas. Un check bloquant
+                    # nommé et un code 1, comme `espace_de_publication_incomplet` — jamais une trace
+                    # Python, que `main()` n'attrape pas. Le nom est **hors** du vocabulaire fermé
+                    # du vérificateur (`structure.MOTIFS`) : ce n'est pas la proposition qui est
+                    # refusée, c'est la publication qui ne peut plus l'attester.
+                    rapport = Report(doc_id=doc_id, checks=[Check(
+                        name="structure_a_change", level="bloquant",
+                        detail=(f"{STRUCTURE_FILE} a changé entre l'extraction et la publication "
+                                f"({structure_appliquee} → {structure_publiee}) : l'entrée "
+                                "nommerait une structure que ce document n'applique pas — "
+                                "relancer l'ingestion")[:2000])])
+                    raise _StructureAChange
+                rapport = build_pdf_report(
+                    doc, lecture.document_precedent(data_dir / "document.json"), pages=pages,
+                    numbers=meta["numbers"], duplicates=meta["duplicates"],
+                    continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
+                    printed_toc=meta["printed_toc"], summary=summary, structure=rendu_structure)
+            except _StructureAChange:
+                pass  # le rapport est déjà bâti, et il est bloquant
+            except ValidationError as exc:
+                rapport = report_from_validation_error(doc_id, exc)
+            except StructureRefusee as exc:
+                rapport = Report(doc_id=doc_id, checks=[structure_check(exc.motif, exc.detail)])
+            except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError,
+                    RuntimeError) as exc:
+                detail = f"{type(exc).__name__}: {exc}"[:2000]
+                rapport = Report(doc_id=doc_id, checks=[
+                    Check(name="source_illisible", level="bloquant", detail=detail)])
         status = "quarantaine" if rapport.blocking else "servi"
         document_hash = ""
-        structure_publiee = lecture.empreinte(data_dir / STRUCTURE_FILE)
         # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici,
         # puis publié en un seul geste avec le manifest — un point de commit pour l'opération, et
         # non un par artefact. Une absence (`None`) est membre du lot comme un contenu : jamais un
         # artefact périmé à côté d'un manifest en quarantaine.
         artefacts: list[tuple[Path, str | None]] = []
         if doc is not None and not rapport.blocking:
-            if structure_publiee != structure_appliquee:
-                raise ValueError(
-                    "structure.json a changé entre l'extraction et la publication "
-                    f"({structure_appliquee} → {structure_publiee}) : l'entrée nommerait une "
-                    "structure que ce document n'applique pas — relancer l'ingestion")
             doc_text = document_json(doc)
             artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
             document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
@@ -1670,7 +1702,8 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
     entry = merge_manifest(manifest_path, doc_id, fabriquer,
                            cibles=[data_dir / "document.json", data_dir / "summary.md",
                                    data_dir / "report.json"])
-    assert publie is not None
+    if publie is None:  # pragma: no cover — la fabrique le pose toujours ; `assert` disparaît sous -O
+        raise RuntimeError("la fabrique n'a pas produit de rapport : rien n'a été publié")
     return publie, entry
 
 

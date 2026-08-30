@@ -109,12 +109,12 @@ from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
 from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
-from server.app.corpus.racine import Lecture, lecture_pincee
+from server.app.corpus.racine import Lecture, LecturePerimee, lecture_pincee, relire
 from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
                                  LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
                                    charger_plancher, verifier_liaison_preuve)
-from server.evals.publication import (DOCS_LATEST, ArchivePrecedenteIllisible,
+from server.evals.publication import (DOCS_ARCHIVES, DOCS_LATEST, ArchivePrecedenteIllisible,
                                       RapportInexploitable, construire_publication, digest_contenu,
                                       preparer_publication, rendre_publication_markdown,
                                       valider_rapport_publiable)
@@ -2394,7 +2394,13 @@ def cibles_publiees_du_run(data_dir: Path, output_json: Path, output_markdown: P
     cibles = [output_json, output_markdown]
     if gate:
         cibles += [data_dir / MANIFEST, data_dir / EVALS_PUBLICATION_FILE,
-                   data_dir.parent.joinpath(*DOCS_LATEST)]
+                   data_dir.parent.joinpath(*DOCS_LATEST),
+                   # Le **répertoire** d'archives porte la couverture, et il est une cible installée
+                   # comme les autres (revue N1–N3, constat 5). Le motif qui l'écartait valait pour
+                   # le *fichier* d'archive, dont l'horodatage n'existe pas encore ; il ne vaut pas
+                   # pour le répertoire, sans quoi une disposition où ce seul lien manque laisse la
+                   # campagne entière être payée avant que la publication ne refuse.
+                   data_dir.parent.joinpath(*DOCS_ARCHIVES)]
     return cibles
 
 
@@ -2550,8 +2556,8 @@ def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
     l'attestation sans qu'aucune ligne de code n'ait à s'en apercevoir.
     """
     if lecture is None:
-        with lecture_pincee(data_dir) as pincee:
-            return preuve_darbre(data_dir, ctx, doc_ids, lecture=pincee)
+        return relire(data_dir, lambda pincee: preuve_darbre(
+            data_dir, ctx, doc_ids, lecture=pincee))
     uniques = [doc_id for doc_id in sorted(set(doc_ids))
                if _source_du_document(data_dir, doc_id) not in (None, "source.pdf")]
     prouves = 0
@@ -2602,8 +2608,8 @@ def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
     témoin le dit en rouge chiffré au lieu de le contourner.
     """
     if lecture is None:
-        with lecture_pincee(data_dir) as pincee:
-            return preuve_de_structure(data_dir, ctx, doc_ids, lecture=pincee)
+        return relire(data_dir, lambda pincee: preuve_de_structure(
+            data_dir, ctx, doc_ids, lecture=pincee))
     uniques = [doc_id for doc_id in sorted(set(doc_ids))
                if document_parse_depuis_un_pdf(data_dir, doc_id)]
     prouves = 0
@@ -3038,7 +3044,10 @@ def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any,
     ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
     racine = data_dir.resolve(strict=True)
     for entree in data_dir.iterdir():
-        if entree.name == MANIFEST:
+        # L'espace lui-même n'entre pas dans l'ombre : ses **deux** générations y seraient recopiées
+        # à chaque regate, et l'ombre est une photographie de ce qui est servi, pas du bundle. Dit
+        # plutôt qu'obtenu par accident (revue N1–N3, constat 18).
+        if entree.name in (MANIFEST, _REPERTOIRE_ESPACE):
             continue
         _materialiser_dans_ombre(entree, ombre / entree.name, racine, lecture)
     brut = json.loads(lecture.reel(data_dir / MANIFEST).read_text(encoding="utf-8"))
@@ -3082,12 +3091,13 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     d'**une seule** génération. Sans lui, un repère est pincé pour la durée de cet appel seul.
     """
     if lecture is None:
-        with lecture_pincee(data_dir) as pincee:
-            return construire_contexte(
-                settings, data_dir, regate=regate, pile=pile, cache_dir=cache_dir,
-                campaign_budget_eur=campaign_budget_eur,
-                campaign_accrued_eur=campaign_accrued_eur,
-                campaign_cost_recorder=campaign_cost_recorder, lecture=pincee)
+        # `relire` et non un simple pincement : une passe qui ne consulte jamais la péremption peut
+        # rendre un corpus composé de deux générations (revue du tour N1–N3, constat 1).
+        return relire(data_dir, lambda pincee: construire_contexte(
+            settings, data_dir, regate=regate, pile=pile, cache_dir=cache_dir,
+            campaign_budget_eur=campaign_budget_eur,
+            campaign_accrued_eur=campaign_accrued_eur,
+            campaign_cost_recorder=campaign_cost_recorder, lecture=pincee))
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
                                 model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
                                 # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
@@ -3152,8 +3162,8 @@ def construire_contexte_parsing(settings: Settings, data_dir: Path, *,
     `lecture` : le repère pincé de l'opération (N1), comme pour `construire_contexte`.
     """
     if lecture is None:
-        with lecture_pincee(data_dir) as pincee:
-            return construire_contexte_parsing(settings, data_dir, lecture=pincee)
+        return relire(data_dir, lambda pincee: construire_contexte_parsing(
+            settings, data_dir, lecture=pincee))
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
                                 model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
                                 # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
@@ -3773,6 +3783,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
                                                     lecture=lecture_run)
                 arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot,
                                           lecture=lecture_run)
+                # **Le repère partagé se vérifie avant de conclure** (revue N1–N3, constat 1). Une
+                # décision de gate ne se rejoue pas : elle a construit un client et s'apprête à
+                # payer. Si la génération pincée a été reconstruite sous elle, le refus est dit
+                # avant tout appel, plutôt que la décision rendue sur deux générations.
+                lecture_run.verifier()
             try:
                 run_identity = identite_run(
                     cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
@@ -3793,6 +3808,12 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack) -> int:
             resultats = asyncio.run(_executer_puis_fermer(
                 cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
                 variant=args.variant, repeat=args.repeat))
+    except LecturePerimee as exc:
+        # Une décision de gate ne se rejoue pas : elle a construit un client et s'apprête à payer.
+        # Le refus est un code 2 — rien n'a été mesuré, rien n'a été écrit (revue N1–N3, 1).
+        print(f"refus : {exc} — rien n'a été mesuré, aucune cible n'a été écrite", file=sys.stderr)
+        noter_campaign("refused")
+        return 2
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
         noter_campaign("refused")

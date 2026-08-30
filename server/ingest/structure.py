@@ -697,7 +697,20 @@ def presente(path: Path) -> bool:
 
 
 def charger(path: Path, *, settings: Settings | None = None) -> StructureProposee:
-    """Lit `structure.json`. Un artefact illisible, hors schéma ou trop large est un refus **nommé**.
+    """La proposition seule — la forme courte de `charger_octets` quand les octets n'importent pas."""
+    return charger_octets(path, settings=settings)[0]
+
+
+def charger_octets(path: Path, *, settings: Settings | None = None
+                   ) -> tuple[StructureProposee, bytes]:
+    """La proposition **et les octets dont elle vient** — une seule lecture, un seul tampon.
+
+    Revue du tour N1–N3, constat 7. `pdf_to_blocks` appelait `charger()` puis `structure_hash()` :
+    deux lectures du même artefact, donc le défaut N1 (« les octets hachés sont les octets parsés »)
+    déplacé dans un écrivain. Un remplacement entre les deux faisait nommer au manifest une empreinte
+    que le document publié n'applique pas. L'appelant reçoit donc le tampon qui a servi.
+
+    Lit `structure.json`. Un artefact illisible, hors schéma ou trop large est un refus **nommé**.
 
     La nature de l'entrée est jugée **avant** toute ouverture : ce qui n'est pas un fichier régulier
     est refusé sans être lu. Un répertoire ou un lien pendant lèveraient bien une `OSError`, mais un
@@ -760,7 +773,7 @@ def charger(path: Path, *, settings: Settings | None = None) -> StructurePropose
     if detail is not None:
         raise StructureRefusee("largeur_excessive", f"{path.name} : {detail}")
     try:
-        return StructureProposee.model_validate(charge)
+        return StructureProposee.model_validate(charge), brut
     except (ValidationError, ValueError, TypeError) as exc:
         raise StructureRefusee("proposition_illisible",
                                f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc

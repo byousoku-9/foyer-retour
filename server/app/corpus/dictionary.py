@@ -49,7 +49,7 @@ from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile
 
 from .index import words
 from .loader import Corpus, _first_error
-from .racine import Lecture, lecture_de
+from .racine import Lecture, relire
 from .text import normalize
 
 
@@ -286,8 +286,10 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str, *,
     génération. Sans lui, un repère est pincé pour la durée de cet appel seul.
     """
     if lecture is None:
-        with lecture_de(Path(data_dir)) as pincee:
-            return load_dictionary(data_dir, corpus, doc_id, lecture=pincee)
+        # `relire` et non un simple pincement : une passe qui ne consulte jamais la péremption peut
+        # rendre un état de deux générations (revue du tour N1–N3, constat 1).
+        return relire(Path(data_dir), lambda pincee: load_dictionary(
+            data_dir, corpus, doc_id, lecture=pincee))
     racine = Path(data_dir)
     document = corpus.documents.get(doc_id)
     # Le guide conserve le chemin historique public. Chaque contrat possède sa donnée lexicale :

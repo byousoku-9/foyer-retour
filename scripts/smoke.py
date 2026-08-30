@@ -76,7 +76,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.app.config import REPO_ROOT, Settings  # noqa: E402 — après la ligne de `sys.path`
-from server.app.corpus.racine import Lecture, lecture_pincee  # noqa: E402 — idem
+from server.app.corpus.racine import Lecture, relire  # noqa: E402 — idem
 from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile  # noqa: E402 — idem
 from server.app.domain.document import BlockKind  # noqa: E402 — idem
 from server.app.domain.verdict import KINDS_FONDATEURS  # noqa: E402 — idem
@@ -165,8 +165,10 @@ def charger_attendus(*, racine: Path | None = None) -> Attendus:
     lui.
     """
     racine = racine or REPO_ROOT
-    with lecture_pincee(racine / "data") as lecture:
-        return _attendus_pinces(racine, lecture)
+    # `relire` : l'attendu qui autorise une promotion de trafic ne peut pas être composé de deux
+    # générations, et pincer sans consulter la péremption ne l'empêchait pas (revue N1–N3, 1).
+    depot = racine
+    return relire(racine / "data", lambda lecture: _attendus_pinces(depot, lecture))
 
 
 def _attendus_pinces(racine: Path, lecture: Lecture) -> Attendus:

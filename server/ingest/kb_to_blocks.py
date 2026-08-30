@@ -356,10 +356,22 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
         if echec is not None:
             rapport = echec
         else:
-            previous = lecture.document_precedent(data_dir / "document.json")
-            rapport = build_report(doc, previous, kb, summary=summary,
-                                   parcours_ignorees=parcours.ignorees,
-                                   parcours_alertes=parcours.alertes)
+            # **Le filet suit la construction du rapport là où elle a été déplacée** (revue N1–N3,
+            # constat 3). `build_report` est sorti du `try/except` gardé pour lire le document
+            # précédent sous le verrou ; sans ce filet, une erreur de source ressortait en trace
+            # Python alors que la docstring de `run()` promet un check bloquant, jamais une trace.
+            try:
+                previous = lecture.document_precedent(data_dir / "document.json")
+                rapport = build_report(doc, previous, kb, summary=summary,
+                                       parcours_ignorees=parcours.ignorees,
+                                       parcours_alertes=parcours.alertes)
+            except ValidationError as exc:
+                rapport = report_from_validation_error(DOC_ID, exc)
+            except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError,
+                    AttributeError) as exc:
+                detail = f"{type(exc).__name__}: {exc}"[:2000]
+                rapport = Report(doc_id=DOC_ID, checks=[
+                    Check(name="source_illisible", level="bloquant", detail=detail)])
         status = "quarantaine" if rapport.blocking else "servi"
         document_hash = ""
         # Story 4.5, tour de racine unique : le lot **complet** de l'ingestion est constitué ici,
@@ -395,7 +407,8 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     entry = merge_manifest(manifest_path, DOC_ID, fabriquer,
                            cibles=[data_dir / "document.json", data_dir / "summary.md",
                                    data_dir / "report.json"])
-    assert publie is not None
+    if publie is None:  # pragma: no cover — la fabrique le pose toujours ; `assert` disparaît sous -O
+        raise RuntimeError("la fabrique n'a pas produit de rapport : rien n'a été publié")
     return publie, entry
 
 

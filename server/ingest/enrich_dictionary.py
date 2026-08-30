@@ -685,8 +685,20 @@ def _trier(fichier: DictionaryFile) -> DictionaryFile:
     })
 
 
+def _entrees_publiees(lecture: LectureDuLot, manifest_path: Path) -> dict[str, Any]:
+    """Les entrées du manifest **réellement publié**, lues dans la transaction (revue N1–N3, 4)."""
+    octets = lecture.octets(manifest_path)
+    if not octets:
+        return {}
+    try:
+        brut = json.loads(octets.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return brut if isinstance(brut, dict) else {}
+
+
 def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
-                      *, sortie: Any = sys.stdout) -> int:
+                      *, data_dir: Path | None = None, sortie: Any = sys.stdout) -> int:
     """`--valider "Nom"` : trois champs, et **rien d'autre** (AD-5).
 
     C'est la seule chose qui arme le refus « zéro hit », et c'est un acte humain : le run refuse si le
@@ -734,8 +746,25 @@ def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
         except (OSError, ValueError) as exc:
             raise Refus(f"{chemin} illisible ou non conforme, rien n'a été écrit : "
                         f"{type(exc).__name__}") from exc
-        attendu = {declare: corpus.manifest[declare].source_hash for declare in corpus.served
-                   if declare in fichier.corpus_source_hashes}
+        # **Les deux opérandes du contrôle viennent du verrou** (revue N1–N3, constat 4). Seul le
+        # dictionnaire était relu ici ; l'autre moitié — les `source_hash` des documents servis —
+        # venait du `load_corpus` fait avant la prise du `flock`. Une réingestion publiée entre les
+        # deux rendait `attendu` périmé, et la signature affirmait « décrit le corpus servi » pour un
+        # corpus qui ne l'était plus. Le manifest publié est donc relu **dans** la transaction, et
+        # c'est lui qui fait foi ; le corpus chargé plus tôt ne sert qu'à choisir le chemin.
+        # Quand aucun manifest n'est publié — un appel direct, un arbre sans manifest —, il n'y a
+        # pas d'état publié dont la lecture pourrait être périmée : le corpus reçu est alors la
+        # seule autorité, et la question ne se pose pas. La dissymétrie est structurelle, jamais un
+        # paramètre.
+        publie = _entrees_publiees(lecture, (data_dir or chemin.parent) / "manifest.json")
+        if publie:
+            servis = {cle: entree for cle, entree in publie.items()
+                      if isinstance(entree, dict) and entree.get("status") == "servi"}
+            attendu = {declare: servis[declare].get("source_hash") for declare in servis
+                       if declare in fichier.corpus_source_hashes}
+        else:
+            attendu = {declare: corpus.manifest[declare].source_hash for declare in corpus.served
+                       if declare in fichier.corpus_source_hashes}
         # `doc_id` — le document que le pipeline appliquera — doit être **nommé** (revue Codex 2.1,
         # B3) : sans cette ligne, signer un dictionnaire ne décrivant que le contrat AXA sortait en
         # code 0 avec « le refus « zéro hit » est armé », alors que le serveur le refuse.
@@ -758,7 +787,8 @@ def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
     except Refus as exc:
         print(str(exc), file=sys.stderr)
         return 5
-    assert signe_publie is not None
+    if signe_publie is None:  # pragma: no cover — `assert` disparaîtrait sous `python -O`
+        raise RuntimeError("la signature n'a pas été produite : rien n'a été publié")
     print(f"{chemin} : validated=true par {signe_publie.validated_by} le "
           f"{signe_publie.validated_at} — le refus « zéro hit » d'AD-5 est armé", file=sortie)
     return 0
@@ -827,7 +857,8 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         return 2
 
     if args.valider is not None:
-        return valider_a_la_main(chemin, corpus, args.valider.strip(), doc_id, sortie=sortie)
+        return valider_a_la_main(chemin, corpus, args.valider.strip(), doc_id,
+                                 data_dir=data_dir, sortie=sortie)
 
     reqs = requetes(corpus, doc_id, settings, limit=args.limit)
     plafond = settings.dictionary_max_cost_eur if args.max_cost is None else args.max_cost

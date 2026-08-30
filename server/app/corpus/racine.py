@@ -90,6 +90,16 @@ class EspaceIllisible(Exception):
     """L'espace existe mais n'a pas pu être lu : un garde-fou qui ne peut pas conclure refuse."""
 
 
+class LectureHorsGeneration(Exception):
+    """La racine couvre ce chemin, mais la cible ne passe plus par le pointeur.
+
+    Revue du tour N1–N3, constat 2. Un lien couvert remplacé par un fichier ordinaire, ou une
+    disposition reposée pendant une passe, faisaient rendre le **chemin brut** — c'est-à-dire une
+    lecture à travers le lien vivant, hors de la génération pincée. Un lecteur qui ne peut pas
+    conclure refuse ; il ne devine pas.
+    """
+
+
 class LecturePerimee(Exception):
     """La génération qu'un repère avait pincée a été reconstruite sous lui.
 
@@ -112,6 +122,13 @@ def lire_pointeur(espace: Path) -> str:
     if cible not in GENERATIONS:
         raise EspaceIllisible(
             f"{espace / POINTEUR} : génération {cible!r} hors de {GENERATIONS}")
+    # **Une génération nommée mais absente est illisible, pas vide** (revue N1–N3, constat 6). Sans
+    # ce contrôle, chaque slot était vu absent et le corpus, le smoke et le typage rendaient un état
+    # **vide sans refuser** : un espace qu'on ne sait pas lire doit se dire.
+    if not (espace / cible).is_dir():
+        raise EspaceIllisible(
+            f"{espace / cible} : `courant` désigne {cible!r}, dont le répertoire est absent ou "
+            "illisible — l'espace de publication ne peut pas être lu")
     return cible
 
 
@@ -173,7 +190,7 @@ class RacinePubliee:
         return self.chemin / generation / self.slot(cible)
 
     def couverte(self, cible: Path) -> bool:
-        """`cible` passe-t-elle par le pointeur de cette racine ? — **quelle que soit la génération**.
+        """`cible` passe-t-elle par le pointeur de cette racine ? — **sans jamais résoudre `courant`**.
 
         C'est la question du **lecteur**, et elle diffère de celle de l'écrivain
         (`resolue_dans_lespace`, qui exige la génération *courante*). Un lecteur qui a pincé `a`
@@ -181,16 +198,49 @@ class RacinePubliee:
         couvertes : les opposer au pointeur vivant les ferait retomber sur une lecture à travers le
         lien, c'est-à-dire sur le mélange même que le repère existe pour interdire.
 
+        **La réponse est de l'arithmétique de chemins, jamais une résolution** (revue du tour N1–N3,
+        constat 2). La version d'avant faisait un `os.path.realpath` par cible et par génération :
+        chacun retraversait `courant`, si bien qu'un repère « qui résout `courant` une seule fois »
+        le résolvait en réalité une fois **par lecture**. Pire, quand la résolution échouait un
+        instant — repose de disposition concurrente, lien couvert remplacé par un fichier ordinaire
+        —, la cible était déclarée non couverte et lue **à travers son lien vivant**, exactement ce
+        que le repère existe pour interdire.
+
+        Ici on lit la **cible du lien** (`readlink`, un seul appel, aucune traversée) et on la
+        compare, par arithmétique de chemins, à `<espace>/<pointeur>/<slot>` — la forme même que
+        pose `installer()`. Un ancêtre lié compte : l'archive de campagne vit sous un répertoire
+        lié, et c'est ce répertoire qui porte la couverture.
+
         Un lien **pendant** est reconnu comme couvert : c'est exactement ce qu'il faut, puisqu'un
         lien pendant *est* l'absence d'un slot, et l'absence se lit dans la génération pincée comme
         le reste.
         """
+        return self.lien_couvrant(cible) is not None
+
+    def lien_couvrant(self, cible: Path) -> Path | None:
+        """Le premier ancêtre (ou la cible elle-même) qui est un lien **passant par le pointeur**.
+
+        `None` si aucun : la cible ne relève alors pas de cette racine, ou sa disposition est
+        cassée — c'est `Lecture.reel` qui distingue les deux, et qui refuse plutôt que de deviner.
+        """
         try:
-            reel = Path(os.path.realpath(self.absolu(cible)))
-            return any(reel == Path(os.path.realpath(self.chemin_dans(cible, generation)))
-                       for generation in GENERATIONS)
+            slot = self.slot(cible)
         except LotHorsEspace:
-            return False
+            return None
+        chemin = Path(os.path.abspath(self.absolu(cible)))
+        reste = slot
+        while True:
+            if os.path.islink(chemin):
+                try:
+                    lien = os.readlink(chemin)
+                except OSError:
+                    return None
+                vise = Path(os.path.normpath(os.path.join(str(chemin.parent), lien)))
+                attendu = Path(os.path.abspath(self.chemin / POINTEUR / reste))
+                return chemin if vise == attendu else None
+            if not reste.parts or str(reste) == ".":
+                return None
+            chemin, reste = chemin.parent, reste.parent
 
     def resolue_dans_lespace(self, cible: Path) -> bool:
         """`cible` se résout-elle dans la génération **courante** ?
@@ -210,10 +260,15 @@ class RacinePubliee:
         Une seule résolution de `courant`, une seule fois : c'est toute la propriété N1. Si l'espace
         n'est pas installé, il n'y a pas de pointeur, donc rien à pincer et rien à mêler — le repère
         rendu lit les chemins tels quels.
+
+        Un espace **non installé** n'a rien à pincer : le repère lit les chemins tels quels, ce qui
+        est le comportement d'un arbre sans racine. Un espace **illisible**, lui, ne se lit pas comme
+        un espace vide (revue N1–N3, constat 6) : `EspaceIllisible` remonte, parce qu'un lecteur qui
+        ne peut pas conclure refuse au lieu de rendre un corpus vide.
         """
         try:
             generation = lire_pointeur(self.chemin)
-        except (EspaceNonInstalle, EspaceIllisible):
+        except EspaceNonInstalle:
             return Lecture(self, None)
         return Lecture(self, generation)
 
@@ -255,13 +310,38 @@ class Lecture:
         Une cible que la racine ne couvre pas — une source, un cache, un artefact hors bundle —
         garde son chemin : il n'y a rien à pincer, donc rien à mêler. Il n'existe pas de paramètre
         pour forcer l'un ou l'autre ; la question est structurelle.
+
+        **Trois cas, et aucun repli silencieux** (revue du tour N1–N3, constats 1 et 2) :
+
+        1. la génération pincée a été **reconstruite** sous le repère : les octets qu'on rendrait ne
+           viennent plus de ce qu'on a pincé. `LecturePerimee` — le contrôle ne peut pas rester à la
+           charge d'un appelant, puisque aucun ne le faisait ;
+        2. un ancêtre (ou la cible) est lié **par le pointeur** : c'est le slot de la génération
+           pincée qui est rendu, absence comprise ;
+        3. rien ne la lie par le pointeur. Si la racine ne connaît pas ce chemin — aucun slot chez
+           elle —, il est rendu tel quel. Si elle le connaît (le slot existe dans la génération
+           pincée) mais que la cible ne passe plus par le pointeur, la disposition est cassée : le
+           refus est **nommé** (`LectureHorsGeneration`), jamais un repli sur le lien vivant.
         """
         chemin = Path(cible)
         if self.racine is None or self.generation is None:
             return chemin
-        if not self.racine.couverte(chemin):
+        if self.perimee():
+            raise LecturePerimee(
+                f"{cible} : la génération {self.generation!r} pincée par ce repère a été "
+                "reconstruite sous lui — les octets rendus ne viendraient plus d'une seule "
+                "génération")
+        try:
+            slot = self.racine.chemin_dans(chemin, self.generation)
+        except LotHorsEspace:
             return chemin
-        return self.racine.chemin_dans(chemin, self.generation)
+        if self.racine.lien_couvrant(chemin) is not None:
+            return slot
+        if os.path.lexists(slot):
+            raise LectureHorsGeneration(
+                f"{cible} : la racine couvre ce chemin (slot {slot}) mais la cible ne passe plus "
+                "par le pointeur — un lecteur ne devine pas une disposition cassée, il la dit")
+        return chemin
 
     def perimee(self) -> bool:
         """La génération pincée a-t-elle été **reconstruite** sous ce repère ?
@@ -308,7 +388,10 @@ class Lecture:
         """
         try:
             return self.reel(cible).read_bytes()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
+            # Une **absence** reste une absence : un slot jamais publié, ou dont un composant du
+            # chemin n'existe pas, n'est pas un incident (revue N1–N3, constat 15). Toute autre
+            # `OSError` — droits, répertoire, tube — remonte : ce qu'on ne peut pas lire se dit.
             return None
 
     def texte(self, cible: Path, encodage: str = "utf-8") -> str | None:
@@ -318,6 +401,18 @@ class Lecture:
     def fichier(self, cible: Path) -> bool:
         """`cible` est-elle un fichier régulier lisible dans la génération pincée ?"""
         return self.reel(cible).is_file()
+
+    def verifier(self) -> None:
+        """Refuse si la génération pincée a été reconstruite — le contrôle **de fin de passe**.
+
+        `reel` refuse déjà à chaque lecture ; celle-ci existe pour les passes qui composent autre
+        chose que des octets (une décision de gate, un attendu de promotion) et qui doivent pouvoir
+        dire, avant de conclure, que rien n'a bougé sous elles.
+        """
+        if self.perimee():
+            raise LecturePerimee(
+                f"{self.racine.chemin if self.racine else '?'} : la génération "
+                f"{self.generation!r} pincée par ce repère a été reconstruite sous lui")
 
 
 def racine_couvrant(cible: Path) -> RacinePubliee | None:
@@ -397,7 +492,12 @@ def relire(data_dir: Path | str, passe: Callable[[Lecture], T],
     for _ in range(max(1, essais)):
         with lecture_de(data_dir) as lecture:
             derniere = lecture
-            resultat = passe(lecture)
+            try:
+                resultat = passe(lecture)
+            except LecturePerimee:
+                # Le repère a refusé **pendant** la passe : c'est le même événement que celui que
+                # `perimee()` constate après coup, vu plus tôt. La réponse est la même — rejouer.
+                continue
             if not lecture.perimee():
                 return resultat
     raise LecturePerimee(

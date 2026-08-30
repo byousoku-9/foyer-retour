@@ -15,7 +15,7 @@ from typing import get_args
 
 from server.app.domain import BlockKind, Document, GateContext, Manifest, ManifestEntry, Report
 
-from .racine import Lecture, lecture_de
+from .racine import Lecture, relire
 from .text import normalize
 
 SOURCE_FILES = ("source.js", "source.pdf")  # la première présente est comparée à `manifest.source_hash`
@@ -488,10 +488,15 @@ def load_corpus(data_dir: Path | str, *, allow_ungated: bool, current: GateConte
     """
     data_dir = Path(data_dir)
     if lecture is None:
-        with lecture_de(data_dir) as pincee:
-            return load_corpus(data_dir, allow_ungated=allow_ungated, current=current,
-                               perimetre_max_chars=perimetre_max_chars,
-                               raison_max_chars=raison_max_chars, lecture=pincee)
+        # **`relire`, jamais un simple pincement** (revue du tour N1–N3, constat 1). Pincer sans
+        # jamais consulter la péremption laissait la passe rendre un état composé de deux
+        # générations quand la génération pincée était reconstruite sous elle — précisément ce que
+        # N1 déclare impossible. `relire` rejoue la passe sur un repère neuf, et dit le refus après
+        # un nombre borné de tentatives.
+        return relire(data_dir, lambda pincee: load_corpus(
+            data_dir, allow_ungated=allow_ungated, current=current,
+            perimetre_max_chars=perimetre_max_chars, raison_max_chars=raison_max_chars,
+            lecture=pincee))
     manifest_path = data_dir / "manifest.json"
     if not lecture.fichier(manifest_path):
         return Corpus()

@@ -36,37 +36,12 @@ OVERLAY_FILE = "typing.manual.json"
 STRUCTURE_FILE = "structure.json"
 
 
-def overlay_hash(doc_dir: Path) -> str | None:
-    """sha256 de `typing.manual.json` s'il existe (écrit dans le manifest, vérifié par le loader), sinon None."""
-    path = doc_dir / OVERLAY_FILE
-    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-
-
-def structure_hash(doc_dir: Path) -> str | None:
-    """sha256 de `structure.json` s'il existe, sinon `None` — le patron exact d'`overlay_hash`.
-
-    Story 4.5. La proposition de structure de 4.2c était le seul artefact d'ingestion qu'aucune
-    empreinte du manifest ne couvrait, alors qu'elle décide de l'arbre que le rappel parcourt : une
-    main sur le fichier ne se voyait nulle part. Le loader contrôle désormais « déclaré ⟺ présent »
-    puis la valeur, et il ne peut le faire que si **les écrivains d'ingestion renseignent le champ**.
-
-    Sans cette fonction, déposer un `structure.json` mettait le document en quarantaine avec « relancer
-    l'ingestion » — et la réingestion réécrivait l'entrée sans le champ, donc ne corrigeait rien : un
-    cul-de-sac où la dette 4.2c sortait le document du service et `structure_prouvee_rate` ne pouvait
-    jamais devenir vert.
-    """
-    path = doc_dir / STRUCTURE_FILE
-    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-
-
-def load_previous(path: Path) -> Document | None:
-    """`document.json` précédent, pour `ids_disparus` ; illisible ou invalide ⇒ comme absent."""
-    if not path.is_file():
-        return None
-    try:
-        return Document.model_validate_json(path.read_bytes())
-    except (ValidationError, ValueError, OSError):
-        return None
+# `overlay_hash`, `structure_hash` et `load_previous` ont été **supprimés** (story 4.5, revue du tour
+# N1–N3, constat 14). C'étaient trois lectures d'artefacts couverts faites hors du verrou : elles
+# décidaient du contenu publié depuis un état qu'une opération concurrente pouvait avoir remplacé.
+# Leurs remplaçantes — `LectureDuLot.empreinte` et `LectureDuLot.document_precedent` — ne sont
+# atteignables que **dans** la transaction qui publie. Les laisser exportées aurait laissé croire
+# qu'il reste une voie légitime de lire ces artefacts hors verrou : il n'y en a pas.
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -416,7 +391,9 @@ class LectureDuLot:
     def octets(self, cible: Path) -> bytes | None:
         try:
             return self.chemin(cible).read_bytes()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
+            # Même règle que côté lecteur (revue N1–N3, constat 15) : l'absence est une absence,
+            # tout le reste remonte plutôt que d'être lu comme un artefact vide.
             return None
 
     def empreinte(self, cible: Path) -> str | None:

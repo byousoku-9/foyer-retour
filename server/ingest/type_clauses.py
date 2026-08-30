@@ -35,7 +35,7 @@ from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, 
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
-from server.app.corpus.racine import Lecture, lecture_pincee
+from server.app.corpus.racine import Lecture, relire
 from server.ingest.artifacts import (STRUCTURE_FILE, LectureDuLot, document_json,
                                      exiger_espace_installe, fusionner_et_publier,
                                      publier_artefacts, verifier_couverture_du_lot)
@@ -1108,8 +1108,7 @@ def _load(doc_dir: Path) -> tuple[Document, Report, dict[str, Any], ManifestEntr
     faisait typer un document que le manifest ne décrit plus. Le repère est pincé une fois, ici, et
     toute la lecture passe par lui ; les octets **hachés** sont les octets **parsés**.
     """
-    with lecture_pincee(doc_dir.parent) as lecture:
-        return _load_pince(doc_dir, lecture)
+    return relire(doc_dir.parent, lambda lecture: _load_pince(doc_dir, lecture))
 
 
 def _load_pince(doc_dir: Path, lecture: Lecture) -> tuple[
@@ -1553,7 +1552,8 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         doc_dir.parent / "manifest.json", doc.doc_id, fabriquer,
         cibles=[doc_dir / "document.json", doc_dir / "report.json",
                 doc_dir / "typing.manual.json"])
-    assert rapport_publie is not None
+    if rapport_publie is None:  # pragma: no cover — `assert` disparaîtrait sous `python -O`
+        raise BatchFailure("la fabrique n'a pas produit de rapport : rien n'a été publié")
     typed_report = rapport_publie
     return TypingResult(document=typed, report=typed_report, entry=merged_entry,
                         cost_eur=total_cost,
