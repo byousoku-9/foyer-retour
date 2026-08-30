@@ -26,7 +26,7 @@ from server.app.domain.profil import PROFIL_KEYS
 from server.app.domain import (Block, BlockRef, Check, Document, ManifestEntry, Node, NodeRef, ParcoursCondition, Report,
                                Source)
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash, read_manifest,
-                                     structure_hash)
+                                     structure_hash, verifier_couverture_du_lot)
 from server.ingest.jsobject import parse_js_object
 from server.ingest.report import attester_arbre, build_report, report_from_validation_error
 
@@ -306,6 +306,19 @@ def run(data_dir: Path, *, edition: str) -> tuple[Report, ManifestEntry]:
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         detail = f"{manifest_path} illisible, rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
         report = Report(doc_id=DOC_ID, checks=[Check(name="manifest_illisible", level="bloquant", detail=detail)])
+        return report, ManifestEntry(status="quarantaine", source_hash="", ingest_fingerprint=ingest_fingerprint(),
+                                     document_hash="", edition=edition, gate=None)
+    try:
+        # **Préflight de couverture** (revue du tour de racine unique, constat 6). Le lot complet de
+        # cette ingestion est connu dès maintenant : si sa disposition n'est pas posée, le refus
+        # tombait au dernier geste, après tout le travail, et en trace Python. Il tombe ici, avant,
+        # et par le même chemin que les autres refus d'ingestion — un check bloquant.
+        verifier_couverture_du_lot([data_dir / "document.json", data_dir / "summary.md",
+                                    data_dir / "report.json", manifest_path])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        detail = f"rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
+        report = Report(doc_id=DOC_ID, checks=[Check(name="espace_de_publication_incomplet",
+                                                     level="bloquant", detail=detail)])
         return report, ManifestEntry(status="quarantaine", source_hash="", ingest_fingerprint=ingest_fingerprint(),
                                      document_hash="", edition=edition, gate=None)
     source_hash = ""

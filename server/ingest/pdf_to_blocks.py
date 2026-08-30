@@ -40,7 +40,7 @@ from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import (SCHEMA_VERSION, document_json, load_previous, merge_manifest, overlay_hash,
-                                     read_manifest, structure_hash)
+                                     read_manifest, structure_hash, verifier_couverture_du_lot)
 from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
@@ -1518,6 +1518,18 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         detail = f"{manifest_path} illisible, rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
         report = Report(doc_id=doc_id, checks=[Check(name="manifest_illisible", level="bloquant", detail=detail)])
+        return report, ManifestEntry(status="quarantaine", source_hash="", ingest_fingerprint=fingerprint,
+                                     document_hash="", edition=resolved_edition, gate=None)
+    try:
+        # **Préflight de couverture** (revue du tour de racine unique, constat 6) : le lot complet
+        # est connu dès maintenant, donc une disposition absente se dit **avant** l'extraction, et
+        # par le même chemin que les autres refus — un check bloquant, jamais une trace Python.
+        verifier_couverture_du_lot([data_dir / "document.json", data_dir / "summary.md",
+                                    data_dir / "report.json", manifest_path])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        detail = f"rien n'a été écrit : {type(exc).__name__}: {exc}"[:2000]
+        report = Report(doc_id=doc_id, checks=[Check(name="espace_de_publication_incomplet",
+                                                     level="bloquant", detail=detail)])
         return report, ManifestEntry(status="quarantaine", source_hash="", ingest_fingerprint=fingerprint,
                                      document_hash="", edition=resolved_edition, gate=None)
     source_hash = ""

@@ -36,7 +36,7 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 from server.ingest.artifacts import (document_json, fusionner_et_publier, publier_artefacts, read_manifest,
-                                     structure_hash)
+                                     structure_hash, verifier_couverture_du_lot)
 from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
                                   pages_charabia)
 
@@ -1161,6 +1161,12 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         raise ValueError(f"transport inconnu {transport!r}; aucun appel ni lot soumis")
     if not math.isfinite(prior_cost_eur) or prior_cost_eur < 0:
         raise ValueError("--prior-cost-eur doit être un nombre fini >= 0; aucun appel soumis")
+    # **Préflight de couverture, avant la moindre soumission** (revue du tour de racine unique,
+    # constat 6). Le lot du typage est connu d'avance — document, rapport, retrait de l'overlay,
+    # manifest — et le refus « lot mixte » tombait au tout dernier geste : un typage LLM entièrement
+    # payé était jeté pour une disposition qu'on pouvait vérifier ici, gratuitement.
+    verifier_couverture_du_lot([doc_dir / "document.json", doc_dir / "report.json",
+                                doc_dir / "typing.manual.json", doc_dir.parent / "manifest.json"])
     doc, report, raw_manifest, old_entry, migration = _load(doc_dir)
     campaign = campaign_fingerprint(doc, settings)
     print(f"empreinte de campagne: {campaign}", file=output)

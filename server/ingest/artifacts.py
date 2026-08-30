@@ -125,17 +125,35 @@ def _espace_du_lot(cibles: Sequence[Path]) -> Any:
         return None
     hors = sorted(chemin for chemin, espace in espaces.items() if espace is None)
     if hors:
+        racine = next(iter(couverts.values()))
         raise EspaceNonInstalle(
             f"lot mixte : {sorted(couverts)} sont couvertes par une racine de publication, "
             f"{hors} ne le sont pas — un lot moitié couvert n'a pas de geste unique qui le publie. "
-            "Poser la disposition des cibles manquantes : "
-            "`python -m server.evals.espace --racine . --data-dir data --cible <chemin>`")
+            "Poser la disposition complète du dépôt (c'est la commande que la documentation "
+            "opérateur donne, et elle est idempotente) : `python -m server.evals.espace --racine "
+            f"{racine.racine} --data-dir {racine.data_dir} --depot`")
     racines = {str(espace.chemin) for espace in couverts.values()}
     if len(racines) != 1:
         raise LotHorsEspace(
             f"les cibles du lot relèvent de racines différentes ({sorted(racines)}) : aucun "
             "pointeur ne les bascule ensemble")
     return next(iter(couverts.values()))
+
+
+def verifier_couverture_du_lot(cibles: Sequence[Path]) -> None:
+    """Préflight : ce lot est-il publiable d'un seul geste ? — **sans rien écrire, ni lire**.
+
+    Revue du tour de racine unique, constat 6. Le refus « lot mixte » ne tombait qu'au **dernier**
+    geste d'une opération d'ingestion : un typage LLM entièrement payé était jeté pour une
+    disposition qu'on pouvait vérifier avant la première soumission, et l'appelant n'en voyait
+    qu'une trace Python là où il convertit tous les autres refus en check bloquant.
+
+    Cette fonction est exactement la question posée par `_espace_du_lot`, posée **tôt** : elle lève
+    les mêmes exceptions, avec le même message, et ne fait rien d'autre. Elle ne remplace pas le
+    contrôle final — la disposition peut changer entre les deux — elle le déplace là où il coûte le
+    moins cher.
+    """
+    _espace_du_lot(cibles)
 
 
 def publier_artefacts(lot: Sequence[tuple[Path, str | None]]) -> None:
@@ -264,12 +282,18 @@ def _publier_sans_racine(lot: Sequence[tuple[Path, str | None]]) -> None:
             tmp.write_text(contenu, "utf-8")
             prets.append((tmp, chemin))
         for tmp, chemin in prets:
-            tmp.replace(chemin)
+            # **Le rang se note avant l'appel système, jamais après.** `KeyboardInterrupt` peut
+            # tomber à la frontière d'instruction qui suit un `rename` réussi : noter ensuite
+            # laisserait la cible publiée et hors du rétablissement, c'est-à-dire une cible modifiée
+            # après une exception propagée — ce que l'AC interdit littéralement, `BaseException`
+            # comprise. L'asymétrie décide : rétablir une cible qui n'a pas bougé est inoffensif
+            # (on y réécrit ses propres octets), l'inverse ne l'est pas.
             faites.append(chemin)
+            tmp.replace(chemin)
         for chemin, contenu in operations:
             if contenu is None:
-                chemin.unlink(missing_ok=True)
                 faites.append(chemin)
+                chemin.unlink(missing_ok=True)
     except BaseException:
         for chemin in reversed(faites):
             _retablir(chemin, avant[str(chemin)], temporaires)
