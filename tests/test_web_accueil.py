@@ -18,9 +18,12 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 
+from server.app.api.main import create_app
 from server.app.api.schemas import EtatDictionnaire, SanteResponse
 from server.app.config import REPO_ROOT, Settings
 
@@ -637,6 +640,17 @@ def test_aucun_innerhtml_ne_sert_a_poser_du_texte(code: str) -> None:
     assert "textContent" in code
 
 
+def test_une_sante_hostile_reste_du_texte_inerte_au_vrai_demarrage(
+        cas: dict[str, Any]) -> None:
+    """La frontière variable réelle traverse `/sante`, la vue et le DOM sans interpréter de HTML."""
+    hostile = cas["demarrage_hostile"]
+    textes = hostile["textes"]
+    for marqueur in ("VERSION_ACTIVE", "DOCUMENT_ACTIF", "DOC_ACTIF", "DETAIL_ACTIF"):
+        assert any(marqueur in texte for texte in textes), f"{marqueur} n'a pas été affiché"
+    assert not ({"img", "script", "svg", "a"} & set(hostile["tags"])), hostile["tags"]
+    assert hostile["appels"] == ["https://foyer-retour.example/api/v1/sante"]
+
+
 def test_la_page_necrit_rien_dans_le_navigateur(cas: dict[str, Any], code: str) -> None:
     """AD-15 : aucune donnée personnelle, aucun `localStorage` sur l'accueil."""
     assert cas["nominal"]["localStorage"] == {}
@@ -661,18 +675,97 @@ def test_aucune_requete_tierce(code: str, page: str) -> None:
 # --- AD-12 / FR42 : la page elle-même -------------------------------------
 
 def test_la_page_porte_les_trois_entrees(page: str) -> None:
-    """AC : trois entrées — `/guide/`, `/sinistre/`, sujet 3."""
-    assert 'href="/guide/"' in page
-    assert 'href="/sinistre/"' in page
+    """AC : trois questions-liens ouvrent les surfaces existantes sans soumettre de formulaire."""
+    assert page.count('class="question"') == 3
+    assert 'href="/guide/#assistant"' in page
+    assert 'href="/sinistre/#description"' in page
     assert 'href="#sujet-3"' in page and 'id="sujet-3"' in page
+    for question in ("Il fait quel temps aujourd’hui ?",
+                     "Une bougie a brûlé mon salon",
+                     "Comment interroger cent mille lignes"):
+        assert question in page
+    assert page.count("Il fait quel temps aujourd’hui ?") == 1
+    assert "sans envoyer la question" in page and "sans la soumettre" in page
+
+
+def test_les_questions_ouvrent_des_fragments_reellement_servis_sans_soumission(
+        code: str) -> None:
+    """Contre-sonde in-process : les trois documents et leurs destinations existent réellement."""
+    reglages = Settings(_env_file=None, anthropic_api_key="", env="prod", allow_ungated=True)
+    with TestClient(create_app(reglages)) as client:
+        accueil = client.get("/")
+        assert accueil.status_code == 200
+        cibles = {
+            "/guide/#assistant": r'(?:data-panel="assistant"|id="panel-assistant")',
+            "/sinistre/#description": r'id="description"',
+            "#sujet-3": r'id="sujet-3"',
+        }
+        for href, fragment_attendu in cibles.items():
+            lien = re.search(
+                rf'<a class="entree" href="{re.escape(href)}"(?P<attrs>[^>]*)>',
+                accueil.text,
+            )
+            assert lien, f"question-lien absente : {href}"
+            assert "onclick" not in lien.group("attrs").casefold(), href
+
+            cible = urlsplit(href)
+            assert cible.query == "", f"la question est transmise dans l'URL : {href}"
+            reponse = client.get(cible.path or "/")
+            assert reponse.status_code == 200, href
+            assert re.search(fragment_attendu, reponse.text), (
+                f"le fragment #{cible.fragment} n'existe pas dans {cible.path or '/'}")
+
+    # L'accueil ne branche aucun gestionnaire sur les cartes : le clic reste une navigation GET.
+    assert "entree" not in code
 
 
 def test_la_page_porte_la_reponse_ecrite_au_sujet_3(page: str) -> None:
-    """FR24 / D9 : la réponse J+1 est écrite, avec ses sept points."""
+    """FR24 / D9 : la réponse finale est écrite, avec tous les éléments littéraux de l'AC."""
     assert "je ne fais pas un RAG" in page
-    for point in ("base SQL", "profil par colonne", "SELECT", "LIMIT", "lecture seule",
-                  "après le filtre", "lignes sources", "ne disent pas", "Chez Foyer"):
+    for point in ("table va dans une base", "base SQL", "profil par colonne", "type, nuls",
+                  "valeurs aberrantes", "question vers SQL", "schéma et un échantillon",
+                  "SELECT", "LIMIT", "lecture seule", "requête est affichée",
+                  "modèle ne calcule rien", "calcul est exécuté par la base", "filtre d'abord",
+                  "après le filtre",
+                  "colonnes de texte", "nombre de lignes", "lignes sources", "ne disent pas",
+                  "Chez Foyer"):
         assert point in page, f"la réponse au sujet 3 ne dit rien de {point!r}"
+
+
+def test_le_snapshot_45_reste_factuel_rouge_et_distinct_du_servi(page: str) -> None:
+    trouve = re.search(r'<article class="preuve-candidate".*?</article>', page, re.DOTALL)
+    assert trouve, "le snapshot candidat 4.5 est absent"
+    snapshot = trouve.group(0)
+    for preuve in ("30 août 2026", "full 4.5",
+                   "cf5c1babbed8fc348d9d3be1eea3b8a1db925344",
+                   "8/14 cas", "25/42 exécutions", "0,7726 EUR",
+                   "17/34 cas", "53/102 exécutions", "1,3401 EUR",
+                   "Baloise", "Non exécuté", "HTTP 406 / GCS 403", "0 EUR",
+                   "2,1127 EUR", "rouge", "non promouvable", "campagne interrompue"):
+        assert preuve in snapshot, f"preuve 4.5 absente : {preuve!r}"
+    ligne_axa = re.search(r'<tr><th scope="row">AXA</th>.*?</tr>', snapshot, re.DOTALL)
+    ligne_guide = re.search(r'<tr><th scope="row">Guide</th>.*?</tr>', snapshot, re.DOTALL)
+    assert ligne_axa and "Timeout API sans <code>request_id</code>" in ligne_axa.group(0)
+    assert ligne_guide and "Sortie <code>llm_parse</code> tronquée" in ligne_guide.group(0)
+    assert "<code>stop_reason=max_tokens</code>" in ligne_guide.group(0)
+    assert "llm_parse" not in ligne_axa.group(0)
+    assert "Timeout API" not in ligne_guide.group(0)
+    assert "ne sont pas des taux de réussite" in snapshot
+    assert "Aucun résultat final" in snapshot and "dernier vert" in snapshot
+    assert 'id="etat"' not in snapshot, "l'état dynamique a été mêlé au candidat éditorial"
+
+
+def test_le_dernier_servi_reste_lisible_meme_si_la_sonde_echoue(page: str) -> None:
+    trouve = re.search(r'<article class="etat-servi".*?</article>', page, re.DOTALL)
+    assert trouve, "le bloc servi est absent"
+    servi = trouve.group(0)
+    assert "6abd3d0c8681428ce8373de34164b7eb9ac4220d" in servi
+    assert "Au lancement de cette campagne" in servi
+    assert "point de comparaison historique" in servi
+    assert "l'état actuellement servi est lu dynamiquement" in servi
+    assert "Il reste distinct du candidat rouge" not in servi
+    assert "explicitement inconnu" in servi
+    assert re.search(r'<div id="etat"[^>]*>\s*</div>', servi)
 
 
 def test_la_mini_demo_est_annoncee_comme_bonus_et_aucune_page_excel_nest_promise(page: str) -> None:
@@ -681,11 +774,28 @@ def test_la_mini_demo_est_annoncee_comme_bonus_et_aucune_page_excel_nest_promise
     assert "viendrait" in page and "bonus" in page
 
 
-def test_la_page_porte_les_liens_vers_le_depot(page: str) -> None:
-    assert "https://github.com/byousoku-9/foyer-retour" in page
-    # Les documents qui n'existent pas ne sont pas liés (`Never` de la spec : 5.2/5.3).
-    assert "docs/architecture.md" not in page
-    assert "docs/choix-et-limites.md" not in page
+def test_la_page_porte_les_quatre_liens_de_lecture(page: str) -> None:
+    for cible in (
+        "https://github.com/byousoku-9/foyer-retour",
+        "https://github.com/byousoku-9/foyer-retour/blob/main/docs/architecture.md",
+        "https://github.com/byousoku-9/foyer-retour/blob/main/docs/choix-et-limites.md",
+        "/guide/#assistant",
+    ):
+        assert f'href="{cible}"' in page
+    assert "Pourquoi cette réponse" in page
+
+
+def test_le_tableau_de_preuve_reste_lisible_sur_mobile(page: str) -> None:
+    assert re.search(r"\.tableau-defilement\s*\{[^}]*overflow-x:\s*auto", page, re.DOTALL)
+    assert re.search(r"@media\s*\(max-width:\s*600px\)", page)
+    assert 'aria-label="Progression des témoins de la campagne 4.5"' in page
+    assert re.search(
+        r'<div(?=[^>]*class="tableau-defilement")'
+        r'(?=[^>]*aria-label="Progression des témoins de la campagne 4\.5")[^>]*>'
+        r'\s*<table>.*?</table>\s*</div>',
+        page,
+        re.DOTALL,
+    ), "le tableau n'est pas contenu dans sa région mobile accessible"
 
 
 def test_le_bloc_detat_est_vide_dans_le_html(page: str) -> None:

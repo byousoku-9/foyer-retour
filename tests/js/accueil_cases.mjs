@@ -466,6 +466,35 @@ async function main() {
     };
   }
 
+  // --- frontière variable : du HTML serveur reste du texte inerte ------------
+  //
+  // Cette contre-sonde traverse le vrai démarrage (lecture stricte, composition, matérialisation),
+  // pas seulement `materialiser()` isolé. Les quatre champs sont ceux que la page affiche
+  // réellement. Si l'un d'eux passait un jour par `innerHTML`, le relevé contiendrait un élément
+  // actif au lieu du littéral hostile.
+  {
+    const corps = sante({
+      version: '<img src=x onerror="VERSION_ACTIVE">',
+      documents_servis: ['<script>DOCUMENT_ACTIF</script>'],
+      alerts: [{
+        doc_id: '<svg onload="DOC_ACTIF">',
+        alerte: "source_absente",
+        detail: '<a href="https://tiers.example">DETAIL_ACTIF</a>',
+      }],
+    });
+    const ctx = charger(PAGE, () => reponseHttp({ corps }), { demarrage: true });
+    await tick();
+    await tick();
+    const dom = releverNoeud(ctx.elements.etat);
+    cas.demarrage_hostile = {
+      dom,
+      textes: aplatir(dom).map((n) => n.texte)
+        .filter((t) => t !== null && t !== undefined),
+      tags: aplatir(dom).map((n) => n.tag),
+      appels: ctx.appels.map((a) => a.url),
+    };
+  }
+
   {
     const ctx = charger(PAGE, () => { throw new Error("réseau coupé"); }, { demarrage: true });
     await tick();
