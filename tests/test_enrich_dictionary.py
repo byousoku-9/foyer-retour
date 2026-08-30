@@ -1082,3 +1082,53 @@ def test_la_cli_refuse_un_data_dir_non_installe_avant_tout_appel(
     code = ed.main(["--data", str(data), "--valider", "Lancelot Oudin"], client=None,
                    settings=_settings(), sortie=io.StringIO())
     assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
+
+
+
+def test_valider_oppose_le_manifest_publie_et_non_le_corpus_charge_avant_le_verrou(
+        tmp_path: Path) -> None:
+    """Revue du tour N1–N3, constat 4 : les **deux** opérandes du contrôle viennent du verrou.
+
+    `--valider` relisait bien le dictionnaire sous la transaction, mais l'autre moitié du contrôle —
+    les `source_hash` des documents servis — venait du `load_corpus` fait **avant** la prise du
+    `flock`. Une réingestion publiée entre ce chargement et le verrou rendait `attendu` périmé, et la
+    signature était publiée en affirmant « décrit le corpus servi » pour un corpus qui ne l'était
+    plus : un read-modify-write à cheval sur le verrou, exactement ce que N3 ferme et ce que
+    `protocole.md` annonçait déjà comme fermé.
+
+    La sonde donne au chemin un corpus **périmé** — celui d'avant la réingestion — et publie l'état
+    d'après sous la racine. La signature doit décrire ce qui est **publié**, jamais ce que l'appelant
+    avait chargé avant de prendre le verrou.
+    """
+    import hashlib
+
+    from server.app.corpus.loader import load_corpus
+    from server.evals.espace import EspacePublie
+
+    data = _ecrire_data(tmp_path)
+    corpus_perime = load_corpus(data, allow_ungated=True)
+    perime = corpus_perime.manifest[DOC_ID].source_hash
+
+    chemin = data / "dictionary.json"
+    fichier = {"schema_version": "1", "corpus_source_hashes": {DOC_ID: perime},
+               "corpus": {"franchise": ["deductible"]}, "intents": {},
+               "candidate_questions": {}, "validated": False, "validated_by": None,
+               "validated_at": None}
+    espace = EspacePublie(data, data)
+    espace.basculer([(chemin, json.dumps(fichier, ensure_ascii=False))])
+
+    # La réingestion concurrente : le manifest **publié** porte un autre `source_hash`.
+    manifest_path = data / "manifest.json"
+    publie = json.loads(manifest_path.read_text("utf-8"))
+    reingere = hashlib.sha256(b"source reingeree").hexdigest()
+    publie[DOC_ID]["source_hash"] = reingere
+    espace.basculer([(manifest_path, json.dumps(publie, indent=2, ensure_ascii=False) + "\n")])
+    assert reingere != perime
+
+    code = ed.valider_a_la_main(chemin, corpus_perime, "Lancelot Oudin", DOC_ID,
+                                data_dir=data, sortie=io.StringIO())
+
+    assert code == 5, (
+        "la signature a été publiée sur un corpus périmé : l'opérande du contrôle venait du "
+        "`load_corpus` d'avant le verrou, pas du manifest publié")
+    assert json.loads(chemin.read_text("utf-8"))["validated"] is False

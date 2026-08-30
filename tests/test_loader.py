@@ -1030,3 +1030,119 @@ def test_une_bascule_entre_deux_lectures_ne_mele_jamais_deux_generations(
         f"la passe a mêlé deux générations : {corpus.quarantine}")
     # L'état rendu vient d'**une** génération : celle qui a été pincée à l'entrée de la passe.
     assert corpus.manifest["lux-guide"].document_hash == avant["lux-guide"]["document_hash"]
+
+
+def test_load_corpus_rejoue_quand_la_generation_pincee_est_reconstruite_sous_lui(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 : la détection de péremption vaut pour **tout** lecteur, pas pour le seul `construire_etat`.
+
+    Revue du tour N1–N3, constat 1. Le repère savait dire qu'il était périmé, mais un seul appelant
+    de production le lui demandait : `load_corpus`, le dictionnaire, les deux preuves de gate,
+    `type_clauses._load` et le smoke pinçaient une génération sans jamais voir qu'elle avait été
+    **reconstruite** sous eux. Il faut deux bascules pour cela — la première rend la génération
+    pincée inactive, la seconde la rebâtit —, et le résultat était alors une entrée de la génération
+    pincée confrontée à des octets de la même génération devenue autre : une quarantaine *fausse*,
+    « document_hash différent du manifest », sur deux états dont aucun n'était incohérent.
+
+    Le contrôle vit désormais dans `Lecture.reel` — il ne peut donc plus être oublié par un appelant
+    — et la passe est rejouée sur un repère neuf.
+    """
+    from server.app.corpus import loader as ld
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    document_avant = (data / "lux-guide" / "document.json").read_text("utf-8")
+    manifest_avant = (data / "manifest.json").read_text("utf-8")
+
+    autre = document_avant.replace("Les huit premiers jours", "Les huit premiers jours ")
+    entree = dict(json.loads(manifest_avant)["lux-guide"])
+    entree["document_hash"] = hashlib.sha256(autre.encode("utf-8")).hexdigest()
+    manifest_apres = json.dumps({"lux-guide": entree}, indent=2, ensure_ascii=False) + "\n"
+
+    passes = {"n": 0}
+    vrai_sha = ld._sha256
+
+    def _deux_bascules_a_la_premiere_passe(octets: bytes) -> str:
+        if passes["n"] == 0:
+            passes["n"] = 1
+            # Deux bascules : la seconde **reconstruit** la génération que la passe a pincée.
+            espace.basculer([(data / "manifest.json", manifest_apres),
+                             (data / "lux-guide" / "document.json", autre)])
+            espace.basculer([(data / "manifest.json", manifest_apres),
+                             (data / "lux-guide" / "document.json", autre)])
+        return vrai_sha(octets)
+
+    monkeypatch.setattr(ld, "_sha256", _deux_bascules_a_la_premiere_passe)
+    corpus = load_corpus(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert passes["n"] == 1, "la reconstruction concurrente n'a pas eu lieu"
+    assert corpus.served == ["lux-guide"], (
+        f"la passe a rendu un état mêlé au lieu de se rejouer : {corpus.quarantine}")
+    # Rejouée, la passe rend l'état **publié**, d'une seule génération — celle d'après.
+    assert corpus.manifest["lux-guide"].document_hash == entree["document_hash"]
+
+
+def test_construire_etat_compose_toutes_ses_surfaces_dans_une_seule_generation(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue du tour N1–N3, constat 12 : la **composition** elle-même n'était éprouvée par rien.
+
+    `construire_etat` est l'opération de lecture que l'AC nomme en premier — le démarrage du service
+    — et c'est pour elle que `relire` et `SurfacesLues` existent : un seul repère traverse
+    `load_corpus`, `load_dictionary`, les rapports, les sources et la publication d'évals. Or aucun
+    test n'appelait `construire_etat`, et aucun test d'API ne posait de racine : retirer les
+    `lecture=lecture` de `_lire_les_surfaces` laissait chaque callee re-pincer son propre repère,
+    toute la suite verte, et rendait au démarrage un état dont le corpus vient d'une génération et
+    les rapports d'une autre — le mélange que `/audit` publierait ensuite comme une vérité.
+
+    La sonde bascule le pointeur **pendant** la passe et exige que toutes les surfaces couvertes
+    aient été lues dans la même génération.
+    """
+    from server.app.api import etat as etat_mod
+    from server.app.api.etat import construire_etat
+    from server.app.config import Settings
+    from server.app.corpus import racine as rac
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    # Les surfaces lues **après** le corpus doivent elles aussi être couvertes, sans quoi la sonde
+    # n'observerait que la première moitié de la passe — et ne verrait donc jamais la composition.
+    espace.installer([Path("data") / "dictionary.json",
+                      Path("data") / "evals-latest.json"], migrer=True)
+    espace.basculer([(data / "dictionary.json", json.dumps(
+        {"schema_version": "1", "corpus_source_hashes": {}, "corpus": {}, "intents": {},
+         "candidate_questions": {}, "validated": False, "validated_by": None,
+         "validated_at": None}))])
+    generations: list[str | None] = []
+    vrai_reel = rac.Lecture.reel
+    bascule = {"faite": False}
+
+    def _noter_et_basculer(self: rac.Lecture, cible: Path) -> Path:
+        resolu = vrai_reel(self, cible)
+        if self.generation is not None and self.racine is not None \
+                and self.racine.lien_couvrant(Path(cible)) is not None:
+            generations.append(self.generation)
+        return resolu
+
+    vrai_charger = etat_mod.load_corpus
+
+    def _charger_puis_basculer(*a: Any, **k: Any) -> Any:
+        corpus = vrai_charger(*a, **k)
+        if not bascule["faite"]:
+            bascule["faite"] = True
+            # Une publication concurrente **entre** le corpus et les surfaces suivantes : c'est là
+            # que se joue la composition, et c'est la fenêtre qu'un repère par callee rouvrirait.
+            espace.basculer([(data / "manifest.json",
+                              (data / "manifest.json").read_text("utf-8"))])
+        return corpus
+
+    monkeypatch.setattr(rac.Lecture, "reel", _noter_et_basculer)
+    monkeypatch.setenv("ALLOW_UNGATED", "1")
+    monkeypatch.setattr(etat_mod, "load_corpus", _charger_puis_basculer)
+    etat = construire_etat(Settings(), data_dir=data)
+    monkeypatch.undo()
+
+    assert etat is not None
+    assert bascule["faite"], "la bascule concurrente n'a pas eu lieu pendant la passe"
+    assert len(generations) > 1, "la passe n'a résolu qu'une seule cible couverte"
+    assert set(generations) == {generations[0]}, (
+        f"le démarrage a composé son état à partir de {sorted(set(generations))} : "
+        "corpus, rapports et publication ne viennent pas de la même génération")

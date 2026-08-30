@@ -2367,3 +2367,40 @@ def test_ecrire_rapports_ne_laisse_jamais_le_couple_mele(tmp_path: Path,
     assert json.loads(json_path.read_text(encoding="utf-8"))["cases_hash"] == "d" * 64
     assert md_path.read_text(encoding="utf-8").startswith("# Résultat des questions-témoins")
     assert _temporaires(tmp_path) == []
+
+
+def test_la_decision_de_gate_partage_un_seul_repere_entre_ses_trois_preuves(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue du tour N1–N3, constat 13 : le repère partagé de la décision n'était observé par rien.
+
+    `_main` pince **un** repère et le passe à `construire_contexte`, `preuve_de_structure` et
+    `preuve_darbre` : une décision de gate ne peut plus être composée de trois générations. Mais
+    `lecture` y est un argument optionnel dont le défaut re-pince chacun de son côté ; retirer les
+    trois `lecture=…` laissait tous les tests de gate verts, et sous une publication concurrente le
+    verdict redevenait un mélange — un `structure_prouvee_rate` mesuré contre un `structure.json`
+    que le corpus chargé ne décrit pas.
+
+    La sonde observe l'**opération réelle**, jamais les trois fonctions appelées à la main : elle
+    exige que les trois reçoivent le même objet `Lecture`, et qu'aucune ne retombe sur son défaut.
+    """
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    reperes: dict[str, Any] = {}
+    for nom in ("construire_contexte", "preuve_de_structure", "preuve_darbre"):
+        vrai = getattr(runner, nom)
+
+        def _noter(*a: Any, _nom: str = nom, _vrai: Any = vrai, **k: Any) -> Any:
+            reperes[_nom] = k.get("lecture")
+            return _vrai(*a, **k)
+
+        monkeypatch.setattr(runner, nom, _noter)
+
+    _cli(tmp_path, monkeypatch, ["--gate", DOC, "--profile", "full", "--repeat", "3",
+                                 "--candidate-revision", REVISION])
+
+    assert set(reperes) == {"construire_contexte", "preuve_de_structure", "preuve_darbre"}, (
+        f"l'opération de gate n'a pas appelé les trois preuves : {sorted(reperes)}")
+    manquants = [nom for nom, repere in reperes.items() if repere is None]
+    assert manquants == [], f"ces preuves sont retombées sur leur repère par défaut : {manquants}"
+    assert len({id(repere) for repere in reperes.values()}) == 1, (
+        "les trois preuves de la décision de gate pincent chacune leur génération : le verdict peut "
+        "être composé de trois états")

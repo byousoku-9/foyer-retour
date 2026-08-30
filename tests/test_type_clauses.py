@@ -1378,3 +1378,87 @@ def test_une_disposition_incomplete_refuse_le_typage_avant_toute_soumission(tmp_
     assert batches.created == [], "un lot a été soumis alors que la disposition refusait le typage"
     assert {chemin: chemin.read_bytes() for chemin in avant} == avant
     assert espace.residus() == []
+
+
+# --- Revue du tour N1–N3 : le préflight du typage, et l'opposition de l'entrée publiée ------------
+
+def test_la_cli_de_typage_refuse_un_data_dir_non_installe_avant_toute_soumission(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """N3, constat 9 : le refus du **plus cher** des chemins d'ingestion n'était asserté nulle part.
+
+    `exiger_espace_installe` n'apparaissait dans aucun fichier de tests, et la seule sonde qui passe
+    par `tc.main` pose sa disposition, donc prend le chemin de succès : le préflight y est un
+    no-op. Supprimer le bloc entier, ou le déplacer **après** `run()`, laissait toute la suite verte
+    — et un typage pointé sur un `data-dir` non installé repartait payer des minutes d'appels avant
+    que le chemin d'écriture ne dégrade silencieusement vers le repli rootless.
+
+    Le refus est un code 2, comme tous les refus d'avant appel, et **aucun lot n'est créé**.
+    """
+    doc_dir, _ = write_data(tmp_path)
+    avant = {chemin: chemin.read_bytes()
+             for chemin in (doc_dir / "document.json", doc_dir / "report.json",
+                            doc_dir.parent / "manifest.json")}
+
+    batches = FakeBatches({"contrat:p1:1": "garantie", "contrat:p2:1": "definition"})
+    code = tc.main(["contrat", "--data", str(doc_dir.parent), "--max-cost", "12"],
+                   client=FakeClient(batches), settings=settings(), output=io.StringIO())
+
+    assert code == 2
+    erreur = capsys.readouterr().err
+    assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
+    assert batches.created == [], "un lot a été soumis avant que la disposition ne soit vérifiée"
+    assert {chemin: chemin.read_bytes() for chemin in avant} == avant
+
+
+def test_une_reingestion_publiee_pendant_le_typage_est_un_refus_pas_une_publication(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N3, constat 10 : l'entrée publiée est **opposée** à ce qui a été typé, et rien ne le retenait.
+
+    `source_hash`, `ingest_fingerprint`, `edition` et `document_hash` viennent désormais du manifest
+    relu **sous le verrou**, et non plus de l'`old_entry` lu avant des minutes d'appels de modèle.
+    Aucun test ne faisait diverger le manifest entre `_load` et la transaction : retirer
+    l'opposition et revenir à `old_entry.*` laissait toute la suite verte, tandis qu'en production le
+    typage publiait une entrée décrivant un document qu'une réingestion concurrente avait déjà
+    remplacé — la mise à jour perdue que ce tour ferme.
+
+    La contention est **réelle** : la réingestion est publiée juste après la lecture hors
+    transaction dont le typage tirait ses champs, et avant que la transaction ne s'ouvre — la
+    fenêtre exacte que les minutes d'appels de modèle laissent grande ouverte en production.
+    """
+    doc_dir, _ = write_data(tmp_path)
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data",
+                          cibles=[Path("data/contrat/document.json"),
+                                  Path("data/contrat/report.json"),
+                                  Path("data/contrat/typing.manual.json")])
+    manifest_path = doc_dir.parent / "manifest.json"
+    avant = {chemin: chemin.read_bytes()
+             for chemin in (doc_dir / "document.json", doc_dir / "report.json", manifest_path)}
+
+    # La réingestion concurrente : même document, mais une entrée qui dit un autre arbre.
+    reingere = json.loads(manifest_path.read_text("utf-8"))
+    reingere["contrat"]["ingest_fingerprint"] = "fp-reingere"
+    publie = json.dumps(reingere, indent=2, ensure_ascii=False) + "\n"
+
+    vrai_load = tc._load
+    fait = {"oui": False}
+
+    def _charger_puis_reingerer(*args: Any, **kwargs: Any) -> Any:
+        charge = vrai_load(*args, **kwargs)
+        if not fait["oui"]:
+            fait["oui"] = True
+            # Publié **après** la lecture dont le typage tirait ses champs, et avant sa transaction.
+            espace.basculer([(manifest_path, publie)])
+        return charge
+
+    monkeypatch.setattr(tc, "_load", _charger_puis_reingerer)
+    batches = FakeBatches({"contrat:p1:1": "garantie", "contrat:p2:1": "definition"})
+    with pytest.raises(tc.BatchFailure, match="réingéré pendant le typage"):
+        tc.run(doc_dir, settings=settings(), client=FakeClient(batches), output=io.StringIO())
+    monkeypatch.undo()
+
+    assert fait["oui"], "la réingestion concurrente n'a pas eu lieu"
+    assert doc_dir.joinpath("document.json").read_bytes() == avant[doc_dir / "document.json"]
+    assert doc_dir.joinpath("report.json").read_bytes() == avant[doc_dir / "report.json"]
+    assert manifest_path.read_bytes() == publie.encode("utf-8"), (
+        "le typage a écrasé la réingestion publiée au lieu de refuser")
+    assert espace.residus() == []

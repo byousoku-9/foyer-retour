@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -1182,6 +1183,123 @@ def test_relire_rejoue_la_passe_quand_le_repere_a_ete_perime(tmp_path: Path) -> 
 
     assert rac.relire(espace.data_dir, _passe) == "v3"
     assert passes == ["v1", "v3"], passes
+
+
+def test_le_repere_ne_touche_le_pointeur_quune_fois_quel_que_soit_le_nombre_de_cibles(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1, mesuré sur les **appels système**, pas sur une fonction de commodité.
+
+    Revue du tour N1–N3, constat 2. La sonde voisine compte les appels à `rac.lire_pointeur` ; c'est
+    une preuve trop faible, parce qu'elle ne voit pas les résolutions qui passent **à côté** de cette
+    fonction. Et il y en avait : `couverte` faisait un `os.path.realpath` par cible et par
+    génération, chacun retraversant `courant`, si bien qu'un repère « qui résout `courant` une seule
+    fois » le résolvait une fois **par lecture** — mesuré 4 pour 3 lectures. Une sonde qui ne peut
+    pas échouer pour la raison qu'elle énonce ne prouve rien.
+
+    Ici on compte toute traversée du pointeur, quelle que soit la primitive employée : `os.readlink`,
+    `os.path.realpath` et `os.stat` visant `<espace>/courant`. Le nombre attendu est **1**, celui du
+    pincement, et il ne dépend pas du nombre de cibles lues.
+    """
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md", "b.md", "c.md"),
+                          [("a.md", "un"), ("b.md", "deux"), ("c.md", "trois")])
+    pointeur = str(espace.chemin / "courant")
+    touches: list[str] = []
+
+    def _mouchard(nom: str, vrai: Any) -> Any:
+        def _appel(chemin: Any, *args: Any, **kwargs: Any) -> Any:
+            if str(chemin) == pointeur:
+                touches.append(nom)
+            return vrai(chemin, *args, **kwargs)
+        return _appel
+
+    for module, nom in ((os, "readlink"), (os, "stat"), (os.path, "realpath")):
+        monkeypatch.setattr(module, nom, _mouchard(nom, getattr(module, nom)))
+
+    repere = rac.lecture_de(espace.data_dir)
+    try:
+        assert repere.texte(tmp_path / "a.md") == "un"
+        assert repere.texte(tmp_path / "b.md") == "deux"
+        assert repere.texte(tmp_path / "c.md") == "trois"
+        assert repere.fichier(tmp_path / "a.md")
+    finally:
+        repere.fermer()
+    monkeypatch.undo()
+
+    assert touches == ["readlink"], (
+        f"{len(touches)} traversées de `courant` ({touches}) pour une seule passe : le repère "
+        "doit résoudre le pointeur au pincement et ne plus jamais y toucher")
+
+
+def test_une_cible_couverte_dont_le_lien_est_casse_refuse_au_lieu_de_lire_le_lien_vivant(
+        tmp_path: Path) -> None:
+    """N1 : un lecteur qui ne peut pas conclure **refuse** ; il ne retombe pas sur le chemin brut.
+
+    Revue du tour N1–N3, constat 2, second volet. Quand la résolution d'une cible couverte échouait
+    — lien remplacé par un fichier ordinaire, disposition reposée pendant la passe —, `reel` rendait
+    le **chemin brut**, c'est-à-dire une lecture à travers le lien vivant, hors de la génération
+    pincée : exactement le mélange que le repère existe pour interdire, et en silence. Le slot
+    existe pourtant dans la génération pincée : la racine *connaît* ce chemin, donc son absence de
+    couverture est une disposition cassée, pas un artefact hors bundle.
+    """
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "publie")])
+    repere = rac.lecture_de(espace.data_dir)
+    try:
+        assert repere.texte(tmp_path / "a.md") == "publie"
+        # La disposition est cassée sous le lecteur : le lien devient un fichier ordinaire.
+        (tmp_path / "a.md").unlink()
+        (tmp_path / "a.md").write_text("hors génération", "utf-8")
+        with pytest.raises(rac.LectureHorsGeneration, match="ne passe plus par le pointeur"):
+            repere.texte(tmp_path / "a.md")
+    finally:
+        repere.fermer()
+
+
+def test_un_courant_designant_une_generation_absente_est_illisible_pas_vide(
+        tmp_path: Path) -> None:
+    """Un espace qu'on ne sait pas lire **se dit** — il ne se lit pas comme un espace vide.
+
+    Revue du tour N1–N3, constat 6. Quand `courant` nommait une génération valide dont le répertoire
+    était absent ou illisible, chaque slot était vu absent : `load_corpus`, le smoke et le typage
+    rendaient alors un état **vide sans refuser**. Un corpus vide et un corpus illisible ne sont pas
+    le même fait, et seul le second doit fermer.
+    """
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    generation = espace.generation()
+    shutil.rmtree(espace.chemin / generation)
+
+    with pytest.raises(rac.EspaceIllisible, match="répertoire est absent ou illisible"):
+        rac.lecture_de(espace.data_dir)
+
+
+def test_relire_epuise_ses_essais_et_dit_le_refus(tmp_path: Path) -> None:
+    """N1 : après épuisement des tentatives, le refus est **dit**, jamais un état rendu quand même.
+
+    C'est la contrepartie du rejeu : sous une production qui bascule assez vite pour périmer chaque
+    passe, rendre un état serait affirmer une cohérence qu'aucune génération ne porte. Le message de
+    ce refus n'était exercé par aucune sonde.
+    """
+    from server.app.corpus import racine as rac
+
+    espace = _espace_pose(tmp_path, ("a.md",), [("a.md", "v1")])
+    passes: list[str | None] = []
+
+    def _passe(lecture: rac.Lecture) -> str | None:
+        valeur = lecture.texte(tmp_path / "a.md")
+        passes.append(valeur)
+        # Deux bascules à **chaque** passe : le repère est périmé quoi qu'il arrive.
+        espace.basculer([(tmp_path / "a.md", f"v{len(passes)}a")])
+        espace.basculer([(tmp_path / "a.md", f"v{len(passes)}b")])
+        return valeur
+
+    with pytest.raises(rac.LecturePerimee, match="chacune des 3 tentatives"):
+        rac.relire(espace.data_dir, _passe)
+    assert len(passes) == rac.ESSAIS_DE_LECTURE, passes
 
 
 # --- N2 : la marque du brouillon, dans les deux sens ----------------------------------------------

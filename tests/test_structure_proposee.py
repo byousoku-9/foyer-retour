@@ -1639,3 +1639,91 @@ def test_la_cli_refuse_un_data_dir_non_installe_avant_toute_extraction_et_tout_a
     erreur = capsys.readouterr().err
     assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
     assert not (dossier / "structure.json").exists()
+
+
+# --- Revue du tour N1–N3 : le refus de publication, et la lecture unique de la proposition --------
+
+def _dossier_sous_racine(tmp_path: Path) -> tuple[Path, Any]:
+    """Le même dossier de document, mais **sous une racine posée**, structure comprise."""
+    from server.evals.espace import EspacePublie
+
+    dossier = _dossier(tmp_path)
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([Path("data") / DOC / nom for nom in
+                      ("document.json", "summary.md", "report.json", "structure.json")]
+                     + [Path("data") / "manifest.json"], migrer=True)
+    return dossier, espace
+
+
+def test_une_structure_changee_pendant_la_publication_est_un_check_bloquant_pas_une_trace(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue du tour N1–N3, constats 3 et 11 : un refus voulu, rendu comme tous les autres.
+
+    Le contrôle « l'entrée nommerait une structure que ce document n'applique pas » est né de ce
+    tour, et il était rendu par un `ValueError` nu levé **dans** la fabrique. Or `run()` promet mot
+    pour mot « toute erreur de source devient un check bloquant, jamais une trace Python », et
+    `main()` l'appelle sans `try` : l'opérateur recevait une trace là où tous les refus frères de ce
+    module rendent `[bloquant] …`. Aucune sonde ne l'exerçait dans un sens ni dans l'autre — le
+    supprimer entièrement laissait la suite verte, et l'entrée publiée pouvait de nouveau nommer une
+    empreinte que le document n'applique pas.
+    """
+    from server.ingest.artifacts import LectureDuLot
+
+    dossier, espace = _dossier_sous_racine(tmp_path)
+    proposition = _proposition_du_document(dossier)
+    espace.basculer([(dossier / "structure.json",
+                      json.dumps(proposition.model_dump(), ensure_ascii=False, indent=2) + "\n")])
+
+    vrai_empreinte = LectureDuLot.empreinte
+    change = {"fait": False}
+
+    def _empreinte_qui_a_bouge(self: LectureDuLot, cible: Path) -> str | None:
+        if cible.name == "structure.json" and not change["fait"]:
+            change["fait"] = True  # la structure publiée n'est plus celle qu'on a appliquée
+            return "0" * 64
+        return vrai_empreinte(self, cible)
+
+    monkeypatch.setattr(LectureDuLot, "empreinte", _empreinte_qui_a_bouge)
+    report, entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
+    monkeypatch.undo()
+
+    assert change["fait"], "la structure n'a pas changé pendant la publication"
+    assert [c.name for c in report.blocking] == ["structure_a_change"], (
+        "le refus doit être un check bloquant nommé, jamais une trace Python que `main()` n'attrape pas")
+    assert "relancer l'ingestion" in report.blocking[0].detail
+    assert entry.status == "quarantaine"
+    # Le document n'est pas publié : l'entrée ne peut pas nommer une structure qu'il n'applique pas.
+    assert not (dossier / "document.json").exists()
+
+
+def test_structure_json_nest_lu_quune_seule_fois_par_lingestion(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue du tour N1–N3, constat 7 : les octets **hachés** sont les octets **appliqués**.
+
+    `charger()` puis `structure_hash()` ouvraient deux fois le même chemin. C'est exactement le
+    défaut que N1 ferme côté lecteur — « les octets hachés sont les octets parsés » —, resté ouvert
+    dans un **écrivain** : un remplacement entre les deux lectures faisait nommer au manifest une
+    empreinte que le document publié n'applique pas, et le contrôle de cohérence du loader mettait
+    alors le document en quarantaine pour une contradiction que l'ingestion venait d'écrire.
+    """
+    dossier, espace = _dossier_sous_racine(tmp_path)
+    proposition = _proposition_du_document(dossier)
+    espace.basculer([(dossier / "structure.json",
+                      json.dumps(proposition.model_dump(), ensure_ascii=False, indent=2) + "\n")])
+
+    ouvertures = {"n": 0}
+    vrai_read = Path.read_bytes
+
+    def _compter(chemin: Path) -> bytes:
+        if chemin.name == "structure.json":
+            ouvertures["n"] += 1
+        return vrai_read(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", _compter)
+    report, _entry = p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
+    monkeypatch.undo()
+
+    assert not report.blocking, [c.name for c in report.blocking]
+    assert ouvertures["n"] == 1, (
+        f"{ouvertures['n']} lectures de structure.json pendant l'ingestion : les octets hachés ne "
+        "sont pas, par construction, les octets appliqués")

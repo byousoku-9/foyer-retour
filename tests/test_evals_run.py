@@ -46,7 +46,8 @@ from server.app.domain.verdict import Verdict
 from server.evals import run as runner
 from server.evals.espace import GENERATIONS, REPERTOIRE_ESPACE
 from server.evals.plancher import charger_plancher
-from tests.helpers_espace import poser_espace
+from server.evals.espace import EspacePublie
+from tests.helpers_espace import CIBLES_STANDARD, poser_espace
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -2676,3 +2677,67 @@ def test_le_runner_refuse_un_data_dir_non_installe_avant_toute_mesure(
     assert appels == []
     assert not (tmp_path / "eval-results.json").exists()
     assert not (tmp_path / "eval-results.md").exists()
+
+
+# --- Revue du tour N1–N3 : la couverture du lot de gate, et le repère partagé de la décision ------
+
+def test_une_disposition_sans_le_lien_des_campagnes_refuse_avant_toute_mesure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """Revue du tour N1–N3, constat 5 : `docs/evals/campagnes` est une cible du lot comme les autres.
+
+    Le préflight écartait l'archive de campagne au motif qu'« l'inclure nommément exigerait un
+    horodatage qui n'existe pas encore ». Le motif vaut pour le **fichier**, jamais pour le
+    **répertoire** qui porte la couverture. Une disposition où ce seul lien manque laissait donc la
+    campagne entière être payée avant que la publication ne refuse — précisément le mode de
+    défaillance que N3 ferme pour toutes les autres cibles.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    # Toutes les cibles du lot **sauf** le répertoire d'archives.
+    espace = EspacePublie(tmp_path, data)
+    espace.installer([cible for cible in CIBLES_STANDARD
+                      if cible != Path("docs") / "evals" / "campagnes"], migrer=True)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    appels: list[str] = []
+
+    class PipelineSentinelle:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            appels.append("appel")
+            raise AssertionError("aucune mesure ne doit avoir lieu sous une disposition incomplète")
+
+    _COURANT["guide"] = PipelineSentinelle()
+    _COURANT["sinistre"] = PipelineSentinelle()
+
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+
+    assert code == 2, "un refus d'avant appel est un code 2, comme les autres"
+    assert "espace de publication" in capsys.readouterr().err
+    assert appels == [], "la campagne a été payée avant que la couverture ne soit vérifiée"
+
+
+def test_les_arguments_de_la_ci_passent_le_preflight_de_racine(tmp_path: Path) -> None:
+    """Le refus neuf du runner ne referme pas le chemin que l'Always du contrat protège.
+
+    Revue du tour N1–N3, constat 19. Le préflight de racine s'arme sur **tout** run hors
+    `--dry-run`, gate ou non : il fallait établir qu'un `--profile full` **sans** `--gate`, celui que
+    la CI lance, continue de tourner à l'identique. La CI pose ses liens `.evals/` avant l'étape
+    d'évals (`.github/workflows/ci.yml`), et son lot hors gate est le seul couple
+    `(rapport JSON, table Markdown)` : c'est cette forme-là que la sonde éprouve, sans aucun appel.
+    """
+    from server.ingest.artifacts import exiger_espace_installe
+
+    sorties = tmp_path / ".evals"
+    sorties.mkdir()
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([Path(".evals") / "results.json", Path(".evals") / "results.md"])
+
+    lot = runner.cibles_publiees_du_run(tmp_path / "data", sorties / "results.json",
+                                        sorties / "results.md", gate=False)
+    assert lot == [sorties / "results.json", sorties / "results.md"], (
+        "le lot d'un run sans gate est le seul couple rapport/table")
+    exiger_espace_installe(lot)  # ne lève pas : la disposition de la CI suffit au diagnostic
