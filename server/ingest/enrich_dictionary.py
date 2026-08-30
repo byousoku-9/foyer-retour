@@ -64,11 +64,21 @@ from server.app.domain.dictionary import (
     SCHEMA_VERSION,
     DictionaryFile,
 )
+from server.app.domain import ManifestEntry
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Block, is_citable
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 
-from .artifacts import write_atomic
+from .artifacts import LectureDuLot, exiger_espace_installe, republier
+
+class CorpusDeplace(Exception):
+    """Le corpus a bougé entre la campagne payante et sa publication — rien n'est publié.
+
+    Patch croisé 2/3, `N1-N3-ENRICH-RMW`. Une réingestion publiée pendant les minutes d'appels
+    rendrait le dictionnaire dérivé d'une génération antérieure : le publier serait une composition
+    intergénérationnelle, exactement ce que N1 et B7 interdisent. Le refus est dit, sans mutation.
+    """
+
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
@@ -685,8 +695,46 @@ def _trier(fichier: DictionaryFile) -> DictionaryFile:
     })
 
 
+def _entrees_publiees(lecture: LectureDuLot, manifest_path: Path) -> dict[str, Any]:
+    """Les entrées du manifest **réellement publié**, lues dans la transaction (revue N1–N3, 4)."""
+    octets = lecture.octets(manifest_path)
+    if not octets:
+        return {}
+    try:
+        brut = json.loads(octets.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return brut if isinstance(brut, dict) else {}
+
+
+def _entree_canonique_publiee(lecture: LectureDuLot, manifest_path: Path,
+                               doc_id: str) -> ManifestEntry:
+    """L'entrée complète publiée, ou un refus : absence et invalidité ne valent jamais identité."""
+    octets = lecture.octets(manifest_path)
+    if octets is None:
+        raise CorpusDeplace(
+            f"{doc_id} : manifest supprimé pendant la campagne — rien n'est publié, relancer "
+            "l'enrichissement")
+    try:
+        brut = json.loads(octets.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise CorpusDeplace(
+            f"{doc_id} : manifest illisible pendant la campagne ({type(exc).__name__}) — rien "
+            "n'est publié, relancer l'enrichissement") from exc
+    if not isinstance(brut, dict) or doc_id not in brut:
+        raise CorpusDeplace(
+            f"{doc_id} : entrée absente du manifest publié pendant la campagne — rien n'est "
+            "publié, relancer l'enrichissement")
+    try:
+        return ManifestEntry.model_validate(brut[doc_id])
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise CorpusDeplace(
+            f"{doc_id} : entrée invalide dans le manifest publié pendant la campagne "
+            f"({type(exc).__name__}) — rien n'est publié, relancer l'enrichissement") from exc
+
+
 def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
-                      *, sortie: Any = sys.stdout) -> int:
+                      *, data_dir: Path | None = None, sortie: Any = sys.stdout) -> int:
     """`--valider "Nom"` : trois champs, et **rien d'autre** (AD-5).
 
     C'est la seule chose qui arme le refus « zéro hit », et c'est un acte humain : le run refuse si le
@@ -708,33 +756,77 @@ def valider_a_la_main(chemin: Path, corpus: Corpus, nom: str, doc_id: str,
         print("--valider exige un nom : un dictionnaire « validé par personne » n'arme aucun refus "
               "(AD-5) — rien n'a été écrit", file=sys.stderr)
         return 5
+
+    class Refus(Exception):
+        """Le refus, porté hors de la transaction sans qu'aucune cible ait bougé."""
+
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+
+    signe_publie: DictionaryFile | None = None
+
+    def fabriquer(lecture: LectureDuLot) -> list[tuple[Path, str | None]]:
+        """Lire, contrôler et signer **sous le verrou** (story 4.5, N3).
+
+        `--valider` était un read-modify-write à cheval sur le verrou : la lecture précédait
+        l'écriture atomique, et un enrichissement publié entre les deux était écrasé par une
+        signature portant l'ancien contenu. Les trois gestes vivent maintenant dans la même section
+        critique, et tout refus sort **avant** que la moindre cible ait bougé.
+        """
+        nonlocal signe_publie
+        octets = lecture.octets(chemin)
+        if octets is None:
+            raise Refus(f"{chemin} absent : lancer l'enrichissement avant de valider")
+        try:
+            fichier = DictionaryFile.model_validate_json(octets)
+        except (OSError, ValueError) as exc:
+            raise Refus(f"{chemin} illisible ou non conforme, rien n'a été écrit : "
+                        f"{type(exc).__name__}") from exc
+        # **Les deux opérandes du contrôle viennent du verrou** (revue N1–N3, constat 4). Seul le
+        # dictionnaire était relu ici ; l'autre moitié — les `source_hash` des documents servis —
+        # venait du `load_corpus` fait avant la prise du `flock`. Une réingestion publiée entre les
+        # deux rendait `attendu` périmé, et la signature affirmait « décrit le corpus servi » pour un
+        # corpus qui ne l'était plus. Le manifest publié est donc relu **dans** la transaction, et
+        # c'est lui qui fait foi ; le corpus chargé plus tôt ne sert qu'à choisir le chemin.
+        # Quand aucun manifest n'est publié — un appel direct, un arbre sans manifest —, il n'y a
+        # pas d'état publié dont la lecture pourrait être périmée : le corpus reçu est alors la
+        # seule autorité, et la question ne se pose pas. La dissymétrie est structurelle, jamais un
+        # paramètre.
+        publie = _entrees_publiees(lecture, (data_dir or chemin.parent) / "manifest.json")
+        if publie:
+            servis = {cle: entree for cle, entree in publie.items()
+                      if isinstance(entree, dict) and entree.get("status") == "servi"}
+            attendu = {declare: servis[declare].get("source_hash") for declare in servis
+                       if declare in fichier.corpus_source_hashes}
+        else:
+            attendu = {declare: corpus.manifest[declare].source_hash for declare in corpus.served
+                       if declare in fichier.corpus_source_hashes}
+        # `doc_id` — le document que le pipeline appliquera — doit être **nommé** (revue Codex 2.1,
+        # B3) : sans cette ligne, signer un dictionnaire ne décrivant que le contrat AXA sortait en
+        # code 0 avec « le refus « zéro hit » est armé », alors que le serveur le refuse.
+        if doc_id not in fichier.corpus_source_hashes or attendu != fichier.corpus_source_hashes:
+            raise Refus(f"{chemin} ne décrit pas le corpus servi pour {doc_id!r} "
+                        f"({sorted(fichier.corpus_source_hashes)}) : rien n'a été écrit — relancer "
+                        "l'enrichissement avant de valider")
+        try:
+            signe = DictionaryFile.model_validate(fichier.model_dump() | {
+                "validated": True, "validated_by": nom.strip(),
+                "validated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")})
+        except ValueError as exc:
+            raise Refus("la signature ne produirait pas un dictionnaire conforme, rien n'a été "
+                        f"écrit : {type(exc).__name__}") from exc
+        signe_publie = signe
+        return [(chemin, _serialiser(signe))]
+
     try:
-        fichier = DictionaryFile.model_validate_json(chemin.read_bytes())
-    except (OSError, ValueError) as exc:
-        print(f"{chemin} illisible ou non conforme, rien n'a été écrit : {type(exc).__name__}",
-              file=sys.stderr)
+        republier([chemin], fabriquer)
+    except Refus as exc:
+        print(str(exc), file=sys.stderr)
         return 5
-    attendu = {declare: corpus.manifest[declare].source_hash for declare in corpus.served
-               if declare in fichier.corpus_source_hashes}
-    # `doc_id` — le document que le pipeline appliquera — doit être **nommé** (revue Codex 2.1, B3) :
-    # sans cette ligne, signer un dictionnaire ne décrivant que le contrat AXA sortait en code 0 avec
-    # « le refus « zéro hit » est armé », alors que le serveur, lui, le refuse (`corpus_ok`).
-    if doc_id not in fichier.corpus_source_hashes or attendu != fichier.corpus_source_hashes:
-        print(f"{chemin} ne décrit pas le corpus servi pour {doc_id!r} "
-              f"({sorted(fichier.corpus_source_hashes)}) : rien n'a été écrit — relancer "
-              "l'enrichissement avant de valider", file=sys.stderr)
-        return 5
-    try:
-        signe = DictionaryFile.model_validate(fichier.model_dump() | {
-            "validated": True, "validated_by": nom.strip(),
-            "validated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")})
-    except ValueError as exc:
-        print(f"la signature ne produirait pas un dictionnaire conforme, rien n'a été écrit : "
-              f"{type(exc).__name__}", file=sys.stderr)
-        return 5
-    write_atomic(chemin, _serialiser(signe))
-    print(f"{chemin} : validated=true par {signe.validated_by} le {signe.validated_at} — le refus "
-          "« zéro hit » d'AD-5 est armé", file=sortie)
+    if signe_publie is None:  # pragma: no cover — `assert` disparaîtrait sous `python -O`
+        raise RuntimeError("la signature n'a pas été produite : rien n'a été publié")
+    print(f"{chemin} : validated=true par {signe_publie.validated_by} le "
+          f"{signe_publie.validated_at} — le refus « zéro hit » d'AD-5 est armé", file=sortie)
     return 0
 
 
@@ -781,18 +873,43 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
               f"{doc_id!r}", file=sys.stderr)
         return 2
     data_dir = Path(args.data)
+    # **Le préflight précède la lecture, pas seulement l'écriture** (patch croisé 1/3,
+    # `N3-LECTURE-ROOTLESS`). Le refus de racine tombait après `load_corpus` : une disposition custom
+    # absente était donc déjà **lue rootless** — manifest, documents, sommaires, overlays — avant
+    # d'être refusée. Un reader de production hors racine transactionnelle est exactement ce que N3
+    # interdit, et le refus « avant tout travail » commence par la lecture. Le manifest suffit à
+    # trancher : il est la première cible couverte que toute opération sur ce `data-dir` touche.
+    try:
+        exiger_espace_installe([data_dir / "manifest.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus, rien n'a été lu ni écrit : {exc}", file=sys.stderr)
+        return 2
     corpus = load_corpus(data_dir, allow_ungated=True,
                          perimetre_max_chars=settings.perimetre_max_chars)
     if doc_id not in corpus.documents:
         raison = corpus.quarantine.get(doc_id, "absent du manifest")
         print(f"document {doc_id!r} non servi ({raison}) : rien n'a été écrit", file=sys.stderr)
         return 2
+    # Identité canonique **avant** la campagne : ce sont ces octets logiques qui ont produit les
+    # requêtes, et toute différence au moment du commit (pas seulement `source_hash`) refuse.
+    entree_campagne = corpus.manifest[doc_id]
+    source_hash_campagne = entree_campagne.source_hash
     chemin = (data_dir / DICTIONARY_FILE
               if corpus.documents[doc_id].kind == "guide"
               else data_dir / doc_id / DICTIONARY_FILE)
+    # **Un entrypoint de production exige une racine installée** (story 4.5, N3), et le dit avant
+    # tout appel payant comme avant toute signature. Le lot n'a qu'une cible — le cas où le refus
+    # « lot mixte » était structurellement inatteignable, et où une cible couverte dont le lien
+    # aurait été cassé était réécrite en fichier ordinaire, silencieusement.
+    try:
+        exiger_espace_installe([chemin])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus, rien n'a été écrit : {exc}", file=sys.stderr)
+        return 2
 
     if args.valider is not None:
-        return valider_a_la_main(chemin, corpus, args.valider.strip(), doc_id, sortie=sortie)
+        return valider_a_la_main(chemin, corpus, args.valider.strip(), doc_id,
+                                 data_dir=data_dir, sortie=sortie)
 
     reqs = requetes(corpus, doc_id, settings, limit=args.limit)
     plafond = settings.dictionary_max_cost_eur if args.max_cost is None else args.max_cost
@@ -873,14 +990,44 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     # construction. Vide, le fichier est inerte : `_corpus_ok` le refuse déjà (« ne dit pas quel
     # corpus il décrit »), donc ni variantes ni court-circuit, et `--valider` sort en 5.
     partiel = args.limit is not None
-    fichier = _trier(DictionaryFile(
-        schema_version=SCHEMA_VERSION,
-        corpus_source_hashes={} if partiel else {doc_id: corpus.manifest[doc_id].source_hash},
-        corpus=termes, intents=intents, candidate_questions=questions,
-        # **Jamais** `validated: true` ici, sous aucune forme : AD-5 réserve la signature à un
-        # humain, et c'est elle — et elle seule — qui arme le refus « zéro hit ».
-        validated=False, validated_by=None, validated_at=None))
-    write_atomic(chemin, _serialiser(fichier))
+    def _publier(lecture: LectureDuLot) -> list[tuple[Path, str | None]]:
+        """Relit le manifest **sous le verrou** et refuse si le corpus a bougé pendant la campagne.
+
+        Patch croisé 2/3, `N1-N3-ENRICH-RMW`. Cette branche — la plus longue en durée d'appels
+        payants du module — composait `corpus_source_hashes` depuis le `load_corpus` fait **avant**
+        la campagne, puis publiait par `write_atomic` : trois gestes à cheval sur le verrou. Une
+        réingestion publiée pendant les appels faisait donc publier, dans la génération courante, un
+        dictionnaire dérivé de l'ancienne et portant son ancien `source_hash`. L'alerte aval
+        `dictionnaire_corpus_perime` ne remplace ni le refus ni la transaction.
+
+        C'est le patron que `--valider` et le typage tiennent déjà : lire, opposer, publier — dans
+        la même section critique. Une divergence est un refus **sans mutation**, jamais une
+        publication intergénérationnelle.
+        """
+        entree_publiee = _entree_canonique_publiee(
+            lecture, data_dir / "manifest.json", doc_id)
+        if entree_publiee != entree_campagne:
+            raise CorpusDeplace(
+                f"{doc_id} a été réingéré pendant la campagne ou a changé d'identité canonique "
+                "(source, document, ingestion, édition, statut, overlay, structure ou gate) : "
+                "rien n'est publié, relancer l'enrichissement")
+        fichier = _trier(DictionaryFile(
+            schema_version=SCHEMA_VERSION,
+            corpus_source_hashes={} if partiel else {doc_id: source_hash_campagne},
+            corpus=termes, intents=intents, candidate_questions=questions,
+            # **Jamais** `validated: true` ici, sous aucune forme : AD-5 réserve la signature à un
+            # humain, et c'est elle — et elle seule — qui arme le refus « zéro hit ».
+            validated=False, validated_by=None, validated_at=None))
+        rendu.append(fichier)
+        return [(chemin, _serialiser(fichier))]
+
+    rendu: list[DictionaryFile] = []
+    try:
+        republier([chemin], _publier)
+    except CorpusDeplace as exc:
+        print(str(exc), file=sys.stderr)
+        return 5
+    fichier = rendu[-1]
 
     variantes = sum(len(v) for v in fichier.corpus.values())
     print(f"{chemin} écrit : {len(fichier.corpus)} canonique(s), {variantes} variante(s), "

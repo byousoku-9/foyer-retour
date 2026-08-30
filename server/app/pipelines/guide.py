@@ -296,6 +296,29 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             # guide quelle que soit la liste de ses catégories.
             if (parsed.intent == "hors_perimetre"
                     and PERIMETRE_TRONQUE in corpus.alerts.get(doc_id, [])):
+                if step_comprendre.clarification_neutralisee is not None:
+                    # Revue croisée 4.5, B1 : le périmètre tronqué retire l'autorité du classement
+                    # `hors_perimetre`, pas l'irrésolution que le même appel a explicitement rendue.
+                    # La question brute n'est donc jamais promue en entrée de recherche.
+                    if parsed.lang_fallback:
+                        # Même fait que sur la sortie `ClarificationRequise` ordinaire : la
+                        # clarification privée a été écrite avant le repli vers le français. La
+                        # servir exige donc de publier que sa langue n'est pas affirmable.
+                        step_comprendre.checks.append(CheckResult(
+                            name="clarification_langue_non_affirmee", ok=False,
+                            detail="la langue détectée n'est pas servie : la question de "
+                                   "clarification reste posée dans la langue de la question, la "
+                                   "réponse est en français"))
+                    step_comprendre.checks.append(CheckResult(
+                        name="clarification_retablie_perimetre_tronque", ok=False,
+                        detail=f"le périmètre annoncé au modèle est tronqué ({PERIMETRE_TRONQUE}) : "
+                               "l'intention refusée ne peut pas neutraliser la clarification, qui "
+                               "est servie sans retrieval"))
+                    return refuser(
+                        "clarification_requise", None, language=parsed.language,
+                        lang_fallback=parsed.lang_fallback,
+                        clarification=step_comprendre.clarification_neutralisee,
+                    )
                 hors_perimetre_desarme = True
                 step_comprendre.checks.append(CheckResult(
                     name="hors_perimetre_desarme", ok=False,
@@ -303,8 +326,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                            "le refus « hors périmètre » ne peut pas se fonder sur une liste "
                            "incomplète — la question poursuit vers retrouver"))
             else:
-                step_comprendre.checks.append(
-                    _intention_expliquee(parsed.intent, parsed.question_resolue, dictionnaire))
+                # Une normalisation contradictoire n'a produit aucune `question_resolue` autonome :
+                # ne pas prétendre compter ses déclencheurs sur la question brute. Le check dédié de
+                # *comprendre* porte déjà le fait, sans publier le texte modèle.
+                if step_comprendre.clarification_neutralisee is None:
+                    step_comprendre.checks.append(
+                        _intention_expliquee(parsed.intent, parsed.question_resolue, dictionnaire))
                 return refuser("hors_perimetre", None, language=parsed.language,
                                lang_fallback=parsed.lang_fallback)
 
@@ -438,10 +465,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
-        rediger_max_tokens = (settings.outils_rediger_max_tokens if variant == "outils" else None)
         draft, step_rediger = await rediger(parsed, retrieval, historique, client=client, budget=budget,
-                                            index=index, doc_id=doc_id, settings=settings,
-                                            max_tokens=rediger_max_tokens)
+                                            index=index, doc_id=doc_id, settings=settings)
         steps.append(step_rediger)
 
         # --- vérifier -------------------------------------------------------
@@ -474,8 +499,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
                 draft_2, step_rediger_2 = await rediger(parsed, retrieval, historique, client=client, budget=budget,
                                                         index=index, doc_id=doc_id, settings=settings,
-                                                        motif=verification.motif,
-                                                        max_tokens=rediger_max_tokens)
+                                                        motif=verification.motif)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
                 relances += 1

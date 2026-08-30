@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +65,23 @@ LISTE_MAX_ITEMS = 32
 # l'emploie, afin que les consommateurs n'aient pas à introspecter ``Settings.model_fields`` à
 # l'import (une couture fragile aux changements de Pydantic).
 RAISON_PUBLIABLE_MAX_DEFAULT = 500
+# Story 4.5 (FR41) — **l'unique autorité** du nom de l'artefact machine des résultats d'évals.
+#
+# L'écrivain vit dans `server/evals/publication.py`, le lecteur dans `server/app/api/etat.py`, et la
+# table des couches interdit à `api` d'importer `evals` : sans un nom partagé, les deux auraient eu
+# leur propre littéral, et un caractère de différence aurait fait rendre `publie: false` à la route
+# pour toujours — un défaut muet, exactement ce qu'AD-16 interdit. `config` est la seule couche que
+# les deux peuvent lire.
+EVALS_PUBLICATION_FILE = "evals-latest.json"
+# Longueur de la forme **publiée** d'une révision (AD-11 : « `version: sha7` »). C'est une projection
+# d'affichage, jamais une valeur de comparaison : le gate se compare sur la révision complète.
+SHA_COURT = 7
+_HEX = frozenset("0123456789abcdef")
+
+
+def _est_revision_complete(valeur: str) -> bool:
+    """40 hexadécimaux — la seule forme qui identifie un commit sans ambiguïté."""
+    return len(valeur) == 40 and all(c in _HEX for c in valeur.lower())
 
 
 class Settings(BaseSettings):
@@ -86,14 +103,35 @@ class Settings(BaseSettings):
     ungated_demande_en_prod: bool = False
     anthropic_api_key: str = ""
     usd_eur: float = Field(0.92, gt=0)
-    # AD-11 : `GET /api/v1/sante` publie `version: sha7`. En production, il vient de la
-    # **configuration du service** Cloud Run — `deploy.yml` pose `GIT_SHA=<sha7>`, ce que
-    # `gcloud run deploy --source` sait faire alors qu'il n'accepte aucun `--build-arg` —, et cette
-    # variable recouvre le `ENV GIT_SHA` que le `Dockerfile` laisse à `dev`. Hors conteneur, `dev`.
-    # C'est cette valeur que le smoke de déploiement compare au SHA du commit qui l'a déclenché : sans
-    # elle, il mesurerait une révision qu'il n'a pas construite. Ce n'est pas un seuil numérique : il
-    # n'entre pas dans `thresholds()`.
+    # **La révision produit qui tourne, en entier.** En production elle vient de la configuration
+    # du service Cloud Run — `deploy.yml` pose `GIT_SHA=<sha40>`, ce que `gcloud run deploy --source`
+    # sait faire alors qu'il n'accepte aucun `--build-arg` —, et cette variable recouvre le
+    # `ENV GIT_SHA` que le `Dockerfile` laisse à `dev`. Hors conteneur, `dev`.
+    #
+    # **Pourquoi la révision complète, et non le `sha7` d'avant** (story 4.5, revue B2) : un gate
+    # `full` porte 40 hexadécimaux et affirme avoir mesuré *ce* commit. Comparé à un `sha7`, le
+    # contrôle ne discriminait plus que 16⁷ classes — un gate d'un **autre** commit partageant les
+    # sept premiers caractères était servi sans alerte, et les deux moitiés du même invariant
+    # n'avaient pas la même exigence (`plancher.py` exige 40 hex exacts côté preuve). La cause
+    # n'était pas la comparaison, c'était l'ambiguïté de ce que le service sait de lui-même : c'est
+    # donc elle qu'on lève.
+    #
+    # AD-11 continue de promettre `GET /api/v1/sante` → `version: sha7` : la valeur **publiée** est
+    # une projection courte de celle-ci (`version_publiee`), pas une seconde source de vérité. Le
+    # smoke de déploiement compare cette projection au sha7 du commit qui l'a déclenchée.
+    #
+    # Ce n'est pas un seuil numérique : il n'entre pas dans `thresholds()`.
     git_sha: str = "dev"
+
+    @property
+    def version_publiee(self) -> str:
+        """La forme **courte** publiée par `/api/v1/sante` — AD-11, `scripts/smoke.py`, README.
+
+        Une seule source de vérité (`git_sha`, complète), une projection pour l'affichage. L'inverse
+        — publier la valeur brute et tronquer ailleurs — laisserait deux endroits décider de ce
+        qu'est « la version », et c'est exactement la divergence que la revue B2 a trouvée.
+        """
+        return self.git_sha[:SHA_COURT] if _est_revision_complete(self.git_sha) else self.git_sha
 
     # Temps (AD-1, AD-9)
     deadline_s: float = Field(55.0, gt=0)
@@ -277,8 +315,10 @@ class Settings(BaseSettings):
     # aux JSON / identifiants de 30 blocs ; le nombre de blocs ne sert plus de point d'équilibre.
     retrieval_max_tokens: int = Field(3500, ge=1)
 
-    # Coût (AD-9, AD-10)
-    max_cost_eur_per_request: float = Field(0.10, ge=0)
+    # Coût (AD-9, AD-10). Le chemin sinistre `outils` engage 0,0149 € avant une rédaction dont le
+    # majorant froid mesuré est 0,0945 €, soit 0,1094 € au total. 0,12 € conserve 0,0106 € de marge
+    # (≈ 9,7 %) sans modifier les bornes d'appels, de tours, de deadline, de run ou de campagne.
+    max_cost_eur_per_request: float = Field(0.12, ge=0)
     cost_alert_eur: float = Field(0.05, ge=0)
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
@@ -291,6 +331,35 @@ class Settings(BaseSettings):
     # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
     # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
     evals_max_cost_eur: float = Field(1.0, ge=0)
+    # Story 4.5 (FR41) — **où vit l'artefact machine des résultats publiés**, relativement à `data/`.
+    #
+    # Le **nom** est l'unique autorité partagée par l'écrivain (`server/evals/publication.py`) et le
+    # lecteur (`server/app/api/etat.py`) : il vit dans `EVALS_PUBLICATION_FILE`, ci-dessus, et les
+    # deux le lisent. Deux constantes séparées auraient pu diverger d'un caractère, et la route
+    # aurait rendu `publie: false` pour toujours sans que rien ne le dise.
+    #
+    # Le motif est strict — `[A-Za-z0-9._-]+` — et interdit donc tout séparateur de chemin. Sans
+    # lui, `EVALS_PUBLICATION_FILE=../../etc/passwd` ou `sous/dossier.json` faisait lire (et écrire)
+    # hors de `data/` : un réglage d'environnement ne doit pas pouvoir choisir un chemin.
+    #
+    # Il est dans `data/` et non dans `docs/` pour une raison mécanique : `Dockerfile` copie
+    # `server data web tools` et **pas** `docs/`. Un `docs/evals/latest.json` serait absent de
+    # l'image, et `GET /api/v1/evals/latest` rendrait `publie: false` en production — exactement là
+    # où FR41 demande qu'il publie. `data/dictionary.json` est le précédent d'un artefact `data/` qui
+    # n'appartient à aucun document. Le rendu **lisible** (`docs/evals/latest.md`) reste dérivé du
+    # même objet, pour qui lit le dépôt plutôt que le service.
+    #
+    # C'est un nom de fichier, pas un seuil : il n'entre pas dans `thresholds()`.
+    evals_publication_file: str = Field(EVALS_PUBLICATION_FILE, min_length=1,
+                                        pattern=r"^[A-Za-z0-9._-]+$")
+
+    @field_validator("evals_publication_file")
+    @classmethod
+    def _nom_de_fichier_seul(cls, valeur: str) -> str:
+        """`.` et `..` passent le motif mais ne nomment aucun fichier : ils désignent un dossier."""
+        if valeur in (".", ".."):
+            raise ValueError("evals_publication_file doit nommer un fichier, pas un répertoire")
+        return valeur
     # Story 4.2b corrective — plafond **agrégé persistant** de story/campagne : 1,00 € par défaut,
     # surchargé par `LIVE_BUDGET_EUR`. `--max-cost` reste une borne locale distincte par run.
     # L'orchestrateur fournit `LIVE_CAMPAIGN_ID`; le ledger inter-processus conserve le coût réel
@@ -305,14 +374,9 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = Field(4096, ge=1)
     llm_retry_margin_s: float = Field(5.0, ge=0)
     # Étapes (story 1.4, NFR4) : sortie maximale par étape — le majorant `estimate_cost` compte la sortie
-    # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,10 €).
+    # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,12 €).
     comprendre_max_tokens: int = Field(1024, ge=1)
     rediger_max_tokens: int = Field(2048, ge=1)
-    # Story 2.6, mesure froide : après deux tours Haiku à 0,0143 €, le majorant de *rédiger* à
-    # 2 048 tokens portait le total à 0,1018 € et interdisait l'appel avant fournisseur. 1 792 garde
-    # le même modèle, prompt et schéma sous le plafond de 0,10 €. Cette borne ne s'applique qu'au
-    # guide `variant="outils"` ; le guide déterministe et le sinistre conservent 2 048.
-    outils_rediger_max_tokens: int = Field(1792, ge=1)
     # Bornes comportementales annoncées aux prompts des étapes (story 1.4, revue Codex 1.4 I1) : la
     # convention Seuils du spine interdit toute valeur numérique en dur dans une étape — un prompt en
     # est une. `quote_min_chars` est le seuil que *vérifier* appliquera (AD-3) : le prompt le rend
@@ -655,7 +719,6 @@ class Settings(BaseSettings):
         for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
                             ("retrouver_outils_max_tokens", self.retrouver_outils_max_tokens),
                             ("rediger_max_tokens", self.rediger_max_tokens),
-                            ("outils_rediger_max_tokens", self.outils_rediger_max_tokens),
                             ("verifier_max_tokens", self.verifier_max_tokens),
                             ("verifier_sinistre_max_tokens", self.verifier_sinistre_max_tokens)):
             # Le plafond par étape ne peut pas dépasser le plafond de sortie du client : il part tel
@@ -692,6 +755,26 @@ class Settings(BaseSettings):
     def retrieval_mechanisms(self) -> tuple[str, ...]:
         """Ordre effectif des mécanismes, distinct de tout classement interne des hits."""
         return tuple(part.strip() for part in self.retrieval_mechanism_order.split(","))
+
+    @property
+    def deroger_au_gate(self) -> bool:
+        """La disjonction d'AD-7, **ses trois termes** (dette D1, refermée par la story 4.5).
+
+        AD-7 écrit la règle de service ainsi : « servi ssi aucun bloquant statique **et**
+        (`gate.evals_ok` **ou** `ENV=dev` **ou** `ALLOW_UNGATED`) ». Le code n'en honorait que
+        deux : `config.py` absorbait `ENV=dev` **dans** `ALLOW_UNGATED` (la dérogation ne valait
+        `True` que lorsque la variable était absente), si bien que poser explicitement
+        `ALLOW_UNGATED=false` en dev mettait en quarantaine un document sans gate — alors que le
+        deuxième terme de la disjonction, `ENV=dev`, le sert. Un opérateur qui écrivait « non » à
+        une dérogation en obtenait une **autre** règle que celle de l'AD.
+
+        Les deux faits restent donc distincts, et c'est ce qui les rend lisibles : `allow_ungated`
+        dit ce que l'opérateur a demandé (et vaut `False` de force en `prod`), cette propriété dit
+        ce que la règle décide. La fermeture en production est intacte : `allow_ungated` y est
+        forcé à `False` et `env` n'y vaut pas `dev`, donc la disjonction est fausse par ses trois
+        termes à la fois.
+        """
+        return bool(self.allow_ungated) or self.env == "dev"
 
     def thresholds(self) -> dict[str, float | int]:
         """Seuils actifs, tels qu'exposés dans `Trace.thresholds`."""
@@ -736,7 +819,6 @@ class Settings(BaseSettings):
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,
             "rediger_max_tokens": self.rediger_max_tokens,
-            "outils_rediger_max_tokens": self.outils_rediger_max_tokens,
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
             "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,

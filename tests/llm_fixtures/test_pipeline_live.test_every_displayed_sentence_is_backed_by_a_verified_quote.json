@@ -71,7 +71,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeTkiHLf8w41zv2TW35HS",
+      "id": "msg_011CeZWhQQBdntgCg8yRC4U4",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -88,6 +88,37 @@
         "inference_geo": "not_available",
         "input_tokens": 86,
         "output_tokens": 133,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-haiku-4-5-20251001:927b01beffa4e900": {
+    "request": "claude-haiku-4-5-20251001:927b01beffa4e900",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": false, \"raison\": \"non_soutenue\"}, {\"claim_id\": \"c3\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c4\", \"pertinente\": true, \"raison\": null}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\", \"c3\"]}, {\"facette\": 1, \"claim_ids\": [\"c4\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": false}, {\"segment\": 3, \"soutenu\": true}, {\"segment\": 4, \"soutenu\": false}, {\"segment\": 5, \"soutenu\": true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWiHjNRnVg664EnX2nr",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 4439,
+        "output_tokens": 230,
         "service_tier": "standard"
       }
     }
@@ -212,6 +243,40 @@
         "inference_geo": "not_available",
         "input_tokens": 4240,
         "output_tokens": 204,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:2becc401f759a37b": {
+    "request": "claude-sonnet-5:2becc401f759a37b",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire doit être engagée en priorité, avant même la recherche de logement, car les places dans les sections les plus demandées peuvent se remplir jusqu'à un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent au Luxembourg : l'école publique multilingue, les écoles européennes et internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant le départ, il faut anticiper les démarches administratives et les documents à récupérer auprès de l'école d'origine.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, sur la seule base de la résidence de l'enfant au Luxembourg.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré selon l'âge, avec une allocation de rentrée scolaire versée automatiquement en août.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les documents fournis ne précisent pas les modalités exactes d'inscription commune par commune ni les frais spécifiques de chaque établissement privé ou école européenne.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription à l'école se prépare avant même le logement, les sections recherchées se remplissant parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c2\",\"text\":\"Il existe trois voies de scolarisation : école publique, écoles européennes/internationales, et établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen.\"},{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"Avant de partir, il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, avec un montant de base de 315,04 euros par mois et par enfant, majoré selon l'âge, et une allocation de rentrée automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWhWV3kG4KpYNwGNkoM",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2787,
+        "output_tokens": 1172,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }

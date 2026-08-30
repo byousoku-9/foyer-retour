@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from server.app.corpus.racine import REPERTOIRE_ESPACE
+
 from server.app.config import Settings
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
@@ -84,7 +86,25 @@ def _ecrire_data(tmp_path: Path, *, deux_categories: bool = False, kind: str = "
         document_hash=hashlib.sha256(texte.encode("utf-8")).hexdigest(), edition="git:test")
     (tmp_path / "manifest.json").write_text(
         json.dumps({DOC_ID: entree.model_dump()}, indent=2, ensure_ascii=False), "utf-8")
+    _poser_la_disposition(tmp_path)
     return tmp_path
+
+
+def _poser_la_disposition(data: Path) -> None:
+    """La disposition du `data-dir` d'un test, posée comme un opérateur la pose (story 4.5, N3).
+
+    `enrich_dictionary.main` est un entrypoint de production — enrichissement **et** `--valider` :
+    il exige une racine **installée** et refuse avant tout appel payant comme avant toute signature
+    sinon. Son lot n'a qu'une cible, et c'est précisément le cas où le refus « lot mixte » était
+    structurellement inatteignable.
+    """
+    from server.app.corpus.racine import ARTEFACTS_DOCUMENT, SOURCES_DOCUMENT, SURFACES_DATA
+    from server.evals.espace import EspacePublie
+
+    EspacePublie(data.parent, data).installer(
+        [*(data / nom for nom in SURFACES_DATA),
+         *(data / DOC_ID / nom for nom in (*ARTEFACTS_DOCUMENT, *SOURCES_DOCUMENT))],
+        migrer=True)
 
 
 def _source_hash(data: Path) -> str:
@@ -278,7 +298,12 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     racine = data / "dictionary.json"
     racine.write_bytes(b'{"marqueur":"dictionnaire global intact"}\n')
     avant = racine.read_bytes()
-    fichiers_avant = {p.relative_to(data): p.read_bytes() for p in data.rglob("*") if p.is_file()}
+    # `.publie/` est le **bundle** de la racine, pas une surface : ses deux générations alternent à
+    # chaque publication, et une bascule saine y réécrit la génération inactive. Ce que cette sonde
+    # compare est ce qu'un lecteur voit — les cibles, atteintes par leurs liens —, et **aucune**
+    # d'elles n'est retirée de la comparaison (story 4.5, disposition de la racine).
+    fichiers_avant = {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
+                      if p.is_file() and REPERTOIRE_ESPACE not in p.parts}
     block_id = f"{DOC_ID}:farrivee:1"
     batches = FauxBatches({ed.custom_id(block_id): _sortie_categorie(
                                 termes=[{"fiche_id": block_id,
@@ -293,7 +318,7 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     assert code == 0 and cible.is_file()
     assert racine.read_bytes() == avant
     assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
-            if p.is_file() and p != cible} == fichiers_avant
+            if p.is_file() and p != cible and REPERTOIRE_ESPACE not in p.parts} == fichiers_avant
     produit = DictionaryFile.model_validate_json(cible.read_bytes())
     assert produit.corpus_source_hashes == {DOC_ID: _source_hash(data)}
     assert produit.validated is False
@@ -304,7 +329,7 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
     assert code == 0 and valide.validated is True and valide.validated_by == "Lancelot Oudin"
     assert racine.read_bytes() == avant
     assert {p.relative_to(data): p.read_bytes() for p in data.rglob("*")
-            if p.is_file() and p != cible} == fichiers_avant
+            if p.is_file() and p != cible and REPERTOIRE_ESPACE not in p.parts} == fichiers_avant
 
 
 def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
@@ -1025,3 +1050,306 @@ def test_un_intent_inconnu_est_compte_comme_un_ecart(tmp_path: Path) -> None:
     code, texte, _ = _lancer(tmp_path, {ed.custom_id(CAT): _sortie_categorie(),
                                         "intents": SORTIE_INTENTS})
     assert code == 0 and "intent_inconnu=1" in texte
+
+
+# --- N3 : l'entrypoint de production refuse avant tout appel payant et avant toute signature ------
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_tout_appel(
+        tmp_path: Path, capsys: Any) -> None:
+    """N3 : lot d'une seule cible — le cas où le refus « lot mixte » était inatteignable.
+
+    `enrich_dictionary` est le **cinquième** écrivain d'une cible couverte, et ses deux modes
+    (enrichissement et `--valider`) atteignaient le repli rootless sans un mot. Ici la disposition
+    est retirée après coup : la CLI refuse avant toute soumission comme avant toute signature.
+    """
+    import shutil as _shutil
+
+    data = _ecrire_data(tmp_path)
+    # La disposition est **retirée** : chaque lien redevient le fichier ordinaire qu'il désignait,
+    # et l'espace disparaît. C'est exactement l'état d'un `data-dir` custom jamais installé.
+    liens = [c for c in sorted(data.rglob("*"))
+             if c.is_symlink() and REPERTOIRE_ESPACE not in c.parts]
+    contenus = {c: (c.read_bytes() if c.is_file() else None) for c in liens}
+    for chemin, octets in contenus.items():
+        chemin.unlink()
+        if octets is not None:
+            chemin.write_bytes(octets)
+    _shutil.rmtree(data / REPERTOIRE_ESPACE)
+
+    code = ed.main(["--data", str(data)], client=None, settings=_settings(),
+                   sortie=io.StringIO())
+    assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
+
+    code = ed.main(["--data", str(data), "--valider", "Lancelot Oudin"], client=None,
+                   settings=_settings(), sortie=io.StringIO())
+    assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
+
+
+
+def test_valider_oppose_le_manifest_publie_et_non_le_corpus_charge_avant_le_verrou(
+        tmp_path: Path) -> None:
+    """Revue du tour N1–N3, constat 4 : les **deux** opérandes du contrôle viennent du verrou.
+
+    `--valider` relisait bien le dictionnaire sous la transaction, mais l'autre moitié du contrôle —
+    les `source_hash` des documents servis — venait du `load_corpus` fait **avant** la prise du
+    `flock`. Une réingestion publiée entre ce chargement et le verrou rendait `attendu` périmé, et la
+    signature était publiée en affirmant « décrit le corpus servi » pour un corpus qui ne l'était
+    plus : un read-modify-write à cheval sur le verrou, exactement ce que N3 ferme et ce que
+    `protocole.md` annonçait déjà comme fermé.
+
+    La sonde donne au chemin un corpus **périmé** — celui d'avant la réingestion — et publie l'état
+    d'après sous la racine. La signature doit décrire ce qui est **publié**, jamais ce que l'appelant
+    avait chargé avant de prendre le verrou.
+    """
+    import hashlib
+
+    from server.app.corpus.loader import load_corpus
+    from server.evals.espace import EspacePublie
+
+    data = _ecrire_data(tmp_path)
+    corpus_perime = load_corpus(data, allow_ungated=True)
+    perime = corpus_perime.manifest[DOC_ID].source_hash
+
+    chemin = data / "dictionary.json"
+    fichier = {"schema_version": "1", "corpus_source_hashes": {DOC_ID: perime},
+               "corpus": {"franchise": ["deductible"]}, "intents": {},
+               "candidate_questions": {}, "validated": False, "validated_by": None,
+               "validated_at": None}
+    espace = EspacePublie(data.parent, data)
+    espace.basculer([(chemin, json.dumps(fichier, ensure_ascii=False))])
+
+    # La réingestion concurrente : le manifest **publié** porte un autre `source_hash`.
+    manifest_path = data / "manifest.json"
+    publie = json.loads(manifest_path.read_text("utf-8"))
+    reingere = hashlib.sha256(b"source reingeree").hexdigest()
+    publie[DOC_ID]["source_hash"] = reingere
+    espace.basculer([(manifest_path, json.dumps(publie, indent=2, ensure_ascii=False) + "\n")])
+    assert reingere != perime
+
+    code = ed.valider_a_la_main(chemin, corpus_perime, "Lancelot Oudin", DOC_ID,
+                                data_dir=data, sortie=io.StringIO())
+
+    assert code == 5, (
+        "la signature a été publiée sur un corpus périmé : l'opérande du contrôle venait du "
+        "`load_corpus` d'avant le verrou, pas du manifest publié")
+    assert json.loads(chemin.read_text("utf-8"))["validated"] is False
+
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_meme_de_lire_le_corpus(
+        tmp_path: Path, capsys: Any) -> None:
+    """`N3-LECTURE-ROOTLESS` : le refus « avant tout travail » commence par la **lecture**.
+
+    Le préflight tombait après `load_corpus` : une disposition custom absente était donc déjà lue
+    rootless — manifest, documents, sommaires, overlays — avant d'être refusée. Un reader de
+    production hors racine transactionnelle est exactement ce que N3 interdit, et lire n'est pas
+    « ne rien faire ». La sonde compte les lectures : il ne doit y en avoir aucune.
+    """
+    import shutil as _shutil
+
+    data = _ecrire_data(tmp_path)
+    liens = [c for c in sorted(data.rglob("*"))
+             if c.is_symlink() and REPERTOIRE_ESPACE not in c.parts]
+    contenus = {c: (c.read_bytes() if c.is_file() else None) for c in liens}
+    for chemin, octets in contenus.items():
+        chemin.unlink()
+        if octets is not None:
+            chemin.write_bytes(octets)
+    _shutil.rmtree(data / REPERTOIRE_ESPACE)
+
+    lues: list[str] = []
+    vrai_read = Path.read_bytes
+
+    def _noter(chemin: Path) -> bytes:
+        if chemin.suffix in {".json", ".md"}:
+            lues.append(chemin.name)
+        return vrai_read(chemin)
+
+    Path.read_bytes = _noter  # type: ignore[method-assign]
+    try:
+        code = ed.main(["--data", str(data)], client=None, settings=_settings(),
+                       sortie=io.StringIO())
+    finally:
+        Path.read_bytes = vrai_read  # type: ignore[method-assign]
+
+    assert code == 2 and "aucune racine de publication ne couvre" in capsys.readouterr().err
+    assert lues == [], f"le corpus a été lu rootless avant le refus : {lues}"
+
+
+def test_une_reingestion_pendant_la_campagne_refuse_au_lieu_de_publier(
+        tmp_path: Path, capsys: Any) -> None:
+    """`N1-N3-ENRICH-RMW` : la branche d'enrichissement cesse d'être un read-modify-write.
+
+    Elle composait `corpus_source_hashes` depuis le `load_corpus` fait **avant** la campagne
+    payante, puis publiait par `write_atomic` : trois gestes à cheval sur le verrou. Une réingestion
+    publiée pendant les minutes d'appels faisait donc publier, dans la génération courante, un
+    dictionnaire dérivé de l'ancienne et portant son ancien `source_hash`. L'alerte aval
+    `dictionnaire_corpus_perime` ne remplace ni le refus ni la transaction, et l'inscription
+    `deferred` du tour précédent ne fermait rien.
+
+    C'est le patron que `--valider` et le typage tiennent déjà : lire, opposer, publier — dans la
+    même section critique. La contention est **réelle** : la réingestion est publiée pendant que la
+    campagne tourne, donc après la lecture dont la publication tirait son identité.
+    """
+    import hashlib
+
+    from server.evals.espace import EspacePublie
+
+    data = _ecrire_data(tmp_path)
+    manifest_path = data / "manifest.json"
+    avant = (data / "dictionary.json").read_bytes() if (data / "dictionary.json").exists() else None
+
+    # La réingestion concurrente, publiée pendant la campagne (le faux client la déclenche).
+    publie = json.loads(manifest_path.read_text("utf-8"))
+    publie[DOC_ID]["source_hash"] = hashlib.sha256(b"source reingeree").hexdigest()
+    espace = EspacePublie(data.parent, data)
+
+    class ClientQuiReingere(FauxClient):
+        def __init__(self, batches: Any) -> None:
+            super().__init__(batches)
+            self._fait = False
+
+        def _reingerer(self) -> None:
+            if not self._fait:
+                self._fait = True
+                espace.basculer([(manifest_path,
+                                  json.dumps(publie, indent=2, ensure_ascii=False) + "\n")])
+
+    batches = FauxBatches({ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS,
+                           ed.custom_id(CAT): _sortie_categorie()},
+                          etats=["in_progress", "ended"])
+    client = ClientQuiReingere(batches)
+    horloge = iter(range(0, 100000, 30))
+
+    def _dormir(_s: float) -> None:
+        client._reingerer()  # la réingestion tombe pendant l'attente du lot
+
+    code = ed.main(["--data", str(data)], client=client, settings=_settings(),
+                   sortie=io.StringIO(), dormir=_dormir, maintenant=lambda: next(horloge))
+
+    assert code == 5, "une réingestion pendant la campagne doit refuser, pas publier"
+    assert "réingéré pendant la campagne" in capsys.readouterr().err
+    apres = (data / "dictionary.json").read_bytes() if (data / "dictionary.json").exists() else None
+    assert apres == avant, "un dictionnaire a été publié alors que le corpus avait bougé"
+
+
+def test_le_transport_standard_refuse_aussi_un_changement_canonique_non_source(
+        tmp_path: Path, capsys: Any) -> None:
+    """N1-N3 : l'égalité complète protège aussi Messages standard, sans réseau."""
+    from server.evals.espace import EspacePublie
+
+    data = _ecrire_data(tmp_path, kind="contrat")
+    manifest = data / "manifest.json"
+    apres = json.loads(manifest.read_text("utf-8"))
+    apres[DOC_ID]["edition"] = "git:autre-revision"
+    espace = EspacePublie(data.parent, data)
+
+    class MessagesQuiReingere(FauxMessagesStandard):
+        fait = False
+
+        def create(self, **params: Any) -> Any:
+            if not self.fait:
+                self.fait = True
+                espace.basculer([(manifest, json.dumps(apres, ensure_ascii=False) + "\n")])
+            return super().create(**params)
+
+    messages = MessagesQuiReingere([_message(_sortie_contrat()), _message(SORTIE_INTENTS)])
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"],
+                   client=FauxClientStandard(messages), settings=_settings(), sortie=io.StringIO())
+
+    assert code == 5 and len(messages.requetes) == 2
+    assert "changé d'identité canonique" in capsys.readouterr().err
+    assert not (data / DOC_ID / "dictionary.json").exists()
+
+
+@pytest.mark.parametrize(("mutation", "diagnostic"), [
+    ("supprime", "manifest supprimé"),
+    ("json-invalide", "manifest illisible"),
+    ("entree-absente", "entrée absente"),
+    ("entree-invalide", "entrée invalide"),
+])
+@pytest.mark.parametrize("transport", ["batch", "standard"])
+def test_toute_identite_manifest_devenue_inexploitable_refuse_sans_modifier_le_lot(
+        tmp_path: Path, capsys: Any, mutation: str, diagnostic: str,
+        transport: str) -> None:
+    """Les quatre refus post-campagne mordent sur les deux transports, sans réseau.
+
+    La mutation concurrente est le seul commit autorisé par la sonde. Tous les autres octets du
+    bundle, dictionnaire sentinelle compris, doivent rester ceux qu'elle a recopiés : le refus ne
+    peut publier ni dictionnaire partiel, ni second lot.
+    """
+    from server.evals.espace import EspacePublie
+
+    kind = "guide" if transport == "batch" else "contrat"
+    data = _ecrire_data(tmp_path, kind=kind)
+    espace = EspacePublie(data.parent, data)
+    manifest = data / "manifest.json"
+    dictionnaire = (data / "dictionary.json" if kind == "guide"
+                    else data / DOC_ID / "dictionary.json")
+    sentinelle = json.dumps({
+        "schema_version": ed.SCHEMA_VERSION,
+        "corpus_source_hashes": {}, "corpus": {}, "intents": {},
+        "candidate_questions": {}, "validated": False,
+        "validated_by": None, "validated_at": None,
+    }, sort_keys=True) + "\n"
+    espace.basculer([(dictionnaire, sentinelle)])
+
+    def octets_du_lot_hors_manifest() -> dict[Path, bytes]:
+        generation = espace.generation()
+        racine = espace.chemin / generation
+        return {
+            p.relative_to(racine): p.read_bytes()
+            for p in racine.rglob("*")
+            if p.is_file() and p.name != "manifest.json"
+        }
+
+    lot_avant = octets_du_lot_hors_manifest()
+
+    if mutation == "supprime":
+        nouveau_manifest: str | None = None
+    elif mutation == "json-invalide":
+        nouveau_manifest = "{\n"
+    elif mutation == "entree-absente":
+        nouveau_manifest = "{}\n"
+    else:
+        nouveau_manifest = json.dumps({DOC_ID: {"status": "servi"}}) + "\n"
+
+    fait = False
+
+    def muter() -> None:
+        nonlocal fait
+        if not fait:
+            fait = True
+            espace.basculer([(manifest, nouveau_manifest)])
+
+    if transport == "batch":
+        class BatchesQuiMutent(FauxBatches):
+            def retrieve(self, batch_id: str) -> _Lot:
+                muter()
+                return super().retrieve(batch_id)
+
+        batches = BatchesQuiMutent({
+            ed.CUSTOM_ID_INTENTS: SORTIE_INTENTS,
+            ed.custom_id(CAT): _sortie_categorie(),
+        })
+        client: Any = FauxClient(batches)
+        argv = ["--data", str(data), "--doc-id", DOC_ID]
+    else:
+        class MessagesQuiMutent(FauxMessagesStandard):
+            def create(self, **params: Any) -> Any:
+                muter()
+                return super().create(**params)
+
+        messages = MessagesQuiMutent([
+            _message(_sortie_contrat()), _message(SORTIE_INTENTS),
+        ])
+        client = FauxClientStandard(messages)
+        argv = ["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"]
+
+    code = ed.main(argv, client=client, settings=_settings(), sortie=io.StringIO())
+
+    assert fait and code == 5
+    assert diagnostic in capsys.readouterr().err
+    assert dictionnaire.read_bytes() == sentinelle.encode("utf-8")
+    lot_apres = octets_du_lot_hors_manifest()
+    assert lot_avant, "la contre-sonde doit observer un lot non vide"
+    assert lot_apres == lot_avant

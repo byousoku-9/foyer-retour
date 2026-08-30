@@ -103,10 +103,132 @@ def test_lapi_est_lorigine_de_la_page(cas: dict[str, Any]) -> None:
     assert cas["sonde_methode"] == "GET"
 
 
-def test_la_page_ne_sonde_quune_route_et_ne_coute_rien(cas: dict[str, Any]) -> None:
-    """`/api/v1/sante` n'est pas limitée et ne coûte rien : la page ne demande rien d'autre."""
+def test_la_page_ne_sonde_que_deux_routes_gratuites(cas: dict[str, Any]) -> None:
+    """Deux routes, et **seulement** deux : `/sante` et `/evals/latest` (story 4.5, FR41/FR42).
+
+    Toutes deux sont calculées au démarrage du serveur, ne coûtent rien et ne sont pas limitées —
+    AD-13 protège les routes qui appellent un modèle, pas celles qui disent où en est le service.
+    L'ajout de la seconde est ce qui permet à `/` de reprendre le **même artefact** que
+    `docs/evals/latest.md` au lieu d'écrire des chiffres qui lui seraient propres.
+
+    Une sonde par bloc : `sonder()` seule ne demande toujours qu'une chose.
+    """
     assert cas["appels_au_demarrage"] == 1
-    assert cas["demarrage"]["appels"] == ["https://foyer-retour.example/api/v1/sante"]
+    assert cas["routes"] == {"sante": "/api/v1/sante", "evals": "/api/v1/evals/latest"}
+    assert cas["demarrage"]["appels"] == [
+        "https://foyer-retour.example/api/v1/evals/latest",
+        "https://foyer-retour.example/api/v1/sante",
+    ]
+
+
+# --- FR41 / FR42 : les résultats publiés, repris tels quels ----------------
+
+
+def test_la_page_reprend_les_chiffres_publies_sans_en_recalculer_un(cas: dict[str, Any]) -> None:
+    """AC 4 : `/` compose le **même artefact** que les trois autres surfaces, sans arithmétique.
+
+    Chaque chiffre affiché est celui du corps servi, à l'octet près : un recall recalculé, une
+    moyenne redérivée ou une limite rédigée ici seraient une affirmation que le serveur n'a pas
+    faite — la classe d'invention que D8 et AD-16 interdisent.
+    """
+    textes = cas["evals_publie"]["textes"]
+    assert cas["evals_publie"]["url"] == "https://foyer-retour.example/api/v1/evals/latest"
+    assert cas["evals_publie"]["methode"] == "GET"
+    attendus = [
+        "résultats des questions-témoins : gate rouge — profil full",
+        # Les chiffres passent par le **formatage partagé** avec `publication.nombre` : la
+        # fixture porte volontairement des valeurs qui ne tombent pas sur quatre décimales
+        # (`1.0`, `0.055`, `0.02`, `0`), et la page doit les rendre comme le Markdown (revue P5).
+        "rappel : 1.0000",
+        "stabilité : 1/2 cas stables sur N=3 répétitions",
+        "coût : 0.1649 € froid, 0.0550 € en moyenne par exécution, 0.0200 € au p95",
+        "latence : 14243 ms p50, 34370 ms p95",
+        "taux de ne_tranche_pas : 0.0000",
+        "labels : bonne_reponse ×3, parsing ×1",
+        "variantes : local ×2, outils ×3",
+        "cases_hash : " + "d" * 64,
+        "run_digest : " + "a" * 64,
+        "révision candidate : " + "1" * 40,
+    ]
+    for attendu in attendus:
+        assert attendu in textes, attendu
+    # Les trois réserves de l'AC 3, lisibles sur `/` — et toutes fausses, ce qui est l'état du dépôt.
+    assert ("réserves — contresignature humaine : non ; validation par un expert assurance : non ; "
+            "dictionnaire des variantes validé : non") in textes
+    # Les limites viennent du runner, mot pour mot : la page ne les compose pas.
+    assert any(t.startswith("décision rouge stabilite_sinistre") for t in textes)
+
+
+def test_un_gate_rouge_est_publie_comme_les_autres(cas: dict[str, Any], code: str) -> None:
+    """FR41 : publier n'est pas promouvoir. Le cas nominal du harnais **est** un gate rouge."""
+    assert cas["evals_publie"]["lu"]["publication"]["evals_ok"] is False
+    assert any("Publier ne promeut rien" in t for t in cas["evals_publie"]["textes"])
+    # La page ne décide de rien : aucune mention de promotion, aucun `evals_ok` recalculé.
+    assert "evals_ok" in code
+
+
+def test_aucun_run_publie_est_rendu_comme_une_absence(cas: dict[str, Any]) -> None:
+    """AC : « `GET /api/v1/evals/latest` rend un état typé `publie: false` ; `/` le dit ».
+
+    Les trois raisons du serveur sont traduites, une raison inconnue est affichée telle quelle
+    (la taire serait pire que la montrer brute), et **aucun chiffre** n'est peint à la place.
+    """
+    attendus = {
+        "absent": "aucun run n'a encore été publié dans cette image",
+        # P14 : `illisible` nomme les deux causes qu'il couvre réellement — octets illisibles
+        # **ou** JSON invalide —, `hors_schema` la troisième. Le serveur les distingue vraiment
+        # (`json.loads` avant la validation), donc la page peut les dire séparément.
+        "illisible": "ne se lit pas (octets ou JSON invalides)",
+        "hors_schema": "le fichier de résultats ne correspond pas au format que ce serveur sait lire",
+        "motif_inconnu": "motif_inconnu",
+        # `raison: null` reste un état publié : « aucun run », sans motif à donner.
+        "null": "aucun run publié",
+    }
+    for raison, phrase in attendus.items():
+        releve = cas["evals_absent"][raison]
+        assert releve["lu"]["publie"] is False
+        textes = releve["textes"]
+        assert "résultats des questions-témoins : aucun run publié" in textes
+        assert any(phrase in t for t in textes), (raison, textes)
+        assert "Aucun chiffre n'est affiché à la place." in textes
+        assert not any("rappel :" in t or "coût :" in t for t in textes)
+
+
+def test_une_sonde_de_resultats_morte_nest_pas_une_absence_de_run(cas: dict[str, Any]) -> None:
+    """AD-16 : « le serveur n'a pas répondu » et « aucun run publié » ne sont pas la même phrase.
+
+    Les confondre ferait annoncer une absence de mesure à partir d'une panne réseau — et
+    réciproquement, une panne ferait disparaître un run qui existe.
+    """
+    releve = cas["evals_sonde_morte"]
+    assert releve["motif"] == "http_503"
+    textes = releve["textes"]
+    assert "résultats des questions-témoins : inconnus (le serveur n'a pas répondu)" in textes
+    assert not any("aucun run publié" in t for t in textes)
+    assert not any("rappel :" in t for t in textes)
+    # Le **motif réel** est propagé, comme il l'est déjà pour `/sante` : trois causes, trois
+    # phrases, trois correctifs. Les rabattre sur un message unique faisait disparaître
+    # l'information au moment précis où elle sert.
+    assert any("503" in t for t in textes)
+    assert any("fichier local" in t for t in releve["textes_hors_ligne"])
+    assert any("pas celle que cette page sait lire" in t for t in releve["textes_illisible"])
+    assert releve["textes"] != releve["textes_sans_motif"]
+
+
+def test_une_sonde_morte_neffe_pas_ce_que_lautre_a_etabli(cas: dict[str, Any]) -> None:
+    """Deux sondes indépendantes : l'échec de l'une ne doit pas effacer le résultat de l'autre."""
+    releve = cas["demarrage_evals_mort"]
+    assert any("niveau de validation : vertical" in t for t in releve["textes_etat"])
+    assert any("inconnus (le serveur n'a pas répondu)" in t for t in releve["textes_evals"])
+
+
+def test_le_lecteur_des_resultats_refuse_tout_corps_quaucune_route_na_ecrit(
+        cas: dict[str, Any]) -> None:
+    """Même règle que `lireSante` : une clé absente n'est pas « le champ vaut zéro »."""
+    releve = cas["evals_illisibles"]
+    assert releve.pop("nominal_lisible") is True
+    faux = sorted(nom for nom, refuse in releve.items() if not refuse)
+    assert not faux, f"ces corps devraient être refusés : {faux}"
 
 
 def test_une_page_hors_ligne_ne_sonde_rien(cas: dict[str, Any]) -> None:
@@ -648,7 +770,10 @@ def test_une_sante_hostile_reste_du_texte_inerte_au_vrai_demarrage(
     for marqueur in ("VERSION_ACTIVE", "DOCUMENT_ACTIF", "DOC_ACTIF", "DETAIL_ACTIF"):
         assert any(marqueur in texte for texte in textes), f"{marqueur} n'a pas été affiché"
     assert not ({"img", "script", "svg", "a"} & set(hostile["tags"])), hostile["tags"]
-    assert hostile["appels"] == ["https://foyer-retour.example/api/v1/sante"]
+    assert sorted(hostile["appels"]) == [
+        "https://foyer-retour.example/api/v1/evals/latest",
+        "https://foyer-retour.example/api/v1/sante",
+    ]
 
 
 def test_la_page_necrit_rien_dans_le_navigateur(cas: dict[str, Any], code: str) -> None:
@@ -806,6 +931,20 @@ def test_le_bloc_detat_est_vide_dans_le_html(page: str) -> None:
     assert re.search(r'<div id="etat"[^>]*role="status"', page)
     assert 'aria-live="polite"' in page
     assert "<noscript>" in page, "sans JavaScript, le lecteur doit savoir pourquoi le bloc est vide"
+
+
+def test_le_bloc_des_resultats_est_vide_dans_le_html(page: str) -> None:
+    """Story 4.5 : `/` n'écrit aucun chiffre de mesure ; ils viennent tous de la route.
+
+    Le bloc est rempli par le script, ou pas du tout. Un chiffre codé dans la page survivrait à
+    n'importe quelle campagne et affirmerait une mesure qui n'a pas eu lieu.
+    """
+    assert re.search(r'<div id="evals"[^>]*>\s*</div>', page)
+    assert re.search(r'<div id="evals"[^>]*role="status"', page)
+    assert "/api/v1/evals/latest" in page, "la page nomme la route qu'elle sonde"
+    # Aucun chiffre de mesure n'est écrit dans le HTML : ni recall, ni coût, ni latence.
+    for interdit in ("recall", "run_digest", "cases_hash", "ne_tranche_pas"):
+        assert interdit not in page.lower(), f"{interdit} ne s'écrit pas dans la page"
 
 
 def test_les_identifiants_du_harnais_sont_ceux_de_la_page(page: str) -> None:

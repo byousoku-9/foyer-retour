@@ -163,6 +163,13 @@ jobs:
           EVALS_QUICK: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
         run: |
           mkdir -p .evals
+          # Story 4.5, B7 : les sorties du run sont des cibles de l'espace de publication, et la
+          # bascule ne pose jamais sa disposition — elle refuse ce que le pointeur unique ne résout
+          # pas. `.evals/` étant ignoré par git, ses liens ne peuvent pas être committés comme ceux
+          # de `data/` et `docs/` : la CI les pose ici, une fois, avant tout run. La ligne
+          # `cat .evals/results.md` ci-dessous est inchangée — `cat` suit un lien.
+          uv run python -m server.evals.espace --racine . --data-dir data \
+            --cible .evals/results.json --cible .evals/results.md
           EVALS_MAX_COST="$(uv run python -c 'from server.app.config import Settings; print(Settings().evals_max_cost_eur)')"
           set +e
           # Le marqueur payant exécute guide/sinistre. La suite parsing, locale et parfois rouge

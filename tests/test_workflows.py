@@ -12,8 +12,13 @@ OIDC entre GitHub et le pool WIF aboutit. Il ne s'exerce que depuis un runner Gi
 
 from __future__ import annotations
 
+import json
+import os
 import re
-from pathlib import Path
+import shutil
+import subprocess
+import sys
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -151,7 +156,12 @@ def test_le_workflow_est_lautorite_sur_les_variables_du_service() -> None:
     """
     avec = deploiement()
     assert avec["env_vars_update_strategy"] == "overwrite"
-    assert "GIT_SHA=${{ steps.sha.outputs.sha7 }}" in avec["env_vars"]
+    # Story 4.5 (revue B2) : le service porte la révision **complète**. `/api/v1/sante` continue de
+    # publier le `sha7` qu'AD-11 promet, mais comme **projection** de celle-ci — une seule source de
+    # vérité. Un `GIT_SHA` court rendait la comparaison de gate incapable de distinguer deux commits
+    # partageant sept caractères.
+    assert "GIT_SHA=${{ steps.sha.outputs.sha40 }}" in avec["env_vars"]
+    assert "GIT_SHA=${{ steps.sha.outputs.sha7 }}" not in avec["env_vars"]
     assert "ALLOW_UNGATED" not in avec["env_vars"]
 
 
@@ -325,6 +335,13 @@ def test_la_ci_lance_quick_sur_pr_full_sur_main_et_resume_en_markdown() -> None:
     assert evals["env"]["EVALS_QUICK"] == "${{ github.ref == 'refs/heads/main' && '0' || '1' }}"
     assert "pytest -m evals" in evals["run"] and "--evals-max-cost" in evals["run"]
     assert 'cat .evals/results.md >> "$GITHUB_STEP_SUMMARY"' in evals["run"]
+    # Story 4.5, B7 : la disposition de publication des sorties de run est posée par la CI, avant
+    # le run, parce que `.evals/` est ignoré par git et que la bascule n'installe jamais ses cibles.
+    # La ligne épinglée ci-dessus est inchangée : `cat` suit un lien symbolique.
+    assert "python -m server.evals.espace" in evals["run"]
+    assert "--cible .evals/results.md" in evals["run"]
+    assert evals["run"].index("server.evals.espace") < evals["run"].index("pytest -m evals"), \
+        "la disposition se pose avant le run, jamais pendant une bascule"
     restauration = pas[index_de(pas, "actions/cache/restore@v4")]
     sauvegarde = pas[index_de(pas, "actions/cache/save@v4")]
     assert restauration["id"] == "evals_cache"
@@ -437,6 +454,103 @@ def test_le_credentiel_federe_ne_part_ni_dans_le_bucket_ni_dans_limage() -> None
             f"`{nom}` doit exclure le crédentiel écrit par `auth@v3` dans le répertoire de travail")
 
 
+def _entre_dans_le_contexte(fichier: Path, relatif: str) -> bool:
+    """Évalue les motifs ordonnés utiles de nos trois fichiers ignore, négations comprises."""
+    ignore = False
+    chemin = PurePosixPath(relatif)
+    for brute in fichier.read_text("utf-8").splitlines():
+        motif = brute.strip()
+        if not motif or motif.startswith("#"):
+            continue
+        negation = motif.startswith("!")
+        motif = motif[1:] if negation else motif
+        if chemin.match(motif.rstrip("/")):
+            ignore = not negation
+    return not ignore
+
+
+def test_les_pdf_sont_exclus_generiquement_et_les_liens_du_checkout_restent_committes() -> None:
+    """Les contextes excluent les PDF ; Git garde les liens déjà suivis, sans liste de documents."""
+    racine = WORKFLOWS.parents[1]
+    manifest = json.loads((racine / "data" / "manifest.json").read_text("utf-8"))
+    references = {p.parent.name for motif in ("source.sha256", "source.js")
+                  for p in (racine / "data").glob(f"*/{motif}")}
+    attendus = sorted(f"data/{doc_id}/source.pdf" for doc_id in set(manifest) | references)
+    liens = sorted(p.relative_to(racine).as_posix()
+                   for p in (racine / "data").glob("*/source.pdf") if p.is_symlink())
+    assert liens == attendus, "chaque document ou référence doit porter son lien statique"
+    exclus = [
+        "data/.publie/a/data/document-prive/source.pdf",
+        "data/.publie/b/data/autre-document/source.pdf",
+        "data/.publie/.verrou",
+        "data/.publie/a/data/doc/.source.pdf.telechargement.tmp",
+    ]
+    for nom in (".dockerignore", ".gcloudignore", ".gitignore"):
+        ignore = racine / nom
+        assert "data/*/source.pdf" in ignore.read_text("utf-8"), nom
+        assert all(not _entre_dans_le_contexte(ignore, lien) for lien in liens), nom
+        assert all(not _entre_dans_le_contexte(ignore, secret) for secret in exclus), nom
+    suivis = subprocess.run(
+        ["git", "ls-files", "--", *liens], cwd=racine, check=True,
+        capture_output=True, text=True).stdout.splitlines()
+    assert sorted(suivis) == liens, "les liens racine du checkout doivent rester committés"
+
+
+def _copier_contexte_docker_filtre(racine: Path, destination: Path) -> None:
+    ignore = racine / ".dockerignore"
+    for dossier in (racine / "server", racine / "data"):
+        for source in (dossier, *dossier.rglob("*")):
+            relatif = source.relative_to(racine).as_posix()
+            if source.is_dir() and not source.is_symlink():
+                continue
+            if not _entre_dans_le_contexte(ignore, relatif):
+                continue
+            cible = destination / relatif
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_symlink():
+                os.symlink(os.readlink(source), cible)
+            else:
+                shutil.copy2(source, cible)
+
+
+def test_le_dockerfile_repose_vraiment_la_disposition_du_contexte_filtre_avant_le_batch(
+        tmp_path: Path) -> None:
+    racine = WORKFLOWS.parents[1]
+    dockerfile = (racine / "Dockerfile").read_text("utf-8")
+    pose = "python -m server.evals.espace --racine . --data-dir data --depot --migrer"
+    fetch = "python -m server.ingest.fetch_source --all"
+    assert pose in dockerfile and dockerfile.index(pose) < dockerfile.index(fetch)
+    doc_ids = set(json.loads((racine / "data" / "manifest.json").read_text("utf-8")))
+    for fichier in (".dockerignore", ".gcloudignore", ".gitignore", "Dockerfile"):
+        contenu = (racine / fichier).read_text("utf-8")
+        for doc_id in doc_ids:
+            contextes_nomines = (
+                f"data/{doc_id}/", f"fetch_source {doc_id}", f'fetch_source "{doc_id}"')
+            assert not any(fragment in contenu for fragment in contextes_nomines), (
+                f"{fichier} ne doit coder aucun chemin ou argument documentaire")
+
+    contexte = tmp_path / "contexte"
+    _copier_contexte_docker_filtre(racine, contexte)
+    assert not list((contexte / "data").glob("*/source.pdf"))
+    assert not list((contexte / "data" / ".publie").glob("*/data/*/source.pdf"))
+    environnement = os.environ.copy()
+    environnement["PYTHONPATH"] = str(contexte)
+    resultat = subprocess.run(
+        [sys.executable, "-m", "server.evals.espace", "--racine", str(contexte),
+         "--data-dir", str(contexte / "data"), "--depot", "--migrer"],
+        cwd=contexte, env=environnement, capture_output=True, text=True, check=False)
+    assert resultat.returncode == 0, resultat.stdout + resultat.stderr
+
+    from server.app.corpus.racine import lecture_de
+
+    with lecture_de(contexte / "data") as lecture:
+        lecture.verifier()
+    assert all((contexte / "data" / doc_id / "source.pdf").is_symlink()
+               for doc_id in doc_ids)
+    assert not list((contexte / "data" / ".publie").glob("*/data/*/source.pdf")), (
+        "la pose hors réseau ne doit inventer aucun octet PDF privé")
+
+
 # --- `scripts/gcp_bootstrap.sh` : la frontière d'identité, côté GCP -------------------------------
 
 def test_la_condition_du_provider_wif_borne_le_depot_et_la_branche() -> None:
@@ -522,9 +636,13 @@ def test_le_lecteur_de_sources_est_distinct_et_sans_role_projet() -> None:
 
 def test_le_bootstrap_verifie_les_deux_objets_prives_par_leur_sha() -> None:
     script = (WORKFLOWS.parents[1] / "scripts" / "gcp_bootstrap.sh").read_text("utf-8")
-    for doc_id in ("axa-lu-optihome-2017", "baloise-lu-home-2-2024"):
+    documents_prives = re.findall(r'^ensure_source_object "([^"]+)" ', script, re.MULTILINE)
+    assert len(documents_prives) == len(set(documents_prives)) == 2
+    for doc_id in documents_prives:
         assert f'ensure_source_object "{doc_id}"' in script
-        sha = (WORKFLOWS.parents[1] / "data" / doc_id / "source.sha256").read_text("utf-8").strip()
+        reference = WORKFLOWS.parents[1] / "data" / doc_id / "source.sha256"
+        assert reference.is_file()
+        sha = reference.read_text("utf-8").strip()
         assert sha not in script, "le hash committé ne doit pas avoir une seconde autorité dans le shell"
     assert 'read_committed_source_sha "${doc_id}"' in script
     assert 'data/$1/source.sha256' in script
@@ -670,8 +788,8 @@ def test_la_ci_authentifie_et_telecharge_les_sources_reelles_avant_de_tester() -
     """Sinon la CI joue une suite plus faible que celle que le dépôt annonce.
 
     `test_real_pdf_regenerates_committed_artefacts` est gardé par un `skipif` sur la présence de
-    `data/axa-lu-optihome-2017/source.pdf`, qui n'existe jamais sur un runner : le seul test qui
-    prouve que les artefacts AXA committés correspondent encore au parseur sautait **en silence**,
+    le `source.pdf` privé, qui n'existe jamais sur un runner : le seul test qui prouve que les
+    artefacts committés correspondent encore au parseur sautait **en silence**,
     dans la CI qui garde la production. Le `skipif` est évalué à la collecte : le téléchargement doit
     donc être une étape à part, avant `pytest`, et non un `fixture`.
     """
@@ -712,3 +830,30 @@ def test_le_readme_conditionne_le_passage_a_2_8_a_une_mesure() -> None:
     readme = (WORKFLOWS.parents[1] / "README.md").read_text("utf-8")
     assert "--max-instances=2 --concurrency=8" in readme
     assert "test mémoire/latence" in readme
+
+
+def test_la_ci_reste_un_diagnostic_full_sans_gate_ni_repetition() -> None:
+    """AC 4.5 : « la CI telle qu'elle est configurée … le comportement est celui d'avant le diff ».
+
+    Le contrôle est double, et les deux moitiés se tiennent :
+
+    1. le **workflow** lance bien `EVALS_PROFILE: full` **sans** `--gate` ni `--repeat` — c'est un
+       diagnostic, pas un gate, et c'est pourquoi les exigences de `full` s'arment sur `--gate` et
+       non sur le profil (Design Notes 4.5). L'inverse aurait rendu la CI rouge à chaque PR pour une
+       raison étrangère au candidat ;
+    2. l'**adaptateur d'arguments** (`tests/test_evals_live.py::arguments_evals`) ne compose ni
+       `--gate`, ni `--repeat`, ni `--candidate-revision` : aucune garde neuve ne peut s'y déclencher.
+    """
+    from tests.test_evals_live import arguments_evals
+
+    pas = etapes(lire(CI), "verifier")
+    evals = pas[_index_par_nom(pas, "Questions-témoins quick")]
+    assert evals["env"]["EVALS_PROFILE"] == "full"
+    assert "--gate" not in evals["run"] and "--repeat" not in evals["run"]
+    assert "--candidate-revision" not in evals["run"]
+
+    args, _json, _md = arguments_evals(0.5, Path("/tmp/inexistant-pour-le-test"))
+    assert "--profile" in args and args[args.index("--profile") + 1] == "full"
+    for neuf in ("--gate", "--repeat", "--candidate-revision", "--orchestrator-evidence",
+                 "--orchestrator-report"):
+        assert neuf not in args, f"la CI ne doit pas composer {neuf}"

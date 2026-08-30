@@ -48,6 +48,14 @@
   // test l'amarre à `Settings().thresholds()["client_abort_margin_s"]`.
   var SONDE_BUDGET_S = 10;
 
+  // Les deux routes que cette page sonde, et rien d'autre. Toutes deux sont calculées au démarrage
+  // du serveur, ne coûtent rien et ne sont pas limitées (AD-13 protège les routes qui appellent un
+  // modèle). `/api/v1/evals/latest` publie le **dernier run d'évals** — rouge compris (FR41) : la
+  // page reprend le même artefact que `docs/evals/latest.md` et que le résumé de CI, sans jamais
+  // affirmer plus que lui. Elle n'en dérive rien : les limites sont dérivées par le runner, pas ici.
+  var ROUTE_SANTE = "/api/v1/sante";
+  var ROUTE_EVALS = "/api/v1/evals/latest";
+
   // Les **noms d'alerte** que `/api/v1/sante` publie, traduits. Un nom inconnu s'affiche tel quel :
   // taire une alerte qu'on ne sait pas nommer serait pire que la montrer brute.
   var ALERTES = {
@@ -102,6 +110,15 @@
   }
 
   function tableau(v) { return Array.isArray(v) ? v : []; }
+
+  // **Le** formatage des nombres publiés, identique à `server/evals/publication.py::nombre`
+  // (`DECIMALES = 4`). Sans lui, les surfaces divergeaient dès qu'une valeur ne tombait pas juste :
+  // le Markdown écrivait `1.0000` là où la page écrivait `1`, et `0.0550 €` là où elle écrivait
+  // `0.055 €`. L'AC compare les quatre surfaces « à l'octet des chiffres près » : il n'y a donc
+  // qu'une règle, et elle est écrite deux fois parce que les deux langages ne partagent rien —
+  // `tests/test_publication_evals.py` les confronte sur des valeurs qui ne tombent pas juste.
+  var DECIMALES = 4;
+  function nombre4(v) { return Number(v).toFixed(DECIMALES); }
 
   // ---------- lecture stricte du 200 ----------
   //
@@ -190,6 +207,97 @@
       gate_profile: o.gate_profile, gate_cases: o.gate_cases,
       gate_countersigned: o.gate_countersigned, dictionary: dictionnaire, alerts: alertes
     };
+  }
+
+  // ---------- lecture stricte de `/api/v1/evals/latest` (FR41) ----------
+  //
+  // Même patron que `lireSante` : **tout ce que la page affiche est descendu jusqu'à la feuille**, et
+  // une clé absente n'est pas « le champ vaut zéro ». `routes/evals.py` sérialise `EtatPublication`
+  // complet ; un corps amputé n'a été écrit par aucune route, et peindre un recall à partir d'une clé
+  // manquante dirait sur la mesure quelque chose que le serveur n'a pas dit.
+  //
+  // Trois issues, et trois seulement :
+  //   - `{publie: false, …}`   → aucun run publié. C'est un **état normal**, pas une panne.
+  //   - `{publie: true, publication: {…}}` → les chiffres du dernier run, tels quels.
+  //   - `null` (ce lecteur)    → le corps n'est pas celui que cette page sait lire : la sonde a
+  //                              échoué, et l'échec d'une sonde ne se peint jamais en « aucun run ».
+
+  function estNombreFini(v) { return typeof v === "number" && isFinite(v); }
+  function estEntierPositif(v) { return estNombreFini(v) && Math.floor(v) === v && v >= 0; }
+
+  function lireComptes(o) {
+    if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+    var lu = {};
+    var cles = Object.keys(o);
+    for (var i = 0; i < cles.length; i++) {
+      if (!estEntierPositif(o[cles[i]])) return null;
+      lu[cles[i]] = o[cles[i]];
+    }
+    return lu;
+  }
+
+  function lireListeDeChaines(v) {
+    if (!Array.isArray(v)) return null;
+    for (var i = 0; i < v.length; i++) if (!estChaine(v[i])) return null;
+    return v.slice();
+  }
+
+  function lireReserves(r) {
+    if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+    if (typeof r.countersigned !== "boolean") return null;
+    if (typeof r.validated_by_expert !== "boolean") return null;
+    if (typeof r.dictionary_validated !== "boolean") return null;
+    return { countersigned: r.countersigned, validated_by_expert: r.validated_by_expert,
+             dictionary_validated: r.dictionary_validated };
+  }
+
+  function lirePublication(p) {
+    if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+    if (!estChaine(p.profile) || !p.profile.length) return null;
+    if (!estChaine(p.run_digest) || !estChaine(p.cases_hash)) return null;
+    if (!(p.candidate_revision === null || estChaine(p.candidate_revision))) return null;
+    if (typeof p.evals_ok !== "boolean") return null;
+    if (!estNombreFini(p.recall) || !estNombreFini(p.ne_tranche_pas_rate)) return null;
+    var labels = lireComptes(p.labels);
+    var variantes = lireComptes(p.variantes);
+    if (labels === null || variantes === null) return null;
+    var s = p.stabilite;
+    if (!s || typeof s !== "object" || Array.isArray(s)) return null;
+    if (!estEntierPositif(s.n) || !estEntierPositif(s.cas_stables)
+        || !estEntierPositif(s.cas_comptabilises)) return null;
+    var c = p.cout;
+    if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+    if (!estNombreFini(c.froid_eur) || !estNombreFini(c.moyen_eur) || !estNombreFini(c.p95_eur)) {
+      return null;
+    }
+    var l = p.latence;
+    if (!l || typeof l !== "object" || Array.isArray(l)) return null;
+    if (!estEntierPositif(l.p50_ms) || !estEntierPositif(l.p95_ms)) return null;
+    var reserves = lireReserves(p.reserves);
+    var limites = lireListeDeChaines(p.limites);
+    if (reserves === null || limites === null) return null;
+    return {
+      profile: p.profile, candidate_revision: p.candidate_revision, run_digest: p.run_digest,
+      cases_hash: p.cases_hash, evals_ok: p.evals_ok, labels: labels, variantes: variantes,
+      recall: p.recall, ne_tranche_pas_rate: p.ne_tranche_pas_rate,
+      stabilite: { n: s.n, cas_stables: s.cas_stables, cas_comptabilises: s.cas_comptabilises },
+      cout: { froid_eur: c.froid_eur, moyen_eur: c.moyen_eur, p95_eur: c.p95_eur },
+      latence: { p50_ms: l.p50_ms, p95_ms: l.p95_ms },
+      reserves: reserves, limites: limites
+    };
+  }
+
+  /** Le corps de `/api/v1/evals/latest` réduit à ce que cette page affiche, ou `null`. */
+  function lireEvals(o) {
+    if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+    if (typeof o.publie !== "boolean") return null;
+    if (!o.publie) {
+      if (!(o.raison === null || estChaine(o.raison))) return null;
+      return { publie: false, raison: o.raison };
+    }
+    var publication = lirePublication(o.publication);
+    if (publication === null) return null;
+    return { publie: true, raison: null, publication: publication };
   }
 
   // ---------- composition pure ----------
@@ -384,6 +492,97 @@
     return noeud("div", "carte etat-" + validation.etat, null, enfants);
   }
 
+  var RAISONS_EVALS = {
+    absent: "aucun run n'a encore été publié dans cette image",
+    illisible: "le fichier de résultats est présent mais ne se lit pas (octets ou JSON invalides)",
+    hors_schema: "le fichier de résultats ne correspond pas au format que ce serveur sait lire"
+  };
+
+  /** Les lignes chiffrées du dernier run publié — **lues**, jamais recalculées.
+   *
+   * FR42 : `/` reprend le **même artefact** que `docs/evals/latest.md`, que le résumé de CI et que
+   * `GET /api/v1/evals/latest`. Cette fonction ne fait donc aucune arithmétique : pas de moyenne
+   * recalculée, pas de taux redérivé, pas de limite rédigée ici. Les limites viennent du runner, qui
+   * les dérive du run ; une phrase composée par la page serait une affirmation que le serveur n'a
+   * pas faite, et c'est exactement ce que D8 et AD-16 interdisent.
+   *
+   * Trois états, comme pour la sonde de santé :
+   *   1. `evals` null            → la sonde des résultats n'a pas répondu : dit, et rien d'autre ;
+   *   2. `publie: false`         → **l'absence est rendue comme une absence**, avec sa raison ;
+   *   3. `publie: true`          → les chiffres, le verdict, les réserves et les limites.
+   */
+  function vueEvals(evals, motif) {
+    if (!evals) {
+      return noeud("div", "carte evals-inconnu", null, [
+        noeud("p", "inconnu", "résultats des questions-témoins : inconnus (le serveur n'a pas " +
+                              "répondu)"),
+        noeud("p", "detail", motifTexte(motif)),
+        noeud("p", "detail", "Aucun chiffre n'est affiché à la place : une mesure qui n'a pas été " +
+                             "lue ne s'invente pas.")
+      ]);
+    }
+    if (!evals.publie) {
+      var raison = evals.raison && Object.prototype.hasOwnProperty.call(RAISONS_EVALS, evals.raison)
+        ? RAISONS_EVALS[evals.raison]
+        : (evals.raison || "aucun run publié");
+      return noeud("div", "carte evals-absent", null, [
+        noeud("p", "validation", "résultats des questions-témoins : aucun run publié"),
+        noeud("p", "detail", "Le serveur le dit ainsi : " + raison + "."),
+        noeud("p", "detail", "Aucun chiffre n'est affiché à la place.")
+      ]);
+    }
+    var p = evals.publication;
+    var enfants = [
+      noeud("p", "validation",
+        "résultats des questions-témoins : gate " + (p.evals_ok ? "vert" : "rouge") +
+        " — profil " + p.profile),
+      noeud("p", "detail",
+        "Publié tel quel, rouge compris. Publier ne promeut rien : ce qui est servi est décidé par " +
+        "le gate, pas par cette page.")
+    ];
+    enfants.push(noeud("p", "detail", "rappel : " + nombre4(p.recall)));
+    enfants.push(noeud("p", "detail",
+      "stabilité : " + p.stabilite.cas_stables + "/" + p.stabilite.cas_comptabilises +
+      " cas stables sur N=" + p.stabilite.n + " répétitions"));
+    enfants.push(noeud("p", "detail",
+      "coût : " + nombre4(p.cout.froid_eur) + " € froid, " + nombre4(p.cout.moyen_eur) +
+      " € en moyenne par exécution, " + nombre4(p.cout.p95_eur) + " € au p95"));
+    enfants.push(noeud("p", "detail",
+      "latence : " + p.latence.p50_ms + " ms p50, " + p.latence.p95_ms + " ms p95"));
+    enfants.push(noeud("p", "detail",
+      "taux de ne_tranche_pas : " + nombre4(p.ne_tranche_pas_rate)));
+    enfants.push(noeud("p", "detail", "labels : " + comptesEnTexte(p.labels)));
+    enfants.push(noeud("p", "detail", "variantes : " + comptesEnTexte(p.variantes)));
+    enfants.push(noeud("p", "detail", "cases_hash : " + p.cases_hash));
+    enfants.push(noeud("p", "detail", "run_digest : " + p.run_digest));
+    enfants.push(noeud("p", "detail",
+      "révision candidate : " + (p.candidate_revision || "non renseignée")));
+    // Les trois réserves de l'AC : lues sur le serveur, jamais recomposées, et jamais tues même
+    // quand elles sont toutes fausses — c'est précisément là qu'elles comptent.
+    enfants.push(noeud("p", "detail",
+      "réserves — contresignature humaine : " + (p.reserves.countersigned ? "oui" : "non") +
+      " ; validation par un expert assurance : " +
+      (p.reserves.validated_by_expert ? "oui" : "non") +
+      " ; dictionnaire des variantes validé : " +
+      (p.reserves.dictionary_validated ? "oui" : "non")));
+    if (p.limites.length) {
+      enfants.push(noeud("div", "limites", null, [
+        noeud("h3", null, "Limites de ce run"),
+        noeud("ul", null, null, p.limites.map(function (limite) {
+          return noeud("li", null, limite);
+        }))
+      ]));
+    }
+    return noeud("div", "carte evals-" + (p.evals_ok ? "vert" : "rouge"), null, enfants);
+  }
+
+  /** `{bonne_reponse: 2, parsing: 1}` → « bonne_reponse ×2, parsing ×1 » — tri stable, sans total. */
+  function comptesEnTexte(comptes) {
+    var cles = Object.keys(comptes).sort();
+    if (!cles.length) return "aucun";
+    return cles.map(function (cle) { return cle + " ×" + comptes[cle]; }).join(", ");
+  }
+
   /** La sonde n'a pas répondu : on le dit, et on n'affiche **aucun** niveau (AD-16, D8). */
   function vueSondeEchouee(motif) {
     var validation = libelleValidation(null);
@@ -435,12 +634,27 @@
     return e;
   }
 
+  function peindreDans(id, vue) {
+    var hote = document.getElementById(id);
+    return hote ? peindre(vue, hote) : null;
+  }
+
   // ---------- réseau ----------
 
   function enLigne() { return !!API_BASE; }
 
   /** `GET /api/v1/sante`. Rend le corps lu, ou rejette avec un motif — jamais une valeur inventée. */
   function sonder() {
+    return sonderRoute(ROUTE_SANTE, lireSante);
+  }
+
+  /** `GET /api/v1/evals/latest`, exactement le même contrat de sonde que `/sante`. */
+  function sonderEvals() {
+    return sonderRoute(ROUTE_EVALS, lireEvals);
+  }
+
+  /** Une sonde : une route, un lecteur strict, un budget total. Rien d'autre n'est partagé. */
+  function sonderRoute(route, lire) {
     if (!enLigne()) return Promise.reject("hors_ligne");
     if (typeof fetch !== "function") return Promise.reject("reseau");
     var opts = { method: "GET" };
@@ -452,7 +666,7 @@
     function finir() { if (minuteur !== null) clearTimeout(minuteur); }
     var envoi;
     try {
-      envoi = fetch(API_BASE + "/api/v1/sante", opts);
+      envoi = fetch(API_BASE + route, opts);
     } catch (e) {
       // Un `fetch` qui lève **de façon synchrone** (URL rejetée, navigateur ancien) sortait de
       // `sonder()` par une exception, pas par un rejet : `demarrer()` ne la voyait pas, et la page
@@ -464,11 +678,12 @@
     // `r.json()` attend le corps, et l'annuler plus tôt laissait un corps qui ne se termine jamais
     // bloquer la page indéfiniment — sur le seul état qu'elle ne sait pas dire (ni niveau, ni échec).
     return envoi.then(function (r) {
-      // Un non-200 sur `/sante` n'est pas « le système n'a pas de gate » : c'est une sonde qui a
-      // échoué (AD-16). L'état 3 est le seul honnête.
+      // Un non-200 n'est jamais un état du système : ni « pas de gate » sur `/sante`, ni « aucun
+      // run publié » sur `/evals/latest`. C'est une sonde qui a échoué (AD-16), et le dire est le
+      // seul état honnête — le serveur publie ses absences en 200, avec leur raison.
       if (!r.ok) throw "http_" + r.status;
       return r.json().then(function (j) {
-        var lu = lireSante(j);
+        var lu = lire(j);
         if (lu === null) throw "reponse_illisible";
         return lu;
       }, function () { throw "reponse_illisible"; });
@@ -487,12 +702,30 @@
   // ---------- démarrage : le seul endroit qui touche la page ----------
 
   function demarrer() {
-    return sonder().then(function (sante) {
+    // Deux sondes **indépendantes**, et c'est délibéré : l'échec de l'une ne doit jamais effacer ce
+    // que l'autre a établi. Un serveur qui répond `/sante` mais dont les résultats d'évals ne sont
+    // pas lisibles reste un serveur dont on connaît le niveau de validation — et l'inverse est vrai
+    // aussi. Les fusionner en une seule promesse ferait disparaître les deux au premier échec.
+    var etat = sonder().then(function (sante) {
       peindre(vueEtat(sante));
       return sante;
     }, function (motif) {
       peindre(vueSondeEchouee(motif));
       return null;
+    });
+    var evals = sonderEvals().then(function (lu) {
+      peindreDans("evals", vueEvals(lu));
+      return lu;
+    }, function (motif) {
+      // Le **motif réel**, comme la sonde de `/sante` le propage : « ouverte en fichier local »,
+      // « le serveur a répondu 503 » et « la réponse n'est pas celle que cette page sait lire » ne
+      // sont pas la même panne, et n'ont pas le même correctif. Les rabattre sur un message unique
+      // faisait disparaître l'information au moment précis où elle sert.
+      peindreDans("evals", vueEvals(null, motif));
+      return null;
+    });
+    return Promise.all([etat, evals]).then(function (deux) {
+      return deux[0];
     });
   }
 
@@ -509,8 +742,16 @@
     vueAlertes: vueAlertes,
     vueSondeEchouee: vueSondeEchouee,
     motifTexte: motifTexte,
+    // FR41/FR42 : les résultats publiés, lus et composés purement.
+    lireEvals: lireEvals,
+    vueEvals: vueEvals,
+    comptesEnTexte: comptesEnTexte,
+    nombre4: nombre4,
+    RAISONS_EVALS: RAISONS_EVALS,
+    routes: function () { return { sante: ROUTE_SANTE, evals: ROUTE_EVALS }; },
     // Réseau et peinture.
     sonder: sonder,
+    sonderEvals: sonderEvals,
     materialiser: materialiser,
     peindre: peindre,
     demarrer: demarrer,

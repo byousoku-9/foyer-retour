@@ -23,7 +23,12 @@ Codes de sortie, et pourquoi ils sont quatre (D4) :
 | code | situation | manifest |
 |---|---|---|
 | 0 | tous les cas `ok` | gate écrit `evals_ok: true` (avec `--gate`) |
-| 1 | un cas rend un mauvais label ou laisse une attente inassouvie | gate écrit `evals_ok: false` (avec `--gate`) |
+| 1 | le run ne rend pas un vert : mauvais label, attente inassouvie, décision de plancher rouge,
+publication FR41 en échec, ou rapport non publiable (`RapportInexploitable`) | gate écrit tel qu'il a
+été mesuré (`evals_ok: false`), **sauf** si la publication a échoué : le gate appartient alors au
+même lot atomique que les surfaces, donc rien n'est publié **ni** écrit (story 4.5, B7) — c'est aussi
+le cas d'un manifest qu'on ne peut pas écrire, qui était un refus 2 tant qu'il avait son écriture à
+lui |
 | 2 | refus de tourner : pas de clé, profil ou suite non livrés, cas invalide, document non servi | **non modifié** |
 | 3 | incident technique : `Timeout`, `LlmUnavailable`, `BudgetExceeded`, plafond de run atteint | **non modifié** |
 | 4 | refus de budget **avant le premier appel** (story 4.2b) : majorant estimé d'une campagne
@@ -33,10 +38,20 @@ question | **non modifié** |
 La ligne de partage entre 1 et 3 est celle d'AD-8 : un mauvais label est un **résultat** — le gate le
 consigne et le document part en `gate_echoue` au prochain démarrage, ce que le gate est fait pour
 faire. Un incident réseau ne dit rien du système mesuré, et le laisser retirer un document du service
-serait une panne inventée.
+serait une panne inventée. **Un rapport que la validation canonique refuse tombe du côté 1**, pas du
+côté 3 (revue R1) : c'est un défaut de données, pas une panne, et l'étiqueter « incident technique »
+enverrait chercher un bug de réseau là où une clé manque.
 
-Ce qui n'est **pas** ici et qui est refusé plutôt que simulé : le holdout, les baselines,
-la génération de résultats live courants et `GET /api/v1/evals/latest` (stories 4.3 à 4.5).
+**Ce que 1 dit d'un gate `full` dont la publication a échoué** (story 4.5, revue A) : la publication
+et le gate sont préparés ensemble puis basculés ensemble, si bien qu'un échec de préparation ne laisse
+**ni** publication **ni** gate — le manifest est byte-identique et aucune surface n'a bougé. Le code
+reste 1 : le verdict *a* été mesuré, et le run n'a pas tenu sa promesse de le publier. Un run muet qui
+sortirait 0 rendrait « FR41 n'a pas publié » indiscernable de « aucun run n'a tourné ».
+
+Ce qui n'est **pas** ici et qui est refusé plutôt que simulé : le holdout et les baselines
+(stories 4.3 et 4.4). La publication des résultats et `GET /api/v1/evals/latest` sont livrés par la
+story 4.5 : l'artefact vient du rapport du run, jamais d'une valeur fabriquée, et son absence se dit
+`publie: false`.
 """
 
 from __future__ import annotations
@@ -48,7 +63,7 @@ import html
 import json
 import math
 import os
-import shutil
+import stat
 import statistics
 import sys
 import tempfile
@@ -64,17 +79,21 @@ import yaml
 from pydantic import (BaseModel, ConfigDict, Field, PrivateAttr, StrictBool, ValidationError,
                       field_validator, model_validator)
 
-from server.app.config import REPO_ROOT, Settings
+from server.app.config import EVALS_PUBLICATION_FILE, REPO_ROOT, Settings
 from server.app.config import cle_absente as config_cle_absente
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.corpus.index import Index
-from server.app.corpus.loader import load_corpus
+from server.app.corpus.loader import SOURCE_FILES, _gate_alerts, load_corpus
 from server.app.corpus.text import normalize, normalize_version
 from server.app.digests import harness_digest, pipeline_digest, prompts_digest
 from server.app.domain.answer import Answer
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+from server.app.domain.evals import (LABELS, PROFILS_LIVRES, GateProfile, Label, PublicationEvals,
+                                     ReservesPubliees, SecondeLecturePubliee, Suite)
 from server.app.domain.errors import HTTP_STATUS, ErrorCode, PipelineError, TruncatedRead
-from server.app.domain.ingest import Gate, GateContext, GateDecision, ManifestEntry
+from server.app.domain.ingest import (STRUCTURE_CHECK, TREE_CHECK, Gate, GateContext,
+                                      GateDecision, ManifestEntry, Report,
+                                      lire_attestation_arbre, lire_attestation_structure)
 from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, Turn
 from server.app.domain.trace import Trace
@@ -89,7 +108,24 @@ from server.app.pipelines.guide import VARIANTS as VARIANTES_GUIDE
 from server.app.pipelines.guide import repondre_guide
 from server.evals.cache import PersistentResponseCache, empreinte_canonique, json_canonique
 from server.evals.campaign import CampaignLedger, CampaignLedgerError
-from server.evals.plancher import ChargePlancher, PlancherInvalide, charger_plancher
+from server.evals.espace import REPERTOIRE_ESPACE as _REPERTOIRE_ESPACE
+from server.app.corpus.racine import (CapaciteRegate, Lecture, LectureHorsGeneration,
+                                      LecturePerimee, lecture_pincee, lecture_pincee_regate,
+                                      relire)
+from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePublie,
+                                 LotHorsEspace)
+from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
+                                   charger_plancher, verifier_liaison_preuve)
+from server.evals.publication import (DOCS_ARCHIVES, DOCS_LATEST, ArchivePrecedenteIllisible,
+                                      RapportInexploitable, construire_publication, digest_contenu,
+                                      preparer_publication, rendre_publication_markdown,
+                                      valider_rapport_publiable)
+from server.evals.publication import nombre as nombre_publie
+from server.evals.relecture import (RelectureInvalide, blocs_cles_du_rapport, charger_images,
+                                    plan_de_relecture, statut_du_verdict, valider_verdict)
+from server.evals.revision import ARBRE_NON_VERIFIABLE as _ARBRE_NON_VERIFIABLE
+from server.evals.revision import SORTIES_DU_RUN as _SORTIES_DU_RUN
+from server.evals.revision import est_revision, revision_executee, sorties_du_run
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
@@ -104,17 +140,17 @@ PROTOCOLE_FILES = frozenset({
     "trusted-automation-plancher.yaml",
 })
 
-# AD-14, mot pour mot : « labels fixes ». Un vocabulaire qu'une story élargit n'est plus fixe — ce
-# qu'ils ne couvrent pas s'appelle `ecarts` et ne porte pas de nom de label (D2).
-Label = Literal["bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu", "faux_refus",
-                "citation_introuvable", "parsing"]
-LABELS: tuple[str, ...] = ("bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu",
-                           "faux_refus", "citation_introuvable", "parsing")
+# AD-14, mot pour mot : « labels fixes ». La définition vit dans `server/app/domain/evals.py` depuis
+# la revue R1 : la validation canonique de la publication doit exiger **les sept**, et elle ne peut
+# pas importer ce module (c'est l'inverse qui a lieu). Les noms d'usage restent `run.LABELS` et
+# `run.Label` — une seule définition, deux endroits d'où la lire. `Suite` l'a rejointe au tour
+# correctif 1/3, pour la même raison : la validation canonique doit exiger le vocabulaire littéral
+# des suites, et elle ne peut pas lire ce module.
 
-Suite = Literal["guide", "sinistre", "parsing"]
-
-GateProfile = Literal["vertical", "full"]
-PROFILS_LIVRES: tuple[str, ...] = ("vertical", "full")
+# `GateProfile` et `PROFILS_LIVRES` vivent dans `server/app/domain/evals.py` depuis le tour
+# correctif 2/3 (revue B5), pour la même raison que `LABELS` et `SUITES` : la validation canonique de
+# la publication doit fermer `profile` sur ce vocabulaire, et elle ne peut pas importer ce module.
+# Les noms d'usage restent `run.GateProfile` et `run.PROFILS_LIVRES`.
 
 FAMILLES_FULL: dict[str, frozenset[str]] = {
     "guide": frozenset({
@@ -760,6 +796,13 @@ class Resultat:
     opened_block_ids: list[str] = field(default_factory=list)
     steps: list[dict[str, Any]] = field(default_factory=list)
     proofs: list[dict[str, Any]] = field(default_factory=list)
+    # Story 4.5 : le prédicat décisionnel de `juger` (4.2a), **conservé** au lieu d'être jeté après
+    # l'écart. C'est ce qui rend mesurable la stabilité de la claim décisionnelle entre répétitions
+    # (`stabilite_claim_decisionnelle`) : sans lui, la seule chose qu'un run savait dire était
+    # « le cas attendait un prédicat et ne l'a pas eu », jamais « les trois répétitions ne sont pas
+    # d'accord entre elles ». `False` pour la suite `parsing` et pour une lecture tronquée : aucune
+    # claim n'y survit.
+    decision_claim: bool = False
     # AD-11 : toute réponse du pipeline (refus compris) est un 200 ; une exécution interrompue
     # n'a pas de `Resultat` et son statut AD-16 part dans `stop_http`. `None` pour la suite
     # `parsing`, locale — aucune sémantique HTTP (revue 4.2b, LOW 15).
@@ -904,6 +947,13 @@ def _preuves(answer: Answer, index: Index) -> list[dict[str, Any]]:
     C'est l'identité de « même claim » de l'agrégat de stabilité : la preuve, jamais le libellé.
     Un bloc que le corpus servi ne connaît pas rend une preuve sans hash (`quote_hash: None`) —
     l'écart est publié, pas masqué.
+
+    Story 4.5 : chaque preuve porte en plus `kind_confirmed` — le typage du bloc cité a-t-il été posé
+    à la main ou vérifié par le modèle (AD-6, AD-8), ou n'est-ce qu'une heuristique d'ingestion ? Le
+    champ **n'entre pas** dans la signature de stabilité, dont le numérateur est figé au plancher
+    importé (`{doc_id, block_id, kind, quote_hash}`) : `_signature_stabilite` continue de ne lire que
+    ces quatre-là. Il alimente un témoin **distinct**, `typage_confirme_rate` — c'est la seule façon
+    d'ajouter une exigence sans modifier le sens d'une mesure déjà pré-enregistrée.
     """
     preuves: list[dict[str, Any]] = []
     for claim in answer.claims:
@@ -913,15 +963,42 @@ def _preuves(answer: Answer, index: Index) -> list[dict[str, Any]]:
             end = getattr(q, "end", None)
             if bloc is None or start is None or end is None:
                 preuves.append({"doc_id": None, "block_id": q.block_id, "kind": None,
-                                "quote_hash": None})
+                                "quote_hash": None, "kind_confirmed": False})
                 continue
             preuves.append({
                 "doc_id": index.doc_of(q.block_id),
                 "block_id": q.block_id,
                 "kind": bloc.kind,
                 "quote_hash": quote_hash(bloc.text_norm[start:end]),
+                "kind_confirmed": bool(bloc.kind_confirmed),
             })
     return sorted(preuves, key=lambda p: (p["doc_id"] or "", p["block_id"], p["quote_hash"] or ""))
+
+
+def predicat_decisionnel(answer: Answer, index: Index) -> bool:
+    """Au moins une claim affichée est-elle **décisionnelle** ? (prédicat 4.2a)
+
+    « Décisionnelle » : la claim est retrouvée, pertinente, son applicabilité a été calculée (`oui`,
+    `non` ou `humain`), et elle cite au moins un bloc d'un kind fondateur dont le typage est
+    **confirmé**. C'est le prédicat que le témoin `decision_claim_rate` chiffre.
+
+    Il vivait à l'intérieur de `juger`, calculé puis jeté une fois l'écart écrit. L'extraire ne change
+    rien à ce que `juger` décide — la fonction l'appelle ici — mais le rend disponible au `Resultat`,
+    donc à l'agrégat de stabilité du prédicat que l'AC 5 exige (`stabilite_claim_decisionnelle`). Une
+    valeur qu'on recalculerait dans deux endroits finirait par diverger dans un seul.
+    """
+    return any(
+        claim.status.retrouvee is True
+        and claim.status.pertinente is True
+        and claim.status.applicable in {"oui", "non", "humain"}
+        and any(
+            (bloc := _bloc(index, quote.block_id)) is not None
+            and bloc.kind in KINDS_FONDATEURS
+            and bloc.kind_confirmed
+            for quote in claim.quotes
+        )
+        for claim in answer.claims
+    )
 
 
 def _etapes(trace: Trace) -> list[dict[str, Any]]:
@@ -991,18 +1068,7 @@ def juger(cas: Cas, answer: Answer, *, doc_id: str, index: Index) -> tuple[str, 
     if cas.expected.verdict and valeur_verdict not in cas.expected.verdict:
         ecarts.append(f"verdict {valeur_verdict} hors des valeurs admissibles "
                       f"({', '.join(cas.expected.verdict)})")
-    decisionnelle = any(
-        claim.status.retrouvee is True
-        and claim.status.pertinente is True
-        and claim.status.applicable in {"oui", "non", "humain"}
-        and any(
-            (bloc := _bloc(index, quote.block_id)) is not None
-            and bloc.kind in KINDS_FONDATEURS
-            and bloc.kind_confirmed
-            for quote in claim.quotes
-        )
-        for claim in answer.claims
-    )
+    decisionnelle = predicat_decisionnel(answer, index)
     if cas.expected.decision_claim is not None and decisionnelle is not cas.expected.decision_claim:
         ecarts.append(
             "claim décisionnelle confirmée avec applicabilité calculée="
@@ -1108,6 +1174,141 @@ def suite_du_document(settings: Settings, doc_id: str, *, cases_dir: Path = CASE
         f"{suite_documentaire.relative_to(cases_dir)}/)")
 
 
+# --- la révision réellement exécutée (story 4.5, revue B1) -----------------------------------------
+#
+# La définition vit dans `server/evals/revision.py` depuis le tour correctif 2/3 : le **classement**
+# du plancher doit opposer la révision candidate au checkout réellement exécuté, et `plancher.py` ne
+# peut pas lire ce module — c'est ce module qui l'importe. Une seconde recette côté plancher aurait
+# fait deux définitions de « la révision qu'on exécute », donc aucune. Les noms d'usage
+# (`run.revision_executee`, `run.SORTIES_DU_RUN`, `run.sorties_du_run`) sont conservés ici.
+_est_revision = est_revision
+ARBRE_NON_VERIFIABLE = _ARBRE_NON_VERIFIABLE
+SORTIES_DU_RUN = _SORTIES_DU_RUN
+
+
+def _source_du_document(data_dir: Path, doc_id: str, *,
+                        lecture: Lecture | None = None) -> str | None:
+    """Le nom de la source qui fait foi pour ce document, ou `None` si aucune n'est présente.
+
+    La règle est celle du loader, rejouée à l'identique : la **première** source présente dans
+    `SOURCE_FILES` fait foi (`api/etat._pdf_sources` la rejoue déjà de la même façon). C'est
+    l'**unique** endroit où le runner décide ce qu'un document est — les deux témoins de structure
+    s'y branchent, et aucun ne connaît de `doc_id`.
+    """
+    for nom in SOURCE_FILES:
+        chemin = data_dir / doc_id / nom
+        try:
+            lu = lecture.reel(chemin) if lecture is not None else chemin
+            mode = os.stat(lu, follow_symlinks=False).st_mode
+            if stat.S_ISREG(mode):
+                return nom
+            raise RefusDeTourner(
+                f"source de {doc_id!r} invalide ({nom} n'est pas un fichier ordinaire) — "
+                "impossible de dire ce que ce document est")
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError as exc:
+            # `Path.is_file()` avale l'`OSError` et rend `False` : un document dont la source
+            # **existe** mais est inatteignable (droits, montage) disparaissait alors des deux
+            # dénominateurs de structure, sans un mot. Ce n'est pas « pas de source », c'est « je ne
+            # sais pas » — et un témoin qui ne sait pas ne retire personne de son dénominateur
+            # (revue B3/B6, second chemin frère).
+            raise RefusDeTourner(
+                f"source de {doc_id!r} inatteignable ({nom} : {type(exc).__name__}) — impossible "
+                "de dire ce que ce document est, donc impossible de le compter ou non") from exc
+    return None
+
+
+def image_du_run(plancher_digest: str) -> dict[str, Any]:
+    """L'identité d'image du run courant — **les cinq champs** qu'`identite_run` publie.
+
+    Une seule construction, partagée par l'identité de run et par la confrontation des preuves
+    externes : deux listes séparées auraient divergé, et c'est exactement ce qui s'est produit —
+    l'appelant en opposait trois, le rapport en portait cinq, et les deux manquants n'étaient
+    comparés nulle part.
+    """
+    return {
+        "pipeline_digest": pipeline_digest(),
+        "prompts_digest": prompts_digest(),
+        "model_ids": dict(TIERS),
+        "normalize_version": normalize_version,
+        "plancher_digest": plancher_digest,
+    }
+
+
+def document_parse_depuis_un_pdf(data_dir: Path, doc_id: str, *,
+                                 lecture: Lecture | None = None) -> bool:
+    """Ce document est-il **réellement parsé**, c'est-à-dire ingéré depuis un PDF ?
+
+    Un `source.js` — la copie du site — n'a rien à prouver côté extraction : son texte n'est pas
+    extrait d'une image de page, il est déjà du texte.
+
+    Aucune branche par document, aucun slug : c'est la présence d'un artefact qui décide.
+    """
+    return _source_du_document(data_dir, doc_id, lecture=lecture) == "source.pdf"
+
+
+def verifier_composition_gate_full(data_dir: Path, doc_id: str, cas: list[Cas],
+                                   charge_plancher: Any, lecture: Lecture) -> None:
+    """Refuse un lot `full` dont la preuve de structure applicable ne peut pas être mesurée."""
+    source = _source_du_document(data_dir, doc_id, lecture=lecture)
+    if source is None:
+        raise RefusDeTourner(
+            f"--gate {doc_id} --profile full : aucune source n'est présente pour ce document "
+            f"({', '.join(SOURCE_FILES)} absents de {data_dir / doc_id}), donc rien ne dit ce "
+            "qu'il est ni quelle preuve de structure lui opposer. Un gate `full` sans exigence "
+            "de structure affirmerait la politique complète sans l'avoir opposée — remettre la "
+            "source en état (`uv run python -m server.ingest.fetch_source --all --data "
+            f"{data_dir}`), ou mesurer en `--profile vertical`")
+    depuis_un_pdf = source == "source.pdf"
+    couvrants = (["structure_prouvee_rate", "parsing_ok_rate"] if depuis_un_pdf
+                 else ["arbre_prouve_rate"])
+    for metrique in couvrants:
+        temoin_couvrant = charge_plancher.plancher.temoin(metrique)
+        if temoin_couvrant is None or _temoin_applicable(
+                temoin_couvrant, cas, exigences_full=True):
+            continue
+        if depuis_un_pdf:
+            raise RefusDeTourner(
+                f"--gate {doc_id} --profile full : ce document est ingéré depuis un PDF, et "
+                f"aucun cas `parsing` ne l'accompagne dans le lot — le témoin {metrique} ne peut "
+                "donc rien mesurer. La politique complète promet un raisonnement juste sur un "
+                "texte dont personne n'aurait vérifié qu'il est celui du contrat — écrire au "
+                f"moins un cas sous parsing/{doc_id}/, ou mesurer en `--profile vertical`")
+        raise RefusDeTourner(
+            f"--gate {doc_id} --profile full : ce document n'est pas ingéré depuis un PDF, et le "
+            f"témoin {metrique} — la preuve de structure qui lui est applicable — n'est pas armé "
+            "par ce lot. Un gate `full` sans aucune exigence de structure affirmerait la politique "
+            "complète sans l'avoir opposée — mesurer en `--profile vertical`, ou composer le lot "
+            "avec la suite qui sert ce document")
+
+
+def suites_du_gate(settings: Settings, doc_id: str, profil: str, *,
+                   cases_dir: Path = CASES_DIR) -> tuple[str, ...]:
+    """Les suites qu'un `--gate {doc_id} --profile {profil}` exécute (story 4.5).
+
+    Sous `vertical`, c'est la seule suite qui sert le document (D5) — le contrat historique n'a pas
+    changé. Sous `full`, la **suite `parsing` du même document** s'y ajoute quand elle existe : c'est
+    ce que l'AC 1 demande, et c'est la condition pour que `parsing_ok_rate` puisse rougir. Un profil
+    qui promet la politique complète en excluant la seule preuve d'extraction du document mesurerait
+    le raisonnement sur un texte dont personne n'a vérifié qu'il est celui du contrat.
+
+    Conséquence assumée et écrite dans la passation : le `cases_hash` d'un gate `full` n'est plus
+    celui d'un gate `vertical` du même document. Deux profils, deux périmètres, deux hashes — c'est
+    exactement ce que `cases_hash` existe pour dire.
+
+    Cette fonction est l'**autorité commune** de `main()` et du miroir de `tests/test_digests.py` :
+    deux calculs séparés du périmètre d'un gate divergeraient au premier profil ajouté.
+    """
+    suites = [suite_du_document(settings, doc_id, cases_dir=cases_dir)]
+    if profil == "full":
+        dossier_parsing = cases_dir / "parsing" / doc_id
+        if dossier_parsing.is_dir():
+            _dans_cases(cases_dir, dossier_parsing, objet="suite parsing du document")
+            suites.append(f"parsing/{doc_id}")
+    return tuple(suites)
+
+
 def document_de_la_suite(settings: Settings, suite: str) -> str:
     morceaux = Path(suite).parts
     if len(morceaux) == 2 and morceaux[0] == "sinistre":
@@ -1183,7 +1384,8 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
                  variant: str | None, references_digest: str | None = None,
                  plancher_digest: str | None = None, repeat: int = 1,
                  campaign_id: str | None = None, series_kind: str | None = None,
-                 series_id: str | None = None) -> dict[str, Any]:
+                 series_id: str | None = None,
+                 candidate_revision: str | None = None) -> dict[str, Any]:
     """Identité publiable de l'image mesurée et du périmètre exact du run.
 
     Les digests de namespace par cas englobent aussi document, dictionnaire, seuils et entrée. Ils
@@ -1213,14 +1415,19 @@ def identite_run(cas: list[Cas], ctx: Contexte, *, profile: str, quick: bool,
         if name not in {"retrouver_outils_tier_reason", "retrieval_prompt_cache"}
     }
     identite = {
+        # Story 4.5 (revue B1) : la **révision produit mesurée** fait partie de l'identité du run,
+        # donc de `run_digest`. Sans elle, deux runs de deux commits différents pouvaient porter le
+        # même digest — et une preuve trusted pouvait s'y raccrocher indifféremment.
+        "candidate_revision": candidate_revision,
+        # Les cinq champs de `image_du_run`, écrits ici avec les digests **du contexte** (les
+        # doubles de test en posent d'autres). Story 4.2b : le protocole fait partie de l'identité —
+        # deux runs ne se comparent qu'à plancher égal, comme à corpus égal.
         "image": {
             "pipeline_digest": ctx.pipeline_digest_hex,
             "prompts_digest": ctx.prompts_digest_hex,
             "harness_digest": harness_digest(),
             "model_ids": dict(TIERS),
             "normalize_version": normalize_version,
-            # Story 4.2b : le protocole (plancher pré-enregistré) fait partie de l'identité — deux
-            # runs ne se comparent qu'à plancher égal, comme à corpus égal.
             "plancher_digest": plancher_digest,
         },
         "scope": {
@@ -1545,7 +1752,8 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                                                else None)),
                             opened_block_ids=_blocs_ouverts(trace),
                             steps=_etapes(trace),
-                            proofs=_preuves(answer, ctx.index))
+                            proofs=_preuves(answer, ctx.index),
+                            decision_claim=predicat_decisionnel(answer, ctx.index))
             resultats.append(resultat)
             _ligne(resultat, sortie, repeat=repeat)
     return resultats
@@ -1689,8 +1897,52 @@ def _taux_stabilite(stabilite: dict[str, Any], prefixe_suite: str) -> tuple[floa
     return round(stables / len(cases), 4), len(cases)
 
 
-def _temoin_applicable(temoin: Any, cas: list[Cas]) -> bool:
-    """Le témoin porte-t-il sur ce lot, même si sa mesure appartient à l'orchestrateur ?"""
+def agreger_stabilite_claim(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
+                            non_executes: list[str] | None = None) -> tuple[float, int] | None:
+    """La stabilité du **prédicat décisionnel** sur les cas sinistre, ou `None` s'il n'y en a pas.
+
+    Pourquoi un agrégat **à côté** de `_signature_stabilite`, et pas un champ de plus dedans : le
+    numérateur de `stabilite_sinistre` est écrit dans le plancher pré-enregistré — « la meme preuve
+    {doc_id, block_id, kind, quote_hash} et le meme verdict admissible ». Y glisser le prédicat
+    changerait le sens d'un témoin importé sans diminution, c'est-à-dire un changement de protocole
+    déguisé en amélioration : deux campagnes qui portent le même `plancher_digest` cesseraient de
+    mesurer la même chose. L'exigence nouvelle est donc un témoin nouveau, dont le rouge se lit
+    séparément (`stabilite_claim_decisionnelle`).
+
+    Un cas est stable ssi ses `repeat` répétitions sont **toutes** là et rendent le même prédicat.
+    Une répétition manquante est une interruption : rouge, jamais retirée du dénominateur.
+    """
+    manquantes: dict[str, int] = {}
+    for execution_id in non_executes or []:
+        base = _cas_de_lexecution(execution_id)
+        manquantes[base] = manquantes.get(base, 0) + 1
+    ids = sorted({c.id for c in cas if c.suite.startswith("sinistre")}
+                 | {r.id for r in resultats if r.suite.startswith("sinistre")})
+    if not ids:
+        return None
+    stables = 0
+    for case_id in ids:
+        reps = [r for r in resultats if r.id == case_id]
+        if len(reps) < repeat or {r.repetition for r in reps} != set(range(1, repeat + 1)):
+            continue
+        if manquantes.get(case_id):
+            continue
+        if len({r.decision_claim for r in reps}) == 1:
+            stables += 1
+    return round(stables / len(ids), 4), len(ids)
+
+
+def _temoin_applicable(temoin: Any, cas: list[Cas], *, exigences_full: bool = False) -> bool:
+    """Le témoin porte-t-il sur ce lot, même si sa mesure appartient à l'orchestrateur ?
+
+    `exigences_full` dit si **ce run** est le gate qui revendique la politique complète
+    (`--gate {doc_id} --profile full`). Les témoins que le plancher marque `arme_par: gate_full` n'y
+    sont applicables qu'alors : un diagnostic `--profile full` sans gate — ce que la CI lance à
+    chaque PR — et un gate `vertical` ne promettent pas cette politique, et les leur opposer ferait
+    rougir une mesure qui ne la revendique pas.
+    """
+    if getattr(temoin, "arme_par", "toujours") == "gate_full" and not exigences_full:
+        return False
     if temoin.scope in ("repo", "run"):
         return True
     if temoin.scope == "suite":
@@ -1702,21 +1954,54 @@ def _temoin_applicable(temoin: Any, cas: list[Cas]) -> bool:
     return False
 
 
-def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher) -> list[GateDecision]:
+def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher,
+                                    candidate_revision: str,
+                                    report_path: Path,
+                                    image_courante: dict[str, Any] | None = None,
+                                    ) -> tuple[list[GateDecision], PreuveExterneVerifiee]:
     """Charge une preuve externe mesurée par l'orchestrateur, sans lui faire déclarer son statut.
 
     Le fichier ne fournit que les mesures : seuil, producteur et statut sont recalculés depuis le
     plancher versionné. Ainsi A16, `decision_claim` (le prédicat est fusionné dans `juger`, mais la
-    décision chiffrée reste celle de la série orchestrateur) et les tests hors ligne peuvent
-    rejoindre le gate sans être simulés par le runner ni auto-certifiés par le JSON d'entrée.
+    décision chiffrée reste celle de la série orchestrateur), les tests hors ligne et les deux gardes
+    de la story 4.5 (anti-rustine, métamorphique) peuvent rejoindre le gate sans être simulés par le
+    runner ni auto-certifiés par le JSON d'entrée.
+
+    Story 4.5 (M2), durcie par la revue B1 : avant de lire la moindre mesure, la preuve est **liée**
+    à ce candidat par `plancher.verifier_liaison_preuve`, qui recoupe sept choses — les cinq clés
+    racine exactes, le protocole (`plancher_digest`), la révision candidate, les octets du rapport
+    (`report_digest`), l'égalité du `run_digest` racine avec celui du rapport référencé **et** de
+    chaque mesure, le **recalcul** de ce `run_digest` depuis l'identité du rapport (un digest cru sur
+    parole n'est qu'une chaîne), et enfin l'**image** mesurée — c'est à quoi sert `image_courante` :
+    `pipeline_digest`, `prompts_digest` et `model_ids` du run courant, deux runs ne se comparant qu'à
+    code, prompts et modèles égaux.
+
+    Une preuve d'une autre révision, d'une autre image, ou dont le rapport a bougé, est refusée
+    **avant toute décision** (code 2), et aucun gate n'est écrit. C'est la différence entre « une
+    preuve existe » et « cette preuve mesure ceci ».
+
+    Rend `(décisions, preuve vérifiée)` (revue B5, tour correctif 2/3). La `PreuveExterneVerifiee`
+    n'est pas un ornement : c'est le **seul** ancrage qui autorisera ensuite
+    `valider_rapport_publiable` à publier une décision portant l'empreinte d'un autre run. Sans
+    elle, la validation devait croire ce que le rapport déclarait sur lui-même. La faire suivre
+    d'ici jusqu'aux quatre surfaces est précisément le travail que le tour précédent avait écarté.
     """
     try:
         brut = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise RefusDeTourner(
             f"preuve orchestrateur {path} illisible ({type(exc).__name__})") from exc
-    if not isinstance(brut, dict) or brut.get("plancher_digest") != plancher.digest:
-        raise RefusDeTourner("preuve orchestrateur : plancher_digest divergent")
+    try:
+        octets_rapport: bytes | None = report_path.read_bytes()
+    except OSError:
+        octets_rapport = None
+    try:
+        preuve = verifier_liaison_preuve(brut, plancher_digest=plancher.digest,
+                                         candidate_revision=candidate_revision,
+                                         report_bytes=octets_rapport,
+                                         image_courante=image_courante)
+    except PlancherInvalide as exc:
+        raise RefusDeTourner(str(exc)) from exc
     mesures = brut.get("decisions")
     if not isinstance(mesures, list):
         raise RefusDeTourner("preuve orchestrateur : decisions doit être une liste")
@@ -1750,13 +2035,52 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher) -> 
             metric=metric, producer="orchestrator", threshold=temoin.plancher, scope=scope,
             n=n, run_digest=run_digest, value=round(float(value), 4), status=status,
             reason=raison))
-    return decisions
+    return decisions, preuve
+
+
+def _blocs_attendus_ouverts(r: Resultat) -> bool:
+    """« Blocs attendus ∈ blocs lus » — la suite `parsing` est locale : aucun bloc n'y est *lu*."""
+    return r.suite == "parsing" or set(r.expected_block_ids) <= set(r.opened_block_ids)
+
+
+def _typage_confirme(r: Resultat) -> bool:
+    """Chaque preuve citant une **clause fondatrice** porte-t-elle un typage confirmé (AD-6, AD-8) ?
+
+    L'univers est `KINDS_FONDATEURS` — `garantie`, `exclusion` —, exactement celui du prédicat
+    décisionnel de `juger`, et c'est le typage qu'AD-6 exige : celui dont dépend un verdict.
+
+    Le témoin regardait **toutes** les preuves, y compris les paragraphes du guide. Or aucun bloc du
+    corpus servi n'est `kind_confirmed` hors clauses contractuelles (sonde : 0 sur 506) : un gate
+    `full` du guide était donc **structurellement rouge**, quelle que soit la qualité du candidat —
+    un témoin qu'aucun travail ne peut verdir n'est pas une exigence, c'est un mur. Le guide n'a
+    aucune clause juridique à typer ; ce qu'il doit prouver, il le prouve par
+    `citations_retrouvees_rate` et `blocs_attendus_ouverts_rate`.
+
+    Une exécution sans preuve fondatrice est vraie par vacuité, et c'est le bon résultat : elle
+    n'affirme rien qu'un typage juridique devrait soutenir.
+    """
+    return all(bool(p.get("kind_confirmed")) for p in r.proofs
+               if p.get("kind") in KINDS_FONDATEURS)
+
+
+def _sans_5xx_technique(r: Resultat) -> bool:
+    """AD-11 : toute réponse du pipeline est un 200. Un `http >= 500` est un incident, pas un verdict.
+
+    Il en existait deux sortes indiscernables dans les agrégats : le refus de budget (rouge chiffré,
+    voulu) et la panne technique — dont la branche `TruncatedRead`, qui produit un `Resultat` avec un
+    503 tout en comptant comme une exécution terminée. Le témoin les sépare : ce qui porte un 5xx
+    n'est pas une mesure du système, et un gate qui l'ignore compte une panne comme une réponse.
+    """
+    return r.http is None or r.http < 500
 
 
 def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher: ChargePlancher,
                          repeat: int, run_digest: str, producer: str,
                          non_executes: list[str] | None = None,
                          decisions_orchestrateur: list[GateDecision] | None = None,
+                         exigences_full: bool = False,
+                         structure: tuple[int, int] | None = None,
+                         arbre: tuple[int, int] | None = None,
                          ) -> list[GateDecision]:
     """Les décisions chiffrées du run contre le plancher pré-enregistré (story 4.2b).
 
@@ -1817,14 +2141,63 @@ def construire_decisions(resultats: list[Resultat], cas: list[Cas], *, plancher:
         reps_ok = sum(1 for r in resultats if r.id == temoin.case_id and r.ok)
         _decision(temoin.metric, value=reps_ok / repeat, n=repeat,
                   scope=f"case:{temoin.case_id}")
+
+    # --- story 4.5 : les huit mesures du gate `full` ----------------------------------------------
+    #
+    # Elles ne sont calculées que lorsque les exigences de `full` sont armées — c'est-à-dire sous
+    # `--gate {doc_id} --profile full`. Ailleurs, `_temoin_applicable` les écarte de toute façon ;
+    # ne pas les calculer évite en plus de publier des chiffres qu'aucune décision ne lit.
+    #
+    # **Toutes** ont pour dénominateur les exécutions *planifiées* : une exécution manquante n'est
+    # jamais retirée du calcul, sans quoi un run interrompu serait plus flatteur qu'un run complet
+    # (règle d'incident du plancher).
+    if exigences_full:
+        parsing_planifiees = sum(1 for c in cas if c.suite == "parsing") * repeat
+        if parsing_planifiees:
+            parsing_ok = sum(1 for r in resultats if r.suite == "parsing" and r.ok)
+            _decision("parsing_ok_rate", value=parsing_ok / parsing_planifiees, n=repeat,
+                      scope="suite:parsing")
+        if planifiees:
+            for metric, predicat in (
+                ("blocs_attendus_ouverts_rate", _blocs_attendus_ouverts),
+                ("citations_retrouvees_rate", lambda r: r.label != "citation_introuvable"),
+                ("zero_5xx_technique_rate", _sans_5xx_technique),
+            ):
+                tenues = sum(1 for r in resultats if predicat(r))
+                _decision(metric, value=tenues / planifiees, n=repeat, scope="run")
+        # Le typage juridique se mesure sur la **suite sinistre** : c'est la seule qui porte des
+        # clauses fondatrices, et le dénominateur suit le numérateur (revue I1).
+        sinistres_planifiees = sum(1 for c in cas if c.suite.startswith("sinistre")) * repeat
+        if sinistres_planifiees:
+            tenues = sum(1 for r in resultats
+                         if r.suite.startswith("sinistre") and _typage_confirme(r))
+            _decision("typage_confirme_rate", value=tenues / sinistres_planifiees, n=repeat,
+                      scope="suite:sinistre")
+        if structure is not None and structure[1]:
+            _decision("structure_prouvee_rate", value=structure[0] / structure[1], n=repeat,
+                      scope="suite:parsing")
+        # Le pendant de `structure_prouvee_rate` pour les documents qui ne viennent pas d'un PDF
+        # (revue B4, volet guide). Le partage est celui de `SOURCE_FILES`, pas un `doc_id` : les deux
+        # dénominateurs sont complémentaires, et aucun périmètre ne se retrouve sans exigence de
+        # structure. Un dénominateur nul n'émet rien — et la fermeture par vacuité rend alors le
+        # témoin rouge, jamais neutre.
+        if arbre is not None and arbre[1]:
+            _decision("arbre_prouve_rate", value=arbre[0] / arbre[1], n=repeat,
+                      scope="suite:guide")
+        taux_claim = agreger_stabilite_claim(resultats, cas, repeat=repeat,
+                                             non_executes=non_executes)
+        if taux_claim is not None:
+            _decision("stabilite_claim_decisionnelle", value=taux_claim[0], n=repeat,
+                      scope="suite:sinistre")
+
     for decision in decisions_orchestrateur or []:
         temoin = plancher.plancher.temoin(decision.metric)
-        if temoin is not None and _temoin_applicable(temoin, cas):
+        if temoin is not None and _temoin_applicable(temoin, cas, exigences_full=exigences_full):
             decisions.append(decision)
     emises = {d.metric for d in decisions}
     for temoin in plancher.plancher.temoins:
         if (temoin.criticite != "bloquant" or temoin.metric in emises
-                or not _temoin_applicable(temoin, cas)):
+                or not _temoin_applicable(temoin, cas, exigences_full=exigences_full)):
             continue
         decisions.append(GateDecision(
             metric=temoin.metric, producer=producer, threshold=temoin.plancher,
@@ -1848,7 +2221,11 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                        preflight: dict[str, Any] | None = None,
                        stop_http: int | None = None,
                        stop_latency_ms: int | None = None,
-                       decisions_orchestrateur: list[GateDecision] | None = None) -> dict[str, Any]:
+                       decisions_orchestrateur: list[GateDecision] | None = None,
+                       exigences_full: bool = False,
+                       structure: tuple[int, int] | None = None,
+                       arbre: tuple[int, int] | None = None,
+                       dictionary_validated: bool | None = None) -> dict[str, Any]:
     snapshot = snapshot or snapshot_cas(cas, cases_dir)
     verifier_snapshot_cas(snapshot)
     labels = {label: sum(1 for r in resultats if r.label == label) for label in LABELS}
@@ -1959,6 +2336,14 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
             for r in resultats
         ],
     }
+    # Story 4.5 (P6) : les trois réserves entrent dans le **rapport**, donc dans le résumé que la CI
+    # concatène — pas seulement dans la publication, que la CI ne produit pas (elle tourne sans
+    # `--gate`). Les deux premières se dérivent des cas exécutés, exactement comme `construire_gate`
+    # dérive `countersigned` ; la troisième vient du dictionnaire chargé et n'est renseignée que
+    # lorsque l'appelant l'a construit — un refus de budget survient avant tout contexte.
+    if dictionary_validated is not None:
+        rapport["reserves"] = reserves_du_lot(cas, dictionary_validated=dictionary_validated
+                                              ).model_dump(mode="json")
     if preflight is not None:
         rapport["preflight"] = preflight
     if repeat > 1:
@@ -1969,9 +2354,27 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
         decisions = construire_decisions(resultats, cas, plancher=plancher, repeat=repeat,
                                          run_digest=run_digest, producer=producer,
                                          non_executes=manquantes_ids,
-                                         decisions_orchestrateur=decisions_orchestrateur)
+                                         decisions_orchestrateur=decisions_orchestrateur,
+                                         exigences_full=exigences_full, structure=structure,
+                                         arbre=arbre)
         rapport["plancher_digest"] = plancher.digest
         rapport["decisions"] = [d.model_dump(mode="json") for d in decisions]
+        # **Les empreintes de run étrangères sont déclarées**, jamais implicites (revue B5, tour
+        # correctif 1/3). Une décision venue d'une preuve trusted porte le `run_digest` du run que
+        # cette preuve mesure, et non celui de ce run-ci. Sans cette liste, la validation canonique
+        # n'avait aucun moyen de distinguer cette empreinte légitime d'une empreinte arbitraire.
+        #
+        # Ce que la liste établit et ce qu'elle n'établit pas (revue P5) : elle rend le rapport
+        # **cohérent avec lui-même** — chaque empreinte étrangère est portée par au moins une
+        # décision `producer="orchestrator"`, et réciproquement. La liaison cryptographique de la
+        # preuve à ce candidat, elle, a déjà eu lieu **en amont**, dans
+        # `charger_decisions_orchestrateur` → `verifier_liaison_preuve`, avant qu'aucune de ces
+        # décisions n'existe : un lecteur de rapport ne peut ni la voir ni la refaire. Elle n'est
+        # écrite que lorsqu'il y en a — un rapport sans preuve externe ne déclare pas une liste vide
+        # qu'il faudrait ensuite interpréter.
+        etrangeres = sorted({d.run_digest for d in decisions if d.run_digest != run_digest})
+        if etrangeres:
+            rapport["external_run_digests"] = etrangeres
     return rapport
 
 
@@ -1990,7 +2393,30 @@ def _markdown_code(value: Any) -> str:
     return f"<code>{_markdown_value(value)}</code>"
 
 
-def rendre_markdown(rapport: dict[str, Any]) -> str:
+def rendre_markdown(rapport: dict[str, Any],
+                    publication: PublicationEvals | None = None, *,
+                    preuve_externe: PreuveExterneVerifiee | None) -> str:
+    """La table Markdown du run — **le fichier que la CI concatène dans `$GITHUB_STEP_SUMMARY`**.
+
+    Story 4.5, correctif P6 du tour de revue précédent : **un seul renderer**. Le détail par cas
+    reste ici — c'est le journal du run, pas l'artefact publié — mais tout ce que l'AC 4 compare
+    d'une surface à l'autre (identité,
+    chiffres, stabilité N/N, décisions, réserves, limites) est rendu par
+    `publication.rendre_publication_markdown`, la **même** fonction qui écrit `docs/evals/latest.md`
+    et `data/evals-latest.json`. Deux renderers auraient divergé au premier champ ajouté, et les
+    tests n'auraient comparé que deux rendus synthétiques.
+
+    `publication` est fournie par le gate quand il y en a un (elle porte alors `evals_ok`, la
+    révision candidate et le protocole) ; sinon elle est **construite depuis ce rapport**, sans
+    gate — ce que la CI produit à chaque PR. Les champs qu'un diagnostic n'établit pas restent
+    absents, jamais fabriqués.
+    """
+    # **La même validation canonique que la publication**, appelée avant la première ligne rendue
+    # (revue B5, cycle de récupération). Ce journal est l'une des quatre surfaces — c'est lui que la
+    # CI concatène dans `$GITHUB_STEP_SUMMARY` —, et il lisait le rapport par une seconde lecture,
+    # plus permissive : un `metrics.recall` nul y serait sorti en `TypeError` nue, ou pire, en
+    # chiffre. Un seul contrôle, quatre surfaces, un seul refus dit.
+    valider_rapport_publiable(rapport, preuve_externe=preuve_externe)
     m = rapport["metrics"]
     etat = "complet" if rapport["complete"] else "partiel"
     lignes = [
@@ -2005,9 +2431,9 @@ def rendre_markdown(rapport: dict[str, Any]) -> str:
     lignes.extend([
         "| cases_hash | recall | coût moyen (€) | latence p50 (ms) | ne_tranche_pas |",
         "|---|---:|---:|---:|---:|",
-        f"| {_markdown_code(rapport['cases_hash'])} | {m['recall']:.4f} | "
-        f"{m['average_cost_eur']:.4f} | "
-        f"{m['latency_p50_ms']} | {m['ne_tranche_pas_rate']:.4f} |",
+        f"| {_markdown_code(rapport['cases_hash'])} | {nombre_publie(m['recall'])} | "
+        f"{nombre_publie(m['average_cost_eur'])} | "
+        f"{m['latency_p50_ms']} | {nombre_publie(m['ne_tranche_pas_rate'])} |",
         "",
         "| Label | Nombre |",
         "|---|---:|",
@@ -2026,7 +2452,46 @@ def rendre_markdown(rapport: dict[str, Any]) -> str:
         lignes.extend(["", "Cas non exécutés : "
                        + ", ".join(_markdown_code(case_id)
                                    for case_id in rapport["unexecuted_cases"]), ""])
-    return "\n".join(lignes).rstrip() + "\n"
+    journal = "\n".join(lignes).rstrip() + "\n"
+    # L'artefact publié, rendu par **sa** fonction, appendu au journal du run : c'est ce que la CI
+    # concatène, et c'est littéralement la même chaîne que `docs/evals/latest.md`.
+    pub = publication if publication is not None else construire_publication(
+        rapport, preuve_externe=preuve_externe)
+    return journal + "\n---\n\n" + rendre_publication_markdown(
+        pub, valeur=_markdown_value, code=_markdown_code)
+
+
+def cibles_publiees_du_run(data_dir: Path, output_json: Path, output_markdown: Path, *,
+                           gate: bool) -> list[Path]:
+    """Le lot que ce run publiera — la question que le préflight de racine pose (story 4.5, N3).
+
+    Hors gate, l'opération de production est le couple `(rapport JSON, table Markdown)`. Sous
+    `--gate`, elle y ajoute le manifest, l'artefact servi et le rendu lisible : c'est le lot complet
+    de l'AC, `data/manifest.json` compris, et il est connu **avant** la première mesure.
+    L'archive de campagne, elle, vit **sous** `docs/evals/campagnes`, dont la couverture se déduit
+    de celle de ce répertoire ; l'inclure nommément exigerait un horodatage qui n'existe pas encore.
+    """
+    cibles = [output_json, output_markdown]
+    if gate:
+        cibles += [data_dir / MANIFEST, data_dir / EVALS_PUBLICATION_FILE,
+                   data_dir.parent.joinpath(*DOCS_LATEST),
+                   # Le **répertoire** d'archives porte la couverture, et il est une cible installée
+                   # comme les autres (revue N1–N3, constat 5). Le motif qui l'écartait valait pour
+                   # le *fichier* d'archive, dont l'horodatage n'existe pas encore ; il ne vaut pas
+                   # pour le répertoire, sans quoi une disposition où ce seul lien manque laisse la
+                   # campagne entière être payée avant que la publication ne refuse.
+                   data_dir.parent.joinpath(*DOCS_ARCHIVES)]
+    return cibles
+
+
+def espace_du_data_dir(data_dir: Path) -> EspacePublie:
+    """L'espace de publication d'un `data/` — **l'autorité unique** du couple (racine, bundle).
+
+    La racine est `data_dir.parent`, exactement comme `output_json`, `output_markdown` et le cache
+    en dérivent déjà dans `main()`. Deux dérivations auraient fini par diverger, et un run pointé
+    ailleurs aurait basculé le `data/` du dépôt.
+    """
+    return EspacePublie(data_dir.parent, data_dir)
 
 
 def _ecrire_atomique(path: Path, contenu: str) -> None:
@@ -2046,9 +2511,209 @@ def _ecrire_atomique(path: Path, contenu: str) -> None:
         raise
 
 
-def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path) -> None:
-    _ecrire_atomique(json_path, json_canonique(rapport) + "\n")
-    _ecrire_atomique(markdown_path, rendre_markdown(rapport))
+def preparer_les_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path, *,
+                          preuve_externe: PreuveExterneVerifiee | None,
+                          contenu_json: str | None = None) -> list[tuple[Path, str]]:
+    """Le couple `(rapport JSON, table Markdown)` en **lot**, sans écrire un seul octet.
+
+    Tour correctif 3/3. Le couple n'est plus basculé par lui-même sur le chemin du gate : il entre
+    dans le **même** lot que la publication et le manifest, pour qu'il n'y ait qu'un seul point de
+    commit dans toute l'opération de production. Le séparer en atome propre était exactement la
+    frontière que le recheck a nommée — chaque atome était tout-ou-rien, l'opération ne l'était pas.
+
+    `contenu_json` permet à l'appelant de fournir les octets **déjà sérialisés**, ceux-là mêmes dont
+    il a tiré `gate.report_digest` : deux sérialisations du même rapport seraient identiques, mais
+    « seraient » n'est pas « sont », et l'empreinte publiée doit désigner les octets publiés.
+    """
+    return [
+        (json_path, contenu_json if contenu_json is not None else json_canonique(rapport) + "\n"),
+        (markdown_path, rendre_markdown(rapport, preuve_externe=preuve_externe)),
+    ]
+
+
+def ecrire_rapports(rapport: dict[str, Any], json_path: Path, markdown_path: Path, *,
+                    preuve_externe: PreuveExterneVerifiee | None, espace: EspacePublie) -> None:
+    """Le rapport JSON **et** sa table Markdown, ou aucun des deux (revue B3, chemin frère).
+
+    Deux `_ecrire_atomique` enchaînés laissaient, si le second échouait, un `eval-results.json` neuf
+    à côté d'un `eval-results.md` périmé — et ce n'est pas un couple anodin : c'est l'empreinte du
+    rapport qui alimente `gate.report_digest`, donc celle par laquelle un gate se réclame de son
+    rapport. Un lot mêlé ici se propage jusque dans le gate.
+
+    **Ce couple est un lot comme un autre** (story 4.5, B7) : il passe par le même unique pointeur
+    atomique que la publication. Les deux rendus sont construits d'abord — c'est là que
+    `RapportInexploitable` tombe, avant qu'aucune surface ne bouge — puis remis ensemble à
+    `EspacePublie.basculer`, qui les publie en un seul `os.replace` ou pas du tout.
+
+    C'est **l'opération de production entière** des chemins qui n'écrivent pas de gate : un run de
+    diagnostic, un refus de budget, un rapport partiel d'incident. Un run de gate, lui, ne passe
+    plus par ici : son opération comprend aussi la publication et le manifest, et elle n'a qu'un
+    commit (tour correctif 3/3).
+    """
+    espace.basculer(preparer_les_rapports(rapport, json_path, markdown_path,
+                                          preuve_externe=preuve_externe))
+
+
+# --- les preuves de structure d'ingestion (lues par le gate `full`) --------------------------------
+#
+# Il y en a **deux**, parce que les deux chemins d'ingestion prouvent deux choses différentes, et
+# elles se répartissent par la règle générique `SOURCE_FILES` du loader — jamais par un `doc_id` :
+#
+# - un document issu d'un PDF prouve sa **proposition de structure** (story 4.2c) : `structure.json`
+#   déclaré, présent, concordant, et attesté par le rapport d'ingestion (`preuve_de_structure`) ;
+# - un document qui n'en est pas issu — une copie de site — n'a pas de proposition de structure, mais
+#   son ingestion émet le même contrôle déterministe d'arbre que l'autre (`invariants_arbre`). Ce
+#   qu'il prouve, il le prouve par l'attestation de ce contrôle (`preuve_darbre`).
+#
+# Chacune alimente son propre témoin bloquant du plancher. Restreindre la première aux PDF sans
+# donner la seconde au guide aurait laissé un périmètre entier **sans aucune** exigence de structure
+# — un abaissement du plancher par omission, et le plancher ne s'abaisse jamais.
+
+STRUCTURE_FILE = "structure.json"
+
+
+def _rapport_dingestion(data_dir: Path, doc_id: str, lecture: Lecture) -> Report | None:
+    """Le `report.json` de ce document, **rattaché à lui**, ou `None` — absent, illisible, étranger.
+
+    Les trois cas se valent pour une preuve : rien n'atteste, donc rien n'est prouvé. Un rapport
+    dont le `doc_id` diffère décrit un autre document, et ses checks ne disent rien de celui-ci.
+
+    La lecture passe par le **repère pincé** de l'opération de gate (story 4.5, N1) : le manifest
+    d'où viennent les empreintes attendues, la proposition de structure et ce rapport doivent venir
+    de la même génération — une décision de gate composée de trois générations ne décrit aucun état.
+    """
+    try:
+        lu = Report.model_validate_json(lecture.reel(data_dir / doc_id / "report.json").read_bytes())
+    except (OSError, ValueError):
+        return None
+    return lu if lu.doc_id == doc_id else None
+
+
+def _atteste(lu: Report, nom: str, lire: Any, attendu: tuple[str, ...]) -> bool:
+    """Le rapport porte-t-il, pour le check `nom`, une attestation affirmative valant `attendu` ?
+
+    Deux conditions, et la première est celle que la revue D a rétablie : **aucun check `nom` de
+    niveau `bloquant`**. Le vérificateur qui refuse et l'ingestion qui atteste écrivent le même nom
+    de check ; n'exiger qu'une attestation non bloquante laissait un rapport portant les deux — un
+    refus **et** une acceptation — compter comme prouvé. Un chemin de production n'en émet qu'un à
+    la fois, mais une preuve ne se lit pas en pariant sur ce qui a bien voulu être écrit.
+    """
+    if any(c.name == nom and c.level == "bloquant" for c in lu.checks):
+        return False
+    attestations = [lire(c.detail) for c in lu.checks if c.name == nom and c.level != "bloquant"]
+    return attendu in [a for a in attestations if a is not None]
+
+
+def preuve_darbre(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
+                  lecture: Lecture | None = None) -> tuple[int, int]:
+    """(documents non-PDF dont l'arbre est prouvé, documents non-PDF du lot) — jamais une valeur neutre.
+
+    Story 4.5, revue B4 — **volet guide**. `structure_prouvee_rate` a été restreint aux documents
+    issus d'un PDF, ce qui est juste : la story 4.2c ne s'applique qu'à eux, et l'exiger d'une copie
+    de site rendait tout gate `full` du guide définitivement rouge. Mais restreindre sans remplacer
+    laissait le guide **sans aucune** exigence de structure — un plancher abaissé par omission. Ce
+    témoin est la preuve déterministe qui lui est applicable.
+
+    Le dénominateur est l'exact **complément** de celui de `preuve_de_structure` : la règle
+    `SOURCE_FILES` du loader (première source présente) partage le lot en deux, sans une branche par
+    document. Un document dont aucune source n'est présente n'entre dans aucun des deux — il n'y a
+    rien à lire pour décider ce qu'il est, et inventer un périmètre serait pire que de n'en compter
+    aucun. Le loader, lui, **sert** ce document (alerte `source_absente`, jamais un refus) : le trou
+    est donc réel, et c'est `main()` qui le ferme, en refusant un gate `full` sur un document sans
+    source **avant tout appel** (revue C).
+
+    « Prouvé » veut dire **trois** choses ensemble, et l'absence d'une seule suffit à ne pas compter :
+
+    1. `report.json` est présent, **lisible** et **rattaché à ce document** (`doc_id` égal) ;
+    2. il porte un check `invariants_arbre` **affirmatif** et **aucun** check `invariants_arbre`
+       bloquant — un arbre refusé n'est pas un arbre prouvé, même si une acceptation traîne à côté ;
+    3. son attestation nomme le `document_hash` **et** l'`ingest_fingerprint` de l'entrée du
+       manifest — les octets exacts de l'arbre servi, et le code qui les a produits.
+
+    La troisième condition est celle qui fait la différence entre une preuve et une déclaration : le
+    corpus servi porte aujourd'hui `invariants_arbre: ok`, sans empreinte. Un `report.json` fabriqué
+    à la main ne verdit donc rien, et une réingestion — ou un `document.json` qui bouge — détache
+    l'attestation sans qu'aucune ligne de code n'ait à s'en apercevoir.
+    """
+    if lecture is None:
+        return relire(data_dir, lambda pincee: preuve_darbre(
+            data_dir, ctx, doc_ids, lecture=pincee))
+    uniques = [doc_id for doc_id in sorted(set(doc_ids))
+               if _source_du_document(data_dir, doc_id, lecture=lecture)
+               not in (None, "source.pdf")]
+    prouves = 0
+    for doc_id in uniques:
+        entry = ctx.index.corpus.manifest.get(doc_id)
+        attendu = ((getattr(entry, "document_hash", "") or ""),
+                   (getattr(entry, "ingest_fingerprint", "") or ""))
+        if not all(attendu):
+            continue
+        lu = _rapport_dingestion(data_dir, doc_id, lecture)
+        if lu is None:
+            continue
+        if _atteste(lu, TREE_CHECK, lire_attestation_arbre, attendu):
+            prouves += 1
+    return prouves, len(uniques)
+
+
+def preuve_de_structure(data_dir: Path, ctx: Contexte, doc_ids: list[str], *,
+                        lecture: Lecture | None = None) -> tuple[int, int]:
+    """(documents PDF dont la structure est prouvée, documents PDF du lot) — jamais une valeur neutre.
+
+    **Le dénominateur ne retient que les documents issus d'un PDF** (règle `SOURCE_FILES` du loader,
+    par `document_parse_depuis_un_pdf`). Un document non-PDF — la copie de site — n'a aucune
+    structure d'ingestion à prouver : la story 4.2c ne s'applique pas à lui, aucun chemin de
+    production ne lui écrit de `structure.json`, et l'exiger rendait tout gate `full` du guide
+    définitivement rouge. L'exclusion est documentée au plancher et dans `docs/evals/harness.md`, et
+    elle ne laisse **aucun** périmètre sans exigence : ce que le témoin n'oppose plus au guide,
+    `preuve_darbre` le lui oppose sous une autre forme — celle que son ingestion peut réellement
+    produire. Les deux pendants fail-open sont fermés dans `main()`, avant tout appel : un document
+    PDF sans cas `parsing` ne rend le témoin applicable à rien, et un document **sans source** ne
+    tombe sous aucun des deux périmètres. Les deux font refuser le gate `full`.
+
+    « Prouvée » veut dire **quatre** choses ensemble, et l'absence de l'une suffit à ne pas compter :
+
+    1. le manifest **déclare** un `structure_hash` ;
+    2. l'artefact `data/{doc_id}/structure.json` est présent et concorde avec lui ;
+    3. `report.json` est présent, **lisible** et **rattaché à ce document** (`doc_id` égal) ;
+    4. il porte un check `structure_proposee` **affirmatif** — et **aucun** bloquant du même nom —
+       dont l'attestation nomme le `document_hash` et le `structure_hash` observés.
+
+    La quatrième condition est celle qui manquait : `if rapport.is_file()` rendait le rapport
+    facultatif, si bien qu'un `structure.json` au contenu arbitraire, son hash recopié au manifest et
+    **aucun** `report.json` suffisaient à faire verdir le témoin. Une preuve fabriquée verdissait.
+
+    Sur le corpus servi aujourd'hui, aucune `structure.json` n'existe et aucun `report.json` ne porte
+    d'attestation : la story 4.2c n'a jamais été exercée sur ce corpus, et la réingestion réelle est
+    une dette de l'orchestrateur. « Structure insuffisamment prouvée » est donc l'état **réel** ; ce
+    témoin le dit en rouge chiffré au lieu de le contourner.
+    """
+    if lecture is None:
+        return relire(data_dir, lambda pincee: preuve_de_structure(
+            data_dir, ctx, doc_ids, lecture=pincee))
+    uniques = [doc_id for doc_id in sorted(set(doc_ids))
+               if document_parse_depuis_un_pdf(data_dir, doc_id, lecture=lecture)]
+    prouves = 0
+    for doc_id in uniques:
+        entry = ctx.index.corpus.manifest.get(doc_id)
+        attendu = getattr(entry, "structure_hash", None) if entry is not None else None
+        if not attendu:
+            continue
+        chemin = lecture.reel(data_dir / doc_id / STRUCTURE_FILE)
+        try:
+            observe = hashlib.sha256(chemin.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        if observe != attendu:
+            continue
+        lu = _rapport_dingestion(data_dir, doc_id, lecture)
+        if lu is None:
+            continue  # rapport absent, illisible ou étranger : rien n'atteste, rien n'est prouvé
+        if not _atteste(lu, STRUCTURE_CHECK, lire_attestation_structure,
+                        (getattr(entry, "document_hash", "") or "", observe)):
+            continue
+        prouves += 1
+    return prouves, len(uniques)
 
 
 # --- le gate (AD-7) --------------------------------------------------------------------------------
@@ -2057,7 +2722,10 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
                     cases_dir: Path, evals_ok: bool,
                     snapshot: CasesSnapshot | None = None,
                     decisions: list[GateDecision] | None = None,
-                    run_digest: str | None = None) -> Gate:
+                    run_digest: str | None = None,
+                    plancher_digest: str | None = None,
+                    candidate_revision: str | None = None,
+                    report_digest: str | None = None) -> Gate:
     """Le gate d'un document : les empreintes de **l'entrée du manifest**, pas celles recalculées.
 
     AD-7 : « le gate porte `source_hash`, `ingest_fingerprint`, `overlay_hash` de l'entrée du manifest
@@ -2084,39 +2752,75 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
         pipeline_digest=ctx.pipeline_digest_hex, prompts_digest=ctx.prompts_digest_hex,
         model_ids=dict(TIERS), pipeline_settings=ctx.settings.thresholds(), evals_ok=evals_ok,
         decisions=list(decisions or []), run_digest=run_digest,
+        # Story 4.5 : le protocole, la révision et le rapport — recopiés, jamais recalculés ici.
+        # `structure_hash` vient de **l'entrée du manifest**, comme `overlay_hash` : le recalculer
+        # donnerait un gate qui se valide lui-même (le loader compare le gate à l'entrée, et deux
+        # valeurs issues du même calcul seraient toujours d'accord).
+        plancher_digest=plancher_digest, candidate_revision=candidate_revision,
+        report_digest=report_digest, structure_hash=getattr(entry, "structure_hash", None),
         date=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"))
 
 
-def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
-    """Écrit `manifest[doc_id].gate` — l'unique écriture de `data/` de tout ce module (AD-7).
+def preparer_gate(manifest_path: Path, doc_id: str, gate: Gate, *,
+                  lire: Any = None) -> tuple[Path, str] | None:
+    """Sérialise `manifest[doc_id].gate` et rend `(manifest, contenu)` — **sans rien écrire**.
+
+    Rend `None` — sans rien préparer — quand le gate **ne doit pas** être écrit : c'est la
+    non-mutation du dernier vert, et elle se décide ici, avant toute écriture.
+
+    **Story 4.5, B7 : plus aucun temporaire n'est créé ici.** La fonction ne fait que lire, valider
+    et sérialiser ; l'écriture appartient entièrement à `EspacePublie.basculer`, qui écrit tous les
+    slots du lot dans une génération inactive puis publie le tout par un unique `os.replace`. Le
+    temporaire de manifest qui échappait à son nettoyage n'existe plus : il n'y a plus de
+    temporaire de manifest.
 
     Le manifest entier est relu et **validé** avant la moindre écriture : un fichier illisible ou une
-    entrée hors schéma arrête tout sans rien modifier sur disque. L'écriture est atomique (fichier
-    temporaire puis `replace`) et garde la forme des autres écrivains de `data/` — clés triées,
-    `indent=2`, `ensure_ascii=False`, saut de ligne final —, pour qu'un `git diff` de gate ne soit
-    qu'un gate.
+    entrée hors schéma arrête tout sans rien modifier sur disque. Le contenu final est sérialisé **en
+    mémoire**, à la forme des autres écrivains de `data/` — clés triées, `indent=2`,
+    `ensure_ascii=False`, saut de ligne final —, pour qu'un `git diff` de gate ne soit qu'un gate.
+
+    **Pourquoi une préparation séparée** (revue A). Publier puis écrire le gate déplaçait la fenêtre
+    de la revue B3 au lieu de la fermer : `ecrire_gate` peut encore refuser (manifest illisible,
+    entrée absente ou hors schéma), et les trois surfaces auraient alors publié `evals_ok: true` sans
+    qu'aucun gate n'existe. Tout ce qui peut échouer — lecture, validation, sérialisation — se
+    produit donc **avant** la bascule ; ne reste ensuite que l'unique `os.replace` du pointeur, qui
+    publie le lot entier ou rien.
 
     **Non-mutation du dernier vert (story 4.2b).** Un gate candidat **rouge** ne remplace jamais un
     gate `evals_ok: true` : le verdict candidat est publié dans le rapport (décisions chiffrées,
-    raison, limites), le mécanisme de promotion reste le seul chemin de bascule, et cette fonction
-    rend `False` sans toucher le disque. Elle rend `True` quand le gate a été écrit.
+    raison, limites), et le mécanisme de promotion reste le seul chemin de bascule.
+
+    **`lire` est la lecture de la transaction, et c'est elle qui compte** (revue du tour de racine
+    unique, constat 1). Le gate est le quatrième écrivain de `data/manifest.json`, et il lisait le
+    manifest entier **hors du verrou** avant d'en remettre la sérialisation à la bascule : une
+    ingestion publiée entre-temps était donc écrasée par une fusion périmée — le fait 2 exactement,
+    sur le writer que le tour n'avait pas fermé. La lecture, la décision de non-mutation du dernier
+    vert et la publication vivent maintenant dans la même `EspacePublie.transaction()`. Sans `lire`
+    (arbre qu'aucune racine ne couvre), le chemin est lu tel quel, comme avant.
     """
     try:
-        brut = json.loads(manifest_path.read_text(encoding="utf-8"))
+        brut_texte = lire(manifest_path) if lire is not None else manifest_path.read_text(
+            encoding="utf-8")
+        if brut_texte is None:
+            raise FileNotFoundError(str(manifest_path))
+        brut = json.loads(brut_texte)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise RefusDeTourner(f"{manifest_path} illisible : {type(exc).__name__}") from exc
     if not isinstance(brut, dict) or doc_id not in brut:
         raise RefusDeTourner(f"{manifest_path} : aucune entrée {doc_id!r}")
     gate_existant = brut[doc_id].get("gate") if isinstance(brut[doc_id], dict) else None
-    if (not gate.evals_ok and isinstance(gate_existant, dict)
-            and gate_existant.get("evals_ok") is True):
+    gate_existant_inconnu = gate_existant is not None and (
+        not isinstance(gate_existant, dict) or gate_existant.get("evals_ok") is not False)
+    if not gate.evals_ok and gate_existant_inconnu:
         # Le rouge est un **résultat**, publié dans le rapport ; le dernier vert — gate, révision,
-        # trafic — reste intact. Écraser le vert ferait d'un candidat raté une régression de
+        # trafic — reste intact. Une valeur hors schéma est elle aussi conservée : on ne peut pas
+        # prouver qu'elle est rouge, donc l'écraser avec un candidat rouge serait une décision
+        # ouverte par défaut. Écraser le vert ferait d'un candidat raté une régression de
         # production (Intent 4.2b : « un rouge peut détruire le dernier vert »).
-        print(f"gate candidat rouge sur {doc_id!r} : le gate vert existant n'est pas modifié "
+        print(f"gate candidat rouge sur {doc_id!r} : le gate existant n'est pas modifié "
               "(le verdict candidat, ses raisons et ses limites sont publiés dans le rapport)",
               file=sys.stderr)
-        return False
+        return None
     if (gate.evals_ok and not gate.decisions and isinstance(gate_existant, dict)
             and gate_existant.get("evals_ok") is True and gate_existant.get("decisions")):
         # HIGH 1 : un vert **sans décisions** — écrit à la main ou par un chemin antérieur au
@@ -2124,7 +2828,7 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
         # preuve contre un booléen.
         print(f"gate candidat sans décisions sur {doc_id!r} : le gate vert existant, qui porte "
               "ses décisions chiffrées, n'est pas modifié", file=sys.stderr)
-        return False
+        return None
     # Un gate **périmé au sens du schéma** n'empêche pas d'en écrire un neuf (revue Codex 1.10
     # tour 2). Quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
     # —, tous les gates déjà écrits deviennent invalides et doivent être refaits, un document après
@@ -2160,27 +2864,197 @@ def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
                              f"({exc.errors()[0].get('msg', '') if exc.errors() else 'hors schéma'})"
                              ) from exc
     brut[doc_id] = entree.model_dump(mode="json")
-    # Nom temporaire **unique**, dans le répertoire du manifest (revue Codex 1.10, M1) : un
-    # `manifest.json.tmp` fixe était partagé par deux `--gate` concurrents, qui se marchaient dessus
-    # jusqu'à faire échouer un `replace` sur un fichier déjà déplacé. Le même répertoire garde le
-    # `replace` atomique (même système de fichiers). Ce qui reste ouvert — deux écrivains qui relisent
-    # le même manifest et perdent l'un des deux gates — demande un verrou sur toute la séquence :
-    # entrée différée (`target_story: 4.1`), avec les deux écrivains de `data/` à réunir.
-    fd, nom = tempfile.mkstemp(prefix=manifest_path.name + ".", suffix=".tmp",
-                               dir=str(manifest_path.parent))
-    tmp = Path(nom)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as sortie:
-            sortie.write(json.dumps(dict(sorted(brut.items())), indent=2, ensure_ascii=False) + "\n")
-        tmp.replace(manifest_path)
-    except OSError as exc:
-        # Disque plein, `data/` en lecture seule, conteneur sans droit d'écriture : un refus dit,
-        # pas une trace de pile. Le manifest est intact — l'écriture est atomique, et ce qui a pu
-        # être écrit l'a été dans le fichier temporaire.
-        tmp.unlink(missing_ok=True)
-        raise RefusDeTourner(f"{manifest_path} : écriture impossible ({type(exc).__name__}) — "
-                             "le manifest n'a pas été modifié") from exc
+    # La forme des autres écrivains de `data/` — clés triées, `indent=2`, `ensure_ascii=False`, saut
+    # de ligne final — pour qu'un `git diff` de gate ne montre qu'un gate.
+    #
+    # La course de perte de gate — deux écrivains qui relisent le même manifest et perdent l'une des
+    # deux entrées — demandait un verrou sur **toute la séquence**, entrée différée
+    # (`target_story: 4.1`). Elle est payée, et pour tous les écrivains : le ping-pong à deux
+    # générations impose un `flock` exclusif, et lecture, fusion et publication vivent dans la même
+    # `EspacePublie.transaction()` — ici par `lire`, dans l'ingestion par
+    # `server/ingest/artifacts.py::fusionner_et_publier`. Il ne reste aucun écrivain de
+    # `data/manifest.json` qui lise hors du verrou.
+    return manifest_path, json.dumps(dict(sorted(brut.items())), indent=2,
+                                     ensure_ascii=False) + "\n"
+
+
+def ecrire_gate(manifest_path: Path, doc_id: str, gate: Gate) -> bool:
+    """Sérialise puis bascule, en une fois — l'unique écriture de `data/` de tout ce module (AD-7).
+
+    C'est `preparer_gate` suivi de sa bascule : la sémantique est mot pour mot celle d'avant la revue
+    A (rend `True` quand le gate a été écrit, `False` quand la non-mutation du dernier vert
+    s'applique, lève `RefusDeTourner` sur un manifest qu'on ne peut ni lire ni écrire). Le gate
+    `full` de `main()`, lui, n'appelle pas cette fonction : il remet le manifest **avec** ses
+    publications au même appel de bascule, pour qu'aucune surface ne puisse affirmer un verdict que
+    le manifest ne porte pas.
+
+    **Le contrat de l'espace couvre ce chemin** (story 4.5, B7). Il n'y a plus de temporaire préparé
+    avant l'appel, donc plus de temporaire à oublier : la sérialisation est en mémoire, l'écriture
+    et la publication appartiennent à `EspacePublie.transaction()`. L'espace est dérivé du manifest
+    par l'autorité unique `espace_du_data_dir`, de sorte qu'un appelant ne puisse pas en désigner un
+    autre que celui où vit le manifest qu'il écrit.
+
+    **La lecture est dans la transaction** (revue du tour de racine unique) : relire, décider la
+    non-mutation du dernier vert et publier sous le même `flock`, sans quoi une entrée publiée
+    entre la lecture et la bascule disparaîtrait du manifest que ce gate republie.
+    """
+    espace = espace_du_data_dir(manifest_path.parent)
+    if not espace.installe():
+        # Aucun pointeur : il n'y a pas de section critique à ouvrir — personne d'autre ne peut
+        # publier ce manifest — et le refus, si un gate doit réellement être écrit, reste celui
+        # d'avant, dit par la bascule et nommant la commande qui pose la disposition.
+        prepare = preparer_gate(manifest_path, doc_id, gate)
+        if prepare is None:
+            return False
+        espace.basculer([prepare])
+        return True
+    with espace.transaction() as transaction:
+        prepare = preparer_gate(manifest_path, doc_id, gate, lire=transaction.lire)
+        if prepare is None:
+            return False
+        transaction.publier([prepare])
     return True
+
+
+# --- la publication (FR41, FR42) --------------------------------------------------------------------
+
+def reserves_du_lot(cas: list[Cas], *, dictionary_validated: bool) -> ReservesPubliees:
+    """Les trois réserves de l'AC 3, dérivées du lot — **une seule autorité**, jamais recomposées.
+
+    - `countersigned` : la conjonction des `truth.countersigned_by` des cas exécutés — exactement la
+      règle que `construire_gate` applique pour écrire `Gate.countersigned` ;
+    - `validated_by_expert` : AD-14 la fixe à `false` pour tout ce que ce projet produit, et le
+      schéma de cas (`Verite.validated_by_expert: Literal[False]`) l'empêche d'être vraie ;
+    - `dictionary_validated` : une main a-t-elle signé `data/dictionary.json` (AD-5) ?
+
+    Aucune décision de gate n'en dépend, et c'est délibéré : ce sont des dettes **connues et dites**,
+    pas des défauts du candidat. Les rendre bloquantes ferait refuser de servir pour une signature
+    manquante ; les taire ferait affirmer une relecture qui n'a pas eu lieu.
+
+    La fonction prend le **lot** et non le gate : le rapport de CI la publie aussi, et la CI tourne
+    sans `--gate` (revue 4.5, P6). Deux dérivations auraient pu diverger.
+    """
+    return ReservesPubliees(
+        countersigned=all(c.truth.countersigned_by is not None for c in cas),
+        # Dérivé des cas, jamais écrit en dur : le jour où AD-14 changerait d'avis, c'est le schéma
+        # de cas qui bougerait, et cette ligne suivrait sans qu'on ait à s'en souvenir.
+        validated_by_expert=any(bool(c.truth.validated_by_expert) for c in cas),
+        dictionary_validated=dictionary_validated)
+
+
+def etat_seconde_lecture(ctx: Contexte, rapport: dict[str, Any], *,
+                         candidate_revision: str,
+                         verdict_path: Path | None = None,
+                         images_dir: Path | None = None) -> SecondeLecturePubliee:
+    """Où en est la seconde lecture (FR47) — le plan est calculable ici, le verdict est **ingéré**.
+
+    Le builder produit le **plan** déterministe, dérivé du rapport par `blocs_cles_du_rapport` — la
+    même fonction que la CLI `python -m server.evals.relecture`, pour que le plan qu'un orchestrateur
+    reçoit soit exactement celui que la publication compte.
+
+    Le verdict `concordant|divergent`, lui, vient de l'orchestrateur : seul lui regarde les images de
+    pages. Tant qu'il n'est pas déposé, le statut est `planifiee` — **jamais** « concordante par
+    défaut » : affirmer une relecture humaine qui n'a pas eu lieu est précisément ce qu'AD-16
+    interdit et ce que la story combat.
+
+    Un verdict déposé qui ne se recoupe pas avec le plan — ou dont les `image_sha256` ne
+    correspondent pas aux **octets réellement regardés** (`--relecture-images`) — lève
+    `RelectureInvalide` : c'est un échec de publication (le run ne peut pas être vert), jamais une
+    seconde lecture publiée au rabais.
+    """
+    # **La révision est exigée par la signature**, plus par un invariant distant (revue B1, frère).
+    # Elle l'était en fait déjà — l'appel n'a lieu que sous `exigences_full` —, mais le type disait
+    # le contraire et le corps publiait alors `absente 0/0` : tout appelant futur hors gate `full`
+    # aurait publié une seconde lecture « absente » sans réserve, là où la vraie réponse est « je ne
+    # sais pas de quel candidat on parle ».
+    if not candidate_revision:
+        raise RelectureInvalide(
+            "seconde lecture : la révision candidate est obligatoire — sans elle, le plan ne se "
+            "rattache à aucun candidat et « absente » serait une affirmation sans objet")
+    plan = plan_de_relecture(ctx.index, blocs_cles_du_rapport(rapport),
+                             candidate_revision=candidate_revision)
+    attendues = len(plan.cles_attendues)
+    if plan.non_projetables:
+        # **Rouge, jamais concordante** (revue B5) : des clés attendues n'ont pas pu être projetées.
+        # Le statut le dit, la limite dérivée le publie, et `valider_verdict` refuserait de toute
+        # façon un verdict déposé sur un tel plan. « Aucun bloc clé » et « tous improjetables »
+        # cessent d'être indiscernables.
+        return SecondeLecturePubliee(statut="impossible", blocs_planifies=attendues,
+                                     blocs_verifies=0,
+                                     blocs_non_projetables=len(plan.non_projetables))
+    if verdict_path is None:
+        statut = "planifiee" if plan.blocs else "absente"
+        return SecondeLecturePubliee(statut=statut, blocs_planifies=attendues, blocs_verifies=0)
+    try:
+        brut = json.loads(verdict_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise RelectureInvalide(
+            f"verdict de seconde lecture {verdict_path} illisible ({type(exc).__name__})") from exc
+    if images_dir is None:
+        raise RelectureInvalide(
+            "--relecture-verdict exige --relecture-images : un verdict se valide sur les octets "
+            "réellement regardés, jamais sur les seules empreintes qu'il annonce")
+    # Les octets sont relus **ici**, depuis le dossier que l'orchestrateur a rempli avec la route de
+    # la story 3.4 : le validateur recalcule l'empreinte, il ne croit pas celle du verdict (revue B5).
+    verdict = valider_verdict(brut, plan, candidate_revision=candidate_revision,
+                              images=charger_images(images_dir, plan))
+    return SecondeLecturePubliee(statut=statut_du_verdict(verdict),
+                                 blocs_planifies=attendues,
+                                 blocs_verifies=len(verdict.verdicts))
+
+
+def preparer_la_publication(rapport: dict[str, Any], gate: Gate, ctx: Contexte, cas: list[Cas], *,
+                            data_dir: Path, output_markdown: Path, report_digest: str,
+                            candidate_revision: str | None,
+                            relecture_verdict: Path | None = None,
+                            relecture_images: Path | None = None,
+                            repo_root: Path | None = None,
+                            resoudre: Any = None,
+                            preuve_externe: PreuveExterneVerifiee | None,
+                            ) -> list[tuple[Path, str]]:
+    """Construit l'artefact unique et **prépare** ses écritures — sans rien publier encore.
+
+    Rend la liste `[(cible, contenu)]` à basculer. Les quatre surfaces de l'AC 4 tiennent en
+    **trois écritures** — `data/evals-latest.json` (que `GET /api/v1/evals/latest` sert et que `/`
+    compose), `docs/evals/latest.md`, et le **même** rendu dans `eval-results.md`, le fichier que la
+    CI concatène dans `$GITHUB_STEP_SUMMARY` —, plus une quatrième cible quand le
+    `docs/evals/latest.md` précédent doit être archivé avant d'être remplacé. « Le même artefact » ne
+    peut pas être deux rendus divergents : c'est littéralement la même chaîne, rendue une fois.
+
+    Le journal du run (`eval-results.md`) est rendu **ici**, publication comprise : c'est l'autorité
+    unique de cette surface. Le rapport JSON, le manifest et ce lot sont ensuite remis au **même**
+    appel de bascule — un seul point de commit pour toute l'opération de production (tour correctif
+    3/3) —, de sorte qu'aucune surface ne puisse affirmer un verdict que le manifest ne porte pas,
+    ni l'inverse, ni qu'un journal de run survive à un gate qui n'a pas été écrit.
+
+    Rien n'est visible à la sortie de cette fonction (revue B3) : rien n'est écrit du tout.
+
+    `repo_root` est **dérivé de `data_dir`** par l'appelant, exactement comme `output_json` et le
+    cache le sont déjà. Le figer sur `REPO_ROOT` ferait écrire le `docs/evals/latest.md` du dépôt
+    depuis n'importe quel run pointé ailleurs.
+
+    `resoudre` est le repère dans lequel lire le rendu précédent à archiver — `tx.chemin_publie`
+    sous une transaction. `docs/evals/latest.md` est une cible **couverte** : décider son archivage
+    sur une lecture faite hors du verrou, c'est risquer d'écraser sans l'archiver un rendu qu'une
+    bascule concurrente a publié entre-temps (revue du tour de racine unique, constat 1).
+    """
+    repo_root = repo_root if repo_root is not None else REPO_ROOT
+    publication = construire_publication(
+        rapport, gate,
+        reserves=reserves_du_lot(
+            cas, dictionary_validated=bool(getattr(ctx.dictionnaire, "validated", False))),
+        relecture=etat_seconde_lecture(ctx, rapport, candidate_revision=candidate_revision,
+                                       verdict_path=relecture_verdict,
+                                       images_dir=relecture_images),
+        report_digest=report_digest, candidate_revision=candidate_revision,
+        preuve_externe=preuve_externe)
+    prepares = preparer_publication(
+        publication, data_dir=data_dir, repo_root=repo_root, resoudre=resoudre,
+        nom=ctx.settings.evals_publication_file,
+        markdown_run=rendre_markdown(rapport, publication, preuve_externe=preuve_externe),
+        chemin_run=output_markdown,
+        valeur=_markdown_value, code=_markdown_code)
+    return prepares
 
 
 # --- l'assemblage ----------------------------------------------------------------------------------
@@ -2195,74 +3069,36 @@ def cle_absente(settings: Settings) -> bool:
     return config_cle_absente(settings)
 
 
-def _materialiser_dans_ombre(source: Path, cible: Path, racine: Path,
-                             ancetres: frozenset[Path] = frozenset()) -> None:
-    """Matérialise ``source`` sous ``cible`` sans jamais lire hors de ``racine``.
-
-    Les fichiers sont liés physiquement quand le système de fichiers le permet : le corpus AXA
-    n'est donc pas recopié. Une copie est le repli portable si le répertoire temporaire se trouve
-    sur un autre volume. Les liens symboliques internes sont résolus vers un fichier ou un dossier
-    réel dans l'ombre ; ceux qui sortent du vrai ``data/`` sont ignorés, comme le loader les
-    mettrait en quarantaine.
-    """
+def _gate_a_neutraliser(capacite: CapaciteRegate, cible: str,
+                        current: GateContext) -> bool:
+    """Le gate ciblé est-il rouge, périmé ou hors du schéma courant ?"""
+    brut = json.loads(capacite.octets_manifest)
+    entree_brute = brut.get(cible) if isinstance(brut, dict) else None
+    gate_brut = entree_brute.get("gate") if isinstance(entree_brute, dict) else None
+    if gate_brut is None:
+        return False
+    if not isinstance(gate_brut, dict):
+        return True
+    if gate_brut.get("evals_ok") is False:
+        return True
     try:
-        resolu = source.resolve(strict=True)
-    except OSError:
-        return
-    if not resolu.is_relative_to(racine):
-        return
-    if resolu.is_dir():
-        if resolu in ancetres:
-            return
-        cible.mkdir()
-        descendants = ancetres | {resolu}
-        for enfant in resolu.iterdir():
-            _materialiser_dans_ombre(enfant, cible / enfant.name, racine, descendants)
-        return
-    if not resolu.is_file():
-        return
-    try:
-        os.link(resolu, cible)
-    except OSError:
-        shutil.copy2(resolu, cible)
-
-
-def _sans_gate_sur_disque(data_dir: Path, doc_id: str, pile: Any) -> Path:
-    """Un `data/` **de lecture** identique, sauf que `manifest[doc_id].gate` y vaut `null`.
-
-    Pourquoi il en faut un : `loader._gate_alerts` met en quarantaine, sans dérogation possible, tout
-    document dont le gate porte `evals_ok: false` (AD-8 : « jamais servi »). C'est juste au service —
-    et c'est un cul-de-sac pour la mesure : après un run rouge, `--gate {doc_id}` refuserait
-    éternellement en code 2 « document non servi », et il n'existerait aucun chemin pour reprendre la
-    mesure et écrire un gate vert. Un verdict d'éval ne doit pas rendre l'éval impossible.
-
-    Ce que cette fonction **ne fait pas** : modifier `data/`. Elle construit un dossier temporaire
-    composé de vrais répertoires et de fichiers liés physiquement (copiés seulement si nécessaire),
-    puis n'y réécrit qu'un `manifest.json`, en mémoire, avec le seul `gate` du document visé mis à
-    `null`. Cette vue reste donc confinée sous sa propre racine sans recopier normalement le contrat
-    AXA. Tout le reste de la règle d'AD-7 continue de s'appliquer sur cette lecture : hashes, overlay,
-    bloquant statique, `status: quarantaine`. L'écriture du gate, elle, se fait toujours sur le
-    **vrai** manifest.
-    """
-    ombre = Path(pile.enter_context(tempfile.TemporaryDirectory(prefix="evals-regate-")))
-    racine = data_dir.resolve(strict=True)
-    for entree in data_dir.iterdir():
-        if entree.name == MANIFEST:
-            continue
-        _materialiser_dans_ombre(entree, ombre / entree.name, racine)
-    brut = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8"))
-    if isinstance(brut, dict) and isinstance(brut.get(doc_id), dict):
-        brut[doc_id]["gate"] = None
-    (ombre / MANIFEST).write_text(json.dumps(brut, indent=2, ensure_ascii=False) + "\n",
-                                  encoding="utf-8")
-    return ombre
+        entree = ManifestEntry.model_validate(entree_brute)
+    except ValidationError:
+        # La capacité a déjà prouvé que cette même entrée est valide sans son gate :
+        # l'invalidité est donc bornée au schéma du gate ciblé.
+        return True
+    raison, alertes = _gate_alerts(entree, current, allow_ungated=True)
+    return raison in {"gate_echoue", "gate_perime", "gate_preprotocole"} or any(
+        alerte in {"gate_perime", "gate_preprotocole"} for alerte in alertes)
 
 
 def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | None = None,
-                        pile: Any = None, cache_dir: Path | None = None,
+                        cache_dir: Path | None = None,
                         campaign_budget_eur: float | None = None,
                         campaign_accrued_eur: float = 0.0,
-                        campaign_cost_recorder: Any = None) -> Contexte:
+                        campaign_cost_recorder: Any = None,
+                        lecture: Lecture | None = None,
+                        capacite_regate: CapaciteRegate | None = None) -> Contexte:
     """Corpus, index et client — le même assemblage qu'`api/etat.construire_etat` (AD-7, AD-9).
 
     `allow_ungated=True` **toujours**, et ce n'est pas une dérogation : c'est ce runner qui écrit le
@@ -2271,11 +3107,10 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     s'applique : un document dont les hashes ont bougé, dont le rapport porte un bloquant statique ou
     que le manifest met en quarantaine n'est **pas** chargé, et `--gate` le refusera.
 
-    `regate` va un cran plus loin, et seulement pour le document que `--gate` vise : il fait lire un
-    manifest où **son** gate vaut `null`, ce qui permet de reprendre la mesure d'un document dont le
-    gate précédent était rouge (`gate_echoue`) **ou que le schéma en vigueur ne sait plus lire**.
-    Voir `_sans_gate_sur_disque` : `data/` n'est pas touché, et un document en quarantaine pour une
-    autre raison le reste.
+    `regate` va un cran plus loin, et seulement avec la capacité issue du pincement dédié : si son
+    gate est rouge, périmé ou hors schéma, le loader neutralise ce seul champ dans une copie mémoire
+    des octets du manifest déjà validé. Le `data-dir` original et son unique génération restent la
+    source de toutes les lectures ; un gate vert et frais conserve son jugement.
 
     Le second cas est le même cul-de-sac que le premier, par une autre porte (revue Codex 1.10
     tour 2) : quand `Gate` gagne un champ obligatoire — `cases` au tour 1, `countersigned` au tour 2
@@ -2284,36 +3119,39 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     alors aucun chemin pour écrire le gate au nouveau schéma, alors que c'est exactement ce que la
     commande demande. Un gate que l'image courante ne sait pas lire n'est pas un gate : pour ce seul
     document, et pour la lecture seulement, il est traité comme absent.
+
+    `lecture` est le **repère pincé** de l'opération de gate (story 4.5, N1) : le corpus qui sert de
+    base à la mesure, les dictionnaires et les preuves de structure lues juste après doivent venir
+    d'**une seule** génération. Sans lui, un repère est pincé pour la durée de cet appel seul.
     """
+    if (regate is None) != (capacite_regate is None):
+        raise ValueError("un regate exige ensemble sa cible et sa capacité pincée")
+    if regate is not None and (lecture is None or capacite_regate is None):
+        raise ValueError("un regate exige un repère explicite et sa capacité pincée")
+    if lecture is None:
+        # `relire` et non un simple pincement : une passe qui ne consulte jamais la péremption peut
+        # rendre un corpus composé de deux générations (revue du tour N1–N3, constat 1).
+        return relire(data_dir, lambda pincee: construire_contexte(
+            settings, data_dir, cache_dir=cache_dir,
+            campaign_budget_eur=campaign_budget_eur,
+            campaign_accrued_eur=campaign_accrued_eur,
+            campaign_cost_recorder=campaign_cost_recorder, lecture=pincee))
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
-    lecture = data_dir
-    if regate is not None and pile is not None:
-        entree_brute = json.loads((data_dir / MANIFEST).read_text(encoding="utf-8")) \
-            if (data_dir / MANIFEST).is_file() else {}
-        brut_gate = (entree_brute[regate].get("gate")
-                     if isinstance(entree_brute.get(regate), dict) else None)
-        gate_a_refaire = False
-        if isinstance(brut_gate, dict):
-            gate_a_refaire = brut_gate.get("evals_ok") is False
-            if (not gate_a_refaire and brut_gate.get("profile") == "full"
-                    and (brut_gate.get("pipeline_digest"), brut_gate.get("prompts_digest"),
-                         brut_gate.get("model_ids"), brut_gate.get("pipeline_settings", {})) != (
-                         contexte_gate.pipeline_digest, contexte_gate.prompts_digest,
-                         contexte_gate.model_ids, contexte_gate.pipeline_settings)):
-                gate_a_refaire = True
-            if not gate_a_refaire:
-                try:
-                    Gate.model_validate(brut_gate)
-                except ValidationError:
-                    gate_a_refaire = True
-        if gate_a_refaire:
-            lecture = _sans_gate_sur_disque(data_dir, regate, pile)
-    corpus = load_corpus(lecture, allow_ungated=True, current=contexte_gate,
+                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                                # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
+                                # `full` **nomme** à celle qui tourne. Le runner charge exactement
+                                # comme `api/etat.py` : le contexte doit donc la porter ici aussi.
+                                candidate_revision=settings.git_sha, env=settings.env)
+    neutraliser = bool(regate is not None and capacite_regate is not None
+                       and _gate_a_neutraliser(capacite_regate, regate, contexte_gate))
+    corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
-                         raison_max_chars=settings.raison_publiable_max_chars)
+                         raison_max_chars=settings.raison_publiable_max_chars,
+                         lecture=lecture, regate=regate,
+                         capacite_regate=capacite_regate,
+                         neutraliser_regate=neutraliser)
     dictionnaires = {
-        doc_id: load_dictionary(data_dir, corpus, doc_id)
+        doc_id: load_dictionary(data_dir, corpus, doc_id, lecture=lecture)
         for doc_id, document in corpus.documents.items()
         if document.kind == "contrat"
     }
@@ -2325,19 +3163,29 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
                                      campaign_cost_recorder=campaign_cost_recorder),
                     pipeline_digest_hex=contexte_gate.pipeline_digest,
                     prompts_digest_hex=contexte_gate.prompts_digest,
-                    # Lu dans `data_dir`, pas dans `lecture` : `_sans_gate_sur_disque` ne recopie que
-                    # le manifest, et le dictionnaire n'a rien à voir avec le gate qu'on refait.
-                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id),
+                    dictionnaire=load_dictionary(data_dir, corpus, settings.guide_doc_id,
+                                                 lecture=lecture),
                     dictionnaires=dictionnaires, response_cache=response_cache)
 
 
-def construire_contexte_parsing(settings: Settings, data_dir: Path) -> Contexte:
-    """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit."""
+def construire_contexte_parsing(settings: Settings, data_dir: Path, *,
+                                lecture: Lecture | None = None) -> Contexte:
+    """Charge seulement les artefacts servis : aucun client, cache ou dictionnaire n'est construit.
+
+    `lecture` : le repère pincé de l'opération (N1), comme pour `construire_contexte`.
+    """
+    if lecture is None:
+        return relire(data_dir, lambda pincee: construire_contexte_parsing(
+            settings, data_dir, lecture=pincee))
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
+                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                                # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
+                                # `full` **nomme** à celle qui tourne. Le runner charge exactement
+                                # comme `api/etat.py` : le contexte doit donc la porter ici aussi.
+                                candidate_revision=settings.git_sha, env=settings.env)
     corpus = load_corpus(data_dir, allow_ungated=True, current=contexte_gate,
                          perimetre_max_chars=settings.perimetre_max_chars,
-                         raison_max_chars=settings.raison_publiable_max_chars)
+                         raison_max_chars=settings.raison_publiable_max_chars, lecture=lecture)
     return Contexte(
         settings=settings, index=Index(corpus), client=None,
         pipeline_digest_hex=contexte_gate.pipeline_digest,
@@ -2421,6 +3269,20 @@ def _parser() -> argparse.ArgumentParser:
                    help="mesures externes trusted (tests hors ligne, A16, série decision_claim — "
                         "le prédicat est jugé par le runner, la série chiffrée reste orchestrateur) ; "
                         "réservé à --producer orchestrator et --gate")
+    p.add_argument("--orchestrator-report", type=Path,
+                   help="rapport dont la preuve trusted se réclame ; ses octets sont recoupés avec "
+                        "report_digest (obligatoire avec --orchestrator-evidence)")
+    p.add_argument("--candidate-revision", metavar="SHA40",
+                   help="révision produit mesurée par ce run (40 hexadécimaux) ; obligatoire sous "
+                        "--gate {doc_id} --profile full et avec --orchestrator-evidence")
+    p.add_argument("--relecture-verdict", type=Path,
+                   help="verdict de seconde lecture rempli par l'orchestrateur (FR47) : il est "
+                        "recoupé avec le plan dérivé du rapport de ce run avant d'être publié")
+    p.add_argument("--relecture-images", type=Path,
+                   help="répertoire des images de pages réellement regardées (un fichier "
+                        "`{block_id avec _ }.png` par bloc du plan) : leur empreinte est recalculée "
+                        "et confrontée aux image_sha256 du verdict ; obligatoire avec "
+                        "--relecture-verdict")
     p.add_argument("--max-cost", type=float, default=None,
                    help="plafond de coût du run en euros (défaut : evals_max_cost_eur de config.py ; "
                         "le budget effectif est min(--max-cost, LIVE_BUDGET_EUR))")
@@ -2449,14 +3311,26 @@ def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path
             raise RefusDeTourner(
                 f"chemins en collision : {nom}={sortie.resolve()} existe comme répertoire")
     reference_dir = reference_dir or cases_dir.parent / "reference"
+    # **La résolution s'arrête à l'espace de publication** (story 4.5, B7). `resolve()` suit les
+    # liens, et toutes les cibles publiées se résolvent désormais *dans* `data/.publie/<gen>/…` :
+    # comparées là, `eval-results.json` et `data_dir` se chevauchent toujours, et tout run serait
+    # refusé pour une collision qui n'en est pas une — c'est l'indirection du pointeur unique, pas
+    # un alias d'argument. Hors de l'espace, `resolve()` garde son rôle : détecter deux arguments
+    # qui désignent le même fichier par des chemins différents.
+    espace_chemin = Path(os.path.abspath(data_dir / _REPERTOIRE_ESPACE))
+
+    def _pour_collision(chemin: Path) -> Path:
+        resolu = chemin.resolve()
+        return Path(os.path.abspath(chemin)) if resolu.is_relative_to(espace_chemin) else resolu
+
     chemins = {
-        "sortie JSON": output_json.resolve(),
-        "sortie Markdown": output_markdown.resolve(),
-        "cases_dir": cases_dir.resolve(),
-        "reference_dir": reference_dir.resolve(),
-        "data_dir": data_dir.resolve(),
-        "cache": cache_dir.resolve(),
-        "manifest": (data_dir / MANIFEST).resolve(),
+        "sortie JSON": _pour_collision(output_json),
+        "sortie Markdown": _pour_collision(output_markdown),
+        "cases_dir": _pour_collision(cases_dir),
+        "reference_dir": _pour_collision(reference_dir),
+        "data_dir": _pour_collision(data_dir),
+        "cache": _pour_collision(cache_dir),
+        "manifest": _pour_collision(data_dir / MANIFEST),
     }
     items = list(chemins.items())
     for index, (nom_a, chemin_a) in enumerate(items):
@@ -2489,12 +3363,50 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         REPO_ROOT / "docs" / "evals" / "baselines.md" if comparison_requested
         else args.data_dir.parent / "eval-results.md")
     cache_dir = args.cache_dir or args.data_dir.parent / ".cache" / "evals"
+    # **L'espace de publication du run** (story 4.5, B7) : bundle immuable et pointeur unique. Il est
+    # dérivé de `--data-dir` par l'autorité unique, comme les sorties et le cache le sont déjà, et il
+    # n'est **jamais posé ici** : une bascule qui installerait sa propre disposition changerait le
+    # type de ses cibles une par une, ce que l'invariant interdit. Un espace absent est un refus dit.
+    espace = espace_du_data_dir(args.data_dir)
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
     decisions_orchestrateur: list[GateDecision] = []
+    # **L'ancrage des empreintes de run étrangères**, porté d'ici jusqu'aux quatre surfaces (revue
+    # B5, tour correctif 2/3). `None` ne veut pas dire « pas de contrainte » mais « aucune preuve
+    # externe n'a été vérifiée, donc aucune décision étrangère n'est publiable » — un diagnostic
+    # sans preuve externe n'a pas non plus de décision externe à publier.
+    preuve_externe: PreuveExterneVerifiee | None = None
     references = ReferencesSnapshot(empreinte_canonique([]))
     reference_dir = args.cases_dir.parent / "reference"
     campaign: CampaignLedger | None = None
+    # Armées seulement sous `--gate {doc_id} --profile full`, et connues des trois chemins de
+    # rapport (refus de budget, incident, run complet) pour qu'un rapport partiel porte les mêmes
+    # décisions qu'un rapport complet aurait portées.
+    exigences_full = False
+    structure_lot: tuple[int, int] | None = None
+    arbre_lot: tuple[int, int] | None = None
+    # Troisième réserve de l'AC 3, publiée jusque dans le résumé de CI (revue 4.5, P6). `None` tant
+    # qu'aucun contexte n'est construit — un refus de budget survient avant : le rapport ne dit alors
+    # rien des réserves plutôt que d'en inventer l'état.
+    dictionary_validated: bool | None = None
+    # FR41 : une publication qui échoue est un run qui n'a pas tenu sa promesse (revue 4.5, P8).
+    publication_ok = True
+
+    def ecrire_rapports_du_run(
+            rapport: dict[str, Any], *, contenu_json: str | None = None) -> None:
+        prepares = preparer_les_rapports(
+            rapport, output_json, output_markdown, preuve_externe=preuve_externe,
+            contenu_json=contenu_json)
+        if comparison_cell:
+            # Une cellule 4.4 n'est pas une surface publiée : son parent consomme ce rapport privé,
+            # construit le comparatif à six cellules puis publie seulement ce dernier par le
+            # pointeur atomique. Forcer ces fichiers jetables dans l'espace 4.5 obligerait le run à
+            # installer dynamiquement des cibles — précisément ce que la bascule interdit.
+            for chemin, contenu in prepares:
+                assert contenu is not None
+                _ecrire_atomique(chemin, contenu)
+            return
+        espace.basculer(prepares)
 
     def noter_campaign(status: str) -> None:
         if campaign is not None:
@@ -2505,6 +3417,27 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
                         cases_dir=args.cases_dir, reference_dir=reference_dir,
                         data_dir=args.data_dir, cache_dir=cache_dir)
+        # **La racine de publication, vérifiée avant toute mesure** (story 4.5, N3). Les seules
+        # occurrences d'`espace` étaient une construction pure — qui ne vérifie rien — puis quatre
+        # usages **tous postérieurs** à l'exécution : sur un `--data-dir` non installé, la campagne
+        # entière était payée avant que le refus ne tombe, et le rapport était perdu.
+        # `docs/evals/harness.md` affirmait pourtant, mot pour mot, que « le run refuse avant toute
+        # mesure ». Il le fait désormais, et le refus est un code 2 comme les autres refus d'avant
+        # appel. Un `--data-dir` custom **installé** passe sans traitement particulier.
+        try:
+            if not args.dry_run and not comparison_cell and not comparison_requested:
+                espace.verifier_lot(cibles_publiees_du_run(
+                    args.data_dir, output_json, output_markdown, gate=bool(args.gate)))
+            # La matrice 4.4 publie ses deux fichiers ordinaires `baselines.*` avec son writer
+            # pairé et restaurable. Ils ne font pas partie de la disposition 4.5 ; ses cellules
+            # privées sont, elles, agrégées avant que ce couple final soit rendu visible.
+            # Le dry-run ne possède aucune cible d'écriture. Sa disposition de **lecture** complète
+            # est néanmoins validée plus bas par `lecture_run`, avant son succès et dans le même
+            # repère que la composition `full`.
+        except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible) as exc:
+            raise RefusDeTourner(
+                f"espace de publication : {exc} — rien n'a été mesuré, aucun appel n'a été "
+                "soumis, aucune cible n'a été écrite") from exc
         try:
             settings = Settings()
         except ValidationError as exc:
@@ -2526,10 +3459,16 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 raise RefusDeTourner("--compare et --tiers sont exigés ensemble")
             if (args.variant is not None or args.gate is not None or args.exclude_suite
                     or args.cas is not None or args.quick or args.repeat != 1
-                    or args.orchestrator_evidence is not None or comparison_cell):
+                    or args.orchestrator_evidence is not None
+                    or args.orchestrator_report is not None
+                    or args.candidate_revision is not None
+                    or args.relecture_verdict is not None
+                    or args.relecture_images is not None
+                    or comparison_cell):
                 raise RefusDeTourner(
                     "la matrice 4.4 refuse --variant, --gate, --exclude-suite, --case, --quick, "
-                    "--repeat et --orchestrator-evidence")
+                    "--repeat, --orchestrator-evidence, --orchestrator-report, "
+                    "--candidate-revision et les options de relecture")
             try:
                 plan = canonical_plan(args.compare, args.tiers, suite=args.suite)
             except BaselineError as exc:
@@ -2596,12 +3535,77 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         elif args.series_kind is not None or args.series_id is not None:
             raise RefusDeTourner(
                 "--series-kind/--series-id sont réservés à --producer orchestrator")
+        # --- story 4.5 : les gardes de `full`, **avant tout appel** (code 2) -----------------------
+        #
+        # Elles s'arment sur **le gate**, pas sur le profil seul. La CI lance `EVALS_PROFILE: full`
+        # sans `--gate` ni `--repeat` à chaque PR (`ci.yml`, `tests/test_evals_live.py`) : exiger
+        # `--repeat >= 3` sur le profil rendrait cette CI rouge pour une raison qui n'a rien à voir
+        # avec le candidat, et l'AC formule d'ailleurs sa condition sur la commande complète —
+        # « `--gate {doc_id} --profile full` ». Un `full` sans gate reste ce qu'il est : un
+        # diagnostic.
+        exigences_full = bool(args.gate) and args.profile == "full"
+        if args.candidate_revision is not None and not (
+                len(args.candidate_revision) == 40
+                and all(c in "0123456789abcdef" for c in args.candidate_revision)):
+            raise RefusDeTourner(
+                f"--candidate-revision {args.candidate_revision!r} : 40 caractères hexadécimaux "
+                "attendus (la révision produit que ce run mesure)")
+        if exigences_full:
+            if args.repeat < charge_plancher.plancher.n_minimum:
+                raise RefusDeTourner(
+                    f"--gate {args.gate} --profile full exige --repeat >= "
+                    f"{charge_plancher.plancher.n_minimum} (n_minimum du plancher) : une politique "
+                    f"complète prouvée sur {args.repeat} exécution(s) ne prouve pas la stabilité")
+            if args.candidate_revision is None:
+                raise RefusDeTourner(
+                    f"--gate {args.gate} --profile full exige --candidate-revision <40 hex> : un "
+                    "gate qui ne nomme pas la révision qu'il mesure peut être réutilisé par une "
+                    "révision qu'il n'a jamais vue")
+            # **La révision annoncée doit être celle qu'on exécute** (revue B1). Sans ce contrôle,
+            # `--candidate-revision` n'était comparée qu'à elle-même : le runner la recopiait dans le
+            # gate et dans la preuve, puis recoupait la preuve avec ce même argument — trois surfaces
+            # d'accord sur une révision que personne n'a exécutée.
+            revision, sales = revision_executee(
+                REPO_ROOT, sorties=sorties_du_run(settings.evals_publication_file))
+            if revision is None:
+                raise RefusDeTourner(
+                    "--profile full : la révision réellement exécutée n'a pu être établie (ni "
+                    "`git rev-parse HEAD`, ni GIT_SHA en 40 hexadécimaux) — une liaison qu'on ne "
+                    "peut pas prouver n'est pas une liaison")
+            if sales:
+                raise RefusDeTourner(
+                    "--profile full : l'arbre de travail porte des modifications non commises "
+                    f"({', '.join(sales[:5])}{'…' if len(sales) > 5 else ''}) — un gate mesuré sur "
+                    "un arbre sale se réclame d'un commit qui ne décrit pas le code exécuté")
+            if revision != args.candidate_revision:
+                raise RefusDeTourner(
+                    f"--candidate-revision {args.candidate_revision} ≠ révision réellement "
+                    f"exécutée {revision} : ce gate mesurerait un code qu'il ne nomme pas")
         if args.orchestrator_evidence is not None:
             if args.producer != "orchestrator" or args.gate is None:
                 raise RefusDeTourner(
                     "--orchestrator-evidence exige --producer orchestrator et --gate")
-            decisions_orchestrateur = charger_decisions_orchestrateur(
-                args.orchestrator_evidence, plancher=charge_plancher)
+            if args.orchestrator_report is None:
+                raise RefusDeTourner(
+                    "--orchestrator-evidence exige --orchestrator-report : sans les octets du "
+                    "rapport, `report_digest` ne peut être recoupé avec rien (M2)")
+            if args.candidate_revision is None:
+                raise RefusDeTourner(
+                    "--orchestrator-evidence exige --candidate-revision : une preuve trusted se "
+                    "réclame de la révision qu'elle mesure (M2)")
+            decisions_orchestrateur, preuve_externe = charger_decisions_orchestrateur(
+                args.orchestrator_evidence, plancher=charge_plancher,
+                candidate_revision=args.candidate_revision,
+                report_path=args.orchestrator_report,
+                # Deux runs ne se comparent qu'à image égale : la preuve doit décrire **ce** code.
+                # **Les cinq champs** qu'`identite_run` écrit, sans exception : la comparaison itère
+                # sur ce dictionnaire, donc un champ omis ici est un champ jamais opposé. C'était le
+                # cas de `normalize_version` — dont dépendent tous les `text_norm`, donc tous les
+                # `quote_hash` — et de `plancher_digest` (revue B1).
+                image_courante=image_du_run(charge_plancher.digest))
+        elif args.orchestrator_report is not None:
+            raise RefusDeTourner(
+                "--orchestrator-report n'a de sens qu'avec --orchestrator-evidence")
         # 1. Le profil, avant tout le reste.
         if args.profile not in PROFILS_LIVRES:
             raise RefusDeTourner(f"profil `{args.profile}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
@@ -2620,9 +3624,16 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         if args.gate and args.quick:
             raise RefusDeTourner("--gate et --quick sont exclusifs : un gate exige la suite complète")
         if args.gate:
-            suites = (suite_du_document(settings, args.gate, cases_dir=args.cases_dir),)
+            # Sous `full`, la suite `parsing` du document entre dans le lot (AC 1) : sans elle,
+            # `parsing_ok_rate` n'aurait rien à mesurer et la politique complète promettrait un
+            # raisonnement juste sur un texte que personne n'a comparé au contrat imprimé.
+            suites = suites_du_gate(settings, args.gate, args.profile, cases_dir=args.cases_dir)
         if args.suite:
-            if suites is not None and args.suite not in suites:
+            # La comparaison porte sur la **suite qui sert le document** (`suites[0]`), pas sur le
+            # tuple entier : depuis 4.5, celui-ci peut aussi porter la suite `parsing` du document
+            # sous `full`, et un `--suite parsing --gate X` sélectionnerait alors le parsing de
+            # **tous** les documents — un gate qui se réclamerait d'une suite qu'il n'a pas exécutée.
+            if suites is not None and args.suite != suites[0]:
                 raise RefusDeTourner(f"--suite {args.suite} et --gate {args.gate} se contredisent : "
                                      f"la suite qui sert {args.gate} est {suites[0]}")
             suites = (args.suite,)
@@ -2662,16 +3673,52 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 "la variante servie par défaut")
         if args.quick:
             cas = selection_quick(cas)
+        # **Le trou fail-open de la première condition rouge** (revue 4.5, P2), et sa jumelle de
+        # structure (revue B4), fermées par la **même** garde de composition du lot.
+        #
+        # `parsing_ok_rate` et les deux témoins de structure ont un scope `suite` : sur un lot qui ne
+        # les arme pas, aucune décision n'est émise, et un gate `full` pouvait devenir vert sans la
+        # moindre preuve d'extraction ni de structure — exactement ce que l'AC 1 interdit.
+        #
+        # La fermeture est un refus **avant tout appel** plutôt qu'une décision rouge, et c'est le
+        # choix cohérent avec le mécanisme existant : la vacuité de `construire_decisions` ferme ce
+        # qu'un run **a mesuré et n'a pas prouvé**, tandis qu'ici c'est le *lot lui-même* qui est mal
+        # composé — une faute d'appel, pas une mesure. La refuser avant le premier appel évite en
+        # plus de payer une campagne dont on sait déjà qu'elle ne peut rien conclure.
+        #
+        # Générique, sans branche par document : c'est la règle `SOURCE_FILES` du loader qui dit ce
+        # qu'un document **est**, et donc quel témoin le couvre — `structure_prouvee_rate` et
+        # `parsing_ok_rate` pour un document issu d'un PDF, `arbre_prouve_rate` pour une copie de
+        # site. La question posée est unique : « les témoins qui couvrent ce document sont-ils armés
+        # par ce lot ? ».
+        # La vérification de composition est exécutée plus bas, dans le **même repère pincé** que
+        # le corpus et les preuves. La faire ici relirait les sources à travers `courant` avant le
+        # pincement et composerait précisément la décision intergénérationnelle que N1 interdit.
         parsing_local_seul = args.gate is None and all(c.suite == "parsing" for c in cas)
-        if not args.dry_run and not parsing_local_seul and cle_absente(settings):
-            raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
-                                 "(AD-14 — les unitaires passent sans clé, les évals non)")
         # Les compagnons décrivent exclusivement les cas guide `full`. Les injecter dans un run
         # vertical périmerait les cinq gates historiques malgré leurs YAML byte-identiques.
         references_du_run = references if args.profile == "full" and any(
             c.suite == "guide" for c in cas) else None
         references_digest = references.digest if references_du_run else None
         snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
+        # Un seul repère porte tout le préflight restant : composition `full`, dry-run, refus de
+        # budget et opération réelle. Il est ouvert avant le ledger (coût/état), toute sortie de
+        # succès et tout rapport ; l'opération réelle le réutilise au lieu de repincer plus bas.
+        capacite_run: CapaciteRegate | None = None
+        if args.gate is not None:
+            capacite_run = lifecycle.enter_context(
+                lecture_pincee_regate(args.data_dir, args.gate))
+            lecture_run = capacite_run.lecture
+        else:
+            lecture_run = lifecycle.enter_context(lecture_pincee(args.data_dir))
+        if exigences_full:
+            assert args.gate is not None
+            verifier_composition_gate_full(
+                args.data_dir, args.gate, cas, charge_plancher, lecture_run)
+        lecture_run.verifier()
+        if not args.dry_run and not parsing_local_seul and cle_absente(settings):
+            raise RefusDeTourner("les évals exigent une clé : ANTHROPIC_API_KEY est vide ou absente "
+                                 "(AD-14 — les unitaires passent sans clé, les évals non)")
         accrued_cost_eur = 0.0
         if args.producer == "orchestrator" and not args.dry_run:
             try:
@@ -2730,6 +3777,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 for c in cas for repetition in range(1, args.repeat + 1)
             ]
             identite_refus = {
+                "candidate_revision": args.candidate_revision,
                 "image": {
                     "pipeline_digest": pipeline_digest(),
                     "prompts_digest": prompts_digest(),
@@ -2769,8 +3817,9 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 non_executes=non_executes, cost_eur_engaged=0.0,
                 snapshot=snapshot, run_identity=identite_refus, repeat=args.repeat,
                 plancher=charge_plancher, producer=args.producer, preflight=preflight,
-                decisions_orchestrateur=decisions_orchestrateur)
-            ecrire_rapports(rapport_refus, output_json, output_markdown)
+                decisions_orchestrateur=decisions_orchestrateur,
+                exigences_full=exigences_full)
+            ecrire_rapports_du_run(rapport_refus)
             print("refus de budget avant le premier appel : "
                   f"configured_budget_eur={settings.live_budget_eur:.4f} "
                   f"accrued_cost_eur={accrued_cost_eur:.4f} "
@@ -2783,40 +3832,76 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                     run_digest=str(identite_refus["run_digest"]), status="budget_refused")
             return 4
         # 5. Le corpus, puis le document visé par `--gate`.
-        with ExitStack() as pile:
-            if all(c.suite == "parsing" for c in cas):
-                ctx = construire_contexte_parsing(settings, args.data_dir)
-            else:
-                # `--repeat` désarme le cache : trois répétitions servies du cache ne mesureraient
-                # ni la stabilité ni le coût (story 4.2b).
-                ctx = construire_contexte(settings, args.data_dir, regate=args.gate, pile=pile,
-                                          cache_dir=None if args.repeat > 1 else cache_dir,
-                                          campaign_budget_eur=(settings.live_budget_eur
-                                                               if campaign is not None
-                                                               else budget_effectif),
-                                          campaign_accrued_eur=accrued_cost_eur,
-                                          campaign_cost_recorder=(campaign.record_cost
-                                                                  if campaign is not None else None))
-            try:
-                run_identity = identite_run(
-                    cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
-                    references_digest=references_digest,
-                    plancher_digest=charge_plancher.digest, repeat=args.repeat,
-                    campaign_id=settings.live_campaign_id, series_kind=args.series_kind,
-                    series_id=args.series_id)
-            except Exception:
-                fermer = getattr(ctx.client, "aclose", None)
-                if fermer is not None:
-                    asyncio.run(fermer())
-                raise
-            # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
-            # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
-            # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
-            # lève `Event loop is closed` et fait sortir en code 3 un run par ailleurs vert, sans
-            # écrire le gate. Voir `_executer_puis_fermer`.
-            resultats = asyncio.run(_executer_puis_fermer(
-                cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
-                variant=args.variant, repeat=args.repeat))
+        # **Un seul repère de lecture pour toute la décision de gate** (story 4.5, N1). Le
+        # corpus qui sert de base à la mesure, les dictionnaires, la preuve de structure et la
+        # preuve d'arbre lisaient chacun le pointeur à leur tour : jusqu'à trois générations
+        # pouvaient entrer dans une seule décision de gate. Elles viennent désormais toutes de
+        # la génération pincée ici, pour la durée de l'opération.
+        if all(c.suite == "parsing" for c in cas):
+            ctx = construire_contexte_parsing(settings, args.data_dir, lecture=lecture_run)
+        else:
+            # `--repeat` désarme le cache : trois répétitions servies du cache ne mesureraient
+            # ni la stabilité ni le coût (story 4.2b).
+            ctx = construire_contexte(settings, args.data_dir, regate=args.gate,
+                                      lecture=lecture_run, capacite_regate=capacite_run,
+                                      cache_dir=None if args.repeat > 1 else cache_dir,
+                                      campaign_budget_eur=(settings.live_budget_eur
+                                                           if campaign is not None
+                                                           else budget_effectif),
+                                      campaign_accrued_eur=accrued_cost_eur,
+                                      campaign_cost_recorder=(campaign.record_cost
+                                                              if campaign is not None else None))
+        dictionary_validated = bool(getattr(ctx.dictionnaire, "validated", False))
+        if exigences_full:
+            # Lues **avant** l'exécution, sur le corpus que ce run va mesurer : les preuves de
+            # structure sont une propriété des artefacts servis, pas du résultat des appels. Les
+            # deux périmètres sont complémentaires (règle `SOURCE_FILES`) et lus sur la **même**
+            # liste de documents : aucun document du lot n'échappe aux deux.
+            documents_du_lot = [c.doc_id or document_de_la_suite(settings, c.suite)
+                                for c in cas]
+            structure_lot = preuve_de_structure(args.data_dir, ctx, documents_du_lot,
+                                                lecture=lecture_run)
+            arbre_lot = preuve_darbre(args.data_dir, ctx, documents_du_lot,
+                                      lecture=lecture_run)
+        # **Le repère partagé se vérifie avant de conclure, pour tout run** (patch croisé 1/3,
+        # `N1-RUN-FRESHNESS`). Ce contrôle vivait sous `exigences_full` : un gate `vertical` et
+        # le run CI `--profile full` **sans** `--gate` sortaient donc de la passe sans
+        # vérification finale. Or `Lecture.reel` contrôle avant de *rendre* un chemin, et
+        # l'ouverture arrive séparément : une reconstruction entre ce contrôle et le
+        # `read_bytes` fournirait les nouveaux octets sans rejeu ni refus. La péremption est une
+        # propriété de la **passe de lecture**, pas du profil qui la consomme — elle se vérifie
+        # donc ici, après toute construction de contexte et avant le premier appel payant.
+        lecture_run.verifier()
+        try:
+            run_identity = identite_run(
+                cas, ctx, profile=args.profile, quick=args.quick, variant=args.variant,
+                references_digest=references_digest,
+                plancher_digest=charge_plancher.digest, repeat=args.repeat,
+                campaign_id=settings.live_campaign_id, series_kind=args.series_kind,
+                series_id=args.series_id, candidate_revision=args.candidate_revision)
+        except Exception:
+            fermer = getattr(ctx.client, "aclose", None)
+            if fermer is not None:
+                asyncio.run(fermer())
+            raise
+        # Le client (donc un pool de connexions TLS) est construit par `construire_contexte`.
+        # Le refus « document non servi », l'exécution et la fermeture tiennent dans **un seul**
+        # `asyncio.run` : une fermeture sur une autre boucle que celle qui a servi le client
+        # lève `Event loop is closed` et fait sortir en code 3 un run par ailleurs vert, sans
+        # écrire le gate. Voir `_executer_puis_fermer`.
+        resultats = asyncio.run(_executer_puis_fermer(
+            cas, ctx, gate=args.gate, max_cost_eur=budget_effectif, sortie=sortie,
+            variant=args.variant, repeat=args.repeat))
+        # Le même repère couvre jusqu'au dernier résultat. Deux bascules pendant les appels
+        # reconstruisent sa génération : le refus tombe ici, avant `resume`, tout rapport ou
+        # gate, et non après avoir publié une décision fondée sur des octets périmés.
+        lecture_run.verifier()
+    except (LecturePerimee, LectureHorsGeneration, EspaceNonInstalle, EspaceIllisible) as exc:
+        # Une décision de gate ne se rejoue pas : elle a construit un client et s'apprête à payer.
+        # Le refus est un code 2 — rien n'a été mesuré, rien n'a été écrit (revue N1–N3, 1).
+        print(f"refus : {exc} — rien n'a été mesuré, aucune cible n'a été écrite", file=sys.stderr)
+        noter_campaign("refused")
+        return 2
     except RefusDeTourner as exc:
         print(f"refus : {exc}", file=sys.stderr)
         noter_campaign("refused")
@@ -2836,8 +3921,10 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                     snapshot=snapshot, run_identity=run_identity, repeat=args.repeat,
                     plancher=charge_plancher, producer=args.producer, preflight=preflight,
                     stop_http=exc.http, stop_latency_ms=exc.latency_ms_engaged,
-                    decisions_orchestrateur=decisions_orchestrateur)
-                ecrire_rapports(rapport, output_json, output_markdown)
+                    decisions_orchestrateur=decisions_orchestrateur,
+                    exigences_full=exigences_full, structure=structure_lot, arbre=arbre_lot,
+                    dictionary_validated=dictionary_validated)
+                ecrire_rapports_du_run(rapport)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
                 print(f"incident de rapport partiel : {type(rapport_exc).__name__}: {rapport_exc} "
@@ -2866,9 +3953,39 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                                      run_identity=run_identity, repeat=args.repeat,
                                      plancher=charge_plancher, producer=args.producer,
                                      preflight=preflight,
-                                     decisions_orchestrateur=decisions_orchestrateur)
-        ecrire_rapports(rapport, output_json, output_markdown)
-        print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
+                                     decisions_orchestrateur=decisions_orchestrateur,
+                                     exigences_full=exigences_full, structure=structure_lot,
+                                     arbre=arbre_lot,
+                                     dictionary_validated=dictionary_validated)
+        # **Les octets du rapport, une fois pour toute l'opération** (tour correctif 3/3).
+        # `gate.report_digest` s'en déduit sans relire le disque, donc sans exiger que le rapport
+        # ait déjà été publié : c'est ce qui permet au rapport, à la publication et au manifest de
+        # n'avoir qu'un seul point de commit.
+        contenu_rapport = json_canonique(rapport) + "\n"
+        report_digest = digest_contenu(contenu_rapport)
+        if not args.gate:
+            # Hors gate, l'opération de production **est** ce couple : un lot, un commit.
+            ecrire_rapports_du_run(rapport, contenu_json=contenu_rapport)
+            print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
+    except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible) as exc:
+        # **Nommer la cause** (revue B3/B6, forme B7) : ce n'est pas une panne du writer, c'est
+        # l'espace de publication qui n'est pas posé ou pas lisible — donc un lot qu'aucun pointeur
+        # unique ne couvrirait. Rien n'a été écrit, et le code 3 tient sa promesse.
+        print(f"refus d'écrire les rapports : {exc} — aucune bascule n'a eu lieu, manifest non "
+              "modifié", file=sys.stderr)
+        noter_campaign("incident_report")
+        return 3
+    except RapportInexploitable as exc:
+        # **Un défaut de données n'est pas une panne technique** (revue R1). Le journal du run est
+        # l'une des quatre surfaces, et il indexait des clés que rien n'exigeait : un rapport
+        # amputé y levait un `KeyError` — qui n'est pas une `ValueError` — et ressortait par le
+        # dernier `except Exception` en « incident », code 3. C'est la ligne de partage d'AD-8
+        # franchie dans le mauvais sens : le verdict *a* été mesuré, c'est le rapport qui n'est pas
+        # publiable. Code 1, refus dit, manifest intact (aucun gate n'est écrit sur ce chemin).
+        print(f"refus d'écrire les rapports : {exc} — le rapport du run n'est pas publiable, "
+              "aucune bascule n'a eu lieu, manifest non modifié", file=sys.stderr)
+        noter_campaign("red")
+        return 1
     except Exception as exc:  # noqa: BLE001 — construction et écriture sont des incidents techniques
         print(f"incident de rapport : {type(exc).__name__}: {exc} — manifest non modifié",
               file=sys.stderr)
@@ -2876,6 +3993,10 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         return 3
     tous_ok = all(r.ok for r in resultats)
     if args.gate:
+        prepares: list[tuple[Path, str]] = []
+        # `False` tant que le gate n'est pas écrit : depuis la revue B3, un échec de publication
+        # sort de la séquence **avant** `ecrire_gate`, et `gate_ok` doit alors se lire faux.
+        gate_ecrit = False
         try:
             entry = ctx.index.corpus.manifest[args.gate]
             # Story 4.2b : `evals_ok` est fondé sur les décisions chiffrées — un booléen seul
@@ -2883,18 +4004,123 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
             decisions = construire_decisions(
                 resultats, cas, plancher=charge_plancher, repeat=args.repeat,
                 run_digest=str(run_identity.get("run_digest", "")) if run_identity else "",
-                producer=args.producer, decisions_orchestrateur=decisions_orchestrateur)
+                producer=args.producer, decisions_orchestrateur=decisions_orchestrateur,
+                exigences_full=exigences_full, structure=structure_lot, arbre=arbre_lot)
             # HIGH 1 : une liste de décisions vide serait un vert par vacuité (`all([])` est vrai).
             evals_ok = tous_ok and bool(decisions) and all(d.status == "green" for d in decisions)
             gate = construire_gate(entry, ctx, profil=args.profile, cas=cas,
                                    cases_dir=args.cases_dir, evals_ok=evals_ok, snapshot=snapshot,
                                    decisions=decisions,
                                    run_digest=(str(run_identity.get("run_digest", ""))
-                                               if run_identity else None))
-            gate_ecrit = ecrire_gate(args.data_dir / MANIFEST, args.gate, gate)
+                                               if run_identity else None),
+                                   plancher_digest=(charge_plancher.digest if exigences_full
+                                                    else None),
+                                   candidate_revision=args.candidate_revision,
+                                   # L'empreinte des octets **que ce commit publiera**, tirée d'eux
+                                   # et non d'un fichier déjà écrit : c'est ce rapport-là qu'on
+                                   # pourra rouvrir pour vérifier les chiffres derrière `evals_ok`.
+                                   report_digest=report_digest if exigences_full else None)
+            # **Une seule opération de production, un seul commit** (tour correctif 3/3).
+            #
+            # Le rapport et sa table étaient publiés dans un premier atome, puis la publication et
+            # le manifest dans un second : chaque atome était tout-ou-rien, l'opération ne l'était
+            # pas — si le second échouait, `eval-results.*`, pourtant membres du lot, avaient déjà
+            # changé. Tout est donc préparé ici, depuis les mêmes octets en mémoire, et remis en une
+            # fois à l'unique pointeur atomique.
+            #
+            # Ce qui doit rester distinct le reste, et se décide **avant** ce commit : un rapport
+            # inexploitable est refusé sans qu'aucune surface bouge, un incident technique sort en
+            # code 3 sans gate écrit, et la non-mutation du dernier vert retire le manifest du lot
+            # sans retirer la publication (un rouge est un résultat, publié — AC 2).
+            publications: list[tuple[Path, str]] = []
+            # **Tout ce qui lit une cible couverte lit sous le verrou** (revue du tour de racine
+            # unique, constat 1). Deux lectures se faisaient dehors : le manifest entier, relu par
+            # `preparer_gate`, et le `docs/evals/latest.md` précédent, relu pour décider son
+            # archivage. Les deux remettaient ensuite à la bascule une décision prise sur un état
+            # qu'une ingestion concurrente pouvait avoir remplacé — la mise à jour perdue, sur les
+            # deux surfaces à la fois. La séquence entière — lire, fusionner, décider, publier —
+            # vit donc dans une seule `EspacePublie.transaction()`, qui reste **un seul point de
+            # commit** pour le lot complet.
+            with espace.transaction() as transaction:
+                if exigences_full:
+                    publications = preparer_la_publication(
+                        rapport, gate, ctx, cas,
+                        data_dir=args.data_dir, output_markdown=output_markdown,
+                        report_digest=report_digest,
+                        candidate_revision=args.candidate_revision,
+                        relecture_verdict=args.relecture_verdict,
+                        relecture_images=args.relecture_images,
+                        repo_root=args.data_dir.parent,
+                        resoudre=transaction.chemin_publie,
+                        preuve_externe=preuve_externe)
+                    # Le journal du run porte la publication : c'est `preparer_la_publication` qui
+                    # le rend, et il n'entre donc pas une seconde fois par `preparer_les_rapports`
+                    # — deux contenus au même slot sont un refus, et ce serait le bon (une seule
+                    # autorité).
+                    prepares = [(output_json, contenu_rapport), *publications]
+                else:
+                    prepares = preparer_les_rapports(rapport, output_json, output_markdown,
+                                                     preuve_externe=preuve_externe,
+                                                     contenu_json=contenu_rapport)
+                cibles = [cible for cible, _contenu in publications]
+                # `None` quand la non-mutation du dernier vert s'applique : les publications sont
+                # alors basculées quand même — un rouge est un **résultat**, publié —, et le
+                # manifest ne bouge pas. C'est exactement ce que l'AC 2 demande, et la décision se
+                # prend sur le manifest **réellement publié**, lu dans la transaction.
+                prepare_gate = preparer_gate(args.data_dir / MANIFEST, args.gate, gate,
+                                             lire=transaction.lire)
+                if prepare_gate is not None:
+                    prepares.append(prepare_gate)
+                transaction.publier(prepares)
+            prepares = []
+            gate_ecrit = prepare_gate is not None
+            print(f"rapports écrits : {output_json} ; {output_markdown}", file=sortie)
+            if cibles:
+                print("publication écrite : " + ", ".join(str(cible) for cible in cibles),
+                      file=sortie)
         except RefusDeTourner as exc:
             print(f"refus : {exc}", file=sys.stderr)
             return 2
+        except (RelectureInvalide, RapportInexploitable) as exc:
+            # **Une donnée inexploitable est un refus dit, pas un incident technique** (revue B5) :
+            # un rapport corrompu tombait dans `except Exception` — « incident de gate », code 3,
+            # « manifest non modifié » —, trois affirmations dont la dernière seule était vraie, et
+            # qui désignaient une panne là où le défaut est dans les données. Le même handler couvre
+            # le verdict de seconde lecture qui ne se recoupe pas : les deux sont des refus de
+            # publier, aucun n'a fait bouger le disque.
+            publication_ok = False
+            print(f"échec de publication : rapport ou seconde lecture inexploitable — {exc} — "
+                  "aucune bascule n'a eu lieu, aucun gate n'a été écrit, le manifest est inchangé "
+                  "et les rapports du run n'ont pas été écrits (un seul commit pour toute "
+                  "l'opération)", file=sys.stderr)
+        except (EspaceNonInstalle, LotHorsEspace, EspaceIllisible,
+                ArchivePrecedenteIllisible) as exc:
+            # **« Je n'ai pas pu lire » n'est pas « il n'y avait rien »** (revue B3/B6). L'échec
+            # survient avant le premier `os.replace` : rien n'a bougé, et c'est vrai de le dire.
+            # Publier quand même écraserait un état qu'on ne saurait ni archiver ni restaurer.
+            publication_ok = False
+            print(f"refus de publier : {exc} — aucune bascule n'a eu lieu, aucun gate n'a été "
+                  "écrit, le manifest est inchangé et rien n'a été publié, rapports du run "
+                  "compris", file=sys.stderr)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            # **FR41 : rien n'est promu si rien ne peut être publié** (revue B3, durcie par A).
+            # L'échec survient pendant la **préparation**, donc avant la première bascule : aucun
+            # gate n'est écrit, le manifest reste byte-identique, aucune surface n'a bougé, et les
+            # temporaires sont effacés.
+            #
+            # Le code reste dans la ligne de partage d'AD-8/D4 : ni 2 (le run a bien tourné), ni 3
+            # (qui promet « manifest non modifié » — vrai ici, mais 3 dit « incident technique »
+            # alors que le verdict *a* été mesuré), ni 4. C'est donc **1**, le code des verdicts non
+            # tenus.
+            publication_ok = False
+            print(f"échec de publication : {type(exc).__name__}: {exc} — aucun gate n'a été "
+                  "écrit, le manifest est inchangé et rien n'a été publié, rapports du run "
+                  "compris", file=sys.stderr)
+        # **Il n'y a plus de handler d'« état mêlé », parce qu'il n'y a plus d'état mêlé** (story
+        # 4.5, B7). `BasculePartielle` nommait les cibles laissées dans le nouvel état après une
+        # restauration incomplète ; l'espace de publication ne restaure rien, parce qu'il ne modifie
+        # rien avant l'unique `os.replace` qui publie tout le lot. Un meilleur signalement d'un état
+        # mêlé n'était pas l'invariant : le rendre inatteignable l'est.
         except Exception as exc:  # noqa: BLE001 — un gate cassé n'est jamais un verdict d'éval
             print(f"incident de gate : {type(exc).__name__}: {exc} — manifest non modifié",
                   file=sys.stderr)
@@ -2914,7 +4140,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                   "`truth.countersigned_by` n'est pas rempli, et le gate devra être relancé",
                   file=sys.stderr)
     gate_ok = not args.gate or (gate_ecrit and gate.evals_ok)
-    code = 0 if tous_ok and gate_ok else 1
+    code = 0 if tous_ok and gate_ok and publication_ok else 1
     noter_campaign("green" if code == 0 else "red")
     return code
 

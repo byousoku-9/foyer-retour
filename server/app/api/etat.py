@@ -32,7 +32,9 @@ from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
 from server.app.corpus.loader import SOURCE_FILES, Corpus, load_corpus
+from server.app.corpus.racine import exiger_racine_installee, Lecture, relire
 from server.app.digests import pipeline_digest, prompts_digest
+from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
 from server.app.api.page_renderer import PageRenderer, VerifiedSource
 from server.app.llm.client import LlmClient
@@ -322,6 +324,10 @@ class EtatApp:
     pdf_sources: dict[str, VerifiedSource] = field(default_factory=dict)
     page_renderer: PageRenderer | None = None
     alerts: list[Alerte] = field(default_factory=list)
+    # FR41 — le dernier run d'évals publié, lu une fois au démarrage. `publie: false` est un état
+    # normal (aucun run publié dans cette image), jamais une erreur : la route le rend tel quel.
+    publication_evals: EtatPublication = field(
+        default_factory=lambda: EtatPublication(publie=False, raison="absent"))
 
     @property
     def documents_servis(self) -> list[str]:
@@ -394,6 +400,22 @@ class EtatApp:
             if not entree.gate.countersigned:
                 return False
         return True
+
+    @property
+    def gate_validated_by_expert(self) -> bool | None:
+        """Un expert assurance a-t-il validé les verdicts qui fondent ce profil ? — `null` ou `False`.
+
+        Jamais `True`, et ce n'est pas une omission : AD-14 pose que « les verdicts ne sont pas
+        validés par un expert assurance » et le schéma des cas contraint
+        `truth.validated_by_expert` à `False`. Rien dans ce dépôt ne peut donc établir le contraire,
+        et un champ qui pourrait valoir `True` laisserait croire qu'un chemin existe.
+
+        Il est publié malgré cela — c'est le point de l'AC 3 : la réserve doit être **lisible** là où
+        le service dit son niveau de validation, et pas seulement dans un document que personne
+        n'ouvre. Comme `gate_cases` et `gate_countersigned`, il est strictement adossé à
+        `gate_profile` : sans gate publié, il n'y a aucun verdict à qualifier.
+        """
+        return None if self.gate_profile is None else False
 
 
 def _alertes(corpus: Corpus, *, raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> list[Alerte]:
@@ -516,10 +538,18 @@ def _rapport_publiable(rapport: Report, *, raison_max_chars: int) -> Report:
     return Report(doc_id=rapport.doc_id, checks=checks, stats=stats)
 
 
-def _artefact_audit(data_dir: Path, doc_id: str, nom: str) -> Path | None:
-    """Résout un artefact sans jamais suivre un lien hors de ``data_dir``."""
+def _artefact_audit(data_dir: Path, doc_id: str, nom: str,
+                    lecture: Lecture | None = None) -> Path | None:
+    """Résout un artefact sans jamais suivre un lien hors de ``data_dir``.
+
+    La résolution part du **repère pincé** (N1, story 4.5) : sous une racine de publication, le
+    chemin réellement lu est le slot de la génération que la passe a pincée, jamais celui que le
+    pointeur désigne au moment de cet appel. Le garde-fou est inchangé — ce qui sort de ``data_dir``
+    n'est pas publié —, et l'espace vit sous ``data_dir``, donc un slot y reste.
+    """
     racine = data_dir.resolve()
-    chemin = data_dir / doc_id / nom
+    brut = data_dir / doc_id / nom
+    chemin = brut if lecture is None else lecture.reel(brut)
     try:
         resolu = chemin.resolve(strict=True)
     except OSError:
@@ -527,7 +557,7 @@ def _artefact_audit(data_dir: Path, doc_id: str, nom: str) -> Path | None:
     return resolu if resolu.is_relative_to(racine) and resolu.is_file() else None
 
 
-def _rapports(data_dir: Path, doc_ids: list[str], *,
+def _rapports(data_dir: Path, doc_ids: list[str], lecture: Lecture | None = None, *,
               raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEFAULT) -> tuple[dict[str, Report], list[Alerte]]:
     """Les rapports d'ingestion des documents connus, lus au démarrage (AD-7/AD-8).
 
@@ -545,7 +575,7 @@ def _rapports(data_dir: Path, doc_ids: list[str], *,
     rapports: dict[str, Report] = {}
     alertes: list[Alerte] = []
     for doc_id in doc_ids:
-        chemin = _artefact_audit(data_dir, doc_id, RAPPORT)
+        chemin = _artefact_audit(data_dir, doc_id, RAPPORT, lecture)
         if chemin is None:
             continue
         try:
@@ -596,7 +626,7 @@ def _doc_ids_audit(corpus: Corpus) -> list[str]:
     return sorted(doc_id for doc_id in connus if doc_id_auditable(doc_id))
 
 
-def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
+def _sources(data_dir: Path, doc_ids: list[str], lecture: Lecture | None = None) -> dict[str, str]:
     """L'URL publique de chaque document auditable, lue **au démarrage** (AD-7).
 
     Pourquoi ici et pas dans `Document.source_url` : AD-7 fait de `data/{doc_id}/source.url` le
@@ -612,7 +642,7 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     """
     urls: dict[str, str] = {}
     for doc_id in doc_ids:
-        chemin = _artefact_audit(data_dir, doc_id, SOURCE_URL)
+        chemin = _artefact_audit(data_dir, doc_id, SOURCE_URL, lecture)
         if chemin is None:
             continue
         try:
@@ -625,13 +655,64 @@ def _sources(data_dir: Path, doc_ids: list[str]) -> dict[str, str]:
     return urls
 
 
-def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
+def _publication_evals(data_dir: Path, nom: str,
+                       lecture: Lecture | None = None) -> EtatPublication:
+    """L'artefact des résultats d'évals, lu **une fois au démarrage** — ou un état typé « aucun ».
+
+    Trois façons de ne pas avoir de run publié, et les trois se disent (AD-16) :
+
+    - **absent** — aucun fichier ; c'est l'état normal d'une image où aucun gate `full` n'a tourné ;
+    - **illisible** — les octets ne se lisent pas, ou ne sont pas du JSON (permissions, fichier
+      tronqué en cours d'écriture, encodage) ;
+    - **hors schéma** — c'est du JSON, mais pas cet objet-là (version antérieure, champ manquant,
+      valeur hors bornes).
+
+    Les deux dernières sont **réellement** distinguées, par un `json.loads` avant la validation :
+    `model_validate_json` les confondait, si bien qu'un JSON cassé — la cause que le libellé nomme —
+    ressortait `hors_schema` et qu'`illisible` n'était atteignable que par une erreur d'entrée-sortie.
+    Un état publié qui ne peut pas décrire sa propre cause ne vaut guère mieux qu'un silence.
+
+    Aucune ne rend 5xx, aucune n'invente un chiffre, et aucune n'est confondue avec « un run vert
+    sans limites ». Comme `report.json` et `dictionary.json` : lu au démarrage, jamais par requête
+    (AD-7).
+    """
+    import json
+
+    chemin = data_dir / nom
+    if lecture is not None:
+        chemin = lecture.reel(chemin)
+    if not chemin.is_file():
+        return EtatPublication(publie=False, raison="absent")
+    try:
+        brut = json.loads(chemin.read_bytes())
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        LOG.warning("publication d'évals illisible : %s", type(exc).__name__)
+        return EtatPublication(publie=False, raison="illisible")
+    try:
+        publication = PublicationEvals.model_validate(brut)
+    except ValueError as exc:
+        LOG.warning("publication d'évals hors schéma : %s", _first_error_public(exc))
+        return EtatPublication(publie=False, raison="hors_schema")
+    return EtatPublication(publie=True, publication=publication)
+
+
+def _first_error_public(exc: ValueError) -> str:
+    """Premier message de validation, sans jamais publier un chemin de `data/`."""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        items = errors()
+        if items:
+            return str(items[0].get("msg", ""))
+    return type(exc).__name__
+
+
+def _pdf_sources(data_dir: Path, corpus: Corpus, lecture: Lecture) -> dict[str, VerifiedSource]:
     """Projette les PDF déjà validés par le loader, sans toucher au cœur du corpus.
 
     Un document servi a déjà passé le hash de la première source présente dans
     ``SOURCE_FILES``. Rejouer exactement cette sélection permet au lecteur de
-    mémoriser le chemin choisi sans relire le PDF au démarrage. Le renderer
-    revérifie les octets au moment de chaque requête.
+    mémoriser le chemin choisi et ses octets dans le même repère. Le renderer sert ensuite ce
+    tampon immuable et ne relit jamais le chemin vivant par requête.
     """
     sources: dict[str, VerifiedSource] = {}
     for doc_id in corpus.served:
@@ -640,31 +721,56 @@ def _pdf_sources(data_dir: Path, corpus: Corpus) -> dict[str, VerifiedSource]:
             continue
         for source_name in SOURCE_FILES:
             path = data_dir / doc_id / source_name
-            if not path.is_file():
+            payload = lecture.octets(path)
+            if payload is None:
                 continue
             if source_name == "source.pdf":
-                sources[doc_id] = VerifiedSource(path=path, sha256=entry.source_hash)
+                # Le renderer sert ce tampon immuable : aucune seconde traversée de `courant`, ni
+                # aucune reconstruction ultérieure de la génération pincée, ne peut changer les
+                # octets rendus entre la sélection et la requête HTTP.
+                sources[doc_id] = VerifiedSource(
+                    path=lecture.reel(path), sha256=entry.source_hash, payload=payload)
             break
     return sources
 
 
-def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
-    """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
-    data_dir = DATA_DIR if data_dir is None else data_dir
-    digest_pipeline = pipeline_digest()
-    digest_prompts = prompts_digest()
-    # `GateContext` décrit l'image en cours : sans lui, le loader ne peut pas voir qu'un gate a été
-    # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
-    contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
-                           model_ids=dict(TIERS), pipeline_settings=settings.thresholds())
-    corpus = load_corpus(data_dir, allow_ungated=bool(settings.allow_ungated), current=contexte,
+@dataclass(frozen=True)
+class SurfacesLues:
+    """Tout ce que le démarrage lit dans `data/` — **d'une seule génération** (story 4.5, N1).
+
+    Le regroupement n'est pas cosmétique : c'est ce qui rend la passe rejouable telle quelle sur un
+    repère neuf quand la génération pincée a été reconstruite sous elle. Rien de coûteux et de non
+    lu n'y entre (ni client, ni renderer, ni index) — les rejouer serait payer deux fois ce qui ne
+    dépend pas du disque.
+    """
+
+    corpus: Corpus
+    dictionnaire: Dictionnaire
+    dictionnaires: dict[str, Dictionnaire]
+    doc_ids_audit: list[str]
+    rapports: dict[str, Report]
+    alertes_rapports: list[Alerte]
+    sources: dict[str, str]
+    pdf_sources: dict[str, VerifiedSource]
+    publication: EtatPublication
+
+
+def _lire_les_surfaces(data_dir: Path, settings: Settings, contexte: GateContext,
+                       lecture: Lecture) -> SurfacesLues:
+    """La passe de lecture du démarrage, jouée **entièrement** à travers un repère unique.
+
+    Dette D1 refermée (story 4.5) : la disjonction d'AD-7 a **trois** termes, et c'est
+    `Settings.deroger_au_gate` qui les combine — `ALLOW_UNGATED` **ou** `ENV=dev`. En `prod`, les
+    deux sont faux et la fermeture de l'AC 1.10 est intacte.
+    """
+    corpus = load_corpus(data_dir, allow_ungated=settings.deroger_au_gate, current=contexte,
                          perimetre_max_chars=settings.perimetre_max_chars,
-                         raison_max_chars=settings.raison_publiable_max_chars)
+                         raison_max_chars=settings.raison_publiable_max_chars, lecture=lecture)
     # Le `doc_id` que le pipeline du guide lui appliquera (revue Codex 2.1, B3) : le verrou
     # `corpus_ok` exige l'empreinte de **ce** document, pas celle d'un document quelconque du corpus.
-    dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id)
+    dictionnaire = load_dictionary(data_dir, corpus, settings.guide_doc_id, lecture=lecture)
     dictionnaires = {
-        doc_id: load_dictionary(data_dir, corpus, doc_id)
+        doc_id: load_dictionary(data_dir, corpus, doc_id, lecture=lecture)
         for doc_id, document in corpus.documents.items()
         if document.kind == "contrat"
     }
@@ -672,11 +778,54 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # artefacts d'audit (rapport et URL publique filtrée) peuvent néanmoins être lus ici, une fois.
     doc_ids_audit = _doc_ids_audit(corpus)
     rapports, alertes_rapports = _rapports(
-        data_dir, doc_ids_audit,
+        data_dir, doc_ids_audit, lecture,
         raison_max_chars=settings.raison_publiable_max_chars)
+    return SurfacesLues(
+        corpus=corpus, dictionnaire=dictionnaire, dictionnaires=dictionnaires,
+        doc_ids_audit=doc_ids_audit, rapports=rapports, alertes_rapports=alertes_rapports,
+        sources=_sources(data_dir, doc_ids_audit, lecture),
+        pdf_sources=_pdf_sources(data_dir, corpus, lecture),
+        publication=_publication_evals(data_dir, settings.evals_publication_file, lecture))
+
+
+def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
+    """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
+    data_dir = DATA_DIR if data_dir is None else data_dir
+    # **Le démarrage du service est un entrypoint de lecture de production** (patch croisé 2/3,
+    # `N3-LECTURE-ROOTLESS`) : il exige une racine installée avant de lire quoi que ce soit. Sans
+    # cela, un `data-dir` jamais installé se lisait rootless et rendait un corpus **vide sans
+    # refuser** — un service qui démarre en affirmant ne rien avoir à servir, au lieu de dire qu'il
+    # ne sait pas lire son espace.
+    exiger_racine_installee(data_dir)
+    digest_pipeline = pipeline_digest()
+    digest_prompts = prompts_digest()
+    # `GateContext` décrit l'image en cours : sans lui, le loader ne peut pas voir qu'un gate a été
+    # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
+    contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
+                           model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                           # Story 4.5 : la révision qui tourne, telle que le service la connaît.
+                           # Un gate `full` d'un autre commit part en quarantaine (`gate_perime`).
+                           candidate_revision=settings.git_sha, env=settings.env)
+    # Dette D1 refermée (story 4.5) : la disjonction d'AD-7 a **trois** termes, et c'est
+    # `Settings.deroger_au_gate` qui les combine — `ALLOW_UNGATED` **ou** `ENV=dev`. En `prod`, les
+    # deux sont faux et la fermeture de l'AC 1.10 est intacte.
+    # **Une seule génération pour toute la passe de démarrage** (story 4.5, N1). Le service résolvait
+    # une quarantaine de cibles couvertes — manifest, puis document, overlay, structure, sommaire,
+    # rapport, dictionnaires, publication d'évals — et relisait le pointeur à *chaque* appel
+    # système : une bascule tombant entre deux de ces résolutions rendait un état composé de deux
+    # générations, que le contrôle d'empreinte ne voyait pas puisqu'il portait sur des octets qu'un
+    # second `open()` avait pu remplacer. `relire` pince une génération, joue la passe entière à
+    # travers elle, et la rejoue si le repère a été périmé sous elle (deux bascules).
+    surfaces = relire(data_dir, lambda lecture: _lire_les_surfaces(
+        data_dir, settings, contexte, lecture))
+    corpus = surfaces.corpus
+    dictionnaire = surfaces.dictionnaire
+    dictionnaires = surfaces.dictionnaires
+    doc_ids_audit = surfaces.doc_ids_audit
+    rapports, alertes_rapports = surfaces.rapports, surfaces.alertes_rapports
     erreurs_rapports = _erreurs_rapports(doc_ids_audit, rapports, alertes_rapports)
-    sources = _sources(data_dir, doc_ids_audit)
-    pdf_sources = _pdf_sources(data_dir, corpus)
+    sources = surfaces.sources
+    pdf_sources = surfaces.pdf_sources
     page_renderer = PageRenderer(
         max_lines=settings.pdf_highlight_max_lines,
         max_blocks=settings.pdf_highlight_max_blocks,
@@ -709,6 +858,7 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         dictionnaires=dictionnaires,
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
+        publication_evals=surfaces.publication,
         alerts=_alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)
         + alertes_rapports + alertes_ungated
         + _alertes_dictionnaire(

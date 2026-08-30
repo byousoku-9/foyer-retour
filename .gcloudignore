@@ -56,7 +56,11 @@ node_modules
 
 # Sources non redistribuées : `fetch_source --all` les télécharge au build (FR32)
 data/*/source.pdf
+data/.publie/*/data/*/source.pdf
 data/*/*.tmp
+data/.publie/.verrou
+data/.publie/**/*.tmp
+data/.publie/.*.tmp
 
 # Bruit de poste
 .DS_Store

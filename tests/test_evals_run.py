@@ -12,7 +12,7 @@ import hashlib
 import io
 import json
 import os
-from contextlib import ExitStack
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +43,10 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
+from server.evals.espace import GENERATIONS, REPERTOIRE_ESPACE
 from server.evals.plancher import charger_plancher
+from server.evals.espace import EspacePublie
+from tests.helpers_espace import CIBLES_STANDARD, poser_espace
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -381,11 +384,40 @@ def test_lacte_volontaire_refuse_lexquive_ne_tranche_pas() -> None:
 
 
 def test_latest_ouvre_sur_la_reserve_non_experte_sans_inventer_de_run() -> None:
+    """`docs/evals/latest.md` : la réserve d'abord, et **aucun chiffre sans son identité de run**.
+
+    Ce test épinglait deux chaînes d'état transitoire — « aucun résultat live » et « ne fabrique donc
+    aucun résultat courant ». Elles décrivaient un dépôt qui n'avait encore rien mesuré ; la mesure
+    produite en 4.2a-bis puis 4.2d les a légitimement rendues fausses, et le test est resté rouge
+    depuis, à épingler une absence que le projet avait le devoir de combler (dette 4.2d, propriété de
+    cette story).
+
+    L'invariant **durable** n'est pas « ce document ne contient aucun résultat » : c'est
+
+    1. la **réserve non experte en tête** — la première chose qu'un lecteur voit, avant tout chiffre,
+       est qu'aucun verdict n'a été validé par un expert assurance (AD-14) ;
+    2. l'**identité de campagne présente** — un chiffre publié dit de quel run il vient ;
+    3. **aucun résultat sans `run_digest`** — un document qui affiche un recall, un coût ou une
+       stabilité sans l'empreinte du run qui les a produits invite à croire une mesure que personne
+       ne peut retrouver. C'est exactement ce que la story interdit, et c'est ce qui est vérifié ici.
+
+    Plus fort que les deux chaînes d'origine, et vrai avant comme après une campagne.
+    """
     latest = (runner.REPO_ROOT / "docs" / "evals" / "latest.md").read_text(encoding="utf-8")
-    tete = "\n".join(latest.splitlines()[:6]).casefold()
-    assert "avertissement non expert" in tete
-    assert "aucun résultat live" in latest.casefold()
-    assert "ne fabrique donc aucun résultat courant" in latest.casefold()
+    tete = "\n".join(latest.splitlines()[:8]).casefold()
+    assert "avertissement non expert" in tete, (
+        "la réserve d'AD-14 doit ouvrir le document, avant tout chiffre")
+    assert "expert assurance" in tete
+    corps = latest.casefold()
+    # **Inconditionnel** : un `latest.md` sans le moindre chiffre ne serait pas « prudent », il
+    # serait vide — et le rendre acceptable affaiblirait précisément l'invariant que cette
+    # réécriture prétend renforcer. Ce document publie un run, et un run se chiffre.
+    assert any(mot in corps for mot in ("recall", "rappel", "coût", "stabilité", "latence")), (
+        "ce document publie un run : il doit en porter les chiffres")
+    assert "run_digest" in corps, (
+        "des chiffres sont publiés sans l'empreinte du run qui les a produits")
+    assert any(mot in corps for mot in ("campagne", "identité")), (
+        "des chiffres sont publiés sans identité de campagne")
 
 
 def test_quick_porte_les_ids_exacts_et_stables_du_depot() -> None:
@@ -560,9 +592,17 @@ def test_parsing_reel_tourne_sans_cle_client_ni_fournisseur(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(runner, "LlmClient", _interdit)
+    # Une copie du corpus servi réel (story 4.5, B7) : la suite `parsing` mesure les 11 cas contre
+    # les vrais documents ingérés, mais l'écriture des rapports doit rester hors de `data/` du dépôt.
+    # `symlinks=True` préserve la disposition de l'espace de publication telle quelle — la suivre la
+    # déréférencerait, et `evals-latest.json` n'a pas encore de cible tant qu'aucun run ne l'a publié.
+    data = tmp_path / "data"
+    shutil.copytree(runner.DATA_DIR, data, symlinks=True)
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("parsing.json"), Path("parsing.md")))
     sortie = tmp_path / "parsing.json"
     code = runner.main([
         "--suite", "parsing", "--profile", "full", "--max-cost", "0.01",
+        "--data-dir", str(data),
         "--output-json", str(sortie), "--output-markdown", str(tmp_path / "parsing.md"),
     ])
     assert code == 1
@@ -593,7 +633,9 @@ def test_les_compagnons_ont_un_digest_distinct_et_sont_figes_pendant_le_run(tmp_
         ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="i",
                       document_hash="d", edition="2026"),
         _contexte([]), profil="full", cas=cas, cases_dir=runner.CASES_DIR,
-        evals_ok=True, snapshot=avant)
+        evals_ok=True, snapshot=avant,
+        # Story 4.5 : un gate `full` porte son protocole, sa révision et son rapport.
+        plancher_digest="a" * 64, candidate_revision="b" * 40, report_digest="c" * 64)
     from server.app.digests import cases_hash
     assert gate.cases_hash == avant.cases_hash == cases_hash(
         [c.case_path for c in cas if c.case_path is not None], runner.CASES_DIR)
@@ -740,6 +782,32 @@ def test_dry_run_prepare_sans_cle_client_ni_ecriture(
     assert "gate=lux-guide" in sortie and "cas=1" in sortie
 
 
+def test_un_dry_run_vertical_refuse_une_racine_incomplete_sans_succes_ni_rapport(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
+    (data / "dictionary.json").unlink()
+
+    code = runner.main(["--profile", "vertical", "--dry-run", "--data-dir", str(data)])
+    capture = capsys.readouterr()
+    assert code == 2
+    assert "dry-run :" not in capture.out and "rapports écrits" not in capture.out
+    assert "disposition est incomplète" in capture.err
+
+
+def test_la_racine_incomplete_precede_le_refus_de_cle(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    data = tmp_path / "data"
+
+    assert runner.main(["--suite", "guide", "--data-dir", str(data)]) == 2
+    erreur = capsys.readouterr().err
+    assert "espace de publication" in erreur and "les évals exigent une clé" not in erreur
+
+
 def test_main_full_quick_planifie_seulement_les_ids_stables(
         monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Preuve de couture : ``main`` applique réellement quick au lot full avant exécution."""
@@ -752,6 +820,27 @@ def test_main_full_quick_planifie_seulement_les_ids_stables(
     assert "cas=5" in sortie
     assert ("ids=b-bougie-canape,g-arrivee-huit-jours,p-axa-chaleur,"
             "p-baloise-acceptation,s-absurde-chat-lune") in sortie
+
+
+@pytest.mark.parametrize("fin", [["--dry-run"], ["--max-cost", "0.0001"]],
+                         ids=["dry-run", "refus-budgetaire"])
+def test_la_composition_full_precede_dry_run_et_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fin: list[str]) -> None:
+    revision = "1" * 40
+    monkeypatch.setattr(runner, "revision_executee", lambda *_a, **_k: (revision, []))
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("le budget a été calculé avant la composition")))
+    monkeypatch.setattr(
+        runner, "verifier_composition_gate_full",
+        lambda *_a, **_k: (_ for _ in ()).throw(runner.RefusDeTourner("lot full mal composé")))
+
+    code = _main(
+        tmp_path,
+        ["--gate", GUIDE, "--profile", "full", "--repeat", "3",
+         "--candidate-revision", revision, *fin],
+        monkeypatch,
+    )
+    assert code == 2
 
 
 def _interdit(*args: Any, **kw: Any) -> Any:
@@ -1283,6 +1372,9 @@ def _data_dir(tmp_path: Path) -> Path:
                    "document_hash": "d", "edition": "2020", "overlay_hash": None, "gate": None}
                for d in (GUIDE, CONTRAT)}
     (racine / "manifest.json").write_text(json.dumps(entrees, indent=2) + "\n", encoding="utf-8")
+    # Story 4.5, B7 : `ecrire_gate` bascule par l'espace de publication, qui refuse une cible que le
+    # pointeur unique ne résout pas — la disposition est posée ici, hors de tout run.
+    poser_espace(tmp_path, data_dir=racine)
     return racine
 
 
@@ -1407,8 +1499,12 @@ def test_ecrire_le_gate_ne_touche_que_lentree_visee(tmp_path: Path) -> None:
     assert apres[CONTRAT] == avant[CONTRAT]
     assert apres[GUIDE]["gate"]["profile"] == "vertical"
     assert apres[GUIDE]["gate"]["cases"] == 1
-    assert {k: v for k, v in apres[GUIDE].items() if k != "gate"} == \
-        {k: v for k, v in avant[GUIDE].items() if k != "gate"}
+    # Story 4.5 : l'entrée réécrite se **normalise** au schéma en vigueur, `structure_hash` compris
+    # (`null` tant qu'aucune `structure.json` n'a été ingérée). Aucune **valeur** existante ne
+    # bouge — c'est ce que ce test protège : un `--gate` n'a le droit de toucher qu'au gate.
+    assert apres[GUIDE].get("structure_hash") is None
+    assert {k: v for k, v in apres[GUIDE].items() if k not in ("gate", "structure_hash")} == \
+        {k: v for k, v in avant[GUIDE].items() if k not in ("gate", "structure_hash")}
     # Le fichier reste lisible par le loader.
     assert ManifestEntry.model_validate(apres[GUIDE]).gate is not None
 
@@ -1534,25 +1630,39 @@ def test_un_gate_hors_schema_se_reprend_comme_un_gate_rouge(tmp_path: Path) -> N
                            "cases_hash": "c", "pipeline_digest": "p", "prompts_digest": "q",
                            "model_ids": {}, "evals_ok": True, "date": "2026-08-23",
                            "overlay_hash": None, "cases": 1}
+    brut[CONTRAT]["gate"] = {
+        "profile": "vertical", "source_hash": brut[CONTRAT]["source_hash"],
+        "ingest_fingerprint": brut[CONTRAT]["ingest_fingerprint"], "cases_hash": "autre-cas",
+        "pipeline_digest": "autre-pipeline", "prompts_digest": "autre-prompt",
+        "model_ids": {}, "evals_ok": True, "date": "2026-08-23", "overlay_hash": None,
+        "cases": 1, "countersigned": False,
+    }
     chemin.write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
 
-    with ExitStack() as pile:
-        ombre = runner._sans_gate_sur_disque(racine, GUIDE, pile)
-        lu = json.loads((ombre / "manifest.json").read_text(encoding="utf-8"))
-        assert lu[GUIDE]["gate"] is None
-        # `data/` n'est pas touché, et l'autre document garde le sien.
-        assert json.loads(chemin.read_text(encoding="utf-8"))[GUIDE]["gate"] is not None
-        assert lu[CONTRAT]["gate"] == brut[CONTRAT]["gate"]
-        # La vue de reprise satisfait la même frontière que le vrai `data/` : aucun artefact ne
-        # se résout hors de sa racine temporaire et le loader peut donc appliquer son garde intact.
-        assert (ombre / GUIDE / "document.json").is_file()
-        assert all(not chemin_ombre.is_symlink() for chemin_ombre in ombre.rglob("*"))
-        assert all(chemin_ombre.resolve().is_relative_to(ombre.resolve())
-                   for chemin_ombre in ombre.rglob("*"))
+    poser_espace(tmp_path, data_dir=racine)
+    avant = chemin.read_bytes()
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    with lecture_pincee_regate(racine, GUIDE) as capacite:
+        ferme = load_corpus(
+            racine, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite)
+        assert GUIDE not in ferme.served, "la neutralisation doit rester fail-closed par défaut"
+        corpus = load_corpus(
+            racine, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite, neutraliser_regate=True)
+        assert GUIDE in corpus.served
+        assert capacite.lecture.generation is not None
+        assert capacite.lecture.racine is not None
+        assert capacite.lecture.racine.data_dir == racine
+    # Le manifest validé est seulement neutralisé en mémoire ; l'autre entrée est inchangée.
+    assert chemin.read_bytes() == avant
+    assert json.loads(chemin.read_text(encoding="utf-8"))[CONTRAT]["gate"] == brut[CONTRAT]["gate"]
 
 
-def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(tmp_path: Path) -> None:
-    """Le runner ne transforme pas une entrée hostile en lecture autorisée par sa copie temporaire."""
+def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nom historique : la reprise ne matérialise plus aucune vue ni aucun lien."""
     racine = tmp_path / "data"
     racine.mkdir()
     _corpus_sur_disque(racine)
@@ -1561,9 +1671,39 @@ def test_la_vue_de_reprise_ne_materialise_pas_un_lien_hors_data(tmp_path: Path) 
     (externe / "secret.txt").write_text("ne pas lire", encoding="utf-8")
     (racine / "lien-hors-data").symlink_to(externe, target_is_directory=True)
 
-    with ExitStack() as pile:
-        ombre = runner._sans_gate_sur_disque(racine, GUIDE, pile)
-        assert not (ombre / "lien-hors-data").exists()
+    poser_espace(tmp_path, data_dir=racine)
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    lectures_externes: list[Path] = []
+    vrai_read_bytes = Path.read_bytes
+    vrai_open = Path.open
+
+    def open_garde(chemin: Path, *args: Any, **kwargs: Any) -> Any:
+        mode = args[0] if args else kwargs.get("mode", "r")
+        resolu = Path(os.path.realpath(chemin))
+        if "r" in mode and resolu.is_relative_to(externe.resolve()):
+            lectures_externes.append(resolu)
+            raise AssertionError(f"lecture externe interdite : {resolu}")
+        return vrai_open(chemin, *args, **kwargs)
+
+    def read_bytes_garde(chemin: Path) -> bytes:
+        resolu = Path(os.path.realpath(chemin))
+        if resolu.is_relative_to(externe.resolve()):
+            lectures_externes.append(resolu)
+            raise AssertionError(f"lecture externe interdite : {resolu}")
+        return vrai_read_bytes(chemin)
+
+    monkeypatch.setattr(Path, "open", open_garde)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes_garde)
+    entrees_avant = {p.relative_to(tmp_path) for p in tmp_path.rglob("*")}
+    with lecture_pincee_regate(racine, GUIDE) as capacite:
+        corpus = load_corpus(
+            racine, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite, neutraliser_regate=True)
+        assert GUIDE in corpus.served
+    assert lectures_externes == []
+    assert {p.relative_to(tmp_path) for p in tmp_path.rglob("*")} == entrees_avant
+    assert (racine / "lien-hors-data").resolve() == externe.resolve()
 
 
 def test_un_manifest_invalide_arrete_tout_sans_rien_ecrire(tmp_path: Path) -> None:
@@ -1611,6 +1751,17 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     data.mkdir(exist_ok=True)
     if not (data / "manifest.json").is_file():
         _corpus_sur_disque(data)
+    # Story 4.5, B7 : le runner bascule ses sorties (rapports, gate) par l'espace de publication,
+    # qui refuse une cible non résolue par le pointeur unique — posée ici, hors de tout run, et
+    # idempotente pour les appels successifs de `_main` sur le même `tmp_path`. Un `--output-json`
+    # / `--output-markdown` explicite ajoute sa propre cible au lot standard.
+    cibles_supplementaires = []
+    for drapeau in ("--output-json", "--output-markdown"):
+        if drapeau in argv:
+            valeur = Path(argv[argv.index(drapeau) + 1])
+            cibles_supplementaires.append(
+                valeur.relative_to(tmp_path) if valeur.is_absolute() else valeur)
+    poser_espace(tmp_path, data_dir=data, cibles=cibles_supplementaires)
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
@@ -1643,6 +1794,11 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
     monkeypatch.setattr(runner, "Settings", matrix_settings)
     # La commande ne reçoit aucun --output-* : seul le root canonique est redirigé vers tmp_path.
     monkeypatch.setattr(runner, "REPO_ROOT", tmp_path)
+    poser_espace(
+        tmp_path,
+        data_dir=data,
+        cibles=(Path("docs/evals/baselines.json"), Path("docs/evals/baselines.md")),
+    )
     code = runner.main([
         "--suite", "guide", "--compare", "deterministe,outils,full_context",
         "--tiers", "reason,micro", "--max-cost", "1.0",
@@ -1660,6 +1816,38 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
         "deterministe/reason", "deterministe/micro", "outils/reason", "outils/micro",
         "full_context/reason", "full_context/micro"]
     assert all(cell["complete"] for cell in report["cells"])
+
+
+def test_une_reconstruction_apres_execution_refuse_avant_tout_rapport_ou_gate(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    _corpus_, index = _corpus()
+    guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    vrai_executer = runner._executer_puis_fermer
+    json_path = tmp_path / "ne-doit-pas-exister.json"
+    md_path = tmp_path / "ne-doit-pas-exister.md"
+
+    async def reconstruire_apres(*args: Any, **kwargs: Any) -> Any:
+        resultats = await vrai_executer(*args, **kwargs)
+        data = tmp_path / "data"
+        espace = EspacePublie(tmp_path, data)
+        manifest = (data / "manifest.json").read_bytes()
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return resultats
+
+    monkeypatch.setattr(runner, "_executer_puis_fermer", reconstruire_apres)
+    code = _main(
+        tmp_path,
+        ["--suite", "guide", "--output-json", str(json_path),
+         "--output-markdown", str(md_path)],
+        monkeypatch,
+        reponses_guide=[guide],
+    )
+    capture = capsys.readouterr()
+    assert code == 2 and "reconstruite" in capture.err
+    assert not json_path.exists() and not md_path.exists()
+    assert "rapports écrits" not in capture.out
 
 
 def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,
@@ -1695,14 +1883,41 @@ def test_gate_builder_ecrit_deux_diagnostics_rouges(tmp_path: Path,
 
 def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé."""
+    """La provenance ne suffit pas : le témoin repo externe doit être fourni et recalculé.
+
+    Story 4.5 (M2), durci par la revue B1 : la preuve porte la **révision candidate** et l'empreinte
+    du rapport dont elle dérive, et le rapport référencé doit **se reconnaître** dans la preuve —
+    même `run_digest`, recalculé depuis son identité, même révision, même plancher, même image. La
+    preuve construite ici est donc réellement valide de bout en bout : c'est la seule façon
+    d'exercer le chemin vert sans désarmer un contrôle. Les cinq façons de ne pas concorder sont
+    couvertes par `tests/test_plancher.py -k candidate_revision`.
+    """
     charge = charger_plancher()
+    revision = "1" * 40
+    # L'identité d'un run mesuré par l'orchestrateur, telle que `identite_run` la construit :
+    # `run_digest` est l'empreinte canonique de l'identité **privée de sa propre clé**.
+    identite: dict[str, Any] = {
+        "candidate_revision": revision,
+        # **Les cinq champs** que `identite_run` publie : depuis la revue B1, une identité d'image
+        # incomplète ferme au lieu de laisser les champs manquants hors comparaison. C'est
+        # `image_du_run` qui en est l'autorité, des deux côtés.
+        "image": runner.image_du_run(charge.digest),
+        "scope": {"profile": "full", "repeat": 3},
+    }
+    identite["run_digest"] = runner.empreinte_canonique(identite)
+    rapport_source = tmp_path / "rapport-orchestrateur.json"
+    rapport_source.write_text(json.dumps({
+        "schema_version": 3, "plancher_digest": charge.digest, "identity": identite,
+    }) + "\n", encoding="utf-8")
     preuve = tmp_path / "preuve-orchestrateur.json"
     preuve.write_text(json.dumps({
         "plancher_digest": charge.digest,
+        "candidate_revision": revision,
+        "report_digest": hashlib.sha256(rapport_source.read_bytes()).hexdigest(),
+        "run_digest": identite["run_digest"],
         "decisions": [{
             "metric": "offline_tests_pass_rate", "n": 3, "value": 1.0,
-            "run_digest": "a" * 64,
+            "run_digest": identite["run_digest"],
         }],
     }), encoding="utf-8")
     _corpus_, index = _corpus()
@@ -1712,7 +1927,9 @@ def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
         tmp_path,
         ["--gate", GUIDE, "--repeat", "3", "--producer", "orchestrator",
          "--series-kind", "final", "--series-id", "final-guide", "--max-cost", "1.0",
-         "--orchestrator-evidence", str(preuve)],
+         "--candidate-revision", revision,
+         "--orchestrator-evidence", str(preuve),
+         "--orchestrator-report", str(rapport_source)],
         monkeypatch, reponses_guide=[guide, guide, guide])
     assert code == 0
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
@@ -1751,6 +1968,7 @@ def test_un_troisieme_contrat_execute_sa_suite_son_dictionnaire_et_son_gate_de_b
         "overlay_hash": None, "gate": None,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    poser_espace(tmp_path, data_dir=data)
     autres_avant = {doc_id: entree for doc_id, entree in manifest.items() if doc_id != TROISIEME}
 
     cases = _cases_dir(tmp_path, autres={
@@ -1965,11 +2183,15 @@ def test_une_erreur_de_rapport_reste_un_incident_et_ne_touche_pas_le_gate(
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_text("utf-8")
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
-    monkeypatch.setattr(runner, "ecrire_rapports", lambda *a, **k: (_ for _ in ()).throw(
+    monkeypatch.setattr(runner, "estimate_run_majorant", lambda *_: 0.01)
+    monkeypatch.setattr(runner, "preparer_les_rapports", lambda *a, **k: (_ for _ in ()).throw(
         OSError("disque indisponible")))
     _corpus_, index = _corpus()
     reponse: Any = (BudgetExceeded("majorant > reste") if partiel else (
@@ -1981,7 +2203,7 @@ def test_une_erreur_de_rapport_reste_un_incident_et_ne_touche_pas_le_gate(
         "--gate", GUIDE, "--max-cost", "0.03", "--cases-dir", str(cases),
         "--data-dir", str(data)])
 
-    assert code == 3
+    assert code == (3 if partiel else 1)
     assert (data / "manifest.json").read_text("utf-8") == avant
 
 
@@ -1990,6 +2212,9 @@ def test_un_cas_modifie_pendant_le_run_ne_peut_pas_etre_certifie(
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_text("utf-8")
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     chemin = cases / "guide" / "g-luxtrust.yaml"
@@ -2050,8 +2275,14 @@ def test_un_case_parsing_sans_suite_resout_avant_la_cle(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(runner, "LlmClient", _interdit)
+    # Copie du corpus servi réel (story 4.5, B7) : `p-axa-chaleur` se juge contre le vrai document
+    # ingéré, et les rapports doivent basculer par un espace de publication, pas par `data/` du dépôt.
+    data = tmp_path / "data"
+    shutil.copytree(runner.DATA_DIR, data, symlinks=True)
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("p.json"), Path("p.md")))
     code = runner.main([
         "--case", "p-axa-chaleur", "--profile", "full", "--max-cost", "0.01",
+        "--data-dir", str(data),
         "--output-json", str(tmp_path / "p.json"),
         "--output-markdown", str(tmp_path / "p.md"),
     ])
@@ -2069,6 +2300,7 @@ def test_execution_full_mixte_hors_ligne_et_digest_references_reel(
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("mixte.json"), Path("mixte.md")))
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     parsing_dir = cases / "parsing" / GUIDE
     parsing_dir.mkdir(parents=True)
@@ -2174,19 +2406,143 @@ def test_un_gate_rouge_peut_etre_repris(tmp_path: Path, monkeypatch: pytest.Monk
     _corpus_sur_disque(data)
     # 1. un run rouge écrit `evals_ok: false` et le document part en quarantaine.
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[(_refus(), _trace())]) == 1
-    assert load_corpus(data, allow_ungated=True).quarantine.get(GUIDE) == "gate_echoue"
-    # 2. le run suivant peut malgré tout mesurer ce document ; sa provenance builder reste rouge.
+    assert _main(
+        tmp_path, ["--gate", CONTRAT], monkeypatch,
+        reponses_sinistre=[(_refus(), _trace("sinistre"))]) == 1
+    avant = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    gate_autre = avant[CONTRAT]["gate"]
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        GUIDE: "gate_echoue", CONTRAT: "gate_echoue"}
+
+    # 2. le run suivant peut mesurer la cible sans neutraliser l'autre gate rouge dans le Corpus.
+    vrai_load_corpus = runner.load_corpus
+    corpus_du_run: list[Corpus] = []
+
+    def observer_corpus(*args: Any, **kwargs: Any) -> Corpus:
+        corpus = vrai_load_corpus(*args, **kwargs)
+        corpus_du_run.append(corpus)
+        return corpus
+
+    monkeypatch.setattr(runner, "load_corpus", observer_corpus)
     _corpus_, index = _corpus()
     bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne]) == 1
+    assert corpus_du_run and GUIDE in corpus_du_run[-1].served
+    assert corpus_du_run[-1].quarantine[CONTRAT] == "gate_echoue"
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
     assert manifest[GUIDE]["gate"]["evals_ok"] is False
+    assert manifest[CONTRAT]["gate"] == gate_autre
     # La reprise a bien exécuté le document sans élargir la dérogation, puis le service reste fermé.
     corpus = load_corpus(data, allow_ungated=False)
     assert corpus.served == [] and corpus.quarantine == {
-        GUIDE: "gate_echoue", CONTRAT: "sans_gate"}
-    # …et `data/` n'a pas été touché autrement : le second document garde son entrée d'origine.
-    assert manifest[CONTRAT]["gate"] is None
+        GUIDE: "gate_echoue", CONTRAT: "gate_echoue"}
+
+
+@pytest.mark.parametrize("forme", ["scalaire", "liste", "full-preprotocole"])
+def test_le_vrai_cli_reprend_un_gate_hors_schema_sur_le_custom_installe(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forme: str) -> None:
+    """La reprise hors schéma passe par `main`, le data-dir original et son repère pincé."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    manifest_path = data / "manifest.json"
+    brut = json.loads(manifest_path.read_text("utf-8"))
+    if forme == "scalaire":
+        gate_existant: Any = 7
+    elif forme == "liste":
+        gate_existant = ["gate", "historique"]
+    else:
+        gate_existant = {
+            "profile": "full", "source_hash": brut[GUIDE]["source_hash"],
+            "ingest_fingerprint": brut[GUIDE]["ingest_fingerprint"], "cases_hash": "c",
+            "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {},
+            "evals_ok": True, "date": "2026-08-23", "overlay_hash": None, "cases": 1,
+            "countersigned": False, "decisions": [], "run_digest": None,
+            "plancher_digest": "a" * 64, "candidate_revision": "b" * 40,
+            "report_digest": "c" * 64,
+        }
+    brut[GUIDE]["gate"] = gate_existant
+    manifest_path.write_text(json.dumps(brut, indent=2) + "\n", encoding="utf-8")
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    vrai_load_corpus = runner.load_corpus
+    observations: list[tuple[int, int, str]] = []
+
+    def observer_load_corpus(data_dir: Path | str, **kwargs: Any) -> Corpus:
+        lecture = kwargs.get("lecture")
+        capacite = kwargs.get("capacite_regate")
+        assert Path(data_dir) == data, "le CLI doit garder le data-dir custom original"
+        assert lecture is not None and lecture.generation is not None
+        assert lecture.racine is not None and lecture.racine.data_dir == data
+        assert capacite is not None and capacite.lecture is lecture
+        assert capacite.cible == GUIDE and kwargs.get("regate") == GUIDE
+        assert kwargs.get("neutraliser_regate") is True
+        observations.append((id(lecture), id(capacite), lecture.generation))
+        return vrai_load_corpus(data_dir, **kwargs)
+
+    monkeypatch.setattr(runner, "load_corpus", observer_load_corpus)
+
+    code = _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[bonne])
+
+    assert code == 1
+    gate = json.loads(manifest_path.read_text("utf-8"))[GUIDE]["gate"]
+    assert len(observations) == 1
+    assert not any(p.is_dir() and p.name.startswith("evals-regate") for p in tmp_path.rglob("*"))
+    assert len(_COURANT["guide"].appels) == 1, "le vrai CLI n'a pas mesuré le document repris"
+    assert gate == gate_existant, (
+        "le candidat builder rouge ne doit pas écraser le gate inconnu ou préprotocole")
+
+
+@pytest.mark.parametrize("fraiche", [False, True])
+def test_le_regate_neutralise_un_gate_perime_mais_pas_un_gate_vert_frais(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fraiche: bool) -> None:
+    """La qualification précède la capacité : un gate vert/frais garde son jugement."""
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    assert _main(
+        tmp_path, ["--gate", GUIDE], monkeypatch,
+        reponses_guide=[(_refus(), _trace())]) == 1
+    manifest_path = data / "manifest.json"
+    brut = json.loads(manifest_path.read_text("utf-8"))
+    gate = brut[GUIDE]["gate"]
+    gate["evals_ok"] = True
+    gate["decisions"] = []
+    gate["pipeline_digest"] = runner.pipeline_digest() if fraiche else "pipeline-perime"
+    gate["prompts_digest"] = runner.prompts_digest()
+    gate["model_ids"] = dict(runner.TIERS)
+    gate["pipeline_settings"] = _settings().thresholds()
+    EspacePublie(tmp_path, data).basculer([
+        (manifest_path, json.dumps(brut, indent=2, ensure_ascii=False) + "\n")])
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    with lecture_pincee_regate(data, GUIDE) as capacite:
+        ctx = runner.construire_contexte(
+            _settings(), data, regate=GUIDE, lecture=capacite.lecture,
+            capacite_regate=capacite)
+        alertes = ctx.index.corpus.alerts[GUIDE]
+        asyncio.run(ctx.client.aclose())
+
+    if fraiche:
+        assert "sans_gate" not in alertes and "gate_perime" not in alertes
+    else:
+        assert "sans_gate" in alertes and "gate_perime" not in alertes
+
+
+def test_aucune_production_natteint_la_lecture_rootless() -> None:
+    """Garde structurelle N3 : une définition privée, aucun import ni appel dans `server/`."""
+    serveur = Path(runner.__file__).resolve().parents[1]
+    occurrences = [
+        (chemin.relative_to(serveur), no, ligne.strip())
+        for chemin in serveur.rglob("*.py")
+        for no, ligne in enumerate(chemin.read_text("utf-8").splitlines(), 1)
+        if "_lecture_interne_sans_racine" in ligne
+    ]
+    assert occurrences, "la garde privée rootless doit rester définie pour les sondes historiques"
+    assert occurrences == [
+        (Path("app/corpus/racine.py"), occurrences[0][1],
+         "def _lecture_interne_sans_racine(data_dir: Path | str) -> Lecture:")
+    ]
 
 
 def test_un_document_en_quarantaine_pour_autre_chose_reste_refuse(tmp_path: Path,
@@ -2244,6 +2600,9 @@ def test_une_exception_inattendue_est_un_incident_pas_un_verdict(tmp_path: Path,
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     avant = (data / "manifest.json").read_text(encoding="utf-8")
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
@@ -2284,6 +2643,7 @@ def test_le_profil_full_inclut_vertical_et_full_en_dry_run(
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
     _COURANT["guide"] = DoublePipeline([])
     _COURANT["sinistre"] = DoublePipeline([])
+    poser_espace(tmp_path, data_dir=data)
     code = runner.main(["--profile", "full", "--dry-run", "--cases-dir", str(cases),
                         "--data-dir", str(data)])
     assert code == 0
@@ -2324,7 +2684,15 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
 
     Deux `--gate` concurrents écrivaient le même fichier temporaire ; le second pouvait déplacer un
     fichier que le premier avait déjà déplacé (`replace` en échec, `FileNotFoundError`). Le nom est
-    désormais unique et créé dans le répertoire du manifest — le `replace` reste atomique.
+    désormais unique et créé dans le répertoire du fichier qu'il remplace — le `replace` reste
+    atomique.
+
+    Story 4.5, B7 : le fichier remplacé n'est plus `data/manifest.json` lui-même (un lien vers le
+    bundle), mais son slot dans la génération inactive de l'espace de publication
+    (`data/.publie/<a|b>/data/manifest.json`, `EspacePublie._ecrire_dans_bundle`) — et son préfixe
+    porte désormais un point (fichier caché), comme les autres temporaires du bundle. Le nom n'en
+    reste pas moins non dérivable, unique par écriture, et créé dans le répertoire exact du fichier
+    qu'il remplace : c'est la même propriété, à l'endroit où elle vit désormais.
     """
     _corpus_, index = _corpus()
     guide = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
@@ -2345,9 +2713,10 @@ def test_lecriture_du_gate_ne_laisse_pas_de_temporaire_ni_de_nom_partage(
     monkeypatch.setattr(runner.tempfile, "mkstemp", espion)
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
     assert _main(tmp_path, ["--gate", GUIDE], monkeypatch, reponses_guide=[guide]) == 1
-    ecritures = [n for n in vus if Path(n).name.startswith("manifest.json.") and n.endswith(".tmp")]
+    ecritures = [n for n in vus if Path(n).name.startswith(".manifest.json.") and n.endswith(".tmp")]
     assert len(ecritures) == 2 and len(set(ecritures)) == 2, ecritures
-    assert all(Path(n).parent == data for n in ecritures), ecritures
+    generations = {data / REPERTOIRE_ESPACE / gen / "data" for gen in GENERATIONS}
+    assert all(Path(n).parent in generations for n in ecritures), ecritures
 
 
 class ClientLieASaBoucle:
@@ -2394,6 +2763,7 @@ def test_le_client_se_ferme_sur_la_boucle_qui_la_servi(tmp_path: Path,
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    poser_espace(tmp_path, data_dir=data)
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
@@ -2425,6 +2795,9 @@ def test_le_client_est_ferme_meme_quand_le_runner_refuse(tmp_path: Path,
     data = tmp_path / "data"
     data.mkdir()
     _corpus_sur_disque(data)
+    # Story 4.5, N3 : le runner exige une racine **installée** et refuse avant toute
+    # mesure sinon. La disposition se pose ici, comme la CI et l'opérateur la posent.
+    poser_espace(tmp_path, data_dir=data)
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
@@ -2525,3 +2898,228 @@ def test_deux_configurations_de_tiers_ne_partagent_jamais_une_namespace_de_cache
     jumeau = _contexte([], settings=_settings(verifier_tier="micro"))
     assert runner.empreinte_canonique(runner.namespace_cache(
         cas, jumeau, doc_id=GUIDE, variant="outils")) == runner.empreinte_canonique(espace_micro)
+
+
+# --- R1 : un rapport que la validation canonique refuse est un **résultat**, pas un incident -------
+
+def test_un_rapport_inexploitable_sort_en_un_et_non_en_trois(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """La ligne de partage d'AD-8, éprouvée de bout en bout par `main()`.
+
+    Le journal du run indexait des clés que rien n'exigeait — `cases_completed`, `cases_hash`, les
+    sept labels d'AD-14, les sept champs de chaque exécution. Un rapport amputé y levait un
+    `KeyError`, qui n'est pas une `ValueError` : il traversait tous les handlers nommés et
+    ressortait par le dernier `except Exception` en « incident », **code 3**. Un défaut de données
+    étiqueté panne technique — et code 3 promet « manifest non modifié » pour une raison qui n'est
+    pas la bonne, ce qui envoie chercher un problème de réseau là où une clé manque.
+
+    Ce test tient la promesse dans les deux sens : le code **et** la cause nommée sur `stderr`.
+    """
+    from server.evals.publication import RapportInexploitable
+
+    _corpus_, index = _corpus()
+    bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    vrai_construire = runner.construire_rapport
+
+    def rapport_ampute(*a: Any, **k: Any) -> dict[str, Any]:
+        rapport = vrai_construire(*a, **k)
+        # Le rapport est complet et cohérent, à une clé près — celle que le journal indexe.
+        return {cle: valeur for cle, valeur in rapport.items() if cle != "cases_completed"}
+
+    monkeypatch.setattr(runner, "construire_rapport", rapport_ampute)
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    avant = (data / "manifest.json").read_bytes()
+
+    code = _main(tmp_path, ["--suite", "guide"], monkeypatch, reponses_guide=[bonne])
+
+    assert code == 1, "un défaut de données est un résultat (1), jamais un incident technique (3)"
+    err = capsys.readouterr().err
+    assert "refus d'écrire les rapports" in err
+    assert "cases_completed" in err, "le refus doit nommer la clé fautive"
+    assert "manifest non modifié" in err
+    # Et il dit vrai : le manifest est byte-identique, rien n'a été écrit.
+    assert (data / "manifest.json").read_bytes() == avant
+    assert not [p.name for p in tmp_path.rglob("*.tmp")]
+    # Le refus vient bien du contrôle canonique, nommé : `RapportInexploitable` est le seul chemin
+    # par lequel ce message peut sortir (les autres handlers nomment d'autres causes).
+    assert issubclass(RapportInexploitable, Exception)
+    assert not issubclass(RapportInexploitable, ValueError), (
+        "si c'était une ValueError, elle serait absorbée par le handler d'échec de publication "
+        "du chemin gate, et la cause nommée ici disparaîtrait")
+
+
+# --- N3 : le runner d'évals exige une racine installée, **avant** toute mesure --------------------
+
+def test_le_runner_refuse_un_data_dir_non_installe_avant_toute_mesure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """N3 : le runner n'avait **aucun préflight d'espace**.
+
+    Dans `run._main`, les seules occurrences d'`espace` étaient une construction pure — qui ne
+    vérifie rien — puis quatre usages **tous postérieurs** à `_executer_puis_fermer` : sur un
+    `--data-dir` non installé, la campagne entière était payée, puis le refus tombait et le rapport
+    était perdu. `docs/evals/harness.md` affirmait pourtant, mot pour mot, que « le run refuse avant
+    toute mesure ». Il le fait maintenant, et aucun pipeline n'est appelé.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    appels: list[str] = []
+
+    class PipelineSentinelle:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            appels.append("appel")
+            raise AssertionError("aucune mesure ne doit avoir lieu sans racine installée")
+
+    _COURANT["guide"] = PipelineSentinelle()
+    _COURANT["sinistre"] = PipelineSentinelle()
+
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+
+    assert code == 2, "un refus d'avant appel est un code 2, comme les autres"
+    erreur = capsys.readouterr().err
+    assert "espace de publication" in erreur and "rien n'a été mesuré" in erreur
+    assert appels == []
+    assert not (tmp_path / "eval-results.json").exists()
+    assert not (tmp_path / "eval-results.md").exists()
+
+
+# --- Revue du tour N1–N3 : la couverture du lot de gate, et le repère partagé de la décision ------
+
+def test_une_disposition_sans_le_lien_des_campagnes_refuse_avant_toute_mesure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """Revue du tour N1–N3, constat 5 : `docs/evals/campagnes` est une cible du lot comme les autres.
+
+    Le préflight écartait l'archive de campagne au motif qu'« l'inclure nommément exigerait un
+    horodatage qui n'existe pas encore ». Le motif vaut pour le **fichier**, jamais pour le
+    **répertoire** qui porte la couverture. Une disposition où ce seul lien manque laissait donc la
+    campagne entière être payée avant que la publication ne refuse — précisément le mode de
+    défaillance que N3 ferme pour toutes les autres cibles.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    # Toutes les cibles du lot **sauf** le répertoire d'archives.
+    espace = EspacePublie(tmp_path, data)
+    espace.installer([cible for cible in CIBLES_STANDARD
+                      if cible != Path("docs") / "evals" / "campagnes"], migrer=True)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+    appels: list[str] = []
+
+    class PipelineSentinelle:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            appels.append("appel")
+            raise AssertionError("aucune mesure ne doit avoir lieu sous une disposition incomplète")
+
+    _COURANT["guide"] = PipelineSentinelle()
+    _COURANT["sinistre"] = PipelineSentinelle()
+
+    code = runner.main(["--gate", GUIDE, "--cases-dir", str(cases), "--data-dir", str(data)])
+
+    assert code == 2, "un refus d'avant appel est un code 2, comme les autres"
+    assert "espace de publication" in capsys.readouterr().err
+    assert appels == [], "la campagne a été payée avant que la couverture ne soit vérifiée"
+
+
+def test_les_arguments_de_la_ci_passent_le_preflight_de_racine(tmp_path: Path) -> None:
+    """Le refus neuf du runner ne referme pas le chemin que l'Always du contrat protège.
+
+    Revue du tour N1–N3, constat 19. Le préflight de racine s'arme sur **tout** run hors
+    `--dry-run`, gate ou non : il fallait établir qu'un `--profile full` **sans** `--gate`, celui que
+    la CI lance, continue de tourner à l'identique. La CI pose ses liens `.evals/` avant l'étape
+    d'évals (`.github/workflows/ci.yml`), et son lot hors gate est le seul couple
+    `(rapport JSON, table Markdown)` : c'est cette forme-là que la sonde éprouve, sans aucun appel.
+    """
+    from server.ingest.artifacts import exiger_espace_installe
+
+    sorties = tmp_path / ".evals"
+    sorties.mkdir()
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([Path(".evals") / "results.json", Path(".evals") / "results.md"])
+
+    lot = runner.cibles_publiees_du_run(tmp_path / "data", sorties / "results.json",
+                                        sorties / "results.md", gate=False)
+    assert lot == [sorties / "results.json", sorties / "results.md"], (
+        "le lot d'un run sans gate est le seul couple rapport/table")
+    exiger_espace_installe(lot)  # ne lève pas : la disposition de la CI suffit au diagnostic
+
+
+# --- Patch croisé 1/3 : la fraîcheur du repère vaut pour tout run, et le regate sous racine -------
+
+def test_un_run_sans_gate_verifie_aussi_la_fraicheur_de_son_repere(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """`N1-RUN-FRESHNESS` : la péremption est une propriété de la passe, pas du profil.
+
+    `lecture_run.verifier()` vivait sous `if exigences_full:`. Un gate `vertical` et le run CI
+    `--profile full` **sans** `--gate` sortaient donc de leur passe de lecture sans vérification
+    finale : `Lecture.reel` contrôle avant de *rendre* un chemin, et l'ouverture arrive séparément,
+    si bien qu'une reconstruction entre les deux fournissait les nouveaux octets sans rejeu ni
+    refus. La sonde prend le chemin **sans gate**, celui que la CI lance.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    cases = _cases_dir(tmp_path, guide=CAS_GUIDE, sinistre=CAS_SINISTRE)
+    espace = poser_espace(tmp_path, data_dir=data)
+    manifest = (data / "manifest.json").read_text("utf-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-de-test")
+    monkeypatch.setattr(runner, "Settings", lambda: _settings())
+
+    appels: list[str] = []
+
+    class PipelineSentinelle:
+        async def __call__(self, *a: Any, **k: Any) -> Any:
+            appels.append("appel")
+            raise AssertionError("aucune mesure ne doit suivre un repère périmé")
+
+    _COURANT["guide"] = PipelineSentinelle()
+    _COURANT["sinistre"] = PipelineSentinelle()
+
+    # La génération pincée est reconstruite pendant la construction du contexte : deux bascules.
+    vrai_contexte = runner.construire_contexte
+
+    def _reconstruire_puis_rendre(*a: Any, **k: Any) -> Any:
+        ctx = vrai_contexte(*a, **k)
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return ctx
+
+    monkeypatch.setattr(runner, "construire_contexte", _reconstruire_puis_rendre)
+    code = runner.main(["--suite", "guide", "--cases-dir", str(cases), "--data-dir", str(data)])
+    monkeypatch.undo()
+
+    assert code == 2, "un repère périmé se refuse avant tout appel, comme les autres refus"
+    assert "rien n'a été mesuré" in capsys.readouterr().err
+    assert appels == [], "un appel payant a suivi une génération reconstruite sous la passe"
+
+
+def test_le_regate_traverse_une_disposition_installee_sans_la_prendre_pour_cassee(
+        tmp_path: Path) -> None:
+    """Nom historique : le regate lit le custom installé, sans arbre secondaire."""
+
+    data = tmp_path / "data"
+    data.mkdir()
+    _corpus_sur_disque(data)
+    poser_espace(tmp_path, data_dir=data,
+                 cibles=[Path("data") / GUIDE / nom for nom in
+                         ("document.json", "summary.md", "report.json")])
+    from server.app.corpus.racine import lecture_pincee_regate
+
+    with lecture_pincee_regate(data, GUIDE) as capacite:
+        corpus = load_corpus(
+            data, allow_ungated=True, lecture=capacite.lecture,
+            regate=GUIDE, capacite_regate=capacite, neutraliser_regate=True)
+        assert GUIDE in corpus.served
+        assert capacite.lecture.reel(data / GUIDE / "document.json").is_file()
+    assert data.is_dir() and (data / GUIDE).is_dir()

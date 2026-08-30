@@ -15,4 +15,16 @@ _reference
 .claude
 .agents
 data/*/source.pdf
+# Les octets privés et les liens du checkout sont exclus génériquement. Le Dockerfile repose la
+# disposition depuis le manifest, hors réseau, avant `fetch_source --all`.
+data/.publie/*/data/*/source.pdf
 data/*/*.tmp
+# Story 4.5, N1 — le packaging emporte ce qui est **réellement résolu**, et rien de plus. Les cibles
+# servies (`data/manifest.json`, `data/evals-latest.json`, les artefacts par document) sont des
+# liens qui traversent `data/.publie/courant` : le bundle doit donc entrer dans l'image. Mais deux
+# choses n'ont rien à y faire, et le motif `data/*/*.tmp` ci-dessus ne les couvrait ni l'une ni
+# l'autre : le **verrou** de l'espace, qui est un état d'exécution de l'hôte, et les temporaires
+# **imbriqués** d'une génération (`data/.publie/<gen>/**/*.tmp`), qui sont des brouillons.
+data/.publie/.verrou
+data/.publie/**/*.tmp
+data/.publie/.*.tmp

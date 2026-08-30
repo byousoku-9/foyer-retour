@@ -189,6 +189,7 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
     import json
 
     from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.racine import _lecture_interne_sans_racine
 
     # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
     # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
@@ -207,7 +208,8 @@ def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *,
          # Story 2.5 : les déclencheurs d'intention. Ils ne décident rien (AD-5) — ils permettent
          # au pipeline de **compter** ce qui corrobore l'intention rendue par *comprendre*.
          "intents": intents or {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
-    return load_dictionary(dossier, index.corpus, doc_id)
+    with _lecture_interne_sans_racine(dossier) as lecture:
+        return load_dictionary(dossier, index.corpus, doc_id, lecture=lecture)
 
 
 BONNE = ("c1", "Le délai est de huit jours.", [(f"{DOC_ID}:f1:2", Q_ARRIVEE)])
@@ -265,8 +267,8 @@ async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_cha
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
-    assert fake.requests[2]["max_tokens"] == _settings().outils_rediger_max_tokens == 1792
-    assert trace.thresholds["outils_rediger_max_tokens"] == 1792
+    assert fake.requests[2]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    assert "outils_rediger_max_tokens" not in trace.thresholds
     assert len(fake.requests) == 4
 
 
@@ -296,8 +298,9 @@ async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
         return result, step
 
     monkeypatch.setattr(guide_module, "retrouver_deterministe", fallback_with_check)
-    tool_candidates = [b for b, _ in index.chercher(["école"], limit=_settings().search_limit,
-                                                     doc_id=DOC_ID)]
+    tool_candidates = [b for b, _ in index.chercher(
+        ["école"], limit=_settings().search_limit, doc_id=DOC_ID,
+        groupes_prioritaires=["délai de déclaration"])]
     tool_call = fake_message(
         model=TIERS["micro"], stop_reason="tool_use",
         content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
@@ -493,6 +496,25 @@ async def test_an_out_of_scope_intent_never_reaches_the_reason_tier(index: Index
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "hors_perimetre" and answer.reason.terms_searched == []
     assert answer.texte and answer.segments[0].kind == "limite"
+
+
+async def test_un_refus_autonome_contradictoire_est_normalise_puis_refuse_sans_retrieval(
+        index: Index) -> None:
+    answer, trace, fake = await _run(index, [
+        _comprendre("hors_perimetre", clarification="Quel objet désignez-vous ?"),
+    ], question="Sa demande complète concerne un autre sujet.")
+
+    assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
+    assert len(fake.requests) == 1 and "retrouver" not in [step.name for step in trace.steps]
+    assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
+    assert answer.clarification is None
+    comprendre = next(step for step in trace.steps if step.name == "comprendre")
+    (neutralisee,) = [
+        check for check in comprendre.checks
+        if check.name == "clarification_refus_neutralisee"
+    ]
+    assert neutralisee.ok is False
+    assert [check for check in comprendre.checks if check.name == "intention_expliquee"] == []
 
 
 async def test_a_clarification_short_circuits_and_is_carried_by_the_answer(index: Index) -> None:
@@ -862,11 +884,11 @@ async def test_a_retry_that_verifies_worse_never_replaces_the_answer(
 @pytest.mark.parametrize("variant", ["deterministe", "outils"])
 async def test_a_max_tokens_draft_is_retried_under_the_variant_output_cap(
         index: Index, variant: str) -> None:
-    """M4 : la troncature de *rédiger* est éprouvée sur le plafond réduit du chemin outils."""
+    """M4 : la troncature de *rédiger* est éprouvée sous l'autorité unique des variantes."""
     tronquee = _rediger(BONNE)
     tronquee["stop_reason"] = "max_tokens"
-    settings = _settings(rediger_max_tokens=19, outils_rediger_max_tokens=17)
-    expected = 17 if variant == "outils" else 19
+    settings = _settings(rediger_max_tokens=19)
+    expected = 19
     script = _avec_navigation_outils([_comprendre(), tronquee, tronquee], variant)
     with pytest.raises(LlmParse, match=rf"tronquée.*max_tokens={expected}"):
         await _run(index, script, variant=variant, settings=settings)
@@ -1926,6 +1948,59 @@ async def test_un_perimetre_tronque_desarme_le_refus_hors_perimetre(index: Index
     assert check.ok is False and "perimetre_tronque" in check.detail
     # Désarmé, donc jamais expliqué comme un refus : il n'y a pas eu de refus.
     assert [c.name for c in comprendre.checks if c.name == "intention_expliquee"] == []
+
+
+async def test_un_perimetre_tronque_ne_desarme_pas_une_clarification_neutralisee(
+        index: Index, perimetre_tronque) -> None:
+    """B1 : une liste de périmètre amputée ne rend pas autonome une référence irrésolue.
+
+    La sortie modèle contradictoire porte à la fois l'intention que le périmètre tronqué ne permet
+    pas de croire et la seule question de clarification disponible. Cette dernière doit être servie
+    après l'unique appel ``micro`` ; la question brute non autonome ne doit jamais devenir l'entrée
+    de *retrouver*.
+    """
+    clarification = "De quelle démarche parlez-vous ?"
+    answer, trace, fake = await _run(
+        index,
+        [_comprendre("hors_perimetre", clarification=clarification)],
+        question="Et pour celle-ci ?",
+    )
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.clarification == clarification
+    assert answer.reason is not None and answer.reason.kind == "clarification_requise"
+    comprendre = next(step for step in trace.steps if step.name == "comprendre")
+    assert [check.name for check in comprendre.checks] == [
+        "clarification_refus_neutralisee",
+        "clarification_retablie_perimetre_tronque",
+    ]
+    checks = {check.name: check for check in comprendre.checks}
+    assert checks["clarification_refus_neutralisee"].ok is False
+    assert checks["clarification_retablie_perimetre_tronque"].ok is False
+
+
+async def test_une_clarification_neutralisee_retablie_publie_le_repli_de_langue(
+        index: Index, perimetre_tronque) -> None:
+    """Le chemin privé publie la même divergence de langue qu'une clarification ordinaire."""
+    clarification = "¿De qué trámite habla?"
+    answer, trace, fake = await _run(
+        index,
+        [_comprendre("hors_perimetre", clarification=clarification, language="es")],
+        question="¿Y para este?",
+    )
+
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
+    assert answer.clarification == clarification
+    assert answer.lang == "fr" and answer.lang_fallback is True
+    comprendre = next(step for step in trace.steps if step.name == "comprendre")
+    assert [check.name for check in comprendre.checks] == [
+        "clarification_refus_neutralisee",
+        "clarification_langue_non_affirmee",
+        "clarification_retablie_perimetre_tronque",
+    ]
+    assert all(check.ok is False for check in comprendre.checks)
 
 
 async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(

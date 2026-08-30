@@ -1,0 +1,39 @@
+{
+  "doc_id": "lux-guide",
+  "checks": [
+    {
+      "name": "invariants_arbre",
+      "level": "info",
+      "detail": "ok"
+    },
+    {
+      "name": "parcours_ingere",
+      "level": "info",
+      "detail": "5 phases, 38 étapes : 9 fiche(s) conditionnée(s) par le profil, 29 étape(s) ignorée(s) (texte des étapes jamais ingéré)"
+    },
+    {
+      "name": "taille_sommaire",
+      "level": "info",
+      "detail": "10359 caractères (aucune estimation de tokens publiée)"
+    }
+  ],
+  "stats": {
+    "fiches": 36,
+    "faq": 41,
+    "noeuds": 88,
+    "blocs": 506,
+    "blocs_par_kind": {
+      "heading": 112,
+      "para": 391,
+      "table": 3
+    },
+    "tableaux": 3,
+    "timeline_phases": 5,
+    "timeline_etapes": 38,
+    "parcours_fiches": 9,
+    "parcours_etapes_ignorees": 29,
+    "sommaire_chars": 10359,
+    "ids_disparus": 0,
+    "ids_nouveaux": 0
+  }
+}

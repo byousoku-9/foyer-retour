@@ -35,8 +35,12 @@ from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, 
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
-from server.ingest.artifacts import document_json, merged_manifest, read_manifest
-from server.ingest.report import enrich_typing_report, pages_charabia
+from server.app.corpus.racine import Lecture, relire
+from server.ingest.artifacts import (STRUCTURE_FILE, LectureDuLot, document_json,
+                                     exiger_espace_installe, fusionner_et_publier,
+                                     publier_artefacts, verifier_couverture_du_lot)
+from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
+                                  pages_charabia)
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
@@ -1016,8 +1020,11 @@ def _apply_node_scopes(doc: Document) -> Document:
     return Document.model_validate(doc.model_copy(update={"nodes": nodes}, deep=True).model_dump())
 
 
-def _migration_overlay(doc_dir: Path, doc: Document) -> dict[str, dict[str, Any]]:
+def _migration_overlay(doc_dir: Path, doc: Document,
+                       lecture: Lecture | None = None) -> dict[str, dict[str, Any]]:
     path = doc_dir / "typing.manual.json"
+    if lecture is not None:
+        path = lecture.reel(path)
     if not path.is_file():
         return {}
     try:
@@ -1066,46 +1073,59 @@ def _check_migration(doc: Document, expected: dict[str, dict[str, Any]]) -> None
 
 
 def _atomic_artifacts(files: dict[Path, str], delete: list[Path]) -> None:
-    """Prépare tous les temporaires, puis remplace; restaure les octets d'entrée sur toute erreur."""
-    originals = {path: path.read_bytes() if path.is_file() else None for path in [*files, *delete]}
-    temps: dict[Path, Path] = {}
-    try:
-        for path, text in files.items():
-            temp = path.with_name(path.name + ".typing.tmp")
-            temp.write_text(text, "utf-8")
-            temps[path] = temp
-        for path, temp in temps.items():
-            os.replace(temp, path)
-        for path in delete:
-            path.unlink(missing_ok=True)
-    except Exception:
-        for path, content in originals.items():
-            if content is None:
-                path.unlink(missing_ok=True)
-            else:
-                restore = path.with_name(path.name + ".typing.restore")
-                restore.write_bytes(content)
-                os.replace(restore, path)
-        raise
-    finally:
-        for temp in temps.values():
-            temp.unlink(missing_ok=True)
+    """Publie le lot **complet** de l'opération de typage — d'un seul geste, par la racine.
+
+    Story 4.5, tour de racine unique, fait 1. Cette fonction faisait `os.replace(temp, path)` sur
+    chacune de ses cibles, `data/manifest.json` compris : sur un manifest couvert par une racine de
+    publication, cela **remplaçait le lien statique par un fichier ordinaire** et sortait le
+    manifest du pointeur pour de bon — la destruction exacte que la docstring de `write_atomic`
+    décrit comme « une seule fois suffirait », par un chemin qui n'appelle pas `write_atomic`.
+
+    Et sa restauration séquentielle — relire les octets d'entrée, puis les réécrire cible par cible
+    sur `except Exception` — est précisément la forme que les tours correctifs 1/3 et 2/3 ont
+    refusée pour les évals : un protocole qui *défait* ce qu'il a déjà fait n'est pas tout-ou-rien,
+    il admet qu'après épuisement une cible reste dans le nouvel état. Elle ne pouvait pas rester la
+    forme de l'ingestion.
+
+    Le lot est donc remis **entier** — les fichiers écrits *et* la suppression de l'overlay — à
+    `publier_artefacts`, qui le bascule par la racine quand elle en couvre les cibles (même
+    `flock`, même génération inactive, même unique `os.replace` du pointeur) et garde le chemin
+    d'avant quand aucune racine ne les couvre. Une suppression est membre du lot au même titre
+    qu'une écriture : sans cela, retirer l'overlay resterait un `unlink` à un rang où une exception
+    laisserait l'un fait et l'autre non.
+
+    Le typage continue de faire exactement ce qu'il faisait ; ce qui change est le chemin
+    d'écriture.
+    """
+    publier_artefacts([*files.items(), *((path, None) for path in delete)])
 
 
 def _load(doc_dir: Path) -> tuple[Document, Report, dict[str, Any], ManifestEntry, dict[str, dict[str, Any]]]:
+    """Le corpus du typage, lu **d'une seule génération** (story 4.5, N1).
+
+    Six résolutions indépendantes du pointeur — manifest, document, rapport, overlay — décidaient
+    ensemble de ce que la transaction publierait : une bascule tombant entre deux d'entre elles
+    faisait typer un document que le manifest ne décrit plus. Le repère est pincé une fois, ici, et
+    toute la lecture passe par lui ; les octets **hachés** sont les octets **parsés**.
+    """
+    return relire(doc_dir.parent, lambda lecture: _load_pince(doc_dir, lecture))
+
+
+def _load_pince(doc_dir: Path, lecture: Lecture) -> tuple[
+        Document, Report, dict[str, Any], ManifestEntry, dict[str, dict[str, Any]]]:
     manifest_path = doc_dir.parent / "manifest.json"
-    raw_manifest = read_manifest(manifest_path)
+    raw_manifest = _manifest_lu(lecture, manifest_path)
     raw_entry = raw_manifest.get(doc_dir.name)
     if raw_entry is None:
         raise ValueError(f"{doc_dir.name}: absent du manifest")
     entry = TypeAdapter(ManifestEntry).validate_python(raw_entry)
     doc_path = doc_dir / "document.json"
     report_path = doc_dir / "report.json"
-    doc_bytes = doc_path.read_bytes()
+    doc_bytes = lecture.reel(doc_path).read_bytes()
     if hashlib.sha256(doc_bytes).hexdigest() != entry.document_hash:
         raise ValueError("document_hash différent du manifest; relancer l'ingestion PDF")
     doc = Document.model_validate_json(doc_bytes)
-    report = Report.model_validate_json(report_path.read_bytes())
+    report = Report.model_validate_json(lecture.reel(report_path).read_bytes())
     pages_charabia(report)  # préflight avant client/API : un ancien rapport doit être réingéré
     if doc.doc_id != doc_dir.name or report.doc_id != doc.doc_id:
         raise ValueError("doc_id incohérent entre dossier, document et rapport")
@@ -1115,11 +1135,31 @@ def _load(doc_dir: Path) -> tuple[Document, Report, dict[str, Any], ManifestEntr
             entry.source_hash, entry.ingest_fingerprint, entry.edition):
         raise ValueError("source_hash, ingest_fingerprint ou édition incohérent avec le manifest")
     overlay_path = doc_dir / "typing.manual.json"
-    if overlay_path.is_file() != (entry.overlay_hash is not None):
+    overlay_present = lecture.fichier(overlay_path)
+    if overlay_present != (entry.overlay_hash is not None):
         raise ValueError("présence de typing.manual.json incohérente avec overlay_hash")
-    if overlay_path.is_file() and hashlib.sha256(overlay_path.read_bytes()).hexdigest() != entry.overlay_hash:
+    if overlay_present and hashlib.sha256(
+            lecture.reel(overlay_path).read_bytes()).hexdigest() != entry.overlay_hash:
         raise ValueError("overlay_hash différent du manifest; relancer l'ingestion PDF")
-    return doc, report, raw_manifest, entry, _migration_overlay(doc_dir, doc)
+    return doc, report, raw_manifest, entry, _migration_overlay(doc_dir, doc, lecture)
+
+
+def _manifest_lu(lecture: Lecture, manifest_path: Path) -> dict[str, Any]:
+    """`read_manifest`, mais depuis le repère pincé — même contrôle, une seule génération."""
+    octets = lecture.octets(manifest_path)
+    return _manifest_valide(octets, manifest_path)
+
+
+def _manifest_du_verrou(lecture: LectureDuLot, manifest_path: Path) -> dict[str, Any]:
+    """Le manifest **réellement publié**, lu dans la transaction qui va le republier (N3)."""
+    return _manifest_valide(lecture.octets(manifest_path), manifest_path)
+
+
+def _manifest_valide(octets: bytes | None, manifest_path: Path) -> dict[str, Any]:
+    raw: dict[str, Any] = json.loads(octets.decode("utf-8")) if octets else {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{manifest_path} : un objet JSON {{doc_id: entrée}} est attendu")
+    return raw
 
 
 @contextmanager
@@ -1158,6 +1198,12 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         raise ValueError(f"transport inconnu {transport!r}; aucun appel ni lot soumis")
     if not math.isfinite(prior_cost_eur) or prior_cost_eur < 0:
         raise ValueError("--prior-cost-eur doit être un nombre fini >= 0; aucun appel soumis")
+    # **Préflight de couverture, avant la moindre soumission** (revue du tour de racine unique,
+    # constat 6). Le lot du typage est connu d'avance — document, rapport, retrait de l'overlay,
+    # manifest — et le refus « lot mixte » tombait au tout dernier geste : un typage LLM entièrement
+    # payé était jeté pour une disposition qu'on pouvait vérifier ici, gratuitement.
+    verifier_couverture_du_lot([doc_dir / "document.json", doc_dir / "report.json",
+                                doc_dir / "typing.manual.json", doc_dir.parent / "manifest.json"])
     doc, report, raw_manifest, old_entry, migration = _load(doc_dir)
     campaign = campaign_fingerprint(doc, settings)
     print(f"empreinte de campagne: {campaign}", file=output)
@@ -1430,23 +1476,85 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             })
         typed_report.stats.update(transport_stats)
     doc_text = document_json(typed)
-    report_text = json.dumps(typed_report.model_dump(), indent=2, ensure_ascii=False) + "\n"
     document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
-    new_entry = ManifestEntry(
-        status="quarantaine" if typed_report.blocking else "servi",
-        source_hash=old_entry.source_hash,
-        ingest_fingerprint=old_entry.ingest_fingerprint,
-        document_hash=document_hash,
-        edition=old_entry.edition,
-        overlay_hash=None,
-        gate=None,
-    )
-    manifest_text, merged_entry = merged_manifest(raw_manifest, doc.doc_id, new_entry)
-    _atomic_artifacts(
-        {doc_dir / "document.json": doc_text, doc_dir / "report.json": report_text,
-         doc_dir.parent / "manifest.json": manifest_text},
-        [doc_dir / "typing.manual.json"],
-    )
+    # **Le typage change `document.json`, donc l'arbre attesté** (story 4.5, revue B4). Les deux
+    # attestations d'ingestion sont préservées par `enrich_typing_report` (elles ne sont pas des
+    # checks de typage), mais elles nomment l'ancien `document_hash` : telles quelles, elles ne
+    # décrivent plus rien, et un document typé perdrait sa preuve de structure **sans que rien ne le
+    # dise** — le gate `full` la verrait simplement absente. Elles sont donc ré-attestées sur les
+    # empreintes neuves, avec les mêmes fonctions que l'ingestion, dans le même ordre.
+    #
+    # `renouveler=True` : rien n'est **fabriqué** au passage. Le typage réécrit un rapport, il ne
+    # re-vérifie ni l'arbre ni la proposition de structure ; il n'a donc rien à attester qui ne l'ait
+    # déjà été. Un rapport sans attestation — parce qu'aucune structure n'a été proposée, parce que
+    # l'arbre a été refusé, ou simplement parce qu'il date d'avant la story 4.5 — ressort exactement
+    # tel quel, et le témoin du gate reste rouge jusqu'à une vraie réingestion.
+    rapport_publie: Report | None = None
+
+    def fabriquer(lecture: LectureDuLot) -> tuple[ManifestEntry, list[tuple[Path, str | None]]]:
+        """L'entrée publiée, décidée **sous le verrou** (story 4.5, N3).
+
+        `structure_hash` et les champs repris de l'entrée antérieure — `source_hash`,
+        `ingest_fingerprint`, `edition` — venaient d'une lecture faite par `_load` **avant des
+        minutes d'appels de modèle**. Une réingestion publiée entre-temps rendait donc l'entrée du
+        typage descriptive d'un document qui n'existe plus, et le typage écrasait la réingestion.
+        Les trois champs sont relus ici, dans la transaction qui publie, et **opposés** à ceux que
+        le typage a effectivement typés : une divergence est un refus, jamais une publication.
+        """
+        nonlocal rapport_publie
+        manifest_publie = _manifest_du_verrou(lecture, doc_dir.parent / "manifest.json")
+        brut = manifest_publie.get(doc.doc_id)
+        entree_publiee = (TypeAdapter(ManifestEntry).validate_python(brut)
+                          if isinstance(brut, dict) else None)
+        if entree_publiee is None:
+            raise BatchFailure(
+                f"{doc.doc_id} a disparu du manifest pendant le typage : rien n'est publié")
+        repris = (entree_publiee.source_hash, entree_publiee.ingest_fingerprint,
+                  entree_publiee.edition, entree_publiee.document_hash)
+        attendus = (old_entry.source_hash, old_entry.ingest_fingerprint, old_entry.edition,
+                    old_entry.document_hash)
+        if repris != attendus:
+            raise BatchFailure(
+                "le document a été réingéré pendant le typage (source_hash, ingest_fingerprint, "
+                "édition ou document_hash du manifest publié diffèrent de ceux qui ont été typés) "
+                "— rien n'est publié, relancer le typage")
+        structure_courante = lecture.empreinte(doc_dir / STRUCTURE_FILE)
+        rapport = attester_structure(typed_report, document_hash=document_hash,
+                                     structure_hash=structure_courante or "", renouveler=True)
+        rapport = attester_arbre(rapport, document_hash=document_hash,
+                                 ingest_fingerprint=entree_publiee.ingest_fingerprint,
+                                 renouveler=True)
+        rapport_publie = rapport
+        report_text = json.dumps(rapport.model_dump(), indent=2, ensure_ascii=False) + "\n"
+        entree = ManifestEntry(
+            status="quarantaine" if rapport.blocking else "servi",
+            source_hash=entree_publiee.source_hash,
+            ingest_fingerprint=entree_publiee.ingest_fingerprint,
+            document_hash=document_hash,
+            edition=entree_publiee.edition,
+            overlay_hash=None,
+            # Story 4.5 : `structure.json` n'est ni écrit ni supprimé ici — l'empreinte est donc
+            # relue du bundle publié, plutôt que recopiée de l'ancienne entrée (qui pourrait
+            # décrire un fichier qui a bougé depuis).
+            structure_hash=structure_courante,
+            gate=None,
+        )
+        return entree, [(doc_dir / "document.json", doc_text),
+                        (doc_dir / "report.json", report_text),
+                        (doc_dir / "typing.manual.json", None)]
+
+    # Tour de racine unique, fait 2 : le manifest est **relu et fusionné sous le verrou** de la
+    # racine, jamais depuis le `raw_manifest` que `_load` avait lu au début de l'opération — le
+    # typage dure des minutes, et une ingestion concurrente publiée entre-temps était écrasée par
+    # cette fusion périmée. Le lot complet du typage — document, rapport, manifest et le retrait de
+    # l'overlay — bascule au même appel.
+    merged_entry = fusionner_et_publier(
+        doc_dir.parent / "manifest.json", doc.doc_id, fabriquer,
+        cibles=[doc_dir / "document.json", doc_dir / "report.json",
+                doc_dir / "typing.manual.json"])
+    if rapport_publie is None:  # pragma: no cover — `assert` disparaîtrait sous `python -O`
+        raise BatchFailure("la fabrique n'a pas produit de rapport : rien n'a été publié")
+    typed_report = rapport_publie
     return TypingResult(document=typed, report=typed_report, entry=merged_entry,
                         cost_eur=total_cost,
                         first_requests=len(first_plans), second_requests=len(second_plans),
@@ -1526,6 +1634,16 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         return 2
     if args.max_cost is not None and (not math.isfinite(args.max_cost) or args.max_cost <= 0):
         print("--max-cost doit être un nombre fini > 0", file=sys.stderr)
+        return 2
+    # **Un entrypoint de production exige une racine installée** (story 4.5, N3), et le dit avant la
+    # moindre soumission : le typage est le plus cher des chemins d'ingestion, et le refus d'un
+    # `data-dir` non installé tombait après l'avoir payé. Un `--data` custom **installé** passe.
+    doc_dir_pre = args.data / args.doc_id
+    try:
+        exiger_espace_installe([doc_dir_pre / "document.json", doc_dir_pre / "report.json",
+                                doc_dir_pre / "typing.manual.json", args.data / "manifest.json"])
+    except Exception as exc:  # noqa: BLE001 — une disposition absente n'est pas une trace Python
+        print(f"refus : {exc}", file=sys.stderr)
         return 2
     settings = settings or get_settings()
     try:

@@ -165,6 +165,13 @@ class SanteResponse(BaseModel):
     # politique de mesure a tourné, celui-ci dit si la relecture qu'AD-14 met dans sa définition a
     # bien été faite par la personne à qui `epics.md` l'attribue.
     gate_countersigned: bool | None = None
+    # Story 4.5 / AC 3 — la **troisième** réserve, à côté de `gate_countersigned` et de
+    # `dictionary.validated`. AD-14 la fixe : « les verdicts ne sont pas validés par un expert
+    # assurance », et `Verite.validated_by_expert` est contraint à `False` dans le schéma des cas.
+    # Elle est publiée quand même, et publiée **ici**, parce qu'une promesse qu'on ne tient pas doit
+    # être lisible à l'endroit où l'on dit ce qu'on tient — pas seulement dans un document annexe.
+    # `null` exactement quand `gate_profile` l'est : sans gate, il n'y a pas de verdict à qualifier.
+    gate_validated_by_expert: bool | None = None
     dictionary: EtatDictionnaire = Field(default_factory=EtatDictionnaire)
     alerts: list[Alerte] = Field(default_factory=list)
     thresholds: dict[str, float | int] = Field(default_factory=dict)

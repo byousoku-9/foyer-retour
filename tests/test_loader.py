@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,6 @@ from typing import Any
 import pytest
 
 from server.app.corpus import loader
-from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain import Document, GateContext
 from server.ingest import kb_to_blocks as k
@@ -26,6 +26,16 @@ ROOT = Path(__file__).resolve().parents[1]
 # qu'on ait le temps de faire autre chose que relever le seuil dans l'urgence.
 PERIMETRE_MARGE_MIN = 0.15
 MINI = Path(__file__).parent / "data" / "mini_kb.js"
+
+_load_corpus_public = loader.load_corpus
+
+
+def load_corpus(data_dir: Path | str, **kwargs: Any) -> loader.Corpus:
+    """Voie unitaire explicite pour les matrices historiques sur arbres nus."""
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+
+    with _lecture_interne_sans_racine(data_dir) as lecture:
+        return _load_corpus_public(data_dir, lecture=lecture, **kwargs)
 
 
 @pytest.fixture
@@ -72,6 +82,16 @@ def test_ungated_document_served_with_alert_or_quarantined(data: Path) -> None:
     assert c.summaries["lux-guide"].startswith("<!-- lux-guide")
     c = load_corpus(data, allow_ungated=False)
     assert c.documents == {} and c.quarantine == {"lux-guide": "sans_gate"}
+
+
+def test_load_corpus_public_refuse_un_arbre_nu_avant_de_lire(tmp_path: Path) -> None:
+    from server.app.corpus.racine import EspaceNonInstalle
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    with pytest.raises(EspaceNonInstalle, match="n'est pas installé"):
+        _load_corpus_public(data, allow_ungated=True)
 
 
 def test_modified_document_json_is_quarantined_alone(data: Path) -> None:
@@ -423,14 +443,15 @@ def test_un_oserror_overlay_ne_publie_jamais_son_chemin(data: Path, monkeypatch:
     m["lux-guide"]["overlay_hash"] = _sha(path)
     _write_manifest(data, m)
     original = Path.read_bytes
-    lectures = 0
 
+    # L'échec est injecté sur **toute** lecture de l'overlay, quel que soit leur nombre. La version
+    # d'avant ne rougissait qu'à la *seconde* — celle qui reparsait ce qui venait d'être haché — et
+    # dépendait donc du défaut que le tour de la racine vraiment unique (N1) ferme : les octets
+    # hachés sont désormais les octets parsés, il n'y a plus qu'une lecture. L'attente est
+    # inchangée, le champ de la sonde est élargi.
     def lire(chemin: Path) -> bytes:
-        nonlocal lectures
         if chemin == path:
-            lectures += 1
-            if lectures == 2:  # la première lecture calcule le hash, la seconde parse l'overlay
-                raise OSError(f"échec privé sur {chemin}")
+            raise OSError(f"échec privé sur {chemin}")
         return original(chemin)
 
     monkeypatch.setattr(Path, "read_bytes", lire)
@@ -458,14 +479,12 @@ def test_un_oserror_document_garde_le_detail_au_log_seulement(
         data: Path, monkeypatch: Any, caplog: Any) -> None:
     document = data / "lux-guide" / "document.json"
     original = Path.read_bytes
-    lectures = 0
 
+    # Même élargissement que pour l'overlay : l'échec porte sur **toute** lecture du document, et
+    # non plus sur la seconde d'un couple hash-puis-parsing que N1 a supprimé.
     def lire(chemin: Path) -> bytes:
-        nonlocal lectures
         if chemin == document:
-            lectures += 1
-            if lectures == 2:  # hash puis parsing du document
-                raise OSError(f"échec privé sur {chemin}")
+            raise OSError(f"échec privé sur {chemin}")
         return original(chemin)
 
     monkeypatch.setattr(Path, "read_bytes", lire)
@@ -792,3 +811,566 @@ def test_le_perimetre_reel_du_guide_garde_une_marge_sous_son_seuil() -> None:
     assert corpus.perimetres[reglages.guide_doc_id] == load_corpus(
         REPO_ROOT / "data", allow_ungated=True,
         perimetre_max_chars=reglages.perimetre_max_chars).perimetres[reglages.guide_doc_id]
+
+
+# --- story 4.5 : `structure.json` couverte par le manifest, gate compris ---------------------------
+
+def test_une_structure_declaree_et_concordante_laisse_le_document_servi(data: Path) -> None:
+    """Revue 4.5, P1 : le patron exact d'`overlay_hash`, écrivains d'ingestion compris.
+
+    Le loader exige « `structure.json` déclaré ⟺ présent ». Sans écrivain qui renseigne le champ,
+    déposer l'artefact mettait le document en quarantaine avec « relancer l'ingestion » — une action
+    qui ne corrigeait rien, puisque la réingestion réécrivait l'entrée **sans** le champ. La dette
+    4.2c sortait alors le document du service, et `structure_prouvee_rate` ne pouvait jamais verdir.
+    """
+    structure = data / "lux-guide" / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    # Déclarée et concordante : servie.
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = _sha(structure)
+    _write_manifest(data, m)
+    corpus = load_corpus(data, allow_ungated=True)
+    assert corpus.quarantine == {} and "lux-guide" in corpus.documents
+    # L'artefact bouge sans réingestion ⇒ quarantaine nommée.
+    structure.write_text('{"doc_id": "lux-guide", "note": "modifie"}\n', "utf-8")
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        "lux-guide": "structure_hash différent du manifest (relancer l'ingestion)"}
+    # Présente mais non déclarée ⇒ quarantaine nommée.
+    m = _manifest(data)
+    m["lux-guide"].pop("structure_hash")
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        "lux-guide": "structure : structure.json présent mais non déclaré dans le manifest "
+                     "(relancer l'ingestion)"}
+    # Déclarée mais absente ⇒ quarantaine nommée.
+    structure.unlink()
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = "a" * 64
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {
+        "lux-guide": "structure : déclarée dans le manifest mais absente"}
+
+
+def test_un_gate_qui_certifie_une_autre_structure_est_neutralise(data: Path) -> None:
+    """Revue 4.5, P3 : `gate.structure_hash` est recoupé avec l'entrée, comme `overlay_hash`.
+
+    Écrire l'empreinte dans le gate sans jamais la comparer laissait servir, **sans une alerte**, un
+    document réingéré avec une autre structure sous un gate qui certifie l'ancienne.
+    """
+    structure = data / "lux-guide" / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = _sha(structure)
+    gate = _gate(m["lux-guide"])
+    gate["structure_hash"] = _sha(structure)
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}
+    # Réingestion : l'entrée porte une nouvelle structure, le gate certifie l'ancienne.
+    structure.write_text('{"doc_id": "lux-guide", "note": "reingere"}\n', "utf-8")
+    m = _manifest(data)
+    m["lux-guide"]["structure_hash"] = _sha(structure)
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False).quarantine == {"lux-guide": "sans_gate"}
+
+
+def test_un_gate_full_preprotocole_est_nomme_et_non_confondu_avec_un_manifest_casse(
+        data: Path) -> None:
+    """Revue 4.5, P15 : un gate `full` d'avant le protocole rend `gate_preprotocole`, pas un message
+    qui accuse le manifest.
+
+    Le validateur `Gate` refuse un `full` sans `plancher_digest`/`candidate_revision`, ce qui rendait
+    **toute l'entrée** invalide : le document partait en quarantaine « entrée de manifest invalide »,
+    un diagnostic qui parle du manifest alors que le manifest va bien, et qui masque exactement le
+    correctif que `gate_preprotocole` existe pour donner — refaire le gate.
+    """
+    m = _manifest(data)
+    gate = _gate(m["lux-guide"])
+    gate.update({"profile": "full", "decisions": [], "run_digest": None})
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine == {"lux-guide": "gate_preprotocole"}
+    # Une entrée réellement abîmée garde son message générique : le détour ne blanchit rien.
+    m = _manifest(data)
+    m["lux-guide"].pop("document_hash")
+    _write_manifest(data, m)
+    raison = load_corpus(data, allow_ungated=True).quarantine["lux-guide"]
+    assert raison.startswith("entrée de manifest invalide :")
+    # Un gate `vertical` invalide pour une autre raison n'est pas requalifié non plus : le détour
+    # ne vaut que pour le protocole d'un gate `full`, jamais comme fourre-tout.
+    m = _manifest(data)
+    m["lux-guide"]["document_hash"] = _sha(data / "lux-guide" / "document.json")
+    gate = _gate(m["lux-guide"])
+    gate["cases"] = 0
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=True).quarantine["lux-guide"].startswith(
+        "entrée de manifest invalide :")
+
+
+def test_un_gate_full_dun_autre_commit_partageant_le_sha7_ne_passe_plus(data: Path) -> None:
+    """B2 : la collision **asymétrique** de production — gate en sha40, service en sha7.
+
+    Contre-exemple reproduit : `deploy.yml` posait `GIT_SHA=<sha7>`, le gate portait 40 hex, et la
+    comparaison par préfixe commun retombait sur sept caractères. Un gate `full` d'un **autre**
+    commit partageant le sha7 était donc servi sans alerte — 16⁷ classes d'équivalence, quelle que
+    soit la longueur écrite dans le gate.
+
+    La cause corrigée n'est pas la comparaison mais l'ambiguïté : le service porte désormais la
+    révision complète, et la comparaison est une identité stricte.
+    """
+    commit_a = "abc1234" + "0" * 33
+    commit_b = "abc1234" + "f" * 33
+    m = _manifest(data)
+    gate = _gate(m["lux-guide"])
+    gate.update({"profile": "full", "candidate_revision": commit_a,
+                 "plancher_digest": "b" * 64, "report_digest": "c" * 64,
+                 "run_digest": "a" * 64,
+                 "decisions": [{"metric": "m", "producer": "orchestrator", "threshold": 1.0,
+                                "scope": "run", "n": 3, "run_digest": "a" * 64, "value": 1.0,
+                                "status": "green"}]})
+    m["lux-guide"]["gate"] = gate
+    _write_manifest(data, m)
+
+    def _raison(git_sha: str, env: str) -> str:
+        courant = GateContext(pipeline_digest=gate["pipeline_digest"],
+                              prompts_digest=gate["prompts_digest"],
+                              model_ids=gate["model_ids"],
+                              pipeline_settings=gate.get("pipeline_settings", {}),
+                              candidate_revision=git_sha, env=env)
+        return load_corpus(data, allow_ungated=False, current=courant).quarantine.get(
+            "lux-guide", "")
+
+    # Le sha7 du **même** commit : ce n'est plus une révision comparable — en production, ferme.
+    assert _raison(commit_a[:7], "prod") == "gate_perime"
+    # Un autre commit qui partageait le sha7 : fermé aussi (c'était le contre-exemple).
+    assert _raison(commit_b[:7], "prod") == "gate_perime"
+    assert _raison(commit_b, "prod") == "gate_perime"
+    # La révision exacte : servi.
+    assert _raison(commit_a, "prod") == ""
+    # Une révision inconnue ferme en production, et ne conclut rien hors production.
+    assert _raison("dev", "prod") == "gate_perime"
+    assert _raison("dev", "dev") == ""
+    assert _raison("", "prod") == "gate_perime"
+
+
+def test_la_revision_comparable_exige_une_revision_entiere() -> None:
+    """Une révision **identifie** un commit, ou elle n'en est pas une : quarante hexadécimaux."""
+    from server.app.corpus.loader import REVISION_LONGUEUR, revision_comparable
+
+    assert REVISION_LONGUEUR == 40
+    assert revision_comparable("a" * 40) == "a" * 40
+    assert revision_comparable("A" * 40) == "a" * 40  # la casse ne change pas un commit
+    for refuse in (None, "", "dev", "a" * 7, "a" * 39, "a" * 41, "z" * 40):
+        assert revision_comparable(refuse) is None, refuse
+
+
+# --- N1 : une passe de chargement ne mêle jamais deux générations ---------------------------------
+
+def _corpus_sous_racine(tmp_path: Path) -> tuple[Path, Any]:
+    """Le même `data/` minimal, mais **sous une racine de publication** posée par l'opérateur."""
+    from tests.helpers_espace import poser_espace
+
+    d = tmp_path / "data" / "lux-guide"
+    d.mkdir(parents=True)
+    shutil.copy(MINI, d / "source.js")
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data")
+    k.run(d, edition="git:test")
+    return d.parent, espace
+
+
+def test_les_octets_haches_sont_les_octets_parses(tmp_path: Path,
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 : `document.json` était **haché** puis **reparsé** par deux `open()` distincts.
+
+    Le contrôle d'empreinte existe précisément pour interdire qu'un artefact ait bougé sans
+    réingestion ; il portait sur des octets qu'un second `open()` avait pu remplacer entre-temps,
+    donc il validait quelque chose que personne n'utilisait. Une seule lecture, un seul tampon.
+    """
+    data, _espace = _corpus_sous_racine(tmp_path)
+    document = data / "lux-guide" / "document.json"
+    lectures = {"n": 0}
+    vrai = Path.read_bytes
+
+    def _compter(chemin: Path) -> bytes:
+        if chemin.name == "document.json":
+            lectures["n"] += 1
+        return vrai(chemin)
+
+    monkeypatch.setattr(Path, "read_bytes", _compter)
+    corpus = _load_corpus_public(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert corpus.served == ["lux-guide"], corpus.quarantine
+    assert lectures["n"] == 1, (
+        f"{lectures['n']} lectures de {document.name} : les octets hachés ne sont pas, par "
+        "construction, les octets parsés")
+
+
+def test_une_bascule_entre_deux_lectures_ne_mele_jamais_deux_generations(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1, l'AC littérale : le pointeur bascule **entre deux lectures** d'une même passe.
+
+    Le manifest est lu au tout début, les artefacts par document ensuite. Une bascule tombant entre
+    les deux confrontait une entrée de la génération A à un `document.json` de la génération B : le
+    document partait en quarantaine « document_hash différent du manifest », alors qu'aucun des deux
+    états n'était incohérent. La passe pince désormais une génération et lit tout à travers elle.
+    """
+    from server.app.corpus import loader as ld
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    avant = json.loads((data / "manifest.json").read_text("utf-8"))
+    document_avant = (data / "lux-guide" / "document.json").read_text("utf-8")
+
+    # Une publication concurrente : un document **différent**, avec son entrée cohérente.
+    autre = document_avant.replace("Les huit premiers jours", "Les huit premiers jours ")
+    entree = dict(avant["lux-guide"])
+    entree["document_hash"] = hashlib.sha256(autre.encode("utf-8")).hexdigest()
+    manifest_apres = json.dumps({"lux-guide": entree}, indent=2, ensure_ascii=False) + "\n"
+
+    bascule = {"faite": False}
+    vrai_sha = ld._sha256
+
+    def _basculer_puis_hacher(octets: bytes) -> str:
+        if not bascule["faite"]:
+            bascule["faite"] = True
+            espace.basculer([(data / "manifest.json", manifest_apres),
+                             (data / "lux-guide" / "document.json", autre)])
+        return vrai_sha(octets)
+
+    monkeypatch.setattr(ld, "_sha256", _basculer_puis_hacher)
+    corpus = _load_corpus_public(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert bascule["faite"], "la bascule concurrente n'a pas eu lieu"
+    assert corpus.served == ["lux-guide"], (
+        f"la passe a mêlé deux générations : {corpus.quarantine}")
+    # L'état rendu vient d'**une** génération : celle qui a été pincée à l'entrée de la passe.
+    assert corpus.manifest["lux-guide"].document_hash == avant["lux-guide"]["document_hash"]
+
+
+def test_load_corpus_rejoue_quand_la_generation_pincee_est_reconstruite_sous_lui(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 : la détection de péremption vaut pour **tout** lecteur, pas pour le seul `construire_etat`.
+
+    Revue du tour N1–N3, constat 1. Le repère savait dire qu'il était périmé, mais un seul appelant
+    de production le lui demandait : `load_corpus`, le dictionnaire, les deux preuves de gate,
+    `type_clauses._load` et le smoke pinçaient une génération sans jamais voir qu'elle avait été
+    **reconstruite** sous eux. Il faut deux bascules pour cela — la première rend la génération
+    pincée inactive, la seconde la rebâtit —, et le résultat était alors une entrée de la génération
+    pincée confrontée à des octets de la même génération devenue autre : une quarantaine *fausse*,
+    « document_hash différent du manifest », sur deux états dont aucun n'était incohérent.
+
+    Le contrôle vit désormais dans `Lecture.reel` — il ne peut donc plus être oublié par un appelant
+    — et la passe est rejouée sur un repère neuf.
+    """
+    from server.app.corpus import loader as ld
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    document_avant = (data / "lux-guide" / "document.json").read_text("utf-8")
+    manifest_avant = (data / "manifest.json").read_text("utf-8")
+
+    autre = document_avant.replace("Les huit premiers jours", "Les huit premiers jours ")
+    entree = dict(json.loads(manifest_avant)["lux-guide"])
+    entree["document_hash"] = hashlib.sha256(autre.encode("utf-8")).hexdigest()
+    manifest_apres = json.dumps({"lux-guide": entree}, indent=2, ensure_ascii=False) + "\n"
+
+    passes = {"n": 0}
+    vrai_sha = ld._sha256
+
+    def _deux_bascules_a_la_premiere_passe(octets: bytes) -> str:
+        if passes["n"] == 0:
+            passes["n"] = 1
+            # Deux bascules : la seconde **reconstruit** la génération que la passe a pincée.
+            espace.basculer([(data / "manifest.json", manifest_apres),
+                             (data / "lux-guide" / "document.json", autre)])
+            espace.basculer([(data / "manifest.json", manifest_apres),
+                             (data / "lux-guide" / "document.json", autre)])
+        return vrai_sha(octets)
+
+    monkeypatch.setattr(ld, "_sha256", _deux_bascules_a_la_premiere_passe)
+    corpus = _load_corpus_public(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert passes["n"] == 1, "la reconstruction concurrente n'a pas eu lieu"
+    assert corpus.served == ["lux-guide"], (
+        f"la passe a rendu un état mêlé au lieu de se rejouer : {corpus.quarantine}")
+    # Rejouée, la passe rend l'état **publié**, d'une seule génération — celle d'après.
+    assert corpus.manifest["lux-guide"].document_hash == entree["document_hash"]
+
+
+def test_construire_etat_compose_toutes_ses_surfaces_dans_une_seule_generation(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue du tour N1–N3, constat 12 : la **composition** elle-même n'était éprouvée par rien.
+
+    `construire_etat` est l'opération de lecture que l'AC nomme en premier — le démarrage du service
+    — et c'est pour elle que `relire` et `SurfacesLues` existent : un seul repère traverse
+    `load_corpus`, `load_dictionary`, les rapports, les sources et la publication d'évals. Or aucun
+    test n'appelait `construire_etat`, et aucun test d'API ne posait de racine : retirer les
+    `lecture=lecture` de `_lire_les_surfaces` laissait chaque callee re-pincer son propre repère,
+    toute la suite verte, et rendait au démarrage un état dont le corpus vient d'une génération et
+    les rapports d'une autre — le mélange que `/audit` publierait ensuite comme une vérité.
+
+    La sonde bascule le pointeur **pendant** la passe et exige que toutes les surfaces couvertes
+    aient été lues dans la même génération.
+    """
+    from server.app.api import etat as etat_mod
+    from server.app.api.etat import construire_etat
+    from server.app.config import Settings
+    from server.app.corpus import racine as rac
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    # Les surfaces lues **après** le corpus doivent elles aussi être couvertes, sans quoi la sonde
+    # n'observerait que la première moitié de la passe — et ne verrait donc jamais la composition.
+    espace.installer([Path("data") / "dictionary.json",
+                      Path("data") / "evals-latest.json"], migrer=True)
+    espace.basculer([(data / "dictionary.json", json.dumps(
+        {"schema_version": "1", "corpus_source_hashes": {}, "corpus": {}, "intents": {},
+         "candidate_questions": {}, "validated": False, "validated_by": None,
+         "validated_at": None}))])
+    generations: list[str | None] = []
+    vrai_reel = rac.Lecture.reel
+    bascule = {"faite": False}
+
+    def _noter_et_basculer(self: rac.Lecture, cible: Path) -> Path:
+        resolu = vrai_reel(self, cible)
+        if self.generation is not None and self.racine is not None \
+                and self.racine.lien_couvrant(Path(cible)) is not None:
+            generations.append(self.generation)
+        return resolu
+
+    vrai_charger = etat_mod.load_corpus
+
+    def _charger_puis_basculer(*a: Any, **k: Any) -> Any:
+        corpus = vrai_charger(*a, **k)
+        if not bascule["faite"]:
+            bascule["faite"] = True
+            # Une publication concurrente **entre** le corpus et les surfaces suivantes : c'est là
+            # que se joue la composition, et c'est la fenêtre qu'un repère par callee rouvrirait.
+            espace.basculer([(data / "manifest.json",
+                              (data / "manifest.json").read_text("utf-8"))])
+        return corpus
+
+    monkeypatch.setattr(rac.Lecture, "reel", _noter_et_basculer)
+    monkeypatch.setenv("ALLOW_UNGATED", "1")
+    monkeypatch.setattr(etat_mod, "load_corpus", _charger_puis_basculer)
+    etat = construire_etat(Settings(), data_dir=data)
+    monkeypatch.undo()
+
+    assert etat is not None
+    assert bascule["faite"], "la bascule concurrente n'a pas eu lieu pendant la passe"
+    assert len(generations) > 1, "la passe n'a résolu qu'une seule cible couverte"
+    assert set(generations) == {generations[0]}, (
+        f"le démarrage a composé son état à partir de {sorted(set(generations))} : "
+        "corpus, rapports et publication ne viennent pas de la même génération")
+
+
+# --- Patch croisé 1/3 : les mêmes propriétés, prouvées sur un entrypoint qui existe à la baseline --
+
+def test_une_passe_de_load_corpus_ne_traverse_le_pointeur_quune_seule_fois(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 mesuré sur `load_corpus`, qui existe à la baseline — pas sur l'API neuve.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. La sonde équivalente de `test_espace_publication.py`
+    appelle `racine.lecture_de` directement : sur `bb46017` elle rougit parce que le module n'existe
+    pas, ce qui prouve l'absence d'une API, jamais le fait comportemental annoncé. Celle-ci passe par
+    l'entrypoint que la baseline possède déjà et compte les traversées **réelles** du pointeur —
+    `os.readlink`, `os.stat`, `os.path.realpath` visant `courant`. À la baseline, chaque artefact
+    était résolu indépendamment : le compte est celui du nombre de cibles, pas 1.
+    """
+    data, espace = _corpus_sous_racine(tmp_path)
+    pointeur = str(espace.chemin / "courant")
+    touches: list[str] = []
+
+    def _mouchard(nom: str, vrai: Any) -> Any:
+        def _appel(chemin: Any, *a: Any, **k: Any) -> Any:
+            if str(chemin) == pointeur:
+                touches.append(nom)
+            return vrai(chemin, *a, **k)
+        return _appel
+
+    for module, nom in ((os, "readlink"), (os, "stat"), (os.path, "realpath")):
+        monkeypatch.setattr(module, nom, _mouchard(nom, getattr(module, nom)))
+    corpus = _load_corpus_public(data, allow_ungated=True)
+    monkeypatch.undo()
+
+    assert corpus.served == ["lux-guide"], corpus.quarantine
+    assert touches == ["readlink"], (
+        f"traversées explicites de `courant` pendant la passe : {touches}. Il en faut exactement "
+        "une — le pincement. Aucune (`[]`) signifie que la passe ne pince rien et laisse le noyau "
+        "résoudre le lien à chaque `open()`, donc potentiellement de part et d'autre d'une bascule ; "
+        "plusieurs signifient qu'elle le retraverse au lieu de lire à travers son repère")
+
+
+def test_load_corpus_refuse_une_disposition_cassee_au_lieu_de_lire_le_lien_vivant(
+        tmp_path: Path) -> None:
+    """N1 sur un entrypoint de la baseline : un lecteur qui ne peut pas conclure **refuse**.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. Une cible couverte dont le lien a été remplacé par un
+    fichier ordinaire n'est plus dans la génération pincée : la lire quand même, c'est lire à travers
+    le lien vivant, hors du repère — le mélange que N1 interdit. À la baseline, `load_corpus` lisait
+    ce fichier sans un mot.
+    """
+    data, _espace = _corpus_sous_racine(tmp_path)
+    document = data / "lux-guide" / "document.json"
+    octets = document.read_bytes()
+    document.unlink()
+    document.write_bytes(octets)  # même contenu, mais hors de la génération pincée
+
+    # L'assertion porte sur l'**issue observable**, jamais sur un type d'exception que la baseline
+    # ne connaît pas : c'est ce qui fait mordre cette sonde sur les deux arbres pour la même raison.
+    rendu, refus = None, None
+    try:
+        rendu = _load_corpus_public(data, allow_ungated=True)
+    except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
+        refus = exc
+    assert rendu is None, (
+        "la passe a rendu un corpus au lieu de refuser : elle a lu la cible à travers son lien "
+        "vivant, hors de la génération pincée")
+    assert "disposition est incomplète" in str(refus), refus
+
+
+def test_load_corpus_dit_un_espace_illisible_au_lieu_de_rendre_un_corpus_vide(
+        tmp_path: Path) -> None:
+    """N1 sur un entrypoint de la baseline : vide et illisible ne sont pas le même fait.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. Quand `courant` nomme une génération dont le répertoire
+    a disparu, chaque slot est vu absent : la passe rendait un corpus **vide sans refuser**, et le
+    service démarrait sur un espace qu'il ne savait pas lire.
+    """
+    data, espace = _corpus_sous_racine(tmp_path)
+    shutil.rmtree(espace.chemin / espace.generation())
+
+    rendu, refus = None, None
+    try:
+        rendu = _load_corpus_public(data, allow_ungated=True)
+    except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
+        refus = exc
+    assert rendu is None, (
+        f"la passe a rendu un corpus (servis : {getattr(rendu, 'served', None)}) sur un espace "
+        "qu'elle ne sait pas lire : un corpus vide et un corpus illisible ne sont pas le même fait")
+    assert "absent ou illisible" in str(refus), refus
+
+
+def test_load_corpus_refuse_apres_avoir_epuise_ses_rejeux(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N1 sur un entrypoint de la baseline : après épuisement, le refus est **dit**.
+
+    Patch croisé 1/3, `N1-PROBES-BASELINE`. Sous une production qui reconstruit la génération pincée
+    à chaque passe, rendre un état serait affirmer une cohérence qu'aucune génération ne porte. À la
+    baseline il n'y avait ni rejeu ni refus : la passe rendait l'état mêlé.
+    """
+    from server.app.corpus import loader as ld
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    manifest = (data / "manifest.json").read_text("utf-8")
+    passes = {"n": 0}
+    vrai_sha = ld._sha256
+
+    def _reconstruire_a_chaque_passe(octets: bytes) -> str:
+        passes["n"] += 1
+        # Deux bascules : la seconde reconstruit la génération que la passe vient de pincer.
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return vrai_sha(octets)
+
+    monkeypatch.setattr(ld, "_sha256", _reconstruire_a_chaque_passe)
+    rendu, refus = None, None
+    try:
+        rendu = _load_corpus_public(data, allow_ungated=True)
+    except Exception as exc:  # noqa: BLE001 — on qualifie le refus juste après
+        refus = exc
+    monkeypatch.undo()
+    assert rendu is None, (
+        "la passe a rendu un état alors que sa génération était reconstruite sous elle à chaque "
+        "tentative : aucune génération ne porte cette cohérence")
+    assert "tentatives de lecture" in str(refus), refus
+    assert passes["n"] > 1, f"la passe n'a pas été rejouée : {passes}"
+
+
+def test_un_conteneur_de_cibles_nest_pas_une_cible_couverte(tmp_path: Path) -> None:
+    """Régression du tour précédent : `installer()` pose fichier par fichier.
+
+    Patch croisé 1/3. Le refus « disposition cassée » traitait tout chemin dont le slot existe comme
+    une cible : or `data/` et `data/<doc_id>/` sont des **répertoires ordinaires** dont le slot
+    n'existe que parce qu'il contient des cibles. Le lecteur refusait donc la disposition que
+    `installer()` produit — un faux positif par construction, qui faisait lever le chemin de regate
+    du runner, lequel énumère `data/` et passe chaque entrée, répertoires compris.
+    """
+    from server.app.corpus import racine as rac
+
+    data, _espace = _corpus_sous_racine(tmp_path)
+    repere = rac.lecture_de(data)
+    try:
+        # Une cible : résolue dans la génération pincée.
+        assert repere.reel(data / "manifest.json") != data / "manifest.json"
+        # Deux conteneurs : rendus tels quels, jamais refusés.
+        assert repere.reel(data / "lux-guide") == data / "lux-guide"
+        assert repere.reel(data) == data
+    finally:
+        repere.fermer()
+
+
+def test_la_neutralisation_de_regate_refuse_tout_mauvais_repere(tmp_path: Path) -> None:
+    """La capacité oppose repère, génération, data-dir, cible et option explicite."""
+    from server.app.corpus import racine as rac
+
+    data, _espace = _corpus_sous_racine(tmp_path / "origine")
+    autre_data, _autre_espace = _corpus_sous_racine(tmp_path / "autre")
+    with rac.lecture_pincee_regate(data, "lux-guide") as capacite:
+        lecture_origine = capacite.lecture
+        with pytest.raises(ValueError, match="repère explicite"):
+            _load_corpus_public(
+                data, allow_ungated=True, regate="lux-guide", capacite_regate=capacite)
+        with rac._lecture_interne_sans_racine(data) as rootless, pytest.raises(
+                ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=rootless,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with rac.lecture_de(autre_data) as etranger, pytest.raises(
+                ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=etranger,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with pytest.raises(ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                autre_data, allow_ungated=True, lecture=capacite.lecture,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with rac.lecture_de(data) as meme_generation, pytest.raises(
+                ValueError, match="capacité de regate étrangère"):
+            assert meme_generation.generation == capacite.lecture.generation
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=meme_generation,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+        with pytest.raises(ValueError, match="capacité de regate étrangère"):
+            _load_corpus_public(
+                data, allow_ungated=True, lecture=capacite.lecture,
+                regate="autre-document", capacite_regate=capacite, neutraliser_regate=True)
+        with pytest.raises(ValueError, match="allow_ungated=True"):
+            _load_corpus_public(
+                data, allow_ungated=False, lecture=capacite.lecture,
+                regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+
+    with pytest.raises(ValueError, match="capacité de regate expirée"):
+        _load_corpus_public(
+            data, allow_ungated=True, lecture=lecture_origine,
+            regate="lux-guide", capacite_regate=capacite, neutraliser_regate=True)
+    with pytest.raises(ValueError, match="capacité de regate expirée"):
+        _ = capacite.octets_manifest
+
+
+def test_un_autre_document_invalide_ferme_le_pincement_de_regate(tmp_path: Path) -> None:
+    """La tolérance est le seul gate ciblé, jamais une seconde entrée du manifest."""
+    from server.app.corpus import racine as rac
+
+    data, espace = _corpus_sous_racine(tmp_path)
+    brut = json.loads((data / "manifest.json").read_text("utf-8"))
+    brut["autre-document"] = {"status": "inconnu"}
+    manifest = json.dumps(brut, indent=2, ensure_ascii=False) + "\n"
+    espace.basculer([(data / "manifest.json", manifest)])
+    avant = (data / "manifest.json").read_bytes()
+
+    with pytest.raises(rac.EspaceIllisible, match="autre-document"):
+        with rac.lecture_pincee_regate(data, "lux-guide"):
+            pass
+    assert (data / "manifest.json").read_bytes() == avant

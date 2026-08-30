@@ -13,6 +13,7 @@ import pytest
 from server.app.domain import Document, Report
 from server.ingest import kb_to_blocks as k
 from server.ingest.jsobject import parse_js_object
+from tests.helpers_espace import poser_espace
 from server.ingest.report import build_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,18 @@ def data_dir(tmp_path: Path) -> Path:
     d.mkdir(parents=True)
     shutil.copy(MINI, d / "source.js")
     return d
+
+
+def _poser_la_disposition(tmp_path: Path, data_dir: Path) -> None:
+    """La disposition du `data-dir` d'un test, posée comme un opérateur la pose (story 4.5, N3).
+
+    Un entrypoint de production — ici `kb_to_blocks.main` — exige une racine **installée** et refuse
+    avant tout travail sinon : un `data-dir` custom non installé n'a pas d'opération tout-ou-rien à
+    offrir. Les tests qui appellent `run()` directement exercent, eux, la primitive interne, et n'ont
+    donc pas à poser quoi que ce soit — c'est ce qui laisse
+    `test_une_disposition_incomplete_refuse_avant_toute_ingestion` composer sa disposition partielle.
+    """
+    poser_espace(tmp_path, data_dir=data_dir.parent)
 
 
 def test_block_order_ids_and_source_fields(mini_kb: dict) -> None:
@@ -133,9 +146,14 @@ def test_manifest_merge_keeps_other_docs_and_existing_gate(data_dir: Path) -> No
     m = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
     # Story 4.2b : `Gate` porte deux champs optionnels de plus (`decisions`, `run_digest`) ; la
     # revalidation du manifest les matérialise à leurs défauts sans rien changer au gate certifié.
+    # Story 4.5 : quatre de plus (`plancher_digest`, `candidate_revision`, `report_digest`,
+    # `structure_hash`), tous `null` sur un gate `vertical` — c'est bien le sujet du test :
+    # l'ingestion **normalise** l'entrée au schéma en vigueur sans jamais changer une valeur.
     assert m["autre-doc"] == other
     assert m["lux-guide"]["gate"] == {
         **gate, "decisions": [], "run_digest": None, "pipeline_settings": {},
+        "plancher_digest": None, "candidate_revision": None, "report_digest": None,
+        "structure_hash": None,
     }
     assert m["lux-guide"]["status"] == "servi"
 
@@ -185,7 +203,9 @@ def test_modified_source_only_shifts_ids_after_insertion(data_dir: Path) -> None
     assert report.stats["ids_disparus"] == 2 and report.stats["ids_nouveaux"] == 0
 
 
-def test_tree_invariant_violation_quarantines(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tree_invariant_violation_quarantines(data_dir: Path, tmp_path: Path,
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    _poser_la_disposition(tmp_path, data_dir)
     src = (data_dir / "source.js").read_text("utf-8").replace('id: "bail_test"', 'id: "arrivee"')  # block_id dupliqué
     (data_dir / "source.js").write_text(src, "utf-8")
     assert k.main(["--data", str(data_dir)]) == 1
@@ -247,7 +267,9 @@ def test_fingerprint_includes_normalize_version(monkeypatch: pytest.MonkeyPatch)
     assert k.ingest_fingerprint() != before
 
 
-def test_main_success_propagates_edition(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_success_propagates_edition(data_dir: Path, tmp_path: Path,
+                                         capsys: pytest.CaptureFixture[str]) -> None:
+    _poser_la_disposition(tmp_path, data_dir)
     assert k.main(["--data", str(data_dir), "--edition", "git:abc1234"]) == 0
     out = capsys.readouterr().out
     assert out.rstrip().endswith("lux-guide : servi (edition git:abc1234, gate: null)")
@@ -296,13 +318,15 @@ def test_invalid_other_manifest_entry_is_kept_with_warning(data_dir: Path, capsy
     assert "'autre-doc' du manifest invalide" in capsys.readouterr().err
 
 
-def test_unreadable_manifest_blocks_without_touching_artefacts(data_dir: Path) -> None:
+def test_unreadable_manifest_blocks_without_touching_artefacts(data_dir: Path,
+                                                              tmp_path: Path) -> None:
+    _poser_la_disposition(tmp_path, data_dir)
     k.run(data_dir, edition="e")
-    snapshot = {p.name: p.read_bytes() for p in data_dir.iterdir()}
+    snapshot = {p.name: p.read_bytes() for p in data_dir.iterdir() if p.exists()}
     (data_dir.parent / "manifest.json").write_text("{pas du json", "utf-8")
     report, entry = k.run(data_dir, edition="e")
     assert report.checks[0].name == "manifest_illisible" and report.blocking and entry.status == "quarantaine"
-    assert {p.name: p.read_bytes() for p in data_dir.iterdir()} == snapshot
+    assert {p.name: p.read_bytes() for p in data_dir.iterdir() if p.exists()} == snapshot
     assert (data_dir.parent / "manifest.json").read_text("utf-8") == "{pas du json"
     assert k.main(["--data", str(data_dir)]) == 1
 
@@ -355,3 +379,299 @@ def test_une_condition_inexploitable_est_une_alerte_jamais_un_bloquant(
     assert [c.node_id for c in doc.parcours] == ["lux-guide:fbail_test", "lux-guide:farrivee"]
     # Le compte du rapport ne gonfle pas d'une condition que rien ne pourra jamais satisfaire.
     assert report.stats["parcours_fiches"] == 2 and report.stats["parcours_etapes_ignorees"] == 2
+
+
+def test_lingestion_declare_la_structure_presente_et_le_loader_sert_toujours(data_dir: Path) -> None:
+    """Revue 4.5, P1 : l'écrivain d'ingestion renseigne `structure_hash` comme `overlay_hash`.
+
+    Sans cela, le contrôle « déclaré ⟺ présent » du loader était un cul-de-sac : déposer un
+    `structure.json` mettait le document en quarantaine avec « relancer l'ingestion », et la
+    réingestion réécrivait l'entrée **sans** le champ — l'action indiquée ne corrigeait rien.
+    """
+    import hashlib
+
+    from server.app.corpus.loader import load_corpus
+
+    k.run(data_dir, edition="git:test")
+    manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
+    assert manifest["lux-guide"]["structure_hash"] is None  # aucun artefact : rien n'est déclaré
+
+    structure = data_dir / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    _report, entry = k.run(data_dir, edition="git:test")
+    attendu = hashlib.sha256(structure.read_bytes()).hexdigest()
+    assert entry.structure_hash == attendu
+    manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))
+    assert manifest["lux-guide"]["structure_hash"] == attendu
+    # Et le document reste **servi** : c'est toute la différence avec le cul-de-sac.
+    from server.app.corpus.racine import _lecture_interne_sans_racine
+
+    with _lecture_interne_sans_racine(data_dir.parent) as lecture:
+        corpus = load_corpus(data_dir.parent, allow_ungated=True, lecture=lecture)
+    assert corpus.quarantine == {} and "lux-guide" in corpus.documents
+
+
+def test_une_structure_qui_bouge_ne_conserve_pas_le_gate(data_dir: Path) -> None:
+    """`merged_manifest` compare les trois empreintes certifiées, `structure_hash` comprise.
+
+    Conserver un gate qui certifie une autre structure ferait servir un document sous une validation
+    qui ne le décrit plus — le loader le neutraliserait ensuite en `sans_gate`, mais l'ingestion ne
+    doit pas produire cette incohérence en premier lieu.
+    """
+    structure = data_dir / "structure.json"
+    structure.write_text('{"doc_id": "lux-guide"}\n', "utf-8")
+    k.run(data_dir, edition="git:test")
+    current = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"]
+    gate = {"profile": "vertical", "source_hash": current["source_hash"],
+            "ingest_fingerprint": current["ingest_fingerprint"], "cases_hash": "c",
+            "pipeline_digest": "p", "prompts_digest": "q", "model_ids": {}, "evals_ok": True,
+            "date": "2026-08-29", "overlay_hash": None, "cases": 1, "countersigned": False,
+            "structure_hash": current["structure_hash"]}
+    (data_dir.parent / "manifest.json").write_text(
+        json.dumps({"lux-guide": {**current, "gate": gate}}), "utf-8")
+    # Réingestion à structure **identique** : le gate est conservé.
+    k.run(data_dir, edition="git:test")
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8")
+                      )["lux-guide"]["gate"] is not None
+    # Réingestion après un changement de structure : le gate ne survit pas.
+    structure.write_text('{"doc_id": "lux-guide", "note": "autre"}\n', "utf-8")
+    k.run(data_dir, edition="git:test")
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8")
+                      )["lux-guide"]["gate"] is None
+
+
+def test_lingestion_atteste_larbre_quelle_a_construit(data_dir: Path) -> None:
+    """Story 4.5 (revue B4, volet guide) : `invariants_arbre` **affirme**, et nomme de quoi il parle.
+
+    Le check existait déjà, avec `detail: "ok"` — une déclaration sans empreinte, que n'importe quel
+    `report.json` écrit à la main pouvait imiter. Le gate `full` en aurait tiré un fail-open sur le
+    seul périmètre qui lui reste : le guide n'a pas de `structure.json`, donc pas de preuve de
+    structure PDF, et sans cette attestation il n'aurait plus **aucune** exigence de structure.
+
+    L'attestation lie l'arbre aux octets écrits (`document_hash`) et au code qui les a produits
+    (`ingest_fingerprint`) — les deux valeurs que le manifest porte et que le loader recoupe.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre
+
+    report, entry = k.run(data_dir, edition="git:test")
+    atteste = next(c for c in report.checks if c.name == "invariants_arbre")
+    assert atteste.level == "info"
+    assert lire_attestation_arbre(atteste.detail) == (entry.document_hash,
+                                                      entry.ingest_fingerprint)
+    # Et c'est bien ce qui est **écrit** sur disque, pas seulement ce que `run` rend.
+    sur_disque = Report.model_validate_json((data_dir / "report.json").read_bytes())
+    lu = next(c for c in sur_disque.checks if c.name == "invariants_arbre")
+    assert lire_attestation_arbre(lu.detail) == (entry.document_hash, entry.ingest_fingerprint)
+    manifest = json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"]
+    assert lire_attestation_arbre(lu.detail) == (manifest["document_hash"],
+                                                 manifest["ingest_fingerprint"])
+    # L'ingestion reste déterministe : ré-attester deux fois n'empile pas deux attestations.
+    k.run(data_dir, edition="git:test")
+    relu = Report.model_validate_json((data_dir / "report.json").read_bytes())
+    assert next(c for c in relu.checks if c.name == "invariants_arbre").detail == lu.detail
+
+
+def test_un_arbre_refuse_natteste_rien(data_dir: Path) -> None:
+    """Une attestation ne se fabrique pas : un arbre refusé reste un bloquant nu.
+
+    `attester_*` ne réécrit qu'un check **déjà présent et affirmatif** ; elle n'en ajoute jamais.
+    Sans cette règle, un document en quarantaine aurait porté une preuve de structure.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre
+
+    (data_dir / "source.js").write_text("var kb = {fiches: [{}]};", "utf-8")
+    report, entry = k.run(data_dir, edition="git:test")
+    assert report.blocking and entry.status == "quarantaine" and entry.document_hash == ""
+    assert all(lire_attestation_arbre(c.detail) is None for c in report.checks)
+
+
+# --- Story 4.5, tour de racine unique : l'ingestion sous une racine posée --------------------------
+#
+# Revue du tour, constats 6 et 7. Le chemin de production neuf — lot complet constitué dans `run`,
+# `merge_manifest(..., artefacts=…)`, `fusionner_et_publier`, `transaction()`, un seul `publier` —
+# n'était exercé par aucun test sous un pointeur : tous les tests d'ingestion tournent sur un
+# `tmp_path` qu'aucune racine ne couvre, donc sur le chemin ordinaire.
+
+
+def _lot_du_document(data_dir: Path) -> list[Path]:
+    return [data_dir / "document.json", data_dir / "summary.md", data_dir / "report.json",
+            data_dir.parent / "manifest.json"]
+
+
+def test_une_ingestion_sous_une_racine_publie_son_lot_en_un_seul_commit(
+        data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat 7 : le chemin de production sous pointeur, de bout en bout.
+
+    Les quatre cibles — document, sommaire, rapport, manifest — doivent être publiées par **un
+    seul** point de commit, rester des liens résolus par le pointeur, et ne jamais muter la
+    génération que le pointeur publiait à l'entrée.
+    """
+    from server.evals.espace import EspacePublie, Transaction
+
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([c.relative_to(tmp_path) for c in _lot_du_document(data_dir)])
+    espace.basculer([(data_dir.parent / "manifest.json", "{}\n")])
+
+    generation_avant = espace.generation()
+    slot_manifest = espace.chemin / generation_avant / "data" / "manifest.json"
+    octets_avant, inode_avant = slot_manifest.read_bytes(), slot_manifest.stat().st_ino
+
+    commits: list[list[str]] = []
+    publier_reel = Transaction.publier
+
+    def _publier(self: object, lot: list[tuple[Path, str | None]]) -> None:
+        commits.append(sorted(Path(cible).name for cible, _contenu in lot))
+        publier_reel(self, lot)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Transaction, "publier", _publier)
+    report, entry = k.run(data_dir, edition="git:test")
+
+    assert not report.blocking
+    assert commits == [["document.json", "manifest.json", "report.json", "summary.md"]], (
+        "l'ingestion doit publier son lot complet en un seul commit")
+    assert espace.generation() != generation_avant, "l'ingestion publie, elle ne mute pas"
+    assert slot_manifest.read_bytes() == octets_avant and slot_manifest.stat().st_ino == inode_avant
+    for cible in _lot_du_document(data_dir):
+        assert cible.is_symlink(), f"{cible} : le lien couvert a été remplacé"
+        assert espace.resolue_dans_lespace(cible), f"{cible} est sortie du pointeur"
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))["lux-guide"][
+        "document_hash"] == entry.document_hash
+    assert Document.model_validate_json((data_dir / "document.json").read_bytes()).doc_id == "lux-guide"
+    assert espace.residus() == []
+
+
+def test_une_quarantaine_sous_une_racine_retire_les_artefacts_dans_le_meme_lot(
+        data_dir: Path, tmp_path: Path) -> None:
+    """Constat 7, branche de quarantaine : les artefacts périmés partent **dans le même geste**.
+
+    Quand le rapport est bloquant, `document.json` et `summary.md` entrent au lot avec `None` — leur
+    slot est absent de la génération publiée, donc leur lien devient pendant, donc ils sont absents
+    pour tout lecteur. Sans cela, retirer un artefact serait un `unlink` à un rang où une exception
+    laisserait l'un fait et l'autre non, et un manifest en quarantaine pourrait cohabiter avec un
+    `document.json` neuf.
+    """
+    from server.evals.espace import EspacePublie
+
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([c.relative_to(tmp_path) for c in _lot_du_document(data_dir)])
+    espace.basculer([(data_dir.parent / "manifest.json", "{}\n")])
+
+    k.run(data_dir, edition="git:test")  # une ingestion saine d'abord
+    assert (data_dir / "document.json").is_file() and (data_dir / "summary.md").is_file()
+
+    (data_dir / "source.js").write_text("ceci n'est pas un objet JS", "utf-8")
+    report, entry = k.run(data_dir, edition="git:test")
+
+    assert report.blocking and entry.status == "quarantaine"
+    for retire in ("document.json", "summary.md"):
+        cible = data_dir / retire
+        assert cible.is_symlink(), f"{retire} doit rester un lien couvert"
+        assert not cible.exists(), f"{retire} périmé est resté à côté d'un manifest en quarantaine"
+    assert (data_dir / "report.json").is_file(), "le rapport de quarantaine, lui, est publié"
+    assert json.loads((data_dir.parent / "manifest.json").read_text("utf-8"))[
+        "lux-guide"]["status"] == "quarantaine"
+    assert espace.residus() == []
+
+
+def test_une_disposition_incomplete_refuse_avant_toute_ingestion(
+        data_dir: Path, tmp_path: Path) -> None:
+    """Constat 6 : le refus « lot mixte » tombait au **dernier** geste, en trace non rattrapée.
+
+    Le lot complet est connu dès l'entrée : si sa disposition n'est pas posée, il n'y a aucune raison
+    de faire tout le travail pour le jeter ensuite, ni de sortir en trace Python là où tous les
+    autres refus d'ingestion sont des checks bloquants. Ici le manifest est couvert et les artefacts
+    du document ne le sont pas — le lot mixte exact que la pose d'un document neuf oublie.
+    """
+    from server.evals.espace import EspacePublie
+
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    espace.installer([Path("data") / "manifest.json"])
+    espace.basculer([(data_dir.parent / "manifest.json", "{}\n")])
+    manifest_avant = (data_dir.parent / "manifest.json").read_bytes()
+
+    report, entry = k.run(data_dir, edition="git:test")
+
+    assert report.blocking and entry.status == "quarantaine"
+    noms = {c.name for c in report.checks}
+    assert noms == {"espace_de_publication_incomplet"}, noms
+    detail = next(c.detail for c in report.checks if c.name == "espace_de_publication_incomplet")
+    assert "lot mixte" in detail and "--depot" in detail, detail
+    # **Rien n'a été écrit** : ni artefact, ni manifest.
+    assert not (data_dir / "document.json").exists() and not (data_dir / "summary.md").exists()
+    assert (data_dir.parent / "manifest.json").read_bytes() == manifest_avant
+    assert espace.residus() == []
+
+
+# --- N3 : un entrypoint de production exige une racine installée ---------------------------------
+
+def test_la_cli_refuse_un_data_dir_non_installe_avant_toute_ingestion(
+        data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """N3 : le repli rootless n'est **atteignable depuis aucun entrypoint de production**.
+
+    `espace_couvrant` rendait `None` pour toutes les cibles, donc `_espace_du_lot` rendait `None`
+    sans lever, et `publier_artefacts` prenait `_publier_sans_racine` — un chemin qui n'a pas
+    d'atome fort, et où une cible couverte dont le lien aurait été cassé est réécrite en fichier
+    ordinaire, silencieusement. La CLI refuse désormais, avant d'avoir lu une ligne de source.
+    """
+    assert k.main(["--data", str(data_dir)]) == 2
+    erreur = capsys.readouterr().err
+    assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
+    assert not (data_dir / "document.json").exists()
+    assert not (data_dir / "report.json").exists()
+    assert not (data_dir.parent / "manifest.json").exists()
+
+
+def test_loverlay_et_le_document_precedent_sont_lus_sous_le_verrou(
+        data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N3, second volet : ce qui décide du contenu publié se lit **dans** la transaction.
+
+    `overlay_hash()`, `structure_hash()` et `load_previous()` étaient évalués comme **arguments
+    d'appel** de `merge_manifest`, donc **avant** que le `flock` de la racine ne soit pris : entre
+    cette lecture et la publication, une opération concurrente pouvait remplacer l'overlay ou le
+    document, et l'entrée publiée décrivait alors un état que la publication contredit.
+
+    La sonde n'invente aucune concurrence : elle observe l'**ordre** des appels système. Toute
+    lecture d'une cible couverte qui décide de l'entrée doit tomber **après** la prise du verrou.
+    """
+    from server.evals import espace as esp
+
+    _poser_la_disposition(tmp_path, data_dir)
+    espace_du_test = esp.EspacePublie(tmp_path, tmp_path / "data")
+    espace_du_test.installer([Path("data/lux-guide/typing.manual.json"),
+                              Path("data/lux-guide/structure.json")])
+    k.run(data_dir, edition="git:test")  # une ingestion saine d'abord
+
+    evenements: list[str] = []
+    vrai_enter = esp._verrou.__enter__
+    vrai_read = Path.read_bytes
+    vrai_is_file = Path.is_file
+    decidents = {"typing.manual.json", "structure.json", "document.json"}
+
+    def _noter_verrou(self: object) -> object:
+        evenements.append("verrou")
+        return vrai_enter(self)  # type: ignore[arg-type]
+
+    def _noter_lecture(chemin: Path) -> bytes:
+        if chemin.name in decidents:
+            evenements.append(f"lecture:{chemin.name}")
+        return vrai_read(chemin)
+
+    def _noter_presence(chemin: Path) -> bool:
+        if chemin.name in decidents:
+            evenements.append(f"lecture:{chemin.name}")
+        return vrai_is_file(chemin)
+
+    monkeypatch.setattr(esp._verrou, "__enter__", _noter_verrou)
+    monkeypatch.setattr(Path, "read_bytes", _noter_lecture)
+    monkeypatch.setattr(Path, "is_file", _noter_presence)
+    k.run(data_dir, edition="git:test")
+    monkeypatch.undo()
+
+    assert "verrou" in evenements, "aucune section critique n'a été ouverte"
+    premier_verrou = evenements.index("verrou")
+    avant = [e for e in evenements[:premier_verrou] if e.startswith("lecture:")]
+    assert avant == [], (
+        "ces lectures décident du contenu publié et ont eu lieu **hors** du verrou : "
+        f"{avant}")
+    assert any(e.startswith("lecture:") for e in evenements[premier_verrou:]), (
+        "l'entrée a été composée sans relire ce qui la décide sous le verrou")

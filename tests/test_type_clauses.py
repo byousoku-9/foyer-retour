@@ -3,18 +3,22 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
 from server.app.config import Settings
 from server.app.domain import Block, BlockRef, Document, ManifestEntry, Node, NodeRef, Report
 from server.app.domain.ingest import Check, Gate
 from server.app.llm.pricing import cost_from_usage
+from server.evals.espace import EspaceNonInstalle, EspacePublie
 from server.ingest.artifacts import document_json
 from server.ingest.report import enrich_typing_report
 from server.ingest import type_clauses as tc
@@ -479,7 +483,8 @@ class FakeStandardClient:
         )
 
 
-def write_data(tmp_path: Path, *, overlay: bool = False) -> tuple[Path, Document]:
+def write_data(tmp_path: Path, *, overlay: bool = False,
+               installer: bool = True) -> tuple[Path, Document]:
     data = tmp_path / "data"
     doc_dir = data / "contrat"
     doc_dir.mkdir(parents=True)
@@ -503,6 +508,8 @@ def write_data(tmp_path: Path, *, overlay: bool = False) -> tuple[Path, Document
                           document_hash=hashlib.sha256(text.encode()).hexdigest(), edition="2026",
                           overlay_hash=overlay_hash)
     (data / "manifest.json").write_text(json.dumps({"contrat": entry.model_dump()}), "utf-8")
+    if installer:
+        poser_espace(tmp_path, data_dir=data)
     return doc_dir, doc
 
 
@@ -639,6 +646,108 @@ def test_success_writes_automatic_document_removes_overlay_and_invalidates_gate(
     assert saved.block("contrat:p1:1").kind_source == "model_verified"
     assert saved.block("contrat:p2:1").defines == "contenu"
     assert [check.name for check in result.report.checks][-1] == "typage_clauses"
+
+
+def _etat_observable(cibles: list[Path]) -> dict[str, tuple[bool, str | None, str | None, str | None]]:
+    """Les quatre dimensions de l'AC : présence, contenu, type `lstat`, cible de lien.
+
+    Le même repère que les sondes de `tests/test_publication_evals.py` : comparer les octets seuls
+    laisserait passer un lien couvert remplacé par un fichier ordinaire de même contenu — ce qui est
+    exactement le fait 1 du tour de racine unique.
+    """
+    etat: dict[str, tuple[bool, str | None, str | None, str | None]] = {}
+    for cible in cibles:
+        existe = cible.is_symlink() or cible.exists()
+        try:
+            contenu: str | None = cible.read_text("utf-8")
+        except OSError:
+            contenu = None
+        if cible.is_symlink():
+            type_entree: str | None = "lien"
+            lien: str | None = os.readlink(cible)
+        elif cible.is_dir():
+            type_entree, lien = "repertoire", None
+        elif cible.exists():
+            type_entree, lien = "fichier", None
+        else:
+            type_entree, lien = None, None
+        etat[str(cible)] = (existe, contenu, type_entree, lien)
+    return etat
+
+
+def test_le_typage_ne_remplace_jamais_un_lien_couvert_par_un_fichier_ordinaire(tmp_path: Path) -> None:
+    """Fait 1 du tour de racine unique : `_atomic_artifacts` sortait le manifest du pointeur.
+
+    `os.replace(temp, path)` sur un lien symbolique le **remplace** par un fichier ordinaire. Sur
+    `data/manifest.json`, couvert par la racine de publication, une seule exécution du typage
+    suffisait : le manifest quittait le pointeur pour de bon, et la bascule suivante d'un run
+    publiait ses autres surfaces sans que le manifest en voie rien — le faux vert exact que
+    `write_atomic` documente, obtenu par un chemin qui ne l'appelait pas.
+
+    La sonde compare les **quatre dimensions** avant/après, et vérifie en plus que la génération
+    publiée n'a pas été mutée en place : c'est la différence entre « écrire à travers le lien » et
+    « passer par le protocole ».
+    """
+    espace = EspacePublie(tmp_path)
+    doc_dir = tmp_path / "data" / "contrat"
+    cibles = [doc_dir / "document.json", doc_dir / "report.json",
+              tmp_path / "data" / "manifest.json", doc_dir / "typing.manual.json"]
+    espace.installer([c.relative_to(tmp_path) for c in cibles])
+    espace.basculer([(cibles[0], "doc-avant"), (cibles[1], "rapport-avant"),
+                     (cibles[2], "manifest-avant"), (cibles[3], "overlay-avant")])
+
+    generation_avant = espace.generation()
+    slot_manifest = espace.chemin / generation_avant / "data" / "manifest.json"
+    octets_avant, inode_avant = slot_manifest.read_bytes(), os.stat(slot_manifest).st_ino
+    types_avant = {str(c): os.lstat(c).st_mode for c in cibles}
+
+    tc._atomic_artifacts({cibles[0]: "doc-après", cibles[1]: "rapport-après",
+                          cibles[2]: "manifest-après"}, [cibles[3]])
+
+    assert espace.generation() != generation_avant, "le typage doit publier, jamais muter"
+    assert slot_manifest.read_bytes() == octets_avant, "la génération publiée a été mutée en place"
+    assert os.stat(slot_manifest).st_ino == inode_avant
+    for cible in cibles:
+        assert cible.is_symlink(), f"{cible} : le lien statique a été remplacé"
+        assert os.lstat(cible).st_mode == types_avant[str(cible)]
+        assert espace.resolue_dans_lespace(cible), f"{cible} est sortie du pointeur"
+    assert cibles[0].read_text("utf-8") == "doc-après"
+    assert cibles[1].read_text("utf-8") == "rapport-après"
+    assert cibles[2].read_text("utf-8") == "manifest-après"
+    # La suppression de l'overlay est **membre du lot** : elle devient une absence par le même geste.
+    assert not cibles[3].exists()
+    assert espace.residus() == []
+
+
+def test_un_echec_du_typage_sur_un_lot_couvert_ne_laisse_aucune_cible_modifiee(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le lot du typage bascule d'un seul geste, ou pas du tout — plus aucune restauration.
+
+    La forme d'avant préparait ses temporaires, remplaçait cible par cible, puis **défaisait** sur
+    erreur en réécrivant les octets d'entrée. C'est précisément la forme que les tours correctifs
+    1/3 et 2/3 ont refusée pour les évals : un protocole qui défait ce qu'il a fait admet qu'après
+    épuisement une cible reste dans le nouvel état. Ici il n'y a rien à défaire.
+    """
+    espace = EspacePublie(tmp_path)
+    doc_dir = tmp_path / "data" / "contrat"
+    cibles = [doc_dir / "document.json", doc_dir / "report.json",
+              tmp_path / "data" / "manifest.json", doc_dir / "typing.manual.json"]
+    espace.installer([c.relative_to(tmp_path) for c in cibles])
+    espace.basculer([(cibles[0], "doc-avant"), (cibles[1], "rapport-avant"),
+                     (cibles[2], "manifest-avant"), (cibles[3], "overlay-avant")])
+    avant = _etat_observable(cibles)
+
+    from server.evals import espace as espace_module
+
+    def _boum(chemin: Path, contenu: str) -> None:
+        raise OSError("panne simulée")
+
+    monkeypatch.setattr(espace_module, "_ecrire_dans_bundle", _boum)
+    with pytest.raises(OSError, match="panne simulée"):
+        tc._atomic_artifacts({cibles[0]: "doc-après", cibles[1]: "rapport-après",
+                              cibles[2]: "manifest-après"}, [cibles[3]])
+    assert _etat_observable(cibles) == avant
+    assert espace.residus() == []
 
 
 def test_t6_byte_identical_rerun_preserves_an_existing_gate(tmp_path: Path) -> None:
@@ -809,6 +918,12 @@ def test_run_et_cli_restent_batch_par_defaut_et_standard_est_explicite(tmp_path:
     assert result is not None and result.transport == "batch" and len(batches.created) == 2
 
     standard_dir, _doc = write_data(tmp_path / "standard")
+    # Story 4.5, N3 : la CLI de typage est un entrypoint de production ; elle exige une racine
+    # **installée** et refuse avant toute soumission sinon. La disposition se pose ici, comme un
+    # opérateur la pose. `tc.run`, appelé directement plus haut, exerce la primitive interne.
+    poser_espace(tmp_path / "standard",
+                 cibles=[Path("data/contrat/document.json"), Path("data/contrat/report.json"),
+                         Path("data/contrat/typing.manual.json")])
     standard_batches = FakeBatches(kinds)
     standard_client = FakeStandardClient(standard_batches, kinds)
     code = tc.main(
@@ -1144,3 +1259,235 @@ def test_main_refuse_max_cost_non_positif_ou_non_fini_avant_toute_action(
     )
     assert code == 2 and batches.created == []
     assert "nombre fini > 0" in capsys.readouterr().err
+
+
+def _attester_avant_typage(doc_dir: Path) -> tuple[str, str]:
+    """Le rapport d'un document réellement ingéré : les deux attestations de structure de 4.5.
+
+    Rend `(structure_hash, ingest_fingerprint)` — les deux valeurs qui doivent **survivre** au
+    typage, à côté d'un `document_hash` qui, lui, change.
+    """
+    from server.app.domain.ingest import detail_attestation_arbre, detail_attestation_structure
+
+    manifest_path = doc_dir.parent / "manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    entry = manifest["contrat"]
+    structure_text = '{"doc_id": "contrat", "noeuds": []}\n'
+    (doc_dir / "structure.json").write_text(structure_text, "utf-8")
+    structure_hash = hashlib.sha256(structure_text.encode()).hexdigest()
+    entry["structure_hash"] = structure_hash
+    manifest_path.write_text(json.dumps(manifest), "utf-8")
+    (doc_dir / "report.json").write_text(json.dumps(Report(
+        doc_id="contrat",
+        checks=[
+            Check(name="invariants_arbre", level="info",
+                  detail=detail_attestation_arbre(document_hash=entry["document_hash"],
+                                                  ingest_fingerprint=entry["ingest_fingerprint"])),
+            Check(name="structure_proposee", level="info",
+                  detail=detail_attestation_structure(document_hash=entry["document_hash"],
+                                                      structure_hash=structure_hash)),
+        ],
+        stats={"pages_charabia": {}},
+    ).model_dump()), "utf-8")
+    return structure_hash, entry["ingest_fingerprint"]
+
+
+def test_les_attestations_de_structure_survivent_au_typage(tmp_path: Path) -> None:
+    """Story 4.5 (revue B4) : le typage réécrit `report.json` — la preuve de structure doit rester vraie.
+
+    `enrich_typing_report` conserve les checks qui ne sont pas des checks de typage, donc les deux
+    attestations traversaient déjà la réécriture **en tant que texte**. Mais le typage change
+    `document.json`, donc le `document_hash` que le manifest porte : telles quelles, les attestations
+    nommaient l'ancien arbre et ne décrivaient plus rien. Le gate `full` aurait alors vu la preuve
+    simplement absente — un document typé perdant sa preuve de structure **sans que rien ne le dise**.
+
+    Ce que le test vérifie est exactement le prédicat du gate : le couple attesté est celui de
+    l'entrée du manifest écrite par ce même typage.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre, lire_attestation_structure
+
+    doc_dir, _doc = write_data(tmp_path)
+    structure_hash, fingerprint = _attester_avant_typage(doc_dir)
+    avant = json.loads((doc_dir.parent / "manifest.json").read_text("utf-8"))["contrat"]
+
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    client = FakeStandardClient(FakeBatches(kinds), kinds)
+    result = tc.run(doc_dir, settings=settings(type_clauses_standard_concurrency=2), client=client,
+                    transport="standard", max_cost=12, output=io.StringIO())
+    assert result is not None
+
+    entry = json.loads((doc_dir.parent / "manifest.json").read_text("utf-8"))["contrat"]
+    # Le typage a bien changé l'arbre : sans cela, le test ne prouverait rien.
+    assert entry["document_hash"] != avant["document_hash"]
+    assert entry["document_hash"] == hashlib.sha256(
+        (doc_dir / "document.json").read_bytes()).hexdigest()
+    assert entry["structure_hash"] == structure_hash
+
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    arbre = next(c for c in report.checks if c.name == "invariants_arbre")
+    structure = next(c for c in report.checks if c.name == "structure_proposee")
+    assert lire_attestation_arbre(arbre.detail) == (entry["document_hash"], fingerprint)
+    assert lire_attestation_structure(structure.detail) == (entry["document_hash"], structure_hash)
+    # Une seule attestation par check : la ré-attestation remplace, elle n'empile pas.
+    assert arbre.detail.count("document_hash=") == 1
+    assert structure.detail.count("document_hash=") == 1
+
+
+def test_le_typage_ne_fabrique_jamais_une_attestation_absente(tmp_path: Path) -> None:
+    """L'autre sens, et il compte autant : absente avant ⇒ absente après.
+
+    `write_data` écrit le rapport tel que le corpus servi le porte aujourd'hui —
+    `invariants_arbre: ok`, sans empreinte, et aucun `structure_proposee`. Si le typage attestait
+    « par défaut », il fabriquerait une preuve de structure pour un document dont l'ingestion n'en a
+    jamais produit : le gate `full` verdirait sur une affirmation que personne n'a vérifiée.
+    """
+    from server.app.domain.ingest import lire_attestation_arbre, lire_attestation_structure
+
+    doc_dir, _doc = write_data(tmp_path)
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    client = FakeStandardClient(FakeBatches(kinds), kinds)
+    assert tc.run(doc_dir, settings=settings(type_clauses_standard_concurrency=2), client=client,
+                  transport="standard", max_cost=12, output=io.StringIO()) is not None
+
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert [c.name for c in report.checks if c.name == "structure_proposee"] == []
+    arbre = next(c for c in report.checks if c.name == "invariants_arbre")
+    assert arbre.detail == "ok"
+    assert all(lire_attestation_arbre(c.detail) is None
+               and lire_attestation_structure(c.detail) is None for c in report.checks)
+
+
+def test_une_disposition_incomplete_refuse_le_typage_avant_toute_soumission(tmp_path: Path) -> None:
+    """Constat 6 de la revue du tour de racine unique : le refus tombait après avoir payé.
+
+    Le lot du typage — document, rapport, retrait de l'overlay, manifest — est connu dès l'entrée.
+    Le contrôle de couverture ne s'exerçait qu'au tout dernier geste : un typage LLM entièrement
+    soumis et facturé était jeté pour une disposition qu'on pouvait vérifier gratuitement avant la
+    première soumission. La sonde vérifie que **rien n'a été soumis**.
+    """
+    doc_dir, _ = write_data(tmp_path, installer=False)
+    espace = EspacePublie(tmp_path, tmp_path / "data")
+    # Le manifest est couvert, les artefacts du document ne le sont pas : le lot mixte exact que la
+    # pose d'un document neuf oublie.
+    espace.installer([Path("data") / "manifest.json"], migrer=True)
+    avant = {chemin: chemin.read_bytes()
+             for chemin in (doc_dir / "document.json", doc_dir / "report.json",
+                            doc_dir.parent / "manifest.json")}
+
+    batches = FakeBatches({"contrat:p1:1": "garantie", "contrat:p2:1": "definition"})
+    with pytest.raises(EspaceNonInstalle, match="lot mixte"):
+        tc.run(doc_dir, settings=settings(), client=FakeClient(batches), output=io.StringIO())
+
+    assert batches.created == [], "un lot a été soumis alors que la disposition refusait le typage"
+    assert {chemin: chemin.read_bytes() for chemin in avant} == avant
+    assert espace.residus() == []
+
+
+# --- Revue du tour N1–N3 : le préflight du typage, et l'opposition de l'entrée publiée ------------
+
+def test_la_cli_de_typage_refuse_un_data_dir_non_installe_avant_toute_soumission(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """N3, constat 9 : le refus du **plus cher** des chemins d'ingestion n'était asserté nulle part.
+
+    `exiger_espace_installe` n'apparaissait dans aucun fichier de tests, et la seule sonde qui passe
+    par `tc.main` pose sa disposition, donc prend le chemin de succès : le préflight y est un
+    no-op. Supprimer le bloc entier, ou le déplacer **après** `run()`, laissait toute la suite verte
+    — et un typage pointé sur un `data-dir` non installé repartait payer des minutes d'appels avant
+    que le chemin d'écriture ne dégrade silencieusement vers le repli rootless.
+
+    Le refus est un code 2, comme tous les refus d'avant appel, et **aucun lot n'est créé**.
+    """
+    doc_dir, _ = write_data(tmp_path, installer=False)
+    avant = {chemin: chemin.read_bytes()
+             for chemin in (doc_dir / "document.json", doc_dir / "report.json",
+                            doc_dir.parent / "manifest.json")}
+
+    batches = FakeBatches({"contrat:p1:1": "garantie", "contrat:p2:1": "definition"})
+    code = tc.main(["contrat", "--data", str(doc_dir.parent), "--max-cost", "12"],
+                   client=FakeClient(batches), settings=settings(), output=io.StringIO())
+
+    assert code == 2
+    erreur = capsys.readouterr().err
+    assert "aucune racine de publication ne couvre" in erreur and "--depot" in erreur
+    assert batches.created == [], "un lot a été soumis avant que la disposition ne soit vérifiée"
+    assert {chemin: chemin.read_bytes() for chemin in avant} == avant
+
+
+def test_une_reingestion_publiee_pendant_le_typage_est_un_refus_pas_une_publication(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """N3, constat 10 : l'entrée publiée est **opposée** à ce qui a été typé, et rien ne le retenait.
+
+    `source_hash`, `ingest_fingerprint`, `edition` et `document_hash` viennent désormais du manifest
+    relu **sous le verrou**, et non plus de l'`old_entry` lu avant des minutes d'appels de modèle.
+    Aucun test ne faisait diverger le manifest entre `_load` et la transaction : retirer
+    l'opposition et revenir à `old_entry.*` laissait toute la suite verte, tandis qu'en production le
+    typage publiait une entrée décrivant un document qu'une réingestion concurrente avait déjà
+    remplacé — la mise à jour perdue que ce tour ferme.
+
+    La contention est **réelle** : la réingestion est publiée juste après la lecture hors
+    transaction dont le typage tirait ses champs, et avant que la transaction ne s'ouvre — la
+    fenêtre exacte que les minutes d'appels de modèle laissent grande ouverte en production.
+    """
+    doc_dir, _ = write_data(tmp_path)
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data",
+                          cibles=[Path("data/contrat/document.json"),
+                                  Path("data/contrat/report.json"),
+                                  Path("data/contrat/typing.manual.json")])
+    manifest_path = doc_dir.parent / "manifest.json"
+    avant = {chemin: chemin.read_bytes()
+             for chemin in (doc_dir / "document.json", doc_dir / "report.json", manifest_path)}
+
+    # La réingestion concurrente : même document, mais une entrée qui dit un autre arbre.
+    reingere = json.loads(manifest_path.read_text("utf-8"))
+    reingere["contrat"]["ingest_fingerprint"] = "fp-reingere"
+    publie = json.dumps(reingere, indent=2, ensure_ascii=False) + "\n"
+
+    vrai_load = tc._load
+    fait = {"oui": False}
+
+    def _charger_puis_reingerer(*args: Any, **kwargs: Any) -> Any:
+        charge = vrai_load(*args, **kwargs)
+        if not fait["oui"]:
+            fait["oui"] = True
+            # Publié **après** la lecture dont le typage tirait ses champs, et avant sa transaction.
+            espace.basculer([(manifest_path, publie)])
+        return charge
+
+    monkeypatch.setattr(tc, "_load", _charger_puis_reingerer)
+    batches = FakeBatches({"contrat:p1:1": "garantie", "contrat:p2:1": "definition"})
+    with pytest.raises(tc.BatchFailure, match="réingéré pendant le typage"):
+        tc.run(doc_dir, settings=settings(), client=FakeClient(batches), output=io.StringIO())
+    monkeypatch.undo()
+
+    assert fait["oui"], "la réingestion concurrente n'a pas eu lieu"
+    assert doc_dir.joinpath("document.json").read_bytes() == avant[doc_dir / "document.json"]
+    assert doc_dir.joinpath("report.json").read_bytes() == avant[doc_dir / "report.json"]
+    assert manifest_path.read_bytes() == publie.encode("utf-8"), (
+        "le typage a écrasé la réingestion publiée au lieu de refuser")
+    assert espace.residus() == []
+
+
+def test_la_procedure_operateur_de_depot_refuse_une_cible_non_installee(tmp_path: Path) -> None:
+    """`N3-OVERLAY-BYPASS` : le septième entrypoint cartographié passe par la racine.
+
+    La procédure documentée appelait directement `publier_artefacts` : sur une cible custom **non
+    installée**, `_espace_du_lot` rend `None` et cette API prend le repli rootless. Le repli ne peut
+    pas être à la fois « primitive interne » et prescrit par la documentation opérateur.
+    `deposer_par_la_racine` est désormais la procédure, et elle exige la disposition.
+    """
+    from server.ingest.artifacts import deposer_par_la_racine
+    from server.evals.espace import EspaceNonInstalle
+
+    cible = tmp_path / "data" / "contrat" / "typing.manual.json"
+    cible.parent.mkdir(parents=True)
+
+    with pytest.raises(EspaceNonInstalle, match="aucune racine de publication ne couvre"):
+        deposer_par_la_racine([(cible, '{"schema_version": "1"}')])
+    assert not cible.exists(), "une cible a été écrite alors que la disposition refusait"
+
+    # Et sous une disposition installée, la même procédure publie sans traitement particulier.
+    espace = poser_espace(tmp_path, data_dir=tmp_path / "data",
+                          cibles=[Path("data/contrat/typing.manual.json")])
+    deposer_par_la_racine([(cible, '{"schema_version": "1"}')])
+    assert cible.read_text("utf-8") == '{"schema_version": "1"}'
+    assert cible.is_symlink() and espace.residus() == []

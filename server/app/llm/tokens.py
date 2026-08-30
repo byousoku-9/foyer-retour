@@ -1,15 +1,22 @@
-"""Reprise différée 1.1/1.2 — mesurer les sommaires au tokenizer réel d'Anthropic.
+"""Reprise différée 1.1/1.2 — compter des textes au tokenizer réel d'Anthropic.
 
-`uv run python -m server.app.llm.tokens data/lux-guide/summary.md data/axa-lu-optihome-2017/summary.md`
-imprime, pour chaque fichier, le nombre de tokens compté par `count_tokens` pour les modèles des
-tiers `reason` et `micro` (le fichier est envoyé comme unique message user ; le comptage inclut
-donc quelques tokens d'enrobage du tour). Exit 0 si tout est compté, 2 sans clé, 3 sur erreur API.
+Ce module est **pur du point de vue du système de fichiers** : il reçoit des textes déjà lus et rend
+leur comptage. Il ne lit aucun chemin, et c'est structurel (patch croisé 1/3, `N1-TOKENS-OMIS`).
+
+Avant ce tour, il lisait chaque chemin pour le comptage, **payait**, puis rouvrait le même chemin
+pour en mesurer la longueur : un lot de sommaires couverts pouvait donc faire compter les tokens
+d'une génération et publier la longueur d'une autre, sans aucun repère ni préflight de racine. La
+correction ne pouvait pas se faire ici : la table des couches du spine interdit à `llm` d'importer
+`corpus` (`tests/test_layers.py`), et l'API de repère y vit. La lecture pincée et le refus avant coût
+appartiennent donc à l'entrypoint opérateur `server/evals/tokens.py`, seule couche autorisée à voir
+`corpus` **et** `llm` — c'est la frontière que ce tour déplace, et le sens de la flèche est celui que
+la table permet déjà (`evals → corpus, llm`).
+
+Commande opérateur : `uv run python -m server.evals.tokens <fichier> [...]`.
 """
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from pathlib import Path
 
 from server.app.config import get_settings
@@ -20,41 +27,17 @@ from .models import TIERS, Tier
 MEASURED_TIERS: tuple[Tier, ...] = ("reason", "micro")
 
 
-async def measure(paths: list[Path]) -> list[tuple[Path, dict[Tier, int]]]:
+async def measure(lot: list[tuple[Path, str]]) -> list[tuple[Path, dict[Tier, int]]]:
+    """Compte chaque texte **déjà lu** du lot, sans jamais rouvrir son chemin.
+
+    Le texte reçu est le seul qui sera compté *et* mesuré par l'appelant : il n'y a pas de seconde
+    ouverture, donc pas de fenêtre où une bascule dissocierait les tokens de la longueur.
+    """
     client = LlmClient(get_settings())
     results: list[tuple[Path, dict[Tier, int]]] = []
-    for path in paths:
-        text = path.read_text("utf-8")
+    for path, text in lot:
         counts: dict[Tier, int] = {}
         for tier in MEASURED_TIERS:
             counts[tier] = await client.count_tokens(TIERS[tier], None, [{"role": "user", "content": text}])
         results.append((path, counts))
     return results
-
-
-def main(argv: list[str]) -> int:
-    if not argv:
-        print("usage : python -m server.app.llm.tokens <fichier> [...]", file=sys.stderr)
-        return 2
-    paths = [Path(a) for a in argv]
-    missing = [p for p in paths if not p.is_file()]
-    if missing:
-        print(f"fichier(s) introuvable(s) : {', '.join(map(str, missing))}", file=sys.stderr)
-        return 2
-    if not get_settings().anthropic_api_key:
-        print("ANTHROPIC_API_KEY absente (environnement ou .env) : impossible de compter les tokens", file=sys.stderr)
-        return 2
-    try:
-        results = asyncio.run(measure(paths))
-    except Exception as exc:  # erreur API ou réseau : on signale sans distinguer
-        print(f"comptage impossible : {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 3
-    for path, counts in results:
-        chars = len(path.read_text("utf-8"))
-        per_tier = "  ".join(f"{tier} ({TIERS[tier]}) : {counts[tier]} tokens" for tier in MEASURED_TIERS)
-        print(f"{path}  [{chars} caractères]  {per_tier}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

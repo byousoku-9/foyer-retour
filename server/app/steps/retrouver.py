@@ -163,7 +163,8 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
             out.append(candidate)
 
     for candidate in block(block_id).refs:
-        add(candidate)
+        for membre in index.unite_de_renvoi(candidate):
+            add(membre)
     for candidate, _node_id in index.definitions(terms, doc_id=current_doc_id,
                                                   blocs_ouverts=[block_id]):
         add(candidate)
@@ -248,6 +249,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     question = {
         "question_resolue": parsed.question_resolue,
         "termes": terms,
+        "facettes": parsed.facettes,
         "scope": parsed.scope.model_dump(mode="json"),
     }
     messages: list[dict[str, Any]] = [{
@@ -339,7 +341,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if (dictionary_ready
                         and forme(terme) not in {forme(t) for t in dictionary_searched_terms}):
                     dictionary_searched_terms.append(terme)
-            hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id)
+            hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id,
+                                  groupes_prioritaires=parsed.facettes)
             search_truncated = len(hits) > budget.search_limit
             if search_truncated:
                 truncated = True
@@ -653,6 +656,7 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
     question = {
         "question_resolue": parsed.question_resolue,
         "termes": parsed.termes_de_recherche(),
+        "facettes": parsed.facettes,
         "scope": parsed.scope.model_dump(mode="json"),
     }
     messages = [{"role": "user", "content": untrusted(
@@ -913,7 +917,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             cherches: dict[str, list[str]] | list[str] = expanded_search or terms
             phase_hits = index.chercher(
                 cherches, limit=budget.search_limit, doc_id=doc_id,
-                kinds_prioritaires=kinds_prioritaires)
+                kinds_prioritaires=kinds_prioritaires,
+                groupes_prioritaires=parsed.facettes)
             for block_id, node_id in phase_hits:
                 if block_id not in {candidate for candidate, _node in hits}:
                     hits.append((block_id, node_id))

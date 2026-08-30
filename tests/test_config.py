@@ -27,8 +27,9 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
     assert s.retrouver_outils_tier == "micro"
-    assert s.outils_rediger_max_tokens == 1792 and s.rediger_max_tokens == 2048
-    assert s.max_cost_eur_per_request == 0.10 and s.cost_alert_eur == 0.05
+    assert s.rediger_max_tokens == 2048
+    assert "outils_rediger_max_tokens" not in Settings.model_fields
+    assert s.max_cost_eur_per_request == 0.12 and s.cost_alert_eur == 0.05
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
     assert s.evals_max_cost_eur == 1.0
@@ -80,11 +81,12 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
     assert t.thresholds["raison_publiable_max_chars"] == 500
+    assert t.thresholds["max_cost_eur_per_request"] == 0.12
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
             # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
-            "comprendre_max_tokens", "rediger_max_tokens", "outils_rediger_max_tokens",
+            "comprendre_max_tokens", "rediger_max_tokens",
             "retrieval_max_blocks",
             # story 1.5 : bornes du pipeline et de *vérifier*
             "historique_max_turns", "verifier_max_claims", "verifier_max_tokens",
@@ -139,8 +141,6 @@ def test_bounds_and_coherence() -> None:
     # tel quel au fournisseur et entre au tarif `output` dans le majorant `estimate_cost`.
     with pytest.raises(ValidationError, match="rediger_max_tokens"):
         Settings(_env_file=None, rediger_max_tokens=8192, llm_max_output_tokens=4096)
-    with pytest.raises(ValidationError, match="outils_rediger_max_tokens"):
-        Settings(_env_file=None, outils_rediger_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="comprendre_max_tokens"):
         Settings(_env_file=None, comprendre_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="verifier_max_tokens"):
@@ -493,3 +493,88 @@ def test_a_fresh_settings_snapshot_adopts_the_promoted_versioned_triplet(
             first.retrieval_prompt_cache) == ("outils", "micro", True)
     assert (fresh.retrieval_variant, fresh.retrouver_outils_tier,
             fresh.retrieval_prompt_cache) == ("full_context", "reason", False)
+
+
+# --- story 4.5 : la disjonction d'AD-7 a trois termes (dette D1) ------------
+
+def test_en_dev_allow_ungated_false_explicite_sert_quand_meme_un_document_sans_gate(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AD-7, mot pour mot : « servi ssi aucun bloquant statique **et** (`gate.evals_ok` **ou**
+    `ENV=dev` **ou** `ALLOW_UNGATED`) ».
+
+    C'est la **seule** configuration où l'ancienne expression et la nouvelle diffèrent, et c'est
+    pourquoi ce test existe : `bool(self.allow_ungated)` restait vert partout ailleurs, si bien que
+    le correctif D1 n'était épinglé par rien et qu'un revert littéral serait passé inaperçu.
+
+    Ici l'opérateur écrit explicitement « non » à la dérogation, en dev. L'AD la lui accorde tout de
+    même — par son deuxième terme —, et le document sans gate est servi avec l'alerte `sans_gate`.
+    """
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("ALLOW_UNGATED", "false")
+    reglages = Settings(_env_file=None)
+    # Les deux faits restent distincts : ce que l'opérateur a demandé, et ce que la règle décide.
+    assert reglages.allow_ungated is False
+    assert reglages.deroger_au_gate is True
+
+
+def test_en_prod_la_disjonction_est_fausse_par_ses_trois_termes(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """La fermeture de l'AC 1.10 est intacte : en `prod`, aucun des trois termes ne tient.
+
+    Le pendant du test précédent, et il compte autant : un correctif qui honore le deuxième terme
+    partout aurait rouvert en production la dérogation que la story 1.10 a fermée.
+    """
+    monkeypatch.setenv("ENV", "prod")
+    for demande in ("true", "false"):
+        monkeypatch.setenv("ALLOW_UNGATED", demande)
+        reglages = Settings(_env_file=None)
+        assert reglages.allow_ungated is False
+        assert reglages.deroger_au_gate is False
+    # Sans la variable non plus.
+    monkeypatch.delenv("ALLOW_UNGATED", raising=False)
+    assert Settings(_env_file=None).deroger_au_gate is False
+
+
+def test_le_nom_du_fichier_de_publication_ne_peut_pas_sortir_de_data(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revue 4.5, P12 : une seule autorité pour ce nom, et un motif qui interdit tout chemin.
+
+    Le nom est composé avec `data_dir` par le lecteur **et** par l'écrivain : une valeur portant un
+    séparateur ou `..` ferait lire — et écrire — hors de `data/`. Un réglage d'environnement ne doit
+    pas pouvoir choisir un chemin.
+    """
+    from server.app.config import EVALS_PUBLICATION_FILE
+    from server.evals.publication import PUBLICATION_JSON
+
+    # Une seule autorité, partagée par l'écrivain (`evals`) et le lecteur (`api`).
+    assert PUBLICATION_JSON == EVALS_PUBLICATION_FILE
+    assert Settings(_env_file=None).evals_publication_file == EVALS_PUBLICATION_FILE
+    for hostile in ("../../etc/passwd", "sous/dossier.json", "/absolu.json", "..", ".",
+                    "avec espace.json"):
+        monkeypatch.setenv("EVALS_PUBLICATION_FILE", hostile)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+    monkeypatch.setenv("EVALS_PUBLICATION_FILE", "autre-nom.json")
+    assert Settings(_env_file=None).evals_publication_file == "autre-nom.json"
+
+
+def test_la_revision_publiee_est_une_projection_de_la_revision_complete() -> None:
+    """B2 : une seule source de vérité (`git_sha`), une projection pour l'affichage.
+
+    AD-11 promet `GET /api/v1/sante` → `version: sha7`, et `scripts/smoke.py` compare cette valeur
+    au sha7 du commit déployé. Mais le **gate** se compare sur la révision complète : servir la
+    valeur brute des deux côtés obligeait à choisir, et le choix fait — sept caractères partout —
+    rendait la comparaison de gate incapable de distinguer deux commits.
+    """
+    from server.app.config import SHA_COURT
+
+    complete = "0123456789abcdef" * 2 + "01234567"
+    assert len(complete) == 40
+    reglages = Settings(_env_file=None, git_sha=complete)
+    assert reglages.git_sha == complete
+    assert reglages.version_publiee == complete[:SHA_COURT]
+    assert len(reglages.version_publiee) == 7
+    # Hors conteneur, la valeur n'est pas une révision : elle est publiée telle quelle.
+    assert Settings(_env_file=None).version_publiee == "dev"
+    # Une valeur déjà courte n'est pas retronquée en silence : elle n'est pas une révision.
+    assert Settings(_env_file=None, git_sha="abc1234").version_publiee == "abc1234"

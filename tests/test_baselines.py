@@ -468,11 +468,16 @@ def test_completed_child_requires_finite_complete_billable_metrics(
 def test_cells_receive_global_remaining_balance_and_isolated_response_caches(tmp_path: Path) -> None:
     balances: list[float] = []
     cache_dirs: list[Path] = []
+    private_reports: list[Path] = []
     costs = iter((0.1, 0.2, 0.7))
 
     def invoke(argv: list[str]) -> int:
         balances.append(float(argv[argv.index("--max-cost") + 1]))
         cache_dir = Path(argv[argv.index("--cache-dir") + 1])
+        private_reports.extend([
+            Path(argv[argv.index("--output-json") + 1]),
+            Path(argv[argv.index("--output-markdown") + 1]),
+        ])
         assert cache_dir not in cache_dirs and not cache_dir.exists()
         cache_dirs.append(cache_dir)
         cache_dir.mkdir()
@@ -494,9 +499,29 @@ def test_cells_receive_global_remaining_balance_and_isolated_response_caches(tmp
     report = json.loads(output.read_text(encoding="utf-8"))
     assert balances == [1.0, 0.9, 0.7]
     assert len(set(cache_dirs)) == 3
+    assert not any(path.exists() for path in [*cache_dirs, *private_reports])
+    assert all(path.parent == cache_dirs[0].parent for path in private_reports)
     assert [cell["status"] for cell in report["cells"]] == [
         "completed", "completed", "completed", "not_run", "not_run", "not_run"]
     assert code == 3
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("--orchestrator-report", "rapport.json"),
+        ("--candidate-revision", "1" * 40),
+        ("--relecture-verdict", "verdict.json"),
+        ("--relecture-images", "images"),
+    ],
+)
+def test_la_matrice_refuse_les_options_4_5_quelle_ne_consomme_pas(
+        option: str, value: str) -> None:
+    code = runner.main([
+        "--suite", "guide", "--compare", "deterministe,outils,full_context",
+        "--tiers", "reason,micro", option, value,
+    ])
+    assert code == 2
 
 
 def test_pair_and_default_are_rolled_back_on_publication_failure(

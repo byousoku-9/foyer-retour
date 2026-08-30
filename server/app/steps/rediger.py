@@ -139,15 +139,15 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                   client: LlmClient, budget: RequestBudget, index: Index, doc_id: str,
                   settings: Settings, motif: str | None = None,
                   blocs_a_conserver: Iterable[str] = (),
-                  prompt: str = "rediger", max_tokens: int | None = None
+                  prompt: str = "rediger"
                   ) -> tuple[AnswerDraft, StepTrace]:
     """`prompt` nomme le fichier de `llm/prompts/` inséré entre `commun.md` et le sommaire.
 
     Story 1.8 : le sinistre passe `prompt="rediger_sinistre"` — mêmes contrats d'entrée et de sortie,
     consigne « une seule clause par affirmation » en plus (AD-6). Le défaut **est** le guide : son
     préfixe reste byte-identique, donc cacheable (AD-9) et rejouable depuis ses fixtures live.
-    `max_tokens=None` conserve le plafond commun ; l'override permet au seul pipeline outils de
-    transmettre son seuil mesuré sans dupliquer l'appel LLM ni modifier les autres chemins.
+    `settings.rediger_max_tokens` est l'unique plafond de rédaction des deux pipelines et de toutes
+    leurs variantes : la navigation choisie ne change ni le modèle, ni le schéma, ni cette borne.
     """
     t0 = time.monotonic()
     # Story 4.2b : tier épinglable par la matrice baseline ; `STEP_TIERS` reste le défaut AD-9.
@@ -259,8 +259,7 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         result = await client.parse(tier=tier, system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
                                     budget=budget, step=step,
-                                    max_tokens=(settings.rediger_max_tokens
-                                                if max_tokens is None else max_tokens),
+                                    max_tokens=settings.rediger_max_tokens,
                                     # La rédaction sinistre transcrit des clauses déjà retrouvées ;
                                     # son raisonnement de couverture appartient à *vérifier*. Avec
                                     # `medium`, le raisonnement invisible pouvait consommer les 2 048

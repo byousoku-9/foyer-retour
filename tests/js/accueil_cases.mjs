@@ -23,7 +23,57 @@ const PAGE = ORIGINE + "/";
 
 // Le seul identifiant que `accueil.js` cherche dans la page. Un test Python le vérifie contre
 // `tools/accueil/index.html`, pour qu'un renommage ne laisse pas ce harnais peindre dans le vide.
-const ELEMENTS = [{ tag: "div", id: "etat" }];
+const ELEMENTS = [{ tag: "div", id: "etat" }, { tag: "div", id: "evals" }];
+
+/** Un corps de `/api/v1/evals/latest` publié, tel que `routes/evals.py` l'écrit (story 4.5). */
+function evalsPublie(extra) {
+  return {
+    publie: true,
+    raison: null,
+    publication: Object.assign({
+      schema_version: 1,
+      profile: "full",
+      candidate_revision: "1".repeat(40),
+      run_digest: "a".repeat(64),
+      report_digest: "b".repeat(64),
+      plancher_digest: "c".repeat(64),
+      cases_hash: "d".repeat(64),
+      date: "2026-08-29T00:00:00Z",
+      // L'état que la story publie : un gate **rouge**, publié tel quel. C'est le cas nominal, pas
+      // l'exception — la publication est inconditionnelle (FR41).
+      evals_ok: false,
+      variantes: { outils: 3, local: 2 },
+      labels: { bonne_reponse: 3, parsing: 1 },
+      // Valeurs volontairement « rondes » : sans formatage partagé, la page écrirait `1` et
+      // `0.055` là où le Markdown écrit `1.0000` et `0.0550` (revue 4.5, P5).
+      recall: 1.0,
+      stabilite: { n: 3, cas_stables: 1, cas_comptabilises: 2 },
+      cout: { froid_eur: 0.1649, moyen_eur: 0.055, p95_eur: 0.02 },
+      latence: { p50_ms: 14243, p95_ms: 34370 },
+      ne_tranche_pas_rate: 0,
+      reserves: { countersigned: false, validated_by_expert: false, dictionary_validated: false },
+      decisions: [],
+      limites: ["décision rouge stabilite_sinistre : 0.0000 < plancher 1.0000 (n=3, scope "
+                + "suite:sinistre, producteur orchestrator)"],
+      seconde_lecture: { statut: "planifiee", blocs_planifies: 2, blocs_verifies: 0 },
+    }, extra || {}),
+  };
+}
+
+/** L'état « aucun run publié » — normal, jamais une panne. */
+function evalsAbsent(raison) {
+  return { publie: false, raison: raison === undefined ? "absent" : raison };
+}
+
+/** Répond selon la route demandée : les deux sondes de la page sont indépendantes. */
+function parRoute({ sante: corpsSante, evals: corpsEvals, statutEvals = 200 }) {
+  return (url) => {
+    if (String(url).indexOf("/api/v1/evals/latest") !== -1) {
+      return reponseHttp({ status: statutEvals, corps: corpsEvals });
+    }
+    return reponseHttp({ corps: corpsSante });
+  };
+}
 
 /** Un corps de `/api/v1/sante` conforme, tel que `routes/sante.py` l'écrit. */
 function sante(extra) {
@@ -155,6 +205,76 @@ async function main() {
     cas.sonde_url = appels[0].url;
     cas.sonde_methode = appels[0].options.method || "GET";
     cas.appels_au_demarrage = appels.length;
+    cas.routes = ACCUEIL.routes();
+  }
+
+  // --- FR41/FR42 : les résultats publiés, sur la seconde sonde ----------------
+  {
+    const ctx = charger(PAGE, parRoute({ sante: sante(), evals: evalsPublie() }));
+    const lu = await ctx.ACCUEIL.sonderEvals();
+    const vue = ctx.ACCUEIL.vueEvals(lu);
+    cas.evals_publie = {
+      url: ctx.appels[0].url,
+      methode: ctx.appels[0].options.method || "GET",
+      lu,
+      textes: textesDe(vue),
+      dom: releverNoeud(ctx.ACCUEIL.peindre(vue, ctx.elements.evals) && ctx.elements.evals),
+    };
+  }
+
+  // --- aucun run publié : une absence rendue comme une absence ---------------
+  {
+    for (const raison of ["absent", "illisible", "hors_schema", null, "motif_inconnu"]) {
+      const ctx = charger(PAGE, parRoute({ sante: sante(), evals: evalsAbsent(raison) }));
+      const lu = await ctx.ACCUEIL.sonderEvals();
+      cas.evals_absent = cas.evals_absent || {};
+      cas.evals_absent[String(raison)] = { lu, textes: textesDe(ctx.ACCUEIL.vueEvals(lu)) };
+    }
+  }
+
+  // --- la sonde des résultats échoue : dit, jamais peint en « aucun run » ----
+  {
+    const ctx = charger(PAGE, parRoute({ sante: sante(), evals: {}, statutEvals: 503 }));
+    let motif = null;
+    try { await ctx.ACCUEIL.sonderEvals(); } catch (e) { motif = e; }
+    cas.evals_sonde_morte = {
+      motif,
+      textes: textesDe(ctx.ACCUEIL.vueEvals(null, motif)),
+      // Sans motif propagé, la page rabat toutes les causes sur une seule phrase.
+      textes_sans_motif: textesDe(ctx.ACCUEIL.vueEvals(null)),
+      textes_hors_ligne: textesDe(ctx.ACCUEIL.vueEvals(null, "hors_ligne")),
+      textes_illisible: textesDe(ctx.ACCUEIL.vueEvals(null, "reponse_illisible")),
+    };
+  }
+
+  // --- lecture stricte du 200 des résultats ----------------------------------
+  {
+    const mauvais = {
+      publie_absent: (c) => { delete c.publie; },
+      publie_non_booleen: (c) => { c.publie = "oui"; },
+      publication_absente: (c) => { delete c.publication; },
+      recall_absent: (c) => { delete c.publication.recall; },
+      recall_texte: (c) => { c.publication.recall = "0.6"; },
+      stabilite_absente: (c) => { delete c.publication.stabilite; },
+      stabilite_incomplete: (c) => { delete c.publication.stabilite.cas_stables; },
+      cout_absent: (c) => { delete c.publication.cout; },
+      latence_non_entiere: (c) => { c.publication.latence.p50_ms = 12.5; },
+      reserves_absentes: (c) => { delete c.publication.reserves; },
+      reserve_non_booleenne: (c) => { c.publication.reserves.countersigned = "non"; },
+      limites_non_chaines: (c) => { c.publication.limites = [1]; },
+      labels_non_entiers: (c) => { c.publication.labels = { bonne_reponse: "trois" }; },
+      profile_vide: (c) => { c.publication.profile = ""; },
+      run_digest_absent: (c) => { delete c.publication.run_digest; },
+    };
+    cas.evals_illisibles = {};
+    const { ACCUEIL } = charger(PAGE, () => reponseHttp({ corps: sante() }));
+    for (const [nom, casser] of Object.entries(mauvais)) {
+      const corps = evalsPublie();
+      casser(corps);
+      cas.evals_illisibles[nom] = ACCUEIL.lireEvals(corps) === null;
+    }
+    // Le corps nominal, lui, se lit.
+    cas.evals_illisibles.nominal_lisible = ACCUEIL.lireEvals(evalsPublie()) !== null;
   }
 
   // --- état 1 : la sonde répond avec un profil -------------------------------
@@ -456,12 +576,15 @@ async function main() {
 
   // --- démarrage réel : la page se peint toute seule --------------------------
   {
-    const ctx = charger(PAGE, () => reponseHttp({ corps: sante() }), { demarrage: true });
+    const ctx = charger(PAGE, parRoute({ sante: sante(), evals: evalsPublie() }),
+                        { demarrage: true });
+    await tick();
     await tick();
     await tick();
     cas.demarrage = {
       dom: releverNoeud(ctx.elements.etat),
-      appels: ctx.appels.map((a) => a.url),
+      dom_evals: releverNoeud(ctx.elements.evals),
+      appels: ctx.appels.map((a) => a.url).sort(),
       localStorage: ctx.localStorage.entrees(),
     };
   }
@@ -495,8 +618,27 @@ async function main() {
     };
   }
 
+  // Une sonde morte n'efface pas l'autre : la seconde route échoue, le niveau de validation reste
+  // peint, et le bloc des résultats dit son ignorance au lieu d'annoncer « aucun run ».
+  {
+    const ctx = charger(PAGE, (url) => {
+      if (String(url).indexOf("/api/v1/evals/latest") !== -1) throw new Error("réseau coupé");
+      return reponseHttp({ corps: sante() });
+    }, { demarrage: true });
+    await tick();
+    await tick();
+    await tick();
+    cas.demarrage_evals_mort = {
+      textes_etat: aplatir(releverNoeud(ctx.elements.etat)).map((n) => n.texte)
+        .filter((t) => t !== null && t !== undefined),
+      textes_evals: aplatir(releverNoeud(ctx.elements.evals)).map((n) => n.texte)
+        .filter((t) => t !== null && t !== undefined),
+    };
+  }
+
   {
     const ctx = charger(PAGE, () => { throw new Error("réseau coupé"); }, { demarrage: true });
+    await tick();
     await tick();
     await tick();
     cas.demarrage_sonde_morte = {

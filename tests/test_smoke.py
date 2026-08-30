@@ -21,6 +21,8 @@ from typing import Any
 
 import pytest
 
+from tests.helpers_espace import poser_espace
+
 from scripts.smoke import (
     SURFACES,
     Attendus,
@@ -319,10 +321,20 @@ def _ecrire_depot(tmp_path: Any, contenu: str | None, *, source_hash: str = DICO
     data.mkdir(parents=True, exist_ok=True)
     if contenu is not None:
         (data / "dictionary.json").write_text(contenu, encoding="utf-8")
-    entrees = {"lux-guide": {"status": "servi", "source_hash": source_hash}}
+    entrees = {"lux-guide": {
+        "status": "servi", "source_hash": source_hash, "ingest_fingerprint": "fp",
+        "document_hash": "document", "edition": "git:test",
+    }}
     for doc_id, empreinte in (autres or {}).items():
-        entrees[doc_id] = {"status": "servi", "source_hash": empreinte}
+        entrees[doc_id] = {
+            "status": "servi", "source_hash": empreinte, "ingest_fingerprint": "fp",
+            "document_hash": "document", "edition": "git:test",
+        }
     (data / "manifest.json").write_text(json.dumps(entrees), encoding="utf-8")
+    for doc_id in entrees:
+        (data / doc_id).mkdir(exist_ok=True)
+        (data / doc_id / "source.url").write_text("https://example.invalid/source", "utf-8")
+    poser_espace(tmp_path, data_dir=data)
     return tmp_path
 
 
@@ -903,9 +915,36 @@ def test_les_attendus_sont_ceux_du_manifest_et_des_cas_du_gate() -> None:
 
 def test_les_attendus_refusent_un_depot_sans_document_servi(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "manifest.json").write_text('{"x": {"status": "quarantaine"}}', "utf-8")
+    (tmp_path / "data" / "manifest.json").write_text(json.dumps({"x": {
+        "status": "quarantaine", "source_hash": "source", "ingest_fingerprint": "fp",
+        "document_hash": "document", "edition": "git:test",
+    }}), "utf-8")
+    (tmp_path / "data" / "x").mkdir()
+    (tmp_path / "data" / "x" / "source.url").write_text(
+        "https://example.invalid/source", "utf-8")
+    poser_espace(tmp_path, data_dir=tmp_path / "data")
     with pytest.raises(ErreurTransport, match="aucun document"):
         charger_attendus(racine=tmp_path)
+
+
+def test_les_surfaces_publiques_du_smoke_refusent_un_espace_lie_sans_muter_lexterieur(
+        tmp_path: Path) -> None:
+    import os
+    import scripts.smoke as module
+
+    data = tmp_path / "data"
+    data.mkdir()
+    externe = tmp_path / "externe"
+    externe.mkdir()
+    temoin = externe / "temoin"
+    temoin.write_bytes(b"intact")
+    os.symlink(externe, data / ".publie")
+
+    with pytest.raises(ErreurTransport, match="répertoire ordinaire"):
+        module.exiger_la_racine(tmp_path)
+    with pytest.raises(ErreurTransport, match="répertoire ordinaire"):
+        charger_attendus(racine=tmp_path)
+    assert temoin.read_bytes() == b"intact" and not (externe / ".verrou").exists()
 
 
 def test_les_corps_de_reference_sont_ceux_des_schemas() -> None:
@@ -1116,11 +1155,51 @@ def test_un_gate_cases_illisible_dans_le_manifest_est_un_refus(tmp_path: Path) -
     manifest = json.loads((REPO / "data" / "manifest.json").read_text("utf-8"))
     manifest["lux-guide"]["gate"]["cases"] = None
     (depot / "data" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    for doc_id in manifest:
+        (depot / "data" / doc_id).mkdir()
+        (depot / "data" / doc_id / "source.url").write_text(
+            "https://example.invalid/source", "utf-8")
+    poser_espace(depot, data_dir=depot / "data")
     with pytest.raises(ErreurTransport, match="gate.cases"):
         charger_attendus(racine=depot)
 
 
 # --- le programme ---------------------------------------------------------------------------------
+
+def test_une_reconstruction_est_traduite_par_la_surface_publique_sans_http(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    import scripts.smoke as smoke
+    from server.evals.espace import EspacePublie
+
+    depot = _ecrire_depot(tmp_path, None)
+    vrai_attendus = smoke._attendus_pinces
+
+    def reconstruire_a_chaque_passe(racine: Path, lecture: Any) -> Any:
+        data = racine / "data"
+        espace = EspacePublie(racine, data)
+        manifest = (data / "manifest.json").read_bytes()
+        espace.basculer([(data / "manifest.json", manifest)])
+        espace.basculer([(data / "manifest.json", manifest)])
+        return vrai_attendus(racine, lecture)
+
+    def http_interdit(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("HTTP atteint malgré la péremption des attendus")
+
+    monkeypatch.setattr(smoke, "_attendus_pinces", reconstruire_a_chaque_passe)
+    with pytest.raises(ErreurTransport, match="reconstruite"):
+        charger_attendus(racine=depot)
+    capsys.readouterr()
+    monkeypatch.setattr(smoke, "appeler_avec_reprise", http_interdit)
+    monkeypatch.setattr(smoke, "sonder", http_interdit)
+    monkeypatch.setattr(smoke, "appeler", http_interdit)
+
+    code = main(["--base-url", "https://candidat.invalid", "--version", VERSION,
+                 "--racine", str(depot)])
+    erreur = capsys.readouterr().err
+    assert code == 1 and "attendus illisibles" in erreur
+    assert "Traceback" not in erreur
+
 
 def test_main_sort_en_1_quand_le_service_est_injoignable(monkeypatch: pytest.MonkeyPatch,
                                                          capsys: pytest.CaptureFixture[str]) -> None:

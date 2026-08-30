@@ -16,6 +16,10 @@ COPY data ./data
 COPY web ./web
 COPY tools ./tools
 
+# Les contextes excluent génériquement tous les `data/*/source.pdf`, liens compris. La disposition
+# est donc reposée depuis le manifest, sans réseau et sans doc_id codé, avant que le batch pincé ne
+# télécharge les sources privées dans le bundle.
+RUN uv run --no-sync python -m server.evals.espace --racine . --data-dir data --depot --migrer
 RUN uv run --no-sync python -m server.ingest.fetch_source --all
 
 # AD-11 : `/api/v1/sante` publie `version: sha7`. **Ce n'est pas ce `ARG` qui le porte en production**

@@ -245,6 +245,22 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
     else:
         language, lang_fallback = normaliser_langue(out.language)
     clarification = (out.clarification or "").strip()
+    question_resolue = (out.question_resolue or "").strip()
+    if clarification and out.intent in {"meteo", "bavardage", "hors_perimetre"}:
+        # Le contrat du prompt rend ces trois intentions autonomes et refusables sans retrieval.
+        # Si le modèle produit malgré tout l'autre issue d'AD-5, privilégier l'intent évite de
+        # demander un contexte qui ne changera jamais le périmètre. La clarification reste portée
+        # hors sérialisation : si le guide a annoncé un périmètre tronqué, il ne peut plus croire
+        # `hors_perimetre` et doit la servir plutôt que de laisser la question brute non autonome
+        # atteindre *retrouver*. Une vraie anaphore reste `suivi` et conserve directement sa
+        # `ClarificationRequise`.
+        step.neutraliser_clarification(clarification)
+        step.checks.append(CheckResult(
+            name="clarification_refus_neutralisee", ok=False,
+            detail="la sortie de compréhension portait à la fois une intention refusée et une "
+                   "clarification ; le pipeline doit conserver le court-circuit"))
+        clarification = ""
+        question_resolue = question.strip()
     if clarification:  # AD-5 : aucune `question_resolue` n'est construite dans ce cas
         if lang_fallback:
             # AD-10/AD-16 (revue Codex 2.4, tour 2, NB1) : la question posée est écrite dans la
@@ -289,7 +305,7 @@ async def comprendre(question: str, historique: list[Turn], profil: Profil, *, c
                 detail=f"libellé(s) écarté(s) par les bornes de l'étape : {', '.join(appauvries)} "
                        f"(longueur > {settings.libelle_max_chars}, ou au-delà du nombre retenu)"))
         sortie = ParsedQuestion(
-            question_resolue=(out.question_resolue or "").strip(),
+            question_resolue=question_resolue,
             intent=out.intent,
             language=language,
             lang_fallback=lang_fallback,

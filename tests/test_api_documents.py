@@ -56,7 +56,8 @@ def _pdf(path: Path, *, pages: int = 3, width: float = 200, height: float = 200)
 
 
 def _verified(path: Path) -> VerifiedSource:
-    return VerifiedSource(path=path, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    payload = path.read_bytes()
+    return VerifiedSource(path=path, sha256=hashlib.sha256(payload).hexdigest(), payload=payload)
 
 
 def _renderer(*, max_lines: int = 24, max_blocks: int = 10, concurrency: int = 2,
@@ -197,7 +198,7 @@ def test_deux_requetes_identiques_reutilisent_le_cache_borne(
         assert len(renderer._cache) == 1
 
 
-def test_source_changee_apres_cache_est_refusee_sans_png_obsolete(
+def test_le_rendu_reste_sur_les_octets_pinces_si_le_chemin_vivant_change(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with _client(tmp_path) as client:
         renderer = client.app.state.foyer.page_renderer
@@ -214,10 +215,9 @@ def test_source_changee_apres_cache_est_refusee_sans_png_obsolete(
         assert client.get(url).status_code == 200
         _pdf(client.app.state.foyer.pdf_sources[DOC_ID].path, pages=1)
         response = client.get(url)
-        assert response.status_code == 503
-        assert response.json()["error"]["code"] == "corpus_unavailable"
+        assert response.status_code == 200
         assert calls == 1
-        assert len(renderer._cache) == 0
+        assert len(renderer._cache) == 1
 
 
 async def test_rendus_concurrents_sont_bornes_et_ne_bloquent_pas_event_loop(tmp_path: Path) -> None:
@@ -404,6 +404,12 @@ def _data_dir(tmp_path: Path) -> Path:
         }
     }
     (data_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    # Story 4.5, N3 (patch croisé 2/3) : le démarrage du service est un entrypoint de lecture de
+    # production ; il exige une racine **installée**. La disposition se pose ici, comme un opérateur
+    # la pose — aucune attente de ce fichier ne change.
+    from tests.helpers_espace import poser_espace
+
+    poser_espace(tmp_path, data_dir=data_dir)
     return data_dir
 
 
@@ -417,4 +423,4 @@ def test_lifespan_reel_branche_la_source_verifiee_du_loader(tmp_path: Path) -> N
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
         source = client.app.state.foyer.pdf_sources[DOC_ID]
-        assert source.sha256 == hashlib.sha256(source.path.read_bytes()).hexdigest()
+        assert source.sha256 == hashlib.sha256(source.payload).hexdigest()

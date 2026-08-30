@@ -174,3 +174,141 @@ temoins:
     incident: "toute execution manquante est rouge : un run interrompu ne devient jamais vert"
     scope: run
     mesure_par: eval_runner
+
+  # --- story 4.5 : les dix temoins du gate `full` -------------------------------------------------
+  #
+  # Ils s'ajoutent **sans** toucher aux huit precedents et sans diminuer un import : ce sont des
+  # exigences nouvelles, pas un abaissement. `arme_par: gate_full` dit a quel moment ils sont
+  # applicables — un gate `--gate {doc_id} --profile full`, et lui seul. La CI lance `--profile full`
+  # sans `--gate` (diagnostic) et les gates `vertical` n'affirment que deux cas relus : leur imposer
+  # la politique complete rendrait rouge une mesure qui ne la revendique pas.
+  #
+  # Chaque temoin est **bloquant** a plancher 1.0 : le mecanisme de fermeture par vacuite de
+  # `construire_decisions` rend rouge tout temoin bloquant applicable qu'un run n'a pas emis. Une
+  # preuve absente est donc rouge sans une ligne de code de plus.
+  - metric: parsing_ok_rate
+    pipeline: parsing
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions parsing ok (texte normalise du bloc identique a la lecture visuelle)"
+    denominateur: "executions parsing planifiees (cas parsing x repetitions), interruptions comprises"
+    incident: "execution parsing manquante = rouge au denominateur"
+    scope: suite
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "sous --gate {doc_id} --profile full, la suite parsing du document entre dans le lot"
+  - metric: blocs_attendus_ouverts_rate
+    pipeline: all
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions dont tous les expected_block_ids sont dans opened_block_ids"
+    denominateur: "executions planifiees (cas x repetitions), interruptions comprises"
+    incident: "execution manquante = rouge au denominateur"
+    scope: run
+    mesure_par: eval_runner
+    arme_par: gate_full
+  - metric: citations_retrouvees_rate
+    pipeline: all
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions dont le label n'est pas citation_introuvable"
+    denominateur: "executions planifiees (cas x repetitions), interruptions comprises"
+    incident: "execution manquante = rouge au denominateur"
+    scope: run
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "compte meme lorsque mode_attendu prevoyait citation_introuvable : le gate full mesure le systeme, pas l'attente du cas"
+  - metric: zero_5xx_technique_rate
+    pipeline: all
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions dont le statut AD-16 est absent ou < 500"
+    denominateur: "executions planifiees (cas x repetitions), interruptions comprises"
+    incident: "execution manquante ou interrompue sur 5xx = rouge au denominateur"
+    scope: run
+    mesure_par: eval_runner
+    arme_par: gate_full
+  - metric: typage_confirme_rate
+    pipeline: sinistre
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions sinistre dont chaque preuve citant une clause fondatrice (garantie, exclusion) porte un kind confirme (manual ou model_verified)"
+    denominateur: "executions sinistre planifiees (cas sinistre x repetitions), interruptions comprises"
+    incident: "execution sinistre manquante = rouge au denominateur"
+    scope: suite
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "le typage qu'AD-6 exige est celui des clauses fondatrices, l'univers exact du predicat decisionnel ; le guide n'a aucune clause juridique a typer et sa preuve equivalente est citations_retrouvees_rate + blocs_attendus_ouverts_rate"
+  - metric: structure_prouvee_rate
+    pipeline: parsing
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "documents PDF du lot dont structure.json est declare au manifest, present, concordant, et dont le rapport d'ingestion porte une attestation structure_proposee affirmative rattachee a ce document (document_hash et structure_hash observes)"
+    denominateur: "documents du lot issus d'un PDF (regle SOURCE_FILES du loader)"
+    incident: "artefact de structure absent, illisible, ou attestation absente = rouge, jamais neutre"
+    scope: suite
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "un document non issu d'un PDF (copie de site) n'a aucune proposition de structure a prouver : il sort du denominateur, et c'est arbre_prouve_rate qui lui oppose la preuve deterministe dont son ingestion dispose ; le temoin n'est applicable que lorsque le lot porte une suite parsing, ce qu'un gate full sur un document PDF garantit. Actuellement 0/1 : aucune structure.json sur le corpus servi (reingestion reelle due a l'orchestrateur) — rouge, publie tel quel"
+  - metric: arbre_prouve_rate
+    pipeline: guide
+    famille: run
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "documents non issus d'un PDF dont le rapport d'ingestion porte un check invariants_arbre affirmatif (jamais bloquant) dont l'attestation nomme le document_hash et l'ingest_fingerprint de l'entree du manifest"
+    denominateur: "documents du lot qui ne sont pas issus d'un PDF (regle SOURCE_FILES du loader), c'est-a-dire le complement exact du denominateur de structure_prouvee_rate"
+    incident: "rapport d'ingestion absent, illisible, etranger, sans attestation ou attestant un autre arbre = rouge, jamais neutre"
+    scope: suite
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "pendant de structure_prouvee_rate pour le perimetre guide : la story 4.2c ne s'applique pas a une copie de site, mais son ingestion emet le meme controle deterministe d'arbre (invariants_arbre) que l'ingestion PDF. Restreindre structure_prouvee_rate aux PDF sans donner cette preuve au guide aurait laisse un perimetre entier sans exigence de structure — un abaissement du plancher par omission. Le partage des deux denominateurs est la regle SOURCE_FILES, jamais un doc_id. Actuellement 0/1 : le report.json servi porte invariants_arbre sans empreinte (forme anterieure a 4.5) — rouge tant que le guide n'est pas reingere"
+  - metric: stabilite_claim_decisionnelle
+    pipeline: sinistre
+    famille: stabilite
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "cas sinistre dont les N repetitions rendent le meme predicat decision_claim"
+    denominateur: "cas sinistre repetes, interruptions comprises"
+    incident: "repetition manquante ou predicat divergent = cas instable, rouge"
+    scope: suite
+    mesure_par: eval_runner
+    arme_par: gate_full
+    note: "temoin distinct de stabilite_sinistre, dont le numerateur reste fige au plancher importe"
+  - metric: anti_rustine_pass_rate
+    pipeline: harness
+    famille: tests_hors_ligne
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions de la garde anti-rustine vertes"
+    denominateur: "executions planifiees de la garde, interruptions comprises"
+    incident: "une garde interrompue compte rouge au denominateur"
+    scope: repo
+    mesure_par: orchestrator
+    arme_par: gate_full
+  - metric: metamorphique_pass_rate
+    pipeline: harness
+    famille: tests_hors_ligne
+    criticite: bloquant
+    plancher: 1.0
+    n: 3
+    numerateur: "executions de la garde metamorphique vertes"
+    denominateur: "executions planifiees de la garde, interruptions comprises"
+    incident: "une garde interrompue compte rouge au denominateur"
+    scope: repo
+    mesure_par: orchestrator
+    arme_par: gate_full

@@ -25,6 +25,7 @@ Ce que le cas doit établir (AC de la story, et « verdict cadré » de l'epic) 
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
+from server.app.domain.errors import BudgetExceeded
 from server.app.domain.question import Faits
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
@@ -43,10 +45,11 @@ from server.app.domain.verdict import (
 )
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
+from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
 from server.app.steps.verifier import _mots_qualifiants
 from tests.fixtures import LLMRecorder
-from tests.llm_fake import RecordedAnthropic
+from tests.llm_fake import FakeAnthropic, RecordedAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC_ID = "axa-lu-optihome-2017"
@@ -107,6 +110,111 @@ def _budget() -> RequestBudget:
     s = _settings()
     return RequestBudget(deadline_s=s.deadline_s, max_attempts=s.max_llm_attempts,
                          max_cost_eur=s.max_cost_eur_per_request)
+
+
+async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le vrai pipeline outils atteint *rédiger* sous 0,12 €, puis refuse juste au-dessus."""
+    import server.app.llm.client as client_module
+
+    settings = _settings()
+    document = index.corpus.documents[DOC_ID]
+    garantie = next(
+        bloc for bloc in document.blocks
+        if bloc.kind == "garantie" and "action subite de la chaleur" in normalize(bloc.text)
+    )
+    node_id = document.node_of(garantie.block_id)
+    quote = garantie.text[:settings.quote_max_chars]
+
+    def script() -> list[dict]:
+        comprendre = fake_message(model=TIERS["micro"], text=json.dumps({
+            "intent": "question",
+            "question_resolue": QUESTION,
+            "clarification": None,
+            "language": "fr",
+            "terms": ["mobilier", "chaleur"],
+            "themes": [],
+            "facettes": ["couverture du sinistre"],
+            "bien": "mobilier de salon",
+            "evenement": "action de la chaleur",
+            "lieu": "domicile assuré",
+            "cause": "bougie",
+            "moment": "2026-08-01",
+        }), input_tokens=1000, output_tokens=100)
+        outils = fake_message(
+            model=TIERS["micro"], stop_reason="tool_use",
+            input_tokens=9575, output_tokens=1024,
+            content=[
+                {"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+                 "input": {"termes": ["mobilier", "chaleur"]}},
+                {"type": "tool_use", "id": "toolu_ouvrir", "name": "ouvrir_noeud",
+                 "input": {"node_id": node_id}},
+            ],
+        )
+        rediger = fake_message(model=TIERS["reason"], text=json.dumps({
+            "segments": [{"text": "La garantie vise l'action subite de la chaleur.",
+                          "kind": "factuel", "claim_ids": ["c1"]}],
+            "claims": [{"claim_id": "c1",
+                        "text": "La garantie vise l'action subite de la chaleur.",
+                        "quotes": [{"block_id": garantie.block_id, "quote": quote}]}],
+        }))
+        verifier = fake_message(model=TIERS["micro"], text=json.dumps({
+            "verdicts": [{"claim_id": "c1", "pertinente": True, "raison": None}],
+            "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
+            "segments": [{"segment": 0, "soutenu": True}],
+            "applicabilite": [{
+                "claim_id": "c1",
+                "fait_requis_present": False,
+                "option_requise": False,
+                "cp_requise": False,
+                "fait_manquant": "caractère subit de l'action de la chaleur",
+                "qualites_exigees": [],
+                "qualites_etablies": [],
+            }],
+        }))
+        return [comprendre, outils, rediger, verifier]
+
+    original = client_module.estimate_cost
+    budget = _budget()
+    preflights: list[tuple[float, float, str, int]] = []
+
+    def relever(*args, **kwargs):
+        estimate = original(*args, **kwargs)
+        max_tokens = int(args[3] if len(args) > 3 else kwargs["max_tokens"])
+        preflights.append((budget.cost_eur, estimate, str(args[0]), max_tokens))
+        return estimate
+
+    monkeypatch.setattr(client_module, "estimate_cost", relever)
+    fournisseur = FakeAnthropic(script())
+    client = LlmClient(settings, anthropic_client=fournisseur)
+    answer, _trace = await sinistre.run(
+        DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+        settings=settings, request_id="preflight-outils-reel", budget=budget)
+
+    redactions = [p for p in preflights
+                  if p[2] == TIERS["reason"] and p[3] == settings.rediger_max_tokens]
+    assert len(redactions) == 1
+    engage, majorant, _model, _tokens = redactions[0]
+    assert engage == pytest.approx(0.0149, abs=0.0001)
+    assert engage + majorant <= settings.max_cost_eur_per_request == 0.12
+    assert fournisseur.requests[2]["model"] == TIERS["reason"]
+    assert answer.verdict is not None
+
+    fournisseur_bloque = FakeAnthropic(script())
+    client_bloque = LlmClient(settings, anthropic_client=fournisseur_bloque)
+    plafond_trop_bas = round(engage + majorant - 0.0001, 4)
+    budget = RequestBudget(
+        deadline_s=settings.deadline_s,
+        max_attempts=settings.max_llm_attempts,
+        max_cost_eur=plafond_trop_bas,
+    )
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await sinistre.run(
+            DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index,
+            client=client_bloque, settings=settings,
+            request_id="preflight-outils-bloque", budget=budget)
+    assert len(fournisseur_bloque.requests) == 2
+    assert all(request["model"] != TIERS["reason"] for request in fournisseur_bloque.requests)
 
 
 async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(

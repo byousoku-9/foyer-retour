@@ -34,6 +34,7 @@ from server.app.api.etat import construire_etat
 from server.app.api.request_id import RequestIdMiddleware, configurer_journal
 from server.app.api.routes import chat as route_chat
 from server.app.api.routes import documents as route_documents
+from server.app.api.routes import evals as route_evals
 from server.app.api.routes import sante as route_sante
 from server.app.api.routes import sinistre as route_sinistre
 from server.app.config import REPO_ROOT, Settings, get_settings
@@ -111,7 +112,10 @@ def create_app(settings: Settings | None = None, *, data_dir: Path | None = None
     # n'attend `/sinistre` ni `/documents` à la racine, et un alias de plus serait une route
     # inventée par story — sans compter que `/sinistre` y entrerait en collision avec le montage
     # statique de la page du même nom.
-    for routeur in (route_documents.router, route_sinistre.router):
+    # Story 4.5 : `/api/v1/evals/latest` rejoint les routes sans alias historique, pour la même
+    # raison qu'elles — AD-11 ne nomme d'alias racine que pour `/sante` et `/chat`, « attendus par
+    # `testerApi()`/`reponseApi()` » du site copié. Rien n'attend `/evals` à la racine.
+    for routeur in (route_documents.router, route_sinistre.router, route_evals.router):
         app.include_router(routeur, prefix=API_V1)
 
     # La page d'audit porte le ``doc_id`` dans une URL lisible et partage exactement la validation

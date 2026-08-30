@@ -50,9 +50,11 @@ def _budget(**kw) -> RetrievalBudget:
 
 
 def _parsed(terms: list[str], themes: list[str] | None = None,
-            noeuds: list[str] | None = None) -> ParsedQuestion:
+            noeuds: list[str] | None = None,
+            facettes: list[str] | None = None) -> ParsedQuestion:
     return ParsedQuestion(question_resolue="q", intent="question", terms=terms,
-                          scope=QuestionScope(themes=themes or [], noeuds=noeuds or []))
+                          scope=QuestionScope(themes=themes or [], noeuds=noeuds or []),
+                          facettes=facettes or [])
 
 
 def _run(parsed: ParsedQuestion, corpus: Corpus, index: Index, budget: RetrievalBudget | None = None,
@@ -184,6 +186,80 @@ async def test_les_deux_variantes_partagent_la_meme_fermeture_directe() -> None:
     assert "d:p5:1" not in outils.opened_block_ids
     assert "d:p6:1" not in deterministe.opened_block_ids
     assert "d:p6:1" not in outils.opened_block_ids
+
+
+async def test_un_renvoi_heading_emporte_un_passage_citable_sans_suivre_ses_refs() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Consulter la règle de délai.", loc="p1", seq=1,
+              refs=["d:p2:1"]),
+        Block(block_id="d:p2:1", text="Délai applicable", loc="p2", seq=1, kind="heading"),
+        Block(block_id="d:p2:2", text="La demande est déposée dans les trente jours.",
+              loc="p2", seq=2, refs=["d:p3:1"]),
+        Block(block_id="d:p3:1", text="Second niveau interdit.", loc="p3", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="source"), NodeRef(node_id="cible"),
+                                          NodeRef(node_id="second")]),
+             Node(node_id="source", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="cible", items=[BlockRef(block_id="d:p2:1"), BlockRef(block_id="d:p2:2")]),
+             Node(node_id="second", items=[BlockRef(block_id="d:p3:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > source, cible, second"})
+    parsed = _parsed(["consulter règle"])
+    budget = _budget(max_opens=1, node_window=1, max_blocks=3, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["consulter règle"]),
+                      _tool("ouvrir_noeud", "t2", node_id="source",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p2:1", "d:p2:2"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert "d:p3:1" not in deterministe.opened_block_ids
+    assert "d:p3:1" not in outils.opened_block_ids
+
+    borne, _ = _run(parsed, corpus, Index(corpus),
+                    _budget(max_opens=1, node_window=1, max_blocks=2, max_tokens=6000))
+    assert borne.opened_block_ids == [] and borne.truncated
+    borne_outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["consulter règle"]),
+                      _tool("ouvrir_noeud", "t2", node_id="source",
+                            focus_block_id="d:p1:1")),
+        fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=1, node_window=1, max_blocks=2, max_tokens=6000))
+    assert borne_outils.opened_block_ids == [] and borne_outils.truncated
+
+
+async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_variantes() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Thème profil général.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Encore un thème profil général.", loc="p2", seq=1),
+        Block(block_id="d:p3:1", text="Preuve de la première démarche.", loc="p3", seq=1),
+        Block(block_id="d:p4:1", text="Preuve de la seconde démarche.", loc="p4", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, 5)])]
+    nodes.extend(Node(node_id=f"n{i}", items=[BlockRef(block_id=block.block_id)])
+                 for i, block in enumerate(blocks, 1))
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2, n3, n4"})
+    parsed = _parsed(["première démarche", "seconde démarche"], themes=["thème profil"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=1, search_limit=2,
+                     max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["thème profil", "première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n3", focus_block_id="d:p3:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n4", focus_block_id="d:p4:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p3:1", "d:p4:1"]
 
 
 async def test_une_cible_aussi_primaire_reste_atomique_avec_sa_source() -> None:
@@ -965,6 +1041,7 @@ def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], 
     import json
 
     from server.app.corpus.dictionary import load_dictionary
+    from server.app.corpus.racine import _lecture_interne_sans_racine
 
     # `tmp_path` et non `tempfile.mkdtemp()` : ces helpers sont appelés en boucle, et des dossiers
     # jamais nettoyés s'accumulaient dans `/tmp` à chaque exécution de la suite.
@@ -978,7 +1055,8 @@ def _dictionnaire(tmp_path: Path, corpus: Corpus, termes: dict[str, list[str]], 
     (dossier / "dictionary.json").write_text(json.dumps(
         {"schema_version": "1", "corpus_source_hashes": hashes, "corpus": termes,
          "intents": {}, "candidate_questions": {}, **signature}, ensure_ascii=False), "utf-8")
-    return load_dictionary(dossier, corpus, DICO_DOC)
+    with _lecture_interne_sans_racine(dossier) as lecture:
+        return load_dictionary(dossier, corpus, DICO_DOC, lecture=lecture)
 
 
 async def test_outils_traces_dictionary_expansion_for_terms_actually_searched(tmp_path: Path) -> None:
@@ -1577,7 +1655,8 @@ async def test_full_context_places_all_citable_blocks_in_system_and_only_dynamic
 
     client = Client()
     result, step = await retrouver_full_context(
-        _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
+        _parsed(["matricule"], facettes=["première démarche", "seconde démarche"]),
+        corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000),
         settings=_s(max_cost_eur_per_request=1.0), client=client,
         request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
@@ -1588,6 +1667,7 @@ async def test_full_context_places_all_citable_blocks_in_system_and_only_dynamic
     user = str(client.request["messages"])
     assert "d:p1:1" in system and "d:p3:1" in system and "root" in system
     assert "d:p1:1" not in user and "Le matricule est délivré" not in user
+    assert "première démarche" in user and "seconde démarche" in user
     assert step.prompt_cache is True and step.mechanism_order == [
         "dictionnaire", "faq", "sommaire", "outils"]
 

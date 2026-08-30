@@ -24,6 +24,7 @@ from server.app.domain.ingest import Gate, GateDecision, ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.evals import run as runner
 from server.evals.plancher import charger_plancher
+from tests.helpers_espace import poser_espace
 
 GUIDE = "mini-guide"
 CONTRAT = "mini-contrat"
@@ -270,6 +271,13 @@ def _interdit(*args: Any, **kw: Any) -> Any:
     raise AssertionError("le contexte a été construit malgré le refus de budget")
 
 
+def _poser_racine_budget(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text("{}\n", "utf-8")
+    poser_espace(tmp_path, data_dir=data, cibles=(Path("refus.json"), Path("refus.md")))
+
+
 def test_le_refus_de_budget_survient_avant_le_premier_appel(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str]) -> None:
@@ -278,8 +286,10 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     monkeypatch.delenv("LIVE_BUDGET_EUR", raising=False)
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
     monkeypatch.setattr(runner, "construire_contexte_parsing", _interdit)
+    _poser_racine_budget(tmp_path)
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
                         "--repeat", "3", "--max-cost", "0.2",
+                        "--data-dir", str(tmp_path / "data"),
                         "--output-json", str(tmp_path / "refus.json"),
                         "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
@@ -287,14 +297,15 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     assert "refus de budget avant le premier appel" in err
     assert "configured_budget_eur=1.0000" in err
     assert "accrued_cost_eur=0.0000" in err
-    assert "refused_cost_eur=0.3000" in err
+    majorant = runner.estimate_run_majorant(3, _settings())
+    assert f"refused_cost_eur={majorant:.4f}" in err
     rapport = json.loads((tmp_path / "refus.json").read_text(encoding="utf-8"))
     assert rapport["complete"] is False and rapport["executions_completed"] == 0
     assert rapport["preflight"] == {
         **rapport["preflight"],
         "configured_budget_eur": 1.0,
         "accrued_cost_eur": 0.0,
-        "refused_cost_eur": 0.3,
+        "refused_cost_eur": majorant,
     }
     assert rapport["decisions"] and all(d["status"] == "red" for d in rapport["decisions"])
 
@@ -306,12 +317,32 @@ def test_live_budget_env_borne_aussi_le_max_cost(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
     monkeypatch.setenv("LIVE_BUDGET_EUR", "0.15")
     monkeypatch.setattr(runner, "construire_contexte", _interdit)
+    _poser_racine_budget(tmp_path)
     code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
                         "--repeat", "3", "--max-cost", "5.0",
+                        "--data-dir", str(tmp_path / "data"),
                         "--output-json", str(tmp_path / "refus.json"),
                         "--output-markdown", str(tmp_path / "refus.md")])
     assert code == 4
     assert "configured_budget_eur=0.1500" in capsys.readouterr().err
+
+
+def test_une_racine_incomplete_precede_le_refus_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
+    monkeypatch.setattr(runner, "construire_contexte", _interdit)
+    poser_espace(tmp_path, data_dir=tmp_path / "data",
+                cibles=(Path("refus.json"), Path("refus.md")))
+
+    code = runner.main(["--case", "s-bougie-canape", "--profile", "full",
+                        "--repeat", "3", "--max-cost", "0.2",
+                        "--data-dir", str(tmp_path / "data"),
+                        "--output-json", str(tmp_path / "refus.json"),
+                        "--output-markdown", str(tmp_path / "refus.md")])
+    assert code == 2
+    assert "manifest publié absent" in capsys.readouterr().err
+    assert not (tmp_path / "refus.json").exists()
 
 
 def test_dry_run_publie_plancher_digest_et_majorant(
@@ -388,23 +419,34 @@ def _gate(evals_ok: bool, **kw: Any) -> Gate:
     return Gate(**defauts)
 
 
-def _manifest(tmp_path: Path, gate: Gate | None) -> Path:
-    chemin = tmp_path / "manifest.json"
+def _manifest(racine: Path, gate: Gate | None) -> Path:
+    data = racine / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    chemin = data / "manifest.json"
     entree = {"status": "servi", "source_hash": "s", "ingest_fingerprint": "f",
               "document_hash": "d", "edition": "e", "overlay_hash": None,
               "gate": gate.model_dump(mode="json") if gate is not None else None}
     chemin.write_text(json.dumps({GUIDE: entree}), "utf-8")
+    # `ecrire_gate` dérive l'espace de `manifest_path.parent` (story 4.5, B7) : la disposition doit
+    # être posée avant tout appel, comme un opérateur ou la CI la posent.
+    poser_espace(racine, data_dir=data)
     return chemin
 
 
 def test_un_gate_candidat_rouge_ne_remplace_jamais_un_vert(tmp_path: Path,
                                                            capsys: pytest.CaptureFixture[str]) -> None:
-    """AC 4.2b : le `manifest.gate` vert existant n'est pas modifié par un candidat rouge."""
-    chemin = _manifest(tmp_path, _gate(True))
-    avant = chemin.read_text("utf-8")
-    ecrit = runner.ecrire_gate(chemin, GUIDE, _gate(False))
+    """Le candidat certifie le courant sans réécrire le dernier golden set vert."""
+    dernier_vert = _gate(True, cases_hash="hash-historique")
+    candidat_courant = _gate(False, cases_hash="hash-courant")
+    chemin = _manifest(tmp_path, dernier_vert)
+    avant = chemin.read_bytes()
+
+    assert candidat_courant.cases_hash != dernier_vert.cases_hash
+    ecrit = runner.ecrire_gate(chemin, GUIDE, candidat_courant)
+
     assert ecrit is False
-    assert chemin.read_text("utf-8") == avant
+    assert candidat_courant.cases_hash == "hash-courant"
+    assert chemin.read_bytes() == avant
     assert "gate candidat rouge" in capsys.readouterr().err
 
 

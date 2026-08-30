@@ -43,6 +43,9 @@ _reference/
 
 # Sources non redistribuées : téléchargées au build (server/ingest/fetch_source.py)
 data/*/source.pdf
+# Les liens racine déjà committés restent suivis par Git ; aucun nouvel octet privé n'est admis par
+# une exception nominative. La pose générique est faite par `server.evals.espace --depot`.
+data/.publie/*/data/*/source.pdf
 data/*/*.tmp
 # Inode persistant des verrous `flock` de typage ; ne jamais l'unlink pendant qu'un concurrent attend.
 data/*/.type-clauses.lock
@@ -52,3 +55,10 @@ data/*/.type-clauses.lock
 .evals/
 eval-results.json
 eval-results.md
+
+# Story 4.5, B7 : le verrou de l'espace de publication est un état de processus, pas un artefact.
+# Le bundle lui-même (`data/.publie/<gen>/`) et son pointeur sont **suivis** : ils portent le
+# contenu servi de `data/manifest.json`, que l'image copie et qu'un checkout doit trouver.
+data/.publie/.verrou
+data/.publie/**/*.tmp
+data/.publie/.*.tmp

@@ -57,7 +57,7 @@ Aucun réseau ni modèle : l'ingestion est locale et déterministe. Exécution r
 | Un appel réel par tier | `uv run pytest -q tests/test_client_live.py` (clé dans `.env`) | 5 tests verts, 6 appels réels + 1 `count_tokens` ; `micro` (haiku-4-5-20251001) : 1 621 in / 11 out, ≈ 0,0015 € ; `reason` (sonnet-5) : écriture de cache **1 h** de 2 059 tokens (`ephemeral_1h_input_tokens`, ttl envoyé), ≈ 0,0116 € ; `ingest` (opus-5) : écriture 5 min de 2 058 tokens, ≈ 0,0122 € ; `usage.cost_eur > 0` partout ; `output_config.effort` accepté (medium/high), `extra_body.temperature=0` accepté par Haiku |
 | Cache de préfixe fournisseur | second appel `reason` au même préfixe (question différente) | `cache_read_input_tokens = 2 059` sur les deux appels du test cache (préfixe déjà chaud), ≈ 0,0008 €/appel — lecture à 0,1× confirmée ; total de la session live ≈ 0,03 € |
 | Rejeu sans réseau | `.env` masqué puis `ANTHROPIC_API_KEY= uv run pytest -q` | 315 passed en 4,5 s, zéro réseau : `test_client_live` rejoué depuis `tests/llm_fixtures/` (réponses brutes `Message.to_dict()`) |
-| Tokens réels des sommaires (reprise 1.1/1.2) | `uv run python -m server.app.llm.tokens data/lux-guide/summary.md data/axa-lu-optihome-2017/summary.md` | **Avant compactage** : guide 12 419 car. = 5 358 tokens (reason) / 4 323 (micro) ; contrat 17 443 car. = 10 153 (reason) / 9 301 (micro) — le français tokenise à ≈ 2,3 car./token, pas 4. **Après compactage** (tags ≤ 5, résumés ≤ 90 car., contrat niveau ≤ 2 ; remesuré le 23/08/2026 après le patch P8 qui a retouché 5 résumés) : guide 10 359 car. = 4 570 tokens (reason, claude-sonnet-5) / 3 705 (micro, claude-haiku-4-5-20251001) ; contrat 6 594 car. = 3 997 tokens (reason) / 3 707 (micro). Contrat sous le seuil de décision (5 000) ; guide encore > 3 500 → reprise différée vers 1.4 (couper FAQ/IDs abîmerait `retrouver`). Les comptes viennent de l'endpoint `count_tokens` du jour : à re-consigner si le tokenizer distant évolue |
+| Tokens réels des sommaires (reprise 1.1/1.2) | `uv run python -m server.evals.tokens data/lux-guide/summary.md data/axa-lu-optihome-2017/summary.md` (mesures d'origine prises sous l'ancien chemin `server.app.llm.tokens`, avant que la lecture pincée ne déplace l'entrypoint) | **Avant compactage** : guide 12 419 car. = 5 358 tokens (reason) / 4 323 (micro) ; contrat 17 443 car. = 10 153 (reason) / 9 301 (micro) — le français tokenise à ≈ 2,3 car./token, pas 4. **Après compactage** (tags ≤ 5, résumés ≤ 90 car., contrat niveau ≤ 2 ; remesuré le 23/08/2026 après le patch P8 qui a retouché 5 résumés) : guide 10 359 car. = 4 570 tokens (reason, claude-sonnet-5) / 3 705 (micro, claude-haiku-4-5-20251001) ; contrat 6 594 car. = 3 997 tokens (reason) / 3 707 (micro). Contrat sous le seuil de décision (5 000) ; guide encore > 3 500 → reprise différée vers 1.4 (couper FAQ/IDs abîmerait `retrouver`). Les comptes viennent de l'endpoint `count_tokens` du jour : à re-consigner si le tokenizer distant évolue |
 | Stabilité de l'ingestion après compactage | relance `kb_to_blocks` + `pdf_to_blocks` puis `git status data/` | seuls `summary.md` et `report.json` changent (une fois), `document.json` et `manifest.json` intacts ; relance = octet-identique |
 | Comptage `count_tokens` | fixture `test_count_tokens_live` | 308 tokens pour « bonjour » × 100 sur Haiku (endpoint gratuit) |
 | Re-vérification après revue (13 patchs) | `.env` masqué + `ANTHROPIC_API_KEY= uv run pytest -q` ; `uv run pytest -q tests/test_client_live.py` (clé) ; relance des deux ingestions | 325 passed hors ligne (4,2 s, fixtures re-rejouées) ; 5 tests live verts, ré-enregistrés, `cache_read = 2 059` exigé strictement sur le 2e appel reason (P3) ; ingestions stables sur relance ; `document.json`/`manifest.json` changent une fois : les seuils `SUMMARY_*` entrent désormais dans `ingest_fingerprint` (P1) |
@@ -3605,3 +3605,295 @@ Ce sont des **états produit non bloquants** pour le verdict mono-cause de 4.2d,
 et l'indépendance à l'identité du corpus sont prouvés hors réseau. Comme critères de promotion, ces
 rouges appartiennent **exclusivement au gate 4.5**. Aucune promotion n'est exécutée, le dernier vert
 et son trafic sont inchangés, et rien ici ne prétend le candidat E2E vert.
+
+## Story 4.5 — gate `full`, publication des résultats, seconde lecture (2026-08-29, builder)
+
+### Ce que le builder a fait au live : rien
+
+Aucun appel fournisseur n'a été lancé pendant cette story. La règle trusted (`automation/plancher.yaml`,
+parent) fait foi : **le builder ne produit jamais la preuve live**. Tout ce qui est vérifié ici l'est
+hors réseau, `ANTHROPIC_API_KEY=` vide, sur cas et corpus synthétiques neutres.
+
+### Le protocole a changé : aucun run antérieur n'est comparable
+
+`server/evals/reference/plancher.yaml` porte **dix** témoins de plus (`parsing_ok_rate`,
+`blocs_attendus_ouverts_rate`, `citations_retrouvees_rate`, `zero_5xx_technique_rate`,
+`typage_confirme_rate`, `structure_prouvee_rate`, `arbre_prouve_rate`,
+`stabilite_claim_decisionnelle`, `anti_rustine_pass_rate`, `metamorphique_pass_rate`), tous bloquants
+à `1.0` / `n: 3`, tous `arme_par: gate_full`. Aucun témoin importé n'est abaissé ni retiré, et les
+`snapshot_digest` des imports 4.2a/trusted sont inchangés — `charger_plancher` refuserait de charger
+sinon.
+
+**Deux preuves de structure, deux périmètres complémentaires.** `structure_prouvee_rate` ne compte
+que les documents issus d'un PDF (règle `SOURCE_FILES` du loader : première source présente) et leur
+oppose la proposition de structure de la story 4.2c. `arbre_prouve_rate` est son pendant pour les
+documents qui n'en sont pas issus — la copie de site : leur ingestion émet le même contrôle
+déterministe d'arbre (`invariants_arbre`), et c'est **son attestation** que le gate leur oppose.
+Aucune branche par `doc_id` : les deux dénominateurs partagent le lot par ce que chaque document
+*est*. Un gate `full` dont le témoin couvrant ne serait pas armé par le lot est refusé **avant tout
+appel** (code 2) — un périmètre sans exigence de structure serait un plancher abaissé en silence.
+
+Depuis cette story, une preuve de structure n'est plus une *déclaration* mais une **attestation
+rattachée** : le rapport d'ingestion porte `structure acceptee document_hash=… structure_hash=…` (PDF)
+ou `arbre atteste document_hash=… ingest_fingerprint=…` (copie de site), et le gate exige que le
+couple soit celui de l'entrée du manifest. Un `report.json` écrit à la main, un `structure.json`
+arbitraire ou la forme historique `invariants_arbre: ok` ne verdissent rien. Le typage
+(`server/ingest/type_clauses.py`) **ré-atteste** après avoir réécrit `document.json` — sans quoi un
+document typé perdrait sa preuve de structure sans que rien ne le dise — mais il n'en **fabrique**
+jamais : une attestation absente le reste.
+
+Conséquences, à consigner avant toute campagne :
+
+- **`plancher_digest` bouge** : deux rapports ne se comparent qu'à protocole égal, donc aucun run
+  antérieur à cette story n'est comparable à un run postérieur ;
+- **`pipeline_digest` bouge** (`domain/` et `corpus/` sont deux des cinq couches qu'il couvre) :
+  toutes les campagnes repartent **froides**, et les gates du dépôt sont périmés ;
+- **`prompts_digest` ne bouge pas** : aucun prompt n'est touché, aucune fixture n'est invalidée ;
+- le **`cases_hash` d'un gate `full`** n'est plus celui d'un gate `vertical` du même document : la
+  suite `parsing` du document entre dans le lot sous `full`.
+
+### Gates à relancer, en profil `full`, par l'orchestrateur
+
+La dette de re-gate déjà déclarée plus haut reste due et **s'élargit** : la commande n'est plus la
+même, parce qu'un gate `full` porte désormais sa révision, son protocole et son rapport, et parce
+que trois gardes refusent avant tout appel (`--repeat >= 3`, `--candidate-revision`,
+`--orchestrator-report` avec toute preuve trusted).
+
+```bash
+# Pour chaque doc_id servi, sur HEAD figé, après passation.
+LIVE_CAMPAIGN_ID=<story-candidate-sha> LIVE_BUDGET_EUR=1.00 \
+uv run python -m server.evals.run \
+  --gate <doc_id> --profile full --repeat 3 \
+  --candidate-revision <sha40-du-candidat> \
+  --producer orchestrator --series-kind final --series-id final-4.5-<doc_id> \
+  --orchestrator-evidence <preuves-trusted.json> \
+  --orchestrator-report <rapport-de-la-serie.json> \
+  --max-cost <borne-locale>
+```
+
+Le fichier `<preuves-trusted.json>` porte **exactement** cinq clés racine — une clé en trop, une clé
+manquante, et le run est refusé en code 2 sans écrire de gate :
+
+```json
+{
+  "plancher_digest": "<64 hex, celui du plancher chargé>",
+  "candidate_revision": "<sha40-du-candidat, identique à --candidate-revision>",
+  "report_digest": "<sha256 des octets de --orchestrator-report>",
+  "run_digest": "<64 hex>",
+  "decisions": [
+    {"metric": "offline_tests_pass_rate",  "n": 3, "value": 1.0, "run_digest": "<le même>"},
+    {"metric": "anti_rustine_pass_rate",   "n": 3, "value": 1.0, "run_digest": "<le même>"},
+    {"metric": "metamorphique_pass_rate",  "n": 3, "value": 1.0, "run_digest": "<le même>"},
+    {"metric": "a16_post_success_rate",    "n": 3, "value": 0.0, "run_digest": "<le même>"},
+    {"metric": "decision_claim_rate",      "n": 3, "value": 1.0, "run_digest": "<le même>"}
+  ]
+}
+```
+
+Sans ces mesures applicables, les décisions correspondantes restent **rouges** (« témoin
+orchestrateur applicable absent de ce run ») et le gate ne peut pas devenir vert. C'est le
+comportement voulu : une preuve absente est rouge, jamais neutre.
+
+**Six refus précèdent tout appel** (code 2, manifest intact) et il faut les avoir purgés avant de
+lancer la campagne : `--repeat < 3` ; `--candidate-revision` absente ou mal formée ; une révision
+annoncée qui n'est pas celle du checkout, **ou** un arbre de travail sale, **ou** un arbre que
+`git status` n'a pas su décrire (les trois sont traités pareil — un garde-fou qui ne peut pas
+conclure refuse) ; `--orchestrator-report` absent alors qu'une preuve trusted est fournie ; un
+document dont **aucune source n'est présente** sur le disque (`uv run python -m
+server.ingest.fetch_source --all --data data` avant le gate — les `source.pdf` ne sont pas
+committés) ; et un lot dont le témoin de structure couvrant le document n'est pas armé.
+
+**La publication et le gate basculent ensemble.** Les trois surfaces *et* l'entrée de manifest sont
+préparées dans des temporaires de leurs répertoires cibles, puis basculées en une seule file de
+`os.replace`. Un échec de préparation ne laisse **ni** publication **ni** gate : le manifest est
+byte-identique et aucune surface n'a bougé. Il n'existe donc aucun état où `GET /api/v1/evals/latest`
+affirme un `evals_ok: true` que le manifest ne porte pas.
+
+**Le contrat est durci depuis la revue** : recouper les seuls octets du rapport prouvait qu'il
+n'avait pas bougé, jamais qu'il décrivait *ce* run. Le rapport référencé par `report_digest` doit
+donc **se reconnaître** dans la preuve. Sept recoupements sont faits avant la moindre décision, et
+chacun refuse en code 2 :
+
+| ce qui est recoupé | contre quoi | ce qu'un écart voudrait dire |
+|---|---|---|
+| les cinq clés racine, exactement | le schéma ci-dessus | une preuve d'un autre format |
+| `plancher_digest` | le plancher chargé par ce run | des seuils qui ne disent pas la même chose |
+| `candidate_revision` | `--candidate-revision`, et la révision réellement exécutée | une preuve d'un autre commit |
+| `sha256(octets du rapport)` | `report_digest` | un rapport modifié après coup |
+| `identity.run_digest` du rapport | `run_digest` racine, et celui de chaque décision | une preuve qui ne décrit pas ce rapport |
+| `identity.run_digest` **recalculé** depuis l'identité privée de sa propre clé | la valeur annoncée | un rapport fabriqué, fût-il auto-cohérent |
+| `identity.candidate_revision`, `plancher_digest` (racine et `identity.image`), `identity.image.{pipeline_digest, prompts_digest, model_ids}` | le run courant | une mesure prise sur une autre image |
+
+Le rapport référencé est donc un **rapport de run réel** (`.evals/results.json` d'une série
+orchestrateur), pas un fichier de circonstance. Sa forme minimale :
+
+```json
+{
+  "schema_version": 3,
+  "plancher_digest": "<le même que la racine de la preuve>",
+  "identity": {
+    "candidate_revision": "<sha40-du-candidat>",
+    "image": {
+      "pipeline_digest": "<celui du code courant>",
+      "prompts_digest": "<celui des prompts courants>",
+      "model_ids": {"…": "…"},
+      "plancher_digest": "<le même>"
+    },
+    "scope": {"…": "…"},
+    "run_digest": "<empreinte canonique de `identity` privée de `run_digest`>"
+  }
+}
+```
+
+`run_digest` n'est **jamais** cru sur parole : il est recalculé exactement comme
+`server/evals/run.py::identite_run` le calcule. Toute preuve produite avant cette story est invalide.
+
+### Ce que le premier gate `full` rendra rouge, et pourquoi c'est l'état réel
+
+Deux témoins sont rouges **par construction du dépôt**, indépendamment de la qualité du candidat, et
+il faut s'y attendre plutôt que les prendre pour une régression :
+
+- `structure_prouvee_rate = 0` (gate d'un contrat) — aucun `structure.json` n'existe sur le corpus
+  servi, aucun `report.json` livré ne porte de check `structure_proposee`. La story 4.2c n'a jamais
+  été exercée sur ce corpus ; la réingestion PDF réelle est une dette `[high]` de l'orchestrateur
+  (les PDF ne sont pas dans le dépôt) ;
+- `arbre_prouve_rate = 0` (gate du guide) — `data/lux-guide/report.json` porte `invariants_arbre`
+  sous sa forme antérieure à cette story (`detail: "ok"`, sans empreinte). La preuve existe, mais
+  elle n'est pas *rattachée* ; le témoin le dit en rouge plutôt que de croire une déclaration. Il
+  redevient vert dès la réingestion du guide, qui est **locale, déterministe et sans réseau** :
+  `uv run python -m server.ingest.kb_to_blocks --data data/lux-guide --edition <edition du manifest>`,
+  à faire sur HEAD figé avant le gate, puis à consigner ;
+- `a16_post_success_rate = 0/3` — inchangé depuis 4.2a, publié tel quel.
+
+### Entrées dues, reconduites explicitement
+
+| story | ce qui est dû | qui |
+|---|---|---|
+| 4.2c | réingestion PDF réelle, puis `structure.json` déclaré au manifest (`structure_hash`) | orchestrateur |
+| 4.2e | consignation de la campagne de la demande de contexte sur HEAD figé | orchestrateur |
+| 4.2f | consignation de la campagne de la lecture partielle sur HEAD figé | orchestrateur |
+| 4.2a | `a16_post_success_rate` : série A16 sur HEAD figé (0/3 tant qu'elle n'est pas verte) | orchestrateur |
+| 4.2d | libellé « guide » de `retrouver.md` et arbitrage du plafond sinistre sous `outils` — les deux changent le corps de requête, donc la clé des fixtures | orchestrateur |
+| 4.5 | seconde lecture : verdict rempli sur le plan produit par `server/evals/relecture.py` | orchestrateur |
+
+### Seconde lecture (FR47) — les deux commandes exactes
+
+Le builder livre le **plan** déterministe et son **contrôle** ; l'orchestrateur produit le verdict.
+
+**1. Écrire le plan** (hors réseau, sans clé, depuis le rapport du run et le corpus servi) :
+
+```bash
+uv run python -m server.evals.relecture \
+  --report .evals/results.json \
+  --candidate-revision <sha40-du-candidat> \
+  --data-dir data \
+  --out .evals/relecture-plan.json
+```
+
+Le plan porte, par bloc clé, `doc_id`, `block_id`, page, bbox, `text_norm` et l'URL de l'image :
+`GET /api/v1/documents/{doc_id}/pages/{page}.png?blocks={block_id}` (route de la story 3.4, avec son
+surlignage sur les `Line.bbox` exactes). Les blocs clés sont ceux que les preuves du run citent, plus
+les blocs attendus que le rappel n'a pas ouverts. Le code de sortie est `1` quand le plan est vide —
+il n'y a alors rien à relire, et il faut le savoir.
+
+**2. Récupérer les octets des images de pages** — c'est l'étape que la revue B5 a rendue
+obligatoire. `image_sha256` était auparavant recopié du verdict sans jamais être recoupé : une
+empreinte **inventée** était acceptée, puis publiée « seconde lecture concordante » sur les quatre
+surfaces. Désormais le validateur recalcule lui-même l'empreinte des octets qu'on lui donne, et
+`--relecture-verdict` **exige** `--relecture-images`.
+
+Un fichier par bloc du plan, dans un dossier plat, nommé `{block_id avec ':' remplacé par '_'}.png`
+(`server/evals/relecture.py::nom_image`) — exactement les octets que la route de la story 3.4 sert,
+et rien d'autre :
+
+```bash
+# Service local déjà lancé sur le HEAD figé (même révision que --candidate-revision).
+mkdir -p .evals/relecture-images
+uv run python - <<'PY'
+import json, pathlib, urllib.request
+plan = json.loads(pathlib.Path(".evals/relecture-plan.json").read_text("utf-8"))
+sortie = pathlib.Path(".evals/relecture-images"); sortie.mkdir(parents=True, exist_ok=True)
+for bloc in plan["blocs"]:
+    octets = urllib.request.urlopen("http://127.0.0.1:8080" + bloc["image_url"]).read()
+    (sortie / (bloc["block_id"].replace(":", "_") + ".png")).write_bytes(octets)
+PY
+```
+
+**3. Remplir le verdict**, un objet par bloc du plan, `image_sha256` étant le sha256 des octets
+téléchargés ci-dessus, puis le repasser au gate :
+
+```json
+{
+  "schema_version": 1,
+  "candidate_revision": "<sha40-du-candidat>",
+  "plan_digest": "<plan_digest rendu par la commande ci-dessus>",
+  "verdicts": [
+    {"block_id": "<doc>:<loc>:<seq>", "verdict": "concordant",
+     "image_sha256": "<sha256 des octets de l'image regardée>", "note": ""}
+  ]
+}
+```
+
+```bash
+… uv run python -m server.evals.run --gate <doc_id> --profile full --repeat 3 \
+  --candidate-revision <sha40-du-candidat> \
+  --relecture-verdict .evals/relecture-verdict.json \
+  --relecture-images .evals/relecture-images …
+```
+
+Le verdict est recoupé avec le plan **dérivé du rapport de ce run** — **cinq** liens, et les cinq
+sont exigés : schéma exact (aucune clé en trop), `candidate_revision`, `plan_digest`, couverture
+exacte du plan (chaque bloc une fois), et l'égalité de chaque `image_sha256` avec l'empreinte
+**recalculée** des octets fournis. Une image manquante est un refus : un bloc qu'on n'a pas pu
+regarder ne peut pas avoir été relu. Passer `--relecture-verdict` sans `--relecture-images` est
+refusé avant tout appel. Un écart fait **échouer la publication** (le run ne peut pas être vert) :
+aucune seconde lecture n'est publiée au rabais. Sans `--relecture-verdict`, le statut publié reste
+`planifiee` — jamais « concordante par défaut ».
+
+Aucune rasterisation n'est faite côté `evals` : aucun `source.pdf` n'est présent dans ce worktree, et
+dupliquer PyMuPDF y aurait ajouté une seconde recette de rendu non testable sur le corpus réel.
+
+### Publication des résultats
+
+À partir de cette story, tout gate `full` écrit **inconditionnellement** — rouge compris —
+`data/evals-latest.json` (servi, copié par l'image), `docs/evals/latest.md` (lisible, hors image), et
+appose le même rendu Markdown au rapport que la CI concatène dans `$GITHUB_STEP_SUMMARY`. La route
+`GET /api/v1/evals/latest` le sert, et `/` le compose. Publier ne promeut rien : seul
+`gate.evals_ok` décide de ce qui est servi (AD-8). Tant qu'aucun gate `full` n'a tourné, la route
+rend l'état typé `publie: false, raison: "absent"` — ni 5xx, ni chiffre inventé.
+
+Le rendu **précédent** de `docs/evals/latest.md` est archivé avant d'être remplacé, sous
+`docs/evals/campagnes/<date>-<empreinte courte>.md` : « latest » veut dire « le dernier », pas « le
+seul », et le registre de la campagne 4.2d que la story 4.4 référence contient des mesures live que
+personne ne peut reproduire sans repayer.
+
+Le résumé que la CI concatène dans `$GITHUB_STEP_SUMMARY` porte désormais les mêmes champs que la
+publication — stabilité N/N, coût froid, coût p95, latence p95, `run_digest`, réserves et limites —
+tirés du même rapport et du même formatage. La CI tourne sans `--gate` : elle ne produit donc aucune
+publication, et c'est le rendu de rapport lui-même qui devait porter ces champs.
+
+## Story 4.5 — correctif produit, campagne de fixtures (2026-08-30, orchestrateur)
+
+La campagne autoritaire a été exécutée une seule fois sur le candidat produit
+`f11f74dcadec605e5f68cd024cab3330c8e712ca`, par transport Anthropic standard et sans retry. Elle a
+couvert exactement les huit nodeids dont les requêtes avaient changé :
+
+- `tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction[en-arrivee]` ;
+- `tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction[de-arrivee]` ;
+- `tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction[pt-arrivee]` ;
+- `tests/test_pipeline_live.py::test_every_displayed_sentence_is_backed_by_a_verified_quote` ;
+- `tests/test_pipeline_live.py::test_deterministe_diagnostic_for_outils_question` ;
+- `tests/test_pipeline_live.py::test_outils_navigates_the_real_summary_and_returns_a_sourced_answer` ;
+- `tests/test_sinistre_live.py::test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses` ;
+- `tests/test_steps_live.py::test_full_chain_draft_is_sourced_on_at_least_two_fiches`.
+
+Résultat : **8 passed** en **112,02 s**, **30 appels**, coût réel **0,3155 EUR** calculé depuis les
+usages fournisseur, sous le majorant théorique borné **8 × 0,12 = 0,96 EUR**. Aucun secret ni clé
+n'est consigné ici. Les huit fixtures ont été figées dans le commit produit séparé
+`9e8f73067e03aed4d61f2b281aadfcb145b8a8c7`; leur rejeu hors réseau a rendu **34 passed**.
+
+La checklist complète du candidat ainsi qualifié, parent
+`8086fc9a955ecc548f074774d82e017b8be63ba6` et produit
+`9e8f73067e03aed4d61f2b281aadfcb145b8a8c7`, a rendu **3560 passed, 2 skipped, 1 deselected** en
+167,83 s. Ruff, les deux `git diff --check`, la propreté des arbres, la séparation mono-surface et
+l'absence d'artefact interdit étaient verts.

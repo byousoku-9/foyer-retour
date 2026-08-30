@@ -31,11 +31,16 @@ async def sante(request: Request) -> SanteResponse:
         # `ok` répond à la seule question que le front pose : « puis-je poser ma question ? ». Le
         # guide en quarantaine, la réponse est non, même si le serveur tourne parfaitement.
         ok=etat.settings.guide_doc_id in etat.corpus.documents,
-        version=etat.settings.git_sha,
+        # AD-11 : `version: sha7`. C'est une **projection** de `git_sha`, qui porte la
+        # révision complète depuis la story 4.5 — une seule source de vérité.
+        version=etat.settings.version_publiee,
         documents_servis=etat.documents_servis,
         gate_profile=etat.gate_profile,
         gate_cases=etat.gate_cases,
         gate_countersigned=etat.gate_countersigned,
+        # AC 4.5 : les trois réserves sont lisibles ici — la contresignature humaine, la validation
+        # par un expert (toujours fausse, AD-14), et `dictionary.validated` juste en dessous.
+        gate_validated_by_expert=etat.gate_validated_by_expert,
         # AD-5 : les deux faits (une main a signé ; les empreintes décrivent le corpus servi) **et**
         # la règle qu'ils décident. `refus_zero_hit_actif` est publié par le serveur parce que la
         # règle n'a qu'une autorité : la page d'accueil l'affiche au lieu de refaire la conjonction.

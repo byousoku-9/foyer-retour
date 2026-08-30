@@ -126,6 +126,41 @@ async def test_neither_or_both_outcomes_is_a_validation_error_not_an_arbitrary_c
         await _comprendre(client)
 
 
+@pytest.mark.parametrize("intent", ["meteo", "bavardage", "hors_perimetre"])
+async def test_une_intention_autonome_refusee_ne_peut_pas_devenir_une_clarification(
+        intent: str) -> None:
+    clarification_privee = "SENTINELLE-CLARIFICATION-NEUTRALISEE-4-5"
+    contradictoire = fake_message(text=_sortie(
+        intent=intent, question_resolue=None, clarification=clarification_privee,
+        terms=[], themes=[], facettes=[]), model=HAIKU)
+    client, _ = _client([contradictoire])
+
+    sortie, step = await _comprendre(client, question="Sa demande complète concerne un autre sujet.")
+
+    assert isinstance(sortie, ParsedQuestion) and sortie.intent == intent
+    assert sortie.question_resolue == "Sa demande complète concerne un autre sujet."
+    assert step.clarification_neutralisee == clarification_privee
+    serialise = step.model_dump_json()
+    assert "clarification_neutralisee" not in serialise
+    assert clarification_privee not in serialise
+    assert all(clarification_privee not in check.detail for check in step.checks)
+    assert [check.name for check in step.checks] == ["clarification_refus_neutralisee"]
+    assert step.checks[0].ok is False
+    assert len(step.calls) == 1
+
+
+async def test_une_vraie_reference_indispensable_absente_reste_une_clarification() -> None:
+    client, _ = _client([fake_message(text=_sortie(
+        intent="suivi", question_resolue=None,
+        clarification="De quelle démarche parlez-vous ?", terms=[], themes=[], facettes=[]),
+        model=HAIKU)])
+
+    sortie, step = await _comprendre(client, question="Et pour celle-ci ?")
+
+    assert isinstance(sortie, ClarificationRequise)
+    assert sortie.intent == "suivi" and len(step.calls) == 1
+
+
 async def test_the_prompt_asks_for_a_clarification_rather_than_a_fabricated_question() -> None:
     """La propriété sémantique vit dans le prompt, pas dans le code (AD-5)."""
     prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6,

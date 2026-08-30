@@ -11,6 +11,7 @@ from server.app.config import Settings
 from server.app.corpus.dictionary import load_dictionary
 from server.app.corpus.index import Index, reading_order, words
 from server.app.corpus.loader import Corpus, load_corpus
+from server.app.corpus.racine import _lecture_interne_sans_racine
 from server.app.domain import Block, BlockRef, Document, Node, NodeRef
 from server.ingest import kb_to_blocks as k
 
@@ -31,7 +32,8 @@ def mini_index(tmp_path: Path) -> Index:
     d.mkdir(parents=True)
     shutil.copy(MINI, d / "source.js")
     k.run(d, edition="git:test")
-    return Index(load_corpus(d.parent, allow_ungated=True))
+    with _lecture_interne_sans_racine(d.parent) as lecture:
+        return Index(load_corpus(d.parent, allow_ungated=True, lecture=lecture))
 
 
 def test_reading_order_follows_items_from_root(mini_index: Index) -> None:
@@ -366,6 +368,25 @@ def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> Non
     # dans deux : sa contribution est donc supérieure malgré son ordre de lecture plus tardif.
     assert ix.chercher(["commun rare"], limit=3) == [
         ("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
+
+
+def test_chercher_reserve_un_noeud_distinct_par_groupe_prioritaire_avant_la_coupe() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Thème profil.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Thème profil répété.", loc="p2", seq=1),
+        Block(block_id="d:p3:1", text="Première démarche utile.", loc="p3", seq=1),
+        Block(block_id="d:p4:1", text="Seconde démarche utile.", loc="p4", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, 5)])]
+    nodes.extend(Node(node_id=f"n{i}", items=[BlockRef(block_id=block.block_id)])
+                 for i, block in enumerate(blocks, 1))
+    ix = Index(Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)}))
+
+    assert ix.chercher(["thème profil"], limit=2) == [("d:p1:1", "n1"), ("d:p2:1", "n2")]
+    assert ix.chercher(["thème profil", "première démarche", "seconde démarche"], limit=2,
+                       groupes_prioritaires=["première démarche", "seconde démarche"]) == [
+        ("d:p3:1", "n3"), ("d:p4:1", "n4")]
 
 
 def test_un_mot_absent_du_document_ne_change_pas_le_score_partiel() -> None:

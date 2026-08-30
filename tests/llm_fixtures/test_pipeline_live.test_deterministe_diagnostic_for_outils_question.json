@@ -1,4 +1,35 @@
 {
+  "claude-haiku-4-5-20251001:09b9d87017e90c03": {
+    "request": "claude-haiku-4-5-20251001:09b9d87017e90c03",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\": [{\"claim_id\": \"c1\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c2\", \"pertinente\": true, \"raison\": null}, {\"claim_id\": \"c3\", \"pertinente\": true, \"raison\": null}], \"facettes\": [{\"facette\": 0, \"claim_ids\": [\"c1\"]}], \"segments\": [{\"segment\": 0, \"soutenu\": true}, {\"segment\": 1, \"soutenu\": false}, {\"segment\": 2, \"soutenu\": false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWj2sRueA9Ay8U3CiyJ",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 3824,
+        "output_tokens": 142,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:95643bb832447d9a": {
     "request": "claude-haiku-4-5-20251001:95643bb832447d9a",
     "response": {
@@ -102,7 +133,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeTkjR14VFFu2QYPJxrKZ",
+      "id": "msg_011CeZWiUmdte6SYPtRax5UZ",
       "model": "claude-haiku-4-5-20251001",
       "role": "assistant",
       "stop_details": null,
@@ -310,6 +341,40 @@
         "inference_geo": "global",
         "input_tokens": 2963,
         "output_tokens": 720,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b117d8ae24f51a5f": {
+    "request": "claude-sonnet-5:b117d8ae24f51a5f",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Vous disposez de huit jours après votre emménagement pour effectuer la déclaration d'arrivée à la commune.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration est essentielle : elle produit le certificat de résidence et le matricule, sans lesquels aucune autre démarche (sécurité sociale, banque, école) n'est possible.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés du logement, afin de ne pas perdre de temps.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La déclaration d'arrivée à la commune doit être faite dans les huit jours suivant l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école ne sont accessibles.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeZWidXzR9SynMkuPQUWA",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6811,
+        "inference_geo": "global",
+        "input_tokens": 2931,
+        "output_tokens": 583,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

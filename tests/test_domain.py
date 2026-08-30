@@ -713,15 +713,43 @@ def test_ingest_models() -> None:
     # profil, qui autorise `/` à l'écrire.
     # `decisions` et `run_digest` (story 4.2b) : les décisions chiffrées qui fondent `evals_ok`,
     # optionnelles pour que les gates antérieurs restent lisibles.
+    # `plancher_digest`, `candidate_revision`, `report_digest` et `structure_hash` (story 4.5) :
+    # optionnels au schéma pour que les gates `vertical` déjà écrits restent valides, mais **exigés
+    # et bien formés** sous `profile: "full"` — un gate qui revendique la politique complète doit
+    # dire contre quel protocole il a été vert, quelle révision il a mesurée et quel rapport le
+    # chiffre. `structure_hash` reste facultatif même sous `full` : il n'existe que si l'ingestion a
+    # produit une `structure.json`, et l'exiger rendrait tout gate `full` impossible à écrire tant
+    # que la réingestion est due (l'état réel se dit en rouge, par le témoin `structure_prouvee_rate`).
     assert fields(ingest.Gate) == {"profile", "source_hash", "ingest_fingerprint", "cases_hash", "pipeline_digest",
                                    "prompts_digest", "model_ids", "evals_ok", "date", "overlay_hash", "cases",
-                                   "countersigned", "decisions", "run_digest", "pipeline_settings"}
+                                   "countersigned", "decisions", "run_digest", "pipeline_settings",
+                                   "plancher_digest", "candidate_revision", "report_digest", "structure_hash"}
+    for champ, valeur in (("plancher_digest", "0" * 64), ("candidate_revision", "1" * 40),
+                          ("report_digest", "2" * 64)):
+        complet = {"plancher_digest": "0" * 64, "candidate_revision": "1" * 40,
+                   "report_digest": "2" * 64}
+        base = dict(profile="full", source_hash="s", ingest_fingerprint="i", cases_hash="c",
+                    pipeline_digest="p", prompts_digest="q", evals_ok=True, date="2026-08-29",
+                    cases=1, countersigned=False)
+        assert ingest.Gate(**base, **complet) is not None
+        with pytest.raises(ValidationError):  # champ manquant sous `full`
+            ingest.Gate(**base, **{k: v for k, v in complet.items() if k != champ})
+        with pytest.raises(ValidationError):  # champ mal formé sous `full`
+            ingest.Gate(**base, **{**complet, champ: valeur[:-1] + "z"})
+    # Sous `vertical`, aucun des quatre n'est exigé : les gates du dépôt restent lisibles.
+    assert ingest.Gate(profile="vertical", source_hash="s", ingest_fingerprint="i", cases_hash="c",
+                       pipeline_digest="p", prompts_digest="q", evals_ok=True, date="2026-08-29",
+                       cases=1, countersigned=False).plancher_digest is None
     assert literal_values(ingest.Gate, "profile") == {"vertical", "full"}
     assert fields(ingest.GateDecision) == {"metric", "producer", "threshold", "scope", "n",
                                            "run_digest", "value", "status", "reason"}
     assert literal_values(ingest.GateDecision, "status") == {"green", "red"}
+    # `structure_hash` (story 4.5) : l'empreinte de `structure.json`, sur le patron exact
+    # d'`overlay_hash`. La proposition de structure de 4.2c était le seul artefact d'ingestion que le
+    # manifest ne couvrait pas — une main dessus ne se voyait nulle part, alors qu'elle décide de
+    # l'arbre que le rappel parcourt.
     assert fields(ingest.ManifestEntry) == {"status", "source_hash", "ingest_fingerprint", "document_hash", "edition",
-                                            "overlay_hash", "gate"}
+                                            "overlay_hash", "structure_hash", "gate"}
     assert literal_values(ingest.ManifestEntry, "status") == {"servi", "quarantaine"}
     assert fields(retrieval.NodeChild) == {"node_id", "title"}
     assert fields(retrieval.NodeWindow) == {

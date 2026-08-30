@@ -21,10 +21,11 @@ CacheKey = tuple[str, int, tuple[str, ...]]
 
 @dataclass(frozen=True)
 class VerifiedSource:
-    """Chemin sélectionné au chargement, lié au hash déjà vérifié par le corpus."""
+    """Source sélectionnée et pincée au chargement, liée au hash vérifié par le corpus."""
 
     path: Path
     sha256: str
+    payload: bytes
 
 
 @dataclass(frozen=True)
@@ -135,7 +136,7 @@ class PageRenderer:
 
     @staticmethod
     def _read_verified_source(source: VerifiedSource) -> bytes:
-        payload = source.path.read_bytes()
+        payload = source.payload
         if hashlib.sha256(payload).hexdigest() != source.sha256:
             raise CorpusUnavailable("le PDF source ne correspond plus à son empreinte vérifiée")
         return payload

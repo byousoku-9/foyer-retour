@@ -30,6 +30,13 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from server.app.config import REPO_ROOT
+from server.app.corpus.text import normalize_version
+from server.app.digests import pipeline_digest, prompts_digest
+from server.app.llm.models import TIERS
+from server.evals.cache import empreinte_canonique
+from server.evals.revision import ARBRE_NON_VERIFIABLE, revision_executee
+
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 PLANCHER_PATH = REFERENCE_DIR / "plancher.yaml"
 
@@ -56,6 +63,16 @@ class Temoin(BaseModel):
     mesure_par: Literal["eval_runner", "orchestrator"]
     case_id: str | None = None
     note: str | None = None
+    # **Quand** ce témoin est applicable (story 4.5). `toujours` est le comportement historique des
+    # huit témoins de 4.2b ; `gate_full` réserve le témoin au seul gate qui revendique la politique
+    # complète — `--gate {doc_id} --profile full`.
+    #
+    # Pourquoi ce champ, et pas un scope de plus : un `--profile full` **sans** `--gate` est un
+    # diagnostic (c'est ce que la CI lance à chaque PR), et un gate `vertical` n'affirme que deux cas
+    # relus à la main. Faire porter à l'un ou à l'autre les exigences de `full` rendrait rouge une
+    # mesure qui ne les revendique pas — et rougir pour une raison qui n'a rien à voir avec le
+    # candidat est la façon la plus sûre de faire ignorer un gate.
+    arme_par: Literal["toujours", "gate_full"] = "toujours"
 
 
 class ImportFloor(BaseModel):
@@ -288,64 +305,634 @@ def charger_plancher(path: Path = PLANCHER_PATH, *, producer: str = "builder") -
     return ChargePlancher(plancher=plancher, digest=hashlib.sha256(octets).hexdigest())
 
 
+# --- M2 : la preuve trusted est liée à la révision qu'elle mesure ---------------------------------
+
+# Les clés racine d'un fichier de preuve orchestrateur — **exactement** celles-ci, ni plus ni moins.
+# Un contrôle « au moins celles-ci » laisserait passer un fichier qui porte en plus son propre
+# `status`, `evals_ok` ou `note` : le lecteur en ignorerait la moitié, et l'auteur du fichier croirait
+# l'avoir dit. Un vocabulaire fermé se contrôle par égalité (même règle que `Cas` et `Temoin`).
+CLES_PREUVE_TRUSTED = frozenset({
+    "plancher_digest", "candidate_revision", "report_digest", "run_digest", "decisions",
+})
+_HEX = frozenset("0123456789abcdef")
+
+
+def _hex_exact(valeur: Any, longueur: int) -> bool:
+    return (isinstance(valeur, str) and len(valeur) == longueur
+            and all(c in _HEX for c in valeur))
+
+
+# Les cinq champs que `run.identite_run` écrit dans `identity.image`, et que **tout** rapport
+# externe doit porter pour être opposable. La liste est ici, en un seul endroit, parce que la faute
+# qu'elle ferme est précisément d'en avoir comparé un sous-ensemble : trois champs côté appelant,
+# cinq côté rapport, et deux qui n'étaient donc jamais confrontés — dont `normalize_version`, qui
+# décide des `text_norm` et donc de tous les `quote_hash`.
+CHAMPS_IMAGE: tuple[str, ...] = (
+    "pipeline_digest", "prompts_digest", "model_ids", "normalize_version", "plancher_digest",
+)
+
+
+def verifier_identite_externe(rapport: dict[str, Any], *, plancher_digest: str,
+                              image_courante: dict[str, Any] | None,
+                              origine: str) -> None:
+    """Le rapport porte-t-il une identité **complète** et concordante ? — sinon il ne prouve rien.
+
+    Story 4.5, revue B1. La version précédente disait « si le champ est présent, je le compare » :
+    un rapport sans `plancher_digest` racine et avec `identity.image = {}` passait donc **tous** les
+    contrôles, avec zéro champ effectivement comparé. Quatre façons d'obtenir ce vide suffisaient —
+    racine absente, clé `image` absente, champs à `None`, `image` non-dict rabattu sur `{}`.
+
+    La règle est désormais l'inverse, et elle vaut pour tout chemin de confiance : **une identité
+    obligatoire absente, vide, mal formée ou incohérente ferme.** Un rapport qui ne dit pas sous quel
+    protocole et sur quelle image il a été mesuré n'est pas un rapport prudent, c'est un rapport
+    qu'on ne peut pas opposer — et l'accepter revient à croire ce qu'il ne dit pas.
+
+    `image_courante` est **obligatoire** et doit porter les cinq champs : la comparaison itère sur
+    elle, donc un appelant qui en omet un le retire silencieusement du contrôle.
+    """
+    if image_courante is None or set(image_courante) != set(CHAMPS_IMAGE):
+        raise PlancherInvalide(
+            f"{origine} : l'image du run courant est incomplète "
+            f"({sorted(image_courante or {})}, attendu {sorted(CHAMPS_IMAGE)}) — une comparaison "
+            "qui n'oppose qu'une partie des champs ne prouve pas l'égalité des images")
+    racine = rapport.get("plancher_digest")
+    if not isinstance(racine, str) or not racine:
+        raise PlancherInvalide(
+            f"{origine} : le rapport référencé ne porte pas de plancher_digest à sa racine — il ne "
+            "dit pas contre quels seuils il a été mesuré")
+    if racine != plancher_digest:
+        raise PlancherInvalide(
+            f"{origine} : le rapport référencé a été mesuré sous le plancher {racine!r} "
+            f"(racine du rapport), le run courant sous {plancher_digest}")
+    identite = rapport.get("identity")
+    image = identite.get("image") if isinstance(identite, dict) else None
+    if not isinstance(image, dict):
+        raise PlancherInvalide(
+            f"{origine} : le rapport référencé ne porte pas d'identité d'image "
+            f"({type(image).__name__}) — rien n'y dit quel code a été mesuré")
+    manquants = [champ for champ in CHAMPS_IMAGE if image.get(champ) is None]
+    if manquants:
+        raise PlancherInvalide(
+            f"{origine} : l'identité d'image du rapport est incomplète (manquants : "
+            f"{manquants}) — un champ absent n'est pas un champ concordant")
+    for champ in CHAMPS_IMAGE:
+        if image[champ] != image_courante[champ]:
+            raise PlancherInvalide(
+                f"{origine} : le rapport référencé porte {champ}={image[champ]!r}, "
+                f"le run courant {image_courante[champ]!r} — la preuve ne mesure pas cette image")
+
+
+# Le jeton qui distingue « cet objet vient de la vérification » de « cet objet a été construit ».
+# Python n'offre pas d'objet infalsifiable, et prétendre le contraire serait le genre
+# d'affirmation que ce cycle passe son temps à retirer : un appelant déterminé peut lire
+# `plancher._JETON_LIAISON`. Ce que le jeton ferme est la voie **commode** — celle qu'on emprunte
+# sans y penser, c'est-à-dire celle qui produit les défauts : construire une preuve « vérifiée » à
+# partir de ce qu'on a sous la main, ou laisser un rapport se déclarer lui-même digne de confiance.
+_JETON_LIAISON = object()
+
+
+class PreuveExterneVerifiee:
+    """Ce que la liaison cryptographique a **réellement établi** — et rien de plus.
+
+    Story 4.5, tour correctif 2/3, revue B5. `valider_rapport_publiable` admettait une décision au
+    `run_digest` étranger dès que **le rapport lui-même** l'ajoutait à `external_run_digests` : la
+    liste des empreintes « légitimes » était lue dans l'entrée non fiable qu'on est précisément en
+    train de valider. Une auto-déclaration ne peut jamais être son propre ancrage de confiance.
+
+    Cet objet est donc le seul ancrage admis : il n'existe que si `verifier_liaison_preuve` a
+    recoupé, sur des octets réels, le protocole, la révision candidate, le rapport et le
+    `run_digest` recalculé depuis l'identité de ce rapport. Le porter de l'ingestion de la preuve
+    jusqu'à la validation du rapport est le travail que le tour précédent avait écarté ; c'est
+    justement lui qui manquait.
+
+    Il n'y a **pas** de valeur par défaut permissive : un appelant qui n'a pas de preuve vérifiée
+    passe `None`, ce qui veut dire « aucune empreinte étrangère n'est publiable », jamais « aucune
+    contrainte ».
+    """
+
+    __slots__ = ("run_digest", "candidate_revision", "report_digest", "plancher_digest")
+
+    def __init__(self, jeton: object, *, run_digest: str, candidate_revision: str,
+                 report_digest: str, plancher_digest: str) -> None:
+        if jeton is not _JETON_LIAISON:
+            raise PlancherInvalide(
+                "PreuveExterneVerifiee ne se construit que par `verifier_liaison_preuve` : une "
+                "preuve qu'on se donne à soi-même n'est pas une preuve")
+        object.__setattr__(self, "run_digest", run_digest)
+        object.__setattr__(self, "candidate_revision", candidate_revision)
+        object.__setattr__(self, "report_digest", report_digest)
+        object.__setattr__(self, "plancher_digest", plancher_digest)
+
+    def __setattr__(self, nom: str, valeur: Any) -> None:  # pragma: no cover — garde de forme
+        raise AttributeError("une preuve vérifiée ne se modifie pas après coup")
+
+    @property
+    def run_digests(self) -> frozenset[str]:
+        """Les empreintes de run qu'une décision étrangère peut légitimement porter."""
+        return frozenset({self.run_digest})
+
+    def __repr__(self) -> str:  # pragma: no cover — confort de diagnostic
+        return (f"PreuveExterneVerifiee(run_digest={self.run_digest!r}, "
+                f"candidate_revision={self.candidate_revision!r})")
+
+
+def verifier_liaison_preuve(brut: Any, *, plancher_digest: str, candidate_revision: str,
+                            report_bytes: bytes | None,
+                            image_courante: dict[str, Any] | None = None,
+                            ) -> PreuveExterneVerifiee:
+    """Relie une preuve externe à **ce** candidat, et rend son `run_digest` racine.
+
+    Intention M2 (`deferred-work.md`) : « une modification produit rend la réutilisation d'une preuve
+    invalide ». Une preuve orchestrateur est un fichier JSON que le runner croit sur parole pour les
+    mesures qu'il ne fait pas lui-même (tests hors ligne, A16, gardes anti-rustine et métamorphique).
+    Sans lien, la même preuve pouvait être rejouée sur n'importe quel commit ultérieur : elle
+    validerait alors un code qu'elle n'a jamais vu.
+
+    Quatre liens, et les quatre sont exigés :
+
+    - le **protocole** (`plancher_digest`) — deux runs ne se comparent qu'à plancher égal ;
+    - la **révision candidate** (`candidate_revision`) — la preuve nomme le commit qu'elle mesure ;
+    - le **rapport** (`report_digest` = sha256 des octets du rapport) — un rapport modifié après coup
+      détache la preuve de ce qu'elle prétend résumer ;
+    - le **run** (`run_digest` racine, le même sur chaque décision, **et recalculé** depuis
+      l'identité du rapport) — une preuve dont les mesures viennent de runs différents n'est pas une
+      preuve, c'est une compilation ; et un `run_digest` cru sur parole n'est qu'une chaîne ;
+    - l'**image et le protocole** du rapport référencé (`pipeline_digest`, `prompts_digest`,
+      `model_ids`, `plancher_digest`) : deux runs ne se comparent qu'à code, prompts, modèles et
+      plancher égaux.
+
+    Lève `PlancherInvalide` au premier écart, avec le chiffre en cause. L'appelant en fait un refus
+    de tourner (code 2) : aucun gate n'est écrit.
+
+    Rend une `PreuveExterneVerifiee` — pas une chaîne (revue B5, tour correctif 2/3). Le
+    `run_digest` seul se recopiait dans un rapport, qui pouvait ensuite le déclarer légitime
+    lui-même ; l'objet, lui, ne peut pas être fabriqué par le lecteur de rapport, et c'est
+    exactement la propriété qui manquait à la validation de publication.
+    """
+    if not isinstance(brut, dict):
+        raise PlancherInvalide("preuve orchestrateur : un objet JSON est attendu")
+    presentes = set(brut)
+    if presentes != CLES_PREUVE_TRUSTED:
+        manquantes = sorted(CLES_PREUVE_TRUSTED - presentes)
+        superflues = sorted(presentes - CLES_PREUVE_TRUSTED)
+        raise PlancherInvalide(
+            "preuve orchestrateur : clés racine exactes attendues "
+            f"{sorted(CLES_PREUVE_TRUSTED)}"
+            + (f" — manquantes : {manquantes}" if manquantes else "")
+            + (f" — en trop : {superflues}" if superflues else ""))
+    if brut["plancher_digest"] != plancher_digest:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : plancher_digest divergent "
+            f"({brut['plancher_digest']!r}, attendu {plancher_digest})")
+    if not _hex_exact(brut["candidate_revision"], 40):
+        raise PlancherInvalide(
+            "preuve orchestrateur : candidate_revision doit être 40 caractères hexadécimaux")
+    if brut["candidate_revision"] != candidate_revision:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : candidate_revision {brut['candidate_revision']} ≠ révision du "
+            f"run {candidate_revision} — une preuve d'une autre révision ne mesure pas ce candidat")
+    if not _hex_exact(brut["report_digest"], 64):
+        raise PlancherInvalide(
+            "preuve orchestrateur : report_digest doit être 64 caractères hexadécimaux")
+    if report_bytes is None:
+        raise PlancherInvalide(
+            "preuve orchestrateur : le rapport qu'elle référence est absent ou illisible")
+    observe = hashlib.sha256(report_bytes).hexdigest()
+    if observe != brut["report_digest"]:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : rapport modifié — sha256 observé {observe}, report_digest "
+            f"annoncé {brut['report_digest']}")
+    # **Le rapport doit se reconnaître dans la preuve** (revue B1). Recouper les seuls octets
+    # prouvait que le fichier n'avait pas bougé, pas qu'il décrivait ce run-là : une preuve pouvait
+    # référencer le rapport d'un autre run, d'une autre révision, et passer.
+    try:
+        rapport = json.loads(report_bytes)
+        if not isinstance(rapport, dict):
+            raise ValueError("un objet JSON est attendu")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : rapport référencé illisible ({type(exc).__name__})") from exc
+    identite = rapport.get("identity")
+    if not isinstance(identite, dict):
+        raise PlancherInvalide(
+            "preuve orchestrateur : le rapport référencé ne porte pas d'identité de run")
+    if identite.get("run_digest") != brut["run_digest"]:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : le rapport référencé porte run_digest "
+            f"{identite.get('run_digest')!r}, la preuve annonce {brut['run_digest']} — la preuve "
+            "ne décrit pas ce rapport")
+    # **Le `run_digest` est recalculé**, jamais cru sur parole. Il est défini comme l'empreinte
+    # canonique de l'identité privée de sa propre clé (`run.identite_run`) : sans ce recalcul, un
+    # rapport fabriqué pouvait déclarer n'importe quel couple `(run_digest, candidate_revision)`
+    # auto-cohérent, et la preuve s'y raccrochait sans rien prouver du tout.
+    sans_digest = {cle: valeur for cle, valeur in identite.items() if cle != "run_digest"}
+    recalcule = empreinte_canonique(sans_digest)
+    if recalcule != identite.get("run_digest"):
+        raise PlancherInvalide(
+            f"preuve orchestrateur : le run_digest du rapport ne se recalcule pas depuis son "
+            f"identité (annoncé {identite.get('run_digest')!r}, recalculé {recalcule}) — ce "
+            "rapport a été fabriqué ou modifié")
+    if identite.get("candidate_revision") != brut["candidate_revision"]:
+        raise PlancherInvalide(
+            f"preuve orchestrateur : le rapport référencé a mesuré la révision "
+            f"{identite.get('candidate_revision')!r}, la preuve annonce "
+            f"{brut['candidate_revision']}")
+    verifier_identite_externe(rapport, plancher_digest=plancher_digest,
+                              image_courante=image_courante, origine="preuve orchestrateur")
+    if not _hex_exact(brut["run_digest"], 64):
+        raise PlancherInvalide(
+            "preuve orchestrateur : run_digest doit être 64 caractères hexadécimaux")
+    decisions = brut["decisions"]
+    if not isinstance(decisions, list) or not decisions:
+        raise PlancherInvalide(
+            "preuve orchestrateur : decisions doit être une liste non vide")
+    for mesure in decisions:
+        if not isinstance(mesure, dict):
+            raise PlancherInvalide("preuve orchestrateur : chaque mesure est un objet")
+        if mesure.get("run_digest") != brut["run_digest"]:
+            raise PlancherInvalide(
+                f"preuve orchestrateur : la mesure {mesure.get('metric')!r} porte un run_digest "
+                "différent de celui de la preuve — les mesures d'une preuve viennent d'un run")
+    return PreuveExterneVerifiee(
+        _JETON_LIAISON, run_digest=str(brut["run_digest"]),
+        candidate_revision=str(brut["candidate_revision"]),
+        report_digest=str(brut["report_digest"]), plancher_digest=plancher_digest)
+
+
 # --- la règle mécanique du checkpoint (trois rôles, rôle 1) ---------------------------------------
 
-class Configuration(BaseModel):
-    """Une configuration candidate au checkpoint : son admissibilité et ses deux coûts."""
+# Les trois champs qui font l'identité d'une configuration classée, et leur longueur exacte. Le
+# modèle en contrôle la **forme** ; leur **valeur** vient du recalcul de `classer_configurations`,
+# jamais d'un appelant.
+IDENTITE_CLASSEMENT: tuple[tuple[str, int], ...] = (
+    ("candidate_revision", 40), ("run_digest", 64), ("report_digest", 64),
+)
 
-    model_config = ConfigDict(extra="forbid")
+
+class ClassementInvalide(Exception):
+    """Un classement a été demandé sur des candidats qu'on ne peut pas opposer.
+
+    Story 4.5, revues B1 successives. Les tours précédents ont fermé la voie **CLI**
+    (`--candidate-revision` exigé), puis le **modèle** (`Configuration` refusant une identité
+    absente ou mal formée). Il restait la faute de fond : le classement acceptait des
+    `Configuration` **déclaratives**, si bien que trois chaînes hexadécimales inventées —
+    `candidate_revision="a"*40`, `run_digest="b"*64`, `report_digest="c"*64` — suffisaient à obtenir
+    une tête de classement. Présence et syntaxe ne sont pas une liaison : un domaine de valeur n'est
+    pas une preuve.
+
+    Le classement n'accepte donc plus que des `CandidatClassement`, c'est-à-dire les **octets** d'un
+    rapport, dont il recalcule lui-même l'identité avant tout tri. Le refus est porté par le
+    classement, jamais par ce que l'appelant a bien voulu fournir : il n'y a aucun paramètre pour le
+    désarmer, et un drapeau « déjà vérifiée » n'en serait qu'un déguisé.
+    """
+
+
+class Configuration(BaseModel):
+    """Le **résultat** d'un classement : l'admissibilité d'un candidat, son identité, ses deux coûts.
+
+    Ce n'est plus une entrée : `classer_configurations` n'accepte que des `CandidatClassement`
+    (nom + octets du rapport) et construit lui-même ces objets en recalculant leurs trois
+    empreintes. Une `Configuration` fabriquée à la main reste donc parfaitement constructible — elle
+    n'ouvre simplement aucune voie vers une décision de promotion, ce qui est la seule propriété qui
+    compte (revue B1, tour correctif 1/3).
+
+    `frozen` ferme l'affectation d'attribut, et rien de plus (revue R9) : `model_copy(update=…)` et
+    `model_construct(…)` produisent toujours une copie amputée sans repasser par le validateur.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
     admissible: bool
     cost_eur: float = Field(ge=0, allow_inf_nan=False)
     latency_ms: int = Field(ge=0)
-    run_digest: str | None = None
-    report_digest: str | None = None
+    # **La révision opposée**, portée par l'artefact de promotion (revue B1). Sans elle, le JSON de
+    # classement était inauditable après coup : rien dedans ne disait à quel candidat il se
+    # rapportait — ni à la racine, ni par configuration. Les trois champs sont **obligatoires** : un
+    # résultat de classement sans identité n'a pas de raison d'exister.
+    candidate_revision: str
+    run_digest: str
+    report_digest: str
+
+    @model_validator(mode="after")
+    def _identite_opposable(self) -> Configuration:
+        """L'identité est présente et bien formée — la liaison, elle, se prouve ailleurs.
+
+        Ce validateur ne dit que la **forme**. Ce qui tient la propriété « aucune promotion
+        anonyme ni fabriquée » est `classer_configurations`, qui recalcule les trois empreintes
+        depuis les octets d'un rapport et les oppose à l'image candidate. Écrire l'inverse ferait
+        croire à une garantie qu'un motif hexadécimal ne donne pas.
+        """
+        for champ, longueur in IDENTITE_CLASSEMENT:
+            valeur = getattr(self, champ)
+            if not _hex_exact(valeur, longueur):
+                raise ValueError(
+                    f"configuration {self.name!r} : {champ} doit être {longueur} caractères "
+                    f"hexadécimaux (reçu {valeur!r})")
+        return self
 
 
-def _configuration_depuis_rapport(item: Any, *, base: Path) -> Configuration:
+class CandidatClassement(BaseModel):
+    """Ce qu'un classement accepte : un nom, et les **octets** du rapport qui le justifie.
+
+    Story 4.5, tour correctif 1/3, revue B1. Le classement recevait des `Configuration`
+    déclaratives : `admissible`, `cost_eur`, `latency_ms` et trois empreintes, tous **annoncés** par
+    l'appelant. Rien n'était recalculé depuis un octet réel, si bien qu'un appelant bibliothèque
+    obtenait une tête de classement avec trois empreintes bien formées et entièrement inventées.
+
+    Un candidat ne peut donc plus rien annoncer. Il porte le rapport lui-même ; `report_digest` est
+    le sha256 de ces octets, `run_digest` est recalculé depuis l'identité du rapport,
+    `candidate_revision` est celle que le rapport a mesurée, et l'admissibilité est **lue** du
+    rapport, jamais reçue.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    report_bytes: bytes = Field(min_length=1)
+
+
+def _candidat_depuis_item(item: Any, *, base: Path) -> CandidatClassement:
+    """`{name, report}` du JSON de la CLI → les octets du rapport nommé."""
     if not isinstance(item, dict) or set(item) != {"name", "report"}:
         raise ValueError("chaque configuration porte exactement name et report")
     report_path = Path(str(item["report"]))
     if not report_path.is_absolute():
         report_path = base / report_path
-    octets = report_path.read_bytes()
-    rapport = json.loads(octets)
+    return CandidatClassement(name=str(item["name"]), report_bytes=report_path.read_bytes())
+
+
+def _configuration_depuis_octets(name: str, octets: bytes, *, plancher_digest: str,
+                                 image_courante: dict[str, Any] | None,
+                                 candidate_revision: str) -> Configuration:
+    """Une configuration candidate, **dérivée des octets d'un rapport qu'on a d'abord opposé**.
+
+    C'est la fonction qui décide de ce qui est promu au checkpoint : ce qu'elle déclare `admissible`
+    décide de ce qui est promu. Aucun de ses trois identifiants ne vient de l'appelant —
+    `report_digest` est le sha256 des octets reçus, `run_digest` est recalculé depuis l'identité du
+    rapport, `candidate_revision` est celle que le rapport dit avoir mesurée et qui doit égaler
+    celle du classement. Le protocole et l'image sont opposés par `verifier_identite_externe`.
+    """
+    # **La révision est exigée, validée, puis opposée** — dans cet ordre (revue B1). Le contrôle
+    # existait mais restait *opt-in de l'appelant* : `--candidate-revision` n'était pas `required`,
+    # la signature l'acceptait à `None`, et un rapport dont le seul écart était
+    # `identity.candidate_revision = null` — exactement ce qu'écrit `identite_run` sans
+    # `--candidate-revision` — était classé `admissible: true`. Une décision de promotion ne peut
+    # pas dépendre du bon vouloir de qui l'appelle.
+    if not _hex_exact(candidate_revision, 40):
+        raise ValueError(
+            "classement : la révision candidate est obligatoire et doit être 40 caractères "
+            f"hexadécimaux (reçu {candidate_revision!r}) — promouvoir sans savoir quel candidat "
+            "est promu n'est pas une promotion, c'est un tirage")
+    origine = f"rapport de la configuration {name!r}"
+    try:
+        rapport = json.loads(octets)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(f"{origine} illisible ({type(exc).__name__})") from exc
     if not isinstance(rapport, dict) or rapport.get("schema_version") != 3:
-        raise ValueError(f"rapport {report_path} hors schéma 3")
+        raise ValueError(f"{origine} hors schéma 3")
     decisions = rapport.get("decisions")
     if not isinstance(decisions, list) or not decisions:
-        raise ValueError(f"rapport {report_path} sans décisions")
+        raise ValueError(f"{origine} sans décisions")
+    try:
+        verifier_identite_externe(rapport, plancher_digest=plancher_digest,
+                                  image_courante=image_courante,
+                                  origine=f"configuration {name!r}")
+    except PlancherInvalide as exc:
+        raise ValueError(str(exc)) from exc
     identite = rapport.get("identity") or {}
     run_digest = identite.get("run_digest")
     if not isinstance(run_digest, str) or len(run_digest) != 64:
-        raise ValueError(f"rapport {report_path} sans run_digest")
-    metrics = rapport.get("metrics") or {}
+        raise ValueError(f"{origine} sans run_digest")
+    # **Recalculé**, jamais lu : `run.identite_run` définit le digest comme l'empreinte canonique de
+    # l'identité privée de sa propre clé. Un digest cru sur parole n'est qu'une chaîne.
+    recalcule = empreinte_canonique(
+        {cle: valeur for cle, valeur in identite.items() if cle != "run_digest"})
+    if recalcule != run_digest:
+        raise ValueError(
+            f"{origine} : run_digest {run_digest} ne se recalcule pas depuis son "
+            f"identité (recalculé {recalcule}) — ce rapport a été fabriqué ou modifié")
+    if identite.get("candidate_revision") != candidate_revision:
+        raise ValueError(
+            f"{origine} : mesuré sur la révision "
+            f"{identite.get('candidate_revision')!r}, classement demandé pour {candidate_revision}")
+    # `rapport.get("metrics") or {}` produisait une `AttributeError` non rattrapée — donc un
+    # traceback au lieu d'un refus dit — sur un `metrics` **truthy mais non-objet** : une liste, une
+    # chaîne, un nombre (revue P11). Le rapport est une entrée : son type se contrôle, il ne se
+    # suppose pas.
+    metrics = rapport.get("metrics")
+    if metrics is not None and not isinstance(metrics, dict):
+        raise ValueError(f"{origine} : 'metrics' doit être un objet ({type(metrics).__name__} reçu)")
     cost = rapport.get("cost_eur")
-    latency = metrics.get("latency_p50_ms")
+    latency = (metrics or {}).get("latency_p50_ms")
     if (isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost)
             or isinstance(latency, bool) or not isinstance(latency, int)):
-        raise ValueError(f"rapport {report_path} sans coût/latence finis")
+        raise ValueError(f"{origine} sans coût/latence finis")
+    # `not rapport.get("unexecuted_cases")` faisait dire « aucune exécution manquante » à « la clé
+    # n'est pas là », **dans la décision qui promeut** : un rapport qui omet la clé contribuait à
+    # `admissible=True` (revue B5, chemin frère). La clé est donc exigée, comme partout ailleurs.
+    if "unexecuted_cases" not in rapport or not isinstance(rapport["unexecuted_cases"], list):
+        raise ValueError(
+            f"{origine} : 'unexecuted_cases' absent ou mal typé — « la clé n'est pas "
+            "là » n'est pas « aucune exécution manquante », et cette différence décide de la "
+            "promotion")
     admissible = bool(rapport.get("complete") is True
-                      and not rapport.get("unexecuted_cases")
+                      and not rapport["unexecuted_cases"]
                       and all(isinstance(d, dict) and d.get("status") == "green"
                               and d.get("producer") == "orchestrator" for d in decisions))
     return Configuration(
-        name=str(item["name"]), admissible=admissible, cost_eur=float(cost),
-        latency_ms=latency, run_digest=run_digest,
+        name=name, admissible=admissible, cost_eur=float(cost),
+        latency_ms=latency, candidate_revision=candidate_revision, run_digest=run_digest,
         report_digest=hashlib.sha256(octets).hexdigest())
 
 
-def classer_configurations(configurations: list[Configuration]) -> list[Configuration]:
+def image_du_depot(plancher_digest: str) -> dict[str, Any]:
+    """Les cinq champs d'image que **ce processus** exécute — calculés ici, jamais reçus.
+
+    Miroir exact de `run.image_du_run`, dont `evals/run.py` reste le nom d'usage côté runner. Les
+    deux ne peuvent pas partager une importation — `run` importe `plancher`, pas l'inverse —, et la
+    liste des cinq champs vit de toute façon ici (`CHAMPS_IMAGE`), qui est l'autorité de la
+    comparaison. Ce qui compte est que ni l'un ni l'autre ne **reçoive** cette image d'un appelant :
+    une image passée en paramètre est une image que l'appelant choisit, donc pas une image opposée.
+    """
+    return {
+        "pipeline_digest": pipeline_digest(),
+        "prompts_digest": prompts_digest(),
+        "model_ids": dict(TIERS),
+        "normalize_version": normalize_version,
+        "plancher_digest": plancher_digest,
+    }
+
+
+def _opposer_au_checkout(candidate_revision: str) -> None:
+    """La révision demandée est-elle celle que **ce checkout** porte ? — sinon on ne classe pas.
+
+    Story 4.5, tour correctif 2/3, revue B1. Tout ce que le classement recoupait jusqu'ici restait
+    **à l'intérieur** du rapport : les empreintes se recalculaient depuis ses octets, l'image et le
+    plancher venaient du processus, et la révision… n'était opposée qu'à ce que le rapport en
+    disait. Un rapport auto-cohérent fabriqué pour un commit inexistant (`git cat-file -e` échoue)
+    était donc classé en tête. C'est la dernière couche du même défaut : présence → syntaxe →
+    recalcul → ancrage **externe**.
+
+    L'autorité est celle que le runner emploie déjà (`revision.revision_executee`) : `git rev-parse
+    HEAD`, repli `GIT_SHA` seulement en l'absence de dépôt, et `ARBRE_NON_VERIFIABLE` quand l'état
+    de l'arbre n'a pas pu être lu. Ne pas pouvoir conclure ferme, comme partout ailleurs dans ce
+    module.
+    """
+    if not _hex_exact(candidate_revision, 40):
+        raise ClassementInvalide(
+            "classement : la révision candidate est obligatoire et doit être 40 caractères "
+            f"hexadécimaux (reçu {candidate_revision!r})")
+    reelle, arbre = revision_executee(REPO_ROOT)
+    if reelle is None:
+        raise ClassementInvalide(
+            "classement : la révision réellement exécutée n'a pu être établie (ni "
+            "`git rev-parse HEAD`, ni GIT_SHA en 40 hexadécimaux) — un classement qui ne sait pas "
+            "quel code il regarde ne promeut rien")
+    if ARBRE_NON_VERIFIABLE in arbre:
+        raise ClassementInvalide(
+            f"classement : {ARBRE_NON_VERIFIABLE} — un arbre qu'on n'a pas pu lire ne prouve pas "
+            "que le checkout est celui du commit annoncé")
+    if reelle != candidate_revision:
+        raise ClassementInvalide(
+            f"classement : la révision candidate {candidate_revision} n'est pas celle du checkout "
+            f"réellement exécuté ({reelle}) — un rapport peut se réclamer d'un commit qui n'existe "
+            "nulle part, un classement ne le peut pas")
+
+
+class ClassementOppose(BaseModel):
+    """Le classement **et l'identité contre laquelle il a été opposé**, indissociables.
+
+    Story 4.5, tour correctif 2/3, revue B1 (volet TOCTOU). La CLI chargeait le plancher pour son
+    propre compte **avant** d'appeler le classement, puis publiait *ce* digest-là dans l'artefact de
+    promotion — alors que le classement, depuis P1, dérive sa propre référence du processus. Deux
+    lectures, donc deux valeurs possibles, et c'est la seconde qui décidait pendant que la première
+    était publiée. Un artefact de promotion doit porter la référence **effectivement opposée**, pas
+    une relecture indépendante qui lui ressemble.
+
+    Le classement rend donc son identité avec son ordre, et la CLI n'a plus rien à relire.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # La révision **opposée au checkout réellement exécuté**, et mesurée par chaque rapport.
+    candidate_revision: str
+    # Le protocole que le classement a lui-même chargé et opposé à chaque rapport.
+    plancher_digest: str
+    configurations: list[Configuration]
+
+    @property
+    def aucun_admissible(self) -> bool:
+        """Un rouge publié tel quel, jamais une question humaine (Boundaries 4.2b)."""
+        return not any(c.admissible for c in self.configurations)
+
+
+def classer_configurations(candidats: Any, *, candidate_revision: str) -> ClassementOppose:
     """Classement mécanique : admissibles au plancher d'abord, puis la moins chère, puis la plus rapide.
 
     C'est la règle du checkpoint de finalisation (spec 4.2b) : aucun jugement, aucune pondération.
     Une configuration inadmissible n'est jamais promue devant une admissible, quel que soit son
     coût ; `aucun_admissible` (liste sans admissible) est un résultat rouge que l'appelant publie
     tel quel, jamais une question humaine.
+
+    **L'API publique accepte des rapports, pas des déclarations, et ancre ses références**
+    (revue B1, tours correctifs 1/3 puis P1). Trois couches ont été nécessaires, et les deux
+    premières ne suffisaient pas.
+
+    1. Elle acceptait des `Configuration` : `admissible`, coût, latence et trois empreintes, tous
+       **annoncés** par l'appelant. `Configuration(admissible=True, candidate_revision="a"*40,
+       run_digest="b"*64, report_digest="c"*64)` était classée en tête.
+    2. Elle a accepté des octets de rapport, dont elle recalculait les trois empreintes — mais elle
+       recevait encore `plancher_digest` et `image_courante` en **paramètres**. Un appelant qui
+       fabriquait un rapport auto-cohérent (`empreinte_canonique` est publique) et passait les mêmes
+       valeurs obtenait toujours une tête `admissible=True`, sur un plancher et une image qui
+       n'existent nulle part. Le recalcul ne prouvait que la cohérence interne du rapport ; ce à quoi
+       on l'opposait venait toujours de qui posait la question.
+    3. Elle **dérive** donc maintenant ses deux références du processus : `charger_plancher()` pour
+       le protocole, `image_du_depot()` pour les cinq champs d'image. Il n'y a pas de paramètre pour
+       les remplacer, ni de voie « pour les tests » : un test qui a besoin d'un autre plancher
+       n'exerce pas ce chemin.
+
+    4. `candidate_revision` reste un **paramètre**, parce que c'est la question posée — « classe les
+       configurations de ce commit ». Mais elle n'est plus crue sur parole : le tour précédent
+       affirmait qu'« un commit fantôme ne rend aucune configuration », et c'était **faux**. Un
+       rapport auto-cohérent fabriqué pour `'a'*40` — une révision qui n'existe dans aucun dépôt —
+       était accepté, admissible, et classé **en tête** : la révision n'était opposée qu'à
+       elle-même, à travers l'identité d'un rapport que l'appelant venait d'écrire. Une
+       auto-cohérence n'est pas une vérité.
+
+       Elle est donc opposée au **checkout réellement exécuté** (`revision.revision_executee`, la
+       même autorité que le runner emploie déjà pour `--candidate-revision`). Trois façons de
+       fermer, et aucune n'est optionnelle : la révision du checkout n'a pas pu être établie ; l'état
+       de l'arbre n'a pas pu être lu ; la révision demandée n'est pas celle du checkout.
+
+       Ce que ce contrôle **ne** fait pas, et il faut le dire plutôt que le laisser croire : il ne
+       refuse pas un arbre de travail **sale**. Ce qu'un classement peut établir, c'est que la
+       révision nommée est bien celle que ce checkout porte ; la propreté de l'arbre au moment du
+       classement ne dit rien de l'arbre qui a produit les rapports — c'est la production du rapport
+       qui la contrôle (`run._main` refuse un gate `full` sur un arbre sale). Ce qui protège ici est
+       l'image : `pipeline_digest` et `prompts_digest` sont recalculés depuis les sources sur
+       disque, et un rapport mesuré sous une autre image ferme.
+
+    Rend un `ClassementOppose` : l'ordre **et** les deux références effectivement opposées, pour que
+    l'appelant n'ait aucune raison d'en relire une seconde (revue B1, volet TOCTOU).
+
+    Lève `ClassementInvalide` au premier écart, avant qu'aucun ordre ne soit rendu — jamais un
+    classement partiel, jamais une tête par défaut.
     """
-    return sorted(configurations,
-                  key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name))
+    # **L'argument est matérialisé avant d'être parcouru deux fois** (revue R12). Le contrôle itère,
+    # puis `sorted` itère à nouveau : un appelant passant un générateur — parfaitement légitime au
+    # regard de la signature — obtenait un classement **vide**, donc `aucun_admissible: true` pour
+    # des candidats bien réels. Dans la fonction dont tout l'objet est qu'aucune voie bibliothèque ne
+    # produise une décision de promotion non opposée, un épuisement silencieux est la même faute que
+    # celles que ce cycle ferme : une donnée absente rendue comme un résultat.
+    liste = list(candidats)
+    for candidat in liste:
+        if not isinstance(candidat, CandidatClassement):
+            raise ClassementInvalide(
+                "classement : chaque candidat porte les octets de son rapport "
+                f"(CandidatClassement attendu, {type(candidat).__name__} reçu) — une configuration "
+                "déclarative ne prouve rien de ce qu'elle annonce")
+    noms = [c.name for c in liste]
+    if len(set(noms)) != len(noms):
+        # Deux candidats homonymes rendraient un artefact de promotion où l'on ne saurait pas
+        # lequel a été promu. La règle vivait à la frontière CLI ; elle appartient au classement,
+        # puisque c'est lui qui produit la décision.
+        raise ClassementInvalide(
+            "classement : les noms de configurations doivent être uniques "
+            f"({sorted(nom for nom in set(noms) if noms.count(nom) > 1)} en double)")
+    # **La révision candidate est opposée au checkout**, avant toute lecture de rapport (revue B1,
+    # tour correctif 2/3). C'est le seul contrôle du module qui sorte du processus pour aller
+    # regarder un objet du monde : les autres établissent des cohérences, celui-ci établit une
+    # existence.
+    _opposer_au_checkout(candidate_revision)
+    # **Les deux références sont dérivées ici**, pas reçues (revue P1). `PlancherInvalide` et les
+    # erreurs de lecture des sources deviennent un refus de classer : un classement qui ne sait pas
+    # contre quel protocole ni contre quelle image il oppose ne se rend pas « au mieux ».
+    try:
+        plancher_digest = charger_plancher().digest
+        image_courante = image_du_depot(plancher_digest)
+    except (PlancherInvalide, OSError) as exc:
+        raise ClassementInvalide(
+            f"classement : le protocole et l'image de ce dépôt sont illisibles "
+            f"({type(exc).__name__}: {exc}) — rien ne pourrait leur être opposé") from exc
+    configurations: list[Configuration] = []
+    for candidat in liste:
+        try:
+            configurations.append(_configuration_depuis_octets(
+                candidat.name, candidat.report_bytes, plancher_digest=plancher_digest,
+                image_courante=image_courante, candidate_revision=candidate_revision))
+        except (ValueError, ValidationError) as exc:
+            raise ClassementInvalide(f"classement : {exc}") from exc
+    # Aucun garde d'identité résiduel ici (revue P7) : les trois empreintes de chaque `Configuration`
+    # viennent d'être recalculées, et la révision candidate est la **même** pour toutes par
+    # construction. Un `verifier_identite_classement` posé après cette boucle n'aurait plus aucune
+    # branche atteignable — un contrôle qu'aucun chemin ne peut faire échouer donne l'apparence
+    # d'une garantie sans en être une.
+    return ClassementOppose(
+        candidate_revision=candidate_revision, plancher_digest=plancher_digest,
+        configurations=sorted(configurations,
+                              key=lambda c: (not c.admissible, c.cost_eur, c.latency_ms, c.name)))
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -355,7 +942,11 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--digest", action="store_true", help="afficher le digest du plancher chargé")
     parser.add_argument("--classer", type=Path, metavar="CONFIGS_JSON",
                         help="classer des configurations candidates (JSON : liste d'objets "
-                             "{name, admissible, cost_eur, latency_ms})")
+                             "{name, report})")
+    parser.add_argument("--candidate-revision", metavar="SHA40", required=False,
+                        help="OBLIGATOIRE avec --classer : révision produit dont on classe les "
+                             "configurations ; chaque rapport doit l'avoir mesurée, et le JSON de "
+                             "classement la porte")
     args = parser.parse_args(argv)
     try:
         charge = charger_plancher()
@@ -363,26 +954,48 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"refus : {exc}", file=sys.stderr)
         return 2
     if args.classer is not None:
+        if not _hex_exact(args.candidate_revision, 40):
+            # Une promotion sans candidat nommé n'est pas une promotion. Le contrôle est ici **et**
+            # dans `_configuration_depuis_octets`, que `classer_configurations` appelle : le second
+            # est l'invariant, le premier est le message que l'opérateur lit.
+            print("refus : --classer exige --candidate-revision <40 hexadécimaux> — un classement "
+                  "qui ne nomme pas le candidat qu'il promeut est inauditable", file=sys.stderr)
+            return 2
         try:
             brut = json.loads(args.classer.read_text(encoding="utf-8"))
             if not isinstance(brut, list):
                 raise ValueError("une liste de configurations est attendue")
-            configurations = [
-                _configuration_depuis_rapport(item, base=args.classer.parent) for item in brut]
-            if len({c.name for c in configurations}) != len(configurations):
-                raise ValueError("les noms de configurations doivent être uniques")
+            candidats = [_candidat_depuis_item(item, base=args.classer.parent) for item in brut]
         except (OSError, ValueError, ValidationError) as exc:
             print(f"refus : configurations illisibles ({type(exc).__name__}: {exc})", file=sys.stderr)
             return 2
-        classement = classer_configurations(configurations)
-        aucun_admissible = not any(c.admissible for c in classement)
+        try:
+            # Le plancher et l'image sont **dérivés par le classement**, pas passés d'ici (revue
+            # P1) : la CLI n'est plus le seul endroit où ils sont ancrés, elle est un appelant
+            # comme un autre.
+            classement = classer_configurations(
+                candidats, candidate_revision=args.candidate_revision)
+        except ClassementInvalide as exc:
+            # Le refus du classement est **dit à l'appelant**, jamais rabattu sur un classement
+            # dégradé : une promotion qu'on ne peut pas auditer ne se rend pas « au mieux ».
+            print(f"refus : {exc}", file=sys.stderr)
+            return 2
         print(json.dumps({
-            "plancher_digest": charge.digest,
-            "aucun_admissible": aucun_admissible,
-            "classement": [c.model_dump() for c in classement],
+            # **Les deux références publiées sont celles que le classement a opposées**, jamais une
+            # seconde lecture (revue B1, volet TOCTOU). `charge.digest` — le plancher que cette CLI
+            # avait chargé pour son propre compte, avant le classement — n'apparaît plus ici : rien
+            # ne garantissait qu'il soit celui contre lequel les rapports ont réellement été
+            # opposés, et publier l'un pendant que l'autre décide est la définition d'un artefact de
+            # promotion inauditable.
+            "plancher_digest": classement.plancher_digest,
+            # L'artefact de promotion dit **à quel candidat** il se rapporte, à la racine comme par
+            # configuration : sans cela il est inauditable après coup (revue B1).
+            "candidate_revision": classement.candidate_revision,
+            "aucun_admissible": classement.aucun_admissible,
+            "classement": [c.model_dump() for c in classement.configurations],
         }, ensure_ascii=False, indent=2))
         # `aucun_admissible` est un rouge publié, jamais une question (Boundaries 4.2b).
-        return 1 if aucun_admissible else 0
+        return 1 if classement.aucun_admissible else 0
     print(f"plancher_digest={charge.digest} temoins={len(charge.plancher.temoins)} "
           f"n_minimum={charge.plancher.n_minimum}")
     return 0
