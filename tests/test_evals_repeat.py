@@ -435,12 +435,18 @@ def _manifest(racine: Path, gate: Gate | None) -> Path:
 
 def test_un_gate_candidat_rouge_ne_remplace_jamais_un_vert(tmp_path: Path,
                                                            capsys: pytest.CaptureFixture[str]) -> None:
-    """AC 4.2b : le `manifest.gate` vert existant n'est pas modifié par un candidat rouge."""
-    chemin = _manifest(tmp_path, _gate(True))
-    avant = chemin.read_text("utf-8")
-    ecrit = runner.ecrire_gate(chemin, GUIDE, _gate(False))
+    """Le candidat certifie le courant sans réécrire le dernier golden set vert."""
+    dernier_vert = _gate(True, cases_hash="hash-historique")
+    candidat_courant = _gate(False, cases_hash="hash-courant")
+    chemin = _manifest(tmp_path, dernier_vert)
+    avant = chemin.read_bytes()
+
+    assert candidat_courant.cases_hash != dernier_vert.cases_hash
+    ecrit = runner.ecrire_gate(chemin, GUIDE, candidat_courant)
+
     assert ecrit is False
-    assert chemin.read_text("utf-8") == avant
+    assert candidat_courant.cases_hash == "hash-courant"
+    assert chemin.read_bytes() == avant
     assert "gate candidat rouge" in capsys.readouterr().err
 
 

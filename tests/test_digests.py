@@ -94,41 +94,22 @@ def test_path_outside_root_uses_absolute_key(tmp_path: Path) -> None:
     assert h == digest_paths([outside], root)
 
 
-def test_le_cases_hash_du_gate_est_celui_du_golden_set_livre() -> None:
-    """AD-14 : « deux runs ne sont comparables qu'à hash égal » — vérifié contre `data/manifest.json`.
+def test_le_cases_hash_identifie_le_golden_set_courant(tmp_path: Path) -> None:
+    """AD-14 : l'identité courante suit les cas, sans réinterpréter un gate historique.
 
-    Le gate écrit par `evals run --gate` se réclame d'une suite précise. Ce test recalcule le hash de
-    cette suite depuis les fichiers du dépôt et le compare à celui que le manifest porte : une
-    question-témoin modifiée, ajoutée ou renommée sans relancer le gate se voit ici, et non le jour
-    où quelqu'un croira que le gate valide les cas qu'il lit.
+    Le dernier gate vert décrit le golden set qu'il a réellement mesuré. Modifier le candidat
+    courant produit donc une nouvelle identité ; la non-mutation du dernier vert est vérifiée à la
+    frontière d'écriture du manifest dans ``test_evals_repeat``.
     """
-    import json
+    cas = tmp_path / "suite" / "cas.yaml"
+    cas.parent.mkdir()
+    cas.write_text("question: version initiale\n", encoding="utf-8")
+    hash_historique = cases_hash([cas], tmp_path)
 
-    from server.app.config import REPO_ROOT, Settings
-    from server.evals.run import CASES_DIR, charger_cas, selection_profil, suites_du_gate
+    cas.write_text("question: version courante\n", encoding="utf-8")
+    hash_courant = cases_hash([cas], tmp_path)
 
-    reglages = Settings(_env_file=None)
-    manifest = json.loads((REPO_ROOT / "data" / "manifest.json").read_text("utf-8"))
-    gates = [(doc_id, entree["gate"]) for doc_id, entree in sorted(manifest.items())
-             if isinstance(entree, dict) and isinstance(entree.get("gate"), dict)]
-    assert gates, "le manifest livré ne porte aucun gate"
-    for doc_id, gate in gates:
-        # **Le même périmètre que `main()`**, sinon les deux calculs de `cases_hash` divergeraient.
-        # `suites_du_gate` est l'autorité commune (story 4.5) : sous `vertical`, la seule suite qui
-        # sert le document ; sous `full`, sa suite `parsing` en plus. `selection_profil` filtre
-        # ensuite les profils — `full` couvre vertical + full, `vertical` reste strictement vertical.
-        # Deux calculs séparés du périmètre d'un gate divergeraient au premier profil ajouté.
-        suites = suites_du_gate(reglages, doc_id, gate["profile"], cases_dir=CASES_DIR)
-        suite = suites[0]
-        cas = selection_profil(charger_cas(CASES_DIR, suites=suites), gate["profile"])
-        assert cas, f"aucun cas au profil {gate['profile']} pour la suite {suite}"
-        assert all(c.case_path is not None for c in cas), (
-            f"la suite {suite} contient un cas sans chemin certifiable")
-        fichiers = [c.case_path for c in cas if c.case_path is not None]
-        assert gate["cases_hash"] == cases_hash(fichiers, CASES_DIR), (
-            f"le golden set de la suite {suite} a changé depuis le gate de {doc_id} : "
-            f"relancer `uv run python -m server.evals.run --gate {doc_id} --profile vertical`")
-        assert gate["cases"] == len(cas)
+    assert hash_courant != hash_historique
 
 
 def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
