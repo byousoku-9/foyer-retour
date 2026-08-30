@@ -3871,3 +3871,29 @@ Le résumé que la CI concatène dans `$GITHUB_STEP_SUMMARY` porte désormais le
 publication — stabilité N/N, coût froid, coût p95, latence p95, `run_digest`, réserves et limites —
 tirés du même rapport et du même formatage. La CI tourne sans `--gate` : elle ne produit donc aucune
 publication, et c'est le rendu de rapport lui-même qui devait porter ces champs.
+
+## Story 4.5 — correctif produit, campagne de fixtures (2026-08-30, orchestrateur)
+
+La campagne autoritaire a été exécutée une seule fois sur le candidat produit
+`f11f74dcadec605e5f68cd024cab3330c8e712ca`, par transport Anthropic standard et sans retry. Elle a
+couvert exactement les huit nodeids dont les requêtes avaient changé :
+
+- `tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction[en-arrivee]` ;
+- `tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction[de-arrivee]` ;
+- `tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction[pt-arrivee]` ;
+- `tests/test_pipeline_live.py::test_every_displayed_sentence_is_backed_by_a_verified_quote` ;
+- `tests/test_pipeline_live.py::test_deterministe_diagnostic_for_outils_question` ;
+- `tests/test_pipeline_live.py::test_outils_navigates_the_real_summary_and_returns_a_sourced_answer` ;
+- `tests/test_sinistre_live.py::test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses` ;
+- `tests/test_steps_live.py::test_full_chain_draft_is_sourced_on_at_least_two_fiches`.
+
+Résultat : **8 passed** en **112,02 s**, **30 appels**, coût réel **0,3155 EUR** calculé depuis les
+usages fournisseur, sous le majorant théorique borné **8 × 0,12 = 0,96 EUR**. Aucun secret ni clé
+n'est consigné ici. Les huit fixtures ont été figées dans le commit produit séparé
+`9e8f73067e03aed4d61f2b281aadfcb145b8a8c7`; leur rejeu hors réseau a rendu **34 passed**.
+
+La checklist complète du candidat ainsi qualifié, parent
+`8086fc9a955ecc548f074774d82e017b8be63ba6` et produit
+`9e8f73067e03aed4d61f2b281aadfcb145b8a8c7`, a rendu **3560 passed, 2 skipped, 1 deselected** en
+167,83 s. Ruff, les deux `git diff --check`, la propreté des arbres, la séparation mono-surface et
+l'absence d'artefact interdit étaient verts.
