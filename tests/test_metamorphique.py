@@ -10,7 +10,11 @@ la définition même d'une rustine, vue depuis l'autre côté.
 
 from __future__ import annotations
 
+from server.app.corpus.index import Index
+from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
+from server.app.domain import Block, BlockRef, Document, Node, NodeRef
+from server.app.domain.question import ParsedQuestion, QuestionScope
 from server.app.domain.verdict import (ChampsApplicabilite, ClaimJugee, ClauseCitee,
                                        applicabilites_des_claims, decider)
 from server.evals.plancher import charger_plancher as _charger_plancher_4_5
@@ -128,6 +132,62 @@ def test_controle_negatif_un_decideur_branche_sur_block_id_est_detecte() -> None
 
     assert mauvais_decideur(original) is True
     assert mauvais_decideur(permute) is False
+
+
+def _index_multifacette(prefixe: str, *, inverse: bool) -> tuple[Index, ParsedQuestion]:
+    textes = [
+        "Thème de profil général.",
+        "Thème de profil général répété.",
+        "Première démarche avec son justificatif.",
+        "Seconde démarche avec son échéance.",
+        "Sujet ajouté sans rapport.",
+    ]
+    blocs = [Block(block_id=f"{prefixe}:p{i + 10}:{i + 1}", text=texte,
+                   loc=f"p{i + 10}", seq=i + 1)
+             for i, texte in enumerate(textes)]
+    ordre = list(reversed(blocs)) if inverse else blocs
+    nodes = [Node(node_id=f"{prefixe}-root",
+                  items=[NodeRef(node_id=f"{prefixe}-n{i}") for i in range(len(ordre))])]
+    nodes.extend(Node(node_id=f"{prefixe}-n{i}", items=[BlockRef(block_id=bloc.block_id)])
+                 for i, bloc in enumerate(ordre))
+    document = Document(doc_id=prefixe, kind="guide", title="Neutre", edition="e",
+                        nodes=nodes, blocks=blocs)
+    parsed = ParsedQuestion(
+        question_resolue="Comparer deux démarches.", intent="question",
+        terms=["première démarche", "seconde démarche"],
+        scope=QuestionScope(themes=["thème de profil", "sujet ajouté"]),
+        facettes=["première démarche", "seconde démarche"],
+    )
+    return Index(Corpus(documents={prefixe: document})), parsed
+
+
+def test_la_diversification_multifacette_est_invariante_aux_ids_pages_ordre_et_theme_etranger() -> None:
+    original, question_1 = _index_multifacette("doc-neutre", inverse=False)
+    permute, question_2 = _index_multifacette("miroir-neutre", inverse=True)
+
+    def passages(index: Index, parsed: ParsedQuestion) -> list[str]:
+        hits = index.chercher(parsed.termes_de_recherche(), limit=2,
+                              groupes_prioritaires=parsed.facettes)
+        return [index.corpus.documents[index.doc_of(block_id)].block(block_id).text
+                for block_id, _node_id in hits]
+
+    attendu = ["Première démarche avec son justificatif.",
+               "Seconde démarche avec son échéance."]
+    assert passages(original, question_1) == passages(permute, question_2) == attendu
+
+
+def test_controle_negatif_la_coupe_globale_sans_facettes_perd_les_deux_passages_utiles() -> None:
+    original, question_1 = _index_multifacette("doc-neutre", inverse=False)
+    permute, question_2 = _index_multifacette("miroir-neutre", inverse=True)
+
+    def mauvais_selecteur(index: Index, parsed: ParsedQuestion) -> list[str]:
+        return [index.corpus.documents[index.doc_of(block_id)].block(block_id).text
+                for block_id, _node_id in index.chercher(parsed.termes_de_recherche(), limit=2)]
+
+    attendus = {"Première démarche avec son justificatif.",
+                "Seconde démarche avec son échéance."}
+    assert attendus.isdisjoint(mauvais_selecteur(original, question_1))
+    assert attendus.isdisjoint(mauvais_selecteur(permute, question_2))
 
 
 def test_une_exclusion_applicable_reste_applicable_sous_permutation() -> None:

@@ -134,9 +134,31 @@ class Index:
                           blocks=[doc.block(b) for b in block_ids[start:end]],
                           truncated=truncated, next_cursor=next_cursor)
 
+    def unite_de_renvoi(self, block_id: str) -> list[str]:
+        """Unité locale minimale d'une cible de renvoi, sans fermeture récursive.
+
+        Un titre seul situe une fiche mais ne porte généralement pas la règle à citer. Lorsqu'un
+        renvoi cible un `heading`, son premier passage citable non-titre dans le même nœud voyage
+        donc avec lui. La méthode ne consulte jamais les `refs` de la cible : elle ne produit qu'une
+        fenêtre structurelle directe, ensuite admise atomiquement par *retrouver*.
+        """
+        entry = self._by_block[block_id]
+        if entry.block.kind != "heading":
+            return [block_id]
+        _doc_id, directs = self._nodes[entry.node_id]
+        try:
+            start = directs.index(block_id) + 1
+        except ValueError:
+            return [block_id]
+        for candidate in directs[start:]:
+            if self._by_block[candidate].block.kind != "heading":
+                return [block_id, candidate]
+        return [block_id]
+
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,
-                 kinds_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
+                 kinds_prioritaires: Iterable[str] | None = None,
+                 groupes_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
         """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
 
         Le classement compte d'abord tous les canoniques dont au moins une forme est entièrement
@@ -166,6 +188,10 @@ class Index:
         indevinable, et un tri par kind seul remonterait un bloc décisionnel anecdotique devant le
         paragraphe qui répond vraiment. Le pipeline sinistre y passe les quatre kinds décisionnels
         d'AD-6 ; le guide ne passe rien et son ordre de recherche est inchangé.
+
+        `groupes_prioritaires` préserve, avant `limit`, au plus un candidat pleinement couvert par
+        libellé, de préférence dans un nœud encore non réservé. Cette diversification reste contenue
+        dans les hits de `termes` : une facette réordonne le rappel, elle n'ajoute aucun document.
         """
         if limit < 1:
             raise ValueError("limit doit être ≥ 1")
@@ -174,49 +200,86 @@ class Index:
         if doc_id is not None and doc_id not in self.corpus.documents:
             raise KeyError(doc_id)
         mapping = termes if isinstance(termes, dict) else {t: [] for t in termes}
-        groups: list[list[frozenset[str]]] = []
-        seen_canon: set[str] = set()  # deux clés de même forme normalisée ne comptent qu'une fois
-        for canon, variants in mapping.items():
-            forms = {frozenset(words(normalize(v))) for v in (canon, *variants)} - {frozenset()}
-            canon_form = " ".join(words(normalize(canon)))
-            if not forms or canon_form in seen_canon:
-                continue
-            seen_canon.add(canon_form)
-            groups.append(sorted(forms, key=lambda form: tuple(sorted(form))))
+
+        def groupes(mapping_: dict[str, list[str]]) -> list[list[frozenset[str]]]:
+            resultat: list[list[frozenset[str]]] = []
+            seen_canon: set[str] = set()
+            for canon, variants in mapping_.items():
+                forms = {frozenset(words(normalize(v))) for v in (canon, *variants)} - {frozenset()}
+                canon_form = " ".join(words(normalize(canon)))
+                if not forms or canon_form in seen_canon:
+                    continue
+                seen_canon.add(canon_form)
+                resultat.append(sorted(forms, key=lambda form: tuple(sorted(form))))
+            return resultat
+
+        groups = groupes(mapping)
         if not groups:
             return []
         prioritaires = frozenset(kinds_prioritaires or ())
-        scored: list[tuple[int, Fraction, Fraction, int, int, str, str]] = []
-        for e in self._entries:
-            if doc_id is not None and e.doc_id != doc_id:
-                continue
-            if not is_citable(e.block):
-                continue
-            pleins = 0
-            precision_plein = Fraction()
-            partiels = Fraction()
-            frequencies = self._block_frequencies[e.doc_id]
-            for forms in groups:
-                formes_pleines = [form for form in forms if form <= e.tokens]
-                if formes_pleines:
-                    pleins += 1
-                    # La densité corrige seulement l'ambiguïté nouvelle des composés non contigus.
-                    # Un canonique simple garde le départage historique kind → ordre de lecture.
-                    formes_composees = [form for form in formes_pleines if len(form) > 1]
-                    if formes_composees:
-                        precision_plein = max(
-                            precision_plein,
-                            max(Fraction(len(form), len(e.tokens)) for form in formes_composees),
-                        )
+
+        def classer(groupes_: list[list[frozenset[str]]]) -> list[tuple[str, str]]:
+            scored: list[tuple[int, Fraction, Fraction, int, int, str, str]] = []
+            for e in self._entries:
+                if doc_id is not None and e.doc_id != doc_id:
                     continue
-                partiels += max(self._hit(e, form, frequencies) for form in forms)
-            if pleins or partiels:
-                rang_kind = 0 if e.block.kind in prioritaires else 1
-                rappel = partiels if pleins == 0 else Fraction()
-                scored.append((-pleins, -rappel, -precision_plein, rang_kind, e.rank,
-                               e.block.block_id, e.node_id))
-        scored.sort()
-        return [(b, n) for _, _, _, _, _, b, n in scored[:limit]]
+                if not is_citable(e.block):
+                    continue
+                pleins = 0
+                precision_plein = Fraction()
+                partiels = Fraction()
+                frequencies = self._block_frequencies[e.doc_id]
+                for forms in groupes_:
+                    formes_pleines = [form for form in forms if form <= e.tokens]
+                    if formes_pleines:
+                        pleins += 1
+                        formes_composees = [form for form in formes_pleines if len(form) > 1]
+                        if formes_composees:
+                            precision_plein = max(
+                                precision_plein,
+                                max(Fraction(len(form), len(e.tokens)) for form in formes_composees),
+                            )
+                        continue
+                    partiels += max(self._hit(e, form, frequencies) for form in forms)
+                if pleins or partiels:
+                    rang_kind = 0 if e.block.kind in prioritaires else 1
+                    rappel = partiels if pleins == 0 else Fraction()
+                    scored.append((-pleins, -rappel, -precision_plein, rang_kind, e.rank,
+                                   e.block.block_id, e.node_id))
+            scored.sort()
+            return [(b, n) for _, _, _, _, _, b, n in scored]
+
+        classement = classer(groups)
+        if groupes_prioritaires is None:
+            return classement[:limit]
+        if isinstance(groupes_prioritaires, str):
+            raise TypeError("groupes_prioritaires : liste de libellés attendue, pas une chaîne")
+
+        # Chaque facette réserve d'abord le meilleur nœud lexical qui lui est propre quand il en
+        # existe un. Les thèmes et doublons complètent ensuite le classement global : ils ne peuvent
+        # plus consommer toutes les places avant une autre facette utile.
+        reserves: list[tuple[str, str]] = []
+        noeuds_reserves: set[str] = set()
+        for libelle in groupes_prioritaires:
+            groupes_facette = groupes({libelle: []})
+            if not groupes_facette:
+                continue
+            # Une facette diversifie les candidats de la recherche principale ; elle n'ajoute
+            # jamais un bloc que `terms + scope.themes` n'aurait pas rendu avant la coupe. Elle
+            # exige en outre une couverture pleine : un mot-outil partagé avec une facette ne rend
+            # pas, à lui seul, un passage « utile » à cette sous-question.
+            candidats = [
+                item for item in classer(groupes_facette)
+                if item in classement
+                and any(form <= self._by_block[item[0]].tokens for form in groupes_facette[0])
+            ]
+            if not candidats:
+                continue
+            choisi = next((item for item in candidats if item[1] not in noeuds_reserves), candidats[0])
+            if choisi not in reserves:
+                reserves.append(choisi)
+                noeuds_reserves.add(choisi[1])
+        return [*reserves, *(item for item in classement if item not in reserves)][:limit]
 
     @staticmethod
     def _hit(e: _Entry, form: frozenset[str], frequencies: dict[str, int]) -> Fraction:

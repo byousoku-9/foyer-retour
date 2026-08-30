@@ -370,6 +370,25 @@ def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> Non
         ("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
 
 
+def test_chercher_reserve_un_noeud_distinct_par_groupe_prioritaire_avant_la_coupe() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Thème profil.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Thème profil répété.", loc="p2", seq=1),
+        Block(block_id="d:p3:1", text="Première démarche utile.", loc="p3", seq=1),
+        Block(block_id="d:p4:1", text="Seconde démarche utile.", loc="p4", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, 5)])]
+    nodes.extend(Node(node_id=f"n{i}", items=[BlockRef(block_id=block.block_id)])
+                 for i, block in enumerate(blocks, 1))
+    ix = Index(Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)}))
+
+    assert ix.chercher(["thème profil"], limit=2) == [("d:p1:1", "n1"), ("d:p2:1", "n2")]
+    assert ix.chercher(["thème profil", "première démarche", "seconde démarche"], limit=2,
+                       groupes_prioritaires=["première démarche", "seconde démarche"]) == [
+        ("d:p3:1", "n3"), ("d:p4:1", "n4")]
+
+
 def test_un_mot_absent_du_document_ne_change_pas_le_score_partiel() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="a seul", loc="p1", seq=1),

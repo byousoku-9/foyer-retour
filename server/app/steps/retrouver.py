@@ -162,7 +162,8 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
             out.append(candidate)
 
     for candidate in block(block_id).refs:
-        add(candidate)
+        for membre in index.unite_de_renvoi(candidate):
+            add(membre)
     for candidate, _node_id in index.definitions(terms, doc_id=current_doc_id,
                                                   blocs_ouverts=[block_id]):
         add(candidate)
@@ -237,6 +238,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     question = {
         "question_resolue": parsed.question_resolue,
         "termes": terms,
+        "facettes": parsed.facettes,
         "scope": parsed.scope.model_dump(mode="json"),
     }
     messages: list[dict[str, Any]] = [{
@@ -323,7 +325,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             for terme in termes:
                 if forme(terme) not in {forme(t) for t in searched_terms}:
                     searched_terms.append(terme)
-            hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id)
+            hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id,
+                                  groupes_prioritaires=parsed.facettes)
             search_truncated = len(hits) > budget.search_limit
             if search_truncated:
                 truncated = True
@@ -658,7 +661,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
     cherches = dictionnaire.expand(terms) if elargi else terms
     hits = (index.chercher(cherches, limit=budget.search_limit, doc_id=doc_id,
-                           kinds_prioritaires=kinds_prioritaires) if terms else [])
+                           kinds_prioritaires=kinds_prioritaires,
+                           groupes_prioritaires=parsed.facettes) if terms else [])
     if candidats_out is not None:
         candidats_out.extend(b for b, _ in hits if b not in candidats_out)
 

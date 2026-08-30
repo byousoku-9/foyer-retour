@@ -298,8 +298,9 @@ async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
         return result, step
 
     monkeypatch.setattr(guide_module, "retrouver_deterministe", fallback_with_check)
-    tool_candidates = [b for b, _ in index.chercher(["école"], limit=_settings().search_limit,
-                                                     doc_id=DOC_ID)]
+    tool_candidates = [b for b, _ in index.chercher(
+        ["école"], limit=_settings().search_limit, doc_id=DOC_ID,
+        groupes_prioritaires=["délai de déclaration"])]
     tool_call = fake_message(
         model=TIERS["micro"], stop_reason="tool_use",
         content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
