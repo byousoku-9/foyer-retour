@@ -1,3 +1,171 @@
+# Choix et limites
+
+## Le cas météo : trouver des mots ne suffit pas
+
+« Il fait quel temps aujourd'hui ? » est le cas qui a orienté tout le démonstrateur. Le mot
+« temps » existe bien dans le guide, au sens de temps de trajet. Un moteur lexical peut donc
+retrouver une fiche sans rapport avec la météo et la servir avec une source authentique. La
+citation ne répare pas l'erreur : elle lui donne seulement une apparence de preuve. La première
+décision a été de comprendre l'intention avant de chercher, puis de distinguer quatre résultats :
+réponse soutenue, réponse partielle, absence justifiée et échec terminal. **Présence de mots ≠
+pertinence.**
+
+Sur les deux surfaces servies — guide et sinistre — le modèle propose dans un contrat borné ; le
+code relit les identifiants, citations et invariants avant d'afficher. L'intelligence est payée une
+fois à l'ingestion quand elle peut l'être. À chaud, les contrôles entourent le modèle au lieu de lui
+déléguer la preuve. Le troisième sujet reste un principe de conception : le modèle proposerait une
+requête bornée et la base ferait le calcul ; aucun de ses contrôles n'est présenté comme servi.
+
+## Trois sujets, trois choix
+
+### Sujet 1 — rendre le guide retrouvable sans le vider dans un prompt
+
+Le guide devient un classeur à blocs avec des IDs stables. Un étage déterministe exploite un
+dictionnaire enrichi ; la navigation peut ensuite ouvrir le sommaire, des fiches et leurs sections
+sous un budget commun. Chaque affirmation factuelle retenue cite un bloc relu dans le corpus, et une
+réponse bornée dit ce qu'elle n'a pas lu. Ce choix garde le chatbot dans le site et rend visibles ses
+refus, son mode dégradé et ses sources.
+
+Les alternatives n'ont pas toutes une baseline comparable. Tout mettre dans le contexte aurait
+fonctionné sur les quelque 23 000 tokens du guide, mais seulement parce que le corpus est petit :
+cela ne démontre ni sélection ni preuve d'absence. Une base vectorielle seule classe des proximités,
+pas la portée exacte d'une réponse ; les embeddings restent donc une voix possible, pas la décision.
+Un chatbot séparé aurait esquivé l'intégration au site, et un parcours guidé seul aurait remplacé le
+chatbot demandé plutôt que de l'éprouver. La campagne 4.4 destinée à comparer proprement les
+variantes a été annulée : **aucune baseline 4.4 n'est conservée**.
+
+### Sujet 2 — lire des contrats sans transformer le parsing en expertise
+
+Le même classeur reçoit les conditions générales : pages, lignes, coordonnées, tables, définitions
+et renvois. PyMuPDF lit d'abord la couche texte ; l'OCR n'intervient que pour une page qui en a
+besoin. Le modèle peut étiqueter des blocs ou proposer une structure, mais ne renvoie pas le texte et
+ne décide pas de la garantie : **le modèle propose, le code vérifie**. Une citation retrouvée, sa
+pertinence, son applicabilité au cas et sa fraîcheur restent quatre statuts distincts. Le verdict à
+quatre valeurs est calculé par une table et porte toujours sa limite : « au regard des conditions
+générales seules ».
+
+Le parsing niveau 1 seul a été écarté parce qu'il perd définitions et renvois ; l'OCR systématique
+ajouterait du bruit à des PDF nés numériques ; un modèle de raisonnement chargé de l'extraction
+ajouterait latence et dérive de schéma. La comparaison multi-assureurs n'était pas la demande : le
+cas porte sur un assuré et son contrat. À l'inverse, un simple poste de recherche de clauses aurait
+évité le verdict demandé ; le compromis retenu est un verdict conservateur qui nomme les pièces et
+faits encore nécessaires.
+
+Une **mesure historique** de story 4.2d, sur un seul sinistre répété trois fois, a comparé le rappel
+`deterministe` à `outils` : recall `2/3` des deux côtés ; coût de série `0,1649 EUR` contre
+`0,0703 EUR`. Les deux séries étaient rouges et instables. Elle explique pourquoi `outils` a été
+servi dans ce contexte, mais ne vaut ni baseline générale ni preuve de justesse.
+
+Les rapports versionnés couvrent les pages et publient aussi leurs alertes. Ils prouvent une chaîne
+d'extraction inspectable, pas l'intégrité juridique du document, encore moins une validation
+d'assurance. Les PDF réels ne sont pas dans le dépôt et les empreintes de deux artefacts committés
+attendent une réingestion ; le registre technique en annexe conserve ce constat vérifiable.
+
+### Sujet 3 — calculer sur des tables, pas faire calculer le modèle
+
+Pour 100 000 lignes, le choix décrit est table → base SQL : profiler chaque colonne (type, valeurs
+nulles, aberrants), donner au modèle le schéma et un échantillon, lui faire traduire la question en
+SQL, afficher la requête, puis laisser la base calculer. Dans cette conception, le garde-fou
+n'accepterait qu'un `SELECT` sur les tables autorisées, avec `LIMIT`, timeout et connexion en lecture
+seule. Le texte libre se cherche dans les colonnes textuelles **après** le filtre structuré. La
+restitution doit montrer le nombre de lignes, les lignes sources et ce que les données ne disent pas.
+
+Ce sujet est une conception documentée, pas une capacité du produit servi. Un RAG générique sur les
+lignes, ou un modèle qui additionne lui-même, masquerait le calcul et rendrait la réponse difficile
+à reproduire. La mini-démo SQL, son jeu synthétique et son interface sont restés hors de la ligne de
+coupe ; aucun résultat n'est donc revendiqué ici.
+
+## Ce qui est tombé de la ligne de coupe
+
+La ligne de coupe protège une démonstration lisible : un guide, deux contrats, une chaîne de preuve
+et des évaluations bornées. Plusieurs fournisseurs réduiraient le point de panne par un repli, mais
+ajouteraient intégration, qualification des écarts et exploitation ; Claude seul a été retenu pour
+ce périmètre, avec une dépendance fournisseur unique assumée. Les embeddings, PDF.js et une
+observabilité complète sont différés faute de mesure qui justifie leur coût. La mini-démo tableur
+l'est aussi, parce qu'elle constitue un produit indépendant. SLO, supervision, reprise, circuit
+breaker et test de charge appartiennent à une exploitation réelle, pas à une rustine de fin de
+démonstration.
+
+## Confidentialité et rétention
+
+La règle vérifiée le 25/08/2026 est celle affichée sous les deux saisies : la question et le profil
+sont envoyés au serveur puis à Anthropic ; sa politique publique prévoit la suppression des entrées
+et sorties de l'API **sous 30 jours**, avec exceptions pour un service à rétention plus longue
+contrôlé par le client, un accord de rétention différent, l'application de sa politique d'usage ou
+une obligation légale ; un contenu signalé par ses systèmes de sécurité peut être conservé jusqu'à
+deux ans. La [politique de conservation d'Anthropic](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data)
+reste liée parce qu'une politique de tiers peut changer.
+
+Le serveur ne persiste pas les conversations et ses logs excluent le texte des questions. Le
+navigateur ne persiste pas les conversations non plus. Son stockage local conserve en revanche des
+données de reprise et de configuration : profil et préférences d'affichage, avancement du parcours,
+adresses et coordonnées de comparaison, sélections de sinistres et paramètres de simulation.
+**Aucune donnée utilisateur n'entre dans `data/`**. Les contenus utilisateur et documentaire sont
+délimités comme non fiables, après les instructions système : cela réduit l'injection
+d'instructions, sans l'éliminer. Le démonstrateur public demande donc de ne saisir aucune donnée
+réelle ou nominative de sinistre.
+
+## Baseline et état courant
+
+La règle de décision reste simple : **si la baseline gagne, elle devient la variante par défaut**.
+Un chiffre n'accompagne cette règle que lorsqu'une campagne comparable, complète et reliée à son SHA
+existe. Ce n'est pas le cas de 4.4, qui n'a laissé aucune baseline ; aucun vainqueur ne peut en être
+tiré.
+
+Le gate 4.5 du candidat `cf5c1ba…` s'est arrêté en **incident** : AXA est **partiel** à `25/42`, le
+guide est **partiel** à `53/102`, Baloise est indisponible, pour un coût fournisseur cumulé réel de
+`2,1127 EUR`. Ces éléments rendent ce candidat **rouge et non promouvable** ; ils ne sont ni un
+verdict sur les variantes ni une validation experte. Le dernier produit servi reste `6abd3d0…`.
+
+## Limites honnêtes
+
+- Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
+  réseau forgée empêchent d'en faire un quota global.
+- Les corpus, dictionnaires et rapports sont des fichiers versionnés chargés en mémoire. C'est
+  inspectable ici, mais cela ne tient pas à l'échelle ; la mémoire n'a été mesurée que sur deux
+  documents.
+- Les verdicts ne sont pas validés par un expert assurance. Ils ne constituent ni une décision de
+  garantie ni un conseil ; les contresignatures humaines dues restent visibles.
+- L'URL est publique, sans authentification ni cadre contractuel. Le plafond d'une instance protège
+  une démonstration, pas un service de production.
+- La couverture de parsing ne prouve pas l'intégrité juridique. Définitions, renvois, typage faible,
+  colonnes et éditions restent des sources d'écart publiées dans les rapports.
+- La copie du site suppose l'accord de son auteur. Les PDF servent de sources récupérées au build et
+  ne sont pas redistribués dans le dépôt ; licence, droit de copie et droit de rediffusion restent
+  deux questions distinctes.
+- Anthropic est l'unique fournisseur de modèles : une panne ou un changement de politique est un
+  point de dépendance unique. Les embeddings, PDF.js et l'observabilité sont différés, pas présents
+  en silence.
+- Il n'y a ni SLO, ni supervision applicative complète, ni reprise automatique, ni circuit breaker,
+  ni test de charge. La rétention bornée, l'absence de données utilisateur dans `data/` et la
+  réduction de l'injection ne remplacent pas ces garanties d'exploitation.
+
+## Solo, équipe et IA
+
+Ce démonstrateur est un travail solo : une seule personne produit, relit et accepte le code. Une
+revue par un second modèle est un contrôle, pas une équipe. En équipe, je travaillerais par petits
+PR, avec conventions partagées, propriétaires explicites, revue humaine des changements et des
+preuves, et décisions d'architecture consignées avant de déplacer une frontière. Le travail dans le
+code d'autrui est déjà traité ainsi : changements minimaux, raisons écrites, historique préservé.
+
+J'ai utilisé l'IA pour coder, explorer les contre-exemples et relire. Je l'assume comme un levier,
+avec une discipline : **rester au centre, garder les décisions**. Les contrats, les tests et les
+mesures empêchent une suggestion plausible de devenir une vérité par simple fluidité. Il n'y a pas
+eu de réécriture humaine intermédiaire de ce retour ; cette absence est visible et non bloquante,
+mais la décision finale et l'acceptation restent humaines.
+
+## Chez Foyer, avec mails et pièces de sinistre, par où je commencerais
+
+Je commencerais par la frontière de preuve, pas par le choix d'un modèle : accès et rétention des
+mails et pièces, jeu d'évaluation validé avec les experts assurance, extraction typée et traçable,
+citations relues dans les originaux, puis décisions explicitement réservées aux humains. Ensuite
+seulement viendraient les SLO, la supervision, les reprises et la charge, mesurés sur les volumes et
+les risques réels. L'objectif serait d'amplifier l'expert sans lui emprunter sa signature : rendre
+chaque réponse contestable, chaque absence visible et chaque bascule réversible.
+
+<details>
+<summary>Annexe technique — registre historique conservé à l'identique</summary>
+
 # Choix et limites mesurées
 
 ## Story 4.2e — le contrôle demande le contexte qui lui manque, une fois
@@ -490,3 +658,5 @@ digests, tous sur le profil `vertical` et sans contresignature :
 Le manifest porte le digest final `7e57eec6…`; ses trois entrées ont `evals_ok=true` et
 `countersigned=false`. Cela certifie l'exécution des cas versionnés, pas une validation assurance :
 la relecture par Lancelot et l'expertise restent dues.
+
+</details>
