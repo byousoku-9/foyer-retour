@@ -112,6 +112,62 @@ def test_le_cases_hash_identifie_le_golden_set_courant(tmp_path: Path) -> None:
     assert hash_courant != hash_historique
 
 
+def test_un_cases_hash_courant_distinct_coexiste_avec_le_dernier_gate_vert(
+        tmp_path: Path) -> None:
+    """Le dépôt relie chaque gate publié à son périmètre courant sans réécrire son histoire.
+
+    Le manifest est l'autorité du dernier gate et ``suites_du_gate`` celle du périmètre candidat.
+    Un écart entre les deux est un candidat nouveau, pas une invitation à faire mentir le dernier
+    vert. La tentative d'écriture est donc jouée sur une copie byte-identique du manifest réel.
+    """
+    import json
+
+    from server.app.config import REPO_ROOT, Settings
+    from server.app.domain.ingest import Gate
+    from server.evals import run as runner
+    from tests.helpers_espace import poser_espace
+
+    source = REPO_ROOT / "data" / "manifest.json"
+    octets_historiques = source.read_bytes()
+    brut = json.loads(octets_historiques)
+    documents = brut.get("documents", brut)
+    settings = Settings(_env_file=None)
+    divergences: list[tuple[str, Gate, str]] = []
+
+    for doc_id, entree in sorted(documents.items()):
+        if not isinstance(entree, dict) or not isinstance(entree.get("gate"), dict):
+            continue
+        gate_historique = Gate.model_validate(entree["gate"])
+        suites = runner.suites_du_gate(
+            settings, doc_id, gate_historique.profile, cases_dir=runner.CASES_DIR)
+        cas = runner.selection_profil(
+            runner.charger_cas(runner.CASES_DIR, suites=suites), gate_historique.profile)
+        assert cas and all(c.case_path is not None for c in cas)
+        hash_courant = cases_hash(
+            [c.case_path for c in cas if c.case_path is not None], runner.CASES_DIR)
+        if hash_courant != gate_historique.cases_hash:
+            divergences.append((doc_id, gate_historique, hash_courant))
+
+    assert divergences, (
+        "le dépôt ne porte plus le cycle attendu : aucun golden courant ne diffère de son dernier "
+        "gate publié")
+
+    data = tmp_path / "data"
+    data.mkdir()
+    copie = data / "manifest.json"
+    copie.write_bytes(octets_historiques)
+    poser_espace(tmp_path, data_dir=data)
+    avant = copie.read_bytes()
+    for doc_id, gate_historique, hash_courant in divergences:
+        candidat_rouge = gate_historique.model_copy(update={
+            "cases_hash": hash_courant,
+            "evals_ok": False,
+        })
+        assert candidat_rouge.cases_hash == hash_courant
+        assert runner.ecrire_gate(copie, doc_id, candidat_rouge) is False
+        assert copie.read_bytes() == avant
+
+
 def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
     """AD-7 : un `pipeline_digest`/`prompts_digest`/`model_ids` ≠ l'image ⇒ alerte `gate_perime`.
 
