@@ -235,8 +235,11 @@ def test_les_seuils_du_typage_clauses_sont_bornes_publies_et_documentes() -> Non
     thresholds = s.thresholds()
     for name, value in expected.items():
         assert getattr(s, name) == value and thresholds[name] == value
+        invalid = -1 if name == "type_clauses_standard_max_retries" else 0
         with pytest.raises(ValidationError):
-            Settings(_env_file=None, **{name: 0})
+            Settings(_env_file=None, **{name: invalid})
+    assert Settings(_env_file=None, type_clauses_standard_max_retries=0).\
+        type_clauses_standard_max_retries == 0
     cited = set(_seuils_commentes())
     assert {name.upper() for name in expected} <= cited
 

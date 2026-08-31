@@ -631,9 +631,10 @@ class Settings(BaseSettings):
     type_clauses_batch_poll_s: float = Field(20.0, gt=0)
     type_clauses_batch_timeout_s: float = Field(7200.0, gt=0)
     # Transport CLI de reprise (jamais utilisé par le runtime HTTP) : Messages standard, sans
-    # retry implicite du SDK, avec parallélisme et relances fournisseur explicitement bornés.
+    # retry implicite du SDK, avec parallélisme et relances fournisseur explicitement bornés. Zéro
+    # est un réglage intentionnel : une campagne corrective peut interdire toute seconde tentative.
     type_clauses_standard_concurrency: int = Field(8, ge=1, le=32)
-    type_clauses_standard_max_retries: int = Field(3, ge=1, le=8)
+    type_clauses_standard_max_retries: int = Field(3, ge=0, le=8)
     type_clauses_standard_retry_base_s: float = Field(1.0, gt=0, le=30)
     # Bornes appliquées aux étiquettes : une cible d'article trop large ou une liste partielle ne
     # produit aucun lien. Le verdict reste alors humain via `unresolved_refs`.

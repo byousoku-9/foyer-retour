@@ -657,6 +657,20 @@ def test_un_pdf_de_tables_a_deux_colonnes_se_lit_colonne_par_colonne_de_bout_en_
 
 # --- Table des matières -------------------------------------------------------------------------
 
+def test_une_tdm_multicolonne_ne_recolle_pas_les_deux_cotes_dans_un_bloc() -> None:
+    """La non-citabilité d'une TdM ne l'autorise pas à perdre sa structure visuelle."""
+    page = _page_deux_colonnes()
+    page.is_toc = True
+
+    document = _construire([page])
+
+    assert page.layout.multi
+    assert document.blocks
+    assert all(
+        len({"G" if line.text.startswith("G") else "D" for line in block.lines}) == 1
+        for block in document.blocks
+    )
+
 def test_une_tdm_absente_ne_structure_jamais_larbre() -> None:
     pages = [_page_deux_colonnes()]
     p._mark_toc_pages(pages)

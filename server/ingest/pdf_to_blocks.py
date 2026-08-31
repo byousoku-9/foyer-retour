@@ -1404,12 +1404,15 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                                table_source: str) -> None:
         """Fusionne le texte préliminaire contigu, mais jamais à travers une table atomique."""
         pending: list[PageLine] = []
+        pending_position: tuple[int, int] | None = None
 
         def flush() -> None:
+            nonlocal pending_position
             if pending:
                 b.add_block(page.page, list(pending), "autre",
                             source_field="ocr" if page.ocr_succeeded else None)
                 pending.clear()
+                pending_position = None
 
         for kind, lines in groups:
             if kind == "table":
@@ -1418,6 +1421,15 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 # que l'index peut appliquer aux recherches, fréquences et fenêtres.
                 b.add_block(page.page, lines, "table", source_field=table_source)
             else:
+                # Une page préliminaire ou une TdM peut être multicolonne elle aussi. La fusion
+                # historique de tous ses groupes en un seul bloc recollait les deux côtés après
+                # que l'ordre géométrique les avait correctement séparés. La position est une
+                # propriété générique déjà décidée par la porte de lecture : elle rompt le bloc
+                # exactement comme elle rompt les paragraphes du corps, sans vocabulaire ni page.
+                position = (lines[0].bande, lines[0].colonne)
+                if pending and position != pending_position:
+                    flush()
+                pending_position = position
                 pending.extend(lines)
         flush()
 

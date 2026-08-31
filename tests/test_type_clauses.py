@@ -1047,6 +1047,23 @@ def test_standard_retries_seulement_429_et_5xx_et_conserve_lordre() -> None:
     assert len(client.messages.calls) == len(plans) + 2 and cost > 0
 
 
+def test_standard_peut_interdire_toute_seconde_tentative() -> None:
+    doc = miniature()
+    configured = settings(type_clauses_max_blocks_per_request=2,
+                          type_clauses_standard_concurrency=1,
+                          type_clauses_standard_max_retries=0)
+    plans = tc.requests_for(doc, doc.blocks, 1, configured)
+    client = FakeStandardClient(FakeBatches({}), {}, failures=[503, 200])
+
+    with pytest.raises(tc.BatchFailure, match="premier échec terminal"):
+        tc.execute_standard(
+            client, plans, configured, guard=tc._CostGuard(12), output=io.StringIO(),
+            sleep=lambda _delay: None,
+        )
+
+    assert len(client.messages.calls) == 1
+
+
 def test_standard_garde_le_cout_avant_appel_et_echec_necrit_rien(tmp_path: Path) -> None:
     doc_dir, doc = write_data(tmp_path)
     configured = settings(type_clauses_max_blocks_per_request=2,

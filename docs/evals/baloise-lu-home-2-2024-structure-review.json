@@ -1,0 +1,235 @@
+{
+  "schema_version": "1",
+  "reader": "builder Codex frais — revue visuelle synchrone des rendus publics",
+  "dpi": 144,
+  "pages": [
+    {
+      "page": 2,
+      "render_sha256": "9640a3416a58c1bdcb64074d1cf2327617d61dceda156e3377704fa58296222e",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 3,
+      "render_sha256": "aa803b84c950865a23085010b1eb08d3725d660938fa6651f0a79434bafd811b",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 4,
+      "render_sha256": "0af805f8f7eca5784769552bbad06de870868a8a4cbcfbe5d0e98e2ee52216b2",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 5,
+      "render_sha256": "3bbe07d9ac54df91c42f03e346498285fcd9f78117e4b5d7690b56ada1a57623",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 6,
+      "render_sha256": "eb3ce2d7b2a1c6588ce3fd78d515bf21c4ea6389954e2f3f48744b63a2f886b6",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 7,
+      "render_sha256": "42e954cfd0a40007531fec63e9e8a9f96452f99ba17c7e346b3b1a49cb938d29",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 8,
+      "render_sha256": "d80f96fa26864c05284ed5c0e1ec3a5f5fc2138b5518d7b9f6ef42b9222649e4",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 9,
+      "render_sha256": "30e9c88a0ff2636ad4df8199449675d44b9b6323ac8719a0f18694248f63c0cc",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 10,
+      "render_sha256": "3ab1b642f93c9cc97b822af181a524ba7d8b8dc49ce2b589ee802c8c9f468c0e",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 11,
+      "render_sha256": "372b09b485577f42b8c56c65ebe70626a50a8b35048f27e0a2022264ffd799b3",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 12,
+      "render_sha256": "1801292d214034feb5e101b6708dbb8563f0713210cff58b5e0de3f32484d7ce",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 13,
+      "render_sha256": "40d461b6639af26c2991ac9c8bb93a845691e06f77f46aa8b40373630dfe0a08",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 14,
+      "render_sha256": "39408ec91734f435212d23e26255bc045386db64f0e6bffa309a581b47d82dfc",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 15,
+      "render_sha256": "8952134c7b2331de729c1af0b69f05f876c02280ad028b8542e392499115d032",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 16,
+      "render_sha256": "604ffd2dfd4b8fa839ed1cd022e565e9c8a3c183ff090f94250a6677b46dd167",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 19,
+      "render_sha256": "d33f8ba81897bfbc2ccfc37bb25b6036d28fca7a471d572a05be633eb1bb4a10",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 20,
+      "render_sha256": "2bf28da09e31cfd8f04222b8d6188e8fe80f0de9c5c6b0c1660e41dfb23fe2e4",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 21,
+      "render_sha256": "2ada68acc8974d922128d80565b7ddab6cc2b8d9136902d9b143cebeddd550dd",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 22,
+      "render_sha256": "e3920e28a205bd474b2729ded7ef7b29291724aa3cf0f339d4dd98d0f5a8b1ad",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 23,
+      "render_sha256": "ce9dd340a90d70872e086d8a1901c1ac37cd4e69a467d3364cff0f27aad6742e",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 24,
+      "render_sha256": "96f477aa8ca78b88bdd682038ba3ada54f6f4aaaaf1540f4a0f1abf9e6111a78",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 25,
+      "render_sha256": "8d7eb7f657b31870869ec245c0cc670b649de043de63c25f32d0732cede4e4e4",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 26,
+      "render_sha256": "7862e3647d8c3335a97f84824aa53c32c343a24c91e6a7fa0bcbf8d1229dd904",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 27,
+      "render_sha256": "22316bdee97bbca088ad5f4c23d7d76e1192af72487e43eb0c5cc6618ef78d3b",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 28,
+      "render_sha256": "e09956b33ce3b34eb1864e75db42130217dc6ab430e17cff070d8cf294951406",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 29,
+      "render_sha256": "de94050b62cda73cd0fa40d76dc9e3cecde725215ea54608f8174cf15d78f68b",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 30,
+      "render_sha256": "dc5b330445fd85c5f6043ca6cc214f875b610d2cfe982968e1e46ad95357b86d",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 31,
+      "render_sha256": "05db90856b71a3913c448aec7fc0a1a70177843e8573dce66c26738410314af9",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 37,
+      "render_sha256": "02449cbc0906d33ea9187ddfb0e94e32b639da91a2039fd663d836df8a96f58e",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 40,
+      "render_sha256": "0771d4028a444dfe3ab43f5a0a0723a3ef20c3cf4fcf51b430120032d01469d0",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 41,
+      "render_sha256": "ed040784c335cd57af2785679a2349c089e1ce4d89b0ee0cc27b33722ad9e457",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 42,
+      "render_sha256": "96df70fa30e6ba97b34a3f47756514a4d02df60219a6d6b8ffa5c702c0d720de",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 43,
+      "render_sha256": "579a23a1b4460239378894427c74cc964a07d297699035d97336cb49aebac6ca",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 44,
+      "render_sha256": "a9e3be6ae0a61022ade10b8d49188e1cfc377b3231126922c5ba069fc6929bd7",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 45,
+      "render_sha256": "7a1e6567b7d0e437cfd083c2140bc5f906b051501250f3a42bcd590908bdc306",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 46,
+      "render_sha256": "852a9c4e34ec96ec5cd1f7ae3c0dedc8c3f385830b0cd81f3ce5aa6eaf674e4d",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 47,
+      "render_sha256": "8639ea489937c9b658752d7b44c93e382c50a7001135430fbcd3da2ba20bfaed",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    },
+    {
+      "page": 48,
+      "render_sha256": "2cb3e6a60bc0b2d538e5415fc2a9219856332fc340fc065f2ed30035bdbb5ee2",
+      "verdict": "ok",
+      "note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante."
+    }
+  ]
+}
