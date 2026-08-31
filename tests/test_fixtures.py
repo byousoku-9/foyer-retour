@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from tests.fixtures import FixtureMissing, LLMRecorder, fixture_name, request_key
+from tests.fixtures import (FixtureMissing, LLMRecorder, fixture_name, request_certificate,
+                            request_key)
 
 
 class Reply(BaseModel):
@@ -93,16 +94,115 @@ async def test_record_plain_values_with_default_serializer(tmp_path: Path) -> No
 
 
 async def test_replay_accepte_un_alias_explicitement_audite(tmp_path: Path) -> None:
+    messages = [{"role": "user", "content": "requête canonique"}]
+    certificate = request_certificate(
+        "claude-x", messages,
+        tools=[{"name": "lire", "input_schema": {"type": "object"}}],
+        output_config={"format": {"type": "json_schema", "schema": {"type": "object"}}},
+    )
+    source = request_key(
+        "claude-x", messages,
+        tools=[{"name": "lire", "input_schema": {"type": "object"}}],
+        output_config={"format": {"type": "json_schema", "schema": {"type": "object"}}},
+    )
+    target = "claude-x:1111111111111111"
     (tmp_path / "alias.json").write_text(json.dumps({
-        "__aliases__": {"requete-regeneree": "requete-source"},
-        "requete-source": {"request": "requete-source", "response": {"ok": True}},
+        "__aliases__": {source: {
+            "request": source, "target": target, "certificate": dict(certificate),
+        }},
+        target: {"request": target, "certificate": dict(certificate), "response": {"ok": True}},
     }), encoding="utf-8")
     replay = LLMRecorder("alias", fixtures_dir=tmp_path, api_key="")
 
     async def fail() -> dict:
         raise AssertionError("aucun appel fournisseur en replay")
 
-    assert await replay.call("requete-regeneree", fail) == {"ok": True}
+    assert await replay.call(source, fail, request=certificate) == {"ok": True}
+
+
+def _alias_valide(*, source_model: str = "claude-x", target_model: str | None = None) -> dict:
+    target_model = target_model or source_model
+    certificate = request_certificate(source_model, [{"role": "user", "content": "q"}])
+    source = f"{source_model}:1111111111111111"
+    target = f"{target_model}:2222222222222222"
+    return {
+        "__aliases__": {source: {
+            "request": source, "target": target, "certificate": dict(certificate),
+        }},
+        target: {"request": target, "certificate": dict(certificate), "response": {"ok": True}},
+    }
+
+
+@pytest.mark.parametrize("mutation,fragment", [
+    ("cible_absente", "cible ordinaire absente"),
+    ("request_source", "request incohérente"),
+    ("request_cible", "request incohérente"),
+    ("response_absente", "response absente"),
+    ("certificat_cible", "certificats incompatibles"),
+])
+def test_alias_refuse_cible_ou_certificat_incoherent(
+        tmp_path: Path, mutation: str, fragment: str) -> None:
+    entries = _alias_valide()
+    source = next(iter(entries["__aliases__"]))
+    target = entries["__aliases__"][source]["target"]
+    if mutation == "cible_absente":
+        del entries[target]
+    elif mutation == "request_source":
+        entries["__aliases__"][source]["request"] = "claude-x:3333333333333333"
+    elif mutation == "request_cible":
+        entries[target]["request"] = "claude-x:3333333333333333"
+    elif mutation == "response_absente":
+        del entries[target]["response"]
+    else:
+        entries[target]["certificate"]["messages_sha256"] = "0" * 64
+    (tmp_path / "alias-bad.json").write_text(json.dumps(entries), encoding="utf-8")
+    with pytest.raises(FixtureMissing, match=fragment):
+        LLMRecorder("alias-bad", fixtures_dir=tmp_path, api_key="")
+
+
+@pytest.mark.parametrize("cycle", [False, True])
+def test_alias_refuse_chaine_et_cycle(tmp_path: Path, cycle: bool) -> None:
+    entries = _alias_valide()
+    source = next(iter(entries["__aliases__"]))
+    target = entries["__aliases__"][source]["target"]
+    chained_target = source if cycle else "claude-x:3333333333333333"
+    entries["__aliases__"][target] = {
+        "request": target, "target": chained_target,
+        "certificate": entries["__aliases__"][source]["certificate"],
+    }
+    del entries[target]
+    (tmp_path / "alias-chain.json").write_text(json.dumps(entries), encoding="utf-8")
+    with pytest.raises(FixtureMissing, match="cycle" if cycle else "chaîne"):
+        LLMRecorder("alias-chain", fixtures_dir=tmp_path, api_key="")
+
+
+def test_alias_refuse_cles_reservees(tmp_path: Path) -> None:
+    entries = _alias_valide()
+    entries["__reponse__"] = {"request": "__reponse__", "response": {"ok": True}}
+    (tmp_path / "alias-reserved.json").write_text(json.dumps(entries), encoding="utf-8")
+    with pytest.raises(FixtureMissing, match="clé réservée"):
+        LLMRecorder("alias-reserved", fixtures_dir=tmp_path, api_key="")
+
+
+def test_alias_inter_modele_est_refuse_meme_sans_modele_passe_a_call(tmp_path: Path) -> None:
+    entries = _alias_valide(target_model="claude-y")
+    (tmp_path / "alias-model.json").write_text(json.dumps(entries), encoding="utf-8")
+    with pytest.raises(FixtureMissing, match="inter-modèle"):
+        LLMRecorder("alias-model", fixtures_dir=tmp_path, api_key="")
+
+
+async def test_alias_refuse_un_certificat_dappel_different(tmp_path: Path) -> None:
+    entries = _alias_valide()
+    source = next(iter(entries["__aliases__"]))
+    (tmp_path / "alias-call.json").write_text(json.dumps(entries), encoding="utf-8")
+    replay = LLMRecorder("alias-call", fixtures_dir=tmp_path, api_key="")
+
+    async def never() -> dict:
+        raise AssertionError("aucun appel fournisseur en replay")
+
+    different = request_certificate("claude-x", [{"role": "user", "content": "autre"}])
+    with pytest.raises(FixtureMissing, match="absent ou incohérent"):
+        await replay.call(source, never, request=different)
 
 
 def test_request_key_hides_message_text() -> None:

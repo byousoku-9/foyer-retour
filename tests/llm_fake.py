@@ -17,7 +17,7 @@ import httpx2
 from anthropic.types import Message, MessageTokensCount
 
 from server.app.config import get_settings
-from tests.fixtures import LLMRecorder, request_key
+from tests.fixtures import LLMRecorder, request_certificate, request_key
 
 
 def fake_message(
@@ -129,7 +129,9 @@ class _RecordedMessages:
         return self._real
 
     async def parse(self, **kwargs: Any) -> Message:
-        key = request_key(kwargs["model"], kwargs["messages"], **_key_params(kwargs))
+        params = _key_params(kwargs)
+        key = request_key(kwargs["model"], kwargs["messages"], **params)
+        certificate = request_certificate(kwargs["model"], kwargs["messages"], **params)
 
         async def fn() -> dict[str, Any]:
             # `output_format` volontairement absent : le corps est déjà complet (`output_config.format`)
@@ -137,25 +139,31 @@ class _RecordedMessages:
             message = await self._real_client().messages.parse(**kwargs)
             return message.to_dict()
 
-        return Message.model_validate(await self._recorder.call(key, fn))
+        return Message.model_validate(await self._recorder.call(key, fn, request=certificate))
 
     async def create(self, **kwargs: Any) -> Message:
-        key = request_key(kwargs["model"], kwargs["messages"], **_key_params(kwargs))
+        params = _key_params(kwargs)
+        key = request_key(kwargs["model"], kwargs["messages"], **params)
+        certificate = request_certificate(kwargs["model"], kwargs["messages"], **params)
 
         async def fn() -> dict[str, Any]:
             message = await self._real_client().messages.create(**kwargs)
             return message.to_dict()
 
-        return Message.model_validate(await self._recorder.call(key, fn))
+        return Message.model_validate(await self._recorder.call(key, fn, request=certificate))
 
     async def count_tokens(self, **kwargs: Any) -> MessageTokensCount:
-        key = "count:" + request_key(kwargs["model"], kwargs["messages"], **_key_params(kwargs))
+        params = _key_params(kwargs)
+        key = "count:" + request_key(kwargs["model"], kwargs["messages"], **params)
+        certificate = request_certificate(kwargs["model"], kwargs["messages"], **params)
 
         async def fn() -> dict[str, Any]:
             counted = await self._real_client().messages.count_tokens(**kwargs)
             return counted.to_dict()
 
-        return MessageTokensCount.model_validate(await self._recorder.call(key, fn))
+        return MessageTokensCount.model_validate(await self._recorder.call(
+            key, fn, request=certificate,
+        ))
 
 
 class RecordedAnthropic:

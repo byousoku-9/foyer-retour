@@ -1,8 +1,20 @@
 {
   "__aliases__": {
-    "claude-haiku-4-5-20251001:065b86286cf59921": "claude-haiku-4-5-20251001:9b748ef187b4c1c3",
-    "claude-haiku-4-5-20251001:1cfb75958127bb9a": "claude-haiku-4-5-20251001:794851a580145ed4",
-    "claude-sonnet-5:8aeb94869f8dc33e": "claude-sonnet-5:32e3dd934067420d"
+    "claude-haiku-4-5-20251001:065b86286cf59921": {
+      "certificate": {"messages_sha256": "93ca9eb6ad6560c270bd9bc965b67115f6ecf83aea4875d3fe602a7e08a00a42", "model": "claude-haiku-4-5-20251001", "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb", "tools_sha256": "7e4496227f56cca1304c81eef461d05db3fa850c1d20ed64d8b289eda461709e", "version": 1},
+      "request": "claude-haiku-4-5-20251001:065b86286cf59921",
+      "target": "claude-haiku-4-5-20251001:9b748ef187b4c1c3"
+    },
+    "claude-haiku-4-5-20251001:1cfb75958127bb9a": {
+      "certificate": {"messages_sha256": "64160c12c90ce7b81f6a125839b349da9d417879bbd29be2fdb2e4ad4b91d0c1", "model": "claude-haiku-4-5-20251001", "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb", "tools_sha256": "7e4496227f56cca1304c81eef461d05db3fa850c1d20ed64d8b289eda461709e", "version": 1},
+      "request": "claude-haiku-4-5-20251001:1cfb75958127bb9a",
+      "target": "claude-haiku-4-5-20251001:794851a580145ed4"
+    },
+    "claude-sonnet-5:8aeb94869f8dc33e": {
+      "certificate": {"messages_sha256": "af5bd61e10007615e2e01396dd7b97e8396db72c6d662e60aad58d2a3bf69e2d", "model": "claude-sonnet-5", "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c", "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "version": 1},
+      "request": "claude-sonnet-5:8aeb94869f8dc33e",
+      "target": "claude-sonnet-5:32e3dd934067420d"
+    }
   },
   "claude-haiku-4-5-20251001:045c2196cf92a2ff": {
     "request": "claude-haiku-4-5-20251001:045c2196cf92a2ff",
@@ -174,6 +186,7 @@
     }
   },
   "claude-haiku-4-5-20251001:794851a580145ed4": {
+    "certificate": {"messages_sha256": "64160c12c90ce7b81f6a125839b349da9d417879bbd29be2fdb2e4ad4b91d0c1", "model": "claude-haiku-4-5-20251001", "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb", "tools_sha256": "7e4496227f56cca1304c81eef461d05db3fa850c1d20ed64d8b289eda461709e", "version": 1},
     "request": "claude-haiku-4-5-20251001:794851a580145ed4",
     "response": {
       "content": [
@@ -268,6 +281,7 @@
     }
   },
   "claude-haiku-4-5-20251001:9b748ef187b4c1c3": {
+    "certificate": {"messages_sha256": "93ca9eb6ad6560c270bd9bc965b67115f6ecf83aea4875d3fe602a7e08a00a42", "model": "claude-haiku-4-5-20251001", "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb", "tools_sha256": "7e4496227f56cca1304c81eef461d05db3fa850c1d20ed64d8b289eda461709e", "version": 1},
     "request": "claude-haiku-4-5-20251001:9b748ef187b4c1c3",
     "response": {
       "content": [
@@ -473,6 +487,7 @@
     }
   },
   "claude-sonnet-5:32e3dd934067420d": {
+    "certificate": {"messages_sha256": "af5bd61e10007615e2e01396dd7b97e8396db72c6d662e60aad58d2a3bf69e2d", "model": "claude-sonnet-5", "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c", "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "version": 1},
     "request": "claude-sonnet-5:32e3dd934067420d",
     "response": {
       "content": [

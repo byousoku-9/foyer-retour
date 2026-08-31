@@ -225,6 +225,10 @@ def _signatures_noeuds(doc: Document) -> dict[str, tuple[str, int, str | None]]:
     }
 
 
+def _parents_noeuds(doc: Document) -> dict[str, str]:
+    return {child: node.node_id for node in doc.nodes for child in node.children}
+
+
 def _cibles_semantiques(block: Block) -> list[str]:
     return [
         *block.refs,
@@ -240,12 +244,35 @@ def _remapper_cible(target: str | None, old_to_new: dict[str, str]) -> str | Non
 def _reutiliser_portees_noeuds(
         doc: Document, previous: Document, old_to_new: dict[str, str],
 ) -> list[Node]:
-    """Transporte une portée sur chaque sous-arbre dont l'identité est bijective."""
+    """Transporte une portée si le sous-arbre et sa chaîne porteuse sont compatibles."""
     precedents = {node.node_id: node for node in previous.nodes}
     courants = {node.node_id: node for node in doc.nodes}
     signatures_precedentes = _signatures_noeuds(previous)
     signatures_courantes = _signatures_noeuds(doc)
+    parents_precedents = _parents_noeuds(previous)
+    parents_courants = _parents_noeuds(doc)
     memo: dict[str, bool] = {}
+    memo_ancetres: dict[str, bool] = {}
+
+    def ancetres_identiques(node_id: str) -> bool:
+        if node_id in memo_ancetres:
+            return memo_ancetres[node_id]
+        parent_precedent = parents_precedents.get(node_id)
+        parent_courant = parents_courants.get(node_id)
+        if parent_precedent != parent_courant:
+            memo_ancetres[node_id] = False
+            return False
+        if parent_precedent is None:
+            memo_ancetres[node_id] = True
+            return True
+        memo_ancetres[node_id] = False  # garde de cycle pour un document invalide
+        compatible = (
+            signatures_precedentes.get(parent_precedent)
+            == signatures_courantes.get(parent_courant)
+            and ancetres_identiques(parent_precedent)
+        )
+        memo_ancetres[node_id] = compatible
+        return compatible
 
     def identique(node_id: str) -> bool:
         if node_id in memo:
@@ -254,6 +281,7 @@ def _reutiliser_portees_noeuds(
         courant = courants.get(node_id)
         if (precedent is None or courant is None
                 or signatures_precedentes.get(node_id) != signatures_courantes.get(node_id)
+                or not ancetres_identiques(node_id)
                 or len(precedent.items) != len(courant.items)):
             memo[node_id] = False
             return False
@@ -348,7 +376,12 @@ def reutiliser_typage_identique(
             }, deep=True),
         }, deep=True))
         reused[block.block_id] = 1
-    nodes = _reutiliser_portees_noeuds(doc, previous, old_to_new)
+    # Une correspondance source ne prouve pas que le bloc a traversé le typage. Une portée de
+    # nœud ne peut donc s'appuyer que sur les paires effectivement réutilisées ci-dessus.
+    old_to_reused_new = {
+        old_id: new_id for old_id, new_id in old_to_new.items() if new_id in reused
+    }
+    nodes = _reutiliser_portees_noeuds(doc, previous, old_to_reused_new)
     typed = doc.model_copy(update={"blocks": blocks, "nodes": nodes}, deep=True)
     return Document.model_validate(typed.model_dump()), reused
 

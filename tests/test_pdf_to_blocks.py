@@ -13,7 +13,8 @@ import pytest
 from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
-from server.app.domain import Block, BlockRef, Check, Document, Line, Node, NodeRef, Report
+from server.app.domain import (Block, BlockRef, Check, Document, Line, Node, NodeRef, Report,
+                               is_citable)
 from server.app.domain.document import Relation, Scope
 from server.ingest import pdf_to_blocks as p
 from server.ingest.artifacts import document_json
@@ -1336,6 +1337,53 @@ def test_un_typage_precedent_ne_se_reutilise_que_sur_identite_forte(data: Path) 
     assert not_reused.block(target.block_id).kind_source is None
 
 
+def test_run_publie_sans_delta_en_transportant_portee_et_recalculant_le_rapport(
+        data: Path) -> None:
+    """Couvre directement la branche de publication ``pending == 0``, hors fournisseur."""
+    first, _entry = _run(data)
+    previous = Document.model_validate_json((data / "document.json").read_bytes())
+    scoped = next(
+        node for node in previous.nodes
+        if node.items and all(
+            isinstance(item, BlockRef) and is_citable(previous.block(item.block_id))
+            for item in node.items
+        )
+    )
+    blocks = [
+        block.model_copy(update={
+            "kind": "garantie", "kind_source": "model_verified", "kind_confidence": 0.99,
+        }, deep=True) if is_citable(block) else block
+        for block in previous.blocks
+    ]
+    nodes = [
+        node.model_copy(update={"scope": Scope(kind="special")}, deep=True)
+        if node.node_id == scoped.node_id else node
+        for node in previous.nodes
+    ]
+    typed = Document.model_validate(previous.model_copy(update={
+        "blocks": blocks, "nodes": nodes,
+    }, deep=True).model_dump())
+    (data / "document.json").write_text(document_json(typed), encoding="utf-8")
+    stale = first.model_copy(update={
+        "checks": [*first.checks, Check(name="ids_disparus", level="alerte", detail="ancien"),
+                   Check(name="typage_clauses", level="info", detail="double lecture")],
+        "stats": {**first.stats, "ids_disparus": 4, "ids_nouveaux": 7},
+    }, deep=True)
+    (data / "report.json").write_text(stale.model_dump_json(), encoding="utf-8")
+
+    report, entry = _run(data)
+    published = Document.model_validate_json((data / "document.json").read_bytes())
+
+    assert entry.status == "servi" and not report.blocking
+    assert report.stats[p.TYPING_PENDING_COUNT_STAT] == 0
+    assert report.stats[p.TYPING_REUSED_COUNT_STAT] == sum(is_citable(b) for b in published.blocks)
+    assert all(check.name != "ids_disparus" for check in report.checks)
+    assert report.stats["ids_disparus"] == report.stats["ids_nouveaux"] == 0
+    assert next(check for check in report.checks if check.name == "typage_clauses").level == "info"
+    assert all(check.name != "typage_transport" for check in report.checks)
+    assert next(node for node in published.nodes if node.node_id == scoped.node_id).scope.kind == "special"
+
+
 def _document_metaphorique(*, inverse: bool = False, dependance_deplacee: bool = False,
                             proprietaire_change: bool = False) -> Document:
     ids = (f"{DOC}:p1:2", f"{DOC}:p1:1") if inverse else (f"{DOC}:p1:1", f"{DOC}:p1:2")
@@ -1400,6 +1448,44 @@ def test_reutilisation_metaphorique_remappe_ids_et_dependances_sans_leur_donner_
     assert garantie.relation.specialise == f"{DOC}:p1:1"
     assert garantie.scope_node_id == f"{DOC}:a1"
     assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "special"
+
+
+def test_portee_ne_sappuie_que_sur_les_blocs_effectivement_reutilises() -> None:
+    previous = _document_metaphorique()
+    previous.nodes[1].scope = Scope(kind="special")
+    current = _document_metaphorique(inverse=True)
+    garantie = previous.block(f"{DOC}:p1:1")
+    proof = Report(doc_id=DOC, stats={
+        p.TYPING_REUSED_IDS_STAT: {garantie.block_id: 1},
+    }).model_dump_json().encode("utf-8")
+
+    typed, reused = p.reutiliser_typage_identique(current, previous, proof)
+
+    assert reused == {f"{DOC}:p1:2": 1}
+    assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "commun"
+
+
+def test_portee_refuse_un_ancetre_modifie_ou_disparu() -> None:
+    previous = _document_metaphorique()
+    previous.nodes[1].scope = Scope(kind="special")
+    current = _document_metaphorique(inverse=True)
+    mapping = {f"{DOC}:p1:1": f"{DOC}:p1:2", f"{DOC}:p1:2": f"{DOC}:p1:1"}
+
+    previous.nodes[0].title = "Racine historique"
+    modified = p._reutiliser_portees_noeuds(current, previous, mapping)
+    assert next(node for node in modified if node.node_id == f"{DOC}:a1").scope.kind == "commun"
+
+    previous = _document_metaphorique()
+    previous.nodes[1].scope = Scope(kind="special")
+    ancestor = Node(
+        node_id=f"{DOC}:a0", level=1, title="Branche porteuse",
+        items=[NodeRef(node_id=f"{DOC}:a1")],
+    )
+    previous.nodes[0].items = [NodeRef(node_id=ancestor.node_id), NodeRef(node_id=f"{DOC}:a2")]
+    previous.nodes.insert(1, ancestor)
+    previous = Document.model_validate(previous.model_dump())
+    disappeared = p._reutiliser_portees_noeuds(current, previous, mapping)
+    assert next(node for node in disappeared if node.node_id == f"{DOC}:a1").scope.kind == "commun"
 
 
 def test_reutilisation_metaphorique_refuse_provenance_noeud_et_dependance_modifies() -> None:

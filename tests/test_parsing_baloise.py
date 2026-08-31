@@ -13,6 +13,7 @@ from server.app.domain import BlockRef, Document, NodeRef, Report
 from server.ingest import pdf_to_blocks as p
 from server.ingest.report import (attester_arbre, build_pdf_report,
                                   canoniser_transition_apres_typage)
+from tests.helpers_reports import assert_stats_structurelles_exactes
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / "data" / "baloise-lu-home-2-2024"
@@ -24,6 +25,16 @@ TYPING_CHECKS = {
     "corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
     "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes",
     "typage_clauses", "typage_transport",
+}
+TERMINAL_TYPING_STATS = {
+    "blocs_juridiques", "blocs_juridiques_confirmes", "blocs_typage_a_rejouer",
+    "blocs_typage_rejoues", "blocs_typage_reutilises", "blocs_types_modele",
+    "ids_typage_reutilises", "references_non_resolues", "typage_batch_cost_eur",
+    "typage_changed_payload_custom_ids", "typage_changed_payload_requests",
+    "typage_cost_ceiling_eur", "typage_cumulative_cost_eur", "typage_current_campaign",
+    "typage_current_payload_sha256", "typage_prior_cost_eur", "typage_replayed_payload_requests",
+    "typage_reused_requests", "typage_standard_cost_eur", "typage_standard_requests",
+    "typage_total_cost_eur", "typage_transport",
 }
 
 
@@ -55,6 +66,11 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
     assert gate["cases_hash"] == "e493de7d5d41ac4e64537f54124bdb6cac2ad97f6356aaca908a1d67c860e2e8"
     assert gate["pipeline_digest"] == "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e"
     assert gate["prompts_digest"] == "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45"
+    assert gate["model_ids"] == {
+        "ingest": "claude-opus-5",
+        "reason": "claude-sonnet-5",
+        "micro": "claude-haiku-4-5-20251001",
+    }
     assert gate["cases"] == 3 and gate["countersigned"] is False
     assert not report.blocking
     assert report.stats["pages"] == report.stats["pages_avec_blocs"] == 48
@@ -131,7 +147,8 @@ def test_real_baloise_pdf_regenerates_the_committed_structural_identity(doc: Doc
         source_url=(REAL / "source.url").read_text("utf-8").strip(),
     )
     identity = lambda block: (  # noqa: E731
-        block.block_id, block.text, block.loc, block.seq, block.page, block.bbox, block.continues,
+        block.block_id, block.text, block.lang, block.loc, block.seq, block.page, block.bbox,
+        block.structural_kind, block.source_field, block.continues,
         [line.model_dump() for line in block.lines],
     )
     assert [identity(block) for block in built.blocks] == [identity(block) for block in doc.blocks]
@@ -151,4 +168,4 @@ def test_real_baloise_pdf_regenerates_the_committed_structural_identity(doc: Doc
     )
     committed = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.checks == [check for check in committed.checks if check.name not in TYPING_CHECKS]
-    assert all(committed.stats[key] == value for key, value in report.stats.items())
+    assert_stats_structurelles_exactes(report, committed, TERMINAL_TYPING_STATS)
