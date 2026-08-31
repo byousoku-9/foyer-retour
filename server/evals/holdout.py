@@ -16,9 +16,10 @@ import os
 import re
 import stat
 import subprocess
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -353,7 +354,8 @@ def _verifier_armement(verrou: VerrouPublic, *, receipt_digest: str, arm_token_d
         raise RefusHoldout("verrou armé sans jeton authentique")
 
 
-def prendre_tentative_unique(lock_path: Path, *, receipt_digest: str, arm_token_digest: str) -> VerrouPublic:
+@contextmanager
+def _armement_verrouille(lock_path: Path, *, receipt_digest: str, arm_token_digest: str) -> Iterator[tuple[Any, VerrouPublic]]:
     try:
         fd = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
     except OSError as exc:
@@ -366,7 +368,6 @@ def prendre_tentative_unique(lock_path: Path, *, receipt_digest: str, arm_token_
     if not regular:
         os.close(fd)
         raise RefusHoldout("verrou absent ou illisible")
-    marque = lock_path.with_name("consumed.marker")
     with os.fdopen(fd, "r+b", closefd=True) as flux:
         fcntl.flock(flux.fileno(), fcntl.LOCK_EX)
         try:
@@ -379,38 +380,63 @@ def prendre_tentative_unique(lock_path: Path, *, receipt_digest: str, arm_token_
             arm_token_digest=arm_token_digest,
         )
         try:
-            marque_fd = os.open(marque, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        except FileExistsError as exc:
-            raise RefusHoldout("tentative one-shot déjà consommée") from exc
-        with os.fdopen(marque_fd, "wb", closefd=True) as marque_flux:
-            marque_flux.write(
-                json_canonique(
-                    {
-                        "schema_version": 1,
-                        "receipt_digest": verrou.receipt_digest,
-                        "kind": "arm-token-derived-hmac-sha256-v1",
-                        "proof": _preuve_marque(bytes.fromhex(verrou.arm_token), verrou.receipt_digest),
-                    }
-                )
-                + b"\n"
+            os.lstat(lock_path.with_name("consumed.marker"))
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise RefusHoldout("marque one-shot illisible") from exc
+        else:
+            raise RefusHoldout("tentative one-shot déjà consommée")
+        yield flux, verrou
+
+
+def _consommer_tentative_verrouille(*, flux: Any, verrou: VerrouPublic, marque: Path) -> VerrouPublic:
+    try:
+        marque_fd = os.open(marque, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as exc:
+        raise RefusHoldout("tentative one-shot déjà consommée") from exc
+    with os.fdopen(marque_fd, "wb", closefd=True) as marque_flux:
+        marque_flux.write(
+            json_canonique(
+                {
+                    "schema_version": 1,
+                    "receipt_digest": verrou.receipt_digest,
+                    "kind": "arm-token-derived-hmac-sha256-v1",
+                    "proof": _preuve_marque(bytes.fromhex(verrou.arm_token), verrou.receipt_digest),
+                }
             )
-            marque_flux.flush()
-            os.fsync(marque_flux.fileno())
-        consomme = VerrouPublic.model_validate(
-            verrou.model_dump(mode="json")
-            | {
-                "state": "consumed",
-                "attempts_remaining": 0,
-                "consumed_at": datetime.now(UTC).isoformat(),
-                "arm_token": None,
-            }
+            + b"\n"
         )
-        flux.seek(0)
-        flux.truncate()
-        flux.write(json_canonique(consomme.model_dump(mode="json")) + b"\n")
-        flux.flush()
-        os.fsync(flux.fileno())
-        return consomme
+        marque_flux.flush()
+        os.fsync(marque_flux.fileno())
+    consomme = VerrouPublic.model_validate(
+        verrou.model_dump(mode="json")
+        | {
+            "state": "consumed",
+            "attempts_remaining": 0,
+            "consumed_at": datetime.now(UTC).isoformat(),
+            "arm_token": None,
+        }
+    )
+    flux.seek(0)
+    flux.truncate()
+    flux.write(json_canonique(consomme.model_dump(mode="json")) + b"\n")
+    flux.flush()
+    os.fsync(flux.fileno())
+    return consomme
+
+
+def prendre_tentative_unique(lock_path: Path, *, receipt_digest: str, arm_token_digest: str) -> VerrouPublic:
+    with _armement_verrouille(
+        lock_path,
+        receipt_digest=receipt_digest,
+        arm_token_digest=arm_token_digest,
+    ) as (flux, verrou):
+        return _consommer_tentative_verrouille(
+            flux=flux,
+            verrou=verrou,
+            marque=lock_path.with_name("consumed.marker"),
+        )
 
 
 def _secret_keychain(recu: RecuPublic) -> str:
@@ -433,7 +459,7 @@ def _supprimer_secret_keychain(recu: RecuPublic) -> None:
         stderr=subprocess.DEVNULL,
     )
     if resultat.returncode != 0:
-        raise RefusHoldout("révocation de la clé one-shot impossible après consommation")
+        raise RefusHoldout("révocation de la clé one-shot impossible")
 
 
 def _finaliser_marque(lock_path: Path, recu: RecuPublic, secret: str) -> None:
@@ -504,18 +530,25 @@ def executer(*, receipt_path: Path, lock_path: Path, payload_path: Path, runner_
         receipt_digest=receipt_digest,
         arm_token_digest=recu.arm_token_digest,
     )
-    secret = _secret_keychain(recu)
-    _supprimer_secret_keychain(recu)
-    prendre_tentative_unique(
-        lock_path,
-        receipt_digest=receipt_digest,
-        arm_token_digest=recu.arm_token_digest,
-    )
-    _finaliser_marque(lock_path, recu, secret)
     try:
         payload = payload_path.read_bytes()
     except OSError as exc:
-        raise RefusHoldout("payload chiffré absent ou illisible après consommation") from exc
+        raise RefusHoldout("payload chiffré absent ou illisible") from exc
+    if hashlib.sha256(payload).hexdigest() != recu.payload_digest or len(payload) != recu.payload_bytes:
+        raise RefusHoldout("payload chiffré différent du reçu")
+    with _armement_verrouille(
+        lock_path,
+        receipt_digest=receipt_digest,
+        arm_token_digest=recu.arm_token_digest,
+    ) as (flux, verrou_verrouille):
+        secret = _secret_keychain(recu)
+        _supprimer_secret_keychain(recu)
+        _consommer_tentative_verrouille(
+            flux=flux,
+            verrou=verrou_verrouille,
+            marque=lock_path.with_name("consumed.marker"),
+        )
+    _finaliser_marque(lock_path, recu, secret)
     clair = bytearray(dechiffrer(payload, recu, secret))
     try:
         brut = json.loads(clair)
