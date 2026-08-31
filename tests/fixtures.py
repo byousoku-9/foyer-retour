@@ -94,7 +94,8 @@ def _request_model(key: str) -> str | None:
 def _validate_certificate(value: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != _CERTIFICATE_FIELDS:
         raise FixtureMissing(f"{context} : certificat de requête invalide")
-    if value["version"] != 2 or not isinstance(value["model"], str) or not value["model"]:
+    if (type(value["version"]) is not int or value["version"] != 2
+            or not isinstance(value["model"], str) or not value["model"]):
         raise FixtureMissing(f"{context} : certificat de requête invalide")
     if any(not isinstance(value[field], str) or not _DIGEST.fullmatch(value[field])
            for field in ("system_sha256", "messages_sha256", "tools_sha256", "schema_sha256")):

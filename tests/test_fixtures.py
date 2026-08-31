@@ -133,6 +133,22 @@ def _alias_valide(*, source_model: str = "claude-x", target_model: str | None = 
     }
 
 
+@pytest.mark.parametrize("version", [
+    pytest.param(True, id="bool"),
+    pytest.param(2.0, id="float"),
+])
+def test_certificat_refuse_une_version_non_int(tmp_path: Path, version: object) -> None:
+    entries = _alias_valide()
+    source = next(iter(entries["__aliases__"]))
+    target = entries["__aliases__"][source]["target"]
+    entries["__aliases__"][source]["certificate"]["version"] = version
+    entries[target]["certificate"]["version"] = version
+    (tmp_path / "certificate-version.json").write_text(json.dumps(entries), encoding="utf-8")
+
+    with pytest.raises(FixtureMissing, match="certificat de requête invalide"):
+        LLMRecorder("certificate-version", fixtures_dir=tmp_path, api_key="")
+
+
 @pytest.mark.parametrize("mutation,fragment", [
     ("cible_absente", "cible ordinaire absente"),
     ("request_source", "request incohérente"),
