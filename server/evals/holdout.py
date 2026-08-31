@@ -349,6 +349,14 @@ def prendre_tentative_unique(lock_path: Path, arm_token_digest: str) -> VerrouPu
         fd = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
     except OSError as exc:
         raise RefusHoldout("verrou absent ou illisible") from exc
+    try:
+        regular = stat.S_ISREG(os.fstat(fd).st_mode)
+    except OSError as exc:
+        os.close(fd)
+        raise RefusHoldout("verrou absent ou illisible") from exc
+    if not regular:
+        os.close(fd)
+        raise RefusHoldout("verrou absent ou illisible")
     marque = lock_path.with_name("consumed.marker")
     with os.fdopen(fd, "r+b", closefd=True) as flux:
         fcntl.flock(flux.fileno(), fcntl.LOCK_EX)
