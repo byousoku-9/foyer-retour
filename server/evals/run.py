@@ -373,8 +373,10 @@ class Cas(BaseModel):
             raise ValueError("question doit être non vide et sans espaces de bord")
         if self.lang is not None and (not self.lang.strip() or self.lang != self.lang.strip()):
             raise ValueError("lang doit être non vide et trimée")
-        if self.profile == "full" and self.truth.source not in {"lecture_humaine", "claude"}:
-            raise ValueError("un cas full de la story 4.2 exige truth.source=lecture_humaine ou claude")
+        if self.profile == "full" and self.truth.source not in {
+                "lecture_humaine", "claude", "codex"}:
+            raise ValueError(
+                "un cas full exige truth.source=lecture_humaine, claude ou codex")
         if self.profile == "full" and self.suite in {"guide", "sinistre"}:
             if not self.scenario.strip() or self.scenario != self.scenario.strip():
                 raise ValueError("un cas full guide/sinistre exige un scenario non vide et trimé")
@@ -823,6 +825,15 @@ class CasesSnapshot:
     cases_hash: str
     files: dict[Path, str] = field(default_factory=dict)
     directories: dict[Path, tuple[str, ...]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LotCasesFournis:
+    """Lot holdout déjà validé, gardé en mémoire et lié à son reçu public."""
+
+    cases: tuple[Cas, ...]
+    references: ReferencesSnapshot
+    snapshot: CasesSnapshot
 
 
 def snapshot_cas(cas: list[Cas], cases_dir: Path,
@@ -3344,18 +3355,29 @@ def valider_chemins(*, output_json: Path, output_markdown: Path, cases_dir: Path
                     f"chemins en collision : {nom_a}={chemin_a} et {nom_b}={chemin_b}")
 
 
-def main(argv: list[str] | None = None, *, _comparison_cell: bool = False) -> int:
+def main(argv: list[str] | None = None, *, _comparison_cell: bool = False,
+         lot_cases_fourni: LotCasesFournis | None = None) -> int:
     """Ferme toujours les ressources persistantes, quel que soit le code de sortie de la CLI."""
     with ExitStack() as lifecycle:
-        return _main(argv, lifecycle=lifecycle, comparison_cell=_comparison_cell)
+        return _main(
+            argv,
+            lifecycle=lifecycle,
+            comparison_cell=_comparison_cell,
+            lot_cases_fourni=lot_cases_fourni,
+        )
 
 
 def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
-          comparison_cell: bool = False) -> int:
+          comparison_cell: bool = False,
+          lot_cases_fourni: LotCasesFournis | None = None) -> int:
     args = _parser().parse_args(argv)
     sortie = sys.stdout
     cas: list[Cas] = []
     comparison_requested = args.compare is not None or args.tiers is not None
+    lot_holdout_incompatible = lot_cases_fourni is not None and (
+            args.profile != "full" or args.gate is not None or args.cas is not None
+            or args.quick or args.suite is not None or args.exclude_suite
+            or comparison_requested or comparison_cell)
     output_json = args.output_json or (
         REPO_ROOT / "docs" / "evals" / "baselines.json" if comparison_requested
         else args.data_dir.parent / "eval-results.json")
@@ -3414,6 +3436,9 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 run_digest=(str(run_identity.get("run_digest")) if run_identity else None),
                 status=status)
     try:
+        if lot_holdout_incompatible:
+            raise RefusDeTourner(
+                "le lot holdout one-shot exige le profil full complet, sans gate, filtre ni comparaison")
         valider_chemins(output_json=output_json, output_markdown=output_markdown,
                         cases_dir=args.cases_dir, reference_dir=reference_dir,
                         data_dir=args.data_dir, cache_dir=cache_dir)
@@ -3640,8 +3665,12 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         if args.suite and args.suite in args.exclude_suite:
             raise RefusDeTourner(
                 f"--suite {args.suite} et --exclude-suite {args.suite} se contredisent")
-        cas_tous = charger_cas(args.cases_dir)
-        references = charger_references(cas_tous, reference_dir)
+        if lot_cases_fourni is None:
+            cas_tous = charger_cas(args.cases_dir)
+            references = charger_references(cas_tous, reference_dir)
+        else:
+            cas_tous = list(lot_cases_fourni.cases)
+            references = lot_cases_fourni.references
         if suites is None:
             cas = cas_tous
         else:
@@ -3700,7 +3729,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         references_du_run = references if args.profile == "full" and any(
             c.suite == "guide" for c in cas) else None
         references_digest = references.digest if references_du_run else None
-        snapshot = snapshot_cas(cas, args.cases_dir, references_du_run)
+        snapshot = lot_cases_fourni.snapshot if lot_cases_fourni is not None else snapshot_cas(
+            cas, args.cases_dir, references_du_run)
         # Un seul repère porte tout le préflight restant : composition `full`, dry-run, refus de
         # budget et opération réelle. Il est ouvert avant le ledger (coût/état), toute sortie de
         # succès et tout rapport ; l'opération réelle le réutilise au lieu de repincer plus bas.

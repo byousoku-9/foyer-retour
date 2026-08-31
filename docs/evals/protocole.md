@@ -11,7 +11,39 @@ lui-même est machine-lisible dans `server/evals/reference/plancher.yaml`, figé
 |---|---|---|---|
 | A | développement | `server/evals/cases/` | public, exécuté librement, publié |
 | B | holdout scellé | `~/foyer-retour-holdout/B/` (hors dépôt) | **jamais lu ni matérialisé par le builder** ; un seul verdict B par candidat ; la promotion ne publie **ni questions, ni réponses brutes, ni détail par cas** — uniquement le verdict et les agrégats ; création et scellement (`cases_hash` figé avant tout réglage) : action orchestrateur |
-| C | réserve | hors dépôt | **jamais exécuté** |
+| C | holdout final one-shot | stockage privé hors dépôt et workspace | généré par un Codex neuf depuis les seuls corpus normalisés autorisés, puis chiffré sans fichier clair ; la story ne conserve que le reçu public. Le verrou exige fin d'Epic 5, test utilisateur et derniers correctifs, puis consomme la tentative avant déchiffrement : aucun retry ni correctif après le résultat |
+
+### Holdout C : reçu public et verrou fermé
+
+`server.evals.holdout` valide le reçu, le payload chiffré et leur liaison sans lire le contenu. Le
+reçu public expose uniquement les empreintes des cas, du schéma, des paramètres, des sources et du
+payload, les comptages, la preuve de confinement et l'état `sealed/unexecuted`. La référence de clé
+reste dans le reçu privé hors workspace ; le secret lui-même est placé dans le trousseau avec accès
+interactif, jamais dans un argument, une variable, un log ou un fichier de travail.
+
+L'armement exige trois attestations distinctes et strictes, chacune liée aux octets d'un fichier de
+preuve nommé dont le SHA-256 est recalculé, ainsi que l'autorisation interactive du secret scellé :
+elle produit un jeton dont seule l'empreinte figure dans le reçu. Une édition directe du verrou ne
+peut donc ni passer la vérification publique ni consommer la tentative. À l'exécution, une garde
+vérifie d'abord le lien au reçu, le digest/volume du payload chiffré, l'état armé, les trois
+conditions, la tentative intacte et le jeton, avant toute lecture ou révocation de clé ; sous verrou
+OS, la partie armement et l'absence de marque antérieure sont vérifiées à nouveau. Seulement alors,
+le secret est récupéré en mémoire et l'entrée trousseau irréversiblement supprimée avant la prise
+one-shot. La prise crée une marque avec `O_EXCL`, efface le jeton et met l'état à `consumed`; la
+marque reçoit ensuite un HMAC du secret avant tout déchiffrement. Une panne à partir de la révocation
+peut perdre l'unique résultat, mais effacer la marque ou réécrire le verrou ne restitue jamais la
+clé. Le payload est authentifié avant déchiffrement, validé à nouveau par le schéma du runner et
+transmis en mémoire ; le profil `vertical` continue d'exiger
+`truth.source=lecture_humaine`, tandis que `codex` n'est admis que pour `full`.
+
+Avant le scellement, un validateur runtime distinct charge les modèles Pydantic du produit, sans
+réseau, accès aux corpus, au trousseau ou à la destination, et refuse le lot avant chiffrement. Le
+générateur ne reçoit que les deux corpus aux chemins et empreintes autorisés, le schéma enrichi des
+vocabulaires fermés et les paramètres publics. Son egress passe exclusivement par un relais CONNECT
+qui n'autorise que `chatgpt.com`; le profil OS interdit tout accès direct et le relais refuse le dépôt
+public. Le scelleur est un troisième processus en `deny default`, sans réseau et sans droit de lecture
+sur les workspaces ou le parent du stockage privé. Les verdicts des contre-sondes sont transmis au
+scelleur et inclus dans le reçu, sans viser ni parcourir aucun autre holdout.
 
 Risque accepté et documenté : le split B vit sur le poste de travail, hors contrôle
 cryptographique — un contournement délibéré resterait possible. La règle organisationnelle (un

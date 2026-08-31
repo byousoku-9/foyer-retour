@@ -82,6 +82,22 @@ sauvegardé même après un échec de mesure, sauf lorsqu'une restauration a tro
 
 Le holdout de 4.3, les baselines publiées de 4.4 et l'API/page d'accueil de 4.5 ne font pas partie de ce livrable.
 
+Depuis 4.3, le runner sait aussi recevoir un lot `full` déjà validé et gardé en mémoire par
+`server.evals.holdout`. Cette voie n'ajoute aucun dossier de cas au dépôt : le payload C reste
+chiffré hors workspace, son état public se vérifie avec la sous-commande `status`, et les
+sous-commandes `arm`/`execute` refusent tant que les trois jalons finaux ne sont pas attestés.
+Chaque attestation nomme aussi un artefact de preuve dont le SHA-256 est recalculé. L'armement
+demande l'autorisation interactive du secret scellé et inscrit un jeton authentifiable par son
+empreinte publique : modifier directement `lock.json` ne suffit pas. La tentative est consommée
+seulement après validation publique du reçu et du payload chiffré, puis une garde d'armement — état,
+trois conditions, tentative et jeton — avant toute interaction trousseau. La garde d'armement et
+l'absence de marque antérieure sont vérifiées à nouveau sous verrou OS. Une
+fois la garde passée, le secret est récupéré en mémoire et l'entrée trousseau irréversiblement
+révoquée avant la prise ; le jeton est effacé et la marque liée au secret avant déchiffrement. Une
+panne dès la révocation peut fermer le test sans résultat, mais ne peut jamais ouvrir un retry. Le
+lot est injecté directement en mémoire, sans loader de cas sur disque. La story 4.3 prépare ce
+chemin mais ne l'exécute jamais.
+
 ## Protocole 4.2b : plancher, répétitions, budget de campagne, décisions
 
 Le protocole complet vit dans `docs/evals/protocole.md` ; le harness en applique quatre mécanismes.

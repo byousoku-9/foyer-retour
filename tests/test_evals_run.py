@@ -454,6 +454,95 @@ def test_un_cas_vertical_exige_une_lecture_humaine(tmp_path: Path) -> None:
     assert "lecture_humaine" in str(exc.value)
 
 
+def test_un_cas_full_accepte_la_provenance_codex_sans_contresignature() -> None:
+    cas = runner.Cas.model_validate({
+        "id": "cas-synthetique-neutre",
+        "suite": "guide",
+        "profile": "full",
+        "question": "Question synthétique neutre",
+        "scenario": "Scénario synthétique neutre",
+        "famille": "parcours",
+        "expected": {"found": False},
+        "truth": {
+            "source": "codex",
+            "countersigned_by": None,
+            "validated_by_expert": False,
+            "note": "Attente synthétique non contresignée.",
+        },
+        "mode_attendu": "faux_refus",
+    })
+    assert cas.truth.source == "codex"
+    assert cas.truth.countersigned_by is None
+
+
+def test_la_provenance_codex_ne_transforme_pas_un_cas_vertical_en_lecture_humaine() -> None:
+    with pytest.raises(ValueError, match="lecture_humaine"):
+        runner.Cas.model_validate({
+            "id": "cas-synthetique-neutre",
+            "suite": "guide",
+            "profile": "vertical",
+            "question": "Question synthétique neutre",
+            "expected": {"found": False},
+            "truth": {
+                "source": "codex",
+                "countersigned_by": None,
+                "validated_by_expert": False,
+                "note": "Attente synthétique non contresignée.",
+            },
+            "mode_attendu": "faux_refus",
+        })
+
+
+def _lot_holdout_synthetique() -> runner.LotCasesFournis:
+    cas = runner.Cas.model_validate({
+        "id": "holdout-memoire-neutre",
+        "suite": "guide",
+        "profile": "full",
+        "question": "Question synthétique neutre",
+        "scenario": "Scénario synthétique neutre",
+        "famille": "parcours",
+        "expected": {"found": False},
+        "truth": {
+            "source": "codex",
+            "countersigned_by": None,
+            "validated_by_expert": False,
+            "note": "Attente synthétique non contresignée.",
+        },
+        "mode_attendu": "faux_refus",
+    })
+    return runner.LotCasesFournis(
+        (cas,), runner.ReferencesSnapshot("1" * 64), runner.CasesSnapshot("2" * 64))
+
+
+def test_le_runner_utilise_exclusivement_le_lot_holdout_en_memoire(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(
+        runner, "charger_cas",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("lecture des cas disque interdite")),
+    )
+    assert _main(
+        tmp_path, ["--profile", "full", "--dry-run"], monkeypatch,
+        lot_cases_fourni=_lot_holdout_synthetique(),
+    ) == 0
+    sortie = capsys.readouterr().out
+    assert "ids=holdout-memoire-neutre" in sortie
+    assert "cases_hash" not in sortie
+
+
+@pytest.mark.parametrize("option", [
+    ["--profile", "vertical", "--dry-run"],
+    ["--profile", "full", "--quick", "--dry-run"],
+    ["--profile", "full", "--suite", "guide", "--dry-run"],
+    ["--profile", "full", "--case", "holdout-memoire-neutre", "--dry-run"],
+    ["--profile", "full", "--exclude-suite", "parsing", "--dry-run"],
+], ids=["profil", "quick", "suite", "case", "exclude"])
+def test_le_lot_holdout_refuse_tout_filtre(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, option: list[str]) -> None:
+    assert _main(
+        tmp_path, option, monkeypatch, lot_cases_fourni=_lot_holdout_synthetique()) == 2
+
+
 def test_un_expert_ne_peut_pas_etre_declare(tmp_path: Path) -> None:
     """AD-14 : `validated_by_expert: false`, toujours. Aucun verdict n'est validé par un expert."""
     racine = _cases_dir(tmp_path, guide=CAS_GUIDE.replace("validated_by_expert: false",
@@ -1746,7 +1835,8 @@ def _corpus_sur_disque(racine: Path) -> None:
 
 def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
           reponses_guide: list[Any] | None = None,
-          reponses_sinistre: list[Any] | None = None) -> int:
+          reponses_sinistre: list[Any] | None = None,
+          lot_cases_fourni: runner.LotCasesFournis | None = None) -> int:
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     if not (data / "manifest.json").is_file():
@@ -1767,7 +1857,10 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     monkeypatch.setattr(runner, "Settings", lambda: _settings())
     _COURANT["guide"] = DoublePipeline(reponses_guide or [])
     _COURANT["sinistre"] = DoublePipeline(reponses_sinistre or [])
-    return runner.main(argv + ["--cases-dir", str(cases), "--data-dir", str(data)])
+    return runner.main(
+        argv + ["--cases-dir", str(cases), "--data-dir", str(data)],
+        lot_cases_fourni=lot_cases_fourni,
+    )
 
 
 def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_canoniques(
